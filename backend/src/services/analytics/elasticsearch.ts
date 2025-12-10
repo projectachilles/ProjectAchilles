@@ -9,6 +9,11 @@ import type {
   BreakdownItem,
   TestExecution,
   OrganizationInfo,
+  OrgBreakdownItem,
+  ErrorTypeBreakdown,
+  TestCoverageItem,
+  TechniqueDistributionItem,
+  HostTestMatrixCell,
 } from '../../types/analytics.js';
 
 export class ElasticsearchService {
@@ -413,5 +418,284 @@ export class ElasticsearchService {
     });
 
     return (response.aggregations?.unique_tests as any)?.value || 0;
+  }
+
+  // Build tests filter (OR logic for multiple tests)
+  private buildTestsFilter(tests?: string): any | null {
+    if (!tests) return null;
+
+    const testList = tests.split(',').map(t => t.trim()).filter(Boolean);
+    if (testList.length === 0) return null;
+
+    if (testList.length === 1) {
+      return { term: { 'f0rtika.test_name': testList[0] } };
+    }
+
+    return {
+      bool: {
+        should: testList.map(test => ({ term: { 'f0rtika.test_name': test } })),
+        minimum_should_match: 1,
+      },
+    };
+  }
+
+  // Build techniques filter (OR logic for multiple techniques)
+  private buildTechniquesFilter(techniques?: string): any | null {
+    if (!techniques) return null;
+
+    const techniqueList = techniques.split(',').map(t => t.trim()).filter(Boolean);
+    if (techniqueList.length === 0) return null;
+
+    if (techniqueList.length === 1) {
+      return { term: { 'f0rtika.techniques': techniqueList[0] } };
+    }
+
+    return {
+      bool: {
+        should: techniqueList.map(technique => ({ term: { 'f0rtika.techniques': technique } })),
+        minimum_should_match: 1,
+      },
+    };
+  }
+
+  // Get results by error type (for pie chart)
+  async getResultsByErrorType(params: AnalyticsQueryParams): Promise<ErrorTypeBreakdown[]> {
+    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+
+    const orgFilter = this.buildOrgFilter(params.org);
+    if (orgFilter) filters.push(orgFilter);
+
+    const testsFilter = this.buildTestsFilter(params.tests);
+    if (testsFilter) filters.push(testsFilter);
+
+    const techniquesFilter = this.buildTechniquesFilter(params.techniques);
+    if (techniquesFilter) filters.push(techniquesFilter);
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: {
+        bool: { filter: filters },
+      },
+      aggs: {
+        by_error_type: {
+          terms: { field: 'f0rtika.error_name', size: 20 },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.by_error_type as any)?.buckets || [];
+
+    return buckets.map((bucket: any) => ({
+      name: bucket.key,
+      count: bucket.doc_count,
+    }));
+  }
+
+  // Get test coverage (protected vs unprotected counts per test)
+  async getTestCoverage(params: AnalyticsQueryParams): Promise<TestCoverageItem[]> {
+    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+
+    const orgFilter = this.buildOrgFilter(params.org);
+    if (orgFilter) filters.push(orgFilter);
+
+    const testsFilter = this.buildTestsFilter(params.tests);
+    if (testsFilter) filters.push(testsFilter);
+
+    const techniquesFilter = this.buildTechniquesFilter(params.techniques);
+    if (techniquesFilter) filters.push(techniquesFilter);
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: {
+        bool: { filter: filters },
+      },
+      aggs: {
+        by_test: {
+          terms: { field: 'f0rtika.test_name', size: 50 },
+          aggs: {
+            protected: {
+              filter: { term: { 'f0rtika.is_protected': true } },
+            },
+            unprotected: {
+              filter: { term: { 'f0rtika.is_protected': false } },
+            },
+          },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.by_test as any)?.buckets || [];
+
+    return buckets.map((bucket: any) => ({
+      name: bucket.key,
+      protected: bucket.protected?.doc_count || 0,
+      unprotected: bucket.unprotected?.doc_count || 0,
+    }));
+  }
+
+  // Get technique distribution (protected vs unprotected counts per technique)
+  async getTechniqueDistribution(params: AnalyticsQueryParams): Promise<TechniqueDistributionItem[]> {
+    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+
+    const orgFilter = this.buildOrgFilter(params.org);
+    if (orgFilter) filters.push(orgFilter);
+
+    const testsFilter = this.buildTestsFilter(params.tests);
+    if (testsFilter) filters.push(testsFilter);
+
+    const techniquesFilter = this.buildTechniquesFilter(params.techniques);
+    if (techniquesFilter) filters.push(techniquesFilter);
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: {
+        bool: { filter: filters },
+      },
+      aggs: {
+        by_technique: {
+          terms: { field: 'f0rtika.techniques', size: 50 },
+          aggs: {
+            protected: {
+              filter: { term: { 'f0rtika.is_protected': true } },
+            },
+            unprotected: {
+              filter: { term: { 'f0rtika.is_protected': false } },
+            },
+          },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.by_technique as any)?.buckets || [];
+
+    return buckets.map((bucket: any) => ({
+      technique: bucket.key,
+      protected: bucket.protected?.doc_count || 0,
+      unprotected: bucket.unprotected?.doc_count || 0,
+    }));
+  }
+
+  // Get host-test matrix for heatmap
+  async getHostTestMatrix(params: AnalyticsQueryParams): Promise<HostTestMatrixCell[]> {
+    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+
+    const orgFilter = this.buildOrgFilter(params.org);
+    if (orgFilter) filters.push(orgFilter);
+
+    const testsFilter = this.buildTestsFilter(params.tests);
+    if (testsFilter) filters.push(testsFilter);
+
+    const techniquesFilter = this.buildTechniquesFilter(params.techniques);
+    if (techniquesFilter) filters.push(techniquesFilter);
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: {
+        bool: { filter: filters },
+      },
+      aggs: {
+        host_test_matrix: {
+          composite: {
+            size: 1000,
+            sources: [
+              { hostname: { terms: { field: 'routing.hostname' } } },
+              { test_name: { terms: { field: 'f0rtika.test_name' } } },
+            ],
+          },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.host_test_matrix as any)?.buckets || [];
+
+    return buckets.map((bucket: any) => ({
+      hostname: bucket.key.hostname,
+      testName: bucket.key.test_name,
+      count: bucket.doc_count,
+    }));
+  }
+
+  // Get list of available tests (for filter dropdown)
+  async getAvailableTests(): Promise<string[]> {
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      aggs: {
+        tests: {
+          terms: { field: 'f0rtika.test_name', size: 100 },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.tests as any)?.buckets || [];
+    return buckets.map((bucket: any) => bucket.key);
+  }
+
+  // Get list of available techniques (for filter dropdown)
+  async getAvailableTechniques(): Promise<string[]> {
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      aggs: {
+        techniques: {
+          terms: { field: 'f0rtika.techniques', size: 100 },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.techniques as any)?.buckets || [];
+    return buckets.map((bucket: any) => bucket.key);
+  }
+
+  // Get defense score by organization
+  async getDefenseScoreByOrg(params: AnalyticsQueryParams): Promise<OrgBreakdownItem[]> {
+    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: {
+        bool: { filter: filters },
+      },
+      aggs: {
+        by_org: {
+          terms: { field: 'routing.oid', size: 20 },
+          aggs: {
+            protected: {
+              filter: { term: { 'f0rtika.is_protected': true } },
+            },
+          },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.by_org as any)?.buckets || [];
+
+    // Known organization mapping
+    const orgNames: Record<string, string> = {
+      '09b59276-9efb-4d3d-bbdd-4b4663ef0c42': 'SB',
+      'b2f8dccb-6d23-492e-aa87-a0a8a6103189': 'TPSGL',
+      '9634119d-fa6b-42b8-9b9b-90ad8f22e482': 'RGA',
+    };
+
+    return buckets
+      .map((bucket: any) => {
+        const total = bucket.doc_count;
+        const protectedCount = bucket.protected?.doc_count || 0;
+        const score = total > 0 ? (protectedCount / total) * 100 : 0;
+
+        return {
+          org: bucket.key,
+          orgName: orgNames[bucket.key] || bucket.key.substring(0, 8),
+          score: Math.round(score * 100) / 100,
+          count: total,
+          protected: protectedCount,
+        };
+      })
+      .sort((a: OrgBreakdownItem, b: OrgBreakdownItem) => b.score - a.score);
   }
 }

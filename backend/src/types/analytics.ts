@@ -62,4 +62,42 @@ export interface AnalyticsQueryParams {
   to?: string;
   interval?: string;
   limit?: number;
+  tests?: string;      // comma-separated test names/UUIDs
+  techniques?: string; // comma-separated technique IDs
+}
+
+// Organization breakdown
+export interface OrgBreakdownItem {
+  org: string;
+  orgName: string;
+  score: number;
+  count: number;
+  protected: number;
+}
+
+// Error type breakdown (for pie chart)
+export interface ErrorTypeBreakdown {
+  name: string;
+  count: number;
+}
+
+// Test coverage item (protected vs unprotected counts)
+export interface TestCoverageItem {
+  name: string;
+  protected: number;
+  unprotected: number;
+}
+
+// Technique distribution item (protected vs unprotected counts)
+export interface TechniqueDistributionItem {
+  technique: string;
+  protected: number;
+  unprotected: number;
+}
+
+// Host-test matrix cell (for heatmap)
+export interface HostTestMatrixCell {
+  hostname: string;
+  testName: string;
+  count: number;
 }

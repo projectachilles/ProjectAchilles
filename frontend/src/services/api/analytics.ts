@@ -52,6 +52,35 @@ export interface Execution {
   organization?: string;
 }
 
+export interface ErrorTypeBreakdown {
+  name: string;
+  count: number;
+}
+
+export interface TestCoverageItem {
+  name: string;
+  protected: number;
+  unprotected: number;
+}
+
+export interface TechniqueDistributionItem {
+  technique: string;
+  protected: number;
+  unprotected: number;
+}
+
+export interface HostTestMatrixCell {
+  hostname: string;
+  testName: string;
+  count: number;
+}
+
+export interface OrganizationInfo {
+  uuid: string;
+  shortName: string;
+  fullName: string;
+}
+
 export const analyticsApi = {
   // Settings
   async getSettings(): Promise<AnalyticsSettings> {
@@ -151,5 +180,60 @@ export const analyticsApi = {
   async getUniqueTests(params?: { org?: string }): Promise<number> {
     const response = await api.get('/unique-tests', { params });
     return response.data.count;
+  },
+
+  // New endpoints for advanced visualizations
+  async getResultsByErrorType(params?: {
+    org?: string;
+    from?: string;
+    to?: string;
+    tests?: string;
+    techniques?: string;
+  }): Promise<ErrorTypeBreakdown[]> {
+    const response = await api.get('/results-by-error-type', { params });
+    return response.data;
+  },
+
+  async getTestCoverage(params?: {
+    org?: string;
+    from?: string;
+    to?: string;
+    tests?: string;
+    techniques?: string;
+  }): Promise<TestCoverageItem[]> {
+    const response = await api.get('/test-coverage', { params });
+    return response.data;
+  },
+
+  async getTechniqueDistribution(params?: {
+    org?: string;
+    from?: string;
+    to?: string;
+    tests?: string;
+    techniques?: string;
+  }): Promise<TechniqueDistributionItem[]> {
+    const response = await api.get('/technique-distribution', { params });
+    return response.data;
+  },
+
+  async getHostTestMatrix(params?: {
+    org?: string;
+    from?: string;
+    to?: string;
+    tests?: string;
+    techniques?: string;
+  }): Promise<HostTestMatrixCell[]> {
+    const response = await api.get('/host-test-matrix', { params });
+    return response.data;
+  },
+
+  async getAvailableTests(): Promise<string[]> {
+    const response = await api.get('/available-tests');
+    return response.data;
+  },
+
+  async getAvailableTechniques(): Promise<string[]> {
+    const response = await api.get('/available-techniques');
+    return response.data;
   },
 };

@@ -181,4 +181,95 @@ router.get('/unique-tests', asyncHandler(async (req, res) => {
   res.json({ count });
 }));
 
+// GET /api/analytics/results-by-error-type - Error type breakdown
+router.get('/results-by-error-type', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to, tests, techniques } = req.query;
+
+  const result = await es.getResultsByErrorType({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+    tests: tests as string,
+    techniques: techniques as string,
+  });
+
+  res.json(result);
+}));
+
+// GET /api/analytics/test-coverage - Protected vs unprotected per test
+router.get('/test-coverage', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to, tests, techniques } = req.query;
+
+  const result = await es.getTestCoverage({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+    tests: tests as string,
+    techniques: techniques as string,
+  });
+
+  res.json(result);
+}));
+
+// GET /api/analytics/technique-distribution - Protected vs unprotected per technique
+router.get('/technique-distribution', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to, tests, techniques } = req.query;
+
+  const result = await es.getTechniqueDistribution({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+    tests: tests as string,
+    techniques: techniques as string,
+  });
+
+  res.json(result);
+}));
+
+// GET /api/analytics/host-test-matrix - Host-test matrix for heatmap
+router.get('/host-test-matrix', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to, tests, techniques } = req.query;
+
+  const result = await es.getHostTestMatrix({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+    tests: tests as string,
+    techniques: techniques as string,
+  });
+
+  res.json(result);
+}));
+
+// GET /api/analytics/available-tests - List all available tests
+router.get('/available-tests', asyncHandler(async (_req, res) => {
+  const es = await getEsService();
+  const tests = await es.getAvailableTests();
+  res.json(tests);
+}));
+
+// GET /api/analytics/available-techniques - List all available techniques
+router.get('/available-techniques', asyncHandler(async (_req, res) => {
+  const es = await getEsService();
+  const techniques = await es.getAvailableTechniques();
+  res.json(techniques);
+}));
+
+// GET /api/analytics/defense-score/by-org - Score by organization (optional)
+router.get('/defense-score/by-org', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { from, to } = req.query;
+
+  const result = await es.getDefenseScoreByOrg({
+    from: from as string,
+    to: to as string,
+  });
+
+  res.json(result);
+}));
+
 export default router;
