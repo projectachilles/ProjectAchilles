@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security Vulnerabilities (Critical)
+    url: https://github.com/ubercylon8/ProjectAchilles/security/advisories/new
+    about: Report critical security vulnerabilities privately via GitHub Security Advisories
+  - name: Questions & Discussions
+    url: https://github.com/ubercylon8/ProjectAchilles/discussions
+    about: Ask questions and discuss ideas in GitHub Discussions
+  - name: Documentation
+    url: https://github.com/ubercylon8/ProjectAchilles#documentation
+    about: Check the documentation before opening an issue
