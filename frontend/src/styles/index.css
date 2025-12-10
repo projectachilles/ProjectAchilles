@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+@theme {
+  /* Light mode colors */
+  --color-background: oklch(100% 0 0);
+  --color-foreground: oklch(20% 0.04 265);
+  --color-card: oklch(100% 0 0);
+  --color-primary: oklch(55% 0.24 265);
+  --color-primary-foreground: oklch(98% 0.01 265);
+  --color-secondary: oklch(96% 0.01 265);
+  --color-secondary-foreground: oklch(20% 0.04 265);
+  --color-accent: oklch(96% 0.01 265);
+  --color-accent-foreground: oklch(20% 0.04 265);
+  --color-muted: oklch(96% 0.01 265);
+  --color-muted-foreground: oklch(50% 0.01 265);
+  --color-border: oklch(92% 0.01 265);
+  --color-destructive: oklch(55% 0.22 25);
+  --color-destructive-foreground: oklch(98% 0.01 265);
+  --color-success: oklch(55% 0.16 145);
+  --color-success-foreground: oklch(98% 0.01 265);
+  --color-warning: oklch(75% 0.18 85);
+  --color-warning-foreground: oklch(20% 0.04 265);
+}
+
+/* Dark mode overrides */
+.dark {
+  --color-background: oklch(12% 0.03 265);
+  --color-foreground: oklch(98% 0.01 265);
+  --color-card: oklch(14% 0.03 265);
+  --color-primary: oklch(65% 0.22 265);
+  --color-primary-foreground: oklch(20% 0.04 265);
+  --color-secondary: oklch(25% 0.03 265);
+  --color-secondary-foreground: oklch(98% 0.01 265);
+  --color-accent: oklch(25% 0.03 265);
+  --color-accent-foreground: oklch(98% 0.01 265);
+  --color-muted: oklch(25% 0.03 265);
+  --color-muted-foreground: oklch(65% 0.02 265);
+  --color-border: oklch(25% 0.03 265);
+  --color-destructive: oklch(50% 0.2 25);
+  --color-destructive-foreground: oklch(98% 0.01 265);
+  --color-success: oklch(60% 0.18 145);
+  --color-success-foreground: oklch(98% 0.01 265);
+  --color-warning: oklch(80% 0.18 85);
+  --color-warning-foreground: oklch(20% 0.04 265);
+}
+
+/* Base styles */
+* {
+  border-color: var(--color-border);
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background-color: var(--color-muted);
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-muted-foreground);
+  opacity: 0.3;
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  opacity: 0.5;
+}
+
+/* Code block styling */
+pre {
+  border-radius: 0.5rem;
+  padding: 1rem;
+  overflow-x: auto;
+}
+
+code {
+  font-size: 0.875rem;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
