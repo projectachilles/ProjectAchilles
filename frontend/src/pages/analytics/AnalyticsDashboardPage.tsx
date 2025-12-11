@@ -1,232 +1,499 @@
-import { useState, useEffect } from 'react';
-import { BarChart3, TrendingUp, Shield, Server, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Shield, Monitor, FlaskConical } from 'lucide-react';
+import Header from './components/Header';
+import Layout from './components/Layout';
+import SettingsModal from './components/SettingsModal';
+import MetricCard from './components/MetricCard';
+import TrendChart from './components/TrendChart';
+import BarChart from './components/BarChart';
+import ErrorTypePieChart from './components/ErrorTypePieChart';
+import ProtectionRateDonut from './components/ProtectionRateDonut';
+import StackedBarChart from './components/StackedBarChart';
+import HeatmapChart from './components/HeatmapChart';
+import ExecutionsTable from './components/ExecutionsTable';
+import OrgFilter from './components/OrgFilter';
+import MultiSelectFilter from './components/MultiSelectFilter';
+import DateRangePicker, { getDateRangeFilter } from './components/DateRangePicker';
 import { analyticsApi } from '../../services/api/analytics';
-import type { DefenseScore, Execution } from '../../services/api/analytics';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/shared/ui/Card';
-import { Loading } from '../../components/shared/ui/Spinner';
-import { Badge } from '../../components/shared/ui/Badge';
+import type {
+  TrendDataPoint,
+  BreakdownItem,
+  TestExecution,
+  OrganizationInfo,
+  ErrorTypeBreakdown,
+  TestCoverageItem,
+  TechniqueDistributionItem,
+  HostTestMatrixCell
+} from '../../services/api/analytics';
+import type { DateRangeValue } from './components/DateRangePicker';
+
+interface DefenseScoreData {
+  overall: number;
+  delta: number | null;
+  total: number;
+  protected: number;
+}
 
 export default function AnalyticsDashboardPage() {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [defenseScore, setDefenseScore] = useState<DefenseScore | null>(null);
-  const [executions, setExecutions] = useState<Execution[]>([]);
-  const [uniqueHosts, setUniqueHosts] = useState(0);
-  const [uniqueTests, setUniqueTests] = useState(0);
+  const navigate = useNavigate();
 
+  // UI State
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Filters
+  const [selectedOrg, setSelectedOrg] = useState<string | null>(null);
+  const [selectedTests, setSelectedTests] = useState<string[]>([]);
+  const [selectedTechniques, setSelectedTechniques] = useState<string[]>([]);
+  const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: '7d' });
+
+  // Filter options
+  const [organizations, setOrganizations] = useState<OrganizationInfo[]>([]);
+  const [availableTests, setAvailableTests] = useState<string[]>([]);
+  const [availableTechniques, setAvailableTechniques] = useState<string[]>([]);
+
+  // Data State
+  const [defenseScore, setDefenseScore] = useState<DefenseScoreData | null>(null);
+  const [uniqueHostnames, setUniqueHostnames] = useState<number>(0);
+  const [uniqueTestCount, setUniqueTestCount] = useState<number>(0);
+  const [trendData, setTrendData] = useState<TrendDataPoint[]>([]);
+  const [errorTypeData, setErrorTypeData] = useState<ErrorTypeBreakdown[]>([]);
+  const [byTestData, setByTestData] = useState<BreakdownItem[]>([]);
+  const [byTechniqueData, setByTechniqueData] = useState<BreakdownItem[]>([]);
+  const [testCoverageData, setTestCoverageData] = useState<TestCoverageItem[]>([]);
+  const [techniqueDistData, setTechniqueDistData] = useState<TechniqueDistributionItem[]>([]);
+  const [hostTestMatrix, setHostTestMatrix] = useState<HostTestMatrixCell[]>([]);
+  const [executions, setExecutions] = useState<TestExecution[]>([]);
+
+  // Loading States
+  const [loadingOrgs, setLoadingOrgs] = useState(true);
+  const [loadingFilters, setLoadingFilters] = useState(true);
+  const [loadingScore, setLoadingScore] = useState(true);
+  const [loadingHostnames, setLoadingHostnames] = useState(true);
+  const [loadingTestCount, setLoadingTestCount] = useState(true);
+  const [loadingTrend, setLoadingTrend] = useState(true);
+  const [loadingErrorType, setLoadingErrorType] = useState(true);
+  const [loadingByTest, setLoadingByTest] = useState(true);
+  const [loadingByTechnique, setLoadingByTechnique] = useState(true);
+  const [loadingTestCoverage, setLoadingTestCoverage] = useState(true);
+  const [loadingTechniqueDist, setLoadingTechniqueDist] = useState(true);
+  const [loadingMatrix, setLoadingMatrix] = useState(true);
+  const [loadingExecutions, setLoadingExecutions] = useState(true);
+
+  // Check if configured
   useEffect(() => {
-    loadDashboardData();
+    checkConfiguration();
   }, []);
 
-  const loadDashboardData = async () => {
+  async function checkConfiguration() {
     try {
-      setLoading(true);
-      setError(null);
-
-      const [scoreData, executionsData, hostsCount, testsCount] = await Promise.all([
-        analyticsApi.getDefenseScore(),
-        analyticsApi.getRecentExecutions({ limit: 10 }),
-        analyticsApi.getUniqueHostnames(),
-        analyticsApi.getUniqueTests(),
-      ]);
-
-      setDefenseScore(scoreData);
-      setExecutions(executionsData);
-      setUniqueHosts(hostsCount);
-      setUniqueTests(testsCount);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load analytics data');
-    } finally {
-      setLoading(false);
+      const settings = await analyticsApi.getSettings();
+      if (!settings.configured) {
+        navigate('/analytics/setup');
+        return;
+      }
+      // Load filter options first
+      loadFilterOptions();
+      // Load initial data
+      loadAllData();
+    } catch (error) {
+      navigate('/analytics/setup');
     }
-  };
-
-  if (loading) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <Loading message="Loading analytics..." />
-      </div>
-    );
   }
 
-  if (error) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <Card className="flex items-center gap-4 p-6 bg-destructive/10 border-destructive/30">
-          <AlertCircle className="w-8 h-8 text-destructive" />
-          <div>
-            <h2 className="font-semibold text-destructive">Failed to Load Analytics</h2>
-            <p className="text-sm text-muted-foreground">{error}</p>
-          </div>
-        </Card>
-      </div>
-    );
+  // Load filter dropdown options
+  async function loadFilterOptions() {
+    setLoadingOrgs(true);
+    setLoadingFilters(true);
+    try {
+      const [orgs, tests, techniques] = await Promise.all([
+        analyticsApi.getOrganizations(),
+        analyticsApi.getAvailableTests(),
+        analyticsApi.getAvailableTechniques()
+      ]);
+      setOrganizations(orgs.map(org => {
+        // Handle both string and object responses
+        if (typeof org === 'string') {
+          return { uuid: org, shortName: org, fullName: org };
+        }
+        // If already an object, ensure it has the required fields
+        return {
+          uuid: org.uuid || org,
+          shortName: org.shortName || org.uuid || String(org),
+          fullName: org.fullName || org.shortName || org.uuid || String(org)
+        };
+      }));
+      setAvailableTests(tests);
+      setAvailableTechniques(techniques);
+    } catch (error) {
+      console.error('Failed to load filter options:', error);
+    } finally {
+      setLoadingOrgs(false);
+      setLoadingFilters(false);
+    }
+  }
+
+  // Build params with multi-select filter support
+  const buildParams = useCallback(() => {
+    const dateFilter = getDateRangeFilter(dateRange);
+    const params: Record<string, string | undefined> = {
+      org: selectedOrg || undefined,
+      ...dateFilter
+    };
+
+    // Add test filter (OR logic - comma separated)
+    if (selectedTests.length > 0) {
+      params.tests = selectedTests.join(',');
+    }
+
+    // Add technique filter (OR logic - comma separated)
+    if (selectedTechniques.length > 0) {
+      params.techniques = selectedTechniques.join(',');
+    }
+
+    return params;
+  }, [selectedOrg, selectedTests, selectedTechniques, dateRange]);
+
+  // Load all data
+  const loadAllData = useCallback(async () => {
+    const params = buildParams();
+
+    // Load all data in parallel for performance
+    const loadPromises = [
+      // Defense Score
+      (async () => {
+        setLoadingScore(true);
+        try {
+          const score = await analyticsApi.getDefenseScore(params);
+          setDefenseScore({
+            overall: score.score,
+            delta: null,
+            total: score.totalExecutions,
+            protected: score.protectedCount
+          });
+        } catch (error) {
+          console.error('Failed to load defense score:', error);
+        } finally {
+          setLoadingScore(false);
+        }
+      })(),
+
+      // Unique Hostnames
+      (async () => {
+        setLoadingHostnames(true);
+        try {
+          const count = await analyticsApi.getUniqueHostnames(params);
+          setUniqueHostnames(count);
+        } catch (error) {
+          console.error('Failed to load unique hostnames:', error);
+        } finally {
+          setLoadingHostnames(false);
+        }
+      })(),
+
+      // Unique Tests
+      (async () => {
+        setLoadingTestCount(true);
+        try {
+          const count = await analyticsApi.getUniqueTests(params);
+          setUniqueTestCount(count);
+        } catch (error) {
+          console.error('Failed to load unique tests:', error);
+        } finally {
+          setLoadingTestCount(false);
+        }
+      })(),
+
+      // Trend Data
+      (async () => {
+        setLoadingTrend(true);
+        try {
+          const trend = await analyticsApi.getDefenseScoreTrend({ ...params, interval: 'day' });
+          setTrendData(trend);
+        } catch (error) {
+          console.error('Failed to load trend data:', error);
+        } finally {
+          setLoadingTrend(false);
+        }
+      })(),
+
+      // Error Type Breakdown
+      (async () => {
+        setLoadingErrorType(true);
+        try {
+          const errorTypes = await analyticsApi.getResultsByErrorType(params);
+          setErrorTypeData(errorTypes);
+        } catch (error) {
+          console.error('Failed to load error type data:', error);
+        } finally {
+          setLoadingErrorType(false);
+        }
+      })(),
+
+      // By Test
+      (async () => {
+        setLoadingByTest(true);
+        try {
+          const byTest = await analyticsApi.getDefenseScoreByTest(params);
+          // Convert TestBreakdown to BreakdownItem
+          const converted = byTest.slice(0, 10).map(t => ({
+            name: t.testName,
+            score: t.score,
+            count: t.protectedCount + t.unprotectedCount,
+            protected: t.protectedCount
+          }));
+          setByTestData(converted);
+        } catch (error) {
+          console.error('Failed to load by test data:', error);
+        } finally {
+          setLoadingByTest(false);
+        }
+      })(),
+
+      // By Technique
+      (async () => {
+        setLoadingByTechnique(true);
+        try {
+          const byTechnique = await analyticsApi.getDefenseScoreByTechnique(params);
+          // Convert TechniqueBreakdown to BreakdownItem
+          const converted = byTechnique.slice(0, 10).map(t => ({
+            name: t.technique,
+            score: t.score,
+            count: t.protectedCount + t.unprotectedCount,
+            protected: t.protectedCount
+          }));
+          setByTechniqueData(converted);
+        } catch (error) {
+          console.error('Failed to load by technique data:', error);
+        } finally {
+          setLoadingByTechnique(false);
+        }
+      })(),
+
+      // Test Coverage (stacked bar)
+      (async () => {
+        setLoadingTestCoverage(true);
+        try {
+          const coverage = await analyticsApi.getTestCoverage(params);
+          setTestCoverageData(coverage.slice(0, 10));
+        } catch (error) {
+          console.error('Failed to load test coverage:', error);
+        } finally {
+          setLoadingTestCoverage(false);
+        }
+      })(),
+
+      // Technique Distribution (stacked bar)
+      (async () => {
+        setLoadingTechniqueDist(true);
+        try {
+          const dist = await analyticsApi.getTechniqueDistribution(params);
+          setTechniqueDistData(dist.slice(0, 10));
+        } catch (error) {
+          console.error('Failed to load technique distribution:', error);
+        } finally {
+          setLoadingTechniqueDist(false);
+        }
+      })(),
+
+      // Host-Test Matrix
+      (async () => {
+        setLoadingMatrix(true);
+        try {
+          const matrix = await analyticsApi.getHostTestMatrix(params);
+          setHostTestMatrix(matrix);
+        } catch (error) {
+          console.error('Failed to load host-test matrix:', error);
+        } finally {
+          setLoadingMatrix(false);
+        }
+      })(),
+
+      // Executions
+      (async () => {
+        setLoadingExecutions(true);
+        try {
+          const execs = await analyticsApi.getRecentExecutions({ ...params, limit: 20 });
+          setExecutions(execs);
+        } catch (error) {
+          console.error('Failed to load executions:', error);
+        } finally {
+          setLoadingExecutions(false);
+        }
+      })()
+    ];
+
+    await Promise.all(loadPromises);
+  }, [buildParams]);
+
+  // Reload when filters change
+  useEffect(() => {
+    loadAllData();
+  }, [loadAllData]);
+
+  // Refresh handler
+  async function handleRefresh() {
+    setIsRefreshing(true);
+    await loadAllData();
+    setIsRefreshing(false);
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Analytics Dashboard</h1>
-        <p className="text-muted-foreground">
-          Test execution results and endpoint protection metrics
-        </p>
-      </div>
+    <Layout>
+      <Header
+        onSettingsClick={() => setSettingsOpen(true)}
+        onRefreshClick={handleRefresh}
+        isRefreshing={isRefreshing}
+      />
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {/* Defense Score */}
-        <Card className="bg-gradient-to-br from-primary/10 to-primary/5">
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-lg bg-primary/10">
-                <Shield className="w-6 h-6 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Defense Score</p>
-                <p className="text-3xl font-bold">
-                  {defenseScore ? `${Math.round(defenseScore.score)}%` : 'N/A'}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Total Executions */}
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-lg bg-muted">
-                <BarChart3 className="w-6 h-6 text-muted-foreground" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total Executions</p>
-                <p className="text-3xl font-bold">{defenseScore?.totalExecutions || 0}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Unique Hosts */}
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-lg bg-muted">
-                <Server className="w-6 h-6 text-muted-foreground" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Unique Endpoints</p>
-                <p className="text-3xl font-bold">{uniqueHosts}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Unique Tests */}
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-lg bg-muted">
-                <TrendingUp className="w-6 h-6 text-muted-foreground" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Unique Tests</p>
-                <p className="text-3xl font-bold">{uniqueTests}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Protection Stats */}
-      {defenseScore && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
-          <Card>
-            <CardHeader>
-              <CardTitle>Protection Breakdown</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Protected</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-success rounded-full"
-                        style={{ width: `${(defenseScore.protectedCount / defenseScore.totalExecutions) * 100}%` }}
-                      />
-                    </div>
-                    <span className="font-medium text-success">{defenseScore.protectedCount}</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Unprotected</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-destructive rounded-full"
-                        style={{ width: `${(defenseScore.unprotectedCount / defenseScore.totalExecutions) * 100}%` }}
-                      />
-                    </div>
-                    <span className="font-medium text-destructive">{defenseScore.unprotectedCount}</span>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+      <main className="container mx-auto px-4 py-6">
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-3 mb-6">
+          <OrgFilter
+            organizations={organizations}
+            selectedOrg={selectedOrg}
+            onChange={setSelectedOrg}
+            loading={loadingOrgs}
+          />
+          <MultiSelectFilter
+            label="Test"
+            options={availableTests}
+            selected={selectedTests}
+            onChange={setSelectedTests}
+            loading={loadingFilters}
+            placeholder="All Tests"
+          />
+          <MultiSelectFilter
+            label="Technique"
+            options={availableTechniques}
+            selected={selectedTechniques}
+            onChange={setSelectedTechniques}
+            loading={loadingFilters}
+            placeholder="All Techniques"
+          />
+          <DateRangePicker
+            value={dateRange}
+            onChange={setDateRange}
+          />
         </div>
-      )}
 
-      {/* Recent Executions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Executions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {executions.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">No executions found</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-3 px-2 font-medium">Test</th>
-                    <th className="text-left py-3 px-2 font-medium">Hostname</th>
-                    <th className="text-left py-3 px-2 font-medium">Outcome</th>
-                    <th className="text-left py-3 px-2 font-medium">Time</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {executions.map((execution, idx) => (
-                    <tr key={idx} className="border-b border-border last:border-0">
-                      <td className="py-3 px-2">
-                        <span className="font-medium">{execution.testName || execution.testUuid}</span>
-                      </td>
-                      <td className="py-3 px-2 text-muted-foreground">
-                        {execution.hostname}
-                      </td>
-                      <td className="py-3 px-2">
-                        <Badge
-                          variant={
-                            execution.error === 126 ? 'success' :
-                            execution.error === 101 ? 'destructive' :
-                            'default'
-                          }
-                        >
-                          {execution.outcome || `Exit ${execution.error}`}
-                        </Badge>
-                      </td>
-                      <td className="py-3 px-2 text-muted-foreground">
-                        {new Date(execution.timestamp).toLocaleString()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+        {/* Dashboard Grid - Bento Grid Layout with fixed row heights */}
+        <div className="grid grid-cols-12 auto-rows-[140px] gap-4">
+          {/* Row 1: Defense Score Trend (full width, 2 rows) */}
+          <div className="col-span-12 row-span-2">
+            <TrendChart
+              data={trendData}
+              loading={loadingTrend}
+              title="Defense Score Trend"
+            />
+          </div>
+
+          {/* Row 3: Metrics (1 row each) */}
+          <div className="col-span-12 md:col-span-4 lg:col-span-4 row-span-1">
+            <MetricCard
+              title="Defense Score"
+              value={defenseScore?.overall || 0}
+              format="percent"
+              valueColor="score"
+              icon={Shield}
+              subtitle={defenseScore?.delta !== null && defenseScore?.delta !== undefined
+                ? `${defenseScore.delta > 0 ? '+' : ''}${defenseScore.delta.toFixed(1)}% vs prior`
+                : undefined}
+              loading={loadingScore}
+            />
+          </div>
+          <div className="col-span-6 md:col-span-4 lg:col-span-4 row-span-1">
+            <MetricCard
+              title="Unique Endpoints"
+              value={uniqueHostnames}
+              icon={Monitor}
+              loading={loadingHostnames}
+            />
+          </div>
+          <div className="col-span-6 md:col-span-4 lg:col-span-4 row-span-1">
+            <MetricCard
+              title="Unique Tests"
+              value={uniqueTestCount}
+              icon={FlaskConical}
+              loading={loadingTestCount}
+            />
+          </div>
+
+          {/* Row 4-5: Pie Chart + Donut + Technique Distribution (2 rows each) */}
+          <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
+            <ErrorTypePieChart
+              data={errorTypeData}
+              loading={loadingErrorType}
+              title="Results by Error Type"
+            />
+          </div>
+          <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
+            <ProtectionRateDonut
+              protected={defenseScore?.protected || 0}
+              total={defenseScore?.total || 0}
+              loading={loadingScore}
+              title="Protection Rate"
+            />
+          </div>
+          <div className="col-span-12 lg:col-span-4 row-span-2">
+            <StackedBarChart
+              data={techniqueDistData}
+              loading={loadingTechniqueDist}
+              title="ATT&CK Technique Distribution"
+              layout="vertical"
+            />
+          </div>
+
+          {/* Row 6-7: Defense Score by Test + by Technique (2 rows each) */}
+          <div className="col-span-12 lg:col-span-6 row-span-2">
+            <BarChart
+              data={byTestData}
+              title="Defense Score by Test"
+              loading={loadingByTest}
+            />
+          </div>
+          <div className="col-span-12 lg:col-span-6 row-span-2">
+            <BarChart
+              data={byTechniqueData}
+              title="Defense Score by Technique"
+              loading={loadingByTechnique}
+            />
+          </div>
+
+          {/* Row 8-9: Test Coverage + Host-Test Matrix (2 rows each) */}
+          <div className="col-span-12 lg:col-span-6 row-span-2">
+            <StackedBarChart
+              data={testCoverageData}
+              loading={loadingTestCoverage}
+              title="Test Coverage"
+              layout="vertical"
+            />
+          </div>
+          <div className="col-span-12 lg:col-span-6 row-span-2">
+            <HeatmapChart
+              data={hostTestMatrix}
+              loading={loadingMatrix}
+              title="Host-Test Coverage Matrix"
+            />
+          </div>
+
+          {/* Row 10-11: Recent Executions (2 rows, full width) */}
+          <div className="col-span-12 row-span-2">
+            <ExecutionsTable
+              data={executions}
+              loading={loadingExecutions}
+            />
+          </div>
+        </div>
+      </main>
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSave={handleRefresh}
+      />
+    </Layout>
   );
 }

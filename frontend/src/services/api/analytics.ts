@@ -23,8 +23,8 @@ export interface DefenseScore {
 export interface TrendDataPoint {
   timestamp: string;
   score: number;
-  protectedCount: number;
-  unprotectedCount: number;
+  total: number;
+  protected: number;
 }
 
 export interface TestBreakdown {
@@ -42,6 +42,21 @@ export interface TechniqueBreakdown {
   score: number;
 }
 
+export interface BreakdownItem {
+  name: string;
+  score: number;
+  count: number;
+  protected: number;
+}
+
+export interface OrgBreakdownItem {
+  org: string;
+  orgName: string;
+  score: number;
+  count: number;
+  protected: number;
+}
+
 export interface Execution {
   timestamp: string;
   testUuid: string;
@@ -50,6 +65,17 @@ export interface Execution {
   outcome: string;
   error: number;
   organization?: string;
+}
+
+export interface TestExecution {
+  test_uuid: string;
+  test_name: string;
+  hostname: string;
+  is_protected: boolean;
+  org: string;
+  timestamp: string;
+  error_code?: number;
+  error_name?: string;
 }
 
 export interface ErrorTypeBreakdown {
@@ -162,7 +188,7 @@ export const analyticsApi = {
     from?: string;
     to?: string;
     limit?: number;
-  }): Promise<Execution[]> {
+  }): Promise<TestExecution[]> {
     const response = await api.get('/executions', { params });
     return response.data;
   },

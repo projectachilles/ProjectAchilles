@@ -14,10 +14,10 @@ export interface AnalyticsSettings {
 
 // Defense score response
 export interface DefenseScoreResponse {
-  overall: number;
-  delta: number | null;
-  total: number;
-  protected: number;
+  score: number;
+  protectedCount: number;
+  unprotectedCount: number;
+  totalExecutions: number;
 }
 
 // Trend data point

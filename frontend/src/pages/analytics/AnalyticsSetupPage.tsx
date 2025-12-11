@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Database, Cloud, Server, CheckCircle } from 'lucide-react';
+import { Database, Cloud, Server, CheckCircle, ArrowLeft, Info } from 'lucide-react';
 import { analyticsApi } from '../../services/api/analytics';
 import { useAnalyticsAuth } from '../../hooks/useAnalyticsAuth';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '../../components/shared/ui/Card';
@@ -13,6 +13,7 @@ export default function AnalyticsSetupPage() {
   const navigate = useNavigate();
   const { checkConfiguration } = useAnalyticsAuth();
 
+  const [editMode, setEditMode] = useState(false);
   const [connectionType, setConnectionType] = useState<'cloud' | 'direct'>('cloud');
   const [cloudId, setCloudId] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -21,10 +22,35 @@ export default function AnalyticsSetupPage() {
   const [password, setPassword] = useState('');
   const [indexPattern, setIndexPattern] = useState('f0rtika-results-*');
 
+  const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Load existing settings on mount
+  useEffect(() => {
+    loadExistingSettings();
+  }, []);
+
+  const loadExistingSettings = async () => {
+    try {
+      const settings = await analyticsApi.getSettings();
+      if (settings.configured) {
+        setEditMode(true);
+        setConnectionType(settings.connectionType);
+        setIndexPattern(settings.indexPattern || 'f0rtika-results-*');
+        // Note: Credentials are not returned for security, so fields remain empty
+        // When saving with empty credentials, backend will keep existing ones
+      }
+    } catch (err) {
+      // If settings don't exist or error, stay in initial setup mode
+      setEditMode(false);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleTestConnection = async () => {
     try {
@@ -54,6 +80,7 @@ export default function AnalyticsSetupPage() {
     try {
       setSaving(true);
       setError(null);
+      setSuccessMessage(null);
 
       const settings = connectionType === 'cloud'
         ? { connectionType, cloudId, apiKey, indexPattern }
@@ -61,7 +88,14 @@ export default function AnalyticsSetupPage() {
 
       await analyticsApi.saveSettings(settings);
       await checkConfiguration();
-      navigate('/analytics');
+
+      if (editMode) {
+        setSuccessMessage('Settings updated successfully!');
+        // Reload settings to reflect changes
+        setTimeout(() => loadExistingSettings(), 500);
+      } else {
+        navigate('/analytics');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save settings');
     } finally {
@@ -69,21 +103,74 @@ export default function AnalyticsSetupPage() {
     }
   };
 
-  const isValid = connectionType === 'cloud'
-    ? cloudId && apiKey
-    : node && (apiKey || (username && password));
+  // Validation: In edit mode, allow empty credentials (keeps existing)
+  // In new setup mode, require all credentials
+  const isValid = editMode
+    ? true // In edit mode, user can update without providing credentials
+    : connectionType === 'cloud'
+      ? cloudId && apiKey
+      : node && (apiKey || (username && password));
+
+  // Show loading spinner while checking existing configuration
+  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-8 max-w-2xl">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Spinner size="lg" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-2xl">
+      {/* Back button for edit mode */}
+      {editMode && (
+        <Button
+          variant="ghost"
+          onClick={() => navigate('/analytics')}
+          className="mb-4"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Dashboard
+        </Button>
+      )}
+
       <div className="text-center mb-8">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
           <Database className="w-8 h-8 text-primary" />
         </div>
-        <h1 className="text-3xl font-bold mb-2">Analytics Setup</h1>
+        <h1 className="text-3xl font-bold mb-2">
+          {editMode ? 'Edit Analytics Configuration' : 'Analytics Setup'}
+        </h1>
         <p className="text-muted-foreground">
-          Connect to Elasticsearch to view test results and analytics
+          {editMode
+            ? 'Update your Elasticsearch connection settings'
+            : 'Connect to Elasticsearch to view test results and analytics'
+          }
         </p>
       </div>
+
+      {/* Edit mode info banner */}
+      {editMode && (
+        <Alert variant="default" className="mb-6">
+          <Info className="w-4 h-4" />
+          <div>
+            <p className="font-medium">Editing existing configuration</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Leave credential fields blank to keep your current credentials. Only fill them in if you want to update them.
+            </p>
+          </div>
+        </Alert>
+      )}
+
+      {/* Success message */}
+      {successMessage && (
+        <Alert variant="success" className="mb-6">
+          <CheckCircle className="w-4 h-4" />
+          {successMessage}
+        </Alert>
+      )}
 
       <Card>
         <CardHeader>
@@ -123,16 +210,17 @@ export default function AnalyticsSetupPage() {
             <>
               <Input
                 label="Cloud ID"
-                placeholder="deployment:region:base64..."
+                placeholder={editMode ? "Leave blank to keep current" : "deployment:region:base64..."}
                 value={cloudId}
                 onChange={(e) => setCloudId(e.target.value)}
               />
               <Input
                 label="API Key"
                 type="password"
-                placeholder="Your Elasticsearch API key"
+                placeholder={editMode ? "Leave blank to keep current" : "Your Elasticsearch API key"}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
+                helperText={editMode ? "Optional: Only fill in to update" : undefined}
               />
             </>
           )}
@@ -142,30 +230,33 @@ export default function AnalyticsSetupPage() {
             <>
               <Input
                 label="Elasticsearch URL"
-                placeholder="https://localhost:9200"
+                placeholder={editMode ? "Leave blank to keep current" : "https://localhost:9200"}
                 value={node}
                 onChange={(e) => setNode(e.target.value)}
               />
               <Input
                 label="API Key (preferred)"
                 type="password"
-                placeholder="Your Elasticsearch API key"
+                placeholder={editMode ? "Leave blank to keep current" : "Your Elasticsearch API key"}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
+                helperText={editMode ? "Optional: Only fill in to update" : undefined}
               />
               <div className="text-center text-sm text-muted-foreground">— or —</div>
               <Input
                 label="Username"
-                placeholder="elastic"
+                placeholder={editMode ? "Leave blank to keep current" : "elastic"}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
+                helperText={editMode ? "Optional: Only fill in to update" : undefined}
               />
               <Input
                 label="Password"
                 type="password"
-                placeholder="Password"
+                placeholder={editMode ? "Leave blank to keep current" : "Password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                helperText={editMode ? "Optional: Only fill in to update" : undefined}
               />
             </>
           )}
@@ -215,10 +306,10 @@ export default function AnalyticsSetupPage() {
             {saving ? (
               <>
                 <Spinner size="sm" />
-                Saving...
+                {editMode ? 'Updating...' : 'Saving...'}
               </>
             ) : (
-              'Save & Continue'
+              editMode ? 'Update Settings' : 'Save & Continue'
             )}
           </Button>
         </CardFooter>

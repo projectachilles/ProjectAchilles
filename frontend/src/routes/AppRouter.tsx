@@ -81,19 +81,6 @@ export default function AppRouter() {
         <Route index element={<BrowserHomePage />} />
         <Route path="test/:uuid" element={<TestDetailPage />} />
 
-        {/* Analytics Module */}
-        <Route path="analytics">
-          <Route path="setup" element={<AnalyticsSetupPage />} />
-          <Route
-            index
-            element={
-              <AnalyticsProtectedRoute>
-                <AnalyticsDashboardPage />
-              </AnalyticsProtectedRoute>
-            }
-          />
-        </Route>
-
         {/* Endpoints Module */}
         <Route path="endpoints">
           <Route path="login" element={<EndpointLoginPage />} />
@@ -106,6 +93,19 @@ export default function AppRouter() {
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+
+      {/* Analytics Module - Standalone (no main header) */}
+      <Route path="analytics">
+        <Route path="setup" element={<AnalyticsSetupPage />} />
+        <Route
+          index
+          element={
+            <AnalyticsProtectedRoute>
+              <AnalyticsDashboardPage />
+            </AnalyticsProtectedRoute>
+          }
+        />
       </Route>
     </Routes>
   );
