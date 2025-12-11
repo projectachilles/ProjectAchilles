@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { browserApi } from '@/services/api/browser';
 import type { TestMetadata } from '@/types/test';
@@ -24,25 +24,7 @@ export default function BrowserHomePage() {
     loadTests();
   }, []);
 
-  useEffect(() => {
-    filterTests();
-  }, [tests, searchQuery, selectedCategory, selectedSeverity]);
-
-  async function loadTests() {
-    try {
-      setLoading(true);
-      const data = await browserApi.getAllTests();
-      setTests(data);
-      setFilteredTests(data);
-    } catch (err) {
-      setError('Failed to load tests');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function filterTests() {
+  const filterTests = useCallback(() => {
     try {
       let filtered = [...tests]; // Create a copy to avoid mutations
 
@@ -81,6 +63,24 @@ export default function BrowserHomePage() {
       console.error('Error in filterTests:', err);
       // Fallback to showing all tests if filtering fails
       setFilteredTests(tests);
+    }
+  }, [tests, searchQuery, selectedCategory, selectedSeverity]);
+
+  useEffect(() => {
+    filterTests();
+  }, [filterTests]);
+
+  async function loadTests() {
+    try {
+      setLoading(true);
+      const data = await browserApi.getAllTests();
+      setTests(data);
+      setFilteredTests(data);
+    } catch (err) {
+      setError('Failed to load tests');
+      console.error(err);
+    } finally {
+      setLoading(false);
     }
   }
 

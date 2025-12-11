@@ -29,7 +29,12 @@ export default function TestDetailPage() {
 
   useEffect(() => {
     if (selectedFile && uuid && activeView === 'file') {
+      const controller = new AbortController();
       loadFileContent(uuid, selectedFile);
+
+      return () => {
+        controller.abort();
+      };
     }
   }, [selectedFile, uuid, activeView]);
 
@@ -434,7 +439,7 @@ export default function TestDetailPage() {
                 srcDoc={attackFlowHtml}
                 className="w-full h-full border-0"
                 title="Attack Flow Diagram"
-                sandbox="allow-scripts allow-same-origin"
+                sandbox="allow-scripts"
               />
             ) : fileContent ? (
               <FileViewer file={fileContent} />

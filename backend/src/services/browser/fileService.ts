@@ -10,6 +10,14 @@ export class FileService {
    */
   static readFileContent(filePath: string): FileContent {
     try {
+      // Check file size before reading (limit to 5MB)
+      const stats = fs.statSync(filePath);
+      const maxSize = 5 * 1024 * 1024; // 5MB
+
+      if (stats.size > maxSize) {
+        throw new Error('File too large to display');
+      }
+
       const content = fs.readFileSync(filePath, 'utf-8');
       const ext = path.extname(filePath).toLowerCase();
 
@@ -29,7 +37,9 @@ export class FileService {
         type,
       };
     } catch (error) {
-      throw new Error(`Failed to read file: ${filePath}`);
+      // Don't expose file path in error message - log it server-side only
+      console.error(`Failed to read file: ${filePath}`, error);
+      throw new Error('Failed to read file');
     }
   }
 

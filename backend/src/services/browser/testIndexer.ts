@@ -8,6 +8,7 @@ import { MetadataExtractor } from './metadataExtractor.js';
 export class TestIndexer {
   private testsSourcePath: string;
   private testCache: Map<string, TestDetails> = new Map();
+  private static readonly UUID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
   constructor(testsSourcePath: string) {
     this.testsSourcePath = path.resolve(testsSourcePath);
@@ -126,8 +127,7 @@ export class TestIndexer {
    */
   private isValidTestDirectory(dirName: string): boolean {
     // UUID format: 8-4-4-4-12 characters
-    const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
-    return uuidPattern.test(dirName);
+    return TestIndexer.UUID_PATTERN.test(dirName);
   }
 
   /**

@@ -16,35 +16,35 @@ export const browserApi = {
   }): Promise<TestMetadata[]> {
     const response = await api.get('/tests', { params });
     // Backend returns: { success: true, count: number, tests: array }
-    return response.data.tests || response.data;
+    return response.data.tests;
   },
 
   // Get test details
   async getTestDetails(uuid: string): Promise<TestDetails> {
     const response = await api.get(`/tests/${uuid}`);
     // Backend returns: { success: true, test: object }
-    return response.data.test || response.data;
+    return response.data.test;
   },
 
   // Get test files
   async getTestFiles(uuid: string) {
     const response = await api.get(`/tests/${uuid}/files`);
     // Backend returns: { success: true, files: array }
-    return response.data.files || response.data;
+    return response.data.files;
   },
 
   // Get file content
   async getFileContent(uuid: string, filename: string): Promise<FileContent> {
     const response = await api.get(`/tests/${uuid}/file/${encodeURIComponent(filename)}`);
     // Backend returns: { success: true, file: { name, type, content, size } }
-    return response.data.file || response.data;
+    return response.data.file;
   },
 
   // Get attack flow HTML
   async getAttackFlow(uuid: string): Promise<string> {
     const response = await api.get(`/tests/${uuid}/attack-flow`);
     // Backend returns: { success: true, html: string }
-    return response.data.html || response.data;
+    return response.data.html;
   },
 
   // Refresh test index

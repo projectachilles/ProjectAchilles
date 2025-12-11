@@ -77,6 +77,15 @@ router.get('/tests', asyncHandler(async (req: Request, res: Response) => {
  */
 router.get('/tests/:uuid', asyncHandler(async (req: Request, res: Response) => {
   const { uuid } = req.params;
+
+  // Validate UUID format to prevent path traversal
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid UUID format',
+    });
+  }
+
   const test = testIndexer.getTest(uuid);
 
   if (!test) {
@@ -98,6 +107,15 @@ router.get('/tests/:uuid', asyncHandler(async (req: Request, res: Response) => {
  */
 router.get('/tests/:uuid/files', asyncHandler(async (req: Request, res: Response) => {
   const { uuid } = req.params;
+
+  // Validate UUID format to prevent path traversal
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid UUID format',
+    });
+  }
+
   const test = testIndexer.getTest(uuid);
 
   if (!test) {
@@ -119,7 +137,25 @@ router.get('/tests/:uuid/files', asyncHandler(async (req: Request, res: Response
  */
 router.get('/tests/:uuid/file/:filename', asyncHandler(async (req: Request, res: Response) => {
   const { uuid, filename } = req.params;
+
+  // Validate UUID format to prevent path traversal
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid UUID format',
+    });
+  }
+
   const decodedFilename = decodeURIComponent(filename);
+
+  // Prevent path traversal - filename must not contain path separators or parent directory references
+  if (decodedFilename.includes('/') || decodedFilename.includes('\\') || decodedFilename.includes('..')) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid filename',
+    });
+  }
+
   const test = testIndexer.getTest(uuid);
 
   if (!test) {
@@ -159,6 +195,15 @@ router.get('/tests/:uuid/file/:filename', asyncHandler(async (req: Request, res:
  */
 router.get('/tests/:uuid/attack-flow', asyncHandler(async (req: Request, res: Response) => {
   const { uuid } = req.params;
+
+  // Validate UUID format to prevent path traversal
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid UUID format',
+    });
+  }
+
   const test = testIndexer.getTest(uuid);
 
   if (!test) {
