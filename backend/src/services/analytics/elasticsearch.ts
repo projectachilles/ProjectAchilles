@@ -135,11 +135,13 @@ export class ElasticsearchService {
       }
     }
 
+    const unprotectedCount = total - protectedCount;
+
     return {
-      overall: Math.round(overall * 100) / 100,
-      delta: delta !== null ? Math.round(delta * 100) / 100 : null,
-      total,
-      protected: protectedCount,
+      score: Math.round(overall * 100) / 100,
+      protectedCount,
+      unprotectedCount,
+      totalExecutions: total,
     };
   }
 
@@ -375,10 +377,10 @@ export class ElasticsearchService {
   }
 
   // Get unique hostname count
-  async getUniqueHostnames(org?: string): Promise<number> {
-    const filters: any[] = [this.buildDateFilter()];
+  async getUniqueHostnames(params: AnalyticsQueryParams): Promise<number> {
+    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
 
-    const orgFilter = this.buildOrgFilter(org);
+    const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
 
     const response = await this.client.search({
@@ -398,10 +400,10 @@ export class ElasticsearchService {
   }
 
   // Get unique test count
-  async getUniqueTests(org?: string): Promise<number> {
-    const filters: any[] = [this.buildDateFilter()];
+  async getUniqueTests(params: AnalyticsQueryParams): Promise<number> {
+    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
 
-    const orgFilter = this.buildOrgFilter(org);
+    const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
 
     const response = await this.client.search({

@@ -1,26 +1,14 @@
 import { Link, useLocation } from 'react-router-dom';
-import { useTheme } from '../../hooks/useTheme';
-import { Moon, Sun, Shield, Lock } from 'lucide-react';
-import { Button } from './ui/Button';
-
-interface ModuleStatus {
-  analyticsConfigured: boolean;
-  endpointsAuthenticated: boolean;
-}
+import { useTheme } from '../../../hooks/useTheme';
+import { Moon, Sun, Target, Settings, RefreshCw, Lock } from 'lucide-react';
 
 interface HeaderProps {
-  moduleStatus?: ModuleStatus;
   onSettingsClick?: () => void;
   onRefreshClick?: () => void;
   isRefreshing?: boolean;
 }
 
-export default function Header({
-  moduleStatus = { analyticsConfigured: false, endpointsAuthenticated: false },
-  onSettingsClick,
-  onRefreshClick,
-  isRefreshing
-}: HeaderProps) {
+export default function Header({ onSettingsClick, onRefreshClick, isRefreshing }: HeaderProps) {
   const { theme, toggleTheme } = useTheme();
   const location = useLocation();
 
@@ -45,14 +33,14 @@ export default function Header({
       id: 'analytics',
       label: 'Analytics',
       path: '/analytics',
-      locked: !moduleStatus.analyticsConfigured,
+      locked: false,
       description: 'Test Results Dashboard'
     },
     {
       id: 'endpoints',
       label: 'Endpoints',
       path: '/endpoints',
-      locked: !moduleStatus.endpointsAuthenticated,
+      locked: true, // Analytics module doesn't have endpoint auth info, so show as locked
       description: 'Endpoint Management'
     },
   ];
@@ -61,9 +49,9 @@ export default function Header({
     <header className="h-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto h-full px-4 flex items-center justify-between">
         {/* Logo and Title */}
-        <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+        <Link to="/analytics" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
           <div className="flex items-center justify-center w-16 h-16 rounded-lg bg-primary/10">
-            <Shield className="w-12 h-12 text-primary" />
+            <Target className="w-12 h-12 text-primary" />
           </div>
           <div>
             <h1 className="text-4xl font-bold tracking-tight">ACHILLES</h1>
@@ -97,69 +85,45 @@ export default function Header({
 
         {/* Actions */}
         <div className="flex items-center gap-2">
-          {/* Module-specific refresh button */}
+
+          {/* Refresh Button */}
           {onRefreshClick && (
-            <Button
-              variant="ghost"
-              size="icon"
+            <button
               onClick={onRefreshClick}
               disabled={isRefreshing}
-              aria-label="Refresh"
+              className="p-2 rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
+              aria-label="Refresh data"
+              title="Refresh data"
             >
-              <svg
-                className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                />
-              </svg>
-            </Button>
+              <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
           )}
 
-          {/* Module-specific settings button */}
+          {/* Settings Button */}
           {onSettingsClick && (
-            <Button
-              variant="ghost"
-              size="icon"
+            <button
               onClick={onSettingsClick}
+              className="p-2 rounded-lg hover:bg-accent transition-colors"
               aria-label="Settings"
+              title="Settings"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-                />
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                />
-              </svg>
-            </Button>
+              <Settings className="w-5 h-5" />
+            </button>
           )}
 
           {/* Theme Toggle */}
-          <Button
-            variant="ghost"
-            size="icon"
+          <button
             onClick={toggleTheme}
+            className="p-2 rounded-lg hover:bg-accent transition-colors"
             aria-label="Toggle theme"
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {theme === 'dark' ? (
               <Sun className="w-5 h-5" />
             ) : (
               <Moon className="w-5 h-5" />
             )}
-          </Button>
+          </button>
         </div>
       </div>
     </header>

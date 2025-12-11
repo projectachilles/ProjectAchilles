@@ -42,16 +42,23 @@ router.post('/settings', asyncHandler(async (req, res) => {
     throw new AppError('Connection type is required', 400);
   }
 
-  settingsService.saveSettings({
+  // Load existing settings to merge with new values
+  // This allows updating settings without providing all credentials
+  const existingSettings = settingsService.getSettings();
+
+  // Merge: use new values if provided, otherwise keep existing ones
+  const settingsToSave = {
     connectionType,
-    cloudId,
-    apiKey,
-    node,
-    username,
-    password,
-    indexPattern: indexPattern || 'f0rtika-results-*',
+    cloudId: cloudId || existingSettings.cloudId,
+    apiKey: apiKey || existingSettings.apiKey,
+    node: node || existingSettings.node,
+    username: username || existingSettings.username,
+    password: password || existingSettings.password,
+    indexPattern: indexPattern || existingSettings.indexPattern || 'f0rtika-results-*',
     configured: true,
-  });
+  };
+
+  settingsService.saveSettings(settingsToSave);
 
   // Reset ES service to use new settings
   esService = null;
@@ -168,16 +175,14 @@ router.get('/organizations', asyncHandler(async (_req, res) => {
 // GET /api/analytics/unique-hostnames - Count unique hostnames
 router.get('/unique-hostnames', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const { org } = req.query;
-  const count = await es.getUniqueHostnames(org as string);
+  const count = await es.getUniqueHostnames(req.query as AnalyticsQueryParams);
   res.json({ count });
 }));
 
 // GET /api/analytics/unique-tests - Count unique tests
 router.get('/unique-tests', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const { org } = req.query;
-  const count = await es.getUniqueTests(org as string);
+  const count = await es.getUniqueTests(req.query as AnalyticsQueryParams);
   res.json({ count });
 }));
 
