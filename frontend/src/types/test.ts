@@ -15,6 +15,14 @@ export interface TestMetadata {
   stages: StageInfo[];
   description?: string;
   tags?: string[];
+  // Computed properties from API
+  stageCount?: number;
+  hasAttackFlow?: boolean;
+  hasReadme?: boolean;
+  hasInfoCard?: boolean;
+  hasSafetyDoc?: boolean;
+  hasDetectionFiles?: boolean;
+  hasDefenseGuidance?: boolean;
 }
 
 export interface ScoreBreakdown {
@@ -52,6 +60,8 @@ export interface TestDetails extends TestMetadata {
 }
 
 export interface FileContent {
+  name: string;
   content: string;
   type: string;
+  size?: number;
 }

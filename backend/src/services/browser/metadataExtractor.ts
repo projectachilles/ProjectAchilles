@@ -2,7 +2,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { TestMetadata, StageInfo, ScoreBreakdown } from '../../types/test.js';
+import { TestMetadata, StageInfo } from '../../types/test.js';
 
 export class MetadataExtractor {
   /**
@@ -34,7 +34,7 @@ export class MetadataExtractor {
       }
 
       // Extract TECHNIQUE (comma-separated)
-      const techniqueMatch = header.match(/TECHNIQUE(?:S)?:\s*(.+)/i);
+      const techniqueMatch = header.match(/TECHNIQUE:\s*(.+)/i);
       if (techniqueMatch) {
         metadata.techniques = techniqueMatch[1]
           .split(',')
@@ -108,7 +108,7 @@ export class MetadataExtractor {
   static extractFromInfoCard(filePath: string): Partial<TestMetadata> {
     const content = fs.readFileSync(filePath, 'utf-8');
     const metadata: Partial<TestMetadata> = {
-      scoreBreakdown: {} as ScoreBreakdown,
+      scoreBreakdown: {},
     };
 
     // Extract category
@@ -120,7 +120,7 @@ export class MetadataExtractor {
     // Extract severity
     const severityMatch = content.match(/\*\*Severity\*\*:\s*(\w+)/i);
     if (severityMatch) {
-      metadata.severity = severityMatch[1].trim().toLowerCase();
+      metadata.severity = severityMatch[1].trim();
     }
 
     // Extract MITRE ATT&CK techniques
@@ -139,29 +139,29 @@ export class MetadataExtractor {
     }
 
     // Extract score breakdown from table
-    const realWorldMatch = content.match(/\|\s*\*\*Real-World Accuracy\*\*\s*\|\s*\*\*(\d+(?:\.\d+)?)/i);
-    if (realWorldMatch && metadata.scoreBreakdown) {
-      metadata.scoreBreakdown.realWorldAccuracy = parseFloat(realWorldMatch[1]);
+    const scoreTable = content.match(/\|\s*\*\*Real-World Accuracy\*\*\s*\|\s*\*\*(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\*\*/i);
+    if (scoreTable) {
+      metadata.scoreBreakdown!.realWorldAccuracy = parseFloat(scoreTable[1]);
     }
 
-    const techSophMatch = content.match(/\|\s*\*\*Technical Sophistication\*\*\s*\|\s*\*\*(\d+(?:\.\d+)?)/i);
-    if (techSophMatch && metadata.scoreBreakdown) {
-      metadata.scoreBreakdown.technicalSophistication = parseFloat(techSophMatch[1]);
+    const techSophMatch = content.match(/\|\s*\*\*Technical Sophistication\*\*\s*\|\s*\*\*(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\*\*/i);
+    if (techSophMatch) {
+      metadata.scoreBreakdown!.technicalSophistication = parseFloat(techSophMatch[1]);
     }
 
-    const safetyMatch = content.match(/\|\s*\*\*Safety Mechanisms\*\*\s*\|\s*\*\*(\d+(?:\.\d+)?)/i);
-    if (safetyMatch && metadata.scoreBreakdown) {
-      metadata.scoreBreakdown.safetyMechanisms = parseFloat(safetyMatch[1]);
+    const safetyMatch = content.match(/\|\s*\*\*Safety Mechanisms\*\*\s*\|\s*\*\*(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\*\*/i);
+    if (safetyMatch) {
+      metadata.scoreBreakdown!.safetyMechanisms = parseFloat(safetyMatch[1]);
     }
 
-    const detectionMatch = content.match(/\|\s*\*\*Detection Opportunities\*\*\s*\|\s*\*\*(\d+(?:\.\d+)?)/i);
-    if (detectionMatch && metadata.scoreBreakdown) {
-      metadata.scoreBreakdown.detectionOpportunities = parseFloat(detectionMatch[1]);
+    const detectionMatch = content.match(/\|\s*\*\*Detection Opportunities\*\*\s*\|\s*\*\*(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\*\*/i);
+    if (detectionMatch) {
+      metadata.scoreBreakdown!.detectionOpportunities = parseFloat(detectionMatch[1]);
     }
 
-    const loggingMatch = content.match(/\|\s*\*\*Logging & Observability\*\*\s*\|\s*\*\*(\d+(?:\.\d+)?)/i);
-    if (loggingMatch && metadata.scoreBreakdown) {
-      metadata.scoreBreakdown.loggingObservability = parseFloat(loggingMatch[1]);
+    const loggingMatch = content.match(/\|\s*\*\*Logging & Observability\*\*\s*\|\s*\*\*(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\*\*/i);
+    if (loggingMatch) {
+      metadata.scoreBreakdown!.loggingObservability = parseFloat(loggingMatch[1]);
     }
 
     return metadata;
@@ -216,7 +216,6 @@ export class MetadataExtractor {
   static extractTestMetadata(testDir: string, uuid: string): TestMetadata {
     const metadata: Partial<TestMetadata> = {
       uuid,
-      name: uuid, // Default name
       techniques: [],
       stages: [],
       isMultiStage: false,
@@ -225,8 +224,7 @@ export class MetadataExtractor {
     // Extract from main Go file
     const mainGoFile = path.join(testDir, `${uuid}.go`);
     if (fs.existsSync(mainGoFile)) {
-      const goData = this.extractFromGoFile(mainGoFile);
-      Object.assign(metadata, goData);
+      Object.assign(metadata, this.extractFromGoFile(mainGoFile));
     }
 
     // Extract from README
@@ -239,9 +237,7 @@ export class MetadataExtractor {
           new Set([...(metadata.techniques || []), ...readmeData.techniques])
         );
       }
-      // Apply other fields
-      if (readmeData.score) metadata.score = readmeData.score;
-      if (readmeData.description) metadata.description = readmeData.description;
+      Object.assign(metadata, { ...readmeData, techniques: metadata.techniques });
     }
 
     // Extract from info card
@@ -254,11 +250,7 @@ export class MetadataExtractor {
           new Set([...(metadata.techniques || []), ...infoData.techniques])
         );
       }
-      // Apply other fields
-      if (infoData.category) metadata.category = infoData.category;
-      if (infoData.severity) metadata.severity = infoData.severity;
-      if (infoData.score) metadata.score = infoData.score;
-      if (infoData.scoreBreakdown) metadata.scoreBreakdown = infoData.scoreBreakdown;
+      Object.assign(metadata, { ...infoData, techniques: metadata.techniques });
     }
 
     // Extract stage information

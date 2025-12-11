@@ -1,115 +1,200 @@
-import { Router } from 'express';
+// API routes for security tests
+
+import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../middleware/error.middleware.js';
 import { TestIndexer } from '../services/browser/testIndexer.js';
 import { FileService } from '../services/browser/fileService.js';
 
 const router = Router();
 
-// Initialize services
-const testIndexer = new TestIndexer();
-const fileService = new FileService();
+// Get tests source path from environment with absolute path fallback
+const testsSourcePath = process.env.TESTS_SOURCE_PATH || '/home/ubercylon8/F0RT1KA/f0_library/tests_source';
 
-// Initialize test index on startup
-testIndexer.initialize().catch(err => {
-  console.error('Failed to initialize test indexer:', err);
-});
+// Validate path before creating indexer
+if (!testsSourcePath) {
+  throw new Error('TESTS_SOURCE_PATH environment variable is required');
+}
 
-// GET /api/browser/tests - List all tests
-router.get('/tests', asyncHandler(async (req, res) => {
+const testIndexer = new TestIndexer(testsSourcePath);
+
+// Initial scan on startup
+console.log(`Scanning tests from: ${testsSourcePath}`);
+testIndexer.scanAllTests();
+
+/**
+ * GET /api/browser/tests
+ * Get all tests with optional filtering
+ */
+router.get('/tests', asyncHandler(async (req: Request, res: Response) => {
   const { search, technique, category, severity } = req.query;
 
   let tests = testIndexer.getAllTests();
 
   // Apply filters
   if (search && typeof search === 'string') {
-    const query = search.toLowerCase();
-    tests = tests.filter(t =>
-      t.name.toLowerCase().includes(query) ||
-      t.uuid.toLowerCase().includes(query) ||
-      t.techniques.some(tech => tech.toLowerCase().includes(query)) ||
-      t.description?.toLowerCase().includes(query)
-    );
+    tests = testIndexer.searchTests(search);
+  } else if (technique && typeof technique === 'string') {
+    tests = testIndexer.filterByTechnique(technique);
+  } else if (category && typeof category === 'string') {
+    tests = testIndexer.filterByCategory(category);
+  } else if (severity && typeof severity === 'string') {
+    tests = testIndexer.filterBySeverity(severity);
   }
 
-  if (technique && typeof technique === 'string') {
-    tests = tests.filter(t => t.techniques.includes(technique));
-  }
+  // Return simplified test list (without full file details)
+  const testList = tests.map(test => ({
+    uuid: test.uuid,
+    name: test.name,
+    category: test.category,
+    severity: test.severity,
+    techniques: test.techniques,
+    tactics: test.tactics,
+    createdDate: test.createdDate,
+    score: test.score,
+    isMultiStage: test.isMultiStage,
+    stageCount: test.stages.length,
+    description: test.description,
+    hasAttackFlow: test.hasAttackFlow,
+    hasReadme: test.hasReadme,
+    hasInfoCard: test.hasInfoCard,
+    hasSafetyDoc: test.hasSafetyDoc,
+    hasDetectionFiles: test.hasDetectionFiles,
+    hasDefenseGuidance: test.hasDefenseGuidance,
+  }));
 
-  if (category && typeof category === 'string') {
-    tests = tests.filter(t => t.category === category);
-  }
-
-  if (severity && typeof severity === 'string') {
-    tests = tests.filter(t => t.severity === severity);
-  }
-
-  res.json(tests);
+  res.json({
+    success: true,
+    count: testList.length,
+    tests: testList,
+  });
 }));
 
-// GET /api/browser/tests/:uuid - Get test details
-router.get('/tests/:uuid', asyncHandler(async (req, res) => {
+/**
+ * GET /api/browser/tests/:uuid
+ * Get detailed information about a specific test
+ */
+router.get('/tests/:uuid', asyncHandler(async (req: Request, res: Response) => {
   const { uuid } = req.params;
   const test = testIndexer.getTest(uuid);
 
   if (!test) {
-    return res.status(404).json({ error: 'Test not found' });
+    return res.status(404).json({
+      success: false,
+      error: 'Test not found',
+    });
   }
 
-  res.json(test);
+  res.json({
+    success: true,
+    test,
+  });
 }));
 
-// GET /api/browser/tests/:uuid/files - Get test files list
-router.get('/tests/:uuid/files', asyncHandler(async (req, res) => {
+/**
+ * GET /api/browser/tests/:uuid/files
+ * Get list of files in a test directory
+ */
+router.get('/tests/:uuid/files', asyncHandler(async (req: Request, res: Response) => {
   const { uuid } = req.params;
   const test = testIndexer.getTest(uuid);
 
   if (!test) {
-    return res.status(404).json({ error: 'Test not found' });
+    return res.status(404).json({
+      success: false,
+      error: 'Test not found',
+    });
   }
 
-  res.json(test.files);
+  res.json({
+    success: true,
+    files: test.files,
+  });
 }));
 
-// GET /api/browser/tests/:uuid/file/:filename - Get file content
-router.get('/tests/:uuid/file/:filename', asyncHandler(async (req, res) => {
+/**
+ * GET /api/browser/tests/:uuid/file/:filename
+ * Get content of a specific file
+ */
+router.get('/tests/:uuid/file/:filename', asyncHandler(async (req: Request, res: Response) => {
   const { uuid, filename } = req.params;
+  const decodedFilename = decodeURIComponent(filename);
   const test = testIndexer.getTest(uuid);
 
   if (!test) {
-    return res.status(404).json({ error: 'Test not found' });
+    return res.status(404).json({
+      success: false,
+      error: 'Test not found',
+    });
   }
 
-  const file = test.files.find(f => f.name === filename);
+  // Find the file in the test's file list
+  const file = test.files.find(f => f.name === decodedFilename);
+
   if (!file) {
-    return res.status(404).json({ error: 'File not found' });
+    return res.status(404).json({
+      success: false,
+      error: 'File not found',
+    });
   }
 
-  const content = await fileService.readFile(file.path);
-  res.type('text/plain').send(content);
+  // Read file content
+  const fileContent = FileService.readFileContent(file.path);
+
+  res.json({
+    success: true,
+    file: {
+      name: file.name,
+      type: fileContent.type,
+      content: fileContent.content,
+      size: file.size,
+    },
+  });
 }));
 
-// GET /api/browser/tests/:uuid/attack-flow - Get attack flow HTML
-router.get('/tests/:uuid/attack-flow', asyncHandler(async (req, res) => {
+/**
+ * GET /api/browser/tests/:uuid/attack-flow
+ * Get attack flow diagram HTML
+ */
+router.get('/tests/:uuid/attack-flow', asyncHandler(async (req: Request, res: Response) => {
   const { uuid } = req.params;
   const test = testIndexer.getTest(uuid);
 
   if (!test) {
-    return res.status(404).json({ error: 'Test not found' });
+    return res.status(404).json({
+      success: false,
+      error: 'Test not found',
+    });
   }
 
   if (!test.hasAttackFlow || !test.attackFlowPath) {
-    return res.status(404).json({ error: 'Attack flow not found' });
+    return res.status(404).json({
+      success: false,
+      error: 'Attack flow diagram not available for this test',
+    });
   }
 
-  const content = await fileService.readFile(test.attackFlowPath);
-  res.type('text/html').send(content);
+  // Read HTML file
+  const fileContent = FileService.readFileContent(test.attackFlowPath);
+
+  res.json({
+    success: true,
+    html: fileContent.content,
+  });
 }));
 
-// POST /api/browser/tests/refresh - Refresh test index
-router.post('/tests/refresh', asyncHandler(async (_req, res) => {
-  await testIndexer.refresh();
-  const tests = testIndexer.getAllTests();
-  res.json({ message: 'Test index refreshed', count: tests.length });
+/**
+ * POST /api/browser/tests/refresh
+ * Refresh test index (rescan tests_source directory)
+ */
+router.post('/tests/refresh', asyncHandler(async (_req: Request, res: Response) => {
+  console.log('Refreshing test index...');
+  const tests = testIndexer.refresh();
+
+  res.json({
+    success: true,
+    message: 'Test index refreshed successfully',
+    count: tests.length,
+  });
 }));
 
 export default router;

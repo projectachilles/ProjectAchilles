@@ -73,7 +73,10 @@ export default function AppRouter() {
       <Route element={<AppLayout />}>
         {/* Browser Module - Public (Landing Page) */}
         <Route index element={<BrowserHomePage />} />
-        <Route path="test/:uuid" element={<TestDetailPage />} />
+        <Route path="browser">
+          <Route index element={<Navigate to="/" replace />} />
+          <Route path="test/:uuid" element={<TestDetailPage />} />
+        </Route>
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
