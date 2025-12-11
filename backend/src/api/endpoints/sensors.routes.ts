@@ -115,6 +115,8 @@ router.get(
 /**
  * POST /api/endpoints/sensors/online-status
  * Get online status for multiple sensors
+ * Note: Batched API call - send all sensor IDs in a single request
+ * Maximum recommended batch size: 1000 sensors
  */
 router.post(
   '/online-status',
@@ -124,9 +126,12 @@ router.post(
       return res.status(401).json({ success: false, error: 'Not authenticated' });
     }
 
+    const MAX_BATCH_SIZE = 1000;
     const { sensorIds } = z
       .object({
-        sensorIds: z.array(z.string()).min(1, 'At least one sensor ID is required'),
+        sensorIds: z.array(z.string())
+          .min(1, 'At least one sensor ID is required')
+          .max(MAX_BATCH_SIZE, `Maximum ${MAX_BATCH_SIZE} sensors per request`),
       })
       .parse(req.body);
 

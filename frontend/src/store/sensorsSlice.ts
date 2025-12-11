@@ -6,6 +6,14 @@ import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { api } from '../services/api/endpoints';
 import type { Sensor, ListSensorsRequest } from '../types/endpoints';
 
+/**
+ * Maximum limit for fetching all sensors.
+ * This is a safety limit to prevent excessive memory usage.
+ * If your organization has more sensors, consider implementing pagination
+ * or server-side "get all IDs" endpoint.
+ */
+const MAX_FETCH_ALL_LIMIT = 10000;
+
 interface SensorsState {
   sensors: Sensor[];
   selectedSensor: Sensor | null;
@@ -121,7 +129,7 @@ export const fetchAllFilteredSensorIds = createAsyncThunk(
   async (filters: ListSensorsRequest | undefined, { rejectWithValue }) => {
     try {
       // Fetch all sensors matching the filter (no pagination)
-      const allFilters = { ...filters, limit: 10000, offset: 0 };
+      const allFilters = { ...filters, limit: MAX_FETCH_ALL_LIMIT, offset: 0 };
       const response = await api.listSensors(allFilters);
       if (response.success && response.data) {
         return response.data.sensors.map((s: Sensor) => s.sid);

@@ -46,14 +46,12 @@ router.post(
     }
 
     try {
-      // Read file buffer
-      const fileBuffer = fs.readFileSync(req.file.path);
-
-      // Upload to LimaCharlie
-      const result = await payloadsService.uploadPayloadFromBuffer(
+      // Use streaming upload for better memory efficiency with large files
+      // Streams the file directly instead of loading entire file into memory
+      const result = await payloadsService.uploadPayloadFromStream(
         credentials,
         req.file.originalname,
-        fileBuffer
+        req.file.path
       );
 
       // Clean up temp file

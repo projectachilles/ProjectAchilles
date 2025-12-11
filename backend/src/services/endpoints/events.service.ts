@@ -8,6 +8,7 @@ import { Credentials } from '../../types/endpoints.js';
 import { authService } from './auth.service.js';
 
 const API_BASE_URL = process.env.LC_API_BASE_URL || 'https://api.limacharlie.io';
+const MAX_AUTH_RETRIES = 1; // Only retry authentication once to prevent infinite loops
 
 interface ReplayRequest {
   oid: string;
@@ -41,7 +42,10 @@ export class EventsService {
   /**
    * Get organization-specific URLs
    */
-  private async getOrgURLs(credentials: Credentials): Promise<Record<string, string>> {
+  private async getOrgURLs(
+    credentials: Credentials,
+    retryCount: number = 0
+  ): Promise<Record<string, string>> {
     try {
       const authHeader = await authService.getAuthHeader(credentials);
       const url = `${API_BASE_URL}/v1/orgs/${credentials.oid}/url`;
@@ -52,9 +56,10 @@ export class EventsService {
 
       return response.data.url;
     } catch (error) {
-      if (authService.isAuthError(error)) {
+      if (authService.isAuthError(error) && retryCount < MAX_AUTH_RETRIES) {
         authService.clearToken(credentials);
-        return this.getOrgURLs(credentials);
+        // Retry with incremented counter
+        return this.getOrgURLs(credentials, retryCount + 1);
       }
       throw this.handleError(error, 'Failed to get organization URLs');
     }
@@ -67,7 +72,8 @@ export class EventsService {
     credentials: Credentials,
     query: string,
     limit: number = 100,
-    timeout: number = 300
+    timeout: number = 300,
+    retryCount: number = 0
   ): Promise<ReplayResponse> {
     try {
       // Get organization URLs
@@ -121,9 +127,11 @@ export class EventsService {
 
       return transformedResponse;
     } catch (error) {
-      if (authService.isAuthError(error)) {
+      if (authService.isAuthError(error) && retryCount < MAX_AUTH_RETRIES) {
         authService.clearToken(credentials);
-        return this.queryEvents(credentials, query, limit, timeout);
+        // Retry with incremented counter and exponential backoff
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
+        return this.queryEvents(credentials, query, limit, timeout, retryCount + 1);
       }
       throw this.handleError(error, 'Failed to query events');
     }

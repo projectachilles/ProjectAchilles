@@ -264,6 +264,59 @@ export class PayloadsService {
   }
 
   /**
+   * Upload payload from file stream (memory-efficient for large files)
+   * Preferred over uploadPayloadFromBuffer for files > 100MB
+   */
+  async uploadPayloadFromStream(
+    credentials: Credentials,
+    fileName: string,
+    filePath: string
+  ): Promise<UploadPayloadResponse> {
+    try {
+      // Step 1: Get pre-signed upload URL
+      const authHeader = await authService.getAuthHeader(credentials);
+      const uploadUrl = `${API_BASE_URL}/v1/payload/${credentials.oid}/${fileName}`;
+
+      const urlResponse = await axios.post<{ put_url: string }>(
+        uploadUrl,
+        null,
+        {
+          headers: {
+            Authorization: authHeader,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const presignedUrl = urlResponse.data.put_url;
+
+      // Step 2: Upload file using stream for memory efficiency
+      const fileStream = fs.createReadStream(filePath);
+      const fileStats = fs.statSync(filePath);
+
+      await axios.put(presignedUrl, fileStream, {
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': fileStats.size,
+        },
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+      });
+
+      return {
+        url: presignedUrl,
+        name: fileName,
+      };
+    } catch (error) {
+      if (authService.isAuthError(error)) {
+        authService.clearToken(credentials);
+        return this.uploadPayloadFromStream(credentials, fileName, filePath);
+      }
+      throw this.handleError(error, 'Failed to upload payload from stream');
+    }
+  }
+
+  /**
    * Handle errors and provide meaningful messages
    */
   private handleError(error: any, defaultMessage: string): Error {

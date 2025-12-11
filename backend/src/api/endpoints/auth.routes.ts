@@ -11,15 +11,23 @@ import {
   setCurrentOrganization,
 } from '../../middleware/auth.middleware.js';
 import { asyncHandler } from '../../middleware/error.middleware.js';
+import { credentialStore } from '../../services/endpoints/credential-store.service.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 
 // Validation schemas
 const loginSchema = z.object({
-  oid: z.string().min(1, 'Organization ID is required'),
-  apiKey: z.string().min(1, 'API Key is required'),
-  orgName: z.string().optional(),
+  oid: z.string()
+    .min(1, 'Organization ID is required')
+    .max(256, 'Organization ID too long')
+    .regex(/^[a-zA-Z0-9-_]+$/, 'Invalid organization ID format'),
+  apiKey: z.string()
+    .min(1, 'API Key is required')
+    .max(512, 'API Key too long'),
+  orgName: z.string()
+    .max(256, 'Organization name too long')
+    .optional(),
   saveCredentials: z.boolean().optional().default(false),
 });
 
@@ -48,7 +56,14 @@ router.post(
       });
     }
 
-    // Create organization entry
+    // Store credentials securely (not in session)
+    const credentialId = credentialStore.store(
+      credentials,
+      req.session.id,
+      body.saveCredentials ? undefined : 4 * 60 * 60 * 1000 // 4 hours for non-saved
+    );
+
+    // Create organization entry (without API key)
     const orgId = uuidv4();
     const orgName = body.orgName || `Org-${body.oid.substring(0, 8)}`;
 
@@ -56,7 +71,7 @@ router.post(
       id: orgId,
       name: orgName,
       oid: body.oid,
-      apiKey: body.apiKey,
+      credentialId, // Store reference, not the actual API key
     };
 
     // Save to session
@@ -71,6 +86,9 @@ router.post(
       );
 
       if (existingIndex >= 0) {
+        // Remove old credential from store
+        const oldOrg = req.session.organizations[existingIndex];
+        credentialStore.remove(oldOrg.credentialId);
         // Update existing
         req.session.organizations[existingIndex] = organization;
       } else {

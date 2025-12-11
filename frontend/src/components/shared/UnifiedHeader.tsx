@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useTheme } from '../../hooks/useTheme';
 import { useAnalyticsAuth } from '../../hooks/useAnalyticsAuth';
 import { useAppDispatch, useAppSelector } from '../../store';
-import { logout } from '../../store/endpointAuthSlice';
+import { logout, switchOrganization } from '../../store/endpointAuthSlice';
 import {
   Moon, Sun, Shield, Target, Cpu, Lock, Home,
   User, ChevronDown, LogOut, RefreshCw, Settings
@@ -245,9 +245,15 @@ export default function UnifiedHeader({
                             <button
                               key={org.oid}
                               className="w-full px-4 py-2 text-left text-sm hover:bg-accent transition-colors"
-                              onClick={() => {
-                                // TODO: Implement org switching
+                              onClick={async () => {
                                 setUserMenuOpen(false);
+                                try {
+                                  await dispatch(switchOrganization(org.id)).unwrap();
+                                  // Reload to refresh all data with new organization
+                                  window.location.reload();
+                                } catch (error) {
+                                  console.error('Failed to switch organization:', error);
+                                }
                               }}
                             >
                               <span className="block truncate">{org.name}</span>

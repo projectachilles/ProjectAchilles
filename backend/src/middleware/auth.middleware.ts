@@ -5,6 +5,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { Credentials } from '../types/endpoints.js';
+import { credentialStore } from '../services/endpoints/credential-store.service.js';
 
 /**
  * Require authentication middleware
@@ -45,9 +46,21 @@ export function optionalAuth(_req: Request, _res: Response, next: NextFunction):
 
 /**
  * Get credentials from session
+ * Retrieves credentials from secure store using session reference
  */
 export function getCredentials(req: Request): Credentials | null {
-  return req.session.credentials || null;
+  // First check if credentials are directly in session (for backward compatibility)
+  if (req.session.credentials) {
+    return req.session.credentials;
+  }
+
+  // Otherwise, retrieve from secure credential store
+  const currentOrg = getCurrentOrganization(req);
+  if (!currentOrg || !currentOrg.credentialId) {
+    return null;
+  }
+
+  return credentialStore.retrieve(currentOrg.credentialId);
 }
 
 /**
@@ -92,10 +105,12 @@ export function setCurrentOrganization(req: Request, orgId: string): boolean {
   }
 
   req.session.currentOrgId = orgId;
-  req.session.credentials = {
-    oid: org.oid,
-    apiKey: org.apiKey,
-  };
+
+  // Retrieve credentials from secure store
+  const credentials = credentialStore.retrieve(org.credentialId);
+  if (credentials) {
+    req.session.credentials = credentials;
+  }
 
   return true;
 }
