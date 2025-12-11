@@ -41,6 +41,7 @@ export default function AnalyticsDashboardPage() {
   // UI State
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Filters
   const [selectedOrg, setSelectedOrg] = useState<string | null>(null);
@@ -112,18 +113,8 @@ export default function AnalyticsDashboardPage() {
         analyticsApi.getAvailableTests(),
         analyticsApi.getAvailableTechniques()
       ]);
-      setOrganizations(orgs.map(org => {
-        // Handle both string and object responses
-        if (typeof org === 'string') {
-          return { uuid: org, shortName: org, fullName: org };
-        }
-        // If already an object, ensure it has the required fields
-        return {
-          uuid: org.uuid || org,
-          shortName: org.shortName || org.uuid || String(org),
-          fullName: org.fullName || org.shortName || org.uuid || String(org)
-        };
-      }));
+      // API now consistently returns OrganizationInfo[]
+      setOrganizations(orgs);
       setAvailableTests(tests);
       setAvailableTechniques(techniques);
     } catch (error) {
@@ -158,6 +149,10 @@ export default function AnalyticsDashboardPage() {
   // Load all data
   const loadAllData = useCallback(async () => {
     const params = buildParams();
+    setLoadError(null); // Clear any previous errors
+
+    // Track if any critical requests fail
+    let errorCount = 0;
 
     // Load all data in parallel for performance
     const loadPromises = [
@@ -174,6 +169,7 @@ export default function AnalyticsDashboardPage() {
           });
         } catch (error) {
           console.error('Failed to load defense score:', error);
+          errorCount++;
         } finally {
           setLoadingScore(false);
         }
@@ -325,6 +321,11 @@ export default function AnalyticsDashboardPage() {
     ];
 
     await Promise.all(loadPromises);
+
+    // Set error message if multiple data sources failed
+    if (errorCount > 0) {
+      setLoadError(`Failed to load ${errorCount} data source${errorCount > 1 ? 's' : ''}. Some charts may be incomplete.`);
+    }
   }, [buildParams]);
 
   // Reload when filters change
@@ -348,6 +349,27 @@ export default function AnalyticsDashboardPage() {
       />
 
       <main className="container mx-auto px-4 py-6">
+        {/* Error Banner */}
+        {loadError && (
+          <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-3">
+            <svg className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+            </svg>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-red-800 dark:text-red-200">{loadError}</p>
+            </div>
+            <button
+              onClick={() => setLoadError(null)}
+              className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200"
+              aria-label="Dismiss error"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+        )}
+
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-3 mb-6">
           <OrgFilter

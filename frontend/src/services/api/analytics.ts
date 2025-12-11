@@ -193,17 +193,25 @@ export const analyticsApi = {
     return response.data;
   },
 
-  async getOrganizations(): Promise<string[]> {
+  async getOrganizations(): Promise<OrganizationInfo[]> {
     const response = await api.get('/organizations');
     return response.data;
   },
 
-  async getUniqueHostnames(params?: { org?: string }): Promise<number> {
+  async getUniqueHostnames(params?: {
+    org?: string;
+    from?: string;
+    to?: string;
+  }): Promise<number> {
     const response = await api.get('/unique-hostnames', { params });
     return response.data.count;
   },
 
-  async getUniqueTests(params?: { org?: string }): Promise<number> {
+  async getUniqueTests(params?: {
+    org?: string;
+    from?: string;
+    to?: string;
+  }): Promise<number> {
     const response = await api.get('/unique-tests', { params });
     return response.data.count;
   },
