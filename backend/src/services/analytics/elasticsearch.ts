@@ -94,47 +94,6 @@ export class ElasticsearchService {
 
     const protectedCount = (response.aggregations?.protected as any)?.doc_count || 0;
     const overall = total > 0 ? (protectedCount / total) * 100 : 0;
-
-    // Calculate delta (compare with prior period)
-    let delta: number | null = null;
-
-    if (!params.from && !params.to) {
-      const priorFilters: any[] = [
-        { range: { 'routing.event_time': { gte: 'now-14d', lt: 'now-7d' } } },
-      ];
-      if (orgFilter) priorFilters.push(orgFilter);
-
-      try {
-        const priorResponse = await this.client.search({
-          index: this.settings.indexPattern,
-          size: 0,
-          query: {
-            bool: { filter: priorFilters },
-          },
-          aggs: {
-            protected: {
-              filter: { term: { 'f0rtika.is_protected': true } },
-            },
-          },
-        });
-
-        const priorTotal =
-          typeof priorResponse.hits.total === 'number'
-            ? priorResponse.hits.total
-            : priorResponse.hits.total?.value || 0;
-
-        const priorProtected =
-          (priorResponse.aggregations?.protected as any)?.doc_count || 0;
-        const priorScore = priorTotal > 0 ? (priorProtected / priorTotal) * 100 : 0;
-
-        if (priorTotal > 0) {
-          delta = overall - priorScore;
-        }
-      } catch {
-        // Ignore delta calculation errors
-      }
-    }
-
     const unprotectedCount = total - protectedCount;
 
     return {

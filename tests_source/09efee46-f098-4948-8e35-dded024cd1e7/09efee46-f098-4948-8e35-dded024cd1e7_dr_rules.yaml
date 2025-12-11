@@ -1,0 +1,430 @@
+# ============================================================================
+# DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: 09efee46-f098-4948-8e35-dded024cd1e7
+# Test Name: Sliver C2 Client Detection
+# MITRE ATT&CK: T1219 - Remote Access Software
+# Created: 2025-12-07
+# Author: F0RT1KA Defense Guidance Builder
+# Format: LimaCharlie file format (for limacharlie dr add)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These D&R rules detect Sliver C2 framework and similar remote access tools,
+# NOT the F0RT1KA testing framework specifically. They will catch real-world
+# attackers deploying Sliver or similar C2 frameworks.
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f 09efee46-f098-4948-8e35-dded024cd1e7_dr_rules.yaml
+#
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: Sliver C2 Client Binary Execution
+  # Purpose: Detect execution of Sliver C2 client binaries
+  # Confidence: HIGH
+  # ==========================================================================
+  sliver-c2-client-execution:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        # Direct Sliver binary name match
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)sliver[-_]?(client|implant|beacon)?\.exe$
+        # Sliver-specific command line arguments
+        - op: and
+          rules:
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "--mtls"
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "--wg"
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "--dns"
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "--beacon"
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "--http"
+
+    respond:
+      - action: report
+        name: Sliver C2 Client Execution Detected
+        metadata:
+          severity: critical
+          mitre_attack: T1219
+          confidence: high
+          test_id: 09efee46-f098-4948-8e35-dded024cd1e7
+          description: Sliver C2 framework client binary was executed
+          investigation: Check process tree, network connections, and persistence mechanisms
+
+      - action: task
+        command: history_dump
+        investigation: Sliver-C2-Execution
+
+      # Optional: Terminate the C2 process
+      # Uncomment for automatic remediation
+      # - action: task
+      #   command: deny_tree
+
+
+  # ==========================================================================
+  # RULE 2: C2 Binary File Drop in Monitored Directories
+  # Purpose: Detect file creation of C2 binaries in sensitive locations
+  # Confidence: HIGH
+  # ==========================================================================
+  c2-binary-file-drop:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        # File is an executable
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".dll"
+        # In a monitored location
+        - op: or
+          rules:
+            # F0RT1KA test directory
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\F0\\"
+            # Temp directories
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Temp\\"
+            # User profile locations
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\Local\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Downloads\\"
+        # Matches C2 naming patterns
+        - op: or
+          rules:
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)sliver
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)beacon
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)implant
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)payload
+
+    respond:
+      - action: report
+        name: C2 Binary Dropped in Monitored Directory
+        metadata:
+          severity: high
+          mitre_attack: T1219
+          confidence: high
+          test_id: 09efee46-f098-4948-8e35-dded024cd1e7
+          description: Potential C2 framework binary was created in a monitored directory
+
+      - action: task
+        command: file_info
+        file_path: "{{ .event.FILE_PATH }}"
+
+
+  # ==========================================================================
+  # RULE 3: Process Execution from F0RT1KA Test Directory
+  # Purpose: Detect any binary execution from c:\F0 test directory
+  # Confidence: HIGH
+  # ==========================================================================
+  f0rtika-test-directory-execution:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: starts with
+              path: event/FILE_PATH
+              value: "c:\\F0\\"
+            - op: starts with
+              path: event/FILE_PATH
+              value: "C:\\F0\\"
+
+    respond:
+      - action: report
+        name: Process Execution from F0RT1KA Test Directory
+        metadata:
+          severity: high
+          mitre_attack: T1219
+          confidence: high
+          test_id: 09efee46-f098-4948-8e35-dded024cd1e7
+          description: Binary executed from F0RT1KA security test directory
+
+      - action: task
+        command: history_dump
+        investigation: F0RT1KA-Test-Execution
+
+
+  # ==========================================================================
+  # RULE 4: Known C2 Framework Process Names
+  # Purpose: Detect execution of known C2 framework binaries
+  # Confidence: HIGH
+  # ==========================================================================
+  known-c2-framework-execution:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        # Sliver variants
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)sliver.*\.exe$
+        # Other C2 frameworks for comprehensive coverage
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)covenant.*\.exe$
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)havoc.*\.exe$
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)mythic.*\.exe$
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)brute[-_]?ratel.*\.exe$
+
+    respond:
+      - action: report
+        name: Known C2 Framework Detected
+        metadata:
+          severity: critical
+          mitre_attack: T1219
+          confidence: high
+          description: Known C2 framework binary was detected and executed
+
+      - action: task
+        command: history_dump
+        investigation: C2-Framework-Detection
+
+      - action: task
+        command: file_info
+        file_path: "{{ .event.FILE_PATH }}"
+
+
+  # ==========================================================================
+  # RULE 5: Suspicious Network Connection from Non-Standard Location
+  # Purpose: Detect outbound connections from binaries in suspicious paths
+  # Confidence: MEDIUM
+  # ==========================================================================
+  suspicious-location-network-activity:
+    detect:
+      target: edr
+      event: NEW_TCP4_CONNECTION
+      op: and
+      rules:
+        # From suspicious locations
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\F0\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Temp\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\Local\\Temp\\"
+        # Not to localhost
+        - op: is
+          path: event/DESTINATION
+          value: "127.0.0.1"
+          not: true
+        # On common C2 ports
+        - op: or
+          rules:
+            - op: is
+              path: event/DESTINATION_PORT
+              value: 443
+            - op: is
+              path: event/DESTINATION_PORT
+              value: 80
+            - op: is
+              path: event/DESTINATION_PORT
+              value: 8443
+            - op: is
+              path: event/DESTINATION_PORT
+              value: 8888
+            - op: is
+              path: event/DESTINATION_PORT
+              value: 31337
+
+    respond:
+      - action: report
+        name: Suspicious Network Connection from Non-Standard Location
+        metadata:
+          severity: medium
+          mitre_attack: T1219
+          confidence: medium
+          test_id: 09efee46-f098-4948-8e35-dded024cd1e7
+          description: Binary from suspicious location making outbound connections
+
+
+  # ==========================================================================
+  # RULE 6: Go Binary Execution with C2 Characteristics
+  # Purpose: Detect Go-compiled binaries with C2 behavioral patterns
+  # Confidence: MEDIUM
+  # ==========================================================================
+  go-binary-c2-characteristics:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # Process has Go binary characteristics in command line
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "--help"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-h"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "version"
+        # From non-standard location
+        - op: starts with
+          path: event/FILE_PATH
+          value: "C:\\Windows\\"
+          not: true
+        - op: starts with
+          path: event/FILE_PATH
+          value: "C:\\Program Files"
+          not: true
+        # Matches potential C2 binary names
+        - op: or
+          rules:
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)(client|agent|beacon|implant|payload)\.exe$
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\F0\\"
+
+    respond:
+      - action: report
+        name: Suspicious Go Binary Execution
+        metadata:
+          severity: medium
+          mitre_attack: T1219
+          confidence: medium
+          description: Go-compiled binary with potential C2 characteristics detected
+
+
+  # ==========================================================================
+  # RULE 7: DNS Tunneling Indicators
+  # Purpose: Detect DNS queries that may indicate C2 DNS tunneling
+  # Confidence: MEDIUM
+  # ==========================================================================
+  c2-dns-tunneling:
+    detect:
+      target: edr
+      event: DNS_REQUEST
+      op: and
+      rules:
+        # Very long subdomain (typical of DNS tunneling)
+        - op: matches
+          path: event/DOMAIN_NAME
+          re: "^[a-zA-Z0-9]{32,}\\."
+        # Not from expected browsers or system processes
+        - op: is
+          path: routing/parent/FILE_PATH
+          value: "C:\\Windows\\System32\\svchost.exe"
+          not: true
+
+    respond:
+      - action: report
+        name: Potential C2 DNS Tunneling Detected
+        metadata:
+          severity: high
+          mitre_attack: T1219
+          confidence: medium
+          description: DNS query with characteristics of C2 tunneling detected
+
+
+  # ==========================================================================
+  # RULE 8: File Quarantine Detection
+  # Purpose: Detect when security software quarantines a file
+  # Confidence: HIGH (indicates protection is working)
+  # ==========================================================================
+  file-quarantine-event:
+    detect:
+      target: edr
+      event: FILE_DELETE
+      op: and
+      rules:
+        # File was in monitored location
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\F0\\"
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)sliver
+        # Deleted by AV/EDR process
+        - op: or
+          rules:
+            - op: contains
+              path: routing/parent/FILE_PATH
+              value: "\\MsMpEng.exe"
+            - op: contains
+              path: routing/parent/FILE_PATH
+              value: "\\Windows Defender\\"
+            - op: contains
+              path: routing/parent/FILE_PATH
+              value: "\\SentinelOne\\"
+            - op: contains
+              path: routing/parent/FILE_PATH
+              value: "\\CrowdStrike\\"
+
+    respond:
+      - action: report
+        name: Security Software Quarantined Suspicious File
+        metadata:
+          severity: informational
+          mitre_attack: T1219
+          confidence: high
+          test_id: 09efee46-f098-4948-8e35-dded024cd1e7
+          description: Security software successfully quarantined a suspicious file
+
+
+# ============================================================================
+# OUTPUTS CONFIGURATION (for test results collection)
+# ============================================================================
+# Note: Configure outputs for SIEM integration as needed
+
+outputs:
+  sliver-c2-detections:
+    module: syslog
+    for: detections
+    host: siem.example.com
+    port: 514

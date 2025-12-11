@@ -1,0 +1,1278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SafePay Go-Native Ransomware Simulation - Attack/Test Flow</title>
+    <!--
+    Test UUID: 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
+    Test Name: SafePay Go-Native Ransomware Simulation
+    MITRE ATT&CK: T1486, T1560.001, T1071.001, T1490, T1083, T1005
+    Generated for F0RT1KA Security Testing Framework
+    -->
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* F0RT1KA Header - Hidden when embedded in browser */
+        .framework-header {
+            display: none; /* Redundant - browser header shows F0RT1KA branding */
+        }
+
+        .framework-title {
+            font-size: 1.2em;
+            font-weight: 600;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, #ff6b6b, #ff8787);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .framework-subtitle {
+            position: absolute;
+            right: 30px;
+            font-size: 0.85em;
+            color: #6b7280;
+            font-style: italic;
+        }
+
+        .dashboard-container {
+            display: flex;
+            height: 100vh; /* Full height since header is hidden */
+            position: relative;
+        }
+
+        /* Left Panel - Attack Flow View */
+        .attack-flow-panel {
+            flex: 1;
+            min-width: 60%;
+            padding: 20px;
+            overflow-y: auto;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        /* Test title header - Hidden when embedded in browser */
+        .header {
+            display: none; /* Redundant - browser header shows test name */
+        }
+
+        .header h1 {
+            font-size: 2.2em;
+            background: linear-gradient(135deg, #ff4458, #ff8787);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #9ca3af;
+            font-size: 1em;
+        }
+
+        /* View Toggle Buttons */
+        .view-toggle {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+
+        .view-btn {
+            padding: 8px 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            color: #9ca3af;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9em;
+        }
+
+        .view-btn.active {
+            background: rgba(255, 107, 107, 0.1);
+            border-color: #ff6b6b;
+            color: #ff6b6b;
+        }
+
+        .view-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: #ffffff;
+        }
+
+        /* SVG Attack Flow Container */
+        .attack-flow-svg-container {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            padding: 10px;
+            position: relative;
+            flex: 1;
+            min-height: 0; /* Allow flex shrinking */
+            overflow: hidden;
+        }
+
+        .attack-flow-svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* Timeline View (Hidden by default) */
+        .timeline-view {
+            display: none;
+            padding: 20px;
+        }
+
+        .timeline-view.active {
+            display: block;
+        }
+
+        .timeline-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            margin-bottom: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-left: 3px solid transparent;
+        }
+
+        .timeline-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            transform: translateX(5px);
+        }
+
+        .timeline-item.active {
+            background: rgba(255, 107, 107, 0.05);
+            border-left-color: #ff6b6b;
+        }
+
+        .timeline-number {
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 15px;
+            border: 2px solid;
+        }
+
+        .timeline-content {
+            flex: 1;
+        }
+
+        .timeline-title {
+            font-size: 1.1em;
+            color: #ffffff;
+            margin-bottom: 5px;
+        }
+
+        .timeline-meta {
+            font-size: 0.85em;
+            color: #9ca3af;
+        }
+
+        /* Right Panel - Details (OPAQUE BACKGROUND) */
+        .details-panel {
+            width: 450px;
+            background: #0f1419; /* Solid opaque background */
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            overflow-y: auto;
+            position: relative;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            box-shadow: -5px 0 20px rgba(0, 0, 0, 0.8); /* Add shadow for depth */
+        }
+
+        .details-panel.active {
+            transform: translateX(0);
+        }
+
+        .details-header {
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .details-phase-number {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 36px;
+            font-weight: bold;
+            font-size: 1.2em;
+            margin-bottom: 10px;
+            border: 2px solid;
+        }
+
+        .details-title {
+            font-size: 1.5em;
+            color: #ffffff;
+            margin-bottom: 10px;
+        }
+
+        .details-meta {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.85em;
+        }
+
+        .meta-label {
+            color: #6b7280;
+        }
+
+        .meta-value {
+            color: #d1d5db;
+            font-family: 'SF Mono', monospace;
+        }
+
+        /* MITRE Links Styling */
+        .mitre-link {
+            color: #4fc3f7;
+            text-decoration: none;
+            border-bottom: 1px dotted #4fc3f7;
+            transition: all 0.2s ease;
+        }
+
+        .mitre-link:hover {
+            color: #29b6f6;
+            border-bottom-style: solid;
+        }
+
+        .severity-badge {
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: inline-block;
+            border: 1px solid;
+        }
+
+        .severity-badge.critical {
+            color: #ff4444;
+            border-color: #ff4444;
+            background: rgba(255, 68, 68, 0.1);
+        }
+
+        .severity-badge.high {
+            color: #ff9f43;
+            border-color: #ff9f43;
+            background: rgba(255, 159, 67, 0.1);
+        }
+
+        .severity-badge.medium {
+            color: #ffc107;
+            border-color: #ffc107;
+            background: rgba(255, 193, 7, 0.1);
+        }
+
+        .severity-badge.info {
+            color: #4fc3f7;
+            border-color: #4fc3f7;
+            background: rgba(79, 195, 247, 0.1);
+        }
+
+        .details-section {
+            margin-bottom: 25px;
+        }
+
+        .section-title {
+            font-size: 1.1em;
+            color: #ff6b6b;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .action-list {
+            list-style: none;
+        }
+
+        .action-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+
+        .action-title {
+            font-weight: 500;
+            color: #ffffff;
+            margin-bottom: 8px;
+            font-size: 0.95em;
+        }
+
+        .action-details {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .action-details li {
+            color: #9ca3af;
+            font-size: 0.85em;
+            padding: 3px 0;
+            padding-left: 15px;
+            position: relative;
+        }
+
+        .action-details li::before {
+            content: '>';
+            position: absolute;
+            left: 0;
+            color: #6b7280;
+        }
+
+        /* Code Preview */
+        .code-preview {
+            background: #0a0e27;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 15px;
+            font-family: 'SF Mono', 'Monaco', monospace;
+            font-size: 0.85em;
+            overflow-x: auto;
+        }
+
+        .code-line {
+            color: #66bb6a;
+            line-height: 1.5;
+        }
+
+        .code-comment {
+            color: #6b7280;
+        }
+
+        .code-highlight {
+            color: #ff9f43;
+        }
+
+        /* Close button for details panel */
+        .close-details {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: none;
+            border: none;
+            color: #6b7280;
+            font-size: 24px;
+            cursor: pointer;
+            transition: color 0.3s ease;
+            display: none;
+        }
+
+        .close-details:hover {
+            color: #ff6b6b;
+        }
+
+        /* Mobile responsive */
+        @media (max-width: 1200px) {
+            .details-panel {
+                position: absolute;
+                right: 0;
+                top: 0;
+                height: 100%;
+                z-index: 100;
+            }
+
+            .close-details {
+                display: block;
+            }
+
+            .framework-subtitle {
+                display: none;
+            }
+        }
+
+        /* Loading animation */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Interactive component styling */
+        .component {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .component:hover .component-box {
+            filter: drop-shadow(0 0 15px rgba(255, 107, 107, 0.4));
+            stroke-width: 2;
+        }
+
+        .component.active .component-box {
+            filter: drop-shadow(0 0 20px rgba(255, 107, 107, 0.6));
+            stroke: #ff6b6b;
+            stroke-width: 2;
+        }
+
+        /* Pulse animation for active elements */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .pulse {
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        /* Navigation hints - Hidden when embedded */
+        .nav-hint {
+            display: none; /* Redundant - diagram title says "Click components for details" */
+        }
+
+        .nav-hint-icon {
+            color: #ff6b6b;
+        }
+
+        /* Sidebar toggle button */
+        .sidebar-toggle {
+            position: fixed;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 28px;
+            height: 80px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 107, 107, 0.3);
+            border-right: none;
+            border-radius: 8px 0 0 8px;
+            color: #ff6b6b;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            z-index: 200;
+            transition: all 0.3s ease;
+        }
+
+        .sidebar-toggle:hover {
+            background: rgba(255, 107, 107, 0.2);
+            width: 32px;
+        }
+
+        .sidebar-toggle .toggle-icon {
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar-toggle.collapsed .toggle-icon {
+            transform: rotate(180deg);
+        }
+
+        .sidebar-toggle.expanded {
+            right: 450px;
+        }
+
+        .details-panel.collapsed {
+            transform: translateX(100%) !important;
+        }
+
+        /* Stats overlay */
+        .stats-overlay {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 15px;
+        }
+
+        .stat-mini {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.85em;
+        }
+
+        .stat-mini-value {
+            color: #ff6b6b;
+            font-weight: bold;
+        }
+
+        .stat-mini-label {
+            color: #6b7280;
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <!-- F0RT1KA Framework Header -->
+    <div class="framework-header">
+        <div class="framework-title">F0RT1KA Security Testing Framework</div>
+        <div class="framework-subtitle">Version 3.0</div>
+    </div>
+
+    <div class="dashboard-container">
+        <!-- Left Panel - Attack Flow View -->
+        <div class="attack-flow-panel">
+            <div class="header">
+                <h1>SafePay Go-Native Ransomware - Attack/Test Flow</h1>
+                <p>Click any component to explore detailed attack flow</p>
+            </div>
+
+            <div class="view-toggle">
+                <button class="view-btn active" onclick="switchView('architecture')">Attack Flow</button>
+                <button class="view-btn" onclick="switchView('timeline')">Timeline View</button>
+            </div>
+
+            <!-- Attack Flow View -->
+            <div class="attack-flow-svg-container" id="attackFlowView">
+                <svg class="attack-flow-svg" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <!-- Gradient Definitions -->
+                        <linearGradient id="redGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#ff4458;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#ff8787;stop-opacity:0.8" />
+                        </linearGradient>
+
+                        <linearGradient id="blueGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#4fc3f7;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#29b6f6;stop-opacity:0.8" />
+                        </linearGradient>
+
+                        <linearGradient id="orangeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#ff9f43;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#ffb347;stop-opacity:0.8" />
+                        </linearGradient>
+
+                        <linearGradient id="yellowGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#ffc107;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#ffcd38;stop-opacity:0.8" />
+                        </linearGradient>
+
+                        <linearGradient id="purpleGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#a855f7;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#c084fc;stop-opacity:0.8" />
+                        </linearGradient>
+
+                        <!-- Arrow Marker -->
+                        <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                            <polygon points="0 0, 10 3, 0 6" fill="#ff6b6b" />
+                        </marker>
+
+                        <!-- Grid Pattern -->
+                        <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.02)" stroke-width="1"/>
+                        </pattern>
+                    </defs>
+
+                    <!-- Background -->
+                    <rect width="1200" height="700" fill="url(#grid)" />
+
+                    <!-- Phase 1: Directory Structure Creation -->
+                    <g class="component" data-phase="1" onclick="showPhaseDetails(1)">
+                        <rect class="component-box" x="50" y="280" width="150" height="100" rx="8"
+                              fill="url(#yellowGradient)" stroke="#ffc107" stroke-width="1" opacity="0.2"/>
+                        <text x="125" y="310" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Directory</text>
+                        <text x="125" y="328" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Structure</text>
+                        <text x="125" y="350" text-anchor="middle" fill="#9ca3af" font-size="10">T1083</text>
+                        <text x="125" y="365" text-anchor="middle" fill="#9ca3af" font-size="10">Corporate Tree</text>
+                    </g>
+
+                    <!-- Phase 2: Mass File Generation -->
+                    <g class="component" data-phase="2" onclick="showPhaseDetails(2)">
+                        <rect class="component-box" x="250" y="280" width="150" height="100" rx="8"
+                              fill="url(#orangeGradient)" stroke="#ff9f43" stroke-width="1" opacity="0.2"/>
+                        <text x="325" y="310" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Mass File</text>
+                        <text x="325" y="328" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Generation</text>
+                        <text x="325" y="350" text-anchor="middle" fill="#9ca3af" font-size="10">T1005</text>
+                        <text x="325" y="365" text-anchor="middle" fill="#9ca3af" font-size="10">800-1000 Files</text>
+                    </g>
+
+                    <!-- Phase 3: Multi-Phase Data Staging -->
+                    <g class="component" data-phase="3" onclick="showPhaseDetails(3)">
+                        <rect class="component-box" x="450" y="180" width="150" height="100" rx="8"
+                              fill="url(#redGradient)" stroke="#ff6b6b" stroke-width="1" opacity="0.2"/>
+                        <text x="525" y="210" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Data Staging</text>
+                        <text x="525" y="228" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">WinRAR</text>
+                        <text x="525" y="250" text-anchor="middle" fill="#9ca3af" font-size="10">T1560.001</text>
+                        <text x="525" y="265" text-anchor="middle" fill="#9ca3af" font-size="10">3-Phase Archives</text>
+                    </g>
+
+                    <!-- Phase 4: Selective Mass Deletion -->
+                    <g class="component" data-phase="4" onclick="showPhaseDetails(4)">
+                        <rect class="component-box" x="450" y="380" width="150" height="100" rx="8"
+                              fill="url(#orangeGradient)" stroke="#ff9f43" stroke-width="1" opacity="0.2"/>
+                        <text x="525" y="410" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Selective</text>
+                        <text x="525" y="428" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Deletion</text>
+                        <text x="525" y="450" text-anchor="middle" fill="#9ca3af" font-size="10">T1490</text>
+                        <text x="525" y="465" text-anchor="middle" fill="#9ca3af" font-size="10">65% Files Deleted</text>
+                    </g>
+
+                    <!-- Phase 5: File Encryption Simulation -->
+                    <g class="component" data-phase="5" onclick="showPhaseDetails(5)">
+                        <rect class="component-box" x="650" y="280" width="150" height="100" rx="8"
+                              fill="url(#redGradient)" stroke="#ff6b6b" stroke-width="1" opacity="0.2"/>
+                        <text x="725" y="310" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Encryption</text>
+                        <text x="725" y="328" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Simulation</text>
+                        <text x="725" y="350" text-anchor="middle" fill="#9ca3af" font-size="10">T1486</text>
+                        <text x="725" y="365" text-anchor="middle" fill="#9ca3af" font-size="10">.safepay Extension</text>
+                    </g>
+
+                    <!-- Phase 6: Ransom Note & C2 -->
+                    <g class="component" data-phase="6" onclick="showPhaseDetails(6)">
+                        <rect class="component-box" x="850" y="280" width="150" height="100" rx="8"
+                              fill="url(#purpleGradient)" stroke="#a855f7" stroke-width="1" opacity="0.2"/>
+                        <text x="925" y="310" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Ransom Note</text>
+                        <text x="925" y="328" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">& C2 Sim</text>
+                        <text x="925" y="350" text-anchor="middle" fill="#9ca3af" font-size="10">T1071.001</text>
+                        <text x="925" y="365" text-anchor="middle" fill="#9ca3af" font-size="10">readme_safepay.txt</text>
+                    </g>
+
+                    <!-- Flow Arrows -->
+                    <!-- Phase 1 to Phase 2 -->
+                    <path d="M 200 330 L 250 330" stroke="#ff6b6b" stroke-width="2" fill="none"
+                          marker-end="url(#arrowhead)" opacity="0.5"/>
+
+                    <!-- Phase 2 splits to Phase 3 and Phase 4 -->
+                    <path d="M 400 310 L 425 310 L 425 230 L 450 230" stroke="#ff6b6b" stroke-width="2" fill="none"
+                          marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <path d="M 400 350 L 425 350 L 425 430 L 450 430" stroke="#ff6b6b" stroke-width="2" fill="none"
+                          marker-end="url(#arrowhead)" opacity="0.5"/>
+
+                    <!-- Phase 3 and Phase 4 converge to Phase 5 -->
+                    <path d="M 600 230 L 625 230 L 625 310 L 650 310" stroke="#ff6b6b" stroke-width="2" fill="none"
+                          marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <path d="M 600 430 L 625 430 L 625 350 L 650 350" stroke="#ff6b6b" stroke-width="2" fill="none"
+                          marker-end="url(#arrowhead)" opacity="0.5"/>
+
+                    <!-- Phase 5 to Phase 6 -->
+                    <path d="M 800 330 L 850 330" stroke="#ff6b6b" stroke-width="2" fill="none"
+                          marker-end="url(#arrowhead)" opacity="0.5"/>
+
+                    <!-- Central Title -->
+                    <rect x="400" y="30" width="400" height="60" rx="8" fill="rgba(0,0,0,0.5)" stroke="rgba(255,107,107,0.3)"/>
+                    <text x="600" y="55" text-anchor="middle" fill="#ff6b6b" font-size="16" font-weight="bold">SafePay Go-Native Ransomware</text>
+                    <text x="600" y="75" text-anchor="middle" fill="#9ca3af" font-size="11">Click components for details | Pure Go Implementation</text>
+
+                    <!-- MITRE ATT&CK Techniques Legend -->
+                    <rect x="50" y="120" width="200" height="110" rx="6" fill="rgba(0,0,0,0.4)" stroke="rgba(255,255,255,0.1)"/>
+                    <text x="150" y="140" text-anchor="middle" fill="#ff6b6b" font-size="12" font-weight="bold">MITRE ATT&CK Coverage</text>
+                    <text x="65" y="160" fill="#9ca3af" font-size="10">T1486 - Data Encrypted for Impact</text>
+                    <text x="65" y="175" fill="#9ca3af" font-size="10">T1560.001 - Archive via Utility</text>
+                    <text x="65" y="190" fill="#9ca3af" font-size="10">T1071.001 - Web Protocols</text>
+                    <text x="65" y="205" fill="#9ca3af" font-size="10">T1490 - Inhibit System Recovery</text>
+                    <text x="65" y="220" fill="#9ca3af" font-size="10">T1083/T1005 - Discovery/Collection</text>
+
+                    <!-- Detection Opportunities Box -->
+                    <rect x="950" y="120" width="200" height="110" rx="6" fill="rgba(0,0,0,0.4)" stroke="rgba(79,195,247,0.3)"/>
+                    <text x="1050" y="140" text-anchor="middle" fill="#4fc3f7" font-size="12" font-weight="bold">Detection Opportunities</text>
+                    <text x="965" y="160" fill="#9ca3af" font-size="10">Mass file creation (800+ files)</text>
+                    <text x="965" y="175" fill="#9ca3af" font-size="10">WinRAR.exe execution</text>
+                    <text x="965" y="190" fill="#9ca3af" font-size="10">Batch file deletion patterns</text>
+                    <text x="965" y="205" fill="#9ca3af" font-size="10">.safepay extension changes</text>
+                    <text x="965" y="220" fill="#9ca3af" font-size="10">Ransom note creation</text>
+
+                    <!-- Execution Timeline -->
+                    <text x="125" y="550" fill="#9ca3af" font-size="10">T+0s</text>
+                    <text x="325" y="550" fill="#9ca3af" font-size="10">T+5-30s</text>
+                    <text x="525" y="550" fill="#9ca3af" font-size="10">T+35-90s</text>
+                    <text x="725" y="550" fill="#9ca3af" font-size="10">T+95-120s</text>
+                    <text x="925" y="550" fill="#9ca3af" font-size="10">T+120s</text>
+
+                    <!-- Progress Bar -->
+                    <rect x="50" y="570" width="950" height="4" rx="2" fill="rgba(255,255,255,0.1)"/>
+                    <rect x="50" y="570" width="0" height="4" rx="2" fill="#ff6b6b" id="progressBar"/>
+
+                    <!-- Output Artifacts -->
+                    <rect x="50" y="600" width="950" height="50" rx="6" fill="rgba(0,0,0,0.3)" stroke="rgba(255,255,255,0.05)"/>
+                    <text x="75" y="620" fill="#6b7280" font-size="10">Output Artifacts:</text>
+                    <text x="75" y="638" fill="#9ca3af" font-size="10">C:\F0\safepay_simulation.log | C:\Users\fortika-test\ | *.safepay files | *.rar archives | readme_safepay.txt</text>
+                </svg>
+
+                <div class="stats-overlay">
+                    <div class="stat-mini">
+                        <span class="stat-mini-value">6</span>
+                        <span class="stat-mini-label">Phases</span>
+                    </div>
+                    <div class="stat-mini">
+                        <span class="stat-mini-value">6</span>
+                        <span class="stat-mini-label">Techniques</span>
+                    </div>
+                    <div class="stat-mini">
+                        <span class="stat-mini-value">800-1K</span>
+                        <span class="stat-mini-label">Files</span>
+                    </div>
+                    <div class="stat-mini">
+                        <span class="stat-mini-value">2-4min</span>
+                        <span class="stat-mini-label">Duration</span>
+                    </div>
+                </div>
+
+                <div class="nav-hint">
+                    <span class="nav-hint-icon">*</span>
+                    <span>Click any component to view detailed attack flow information</span>
+                </div>
+            </div>
+
+            <!-- Timeline View (Hidden by default) -->
+            <div class="timeline-view" id="timelineView">
+                <!-- Timeline items will be generated by JavaScript -->
+            </div>
+        </div>
+
+        <!-- Right Panel - Details (OPAQUE) -->
+        <div class="details-panel" id="detailsPanel">
+            <button class="close-details" onclick="closeDetails()">x</button>
+            <div id="detailsContent">
+                <!-- Details will be populated dynamically -->
+            </div>
+        </div>
+
+        <!-- Sidebar Toggle Button -->
+        <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" title="Toggle details panel">
+            <span class="toggle-icon"><</span>
+        </button>
+    </div>
+
+    <script>
+        // Phase data with MITRE links - SafePay Go-Native Ransomware
+        const phaseData = {
+            1: {
+                number: 1,
+                title: "Directory Structure Creation",
+                severity: "medium",
+                mitre: [
+                    { id: "T1083", name: "File and Directory Discovery" }
+                ],
+                status: "actual",
+                time: "T+0-5s",
+                description: "Creates realistic corporate directory structure simulating enterprise file organization patterns",
+                actions: [
+                    {
+                        title: "Target Directory Setup",
+                        details: [
+                            "Creates C:\\Users\\fortika-test base directory",
+                            "Establishes Documents, Desktop, Pictures folders",
+                            "Validates administrator privileges",
+                            "Checks minimum 2GB disk space"
+                        ]
+                    },
+                    {
+                        title: "Department Hierarchy",
+                        details: [
+                            "Finance: Reports/Q1_2024, Q2_2024, Budgets, Audits",
+                            "HR: Employees/Active, Terminated, Payroll",
+                            "Legal: Contracts/Active, Archive, Compliance",
+                            "IT: Backups/Database, System, Credentials",
+                            "Sales: Leads, Customers, Proposals",
+                            "Executive: Board, Strategy"
+                        ]
+                    },
+                    {
+                        title: "WinRAR Deployment",
+                        details: [
+                            "Drops embedded WinRAR.exe to C:\\F0",
+                            "Binary extracted from Go embed directive",
+                            "Quarantine check performed after drop"
+                        ]
+                    }
+                ],
+                code: "// Go-native directory creation\ndirectories := []string{\n    \"Documents\\\\Finance\\\\Reports\\\\Q1_2024\",\n    \"Documents\\\\HR\\\\Employees\\\\Active\",\n    \"Documents\\\\Legal\\\\Contracts\\\\Active\",\n    // ... 20+ directories\n}\nfor _, dir := range directories {\n    os.MkdirAll(filepath.Join(targetDir, dir), 0755)\n}"
+            },
+            2: {
+                number: 2,
+                title: "Mass File Generation",
+                severity: "high",
+                mitre: [
+                    { id: "T1005", name: "Data from Local System" }
+                ],
+                status: "actual",
+                time: "T+5-30s",
+                description: "Generates 800-1000 realistic corporate files with department-specific content",
+                actions: [
+                    {
+                        title: "File Generation Parameters",
+                        details: [
+                            "Target: 800-1000 files across all directories",
+                            "Size range: 5-10KB per file (7.5KB average)",
+                            "20 files per directory maximum",
+                            "Random distribution across departments"
+                        ]
+                    },
+                    {
+                        title: "Content Generation by Department",
+                        details: [
+                            "Finance: Revenue analysis, expense breakdowns, EBITDA",
+                            "HR: Employee records, SSN references, salary data",
+                            "Legal: Litigation summaries, patent portfolios, M&A",
+                            "IT: Server credentials, database locations, security logs",
+                            "Sales: Customer databases, CRM access, contract values",
+                            "Executive: Board materials, acquisition strategies, compensation"
+                        ]
+                    },
+                    {
+                        title: "File Extensions Used",
+                        details: [
+                            ".docx, .xlsx, .pdf - Office documents",
+                            ".txt, .csv - Text and data files",
+                            ".sql, .bak - Database files",
+                            ".ppt, .doc, .zip - Legacy formats"
+                        ]
+                    }
+                ],
+                code: "// Mass file generation with realistic content\nextensions := []string{\".docx\", \".xlsx\", \".pdf\", \".txt\", \".csv\", \".sql\", \".bak\"}\nfor i := 0; i < filesPerDir; i++ {\n    content := generateRealisticContent(dept, ext, sizeKB)\n    os.WriteFile(filePath, []byte(content), 0644)\n    totalFiles++\n}"
+            },
+            3: {
+                number: 3,
+                title: "Multi-Phase Data Staging",
+                severity: "critical",
+                mitre: [
+                    { id: "T1560.001", name: "Archive Collected Data: Archive via Utility" }
+                ],
+                status: "actual",
+                time: "T+35-70s",
+                description: "Three-phase compression strategy using embedded WinRAR for data staging and exfiltration preparation",
+                actions: [
+                    {
+                        title: "Phase 1: Department Archives",
+                        details: [
+                            "Creates Finance_Archive_YYYYMMDD.rar",
+                            "Creates HR_Archive_YYYYMMDD.rar",
+                            "Creates Legal_Archive_YYYYMMDD.rar",
+                            "Creates IT_Archive_YYYYMMDD.rar",
+                            "Creates Sales_Archive_YYYYMMDD.rar",
+                            "Creates Executive_Archive_YYYYMMDD.rar"
+                        ]
+                    },
+                    {
+                        title: "Phase 2: Location Archives",
+                        details: [
+                            "Documents_Data_YYYYMMDD_HHMM.rar",
+                            "Desktop_Data_YYYYMMDD_HHMM.rar",
+                            "Pictures_Data_YYYYMMDD_HHMM.rar",
+                            "Recursive compression with -r flag"
+                        ]
+                    },
+                    {
+                        title: "Phase 3: Master Exfiltration Archive",
+                        details: [
+                            "EXFIL_Master_YYYYMMDD_HHMM.rar",
+                            "Fast compression with -m1 flag",
+                            "Excludes existing .rar files",
+                            "Local staging only (no network)"
+                        ]
+                    }
+                ],
+                code: "// WinRAR compression via exec.Command\nwinrarPath := \"C:\\\\F0\\\\WinRAR.exe\"\nargs := []string{\n    \"a\",     // Add to archive\n    \"-r\",    // Recurse subdirectories\n    \"-m3\",   // Good compression\n    \"-mt2\",  // Use 2 threads\n    archivePath,\n    filepath.Join(deptPath, \"*\"),\n}\ncmd := exec.Command(winrarPath, args...)\ncmd.Run()"
+            },
+            4: {
+                number: 4,
+                title: "Selective Mass Deletion",
+                severity: "high",
+                mitre: [
+                    { id: "T1490", name: "Inhibit System Recovery" }
+                ],
+                status: "actual",
+                time: "T+75-90s",
+                description: "Deletes 65% of original files in batches, preserving 35% for encryption demonstration",
+                actions: [
+                    {
+                        title: "File Selection Algorithm",
+                        details: [
+                            "Collects all corporate document files",
+                            "Random shuffle for realistic behavior",
+                            "65% marked for deletion",
+                            "35% preserved for encryption phase"
+                        ]
+                    },
+                    {
+                        title: "Batch Deletion Process",
+                        details: [
+                            "Batch size: 50 files per iteration",
+                            "1-second pause between batches",
+                            "Progress logging every 25 files",
+                            "Total deleted: ~520-650 files"
+                        ]
+                    },
+                    {
+                        title: "Exclusion Patterns",
+                        details: [
+                            "*.rar - Preserve archive files",
+                            "*.safepay - Preserve encrypted files",
+                            "readme_safepay.txt - Preserve ransom note",
+                            "*.log - Preserve log files"
+                        ]
+                    }
+                ],
+                code: "// Selective deletion with 65% rate\ndeletionPercentage := 0.65\nfilesToDelete := int(math.Floor(float64(totalFiles) * deletionPercentage))\n\nrand.Shuffle(len(allFiles), func(i, j int) {\n    allFiles[i], allFiles[j] = allFiles[j], allFiles[i]\n})\n\nfor i := 0; i < filesToDelete; i += batchSize {\n    // Delete batch\n    time.Sleep(1 * time.Second)\n}"
+            },
+            5: {
+                number: 5,
+                title: "File Encryption Simulation",
+                severity: "critical",
+                mitre: [
+                    { id: "T1486", name: "Data Encrypted for Impact" }
+                ],
+                status: "actual",
+                time: "T+95-120s",
+                description: "Encrypts remaining files using Base64 encoding (safe simulation) and adds .safepay extension",
+                actions: [
+                    {
+                        title: "Encryption Process",
+                        details: [
+                            "Reads original file content",
+                            "Applies Base64 encoding (safe simulation)",
+                            "Writes to new .safepay file",
+                            "Deletes original file after encryption"
+                        ]
+                    },
+                    {
+                        title: "Target File Types",
+                        details: [
+                            ".xlsx, .csv, .txt - Data files",
+                            ".docx, .pdf - Documents",
+                            ".sql, .bak - Database files",
+                            ".ppt, .doc, .zip - Office files"
+                        ]
+                    },
+                    {
+                        title: "Expected Results",
+                        details: [
+                            "~280-350 files encrypted",
+                            "All files renamed with .safepay extension",
+                            "Original files removed after encryption",
+                            "Detailed logging of each encryption event"
+                        ]
+                    }
+                ],
+                code: "// Safe encryption simulation with Base64\nfor _, filePath := range filesToEncrypt {\n    originalContent, _ := os.ReadFile(filePath)\n    encryptedContent := base64.StdEncoding.EncodeToString(originalContent)\n    \n    encryptedName := filePath + \".safepay\"\n    os.WriteFile(encryptedName, []byte(encryptedContent), 0644)\n    os.Remove(filePath) // Delete original\n}"
+            },
+            6: {
+                number: 6,
+                title: "Ransom Note & C2 Simulation",
+                severity: "high",
+                mitre: [
+                    { id: "T1071.001", name: "Application Layer Protocol: Web Protocols" }
+                ],
+                status: "simulated",
+                time: "T+120s+",
+                description: "Creates authentic ransom note, displays to user, and simulates C2 communication patterns (log only)",
+                actions: [
+                    {
+                        title: "Ransom Note Creation",
+                        details: [
+                            "Creates readme_safepay.txt",
+                            "Includes fake Bitcoin address",
+                            "Generates random Computer ID",
+                            "72-hour payment countdown message",
+                            "Contact: safepay@darkweb.onion"
+                        ]
+                    },
+                    {
+                        title: "User Notification",
+                        details: [
+                            "Launches notepad.exe with ransom note",
+                            "Displays payment instructions",
+                            "Shows encrypted file warnings",
+                            "Simulates victim awareness moment"
+                        ]
+                    },
+                    {
+                        title: "C2 Communication Simulation",
+                        details: [
+                            "Logs: 'Simulating C2 communication'",
+                            "Logs: 'Sending header pattern: C4 C3 C2 C1'",
+                            "Logs: 'Establishing connection to C2 server'",
+                            "Logs: 'Encryption key sent to attacker'",
+                            "NO actual network connections made"
+                        ]
+                    }
+                ],
+                code: "// Ransom note creation and display\nransomNote := fmt.Sprintf(\n    \"=== SAFEPAY RANSOMWARE ===\",\n    \"All your files have been encrypted!\",\n    \"Payment: 0.5 BTC to: 1A1zP1e...\",\n    \"Your Computer ID: %d\",\n    computerID)\n\nos.WriteFile(ransomNotePath, []byte(ransomNote), 0644)\nexec.Command(\"notepad.exe\", ransomNotePath).Start()"
+            }
+        };
+
+        // Current active phase
+        let currentPhase = null;
+
+        // Sidebar toggle state
+        var sidebarCollapsed = false;
+        function toggleSidebar() {
+            var detailsPanel = document.getElementById('detailsPanel');
+            var toggleBtn = document.getElementById('sidebarToggle');
+
+            sidebarCollapsed = !sidebarCollapsed;
+
+            if (sidebarCollapsed) {
+                detailsPanel.classList.add('collapsed');
+                toggleBtn.classList.remove('expanded');
+                toggleBtn.classList.add('collapsed');
+            } else {
+                detailsPanel.classList.remove('collapsed');
+                if (detailsPanel.classList.contains('active')) {
+                    toggleBtn.classList.add('expanded');
+                }
+                toggleBtn.classList.remove('collapsed');
+            }
+        }
+
+        // Function to create MITRE links
+        function createMitreLinks(mitreArray) {
+            return mitreArray.map(function(technique) {
+                var baseUrl = "https://attack.mitre.org/techniques/";
+                var techId = technique.id.replace('.', '/'); // Handle sub-techniques like T1560.001
+                return '<a href="' + baseUrl + techId + '" target="_blank" class="mitre-link" title="' + technique.name + '">' + technique.id + '</a>';
+            }).join(', ');
+        }
+
+        // Initialize timeline view
+        function initializeTimeline() {
+            var timelineView = document.getElementById('timelineView');
+            var html = '';
+
+            for (var i = 1; i <= 6; i++) {
+                var phase = phaseData[i];
+                var severityColor = getSeverityColor(phase.severity);
+                var mitreText = phase.mitre.map(function(t) { return t.id; }).join(', ');
+
+                html += '<div class="timeline-item" onclick="showPhaseDetails(' + i + ')">' +
+                    '<div class="timeline-number" style="border-color: ' + severityColor + '; color: ' + severityColor + ';">' +
+                        i +
+                    '</div>' +
+                    '<div class="timeline-content">' +
+                        '<div class="timeline-title">' + phase.title + '</div>' +
+                        '<div class="timeline-meta">' +
+                            phase.time + ' | ' + mitreText + ' | ' + (phase.status === 'actual' ? 'Actual' : 'Simulated') +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+            }
+
+            timelineView.innerHTML = html;
+        }
+
+        // Show phase details
+        function showPhaseDetails(phaseNum) {
+            currentPhase = phaseNum;
+            var phase = phaseData[phaseNum];
+            var detailsPanel = document.getElementById('detailsPanel');
+            var detailsContent = document.getElementById('detailsContent');
+
+            // Update active states
+            var allComponents = document.querySelectorAll('.component');
+            for (var i = 0; i < allComponents.length; i++) {
+                allComponents[i].classList.remove('active');
+            }
+            var allTimelineItems = document.querySelectorAll('.timeline-item');
+            for (var i = 0; i < allTimelineItems.length; i++) {
+                allTimelineItems[i].classList.remove('active');
+            }
+
+            // Add active state to clicked component
+            var activeComponent = document.querySelector('.component[data-phase="' + phaseNum + '"]');
+            if (activeComponent) {
+                activeComponent.classList.add('active');
+            }
+
+            // Add active state to timeline item
+            var timelineItems = document.querySelectorAll('.timeline-item');
+            if (timelineItems[phaseNum - 1]) {
+                timelineItems[phaseNum - 1].classList.add('active');
+            }
+
+            // Generate details HTML
+            var severityColor = getSeverityColor(phase.severity);
+            var actionsHtml = '';
+
+            for (var j = 0; j < phase.actions.length; j++) {
+                var action = phase.actions[j];
+                var detailsHtml = '';
+                for (var k = 0; k < action.details.length; k++) {
+                    detailsHtml += '<li>' + action.details[k] + '</li>';
+                }
+                actionsHtml += '<div class="action-item">' +
+                    '<div class="action-title">' + action.title + '</div>' +
+                    '<ul class="action-details">' + detailsHtml + '</ul>' +
+                '</div>';
+            }
+
+            var mitreLinks = createMitreLinks(phase.mitre);
+
+            var codeHtml = '';
+            if (phase.code) {
+                var codeLines = phase.code.split('\n');
+                for (var m = 0; m < codeLines.length; m++) {
+                    var line = codeLines[m];
+                    if (line.indexOf('//') === 0) {
+                        codeHtml += '<div class="code-line code-comment">' + line + '</div>';
+                    } else {
+                        codeHtml += '<div class="code-line">' + line + '</div>';
+                    }
+                }
+            }
+
+            detailsContent.innerHTML =
+                '<div class="details-header">' +
+                    '<div class="details-phase-number" style="border-color: ' + severityColor + '; color: ' + severityColor + ';">' +
+                        phase.number +
+                    '</div>' +
+                    '<h2 class="details-title">' + phase.title + '</h2>' +
+                    '<div class="severity-badge ' + phase.severity + '">' + phase.severity.toUpperCase() + '</div>' +
+                    '<div class="details-meta">' +
+                        '<div class="meta-item">' +
+                            '<span class="meta-label">MITRE:</span>' +
+                            '<span class="meta-value">' + mitreLinks + '</span>' +
+                        '</div>' +
+                        '<div class="meta-item">' +
+                            '<span class="meta-label">Time:</span>' +
+                            '<span class="meta-value">' + phase.time + '</span>' +
+                        '</div>' +
+                        '<div class="meta-item">' +
+                            '<span class="meta-label">Status:</span>' +
+                            '<span class="meta-value">' + (phase.status === 'actual' ? 'Actual execution' : 'Simulated only') + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+
+                '<div class="details-section">' +
+                    '<p style="color: #9ca3af; margin-bottom: 20px;">' + phase.description + '</p>' +
+                '</div>' +
+
+                '<div class="details-section">' +
+                    '<h3 class="section-title">' +
+                        '<span>[*]</span>' +
+                        '<span>Actions Performed</span>' +
+                    '</h3>' +
+                    '<div class="action-list">' + actionsHtml + '</div>' +
+                '</div>' +
+
+                (phase.code ?
+                '<div class="details-section">' +
+                    '<h3 class="section-title">' +
+                        '<span>[>]</span>' +
+                        '<span>Go Code Preview</span>' +
+                    '</h3>' +
+                    '<div class="code-preview">' + codeHtml + '</div>' +
+                '</div>' : '');
+
+            // Show details panel
+            detailsPanel.classList.add('active');
+
+            // Update progress bar
+            updateProgressBar(phaseNum);
+
+            // Position toggle button with sidebar
+            var toggleBtn = document.getElementById('sidebarToggle');
+            if (!sidebarCollapsed) {
+                toggleBtn.classList.add('expanded');
+            }
+        }
+
+        // Close details panel
+        function closeDetails() {
+            document.getElementById('detailsPanel').classList.remove('active');
+            var allComponents = document.querySelectorAll('.component');
+            for (var i = 0; i < allComponents.length; i++) {
+                allComponents[i].classList.remove('active');
+            }
+            var allTimelineItems = document.querySelectorAll('.timeline-item');
+            for (var i = 0; i < allTimelineItems.length; i++) {
+                allTimelineItems[i].classList.remove('active');
+            }
+
+            // Reset toggle button position
+            var toggleBtn = document.getElementById('sidebarToggle');
+            toggleBtn.classList.remove('expanded');
+        }
+
+        // Switch view
+        function switchView(view) {
+            // Update button states
+            var allBtns = document.querySelectorAll('.view-btn');
+            for (var i = 0; i < allBtns.length; i++) {
+                allBtns[i].classList.remove('active');
+            }
+            event.target.classList.add('active');
+
+            // Hide all views
+            document.getElementById('attackFlowView').style.display = 'none';
+            document.getElementById('timelineView').classList.remove('active');
+
+            // Show selected view
+            if (view === 'architecture') {
+                document.getElementById('attackFlowView').style.display = 'block';
+            } else if (view === 'timeline') {
+                document.getElementById('timelineView').classList.add('active');
+            }
+        }
+
+        // Get severity color
+        function getSeverityColor(severity) {
+            switch(severity) {
+                case 'critical': return '#ff4444';
+                case 'high': return '#ff9f43';
+                case 'medium': return '#ffc107';
+                case 'info': return '#4fc3f7';
+                default: return '#9ca3af';
+            }
+        }
+
+        // Update progress bar
+        function updateProgressBar(phaseNum) {
+            var progressBar = document.getElementById('progressBar');
+            var width = (phaseNum / 6) * 950;
+            progressBar.style.width = width + 'px';
+            progressBar.style.transition = 'width 0.5s ease';
+        }
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeTimeline();
+
+            // Sidebar starts expanded - show phase 1 details
+            sidebarCollapsed = false;
+            setTimeout(function() {
+                showPhaseDetails(1);
+            }, 500);
+        });
+
+        // Keyboard navigation
+        document.addEventListener('keydown', function(e) {
+            if (currentPhase) {
+                if (e.key === 'ArrowRight' && currentPhase < 6) {
+                    showPhaseDetails(currentPhase + 1);
+                } else if (e.key === 'ArrowLeft' && currentPhase > 1) {
+                    showPhaseDetails(currentPhase - 1);
+                } else if (e.key === 'Escape') {
+                    closeDetails();
+                }
+            }
+        });
+    </script>
+</body>
+</html>

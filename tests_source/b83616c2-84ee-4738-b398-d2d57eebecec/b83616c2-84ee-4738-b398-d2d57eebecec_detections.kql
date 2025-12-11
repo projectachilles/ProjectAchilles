@@ -1,0 +1,417 @@
+// ============================================================================
+// DEFENSE GUIDANCE: KQL Detection Queries
+// ============================================================================
+// Test ID: b83616c2-84ee-4738-b398-d2d57eebecec
+// Test Name: NativeDump (NimDump) Detection
+// MITRE ATT&CK: T1003.001 - OS Credential Dumping: LSASS Memory
+// Created: 2025-12-07
+// Author: F0RT1KA Defense Guidance Builder
+// ============================================================================
+//
+// TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+// These detections target LSASS credential dumping techniques, specifically
+// NativeDump/NimDump and similar tools that bypass MiniDumpWriteDump.
+// They will catch real-world attackers using NTAPI-based credential dumpers.
+//
+// ============================================================================
+
+
+// ============================================================================
+// QUERY 1: LSASS Process Access Detection (High Priority)
+// Purpose: Detect processes attempting to access lsass.exe memory
+// Confidence: HIGH
+// False Positives: Security software, legitimate debugging (rare)
+// Threshold: Any access from non-system processes
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where InitiatingProcessFileName !in~ (
+    "csrss.exe",
+    "services.exe",
+    "svchost.exe",
+    "MsMpEng.exe",
+    "MpCmdRun.exe",
+    "SenseIR.exe",
+    "SenseCncProxy.exe",
+    "SecurityHealthService.exe",
+    "WerFault.exe",
+    "wermgr.exe",
+    "lsass.exe",
+    "smss.exe",
+    "System"
+)
+| where ProcessCommandLine has_any ("lsass", "LSASS")
+    or FileName =~ "lsass.exe"
+| project TimeGenerated, DeviceName, AccountName,
+    InitiatingProcessFileName, InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine, ProcessId, ParentProcessId
+| extend
+    Severity = "Critical",
+    ThreatType = "LSASS Process Access Attempt",
+    MitreAttack = "T1003.001",
+    TestID = "b83616c2-84ee-4738-b398-d2d57eebecec",
+    Confidence = "High"
+
+
+// ============================================================================
+// QUERY 2: NimDump/NativeDump Binary Execution Detection
+// Purpose: Detect execution of known NativeDump/NimDump binaries
+// Confidence: HIGH
+// False Positives: Authorized penetration testing, security assessments
+// Threshold: Any execution matching these patterns
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "library_update.exe"
+    or FileName matches regex @"(?i)(native[-_]?dump|nim[-_]?dump|lsass[-_]?dump).*\.exe"
+    or ProcessCommandLine has_any ("-r", "-o:", "document.docx")
+    or (ProcessCommandLine has "-o:" and ProcessCommandLine matches regex @"(?i)\.(docx|dmp|bin|dump)$")
+| extend DumpIndicator = case(
+    FileName =~ "library_update.exe", "NimDump Disguised Binary",
+    ProcessCommandLine has "-r", "NativeDump Remap Mode",
+    ProcessCommandLine has "-o:", "NativeDump Output Specified",
+    "Generic Credential Dumper Pattern"
+)
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
+    ProcessCommandLine, ProcessId, ParentProcessId, DumpIndicator
+| extend
+    Severity = "Critical",
+    ThreatType = "NativeDump/NimDump Credential Dumper",
+    MitreAttack = "T1003.001",
+    TestID = "b83616c2-84ee-4738-b398-d2d57eebecec",
+    Confidence = "High"
+
+
+// ============================================================================
+// QUERY 3: Sysmon LSASS Access (Event ID 10)
+// Purpose: Detect process access to lsass.exe via Sysmon
+// Confidence: HIGH
+// False Positives: Security products, system processes
+// Threshold: Access with read permissions from suspicious sources
+// Note: Requires Sysmon with ProcessAccess logging enabled
+// ============================================================================
+
+SecurityEvent
+| where TimeGenerated > ago(1h)
+| where EventID == 10  // Sysmon ProcessAccess
+| where TargetImage endswith "\\lsass.exe"
+| where SourceImage !endswith "\\csrss.exe"
+    and SourceImage !endswith "\\services.exe"
+    and SourceImage !endswith "\\svchost.exe"
+    and SourceImage !endswith "\\MsMpEng.exe"
+    and SourceImage !endswith "\\lsass.exe"
+    and SourceImage !endswith "\\wininit.exe"
+| extend GrantedAccessHex = GrantedAccess
+| extend SuspiciousAccess = case(
+    GrantedAccess has "0x1F0FFF", "PROCESS_ALL_ACCESS - Critical",
+    GrantedAccess has "0x1FFFFF", "Full Access - Critical",
+    GrantedAccess has "0x1010", "VM_READ + QUERY_INFO",
+    GrantedAccess has "0x0010", "PROCESS_VM_READ",
+    "Other Access Rights"
+)
+| project TimeGenerated, Computer, SourceImage, TargetImage,
+    GrantedAccessHex, SuspiciousAccess, SourceProcessId
+| extend
+    Severity = "Critical",
+    ThreatType = "LSASS Memory Access (Sysmon)",
+    MitreAttack = "T1003.001",
+    TestID = "b83616c2-84ee-4738-b398-d2d57eebecec",
+    Confidence = "High"
+
+
+// ============================================================================
+// QUERY 4: Minidump File Creation Detection
+// Purpose: Detect creation of potential LSASS dump files
+// Confidence: HIGH
+// False Positives: Legitimate crash dumps, developer debugging
+// Threshold: Dump files created by non-system processes
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FileName endswith ".dmp"
+    or FileName endswith ".mdmp"
+    or FileName matches regex @"(?i)(lsass|credential|dump|memory).*\.(dmp|bin|docx)"
+    or (FolderPath has "c:\\F0" and FileName endswith ".docx")  // Test-specific disguise
+| where InitiatingProcessFileName !in~ ("WerFault.exe", "wermgr.exe", "svchost.exe")
+| extend DumpType = case(
+    FileName has "lsass", "LSASS Dump File",
+    FileName endswith ".docx" and FolderPath has "\\F0", "Disguised Dump File (F0RT1KA Test)",
+    FileName has "credential", "Credential Dump File",
+    "Generic Dump File"
+)
+| project TimeGenerated, DeviceName, FileName, FolderPath,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    SHA256, FileSize, DumpType
+| extend
+    Severity = "Critical",
+    ThreatType = "Potential LSASS Dump File Created",
+    MitreAttack = "T1003.001",
+    TestID = "b83616c2-84ee-4738-b398-d2d57eebecec",
+    Confidence = "High"
+
+
+// ============================================================================
+// QUERY 5: SeDebugPrivilege Token Manipulation
+// Purpose: Detect processes enabling SeDebugPrivilege (required for LSASS access)
+// Confidence: MEDIUM-HIGH
+// False Positives: Debuggers, some security software, system administration tools
+// Threshold: Non-standard processes enabling debug privilege
+// ============================================================================
+
+SecurityEvent
+| where TimeGenerated > ago(1h)
+| where EventID == 4703  // A user right was adjusted
+| where PrivilegeList has "SeDebugPrivilege"
+| where ProcessName !endswith "\\csrss.exe"
+    and ProcessName !endswith "\\services.exe"
+    and ProcessName !endswith "\\svchost.exe"
+    and ProcessName !endswith "\\lsass.exe"
+    and ProcessName !endswith "\\System"
+    and ProcessName !endswith "\\MsMpEng.exe"
+| project TimeGenerated, Computer, SubjectUserName, SubjectDomainName,
+    ProcessName, ProcessId, PrivilegeList
+| extend
+    Severity = "High",
+    ThreatType = "SeDebugPrivilege Enabled - Potential LSASS Access",
+    MitreAttack = "T1003.001",
+    TestID = "b83616c2-84ee-4738-b398-d2d57eebecec",
+    Confidence = "Medium-High"
+
+
+// ============================================================================
+// QUERY 6: Process Execution from F0RT1KA Test Directory
+// Purpose: Detect any process execution from the F0RT1KA test directory
+// Confidence: HIGH
+// False Positives: Scheduled F0RT1KA security testing
+// Threshold: Any process execution from c:\F0
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FolderPath startswith "c:\\F0\\" or FolderPath startswith "C:\\F0\\"
+| extend TestType = case(
+    FileName =~ "library_update.exe", "NimDump LSASS Dumper Test",
+    FileName has "dump", "Credential Dump Test",
+    FileName endswith ".exe", "Unknown Test Execution",
+    "Non-executable"
+)
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
+    ProcessCommandLine, SHA256, TestType, InitiatingProcessFileName
+| extend
+    Severity = "High",
+    ThreatType = "F0RT1KA Test Execution",
+    MitreAttack = "T1003.001",
+    TestID = "b83616c2-84ee-4738-b398-d2d57eebecec",
+    Confidence = "High"
+
+
+// ============================================================================
+// QUERY 7: NTAPI Direct Call Indicators
+// Purpose: Detect binaries using NTAPI functions associated with credential dumping
+// Confidence: MEDIUM
+// False Positives: Some security software, low-level system tools
+// Threshold: Multiple NTAPI functions in same process context
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine has_any (
+    "NtOpenProcess",
+    "NtReadVirtualMemory",
+    "NtQueryVirtualMemory",
+    "NtAdjustPrivilegesToken",
+    "NtOpenProcessToken",
+    "ZwOpenProcess",
+    "ZwReadVirtualMemory"
+)
+| extend NTAPIIndicator = case(
+    ProcessCommandLine has "NtReadVirtualMemory", "Memory Read NTAPI",
+    ProcessCommandLine has "NtOpenProcess", "Process Open NTAPI",
+    ProcessCommandLine has "NtAdjustPrivilegesToken", "Token Manipulation NTAPI",
+    "Generic NTAPI Call"
+)
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
+    ProcessCommandLine, NTAPIIndicator
+| extend
+    Severity = "High",
+    ThreatType = "NTAPI Direct Calls - Potential Credential Dumping",
+    MitreAttack = "T1003.001",
+    TestID = "b83616c2-84ee-4738-b398-d2d57eebecec",
+    Confidence = "Medium"
+
+
+// ============================================================================
+// QUERY 8: Credential Dumping Tool Signatures
+// Purpose: Detect known credential dumping tools by name or path
+// Confidence: HIGH
+// False Positives: Authorized penetration testing
+// Threshold: Any occurrence of known tool names
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName matches regex @"(?i)(mimikatz|procdump|nanodump|handlekatz|physmem2profit|memdump|lsassy|pypykatz|dumpert|outflank|safetykatz|bettersafetykatz|sharpkatz|katz)"
+    or ProcessCommandLine matches regex @"(?i)(mimikatz|sekurlsa|lsadump|logonpasswords|minidump|comsvcs\.dll|lsass)"
+    or FileName matches regex @"(?i)(native[-_]?dump|nim[-_]?dump|library[-_]?update)"
+| extend ToolType = case(
+    FileName has "mimikatz" or ProcessCommandLine has "mimikatz", "Mimikatz",
+    FileName has "procdump", "ProcDump",
+    FileName has "nanodump", "NanoDump",
+    FileName has "handlekatz", "HandleKatz",
+    FileName =~ "library_update.exe", "NimDump (Disguised)",
+    FileName matches regex @"(?i)native[-_]?dump", "NativeDump",
+    FileName matches regex @"(?i)nim[-_]?dump", "NimDump",
+    ProcessCommandLine has "comsvcs.dll", "ComSvcs LSASS Dump",
+    ProcessCommandLine has "sekurlsa", "Mimikatz Module",
+    "Other Credential Tool"
+)
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
+    ProcessCommandLine, ToolType
+| extend
+    Severity = "Critical",
+    ThreatType = "Known Credential Dumping Tool Detected",
+    MitreAttack = "T1003.001",
+    TestID = "b83616c2-84ee-4738-b398-d2d57eebecec",
+    Confidence = "High"
+
+
+// ============================================================================
+// QUERY 9: Combined LSASS Credential Dumping Behavioral Detection
+// Purpose: Correlate multiple indicators for high-confidence detection
+// Confidence: HIGH
+// False Positives: Very rare (requires multiple correlated indicators)
+// Threshold: 2+ indicators within 30-minute window
+// ============================================================================
+
+let LSASSAccess = DeviceProcessEvents
+| where TimeGenerated > ago(2h)
+| where ProcessCommandLine has "lsass" or FileName has "lsass"
+| where InitiatingProcessFileName !in~ ("csrss.exe", "services.exe", "svchost.exe", "MsMpEng.exe", "lsass.exe")
+| summarize LSASSAccessCount = count() by DeviceName, bin(TimeGenerated, 30m)
+| project Computer = DeviceName, AccessTime = TimeGenerated, LSASSAccessCount;
+let DumpFileCreation = DeviceFileEvents
+| where TimeGenerated > ago(2h)
+| where ActionType == "FileCreated"
+| where FileName endswith ".dmp" or FileName endswith ".mdmp"
+    or (FileName endswith ".docx" and FolderPath has "\\F0")
+| summarize DumpCount = count() by DeviceName, bin(TimeGenerated, 30m)
+| project Computer = DeviceName, DumpTime = TimeGenerated, DumpCount;
+let SuspiciousExecution = DeviceProcessEvents
+| where TimeGenerated > ago(2h)
+| where FolderPath startswith "c:\\F0"
+    or FileName matches regex @"(?i)(dump|native|nim|library[-_]?update)"
+| summarize ExecCount = count() by DeviceName, bin(TimeGenerated, 30m)
+| project Computer = DeviceName, ExecTime = TimeGenerated, ExecCount;
+// Correlate indicators
+LSASSAccess
+| join kind=leftouter (DumpFileCreation) on Computer
+| join kind=leftouter (SuspiciousExecution) on Computer
+| extend IndicatorCount = (
+    iff(LSASSAccessCount > 0, 1, 0) +
+    iff(isnotnull(DumpCount), 1, 0) +
+    iff(isnotnull(ExecCount), 1, 0)
+)
+| where IndicatorCount >= 2
+| project Computer, TimeGenerated = AccessTime, LSASSAccessCount, DumpCount, ExecCount, IndicatorCount
+| extend
+    Severity = "Critical",
+    ThreatType = "LSASS Credential Dumping - Multi-Indicator Detection",
+    MitreAttack = "T1003.001",
+    TestID = "b83616c2-84ee-4738-b398-d2d57eebecec",
+    Confidence = "High"
+
+
+// ============================================================================
+// QUERY 10: Defender LSASS Tamper Protection Events
+// Purpose: Detect Windows Defender blocking LSASS access attempts
+// Confidence: HIGH
+// False Positives: None - these are actual blocks
+// Threshold: Any LSASS protection event
+// ============================================================================
+
+DeviceEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("AntivirusDetection", "AntimalwareScanCompleted")
+| where AdditionalFields has "lsass" or AdditionalFields has "LSASS"
+    or AdditionalFields has "credential" or AdditionalFields has "T1003"
+| extend BlockedAction = case(
+    AdditionalFields has "blocked", "Access Blocked",
+    AdditionalFields has "quarantine", "File Quarantined",
+    AdditionalFields has "detected", "Threat Detected",
+    "Protection Event"
+)
+| project TimeGenerated, DeviceName, ActionType, FileName, FolderPath,
+    BlockedAction, AdditionalFields
+| extend
+    Severity = "High",
+    ThreatType = "Defender LSASS Protection Triggered",
+    MitreAttack = "T1003.001",
+    TestID = "b83616c2-84ee-4738-b398-d2d57eebecec",
+    Confidence = "High"
+
+
+// ============================================================================
+// HUNTING QUERY: Historical LSASS Access Analysis
+// Purpose: Hunt for historical LSASS access patterns across environment
+// Confidence: VARIABLE
+// False Positives: Baseline establishment required
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(7d)
+| where ProcessCommandLine has "lsass" or FileName =~ "lsass.exe"
+| where InitiatingProcessFileName !in~ ("csrss.exe", "services.exe", "svchost.exe", "MsMpEng.exe", "lsass.exe", "wininit.exe", "System")
+| summarize
+    AccessCount = count(),
+    UniqueDevices = dcount(DeviceName),
+    UniqueAccounts = dcount(AccountName),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated),
+    ProcessList = make_set(InitiatingProcessFileName)
+    by bin(TimeGenerated, 1d)
+| project TimeGenerated, AccessCount, UniqueDevices, UniqueAccounts,
+    FirstSeen, LastSeen, ProcessList
+| extend
+    ThreatType = "LSASS Access Hunt",
+    MitreAttack = "T1003.001"
+
+
+// ============================================================================
+// ALERT SUMMARY DASHBOARD QUERY
+// Purpose: Aggregate all LSASS credential dumping detections for SOC dashboard
+// ============================================================================
+
+let LSASSAccessAlerts = DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| where ProcessCommandLine has "lsass" or FileName has "lsass"
+| where InitiatingProcessFileName !in~ ("csrss.exe", "services.exe", "svchost.exe", "MsMpEng.exe", "lsass.exe")
+| summarize AccessEvents = count() by DeviceName, bin(TimeGenerated, 1h)
+| extend DetectionType = "LSASS Access Attempt";
+let DumpFileAlerts = DeviceFileEvents
+| where TimeGenerated > ago(24h)
+| where ActionType == "FileCreated"
+| where FileName endswith ".dmp" or FileName endswith ".mdmp"
+    or (FileName endswith ".docx" and FolderPath has "\\F0")
+| summarize FileEvents = count() by Computer = DeviceName, bin(TimeGenerated, 1h)
+| extend DetectionType = "Dump File Creation";
+let ToolAlerts = DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| where FileName matches regex @"(?i)(mimikatz|native[-_]?dump|nim[-_]?dump|library[-_]?update|procdump|nanodump)"
+    or FolderPath startswith "c:\\F0"
+| summarize ToolEvents = count() by Computer = DeviceName, bin(TimeGenerated, 1h)
+| extend DetectionType = "Credential Tool Execution";
+union
+    (LSASSAccessAlerts | project TimeGenerated, Computer = DeviceName, EventCount = AccessEvents, DetectionType),
+    (DumpFileAlerts | project TimeGenerated, Computer, EventCount = FileEvents, DetectionType),
+    (ToolAlerts | project TimeGenerated, Computer, EventCount = ToolEvents, DetectionType)
+| summarize TotalEvents = sum(EventCount), DetectionTypes = make_set(DetectionType)
+    by Computer, bin(TimeGenerated, 1h)
+| order by TotalEvents desc
+| project TimeGenerated, Computer, TotalEvents, DetectionTypes,
+    Severity = case(TotalEvents >= 10, "Critical", TotalEvents >= 5, "High", "Medium"),
+    ThreatType = "LSASS Credential Dumping Activity",
+    MitreAttack = "T1003.001"

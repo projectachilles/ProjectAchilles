@@ -1,0 +1,459 @@
+// ============================================================================
+// DEFENSE GUIDANCE: KQL Detection Queries
+// ============================================================================
+// Test ID: c3634a9c-e8c9-44a8-992b-0faeca14f612
+// Test Name: Akira Ransomware BYOVD Attack Chain
+// MITRE ATT&CK: T1068 (Exploitation for Privilege Escalation), T1562.001 (Impair Defenses)
+// Created: 2025-12-07
+// Author: F0RT1KA Defense Guidance Builder
+// ============================================================================
+//
+// TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+// These detections target the underlying BYOVD and defense evasion techniques,
+// NOT the F0RT1KA testing framework. They will catch real-world attackers
+// using similar vulnerable driver exploitation and Defender tampering techniques.
+//
+// ============================================================================
+
+
+// ============================================================================
+// QUERY 1: Vulnerable Driver File Drop Detection
+// Purpose: Detect driver files dropped to suspicious locations (C:\F0 or temp)
+// Confidence: HIGH
+// False Positives: Legitimate driver installations, hardware updates
+// Threshold: Any .sys file in C:\F0 or unexpected locations
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("FileCreated", "FileModified")
+| where FileName endswith ".sys"
+| where FolderPath has_any ("C:\\F0", "\\Temp\\", "\\AppData\\", "\\Downloads\\")
+    or FolderPath !startswith "C:\\Windows\\System32\\drivers"
+| extend SuspiciousIndicators = case(
+    FolderPath has "C:\\F0", "High - F0RT1KA test directory",
+    FolderPath has "\\Temp\\", "High - Temp directory driver drop",
+    FolderPath has "\\Downloads\\", "Medium - Downloads folder driver",
+    "Medium - Non-standard driver location"
+)
+| project TimeGenerated, DeviceName, FileName, FolderPath, FileSize,
+    InitiatingProcessFileName, InitiatingProcessCommandLine, SHA256,
+    SuspiciousIndicators
+| extend
+    Severity = case(
+        SuspiciousIndicators has "High", "High",
+        "Medium"
+    ),
+    ThreatType = "BYOVD - Suspicious Driver File Drop",
+    MitreAttack = "T1068",
+    TestID = "c3634a9c-e8c9-44a8-992b-0faeca14f612"
+
+
+// ============================================================================
+// QUERY 2: Known Vulnerable Driver Hash Detection
+// Purpose: Detect known vulnerable drivers by hash (rwdrv.sys, etc.)
+// Confidence: HIGH
+// False Positives: Legitimate ThrottleStop usage (rare in enterprise)
+// Threshold: Any match on known vulnerable driver hashes
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(24h)
+| where ActionType in ("FileCreated", "FileModified")
+| where FileName endswith ".sys"
+// Add known vulnerable driver hashes here
+| where SHA256 in (
+    // rwdrv.sys (ThrottleStop driver) - various versions
+    // Add actual SHA256 hashes of known vulnerable drivers
+    "",  // Placeholder - add actual rwdrv.sys hash
+    ""   // Placeholder - add other vulnerable driver hashes
+) or SHA1 in (
+    ""   // Placeholder - add SHA1 hashes
+) or FileName in~ (
+    "rwdrv.sys",        // ThrottleStop driver
+    "hlpdrv.sys",       // Malicious helper driver
+    "mhyprot2.sys",     // Genshin Impact vulnerable driver
+    "dbutil_2_3.sys",   // Dell vulnerable driver
+    "asio.sys",         // ASUS vulnerable driver
+    "iqvw64e.sys",      // Intel vulnerable driver
+    "gdrv.sys",         // Gigabyte vulnerable driver
+    "asmmap64.sys",     // ASUS vulnerable driver
+    "ntbios.sys",       // Various vulnerable driver
+    "winio64.sys"       // WinIO vulnerable driver
+)
+| project TimeGenerated, DeviceName, FileName, FolderPath, SHA256, SHA1,
+    InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend
+    Severity = "Critical",
+    ThreatType = "BYOVD - Known Vulnerable Driver Detected",
+    MitreAttack = "T1068",
+    Confidence = "High",
+    TestID = "c3634a9c-e8c9-44a8-992b-0faeca14f612"
+
+
+// ============================================================================
+// QUERY 3: Kernel Service Creation for Driver Loading
+// Purpose: Detect creation of kernel-mode services pointing to suspicious paths
+// Confidence: HIGH
+// False Positives: Legitimate driver installations
+// Threshold: Kernel service created with non-standard binary path
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "sc.exe"
+| where ProcessCommandLine has_all ("create", "type=", "kernel")
+| extend ServiceName = extract(@"create\s+(\w+)", 1, ProcessCommandLine)
+| extend BinaryPath = extract(@"binPath=\s*([^\s]+)", 1, ProcessCommandLine)
+| where BinaryPath has_any ("C:\\F0", "\\Temp\\", "\\AppData\\", "\\Users\\")
+    or BinaryPath !has "C:\\Windows\\System32\\drivers"
+| project TimeGenerated, DeviceName, ServiceName, BinaryPath,
+    ProcessCommandLine, InitiatingProcessFileName, AccountName
+| extend
+    Severity = "Critical",
+    ThreatType = "BYOVD - Suspicious Kernel Service Creation",
+    MitreAttack = "T1068",
+    Confidence = "High",
+    TestID = "c3634a9c-e8c9-44a8-992b-0faeca14f612"
+
+
+// ============================================================================
+// QUERY 4: Specific Malicious Service Names (mgdsrv, KMHLPSVC)
+// Purpose: Detect creation of known Akira ransomware service names
+// Confidence: HIGH
+// False Positives: Very rare - these are specific IoCs
+// Threshold: Any match
+// ============================================================================
+
+union
+    (SecurityEvent
+    | where TimeGenerated > ago(24h)
+    | where EventID == 7045  // Service installed
+    | where ServiceName in~ ("mgdsrv", "KMHLPSVC", "Malicious Guard Driver", "Kernel Mode Helper")
+    | project TimeGenerated, Computer, ServiceName, ServiceFileName, ServiceType, AccountName
+    ),
+    (DeviceProcessEvents
+    | where TimeGenerated > ago(24h)
+    | where FileName =~ "sc.exe"
+    | where ProcessCommandLine has_any ("mgdsrv", "KMHLPSVC", "hlpsvc")
+    | project TimeGenerated, Computer = DeviceName, ServiceName = extract(@"(mgdsrv|KMHLPSVC)", 1, ProcessCommandLine),
+        ServiceFileName = ProcessCommandLine, ServiceType = "kernel", AccountName
+    )
+| extend
+    Severity = "Critical",
+    ThreatType = "Akira Ransomware - Known Malicious Service Name",
+    MitreAttack = "T1068, T1562.001",
+    Confidence = "High",
+    TestID = "c3634a9c-e8c9-44a8-992b-0faeca14f612"
+
+
+// ============================================================================
+// QUERY 5: Windows Defender Registry Tampering - DisableAntiSpyware
+// Purpose: Detect modification of DisableAntiSpyware registry value
+// Confidence: HIGH
+// False Positives: Legitimate GPO changes (verify with change management)
+// Threshold: Any modification to DisableAntiSpyware key
+// ============================================================================
+
+DeviceRegistryEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "RegistryValueSet"
+| where RegistryKey has "Windows Defender"
+| where RegistryValueName in~ ("DisableAntiSpyware", "DisableRealtimeMonitoring", "TamperProtection")
+| where InitiatingProcessFileName !in~ ("MsMpEng.exe", "svchost.exe", "gpupdate.exe", "WaaSMedicAgent.exe")
+| project TimeGenerated, DeviceName, RegistryKey, RegistryValueName,
+    RegistryValueData, InitiatingProcessFileName, InitiatingProcessCommandLine, AccountName
+| extend
+    Severity = case(
+        RegistryValueName == "DisableAntiSpyware", "Critical",
+        RegistryValueName == "TamperProtection", "Critical",
+        "High"
+    ),
+    ThreatType = "Defense Evasion - Windows Defender Registry Tampering",
+    MitreAttack = "T1562.001",
+    Confidence = "High",
+    TestID = "c3634a9c-e8c9-44a8-992b-0faeca14f612"
+
+
+// ============================================================================
+// QUERY 6: PowerShell ExecutionPolicy Bypass with Defender Targeting
+// Purpose: Detect PowerShell scripts attempting to disable Defender via registry
+// Confidence: HIGH
+// False Positives: IT automation scripts (verify against known scripts)
+// Threshold: PowerShell with ExecutionPolicy Bypass + Defender registry access
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ ("powershell.exe", "pwsh.exe")
+| where ProcessCommandLine has "-ExecutionPolicy" and ProcessCommandLine has "Bypass"
+| where ProcessCommandLine has_any (
+    "Windows Defender",
+    "DisableAntiSpyware",
+    "DisableRealtimeMonitoring",
+    "TamperProtection",
+    "defender_disable",
+    "Set-ItemProperty",
+    "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows Defender"
+)
+| project TimeGenerated, DeviceName, ProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessCommandLine, AccountName
+| extend
+    Severity = "Critical",
+    ThreatType = "Defense Evasion - PowerShell Defender Tampering",
+    MitreAttack = "T1562.001, T1059.001",
+    Confidence = "High",
+    TestID = "c3634a9c-e8c9-44a8-992b-0faeca14f612"
+
+
+// ============================================================================
+// QUERY 7: Driver Loading Events (Sysmon Event ID 6)
+// Purpose: Detect loading of unsigned or suspicious drivers
+// Confidence: MEDIUM-HIGH
+// False Positives: Legitimate driver installations, hardware updates
+// Threshold: Unsigned driver loaded or driver loaded from non-standard path
+// ============================================================================
+
+// For Sysmon-enabled environments
+Event
+| where TimeGenerated > ago(1h)
+| where Source == "Microsoft-Windows-Sysmon"
+| where EventID == 6  // Driver loaded
+| extend DriverPath = extract(@"ImageLoaded:\s*(.+?)(?:\r|\n)", 1, RenderedDescription)
+| extend Signed = extract(@"Signed:\s*(\w+)", 1, RenderedDescription)
+| extend Signature = extract(@"Signature:\s*(.+?)(?:\r|\n)", 1, RenderedDescription)
+| where Signed == "false"
+    or DriverPath has_any ("C:\\F0", "\\Temp\\", "\\AppData\\")
+    or DriverPath has_any ("rwdrv.sys", "hlpdrv.sys")
+| project TimeGenerated, Computer, DriverPath, Signed, Signature
+| extend
+    Severity = case(
+        Signed == "false", "High",
+        DriverPath has_any ("rwdrv.sys", "hlpdrv.sys"), "Critical",
+        "Medium"
+    ),
+    ThreatType = "BYOVD - Suspicious Driver Load",
+    MitreAttack = "T1068",
+    TestID = "c3634a9c-e8c9-44a8-992b-0faeca14f612"
+
+
+// ============================================================================
+// QUERY 8: Service Installation Monitoring (Event ID 7045)
+// Purpose: Detect new service installations, especially kernel-mode services
+// Confidence: MEDIUM
+// False Positives: Legitimate software installations
+// Threshold: Kernel service installed from non-standard location
+// ============================================================================
+
+SecurityEvent
+| where TimeGenerated > ago(1h)
+| where EventID == 7045  // A service was installed
+| where ServiceType has "kernel"
+    or ServiceFileName has_any ("C:\\F0", "\\Temp\\", "\\AppData\\", "\\Downloads\\")
+    or ServiceFileName has_any ("rwdrv.sys", "hlpdrv.sys")
+| project TimeGenerated, Computer, ServiceName, ServiceFileName,
+    ServiceType, ServiceStartType, AccountName
+| extend
+    Severity = case(
+        ServiceFileName has_any ("rwdrv.sys", "hlpdrv.sys"), "Critical",
+        ServiceType has "kernel" and ServiceFileName has_any ("C:\\F0", "\\Temp\\"), "Critical",
+        "High"
+    ),
+    ThreatType = "BYOVD - Suspicious Kernel Service Installation",
+    MitreAttack = "T1068",
+    TestID = "c3634a9c-e8c9-44a8-992b-0faeca14f612"
+
+
+// ============================================================================
+// QUERY 9: Defender Real-Time Protection Disable Detection
+// Purpose: Detect attempts to disable Windows Defender real-time protection
+// Confidence: HIGH
+// False Positives: IT troubleshooting, software compatibility testing
+// Threshold: Real-time monitoring disabled
+// ============================================================================
+
+union
+    (DeviceRegistryEvents
+    | where TimeGenerated > ago(1h)
+    | where RegistryKey has "Real-Time Protection"
+    | where RegistryValueName == "DisableRealtimeMonitoring"
+    | where RegistryValueData == "1"
+    | project TimeGenerated, DeviceName, ActionType = "RegistryModification",
+        Details = strcat("DisableRealtimeMonitoring set to ", RegistryValueData),
+        InitiatingProcess = InitiatingProcessFileName, Account = AccountName
+    ),
+    (DeviceProcessEvents
+    | where TimeGenerated > ago(1h)
+    | where ProcessCommandLine has_all ("Set-MpPreference", "DisableRealtimeMonitoring", "true")
+        or ProcessCommandLine has_all ("Set-MpPreference", "-DisableRealtimeMonitoring", "$true")
+    | project TimeGenerated, DeviceName, ActionType = "PowerShellCommand",
+        Details = ProcessCommandLine,
+        InitiatingProcess = InitiatingProcessFileName, Account = AccountName
+    )
+| extend
+    Severity = "Critical",
+    ThreatType = "Defense Evasion - Real-Time Protection Disabled",
+    MitreAttack = "T1562.001",
+    Confidence = "High",
+    TestID = "c3634a9c-e8c9-44a8-992b-0faeca14f612"
+
+
+// ============================================================================
+// QUERY 10: Behavioral Correlation - Multi-Stage BYOVD Attack
+// Purpose: Correlate multiple indicators for high-confidence BYOVD detection
+// Confidence: HIGH
+// False Positives: Very rare (requires multiple correlated indicators)
+// Threshold: 2+ indicators within 30-minute window
+// ============================================================================
+
+let DriverDrops = DeviceFileEvents
+| where TimeGenerated > ago(2h)
+| where FileName endswith ".sys"
+| where FolderPath has_any ("C:\\F0", "\\Temp\\", "\\AppData\\")
+| summarize DriverCount = count(), Drivers = make_set(FileName)
+    by DeviceName, bin(TimeGenerated, 30m)
+| where DriverCount >= 1;
+let ServiceCreation = DeviceProcessEvents
+| where TimeGenerated > ago(2h)
+| where FileName =~ "sc.exe"
+| where ProcessCommandLine has_all ("create", "kernel")
+| summarize ServiceCount = count(), Services = make_set(
+    extract(@"create\s+(\w+)", 1, ProcessCommandLine))
+    by DeviceName, bin(TimeGenerated, 30m)
+| where ServiceCount >= 1;
+let DefenderTampering = DeviceRegistryEvents
+| where TimeGenerated > ago(2h)
+| where RegistryKey has "Windows Defender"
+| where RegistryValueName has_any ("DisableAntiSpyware", "DisableRealtimeMonitoring")
+| summarize TamperCount = count(), TamperedKeys = make_set(RegistryValueName)
+    by DeviceName, bin(TimeGenerated, 30m)
+| where TamperCount >= 1;
+let PowerShellBypass = DeviceProcessEvents
+| where TimeGenerated > ago(2h)
+| where FileName in~ ("powershell.exe", "pwsh.exe")
+| where ProcessCommandLine has "-ExecutionPolicy" and ProcessCommandLine has "Bypass"
+| summarize PSCount = count()
+    by DeviceName, bin(TimeGenerated, 30m)
+| where PSCount >= 1;
+// Correlate all indicators
+DriverDrops
+| join kind=leftouter (ServiceCreation) on DeviceName, TimeGenerated
+| join kind=leftouter (DefenderTampering) on DeviceName, TimeGenerated
+| join kind=leftouter (PowerShellBypass) on DeviceName, TimeGenerated
+| extend IndicatorCount = toint(isnotnull(DriverCount)) +
+    toint(isnotnull(ServiceCount)) + toint(isnotnull(TamperCount)) +
+    toint(isnotnull(PSCount))
+| where IndicatorCount >= 2
+| project TimeGenerated, DeviceName, IndicatorCount,
+    Drivers, Services, TamperedKeys,
+    DriverCount, ServiceCount, TamperCount, PSCount
+| extend
+    Severity = case(
+        IndicatorCount >= 4, "Critical",
+        IndicatorCount >= 3, "Critical",
+        "High"
+    ),
+    ThreatType = "BYOVD Attack Chain - Multi-Indicator Correlation",
+    MitreAttack = "T1068, T1562.001",
+    Confidence = "High",
+    TestID = "c3634a9c-e8c9-44a8-992b-0faeca14f612"
+
+
+// ============================================================================
+// QUERY 11: PowerShell Script File Creation in C:\F0
+// Purpose: Detect PowerShell scripts dropped to the test directory
+// Confidence: HIGH
+// False Positives: F0RT1KA legitimate testing
+// Threshold: Any .ps1 file in C:\F0
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FileName endswith ".ps1"
+| where FolderPath has "C:\\F0"
+| project TimeGenerated, DeviceName, FileName, FolderPath,
+    InitiatingProcessFileName, InitiatingProcessCommandLine, SHA256
+| extend
+    Severity = "High",
+    ThreatType = "Suspicious PowerShell Script Drop",
+    MitreAttack = "T1059.001, T1562.001",
+    Confidence = "High",
+    TestID = "c3634a9c-e8c9-44a8-992b-0faeca14f612"
+
+
+// ============================================================================
+// HUNTING QUERY: Timeline of Akira-style Attack Progression
+// Purpose: Reconstruct attack timeline for incident investigation
+// Confidence: N/A (Hunting)
+// ============================================================================
+
+let TimeWindow = 2h;
+let TargetDevice = ""; // Specify device name for targeted hunting
+union
+    (DeviceFileEvents
+    | where TimeGenerated > ago(TimeWindow)
+    | where DeviceName has TargetDevice or TargetDevice == ""
+    | where FileName endswith ".sys" or FileName endswith ".ps1"
+    | where FolderPath has "C:\\F0"
+    | extend Stage = "1-FileDropped", Details = strcat(FileName, " -> ", FolderPath)
+    ),
+    (DeviceProcessEvents
+    | where TimeGenerated > ago(TimeWindow)
+    | where DeviceName has TargetDevice or TargetDevice == ""
+    | where FileName =~ "sc.exe" and ProcessCommandLine has "create"
+    | extend Stage = "2-ServiceCreated", Details = ProcessCommandLine
+    ),
+    (DeviceRegistryEvents
+    | where TimeGenerated > ago(TimeWindow)
+    | where DeviceName has TargetDevice or TargetDevice == ""
+    | where RegistryKey has "Windows Defender"
+    | extend Stage = "3-RegistryModified", Details = strcat(RegistryValueName, " = ", RegistryValueData)
+    ),
+    (DeviceProcessEvents
+    | where TimeGenerated > ago(TimeWindow)
+    | where DeviceName has TargetDevice or TargetDevice == ""
+    | where FileName in~ ("powershell.exe", "pwsh.exe")
+    | where ProcessCommandLine has "Bypass"
+    | extend Stage = "4-PowerShellExecution", Details = ProcessCommandLine
+    )
+| project TimeGenerated, DeviceName, Stage, Details
+| order by TimeGenerated asc
+
+
+// ============================================================================
+// ALERT SUMMARY DASHBOARD QUERY
+// Purpose: Aggregate BYOVD-related detections for SOC dashboard
+// ============================================================================
+
+let BYOVDDetections = union
+    (DeviceFileEvents
+    | where TimeGenerated > ago(24h)
+    | where FileName endswith ".sys"
+    | where FolderPath has_any ("C:\\F0", "\\Temp\\")
+    | summarize EventCount = count() by DeviceName, bin(TimeGenerated, 1h)
+    | extend DetectionType = "Driver File Drop"
+    ),
+    (DeviceProcessEvents
+    | where TimeGenerated > ago(24h)
+    | where FileName =~ "sc.exe"
+    | where ProcessCommandLine has_all ("create", "kernel")
+    | summarize EventCount = count() by DeviceName, bin(TimeGenerated, 1h)
+    | extend DetectionType = "Kernel Service Creation"
+    ),
+    (DeviceRegistryEvents
+    | where TimeGenerated > ago(24h)
+    | where RegistryKey has "Windows Defender"
+    | where RegistryValueName has_any ("DisableAntiSpyware", "DisableRealtimeMonitoring")
+    | summarize EventCount = count() by DeviceName, bin(TimeGenerated, 1h)
+    | extend DetectionType = "Defender Registry Tampering"
+    );
+BYOVDDetections
+| summarize TotalEvents = sum(EventCount), DetectionTypes = make_set(DetectionType)
+    by DeviceName, bin(TimeGenerated, 1h)
+| order by TotalEvents desc
+| project TimeGenerated, DeviceName, TotalEvents, DetectionTypes,
+    Severity = case(TotalEvents >= 5, "Critical", TotalEvents >= 3, "High", "Medium"),
+    ThreatType = "BYOVD Attack Activity Cluster",
+    MitreAttack = "T1068, T1562.001",
+    TestID = "c3634a9c-e8c9-44a8-992b-0faeca14f612"

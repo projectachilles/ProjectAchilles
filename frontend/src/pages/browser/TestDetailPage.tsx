@@ -1,222 +1,454 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, FileCode, FileText, AlertCircle, ExternalLink } from 'lucide-react';
-import { browserApi } from '../../services/api/browser';
-import type { TestDetails, TestFile } from '../../services/api/browser';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/shared/ui/Card';
-import { Badge } from '../../components/shared/ui/Badge';
-import { Button } from '../../components/shared/ui/Button';
-import { Loading } from '../../components/shared/ui/Spinner';
+import { useParams, useNavigate } from 'react-router-dom';
+import { browserApi } from '@/services/api/browser';
+import type { TestDetails, FileContent } from '@/types/test';
+import TechniqueBadge from '@/components/browser/TechniqueBadge';
+import FileViewer from '@/components/browser/FileViewer';
+import DefenseDashboard from '@/components/browser/DefenseDashboard';
+import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2 } from 'lucide-react';
 
 export default function TestDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
+  const navigate = useNavigate();
   const [test, setTest] = useState<TestDetails | null>(null);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [fileContent, setFileContent] = useState<FileContent | null>(null);
+  const [attackFlowHtml, setAttackFlowHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fileLoading, setFileLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<TestFile | null>(null);
-  const [fileContent, setFileContent] = useState<string>('');
-  const [loadingFile, setLoadingFile] = useState(false);
+  const [activeView, setActiveView] = useState<'file' | 'attack-flow'>('file');
+  const [hasUserInteracted, setHasUserInteracted] = useState(false); // Track if user clicked something
 
   useEffect(() => {
     if (uuid) {
       loadTestDetails(uuid);
+      setHasUserInteracted(false); // Reset on test change
     }
   }, [uuid]);
 
-  const loadTestDetails = async (testUuid: string) => {
+  useEffect(() => {
+    if (selectedFile && uuid && activeView === 'file') {
+      const controller = new AbortController();
+      loadFileContent(uuid, selectedFile);
+
+      return () => {
+        controller.abort();
+      };
+    }
+  }, [selectedFile, uuid, activeView]);
+
+  async function loadTestDetails(testUuid: string) {
     try {
       setLoading(true);
-      setError(null);
       const data = await browserApi.getTestDetails(testUuid);
       setTest(data);
+
       // Auto-select README if available
-      const readme = data.files.find(f => f.name.toLowerCase() === 'readme.md');
-      if (readme) {
-        loadFileContent(testUuid, readme);
+      if (data.hasReadme) {
+        setSelectedFile('README.md');
+      } else if (data.files.length > 0) {
+        setSelectedFile(data.files[0].name);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load test details');
+      setError('Failed to load test details');
+      console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const loadFileContent = async (testUuid: string, file: TestFile) => {
+  async function loadFileContent(testUuid: string, filename: string) {
     try {
-      setLoadingFile(true);
-      setSelectedFile(file);
-      const content = await browserApi.getFileContent(testUuid, file.name);
+      setFileLoading(true);
+      const content = await browserApi.getFileContent(testUuid, filename);
       setFileContent(content);
     } catch (err) {
-      setFileContent(`Error loading file: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      console.error('Failed to load file content:', err);
+      setFileContent(null);
     } finally {
-      setLoadingFile(false);
+      setFileLoading(false);
     }
-  };
+  }
+
+  async function loadAttackFlow() {
+    if (!uuid || !test?.hasAttackFlow) return;
+
+    try {
+      setFileLoading(true);
+      const html = await browserApi.getAttackFlow(uuid);
+      setAttackFlowHtml(html);
+      setActiveView('attack-flow');
+    } catch (err) {
+      console.error('Failed to load attack flow:', err);
+    } finally {
+      setFileLoading(false);
+    }
+  }
+
+  function handleFileSelect(filename: string) {
+    setSelectedFile(filename);
+    setActiveView('file');
+    setHasUserInteracted(true); // User clicked a file
+  }
+
+  function handleAttackFlowClick() {
+    setHasUserInteracted(true); // User clicked attack flow
+    if (!attackFlowHtml) {
+      loadAttackFlow();
+    } else {
+      setActiveView('attack-flow');
+    }
+  }
+
+  // Helper to get clean display name for defense files
+  function getDefenseFileDisplayName(filename: string): string {
+    if (filename.includes('DEFENSE_GUIDANCE')) return 'Defense Guide';
+    if (filename.includes('_dr_rules')) return 'D&R Rules';
+    if (filename.includes('_hardening')) return 'Hardening Script';
+    if (filename.includes('_detections.kql')) return 'KQL Detections';
+    if (filename.includes('_rules.yar')) return 'YARA Rules';
+    // Fallback: get extension
+    const ext = filename.split('.').pop() || '';
+    return ext.toUpperCase() + ' File';
+  }
 
   if (loading) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <Loading message="Loading test details..." />
+      <div className="flex items-center justify-center h-full">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Loader2 className="w-6 h-6 animate-spin" />
+          <span>Loading test details...</span>
+        </div>
       </div>
     );
   }
 
   if (error || !test) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <Card className="flex items-center gap-4 p-6 bg-destructive/10 border-destructive/30">
-          <AlertCircle className="w-8 h-8 text-destructive" />
-          <div>
-            <h2 className="font-semibold text-destructive">Failed to Load Test</h2>
-            <p className="text-sm text-muted-foreground">{error || 'Test not found'}</p>
-          </div>
-        </Card>
-        <Link to="/">
-          <Button variant="ghost" className="mt-4 gap-2">
-            <ArrowLeft className="w-4 h-4" />
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <p className="text-red-500 mb-4">{error || 'Test not found'}</p>
+          <button
+            onClick={() => navigate('/browser')}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90"
+          >
             Back to Tests
-          </Button>
-        </Link>
+          </button>
+        </div>
       </div>
     );
   }
 
-  // Group files by category
-  const filesByCategory = test.files.reduce((acc, file) => {
-    const category = file.category || 'other';
-    if (!acc[category]) acc[category] = [];
-    acc[category].push(file);
-    return acc;
-  }, {} as Record<string, TestFile[]>);
+  // Categorize files
+  const documentationFiles = test.files.filter(f => f.category === 'documentation');
+  const defenseFiles = test.files.filter(f => f.category === 'defense');
+  const sourceFiles = test.files.filter(f => f.category === 'source');
+  const detectionFiles = test.files.filter(f => f.category === 'detection');
+  const configFiles = test.files.filter(f => f.category === 'config');
+
+  // Determine if we should use compact header
+  // Show compact header after user clicks any file/view (not on initial load)
+  const isCompactMode = hasUserInteracted;
+
+  // Function to exit compact mode and show full header again
+  function handleExitCompactMode() {
+    setHasUserInteracted(false);
+  }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      {/* Back Button */}
-      <Link to="/">
-        <Button variant="ghost" className="mb-6 gap-2">
-          <ArrowLeft className="w-4 h-4" />
-          Back to Tests
-        </Button>
-      </Link>
-
-      {/* Test Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">{test.name}</h1>
-        <p className="text-sm text-muted-foreground font-mono mb-4">{test.uuid}</p>
-
-        {/* Techniques */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          {test.techniques.map((technique) => (
-            <Badge key={technique} variant="primary">
-              {technique}
-            </Badge>
-          ))}
-        </div>
-
-        {/* Meta Info */}
-        <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-          {test.score !== undefined && (
-            <span>Score: <span className="font-medium text-foreground">{test.score}/10</span></span>
-          )}
-          {test.category && (
-            <span>Category: <span className="font-medium text-foreground">{test.category}</span></span>
-          )}
-          {test.severity && (
-            <span>Severity: <Badge variant={test.severity === 'critical' ? 'destructive' : test.severity === 'high' ? 'warning' : 'default'}>{test.severity}</Badge></span>
-          )}
-          {test.isMultiStage && (
-            <Badge variant="outline">Multi-stage ({test.stages?.length} stages)</Badge>
-          )}
-        </div>
-      </div>
-
-      {/* Two-Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* File Browser Sidebar */}
-        <div className="lg:col-span-1">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Files</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {Object.entries(filesByCategory).map(([category, files]) => (
-                  <div key={category}>
-                    <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                      {category.replace('_', ' ')}
-                    </h4>
-                    <div className="space-y-1">
-                      {files.map((file) => (
-                        <button
-                          key={file.path}
-                          onClick={() => uuid && loadFileContent(uuid, file)}
-                          className={`w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 transition-colors ${
-                            selectedFile?.path === file.path
-                              ? 'bg-primary/10 text-primary'
-                              : 'hover:bg-accent text-foreground'
-                          }`}
-                        >
-                          {file.name.endsWith('.md') ? (
-                            <FileText className="w-4 h-4 flex-shrink-0" />
-                          ) : (
-                            <FileCode className="w-4 h-4 flex-shrink-0" />
-                          )}
-                          <span className="truncate">{file.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Attack Flow Link */}
-              {test.hasAttackFlow && (
-                <div className="mt-4 pt-4 border-t border-border">
-                  <a
-                    href={`/api/browser/tests/${uuid}/attack-flow`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-sm text-primary hover:underline"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    View Attack Flow Diagram
-                  </a>
+    <div className="h-full flex flex-col">
+      {/* Header - Compact or Full */}
+      {isCompactMode ? (
+        /* Compact Header for Attack Flow View */
+        <div className="border-b border-border bg-background/95 backdrop-blur">
+          <div className="container mx-auto px-4 py-2 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => navigate('/browser')}
+                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span className="hidden sm:inline">Back</span>
+              </button>
+              <div className="h-4 w-px bg-border" />
+              <h1 className="text-lg font-semibold truncate max-w-md lg:max-w-xl">{test.name}</h1>
+              <span className="hidden md:inline text-xs font-mono text-muted-foreground">
+                {test.uuid.slice(0, 8)}...
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              {test.score && (
+                <div className="flex items-center gap-1 text-amber-500">
+                  <Star className="w-4 h-4 fill-current" />
+                  <span className="font-bold">{test.score.toFixed(1)}</span>
                 </div>
               )}
-            </CardContent>
-          </Card>
+              <button
+                onClick={handleExitCompactMode}
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-accent transition-colors"
+                title="Exit fullscreen view"
+              >
+                <Minimize2 className="w-4 h-4" />
+                <span className="hidden sm:inline">Exit</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* Full Header for File/Document Views */
+        <div className="border-b border-border bg-background/95 backdrop-blur">
+          <div className="container mx-auto px-4 py-4">
+            <button
+              onClick={() => navigate('/browser')}
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-3"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to tests
+            </button>
+
+            <div className="flex items-start justify-between gap-4 mb-3">
+              <div className="flex-1">
+                <h1 className="text-2xl font-bold mb-2">{test.name}</h1>
+                <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
+                  {test.severity && (
+                    <span className="font-medium uppercase text-orange-500">
+                      {test.severity}
+                    </span>
+                  )}
+                  {test.isMultiStage && (
+                    <div className="flex items-center gap-1">
+                      <Layers className="w-4 h-4" />
+                      <span>{test.stages.length} stages</span>
+                    </div>
+                  )}
+                  {test.createdDate && (
+                    <div className="flex items-center gap-1">
+                      <Calendar className="w-4 h-4" />
+                      <span>{test.createdDate}</span>
+                    </div>
+                  )}
+                  <span className="font-mono text-xs">{test.uuid}</span>
+                </div>
+              </div>
+
+              {test.score && (
+                <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                  <Star className="w-5 h-5 text-amber-500 fill-current" />
+                  <div>
+                    <div className="text-2xl font-bold text-amber-500">{test.score.toFixed(1)}</div>
+                    <div className="text-xs text-muted-foreground">Test Score</div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Techniques */}
+            <div className="flex flex-wrap gap-2 mb-3">
+              {test.techniques.map(technique => (
+                <TechniqueBadge key={technique} technique={technique} />
+              ))}
+            </div>
+
+            {/* Description */}
+            {test.description && (
+              <p className="text-sm text-muted-foreground">{test.description}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Sidebar - File Browser */}
+        <div className="w-80 border-r border-border bg-muted/30 overflow-y-auto">
+          <div className="p-4 space-y-4">
+            {/* Documentation Files */}
+            {documentationFiles.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
+                  <FileText className="w-3 h-3" />
+                  Documentation
+                </h3>
+                <div className="space-y-1">
+                  {documentationFiles.map(file => (
+                    <button
+                      key={file.name}
+                      onClick={() => handleFileSelect(file.name)}
+                      className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                        selectedFile === file.name && activeView === 'file'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'hover:bg-accent'
+                      }`}
+                    >
+                      {file.name === 'SAFETY.md' && <AlertTriangle className="w-3 h-3 inline mr-2 text-orange-500" />}
+                      {file.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Attack Flow */}
+            {test.hasAttackFlow && (
+              <div>
+                <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
+                  <Workflow className="w-3 h-3" />
+                  Visualization
+                </h3>
+                <button
+                  onClick={handleAttackFlowClick}
+                  className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                    activeView === 'attack-flow'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'hover:bg-accent'
+                  }`}
+                >
+                  Attack Flow Diagram
+                </button>
+              </div>
+            )}
+
+            {/* Defense Guidance */}
+            {defenseFiles.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
+                  <ShieldCheck className="w-3 h-3" />
+                  Defense Guidance
+                </h3>
+                <div className="space-y-1">
+                  {defenseFiles.map(file => (
+                    <button
+                      key={file.name}
+                      onClick={() => handleFileSelect(file.name)}
+                      className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center gap-2 ${
+                        selectedFile === file.name && activeView === 'file'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'hover:bg-accent'
+                      }`}
+                    >
+                      {file.name.includes('DEFENSE_GUIDANCE') && <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />}
+                      {file.name.includes('_dr_rules') && <span className="w-2 h-2 rounded-full bg-cyan-500 flex-shrink-0" />}
+                      {file.name.includes('_hardening') && <span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />}
+                      {getDefenseFileDisplayName(file.name)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Source Files */}
+            {sourceFiles.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
+                  <Code className="w-3 h-3" />
+                  Source Code
+                </h3>
+                <div className="space-y-1">
+                  {sourceFiles.map(file => (
+                    <button
+                      key={file.name}
+                      onClick={() => handleFileSelect(file.name)}
+                      className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
+                        selectedFile === file.name && activeView === 'file'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'hover:bg-accent'
+                      }`}
+                    >
+                      {file.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Detection Rules */}
+            {detectionFiles.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
+                  <Shield className="w-3 h-3" />
+                  Detection Rules
+                </h3>
+                <div className="space-y-1">
+                  {detectionFiles.map(file => (
+                    <button
+                      key={file.name}
+                      onClick={() => handleFileSelect(file.name)}
+                      className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
+                        selectedFile === file.name && activeView === 'file'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'hover:bg-accent'
+                      }`}
+                    >
+                      {file.type === 'kql' && <span className="text-xs text-blue-500 mr-2">KQL</span>}
+                      {file.type === 'yara' && <span className="text-xs text-purple-500 mr-2">YARA</span>}
+                      {file.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Config Files */}
+            {configFiles.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
+                  <Shield className="w-3 h-3" />
+                  Configuration
+                </h3>
+                <div className="space-y-1">
+                  {configFiles.map(file => (
+                    <button
+                      key={file.name}
+                      onClick={() => handleFileSelect(file.name)}
+                      className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
+                        selectedFile === file.name && activeView === 'file'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'hover:bg-accent'
+                      }`}
+                    >
+                      {file.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Content Viewer */}
-        <div className="lg:col-span-3">
-          <Card className="h-full">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                {selectedFile ? (
-                  <>
-                    <FileCode className="w-5 h-5" />
-                    {selectedFile.name}
-                  </>
-                ) : (
-                  'Select a file to view'
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {loadingFile ? (
-                <Loading message="Loading file..." />
-              ) : selectedFile ? (
-                <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm font-mono">
-                  <code>{fileContent}</code>
-                </pre>
-              ) : (
-                <p className="text-muted-foreground text-center py-8">
-                  Select a file from the sidebar to view its contents.
-                </p>
-              )}
-            </CardContent>
-          </Card>
+        {/* Right Panel - Content Viewer */}
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {/* Defense Dashboard (hidden in compact mode for attack flow) */}
+          {test.hasDefenseGuidance && !isCompactMode && (
+            <div className="p-4 pb-0">
+              <DefenseDashboard test={test} />
+            </div>
+          )}
+
+          {/* Main Content Area */}
+          <div className="flex-1 overflow-hidden">
+            {fileLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                  <span>Loading...</span>
+                </div>
+              </div>
+            ) : activeView === 'attack-flow' && attackFlowHtml ? (
+              <iframe
+                srcDoc={attackFlowHtml}
+                className="w-full h-full border-0"
+                title="Attack Flow Diagram"
+                sandbox="allow-scripts"
+              />
+            ) : fileContent ? (
+              <FileViewer file={fileContent} />
+            ) : (
+              <div className="flex items-center justify-center h-full text-muted-foreground">
+                Select a file to view its content
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

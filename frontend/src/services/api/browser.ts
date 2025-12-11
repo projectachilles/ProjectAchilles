@@ -1,54 +1,10 @@
 import axios from 'axios';
+import type { TestMetadata, TestDetails, FileContent, TestFile } from '@/types/test';
 
 const api = axios.create({
   baseURL: '/api/browser',
   timeout: 10000,
 });
-
-export interface TestMetadata {
-  uuid: string;
-  name: string;
-  category?: string;
-  severity?: string;
-  techniques: string[];
-  tactics?: string[];
-  createdDate?: string;
-  version?: string;
-  score?: number;
-  scoreBreakdown?: {
-    realWorldAccuracy?: number;
-    technicalSophistication?: number;
-    safetyMechanisms?: number;
-    detectionOpportunities?: number;
-    loggingObservability?: number;
-  };
-  isMultiStage: boolean;
-  stages?: Array<{
-    id: string;
-    name: string;
-    technique: string;
-  }>;
-  description?: string;
-  tags?: string[];
-}
-
-export interface TestFile {
-  name: string;
-  path: string;
-  category: string;
-  size: number;
-}
-
-export interface TestDetails extends TestMetadata {
-  files: TestFile[];
-  hasAttackFlow: boolean;
-  attackFlowPath?: string;
-  hasReadme: boolean;
-  hasInfoCard: boolean;
-  hasSafetyDoc: boolean;
-  hasDetectionFiles: boolean;
-  hasDefenseGuidance: boolean;
-}
 
 export const browserApi = {
   // Get all tests
@@ -59,31 +15,36 @@ export const browserApi = {
     severity?: string;
   }): Promise<TestMetadata[]> {
     const response = await api.get('/tests', { params });
-    return response.data;
+    // Backend returns: { success: true, count: number, tests: array }
+    return response.data.tests;
   },
 
   // Get test details
   async getTestDetails(uuid: string): Promise<TestDetails> {
     const response = await api.get(`/tests/${uuid}`);
-    return response.data;
+    // Backend returns: { success: true, test: object }
+    return response.data.test;
   },
 
   // Get test files
-  async getTestFiles(uuid: string): Promise<TestFile[]> {
+  async getTestFiles(uuid: string) {
     const response = await api.get(`/tests/${uuid}/files`);
-    return response.data;
+    // Backend returns: { success: true, files: array }
+    return response.data.files;
   },
 
   // Get file content
-  async getFileContent(uuid: string, filename: string): Promise<string> {
+  async getFileContent(uuid: string, filename: string): Promise<FileContent> {
     const response = await api.get(`/tests/${uuid}/file/${encodeURIComponent(filename)}`);
-    return response.data;
+    // Backend returns: { success: true, file: { name, type, content, size } }
+    return response.data.file;
   },
 
   // Get attack flow HTML
   async getAttackFlow(uuid: string): Promise<string> {
     const response = await api.get(`/tests/${uuid}/attack-flow`);
-    return response.data;
+    // Backend returns: { success: true, html: string }
+    return response.data.html;
   },
 
   // Refresh test index
@@ -92,3 +53,6 @@ export const browserApi = {
     return response.data;
   },
 };
+
+// Re-export types for convenience
+export type { TestMetadata, TestDetails, FileContent, TestFile };

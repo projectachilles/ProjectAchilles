@@ -1,0 +1,445 @@
+// ============================================================================
+// DEFENSE GUIDANCE: KQL Detection Queries
+// ============================================================================
+// Test ID: 109266e2-2310-40ea-9f63-b97e4b7fda61
+// Test Name: SafePay Enhanced Ransomware Simulation & Mass Data Operations
+// MITRE ATT&CK: T1486, T1560.001, T1071.001, T1490, T1083, T1005
+// Created: 2025-12-07
+// Author: F0RT1KA Defense Guidance Builder
+// ============================================================================
+//
+// TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+// These detections target real-world ransomware behaviors including:
+// - Mass file operations (creation, deletion, encryption)
+// - Data staging via archive utilities (WinRAR, 7z)
+// - File extension manipulation (.safepay, encrypted)
+// - Ransom note creation and display
+// - PowerShell execution policy bypass
+//
+// ============================================================================
+
+
+// ============================================================================
+// QUERY 1: Mass File Deletion Detection
+// Purpose: Detect bulk file deletion patterns characteristic of ransomware
+// Confidence: HIGH
+// False Positives: Legitimate cleanup scripts, user emptying folders
+// Threshold: 50+ document files deleted within 5-minute window
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileDeleted"
+| where FileName endswith_any (".docx", ".xlsx", ".pdf", ".txt", ".pptx", ".sql", ".bak", ".csv", ".ppt", ".doc", ".zip")
+| where FolderPath !startswith "C:\\F0\\"  // Exclude test directory artifacts
+| summarize
+    DeletedCount = count(),
+    FileTypes = make_set(tostring(split(FileName, ".")[-1])),
+    FirstDeletion = min(TimeGenerated),
+    LastDeletion = max(TimeGenerated),
+    SampleFiles = take_any(FileName, 5),
+    AffectedFolders = dcount(FolderPath)
+    by DeviceName, InitiatingProcessFileName, AccountName, bin(TimeGenerated, 5m)
+| where DeletedCount > 50  // Threshold for mass deletion
+| extend DeletionDuration = datetime_diff('second', LastDeletion, FirstDeletion)
+| extend DeletionRate = iff(DeletionDuration > 0, toreal(DeletedCount) / toreal(DeletionDuration), toreal(DeletedCount))
+| where DeletionRate > 0.5  // More than 0.5 files per second
+| extend
+    Severity = case(
+        DeletedCount > 500, "Critical",
+        DeletedCount > 200, "High",
+        DeletedCount > 100, "Medium",
+        "Low"
+    ),
+    ThreatType = "Ransomware - Mass File Deletion",
+    MitreAttack = "T1490",
+    TestID = "109266e2-2310-40ea-9f63-b97e4b7fda61",
+    Confidence = "High"
+| project TimeGenerated = FirstDeletion, DeviceName, AccountName, InitiatingProcessFileName,
+    DeletedCount, DeletionRate, AffectedFolders, FileTypes, Severity, ThreatType, MitreAttack
+
+
+// ============================================================================
+// QUERY 2: WinRAR Data Exfiltration Detection
+// Purpose: Monitor WinRAR processes for data staging and exfiltration patterns
+// Confidence: HIGH
+// False Positives: Legitimate backup operations, user archiving
+// Threshold: Archive operations with exfiltration indicators or from C:\F0
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ ("WinRAR.exe", "rar.exe", "Rar.exe")
+    or ProcessCommandLine has_any ("WinRAR.exe", "rar.exe")
+| extend ExfiltrationRisk = case(
+    ProcessCommandLine has "EXFIL_Master", "Critical",
+    ProcessCommandLine has_all ("-v500m", "-m0"), "High",  // Volume split + store only
+    ProcessCommandLine has_all ("-v100m", "-m5"), "High",  // Volume split + max compression
+    ProcessCommandLine has "-v100m", "Medium",
+    ProcessCommandLine has "-r" and ProcessCommandLine has "-m", "Medium",  // Recursive with compression
+    FolderPath startswith "C:\\F0\\", "High",  // Dropped to suspicious location
+    "Low"
+)
+| extend ArchiveType = case(
+    ProcessCommandLine has "EXFIL_Master", "Master Exfiltration Archive",
+    ProcessCommandLine has "Archive_", "Department Archive",
+    ProcessCommandLine has "_Data_", "Location Archive",
+    "Unknown Archive"
+)
+| summarize
+    RarProcessCount = count(),
+    ExfiltrationRisk = max(ExfiltrationRisk),
+    ArchiveTypes = make_set(ArchiveType),
+    CommandLines = make_set(ProcessCommandLine),
+    FirstProcess = min(TimeGenerated),
+    LastProcess = max(TimeGenerated)
+    by DeviceName, AccountName, bin(TimeGenerated, 10m)
+| where RarProcessCount > 3 or ExfiltrationRisk in ("High", "Critical")
+| extend
+    Severity = ExfiltrationRisk,
+    ThreatType = "Ransomware - Data Staging via WinRAR",
+    MitreAttack = "T1560.001",
+    TestID = "109266e2-2310-40ea-9f63-b97e4b7fda61",
+    Confidence = "High"
+| project TimeGenerated = FirstProcess, DeviceName, AccountName, RarProcessCount,
+    ExfiltrationRisk, ArchiveTypes, Severity, ThreatType, MitreAttack
+
+
+// ============================================================================
+// QUERY 3: Ransomware File Encryption Detection (.safepay Extension)
+// Purpose: Detect file encryption patterns and ransom note creation
+// Confidence: CRITICAL
+// False Positives: Very rare - .safepay is specific to this ransomware family
+// Threshold: Any creation of .safepay files or ransom notes
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("FileCreated", "FileRenamed", "FileModified")
+| where FileName endswith_any (".safepay", ".encrypted", ".locked", ".enc", ".crypted")
+    or FileName has_any ("readme_safepay", "HOW_TO_DECRYPT", "README_DECRYPT", "RANSOM", "DECRYPT_INSTRUCTION")
+| extend IsSuspicious = case(
+    FileName has "readme_safepay", "RansomNote",
+    FileName endswith ".safepay", "SafePayEncryption",
+    FileName endswith ".encrypted", "GenericEncryption",
+    FileName has_any ("HOW_TO", "DECRYPT", "RANSOM"), "RansomNote",
+    "OtherEncryption"
+)
+| summarize
+    EncryptedFiles = countif(IsSuspicious in ("SafePayEncryption", "GenericEncryption", "OtherEncryption")),
+    RansomNotes = countif(IsSuspicious == "RansomNote"),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated),
+    UniqueExtensions = make_set(tostring(split(FileName, ".")[-1])),
+    SampleFiles = take_any(FileName, 10),
+    AffectedFolders = dcount(FolderPath)
+    by DeviceName, InitiatingProcessFileName, AccountName
+| where EncryptedFiles > 10 or RansomNotes > 0
+| extend
+    Severity = case(
+        RansomNotes > 0 and EncryptedFiles > 100, "Critical",
+        RansomNotes > 0, "Critical",
+        EncryptedFiles > 100, "Critical",
+        EncryptedFiles > 50, "High",
+        "Medium"
+    ),
+    ThreatType = "Ransomware - File Encryption Active",
+    MitreAttack = "T1486",
+    TestID = "109266e2-2310-40ea-9f63-b97e4b7fda61",
+    Confidence = "Critical"
+| project TimeGenerated = FirstSeen, DeviceName, AccountName, InitiatingProcessFileName,
+    EncryptedFiles, RansomNotes, AffectedFolders, UniqueExtensions, Severity, ThreatType, MitreAttack
+
+
+// ============================================================================
+// QUERY 4: Parallel Compression Job Detection
+// Purpose: Detect multiple simultaneous compression processes (ransomware staging)
+// Confidence: MEDIUM-HIGH
+// False Positives: Legitimate parallel backup operations
+// Threshold: Multiple archive processes within short time window
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine has_all ("Start-Job", "WinRAR")
+    or ProcessCommandLine has_all ("powershell", "-v100m")
+    or (FileName =~ "WinRAR.exe" and ProcessCommandLine has "-mt")  // Multi-threaded WinRAR
+| extend CompressionIndicator = case(
+    ProcessCommandLine has "Start-Job", "PowerShell Background Job",
+    ProcessCommandLine has "-mt", "Multi-threaded Compression",
+    ProcessCommandLine has "-v", "Volume Splitting",
+    "Standard Compression"
+)
+| summarize
+    CompressionJobs = count(),
+    CompressionTypes = make_set(CompressionIndicator),
+    ProcessCommands = make_set(ProcessCommandLine),
+    FirstJob = min(TimeGenerated),
+    LastJob = max(TimeGenerated)
+    by DeviceName, AccountName, bin(TimeGenerated, 10m)
+| where CompressionJobs > 2  // Multiple parallel compression jobs
+| extend Duration = datetime_diff('second', LastJob, FirstJob)
+| extend
+    Severity = case(CompressionJobs > 5, "High", CompressionJobs > 3, "Medium", "Low"),
+    ThreatType = "Ransomware - Parallel Data Staging",
+    MitreAttack = "T1560.001",
+    TestID = "109266e2-2310-40ea-9f63-b97e4b7fda61",
+    Confidence = "Medium"
+| project TimeGenerated = FirstJob, DeviceName, AccountName, CompressionJobs, Duration,
+    CompressionTypes, Severity, ThreatType, MitreAttack
+
+
+// ============================================================================
+// QUERY 5: Combined SafePay Ransomware Behavior Detection
+// Purpose: Correlate multiple ransomware indicators for high-confidence detection
+// Confidence: CRITICAL
+// False Positives: Very rare - requires multiple correlated indicators
+// Threshold: 2+ indicators within 15-minute window
+// ============================================================================
+
+let MassFileOps = DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("FileCreated", "FileDeleted")
+| where FolderPath !startswith "C:\\F0\\"
+| where FileName endswith_any (".docx", ".xlsx", ".pdf", ".txt", ".csv", ".sql")
+| summarize FileOps = count() by DeviceName, AccountName, bin(TimeGenerated, 5m)
+| where FileOps > 100
+| distinct DeviceName, AccountName;
+let WinRARActivity = DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ ("WinRAR.exe", "rar.exe", "Rar.exe")
+| distinct DeviceName, AccountName;
+let EncryptionFiles = DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where FileName endswith ".safepay" or FileName contains "readme_safepay"
+| distinct DeviceName, AccountName;
+let PowerShellBypass = DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine has_all ("powershell", "Bypass")
+| where ProcessCommandLine has_any ("safepay", "ransomware", ".ps1")
+| distinct DeviceName, AccountName;
+// Correlate all indicators
+MassFileOps
+| join kind=inner (WinRARActivity) on DeviceName, AccountName
+| join kind=inner (PowerShellBypass) on DeviceName, AccountName
+| join kind=leftouter (EncryptionFiles) on DeviceName, AccountName
+| extend ThreatScore = case(
+    isnotempty(DeviceName2), 100,  // All indicators including encryption
+    95  // Mass operations + WinRAR + PowerShell bypass
+)
+| extend
+    Severity = "Critical",
+    ThreatType = "SafePay Ransomware - Multi-Indicator Detection",
+    MitreAttack = "T1486, T1560.001, T1490",
+    TestID = "109266e2-2310-40ea-9f63-b97e4b7fda61",
+    Confidence = "Critical",
+    HasEncryption = isnotempty(DeviceName2)
+| project DeviceName, AccountName, ThreatScore, HasEncryption,
+    Severity, ThreatType, MitreAttack
+
+
+// ============================================================================
+// QUERY 6: Ransom Note Display Detection
+// Purpose: Detect automatic display of ransom notes via notepad
+// Confidence: HIGH
+// False Positives: Users opening files named with ransom-related keywords
+// Threshold: Notepad launched with ransomware-specific file names
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "notepad.exe"
+| where ProcessCommandLine has_any ("readme_safepay", "RANSOM", "DECRYPT", "safepay", "HOW_TO_DECRYPT")
+| extend RansomNoteName = extract(@"([^\\\s]+\.txt)", 1, ProcessCommandLine)
+| summarize
+    RansomNoteDisplays = count(),
+    DisplayCommands = make_set(ProcessCommandLine),
+    NoteNames = make_set(RansomNoteName),
+    FirstDisplay = min(TimeGenerated)
+    by DeviceName, AccountName, InitiatingProcessFileName
+| extend
+    Severity = "Critical",
+    ThreatType = "Ransomware - Ransom Note Display",
+    MitreAttack = "T1486",
+    TestID = "109266e2-2310-40ea-9f63-b97e4b7fda61",
+    Confidence = "High"
+| project TimeGenerated = FirstDisplay, DeviceName, AccountName, InitiatingProcessFileName,
+    RansomNoteDisplays, NoteNames, Severity, ThreatType, MitreAttack
+
+
+// ============================================================================
+// QUERY 7: Mass File Creation in User Directories (Preparation Phase)
+// Purpose: Detect mass creation of files simulating corporate data
+// Confidence: MEDIUM
+// False Positives: Legitimate file synchronization, backup restoration
+// Threshold: 100+ files created in user directory within 5 minutes
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FolderPath has_any ("Documents", "Desktop", "Users")
+| where FileName endswith_any (".docx", ".xlsx", ".pdf", ".txt", ".csv", ".sql", ".bak", ".ppt")
+| summarize
+    FilesCreated = count(),
+    FileTypes = make_set(tostring(split(FileName, ".")[-1])),
+    FirstCreation = min(TimeGenerated),
+    LastCreation = max(TimeGenerated),
+    UniqueDirectories = dcount(FolderPath),
+    SampleNames = take_any(FileName, 10)
+    by DeviceName, InitiatingProcessFileName, AccountName, bin(TimeGenerated, 5m)
+| where FilesCreated > 100
+| extend CreationRate = FilesCreated / datetime_diff('second', LastCreation, FirstCreation)
+| extend
+    Severity = case(FilesCreated > 500, "High", FilesCreated > 200, "Medium", "Low"),
+    ThreatType = "Ransomware Preparation - Mass File Creation",
+    MitreAttack = "T1005",
+    TestID = "109266e2-2310-40ea-9f63-b97e4b7fda61",
+    Confidence = "Medium"
+| project TimeGenerated = FirstCreation, DeviceName, AccountName, InitiatingProcessFileName,
+    FilesCreated, CreationRate, UniqueDirectories, FileTypes, Severity, ThreatType, MitreAttack
+
+
+// ============================================================================
+// QUERY 8: PowerShell Execution Policy Bypass with Suspicious Scripts
+// Purpose: Detect PowerShell execution bypassing security controls
+// Confidence: HIGH
+// False Positives: Legitimate admin scripts with execution policy bypass
+// Threshold: PowerShell with bypass flag executing .ps1 from suspicious locations
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "powershell.exe" or ProcessCommandLine has "powershell"
+| where ProcessCommandLine has_any ("Bypass", "-ep bypass", "-exec bypass", "-executionpolicy bypass")
+| where ProcessCommandLine has_any (".ps1", "safepay", "ransomware", "encrypt", "C:\\F0\\")
+| extend ScriptPath = extract(@"[\w:\\]+\.ps1", 0, ProcessCommandLine)
+| extend SuspiciousIndicators =
+    iff(ProcessCommandLine has "safepay", 1, 0) +
+    iff(ProcessCommandLine has "ransomware", 1, 0) +
+    iff(ProcessCommandLine has "encrypt", 1, 0) +
+    iff(ProcessCommandLine has "C:\\F0\\", 1, 0) +
+    iff(ProcessCommandLine has "-File", 1, 0)
+| where SuspiciousIndicators >= 2
+| extend
+    Severity = case(SuspiciousIndicators >= 4, "Critical", SuspiciousIndicators >= 3, "High", "Medium"),
+    ThreatType = "Ransomware - PowerShell Execution Bypass",
+    MitreAttack = "T1059.001",
+    TestID = "109266e2-2310-40ea-9f63-b97e4b7fda61",
+    Confidence = "High"
+| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine, ScriptPath,
+    SuspiciousIndicators, Severity, ThreatType, MitreAttack
+
+
+// ============================================================================
+// QUERY 9: Corporate Directory Structure Creation (Reconnaissance)
+// Purpose: Detect creation of fake corporate directory structures
+// Confidence: MEDIUM
+// False Positives: Legitimate organizational folder creation
+// Threshold: Multiple department-like directories created rapidly
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FolderCreated" or ActionType == "FileCreated"
+| where FolderPath has_any ("Finance", "HR", "Legal", "IT", "Sales", "Executive", "fortika-test")
+| where FolderPath has_any ("Documents", "Desktop", "Users")
+| summarize
+    DirectoriesCreated = dcount(FolderPath),
+    DepartmentNames = make_set(extract(@"(Finance|HR|Legal|IT|Sales|Executive)", 1, FolderPath)),
+    FirstCreation = min(TimeGenerated),
+    SamplePaths = take_any(FolderPath, 10)
+    by DeviceName, InitiatingProcessFileName, AccountName, bin(TimeGenerated, 5m)
+| where DirectoriesCreated > 5 or array_length(DepartmentNames) >= 3
+| extend
+    Severity = case(array_length(DepartmentNames) >= 5, "High", "Medium"),
+    ThreatType = "Ransomware Preparation - Corporate Directory Structure",
+    MitreAttack = "T1083",
+    TestID = "109266e2-2310-40ea-9f63-b97e4b7fda61",
+    Confidence = "Medium"
+| project TimeGenerated = FirstCreation, DeviceName, AccountName, InitiatingProcessFileName,
+    DirectoriesCreated, DepartmentNames, Severity, ThreatType, MitreAttack
+
+
+// ============================================================================
+// QUERY 10: Executable Dropped to C:\F0 Directory (F0RT1KA Indicator)
+// Purpose: Detect binaries dropped to the F0RT1KA test directory
+// Confidence: HIGH
+// False Positives: Legitimate F0RT1KA security testing
+// Threshold: Any executable created in C:\F0
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "FileCreated"
+| where FolderPath startswith "C:\\F0"
+| where FileName endswith_any (".exe", ".dll", ".ps1", ".bat", ".cmd", ".vbs")
+| extend FileType = tostring(split(FileName, ".")[-1])
+| summarize
+    FilesDropped = count(),
+    FileTypes = make_set(FileType),
+    FileNames = make_set(FileName),
+    FirstDrop = min(TimeGenerated),
+    LastDrop = max(TimeGenerated)
+    by DeviceName, InitiatingProcessFileName, AccountName
+| extend
+    Severity = case(
+        "exe" in (FileTypes) and "ps1" in (FileTypes), "High",  // Both binary and script
+        "exe" in (FileTypes), "Medium",
+        "Low"
+    ),
+    ThreatType = "F0RT1KA Test or Suspicious Binary Drop",
+    MitreAttack = "T1105",
+    TestID = "109266e2-2310-40ea-9f63-b97e4b7fda61",
+    Confidence = "High"
+| project TimeGenerated = FirstDrop, DeviceName, AccountName, InitiatingProcessFileName,
+    FilesDropped, FileNames, FileTypes, Severity, ThreatType, MitreAttack
+
+
+// ============================================================================
+// ALERT SUMMARY DASHBOARD QUERY
+// Purpose: Aggregate all SafePay ransomware detections for SOC dashboard
+// ============================================================================
+
+let SafePayDetections = union
+    // Mass File Deletion
+    (DeviceFileEvents
+    | where TimeGenerated > ago(24h)
+    | where ActionType == "FileDeleted"
+    | where FileName endswith_any (".docx", ".xlsx", ".pdf")
+    | summarize DeletedCount = count() by DeviceName, bin(TimeGenerated, 1h)
+    | where DeletedCount > 50
+    | extend DetectionType = "Mass File Deletion"
+    ),
+    // Encryption Detection
+    (DeviceFileEvents
+    | where TimeGenerated > ago(24h)
+    | where FileName endswith ".safepay" or FileName has "readme_safepay"
+    | summarize EncryptedCount = count() by DeviceName, bin(TimeGenerated, 1h)
+    | extend DetectionType = "File Encryption", DeletedCount = EncryptedCount
+    ),
+    // WinRAR Activity
+    (DeviceProcessEvents
+    | where TimeGenerated > ago(24h)
+    | where FileName in~ ("WinRAR.exe", "rar.exe")
+    | summarize RarCount = count() by DeviceName, bin(TimeGenerated, 1h)
+    | where RarCount > 3
+    | extend DetectionType = "WinRAR Data Staging", DeletedCount = RarCount
+    );
+SafePayDetections
+| summarize
+    TotalEvents = sum(DeletedCount),
+    DetectionTypes = make_set(DetectionType)
+    by DeviceName, bin(TimeGenerated, 1h)
+| order by TotalEvents desc
+| extend
+    Severity = case(
+        TotalEvents >= 500, "Critical",
+        TotalEvents >= 100, "High",
+        TotalEvents >= 50, "Medium",
+        "Low"
+    ),
+    ThreatType = "SafePay Ransomware Activity Cluster",
+    MitreAttack = "T1486, T1560.001, T1490",
+    TestID = "109266e2-2310-40ea-9f63-b97e4b7fda61"
+| project TimeGenerated, DeviceName, TotalEvents, DetectionTypes, Severity, ThreatType, MitreAttack

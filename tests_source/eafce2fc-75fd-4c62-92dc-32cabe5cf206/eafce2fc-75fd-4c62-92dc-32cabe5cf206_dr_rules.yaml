@@ -1,0 +1,551 @@
+# ============================================================
+# F0RT1KA LimaCharlie Detection & Response Rules
+# Test ID: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+# Test Name: Tailscale Remote Access and Data Exfiltration
+# MITRE ATT&CK: T1105, T1219, T1543.003, T1021.004, T1041
+# Author: F0RT1KA Defense Guidance Builder
+# Date: 2025-12-07
+# Format: File format (for limacharlie dr add or config push)
+# ============================================================
+
+rules:
+  # ============================================================
+  # STAGE 1: T1105 - Ingress Tool Transfer
+  # ============================================================
+
+  f0rtika-tailscale-msi-drop:
+    # Detection: Tailscale MSI file creation
+    # Confidence: High
+    # Description: Detects creation of Tailscale MSI installer in test directory
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\F0\\"
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "tailscale"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".msi"
+    respond:
+      - action: report
+        name: F0RT1KA - Tailscale MSI Drop (T1105)
+        metadata:
+          severity: high
+          mitre_attack: T1105
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: Tailscale MSI installer detected in F0RT1KA test directory
+
+  f0rtika-f0-directory-exe-drop:
+    # Detection: Executable file creation in C:\F0
+    # Confidence: High
+    # Description: Detects any executable dropped to F0RT1KA test directory
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\F0\\"
+        - op: ends with
+          path: event/FILE_PATH
+          value: ".exe"
+    respond:
+      - action: report
+        name: F0RT1KA - Executable File Drop (T1105)
+        metadata:
+          severity: high
+          mitre_attack: T1105
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: Executable binary dropped to F0RT1KA test directory
+
+  f0rtika-tailscale-download:
+    # Detection: Network connection to Tailscale download servers
+    # Confidence: Medium
+    # Description: Detects outbound connections to Tailscale package servers
+    detect:
+      target: edr
+      event: NEW_TCP4_CONNECTION
+      op: and
+      rules:
+        - op: is
+          path: event/DESTINATION/PORT
+          value: 443
+        - op: contains
+          path: routing/hostname
+          value: "tailscale.com"
+    respond:
+      - action: report
+        name: F0RT1KA - Tailscale Download Connection (T1105)
+        metadata:
+          severity: medium
+          mitre_attack: T1105
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: Outbound connection to Tailscale package download infrastructure
+
+  # ============================================================
+  # STAGE 2: T1543.003 - Windows Service Installation
+  # ============================================================
+
+  f0rtika-openssh-installation:
+    # Detection: OpenSSH installation via PowerShell
+    # Confidence: High
+    # Description: Detects Add-WindowsCapability or manual OpenSSH installation
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: is
+          path: event/FILE_PATH
+          value: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Add-WindowsCapability"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Expand-Archive"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "OpenSSH"
+    respond:
+      - action: report
+        name: F0RT1KA - OpenSSH Installation (T1543.003)
+        metadata:
+          severity: high
+          mitre_attack: T1543.003
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: OpenSSH Server installation detected via PowerShell
+
+  f0rtika-install-sshd-script:
+    # Detection: install-sshd.ps1 script execution
+    # Confidence: High
+    # Description: Detects execution of OpenSSH service installation script
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: is
+          path: event/FILE_PATH
+          value: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "install-sshd.ps1"
+    respond:
+      - action: report
+        name: F0RT1KA - OpenSSH Service Install Script (T1543.003)
+        metadata:
+          severity: high
+          mitre_attack: T1543.003
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: OpenSSH install-sshd.ps1 script execution detected
+
+  f0rtika-ssh-firewall-rule:
+    # Detection: SSH firewall rule creation
+    # Confidence: Medium
+    # Description: Detects creation of firewall rule for SSH port 22
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: is
+          path: event/FILE_PATH
+          value: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "New-NetFirewallRule"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "22"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "sshd"
+    respond:
+      - action: report
+        name: F0RT1KA - SSH Firewall Rule Creation (T1543.003)
+        metadata:
+          severity: medium
+          mitre_attack: T1543.003
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: Firewall rule creation for SSH port 22 detected
+
+  f0rtika-service-config-auto:
+    # Detection: Service configuration to automatic startup
+    # Confidence: Medium
+    # Description: Detects sc.exe setting service to auto-start
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\sc.exe"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "config"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "auto"
+    respond:
+      - action: report
+        name: F0RT1KA - Service Auto-Start Configuration (T1543.003)
+        metadata:
+          severity: medium
+          mitre_attack: T1543.003
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: Service configured for automatic startup via sc.exe
+
+  # ============================================================
+  # STAGE 3: T1219 - Remote Access Software
+  # ============================================================
+
+  f0rtika-tailscale-msi-install:
+    # Detection: Silent MSI installation of Tailscale
+    # Confidence: Critical
+    # Description: Detects msiexec silent installation of Tailscale
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\msiexec.exe"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "tailscale"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "/quiet"
+    respond:
+      - action: report
+        name: F0RT1KA - Tailscale Silent MSI Installation (T1219)
+        metadata:
+          severity: critical
+          mitre_attack: T1219
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: Silent installation of Tailscale MSI detected
+
+  f0rtika-tailscale-connect:
+    # Detection: Tailscale connection with auth key
+    # Confidence: Critical
+    # Description: Detects Tailscale connecting to tailnet with authentication
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\tailscale.exe"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "up"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "authkey"
+    respond:
+      - action: report
+        name: F0RT1KA - Tailscale Tailnet Connection (T1219)
+        metadata:
+          severity: critical
+          mitre_attack: T1219
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: Tailscale connecting to tailnet with authentication key
+
+  f0rtika-tailscale-network:
+    # Detection: Tailscale network connections (WireGuard/DERP)
+    # Confidence: High
+    # Description: Detects Tailscale outbound connections on characteristic ports
+    detect:
+      target: edr
+      event: NEW_UDP4_CONNECTION
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\tailscale.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\tailscaled.exe"
+        - op: is
+          path: event/DESTINATION/PORT
+          value: 41641
+    respond:
+      - action: report
+        name: F0RT1KA - Tailscale WireGuard Traffic (T1219)
+        metadata:
+          severity: high
+          mitre_attack: T1219
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: Tailscale WireGuard VPN traffic detected on port 41641
+
+  f0rtika-tailscale-status:
+    # Detection: Tailscale status check
+    # Confidence: Medium
+    # Description: Detects Tailscale status command execution
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\tailscale.exe"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "status"
+    respond:
+      - action: report
+        name: F0RT1KA - Tailscale Status Check (T1219)
+        metadata:
+          severity: low
+          mitre_attack: T1219
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: Tailscale status command executed
+
+  # ============================================================
+  # STAGE 4: T1021.004 - SSH Remote Access
+  # ============================================================
+
+  f0rtika-sshd-service-start:
+    # Detection: SSH service start command
+    # Confidence: Medium
+    # Description: Detects Start-Service sshd command
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: is
+          path: event/FILE_PATH
+          value: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "Start-Service"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "sshd"
+    respond:
+      - action: report
+        name: F0RT1KA - SSH Service Start (T1021.004)
+        metadata:
+          severity: medium
+          mitre_attack: T1021.004
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: OpenSSH Server service start detected
+
+  f0rtika-ssh-port-listen:
+    # Detection: SSH port 22 listener
+    # Confidence: Medium
+    # Description: Detects process listening on SSH port 22
+    detect:
+      target: edr
+      event: NEW_TCP4_CONNECTION
+      op: and
+      rules:
+        - op: is
+          path: event/STATE
+          value: "LISTEN"
+        - op: is
+          path: event/SOURCE/PORT
+          value: 22
+    respond:
+      - action: report
+        name: F0RT1KA - SSH Port 22 Listener (T1021.004)
+        metadata:
+          severity: medium
+          mitre_attack: T1021.004
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: Process listening on SSH port 22 detected
+
+  f0rtika-sshd-child-process:
+    # Detection: Process spawned by sshd
+    # Confidence: High
+    # Description: Detects child processes of SSH daemon
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: ends with
+      path: event/PARENT/FILE_PATH
+      value: "\\sshd.exe"
+    respond:
+      - action: report
+        name: F0RT1KA - SSHD Child Process (T1021.004)
+        metadata:
+          severity: high
+          mitre_attack: T1021.004
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: Process spawned by SSH daemon - potential remote command execution
+
+  # ============================================================
+  # STAGE 5: T1041 - Exfiltration Over C2 Channel
+  # ============================================================
+
+  f0rtika-exfil-staging-dir:
+    # Detection: Exfiltration staging directory creation
+    # Confidence: High
+    # Description: Detects creation of exfil_staging directory
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\F0\\"
+        - op: contains
+          path: event/FILE_PATH
+          value: "exfil"
+    respond:
+      - action: report
+        name: F0RT1KA - Exfiltration Staging Directory (T1041)
+        metadata:
+          severity: high
+          mitre_attack: T1041
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: Data exfiltration staging directory detected
+
+  f0rtika-sensitive-file-creation:
+    # Detection: Sensitive-looking file creation
+    # Confidence: Medium
+    # Description: Detects files with sensitive naming patterns
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\F0\\"
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "password"
+            - op: contains
+              path: event/FILE_PATH
+              value: "credential"
+            - op: contains
+              path: event/FILE_PATH
+              value: "api_key"
+            - op: contains
+              path: event/FILE_PATH
+              value: "ssh_"
+            - op: contains
+              path: event/FILE_PATH
+              value: "_key"
+    respond:
+      - action: report
+        name: F0RT1KA - Sensitive File Pattern (T1041)
+        metadata:
+          severity: medium
+          mitre_attack: T1041
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: File with sensitive naming pattern detected in test directory
+
+  f0rtika-exfil-archive-creation:
+    # Detection: Exfiltration archive creation
+    # Confidence: Critical
+    # Description: Detects creation of exfiltration ZIP archive
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\F0\\"
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "exfiltrated"
+            - op: contains
+              path: event/FILE_PATH
+              value: "EXFILTRATED"
+        - op: ends with
+          path: event/FILE_PATH
+          value: ".zip"
+    respond:
+      - action: report
+        name: F0RT1KA - Exfiltration Archive Creation (T1041)
+        metadata:
+          severity: critical
+          mitre_attack: T1041
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: Data exfiltration archive created
+
+  # ============================================================
+  # CORRELATION: Multi-Stage Attack Detection
+  # ============================================================
+
+  f0rtika-stage-binary-execution:
+    # Detection: F0RT1KA test stage binary execution
+    # Confidence: High
+    # Description: Detects execution of test stage binaries
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\F0\\"
+        - op: contains
+          path: event/FILE_PATH
+          value: "eafce2fc-"
+        - op: ends with
+          path: event/FILE_PATH
+          value: ".exe"
+    respond:
+      - action: report
+        name: F0RT1KA - Test Stage Binary Execution
+        metadata:
+          severity: high
+          mitre_attack: T1105,T1219,T1543.003,T1021.004,T1041
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: F0RT1KA test stage binary execution detected
+
+  f0rtika-cleanup-utility-execution:
+    # Detection: Cleanup utility execution
+    # Confidence: Low (informational)
+    # Description: Detects execution of test cleanup utility
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\F0\\"
+        - op: contains
+          path: event/FILE_PATH
+          value: "cleanup"
+    respond:
+      - action: report
+        name: F0RT1KA - Cleanup Utility Execution
+        metadata:
+          severity: low
+          test_id: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+          description: F0RT1KA test cleanup utility executed
+
+# ============================================================
+# END OF D&R RULES
+# ============================================================

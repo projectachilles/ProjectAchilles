@@ -1,0 +1,452 @@
+# ============================================================================
+# DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: e5577355-f8e4-4e52-b1b2-f7d1c8b864f1
+# Test Name: SilentButDeadly WFP EDR Network Isolation
+# MITRE ATT&CK: T1562.001 - Impair Defenses: Disable or Modify Tools
+# Created: 2025-12-06
+# Author: F0RT1KA Defense Guidance Builder
+# Format: LimaCharlie file format (for limacharlie dr add)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These D&R rules detect the underlying WFP-based EDR isolation technique,
+# NOT the F0RT1KA testing framework. They will catch real-world attackers
+# using similar WFP manipulation tools with their own custom binaries.
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f e5577355-f8e4-4e52-b1b2-f7d1c8b864f1_dr_rules.yaml
+#
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: WFP EDR Isolation Tool Execution
+  # Purpose: Detect execution of known WFP-based EDR isolation tools
+  # Confidence: HIGH
+  # ==========================================================================
+  wfp-edr-isolation-tool-execution:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # Match process names commonly associated with WFP EDR isolation tools
+        - op: or
+          rules:
+            # Known tool name patterns (case-insensitive matching)
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)(silent.*deadly|edr.*silenc|wfp.*block|edr.*block|netlock|blind.*side)
+            # Executables with WFP-related names
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)(fwp.*tool|firewall.*bypass|network.*isolat)
+
+    respond:
+      - action: report
+        name: WFP EDR Isolation Tool Detected
+        metadata:
+          severity: critical
+          mitre_attack: T1562.001
+          confidence: high
+          description: A known WFP-based EDR isolation tool was executed
+          investigation: Check process tree, network activity, and EDR telemetry gaps
+
+      - action: task
+        command: history_dump
+        investigation: WFP-EDR-Isolation-Tool
+
+      # Optional: Terminate the malicious process
+      # Uncomment if you want automatic remediation
+      # - action: task
+      #   command: deny_tree
+
+
+  # ==========================================================================
+  # RULE 2: Suspicious WFP API Access Pattern
+  # Purpose: Detect processes accessing WFP API for filtering
+  # Confidence: MEDIUM
+  # ==========================================================================
+  wfp-suspicious-api-access:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # Process loads fwpuclnt.dll (WFP client library)
+        - op: or
+          rules:
+            # Command line references WFP functions
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "FwpmEngineOpen"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "FwpmFilterAdd"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "FwpmProviderAdd"
+        # Exclude known legitimate processes
+        - op: is
+          path: event/FILE_PATH
+          value: "C:\\Windows\\System32\\svchost.exe"
+          not: true
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\Windows Defender\\"
+          not: true
+
+    respond:
+      - action: report
+        name: Suspicious WFP API Access Detected
+        metadata:
+          severity: high
+          mitre_attack: T1562.001
+          confidence: medium
+          description: Non-system process accessing WFP filtering APIs
+
+
+  # ==========================================================================
+  # RULE 3: Process Enumeration Targeting Security Software
+  # Purpose: Detect reconnaissance of EDR/AV processes
+  # Confidence: MEDIUM
+  # ==========================================================================
+  edr-process-enumeration:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # Process enumeration tools
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\tasklist.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\wmic.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\powershell.exe"
+        # Looking for specific EDR processes
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "SentinelAgent"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "CSFalcon"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "MsMpEng"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "CrowdStrike"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "CortexXDR"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "elastic-endpoint"
+
+    respond:
+      - action: report
+        name: EDR Process Enumeration Detected
+        metadata:
+          severity: medium
+          mitre_attack: T1518.001
+          confidence: medium
+          description: Process enumeration targeting security software detected
+
+
+  # ==========================================================================
+  # RULE 4: Firewall Rule Creation Blocking Security Software
+  # Purpose: Detect firewall rules that block EDR network access
+  # Confidence: HIGH
+  # ==========================================================================
+  firewall-block-edr:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # Firewall management tools
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\netsh.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\powershell.exe"
+        # Creating blocking rules
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "advfirewall"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "New-NetFirewallRule"
+        # Blocking action
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "block"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Block"
+        # Targeting EDR processes
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "SentinelAgent"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "CSFalcon"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "MsMpEng"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "elastic-endpoint"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "CortexXDR"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "CylanceSvc"
+
+    respond:
+      - action: report
+        name: Firewall Rule Blocking EDR Detected
+        metadata:
+          severity: critical
+          mitre_attack: T1562.004
+          confidence: high
+          description: Firewall rule created to block security software network access
+
+      - action: task
+        command: history_dump
+        investigation: Firewall-Block-EDR
+
+
+  # ==========================================================================
+  # RULE 5: Elevated Process with WFP Characteristics
+  # Purpose: Detect admin processes with WFP-related activity
+  # Confidence: MEDIUM-HIGH
+  # ==========================================================================
+  elevated-wfp-activity:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # Process running elevated
+        - op: is
+          path: event/INTEGRITY_LEVEL
+          value: 12288  # High integrity (admin)
+        # Not a system process
+        - op: starts with
+          path: event/FILE_PATH
+          value: "C:\\Windows\\System32\\"
+          not: true
+        # Has WFP-related command line indicators
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "fwpuclnt"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "FwpmEngine"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "WFP"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "filtering platform"
+
+    respond:
+      - action: report
+        name: Elevated WFP Activity Detected
+        metadata:
+          severity: high
+          mitre_attack: T1562.001
+          confidence: medium
+          description: Elevated process with WFP-related activity detected
+
+
+  # ==========================================================================
+  # RULE 6: DLL Load of WFP Client Library by Suspicious Process
+  # Purpose: Detect non-standard processes loading fwpuclnt.dll
+  # Confidence: MEDIUM
+  # ==========================================================================
+  suspicious-fwpuclnt-load:
+    detect:
+      target: edr
+      event: MODULE_LOAD
+      op: and
+      rules:
+        # Loading fwpuclnt.dll (WFP client library)
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\fwpuclnt.dll"
+        # Not loaded by expected system processes
+        - op: is
+          path: routing/parent/FILE_PATH
+          value: "C:\\Windows\\System32\\svchost.exe"
+          not: true
+        - op: is
+          path: routing/parent/FILE_PATH
+          value: "C:\\Windows\\System32\\lsass.exe"
+          not: true
+        - op: contains
+          path: routing/parent/FILE_PATH
+          value: "\\Windows Defender\\"
+          not: true
+        # Not from trusted security software directories
+        - op: contains
+          path: routing/parent/FILE_PATH
+          value: "\\SentinelOne\\"
+          not: true
+        - op: contains
+          path: routing/parent/FILE_PATH
+          value: "\\CrowdStrike\\"
+          not: true
+
+    respond:
+      - action: report
+        name: Suspicious WFP DLL Load Detected
+        metadata:
+          severity: medium
+          mitre_attack: T1562.001
+          confidence: medium
+          description: Non-standard process loading WFP client library
+
+
+  # ==========================================================================
+  # RULE 7: Network Connection from Untrusted Binary to EDR Domains
+  # Purpose: Detect potential C2 activity during EDR evasion
+  # Confidence: LOW-MEDIUM (requires tuning)
+  # ==========================================================================
+  # Note: This rule monitors for network activity that might indicate
+  # reconnaissance of EDR cloud infrastructure before blocking
+  untrusted-binary-network-activity:
+    detect:
+      target: edr
+      event: NEW_TCP4_CONNECTION
+      op: and
+      rules:
+        # Not from trusted paths
+        - op: starts with
+          path: event/FILE_PATH
+          value: "C:\\Windows\\"
+          not: true
+        - op: starts with
+          path: event/FILE_PATH
+          value: "C:\\Program Files\\"
+          not: true
+        # Connecting to common EDR cloud domains (by IP range - example)
+        # Note: Customize these for your environment
+        - op: or
+          rules:
+            # Example: Monitor connections on common ports
+            - op: is
+              path: event/DESTINATION_PORT
+              value: 443
+            - op: is
+              path: event/DESTINATION_PORT
+              value: 80
+
+    respond:
+      - action: report
+        name: Untrusted Binary Network Activity
+        metadata:
+          severity: low
+          mitre_attack: T1562.001
+          confidence: low
+          description: Network activity from untrusted binary location
+
+
+  # ==========================================================================
+  # RULE 8: Registry Modification for Defender Configuration
+  # Purpose: Detect tampering with Windows Defender settings
+  # Confidence: HIGH
+  # ==========================================================================
+  defender-config-tampering:
+    detect:
+      target: edr
+      event: REGISTRY_VALUE_SET
+      op: and
+      rules:
+        # Defender configuration keys
+        - op: or
+          rules:
+            - op: contains
+              path: event/REGISTRY_KEY
+              value: "Windows Defender\\Real-Time Protection"
+            - op: contains
+              path: event/REGISTRY_KEY
+              value: "Windows Defender\\Exclusions"
+            - op: contains
+              path: event/REGISTRY_KEY
+              value: "Windows Defender\\SpyNet"
+            - op: contains
+              path: event/REGISTRY_KEY
+              value: "Windows Defender Exploit Guard\\ASR"
+        # Not by Defender itself
+        - op: contains
+          path: routing/parent/FILE_PATH
+          value: "\\MsMpEng.exe"
+          not: true
+        - op: ends with
+          path: routing/parent/FILE_PATH
+          value: "\\svchost.exe"
+          not: true
+
+    respond:
+      - action: report
+        name: Windows Defender Configuration Tampering
+        metadata:
+          severity: critical
+          mitre_attack: T1562.001
+          confidence: high
+          description: Unauthorized modification of Windows Defender settings
+
+      - action: task
+        command: history_dump
+        investigation: Defender-Config-Tampering
+
+
+  # ==========================================================================
+  # RULE 9: Behavioral Correlation - Multi-Indicator WFP Attack
+  # Purpose: High-confidence detection combining multiple indicators
+  # Confidence: HIGH
+  # Note: This rule uses stateful detection requiring multiple events
+  # ==========================================================================
+  # Placeholder for stateful correlation rule
+  # In LimaCharlie, this would typically be implemented using:
+  # 1. Multiple detection rules that feed into a central correlation
+  # 2. Investigation correlation via investigation IDs
+  # 3. External SIEM correlation via output streams
+
+
+# ============================================================================
+# OUTPUTS CONFIGURATION (for test results collection)
+# ============================================================================
+# Note: These outputs are for collecting F0RT1KA test results, not for
+# the detection rules above. Include if deploying full F0RT1KA infrastructure.
+
+outputs:
+  wfp-edr-isolation-detections:
+    module: syslog
+    for: detections
+    host: siem.example.com
+    port: 514

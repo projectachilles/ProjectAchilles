@@ -2,29 +2,16 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { TestDetails, TestFile } from '../../types/test.js';
+import { TestDetails, TestFile } from '../../types/test.js';
 import { MetadataExtractor } from './metadataExtractor.js';
 
 export class TestIndexer {
   private testsSourcePath: string;
   private testCache: Map<string, TestDetails> = new Map();
-  private initialized = false;
+  private static readonly UUID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
-  constructor() {
-    // Get tests source path from environment or use default
-    const configPath = process.env.TESTS_SOURCE_PATH || '../../f0_library/tests_source';
-    this.testsSourcePath = path.resolve(process.cwd(), configPath);
-  }
-
-  /**
-   * Initialize the indexer by scanning all tests
-   */
-  async initialize(): Promise<void> {
-    if (this.initialized) return;
-
-    console.log(`Scanning tests from: ${this.testsSourcePath}`);
-    this.scanAllTests();
-    this.initialized = true;
+  constructor(testsSourcePath: string) {
+    this.testsSourcePath = path.resolve(testsSourcePath);
   }
 
   /**
@@ -89,35 +76,30 @@ export class TestIndexer {
    */
   private getTestFiles(testDir: string): TestFile[] {
     const files: TestFile[] = [];
+    const entries = fs.readdirSync(testDir);
 
-    try {
-      const entries = fs.readdirSync(testDir);
+    // Filter out build artifacts and embedded binaries
+    const filteredEntries = entries.filter(entry => {
+      return !entry.endsWith('.exe') &&
+             !entry.endsWith('.msi') &&
+             !entry.endsWith('.dll') &&
+             entry !== 'test_execution_log.json' &&
+             entry !== 'test_execution_log.txt';
+    });
 
-      // Filter out build artifacts and embedded binaries
-      const filteredEntries = entries.filter(entry => {
-        return !entry.endsWith('.exe') &&
-               !entry.endsWith('.msi') &&
-               !entry.endsWith('.dll') &&
-               entry !== 'test_execution_log.json' &&
-               entry !== 'test_execution_log.txt';
-      });
+    for (const entry of filteredEntries) {
+      const filePath = path.join(testDir, entry);
+      const stat = fs.statSync(filePath);
 
-      for (const entry of filteredEntries) {
-        const filePath = path.join(testDir, entry);
-        const stat = fs.statSync(filePath);
-
-        if (stat.isFile()) {
-          files.push({
-            name: entry,
-            path: filePath,
-            type: this.getFileType(entry),
-            size: stat.size,
-            category: this.categorizeFile(entry),
-          });
-        }
+      if (stat.isFile()) {
+        files.push({
+          name: entry,
+          path: filePath,
+          type: this.getFileType(entry),
+          size: stat.size,
+          category: this.categorizeFile(entry),
+        });
       }
-    } catch (error) {
-      console.error(`Error reading test directory: ${testDir}`, error);
     }
 
     // Sort files: documentation first, then defense, then source, then detection, then config, then others
@@ -145,8 +127,7 @@ export class TestIndexer {
    */
   private isValidTestDirectory(dirName: string): boolean {
     // UUID format: 8-4-4-4-12 characters
-    const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
-    return uuidPattern.test(dirName);
+    return TestIndexer.UUID_PATTERN.test(dirName);
   }
 
   /**
@@ -156,6 +137,7 @@ export class TestIndexer {
     const testDir = path.join(this.testsSourcePath, uuid);
 
     if (!fs.existsSync(testDir)) {
+      console.error(`Test directory not found: ${testDir}`);
       return null;
     }
 
@@ -199,35 +181,24 @@ export class TestIndexer {
    */
   public scanAllTests(): TestDetails[] {
     if (!fs.existsSync(this.testsSourcePath)) {
-      console.error(`Tests source path not found: ${this.testsSourcePath}`);
-      return [];
+      throw new Error(`Tests source path not found: ${this.testsSourcePath}`);
     }
 
     const tests: TestDetails[] = [];
+    const entries = fs.readdirSync(this.testsSourcePath);
 
-    try {
-      const entries = fs.readdirSync(this.testsSourcePath);
+    for (const entry of entries) {
+      const fullPath = path.join(this.testsSourcePath, entry);
+      const stat = fs.statSync(fullPath);
 
-      for (const entry of entries) {
-        const fullPath = path.join(this.testsSourcePath, entry);
-
-        try {
-          const stat = fs.statSync(fullPath);
-
-          // Only process directories with valid UUID names
-          if (stat.isDirectory() && this.isValidTestDirectory(entry)) {
-            const testDetails = this.scanTestDirectory(entry);
-            if (testDetails) {
-              tests.push(testDetails);
-              this.testCache.set(entry, testDetails);
-            }
-          }
-        } catch (err) {
-          // Skip directories we can't access
+      // Only process directories with valid UUID names
+      if (stat.isDirectory() && this.isValidTestDirectory(entry)) {
+        const testDetails = this.scanTestDirectory(entry);
+        if (testDetails) {
+          tests.push(testDetails);
+          this.testCache.set(entry, testDetails);
         }
       }
-    } catch (error) {
-      console.error(`Error scanning tests directory:`, error);
     }
 
     console.log(`Indexed ${tests.length} security tests`);
@@ -249,19 +220,57 @@ export class TestIndexer {
    * Get all cached tests
    */
   public getAllTests(): TestDetails[] {
-    if (!this.initialized) {
-      this.scanAllTests();
-      this.initialized = true;
-    }
     return Array.from(this.testCache.values());
   }
 
   /**
    * Refresh the test cache
    */
-  public async refresh(): Promise<TestDetails[]> {
+  public refresh(): TestDetails[] {
     this.testCache.clear();
-    this.initialized = false;
     return this.scanAllTests();
+  }
+
+  /**
+   * Search tests by keyword (name, technique, category)
+   */
+  public searchTests(query: string): TestDetails[] {
+    const lowerQuery = query.toLowerCase();
+    return this.getAllTests().filter(test => {
+      return (
+        test.name.toLowerCase().includes(lowerQuery) ||
+        test.uuid.toLowerCase().includes(lowerQuery) ||
+        test.techniques.some(t => t.toLowerCase().includes(lowerQuery)) ||
+        test.category?.toLowerCase().includes(lowerQuery) ||
+        test.description?.toLowerCase().includes(lowerQuery)
+      );
+    });
+  }
+
+  /**
+   * Filter tests by technique
+   */
+  public filterByTechnique(technique: string): TestDetails[] {
+    return this.getAllTests().filter(test =>
+      test.techniques.includes(technique)
+    );
+  }
+
+  /**
+   * Filter tests by category
+   */
+  public filterByCategory(category: string): TestDetails[] {
+    return this.getAllTests().filter(test =>
+      test.category?.toLowerCase() === category.toLowerCase()
+    );
+  }
+
+  /**
+   * Filter tests by severity
+   */
+  public filterBySeverity(severity: string): TestDetails[] {
+    return this.getAllTests().filter(test =>
+      test.severity?.toLowerCase() === severity.toLowerCase()
+    );
   }
 }

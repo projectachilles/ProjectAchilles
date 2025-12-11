@@ -1,51 +1,52 @@
 // Service to read file contents
 
-import * as fs from 'fs/promises';
-
-const MAX_FILE_SIZE = 1024 * 1024; // 1MB max
+import * as fs from 'fs';
+import * as path from 'path';
+import { FileContent } from '../../types/test.js';
 
 export class FileService {
   /**
-   * Read file content with size limit
+   * Read file content safely
    */
-  async readFile(filePath: string): Promise<string> {
+  static readFileContent(filePath: string): FileContent {
     try {
-      const stat = await fs.stat(filePath);
+      // Check file size before reading (limit to 5MB)
+      const stats = fs.statSync(filePath);
+      const maxSize = 5 * 1024 * 1024; // 5MB
 
-      if (stat.size > MAX_FILE_SIZE) {
-        return `[File too large to display: ${(stat.size / 1024).toFixed(2)} KB]`;
+      if (stats.size > maxSize) {
+        throw new Error('File too large to display');
       }
 
-      const content = await fs.readFile(filePath, 'utf-8');
-      return content;
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const ext = path.extname(filePath).toLowerCase();
+
+      let type = 'text';
+      if (ext === '.go') type = 'go';
+      else if (ext === '.ps1') type = 'powershell';
+      else if (ext === '.md') type = 'markdown';
+      else if (ext === '.html') type = 'html';
+      else if (ext === '.sh') type = 'bash';
+      else if (ext === '.json') type = 'json';
+      else if (ext === '.yaml' || ext === '.yml') type = 'yaml';
+      else if (ext === '.kql') type = 'kql';
+      else if (ext === '.yar') type = 'yara';
+
+      return {
+        content,
+        type,
+      };
     } catch (error) {
-      if (error instanceof Error) {
-        throw new Error(`Failed to read file: ${error.message}`);
-      }
-      throw error;
+      // Don't expose file path in error message - log it server-side only
+      console.error(`Failed to read file: ${filePath}`, error);
+      throw new Error('Failed to read file');
     }
   }
 
   /**
    * Check if file exists
    */
-  async exists(filePath: string): Promise<boolean> {
-    try {
-      await fs.access(filePath);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Get file stats
-   */
-  async getStats(filePath: string): Promise<{ size: number; modified: Date }> {
-    const stat = await fs.stat(filePath);
-    return {
-      size: stat.size,
-      modified: stat.mtime,
-    };
+  static fileExists(filePath: string): boolean {
+    return fs.existsSync(filePath);
   }
 }

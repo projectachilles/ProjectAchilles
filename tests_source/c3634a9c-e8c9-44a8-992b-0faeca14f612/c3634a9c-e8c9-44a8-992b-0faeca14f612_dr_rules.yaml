@@ -1,0 +1,512 @@
+# ============================================================================
+# DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: c3634a9c-e8c9-44a8-992b-0faeca14f612
+# Test Name: Akira Ransomware BYOVD Attack Chain
+# MITRE ATT&CK: T1068 (Privilege Escalation), T1562.001 (Impair Defenses)
+# Created: 2025-12-07
+# Author: F0RT1KA Defense Guidance Builder
+# Format: LimaCharlie file format (for limacharlie dr add)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These D&R rules detect the underlying BYOVD and defense evasion techniques,
+# NOT the F0RT1KA testing framework. They will catch real-world attackers
+# using similar vulnerable driver exploitation and Defender tampering.
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f c3634a9c-e8c9-44a8-992b-0faeca14f612_dr_rules.yaml
+#
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: Vulnerable Driver File Drop Detection
+  # Purpose: Detect .sys files dropped to C:\F0 or other suspicious locations
+  # Confidence: HIGH
+  # ==========================================================================
+  byovd-driver-file-drop:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        # File is a driver (.sys extension)
+        - op: ends with
+          path: event/FILE_PATH
+          value: ".sys"
+        # Dropped to suspicious locations
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\F0\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Temp\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Downloads\\"
+
+    respond:
+      - action: report
+        name: BYOVD - Suspicious Driver File Drop
+        metadata:
+          severity: high
+          mitre_attack: T1068
+          confidence: high
+          description: Driver file dropped to suspicious location - potential BYOVD attack
+          test_id: c3634a9c-e8c9-44a8-992b-0faeca14f612
+          investigation: Verify driver legitimacy, check for service creation, review parent process
+
+      - action: task
+        command: history_dump
+        investigation: BYOVD-Driver-Drop
+
+
+  # ==========================================================================
+  # RULE 2: Known Vulnerable Driver Names
+  # Purpose: Detect known vulnerable drivers by filename (rwdrv.sys, hlpdrv.sys)
+  # Confidence: HIGH
+  # ==========================================================================
+  byovd-known-vulnerable-driver:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: or
+      rules:
+        # rwdrv.sys (ThrottleStop driver)
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\rwdrv.sys"
+        # hlpdrv.sys (Malicious helper driver)
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\hlpdrv.sys"
+        # Other known vulnerable drivers
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\mhyprot2.sys"
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\dbutil_2_3.sys"
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\gdrv.sys"
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\iqvw64e.sys"
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\winio64.sys"
+
+    respond:
+      - action: report
+        name: BYOVD - Known Vulnerable Driver Detected
+        metadata:
+          severity: critical
+          mitre_attack: T1068
+          confidence: high
+          description: Known vulnerable driver file detected - immediate investigation required
+          test_id: c3634a9c-e8c9-44a8-992b-0faeca14f612
+
+      - action: task
+        command: history_dump
+        investigation: BYOVD-Vulnerable-Driver
+
+      # Optional: Quarantine the driver file
+      # - action: task
+      #   command: file_del
+      #   file_path: "{{ .event.FILE_PATH }}"
+
+
+  # ==========================================================================
+  # RULE 3: Kernel Service Creation via SC.EXE
+  # Purpose: Detect kernel-mode service creation pointing to suspicious paths
+  # Confidence: HIGH
+  # ==========================================================================
+  byovd-kernel-service-creation:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # SC.EXE execution
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\sc.exe"
+        # Creating a service
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "create"
+        # Kernel-mode service
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "type= kernel"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "type=kernel"
+        # Suspicious binary path
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "\\F0\\"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "\\Temp\\"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "\\AppData\\"
+
+    respond:
+      - action: report
+        name: BYOVD - Suspicious Kernel Service Creation
+        metadata:
+          severity: critical
+          mitre_attack: T1068
+          confidence: high
+          description: Kernel-mode service created with suspicious binary path
+          test_id: c3634a9c-e8c9-44a8-992b-0faeca14f612
+
+      - action: task
+        command: history_dump
+        investigation: BYOVD-Kernel-Service
+
+
+  # ==========================================================================
+  # RULE 4: Akira-Specific Service Names (mgdsrv, KMHLPSVC)
+  # Purpose: Detect creation of known Akira ransomware service names
+  # Confidence: HIGH
+  # ==========================================================================
+  akira-malicious-service-names:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\sc.exe"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "create"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "mgdsrv"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "KMHLPSVC"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "hlpsvc"
+
+    respond:
+      - action: report
+        name: Akira Ransomware - Known Malicious Service Name
+        metadata:
+          severity: critical
+          mitre_attack: T1068, T1562.001
+          confidence: high
+          description: Akira ransomware-associated service name detected
+          test_id: c3634a9c-e8c9-44a8-992b-0faeca14f612
+
+      - action: task
+        command: history_dump
+        investigation: Akira-Service-Creation
+
+
+  # ==========================================================================
+  # RULE 5: Windows Defender Registry Tampering
+  # Purpose: Detect modifications to Windows Defender registry keys
+  # Confidence: HIGH
+  # ==========================================================================
+  defender-registry-tampering:
+    detect:
+      target: edr
+      event: REGISTRY_VALUE_SET
+      op: and
+      rules:
+        # Windows Defender registry key
+        - op: or
+          rules:
+            - op: contains
+              path: event/REGISTRY_KEY
+              value: "Windows Defender"
+            - op: contains
+              path: event/REGISTRY_KEY
+              value: "\\Policies\\Microsoft\\Windows Defender"
+        # Targeted values
+        - op: or
+          rules:
+            - op: is
+              path: event/VALUE_NAME
+              value: "DisableAntiSpyware"
+            - op: is
+              path: event/VALUE_NAME
+              value: "DisableRealtimeMonitoring"
+            - op: is
+              path: event/VALUE_NAME
+              value: "TamperProtection"
+        # Not from Windows Defender itself
+        - op: contains
+          path: routing/parent/FILE_PATH
+          value: "\\MsMpEng.exe"
+          not: true
+        - op: ends with
+          path: routing/parent/FILE_PATH
+          value: "\\svchost.exe"
+          not: true
+
+    respond:
+      - action: report
+        name: Defense Evasion - Windows Defender Registry Tampering
+        metadata:
+          severity: critical
+          mitre_attack: T1562.001
+          confidence: high
+          description: Unauthorized modification of Windows Defender configuration
+          test_id: c3634a9c-e8c9-44a8-992b-0faeca14f612
+
+      - action: task
+        command: history_dump
+        investigation: Defender-Tampering
+
+
+  # ==========================================================================
+  # RULE 6: PowerShell ExecutionPolicy Bypass with Defender Targeting
+  # Purpose: Detect PowerShell scripts attempting to disable Defender
+  # Confidence: HIGH
+  # ==========================================================================
+  powershell-defender-tampering:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # PowerShell execution
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\powershell.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\pwsh.exe"
+        # ExecutionPolicy Bypass
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "-ExecutionPolicy"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Bypass"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "bypass"
+        # Defender-related content
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Windows Defender"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "DisableAntiSpyware"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "defender_disable"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Set-MpPreference"
+
+    respond:
+      - action: report
+        name: Defense Evasion - PowerShell Defender Tampering
+        metadata:
+          severity: critical
+          mitre_attack: T1562.001, T1059.001
+          confidence: high
+          description: PowerShell script attempting to disable Windows Defender
+          test_id: c3634a9c-e8c9-44a8-992b-0faeca14f612
+
+      - action: task
+        command: history_dump
+        investigation: PowerShell-Defender-Tampering
+
+
+  # ==========================================================================
+  # RULE 7: PowerShell Script File Drop in C:\F0
+  # Purpose: Detect PowerShell scripts dropped to test directory
+  # Confidence: HIGH
+  # ==========================================================================
+  powershell-script-drop-f0:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: ".ps1"
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\F0\\"
+
+    respond:
+      - action: report
+        name: Suspicious PowerShell Script Drop in C:\F0
+        metadata:
+          severity: high
+          mitre_attack: T1059.001
+          confidence: high
+          description: PowerShell script created in C:\F0 directory
+          test_id: c3634a9c-e8c9-44a8-992b-0faeca14f612
+
+
+  # ==========================================================================
+  # RULE 8: Driver Module Load Detection
+  # Purpose: Detect loading of drivers from suspicious locations
+  # Confidence: MEDIUM-HIGH
+  # ==========================================================================
+  suspicious-driver-load:
+    detect:
+      target: edr
+      event: MODULE_LOAD
+      op: and
+      rules:
+        # Driver file
+        - op: ends with
+          path: event/FILE_PATH
+          value: ".sys"
+        # From suspicious location
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\F0\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Temp\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\"
+        # Not from standard driver directory
+        - op: starts with
+          path: event/FILE_PATH
+          value: "C:\\Windows\\System32\\drivers\\"
+          not: true
+
+    respond:
+      - action: report
+        name: BYOVD - Suspicious Driver Module Load
+        metadata:
+          severity: high
+          mitre_attack: T1068
+          confidence: medium
+          description: Driver loaded from non-standard location
+          test_id: c3634a9c-e8c9-44a8-992b-0faeca14f612
+
+
+  # ==========================================================================
+  # RULE 9: Service Deletion (Cleanup Detection)
+  # Purpose: Detect deletion of services (may indicate attack cleanup)
+  # Confidence: MEDIUM
+  # ==========================================================================
+  service-deletion-mgdsrv-kmhlpsvc:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\sc.exe"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "delete"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "mgdsrv"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "KMHLPSVC"
+
+    respond:
+      - action: report
+        name: Akira Ransomware - Service Cleanup Detected
+        metadata:
+          severity: medium
+          mitre_attack: T1070
+          confidence: medium
+          description: Deletion of known Akira ransomware services detected
+          test_id: c3634a9c-e8c9-44a8-992b-0faeca14f612
+
+
+  # ==========================================================================
+  # RULE 10: Real-Time Protection Disable via PowerShell
+  # Purpose: Detect Set-MpPreference commands disabling protection
+  # Confidence: HIGH
+  # ==========================================================================
+  defender-rtp-disable-powershell:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\powershell.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\pwsh.exe"
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "Set-MpPreference"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "DisableRealtimeMonitoring"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "DisableBehaviorMonitoring"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "DisableIOAVProtection"
+
+    respond:
+      - action: report
+        name: Defense Evasion - Defender Protection Disable Attempt
+        metadata:
+          severity: critical
+          mitre_attack: T1562.001
+          confidence: high
+          description: PowerShell command attempting to disable Windows Defender protection
+          test_id: c3634a9c-e8c9-44a8-992b-0faeca14f612
+
+
+# ============================================================================
+# OUTPUTS CONFIGURATION (for detection streaming)
+# ============================================================================
+# Note: Configure outputs based on your SIEM/SOC infrastructure
+
+outputs:
+  byovd-attack-detections:
+    module: syslog
+    for: detections
+    host: siem.example.com
+    port: 514

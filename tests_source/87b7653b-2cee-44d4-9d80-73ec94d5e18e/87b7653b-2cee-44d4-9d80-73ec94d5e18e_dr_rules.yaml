@@ -1,0 +1,501 @@
+# ============================================================
+# EDR-Freeze Defense Evasion - LimaCharlie D&R Rules
+# Test ID: 87b7653b-2cee-44d4-9d80-73ec94d5e18e
+# MITRE ATT&CK: T1562.001, T1055, T1574
+# Author: F0RT1KA Defense Guidance Builder
+# Version: 1.0.0
+# Date: 2025-12-07
+# ============================================================
+#
+# This file contains LimaCharlie Detection & Response rules
+# in FILE FORMAT (for `limacharlie dr add` or `config push`).
+#
+# Deployment:
+#   limacharlie dr add --rule-file 87b7653b-2cee-44d4-9d80-73ec94d5e18e_dr_rules.yaml
+#
+# Rule Index:
+#   1. edr-freeze-werfaultsecure-abuse - WerFaultSecure targeting security processes
+#   2. edr-freeze-certutil-download - Certutil downloading executables
+#   3. edr-freeze-file-staging - Executable staging in C:\F0
+#   4. edr-freeze-tool-execution - EDR-Freeze.exe direct execution
+#   5. edr-freeze-ppl-creation - PPL process creation attempts
+#   6. edr-freeze-seatbelt-detection - Seatbelt tool detection
+#   7. edr-freeze-defender-process-anomaly - Defender process termination
+#   8. edr-freeze-attack-chain - Multi-indicator correlation
+#
+# ============================================================
+
+rules:
+
+  # ============================================================
+  # Rule 1: WerFaultSecure Targeting Security Processes
+  # ============================================================
+  # Detection: WerFaultSecure.exe launched with command-line
+  #            parameters targeting security processes
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1562.001, T1574
+  # ============================================================
+  edr-freeze-werfaultsecure-abuse:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: WerFaultSecure.exe
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: MsMpEng
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: MpDefenderCoreService
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: NisSrv
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: SenseCE
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: MsSense
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: CylanceSvc
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: CSFalconService
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: EDR-Freeze WerFaultSecure Security Process Targeting
+        metadata:
+          severity: high
+          mitre_attack: T1562.001
+          test_id: 87b7653b-2cee-44d4-9d80-73ec94d5e18e
+          description: WerFaultSecure.exe launched with parameters targeting security process - potential EDR-Freeze attack
+          confidence: high
+
+
+  # ============================================================
+  # Rule 2: Certutil Downloading Executables
+  # ============================================================
+  # Detection: certutil.exe downloading executable files from
+  #            the internet (LOLBin abuse)
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1105
+  # ============================================================
+  edr-freeze-certutil-download:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: certutil.exe
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-urlcache"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-urlfetch"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-verifyctl"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: ".exe"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: ".dll"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: ".ps1"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: EDR-Freeze Certutil Executable Download
+        metadata:
+          severity: high
+          mitre_attack: T1105
+          test_id: 87b7653b-2cee-44d4-9d80-73ec94d5e18e
+          description: Certutil.exe used to download executable content - common post-exploitation technique
+          confidence: high
+
+
+  # ============================================================
+  # Rule 3: File Staging in C:\F0 Directory
+  # ============================================================
+  # Detection: Executable files created in C:\F0 directory
+  #            (F0RT1KA test staging area)
+  # Confidence: MEDIUM
+  # MITRE ATT&CK: T1074
+  # ============================================================
+  edr-freeze-file-staging:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: starts with
+          path: event/FILE_PATH
+          value: "c:\\F0\\"
+          case sensitive: false
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".exe"
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".dll"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: EDR-Freeze File Staging Detected
+        metadata:
+          severity: medium
+          mitre_attack: T1074
+          test_id: 87b7653b-2cee-44d4-9d80-73ec94d5e18e
+          description: Executable file created in C:\F0 staging directory
+          confidence: medium
+
+
+  # ============================================================
+  # Rule 4: EDR-Freeze Tool Execution
+  # ============================================================
+  # Detection: Direct execution of EDR-Freeze.exe
+  # Confidence: CRITICAL
+  # MITRE ATT&CK: T1562.001
+  # ============================================================
+  edr-freeze-tool-execution:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: EDR-Freeze.exe
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: EDR-Freeze
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: EDR-Freeze Tool Execution Detected
+        metadata:
+          severity: critical
+          mitre_attack: T1562.001
+          test_id: 87b7653b-2cee-44d4-9d80-73ec94d5e18e
+          description: EDR-Freeze tool execution detected - active defense evasion attempt
+          confidence: very_high
+
+
+  # ============================================================
+  # Rule 5: PPL Process Creation Attempts
+  # ============================================================
+  # Detection: Attempts to create Protected Process Light (PPL)
+  #            processes, indicative of advanced process manipulation
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1055, T1574
+  # ============================================================
+  edr-freeze-ppl-creation:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: contains
+          path: event/COMMAND_LINE
+          value: CreateProcessAsPPL
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: WinTCB
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: PsProtectedSigner
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: EDR-Freeze PPL Process Creation Attempt
+        metadata:
+          severity: high
+          mitre_attack: T1055
+          test_id: 87b7653b-2cee-44d4-9d80-73ec94d5e18e
+          description: Attempt to create Protected Process Light (PPL) - potential EDR bypass technique
+          confidence: high
+
+
+  # ============================================================
+  # Rule 6: Seatbelt Reconnaissance Tool Detection
+  # ============================================================
+  # Detection: Seatbelt.exe execution or related file operations
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1082, T1087
+  # ============================================================
+  edr-freeze-seatbelt-detection:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: Seatbelt.exe
+          case sensitive: false
+        - op: contains
+          path: event/COMMAND_LINE
+          value: Seatbelt
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: EDR-Freeze Seatbelt Reconnaissance Tool
+        metadata:
+          severity: high
+          mitre_attack: T1082
+          test_id: 87b7653b-2cee-44d4-9d80-73ec94d5e18e
+          description: Seatbelt reconnaissance tool detected - indicates post-exploitation activity
+          confidence: high
+
+
+  # ============================================================
+  # Rule 7: Defender Process Termination/Suspension Anomaly
+  # ============================================================
+  # Detection: Windows Defender processes being terminated or
+  #            suspended by non-system processes
+  # Confidence: CRITICAL
+  # MITRE ATT&CK: T1562.001
+  # ============================================================
+  edr-freeze-defender-process-anomaly:
+    detect:
+      target: edr
+      event: TERMINATE_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: MsMpEng.exe
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: MpDefenderCoreService.exe
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: NisSrv.exe
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: SecurityHealthService.exe
+              case sensitive: false
+        # Exclude legitimate system terminations
+        - op: not
+          rules:
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: svchost.exe
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: EDR-Freeze Defender Process Termination
+        metadata:
+          severity: critical
+          mitre_attack: T1562.001
+          test_id: 87b7653b-2cee-44d4-9d80-73ec94d5e18e
+          description: Windows Defender process terminated by non-system process - potential defense evasion
+          confidence: high
+
+
+  # ============================================================
+  # Rule 8: Network Download from Known Malicious Repositories
+  # ============================================================
+  # Detection: Network connections to known malicious tool
+  #            repositories (SharpCollection, etc.)
+  # Confidence: HIGH
+  # MITRE ATT&CK: T1105
+  # ============================================================
+  edr-freeze-malicious-download:
+    detect:
+      target: edr
+      event: NEW_TCP4_CONNECTION
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: contains
+              path: event/DOMAIN
+              value: github.com
+              case sensitive: false
+            - op: contains
+              path: event/DOMAIN
+              value: githubusercontent.com
+              case sensitive: false
+        # Check if initiated by certutil or other LOLBins
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: certutil.exe
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: bitsadmin.exe
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: curl.exe
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: EDR-Freeze LOLBin GitHub Download
+        metadata:
+          severity: medium
+          mitre_attack: T1105
+          test_id: 87b7653b-2cee-44d4-9d80-73ec94d5e18e
+          description: LOLBin initiated network connection to GitHub - potential malicious download
+          confidence: medium
+
+
+  # ============================================================
+  # Rule 9: WerFault Memory Dump Creation
+  # ============================================================
+  # Detection: WerFault/WerFaultSecure creating dump files,
+  #            especially outside standard WER directories
+  # Confidence: MEDIUM
+  # MITRE ATT&CK: T1003
+  # ============================================================
+  edr-freeze-werfault-dump:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: WerFault.exe
+              case sensitive: false
+            - op: ends with
+              path: event/PARENT/FILE_PATH
+              value: WerFaultSecure.exe
+              case sensitive: false
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".dmp"
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".hdmp"
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".mdmp"
+              case sensitive: false
+        # Alert if dump is outside standard WER directory
+        - op: not
+          rules:
+            - op: starts with
+              path: event/FILE_PATH
+              value: "C:\\ProgramData\\Microsoft\\Windows\\WER\\"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: EDR-Freeze WerFault Suspicious Dump Location
+        metadata:
+          severity: medium
+          mitre_attack: T1003
+          test_id: 87b7653b-2cee-44d4-9d80-73ec94d5e18e
+          description: WerFault created memory dump outside standard directory
+          confidence: medium
+
+
+  # ============================================================
+  # Rule 10: Tasklist Security Process Enumeration
+  # ============================================================
+  # Detection: tasklist.exe being used to enumerate security
+  #            process PIDs (reconnaissance before attack)
+  # Confidence: MEDIUM
+  # MITRE ATT&CK: T1057
+  # ============================================================
+  edr-freeze-process-enumeration:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: tasklist.exe
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: MsMpEng
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: MpDefenderCoreService
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: NisSrv
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: Defender
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: EDR-Freeze Security Process Enumeration
+        metadata:
+          severity: medium
+          mitre_attack: T1057
+          test_id: 87b7653b-2cee-44d4-9d80-73ec94d5e18e
+          description: Tasklist used to enumerate security process PIDs - potential reconnaissance
+          confidence: medium
+
+
+# ============================================================
+# END OF FILE
+# ============================================================

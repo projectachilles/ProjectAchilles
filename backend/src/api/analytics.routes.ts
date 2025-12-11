@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { SettingsService } from '../services/analytics/settings.js';
 import { ElasticsearchService } from '../services/analytics/elasticsearch.js';
+import { AnalyticsQueryParams } from '../types/analytics.js';
 
 const router = Router();
 

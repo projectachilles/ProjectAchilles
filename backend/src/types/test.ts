@@ -1,19 +1,4 @@
-// Test metadata types
-
-export interface ScoreBreakdown {
-  realWorldAccuracy?: number;
-  technicalSophistication?: number;
-  safetyMechanisms?: number;
-  detectionOpportunities?: number;
-  loggingObservability?: number;
-}
-
-export interface StageInfo {
-  stageId: number;
-  technique: string;
-  name: string;
-  fileName: string;
-}
+// Type definitions for F0RT1KA security tests
 
 export interface TestMetadata {
   uuid: string;
@@ -32,12 +17,27 @@ export interface TestMetadata {
   tags?: string[];
 }
 
+export interface ScoreBreakdown {
+  realWorldAccuracy?: number;
+  technicalSophistication?: number;
+  safetyMechanisms?: number;
+  detectionOpportunities?: number;
+  loggingObservability?: number;
+}
+
+export interface StageInfo {
+  stageId: number;
+  technique: string;
+  name: string;
+  fileName: string;
+}
+
 export interface TestFile {
   name: string;
   path: string;
   type: 'go' | 'powershell' | 'markdown' | 'html' | 'bash' | 'kql' | 'yara' | 'yaml' | 'other';
   size: number;
-  category: 'source' | 'documentation' | 'diagram' | 'detection' | 'defense' | 'config' | 'other';
+  category: 'source' | 'documentation' | 'diagram' | 'config' | 'detection' | 'defense' | 'other';
 }
 
 export interface TestDetails extends TestMetadata {
@@ -49,4 +49,9 @@ export interface TestDetails extends TestMetadata {
   hasSafetyDoc: boolean;
   hasDetectionFiles: boolean;
   hasDefenseGuidance: boolean;
+}
+
+export interface FileContent {
+  content: string;
+  type: string;
 }

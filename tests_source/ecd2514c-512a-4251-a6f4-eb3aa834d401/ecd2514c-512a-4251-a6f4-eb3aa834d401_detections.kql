@@ -1,0 +1,416 @@
+// ============================================================
+// F0RT1KA Detection Rules - Microsoft Sentinel/Defender KQL
+// Test ID: ecd2514c-512a-4251-a6f4-eb3aa834d401
+// Test Name: CyberEye RAT - Windows Defender Disabling via PowerShell
+// MITRE ATT&CK: T1562.001 - Impair Defenses: Disable or Modify Tools
+// Generated: 2025-12-07
+// ============================================================
+
+// ============================================================
+// Detection 1: Windows Defender Tamper Protection Disabled
+// Test ID: ecd2514c-512a-4251-a6f4-eb3aa834d401
+// MITRE ATT&CK: T1562.001
+// Confidence: High
+// ============================================================
+// Purpose: Detects modification of TamperProtection registry value to disable anti-tampering
+// False Positives: Legitimate enterprise management tools, Microsoft Endpoint Configuration Manager
+// Threshold: Any occurrence should be investigated immediately
+// ============================================================
+
+DeviceRegistryEvents
+| where TimeGenerated > ago(24h)
+| where RegistryKey has_any (
+    @"SOFTWARE\Microsoft\Windows Defender\Features",
+    @"SOFTWARE\Microsoft\Windows Defender"
+)
+| where RegistryValueName == "TamperProtection"
+| where RegistryValueData == "0" or RegistryValueData == "0x00000000"
+| extend
+    Severity = "Critical",
+    ThreatType = "Defense Evasion - Tamper Protection Disabled",
+    MitreAttack = "T1562.001",
+    TestID = "ecd2514c-512a-4251-a6f4-eb3aa834d401"
+| project
+    TimeGenerated,
+    DeviceName,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    InitiatingProcessAccountName,
+    RegistryKey,
+    RegistryValueName,
+    RegistryValueData,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Detection 2: Windows Defender Anti-Spyware Disabled via Policy
+// Test ID: ecd2514c-512a-4251-a6f4-eb3aa834d401
+// MITRE ATT&CK: T1562.001
+// Confidence: High
+// ============================================================
+// Purpose: Detects creation of DisableAntiSpyware policy to disable Windows Defender
+// False Positives: GPO deployments in environments using third-party AV, MDM policies
+// Threshold: Any occurrence warrants immediate investigation
+// ============================================================
+
+DeviceRegistryEvents
+| where TimeGenerated > ago(24h)
+| where RegistryKey has @"SOFTWARE\Policies\Microsoft\Windows Defender"
+| where RegistryValueName == "DisableAntiSpyware"
+| where RegistryValueData == "1" or RegistryValueData == "0x00000001"
+| extend
+    Severity = "Critical",
+    ThreatType = "Defense Evasion - Windows Defender Disabled",
+    MitreAttack = "T1562.001",
+    TestID = "ecd2514c-512a-4251-a6f4-eb3aa834d401"
+| project
+    TimeGenerated,
+    DeviceName,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    InitiatingProcessAccountName,
+    RegistryKey,
+    RegistryValueName,
+    RegistryValueData,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Detection 3: Windows Defender Real-Time Protection Components Disabled
+// Test ID: ecd2514c-512a-4251-a6f4-eb3aa834d401
+// MITRE ATT&CK: T1562.001
+// Confidence: High
+// ============================================================
+// Purpose: Detects disabling of Real-Time Protection components via registry
+// False Positives: Performance troubleshooting, legitimate administrative actions
+// Threshold: Multiple RTP components disabled within short timeframe is highly suspicious
+// ============================================================
+
+DeviceRegistryEvents
+| where TimeGenerated > ago(24h)
+| where RegistryKey has @"SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection"
+| where RegistryValueName in (
+    "DisableBehaviorMonitoring",
+    "DisableOnAccessProtection",
+    "DisableScanOnRealtimeEnable",
+    "DisableRealtimeMonitoring"
+)
+| where RegistryValueData == "1" or RegistryValueData == "0x00000001"
+| extend
+    Severity = "High",
+    ThreatType = "Defense Evasion - Real-Time Protection Disabled",
+    MitreAttack = "T1562.001",
+    TestID = "ecd2514c-512a-4251-a6f4-eb3aa834d401",
+    DisabledComponent = RegistryValueName
+| project
+    TimeGenerated,
+    DeviceName,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    InitiatingProcessAccountName,
+    RegistryKey,
+    DisabledComponent,
+    RegistryValueData,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Detection 4: PowerShell Execution Policy Bypass with Defender Script
+// Test ID: ecd2514c-512a-4251-a6f4-eb3aa834d401
+// MITRE ATT&CK: T1562.001
+// Confidence: High
+// ============================================================
+// Purpose: Detects PowerShell execution with bypass flag targeting Defender-related scripts
+// False Positives: Administrative scripts, legitimate automation tools
+// Threshold: Any script referencing Defender with bypass flag is suspicious
+// ============================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| where FileName =~ "powershell.exe" or FileName =~ "pwsh.exe"
+| where ProcessCommandLine has_any ("-ExecutionPolicy Bypass", "-ep bypass", "-exec bypass")
+| where ProcessCommandLine has_any (
+    "Defender",
+    "CyberEye",
+    "TamperProtection",
+    "DisableAntiSpyware",
+    "DisableBehaviorMonitoring",
+    "DisableOnAccessProtection",
+    "DisableScanOnRealtimeEnable",
+    "c:\\F0",
+    "Windows Defender"
+)
+| extend
+    Severity = "High",
+    ThreatType = "Defense Evasion - PowerShell Bypass with Defender Target",
+    MitreAttack = "T1562.001",
+    TestID = "ecd2514c-512a-4251-a6f4-eb3aa834d401"
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    FileName,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Detection 5: Script Activity in F0RT1KA Test Directory
+// Test ID: ecd2514c-512a-4251-a6f4-eb3aa834d401
+// MITRE ATT&CK: T1562.001
+// Confidence: High
+// ============================================================
+// Purpose: Detects PowerShell script creation or execution from c:\F0 directory
+// False Positives: Known F0RT1KA security testing (verify with security team)
+// Threshold: Any script in this directory should be investigated
+// ============================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(24h)
+| where FolderPath startswith @"c:\F0" or FolderPath startswith @"C:\F0"
+| where FileName endswith ".ps1"
+| extend
+    Severity = "High",
+    ThreatType = "Suspicious Script in F0RT1KA Directory",
+    MitreAttack = "T1562.001",
+    TestID = "ecd2514c-512a-4251-a6f4-eb3aa834d401"
+| project
+    TimeGenerated,
+    DeviceName,
+    ActionType,
+    FileName,
+    FolderPath,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    InitiatingProcessAccountName,
+    SHA256,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Detection 6: Behavioral Correlation - Defender Disable Attack Sequence
+// Test ID: ecd2514c-512a-4251-a6f4-eb3aa834d401
+// MITRE ATT&CK: T1562.001
+// Confidence: Critical
+// ============================================================
+// Purpose: Correlates multiple indicators of Defender disabling within short timeframe
+// False Positives: Very low - this pattern is highly indicative of malicious activity
+// Threshold: 3+ registry modifications to Defender keys within 10 minutes is critical
+// ============================================================
+
+let timeframe = 24h;
+let correlation_window = 10m;
+DeviceRegistryEvents
+| where TimeGenerated > ago(timeframe)
+| where RegistryKey has_any (
+    @"SOFTWARE\Microsoft\Windows Defender\Features",
+    @"SOFTWARE\Policies\Microsoft\Windows Defender"
+)
+| where RegistryValueName in (
+    "TamperProtection",
+    "DisableAntiSpyware",
+    "DisableBehaviorMonitoring",
+    "DisableOnAccessProtection",
+    "DisableScanOnRealtimeEnable",
+    "DisableRealtimeMonitoring"
+)
+| summarize
+    ModificationCount = count(),
+    ModifiedValues = make_set(RegistryValueName),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated),
+    ProcessesInvolved = make_set(InitiatingProcessFileName)
+    by DeviceName, bin(TimeGenerated, correlation_window)
+| where ModificationCount >= 3
+| extend
+    Severity = "Critical",
+    ThreatType = "Defense Evasion - Coordinated Defender Disable Sequence",
+    MitreAttack = "T1562.001",
+    TestID = "ecd2514c-512a-4251-a6f4-eb3aa834d401",
+    AttackDuration = LastSeen - FirstSeen
+| project
+    DeviceName,
+    ModificationCount,
+    ModifiedValues,
+    ProcessesInvolved,
+    FirstSeen,
+    LastSeen,
+    AttackDuration,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Detection 7: WinDefend Service Query After Registry Modification
+// Test ID: ecd2514c-512a-4251-a6f4-eb3aa834d401
+// MITRE ATT&CK: T1562.001
+// Confidence: Medium
+// ============================================================
+// Purpose: Detects service query reconnaissance after Defender registry tampering
+// False Positives: Legitimate administration, monitoring tools
+// Threshold: Service query within 10 minutes of registry modification is suspicious
+// ============================================================
+
+let registry_events = DeviceRegistryEvents
+| where TimeGenerated > ago(24h)
+| where RegistryKey has_any (
+    @"SOFTWARE\Microsoft\Windows Defender",
+    @"SOFTWARE\Policies\Microsoft\Windows Defender"
+)
+| where RegistryValueName has_any ("Disable", "TamperProtection")
+| project DeviceName, RegistryModTime = TimeGenerated;
+
+DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| where FileName =~ "sc.exe"
+| where ProcessCommandLine has "query" and ProcessCommandLine has "WinDefend"
+| join kind=inner (registry_events) on DeviceName
+| where TimeGenerated between (RegistryModTime .. (RegistryModTime + 10m))
+| extend
+    Severity = "Medium",
+    ThreatType = "Defense Evasion - Post-Tampering Service Reconnaissance",
+    MitreAttack = "T1562.001",
+    TestID = "ecd2514c-512a-4251-a6f4-eb3aa834d401"
+| project
+    TimeGenerated,
+    DeviceName,
+    ProcessCommandLine,
+    RegistryModTime,
+    TimeSinceModification = TimeGenerated - RegistryModTime,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Detection 8: PowerShell Defender Registry Access Patterns
+// Test ID: ecd2514c-512a-4251-a6f4-eb3aa834d401
+// MITRE ATT&CK: T1562.001
+// Confidence: High
+// ============================================================
+// Purpose: Detects PowerShell commands accessing Defender registry paths
+// False Positives: Administrative scripts, security tools
+// Threshold: Set-ItemProperty to Defender paths is highly suspicious
+// ============================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| where FileName =~ "powershell.exe" or FileName =~ "pwsh.exe"
+| where ProcessCommandLine has_any (
+    "Set-ItemProperty",
+    "New-ItemProperty",
+    "Remove-ItemProperty"
+)
+| where ProcessCommandLine has_any (
+    "Windows Defender",
+    @"HKLM:\SOFTWARE\Microsoft\Windows Defender",
+    @"HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender"
+)
+| extend
+    Severity = "High",
+    ThreatType = "Defense Evasion - PowerShell Registry Manipulation",
+    MitreAttack = "T1562.001",
+    TestID = "ecd2514c-512a-4251-a6f4-eb3aa834d401"
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    FileName,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Detection 9: CyberEye RAT Specific Script Indicators
+// Test ID: ecd2514c-512a-4251-a6f4-eb3aa834d401
+// MITRE ATT&CK: T1562.001
+// Confidence: Critical
+// ============================================================
+// Purpose: Detects CyberEye RAT specific script execution patterns
+// False Positives: F0RT1KA authorized testing only
+// Threshold: Any match is critical
+// ============================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| where FileName =~ "powershell.exe" or FileName =~ "pwsh.exe"
+| where ProcessCommandLine has_any (
+    "CyberEye-TTPs.ps1",
+    "CyberEye-TTPs",
+    "CyberEYE"
+)
+| extend
+    Severity = "Critical",
+    ThreatType = "CyberEye RAT - Defender Disable Script",
+    MitreAttack = "T1562.001",
+    TestID = "ecd2514c-512a-4251-a6f4-eb3aa834d401"
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    FileName,
+    ProcessCommandLine,
+    FolderPath,
+    InitiatingProcessFileName,
+    InitiatingProcessAccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+
+// ============================================================
+// Detection 10: Hunting Query - Defender Protection State Changes
+// Test ID: ecd2514c-512a-4251-a6f4-eb3aa834d401
+// MITRE ATT&CK: T1562.001
+// Confidence: Medium (Hunting)
+// ============================================================
+// Purpose: Proactive hunting for any Windows Defender protection state changes
+// False Positives: Legitimate administrative changes, GPO updates
+// Threshold: Use for proactive threat hunting, not alerting
+// ============================================================
+
+DeviceRegistryEvents
+| where TimeGenerated > ago(7d)
+| where RegistryKey has_any (
+    @"SOFTWARE\Microsoft\Windows Defender",
+    @"SOFTWARE\Policies\Microsoft\Windows Defender"
+)
+| where ActionType == "RegistryValueSet"
+| summarize
+    EventCount = count(),
+    UniqueDevices = dcount(DeviceName),
+    ValuesModified = make_set(RegistryValueName),
+    ProcessesInvolved = make_set(InitiatingProcessFileName)
+    by bin(TimeGenerated, 1h)
+| where EventCount > 5
+| extend
+    Severity = "Medium",
+    ThreatType = "Hunting - Elevated Defender Registry Activity",
+    MitreAttack = "T1562.001",
+    TestID = "ecd2514c-512a-4251-a6f4-eb3aa834d401"
+| project
+    TimeGenerated,
+    EventCount,
+    UniqueDevices,
+    ValuesModified,
+    ProcessesInvolved,
+    Severity,
+    ThreatType,
+    MitreAttack
+| order by EventCount desc
