@@ -18,8 +18,6 @@
   --color-destructive-foreground: oklch(98% 0.01 265);
   --color-success: oklch(55% 0.16 145);
   --color-success-foreground: oklch(98% 0.01 265);
-  --color-warning: oklch(75% 0.18 85);
-  --color-warning-foreground: oklch(20% 0.04 265);
 }
 
 /* Dark mode overrides */
@@ -40,8 +38,6 @@
   --color-destructive-foreground: oklch(98% 0.01 265);
   --color-success: oklch(60% 0.18 145);
   --color-success-foreground: oklch(98% 0.01 265);
-  --color-warning: oklch(80% 0.18 85);
-  --color-warning-foreground: oklch(20% 0.04 265);
 }
 
 /* Base styles */

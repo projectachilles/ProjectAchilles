@@ -1,6 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import type { PayloadAction } from '@reduxjs/toolkit';
-import { endpointsApi } from '../services/api/endpoints';
+import { endpointsApi } from '../services/api';
 
 interface Organization {
   id: string;
@@ -52,7 +52,7 @@ export const checkSession = createAsyncThunk(
   'endpointAuth/checkSession',
   async (_, { rejectWithValue }) => {
     try {
-      const response = await endpointsApi.checkSession();
+      const response = await endpointsApi.getSession();
       return response;
     } catch (error) {
       return rejectWithValue(error instanceof Error ? error.message : 'Session check failed');
@@ -93,8 +93,8 @@ const endpointAuthSlice = createSlice({
       .addCase(login.fulfilled, (state, action) => {
         state.loading = false;
         state.isAuthenticated = true;
-        state.organizations = action.payload.organizations || [];
-        state.currentOrg = action.payload.currentOrg || null;
+        state.organizations = action.payload.data?.organizations || [];
+        state.currentOrg = action.payload.data?.currentOrg || null;
         state.error = null;
       })
       .addCase(login.rejected, (state, action) => {
@@ -130,9 +130,9 @@ const endpointAuthSlice = createSlice({
       })
       .addCase(checkSession.fulfilled, (state, action) => {
         state.loading = false;
-        state.isAuthenticated = action.payload.authenticated;
-        state.organizations = action.payload.organizations || [];
-        state.currentOrg = action.payload.currentOrg || null;
+        state.isAuthenticated = action.payload.data?.authenticated || false;
+        state.organizations = action.payload.data?.organizations || [];
+        state.currentOrg = action.payload.data?.currentOrg || null;
       })
       .addCase(checkSession.rejected, (state) => {
         state.loading = false;
@@ -148,7 +148,7 @@ const endpointAuthSlice = createSlice({
       })
       .addCase(switchOrganization.fulfilled, (state, action) => {
         state.loading = false;
-        state.currentOrg = action.payload.currentOrg;
+        state.currentOrg = action.payload.data?.currentOrg || state.currentOrg;
       })
       .addCase(switchOrganization.rejected, (state, action) => {
         state.loading = false;

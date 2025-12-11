@@ -1,14 +1,8 @@
 import type { ReactNode } from 'react';
-import Header from './Header';
-
-interface ModuleStatus {
-  analyticsConfigured: boolean;
-  endpointsAuthenticated: boolean;
-}
+import UnifiedHeader from './UnifiedHeader';
 
 interface LayoutProps {
   children: ReactNode;
-  moduleStatus?: ModuleStatus;
   onSettingsClick?: () => void;
   onRefreshClick?: () => void;
   isRefreshing?: boolean;
@@ -16,15 +10,13 @@ interface LayoutProps {
 
 export default function Layout({
   children,
-  moduleStatus,
   onSettingsClick,
   onRefreshClick,
   isRefreshing
 }: LayoutProps) {
   return (
     <div className="min-h-screen flex flex-col">
-      <Header
-        moduleStatus={moduleStatus}
+      <UnifiedHeader
         onSettingsClick={onSettingsClick}
         onRefreshClick={onRefreshClick}
         isRefreshing={isRefreshing}

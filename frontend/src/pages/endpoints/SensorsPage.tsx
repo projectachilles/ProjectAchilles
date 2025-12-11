@@ -1,201 +1,220 @@
-import { useState, useEffect } from 'react';
-import { Server, Search, RefreshCw, AlertCircle, Wifi, WifiOff } from 'lucide-react';
-import { endpointsApi } from '../../services/api/endpoints';
-import type { Sensor } from '../../services/api/endpoints';
-import { Card, CardContent } from '../../components/shared/ui/Card';
-import { Input } from '../../components/shared/ui/Input';
+/**
+ * Sensors Page - Main sensor management interface
+ * ACHILLES - Endpoint Management
+ */
+
+import { useEffect, useState, useRef } from 'react';
+import { Play } from 'lucide-react';
+import { useAppDispatch, useAppSelector } from '../../store';
+import {
+  fetchSensors,
+  fetchAllFilteredSensorIds,
+  setFilters,
+  setPage,
+  setPageSize,
+  tagSensor,
+  untagSensor,
+  bulkTagSensors,
+} from '../../store/sensorsSlice';
+import SharedLayout from '../../components/shared/Layout';
+import { PageContainer, PageHeader } from '../../components/endpoints/Layout';
+import SensorFilters from '../../components/endpoints/sensors/SensorFilters';
+import SensorList from '../../components/endpoints/sensors/SensorList';
+import SensorPagination from '../../components/endpoints/sensors/SensorPagination';
+import TagManager from '../../components/endpoints/sensors/TagManager';
+import TaskExecutionDialog from '../../components/endpoints/tasks/TaskExecutionDialog';
 import { Button } from '../../components/shared/ui/Button';
-import { Badge, PlatformBadge, StatusDot } from '../../components/shared/ui/Badge';
+import { Alert } from '../../components/shared/ui/Alert';
 import { Loading } from '../../components/shared/ui/Spinner';
+import { Toast } from '../../components/shared/ui/Alert';
 
 export default function SensorsPage() {
-  const [sensors, setSensors] = useState<Sensor[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
+  const dispatch = useAppDispatch();
+  const { sensors, filters, loading, error, pagination } = useAppSelector(
+    (state) => state.sensors
+  );
+  const [selectedSensors, setSelectedSensors] = useState<string[]>([]);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [taskDialogOpen, setTaskDialogOpen] = useState(false);
+  const isInitialMount = useRef(true);
 
+  // Auto-refresh when filters change (with debouncing)
   useEffect(() => {
-    loadSensors();
-  }, []);
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      dispatch(fetchSensors(filters));
+      return;
+    }
 
-  const loadSensors = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await endpointsApi.getSensors();
-      setSensors(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load sensors');
-    } finally {
-      setLoading(false);
+    const timeoutId = setTimeout(() => {
+      dispatch(fetchSensors(filters));
+      setSelectedSensors([]);
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [filters, dispatch]);
+
+  const handleFilterChange = (newFilters: any) => {
+    dispatch(setFilters(newFilters));
+  };
+
+  const handleRefresh = () => {
+    dispatch(fetchSensors(filters));
+  };
+
+  const handleToggleSelect = (sensorId: string) => {
+    setSelectedSensors((prev) =>
+      prev.includes(sensorId)
+        ? prev.filter((id) => id !== sensorId)
+        : [...prev, sensorId]
+    );
+  };
+
+  const handleToggleSelectAll = () => {
+    const allPageIds = sensors.map((s) => s.sid);
+    const allPageSelected = allPageIds.every((id) => selectedSensors.includes(id));
+
+    if (allPageSelected) {
+      // Deselect all
+      setSelectedSensors([]);
+    } else {
+      // Select all on current page
+      setSelectedSensors(allPageIds);
     }
   };
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await loadSensors();
-    setRefreshing(false);
+  const handleSelectAllFiltered = async () => {
+    // Fetch all sensor IDs matching the current filters
+    const result = await dispatch(fetchAllFilteredSensorIds(filters));
+    if (fetchAllFilteredSensorIds.fulfilled.match(result)) {
+      setSelectedSensors(result.payload as string[]);
+    }
   };
 
-  // Filter sensors based on search
-  const filteredSensors = sensors.filter(sensor => {
-    const query = searchQuery.toLowerCase();
-    return (
-      sensor.hostname.toLowerCase().includes(query) ||
-      sensor.sid.toLowerCase().includes(query) ||
-      sensor.internalIp.includes(query) ||
-      sensor.platform.toLowerCase().includes(query)
-    );
-  });
+  const handleAddTag = async (tag: string) => {
+    if (selectedSensors.length === 1) {
+      await dispatch(tagSensor({ sensorId: selectedSensors[0], tag }));
+      setSuccessMessage(`Tag "${tag}" added to 1 sensor`);
+    } else if (selectedSensors.length > 1) {
+      await dispatch(bulkTagSensors({ sensorIds: selectedSensors, tag }));
+      setSuccessMessage(`Tag "${tag}" added to ${selectedSensors.length} sensors`);
+    }
+    // Auto-hide success message
+    setTimeout(() => setSuccessMessage(null), 4000);
+  };
 
-  // Count stats
-  const onlineCount = sensors.filter(s => s.isOnline).length;
-  const offlineCount = sensors.filter(s => !s.isOnline).length;
-
-  if (loading) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <Loading message="Loading sensors..." />
-      </div>
+  const handleRemoveTag = async (tag: string) => {
+    for (const sensorId of selectedSensors) {
+      await dispatch(untagSensor({ sensorId, tag }));
+    }
+    setSuccessMessage(
+      `Tag "${tag}" removed from ${selectedSensors.length} sensor${
+        selectedSensors.length !== 1 ? 's' : ''
+      }`
     );
-  }
+    setTimeout(() => setSuccessMessage(null), 4000);
+  };
 
-  if (error) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <Card className="flex items-center gap-4 p-6 bg-destructive/10 border-destructive/30">
-          <AlertCircle className="w-8 h-8 text-destructive" />
-          <div>
-            <h2 className="font-semibold text-destructive">Failed to Load Sensors</h2>
-            <p className="text-sm text-muted-foreground">{error}</p>
-          </div>
-          <Button variant="outline" onClick={loadSensors} className="ml-auto">
-            Retry
-          </Button>
-        </Card>
-      </div>
-    );
-  }
+  const handlePageChange = (newPage: number) => {
+    dispatch(setPage(newPage));
+    setSelectedSensors([]);
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    dispatch(setPageSize(newPageSize));
+    setSelectedSensors([]);
+  };
+
+  // Create sensor name mapping for task dialog
+  const sensorNames = sensors.reduce((acc, sensor) => {
+    acc[sensor.sid] = sensor.hostname;
+    return acc;
+  }, {} as Record<string, string>);
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-1">Sensors</h1>
-          <p className="text-muted-foreground">
-            {sensors.length} sensor{sensors.length !== 1 ? 's' : ''} •{' '}
-            <span className="text-success">{onlineCount} online</span> •{' '}
-            <span className="text-destructive">{offlineCount} offline</span>
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="gap-2"
-        >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
-      </div>
-
-      {/* Search */}
-      <div className="mb-6">
-        <Input
-          placeholder="Search by hostname, SID, IP, or platform..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          leftIcon={<Search className="w-4 h-4" />}
+    <SharedLayout>
+      <PageContainer>
+        <PageHeader
+          title="Sensors"
+          description="Manage and monitor your LimaCharlie sensors"
+          actions={
+            <Button
+              disabled={selectedSensors.length === 0}
+              onClick={() => setTaskDialogOpen(true)}
+            >
+              <Play className="w-4 h-4 mr-2" />
+              Execute Task ({selectedSensors.length})
+            </Button>
+          }
         />
-      </div>
 
-      {/* Sensors List */}
-      {filteredSensors.length === 0 ? (
-        <Card className="p-8 text-center">
-          <Server className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-          <p className="text-muted-foreground">
-            {searchQuery ? 'No sensors match your search' : 'No sensors found'}
-          </p>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {filteredSensors.map((sensor) => (
-            <Card key={sensor.sid} className="hover:border-primary/30 transition-colors">
-              <CardContent className="py-4">
-                <div className="flex items-center gap-4">
-                  {/* Status */}
-                  <div className="flex-shrink-0">
-                    {sensor.isOnline ? (
-                      <div className="p-2 rounded-lg bg-success/10">
-                        <Wifi className="w-5 h-5 text-success" />
-                      </div>
-                    ) : (
-                      <div className="p-2 rounded-lg bg-destructive/10">
-                        <WifiOff className="w-5 h-5 text-destructive" />
-                      </div>
-                    )}
-                  </div>
+        {error && (
+          <Alert variant="destructive" className="mb-4">
+            {error}
+          </Alert>
+        )}
 
-                  {/* Main Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-semibold truncate">{sensor.hostname}</h3>
-                      <StatusDot status={sensor.isOnline ? 'online' : 'offline'} />
-                    </div>
-                    <p className="text-xs text-muted-foreground font-mono truncate">
-                      {sensor.sid}
-                    </p>
-                  </div>
+        <SensorFilters
+          filters={filters}
+          onFilterChange={handleFilterChange}
+          onRefresh={handleRefresh}
+        />
 
-                  {/* Platform */}
-                  <div className="hidden sm:block">
-                    <PlatformBadge platform={sensor.platform} />
-                  </div>
+        <TagManager
+          selectedCount={selectedSensors.length}
+          onAddTag={handleAddTag}
+          onRemoveTag={handleRemoveTag}
+        />
 
-                  {/* IP */}
-                  <div className="hidden md:block text-sm text-muted-foreground">
-                    {sensor.internalIp}
-                  </div>
+        {loading ? (
+          <Loading message="Loading sensors..." />
+        ) : (
+          <>
+            <SensorPagination
+              page={pagination.page}
+              pageSize={pagination.pageSize}
+              total={pagination.total}
+              onPageChange={handlePageChange}
+              onPageSizeChange={handlePageSizeChange}
+            />
 
-                  {/* Tags */}
-                  <div className="hidden lg:flex gap-1 max-w-xs overflow-hidden">
-                    {sensor.tags.slice(0, 3).map((tag) => (
-                      <Badge key={tag} variant="outline" className="text-xs">
-                        {tag}
-                      </Badge>
-                    ))}
-                    {sensor.tags.length > 3 && (
-                      <Badge variant="default" className="text-xs">
-                        +{sensor.tags.length - 3}
-                      </Badge>
-                    )}
-                  </div>
+            <SensorList
+              sensors={sensors}
+              selectedSensors={selectedSensors}
+              totalFiltered={pagination.total}
+              onToggleSelect={handleToggleSelect}
+              onToggleSelectAll={handleToggleSelectAll}
+              onSelectAllFiltered={handleSelectAllFiltered}
+            />
 
-                  {/* Last Seen */}
-                  <div className="text-xs text-muted-foreground whitespace-nowrap">
-                    {sensor.isOnline ? 'Now' : formatLastSeen(sensor.lastSeen)}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-    </div>
+            <SensorPagination
+              page={pagination.page}
+              pageSize={pagination.pageSize}
+              total={pagination.total}
+              onPageChange={handlePageChange}
+              onPageSizeChange={handlePageSizeChange}
+            />
+          </>
+        )}
+
+        <TaskExecutionDialog
+          open={taskDialogOpen}
+          onClose={() => setTaskDialogOpen(false)}
+          selectedSensors={selectedSensors}
+          sensorNames={sensorNames}
+        />
+
+        {/* Success Toast */}
+        {successMessage && (
+          <div className="fixed bottom-4 right-4 z-50">
+            <Toast
+              variant="success"
+              message={successMessage}
+              onClose={() => setSuccessMessage(null)}
+            />
+          </div>
+        )}
+      </PageContainer>
+    </SharedLayout>
   );
-}
-
-function formatLastSeen(timestamp: string): string {
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  return `${diffDays}d ago`;
 }

@@ -16,6 +16,8 @@ import AnalyticsDashboardPage from '../pages/analytics/AnalyticsDashboardPage';
 import EndpointLoginPage from '../pages/endpoints/EndpointLoginPage';
 import EndpointDashboardPage from '../pages/endpoints/EndpointDashboardPage';
 import SensorsPage from '../pages/endpoints/SensorsPage';
+import PayloadsPage from '../pages/endpoints/PayloadsPage';
+import EventsPage from '../pages/endpoints/EventsPage';
 
 // Protected Route wrapper for Analytics
 function AnalyticsProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -55,18 +57,10 @@ function EndpointsProtectedRoute() {
   return <Outlet />;
 }
 
-// Main Layout wrapper that provides module status
+// Main Layout wrapper
 function AppLayout() {
-  const { configured: analyticsConfigured } = useAnalyticsAuth();
-  const { isAuthenticated: endpointsAuthenticated } = useAppSelector((state) => state.endpointAuth);
-
   return (
-    <Layout
-      moduleStatus={{
-        analyticsConfigured,
-        endpointsAuthenticated,
-      }}
-    >
+    <Layout>
       <Outlet />
     </Layout>
   );
@@ -81,18 +75,20 @@ export default function AppRouter() {
         <Route index element={<BrowserHomePage />} />
         <Route path="test/:uuid" element={<TestDetailPage />} />
 
-        {/* Endpoints Module */}
-        <Route path="endpoints">
-          <Route path="login" element={<EndpointLoginPage />} />
-          <Route element={<EndpointsProtectedRoute />}>
-            <Route index element={<EndpointDashboardPage />} />
-            <Route path="sensors" element={<SensorsPage />} />
-            {/* More endpoint routes will be added later */}
-          </Route>
-        </Route>
-
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+
+      {/* Endpoints Module - Standalone (uses own Layout/Header) */}
+      <Route path="endpoints">
+        <Route path="login" element={<EndpointLoginPage />} />
+        <Route element={<EndpointsProtectedRoute />}>
+          <Route index element={<Navigate to="/endpoints/dashboard" replace />} />
+          <Route path="dashboard" element={<EndpointDashboardPage />} />
+          <Route path="sensors" element={<SensorsPage />} />
+          <Route path="payloads" element={<PayloadsPage />} />
+          <Route path="events" element={<EventsPage />} />
+        </Route>
       </Route>
 
       {/* Analytics Module - Standalone (no main header) */}

@@ -1,153 +1,205 @@
-// Sensors service for LimaCharlie endpoint management
+/**
+ * Sensors Service
+ * Based on internal/api/sensors.go
+ */
 
 import axios from 'axios';
-import { AuthService } from './auth.service.js';
-import type {
+import {
+  Credentials,
   Sensor,
+  ListSensorsRequest,
   ListSensorsResponse,
-  Payload,
-  Event,
-  QueryEventsRequest,
-  QueryEventsResponse,
-  TaskResult,
+  OnlineStatusResponse,
+  Platform,
+  PlatformID,
 } from '../../types/endpoints.js';
+import { authService } from './auth.service.js';
 
 const API_BASE_URL = process.env.LC_API_BASE_URL || 'https://api.limacharlie.io';
 
-const authService = new AuthService();
-
 export class SensorsService {
-  private oid: string;
-  private apiKey: string;
-
-  constructor(oid: string, apiKey: string) {
-    this.oid = oid;
-    this.apiKey = apiKey;
-  }
-
   /**
    * List sensors with optional filtering
+   * BUG FIX #2: Returns {sensors, total} instead of just sensors
+   * BUG FIX #3: Platform ID conversion implemented
    */
   async listSensors(
-    options: {
-      platform?: string;
-      hostname?: string;
-      tag?: string;
-      isOnline?: boolean;
-    } = {}
+    credentials: Credentials,
+    options: ListSensorsRequest = {}
   ): Promise<{ sensors: Sensor[]; total: number }> {
     try {
-      const authHeader = await authService.getAuthHeader(this.oid, this.apiKey);
+      const authHeader = await authService.getAuthHeader(credentials);
       const params = new URLSearchParams();
-      params.set('with_tags', 'true');
 
-      const url = `${API_BASE_URL}/v1/sensors/${this.oid}?${params.toString()}`;
+      // Don't send limit/offset to API - we'll handle pagination client-side after filtering
+      if (options.withTags) params.set('with_tags', 'true');
+      if (options.withIp) params.set('with_ip', options.withIp);
+      if (options.withHostnamePrefix) {
+        params.set('with_hostname_prefix', options.withHostnamePrefix);
+      }
+      // Note: onlyOnline is NOT an API parameter - it's applied client-side below
+
+      const url = `${API_BASE_URL}/v1/sensors/${credentials.oid}?${params.toString()}`;
       const response = await axios.get<ListSensorsResponse>(url, {
         headers: { Authorization: authHeader },
       });
 
       let sensors = response.data.sensors || [];
 
-      // Apply client-side filters
-      if (options.isOnline !== undefined) {
-        sensors = sensors.filter((s) => s.is_online === options.isOnline);
+      // Apply client-side filters for options not supported by API
+      if (options.onlyOnline) {
+        sensors = sensors.filter((s) => s.is_online === true);
       }
 
-      if (options.hostname) {
-        const pattern = options.hostname.toLowerCase();
-        sensors = sensors.filter((s) =>
-          s.hostname.toLowerCase().includes(pattern)
-        );
+      if (options.filterHostname) {
+        sensors = this.filterByHostname(sensors, options.filterHostname);
       }
 
-      if (options.tag) {
-        sensors = sensors.filter(
-          (s) => s.tags && s.tags.includes(options.tag!)
-        );
-      }
-
-      if (options.platform) {
-        const platformId = this.getPlatformId(options.platform);
-        if (platformId !== null) {
+      if (options.filterPlatform) {
+        if (options.filterPlatform === Platform.LC_SECOPS) {
+          // Filter for LC_SecOps: any platform ID that's not Windows/macOS/Linux
+          sensors = sensors.filter(
+            (s) =>
+              s.plat !== PlatformID.WINDOWS &&
+              s.plat !== PlatformID.MACOS &&
+              s.plat !== PlatformID.LINUX
+          );
+        } else {
+          const platformId = this.getPlatformId(options.filterPlatform);
           sensors = sensors.filter((s) => s.plat === platformId);
         }
       }
 
-      return { sensors, total: sensors.length };
+      if (options.filterTag) {
+        sensors = sensors.filter(
+          (s) => s.tags && s.tags.includes(options.filterTag!)
+        );
+      }
+
+      // Store total before pagination
+      const total = sensors.length;
+
+      // Apply pagination
+      const offset = options.offset || 0;
+      const limit = options.limit || 50;
+      const paginatedSensors = sensors.slice(offset, offset + limit);
+
+      return { sensors: paginatedSensors, total };
     } catch (error) {
       if (authService.isAuthError(error)) {
-        authService.clearToken(this.oid, this.apiKey);
-        return this.listSensors(options);
+        // Clear token and retry once
+        authService.clearToken(credentials);
+        return this.listSensors(credentials, options);
       }
       throw this.handleError(error, 'Failed to list sensors');
     }
   }
 
   /**
-   * Get sensor by ID
+   * Get online status for sensors
    */
-  async getSensor(sensorId: string): Promise<Sensor | null> {
-    const { sensors } = await this.listSensors();
-    return sensors.find((s) => s.sid === sensorId) || null;
+  async getOnlineStatus(
+    credentials: Credentials,
+    sensorIds: string[]
+  ): Promise<OnlineStatusResponse> {
+    try {
+      const authHeader = await authService.getAuthHeader(credentials);
+      const url = `${API_BASE_URL}/v1/sensors/${credentials.oid}/online`;
+
+      const response = await axios.post<OnlineStatusResponse>(
+        url,
+        { sensor_ids: sensorIds },
+        {
+          headers: {
+            Authorization: authHeader,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      if (authService.isAuthError(error)) {
+        authService.clearToken(credentials);
+        return this.getOnlineStatus(credentials, sensorIds);
+      }
+      throw this.handleError(error, 'Failed to get online status');
+    }
   }
 
   /**
    * Add tag to sensor
    */
-  async addTag(sensorId: string, tag: string): Promise<void> {
+  async tagSensor(
+    credentials: Credentials,
+    sensorId: string,
+    tag: string,
+    ttl?: number
+  ): Promise<void> {
     try {
-      const authHeader = await authService.getAuthHeader(this.oid, this.apiKey);
+      const authHeader = await authService.getAuthHeader(credentials);
       const params = new URLSearchParams();
       params.set('tags', tag);
+      if (ttl) params.set('ttl', ttl.toString());
 
       const url = `${API_BASE_URL}/v1/${sensorId}/tags?${params.toString()}`;
 
       await axios.post(url, null, {
-        headers: { Authorization: authHeader },
+        headers: {
+          Authorization: authHeader,
+        },
       });
     } catch (error) {
       if (authService.isAuthError(error)) {
-        authService.clearToken(this.oid, this.apiKey);
-        return this.addTag(sensorId, tag);
+        authService.clearToken(credentials);
+        return this.tagSensor(credentials, sensorId, tag, ttl);
       }
-      throw this.handleError(error, 'Failed to add tag');
+      throw this.handleError(error, 'Failed to tag sensor');
     }
   }
 
   /**
    * Remove tag from sensor
    */
-  async removeTag(sensorId: string, tag: string): Promise<void> {
+  async untagSensor(
+    credentials: Credentials,
+    sensorId: string,
+    tag: string
+  ): Promise<void> {
     try {
-      const authHeader = await authService.getAuthHeader(this.oid, this.apiKey);
+      const authHeader = await authService.getAuthHeader(credentials);
       const params = new URLSearchParams();
       params.set('tags', tag);
 
       const url = `${API_BASE_URL}/v1/${sensorId}/tags?${params.toString()}`;
 
       await axios.delete(url, {
-        headers: { Authorization: authHeader },
+        headers: {
+          Authorization: authHeader,
+        },
       });
     } catch (error) {
       if (authService.isAuthError(error)) {
-        authService.clearToken(this.oid, this.apiKey);
-        return this.removeTag(sensorId, tag);
+        authService.clearToken(credentials);
+        return this.untagSensor(credentials, sensorId, tag);
       }
-      throw this.handleError(error, 'Failed to remove tag');
+      throw this.handleError(error, 'Failed to untag sensor');
     }
   }
 
   /**
-   * Isolate sensor from network
+   * Isolate sensor from network (segregate_network)
    */
-  async isolateSensor(sensorId: string): Promise<void> {
+  async isolateSensor(credentials: Credentials, sensorId: string): Promise<void> {
     try {
-      const authHeader = await authService.getAuthHeader(this.oid, this.apiKey);
+      const authHeader = await authService.getAuthHeader(credentials);
       const url = `${API_BASE_URL}/v1/${sensorId}`;
 
       await axios.post(
         url,
-        new URLSearchParams({ tasks: 'segregate_network' }),
+        new URLSearchParams({
+          tasks: 'segregate_network',
+        }),
         {
           headers: {
             Authorization: authHeader,
@@ -157,24 +209,26 @@ export class SensorsService {
       );
     } catch (error) {
       if (authService.isAuthError(error)) {
-        authService.clearToken(this.oid, this.apiKey);
-        return this.isolateSensor(sensorId);
+        authService.clearToken(credentials);
+        return this.isolateSensor(credentials, sensorId);
       }
       throw this.handleError(error, 'Failed to isolate sensor');
     }
   }
 
   /**
-   * Rejoin sensor to network
+   * Remove network isolation from sensor (rejoin_network)
    */
-  async rejoinSensor(sensorId: string): Promise<void> {
+  async rejoinSensor(credentials: Credentials, sensorId: string): Promise<void> {
     try {
-      const authHeader = await authService.getAuthHeader(this.oid, this.apiKey);
+      const authHeader = await authService.getAuthHeader(credentials);
       const url = `${API_BASE_URL}/v1/${sensorId}`;
 
       await axios.post(
         url,
-        new URLSearchParams({ tasks: 'rejoin_network' }),
+        new URLSearchParams({
+          tasks: 'rejoin_network',
+        }),
         {
           headers: {
             Authorization: authHeader,
@@ -184,174 +238,71 @@ export class SensorsService {
       );
     } catch (error) {
       if (authService.isAuthError(error)) {
-        authService.clearToken(this.oid, this.apiKey);
-        return this.rejoinSensor(sensorId);
+        authService.clearToken(credentials);
+        return this.rejoinSensor(credentials, sensorId);
       }
       throw this.handleError(error, 'Failed to rejoin sensor');
     }
   }
 
   /**
-   * Run command on sensors
+   * Get sensor by ID
    */
-  async runCommand(
-    sensorIds: string[],
-    command: string,
-    investigationId?: string
-  ): Promise<TaskResult[]> {
-    const results: TaskResult[] = [];
-
-    for (const sensorId of sensorIds) {
-      try {
-        const authHeader = await authService.getAuthHeader(this.oid, this.apiKey);
-        const url = `${API_BASE_URL}/v1/${sensorId}`;
-
-        const params = new URLSearchParams();
-        params.set('tasks', command);
-        if (investigationId) {
-          params.set('investigation_id', investigationId);
-        }
-
-        await axios.post(url, params, {
-          headers: {
-            Authorization: authHeader,
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-        });
-
-        results.push({ sensorId, status: 'success' });
-      } catch (error) {
-        results.push({
-          sensorId,
-          status: 'failed',
-          error: error instanceof Error ? error.message : 'Command failed',
-        });
-      }
-    }
-
-    return results;
-  }
-
-  /**
-   * Deploy payload to sensors
-   */
-  async deployPayload(
-    sensorIds: string[],
-    payloadName: string,
-    destinationPath: string
-  ): Promise<TaskResult[]> {
-    const command = `put ${payloadName} ${destinationPath}`;
-    return this.runCommand(sensorIds, command);
-  }
-
-  /**
-   * List payloads
-   */
-  async listPayloads(): Promise<Payload[]> {
+  async getSensor(credentials: Credentials, sensorId: string): Promise<Sensor | null> {
     try {
-      const authHeader = await authService.getAuthHeader(this.oid, this.apiKey);
-      const url = `${API_BASE_URL}/v1/payloads/${this.oid}`;
-
-      const response = await axios.get(url, {
-        headers: { Authorization: authHeader },
-      });
-
-      const payloadsMap = response.data.payloads || {};
-      return Object.entries(payloadsMap).map(([name, info]: [string, any]) => ({
-        name,
-        size: info?.size,
-        uploadedAt: info?.uploaded_at,
-        uploadedBy: info?.uploaded_by,
-      }));
+      const result = await this.listSensors(credentials);
+      return result.sensors.find((s) => s.sid === sensorId) || null;
     } catch (error) {
-      if (authService.isAuthError(error)) {
-        authService.clearToken(this.oid, this.apiKey);
-        return this.listPayloads();
-      }
-      throw this.handleError(error, 'Failed to list payloads');
+      throw this.handleError(error, 'Failed to get sensor');
     }
   }
 
   /**
-   * Delete payload
+   * Filter sensors by hostname (supports wildcards)
    */
-  async deletePayload(name: string): Promise<void> {
-    try {
-      const authHeader = await authService.getAuthHeader(this.oid, this.apiKey);
-      const url = `${API_BASE_URL}/v1/payloads/${this.oid}/${name}`;
+  private filterByHostname(sensors: Sensor[], pattern: string): Sensor[] {
+    // Convert wildcard pattern to regex
+    const regexPattern = pattern
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&') // Escape special chars
+      .replace(/\*/g, '.*') // Replace * with .*
+      .replace(/\?/g, '.'); // Replace ? with .
 
-      await axios.delete(url, {
-        headers: { Authorization: authHeader },
-      });
-    } catch (error) {
-      if (authService.isAuthError(error)) {
-        authService.clearToken(this.oid, this.apiKey);
-        return this.deletePayload(name);
-      }
-      throw this.handleError(error, 'Failed to delete payload');
-    }
+    const regex = new RegExp(`^${regexPattern}$`, 'i');
+
+    return sensors.filter((s) => regex.test(s.hostname));
   }
 
   /**
-   * Query events
+   * Get platform ID from platform name (BUG FIX #3)
    */
-  async queryEvents(options: QueryEventsRequest): Promise<Event[]> {
-    try {
-      const authHeader = await authService.getAuthHeader(this.oid, this.apiKey);
-      const url = `${API_BASE_URL}/v1/insight/${this.oid}`;
-
-      const params = new URLSearchParams();
-      params.set('limit', options.limit.toString());
-      if (options.query) params.set('query', options.query);
-      if (options.sensorId) params.set('sid', options.sensorId);
-      if (options.investigationId) {
-        params.set('investigation_id', options.investigationId);
-      }
-
-      const response = await axios.get<QueryEventsResponse>(
-        `${url}?${params.toString()}`,
-        {
-          headers: { Authorization: authHeader },
-        }
-      );
-
-      return response.data.events || [];
-    } catch (error) {
-      if (authService.isAuthError(error)) {
-        authService.clearToken(this.oid, this.apiKey);
-        return this.queryEvents(options);
-      }
-      throw this.handleError(error, 'Failed to query events');
-    }
-  }
-
-  /**
-   * Get platform ID from name
-   */
-  private getPlatformId(platform: string): number | null {
+  private getPlatformId(platform: string): number {
     switch (platform.toLowerCase()) {
-      case 'windows':
-        return 268435456;
-      case 'macos':
-        return 805306368;
-      case 'linux':
-        return 536870912;
+      case Platform.WINDOWS:
+        return PlatformID.WINDOWS;
+      case Platform.MACOS:
+        return PlatformID.MACOS;
+      case Platform.LINUX:
+        return PlatformID.LINUX;
+      case Platform.LC_SECOPS:
+        // LC_SecOps is handled separately in filterPlatform
+        throw new Error('LC_SecOps platform should be handled separately');
       default:
-        return null;
+        throw new Error(`Unknown platform: ${platform}`);
     }
   }
 
   /**
-   * Handle errors
+   * Handle errors and provide meaningful messages
    */
   private handleError(error: any, defaultMessage: string): Error {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const message = error.response?.data?.message || error.message;
-      return new Error(
-        `${defaultMessage}: ${status ? `[${status}] ` : ''}${message}`
-      );
+      return new Error(`${defaultMessage}: ${status ? `[${status}] ` : ''}${message}`);
     }
     return error instanceof Error ? error : new Error(defaultMessage);
   }
 }
+
+// Singleton instance
+export const sensorsService = new SensorsService();
