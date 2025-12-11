@@ -9,8 +9,8 @@ import http from 'http';
 
 import browserRoutes from './api/browser.routes.js';
 import analyticsRoutes from './api/analytics.routes.js';
-import authRoutes from './api/auth.routes.js';
-import endpointsRoutes from './api/endpoints.routes.js';
+import endpointAuthRoutes from './api/endpoints/auth.routes.js';
+import endpointsRoutes from './api/endpoints/index.js';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware.js';
 
 // Load environment variables
@@ -78,7 +78,7 @@ app.use('/api/browser', browserRoutes);
 app.use('/api/analytics', analyticsRoutes);
 
 // Endpoints module - Session-based auth (LimaCharlie)
-app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/auth', authLimiter, endpointAuthRoutes);
 app.use('/api/endpoints', endpointsRoutes);
 
 // ============ ERROR HANDLING ============

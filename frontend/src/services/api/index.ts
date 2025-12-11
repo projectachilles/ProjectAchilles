@@ -20,9 +20,9 @@ export type {
 } from './analytics';
 
 export type {
-  Organization,
   Sensor,
-  SensorFilters,
   LoginResponse,
-  SessionResponse,
-} from './endpoints';
+  SessionInfo,
+  ListSensorsRequest,
+  PaginatedSensorsResponse,
+} from '../../types/endpoints';

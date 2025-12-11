@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Shield, Monitor, FlaskConical } from 'lucide-react';
-import Header from './components/Header';
-import Layout from './components/Layout';
+import SharedLayout from '../../components/shared/Layout';
 import SettingsModal from './components/SettingsModal';
 import MetricCard from './components/MetricCard';
 import TrendChart from './components/TrendChart';
@@ -340,14 +339,12 @@ export default function AnalyticsDashboardPage() {
   }
 
   return (
-    <Layout>
-      <Header
-        onSettingsClick={() => setSettingsOpen(true)}
-        onRefreshClick={handleRefresh}
-        isRefreshing={isRefreshing}
-      />
-
-      <main className="container mx-auto px-4 py-6">
+    <SharedLayout
+      onSettingsClick={() => setSettingsOpen(true)}
+      onRefreshClick={handleRefresh}
+      isRefreshing={isRefreshing}
+    >
+      <div className="container mx-auto px-4 py-6">
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-3 mb-6">
           <OrgFilter
@@ -486,7 +483,7 @@ export default function AnalyticsDashboardPage() {
             />
           </div>
         </div>
-      </main>
+      </div>
 
       {/* Settings Modal */}
       <SettingsModal
@@ -494,6 +491,6 @@ export default function AnalyticsDashboardPage() {
         onClose={() => setSettingsOpen(false)}
         onSave={handleRefresh}
       />
-    </Layout>
+    </SharedLayout>
   );
 }
