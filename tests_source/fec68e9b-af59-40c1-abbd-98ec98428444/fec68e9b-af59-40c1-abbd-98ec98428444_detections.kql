@@ -1,0 +1,404 @@
+// ============================================================
+// F0RT1KA Detection Rules - KQL Queries for Microsoft Sentinel/Defender
+// Test ID: fec68e9b-af59-40c1-abbd-98ec98428444
+// Test Name: MDE Process Injection and API Authentication Bypass
+// MITRE ATT&CK: T1055, T1055.001, T1562.001, T1014, T1557, T1071.001, T1140
+// Generated: 2025-12-07
+// ============================================================
+
+// ============================================================
+// DETECTION 1: MDE Process Enumeration
+// Confidence: High
+// MITRE ATT&CK: T1057 (Process Discovery), T1055 (Process Injection)
+// ============================================================
+// Purpose: Detects processes enumerating MDE agent processes (MsSense.exe, SenseIR.exe)
+// False Positives: Legitimate system administration tools, Task Manager
+// Threshold: Alert on any match from untrusted processes
+// ============================================================
+
+let mdeProcesses = dynamic(["MsSense.exe", "SenseIR.exe", "SenseCncProxy.exe", "MsMpEng.exe"]);
+let trustedProcesses = dynamic(["MsSense.exe", "SenseIR.exe", "SenseCncProxy.exe", "services.exe", "wininit.exe", "taskmgr.exe", "procexp.exe", "procexp64.exe"]);
+DeviceProcessEvents
+| where Timestamp > ago(24h)
+| where ActionType == "ProcessCreated"
+| where ProcessCommandLine has_any (mdeProcesses)
+    or InitiatingProcessCommandLine has_any (mdeProcesses)
+| where InitiatingProcessFileName !in~ (trustedProcesses)
+| extend
+    Severity = "High",
+    ThreatType = "MDE Process Enumeration",
+    MitreAttack = "T1057",
+    TestID = "fec68e9b-af59-40c1-abbd-98ec98428444"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName, InitiatingProcessCommandLine,
+    ProcessCommandLine, AccountName, Severity, ThreatType, MitreAttack, TestID
+
+
+// ============================================================
+// DETECTION 2: Privileged Handle Acquisition to EDR Processes
+// Confidence: Critical
+// MITRE ATT&CK: T1055 (Process Injection), T1055.001 (DLL Injection)
+// ============================================================
+// Purpose: Detects attempts to open handles to EDR processes with dangerous access rights
+// False Positives: Very rare - kernel debuggers only
+// Threshold: Alert on ANY match - this is always suspicious
+// ============================================================
+
+DeviceEvents
+| where Timestamp > ago(24h)
+| where ActionType == "OpenProcessApiCall" or ActionType == "ProcessAccess"
+| where FileName in~ ("MsSense.exe", "SenseIR.exe", "SenseCncProxy.exe", "MsMpEng.exe")
+| where InitiatingProcessFileName !in~ ("MsSense.exe", "SenseIR.exe", "SenseCncProxy.exe", "services.exe")
+| extend
+    AccessRights = tostring(parse_json(AdditionalFields).DesiredAccess),
+    SourceProcess = InitiatingProcessFileName
+| where AccessRights has_any ("PROCESS_VM_WRITE", "PROCESS_VM_OPERATION", "PROCESS_CREATE_THREAD", "0x001F0FFF")
+| extend
+    Severity = "Critical",
+    ThreatType = "EDR Process Handle Acquisition",
+    MitreAttack = "T1055,T1055.001",
+    TestID = "fec68e9b-af59-40c1-abbd-98ec98428444",
+    RiskScore = 95
+| project TimeGenerated, DeviceName, SourceProcess, FileName, AccessRights,
+    AccountName, Severity, ThreatType, MitreAttack, RiskScore
+
+
+// ============================================================
+// DETECTION 3: WriteProcessMemory to Security Processes
+// Confidence: Critical
+// MITRE ATT&CK: T1055 (Process Injection), T1562.001 (Impair Defenses)
+// ============================================================
+// Purpose: Detects memory write attempts to EDR and security processes
+// False Positives: None expected - always malicious
+// Threshold: Immediate alert and response
+// ============================================================
+
+DeviceEvents
+| where Timestamp > ago(24h)
+| where ActionType == "WriteProcessMemoryApiCall"
+    or ActionType in ("MemoryRemoteProtect", "ProcessMemoryWritten")
+| where TargetFileName in~ ("MsSense.exe", "SenseIR.exe", "MsMpEng.exe", "csrss.exe", "lsass.exe")
+    or TargetProcessCommandLine has_any ("MsSense", "SenseIR", "MsMpEng")
+| extend
+    Severity = "Critical",
+    ThreatType = "Memory Manipulation of Security Process",
+    MitreAttack = "T1055,T1562.001",
+    TestID = "fec68e9b-af59-40c1-abbd-98ec98428444",
+    RiskScore = 100
+| project TimeGenerated, DeviceName, InitiatingProcessFileName, TargetFileName,
+    InitiatingProcessCommandLine, AccountName, Severity, ThreatType, MitreAttack, RiskScore
+
+
+// ============================================================
+// DETECTION 4: CRYPT32.dll Memory Access Pattern
+// Confidence: High
+// MITRE ATT&CK: T1014 (Rootkit), T1553.004 (Install Root Certificate)
+// ============================================================
+// Purpose: Detects memory operations targeting CRYPT32.dll for certificate bypass
+// False Positives: Legitimate certificate operations (very rare to target function addresses)
+// Threshold: Alert on pattern match
+// ============================================================
+
+DeviceEvents
+| where Timestamp > ago(24h)
+| where ActionType in ("ReadProcessMemoryApiCall", "WriteProcessMemoryApiCall", "MemoryRemoteProtect")
+| where AdditionalFields has "CRYPT32" or AdditionalFields has "CertVerify"
+| extend
+    ParsedFields = parse_json(AdditionalFields),
+    Severity = "High",
+    ThreatType = "Certificate Validation Bypass Attempt",
+    MitreAttack = "T1014,T1553.004",
+    TestID = "fec68e9b-af59-40c1-abbd-98ec98428444"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName, ActionType,
+    AdditionalFields, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// DETECTION 5: File Drops to C:\F0 Directory
+// Confidence: High
+// MITRE ATT&CK: T1105 (Ingress Tool Transfer), T1036 (Masquerading)
+// ============================================================
+// Purpose: Detects F0RT1KA test artifacts being dropped to target directory
+// False Positives: Legitimate F0RT1KA security testing (authorized)
+// Threshold: Context-dependent - alert for unauthorized testing
+// ============================================================
+
+DeviceFileEvents
+| where Timestamp > ago(24h)
+| where ActionType == "FileCreated" or ActionType == "FileModified"
+| where FolderPath startswith "c:\\F0" or FolderPath startswith "C:\\F0"
+| extend
+    FileExtension = tostring(split(FileName, ".")[-1]),
+    IsExecutable = FileExtension in~ ("exe", "dll", "ps1", "bat", "cmd", "vbs", "js")
+| extend
+    Severity = iff(IsExecutable, "High", "Medium"),
+    ThreatType = "F0RT1KA Test Artifact",
+    MitreAttack = "T1105",
+    TestID = "fec68e9b-af59-40c1-abbd-98ec98428444"
+| project TimeGenerated, DeviceName, FileName, FolderPath, FileExtension,
+    InitiatingProcessFileName, InitiatingProcessCommandLine, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// DETECTION 6: Watchdog Process Pattern
+// Confidence: High
+// MITRE ATT&CK: T1055 (Process Injection), T1547 (Boot or Logon Autostart)
+// ============================================================
+// Purpose: Detects mde_process_watchdog.exe or similar guardian processes
+// False Positives: Legitimate monitoring software
+// Threshold: Alert when combined with other MDE-targeting indicators
+// ============================================================
+
+DeviceProcessEvents
+| where Timestamp > ago(24h)
+| where ActionType == "ProcessCreated"
+| where FileName =~ "mde_process_watchdog.exe"
+    or ProcessCommandLine has "watchdog" and ProcessCommandLine has_any ("--timeout", "MsSense", "restore")
+| extend
+    ParentProcess = InitiatingProcessFileName,
+    Severity = "High",
+    ThreatType = "MDE Watchdog/Guardian Process",
+    MitreAttack = "T1055",
+    TestID = "fec68e9b-af59-40c1-abbd-98ec98428444"
+| project TimeGenerated, DeviceName, FileName, ProcessCommandLine, ParentProcess,
+    AccountName, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// DETECTION 7: Unauthenticated MDE API Requests
+// Confidence: High
+// MITRE ATT&CK: T1071.001 (Web Protocols), T1557 (Adversary-in-the-Middle)
+// ============================================================
+// Purpose: Detects non-MDE processes making requests to MDE cloud endpoints
+// False Positives: Security tools analyzing MDE traffic
+// Threshold: Alert on any match from unknown processes
+// ============================================================
+
+DeviceNetworkEvents
+| where Timestamp > ago(24h)
+| where RemoteUrl has "winatp-gw" and RemoteUrl has "microsoft.com"
+| where InitiatingProcessFileName !in~ ("MsSense.exe", "SenseIR.exe", "SenseCncProxy.exe", "MpCmdRun.exe")
+| extend
+    Severity = "High",
+    ThreatType = "Unauthorized MDE API Access",
+    MitreAttack = "T1071.001,T1557",
+    TestID = "fec68e9b-af59-40c1-abbd-98ec98428444"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName, RemoteUrl, RemoteIP,
+    RemotePort, LocalPort, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// DETECTION 8: Rapid API Command Interception Pattern
+// Confidence: High
+// MITRE ATT&CK: T1557 (Adversary-in-the-Middle), T1071.001 (Web Protocols)
+// ============================================================
+// Purpose: Detects race condition attacks against MDE command endpoints
+// False Positives: Very rare - legitimate polling is much slower
+// Threshold: >5 requests per 10 seconds to command endpoints
+// ============================================================
+
+DeviceNetworkEvents
+| where Timestamp > ago(24h)
+| where RemoteUrl has "/edr/commands/cnc" or RemoteUrl has "/senseir/"
+| summarize
+    RequestCount = count(),
+    DistinctUrls = dcount(RemoteUrl),
+    FirstRequest = min(Timestamp),
+    LastRequest = max(Timestamp)
+    by DeviceName, InitiatingProcessFileName, bin(Timestamp, 10s)
+| where RequestCount > 5
+| extend
+    RequestRate = RequestCount / 10.0,
+    Severity = iff(RequestCount > 20, "Critical", "High"),
+    ThreatType = "API Command Interception Race Condition",
+    MitreAttack = "T1557",
+    TestID = "fec68e9b-af59-40c1-abbd-98ec98428444"
+| project DeviceName, InitiatingProcessFileName, RequestCount, RequestRate,
+    FirstRequest, LastRequest, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// DETECTION 9: MDE Registry Key Access
+// Confidence: Medium
+// MITRE ATT&CK: T1552.002 (Credentials in Registry), T1012 (Query Registry)
+// ============================================================
+// Purpose: Detects unauthorized access to MDE configuration registry keys
+// False Positives: System administration, GPO updates
+// Threshold: Alert on non-system access
+// ============================================================
+
+DeviceRegistryEvents
+| where Timestamp > ago(24h)
+| where RegistryKey has "Windows Advanced Threat Protection"
+    or RegistryKey has "Microsoft\\Sense"
+| where InitiatingProcessFileName !in~ ("MsSense.exe", "SenseIR.exe", "services.exe", "svchost.exe", "reg.exe", "regedit.exe")
+| extend
+    Severity = "Medium",
+    ThreatType = "MDE Configuration Access",
+    MitreAttack = "T1552.002,T1012",
+    TestID = "fec68e9b-af59-40c1-abbd-98ec98428444"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName, RegistryKey,
+    RegistryValueName, ActionType, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// DETECTION 10: Proxy Configuration Changes
+// Confidence: Medium
+// MITRE ATT&CK: T1557 (Adversary-in-the-Middle), T1090 (Proxy)
+// ============================================================
+// Purpose: Detects netsh winhttp proxy changes that could intercept MDE traffic
+// False Positives: Legitimate proxy configuration by IT
+// Threshold: Alert on non-admin initiated changes
+// ============================================================
+
+DeviceProcessEvents
+| where Timestamp > ago(24h)
+| where ProcessCommandLine has "netsh"
+    and ProcessCommandLine has "winhttp"
+    and ProcessCommandLine has "proxy"
+| extend
+    ProxyTarget = extract("proxy\\s+([^\\s]+)", 1, ProcessCommandLine),
+    Severity = "Medium",
+    ThreatType = "Network Proxy Configuration Change",
+    MitreAttack = "T1557,T1090",
+    TestID = "fec68e9b-af59-40c1-abbd-98ec98428444"
+| project TimeGenerated, DeviceName, ProcessCommandLine, ProxyTarget,
+    InitiatingProcessFileName, AccountName, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// DETECTION 11: Large Configuration File Downloads
+// Confidence: High
+// MITRE ATT&CK: T1005 (Data from Local System), T1041 (Exfiltration Over C2)
+// ============================================================
+// Purpose: Detects potential configuration exfiltration (8MB+ downloads)
+// False Positives: Legitimate configuration sync by MDE agent
+// Threshold: >5MB from MDE endpoints by non-MDE processes
+// ============================================================
+
+DeviceNetworkEvents
+| where Timestamp > ago(24h)
+| where RemoteUrl has_any ("winatp-gw", "microsoft.com/edr")
+| where ReceivedBytes > 5000000  // 5MB threshold
+| where InitiatingProcessFileName !in~ ("MsSense.exe", "SenseIR.exe")
+| extend
+    DataSizeMB = round(ReceivedBytes / 1048576.0, 2),
+    Severity = "High",
+    ThreatType = "MDE Configuration Exfiltration",
+    MitreAttack = "T1005,T1041",
+    TestID = "fec68e9b-af59-40c1-abbd-98ec98428444"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName, RemoteUrl,
+    DataSizeMB, ReceivedBytes, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// DETECTION 12: Behavioral Correlation - Multi-Stage Attack Chain
+// Confidence: Critical
+// MITRE ATT&CK: Multiple techniques in sequence
+// ============================================================
+// Purpose: Correlates multiple attack indicators into a single high-confidence alert
+// False Positives: None expected when multiple indicators present
+// Threshold: 3+ distinct indicators within 30 minutes = critical alert
+// ============================================================
+
+let ProcessEnum =
+    DeviceProcessEvents
+    | where Timestamp > ago(1h)
+    | where ProcessCommandLine has_any ("MsSense.exe", "SenseIR.exe")
+    | where InitiatingProcessFileName !in~ ("MsSense.exe", "SenseIR.exe", "services.exe")
+    | project TimeGenerated, DeviceName, Indicator = "ProcessEnumeration", InitiatingProcessFileName;
+let FileDrops =
+    DeviceFileEvents
+    | where Timestamp > ago(1h)
+    | where FolderPath startswith "c:\\F0"
+    | where FileName endswith ".exe" or FileName endswith ".ps1"
+    | project TimeGenerated, DeviceName, Indicator = "FileDrop", InitiatingProcessFileName;
+let NetworkAccess =
+    DeviceNetworkEvents
+    | where Timestamp > ago(1h)
+    | where RemoteUrl has "winatp-gw"
+    | where InitiatingProcessFileName !in~ ("MsSense.exe", "SenseIR.exe")
+    | project TimeGenerated, DeviceName, Indicator = "NetworkAccess", InitiatingProcessFileName;
+let RegistryAccess =
+    DeviceRegistryEvents
+    | where Timestamp > ago(1h)
+    | where RegistryKey has "Windows Advanced Threat Protection"
+    | where InitiatingProcessFileName !in~ ("MsSense.exe", "SenseIR.exe", "services.exe")
+    | project TimeGenerated, DeviceName, Indicator = "RegistryAccess", InitiatingProcessFileName;
+union ProcessEnum, FileDrops, NetworkAccess, RegistryAccess
+| summarize
+    IndicatorCount = dcount(Indicator),
+    Indicators = make_set(Indicator),
+    SourceProcesses = make_set(InitiatingProcessFileName),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by DeviceName, bin(TimeGenerated, 30m)
+| where IndicatorCount >= 3
+| extend
+    Severity = "Critical",
+    ThreatType = "MDE Attack Chain Detected",
+    MitreAttack = "T1055,T1562.001,T1557",
+    TestID = "fec68e9b-af59-40c1-abbd-98ec98428444",
+    IncidentConfidence = "95%"
+| project DeviceName, FirstSeen, LastSeen, IndicatorCount, Indicators,
+    SourceProcesses, Severity, ThreatType, MitreAttack, IncidentConfidence
+
+
+// ============================================================
+// DETECTION 13: Emergency Restore Script Execution
+// Confidence: High
+// MITRE ATT&CK: T1059.001 (PowerShell)
+// ============================================================
+// Purpose: Detects execution of emergency_restore.ps1 which indicates active exploitation
+// False Positives: Authorized cleanup after security testing
+// Threshold: Alert on any execution
+// ============================================================
+
+DeviceProcessEvents
+| where Timestamp > ago(24h)
+| where ProcessCommandLine has "emergency_restore.ps1"
+    or (ProcessCommandLine has "powershell" and ProcessCommandLine has "restore" and ProcessCommandLine has "MsSense")
+| extend
+    Severity = "High",
+    ThreatType = "MDE Memory Restoration Script",
+    MitreAttack = "T1059.001",
+    TestID = "fec68e9b-af59-40c1-abbd-98ec98428444"
+| project TimeGenerated, DeviceName, ProcessCommandLine, InitiatingProcessFileName,
+    AccountName, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// HUNTING QUERY: Identify Potential F0RT1KA Test Executions
+// Purpose: Proactive threat hunting for test framework artifacts
+// ============================================================
+
+union
+(
+    DeviceFileEvents
+    | where Timestamp > ago(7d)
+    | where FileName in~ ("mde_process_watchdog.exe", "emergency_restore.ps1")
+       or FileName matches regex @"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.exe$"
+    | extend Source = "FileEvent", Artifact = FileName
+),
+(
+    DeviceProcessEvents
+    | where Timestamp > ago(7d)
+    | where ProcessCommandLine has "F0RT1KA"
+       or ProcessCommandLine has "fec68e9b-af59-40c1-abbd-98ec98428444"
+       or FileName =~ "mde_process_watchdog.exe"
+    | extend Source = "ProcessEvent", Artifact = FileName
+),
+(
+    DeviceRegistryEvents
+    | where Timestamp > ago(7d)
+    | where RegistryKey has "F0RT1KA" or RegistryValueData has "fec68e9b"
+    | extend Source = "RegistryEvent", Artifact = RegistryKey
+)
+| project TimeGenerated, DeviceName, Source, Artifact, InitiatingProcessFileName,
+    AccountName
+| summarize
+    ArtifactCount = count(),
+    DistinctArtifacts = dcount(Artifact),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by DeviceName, InitiatingProcessFileName
+| where ArtifactCount > 0

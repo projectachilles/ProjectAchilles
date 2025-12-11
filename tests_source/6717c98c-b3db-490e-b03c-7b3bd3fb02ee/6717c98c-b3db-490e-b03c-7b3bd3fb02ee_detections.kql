@@ -1,0 +1,438 @@
+// ============================================================
+// F0RT1KA Defense Guidance - KQL Detection Queries
+// Test ID: 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
+// Test Name: SafePay Go-Native Ransomware Simulation
+// MITRE ATT&CK: T1486, T1560.001, T1490, T1083, T1005, T1071.001
+// Generated: 2025-12-07
+// ============================================================
+//
+// Purpose: Comprehensive detection queries for Microsoft Sentinel/Defender
+//          targeting SafePay ransomware behaviors
+//
+// Table of Contents:
+//   1. Mass File Creation Detection
+//   2. WinRAR Compression with Suspicious Arguments
+//   3. Selective Mass File Deletion
+//   4. SafePay File Extension Encryption
+//   5. Ransom Note Creation
+//   6. Go Binary Ransomware Behavior Pattern
+//   7. Archive File Staging Pattern
+//   8. Notepad Ransom Note Display
+//   9. Directory Traversal Enumeration
+//   10. Multi-Phase Ransomware Correlation
+//   11. C:\F0 Binary Drop Detection
+//   12. Hunting Query - Full Attack Timeline
+//
+// ============================================================
+
+
+// ============================================================
+// Detection 1: Mass File Creation
+// MITRE ATT&CK: T1005 (Data from Local System)
+// Confidence: High
+// ============================================================
+// Purpose: Detects rapid creation of large numbers of files in user directories
+// False Positives: Software installations, development build processes, backup operations
+// Threshold: 150 files per minute with 5+ unique extensions
+// ============================================================
+
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where Timestamp > ago(1h)
+| where FolderPath has_any ("Users\\", "Documents\\", "Desktop\\")
+| summarize
+    CreatedCount = count(),
+    UniqueExtensions = dcount(tostring(split(FileName, ".")[-1])),
+    Extensions = make_set(tostring(split(FileName, ".")[-1])),
+    FirstFile = min(Timestamp),
+    LastFile = max(Timestamp)
+by DeviceName, DeviceId, InitiatingProcessFileName, InitiatingProcessCommandLine, bin(Timestamp, 1m)
+| where CreatedCount > 150
+| where UniqueExtensions >= 5
+| where InitiatingProcessFileName !in ("msedge.exe", "msedgewebview2.exe", "sdxhelper.exe", "explorer.exe", "onedrivesetup.exe", "OneDrive.exe", "Teams.exe")
+| extend
+    Severity = "High",
+    ThreatType = "Ransomware-MassFileCreation",
+    MitreAttack = "T1005",
+    TestID = "6717c98c-b3db-490e-b03c-7b3bd3fb02ee"
+| project Timestamp, DeviceName, DeviceId, InitiatingProcessFileName, CreatedCount, UniqueExtensions, Extensions, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 2: WinRAR Compression with Suspicious Arguments
+// MITRE ATT&CK: T1560.001 (Archive Collected Data: Archive via Utility)
+// Confidence: High
+// ============================================================
+// Purpose: Detects WinRAR usage with arguments typical of data staging/exfiltration
+// False Positives: Legitimate backup operations using WinRAR
+// Threshold: Any match with exfiltration-style naming or arguments
+// ============================================================
+
+DeviceProcessEvents
+| where Timestamp > ago(1h)
+| where ProcessCommandLine contains "winrar" or FileName =~ "WinRAR.exe" or FileName =~ "rar.exe"
+| where ProcessCommandLine has_any ("-r", "-m", "-ep1", "-ed", "Archive", "EXFIL", "Data", "Finance", "HR", "Legal")
+| where ProcessCommandLine contains ".rar"
+| extend
+    HasRecursiveFlag = ProcessCommandLine contains "-r",
+    HasCompressionLevel = ProcessCommandLine matches regex "-m[0-5]",
+    HasExfilNaming = ProcessCommandLine has_any ("EXFIL", "Archive", "_Data"),
+    HasDeptNaming = ProcessCommandLine has_any ("Finance", "HR", "Legal", "IT", "Sales", "Executive")
+| where HasRecursiveFlag or HasExfilNaming or HasDeptNaming
+| extend
+    Severity = iff(HasExfilNaming, "Critical", "High"),
+    ThreatType = "Ransomware-DataStaging",
+    MitreAttack = "T1560.001",
+    TestID = "6717c98c-b3db-490e-b03c-7b3bd3fb02ee"
+| project Timestamp, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName, Severity, ThreatType, MitreAttack, HasExfilNaming
+
+
+// ============================================================
+// Detection 3: Selective Mass File Deletion
+// MITRE ATT&CK: T1490 (Inhibit System Recovery)
+// Confidence: High
+// ============================================================
+// Purpose: Detects large-scale deletion of document files (ransomware preparation)
+// False Positives: Legitimate cleanup operations, migration projects
+// Threshold: 50+ document files deleted within 3 hours
+// ============================================================
+
+DeviceFileEvents
+| where ActionType == "FileDeleted"
+| where Timestamp > ago(3h)
+| where FileName has_any (".docx", ".xlsx", ".pdf", ".txt", ".csv", ".sql", ".bak", ".ppt", ".doc", ".zip")
+| where FolderPath has_any ("Users\\", "Documents\\", "Desktop\\")
+| summarize
+    DeletedCount = count(),
+    DeletedExtensions = make_set(tostring(split(FileName, ".")[-1])),
+    AffectedDirectories = dcount(FolderPath),
+    SampleFiles = take_any(FileName, 5)
+by DeviceName, DeviceId, InitiatingProcessFileName, InitiatingProcessCommandLine, bin(Timestamp, 30m)
+| where DeletedCount > 50
+| where array_length(DeletedExtensions) >= 3
+| extend
+    Severity = iff(DeletedCount > 200, "Critical", "High"),
+    ThreatType = "Ransomware-MassDeletion",
+    MitreAttack = "T1490",
+    TestID = "6717c98c-b3db-490e-b03c-7b3bd3fb02ee"
+| project Timestamp, DeviceName, DeviceId, InitiatingProcessFileName, DeletedCount, DeletedExtensions, AffectedDirectories, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 4: SafePay File Extension Encryption
+// MITRE ATT&CK: T1486 (Data Encrypted for Impact)
+// Confidence: Critical
+// ============================================================
+// Purpose: Detects files being encrypted with .safepay extension
+// False Positives: None expected - highly specific to SafePay ransomware
+// Threshold: 10+ files with .safepay extension
+// ============================================================
+
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where Timestamp > ago(1h)
+| where FileName endswith ".safepay"
+| summarize
+    EncryptedCount = count(),
+    OriginalExtensions = make_set(tostring(split(replace_string(FileName, ".safepay", ""), ".")[-1])),
+    FirstEncrypted = min(Timestamp),
+    LastEncrypted = max(Timestamp),
+    AffectedFolders = make_set(FolderPath, 10)
+by DeviceName, DeviceId, InitiatingProcessFileName, InitiatingProcessCommandLine, AccountName, bin(Timestamp, 5m)
+| where EncryptedCount > 10
+| extend
+    EncryptionDuration = datetime_diff('second', LastEncrypted, FirstEncrypted),
+    Severity = "Critical",
+    ThreatType = "Ransomware-SafePayEncryption",
+    MitreAttack = "T1486",
+    TestID = "6717c98c-b3db-490e-b03c-7b3bd3fb02ee"
+| project Timestamp, DeviceName, DeviceId, AccountName, InitiatingProcessFileName, EncryptedCount, OriginalExtensions, EncryptionDuration, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 5: Ransom Note Creation
+// MITRE ATT&CK: T1486 (Data Encrypted for Impact)
+// Confidence: Critical
+// ============================================================
+// Purpose: Detects creation of ransom note files with typical naming patterns
+// False Positives: Security testing, documentation about ransomware
+// Threshold: Any match with ransomware-related filenames
+// ============================================================
+
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where Timestamp > ago(1h)
+| where FileName has_any ("readme", "ransom", "decrypt", "recovery", "safepay", "RECOVER", "DECRYPT")
+| where FileName has_any (".txt", ".html", ".hta")
+| extend
+    IsSafePay = FileName =~ "readme_safepay.txt",
+    Severity = "Critical",
+    ThreatType = "Ransomware-RansomNote",
+    MitreAttack = "T1486",
+    TestID = "6717c98c-b3db-490e-b03c-7b3bd3fb02ee"
+| project Timestamp, DeviceName, DeviceId, AccountName, FolderPath, FileName, InitiatingProcessFileName, InitiatingProcessCommandLine, IsSafePay, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 6: Go Binary Ransomware Behavior Pattern
+// MITRE ATT&CK: T1486, T1005, T1083 (Multi-technique)
+// Confidence: High
+// ============================================================
+// Purpose: Detects binaries exhibiting ransomware-like file system activity patterns
+// False Positives: Legitimate bulk file operations, build tools
+// Threshold: Combined indicators of file creation, deletion, and suspicious extensions
+// ============================================================
+
+DeviceFileEvents
+| where Timestamp > ago(1h)
+| where InitiatingProcessFileName endswith ".exe"
+| where ActionType in ("FileCreated", "FileDeleted", "FileModified")
+| summarize
+    CreatedFiles = countif(ActionType == "FileCreated"),
+    DeletedFiles = countif(ActionType == "FileDeleted"),
+    ModifiedFiles = countif(ActionType == "FileModified"),
+    UniqueDirectories = dcount(FolderPath),
+    SafePayFiles = countif(FileName endswith ".safepay"),
+    RarFiles = countif(FileName endswith ".rar"),
+    RansomNotes = countif(FileName has_any ("readme", "ransom", "decrypt")),
+    StartTime = min(Timestamp),
+    EndTime = max(Timestamp)
+by DeviceName, DeviceId, InitiatingProcessFileName, InitiatingProcessCommandLine, InitiatingProcessFolderPath, AccountName
+| where (CreatedFiles > 50 and DeletedFiles > 30) or SafePayFiles > 5 or RansomNotes > 0
+| where UniqueDirectories > 10
+| extend
+    TotalOperations = CreatedFiles + DeletedFiles + ModifiedFiles,
+    DurationSeconds = datetime_diff('second', EndTime, StartTime),
+    RansomwareIndicators = SafePayFiles + RarFiles + RansomNotes,
+    Severity = iff(SafePayFiles > 0 or RansomNotes > 0, "Critical", "High"),
+    ThreatType = "Ransomware-BehaviorPattern",
+    MitreAttack = "T1486,T1005,T1083",
+    TestID = "6717c98c-b3db-490e-b03c-7b3bd3fb02ee"
+| project Timestamp=StartTime, DeviceName, DeviceId, AccountName, InitiatingProcessFileName, InitiatingProcessFolderPath, CreatedFiles, DeletedFiles, SafePayFiles, RansomNotes, UniqueDirectories, TotalOperations, DurationSeconds, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 7: Archive File Staging Pattern
+// MITRE ATT&CK: T1560.001 (Archive Collected Data: Archive via Utility)
+// Confidence: High
+// ============================================================
+// Purpose: Detects creation of archives with department/exfiltration naming patterns
+// False Positives: Legitimate archiving with similar naming conventions
+// Threshold: 3+ archives with suspicious naming within 10 minutes
+// ============================================================
+
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where Timestamp > ago(1h)
+| where (tolower(FileName) endswith ".rar" or tolower(FileName) endswith ".zip" or tolower(FileName) endswith ".7z")
+| where tolower(FileName) has_any ("archive", "data", "exfil", "finance", "hr", "legal", "it", "sales", "executive", "backup", "documents", "desktop")
+| summarize
+    ArchiveCount = count(),
+    ArchiveNames = make_set(FileName),
+    TotalSize = sum(FileSize),
+    FirstArchive = min(Timestamp),
+    LastArchive = max(Timestamp)
+by DeviceId, DeviceName, InitiatingProcessFileName, InitiatingProcessCommandLine, bin(Timestamp, 10m)
+| where ArchiveCount >= 3
+| extend
+    HasExfilPattern = array_length(set_intersect(ArchiveNames, dynamic(["EXFIL", "Master"]))) > 0,
+    Severity = iff(ArchiveCount >= 6, "Critical", "High"),
+    ThreatType = "Ransomware-DataStaging",
+    MitreAttack = "T1560.001",
+    TestID = "6717c98c-b3db-490e-b03c-7b3bd3fb02ee"
+| project Timestamp=FirstArchive, DeviceId, DeviceName, InitiatingProcessFileName, ArchiveCount, ArchiveNames, TotalSize, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 8: Notepad Ransom Note Display
+// MITRE ATT&CK: T1486 (Data Encrypted for Impact)
+// Confidence: High
+// ============================================================
+// Purpose: Detects Notepad being used to display ransom notes
+// False Positives: Users manually opening files with similar names
+// Threshold: Any match with ransomware-related filename in notepad command line
+// ============================================================
+
+DeviceProcessEvents
+| where Timestamp > ago(1h)
+| where FileName =~ "notepad.exe"
+| where ProcessCommandLine has_any ("readme", "ransom", "decrypt", "safepay", "recover", "DECRYPT", "RECOVER")
+| extend
+    IsSafePay = ProcessCommandLine contains "safepay",
+    NotePath = extract(@"notepad\.exe\s+(.+)", 1, ProcessCommandLine),
+    Severity = "High",
+    ThreatType = "Ransomware-RansomNoteDisplay",
+    MitreAttack = "T1486",
+    TestID = "6717c98c-b3db-490e-b03c-7b3bd3fb02ee"
+| project Timestamp, DeviceName, DeviceId, AccountName, ProcessCommandLine, InitiatingProcessFileName, IsSafePay, NotePath, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 9: Directory Traversal Enumeration
+// MITRE ATT&CK: T1083 (File and Directory Discovery)
+// Confidence: Medium
+// ============================================================
+// Purpose: Detects rapid enumeration of directory structures
+// False Positives: File indexing, search operations, backup software
+// Threshold: 100+ directory access events within 2 minutes
+// ============================================================
+
+DeviceFileEvents
+| where Timestamp > ago(1h)
+| where ActionType == "FileCreated" or ActionType == "FileModified"
+| where FolderPath has_any ("Documents", "Finance", "HR", "Legal", "IT", "Sales", "Executive")
+| summarize
+    AccessCount = count(),
+    UniqueDirectories = dcount(FolderPath),
+    DepartmentFolders = make_set_if(FolderPath, FolderPath has_any ("Finance", "HR", "Legal", "IT", "Sales", "Executive"), 20)
+by DeviceName, DeviceId, InitiatingProcessFileName, bin(Timestamp, 2m)
+| where UniqueDirectories > 15
+| where array_length(DepartmentFolders) >= 3
+| extend
+    Severity = "Medium",
+    ThreatType = "Ransomware-DirectoryDiscovery",
+    MitreAttack = "T1083",
+    TestID = "6717c98c-b3db-490e-b03c-7b3bd3fb02ee"
+| project Timestamp, DeviceName, DeviceId, InitiatingProcessFileName, UniqueDirectories, DepartmentFolders, AccessCount, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 10: Multi-Phase Ransomware Correlation (HIGH CONFIDENCE)
+// MITRE ATT&CK: T1486, T1560.001, T1490 (Full Kill Chain)
+// Confidence: Critical
+// ============================================================
+// Purpose: Correlates multiple ransomware indicators for high-confidence detection
+// False Positives: Very unlikely - requires multiple specific indicators
+// Threshold: 2+ ransomware indicators from same process within 30 minutes
+// ============================================================
+
+let MassFileCreation =
+    DeviceFileEvents
+    | where ActionType == "FileCreated"
+    | where Timestamp > ago(1h)
+    | where FolderPath has_any ("Users\\", "Documents\\", "Desktop\\")
+    | summarize CreatedFiles = count() by DeviceName, DeviceId, InitiatingProcessFileName, bin(Timestamp, 30m)
+    | where CreatedFiles > 100
+    | project DeviceName, DeviceId, InitiatingProcessFileName, Indicator = "MassCreation", Count = CreatedFiles;
+
+let MassFileDeletion =
+    DeviceFileEvents
+    | where ActionType == "FileDeleted"
+    | where Timestamp > ago(1h)
+    | where FileName has_any (".docx", ".xlsx", ".pdf", ".txt", ".csv")
+    | summarize DeletedFiles = count() by DeviceName, DeviceId, InitiatingProcessFileName, bin(Timestamp, 30m)
+    | where DeletedFiles > 30
+    | project DeviceName, DeviceId, InitiatingProcessFileName, Indicator = "MassDeletion", Count = DeletedFiles;
+
+let SafePayEncryption =
+    DeviceFileEvents
+    | where ActionType == "FileCreated"
+    | where Timestamp > ago(1h)
+    | where FileName endswith ".safepay"
+    | summarize SafePayFiles = count() by DeviceName, DeviceId, InitiatingProcessFileName, bin(Timestamp, 30m)
+    | where SafePayFiles > 0
+    | project DeviceName, DeviceId, InitiatingProcessFileName, Indicator = "SafePayEncryption", Count = SafePayFiles;
+
+let ArchiveCreation =
+    DeviceFileEvents
+    | where ActionType == "FileCreated"
+    | where Timestamp > ago(1h)
+    | where FileName endswith ".rar" and FileName has_any ("Archive", "EXFIL", "Data")
+    | summarize Archives = count() by DeviceName, DeviceId, InitiatingProcessFileName, bin(Timestamp, 30m)
+    | where Archives >= 3
+    | project DeviceName, DeviceId, InitiatingProcessFileName, Indicator = "SuspiciousArchives", Count = Archives;
+
+let RansomNoteCreation =
+    DeviceFileEvents
+    | where ActionType == "FileCreated"
+    | where Timestamp > ago(1h)
+    | where FileName has_any ("readme_safepay", "ransom", "decrypt")
+    | summarize RansomNotes = count() by DeviceName, DeviceId, InitiatingProcessFileName, bin(Timestamp, 30m)
+    | where RansomNotes > 0
+    | project DeviceName, DeviceId, InitiatingProcessFileName, Indicator = "RansomNote", Count = RansomNotes;
+
+union MassFileCreation, MassFileDeletion, SafePayEncryption, ArchiveCreation, RansomNoteCreation
+| summarize
+    Indicators = make_set(Indicator),
+    IndicatorCount = dcount(Indicator),
+    TotalCount = sum(Count)
+by DeviceName, DeviceId, InitiatingProcessFileName
+| where IndicatorCount >= 2
+| extend
+    HasEncryption = set_has_element(Indicators, "SafePayEncryption"),
+    HasRansomNote = set_has_element(Indicators, "RansomNote"),
+    Severity = iff(IndicatorCount >= 4 or set_has_element(Indicators, "SafePayEncryption"), "Critical", "High"),
+    ThreatType = "Ransomware-MultiPhaseCorrelation",
+    MitreAttack = "T1486,T1560.001,T1490",
+    TestID = "6717c98c-b3db-490e-b03c-7b3bd3fb02ee"
+| project DeviceName, DeviceId, InitiatingProcessFileName, Indicators, IndicatorCount, TotalCount, HasEncryption, HasRansomNote, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 11: C:\F0 Binary Drop Detection
+// MITRE ATT&CK: T1105 (Ingress Tool Transfer)
+// Confidence: High
+// ============================================================
+// Purpose: Detects binaries dropped to C:\F0 directory (F0RT1KA test staging)
+// False Positives: Legitimate F0RT1KA security testing
+// Threshold: Any executable file created in C:\F0
+// ============================================================
+
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where Timestamp > ago(1h)
+| where FolderPath startswith @"C:\F0"
+| where FileName endswith ".exe" or FileName endswith ".dll" or FileName endswith ".ps1"
+| extend
+    IsWinRAR = FileName =~ "WinRAR.exe",
+    IsSuspicious = FileName has_any ("mimikatz", "psexec", "cobalt", "beacon"),
+    Severity = iff(FileName has_any ("mimikatz", "psexec", "cobalt"), "Critical", "Medium"),
+    ThreatType = "BinaryDrop-F0Directory",
+    MitreAttack = "T1105",
+    TestID = "6717c98c-b3db-490e-b03c-7b3bd3fb02ee"
+| project Timestamp, DeviceName, DeviceId, AccountName, FolderPath, FileName, FileSize, InitiatingProcessFileName, IsWinRAR, Severity, ThreatType, MitreAttack
+
+
+// ============================================================
+// Detection 12: Hunting Query - Full Attack Timeline
+// MITRE ATT&CK: Full Kill Chain
+// Confidence: Informational (Hunting)
+// ============================================================
+// Purpose: Generate complete timeline of SafePay-related activity for investigation
+// False Positives: N/A - Hunting query for investigation
+// Threshold: N/A
+// ============================================================
+
+let TargetDevice = ""; // Set specific device name or leave empty for all
+let TimeWindow = ago(2h);
+
+DeviceFileEvents
+| where Timestamp > TimeWindow
+| where isempty(TargetDevice) or DeviceName == TargetDevice
+| where
+    FolderPath startswith @"C:\F0" or
+    FileName endswith ".safepay" or
+    FileName has "readme_safepay" or
+    (FileName endswith ".rar" and FileName has_any ("Archive", "EXFIL", "Data", "Finance", "HR")) or
+    (FolderPath has "fortika-test" and ActionType in ("FileCreated", "FileDeleted"))
+| extend
+    EventCategory = case(
+        FolderPath startswith @"C:\F0", "TestStaging",
+        FileName endswith ".safepay", "Encryption",
+        FileName has "readme_safepay", "RansomNote",
+        FileName endswith ".rar", "DataStaging",
+        ActionType == "FileCreated", "FileCreation",
+        ActionType == "FileDeleted", "FileDeletion",
+        "Other"
+    )
+| summarize
+    EventCount = count(),
+    FirstSeen = min(Timestamp),
+    LastSeen = max(Timestamp),
+    SampleFiles = take_any(FileName, 5)
+by DeviceName, DeviceId, InitiatingProcessFileName, EventCategory, bin(Timestamp, 1m)
+| order by FirstSeen asc
+| extend
+    TestID = "6717c98c-b3db-490e-b03c-7b3bd3fb02ee",
+    QueryType = "HuntingTimeline"
+| project Timestamp=FirstSeen, DeviceName, DeviceId, InitiatingProcessFileName, EventCategory, EventCount, LastSeen, SampleFiles

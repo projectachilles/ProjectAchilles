@@ -1,19 +1,21 @@
 // API routes for security tests
 
 import { Router, Request, Response } from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { asyncHandler } from '../middleware/error.middleware.js';
 import { TestIndexer } from '../services/browser/testIndexer.js';
 import { FileService } from '../services/browser/fileService.js';
 
 const router = Router();
 
-// Get tests source path from environment with absolute path fallback
-const testsSourcePath = process.env.TESTS_SOURCE_PATH || '/home/ubercylon8/F0RT1KA/f0_library/tests_source';
+// Get __dirname equivalent in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// Validate path before creating indexer
-if (!testsSourcePath) {
-  throw new Error('TESTS_SOURCE_PATH environment variable is required');
-}
+// Get tests source path from environment with relative path fallback
+// Default: ProjectAchilles/tests_source (from backend/src/api/)
+const testsSourcePath = process.env.TESTS_SOURCE_PATH || path.resolve(__dirname, '../../../tests_source');
 
 const testIndexer = new TestIndexer(testsSourcePath);
 

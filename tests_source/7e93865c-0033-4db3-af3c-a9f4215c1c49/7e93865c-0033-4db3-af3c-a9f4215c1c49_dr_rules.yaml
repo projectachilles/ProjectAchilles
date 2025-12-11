@@ -1,0 +1,409 @@
+# ============================================================================
+# DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: 7e93865c-0033-4db3-af3c-a9f4215c1c49
+# Test Name: Process Injection via CreateRemoteThread
+# MITRE ATT&CK: T1055.002 - Process Injection: Portable Executable Injection
+# Created: 2025-12-07
+# Author: F0RT1KA Defense Guidance Builder
+# Format: LimaCharlie file format (for limacharlie dr add)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These D&R rules detect the underlying CreateRemoteThread process injection
+# technique, NOT the F0RT1KA testing framework. They will catch real-world
+# attackers using similar injection techniques.
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f 7e93865c-0033-4db3-af3c-a9f4215c1c49_dr_rules.yaml
+#
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: Remote Thread Creation Detection
+  # Purpose: Detect CreateRemoteThread API calls (primary injection indicator)
+  # Confidence: HIGH
+  # ==========================================================================
+  remote-thread-creation:
+    detect:
+      target: edr
+      event: NEW_REMOTE_THREAD
+      op: and
+      rules:
+        # Not from system processes
+        - op: is not
+          path: event/PARENT/FILE_PATH
+          value: "C:\\Windows\\System32\\csrss.exe"
+        - op: is not
+          path: event/PARENT/FILE_PATH
+          value: "C:\\Windows\\System32\\lsass.exe"
+        - op: is not
+          path: event/PARENT/FILE_PATH
+          value: "C:\\Windows\\System32\\svchost.exe"
+        # Exclude common legitimate sources
+        - op: contains
+          path: event/PARENT/FILE_PATH
+          value: "\\Windows Defender\\"
+          not: true
+
+    respond:
+      - action: report
+        name: Remote Thread Creation Detected
+        metadata:
+          severity: high
+          mitre_attack: T1055.002
+          confidence: high
+          description: CreateRemoteThread detected - potential process injection
+          test_id: 7e93865c-0033-4db3-af3c-a9f4215c1c49
+
+      - action: task
+        command: history_dump
+        investigation: Process-Injection-RemoteThread
+
+
+  # ==========================================================================
+  # RULE 2: Sensitive Process Access (Injection Prerequisites)
+  # Purpose: Detect process handle acquisition with injection-related permissions
+  # Confidence: MEDIUM-HIGH
+  # ==========================================================================
+  sensitive-process-access-injection:
+    detect:
+      target: edr
+      event: SENSITIVE_PROCESS_ACCESS
+      op: and
+      rules:
+        # Cross-process access (not self-access)
+        - op: is not
+          path: event/SOURCE/FILE_PATH
+          value: event/TARGET/FILE_PATH
+        # Not from system processes
+        - op: starts with
+          path: event/SOURCE/FILE_PATH
+          value: "C:\\Windows\\System32\\"
+          not: true
+        # Targeting common injection targets
+        - op: or
+          rules:
+            - op: ends with
+              path: event/TARGET/FILE_PATH
+              value: "\\notepad.exe"
+            - op: ends with
+              path: event/TARGET/FILE_PATH
+              value: "\\explorer.exe"
+            - op: ends with
+              path: event/TARGET/FILE_PATH
+              value: "\\iexplore.exe"
+            - op: ends with
+              path: event/TARGET/FILE_PATH
+              value: "\\svchost.exe"
+            - op: ends with
+              path: event/TARGET/FILE_PATH
+              value: "\\RuntimeBroker.exe"
+
+    respond:
+      - action: report
+        name: Suspicious Process Access for Injection
+        metadata:
+          severity: medium
+          mitre_attack: T1055.002
+          confidence: medium
+          description: Non-system process accessing common injection target
+          test_id: 7e93865c-0033-4db3-af3c-a9f4215c1c49
+
+
+  # ==========================================================================
+  # RULE 3: Injection Tool Execution Detection
+  # Purpose: Detect known process injection tool patterns
+  # Confidence: HIGH
+  # ==========================================================================
+  injection-tool-execution:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            # Command line indicators of injection tools
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "CreateRemoteThread"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "VirtualAllocEx"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "WriteProcessMemory"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "inject"
+            # Known injection tool names
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)(inject|hollow|reflective|shellcode)
+            # Process injection test patterns
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "T1055"
+
+    respond:
+      - action: report
+        name: Process Injection Tool Detected
+        metadata:
+          severity: critical
+          mitre_attack: T1055.002
+          confidence: high
+          description: Execution of process injection tool or technique
+          test_id: 7e93865c-0033-4db3-af3c-a9f4215c1c49
+
+      - action: task
+        command: history_dump
+        investigation: Injection-Tool-Execution
+
+
+  # ==========================================================================
+  # RULE 4: Notepad Injection Target Detection
+  # Purpose: Detect notepad.exe being spawned and accessed as injection target
+  # Confidence: HIGH (notepad is rarely accessed by non-standard processes)
+  # ==========================================================================
+  notepad-injection-target:
+    detect:
+      target: edr
+      event: NEW_REMOTE_THREAD
+      op: and
+      rules:
+        # Target is notepad.exe
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\notepad.exe"
+        # Source is not standard
+        - op: starts with
+          path: event/PARENT/FILE_PATH
+          value: "C:\\Windows\\"
+          not: true
+
+    respond:
+      - action: report
+        name: Notepad Process Injection Detected
+        metadata:
+          severity: critical
+          mitre_attack: T1055.002
+          confidence: high
+          description: Remote thread created in notepad.exe - common injection target
+          test_id: 7e93865c-0033-4db3-af3c-a9f4215c1c49
+
+      - action: task
+        command: history_dump
+        investigation: Notepad-Injection
+
+
+  # ==========================================================================
+  # RULE 5: Memory Operations - Cross-Process Write
+  # Purpose: Detect cross-process memory modifications
+  # Confidence: MEDIUM
+  # ==========================================================================
+  cross-process-memory-write:
+    detect:
+      target: edr
+      event: MEMORY_WRITE
+      op: and
+      rules:
+        # Cross-process memory write
+        - op: is
+          path: event/CROSS_PROCESS
+          value: true
+        # Not from system processes
+        - op: starts with
+          path: event/SOURCE/FILE_PATH
+          value: "C:\\Windows\\System32\\"
+          not: true
+        # Exclude debugging tools
+        - op: contains
+          path: event/SOURCE/FILE_PATH
+          value: "\\Visual Studio\\"
+          not: true
+        - op: ends with
+          path: event/SOURCE/FILE_PATH
+          value: "\\devenv.exe"
+          not: true
+
+    respond:
+      - action: report
+        name: Cross-Process Memory Write Detected
+        metadata:
+          severity: medium
+          mitre_attack: T1055.002
+          confidence: medium
+          description: Process writing to another process memory
+          test_id: 7e93865c-0033-4db3-af3c-a9f4215c1c49
+
+
+  # ==========================================================================
+  # RULE 6: Executable from Non-Standard Location Spawning Notepad
+  # Purpose: Detect potential injection setup (notepad spawn from suspicious source)
+  # Confidence: MEDIUM
+  # ==========================================================================
+  suspicious-notepad-parent:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # Notepad being spawned
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\notepad.exe"
+        # Parent not in standard locations
+        - op: starts with
+          path: event/PARENT/FILE_PATH
+          value: "C:\\Windows\\"
+          not: true
+        - op: starts with
+          path: event/PARENT/FILE_PATH
+          value: "C:\\Program Files\\"
+          not: true
+        - op: starts with
+          path: event/PARENT/FILE_PATH
+          value: "C:\\Program Files (x86)\\"
+          not: true
+        # Exclude common legitimate parents
+        - op: ends with
+          path: event/PARENT/FILE_PATH
+          value: "\\explorer.exe"
+          not: true
+        - op: ends with
+          path: event/PARENT/FILE_PATH
+          value: "\\cmd.exe"
+          not: true
+        - op: ends with
+          path: event/PARENT/FILE_PATH
+          value: "\\powershell.exe"
+          not: true
+
+    respond:
+      - action: report
+        name: Suspicious Notepad Launch - Potential Injection Target
+        metadata:
+          severity: medium
+          mitre_attack: T1055.002
+          confidence: medium
+          description: Notepad spawned from non-standard parent - possible injection setup
+          test_id: 7e93865c-0033-4db3-af3c-a9f4215c1c49
+
+
+  # ==========================================================================
+  # RULE 7: F0RT1KA Test Framework Detection
+  # Purpose: Identify F0RT1KA test execution for distinguishing tests from attacks
+  # Confidence: HIGH (test identification)
+  # ==========================================================================
+  f0rtika-process-injection-test:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        # F0RT1KA test UUID in path
+        - op: contains
+          path: event/FILE_PATH
+          value: "7e93865c-0033-4db3-af3c-a9f4215c1c49"
+        # F0 staging directory
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\F0\\"
+        # Test name in command line
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "Process Injection via CreateRemoteThread"
+
+    respond:
+      - action: report
+        name: F0RT1KA Process Injection Test Detected
+        metadata:
+          severity: informational
+          mitre_attack: T1055.002
+          confidence: high
+          description: F0RT1KA security test execution detected
+          test_id: 7e93865c-0033-4db3-af3c-a9f4215c1c49
+          category: security_testing
+
+
+  # ==========================================================================
+  # RULE 8: File Creation in F0 Directory
+  # Purpose: Monitor F0RT1KA staging directory for test artifacts
+  # Confidence: HIGH (for test tracking)
+  # ==========================================================================
+  f0-directory-activity:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: starts with
+              path: event/FILE_PATH
+              value: "C:\\F0\\"
+            - op: starts with
+              path: event/FILE_PATH
+              value: "c:\\F0\\"
+
+    respond:
+      - action: report
+        name: F0RT1KA Test Artifact Created
+        metadata:
+          severity: low
+          mitre_attack: T1055.002
+          confidence: high
+          description: File created in F0RT1KA staging directory
+          test_id: 7e93865c-0033-4db3-af3c-a9f4215c1c49
+
+
+  # ==========================================================================
+  # RULE 9: Process DLL Loading - ntdll.dll Direct Calls
+  # Purpose: Detect loading of ntdll.dll by non-standard processes (syscall usage)
+  # Confidence: LOW-MEDIUM (requires tuning)
+  # ==========================================================================
+  suspicious-ntdll-usage:
+    detect:
+      target: edr
+      event: MODULE_LOAD
+      op: and
+      rules:
+        # Loading ntdll.dll (often used for syscalls in injection)
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\ntdll.dll"
+        # From non-standard process locations
+        - op: starts with
+          path: routing/parent/FILE_PATH
+          value: "C:\\Windows\\"
+          not: true
+        - op: starts with
+          path: routing/parent/FILE_PATH
+          value: "C:\\Program Files\\"
+          not: true
+
+    respond:
+      - action: report
+        name: Non-Standard Process Loading NTDLL
+        metadata:
+          severity: low
+          mitre_attack: T1055.002
+          confidence: low
+          description: Process from non-standard location loading ntdll.dll
+          test_id: 7e93865c-0033-4db3-af3c-a9f4215c1c49
+
+
+# ============================================================================
+# OUTPUTS CONFIGURATION (for detection collection)
+# ============================================================================
+# Note: Configure outputs as needed for your environment
+
+outputs:
+  process-injection-detections:
+    module: syslog
+    for: detections
+    host: siem.example.com
+    port: 514

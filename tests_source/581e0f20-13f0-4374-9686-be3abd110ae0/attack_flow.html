@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ransomware Encryption via BitLocker - Attack Flow</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        .framework-header {
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.6));
+            border-bottom: 1px solid rgba(255, 107, 107, 0.2);
+            padding: 12px 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .framework-title {
+            font-size: 1.1em;
+            font-weight: 600;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, #ff6b6b, #ff8787);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .dashboard-container {
+            display: flex;
+            height: calc(100vh - 50px);
+        }
+
+        .attack-flow-panel {
+            flex: 1;
+            padding: 20px 30px;
+            overflow-y: auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 1.8em;
+            background: linear-gradient(135deg, #ff4458, #ff8787);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+
+        .header p { color: #9ca3af; font-size: 0.95em; }
+
+        .attack-flow-svg-container {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            padding: 15px;
+            position: relative;
+        }
+
+        .attack-flow-svg {
+            width: 100%;
+            height: auto;
+        }
+
+        /* Right Panel */
+        .details-panel {
+            width: 420px;
+            background: #0f1419;
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 25px;
+            overflow-y: auto;
+            box-shadow: -5px 0 20px rgba(0, 0, 0, 0.8);
+        }
+
+        .details-header {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .details-phase-number {
+            display: inline-block;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 32px;
+            font-weight: bold;
+            font-size: 1.1em;
+            margin-bottom: 10px;
+            border: 2px solid;
+        }
+
+        .details-title {
+            font-size: 1.3em;
+            color: #ffffff;
+            margin-bottom: 8px;
+        }
+
+        .severity-badge {
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.7em;
+            font-weight: 600;
+            text-transform: uppercase;
+            display: inline-block;
+            border: 1px solid;
+        }
+
+        .severity-badge.critical { color: #ff4444; border-color: #ff4444; background: rgba(255, 68, 68, 0.1); }
+        .severity-badge.high { color: #ff9f43; border-color: #ff9f43; background: rgba(255, 159, 67, 0.1); }
+        .severity-badge.medium { color: #ffc107; border-color: #ffc107; background: rgba(255, 193, 7, 0.1); }
+        .severity-badge.info { color: #4fc3f7; border-color: #4fc3f7; background: rgba(79, 195, 247, 0.1); }
+
+        .details-meta {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+            font-size: 0.8em;
+        }
+
+        .meta-label { color: #6b7280; }
+        .meta-value { color: #d1d5db; font-family: monospace; }
+
+        .mitre-link {
+            color: #4fc3f7;
+            text-decoration: none;
+            border-bottom: 1px dotted #4fc3f7;
+        }
+
+        .mitre-link:hover { color: #29b6f6; border-bottom-style: solid; }
+
+        .details-section { margin-bottom: 20px; }
+
+        .section-title {
+            font-size: 1em;
+            color: #ff6b6b;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .action-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 8px;
+        }
+
+        .action-title {
+            font-weight: 500;
+            color: #ffffff;
+            margin-bottom: 6px;
+            font-size: 0.9em;
+        }
+
+        .action-details {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .action-details li {
+            color: #9ca3af;
+            font-size: 0.8em;
+            padding: 2px 0 2px 15px;
+            position: relative;
+        }
+
+        .action-details li::before {
+            content: '>';
+            position: absolute;
+            left: 0;
+            color: #6b7280;
+        }
+
+        .code-preview {
+            background: #0a0e27;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            padding: 12px;
+            font-family: 'SF Mono', monospace;
+            font-size: 0.75em;
+            overflow-x: auto;
+        }
+
+        .code-line { color: #66bb6a; line-height: 1.4; }
+        .code-comment { color: #6b7280; }
+
+        /* SVG Component styling */
+        .component { cursor: pointer; transition: all 0.3s ease; }
+        .component:hover .component-box { filter: drop-shadow(0 0 12px rgba(255, 107, 107, 0.4)); }
+        .component.active .component-box { filter: drop-shadow(0 0 15px rgba(255, 107, 107, 0.6)); stroke: #ff6b6b; stroke-width: 2; }
+
+        .safety-indicator {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            background: rgba(102, 187, 106, 0.1);
+            border: 1px solid #66bb6a;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.8em;
+            color: #66bb6a;
+        }
+
+        .stats-overlay {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .stat-mini {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.8em;
+        }
+
+        .stat-mini-value { color: #ff6b6b; font-weight: bold; }
+        .stat-mini-label { color: #6b7280; margin-left: 4px; }
+    </style>
+</head>
+<body>
+    <div class="framework-header">
+        <div class="framework-title">F0RT1KA Security Testing Framework</div>
+    </div>
+
+    <div class="dashboard-container">
+        <div class="attack-flow-panel">
+            <div class="header">
+                <h1>Ransomware Encryption via BitLocker</h1>
+                <p>Multi-Stage Attack Chain with VHD-Based Isolation | Score: 9.0/10</p>
+            </div>
+
+            <div class="attack-flow-svg-container">
+                <svg class="attack-flow-svg" viewBox="0 0 900 450" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <linearGradient id="blueGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#4fc3f7;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#29b6f6;stop-opacity:0.8" />
+                        </linearGradient>
+                        <linearGradient id="orangeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#ff9f43;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#ffb347;stop-opacity:0.8" />
+                        </linearGradient>
+                        <linearGradient id="yellowGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#ffc107;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#ffcd38;stop-opacity:0.8" />
+                        </linearGradient>
+                        <linearGradient id="redGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#ff4458;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#ff8787;stop-opacity:0.8" />
+                        </linearGradient>
+                        <linearGradient id="greenGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#66bb6a;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#81c784;stop-opacity:0.8" />
+                        </linearGradient>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                            <polygon points="0 0, 10 3, 0 6" fill="#ff6b6b" />
+                        </marker>
+                        <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                            <polygon points="0 0, 10 3, 0 6" fill="#66bb6a" />
+                        </marker>
+                        <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.02)" stroke-width="1"/>
+                        </pattern>
+                    </defs>
+
+                    <rect width="900" height="450" fill="url(#grid)" />
+
+                    <!-- Title -->
+                    <text x="450" y="30" text-anchor="middle" fill="#ff6b6b" font-size="14" font-weight="bold">3-Stage Attack Chain: Defense Evasion → Discovery → Impact</text>
+
+                    <!-- Phase 0: Initial Setup -->
+                    <g class="component" data-phase="0" onclick="showPhaseDetails(0)">
+                        <rect class="component-box" x="30" y="60" width="140" height="70" rx="8" fill="url(#blueGradient)" stroke="#4fc3f7" stroke-width="1" opacity="0.25"/>
+                        <text x="100" y="90" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold">Initial Setup</text>
+                        <text x="100" y="108" text-anchor="middle" fill="#9ca3af" font-size="10">Deploy + Check</text>
+                    </g>
+
+                    <!-- Arrow 0→1 -->
+                    <path d="M 170 95 L 205 95" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.7"/>
+
+                    <!-- Phase 1: Defense Evasion -->
+                    <g class="component" data-phase="1" onclick="showPhaseDetails(1)">
+                        <rect class="component-box" x="210" y="55" width="180" height="80" rx="8" fill="url(#orangeGradient)" stroke="#ff9f43" stroke-width="1" opacity="0.25"/>
+                        <text x="300" y="80" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Stage 1: Defense Evasion</text>
+                        <text x="300" y="98" text-anchor="middle" fill="#9ca3af" font-size="10">T1070.001 - Log Clear</text>
+                        <text x="300" y="112" text-anchor="middle" fill="#9ca3af" font-size="10">T1562.004 - Firewall Mod</text>
+                    </g>
+
+                    <!-- Arrow 1→2 -->
+                    <path d="M 390 95 L 425 95" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.7"/>
+
+                    <!-- Phase 2: Discovery -->
+                    <g class="component" data-phase="2" onclick="showPhaseDetails(2)">
+                        <rect class="component-box" x="430" y="55" width="180" height="80" rx="8" fill="url(#yellowGradient)" stroke="#ffc107" stroke-width="1" opacity="0.25"/>
+                        <text x="520" y="80" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Stage 2: Discovery</text>
+                        <text x="520" y="98" text-anchor="middle" fill="#9ca3af" font-size="10">T1082 - System Info</text>
+                        <text x="520" y="112" text-anchor="middle" fill="#9ca3af" font-size="10">T1083 - Drive Enum</text>
+                    </g>
+
+                    <!-- Arrow 2→3 -->
+                    <path d="M 610 95 L 645 95" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.7"/>
+
+                    <!-- Phase 3: Impact -->
+                    <g class="component" data-phase="3" onclick="showPhaseDetails(3)">
+                        <rect class="component-box" x="650" y="55" width="180" height="80" rx="8" fill="url(#redGradient)" stroke="#ff4458" stroke-width="1" opacity="0.25"/>
+                        <text x="740" y="80" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Stage 3: Impact</text>
+                        <text x="740" y="98" text-anchor="middle" fill="#9ca3af" font-size="10">T1486 - BitLocker Encrypt</text>
+                        <text x="740" y="112" text-anchor="middle" fill="#9ca3af" font-size="10">T1490 - VSS Deletion</text>
+                    </g>
+
+                    <!-- Arrow to VHD (extended for visual separation) -->
+                    <path d="M 740 135 L 740 235" stroke="#66bb6a" stroke-width="2" fill="none" marker-end="url(#arrowGreen)" opacity="0.7" stroke-dasharray="4,3"/>
+
+                    <!-- VHD Isolation (Safety) -->
+                    <g class="component" data-phase="4" onclick="showPhaseDetails(4)">
+                        <rect class="component-box" x="600" y="245" width="280" height="70" rx="8" fill="url(#greenGradient)" stroke="#66bb6a" stroke-width="1" opacity="0.25"/>
+                        <text x="740" y="270" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold">VHD Isolation Layer</text>
+                        <text x="740" y="288" text-anchor="middle" fill="#9ca3af" font-size="10">100MB Virtual Disk | Zero System Impact</text>
+                        <text x="740" y="304" text-anchor="middle" fill="#66bb6a" font-size="9">All BitLocker operations contained</text>
+                    </g>
+
+                    <!-- Exit Codes Summary -->
+                    <g class="component" data-phase="5" onclick="showPhaseDetails(5)">
+                        <rect class="component-box" x="30" y="245" width="250" height="100" rx="8" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+                        <text x="155" y="270" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="bold">Exit Codes</text>
+                        <text x="60" y="292" fill="#ff4444" font-size="10" font-weight="bold">101</text>
+                        <text x="90" y="292" fill="#9ca3af" font-size="9">Attack Succeeded</text>
+                        <text x="60" y="308" fill="#66bb6a" font-size="10" font-weight="bold">126</text>
+                        <text x="90" y="308" fill="#9ca3af" font-size="9">Blocked by EDR</text>
+                        <text x="60" y="324" fill="#ffc107" font-size="10" font-weight="bold">105</text>
+                        <text x="90" y="324" fill="#9ca3af" font-size="9">Quarantined</text>
+                        <text x="60" y="340" fill="#9ca3af" font-size="10" font-weight="bold">999</text>
+                        <text x="90" y="340" fill="#9ca3af" font-size="9">Prerequisites Missing</text>
+                    </g>
+
+                    <!-- Detection Points -->
+                    <g class="component" data-phase="6" onclick="showPhaseDetails(6)">
+                        <rect class="component-box" x="310" y="245" width="260" height="100" rx="8" fill="rgba(171,71,188,0.1)" stroke="#ab47bc" stroke-width="1" opacity="0.5"/>
+                        <text x="440" y="270" text-anchor="middle" fill="#ab47bc" font-size="11" font-weight="bold">Detection Opportunities</text>
+                        <text x="440" y="290" text-anchor="middle" fill="#9ca3af" font-size="9">wevtutil cl • netsh advfirewall</text>
+                        <text x="440" y="306" text-anchor="middle" fill="#9ca3af" font-size="9">wmic • manage-bde -status</text>
+                        <text x="440" y="322" text-anchor="middle" fill="#9ca3af" font-size="9">manage-bde -on • vssadmin delete</text>
+                        <text x="440" y="340" text-anchor="middle" fill="#ab47bc" font-size="9">6+ Detection Points</text>
+                    </g>
+
+                    <!-- Timeline -->
+                    <text x="100" y="390" fill="#6b7280" font-size="9">T+0s</text>
+                    <text x="300" y="390" fill="#6b7280" font-size="9">T+5s</text>
+                    <text x="520" y="390" fill="#6b7280" font-size="9">T+15s</text>
+                    <text x="740" y="390" fill="#6b7280" font-size="9">T+30s</text>
+
+                    <rect x="50" y="405" width="800" height="3" rx="1" fill="rgba(255,255,255,0.1)"/>
+                    <rect x="50" y="405" width="0" height="3" rx="1" fill="#ff6b6b" id="progressBar"/>
+
+                    <text x="450" y="435" text-anchor="middle" fill="#6b7280" font-size="9">
+                        MITRE ATT&amp;CK: T1070.001 | T1562.004 | T1082 | T1083 | T1486 | T1490
+                    </text>
+                </svg>
+
+                <div class="safety-indicator">&#9745; VHD Isolation</div>
+
+                <div class="stats-overlay">
+                    <div class="stat-mini"><span class="stat-mini-value">3</span><span class="stat-mini-label">Stages</span></div>
+                    <div class="stat-mini"><span class="stat-mini-value">6</span><span class="stat-mini-label">Techniques</span></div>
+                    <div class="stat-mini"><span class="stat-mini-value">9.0</span><span class="stat-mini-label">Score</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel -->
+        <div class="details-panel" id="detailsPanel">
+            <div id="detailsContent">
+                <div class="details-header">
+                    <div class="details-phase-number" style="border-color: #4fc3f7; color: #4fc3f7;">?</div>
+                    <h2 class="details-title">Loading...</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var phaseData = {
+            0: {
+                number: 0,
+                title: "Initial Setup & Deployment",
+                severity: "info",
+                mitre: [],
+                time: "T+0s",
+                description: "Deployment of multi-stage ransomware test binaries and environment validation.",
+                actions: [
+                    { title: "Binary Deployment", details: ["Extract 3 stage binaries to C:\\F0", "Extract cleanup_utility.exe", "All binaries are code-signed"] },
+                    { title: "Prerequisites Check", details: ["Verify Administrator privileges", "Check for required Windows services", "Initialize Schema v2.0 logging"] },
+                    { title: "EDR Evasion Check", details: ["Brief delay after extraction", "Check for file quarantine", "Detect if binary removed by EDR"] }
+                ],
+                code: "// Extract stage binaries\ntargetDir := \"c:\\\\F0\"\nos.WriteFile(stagePath, stage.BinaryData, 0755)\ntime.Sleep(500 * time.Millisecond)"
+            },
+            1: {
+                number: 1,
+                title: "Stage 1: Defense Evasion",
+                severity: "high",
+                mitre: [{ id: "T1070.001", name: "Clear Windows Event Logs" }, { id: "T1562.004", name: "Disable or Modify System Firewall" }],
+                time: "T+5s",
+                description: "Simulates ransomware defense evasion by clearing logs and manipulating firewall rules. Uses custom event log channel for safety.",
+                actions: [
+                    { title: "Event Log Clearing (T1070.001)", details: ["Create custom log channel: F0RT1KA-Test", "Execute: wevtutil cl F0RT1KA-Test", "Remove custom log channel (cleanup)"] },
+                    { title: "Firewall Manipulation (T1562.004)", details: ["Create test rule: F0RT1KA-Test-Rule", "netsh advfirewall firewall add rule", "Delete test rule immediately after"] }
+                ],
+                code: "// Clear custom event log\nclearCmd := exec.Command(\"wevtutil\", \"cl\", \"F0RT1KA-Test\")\n\n// Create/delete firewall rule\ncreateRuleCmd := exec.Command(\"netsh\", \"advfirewall\", \n    \"firewall\", \"add\", \"rule\", \"name=F0RT1KA-Test-Rule\")"
+            },
+            2: {
+                number: 2,
+                title: "Stage 2: Discovery",
+                severity: "medium",
+                mitre: [{ id: "T1082", name: "System Information Discovery" }, { id: "T1083", name: "File and Directory Discovery" }],
+                time: "T+15s",
+                description: "Enumerates system information, checks BitLocker availability, and discovers available drives.",
+                actions: [
+                    { title: "System Information (T1082)", details: ["wmic computersystem get Name,Manufacturer,Model", "Check Windows edition (Pro/Enterprise)", "Verify BitLocker availability"] },
+                    { title: "Drive Enumeration (T1083)", details: ["wmic logicaldisk get DeviceID,Size,DriveType", "Identify local vs network drives", "Create target_volumes.txt in C:\\F0"] }
+                ],
+                code: "// System enumeration\ncmd := exec.Command(\"wmic\", \"computersystem\", \"get\", \n    \"Name,Manufacturer,Model\")\n\n// Drive enumeration\ncmd := exec.Command(\"wmic\", \"logicaldisk\", \"get\", \n    \"DeviceID,Size,FreeSpace,DriveType\")"
+            },
+            3: {
+                number: 3,
+                title: "Stage 3: Impact",
+                severity: "critical",
+                mitre: [{ id: "T1486", name: "Data Encrypted for Impact" }, { id: "T1490", name: "Inhibit System Recovery" }],
+                time: "T+30s",
+                description: "Executes BitLocker encryption on isolated VHD and attempts VSS shadow deletion. All operations contained to virtual disk.",
+                actions: [
+                    { title: "VHD Creation", details: ["Create 100MB VHD at C:\\F0\\bitlocker_test.vhd", "Initialize, partition, format as NTFS", "Mount with label F0RT1KA-TEST"] },
+                    { title: "BitLocker Encryption (T1486)", details: ["Create test files on VHD", "manage-bde -on [drive] -Password", "UsedSpaceOnly for faster encryption"] },
+                    { title: "VSS Shadow Deletion (T1490)", details: ["vssadmin delete shadows /for=[drive] /quiet", "VHD has no shadows (expected)", "Command execution triggers detection"] }
+                ],
+                code: "// Enable BitLocker\ncmd := exec.Command(\"manage-bde\", \"-on\", drive,\n    \"-Password\", \"F0RT1KA-Recovery-2024!\", \"-UsedSpaceOnly\")\n\n// Delete shadows\ncmd := exec.Command(\"vssadmin\", \"delete\", \"shadows\",\n    \"/for=\"+drive, \"/quiet\")"
+            },
+            4: {
+                number: 4,
+                title: "VHD Isolation Safety",
+                severity: "info",
+                mitre: [],
+                time: "Duration: Test",
+                description: "All BitLocker operations are performed on an isolated Virtual Hard Disk (VHD), ensuring zero impact to the real system.",
+                actions: [
+                    { title: "VHD Isolation Benefits", details: ["100MB isolated virtual disk", "No real system drives affected", "BitLocker encryption contained", "VSS deletion has no real shadows"] },
+                    { title: "Safety Guarantees", details: ["VHD created at C:\\F0\\bitlocker_test.vhd", "Label: F0RT1KA-TEST (identifiable)", "Complete cleanup after test", "Automatic decryption before deletion"] }
+                ],
+                code: "// VHD Configuration\nconst (\n    VHD_PATH = \"C:\\\\F0\\\\bitlocker_test.vhd\"\n    VHD_SIZE_MB = 100\n    VHD_LABEL = \"F0RT1KA-TEST\"\n)"
+            },
+            5: {
+                number: 5,
+                title: "Exit Code Evaluation",
+                severity: "info",
+                mitre: [],
+                time: "End of Test",
+                description: "The test evaluates EDR/AV effectiveness based on whether the attack chain was interrupted and at which stage.",
+                actions: [
+                    { title: "Exit Code 101: Unprotected", details: ["All 3 stages completed", "No EDR intervention", "VHD encrypted with BitLocker", "CRITICAL: Security gap identified"] },
+                    { title: "Exit Code 126: Blocked", details: ["EDR blocked one or more stages", "Attack chain interrupted", "Endpoint IS protected"] },
+                    { title: "Exit Code 105: Quarantined", details: ["Stage binary detected before execution", "File removed by AV/EDR"] },
+                    { title: "Exit Code 999: Error", details: ["Not running as Administrator", "BitLocker not available", "Test could not complete"] }
+                ],
+                code: "if exitCode == 126 || exitCode == 105 {\n    // System is PROTECTED\n    Endpoint.Stop(Endpoint.ExecutionPrevented)\n}\n// All stages completed = VULNERABLE\nEndpoint.Stop(Endpoint.Unprotected)"
+            },
+            6: {
+                number: 6,
+                title: "Detection Opportunities",
+                severity: "high",
+                mitre: [{ id: "T1070.001", name: "Clear Windows Event Logs" }, { id: "T1562.004", name: "Firewall Modification" }, { id: "T1082", name: "System Info Discovery" }, { id: "T1083", name: "File Discovery" }, { id: "T1486", name: "Data Encrypted" }, { id: "T1490", name: "Inhibit Recovery" }],
+                time: "All Stages",
+                description: "This test provides 6+ detection opportunities across all three stages for comprehensive EDR/AV evaluation.",
+                actions: [
+                    { title: "Stage 1 Detection", details: ["wevtutil.exe with 'cl' parameter", "Event ID 1102 (Log cleared)", "netsh.exe with advfirewall commands"] },
+                    { title: "Stage 2 Detection", details: ["wmic.exe with computersystem queries", "wmic.exe with logicaldisk enumeration", "manage-bde.exe -status"] },
+                    { title: "Stage 3 Detection", details: ["diskpart.exe VHD operations", "manage-bde.exe -on with -Password", "vssadmin.exe delete shadows"] }
+                ],
+                code: "// KQL: Event Log Clearing\nDeviceProcessEvents\n| where ProcessCommandLine has \"wevtutil\" and \"cl\"\n\n// KQL: BitLocker Ransomware\nDeviceProcessEvents\n| where FileName =~ \"manage-bde.exe\"\n| where ProcessCommandLine has \"-Password\""
+            }
+        };
+
+        var currentPhase = null;
+
+        function getSeverityColor(severity) {
+            switch(severity) {
+                case 'critical': return '#ff4444';
+                case 'high': return '#ff9f43';
+                case 'medium': return '#ffc107';
+                default: return '#4fc3f7';
+            }
+        }
+
+        function createMitreLinks(mitreArray) {
+            if (!mitreArray || mitreArray.length === 0) {
+                return '<span style="color: #6b7280;">N/A</span>';
+            }
+            var links = [];
+            for (var i = 0; i < mitreArray.length; i++) {
+                var t = mitreArray[i];
+                var techId = t.id.replace('.', '/');
+                links.push('<a href="https://attack.mitre.org/techniques/' + techId + '" target="_blank" class="mitre-link" title="' + t.name + '">' + t.id + '</a>');
+            }
+            return links.join(', ');
+        }
+
+        function escapeHtml(text) {
+            var div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function showPhaseDetails(phaseNum) {
+            currentPhase = phaseNum;
+            var phase = phaseData[phaseNum];
+            if (!phase) {
+                console.error('Phase not found:', phaseNum);
+                return;
+            }
+
+            var detailsContent = document.getElementById('detailsContent');
+            var severityColor = getSeverityColor(phase.severity);
+
+            // Build actions HTML
+            var actionsHtml = '';
+            for (var i = 0; i < phase.actions.length; i++) {
+                var action = phase.actions[i];
+                var detailsListHtml = '';
+                for (var j = 0; j < action.details.length; j++) {
+                    detailsListHtml += '<li>' + escapeHtml(action.details[j]) + '</li>';
+                }
+                actionsHtml += '<div class="action-item"><div class="action-title">' + escapeHtml(action.title) + '</div><ul class="action-details">' + detailsListHtml + '</ul></div>';
+            }
+
+            // Build code preview HTML
+            var codeHtml = '';
+            if (phase.code) {
+                var lines = phase.code.split('\n');
+                for (var k = 0; k < lines.length; k++) {
+                    var line = lines[k];
+                    if (line.indexOf('//') === 0) {
+                        codeHtml += '<div class="code-line code-comment">' + escapeHtml(line) + '</div>';
+                    } else {
+                        codeHtml += '<div class="code-line">' + escapeHtml(line) + '</div>';
+                    }
+                }
+            }
+
+            var mitreLinks = createMitreLinks(phase.mitre);
+
+            // Build full HTML
+            var html = '<div class="details-header">' +
+                '<div class="details-phase-number" style="border-color: ' + severityColor + '; color: ' + severityColor + ';">' + phase.number + '</div>' +
+                '<h2 class="details-title">' + escapeHtml(phase.title) + '</h2>' +
+                '<div class="severity-badge ' + phase.severity + '">' + phase.severity.toUpperCase() + '</div>' +
+                '<div class="details-meta">' +
+                '<div><span class="meta-label">MITRE:</span> <span class="meta-value">' + mitreLinks + '</span></div>' +
+                '<div><span class="meta-label">Time:</span> <span class="meta-value">' + phase.time + '</span></div>' +
+                '</div></div>' +
+                '<div class="details-section"><p style="color: #9ca3af; margin-bottom: 15px;">' + escapeHtml(phase.description) + '</p></div>' +
+                '<div class="details-section"><h3 class="section-title"><span>[>]</span> Actions</h3>' + actionsHtml + '</div>';
+
+            if (phase.code) {
+                html += '<div class="details-section"><h3 class="section-title"><span>[#]</span> Code Preview</h3><div class="code-preview">' + codeHtml + '</div></div>';
+            }
+
+            detailsContent.innerHTML = html;
+
+            // Update active states
+            var components = document.querySelectorAll('.component');
+            for (var c = 0; c < components.length; c++) {
+                components[c].classList.remove('active');
+            }
+            var activeComp = document.querySelector('.component[data-phase="' + phaseNum + '"]');
+            if (activeComp) {
+                activeComp.classList.add('active');
+            }
+
+            // Update progress bar
+            var progressBar = document.getElementById('progressBar');
+            var phases = [0, 1, 2, 3, 4, 5, 6];
+            var idx = phases.indexOf(phaseNum);
+            var width = ((idx + 1) / phases.length) * 800;
+            progressBar.style.width = width + 'px';
+            progressBar.style.transition = 'width 0.5s ease';
+        }
+
+        // Initialize - show phase 1 immediately
+        showPhaseDetails(1);
+
+        // Keyboard navigation
+        document.addEventListener('keydown', function(e) {
+            var phases = [0, 1, 2, 3, 4, 5, 6];
+            if (currentPhase !== null) {
+                var idx = phases.indexOf(currentPhase);
+                if (e.key === 'ArrowRight' && idx < phases.length - 1) {
+                    showPhaseDetails(phases[idx + 1]);
+                } else if (e.key === 'ArrowLeft' && idx > 0) {
+                    showPhaseDetails(phases[idx - 1]);
+                }
+            }
+        });
+    </script>
+</body>
+</html>

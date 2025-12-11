@@ -1,0 +1,409 @@
+// ============================================================================
+// DEFENSE GUIDANCE: KQL Detection Queries
+// ============================================================================
+// Test ID: c1f0fe6f-6907-4f95-820d-47e0a39abe54
+// Test Name: TrollDisappearKey AMSI Bypass Detection
+// MITRE ATT&CK: T1562.001 - Impair Defenses: Disable or Modify Tools
+// Created: 2025-12-07
+// Author: F0RT1KA Defense Guidance Builder
+// ============================================================================
+//
+// TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+// These detections target AMSI bypass techniques, registry manipulation,
+// API hooking, and remote assembly loading patterns used by TrollDisappearKey
+// and similar defense evasion tools. They will catch real-world attackers
+// using similar AMSI bypass techniques with their own custom tooling.
+//
+// ============================================================================
+
+
+// ============================================================================
+// QUERY 1: AMSI Bypass Tool Execution Detection
+// Purpose: Detect execution of known AMSI bypass tools
+// Confidence: HIGH
+// False Positives: Legitimate security testing (coordinate with security team)
+// Threshold: Any execution of matching patterns
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName matches regex @"(?i)(troll.*disappear|amsi.*bypass|amsi.*patch|disable.*amsi)"
+    or ProcessCommandLine matches regex @"(?i)(trolldisappear|amsibypas|amsi.*patch|amstidisable)"
+    or ProcessCommandLine has_all ("AMSI", "Providers")
+    or InitiatingProcessCommandLine has_all ("AMSI", "Providers")
+| extend
+    Severity = "Critical",
+    ThreatType = "AMSI Bypass Tool Execution",
+    MitreAttack = "T1562.001",
+    TestID = "c1f0fe6f-6907-4f95-820d-47e0a39abe54",
+    Confidence = "High"
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
+    ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine,
+    Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 2: AMSI Provider Registry Access Detection
+// Purpose: Detect suspicious access to AMSI provider registry keys
+// Confidence: HIGH
+// False Positives: Security software installation, Windows updates
+// Threshold: Non-system process accessing AMSI provider keys
+// ============================================================================
+
+DeviceRegistryEvents
+| where TimeGenerated > ago(1h)
+| where RegistryKey has_all ("Microsoft", "AMSI", "Providers")
+    or RegistryKey has_all ("Software", "Microsoft", "AMSI")
+| where ActionType in ("RegistryKeyCreated", "RegistryValueSet", "RegistryKeyDeleted", "RegistryValueDeleted")
+| where InitiatingProcessFileName !in~ (
+    "MsMpEng.exe", "MpCmdRun.exe", "svchost.exe", "services.exe",
+    "TrustedInstaller.exe", "msiexec.exe", "setup.exe", "wuauclt.exe"
+)
+| extend SuspiciousIndicator = case(
+    RegistryKey matches regex @"Providers\s+$", "Critical - Trailing space in registry path (AMSI bypass technique)",
+    ActionType == "RegistryKeyDeleted", "High - AMSI provider key deletion",
+    ActionType == "RegistryValueDeleted", "High - AMSI provider value deletion",
+    ActionType == "RegistryKeyCreated" and RegistryKey matches regex @"\s$", "Critical - Created key with trailing space",
+    "Medium - Suspicious AMSI registry access"
+)
+| extend
+    Severity = extract(@"(Critical|High|Medium)", 1, SuspiciousIndicator),
+    ThreatType = "AMSI Registry Manipulation",
+    MitreAttack = "T1562.001",
+    TestID = "c1f0fe6f-6907-4f95-820d-47e0a39abe54"
+| project TimeGenerated, DeviceName, RegistryKey, RegistryValueName,
+    ActionType, InitiatingProcessFileName, InitiatingProcessAccountName,
+    SuspiciousIndicator, Severity, ThreatType, MitreAttack
+
+
+// ============================================================================
+// QUERY 3: Remote .NET Assembly Download Detection
+// Purpose: Detect download of .NET assemblies from remote sources
+// Confidence: MEDIUM-HIGH
+// False Positives: Legitimate .NET application updates, NuGet packages
+// Threshold: Executable download from non-trusted sources
+// ============================================================================
+
+DeviceNetworkEvents
+| where TimeGenerated > ago(1h)
+| where RemoteUrl has_any (".exe", ".dll", "Assembly", "SharpCollection", "GhostPack")
+| where RemoteUrl has_any ("github.com", "githubusercontent.com", "pastebin.com", "raw.")
+| where InitiatingProcessFileName !in~ ("MicrosoftEdge.exe", "chrome.exe", "firefox.exe", "iexplore.exe")
+| extend
+    IsSharpCollection = iff(RemoteUrl has "SharpCollection", true, false),
+    IsGhostPack = iff(RemoteUrl has "GhostPack", true, false),
+    IsSeatbelt = iff(RemoteUrl has "Seatbelt", true, false)
+| extend
+    Severity = case(
+        IsSeatbelt or IsGhostPack, "Critical",
+        IsSharpCollection, "High",
+        RemoteUrl has ".exe", "High",
+        "Medium"
+    ),
+    ThreatType = "Remote .NET Assembly Download",
+    MitreAttack = "T1105",
+    TestID = "c1f0fe6f-6907-4f95-820d-47e0a39abe54",
+    Confidence = case(
+        IsSeatbelt or IsGhostPack or IsSharpCollection, "High",
+        "Medium"
+    )
+| project TimeGenerated, DeviceName, InitiatingProcessFileName,
+    InitiatingProcessCommandLine, RemoteUrl, RemoteIP, RemotePort,
+    Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 4: WebClient Assembly Download Pattern
+// Purpose: Detect .NET WebClient usage for assembly download
+// Confidence: HIGH
+// False Positives: Legitimate .NET applications using WebClient
+// Threshold: WebClient downloading executable content
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine has_any (
+    "WebClient", "DownloadData", "DownloadString", "DownloadFile",
+    "Net.WebClient", "System.Net.WebClient"
+)
+| where ProcessCommandLine has_any (".exe", ".dll", "Assembly", "github", "raw.")
+| extend
+    HasAssemblyLoad = iff(ProcessCommandLine has_any ("Assembly.Load", "Reflection.Assembly"), true, false),
+    HasRemoteUrl = iff(ProcessCommandLine matches regex @"https?://", true, false)
+| extend
+    Severity = case(
+        HasAssemblyLoad and HasRemoteUrl, "Critical",
+        HasAssemblyLoad, "High",
+        HasRemoteUrl, "High",
+        "Medium"
+    ),
+    ThreatType = "WebClient Assembly Download",
+    MitreAttack = "T1105",
+    TestID = "c1f0fe6f-6907-4f95-820d-47e0a39abe54"
+| project TimeGenerated, DeviceName, FileName, ProcessCommandLine,
+    InitiatingProcessFileName, HasAssemblyLoad, HasRemoteUrl,
+    Severity, ThreatType, MitreAttack
+
+
+// ============================================================================
+// QUERY 5: VirtualProtect API Call on KERNELBASE.dll
+// Purpose: Detect memory protection changes on system DLLs (hook installation)
+// Confidence: MEDIUM-HIGH
+// False Positives: Some legitimate security software, debuggers
+// Threshold: Non-system process calling VirtualProtect on system DLLs
+// ============================================================================
+
+DeviceEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "MemoryProtectionChange" or ActionType has "VirtualProtect"
+| where AdditionalFields has_any ("KERNELBASE", "ntdll", "kernel32")
+    or ProcessCommandLine has_any ("VirtualProtect", "0x40")  // PAGE_EXECUTE_READWRITE
+| where InitiatingProcessFileName !in~ (
+    "MsMpEng.exe", "svchost.exe", "services.exe", "csrss.exe",
+    "lsass.exe", "winlogon.exe", "System"
+)
+| extend
+    IsSystemDLL = iff(AdditionalFields has_any ("KERNELBASE", "ntdll", "kernel32"), true, false),
+    IsExecuteReadWrite = iff(AdditionalFields has "0x40" or ProcessCommandLine has "0x40", true, false)
+| extend
+    Severity = case(
+        IsSystemDLL and IsExecuteReadWrite, "Critical",
+        IsSystemDLL, "High",
+        IsExecuteReadWrite, "High",
+        "Medium"
+    ),
+    ThreatType = "API Hook Installation Indicator",
+    MitreAttack = "T1055",
+    TestID = "c1f0fe6f-6907-4f95-820d-47e0a39abe54"
+| project TimeGenerated, DeviceName, ActionType, InitiatingProcessFileName,
+    InitiatingProcessCommandLine, AdditionalFields,
+    IsSystemDLL, IsExecuteReadWrite, Severity, ThreatType, MitreAttack
+
+
+// ============================================================================
+// QUERY 6: Seatbelt Security Enumeration Tool Detection
+// Purpose: Detect execution of Seatbelt or similar security enumeration tools
+// Confidence: HIGH
+// False Positives: Legitimate security assessments (coordinate with security team)
+// Threshold: Any execution of Seatbelt patterns
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "Seatbelt.exe"
+    or ProcessCommandLine has_any (
+        "Seatbelt", "AMSIProviders", "AntiVirus", "AppLocker",
+        "AuditPolicyRegistry", "AutoRuns", "CredEnum"
+    )
+    or ProcessCommandLine matches regex @"(?i)seatbelt.*-group"
+| extend
+    SeatbeltModules = extract_all(@"(?i)(AMSIProviders|AntiVirus|AppLocker|AuditPolicy|AutoRuns|CredEnum|DotNet|EnvironmentPath|InterestingFiles|InterestingProcesses|LAPS|LocalGroups|MappedDrives|NamedPipes|NetworkShares|OSInfo|PowerShell|ProcessCreationEvents|PSSessionSettings|RDPSessions|ScheduledTasks|SearchIndex|SecurityPackages|Services|TcpConnections|TokenPrivileges|UAC|WindowsCredentialFiles|WindowsDefender|WindowsEventForwarding|WindowsFirewall|WMI)", ProcessCommandLine)
+| extend
+    Severity = "Critical",
+    ThreatType = "Security Enumeration Tool (Seatbelt)",
+    MitreAttack = "T1518.001",
+    TestID = "c1f0fe6f-6907-4f95-820d-47e0a39abe54",
+    Confidence = "High"
+| project TimeGenerated, DeviceName, AccountName, FileName, FolderPath,
+    ProcessCommandLine, SeatbeltModules, InitiatingProcessFileName,
+    Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 7: In-Memory .NET Assembly Loading Detection
+// Purpose: Detect reflective .NET assembly loading patterns
+// Confidence: MEDIUM
+// False Positives: Some legitimate .NET applications
+// Threshold: Assembly.Load with byte array from network source
+// ============================================================================
+
+DeviceEvents
+| where TimeGenerated > ago(1h)
+| where ActionType has_any ("ClrLoaded", "AssemblyLoad", "DotNetAssembly")
+    or AdditionalFields has_any ("Assembly.Load", "Reflection.Assembly", "AppDomain.Load")
+| where InitiatingProcessFileName !in~ (
+    "devenv.exe", "MSBuild.exe", "dotnet.exe", "w3wp.exe",
+    "powershell_ise.exe", "code.exe"
+)
+| extend
+    IsReflectiveLoad = iff(AdditionalFields has_any ("byte[]", "MemoryStream", "fromBase64"), true, false),
+    HasNetworkOrigin = iff(AdditionalFields has_any ("WebClient", "HttpClient", "http://", "https://"), true, false)
+| where IsReflectiveLoad or HasNetworkOrigin
+| extend
+    Severity = case(
+        IsReflectiveLoad and HasNetworkOrigin, "Critical",
+        IsReflectiveLoad, "High",
+        HasNetworkOrigin, "High",
+        "Medium"
+    ),
+    ThreatType = "Reflective .NET Assembly Loading",
+    MitreAttack = "T1620",
+    TestID = "c1f0fe6f-6907-4f95-820d-47e0a39abe54"
+| project TimeGenerated, DeviceName, ActionType, InitiatingProcessFileName,
+    AdditionalFields, IsReflectiveLoad, HasNetworkOrigin,
+    Severity, ThreatType, MitreAttack
+
+
+// ============================================================================
+// QUERY 8: F0RT1KA Test Directory Activity
+// Purpose: Detect file operations in F0RT1KA test directory
+// Confidence: HIGH (for test framework monitoring)
+// False Positives: Legitimate F0RT1KA test executions
+// Threshold: Any file creation matching AMSI bypass patterns
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where FolderPath startswith @"c:\F0\" or FolderPath startswith @"C:\F0\"
+| where FileName has_any ("troll", "amsi", "seatbelt", "disappear")
+    or FileName matches regex @"(?i)(amsi.*bypass|troll.*key)"
+| extend
+    IsTrollDisappearKey = iff(FileName has "troll" and FileName has "disappear", true, false),
+    IsSeatbelt = iff(FileName =~ "seatbelt.exe", true, false),
+    IsAMSITool = iff(FileName has "amsi", true, false)
+| extend
+    Severity = case(
+        IsTrollDisappearKey, "High",
+        IsSeatbelt, "High",
+        IsAMSITool, "High",
+        "Medium"
+    ),
+    ThreatType = "F0RT1KA AMSI Bypass Test Activity",
+    MitreAttack = "T1562.001",
+    TestID = "c1f0fe6f-6907-4f95-820d-47e0a39abe54"
+| project TimeGenerated, DeviceName, ActionType, FileName, FolderPath,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    IsTrollDisappearKey, IsSeatbelt, IsAMSITool, Severity, ThreatType, MitreAttack
+
+
+// ============================================================================
+// QUERY 9: Combined AMSI Bypass Behavioral Detection
+// Purpose: Correlate multiple AMSI bypass indicators for high-confidence detection
+// Confidence: HIGH
+// False Positives: Very rare (requires multiple correlated indicators)
+// Threshold: 2+ indicators within 10-minute window
+// ============================================================================
+
+let AMSIRegistryEvents = DeviceRegistryEvents
+| where TimeGenerated > ago(2h)
+| where RegistryKey has_all ("Microsoft", "AMSI")
+| where InitiatingProcessFileName !in~ ("MsMpEng.exe", "svchost.exe", "TrustedInstaller.exe")
+| summarize RegistryEventCount = count() by DeviceName, bin(TimeGenerated, 10m)
+| where RegistryEventCount >= 1;
+let AssemblyDownloads = DeviceNetworkEvents
+| where TimeGenerated > ago(2h)
+| where RemoteUrl has_any (".exe", "Assembly", "SharpCollection", "Seatbelt")
+| summarize DownloadCount = count() by DeviceName, bin(TimeGenerated, 10m)
+| where DownloadCount >= 1;
+let SuspiciousProcesses = DeviceProcessEvents
+| where TimeGenerated > ago(2h)
+| where FileName matches regex @"(?i)(troll|amsi.*bypass|seatbelt)"
+    or ProcessCommandLine has_any ("AMSI", "Assembly.Load", "WebClient")
+| summarize ProcessCount = count() by DeviceName, bin(TimeGenerated, 10m)
+| where ProcessCount >= 1;
+// Correlate all indicators
+AMSIRegistryEvents
+| join kind=leftouter (AssemblyDownloads) on DeviceName, TimeGenerated
+| join kind=leftouter (SuspiciousProcesses) on DeviceName, TimeGenerated
+| extend IndicatorCount = (
+    iff(RegistryEventCount > 0, 1, 0) +
+    iff(isnotnull(DownloadCount), 1, 0) +
+    iff(isnotnull(ProcessCount), 1, 0)
+)
+| where IndicatorCount >= 2
+| project DeviceName, TimeGenerated, RegistryEventCount, DownloadCount, ProcessCount,
+    IndicatorCount,
+    Severity = "Critical",
+    ThreatType = "AMSI Bypass Attack Chain",
+    MitreAttack = "T1562.001",
+    TestID = "c1f0fe6f-6907-4f95-820d-47e0a39abe54",
+    Confidence = "High"
+
+
+// ============================================================================
+// QUERY 10: AMSI Provider Enumeration Detection
+// Purpose: Detect enumeration of AMSI providers (reconnaissance)
+// Confidence: MEDIUM
+// False Positives: Security tools checking AMSI status
+// Threshold: Non-security process querying AMSI provider information
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where ProcessCommandLine has_any (
+    "AMSI\\Providers", "AMSIProviders", "Get-AMSIProvider",
+    "HKLM:\\SOFTWARE\\Microsoft\\AMSI"
+)
+| where FileName in~ ("reg.exe", "powershell.exe", "cmd.exe", "regedit.exe")
+| where InitiatingProcessFileName !in~ ("MsMpEng.exe", "MpCmdRun.exe", "svchost.exe")
+| extend
+    Severity = "Medium",
+    ThreatType = "AMSI Provider Enumeration",
+    MitreAttack = "T1518.001",
+    TestID = "c1f0fe6f-6907-4f95-820d-47e0a39abe54"
+| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine,
+    InitiatingProcessFileName, Severity, ThreatType, MitreAttack
+
+
+// ============================================================================
+// HUNTING QUERY: Known AMSI Bypass Tool Hashes
+// Purpose: Detect known AMSI bypass tools by hash
+// Confidence: HIGH
+// False Positives: None (known malicious hashes)
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(24h)
+| where SHA256 in (
+    // Add known TrollDisappearKey and similar tool hashes here
+    // Example format - replace with actual hashes when available
+    ""
+)
+    or SHA1 in (
+    // Add SHA1 hashes here
+    ""
+)
+| project TimeGenerated, DeviceName, FileName, FolderPath, SHA256, SHA1,
+    InitiatingProcessFileName, ActionType
+| extend
+    Severity = "Critical",
+    ThreatType = "Known AMSI Bypass Tool Hash",
+    MitreAttack = "T1562.001",
+    TestID = "c1f0fe6f-6907-4f95-820d-47e0a39abe54",
+    Confidence = "High"
+
+
+// ============================================================================
+// ALERT SUMMARY DASHBOARD QUERY
+// Purpose: Aggregate all AMSI bypass detections for SOC dashboard
+// ============================================================================
+
+let DetectionEvents = union
+    (DeviceRegistryEvents
+    | where TimeGenerated > ago(24h)
+    | where RegistryKey has_all ("Microsoft", "AMSI", "Providers")
+    | where InitiatingProcessFileName !in~ ("MsMpEng.exe", "svchost.exe")
+    | summarize EventCount = count() by Computer = DeviceName, bin(TimeGenerated, 1h)
+    | extend DetectionType = "AMSI Registry Manipulation"
+    ),
+    (DeviceProcessEvents
+    | where TimeGenerated > ago(24h)
+    | where FileName matches regex @"(?i)(troll|amsi.*bypass|seatbelt)"
+    | summarize EventCount = count() by Computer = DeviceName, bin(TimeGenerated, 1h)
+    | extend DetectionType = "AMSI Bypass Tool Execution"
+    ),
+    (DeviceNetworkEvents
+    | where TimeGenerated > ago(24h)
+    | where RemoteUrl has_any ("SharpCollection", "GhostPack", "Seatbelt")
+    | summarize EventCount = count() by Computer = DeviceName, bin(TimeGenerated, 1h)
+    | extend DetectionType = "Remote Assembly Download"
+    );
+DetectionEvents
+| summarize TotalEvents = sum(EventCount), DetectionTypes = make_set(DetectionType)
+    by Computer, bin(TimeGenerated, 1h)
+| order by TotalEvents desc
+| project TimeGenerated, Computer, TotalEvents, DetectionTypes,
+    Severity = case(TotalEvents >= 5, "Critical", TotalEvents >= 3, "High", "Medium"),
+    ThreatType = "AMSI Bypass Activity Cluster",
+    MitreAttack = "T1562.001",
+    TestID = "c1f0fe6f-6907-4f95-820d-47e0a39abe54"

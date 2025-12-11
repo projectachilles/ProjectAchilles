@@ -1,0 +1,457 @@
+// ============================================================================
+// DEFENSE GUIDANCE: Microsoft Sentinel / Defender KQL Detection Queries
+// ============================================================================
+// Test ID: 7e93865c-0033-4db3-af3c-a9f4215c1c49
+// Test Name: Process Injection via CreateRemoteThread
+// MITRE ATT&CK: T1055.002 - Process Injection: Portable Executable Injection
+// Created: 2025-12-07
+// Author: F0RT1KA Defense Guidance Builder
+// ============================================================================
+//
+// DETECTION PRINCIPLE:
+// These KQL queries detect the underlying process injection technique using
+// CreateRemoteThread, NOT the F0RT1KA testing framework specifically.
+// They will detect real-world attackers using the same technique.
+//
+// ============================================================================
+
+
+// ============================================================================
+// 1. CreateRemoteThread Detection via Sysmon
+// ============================================================================
+// Detects remote thread creation in another process (Sysmon Event ID 8)
+// Confidence: HIGH
+// False Positives: Some legitimate software uses remote threads
+// Threshold: Alert on any occurrence from non-standard sources
+// ============================================================================
+
+SysmonEvent
+| where EventID == 8  // CreateRemoteThread
+| where SourceImage !endswith "\\svchost.exe"
+| where SourceImage !endswith "\\csrss.exe"
+| where SourceImage !endswith "\\lsass.exe"
+| where SourceImage !endswith "\\services.exe"
+| where SourceImage !contains "\\Microsoft\\Edge\\"
+| where SourceImage !contains "\\Google\\Chrome\\"
+| where SourceImage !contains "\\Windows Defender\\"
+| project
+    TimeGenerated,
+    Computer,
+    SourceImage,
+    SourceProcessId,
+    TargetImage,
+    TargetProcessId,
+    NewThreadId,
+    StartAddress,
+    StartModule,
+    StartFunction
+| extend
+    Severity = "High",
+    ThreatType = "Process Injection - CreateRemoteThread",
+    MitreAttack = "T1055.002",
+    TestID = "7e93865c-0033-4db3-af3c-a9f4215c1c49"
+
+
+// ============================================================================
+// 2. Process Access with Injection Permissions (Sysmon Event ID 10)
+// ============================================================================
+// Detects suspicious process handle access with permissions commonly used
+// for injection (PROCESS_VM_WRITE, PROCESS_CREATE_THREAD, etc.)
+// Confidence: MEDIUM
+// False Positives: Debugging tools, security software
+// Threshold: Correlate with subsequent memory operations
+// ============================================================================
+
+SysmonEvent
+| where EventID == 10  // ProcessAccess
+// GrantedAccess mask for injection-related permissions
+// 0x1F0FFF = PROCESS_ALL_ACCESS
+// 0x001F0FFF = Full access
+// 0x143A = PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ | PROCESS_QUERY_INFORMATION
+| where GrantedAccess has_any ("0x1F0FFF", "0x001F0FFF", "0x143A", "0x1438", "0x1F3FFF")
+| where SourceImage !endswith "\\csrss.exe"
+| where SourceImage !endswith "\\svchost.exe"
+| where SourceImage !endswith "\\lsass.exe"
+| where SourceImage !contains "\\Windows Defender\\"
+| where SourceImage !contains "\\Microsoft.NET\\"
+| where TargetImage != SourceImage  // Cross-process access
+| project
+    TimeGenerated,
+    Computer,
+    SourceImage,
+    SourceProcessId,
+    TargetImage,
+    TargetProcessId,
+    GrantedAccess,
+    CallTrace
+| extend
+    Severity = "Medium",
+    ThreatType = "Suspicious Process Access - Injection Permissions",
+    MitreAttack = "T1055.002",
+    TestID = "7e93865c-0033-4db3-af3c-a9f4215c1c49"
+
+
+// ============================================================================
+// 3. Process Injection Targeting Notepad (Common Test Target)
+// ============================================================================
+// Detects injection attempts specifically targeting notepad.exe
+// which is commonly used as injection target by malware and testing tools
+// Confidence: HIGH (when notepad is targeted by non-standard process)
+// False Positives: Very low
+// Threshold: Alert on any occurrence
+// ============================================================================
+
+SysmonEvent
+| where EventID == 8  // CreateRemoteThread
+| where TargetImage endswith "\\notepad.exe"
+| where SourceImage !endswith "\\notepad.exe"
+| project
+    TimeGenerated,
+    Computer,
+    SourceImage,
+    SourceProcessId,
+    TargetImage,
+    TargetProcessId,
+    NewThreadId,
+    StartAddress
+| extend
+    Severity = "Critical",
+    ThreatType = "Process Injection - Notepad Target",
+    MitreAttack = "T1055.002",
+    TestID = "7e93865c-0033-4db3-af3c-a9f4215c1c49",
+    Description = "Remote thread created in notepad.exe - common injection test/attack target"
+
+
+// ============================================================================
+// 4. DeviceProcessEvents - Remote Thread Creation Detection (Defender)
+// ============================================================================
+// Microsoft Defender for Endpoint detection for remote thread creation
+// Confidence: HIGH
+// False Positives: Some legitimate software
+// Threshold: Alert on suspicious source processes
+// ============================================================================
+
+DeviceEvents
+| where ActionType == "CreateRemoteThreadApiCall"
+| where InitiatingProcessFileName !in~ (
+    "svchost.exe",
+    "csrss.exe",
+    "lsass.exe",
+    "services.exe",
+    "MsMpEng.exe",
+    "MpCmdRun.exe"
+)
+| project
+    TimeGenerated,
+    DeviceName,
+    ActionType,
+    InitiatingProcessFileName,
+    InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine,
+    InitiatingProcessId,
+    FileName,
+    FolderPath,
+    ProcessId
+| extend
+    Severity = "High",
+    ThreatType = "CreateRemoteThread API Call",
+    MitreAttack = "T1055.002",
+    TestID = "7e93865c-0033-4db3-af3c-a9f4215c1c49"
+
+
+// ============================================================================
+// 5. VirtualAllocEx with Executable Permissions Detection
+// ============================================================================
+// Detects allocation of executable memory in remote processes
+// Note: Requires Defender or Sysmon with memory access logging
+// Confidence: MEDIUM
+// False Positives: JIT compilers, some legitimate software
+// Threshold: Correlate with WriteProcessMemory events
+// ============================================================================
+
+DeviceEvents
+| where ActionType in ("VirtualAllocExApiCall", "AllocateVirtualMemory")
+| where InitiatingProcessFileName !in~ (
+    "svchost.exe",
+    "csrss.exe",
+    "RuntimeBroker.exe",
+    "WmiPrvSE.exe"
+)
+// Filter for cross-process allocations
+| where ProcessId != InitiatingProcessId
+| project
+    TimeGenerated,
+    DeviceName,
+    ActionType,
+    InitiatingProcessFileName,
+    InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine,
+    ProcessId,
+    InitiatingProcessId
+| extend
+    Severity = "Medium",
+    ThreatType = "Cross-Process Memory Allocation",
+    MitreAttack = "T1055.002",
+    TestID = "7e93865c-0033-4db3-af3c-a9f4215c1c49"
+
+
+// ============================================================================
+// 6. WriteProcessMemory Detection
+// ============================================================================
+// Detects cross-process memory write operations
+// Confidence: HIGH (when from non-standard source)
+// False Positives: Debugging tools, some installers
+// Threshold: Alert on any occurrence from suspicious sources
+// ============================================================================
+
+DeviceEvents
+| where ActionType == "WriteToLsassProcessMemory" or ActionType has "WriteProcess"
+| where InitiatingProcessFileName !in~ (
+    "csrss.exe",
+    "lsass.exe",
+    "MsMpEng.exe"
+)
+| project
+    TimeGenerated,
+    DeviceName,
+    ActionType,
+    InitiatingProcessFileName,
+    InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine,
+    InitiatingProcessId
+| extend
+    Severity = "High",
+    ThreatType = "Cross-Process Memory Write",
+    MitreAttack = "T1055.002",
+    TestID = "7e93865c-0033-4db3-af3c-a9f4215c1c49"
+
+
+// ============================================================================
+// 7. Behavioral Correlation - Full Injection Chain
+// ============================================================================
+// Correlates multiple injection indicators within a time window
+// to provide high-confidence detection of complete injection chain
+// Confidence: CRITICAL (multiple indicators)
+// False Positives: Very low
+// Threshold: Alert on 2+ correlated events
+// ============================================================================
+
+let ProcessAccessEvents = SysmonEvent
+| where EventID == 10  // ProcessAccess
+| where GrantedAccess has_any ("0x1F0FFF", "0x143A", "0x1438")
+| where SourceImage != TargetImage
+| project AccessTime = TimeGenerated, Computer, SourceImage, TargetImage, SourceProcessId, TargetProcessId;
+
+let RemoteThreadEvents = SysmonEvent
+| where EventID == 8  // CreateRemoteThread
+| project ThreadTime = TimeGenerated, Computer, SourceImage, TargetImage, SourceProcessId, TargetProcessId, StartAddress;
+
+ProcessAccessEvents
+| join kind=inner (RemoteThreadEvents) on Computer, SourceImage, TargetImage
+| where ThreadTime between (AccessTime .. (AccessTime + 60s))
+| project
+    TimeGenerated = AccessTime,
+    Computer,
+    SourceProcess = SourceImage,
+    TargetProcess = TargetImage,
+    AccessTime,
+    ThreadCreationTime = ThreadTime,
+    TimeDelta = datetime_diff('second', ThreadTime, AccessTime),
+    StartAddress
+| extend
+    Severity = "Critical",
+    ThreatType = "Process Injection Chain Detected",
+    MitreAttack = "T1055.002",
+    TestID = "7e93865c-0033-4db3-af3c-a9f4215c1c49",
+    Description = "Full injection chain: ProcessAccess followed by CreateRemoteThread"
+
+
+// ============================================================================
+// 8. Injection from Unsigned/Untrusted Binaries
+// ============================================================================
+// Detects injection attempts from binaries in non-standard locations
+// Confidence: HIGH
+// False Positives: Low (legitimate software usually in standard paths)
+// Threshold: Alert on any occurrence
+// ============================================================================
+
+SysmonEvent
+| where EventID == 8  // CreateRemoteThread
+| where SourceImage !startswith "C:\\Windows\\"
+| where SourceImage !startswith "C:\\Program Files\\"
+| where SourceImage !startswith "C:\\Program Files (x86)\\"
+| where SourceImage !contains "\\WindowsApps\\"
+| project
+    TimeGenerated,
+    Computer,
+    SourceImage,
+    SourceProcessId,
+    TargetImage,
+    TargetProcessId,
+    StartAddress,
+    StartModule
+| extend
+    Severity = "High",
+    ThreatType = "Injection from Non-Standard Path",
+    MitreAttack = "T1055.002",
+    TestID = "7e93865c-0033-4db3-af3c-a9f4215c1c49",
+    Description = "Remote thread creation from binary outside standard directories"
+
+
+// ============================================================================
+// 9. F0RT1KA Test Framework Detection
+// ============================================================================
+// Detects execution of F0RT1KA Process Injection test
+// Useful for distinguishing tests from real attacks
+// Confidence: HIGH (for test identification)
+// False Positives: None (test-specific)
+// Threshold: Informational
+// ============================================================================
+
+DeviceProcessEvents
+| where ProcessCommandLine has "7e93865c-0033-4db3-af3c-a9f4215c1c49"
+    or ProcessCommandLine has "Process Injection via CreateRemoteThread"
+    or FolderPath contains "\\F0\\"
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    FileName,
+    FolderPath,
+    ProcessCommandLine,
+    InitiatingProcessFileName
+| extend
+    Severity = "Informational",
+    ThreatType = "F0RT1KA Security Test Execution",
+    MitreAttack = "T1055.002",
+    TestID = "7e93865c-0033-4db3-af3c-a9f4215c1c49",
+    Description = "F0RT1KA Process Injection test identified"
+
+
+// ============================================================================
+// 10. Notepad Started by Suspicious Parent
+// ============================================================================
+// Detects notepad.exe started by non-standard parent processes
+// which may indicate setup for injection target
+// Confidence: MEDIUM
+// False Positives: Legitimate automation scripts
+// Threshold: Correlate with subsequent injection events
+// ============================================================================
+
+DeviceProcessEvents
+| where FileName =~ "notepad.exe"
+| where InitiatingProcessFileName !in~ (
+    "explorer.exe",
+    "cmd.exe",
+    "powershell.exe",
+    "WindowsTerminal.exe",
+    "Code.exe",
+    "devenv.exe"
+)
+| where InitiatingProcessFolderPath !startswith "C:\\Windows\\"
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    FileName,
+    ProcessId,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine,
+    InitiatingProcessId
+| extend
+    Severity = "Medium",
+    ThreatType = "Suspicious Notepad Launch - Potential Injection Target",
+    MitreAttack = "T1055.002",
+    TestID = "7e93865c-0033-4db3-af3c-a9f4215c1c49"
+
+
+// ============================================================================
+// 11. Anomalous Thread Start Address Detection
+// ============================================================================
+// Detects threads with start addresses outside loaded module boundaries
+// indicating potential injected code execution
+// Confidence: HIGH
+// False Positives: JIT compiled code, .NET applications
+// Threshold: Alert on threads with unbacked memory start addresses
+// ============================================================================
+
+SysmonEvent
+| where EventID == 8  // CreateRemoteThread
+| where StartModule == "" or isnull(StartModule)
+| where StartFunction == "" or isnull(StartFunction)
+| project
+    TimeGenerated,
+    Computer,
+    SourceImage,
+    SourceProcessId,
+    TargetImage,
+    TargetProcessId,
+    StartAddress,
+    StartModule,
+    StartFunction
+| extend
+    Severity = "High",
+    ThreatType = "Remote Thread with Unbacked Start Address",
+    MitreAttack = "T1055.002",
+    TestID = "7e93865c-0033-4db3-af3c-a9f4215c1c49",
+    Description = "Thread start address not within any loaded module - likely injected code"
+
+
+// ============================================================================
+// 12. File Activity in F0 Directory
+// ============================================================================
+// Detects file creation in F0RT1KA staging directory
+// Confidence: HIGH (for test identification)
+// False Positives: None
+// Threshold: Informational
+// ============================================================================
+
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where FolderPath startswith "C:\\F0\\" or FolderPath startswith "c:\\F0\\"
+| project
+    TimeGenerated,
+    DeviceName,
+    AccountName,
+    ActionType,
+    FileName,
+    FolderPath,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine
+| extend
+    Severity = "Low",
+    ThreatType = "F0RT1KA Test Artifact",
+    MitreAttack = "T1055.002",
+    TestID = "7e93865c-0033-4db3-af3c-a9f4215c1c49"
+
+
+// ============================================================================
+// 13. Time-Based Aggregation - Multiple Injection Attempts
+// ============================================================================
+// Aggregates injection-related events to identify attack campaigns
+// Confidence: HIGH (when multiple attempts detected)
+// False Positives: Low
+// Threshold: 2+ events within 5 minutes
+// ============================================================================
+
+SysmonEvent
+| where TimeGenerated > ago(1h)
+| where EventID in (8, 10)  // CreateRemoteThread, ProcessAccess
+| where (EventID == 8) or (EventID == 10 and GrantedAccess has_any ("0x1F0FFF", "0x143A"))
+| summarize
+    EventCount = count(),
+    EventTypes = make_set(EventID),
+    SourceProcesses = make_set(SourceImage),
+    TargetProcesses = make_set(TargetImage),
+    FirstEvent = min(TimeGenerated),
+    LastEvent = max(TimeGenerated)
+    by Computer, bin(TimeGenerated, 5m)
+| where EventCount >= 2
+| extend
+    Severity = "Critical",
+    ThreatType = "Multiple Injection Indicators Detected",
+    MitreAttack = "T1055.002",
+    TestID = "7e93865c-0033-4db3-af3c-a9f4215c1c49",
+    TimeWindow = datetime_diff('second', LastEvent, FirstEvent)

@@ -1,0 +1,559 @@
+# ============================================================================
+# DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: b83616c2-84ee-4738-b398-d2d57eebecec
+# Test Name: NativeDump (NimDump) Detection
+# MITRE ATT&CK: T1003.001 - OS Credential Dumping: LSASS Memory
+# Created: 2025-12-07
+# Author: F0RT1KA Defense Guidance Builder
+# Format: LimaCharlie file format (for limacharlie dr add)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These D&R rules detect LSASS credential dumping tools like NativeDump/NimDump
+# that use NTAPI functions to bypass MiniDumpWriteDump detection. They will
+# catch real-world attackers using these evasive credential theft techniques.
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f b83616c2-84ee-4738-b398-d2d57eebecec_dr_rules.yaml
+#
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: LSASS Process Access Detection (SENSITIVE_PROCESS_ACCESS)
+  # Purpose: Detect processes attempting to access lsass.exe memory
+  # Confidence: HIGH
+  # ==========================================================================
+  lsass-memory-access-detected:
+    detect:
+      target: edr
+      event: SENSITIVE_PROCESS_ACCESS
+      op: and
+      rules:
+        # Target is LSASS
+        - op: ends with
+          path: event/TARGET/FILE_PATH
+          value: "\\lsass.exe"
+        # Exclude known legitimate processes
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: event/SOURCE/FILE_PATH
+                  value: "\\csrss.exe"
+                - op: ends with
+                  path: event/SOURCE/FILE_PATH
+                  value: "\\services.exe"
+                - op: ends with
+                  path: event/SOURCE/FILE_PATH
+                  value: "\\svchost.exe"
+                - op: ends with
+                  path: event/SOURCE/FILE_PATH
+                  value: "\\MsMpEng.exe"
+                - op: ends with
+                  path: event/SOURCE/FILE_PATH
+                  value: "\\lsass.exe"
+                - op: ends with
+                  path: event/SOURCE/FILE_PATH
+                  value: "\\wininit.exe"
+
+    respond:
+      - action: report
+        name: LSASS Memory Access Detected - Potential Credential Dumping
+        metadata:
+          severity: critical
+          mitre_attack: T1003.001
+          confidence: high
+          test_id: b83616c2-84ee-4738-b398-d2d57eebecec
+          description: A process attempted to access LSASS memory, which may indicate credential dumping activity
+          investigation: Analyze source process, check for dump files, review parent process tree
+
+      - action: task
+        command: history_dump
+        investigation: LSASS-Access-Investigation
+
+      # Optional: Terminate the offending process
+      # Uncomment for automatic remediation in high-security environments
+      # - action: task
+      #   command: deny_tree
+
+
+  # ==========================================================================
+  # RULE 2: NimDump/NativeDump Binary Execution
+  # Purpose: Detect execution of known NativeDump/NimDump binaries
+  # Confidence: HIGH
+  # ==========================================================================
+  nimdump-nativedump-execution:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        # Direct name match (disguised name from test)
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\library_update.exe"
+        # Generic NativeDump/NimDump patterns
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)native[-_]?dump.*\.exe$
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)nim[-_]?dump.*\.exe$
+        # Command line indicators
+        - op: and
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-o:"
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: ".docx"
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: ".dmp"
+
+    respond:
+      - action: report
+        name: NimDump/NativeDump Credential Dumper Executed
+        metadata:
+          severity: critical
+          mitre_attack: T1003.001
+          confidence: high
+          test_id: b83616c2-84ee-4738-b398-d2d57eebecec
+          description: NativeDump or NimDump LSASS credential dumping tool was executed
+          investigation: Immediately check for dump files, analyze parent process, preserve evidence
+
+      - action: task
+        command: history_dump
+        investigation: NimDump-Execution
+
+      - action: task
+        command: file_info
+        file_path: "{{ .event.FILE_PATH }}"
+
+
+  # ==========================================================================
+  # RULE 3: Minidump/LSASS Dump File Creation
+  # Purpose: Detect creation of potential LSASS memory dump files
+  # Confidence: HIGH
+  # ==========================================================================
+  lsass-dump-file-created:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: or
+      rules:
+        # Standard dump file extensions
+        - op: ends with
+          path: event/FILE_PATH
+          value: ".dmp"
+        - op: ends with
+          path: event/FILE_PATH
+          value: ".mdmp"
+        # LSASS in filename
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)lsass.*\.(dmp|bin|dump)$
+        # Disguised dump file (test pattern)
+        - op: and
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\F0\\"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".docx"
+        # Memory dump patterns
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)(memory|credential|procdump).*\.(dmp|bin)$
+
+    respond:
+      - action: report
+        name: Potential LSASS Dump File Created
+        metadata:
+          severity: critical
+          mitre_attack: T1003.001
+          confidence: high
+          test_id: b83616c2-84ee-4738-b398-d2d57eebecec
+          description: A potential LSASS memory dump file was created, which may contain credentials
+          investigation: Quarantine the dump file immediately, identify creating process
+
+      - action: task
+        command: file_info
+        file_path: "{{ .event.FILE_PATH }}"
+
+
+  # ==========================================================================
+  # RULE 4: SeDebugPrivilege Token Manipulation
+  # Purpose: Detect processes enabling debug privileges (required for LSASS access)
+  # Confidence: MEDIUM-HIGH
+  # ==========================================================================
+  sedebugprivilege-enabled:
+    detect:
+      target: edr
+      event: TOKEN_MODIFIED
+      op: and
+      rules:
+        # Debug privilege enabled
+        - op: contains
+          path: event/PRIVILEGES
+          value: "SeDebugPrivilege"
+        # Not from system processes
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: event/FILE_PATH
+                  value: "\\csrss.exe"
+                - op: ends with
+                  path: event/FILE_PATH
+                  value: "\\services.exe"
+                - op: ends with
+                  path: event/FILE_PATH
+                  value: "\\svchost.exe"
+                - op: ends with
+                  path: event/FILE_PATH
+                  value: "\\MsMpEng.exe"
+                - op: ends with
+                  path: event/FILE_PATH
+                  value: "\\lsass.exe"
+
+    respond:
+      - action: report
+        name: SeDebugPrivilege Enabled - Potential LSASS Access Preparation
+        metadata:
+          severity: high
+          mitre_attack: T1003.001
+          confidence: medium-high
+          test_id: b83616c2-84ee-4738-b398-d2d57eebecec
+          description: A process enabled SeDebugPrivilege, which is required to access LSASS memory
+          investigation: Monitor for subsequent LSASS access attempts
+
+
+  # ==========================================================================
+  # RULE 5: Process Execution from F0RT1KA Test Directory
+  # Purpose: Detect any process execution from the F0RT1KA test directory
+  # Confidence: HIGH
+  # ==========================================================================
+  f0rtika-test-directory-execution:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        - op: starts with
+          path: event/FILE_PATH
+          value: "c:\\F0\\"
+        - op: starts with
+          path: event/FILE_PATH
+          value: "C:\\F0\\"
+
+    respond:
+      - action: report
+        name: Process Execution from F0RT1KA Test Directory
+        metadata:
+          severity: high
+          mitre_attack: T1003.001
+          confidence: high
+          test_id: b83616c2-84ee-4738-b398-d2d57eebecec
+          description: Binary executed from F0RT1KA security test directory
+
+      - action: task
+        command: history_dump
+        investigation: F0RT1KA-Test-Execution
+
+
+  # ==========================================================================
+  # RULE 6: Known Credential Dumping Tools Execution
+  # Purpose: Detect execution of known credential dumping tools
+  # Confidence: HIGH
+  # ==========================================================================
+  known-credential-dumping-tool:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: or
+      rules:
+        # Known tool names
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)mimikatz.*\.exe$
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)procdump.*\.exe$
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)nanodump.*\.exe$
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)handlekatz.*\.exe$
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)dumpert.*\.exe$
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)lsassy.*\.exe$
+        - op: matches
+          path: event/FILE_PATH
+          re: (?i)pypykatz.*\.exe$
+        # Command line indicators
+        - op: and
+          rules:
+            - op: or
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "sekurlsa"
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "logonpasswords"
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "lsadump"
+
+    respond:
+      - action: report
+        name: Known Credential Dumping Tool Executed
+        metadata:
+          severity: critical
+          mitre_attack: T1003.001
+          confidence: high
+          description: A known credential dumping tool was detected and executed
+
+      - action: task
+        command: history_dump
+        investigation: Credential-Dumping-Tool
+
+      - action: task
+        command: file_info
+        file_path: "{{ .event.FILE_PATH }}"
+
+      # Consider automatic termination for known malicious tools
+      # - action: task
+      #   command: deny_tree
+
+
+  # ==========================================================================
+  # RULE 7: comsvcs.dll LSASS Dump Technique
+  # Purpose: Detect LSASS dumping via comsvcs.dll (LOLBin technique)
+  # Confidence: HIGH
+  # ==========================================================================
+  comsvcs-lsass-dump:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "comsvcs.dll"
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "MiniDump"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "#24"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "lsass"
+
+    respond:
+      - action: report
+        name: LSASS Dump via comsvcs.dll Detected
+        metadata:
+          severity: critical
+          mitre_attack: T1003.001
+          confidence: high
+          test_id: b83616c2-84ee-4738-b398-d2d57eebecec
+          description: LSASS memory dump attempt using comsvcs.dll (Living off the Land technique)
+
+      - action: task
+        command: history_dump
+        investigation: ComSvcs-LSASS-Dump
+
+
+  # ==========================================================================
+  # RULE 8: Suspicious NTAPI Credential Dumping Pattern
+  # Purpose: Detect processes using NTAPI patterns for credential access
+  # Confidence: MEDIUM
+  # ==========================================================================
+  ntapi-credential-dumping-pattern:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # Execution from suspicious location
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Temp\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\F0\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\Local\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Downloads\\"
+        # Command line with output file pattern
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-o:"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "--output"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-r"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "--remap"
+
+    respond:
+      - action: report
+        name: Suspicious NTAPI Credential Dumping Pattern
+        metadata:
+          severity: high
+          mitre_attack: T1003.001
+          confidence: medium
+          test_id: b83616c2-84ee-4738-b398-d2d57eebecec
+          description: Process execution with patterns consistent with NTAPI-based credential dumping
+
+      - action: task
+        command: history_dump
+        investigation: NTAPI-Dumping-Pattern
+
+
+  # ==========================================================================
+  # RULE 9: File Quarantine Detection (Protection Indicator)
+  # Purpose: Detect when security software quarantines credential dumping tools
+  # Confidence: HIGH (indicates protection is working)
+  # ==========================================================================
+  credential-tool-quarantined:
+    detect:
+      target: edr
+      event: FILE_DELETE
+      op: and
+      rules:
+        # File was in monitored location or matches dumper patterns
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\F0\\"
+            - op: matches
+              path: event/FILE_PATH
+              re: (?i)(dump|native|nim|lsass|library[-_]?update)
+        # Deleted by AV/EDR process
+        - op: or
+          rules:
+            - op: contains
+              path: routing/parent/FILE_PATH
+              value: "\\MsMpEng.exe"
+            - op: contains
+              path: routing/parent/FILE_PATH
+              value: "\\Windows Defender\\"
+            - op: contains
+              path: routing/parent/FILE_PATH
+              value: "\\SentinelOne\\"
+            - op: contains
+              path: routing/parent/FILE_PATH
+              value: "\\CrowdStrike\\"
+            - op: contains
+              path: routing/parent/FILE_PATH
+              value: "\\Sophos\\"
+
+    respond:
+      - action: report
+        name: Security Software Quarantined Credential Dumping Tool
+        metadata:
+          severity: informational
+          mitre_attack: T1003.001
+          confidence: high
+          test_id: b83616c2-84ee-4738-b398-d2d57eebecec
+          description: Security software successfully quarantined a credential dumping tool
+
+
+  # ==========================================================================
+  # RULE 10: LSASS Handle Opened via NtOpenProcess
+  # Purpose: Detect direct NTAPI handle opening to LSASS
+  # Confidence: HIGH
+  # ==========================================================================
+  lsass-handle-ntopen:
+    detect:
+      target: edr
+      event: OPEN_PROCESS
+      op: and
+      rules:
+        # Target is LSASS
+        - op: ends with
+          path: event/PROCESS/FILE_PATH
+          value: "\\lsass.exe"
+        # High access rights requested
+        - op: or
+          rules:
+            - op: is
+              path: event/ACCESS_RIGHTS
+              value: 0x1F0FFF  # PROCESS_ALL_ACCESS
+            - op: is
+              path: event/ACCESS_RIGHTS
+              value: 0x1FFFFF  # Full access
+            - op: is
+              path: event/ACCESS_RIGHTS
+              value: 0x410    # VM_READ | QUERY_INFO
+        # Not from legitimate processes
+        - op: not
+          rules:
+            - op: or
+              rules:
+                - op: ends with
+                  path: routing/parent/FILE_PATH
+                  value: "\\csrss.exe"
+                - op: ends with
+                  path: routing/parent/FILE_PATH
+                  value: "\\services.exe"
+                - op: ends with
+                  path: routing/parent/FILE_PATH
+                  value: "\\MsMpEng.exe"
+
+    respond:
+      - action: report
+        name: LSASS Process Handle Opened with High Privileges
+        metadata:
+          severity: critical
+          mitre_attack: T1003.001
+          confidence: high
+          test_id: b83616c2-84ee-4738-b398-d2d57eebecec
+          description: A process opened a handle to LSASS with high access privileges
+
+      - action: task
+        command: history_dump
+        investigation: LSASS-Handle-Open
+
+
+# ============================================================================
+# OUTPUTS CONFIGURATION (for test results collection and SIEM integration)
+# ============================================================================
+# Note: Configure outputs for SIEM integration as needed
+
+outputs:
+  lsass-credential-dumping-detections:
+    module: syslog
+    for: detections
+    host: siem.example.com
+    port: 514

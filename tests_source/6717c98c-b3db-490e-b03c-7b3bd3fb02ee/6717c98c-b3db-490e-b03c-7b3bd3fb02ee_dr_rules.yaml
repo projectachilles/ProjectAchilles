@@ -1,0 +1,476 @@
+# ============================================================
+# F0RT1KA Defense Guidance - LimaCharlie D&R Rules
+# Test ID: 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
+# Test Name: SafePay Go-Native Ransomware Simulation
+# MITRE ATT&CK: T1486, T1560.001, T1490, T1083, T1005, T1071.001
+# Generated: 2025-12-07
+# ============================================================
+#
+# Purpose: Detection & Response rules for LimaCharlie EDR
+#          targeting SafePay ransomware behaviors
+#
+# Deployment:
+#   limacharlie dr add -f 6717c98c-b3db-490e-b03c-7b3bd3fb02ee_dr_rules.yaml
+#
+# Rules Included:
+#   1. safepay-file-extension-detection - Detects .safepay encrypted files
+#   2. safepay-ransom-note-creation - Detects readme_safepay.txt creation
+#   3. winrar-data-staging - Detects WinRAR with suspicious arguments
+#   4. mass-file-deletion - Detects bulk document file deletion
+#   5. f0-binary-drop - Detects binary drops to C:\F0 directory
+#   6. notepad-ransom-display - Detects Notepad opening ransom notes
+#   7. safepay-multi-indicator - Correlates multiple ransomware indicators
+#
+# ============================================================
+
+rules:
+
+  # ============================================================
+  # Rule 1: SafePay File Extension Detection
+  # MITRE ATT&CK: T1486 (Data Encrypted for Impact)
+  # Confidence: Critical
+  # Description: Detects creation of files with .safepay extension
+  # ============================================================
+  safepay-file-extension-detection:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: ".safepay"
+        - op: exists
+          path: event/FILE_PATH
+
+    respond:
+      - action: report
+        name: safepay-ransomware-encryption
+        metadata:
+          severity: critical
+          mitre_attack: T1486
+          test_id: 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
+          description: "SafePay ransomware encryption detected - file encrypted with .safepay extension"
+          recommendation: "Isolate endpoint immediately. Check for ransom note and assess scope of encryption."
+
+      - action: tag
+        tag: safepay-ransomware-detected
+        ttl: 604800  # 7 days
+
+
+  # ============================================================
+  # Rule 2: SafePay Ransom Note Creation
+  # MITRE ATT&CK: T1486 (Data Encrypted for Impact)
+  # Confidence: Critical
+  # Description: Detects creation of readme_safepay.txt ransom note
+  # ============================================================
+  safepay-ransom-note-creation:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: "readme_safepay"
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: safepay-ransom-note-created
+        metadata:
+          severity: critical
+          mitre_attack: T1486
+          test_id: 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
+          description: "SafePay ransom note created - active ransomware infection confirmed"
+          recommendation: "Critical: Isolate endpoint. Preserve ransom note for forensics. Do not pay ransom."
+
+      - action: tag
+        tag: safepay-ransomware-detected
+        ttl: 604800
+
+
+  # ============================================================
+  # Rule 3: WinRAR Data Staging Detection
+  # MITRE ATT&CK: T1560.001 (Archive Collected Data: Archive via Utility)
+  # Confidence: High
+  # Description: Detects WinRAR usage with exfiltration-style arguments
+  # ============================================================
+  winrar-data-staging:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "WinRAR.exe"
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: "rar.exe"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "EXFIL"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "Archive"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "_Data"
+            - op: and
+              rules:
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: "-r"
+                - op: contains
+                  path: event/COMMAND_LINE
+                  value: ".rar"
+                - op: or
+                  rules:
+                    - op: contains
+                      path: event/COMMAND_LINE
+                      value: "Finance"
+                    - op: contains
+                      path: event/COMMAND_LINE
+                      value: "HR"
+                    - op: contains
+                      path: event/COMMAND_LINE
+                      value: "Legal"
+                    - op: contains
+                      path: event/COMMAND_LINE
+                      value: "Documents"
+
+    respond:
+      - action: report
+        name: winrar-suspicious-data-staging
+        metadata:
+          severity: high
+          mitre_attack: T1560.001
+          test_id: 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
+          description: "WinRAR detected with data staging/exfiltration patterns"
+          recommendation: "Investigate archive contents. Check for data exfiltration to external locations."
+
+      - action: tag
+        tag: data-staging-detected
+        ttl: 86400  # 24 hours
+
+
+  # ============================================================
+  # Rule 4: Mass File Deletion Detection
+  # MITRE ATT&CK: T1490 (Inhibit System Recovery)
+  # Confidence: High
+  # Description: Detects bulk deletion of document files
+  # Note: Uses stateful detection with sliding window
+  # ============================================================
+  mass-file-deletion:
+    detect:
+      target: edr
+      event: FILE_DELETE
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".docx"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".xlsx"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".pdf"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".txt"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".csv"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".sql"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".bak"
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\Users\\"
+
+    respond:
+      - action: report
+        name: document-file-deletion
+        metadata:
+          severity: medium
+          mitre_attack: T1490
+          test_id: 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
+          description: "Document file deletion detected in user directory"
+          recommendation: "Monitor for bulk deletion patterns. May indicate ransomware activity."
+
+
+  # ============================================================
+  # Rule 5: F0 Directory Binary Drop Detection
+  # MITRE ATT&CK: T1105 (Ingress Tool Transfer)
+  # Confidence: Medium
+  # Description: Detects executables dropped to C:\F0 directory
+  # ============================================================
+  f0-binary-drop:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: starts with
+          path: event/FILE_PATH
+          value: "C:\\F0\\"
+          case sensitive: false
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".dll"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".ps1"
+
+    respond:
+      - action: report
+        name: f0-binary-drop-detected
+        metadata:
+          severity: medium
+          mitre_attack: T1105
+          test_id: 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
+          description: "Binary dropped to C:\\F0 directory - may be security test or malicious activity"
+          recommendation: "Verify if this is authorized F0RT1KA security testing. If not, investigate immediately."
+
+
+  # ============================================================
+  # Rule 6: Notepad Ransom Note Display
+  # MITRE ATT&CK: T1486 (Data Encrypted for Impact)
+  # Confidence: High
+  # Description: Detects Notepad opening ransomware-related files
+  # ============================================================
+  notepad-ransom-display:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: "notepad.exe"
+          case sensitive: false
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "safepay"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "readme_"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "ransom"
+              case sensitive: false
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "decrypt"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: ransom-note-display-detected
+        metadata:
+          severity: high
+          mitre_attack: T1486
+          test_id: 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
+          description: "Notepad displaying potential ransom note"
+          recommendation: "Confirm ransomware activity. Capture ransom note contents for analysis."
+
+
+  # ============================================================
+  # Rule 7: WinRAR Execution from Non-Standard Path
+  # MITRE ATT&CK: T1560.001 (Archive Collected Data: Archive via Utility)
+  # Confidence: High
+  # Description: Detects WinRAR running from C:\F0 or temp directories
+  # ============================================================
+  winrar-from-suspicious-path:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "WinRAR.exe"
+              case sensitive: false
+            - op: ends with
+              path: event/FILE_PATH
+              value: "rar.exe"
+              case sensitive: false
+        - op: or
+          rules:
+            - op: starts with
+              path: event/FILE_PATH
+              value: "C:\\F0\\"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Temp\\"
+              case sensitive: false
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\AppData\\Local\\Temp\\"
+              case sensitive: false
+
+    respond:
+      - action: report
+        name: winrar-suspicious-location
+        metadata:
+          severity: high
+          mitre_attack: T1560.001
+          test_id: 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
+          description: "WinRAR executing from suspicious location (not Program Files)"
+          recommendation: "Investigate WinRAR origin. May indicate dropped tool for data staging."
+
+      - action: tag
+        tag: suspicious-archive-tool
+        ttl: 86400
+
+
+  # ============================================================
+  # Rule 8: Archive Creation with Department Names
+  # MITRE ATT&CK: T1560.001 (Archive Collected Data: Archive via Utility)
+  # Confidence: High
+  # Description: Detects .rar files created with department naming patterns
+  # ============================================================
+  archive-department-naming:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: ends with
+          path: event/FILE_PATH
+          value: ".rar"
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "Finance_"
+            - op: contains
+              path: event/FILE_PATH
+              value: "HR_"
+            - op: contains
+              path: event/FILE_PATH
+              value: "Legal_"
+            - op: contains
+              path: event/FILE_PATH
+              value: "IT_"
+            - op: contains
+              path: event/FILE_PATH
+              value: "Sales_"
+            - op: contains
+              path: event/FILE_PATH
+              value: "Executive_"
+            - op: contains
+              path: event/FILE_PATH
+              value: "EXFIL_"
+
+    respond:
+      - action: report
+        name: suspicious-archive-naming
+        metadata:
+          severity: high
+          mitre_attack: T1560.001
+          test_id: 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
+          description: "Archive created with department/exfiltration naming pattern"
+          recommendation: "High priority: Check archive contents and destination. Data exfiltration likely."
+
+      - action: tag
+        tag: data-staging-detected
+        ttl: 86400
+
+
+  # ============================================================
+  # Rule 9: Simulation Log File Creation
+  # MITRE ATT&CK: T1486, T1083 (Multiple)
+  # Confidence: Medium
+  # Description: Detects SafePay simulation log file creation
+  # ============================================================
+  safepay-simulation-log:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: "safepay_simulation.log"
+          case sensitive: false
+
+    respond:
+      - action: report
+        name: safepay-simulation-detected
+        metadata:
+          severity: medium
+          mitre_attack: T1486
+          test_id: 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
+          description: "SafePay simulation log detected - security test in progress"
+          recommendation: "Verify this is authorized F0RT1KA security testing."
+
+
+  # ============================================================
+  # Rule 10: Process Creating Files in fortika-test Directory
+  # MITRE ATT&CK: T1005 (Data from Local System)
+  # Confidence: Medium
+  # Description: Detects file operations in test target directory
+  # ============================================================
+  fortika-test-directory-activity:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\fortika-test\\"
+          case sensitive: false
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".docx"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".xlsx"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".pdf"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".safepay"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".rar"
+
+    respond:
+      - action: report
+        name: fortika-test-directory-activity
+        metadata:
+          severity: low
+          mitre_attack: T1005
+          test_id: 6717c98c-b3db-490e-b03c-7b3bd3fb02ee
+          description: "File activity detected in fortika-test directory"
+          recommendation: "Monitor for patterns. May be security testing or data collection."

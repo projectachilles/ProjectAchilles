@@ -90,6 +90,14 @@ ProjectAchilles/
 │   │   ├── middleware/       # Express middleware
 │   │   └── types/            # TypeScript definitions
 │   └── package.json
+├── tests_source/             # Security test repository (20 tests)
+│   └── {uuid}/               # Individual test directories
+│       ├── {uuid}.go         # Test source code
+│       ├── README.md         # Test documentation
+│       ├── {uuid}_info.md    # Test metadata card
+│       ├── *.kql             # Detection rules (KQL)
+│       ├── *.yar             # Detection rules (YARA)
+│       └── *.html            # Attack flow diagrams
 ├── start.sh                  # Unified startup script
 └── CLAUDE.md                 # AI assistant guidance
 ```
@@ -169,6 +177,7 @@ cd backend && npm run build
 | `VITE_BACKEND_PORT` | Backend port for Vite proxy | `3000` |
 | `SESSION_SECRET` | Express session secret | (dev default) |
 | `CORS_ORIGIN` | Allowed CORS origin | `http://localhost:5173` |
+| `TESTS_SOURCE_PATH` | Path to security tests directory | `./tests_source` |
 
 ## Contributing
 

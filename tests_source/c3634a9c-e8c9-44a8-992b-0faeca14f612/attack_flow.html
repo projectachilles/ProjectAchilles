@@ -1,0 +1,1352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Akira Ransomware BYOVD Attack Chain - Attack/Test Flow</title>
+    <!--
+        Test UUID: c3634a9c-e8c9-44a8-992b-0faeca14f612
+        Test Name: Akira Ransomware BYOVD Attack Chain (Hybrid Testing)
+        MITRE ATT&CK: T1068, T1562.001
+        Generated: Attack Flow Diagram Builder
+    -->
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* F0RT1KA Header - Hidden when embedded in browser */
+        .framework-header {
+            display: none;
+        }
+
+        .framework-title {
+            font-size: 1.2em;
+            font-weight: 600;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, #ff6b6b, #ff8787);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .framework-subtitle {
+            position: absolute;
+            right: 30px;
+            font-size: 0.85em;
+            color: #6b7280;
+            font-style: italic;
+        }
+
+        .dashboard-container {
+            display: flex;
+            height: 100vh;
+            position: relative;
+        }
+
+        /* Left Panel - Attack Flow View */
+        .attack-flow-panel {
+            flex: 1;
+            min-width: 60%;
+            padding: 20px;
+            overflow-y: auto;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        /* Test title header - Hidden when embedded in browser */
+        .header {
+            display: none;
+        }
+
+        .header h1 {
+            font-size: 2.2em;
+            background: linear-gradient(135deg, #ff4458, #ff8787);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #9ca3af;
+            font-size: 1em;
+        }
+
+        /* View Toggle Buttons */
+        .view-toggle {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+
+        .view-btn {
+            padding: 8px 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            color: #9ca3af;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9em;
+        }
+
+        .view-btn.active {
+            background: rgba(255, 107, 107, 0.1);
+            border-color: #ff6b6b;
+            color: #ff6b6b;
+        }
+
+        .view-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: #ffffff;
+        }
+
+        /* SVG Attack Flow Container */
+        .attack-flow-svg-container {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            padding: 10px;
+            position: relative;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .attack-flow-svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* Timeline View (Hidden by default) */
+        .timeline-view {
+            display: none;
+            padding: 20px;
+        }
+
+        .timeline-view.active {
+            display: block;
+        }
+
+        .timeline-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            margin-bottom: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-left: 3px solid transparent;
+        }
+
+        .timeline-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            transform: translateX(5px);
+        }
+
+        .timeline-item.active {
+            background: rgba(255, 107, 107, 0.05);
+            border-left-color: #ff6b6b;
+        }
+
+        .timeline-number {
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 15px;
+            border: 2px solid;
+        }
+
+        .timeline-content {
+            flex: 1;
+        }
+
+        .timeline-title {
+            font-size: 1.1em;
+            color: #ffffff;
+            margin-bottom: 5px;
+        }
+
+        .timeline-meta {
+            font-size: 0.85em;
+            color: #9ca3af;
+        }
+
+        /* Right Panel - Details (OPAQUE BACKGROUND) */
+        .details-panel {
+            width: 450px;
+            background: #0f1419;
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            overflow-y: auto;
+            position: relative;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            box-shadow: -5px 0 20px rgba(0, 0, 0, 0.8);
+        }
+
+        .details-panel.active {
+            transform: translateX(0);
+        }
+
+        .details-header {
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .details-phase-number {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 36px;
+            font-weight: bold;
+            font-size: 1.2em;
+            margin-bottom: 10px;
+            border: 2px solid;
+        }
+
+        .details-title {
+            font-size: 1.5em;
+            color: #ffffff;
+            margin-bottom: 10px;
+        }
+
+        .details-meta {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.85em;
+        }
+
+        .meta-label {
+            color: #6b7280;
+        }
+
+        .meta-value {
+            color: #d1d5db;
+            font-family: 'SF Mono', monospace;
+        }
+
+        /* MITRE Links Styling */
+        .mitre-link {
+            color: #4fc3f7;
+            text-decoration: none;
+            border-bottom: 1px dotted #4fc3f7;
+            transition: all 0.2s ease;
+        }
+
+        .mitre-link:hover {
+            color: #29b6f6;
+            border-bottom-style: solid;
+        }
+
+        .severity-badge {
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: inline-block;
+            border: 1px solid;
+        }
+
+        .severity-badge.critical {
+            color: #ff4444;
+            border-color: #ff4444;
+            background: rgba(255, 68, 68, 0.1);
+        }
+
+        .severity-badge.high {
+            color: #ff9f43;
+            border-color: #ff9f43;
+            background: rgba(255, 159, 67, 0.1);
+        }
+
+        .severity-badge.medium {
+            color: #ffc107;
+            border-color: #ffc107;
+            background: rgba(255, 193, 7, 0.1);
+        }
+
+        .severity-badge.info {
+            color: #4fc3f7;
+            border-color: #4fc3f7;
+            background: rgba(79, 195, 247, 0.1);
+        }
+
+        .details-section {
+            margin-bottom: 25px;
+        }
+
+        .section-title {
+            font-size: 1.1em;
+            color: #ff6b6b;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .action-list {
+            list-style: none;
+        }
+
+        .action-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+
+        .action-title {
+            font-weight: 500;
+            color: #ffffff;
+            margin-bottom: 8px;
+            font-size: 0.95em;
+        }
+
+        .action-details {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .action-details li {
+            color: #9ca3af;
+            font-size: 0.85em;
+            padding: 3px 0;
+            padding-left: 15px;
+            position: relative;
+        }
+
+        .action-details li::before {
+            content: '>';
+            position: absolute;
+            left: 0;
+            color: #6b7280;
+        }
+
+        /* Code Preview */
+        .code-preview {
+            background: #0a0e27;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 15px;
+            font-family: 'SF Mono', 'Monaco', monospace;
+            font-size: 0.85em;
+            overflow-x: auto;
+        }
+
+        .code-line {
+            color: #66bb6a;
+            line-height: 1.5;
+        }
+
+        .code-comment {
+            color: #6b7280;
+        }
+
+        .code-highlight {
+            color: #ff9f43;
+        }
+
+        /* Close button for details panel */
+        .close-details {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: none;
+            border: none;
+            color: #6b7280;
+            font-size: 24px;
+            cursor: pointer;
+            transition: color 0.3s ease;
+            display: none;
+        }
+
+        .close-details:hover {
+            color: #ff6b6b;
+        }
+
+        /* Mobile responsive */
+        @media (max-width: 1200px) {
+            .details-panel {
+                position: absolute;
+                right: 0;
+                top: 0;
+                height: 100%;
+                z-index: 100;
+            }
+
+            .close-details {
+                display: block;
+            }
+
+            .framework-subtitle {
+                display: none;
+            }
+        }
+
+        /* Loading animation */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Interactive component styling */
+        .component {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .component:hover .component-box {
+            filter: drop-shadow(0 0 15px rgba(255, 107, 107, 0.4));
+            stroke-width: 2;
+        }
+
+        .component.active .component-box {
+            filter: drop-shadow(0 0 20px rgba(255, 107, 107, 0.6));
+            stroke: #ff6b6b;
+            stroke-width: 2;
+        }
+
+        /* Pulse animation for active elements */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .pulse {
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        /* Navigation hints - Hidden when embedded */
+        .nav-hint {
+            display: none;
+        }
+
+        .nav-hint-icon {
+            color: #ff6b6b;
+        }
+
+        /* Sidebar toggle button */
+        .sidebar-toggle {
+            position: fixed;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 28px;
+            height: 80px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 107, 107, 0.3);
+            border-right: none;
+            border-radius: 8px 0 0 8px;
+            color: #ff6b6b;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            z-index: 200;
+            transition: all 0.3s ease;
+        }
+
+        .sidebar-toggle:hover {
+            background: rgba(255, 107, 107, 0.2);
+            width: 32px;
+        }
+
+        .sidebar-toggle .toggle-icon {
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar-toggle.collapsed .toggle-icon {
+            transform: rotate(180deg);
+        }
+
+        .sidebar-toggle.expanded {
+            right: 450px;
+        }
+
+        .details-panel.collapsed {
+            transform: translateX(100%) !important;
+        }
+
+        /* Stats overlay */
+        .stats-overlay {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 15px;
+        }
+
+        .stat-mini {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.85em;
+        }
+
+        .stat-mini-value {
+            color: #ff6b6b;
+            font-weight: bold;
+        }
+
+        .stat-mini-label {
+            color: #6b7280;
+            margin-left: 5px;
+        }
+
+        /* Hybrid badge styling */
+        .hybrid-badge {
+            background: linear-gradient(135deg, #ff6b6b 0%, #4fc3f7 100%);
+            color: #fff;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.7em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-left: 8px;
+        }
+
+        /* Safety indicator */
+        .safety-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75em;
+            font-weight: 500;
+        }
+
+        .safety-indicator.real {
+            background: rgba(255, 68, 68, 0.2);
+            color: #ff6b6b;
+            border: 1px solid rgba(255, 68, 68, 0.3);
+        }
+
+        .safety-indicator.simulated {
+            background: rgba(79, 195, 247, 0.2);
+            color: #4fc3f7;
+            border: 1px solid rgba(79, 195, 247, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <!-- F0RT1KA Framework Header -->
+    <div class="framework-header">
+        <div class="framework-title">F0RT1KA Security Testing Framework</div>
+        <div class="framework-subtitle">Version 3.0</div>
+    </div>
+
+    <div class="dashboard-container">
+        <!-- Left Panel - Attack Flow View -->
+        <div class="attack-flow-panel">
+            <div class="header">
+                <h1>Akira Ransomware BYOVD - Attack/Test Flow</h1>
+                <p>Click any component to explore detailed attack flow</p>
+            </div>
+
+            <div class="view-toggle">
+                <button class="view-btn active" onclick="switchView('architecture')">Attack Flow</button>
+                <button class="view-btn" onclick="switchView('timeline')">Timeline View</button>
+            </div>
+
+            <!-- Attack Flow View -->
+            <div class="attack-flow-svg-container" id="attackFlowView">
+                <svg class="attack-flow-svg" viewBox="0 0 1200 550" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <!-- Gradient Definitions -->
+                        <linearGradient id="redGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#ff4458;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#ff8787;stop-opacity:0.8" />
+                        </linearGradient>
+
+                        <linearGradient id="blueGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#4fc3f7;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#29b6f6;stop-opacity:0.8" />
+                        </linearGradient>
+
+                        <linearGradient id="orangeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#ff9f43;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#ffb347;stop-opacity:0.8" />
+                        </linearGradient>
+
+                        <linearGradient id="yellowGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#ffc107;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#ffcd38;stop-opacity:0.8" />
+                        </linearGradient>
+
+                        <linearGradient id="purpleGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#9c27b0;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#ba68c8;stop-opacity:0.8" />
+                        </linearGradient>
+
+                        <linearGradient id="hybridGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#ff4458;stop-opacity:0.8" />
+                            <stop offset="50%" style="stop-color:#9c27b0;stop-opacity:0.8" />
+                            <stop offset="100%" style="stop-color:#4fc3f7;stop-opacity:0.8" />
+                        </linearGradient>
+
+                        <!-- Arrow Marker -->
+                        <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                            <polygon points="0 0, 10 3, 0 6" fill="#ff6b6b" />
+                        </marker>
+
+                        <marker id="arrowheadBlue" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                            <polygon points="0 0, 10 3, 0 6" fill="#4fc3f7" />
+                        </marker>
+
+                        <!-- Grid Pattern -->
+                        <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.02)" stroke-width="1"/>
+                        </pattern>
+                    </defs>
+
+                    <!-- Background -->
+                    <rect width="1200" height="550" fill="url(#grid)" />
+
+                    <!-- Central Title -->
+                    <rect x="400" y="20" width="400" height="50" rx="8" fill="rgba(0,0,0,0.5)" stroke="rgba(255,107,107,0.3)"/>
+                    <text x="600" y="42" text-anchor="middle" fill="#ff6b6b" font-size="16" font-weight="bold">Akira BYOVD Attack Flow</text>
+                    <text x="600" y="58" text-anchor="middle" fill="#9ca3af" font-size="11">Click components for details | Hybrid Testing Mode</text>
+
+                    <!-- Phase 1: Signature Detection -->
+                    <g class="component" data-phase="1" onclick="showPhaseDetails(1)">
+                        <rect class="component-box" x="50" y="120" width="220" height="120" rx="8"
+                              fill="url(#redGradient)" stroke="#ff4458" stroke-width="1" opacity="0.2"/>
+                        <text x="160" y="150" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Phase 1: Signature Test</text>
+                        <text x="160" y="172" text-anchor="middle" fill="#ff6b6b" font-size="11">REAL DRIVER</text>
+                        <text x="160" y="192" text-anchor="middle" fill="#9ca3af" font-size="11">Drop rwdrv.sys</text>
+                        <text x="160" y="210" text-anchor="middle" fill="#9ca3af" font-size="11">3 second detection window</text>
+                        <!-- Detection indicator -->
+                        <rect x="60" y="125" width="60" height="18" rx="4" fill="rgba(255,68,68,0.3)" stroke="#ff4444" stroke-width="1"/>
+                        <text x="90" y="137" text-anchor="middle" fill="#ff4444" font-size="9" font-weight="bold">REAL</text>
+                    </g>
+
+                    <!-- Phase 2: Safety Pivot -->
+                    <g class="component" data-phase="2" onclick="showPhaseDetails(2)">
+                        <rect class="component-box" x="330" y="120" width="220" height="120" rx="8"
+                              fill="url(#blueGradient)" stroke="#4fc3f7" stroke-width="1" opacity="0.2"/>
+                        <text x="440" y="150" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Phase 2: Safety Pivot</text>
+                        <text x="440" y="172" text-anchor="middle" fill="#4fc3f7" font-size="11">SIMULATED DRIVERS</text>
+                        <text x="440" y="192" text-anchor="middle" fill="#9ca3af" font-size="11">rwdrv.sys (15KB)</text>
+                        <text x="440" y="210" text-anchor="middle" fill="#9ca3af" font-size="11">hlpdrv.sys (24KB)</text>
+                        <!-- Safety indicator -->
+                        <rect x="340" y="125" width="70" height="18" rx="4" fill="rgba(79,195,247,0.3)" stroke="#4fc3f7" stroke-width="1"/>
+                        <text x="375" y="137" text-anchor="middle" fill="#4fc3f7" font-size="9" font-weight="bold">SIMULATED</text>
+                    </g>
+
+                    <!-- Phase 3: Service Creation -->
+                    <g class="component" data-phase="3" onclick="showPhaseDetails(3)">
+                        <rect class="component-box" x="610" y="120" width="220" height="120" rx="8"
+                              fill="url(#orangeGradient)" stroke="#ff9f43" stroke-width="1" opacity="0.2"/>
+                        <text x="720" y="150" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Phase 3: Service Creation</text>
+                        <text x="720" y="172" text-anchor="middle" fill="#ff9f43" font-size="11">KERNEL SERVICES</text>
+                        <text x="720" y="192" text-anchor="middle" fill="#9ca3af" font-size="11">mgdsrv (rwdrv.sys)</text>
+                        <text x="720" y="210" text-anchor="middle" fill="#9ca3af" font-size="11">KMHLPSVC (hlpdrv.sys)</text>
+                    </g>
+
+                    <!-- Phase 4: Defense Evasion -->
+                    <g class="component" data-phase="4" onclick="showPhaseDetails(4)">
+                        <rect class="component-box" x="890" y="120" width="220" height="120" rx="8"
+                              fill="url(#purpleGradient)" stroke="#9c27b0" stroke-width="1" opacity="0.2"/>
+                        <text x="1000" y="150" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">Phase 4: Defense Evasion</text>
+                        <text x="1000" y="172" text-anchor="middle" fill="#ba68c8" font-size="11">REGISTRY MANIPULATION</text>
+                        <text x="1000" y="192" text-anchor="middle" fill="#9ca3af" font-size="11">Disable Windows Defender</text>
+                        <text x="1000" y="210" text-anchor="middle" fill="#9ca3af" font-size="11">Tamper Protection Bypass</text>
+                    </g>
+
+                    <!-- Flow Arrows between phases -->
+                    <path d="M 270 180 L 330 180" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.6"/>
+                    <path d="M 550 180 L 610 180" stroke="#4fc3f7" stroke-width="2" fill="none" marker-end="url(#arrowheadBlue)" opacity="0.6"/>
+                    <path d="M 830 180 L 890 180" stroke="#ff9f43" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.6"/>
+
+                    <!-- Decision Diamond: Detection Check -->
+                    <g class="component" data-phase="decision1" onclick="showPhaseDetails('decision1')">
+                        <polygon class="component-box" points="160,280 210,330 160,380 110,330"
+                                 fill="rgba(255,193,7,0.2)" stroke="#ffc107" stroke-width="1"/>
+                        <text x="160" y="325" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="bold">Driver</text>
+                        <text x="160" y="340" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="bold">Detected?</text>
+                    </g>
+
+                    <!-- Arrow from Phase 1 to Decision -->
+                    <path d="M 160 240 L 160 280" stroke="#ff6b6b" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.6"/>
+
+                    <!-- Protected Exit (left from diamond) -->
+                    <g>
+                        <rect x="20" y="310" width="70" height="40" rx="6" fill="rgba(102, 187, 106, 0.2)" stroke="#66bb6a" stroke-width="1"/>
+                        <text x="55" y="327" text-anchor="middle" fill="#66bb6a" font-size="10" font-weight="bold">EXIT 105</text>
+                        <text x="55" y="342" text-anchor="middle" fill="#9ca3af" font-size="9">Protected</text>
+                    </g>
+                    <path d="M 110 330 L 90 330" stroke="#66bb6a" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.6"/>
+                    <text x="100" y="320" fill="#66bb6a" font-size="9">YES</text>
+
+                    <!-- Continue to Phase 2 (right from diamond) -->
+                    <path d="M 210 330 L 310 330 L 310 240 L 380 240" stroke="#ff6b6b" stroke-width="2" fill="none" stroke-dasharray="5,3" marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <text x="220" y="320" fill="#ff6b6b" font-size="9">NO</text>
+
+                    <!-- Decision Diamond: Services Created -->
+                    <g class="component" data-phase="decision2" onclick="showPhaseDetails('decision2')">
+                        <polygon class="component-box" points="720,280 770,330 720,380 670,330"
+                                 fill="rgba(255,159,67,0.2)" stroke="#ff9f43" stroke-width="1"/>
+                        <text x="720" y="325" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="bold">Services</text>
+                        <text x="720" y="340" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="bold">Created?</text>
+                    </g>
+
+                    <!-- Arrow from Phase 3 to Decision -->
+                    <path d="M 720 240 L 720 280" stroke="#ff9f43" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.6"/>
+
+                    <!-- Blocked Exit (left from second diamond) -->
+                    <g>
+                        <rect x="560" y="310" width="70" height="40" rx="6" fill="rgba(255, 159, 67, 0.2)" stroke="#ff9f43" stroke-width="1"/>
+                        <text x="595" y="327" text-anchor="middle" fill="#ff9f43" font-size="10" font-weight="bold">EXIT 126</text>
+                        <text x="595" y="342" text-anchor="middle" fill="#9ca3af" font-size="9">Blocked</text>
+                    </g>
+                    <path d="M 670 330 L 630 330" stroke="#ff9f43" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.6"/>
+                    <text x="650" y="320" fill="#ff9f43" font-size="9">NO</text>
+
+                    <!-- Continue to Phase 4 (down and right from diamond) -->
+                    <path d="M 770 330 L 850 330 L 850 240 L 890 240" stroke="#ff9f43" stroke-width="2" fill="none" stroke-dasharray="5,3" marker-end="url(#arrowhead)" opacity="0.5"/>
+                    <text x="780" y="320" fill="#66bb6a" font-size="9">YES</text>
+
+                    <!-- Final Outcome Decision -->
+                    <g class="component" data-phase="decision3" onclick="showPhaseDetails('decision3')">
+                        <polygon class="component-box" points="1000,280 1050,330 1000,380 950,330"
+                                 fill="rgba(156,39,176,0.2)" stroke="#9c27b0" stroke-width="1"/>
+                        <text x="1000" y="325" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="bold">Defender</text>
+                        <text x="1000" y="340" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="bold">Disabled?</text>
+                    </g>
+
+                    <!-- Arrow from Phase 4 to Final Decision -->
+                    <path d="M 1000 240 L 1000 280" stroke="#9c27b0" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.6"/>
+
+                    <!-- Unprotected Exit (right from final diamond) -->
+                    <g>
+                        <rect x="1090" y="310" width="70" height="40" rx="6" fill="rgba(255, 68, 68, 0.2)" stroke="#ff4444" stroke-width="1"/>
+                        <text x="1125" y="327" text-anchor="middle" fill="#ff4444" font-size="10" font-weight="bold">EXIT 101</text>
+                        <text x="1125" y="342" text-anchor="middle" fill="#9ca3af" font-size="9">Unprotected</text>
+                    </g>
+                    <path d="M 1050 330 L 1090 330" stroke="#ff4444" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.6"/>
+                    <text x="1060" y="320" fill="#ff4444" font-size="9">YES</text>
+
+                    <!-- Protected/Blocked Exit (down from final diamond) -->
+                    <g>
+                        <rect x="965" y="400" width="70" height="40" rx="6" fill="rgba(102, 187, 106, 0.2)" stroke="#66bb6a" stroke-width="1"/>
+                        <text x="1000" y="417" text-anchor="middle" fill="#66bb6a" font-size="10" font-weight="bold">EXIT 126</text>
+                        <text x="1000" y="432" text-anchor="middle" fill="#9ca3af" font-size="9">Protected</text>
+                    </g>
+                    <path d="M 1000 380 L 1000 400" stroke="#66bb6a" stroke-width="2" fill="none" marker-end="url(#arrowhead)" opacity="0.6"/>
+                    <text x="1010" y="390" fill="#66bb6a" font-size="9">NO</text>
+
+                    <!-- MITRE ATT&CK Indicators -->
+                    <rect x="50" y="460" width="500" height="60" rx="8" fill="rgba(0,0,0,0.4)" stroke="rgba(79,195,247,0.3)"/>
+                    <text x="70" y="482" fill="#4fc3f7" font-size="12" font-weight="bold">MITRE ATT&CK Techniques</text>
+                    <text x="70" y="502" fill="#9ca3af" font-size="11">T1068 - Exploitation for Privilege Escalation (BYOVD)</text>
+                    <text x="370" y="502" fill="#9ca3af" font-size="11">T1562.001 - Impair Defenses: Disable Tools</text>
+
+                    <!-- Execution Timeline -->
+                    <text x="160" y="450" fill="#9ca3af" font-size="10">T+0s</text>
+                    <text x="440" y="450" fill="#9ca3af" font-size="10">T+3s</text>
+                    <text x="720" y="450" fill="#9ca3af" font-size="10">T+5s</text>
+                    <text x="1000" y="450" fill="#9ca3af" font-size="10">T+10s</text>
+
+                    <!-- Progress Bar -->
+                    <rect x="50" y="530" width="1100" height="4" rx="2" fill="rgba(255,255,255,0.1)"/>
+                    <rect x="50" y="530" width="0" height="4" rx="2" fill="#ff6b6b" id="progressBar"/>
+                </svg>
+
+                <div class="stats-overlay">
+                    <div class="stat-mini">
+                        <span class="stat-mini-value">4</span>
+                        <span class="stat-mini-label">Phases</span>
+                    </div>
+                    <div class="stat-mini">
+                        <span class="stat-mini-value">8.9</span>
+                        <span class="stat-mini-label">Score</span>
+                    </div>
+                    <div class="stat-mini">
+                        <span class="stat-mini-value">Hybrid</span>
+                        <span class="stat-mini-label">Mode</span>
+                    </div>
+                </div>
+
+                <div class="nav-hint">
+                    <span class="nav-hint-icon">*</span>
+                    <span>Click any component to view detailed attack flow information</span>
+                </div>
+            </div>
+
+            <!-- Timeline View (Hidden by default) -->
+            <div class="timeline-view" id="timelineView">
+                <!-- Timeline items will be generated by JavaScript -->
+            </div>
+        </div>
+
+        <!-- Right Panel - Details (OPAQUE) -->
+        <div class="details-panel" id="detailsPanel">
+            <button class="close-details" onclick="closeDetails()">x</button>
+            <div id="detailsContent">
+                <!-- Details will be populated dynamically -->
+            </div>
+        </div>
+
+        <!-- Sidebar Toggle Button -->
+        <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" title="Toggle details panel">
+            <span class="toggle-icon"><</span>
+        </button>
+    </div>
+
+    <script>
+        // Phase data with MITRE links
+        const phaseData = {
+            1: {
+                number: 1,
+                title: "Signature Detection Test",
+                severity: "critical",
+                mitre: [
+                    { id: "T1068", name: "Exploitation for Privilege Escalation" }
+                ],
+                status: "real",
+                time: "T+0s",
+                description: "Drops the REAL vulnerable rwdrv.sys driver to test signature-based detection capabilities. This phase uses an actual malicious binary for maximum detection fidelity.",
+                actions: [
+                    {
+                        title: "Real Driver Deployment",
+                        details: [
+                            "Drop embedded rwdrv.sys to C:\\F0",
+                            "Real vulnerable ThrottleStop driver",
+                            "Known malicious signature for AV detection",
+                            "3-second monitoring window for quarantine"
+                        ]
+                    },
+                    {
+                        title: "Detection Checkpoint",
+                        details: [
+                            "Monitor for file quarantine",
+                            "Check if AV/EDR detected signature",
+                            "If quarantined: EXIT 105 (Protected)",
+                            "If not detected: Remove and continue to Phase 2"
+                        ]
+                    },
+                    {
+                        title: "Safety Mechanism",
+                        details: [
+                            "Real driver removed immediately after test",
+                            "Maximum 3 second exposure window",
+                            "Automatic cleanup on detection or timeout"
+                        ]
+                    }
+                ],
+                code: "// Drop real vulnerable driver for signature detection\nerr := dropRealVulnerableDriver(targetDir)\nEndpoint.Say(\"Monitoring for signature-based detection (3 seconds)\")\nEndpoint.Wait(3)\n\nif !Endpoint.Exists(realDriverPath) {\n    Endpoint.Say(\"System is PROTECTED - signature detection working\")\n    Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)\n}"
+            },
+            2: {
+                number: 2,
+                title: "Safety Pivot - Simulated Drivers",
+                severity: "high",
+                mitre: [
+                    { id: "T1068", name: "Exploitation for Privilege Escalation" }
+                ],
+                status: "simulated",
+                time: "T+3s",
+                description: "Switches to SIMULATED drivers for safe behavioral testing. Real driver is removed and replaced with safe dummy files that mimic driver characteristics without actual exploit capability.",
+                actions: [
+                    {
+                        title: "Real Driver Removal",
+                        details: [
+                            "Remove real rwdrv.sys for safety",
+                            "Verify complete removal",
+                            "Log safety pivot action"
+                        ]
+                    },
+                    {
+                        title: "Simulated Driver Creation",
+                        details: [
+                            "Create rwdrv.sys (15,360 bytes) - ThrottleStop simulation",
+                            "Create hlpdrv.sys (24,576 bytes) - Helper driver simulation",
+                            "MZ header only - no actual driver code",
+                            "Safe for behavioral detection testing"
+                        ]
+                    },
+                    {
+                        title: "Behavioral Detection Check",
+                        details: [
+                            "Monitor for behavioral/heuristic quarantine",
+                            "Check file existence after 2 seconds",
+                            "If quarantined: EXIT 105 (Protected)"
+                        ]
+                    }
+                ],
+                code: "// Remove real driver for safety\nremoveRealVulnerableDriver(targetDir)\n\n// Drop simulated drivers for behavioral testing\nsimulateDriverDrop(targetDir, \"rwdrv.sys\", 15360)\nsimulateDriverDrop(targetDir, \"hlpdrv.sys\", 24576)\n\nEndpoint.Wait(2)\nif !Endpoint.Exists(rwdrvPath) || !Endpoint.Exists(hlpdrvPath) {\n    Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)\n}"
+            },
+            3: {
+                number: 3,
+                title: "Kernel Service Creation",
+                severity: "high",
+                mitre: [
+                    { id: "T1068", name: "Exploitation for Privilege Escalation" }
+                ],
+                status: "actual",
+                time: "T+5s",
+                description: "Creates Windows kernel services pointing to the simulated driver files. This tests EDR detection of suspicious service registration patterns used by BYOVD attacks.",
+                actions: [
+                    {
+                        title: "mgdsrv Service Creation",
+                        details: [
+                            "Service name: mgdsrv",
+                            "Display name: Malicious Guard Driver Service",
+                            "Binary path: C:\\F0\\rwdrv.sys",
+                            "Type: kernel, Start: demand"
+                        ]
+                    },
+                    {
+                        title: "KMHLPSVC Service Creation",
+                        details: [
+                            "Service name: KMHLPSVC",
+                            "Display name: Kernel Mode Helper Service",
+                            "Binary path: C:\\F0\\hlpdrv.sys",
+                            "Type: kernel, Start: demand"
+                        ]
+                    },
+                    {
+                        title: "Detection Indicators",
+                        details: [
+                            "Event ID 7045: Service installation",
+                            "Suspicious service names",
+                            "Non-standard driver locations",
+                            "If blocked: EXIT 126 (Execution Prevented)"
+                        ]
+                    }
+                ],
+                code: "// Create kernel services for driver loading\ncmd := exec.Command(\"sc\", \"create\", \"mgdsrv\",\n    \"binPath=\", rwdrvPath,\n    \"DisplayName=\", \"Malicious Guard Driver Service\",\n    \"type=\", \"kernel\",\n    \"start=\", \"demand\")\n\ncmd = exec.Command(\"sc\", \"create\", \"KMHLPSVC\",\n    \"binPath=\", hlpdrvPath,\n    \"DisplayName=\", \"Kernel Mode Helper Service\",\n    \"type=\", \"kernel\",\n    \"start=\", \"demand\")"
+            },
+            4: {
+                number: 4,
+                title: "Defense Evasion - Registry Manipulation",
+                severity: "critical",
+                mitre: [
+                    { id: "T1562.001", name: "Impair Defenses: Disable or Modify Tools" }
+                ],
+                status: "actual",
+                time: "T+10s",
+                description: "Executes PowerShell script to manipulate Windows Defender registry settings. This simulates the defense evasion tactics used by Akira ransomware to disable security controls.",
+                actions: [
+                    {
+                        title: "PowerShell Script Deployment",
+                        details: [
+                            "Drop defender_disable.ps1 to C:\\F0",
+                            "Execute with -ExecutionPolicy Bypass",
+                            "Hidden window execution",
+                            "Administrator privileges required"
+                        ]
+                    },
+                    {
+                        title: "Registry Targets",
+                        details: [
+                            "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows Defender",
+                            "Set DisableAntiSpyware = 1",
+                            "Attempt TamperProtection bypass",
+                            "Disable Real-Time Monitoring"
+                        ]
+                    },
+                    {
+                        title: "Outcome Determination",
+                        details: [
+                            "Read status.txt for result",
+                            "DEFENDER_DISABLED: EXIT 101 (Unprotected)",
+                            "ACCESS_DENIED: EXIT 126 (Protected)",
+                            "Verify registry value set correctly"
+                        ]
+                    }
+                ],
+                code: "// Execute PowerShell script to disable Defender\ncmd := exec.Command(\"powershell.exe\",\n    \"-ExecutionPolicy\", \"Bypass\",\n    \"-WindowStyle\", \"Hidden\",\n    \"-File\", scriptPath)\n\n// Check result status\nif strings.Contains(status, \"DEFENDER_DISABLED\") {\n    Endpoint.Stop(Endpoint.Unprotected)  // EXIT 101\n} else if strings.Contains(status, \"ACCESS_DENIED\") {\n    Endpoint.Stop(Endpoint.ExecutionPrevented)  // EXIT 126\n}"
+            },
+            decision1: {
+                number: "D1",
+                title: "Signature Detection Decision",
+                severity: "info",
+                mitre: [],
+                status: "checkpoint",
+                time: "T+3s",
+                description: "Critical decision point: Was the real vulnerable driver detected by signature-based scanning?",
+                actions: [
+                    {
+                        title: "Detection Check",
+                        details: [
+                            "Check if rwdrv.sys still exists at C:\\F0",
+                            "File missing = quarantined by AV/EDR",
+                            "File present = signature detection failed"
+                        ]
+                    },
+                    {
+                        title: "Outcomes",
+                        details: [
+                            "YES (Detected): EXIT 105 - System Protected",
+                            "NO (Not Detected): Continue to Phase 2 with safety pivot"
+                        ]
+                    }
+                ],
+                code: "// Decision: Was the real driver detected?\nif !Endpoint.Exists(realDriverPath) {\n    // YES - Signature detection working\n    Endpoint.Stop(Endpoint.FileQuarantinedOnExtraction)\n}\n// NO - Continue with simulated drivers"
+            },
+            decision2: {
+                number: "D2",
+                title: "Service Creation Decision",
+                severity: "info",
+                mitre: [],
+                status: "checkpoint",
+                time: "T+7s",
+                description: "Decision point: Were the kernel services successfully created or blocked by EDR?",
+                actions: [
+                    {
+                        title: "Service Check",
+                        details: [
+                            "Verify sc create command succeeded",
+                            "Check for access denied errors",
+                            "Verify both services registered"
+                        ]
+                    },
+                    {
+                        title: "Outcomes",
+                        details: [
+                            "YES (Created): Continue to Phase 4",
+                            "NO (Blocked): EXIT 126 - Execution Prevented"
+                        ]
+                    }
+                ],
+                code: "// Decision: Were services created?\nif err := createService(\"mgdsrv\", ...); err != nil {\n    // NO - Service creation blocked\n    Endpoint.Stop(Endpoint.ExecutionPrevented)\n}\n// YES - Continue to registry manipulation"
+            },
+            decision3: {
+                number: "D3",
+                title: "Final Outcome Decision",
+                severity: "info",
+                mitre: [],
+                status: "checkpoint",
+                time: "T+15s",
+                description: "Final decision point: Was Windows Defender successfully disabled via registry manipulation?",
+                actions: [
+                    {
+                        title: "Registry Verification",
+                        details: [
+                            "Read status.txt from PowerShell script",
+                            "Check DisableAntiSpyware registry value",
+                            "Verify tamper protection state"
+                        ]
+                    },
+                    {
+                        title: "Final Outcomes",
+                        details: [
+                            "DEFENDER_DISABLED: EXIT 101 - System Unprotected",
+                            "ACCESS_DENIED: EXIT 126 - System Protected",
+                            "Other errors: EXIT 126 - Execution Prevented"
+                        ]
+                    }
+                ],
+                code: "// Final Decision: Was Defender disabled?\nstatus := readStatusFile(statusFilePath)\n\nif strings.Contains(status, \"DEFENDER_DISABLED\") {\n    Endpoint.Stop(Endpoint.Unprotected)  // 101\n} else {\n    Endpoint.Stop(Endpoint.ExecutionPrevented)  // 126\n}"
+            }
+        };
+
+        // Current active phase
+        let currentPhase = null;
+
+        // Sidebar toggle state
+        var sidebarCollapsed = false;
+        function toggleSidebar() {
+            var detailsPanel = document.getElementById('detailsPanel');
+            var toggleBtn = document.getElementById('sidebarToggle');
+
+            sidebarCollapsed = !sidebarCollapsed;
+
+            if (sidebarCollapsed) {
+                detailsPanel.classList.add('collapsed');
+                toggleBtn.classList.remove('expanded');
+                toggleBtn.classList.add('collapsed');
+            } else {
+                detailsPanel.classList.remove('collapsed');
+                if (detailsPanel.classList.contains('active')) {
+                    toggleBtn.classList.add('expanded');
+                }
+                toggleBtn.classList.remove('collapsed');
+            }
+        }
+
+        // Function to create MITRE links
+        function createMitreLinks(mitreArray) {
+            if (!mitreArray || mitreArray.length === 0) {
+                return '<span style="color: #6b7280;">N/A</span>';
+            }
+            return mitreArray.map(function(technique) {
+                var baseUrl = "https://attack.mitre.org/techniques/";
+                var techId = technique.id.replace('.', '/');
+                return '<a href="' + baseUrl + techId + '" target="_blank" class="mitre-link" title="' + technique.name + '">' + technique.id + '</a>';
+            }).join(', ');
+        }
+
+        // Initialize timeline view
+        function initializeTimeline() {
+            var timelineView = document.getElementById('timelineView');
+            var html = '';
+
+            var phases = [1, 2, 3, 4];
+            phases.forEach(function(i) {
+                var phase = phaseData[i];
+                var severityColor = getSeverityColor(phase.severity);
+                var mitreText = phase.mitre.map(function(t) { return t.id; }).join(', ') || 'N/A';
+                var statusLabel = phase.status === 'real' ? 'REAL' : (phase.status === 'simulated' ? 'SIMULATED' : 'ACTUAL');
+
+                html += '<div class="timeline-item" onclick="showPhaseDetails(' + i + ')">' +
+                    '<div class="timeline-number" style="border-color: ' + severityColor + '; color: ' + severityColor + ';">' +
+                        i +
+                    '</div>' +
+                    '<div class="timeline-content">' +
+                        '<div class="timeline-title">' + phase.title + '</div>' +
+                        '<div class="timeline-meta">' +
+                            phase.time + ' | ' + mitreText + ' | ' + statusLabel +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+            });
+
+            timelineView.innerHTML = html;
+        }
+
+        // Show phase details
+        function showPhaseDetails(phaseNum) {
+            currentPhase = phaseNum;
+            var phase = phaseData[phaseNum];
+            var detailsPanel = document.getElementById('detailsPanel');
+            var detailsContent = document.getElementById('detailsContent');
+
+            // Update active states
+            document.querySelectorAll('.component').forEach(function(comp) {
+                comp.classList.remove('active');
+            });
+            document.querySelectorAll('.timeline-item').forEach(function(item) {
+                item.classList.remove('active');
+            });
+
+            // Add active state to clicked component
+            var activeComponent = document.querySelector('.component[data-phase="' + phaseNum + '"]');
+            if (activeComponent) {
+                activeComponent.classList.add('active');
+            }
+
+            // Add active state to timeline item (only for numbered phases)
+            if (typeof phaseNum === 'number') {
+                var timelineItems = document.querySelectorAll('.timeline-item');
+                if (timelineItems[phaseNum - 1]) {
+                    timelineItems[phaseNum - 1].classList.add('active');
+                }
+            }
+
+            // Generate details HTML
+            var severityColor = getSeverityColor(phase.severity);
+            var actionsHtml = '';
+
+            phase.actions.forEach(function(action) {
+                var detailsHtml = action.details.map(function(detail) {
+                    return '<li>' + detail + '</li>';
+                }).join('');
+                actionsHtml += '<div class="action-item">' +
+                    '<div class="action-title">' + action.title + '</div>' +
+                    '<ul class="action-details">' + detailsHtml + '</ul>' +
+                '</div>';
+            });
+
+            var mitreLinks = createMitreLinks(phase.mitre);
+
+            // Status indicator
+            var statusHtml = '';
+            if (phase.status === 'real') {
+                statusHtml = '<span class="safety-indicator real">REAL BINARY</span>';
+            } else if (phase.status === 'simulated') {
+                statusHtml = '<span class="safety-indicator simulated">SIMULATED</span>';
+            } else if (phase.status === 'actual') {
+                statusHtml = '<span style="color: #ff9f43;">Actual Execution</span>';
+            } else {
+                statusHtml = '<span style="color: #4fc3f7;">Checkpoint</span>';
+            }
+
+            detailsContent.innerHTML = '<div class="details-header">' +
+                '<div class="details-phase-number" style="border-color: ' + severityColor + '; color: ' + severityColor + ';">' +
+                    phase.number +
+                '</div>' +
+                '<h2 class="details-title">' + phase.title + '</h2>' +
+                '<span class="severity-badge ' + phase.severity + '">' + phase.severity.toUpperCase() + '</span>' +
+                '<div class="details-meta">' +
+                    '<div class="meta-item">' +
+                        '<span class="meta-label">MITRE:</span>' +
+                        '<span class="meta-value">' + mitreLinks + '</span>' +
+                    '</div>' +
+                    '<div class="meta-item">' +
+                        '<span class="meta-label">Time:</span>' +
+                        '<span class="meta-value">' + phase.time + '</span>' +
+                    '</div>' +
+                    '<div class="meta-item">' +
+                        '<span class="meta-label">Status:</span>' +
+                        '<span class="meta-value">' + statusHtml + '</span>' +
+                    '</div>' +
+                '</div>' +
+            '</div>' +
+            '<div class="details-section">' +
+                '<p style="color: #9ca3af; margin-bottom: 20px;">' + phase.description + '</p>' +
+            '</div>' +
+            '<div class="details-section">' +
+                '<h3 class="section-title">' +
+                    '<span>@</span>' +
+                    '<span>Actions Performed</span>' +
+                '</h3>' +
+                '<div class="action-list">' + actionsHtml + '</div>' +
+            '</div>' +
+            (phase.code ? '<div class="details-section">' +
+                '<h3 class="section-title">' +
+                    '<span>#</span>' +
+                    '<span>Code Preview</span>' +
+                '</h3>' +
+                '<div class="code-preview">' +
+                    phase.code.split('\n').map(function(line) {
+                        if (line.trim().startsWith('//')) {
+                            return '<div class="code-line code-comment">' + escapeHtml(line) + '</div>';
+                        } else if (line.includes(':=') || line.includes('=')) {
+                            return '<div class="code-line">' + escapeHtml(line) + '</div>';
+                        } else {
+                            return '<div class="code-line">' + escapeHtml(line) + '</div>';
+                        }
+                    }).join('') +
+                '</div>' +
+            '</div>' : '');
+
+            // Show details panel
+            detailsPanel.classList.add('active');
+
+            // Update progress bar
+            if (typeof phaseNum === 'number') {
+                updateProgressBar(phaseNum);
+            }
+
+            // Position toggle button with sidebar
+            var toggleBtn = document.getElementById('sidebarToggle');
+            if (!sidebarCollapsed) {
+                toggleBtn.classList.add('expanded');
+            }
+        }
+
+        // Escape HTML for code display
+        function escapeHtml(text) {
+            var div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Close details panel
+        function closeDetails() {
+            document.getElementById('detailsPanel').classList.remove('active');
+            document.querySelectorAll('.component').forEach(function(comp) {
+                comp.classList.remove('active');
+            });
+            document.querySelectorAll('.timeline-item').forEach(function(item) {
+                item.classList.remove('active');
+            });
+
+            // Reset toggle button position
+            var toggleBtn = document.getElementById('sidebarToggle');
+            toggleBtn.classList.remove('expanded');
+        }
+
+        // Switch view
+        function switchView(view) {
+            // Update button states
+            document.querySelectorAll('.view-btn').forEach(function(btn) {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            // Hide all views
+            document.getElementById('attackFlowView').style.display = 'none';
+            document.getElementById('timelineView').classList.remove('active');
+
+            // Show selected view
+            if (view === 'architecture') {
+                document.getElementById('attackFlowView').style.display = 'block';
+            } else if (view === 'timeline') {
+                document.getElementById('timelineView').classList.add('active');
+            }
+        }
+
+        // Get severity color
+        function getSeverityColor(severity) {
+            switch(severity) {
+                case 'critical': return '#ff4444';
+                case 'high': return '#ff9f43';
+                case 'medium': return '#ffc107';
+                case 'info': return '#4fc3f7';
+                default: return '#9ca3af';
+            }
+        }
+
+        // Update progress bar
+        function updateProgressBar(phaseNum) {
+            var progressBar = document.getElementById('progressBar');
+            var width = (phaseNum / 4) * 1100;
+            progressBar.style.width = width + 'px';
+            progressBar.style.transition = 'width 0.5s ease';
+        }
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeTimeline();
+
+            // Sidebar starts expanded - show phase 1 details
+            sidebarCollapsed = false;
+            setTimeout(function() {
+                showPhaseDetails(1);
+            }, 500);
+        });
+
+        // Keyboard navigation
+        document.addEventListener('keydown', function(e) {
+            if (currentPhase && typeof currentPhase === 'number') {
+                if (e.key === 'ArrowRight' && currentPhase < 4) {
+                    showPhaseDetails(currentPhase + 1);
+                } else if (e.key === 'ArrowLeft' && currentPhase > 1) {
+                    showPhaseDetails(currentPhase - 1);
+                } else if (e.key === 'Escape') {
+                    closeDetails();
+                }
+            }
+        });
+    </script>
+</body>
+</html>

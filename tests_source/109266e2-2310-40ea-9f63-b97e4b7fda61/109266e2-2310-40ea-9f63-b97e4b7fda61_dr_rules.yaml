@@ -1,0 +1,594 @@
+# ============================================================================
+# DEFENSE GUIDANCE: LimaCharlie Detection & Response Rules
+# ============================================================================
+# Test ID: 109266e2-2310-40ea-9f63-b97e4b7fda61
+# Test Name: SafePay Enhanced Ransomware Simulation & Mass Data Operations
+# MITRE ATT&CK: T1486, T1560.001, T1071.001, T1490, T1083, T1005
+# Created: 2025-12-07
+# Author: F0RT1KA Defense Guidance Builder
+# Format: LimaCharlie file format (for limacharlie dr add)
+# ============================================================================
+#
+# TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+# These D&R rules detect real-world ransomware behaviors including:
+# - Mass file encryption with custom extensions
+# - Data staging via WinRAR/archive utilities
+# - PowerShell execution with bypass flags
+# - Ransom note creation and display
+# - Corporate directory structure creation
+#
+# DEPLOYMENT:
+#   limacharlie dr add -f 109266e2-2310-40ea-9f63-b97e4b7fda61_dr_rules.yaml
+#
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # RULE 1: SafePay Ransomware Script Execution
+  # Purpose: Detect execution of SafePay ransomware PowerShell scripts
+  # Confidence: CRITICAL
+  # ==========================================================================
+  safepay-ransomware-script-execution:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # PowerShell execution
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\powershell.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\pwsh.exe"
+        # Execution policy bypass
+        - op: contains
+          path: event/COMMAND_LINE
+          value: "Bypass"
+        # SafePay indicators
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "safepay"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "ransomware_sim"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "C:\\F0\\"
+
+    respond:
+      - action: report
+        name: SafePay Ransomware Script Execution Detected
+        metadata:
+          severity: critical
+          mitre_attack: T1486, T1059.001
+          confidence: critical
+          description: PowerShell script matching SafePay ransomware pattern executed
+          investigation: Immediately isolate host, capture memory, review file activity
+
+      - action: task
+        command: history_dump
+        investigation: SafePay-Ransomware-Execution
+
+      # Optional: Terminate the malicious process
+      # Uncomment for automatic remediation
+      # - action: task
+      #   command: deny_tree
+
+
+  # ==========================================================================
+  # RULE 2: Mass File Encryption Detection (.safepay Extension)
+  # Purpose: Detect creation of files with ransomware extensions
+  # Confidence: CRITICAL
+  # ==========================================================================
+  safepay-file-encryption:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        # SafePay encrypted file extension
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".safepay"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".encrypted"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".locked"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".crypted"
+        # Exclude test artifacts directory for clean alerts
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\F0\\"
+          not: true
+
+    respond:
+      - action: report
+        name: Ransomware File Encryption Detected - SafePay Extension
+        metadata:
+          severity: critical
+          mitre_attack: T1486
+          confidence: critical
+          description: File created with ransomware encryption extension (.safepay, .encrypted, etc.)
+          investigation: Active ransomware encryption in progress - immediate containment required
+
+      - action: task
+        command: history_dump
+        investigation: Ransomware-Encryption-Active
+
+
+  # ==========================================================================
+  # RULE 3: Ransom Note Creation Detection
+  # Purpose: Detect creation of ransomware ransom notes
+  # Confidence: CRITICAL
+  # ==========================================================================
+  ransom-note-creation:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        # Ransom note file patterns
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "readme_safepay"
+            - op: contains
+              path: event/FILE_PATH
+              value: "HOW_TO_DECRYPT"
+            - op: contains
+              path: event/FILE_PATH
+              value: "DECRYPT_INSTRUCTION"
+            - op: contains
+              path: event/FILE_PATH
+              value: "RANSOM_NOTE"
+            - op: contains
+              path: event/FILE_PATH
+              value: "YOUR_FILES_ARE_ENCRYPTED"
+        # Text file extension
+        - op: ends with
+          path: event/FILE_PATH
+          value: ".txt"
+
+    respond:
+      - action: report
+        name: Ransomware Ransom Note Created
+        metadata:
+          severity: critical
+          mitre_attack: T1486
+          confidence: critical
+          description: Ransom note file created - ransomware attack confirmed
+          investigation: Encryption likely complete, begin incident response procedures
+
+      - action: task
+        command: history_dump
+        investigation: Ransom-Note-Created
+
+
+  # ==========================================================================
+  # RULE 4: WinRAR Data Staging Detection
+  # Purpose: Detect WinRAR execution for data staging/exfiltration
+  # Confidence: HIGH
+  # ==========================================================================
+  winrar-data-staging:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # WinRAR execution
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\WinRAR.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\rar.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\Rar.exe"
+        # Suspicious indicators
+        - op: or
+          rules:
+            # Dropped to suspicious location
+            - op: starts with
+              path: event/FILE_PATH
+              value: "C:\\F0\\"
+            # Exfiltration naming
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "EXFIL"
+            # Volume splitting (data staging)
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-v100m"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-v500m"
+            # High compression with multi-thread
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-m5"
+
+    respond:
+      - action: report
+        name: WinRAR Data Staging Activity Detected
+        metadata:
+          severity: high
+          mitre_attack: T1560.001
+          confidence: high
+          description: WinRAR executed with data staging/exfiltration indicators
+          investigation: Review archive creation, check for multi-phase compression
+
+      - action: task
+        command: history_dump
+        investigation: WinRAR-Data-Staging
+
+
+  # ==========================================================================
+  # RULE 5: Executable Dropped to C:\F0 (F0RT1KA Test Directory)
+  # Purpose: Detect binaries dropped to F0RT1KA test directory
+  # Confidence: HIGH
+  # ==========================================================================
+  executable-dropped-to-f0:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        # F0 directory
+        - op: starts with
+          path: event/FILE_PATH
+          value: "C:\\F0\\"
+        # Executable extensions
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".dll"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".ps1"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".bat"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".cmd"
+
+    respond:
+      - action: report
+        name: Executable Dropped to F0RT1KA Test Directory
+        metadata:
+          severity: high
+          mitre_attack: T1105
+          confidence: high
+          description: Executable file created in C:\F0 directory - potential security test or attack
+          investigation: Verify if authorized F0RT1KA test, otherwise investigate as threat
+
+
+  # ==========================================================================
+  # RULE 6: Mass File Creation in User Directories
+  # Purpose: Detect rapid file creation in user directories (preparation phase)
+  # Confidence: MEDIUM
+  # Note: This rule may generate more events, tune threshold as needed
+  # ==========================================================================
+  mass-file-creation-user-dirs:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        # User directory paths
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Users\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Documents\\"
+            - op: contains
+              path: event/FILE_PATH
+              value: "\\Desktop\\"
+        # Document file types
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".docx"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".xlsx"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".pdf"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".txt"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".csv"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".sql"
+        # Corporate naming patterns
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "_Report_"
+            - op: contains
+              path: event/FILE_PATH
+              value: "_Contract_"
+            - op: contains
+              path: event/FILE_PATH
+              value: "_Database_"
+            - op: contains
+              path: event/FILE_PATH
+              value: "Finance_"
+            - op: contains
+              path: event/FILE_PATH
+              value: "HR_"
+            - op: contains
+              path: event/FILE_PATH
+              value: "Legal_"
+
+    respond:
+      - action: report
+        name: Mass Corporate File Creation Detected
+        metadata:
+          severity: medium
+          mitre_attack: T1005
+          confidence: medium
+          description: Multiple corporate-named files created in user directory - possible ransomware preparation
+          investigation: Check if legitimate activity or ransomware test data creation
+
+
+  # ==========================================================================
+  # RULE 7: Mass File Deletion Activity
+  # Purpose: Detect bulk file deletion characteristic of ransomware
+  # Confidence: HIGH
+  # ==========================================================================
+  mass-file-deletion:
+    detect:
+      target: edr
+      event: FILE_DELETE
+      op: and
+      rules:
+        # User directories
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\Users\\"
+        # Document file types being deleted
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".docx"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".xlsx"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".pdf"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".txt"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".csv"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".sql"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".bak"
+        # Not in F0 test directory
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\F0\\"
+          not: true
+
+    respond:
+      - action: report
+        name: Mass File Deletion Activity Detected
+        metadata:
+          severity: high
+          mitre_attack: T1490
+          confidence: high
+          description: Bulk deletion of document files in user directory - potential ransomware data destruction
+
+
+  # ==========================================================================
+  # RULE 8: Notepad Ransom Note Display
+  # Purpose: Detect notepad being used to display ransom notes
+  # Confidence: HIGH
+  # ==========================================================================
+  notepad-ransom-note-display:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # Notepad execution
+        - op: ends with
+          path: event/FILE_PATH
+          value: "\\notepad.exe"
+        # Ransom note in command line
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "readme_safepay"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "RANSOM"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "DECRYPT"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "safepay"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "HOW_TO"
+
+    respond:
+      - action: report
+        name: Ransom Note Display via Notepad Detected
+        metadata:
+          severity: critical
+          mitre_attack: T1486
+          confidence: high
+          description: Notepad launched to display ransomware ransom note - attack likely complete
+
+
+  # ==========================================================================
+  # RULE 9: PowerShell Execution Policy Bypass
+  # Purpose: Detect PowerShell with execution policy bypass from suspicious paths
+  # Confidence: HIGH
+  # ==========================================================================
+  powershell-bypass-suspicious:
+    detect:
+      target: edr
+      event: NEW_PROCESS
+      op: and
+      rules:
+        # PowerShell execution
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\powershell.exe"
+            - op: ends with
+              path: event/FILE_PATH
+              value: "\\pwsh.exe"
+        # Execution policy bypass
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-ExecutionPolicy Bypass"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-ep bypass"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "-exec bypass"
+        # Script from suspicious location or with suspicious name
+        - op: or
+          rules:
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "C:\\F0\\"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "encrypt"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "ransom"
+            - op: contains
+              path: event/COMMAND_LINE
+              value: "_sim"
+
+    respond:
+      - action: report
+        name: PowerShell Execution Bypass with Suspicious Script
+        metadata:
+          severity: high
+          mitre_attack: T1059.001
+          confidence: high
+          description: PowerShell executed with bypass flag and suspicious script indicators
+
+
+  # ==========================================================================
+  # RULE 10: Archive File Creation in User Directory (Data Staging)
+  # Purpose: Detect archive files being created in user directories
+  # Confidence: MEDIUM
+  # ==========================================================================
+  archive-creation-user-directory:
+    detect:
+      target: edr
+      event: FILE_CREATE
+      op: and
+      rules:
+        # User directory
+        - op: contains
+          path: event/FILE_PATH
+          value: "\\Users\\"
+        # Archive extensions
+        - op: or
+          rules:
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".rar"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".zip"
+            - op: ends with
+              path: event/FILE_PATH
+              value: ".7z"
+        # Suspicious naming
+        - op: or
+          rules:
+            - op: contains
+              path: event/FILE_PATH
+              value: "EXFIL"
+            - op: contains
+              path: event/FILE_PATH
+              value: "_Archive_"
+            - op: contains
+              path: event/FILE_PATH
+              value: "_Data_"
+            - op: contains
+              path: event/FILE_PATH
+              value: "_Master_"
+            - op: contains
+              path: event/FILE_PATH
+              value: "Finance"
+            - op: contains
+              path: event/FILE_PATH
+              value: "HR"
+            - op: contains
+              path: event/FILE_PATH
+              value: "Legal"
+
+    respond:
+      - action: report
+        name: Suspicious Archive Creation in User Directory
+        metadata:
+          severity: medium
+          mitre_attack: T1560.001
+          confidence: medium
+          description: Archive file with suspicious naming created in user directory - potential data staging
+
+
+# ============================================================================
+# OUTPUTS CONFIGURATION (for test results collection)
+# ============================================================================
+# Note: These outputs are for collecting F0RT1KA test results. Include if
+# deploying full F0RT1KA infrastructure.
+
+outputs:
+  safepay-ransomware-detections:
+    module: syslog
+    for: detections
+    host: siem.example.com
+    port: 514

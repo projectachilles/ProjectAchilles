@@ -1,0 +1,650 @@
+// ============================================================
+// F0RT1KA Detection Queries - Microsoft Sentinel / Defender
+// Test ID: eafce2fc-75fd-4c62-92dc-32cabe5cf206
+// Test Name: Tailscale Remote Access and Data Exfiltration
+// MITRE ATT&CK: T1105, T1219, T1543.003, T1021.004, T1041
+// Author: F0RT1KA Defense Guidance Builder
+// Date: 2025-12-07
+// ============================================================
+
+// ============================================================
+// STAGE 1: T1105 - Ingress Tool Transfer
+// Detection: Tailscale MSI Download or Extraction
+// Confidence: High
+// ============================================================
+// Purpose: Detects download or extraction of Tailscale MSI installer
+// False Positives: Legitimate IT software deployments
+// Threshold: Any occurrence warrants investigation
+// ============================================================
+
+// Query 1.1: Tailscale MSI File Creation
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where FileName endswith ".msi" and FileName contains "tailscale"
+| extend
+    Severity = "High",
+    ThreatType = "Ingress Tool Transfer",
+    MitreAttack = "T1105",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "Tailscale MSI Creation"
+| project
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    FolderPath,
+    FileSize,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// Query 1.2: File Creation in C:\F0 Directory (F0RT1KA Test Artifacts)
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where FolderPath startswith "C:\\F0\\"
+| where FileName endswith ".exe" or FileName endswith ".msi" or FileName endswith ".zip"
+| extend
+    Severity = "High",
+    ThreatType = "F0RT1KA Test Artifact",
+    MitreAttack = "T1105",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "F0RT1KA Test File Drop"
+| project
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    FolderPath,
+    FileSize,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// Query 1.3: Download from Tailscale Infrastructure
+DeviceNetworkEvents
+| where RemoteUrl contains "tailscale.com" or RemoteUrl contains "pkgs.tailscale.com"
+| where RemotePort == 443
+| where InitiatingProcessFileName !in ("chrome.exe", "firefox.exe", "msedge.exe", "explorer.exe")
+| extend
+    Severity = "Medium",
+    ThreatType = "Remote Access Tool Download",
+    MitreAttack = "T1105",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "Tailscale Download Activity"
+| project
+    TimeGenerated,
+    DeviceName,
+    RemoteUrl,
+    RemoteIP,
+    RemotePort,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// ============================================================
+// STAGE 2: T1543.003 - Windows Service Installation
+// Detection: OpenSSH Service Installation
+// Confidence: High
+// ============================================================
+// Purpose: Detects manual installation of OpenSSH Server
+// False Positives: IT administrators deploying SSH for management
+// Threshold: Requires context - legitimate in managed environments
+// ============================================================
+
+// Query 2.1: OpenSSH Installation via PowerShell
+DeviceProcessEvents
+| where ProcessCommandLine has "Add-WindowsCapability" and ProcessCommandLine has "OpenSSH"
+| extend
+    Severity = "High",
+    ThreatType = "Service Installation",
+    MitreAttack = "T1543.003",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "OpenSSH Capability Installation"
+| project
+    TimeGenerated,
+    DeviceName,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    AccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// Query 2.2: OpenSSH ZIP Extraction to Program Files
+DeviceProcessEvents
+| where ProcessCommandLine has "Expand-Archive" and ProcessCommandLine has "OpenSSH"
+| extend
+    Severity = "High",
+    ThreatType = "Manual OpenSSH Installation",
+    MitreAttack = "T1543.003",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "OpenSSH Manual Installation"
+| project
+    TimeGenerated,
+    DeviceName,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    AccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// Query 2.3: install-sshd.ps1 Execution
+DeviceProcessEvents
+| where ProcessCommandLine has "install-sshd.ps1"
+| extend
+    Severity = "High",
+    ThreatType = "SSH Service Installation Script",
+    MitreAttack = "T1543.003",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "OpenSSH Service Installation Script"
+| project
+    TimeGenerated,
+    DeviceName,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    AccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// Query 2.4: SSH Firewall Rule Creation
+DeviceProcessEvents
+| where ProcessCommandLine has "New-NetFirewallRule" and ProcessCommandLine has "22"
+| extend
+    Severity = "Medium",
+    ThreatType = "Firewall Modification",
+    MitreAttack = "T1543.003",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "SSH Firewall Rule Creation"
+| project
+    TimeGenerated,
+    DeviceName,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    AccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// Query 2.5: Service Registry Modification for sshd
+DeviceRegistryEvents
+| where RegistryKey has "\\Services\\sshd"
+| where ActionType == "RegistryValueSet"
+| extend
+    Severity = "High",
+    ThreatType = "Service Persistence",
+    MitreAttack = "T1543.003",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "SSH Service Registry Modification"
+| project
+    TimeGenerated,
+    DeviceName,
+    RegistryKey,
+    RegistryValueName,
+    RegistryValueData,
+    InitiatingProcessFileName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// ============================================================
+// STAGE 3: T1219 - Remote Access Software
+// Detection: Tailscale Installation and Connection
+// Confidence: High
+// ============================================================
+// Purpose: Detects Tailscale MSI installation and tailnet connection
+// False Positives: Legitimate Tailscale deployments by IT
+// Threshold: Unexpected installations warrant investigation
+// ============================================================
+
+// Query 3.1: Tailscale MSI Silent Installation
+DeviceProcessEvents
+| where FileName =~ "msiexec.exe"
+| where ProcessCommandLine has "tailscale" and ProcessCommandLine has "/quiet"
+| extend
+    Severity = "Critical",
+    ThreatType = "Remote Access Tool Installation",
+    MitreAttack = "T1219",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "Tailscale Silent MSI Installation"
+| project
+    TimeGenerated,
+    DeviceName,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    InitiatingProcessCommandLine,
+    AccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// Query 3.2: Tailscale Connection with Auth Key
+DeviceProcessEvents
+| where FileName =~ "tailscale.exe"
+| where ProcessCommandLine has "up" and ProcessCommandLine has "authkey"
+| extend
+    Severity = "Critical",
+    ThreatType = "Remote Access Establishment",
+    MitreAttack = "T1219",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "Tailscale Tailnet Connection"
+| project
+    TimeGenerated,
+    DeviceName,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    AccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// Query 3.3: Tailscale Service Installation
+DeviceRegistryEvents
+| where RegistryKey has "\\Services\\Tailscale"
+| where ActionType == "RegistryValueSet"
+| extend
+    Severity = "High",
+    ThreatType = "Remote Access Service Installation",
+    MitreAttack = "T1219",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "Tailscale Service Registry"
+| project
+    TimeGenerated,
+    DeviceName,
+    RegistryKey,
+    RegistryValueName,
+    RegistryValueData,
+    InitiatingProcessFileName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// Query 3.4: Tailscale Network Connections (DERP/WireGuard)
+DeviceNetworkEvents
+| where InitiatingProcessFileName =~ "tailscale.exe" or InitiatingProcessFileName =~ "tailscaled.exe"
+| where RemotePort in (443, 3478, 41641)
+| extend
+    Severity = "High",
+    ThreatType = "Remote Access C2 Communication",
+    MitreAttack = "T1219",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "Tailscale Network Activity"
+| project
+    TimeGenerated,
+    DeviceName,
+    RemoteIP,
+    RemotePort,
+    InitiatingProcessFileName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// Query 3.5: Windows Service Configuration for Tailscale Prerequisites
+DeviceProcessEvents
+| where FileName =~ "sc.exe"
+| where ProcessCommandLine has_any ("iphlpsvc", "Dnscache", "netprofm", "WinHttpAutoProxySvc")
+| where ProcessCommandLine has "config" and ProcessCommandLine has "auto"
+| extend
+    Severity = "Medium",
+    ThreatType = "Service Configuration",
+    MitreAttack = "T1219",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "Tailscale Prerequisite Service Configuration"
+| project
+    TimeGenerated,
+    DeviceName,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    AccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// ============================================================
+// STAGE 4: T1021.004 - SSH Remote Access
+// Detection: SSH Service Activity
+// Confidence: Medium
+// ============================================================
+// Purpose: Detects SSH service usage and remote access attempts
+// False Positives: Legitimate SSH administration
+// Threshold: Context-dependent - unexpected SSH warrants review
+// ============================================================
+
+// Query 4.1: SSH Port Activity
+DeviceNetworkEvents
+| where LocalPort == 22 or RemotePort == 22
+| where Protocol == "Tcp"
+| extend
+    Severity = "Medium",
+    ThreatType = "SSH Remote Access",
+    MitreAttack = "T1021.004",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "SSH Network Activity"
+| project
+    TimeGenerated,
+    DeviceName,
+    LocalPort,
+    RemotePort,
+    RemoteIP,
+    InitiatingProcessFileName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// Query 4.2: SSH Service Start
+DeviceProcessEvents
+| where ProcessCommandLine has "Start-Service" and ProcessCommandLine has "sshd"
+| extend
+    Severity = "Medium",
+    ThreatType = "SSH Service Activation",
+    MitreAttack = "T1021.004",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "SSH Service Start"
+| project
+    TimeGenerated,
+    DeviceName,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    AccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// Query 4.3: Processes Spawned by SSHD
+DeviceProcessEvents
+| where InitiatingProcessFileName =~ "sshd.exe"
+| where ProcessCommandLine != ""
+| extend
+    Severity = "High",
+    ThreatType = "SSH Command Execution",
+    MitreAttack = "T1021.004",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "SSHD Child Process"
+| project
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    AccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// ============================================================
+// STAGE 5: T1041 - Exfiltration Over C2 Channel
+// Detection: Data Staging and Exfiltration
+// Confidence: High
+// ============================================================
+// Purpose: Detects data staging, archiving, and exfiltration patterns
+// False Positives: Legitimate backup operations
+// Threshold: Mass file access + archiving is high-confidence
+// ============================================================
+
+// Query 5.1: Mass File Creation in Staging Directory
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where FolderPath contains "exfil" or FolderPath contains "staging"
+| summarize
+    FileCount = count(),
+    TotalSize = sum(FileSize),
+    FileList = make_set(FileName)
+    by DeviceName, InitiatingProcessFileName, bin(TimeGenerated, 5m)
+| where FileCount > 3
+| extend
+    Severity = "High",
+    ThreatType = "Data Staging",
+    MitreAttack = "T1041",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "Mass File Staging"
+| project
+    TimeGenerated,
+    DeviceName,
+    InitiatingProcessFileName,
+    FileCount,
+    TotalSize,
+    FileList,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// Query 5.2: Sensitive File Pattern Creation
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where FileName has_any ("password", "credential", "api_key", "ssh_", "financial", "customer", "employee")
+| extend
+    Severity = "High",
+    ThreatType = "Sensitive Data Creation",
+    MitreAttack = "T1041",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "Sensitive File Pattern"
+| project
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    FolderPath,
+    FileSize,
+    InitiatingProcessFileName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// Query 5.3: Archive Creation for Exfiltration
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where FileName endswith ".zip" or FileName endswith ".rar" or FileName endswith ".7z"
+| where FileName has_any ("exfil", "data", "backup", "EXFILTRATED")
+| extend
+    Severity = "Critical",
+    ThreatType = "Data Archiving for Exfiltration",
+    MitreAttack = "T1041",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "Exfiltration Archive Creation"
+| project
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    FolderPath,
+    FileSize,
+    InitiatingProcessFileName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// Query 5.4: Large Archive Creation in F0 Directory
+DeviceFileEvents
+| where ActionType == "FileCreated"
+| where FolderPath startswith "C:\\F0\\"
+| where FileName endswith ".zip"
+| where FileSize > 1048576 // > 1MB
+| extend
+    Severity = "Critical",
+    ThreatType = "Large Archive Creation",
+    MitreAttack = "T1041",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "F0RT1KA Exfiltration Archive"
+| project
+    TimeGenerated,
+    DeviceName,
+    FileName,
+    FolderPath,
+    FileSize,
+    InitiatingProcessFileName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// ============================================================
+// CORRELATION: Multi-Stage Attack Chain Detection
+// Detection: Complete Killchain Correlation
+// Confidence: Very High (95%+)
+// ============================================================
+// Purpose: Correlates multiple stages to detect full attack chain
+// False Positives: Very low - requires multiple indicators
+// Threshold: Any match is critical
+// ============================================================
+
+// Query 6.1: Full Tailscale Remote Access Killchain
+let TailscaleDownload = DeviceFileEvents
+| where ActionType == "FileCreated"
+| where FileName contains "tailscale" and (FileName endswith ".msi" or FileName endswith ".exe")
+| distinct DeviceName, TimeGenerated;
+
+let SSHInstall = DeviceProcessEvents
+| where ProcessCommandLine has_any ("install-sshd.ps1", "OpenSSH.Server")
+| distinct DeviceName, TimeGenerated;
+
+let TailscaleConnect = DeviceProcessEvents
+| where FileName =~ "tailscale.exe" and ProcessCommandLine has "up"
+| distinct DeviceName, TimeGenerated;
+
+let DataStaging = DeviceFileEvents
+| where FolderPath contains "exfil" or FileName has "EXFILTRATED"
+| distinct DeviceName, TimeGenerated;
+
+TailscaleDownload
+| join kind=inner (SSHInstall) on DeviceName
+| join kind=inner (TailscaleConnect) on DeviceName
+| join kind=inner (DataStaging) on DeviceName
+| extend
+    ThreatScore = 95,
+    Severity = "Critical",
+    ThreatType = "Multi-Stage Attack Chain",
+    MitreAttack = "T1105,T1219,T1543.003,T1021.004,T1041",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "Tailscale Remote Access Killchain Detected"
+| project
+    DeviceName,
+    Detection = DetectionName,
+    ThreatScore,
+    Severity,
+    ThreatType,
+    MitreAttack,
+    TestID
+
+// Query 6.2: F0RT1KA Test Binary Execution Chain
+DeviceProcessEvents
+| where FolderPath startswith "C:\\F0\\"
+| where FileName startswith "eafce2fc-" and FileName endswith ".exe"
+| summarize
+    StageCount = dcount(FileName),
+    Stages = make_set(FileName),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by DeviceName
+| where StageCount >= 3
+| extend
+    ThreatScore = StageCount * 20,
+    Severity = iff(StageCount >= 5, "Critical", "High"),
+    ThreatType = "F0RT1KA Multi-Stage Execution",
+    MitreAttack = "T1105,T1219,T1543.003,T1021.004,T1041",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "F0RT1KA Test Execution Chain"
+| project
+    DeviceName,
+    StageCount,
+    Stages,
+    FirstSeen,
+    LastSeen,
+    ThreatScore,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// Query 6.3: Remote Access Tool + Service Installation Correlation
+let RemoteAccessTool = DeviceFileEvents
+| where FileName has_any ("tailscale", "anydesk", "teamviewer")
+| where ActionType == "FileCreated"
+| project DeviceName, RATTime = TimeGenerated, RATFile = FileName;
+
+let ServiceInstall = DeviceRegistryEvents
+| where RegistryKey has "\\Services\\" and ActionType == "RegistryValueSet"
+| where RegistryKey has_any ("sshd", "Tailscale", "AnyDesk", "TeamViewer")
+| project DeviceName, ServiceTime = TimeGenerated, ServiceKey = RegistryKey;
+
+RemoteAccessTool
+| join kind=inner (ServiceInstall) on DeviceName
+| where ServiceTime between (RATTime .. (RATTime + 1h))
+| extend
+    ThreatScore = 85,
+    Severity = "Critical",
+    ThreatType = "Remote Access with Persistence",
+    MitreAttack = "T1219,T1543.003",
+    TestID = "eafce2fc-75fd-4c62-92dc-32cabe5cf206",
+    DetectionName = "RAT Installation with Service Persistence"
+| project
+    DeviceName,
+    RATFile,
+    RATTime,
+    ServiceKey,
+    ServiceTime,
+    ThreatScore,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// ============================================================
+// HUNTING: Anomaly Detection Queries
+// Purpose: Proactive threat hunting
+// ============================================================
+
+// Query 7.1: Unusual MSI Installations from Non-Standard Paths
+DeviceProcessEvents
+| where FileName =~ "msiexec.exe"
+| where ProcessCommandLine has "/i" and ProcessCommandLine has ".msi"
+| where ProcessCommandLine !has "C:\\Windows\\Installer"
+| where ProcessCommandLine !has "C:\\ProgramData"
+| where ProcessCommandLine has_any ("C:\\F0", "C:\\Temp", "C:\\Users")
+| extend
+    Severity = "Medium",
+    ThreatType = "Suspicious MSI Installation",
+    MitreAttack = "T1219",
+    DetectionName = "Non-Standard MSI Installation Path"
+| project
+    TimeGenerated,
+    DeviceName,
+    ProcessCommandLine,
+    InitiatingProcessFileName,
+    AccountName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// Query 7.2: Service Creation Anomaly Detection
+let ServiceBaseline = DeviceRegistryEvents
+| where RegistryKey has "\\Services\\"
+| where ActionType == "RegistryValueSet"
+| where TimeGenerated > ago(30d)
+| summarize Count = count() by ServiceName = extract(@"\\Services\\([^\\]+)", 1, RegistryKey)
+| where Count < 5;
+
+DeviceRegistryEvents
+| where RegistryKey has "\\Services\\"
+| where ActionType == "RegistryValueSet"
+| where TimeGenerated > ago(24h)
+| extend ServiceName = extract(@"\\Services\\([^\\]+)", 1, RegistryKey)
+| join kind=inner (ServiceBaseline) on ServiceName
+| extend
+    Severity = "High",
+    ThreatType = "Rare Service Creation",
+    MitreAttack = "T1543.003",
+    DetectionName = "Anomalous Service Installation"
+| project
+    TimeGenerated,
+    DeviceName,
+    ServiceName,
+    RegistryKey,
+    InitiatingProcessFileName,
+    Severity,
+    ThreatType,
+    MitreAttack
+
+// ============================================================
+// END OF DETECTION QUERIES
+// ============================================================

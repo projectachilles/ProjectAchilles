@@ -1,0 +1,432 @@
+// ============================================================================
+// DEFENSE GUIDANCE: KQL Detection Queries
+// ============================================================================
+// Test ID: 94b248c0-a104-48c3-b4a5-3d45028c407d
+// Test Name: Gunra Ransomware Simulation
+// MITRE ATT&CK: T1486, T1490, T1082, T1083, T1622
+// Created: 2025-12-07
+// Author: F0RT1KA Defense Guidance Builder
+// ============================================================================
+//
+// TECHNIQUE-FOCUSED DETECTION PRINCIPLE:
+// These detections target the underlying ransomware behaviors demonstrated
+// by Gunra ransomware, NOT the F0RT1KA testing framework. They will catch
+// real-world ransomware attacks using similar encryption, recovery inhibition,
+// and evasion techniques.
+//
+// KEY INDICATORS:
+// - File extension: .ENCRT
+// - Ransom note: R3ADM3.txt
+// - Shadow copy deletion via vssadmin
+// - Mass file enumeration and renaming
+// - Anti-debugging checks
+//
+// ============================================================================
+
+
+// ============================================================================
+// QUERY 1: Ransomware File Extension Change Detection (.ENCRT)
+// Purpose: Detect files being renamed with the Gunra .ENCRT extension
+// Confidence: HIGH
+// MITRE ATT&CK: T1486 - Data Encrypted for Impact
+// False Positives: Legitimate encryption software, backup applications
+// Threshold: 5+ files with .ENCRT extension in 1 minute
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("FileCreated", "FileRenamed", "FileModified")
+| where FileName endswith ".ENCRT"
+| summarize
+    EncryptedFileCount = count(),
+    AffectedFiles = make_set(FileName, 50),
+    AffectedFolders = make_set(FolderPath, 20),
+    FirstEvent = min(TimeGenerated),
+    LastEvent = max(TimeGenerated)
+    by DeviceName, InitiatingProcessFileName, InitiatingProcessAccountName
+| where EncryptedFileCount >= 5
+| extend
+    EncryptionRate = EncryptedFileCount / datetime_diff('second', LastEvent, FirstEvent),
+    Severity = case(
+        EncryptedFileCount >= 50, "Critical",
+        EncryptedFileCount >= 20, "High",
+        EncryptedFileCount >= 5, "Medium",
+        "Low"
+    ),
+    ThreatType = "Ransomware - Gunra File Encryption",
+    MitreAttack = "T1486",
+    Confidence = "High"
+| project TimeGenerated = FirstEvent, DeviceName, InitiatingProcessFileName,
+    InitiatingProcessAccountName, EncryptedFileCount, EncryptionRate,
+    Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 2: Gunra Ransom Note Detection (R3ADM3.txt)
+// Purpose: Detect creation of Gunra-specific ransom note files
+// Confidence: HIGH
+// MITRE ATT&CK: T1486 - Data Encrypted for Impact
+// False Positives: Very rare (specific filename pattern)
+// Threshold: Any creation of R3ADM3.txt
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(24h)
+| where ActionType == "FileCreated"
+| where FileName =~ "R3ADM3.txt"
+| project TimeGenerated, DeviceName, FolderPath, FileName,
+    InitiatingProcessFileName, InitiatingProcessCommandLine,
+    InitiatingProcessAccountName, SHA256
+| extend
+    Severity = "Critical",
+    ThreatType = "Ransomware - Gunra Ransom Note Dropped",
+    MitreAttack = "T1486",
+    Confidence = "High",
+    TestID = "94b248c0-a104-48c3-b4a5-3d45028c407d"
+
+
+// ============================================================================
+// QUERY 3: Shadow Copy Deletion Attempts (vssadmin)
+// Purpose: Detect attempts to delete or access Volume Shadow Copies
+// Confidence: HIGH
+// MITRE ATT&CK: T1490 - Inhibit System Recovery
+// False Positives: IT administrators performing legitimate maintenance
+// Threshold: Any vssadmin delete shadows command
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "vssadmin.exe"
+| where ProcessCommandLine has_any (
+    "delete shadows",
+    "delete shadow",
+    "list shadows",
+    "resize shadowstorage"
+)
+| extend CommandType = case(
+    ProcessCommandLine has "delete", "Shadow Copy Deletion",
+    ProcessCommandLine has "list", "Shadow Copy Enumeration",
+    ProcessCommandLine has "resize", "Shadow Copy Resize",
+    "Other VSS Operation"
+)
+| project TimeGenerated, DeviceName, AccountName, FileName,
+    ProcessCommandLine, CommandType, InitiatingProcessFileName,
+    InitiatingProcessCommandLine
+| extend
+    Severity = case(
+        ProcessCommandLine has "delete", "Critical",
+        ProcessCommandLine has "resize", "High",
+        "Medium"
+    ),
+    ThreatType = "Ransomware - Recovery Inhibition via VSS",
+    MitreAttack = "T1490",
+    Confidence = "High"
+
+
+// ============================================================================
+// QUERY 4: WMI-Based Shadow Copy Deletion
+// Purpose: Detect shadow copy deletion via WMI/WMIC (common ransomware method)
+// Confidence: HIGH
+// MITRE ATT&CK: T1490 - Inhibit System Recovery
+// False Positives: Rare - typically only used by malware
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ ("wmic.exe", "powershell.exe", "pwsh.exe", "cmd.exe")
+| where ProcessCommandLine has_any (
+    "shadowcopy delete",
+    "Win32_ShadowCopy",
+    "delete shadows",
+    "Delete()"
+)
+| project TimeGenerated, DeviceName, AccountName, FileName,
+    ProcessCommandLine, InitiatingProcessFileName
+| extend
+    Severity = "Critical",
+    ThreatType = "Ransomware - WMI Shadow Copy Deletion",
+    MitreAttack = "T1490",
+    Confidence = "High"
+
+
+// ============================================================================
+// QUERY 5: BCDEdit Recovery Disabling
+// Purpose: Detect bcdedit commands that disable Windows recovery options
+// Confidence: HIGH
+// MITRE ATT&CK: T1490 - Inhibit System Recovery
+// False Positives: System administrators configuring boot settings
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName =~ "bcdedit.exe"
+| where ProcessCommandLine has_any (
+    "recoveryenabled no",
+    "bootstatuspolicy ignoreallfailures",
+    "safeboot",
+    "/deletevalue safeboot"
+)
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine,
+    InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend
+    Severity = "Critical",
+    ThreatType = "Ransomware - Boot Recovery Disabled",
+    MitreAttack = "T1490",
+    Confidence = "High"
+
+
+// ============================================================================
+// QUERY 6: System Information Discovery Pattern
+// Purpose: Detect rapid system enumeration consistent with ransomware recon
+// Confidence: MEDIUM
+// MITRE ATT&CK: T1082 - System Information Discovery
+// False Positives: IT inventory scripts, legitimate system tools
+// Threshold: Multiple system info commands from single process
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(1h)
+| where FileName in~ ("systeminfo.exe", "hostname.exe", "whoami.exe", "net.exe", "ipconfig.exe")
+| summarize
+    CommandCount = count(),
+    Commands = make_set(FileName),
+    CommandLines = make_set(ProcessCommandLine, 10)
+    by DeviceName, InitiatingProcessFileName, bin(TimeGenerated, 5m)
+| where CommandCount >= 3
+| project TimeGenerated, DeviceName, InitiatingProcessFileName,
+    CommandCount, Commands, CommandLines
+| extend
+    Severity = case(CommandCount >= 5, "High", "Medium"),
+    ThreatType = "Reconnaissance - System Information Discovery",
+    MitreAttack = "T1082",
+    Confidence = "Medium"
+
+
+// ============================================================================
+// QUERY 7: Rapid File Enumeration Detection
+// Purpose: Detect processes enumerating large numbers of files (T1083)
+// Confidence: MEDIUM
+// MITRE ATT&CK: T1083 - File and Directory Discovery
+// False Positives: Backup software, file indexing, legitimate file operations
+// Threshold: Process accessing 100+ files in 1 minute
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("FileAccessed", "FileRead")
+| summarize
+    FilesAccessed = count(),
+    UniqueExtensions = dcount(extract(@"\.([^.]+)$", 1, FileName)),
+    FirstAccess = min(TimeGenerated),
+    LastAccess = max(TimeGenerated)
+    by DeviceName, InitiatingProcessFileName, InitiatingProcessId
+| where FilesAccessed >= 100
+| extend AccessDuration = datetime_diff('second', LastAccess, FirstAccess)
+| where AccessDuration <= 60  // 100+ files in 60 seconds
+| extend
+    FilesPerSecond = FilesAccessed / max(AccessDuration, 1),
+    Severity = case(
+        FilesAccessed >= 500, "Critical",
+        FilesAccessed >= 200, "High",
+        "Medium"
+    ),
+    ThreatType = "Ransomware - Rapid File Enumeration",
+    MitreAttack = "T1083",
+    Confidence = "Medium"
+| project TimeGenerated = FirstAccess, DeviceName, InitiatingProcessFileName,
+    FilesAccessed, FilesPerSecond, UniqueExtensions, Severity,
+    ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// QUERY 8: Anti-Debugging API Detection
+// Purpose: Detect processes using anti-debugging techniques (T1622)
+// Confidence: MEDIUM
+// MITRE ATT&CK: T1622 - Debugger Evasion
+// False Positives: Legitimate anti-cheat software, DRM, security tools
+// ============================================================================
+
+DeviceEvents
+| where TimeGenerated > ago(1h)
+| where ActionType == "ApiCall" or ActionType has "Trace"
+| where AdditionalFields has_any (
+    "IsDebuggerPresent",
+    "CheckRemoteDebuggerPresent",
+    "NtQueryInformationProcess",
+    "OutputDebugString",
+    "GetTickCount"
+)
+| project TimeGenerated, DeviceName, ActionType, AdditionalFields,
+    InitiatingProcessFileName, InitiatingProcessCommandLine
+| extend
+    Severity = "Medium",
+    ThreatType = "Evasion - Anti-Debugging Technique",
+    MitreAttack = "T1622",
+    Confidence = "Medium"
+
+
+// ============================================================================
+// QUERY 9: F0RT1KA Test Directory Activity
+// Purpose: Monitor F0RT1KA test execution in c:\F0 directory
+// Confidence: HIGH (for testing framework monitoring)
+// Note: Useful for SOC to distinguish tests from real attacks
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(24h)
+| where FolderPath startswith "C:\\F0\\" or FolderPath startswith "c:\\F0\\"
+| summarize
+    FileOperations = count(),
+    EncryptedFiles = countif(FileName endswith ".ENCRT"),
+    RansomNotes = countif(FileName =~ "R3ADM3.txt"),
+    FileTypes = make_set(extract(@"\.([^.]+)$", 1, FileName)),
+    FirstEvent = min(TimeGenerated),
+    LastEvent = max(TimeGenerated)
+    by DeviceName, FolderPath, InitiatingProcessFileName
+| extend
+    IsGunraTest = iff(FolderPath has "94b248c0-a104-48c3-b4a5-3d45028c407d", true, false),
+    Duration = datetime_diff('second', LastEvent, FirstEvent),
+    Severity = iff(EncryptedFiles > 0 and RansomNotes > 0, "High", "Medium"),
+    ThreatType = iff(IsGunraTest, "F0RT1KA Test - Gunra Ransomware", "Suspicious F0 Directory Activity"),
+    Confidence = "High"
+| project TimeGenerated = FirstEvent, DeviceName, FolderPath, FileOperations,
+    EncryptedFiles, RansomNotes, Duration, IsGunraTest, Severity,
+    ThreatType, Confidence
+
+
+// ============================================================================
+// QUERY 10: Combined Ransomware Behavioral Detection
+// Purpose: Correlate multiple ransomware indicators for high-confidence alerts
+// Confidence: HIGH
+// Threshold: 2+ indicators within 10-minute window
+// ============================================================================
+
+let EncryptionEvents = DeviceFileEvents
+| where TimeGenerated > ago(2h)
+| where FileName endswith ".ENCRT" or FileName =~ "R3ADM3.txt"
+| summarize EncryptedCount = count() by DeviceName, bin(TimeGenerated, 10m)
+| where EncryptedCount >= 3;
+
+let VSSEvents = DeviceProcessEvents
+| where TimeGenerated > ago(2h)
+| where FileName =~ "vssadmin.exe"
+| where ProcessCommandLine has_any ("delete", "list", "shadows")
+| summarize VSSCount = count() by Computer = DeviceName, bin(TimeGenerated, 10m);
+
+let BCDEvents = DeviceProcessEvents
+| where TimeGenerated > ago(2h)
+| where FileName =~ "bcdedit.exe"
+| where ProcessCommandLine has_any ("recoveryenabled", "bootstatuspolicy")
+| summarize BCDCount = count() by Computer = DeviceName, bin(TimeGenerated, 10m);
+
+// Correlate all indicators
+EncryptionEvents
+| join kind=leftouter (VSSEvents) on $left.DeviceName == $right.Computer
+| join kind=leftouter (BCDEvents) on $left.DeviceName == $right.Computer
+| extend IndicatorCount = (
+    iff(EncryptedCount > 0, 1, 0) +
+    iff(isnotnull(VSSCount), 1, 0) +
+    iff(isnotnull(BCDCount), 1, 0)
+)
+| where IndicatorCount >= 2
+| project DeviceName, TimeGenerated, EncryptedCount, VSSCount, BCDCount,
+    IndicatorCount,
+    Severity = "Critical",
+    ThreatType = "Active Ransomware Attack - Multi-Indicator Detection",
+    MitreAttack = "T1486, T1490",
+    Confidence = "High"
+
+
+// ============================================================================
+// QUERY 11: Generic Ransomware Extension Change Monitoring
+// Purpose: Detect mass file renaming with suspicious extensions
+// Confidence: MEDIUM-HIGH
+// MITRE ATT&CK: T1486 - Data Encrypted for Impact
+// Note: Broader detection for variants beyond .ENCRT
+// ============================================================================
+
+DeviceFileEvents
+| where TimeGenerated > ago(1h)
+| where ActionType in ("FileCreated", "FileRenamed")
+// Common ransomware extensions
+| where FileName matches regex @"\.(encrypted|locked|crypted|enc|ENCRT|crypt|locky|cerber|wannacry|ryuk|conti|lockbit|phobos|dharma|stop|djvu)$"
+| summarize
+    Count = count(),
+    Extensions = make_set(extract(@"\.([^.]+)$", 1, FileName)),
+    AffectedPaths = make_set(FolderPath, 10)
+    by DeviceName, InitiatingProcessFileName, bin(TimeGenerated, 5m)
+| where Count >= 5
+| extend
+    Severity = case(Count >= 50, "Critical", Count >= 20, "High", "Medium"),
+    ThreatType = "Ransomware - Suspicious File Extension Change",
+    MitreAttack = "T1486",
+    Confidence = "Medium"
+| project TimeGenerated, DeviceName, InitiatingProcessFileName, Count,
+    Extensions, AffectedPaths, Severity, ThreatType, MitreAttack, Confidence
+
+
+// ============================================================================
+// HUNTING QUERY: Gunra-Specific Process Behavior
+// Purpose: Hunt for processes exhibiting Gunra ransomware characteristics
+// Confidence: MEDIUM
+// ============================================================================
+
+DeviceProcessEvents
+| where TimeGenerated > ago(24h)
+| where FileName matches regex @"(?i)(gunra|ransom)"
+    or ProcessCommandLine has_any ("ENCRT", "R3ADM3", "GUNRA")
+    or SHA256 in (
+        // Add known Gunra hashes here when available
+        ""
+    )
+| project TimeGenerated, DeviceName, AccountName, FileName,
+    ProcessCommandLine, SHA256, FolderPath, InitiatingProcessFileName
+| extend
+    Severity = "Critical",
+    ThreatType = "Gunra Ransomware Execution Detected",
+    MitreAttack = "T1486",
+    Confidence = "High",
+    TestID = "94b248c0-a104-48c3-b4a5-3d45028c407d"
+
+
+// ============================================================================
+// ALERT SUMMARY DASHBOARD QUERY
+// Purpose: Aggregate all ransomware-related detections for SOC dashboard
+// ============================================================================
+
+let TimeRange = 24h;
+
+let AllDetections = union
+    // File encryption events
+    (DeviceFileEvents
+    | where TimeGenerated > ago(TimeRange)
+    | where FileName endswith ".ENCRT" or FileName =~ "R3ADM3.txt"
+    | summarize EventCount = count() by Computer = DeviceName, bin(TimeGenerated, 1h)
+    | extend DetectionType = "Gunra File Encryption"),
+
+    // VSS deletion events
+    (DeviceProcessEvents
+    | where TimeGenerated > ago(TimeRange)
+    | where FileName =~ "vssadmin.exe"
+    | where ProcessCommandLine has "delete"
+    | summarize EventCount = count() by Computer = DeviceName, bin(TimeGenerated, 1h)
+    | extend DetectionType = "Shadow Copy Deletion"),
+
+    // BCDEdit events
+    (DeviceProcessEvents
+    | where TimeGenerated > ago(TimeRange)
+    | where FileName =~ "bcdedit.exe"
+    | where ProcessCommandLine has_any ("recoveryenabled", "bootstatuspolicy")
+    | summarize EventCount = count() by Computer = DeviceName, bin(TimeGenerated, 1h)
+    | extend DetectionType = "Boot Recovery Disabled");
+
+AllDetections
+| summarize
+    TotalEvents = sum(EventCount),
+    DetectionTypes = make_set(DetectionType)
+    by Computer, bin(TimeGenerated, 1h)
+| order by TotalEvents desc
+| project TimeGenerated, Computer, TotalEvents, DetectionTypes,
+    Severity = case(TotalEvents >= 10, "Critical", TotalEvents >= 5, "High", "Medium"),
+    ThreatType = "Ransomware Activity Cluster - Gunra Indicators",
+    MitreAttack = "T1486, T1490"
