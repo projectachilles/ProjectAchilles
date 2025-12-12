@@ -29,3 +29,6 @@ npm-debug.log*
 
 # Vite cache
 .vite/
+
+# Claude Code settings
+.claude/settings.local.json
