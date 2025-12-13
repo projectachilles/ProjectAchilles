@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
+import { UserButton, useUser } from '@clerk/clerk-react';
 import { useTheme } from '../../hooks/useTheme';
 import { Moon, Sun, Shield, Lock } from 'lucide-react';
 import { Button } from './ui/Button';
@@ -22,6 +23,7 @@ export default function Header({
   isRefreshing
 }: HeaderProps) {
   const { theme, toggleTheme } = useTheme();
+  const { user, isLoaded } = useUser();
   const location = useLocation();
 
   // Determine active module from path
@@ -160,6 +162,23 @@ export default function Header({
               <Moon className="w-5 h-5" />
             )}
           </Button>
+
+          {/* User Profile Button */}
+          {isLoaded && user && (
+            <div className="ml-2 flex items-center gap-3">
+              <span className="text-sm text-muted-foreground hidden sm:inline">
+                {user.firstName || user.emailAddresses[0]?.emailAddress}
+              </span>
+              <UserButton
+                afterSignOutUrl="/sign-in"
+                appearance={{
+                  elements: {
+                    avatarBox: "w-10 h-10 rounded-full border-2 border-border hover:border-primary transition-colors",
+                  },
+                }}
+              />
+            </div>
+          )}
         </div>
       </div>
     </header>

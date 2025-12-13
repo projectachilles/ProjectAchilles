@@ -10,6 +10,8 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
+    "@clerk/backend": "^2.27.0",
+    "@clerk/express": "^1.7.57",
     "@elastic/elasticsearch": "^8.11.0",
     "axios": "^1.6.2",
     "cors": "^2.8.5",

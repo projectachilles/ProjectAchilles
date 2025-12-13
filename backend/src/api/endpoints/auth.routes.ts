@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
+import { requireClerkAuth } from '../../middleware/clerk.middleware.js';
 import { authService } from '../../services/endpoints/auth.service.js';
 import {
   setCredentials,
@@ -14,6 +15,9 @@ import { asyncHandler } from '../../middleware/error.middleware.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
+
+// Require Clerk auth for all endpoints auth routes
+router.use(requireClerkAuth());
 
 // Validation schemas
 const loginSchema = z.object({
@@ -85,6 +89,11 @@ router.post(
     // Set as current org
     req.session.currentOrgId = orgId;
     setCredentials(req, credentials);
+
+    // NEW: Link session to Clerk user
+    if (req.auth?.userId) {
+      req.session.clerkUserId = req.auth.userId;
+    }
 
     res.json({
       success: true,

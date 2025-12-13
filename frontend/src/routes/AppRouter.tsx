@@ -1,8 +1,14 @@
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAppSelector } from '../store';
 import { useAnalyticsAuth } from '../hooks/useAnalyticsAuth';
+import { RequireAuth } from '../components/auth/RequireAuth';
 import Layout from '../components/shared/Layout';
 import { Loading } from '../components/shared/ui/Spinner';
+
+// Auth Pages
+import SignInPage from '../pages/auth/SignInPage';
+import SignUpPage from '../pages/auth/SignUpPage';
+import UserProfilePage from '../pages/auth/UserProfilePage';
 
 // Browser Module Pages (lazy loaded later, using placeholders for now)
 import BrowserHomePage from '../pages/browser/BrowserHomePage';
@@ -69,9 +75,14 @@ function AppLayout() {
 export default function AppRouter() {
   return (
     <Routes>
-      {/* Main Layout with Header */}
-      <Route element={<AppLayout />}>
-        {/* Browser Module - Public (Landing Page) */}
+      {/* Auth routes (public) */}
+      <Route path="/sign-in" element={<SignInPage />} />
+      <Route path="/sign-up" element={<SignUpPage />} />
+      <Route path="/user-profile" element={<UserProfilePage />} />
+
+      {/* Main Layout with Header - NOW PROTECTED */}
+      <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
+        {/* Browser Module - NOW REQUIRES AUTH */}
         <Route index element={<BrowserHomePage />} />
         <Route path="browser">
           <Route index element={<Navigate to="/" replace />} />
@@ -82,10 +93,18 @@ export default function AppRouter() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
 
-      {/* Endpoints Module - Standalone (uses own Layout/Header) */}
+      {/* Endpoints Module - DUAL AUTH (Clerk + LimaCharlie) */}
       <Route path="endpoints">
-        <Route path="login" element={<EndpointLoginPage />} />
-        <Route element={<EndpointsProtectedRoute />}>
+        <Route path="login" element={
+          <RequireAuth>
+            <EndpointLoginPage />
+          </RequireAuth>
+        } />
+        <Route element={
+          <RequireAuth>
+            <EndpointsProtectedRoute />
+          </RequireAuth>
+        }>
           <Route index element={<Navigate to="/endpoints/dashboard" replace />} />
           <Route path="dashboard" element={<EndpointDashboardPage />} />
           <Route path="sensors" element={<SensorsPage />} />
@@ -94,17 +113,20 @@ export default function AppRouter() {
         </Route>
       </Route>
 
-      {/* Analytics Module - Standalone (no main header) */}
+      {/* Analytics Module - DUAL AUTH (Clerk + Elasticsearch config) */}
       <Route path="analytics">
-        <Route path="setup" element={<AnalyticsSetupPage />} />
-        <Route
-          index
-          element={
+        <Route path="setup" element={
+          <RequireAuth>
+            <AnalyticsSetupPage />
+          </RequireAuth>
+        } />
+        <Route index element={
+          <RequireAuth>
             <AnalyticsProtectedRoute>
               <AnalyticsDashboardPage />
             </AnalyticsProtectedRoute>
-          }
-        />
+          </RequireAuth>
+        } />
       </Route>
     </Routes>
   );

@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import http from 'http';
 
+import { clerkAuth, linkClerkSession } from './middleware/clerk.middleware.js';
 import browserRoutes from './api/browser.routes.js';
 import analyticsRoutes from './api/analytics.routes.js';
 import endpointAuthRoutes from './api/endpoints/auth.routes.js';
@@ -51,6 +52,10 @@ app.use(session({
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
   },
 }));
+
+// Clerk authentication middleware
+app.use(clerkAuth);
+app.use(linkClerkSession);
 
 // Rate limiting for auth endpoints
 const authLimiter = rateLimit({

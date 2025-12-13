@@ -124,18 +124,6 @@ export default function AnalyticsSetupPage() {
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-2xl">
-      {/* Back button for edit mode */}
-      {editMode && (
-        <Button
-          variant="ghost"
-          onClick={() => navigate('/analytics')}
-          className="mb-4"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Dashboard
-        </Button>
-      )}
-
       <div className="text-center mb-8">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
           <Database className="w-8 h-8 text-primary" />
@@ -282,23 +270,32 @@ export default function AnalyticsSetupPage() {
           )}
         </CardContent>
         <CardFooter className="flex justify-between">
-          <Button
-            variant="outline"
-            onClick={handleTestConnection}
-            disabled={!isValid || testing}
-          >
-            {testing ? (
-              <>
-                <Spinner size="sm" />
-                Testing...
-              </>
-            ) : (
-              <>
-                <CheckCircle className="w-4 h-4" />
-                Test Connection
-              </>
-            )}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => navigate('/')}
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to Tests
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleTestConnection}
+              disabled={!isValid || testing}
+            >
+              {testing ? (
+                <>
+                  <Spinner size="sm" />
+                  Testing...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="w-4 h-4" />
+                  Test Connection
+                </>
+              )}
+            </Button>
+          </div>
           <Button
             onClick={handleSave}
             disabled={!isValid || !testResult?.success || saving}
