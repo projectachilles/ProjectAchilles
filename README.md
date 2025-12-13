@@ -22,8 +22,11 @@ ProjectAchilles is a comprehensive security testing platform that provides a uni
 ## Features
 
 ### 🔐 Secure Authentication
-- Social login via Clerk (Google, Microsoft, GitHub)
+- **Multiple Authentication Methods:**
+  - Email/password with verification
+  - Social OAuth (Google, Microsoft, GitHub)
 - Enterprise-grade security with JWT and httpOnly cookies
+- Email verification and password reset flows
 - Session isolation per authenticated user
 - Automatic token refresh and management
 
@@ -180,11 +183,23 @@ ProjectAchilles/
 
 ## Documentation
 
+### Development & Contributing
 - [CLAUDE.md](CLAUDE.md) - AI assistant guidance for development
 - [CONTRIBUTING.md](CONTRIBUTING.md) - Contribution guidelines
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) - Community guidelines
+
+### Security & Compliance
 - [SECURITY.md](SECURITY.md) - Security policy
 - [CHANGELOG.md](CHANGELOG.md) - Version history
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) - Community guidelines
+
+### Authentication Setup
+- [Email Authentication Quick Start](docs/EMAIL_AUTH_QUICKSTART.md) - 5-minute email auth setup
+- [Email Authentication Guide](docs/EMAIL_AUTH_SETUP.md) - Complete email auth documentation
+
+### Production Deployment
+- [Quick Start Deployment](QUICK_START_DEPLOYMENT.md) - 50-minute production deployment
+- [Production Deployment Guide](PRODUCTION_DEPLOYMENT.md) - Comprehensive deployment guide
+- [Deployment Checklist](DEPLOYMENT_CHECKLIST.md) - Interactive deployment checklist
 
 ## Development
 
