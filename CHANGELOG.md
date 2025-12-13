@@ -8,8 +8,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Initial project documentation (README, CONTRIBUTING, SECURITY, CODE_OF_CONDUCT)
-- GitHub issue and PR templates
+- **Authentication System**: Global authentication using Clerk with social login support
+  - Social providers: Google, Microsoft, GitHub
+  - JWT-based authentication with httpOnly cookies
+  - Session isolation per authenticated user
+  - Automatic token refresh and management
+- **Frontend Authentication**:
+  - Sign-in, sign-up, and user profile pages
+  - `RequireAuth` component for route protection
+  - `useAuthenticatedApi` hook for automatic JWT injection
+  - UserButton component in header for account management
+- **Backend Authentication**:
+  - Clerk middleware for JWT verification
+  - `requireClerkAuth()` middleware for route protection
+  - Session linking to Clerk user ID
+  - Enhanced dual authentication for Endpoints module
+- **Navigation Improvements**:
+  - "Back to Tests" button on Analytics setup page
+  - "Back to Tests" button on Endpoints login page
+  - Removed duplicate navigation buttons
+- Updated documentation (README, CLAUDE.md, CHANGELOG)
+
+### Changed
+- **BREAKING**: All routes now require Clerk authentication
+- Browser Module now requires authentication (previously public)
+- Analytics Module requires Clerk auth + Elasticsearch configuration
+- Endpoints Module requires Clerk auth + LimaCharlie credentials (dual auth)
+- All API endpoints require valid JWT token in Authorization header
+
+### Security
+- JWT-based authentication with short-lived tokens
+- httpOnly cookies for XSS protection
+- Session validation against Clerk user ID
+- Prevention of session hijacking across users
+- CORS configuration updated for authentication flow
 
 ## [1.0.0] - 2024-12-10
 
