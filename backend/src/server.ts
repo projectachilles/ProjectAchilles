@@ -26,6 +26,9 @@ if (!process.env.CLERK_PUBLISHABLE_KEY || !process.env.CLERK_SECRET_KEY) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust Railway's proxy (required for secure cookies behind proxy)
+app.set('trust proxy', 1);
+
 // ============ MIDDLEWARE ============
 
 // Security headers (relaxed for development)

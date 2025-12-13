@@ -1,5 +1,5 @@
 import { clerkMiddleware, requireAuth } from '@clerk/express';
-import { Request, Response, NextFunction } from 'express';
+import { Request, NextFunction } from 'express';
 
 /**
  * Clerk authentication middleware
@@ -16,18 +16,25 @@ export const clerkAuth = clerkMiddleware({
  * Returns 401 if user is not authenticated
  */
 export function requireClerkAuth() {
-  return requireAuth({
-    unauthorizedUrl: '/api/auth/unauthorized',
-  });
+  return requireAuth();
+}
+
+/**
+ * Get user ID from Clerk auth object
+ * Handles different Clerk SDK versions and auth object structures
+ */
+export function getUserId(auth: any): string | undefined {
+  return auth?.userId || auth?.sub || auth?.subject || auth?.id;
 }
 
 /**
  * Link Clerk user to session
  * Stores Clerk user ID in session for tracking
  */
-export function linkClerkSession(req: Request, res: Response, next: NextFunction) {
-  if (req.auth?.userId) {
-    req.session.clerkUserId = req.auth.userId;
+export function linkClerkSession(req: Request, _res: unknown, next: NextFunction) {
+  const userId = getUserId(req.auth);
+  if (userId) {
+    req.session.clerkUserId = userId;
   }
   next();
 }

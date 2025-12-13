@@ -23,4 +23,9 @@ export default defineConfig({
       },
     },
   },
+  preview: {
+    port: parseInt(process.env.PORT || '5173'),
+    host: '0.0.0.0', // Allow external connections (required for Railway)
+    strictPort: false,
+  },
 })

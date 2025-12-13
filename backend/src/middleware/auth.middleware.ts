@@ -5,6 +5,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { Credentials } from '../types/endpoints.js';
+import { getUserId } from './clerk.middleware.js';
 
 /**
  * Require authentication middleware (Legacy - LimaCharlie only)
@@ -42,8 +43,11 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
  * 3. Session belongs to the authenticated Clerk user
  */
 export function requireLCAuth(req: Request, res: Response, next: NextFunction): void {
+  // Get userId from Clerk auth object (handles different SDK versions)
+  const userId = getUserId(req.auth);
+
   // Ensure Clerk authentication
-  if (!req.auth?.userId) {
+  if (!userId) {
     res.status(401).json({
       success: false,
       error: 'Authentication required',
@@ -53,7 +57,7 @@ export function requireLCAuth(req: Request, res: Response, next: NextFunction): 
   }
 
   // Ensure session belongs to this Clerk user (prevent session hijacking)
-  if (req.session.clerkUserId && req.session.clerkUserId !== req.auth.userId) {
+  if (req.session.clerkUserId && req.session.clerkUserId !== userId) {
     req.session.destroy((err) => {
       if (err) {
         console.error('Session destruction failed:', err);

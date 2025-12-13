@@ -4,7 +4,7 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireClerkAuth } from '../../middleware/clerk.middleware.js';
+import { requireClerkAuth, getUserId } from '../../middleware/clerk.middleware.js';
 import { authService } from '../../services/endpoints/auth.service.js';
 import {
   setCredentials,
@@ -90,7 +90,7 @@ router.post(
     const sessionData = {
       organizations: req.session.organizations,
       currentOrgId: orgId,
-      clerkUserId: req.auth?.userId,
+      clerkUserId: getUserId(req.auth),
     };
 
     req.session.regenerate((err) => {
