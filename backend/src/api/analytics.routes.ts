@@ -1,10 +1,14 @@
 import { Router } from 'express';
+import { requireClerkAuth } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { SettingsService } from '../services/analytics/settings.js';
 import { ElasticsearchService } from '../services/analytics/elasticsearch.js';
 import { AnalyticsQueryParams } from '../types/analytics.js';
 
 const router = Router();
+
+// Protect all analytics routes with Clerk authentication
+router.use(requireClerkAuth());
 
 // Initialize services
 const settingsService = new SettingsService();

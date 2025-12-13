@@ -3,11 +3,15 @@
 import { Router, Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { requireClerkAuth } from '../middleware/clerk.middleware.js';
 import { asyncHandler } from '../middleware/error.middleware.js';
 import { TestIndexer } from '../services/browser/testIndexer.js';
 import { FileService } from '../services/browser/fileService.js';
 
 const router = Router();
+
+// Protect all browser routes with Clerk authentication
+router.use(requireClerkAuth());
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);

@@ -4,12 +4,16 @@
  */
 
 import { Router } from 'express';
+import { requireLCAuth } from '../../middleware/auth.middleware.js';
 import sensorsRoutes from './sensors.routes.js';
 import tasksRoutes from './tasks.routes.js';
 import payloadsRoutes from './payloads.routes.js';
 import eventsRoutes from './events.routes.js';
 
 const router = Router();
+
+// Protect all endpoints routes with dual-auth (Clerk + LimaCharlie)
+router.use(requireLCAuth);
 
 // Mount route modules
 router.use('/sensors', sensorsRoutes);

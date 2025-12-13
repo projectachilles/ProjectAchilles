@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import http from 'http';
 
+import { clerkAuth, linkClerkSession } from './middleware/clerk.middleware.js';
 import browserRoutes from './api/browser.routes.js';
 import analyticsRoutes from './api/analytics.routes.js';
 import endpointAuthRoutes from './api/endpoints/auth.routes.js';
@@ -15,6 +16,12 @@ import { errorHandler, notFoundHandler } from './middleware/error.middleware.js'
 
 // Load environment variables
 dotenv.config();
+
+// Validate required environment variables
+if (!process.env.CLERK_PUBLISHABLE_KEY || !process.env.CLERK_SECRET_KEY) {
+  console.error('❌ CLERK_PUBLISHABLE_KEY and CLERK_SECRET_KEY must be set');
+  process.exit(1);
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -31,6 +38,9 @@ app.use(helmet({
 app.use(cors({
   origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
   credentials: true,
+  // Add for Clerk authentication flows
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Authorization'],
 }));
 
 // Request logging
@@ -42,7 +52,13 @@ app.use(express.urlencoded({ extended: true }));
 
 // Session management (for endpoints auth)
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'project-achilles-dev-secret',
+  secret: process.env.SESSION_SECRET || (() => {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('SESSION_SECRET must be set in production');
+    }
+    console.warn('⚠️  Using development session secret - DO NOT use in production!');
+    return 'project-achilles-dev-secret';
+  })(),
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -51,6 +67,10 @@ app.use(session({
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
   },
 }));
+
+// Clerk authentication middleware
+app.use(clerkAuth);
+app.use(linkClerkSession);
 
 // Rate limiting for auth endpoints
 const authLimiter = rateLimit({

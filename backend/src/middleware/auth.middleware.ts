@@ -7,7 +7,7 @@ import { Request, Response, NextFunction } from 'express';
 import { Credentials } from '../types/endpoints.js';
 
 /**
- * Require authentication middleware
+ * Require authentication middleware (Legacy - LimaCharlie only)
  * Ensures that the user has valid credentials in their session
  */
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
@@ -27,6 +27,63 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
       success: false,
       error: 'Invalid credentials',
       message: 'Credentials are missing required fields (oid, apiKey)',
+    });
+    return;
+  }
+
+  next();
+}
+
+/**
+ * Require LimaCharlie auth + Clerk auth (Dual-Auth)
+ * Ensures:
+ * 1. User is authenticated with Clerk (global auth)
+ * 2. User has valid LimaCharlie credentials in session
+ * 3. Session belongs to the authenticated Clerk user
+ */
+export function requireLCAuth(req: Request, res: Response, next: NextFunction): void {
+  // Ensure Clerk authentication
+  if (!req.auth?.userId) {
+    res.status(401).json({
+      success: false,
+      error: 'Authentication required',
+      message: 'Please sign in to continue',
+    });
+    return;
+  }
+
+  // Ensure session belongs to this Clerk user (prevent session hijacking)
+  if (req.session.clerkUserId && req.session.clerkUserId !== req.auth.userId) {
+    req.session.destroy((err) => {
+      if (err) {
+        console.error('Session destruction failed:', err);
+      }
+      res.status(401).json({
+        success: false,
+        error: 'Invalid session',
+        message: 'Session does not belong to authenticated user',
+      });
+    });
+    return;
+  }
+
+  // Ensure LimaCharlie credentials exist
+  if (!req.session.credentials) {
+    res.status(401).json({
+      success: false,
+      error: 'LimaCharlie credentials required',
+      message: 'Please provide LimaCharlie credentials',
+    });
+    return;
+  }
+
+  // Validate credentials format
+  const { oid, apiKey } = req.session.credentials;
+  if (!oid || !apiKey) {
+    res.status(401).json({
+      success: false,
+      error: 'Invalid credentials',
+      message: 'Credentials are missing required fields',
     });
     return;
   }

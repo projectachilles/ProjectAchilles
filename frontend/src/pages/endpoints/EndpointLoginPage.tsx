@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Cpu } from 'lucide-react';
+import { Cpu, ArrowLeft } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { login, clearError } from '../../store/endpointAuthSlice';
 import { Button } from '../../components/shared/ui/Button';
@@ -132,20 +132,32 @@ export default function EndpointLoginPage() {
               />
             </div>
 
-            <Button
-              type="submit"
-              className="w-full mt-6 bg-gradient-to-r from-primary to-purple-600 hover:from-primary/90 hover:to-purple-600/90"
-              disabled={loading}
-            >
-              {loading ? (
-                <span className="flex items-center gap-2">
-                  <Spinner size="sm" />
-                  Signing in...
-                </span>
-              ) : (
-                'Sign In'
-              )}
-            </Button>
+            <div className="flex gap-2 mt-6">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate('/')}
+                disabled={loading}
+                className="flex items-center gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back to Tests
+              </Button>
+              <Button
+                type="submit"
+                className="flex-1 bg-gradient-to-r from-primary to-purple-600 hover:from-primary/90 hover:to-purple-600/90"
+                disabled={loading}
+              >
+                {loading ? (
+                  <span className="flex items-center gap-2">
+                    <Spinner size="sm" />
+                    Signing in...
+                  </span>
+                ) : (
+                  'Sign In'
+                )}
+              </Button>
+            </div>
           </form>
 
           {/* Footer Link */}

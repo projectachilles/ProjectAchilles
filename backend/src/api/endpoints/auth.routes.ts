@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
+import { requireClerkAuth } from '../../middleware/clerk.middleware.js';
 import { authService } from '../../services/endpoints/auth.service.js';
 import {
   setCredentials,
@@ -14,6 +15,9 @@ import { asyncHandler } from '../../middleware/error.middleware.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
+
+// Require Clerk auth for all endpoints auth routes
+router.use(requireClerkAuth());
 
 // Validation schemas
 const loginSchema = z.object({
@@ -82,25 +86,47 @@ router.post(
       req.session.organizations = [organization];
     }
 
-    // Set as current org
-    req.session.currentOrgId = orgId;
-    setCredentials(req, credentials);
+    // Regenerate session on login to prevent session fixation
+    const sessionData = {
+      organizations: req.session.organizations,
+      currentOrgId: orgId,
+      clerkUserId: req.auth?.userId,
+    };
 
-    res.json({
-      success: true,
-      data: {
-        sessionId: req.session.id,
-        organizations: req.session.organizations.map((org) => ({
-          id: org.id,
-          name: org.name,
-          oid: org.oid,
-        })),
-        currentOrg: {
-          id: organization.id,
-          name: organization.name,
-          oid: organization.oid,
+    req.session.regenerate((err) => {
+      if (err) {
+        console.error('Session regeneration failed:', err);
+        return res.status(500).json({
+          success: false,
+          error: 'Session error',
+          message: 'Failed to create session',
+        });
+      }
+
+      // Restore session data after regeneration
+      req.session.organizations = sessionData.organizations;
+      req.session.currentOrgId = sessionData.currentOrgId;
+      if (sessionData.clerkUserId) {
+        req.session.clerkUserId = sessionData.clerkUserId;
+      }
+      setCredentials(req, credentials);
+
+      res.json({
+        success: true,
+        data: {
+          sessionId: req.session.id,
+          organizations: req.session.organizations.map((org) => ({
+            id: org.id,
+            name: org.name,
+            oid: org.oid,
+          })),
+          currentOrg: {
+            id: organization.id,
+            name: organization.name,
+            oid: organization.oid,
+          },
         },
-      },
+      });
     });
   })
 );
