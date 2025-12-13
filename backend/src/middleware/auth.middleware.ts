@@ -54,7 +54,10 @@ export function requireLCAuth(req: Request, res: Response, next: NextFunction): 
 
   // Ensure session belongs to this Clerk user (prevent session hijacking)
   if (req.session.clerkUserId && req.session.clerkUserId !== req.auth.userId) {
-    req.session.destroy(() => {
+    req.session.destroy((err) => {
+      if (err) {
+        console.error('Session destruction failed:', err);
+      }
       res.status(401).json({
         success: false,
         error: 'Invalid session',

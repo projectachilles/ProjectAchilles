@@ -86,30 +86,47 @@ router.post(
       req.session.organizations = [organization];
     }
 
-    // Set as current org
-    req.session.currentOrgId = orgId;
-    setCredentials(req, credentials);
+    // Regenerate session on login to prevent session fixation
+    const sessionData = {
+      organizations: req.session.organizations,
+      currentOrgId: orgId,
+      clerkUserId: req.auth?.userId,
+    };
 
-    // NEW: Link session to Clerk user
-    if (req.auth?.userId) {
-      req.session.clerkUserId = req.auth.userId;
-    }
+    req.session.regenerate((err) => {
+      if (err) {
+        console.error('Session regeneration failed:', err);
+        return res.status(500).json({
+          success: false,
+          error: 'Session error',
+          message: 'Failed to create session',
+        });
+      }
 
-    res.json({
-      success: true,
-      data: {
-        sessionId: req.session.id,
-        organizations: req.session.organizations.map((org) => ({
-          id: org.id,
-          name: org.name,
-          oid: org.oid,
-        })),
-        currentOrg: {
-          id: organization.id,
-          name: organization.name,
-          oid: organization.oid,
+      // Restore session data after regeneration
+      req.session.organizations = sessionData.organizations;
+      req.session.currentOrgId = sessionData.currentOrgId;
+      if (sessionData.clerkUserId) {
+        req.session.clerkUserId = sessionData.clerkUserId;
+      }
+      setCredentials(req, credentials);
+
+      res.json({
+        success: true,
+        data: {
+          sessionId: req.session.id,
+          organizations: req.session.organizations.map((org) => ({
+            id: org.id,
+            name: org.name,
+            oid: org.oid,
+          })),
+          currentOrg: {
+            id: organization.id,
+            name: organization.name,
+            oid: organization.oid,
+          },
         },
-      },
+      });
     });
   })
 );

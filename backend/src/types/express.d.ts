@@ -3,6 +3,7 @@
  */
 
 import { Credentials } from './endpoints';
+import type { AuthObject } from '@clerk/express';
 
 declare module 'express-session' {
   interface SessionData {
@@ -18,15 +19,11 @@ declare module 'express-session' {
   }
 }
 
-// NEW: Clerk auth types
+// NEW: Clerk auth types (using official SDK types)
 declare global {
   namespace Express {
     interface Request {
-      auth?: {
-        userId: string;
-        sessionId: string;
-        orgId?: string;
-      };
+      auth?: AuthObject;
     }
   }
 }

@@ -1,9 +1,4 @@
-import axios from 'axios';
-
-const api = axios.create({
-  baseURL: '/api/analytics',
-  timeout: 30000,
-});
+import { apiClient } from '@/hooks/useAuthenticatedApi';
 
 export interface AnalyticsSettings {
   configured: boolean;
@@ -111,7 +106,7 @@ export const analyticsApi = {
   // Settings
   async getSettings(): Promise<AnalyticsSettings> {
     try {
-      const response = await api.get('/settings');
+      const response = await apiClient.get('/analytics/settings');
       return response.data;
     } catch (error) {
       // If settings endpoint fails, return unconfigured state
@@ -128,7 +123,7 @@ export const analyticsApi = {
     password?: string;
     indexPattern?: string;
   }): Promise<{ success: boolean }> {
-    const response = await api.post('/settings', settings);
+    const response = await apiClient.post('/analytics/settings', settings);
     return response.data;
   },
 
@@ -140,7 +135,7 @@ export const analyticsApi = {
     username?: string;
     password?: string;
   }): Promise<{ success: boolean; version?: string; error?: string }> {
-    const response = await api.post('/settings/test', settings);
+    const response = await apiClient.post('/analytics/settings/test', settings);
     return response.data;
   },
 
@@ -150,7 +145,7 @@ export const analyticsApi = {
     from?: string;
     to?: string;
   }): Promise<DefenseScore> {
-    const response = await api.get('/defense-score', { params });
+    const response = await apiClient.get('/analytics/defense-score', { params });
     return response.data;
   },
 
@@ -160,7 +155,7 @@ export const analyticsApi = {
     to?: string;
     interval?: 'hour' | 'day' | 'week';
   }): Promise<TrendDataPoint[]> {
-    const response = await api.get('/defense-score/trend', { params });
+    const response = await apiClient.get('/analytics/defense-score/trend', { params });
     return response.data;
   },
 
@@ -170,7 +165,7 @@ export const analyticsApi = {
     to?: string;
     limit?: number;
   }): Promise<TestBreakdown[]> {
-    const response = await api.get('/defense-score/by-test', { params });
+    const response = await apiClient.get('/analytics/defense-score/by-test', { params });
     return response.data;
   },
 
@@ -179,7 +174,7 @@ export const analyticsApi = {
     from?: string;
     to?: string;
   }): Promise<TechniqueBreakdown[]> {
-    const response = await api.get('/defense-score/by-technique', { params });
+    const response = await apiClient.get('/analytics/defense-score/by-technique', { params });
     return response.data;
   },
 
@@ -189,22 +184,22 @@ export const analyticsApi = {
     to?: string;
     limit?: number;
   }): Promise<TestExecution[]> {
-    const response = await api.get('/executions', { params });
+    const response = await apiClient.get('/analytics/executions', { params });
     return response.data;
   },
 
   async getOrganizations(): Promise<string[]> {
-    const response = await api.get('/organizations');
+    const response = await apiClient.get('/analytics/organizations');
     return response.data;
   },
 
   async getUniqueHostnames(params?: { org?: string }): Promise<number> {
-    const response = await api.get('/unique-hostnames', { params });
+    const response = await apiClient.get('/analytics/unique-hostnames', { params });
     return response.data.count;
   },
 
   async getUniqueTests(params?: { org?: string }): Promise<number> {
-    const response = await api.get('/unique-tests', { params });
+    const response = await apiClient.get('/analytics/unique-tests', { params });
     return response.data.count;
   },
 
@@ -216,7 +211,7 @@ export const analyticsApi = {
     tests?: string;
     techniques?: string;
   }): Promise<ErrorTypeBreakdown[]> {
-    const response = await api.get('/results-by-error-type', { params });
+    const response = await apiClient.get('/analytics/results-by-error-type', { params });
     return response.data;
   },
 
@@ -227,7 +222,7 @@ export const analyticsApi = {
     tests?: string;
     techniques?: string;
   }): Promise<TestCoverageItem[]> {
-    const response = await api.get('/test-coverage', { params });
+    const response = await apiClient.get('/analytics/test-coverage', { params });
     return response.data;
   },
 
@@ -238,7 +233,7 @@ export const analyticsApi = {
     tests?: string;
     techniques?: string;
   }): Promise<TechniqueDistributionItem[]> {
-    const response = await api.get('/technique-distribution', { params });
+    const response = await apiClient.get('/analytics/technique-distribution', { params });
     return response.data;
   },
 
@@ -249,17 +244,17 @@ export const analyticsApi = {
     tests?: string;
     techniques?: string;
   }): Promise<HostTestMatrixCell[]> {
-    const response = await api.get('/host-test-matrix', { params });
+    const response = await apiClient.get('/analytics/host-test-matrix', { params });
     return response.data;
   },
 
   async getAvailableTests(): Promise<string[]> {
-    const response = await api.get('/available-tests');
+    const response = await apiClient.get('/analytics/available-tests');
     return response.data;
   },
 
   async getAvailableTechniques(): Promise<string[]> {
-    const response = await api.get('/available-techniques');
+    const response = await apiClient.get('/analytics/available-techniques');
     return response.data;
   },
 };
