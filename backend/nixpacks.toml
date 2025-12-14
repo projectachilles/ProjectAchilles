@@ -2,10 +2,10 @@
 nixPkgs = ["nodejs_22"]
 
 [phases.install]
-cmds = ["npm ci"]
+cmds = ["npm ci --prefer-offline --no-audit"]
 
 [phases.build]
 cmds = ["npm run build"]
 
 [start]
-cmd = "npm run start"
+cmd = "node dist/server.js"
