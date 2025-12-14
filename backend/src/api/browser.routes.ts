@@ -23,9 +23,15 @@ const testsSourcePath = process.env.TESTS_SOURCE_PATH || path.resolve(__dirname,
 
 const testIndexer = new TestIndexer(testsSourcePath);
 
-// Initial scan on startup
+// Initial scan on startup (if tests directory exists)
 console.log(`Scanning tests from: ${testsSourcePath}`);
-testIndexer.scanAllTests();
+try {
+  testIndexer.scanAllTests();
+  console.log('✓ Tests scanned successfully');
+} catch (error) {
+  console.warn('⚠ Tests directory not found - browser module will have no tests available');
+  console.warn(`  Set TESTS_SOURCE_PATH environment variable to enable test browsing`);
+}
 
 /**
  * GET /api/browser/tests
