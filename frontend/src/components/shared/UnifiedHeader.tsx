@@ -1,5 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useRef, useEffect } from 'react';
+import { UserButton, useUser } from '@clerk/clerk-react';
 import { useTheme } from '../../hooks/useTheme';
 import { useAnalyticsAuth } from '../../hooks/useAnalyticsAuth';
 import { useAppDispatch, useAppSelector } from '../../store';
@@ -58,6 +59,7 @@ export default function UnifiedHeader({
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const { theme, toggleTheme } = useTheme();
+  const { user, isLoaded } = useUser();
 
   // Auth states
   const { configured: analyticsConfigured } = useAnalyticsAuth();
@@ -210,6 +212,23 @@ export default function UnifiedHeader({
                 <Moon className="w-5 h-5" />
               )}
             </Button>
+
+            {/* Clerk User Button (Global Auth) */}
+            {isLoaded && user && (
+              <div className="ml-2 flex items-center gap-3">
+                <span className="text-sm text-muted-foreground hidden sm:inline">
+                  {user.firstName || user.emailAddresses[0]?.emailAddress}
+                </span>
+                <UserButton
+                  afterSignOutUrl="/sign-in"
+                  appearance={{
+                    elements: {
+                      avatarBox: "w-10 h-10 rounded-full border-2 border-border hover:border-primary transition-colors",
+                    },
+                  }}
+                />
+              </div>
+            )}
 
             {/* User Menu (when endpoints authenticated) */}
             {isAuthenticated && currentOrg && (
