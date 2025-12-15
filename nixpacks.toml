@@ -1,4 +1,7 @@
 # Force Node.js provider for Railway deployment
+# Disable auto-detection to prevent duplicate npm ci
+providers = []
+
 [phases.setup]
 nixPkgs = ["nodejs"]
 
@@ -6,6 +9,7 @@ nixPkgs = ["nodejs"]
 cmds = ["cd backend && npm ci --include=dev"]
 
 [phases.build]
+dependsOn = ["install"]
 cmds = ["cd backend && npm run build"]
 
 [start]
