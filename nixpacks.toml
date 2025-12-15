@@ -1,0 +1,12 @@
+# Force Node.js provider for Railway deployment
+[phases.setup]
+nixPkgs = ["nodejs_22", "npm"]
+
+[phases.install]
+cmds = ["cd backend && npm ci"]
+
+[phases.build]
+cmds = ["cd backend && npm run build"]
+
+[start]
+cmd = "cd backend && npm run start"
