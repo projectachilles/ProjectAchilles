@@ -3,7 +3,7 @@
 nixPkgs = ["nodejs"]
 
 [phases.install]
-cmds = ["cd backend && npm ci"]
+cmds = ["cd backend && npm ci --include=dev"]
 
 [phases.build]
 cmds = ["cd backend && npm run build"]
