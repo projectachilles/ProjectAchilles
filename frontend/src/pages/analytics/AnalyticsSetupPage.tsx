@@ -39,7 +39,7 @@ export default function AnalyticsSetupPage() {
       const settings = await analyticsApi.getSettings();
       if (settings.configured) {
         setEditMode(true);
-        setConnectionType(settings.connectionType);
+        setConnectionType(settings.connectionType || 'cloud');
         setIndexPattern(settings.indexPattern || 'f0rtika-results-*');
         // Note: Credentials are not returned for security, so fields remain empty
         // When saving with empty credentials, backend will keep existing ones

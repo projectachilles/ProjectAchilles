@@ -4,12 +4,13 @@ import { forwardRef } from 'react';
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
+  helperText?: string;
   leftIcon?: ReactNode;
   rightIcon?: ReactNode;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className = '', label, error, leftIcon, rightIcon, id, ...props }, ref) => {
+  ({ className = '', label, error, helperText, leftIcon, rightIcon, id, ...props }, ref) => {
     const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
 
     return (
@@ -51,6 +52,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         </div>
         {error && (
           <p className="mt-1.5 text-sm text-destructive">{error}</p>
+        )}
+        {helperText && !error && (
+          <p className="mt-1.5 text-sm text-muted-foreground">{helperText}</p>
         )}
       </div>
     );

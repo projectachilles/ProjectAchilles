@@ -118,9 +118,9 @@ export default function AnalyticsDashboardPage() {
         }
         // If already an object, ensure it has the required fields
         return {
-          uuid: org.uuid || org,
-          shortName: org.shortName || org.uuid || String(org),
-          fullName: org.fullName || org.shortName || org.uuid || String(org)
+          uuid: org.uuid,
+          shortName: org.shortName || org.uuid,
+          fullName: org.fullName || org.shortName || org.uuid
         };
       }));
       setAvailableTests(tests);

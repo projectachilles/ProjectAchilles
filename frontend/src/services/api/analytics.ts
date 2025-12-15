@@ -188,7 +188,7 @@ export const analyticsApi = {
     return response.data;
   },
 
-  async getOrganizations(): Promise<string[]> {
+  async getOrganizations(): Promise<(string | OrganizationInfo)[]> {
     const response = await apiClient.get('/analytics/organizations');
     return response.data;
   },
