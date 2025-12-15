@@ -2,7 +2,7 @@
  * API Client for LimaCharlie Sensor Management Backend
  */
 
-import axios, { type AxiosInstance } from 'axios';
+import { apiClient } from '@/hooks/useAuthenticatedApi';
 import type {
   ApiResponse,
   LoginRequest,
@@ -17,26 +17,16 @@ import type {
   EventsQueryResponse,
 } from '../../types/endpoints';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-
 class ApiClient {
-  private client: AxiosInstance;
+  private client = apiClient;
 
   constructor() {
-    this.client = axios.create({
-      baseURL: `${API_BASE_URL}/api`,
-      withCredentials: true, // Important for session cookies
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-
-    // Add response interceptor for error handling
+    // Add response interceptor for error handling (endpoints-specific)
     this.client.interceptors.response.use(
       (response) => response,
       (error) => {
-        if (error.response?.status === 401) {
-          // Handle unauthorized - redirect to login
+        if (error.response?.status === 401 && window.location.pathname.startsWith('/endpoints')) {
+          // Handle unauthorized for endpoints module - redirect to endpoints login
           window.location.href = '/endpoints/login';
         }
         return Promise.reject(error);
