@@ -7,8 +7,8 @@
 
 ## Executive Summary
 
-A comprehensive security review of ProjectAchilles identified **15 vulnerabilities** across the codebase:
-- **2 Critical** - Require immediate attention before production use
+A comprehensive security review of ProjectAchilles identified **14 vulnerabilities** across the codebase:
+- **1 Critical** - Requires immediate attention before production use
 - **3 High** - Should be addressed in the short term
 - **5 Medium** - Important security improvements
 - **5 Low** - Best practice improvements
@@ -17,29 +17,7 @@ A comprehensive security review of ProjectAchilles identified **15 vulnerabiliti
 
 ## Phase 1: Critical Issues (Must Fix Before Production)
 
-### 1.1 Command Injection Vulnerability
-**Severity:** CRITICAL | **File:** `backend/src/services/endpoints/tasks.service.ts`
-
-**Problem:** User input is directly interpolated into shell commands without sanitization at lines 125, 179, 184, and 223.
-
-```typescript
-// VULNERABLE CODE (line 179)
-command = `run --shell-command "${request.command}"`;
-```
-
-**Proposed Fix:**
-- Implement a command sanitization utility function
-- Use allowlisting for permitted commands
-- Escape shell metacharacters in user inputs
-- Add input validation with strict patterns
-
-**Files to Modify:**
-- `backend/src/services/endpoints/tasks.service.ts`
-- Create: `backend/src/utils/command-sanitizer.ts`
-
----
-
-### 1.2 Weak Encryption Key Derivation
+### 1.1 Weak Encryption Key Derivation
 **Severity:** CRITICAL | **File:** `backend/src/services/analytics/settings.ts`
 
 **Problem:** Encryption key derived from predictable values (hostname + username) using SHA256 without salt.
@@ -304,39 +282,36 @@ I recommend implementing fixes in this order:
 
 | Order | Issue | Phase | Est. Complexity |
 |-------|-------|-------|-----------------|
-| 1 | Command Injection (1.1) | Critical | High |
-| 2 | Weak Encryption (1.2) | Critical | Medium |
-| 3 | Session Secret (2.3) | High | Low |
-| 4 | CSP + Security Headers (2.2, 4.5) | High | Low |
-| 5 | Information Disclosure (2.1) | High | Medium |
-| 6 | Rate Limiting (3.1) | Medium | Low |
-| 7 | CORS Configuration (3.2) | Medium | Low |
-| 8 | CSRF Protection (3.4) | Medium | Medium |
-| 9 | File Permissions (3.5) | Medium | Low |
-| 10 | JWT Cache Security (3.3) | Medium | Low |
-| 11 | Upload Size Limit (4.1) | Low | Low |
-| 12 | Temp File Security (4.2) | Low | Medium |
-| 13 | Input Validation (4.3) | Low | Low |
-| 14 | Path Traversal (4.4) | Low | Low |
+| 1 | Weak Encryption (1.1) | Critical | Medium |
+| 2 | Session Secret (2.3) | High | Low |
+| 3 | CSP + Security Headers (2.2, 4.5) | High | Low |
+| 4 | Information Disclosure (2.1) | High | Medium |
+| 5 | Rate Limiting (3.1) | Medium | Low |
+| 6 | CORS Configuration (3.2) | Medium | Low |
+| 7 | CSRF Protection (3.4) | Medium | Medium |
+| 8 | File Permissions (3.5) | Medium | Low |
+| 9 | JWT Cache Security (3.3) | Medium | Low |
+| 10 | Upload Size Limit (4.1) | Low | Low |
+| 11 | Temp File Security (4.2) | Low | Medium |
+| 12 | Input Validation (4.3) | Low | Low |
+| 13 | Path Traversal (4.4) | Low | Low |
 
 ---
 
 ## Files Summary
 
 **Files to be Modified:**
-1. `backend/src/services/endpoints/tasks.service.ts`
-2. `backend/src/services/analytics/settings.ts`
-3. `backend/src/middleware/error.middleware.ts`
-4. `backend/src/services/endpoints/payloads.service.ts`
-5. `backend/src/server.ts`
-6. `backend/src/services/endpoints/auth.service.ts`
-7. `backend/src/api/endpoints/payloads.routes.ts`
-8. `backend/src/api/analytics.routes.ts`
-9. `frontend/src/services/api/*.ts` (for CSRF)
+1. `backend/src/services/analytics/settings.ts`
+2. `backend/src/middleware/error.middleware.ts`
+3. `backend/src/services/endpoints/payloads.service.ts`
+4. `backend/src/server.ts`
+5. `backend/src/services/endpoints/auth.service.ts`
+6. `backend/src/api/endpoints/payloads.routes.ts`
+7. `backend/src/api/analytics.routes.ts`
+8. `frontend/src/services/api/*.ts` (for CSRF)
 
 **New Files to Create:**
-1. `backend/src/utils/command-sanitizer.ts`
-2. `backend/src/middleware/csrf.middleware.ts`
+1. `backend/src/middleware/csrf.middleware.ts`
 
 ---
 
