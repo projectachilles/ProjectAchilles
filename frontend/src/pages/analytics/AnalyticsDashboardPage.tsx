@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Shield, Monitor, FlaskConical } from 'lucide-react';
 import SharedLayout from '../../components/shared/Layout';
 import SettingsModal from './components/SettingsModal';
@@ -35,8 +34,6 @@ interface DefenseScoreData {
 }
 
 export default function AnalyticsDashboardPage() {
-  const navigate = useNavigate();
-
   // UI State
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -80,26 +77,12 @@ export default function AnalyticsDashboardPage() {
   const [loadingMatrix, setLoadingMatrix] = useState(true);
   const [loadingExecutions, setLoadingExecutions] = useState(true);
 
-  // Check if configured
+  // Load data on mount
+  // Note: AnalyticsProtectedRoute already ensures we're configured before rendering
   useEffect(() => {
-    checkConfiguration();
+    loadFilterOptions();
+    loadAllData();
   }, []);
-
-  async function checkConfiguration() {
-    try {
-      const settings = await analyticsApi.getSettings();
-      if (!settings.configured) {
-        navigate('/analytics/setup');
-        return;
-      }
-      // Load filter options first
-      loadFilterOptions();
-      // Load initial data
-      loadAllData();
-    } catch (error) {
-      navigate('/analytics/setup');
-    }
-  }
 
   // Load filter dropdown options
   async function loadFilterOptions() {

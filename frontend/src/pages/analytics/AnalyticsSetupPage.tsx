@@ -11,7 +11,7 @@ import { Spinner } from '../../components/shared/ui/Spinner';
 
 export default function AnalyticsSetupPage() {
   const navigate = useNavigate();
-  const { checkConfiguration } = useAnalyticsAuth();
+  const { updateSettings } = useAnalyticsAuth();
 
   const [editMode, setEditMode] = useState(false);
   const [connectionType, setConnectionType] = useState<'cloud' | 'direct'>('cloud');
@@ -87,7 +87,14 @@ export default function AnalyticsSetupPage() {
         : { connectionType, node, username, password, indexPattern };
 
       await analyticsApi.saveSettings(settings);
-      await checkConfiguration();
+
+      // Directly update context state to avoid race condition
+      // (checkConfiguration sets state async, but we need it before navigate)
+      updateSettings({
+        configured: true,
+        connectionType,
+        indexPattern,
+      });
 
       if (editMode) {
         setSuccessMessage('Settings updated successfully!');
