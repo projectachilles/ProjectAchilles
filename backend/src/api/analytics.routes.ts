@@ -1,9 +1,28 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { requireClerkAuth } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { SettingsService } from '../services/analytics/settings.js';
 import { ElasticsearchService } from '../services/analytics/elasticsearch.js';
 import { AnalyticsQueryParams } from '../types/analytics.js';
+
+// Validation schemas for analytics queries
+const dateRegex = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?)?$/;
+const intervalValues = ['hour', 'day', 'week', 'month'] as const;
+
+const baseQuerySchema = z.object({
+  org: z.string().max(100).optional(),
+  from: z.string().regex(dateRegex, 'Invalid date format').optional(),
+  to: z.string().regex(dateRegex, 'Invalid date format').optional(),
+});
+
+const queryWithIntervalSchema = baseQuerySchema.extend({
+  interval: z.enum(intervalValues).optional(),
+});
+
+const queryWithLimitSchema = baseQuerySchema.extend({
+  limit: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().min(1).max(1000)).optional(),
+});
 
 const router = Router();
 
@@ -114,13 +133,13 @@ router.get('/defense-score', asyncHandler(async (req, res) => {
 // GET /api/analytics/defense-score/trend - Score over time
 router.get('/defense-score/trend', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const { org, from, to, interval } = req.query;
+  const params = queryWithIntervalSchema.parse(req.query);
 
   const result = await es.getDefenseScoreTrend({
-    org: org as string,
-    from: from as string,
-    to: to as string,
-    interval: (interval as string) || 'day',
+    org: params.org,
+    from: params.from,
+    to: params.to,
+    interval: params.interval || 'day',
   });
 
   res.json(result);
@@ -129,13 +148,13 @@ router.get('/defense-score/trend', asyncHandler(async (req, res) => {
 // GET /api/analytics/defense-score/by-test - Score by test
 router.get('/defense-score/by-test', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const { org, from, to, limit } = req.query;
+  const params = queryWithLimitSchema.parse(req.query);
 
   const result = await es.getDefenseScoreByTest({
-    org: org as string,
-    from: from as string,
-    to: to as string,
-    limit: limit ? parseInt(limit as string) : 10,
+    org: params.org,
+    from: params.from,
+    to: params.to,
+    limit: params.limit || 10,
   });
 
   res.json(result);
@@ -158,13 +177,13 @@ router.get('/defense-score/by-technique', asyncHandler(async (req, res) => {
 // GET /api/analytics/executions - Recent executions
 router.get('/executions', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const { org, from, to, limit } = req.query;
+  const params = queryWithLimitSchema.parse(req.query);
 
   const result = await es.getRecentExecutions({
-    org: org as string,
-    from: from as string,
-    to: to as string,
-    limit: limit ? parseInt(limit as string) : 50,
+    org: params.org,
+    from: params.from,
+    to: params.to,
+    limit: params.limit || 50,
   });
 
   res.json(result);

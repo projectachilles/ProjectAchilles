@@ -8,6 +8,7 @@ import { Credentials, JWTResponse, JWTPayload } from '../../types/endpoints.js';
 
 const JWT_URL = process.env.LC_JWT_URL || 'https://jwt.limacharlie.io';
 const TOKEN_EXPIRY_BUFFER_SECONDS = 60; // Refresh token 60 seconds before expiry
+const MAX_CACHE_ENTRIES = 100; // Limit cache size to prevent memory exhaustion
 
 export class AuthService {
   private tokenCache: Map<string, { jwt: string; expiry: Date }> = new Map();
@@ -41,6 +42,18 @@ export class AuthService {
 
       const jwt = response.data.jwt;
       const expiry = this.extractExpiryFromJWT(jwt);
+
+      // Enforce cache size limit - remove oldest entries if needed
+      if (this.tokenCache.size >= MAX_CACHE_ENTRIES) {
+        this.pruneExpiredTokens();
+        // If still at limit after pruning, remove oldest entry
+        if (this.tokenCache.size >= MAX_CACHE_ENTRIES) {
+          const oldestKey = this.tokenCache.keys().next().value;
+          if (oldestKey) {
+            this.tokenCache.delete(oldestKey);
+          }
+        }
+      }
 
       // Cache the token
       this.tokenCache.set(cacheKey, { jwt, expiry });
@@ -127,6 +140,18 @@ export class AuthService {
    */
   clearAllTokens(): void {
     this.tokenCache.clear();
+  }
+
+  /**
+   * Remove expired tokens from cache
+   */
+  private pruneExpiredTokens(): void {
+    const now = new Date();
+    for (const [key, value] of this.tokenCache.entries()) {
+      if (now >= value.expiry) {
+        this.tokenCache.delete(key);
+      }
+    }
   }
 
   /**

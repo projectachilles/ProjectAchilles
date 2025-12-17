@@ -5,20 +5,37 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import multer from 'multer';
+import crypto from 'crypto';
 import { payloadsService } from '../../services/endpoints/payloads.service.js';
 import { requireAuth, getCredentials } from '../../middleware/auth.middleware.js';
 import { asyncHandler } from '../../middleware/error.middleware.js';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 
 const router = Router();
 
-// Configure multer for file uploads
+// Secure temp directory setup
+const TEMP_DIR = path.join(os.tmpdir(), 'projectachilles-uploads');
+if (!fs.existsSync(TEMP_DIR)) {
+  fs.mkdirSync(TEMP_DIR, { mode: 0o700, recursive: true });
+}
+
+// Configure multer for file uploads with secure settings
+const UPLOAD_SIZE_LIMIT = parseInt(process.env.UPLOAD_SIZE_LIMIT_MB || '50', 10) * 1024 * 1024;
 const upload = multer({
-  dest: '/tmp/lc-uploads',
+  dest: TEMP_DIR,
   limits: {
-    fileSize: 500 * 1024 * 1024, // 500MB limit
+    fileSize: UPLOAD_SIZE_LIMIT, // Default 50MB, configurable via env
   },
+  // Use cryptographically random file names
+  storage: multer.diskStorage({
+    destination: TEMP_DIR,
+    filename: (_req, _file, cb) => {
+      const randomName = crypto.randomBytes(16).toString('hex');
+      cb(null, `upload-${randomName}`);
+    },
+  }),
 });
 
 // Apply auth middleware to all routes
@@ -76,6 +93,28 @@ router.post(
   })
 );
 
+// Allowed directories for upload-from-path (configurable)
+const ALLOWED_UPLOAD_DIRS = (process.env.ALLOWED_UPLOAD_DIRS || '/tmp,/var/uploads').split(',').map(d => d.trim());
+
+/**
+ * Validate file path to prevent path traversal attacks
+ */
+function isPathAllowed(filePath: string): boolean {
+  // Resolve to absolute path and normalize
+  const resolvedPath = path.resolve(filePath);
+
+  // Check for path traversal patterns
+  if (filePath.includes('..') || filePath.includes('\0')) {
+    return false;
+  }
+
+  // Check if path is within allowed directories
+  return ALLOWED_UPLOAD_DIRS.some(allowedDir => {
+    const resolvedAllowed = path.resolve(allowedDir);
+    return resolvedPath.startsWith(resolvedAllowed + path.sep) || resolvedPath === resolvedAllowed;
+  });
+}
+
 /**
  * POST /api/endpoints/payloads/upload-from-path
  * Upload payload from server file path (for internal use)
@@ -93,6 +132,28 @@ router.post(
         filePath: z.string().min(1, 'File path is required'),
       })
       .parse(req.body);
+
+    // Validate path to prevent traversal attacks
+    if (!isPathAllowed(filePath)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid file path',
+        message: 'File path must be within allowed directories and cannot contain path traversal sequences',
+      });
+    }
+
+    // Reject symbolic links to prevent symlink attacks
+    try {
+      const stats = fs.lstatSync(filePath);
+      if (stats.isSymbolicLink()) {
+        return res.status(400).json({
+          success: false,
+          error: 'Symbolic links not allowed',
+        });
+      }
+    } catch {
+      // File doesn't exist - let uploadPayload handle this error
+    }
 
     const result = await payloadsService.uploadPayload(credentials, filePath);
 
@@ -145,8 +206,9 @@ router.get(
       return res.status(401).json({ success: false, error: 'Not authenticated' });
     }
 
-    // Create temp download path
-    const tempPath = path.join('/tmp', `lc-download-${Date.now()}-${req.params.name}`);
+    // Create secure temp download path with random name
+    const randomSuffix = crypto.randomBytes(8).toString('hex');
+    const tempPath = path.join(TEMP_DIR, `download-${randomSuffix}`);
 
     try {
       const filePath = await payloadsService.downloadPayload(

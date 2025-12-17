@@ -144,20 +144,15 @@ export class PayloadsService {
         headers: { Authorization: authHeader },
       });
 
-      // Log the raw response for debugging
-      console.log('[PayloadsService] Raw API response:', JSON.stringify(response.data));
-
       // Handle different response formats
       let payloadNames: string[] = [];
 
       if (Array.isArray(response.data)) {
         // Response is directly an array of strings
         payloadNames = response.data;
-        console.log('[PayloadsService] Parsed as array:', payloadNames);
       } else if (response.data && Array.isArray(response.data.payloads)) {
         // Response is { payloads: string[] }
         payloadNames = response.data.payloads;
-        console.log('[PayloadsService] Parsed from payloads field (array):', payloadNames);
       } else if (response.data && response.data.payloads && typeof response.data.payloads === 'object') {
         // Response is { payloads: { filename1: {...}, filename2: {...} } }
         // Extract full payload metadata
@@ -170,17 +165,14 @@ export class PayloadsService {
             : undefined,
           uploadedBy: payloadsObj[name].by,
         }));
-        console.log('[PayloadsService] Parsed from payloads field (object):', payloads);
         return payloads;
       } else if (response.data && typeof response.data === 'object') {
         // Response is an object with payload names as keys
         payloadNames = Object.keys(response.data);
-        console.log('[PayloadsService] Parsed from object keys:', payloadNames);
       }
 
       // Transform string array to Payload objects (fallback for array responses)
       const payloads = payloadNames.map((name) => ({ name }));
-      console.log('[PayloadsService] Returning payloads:', payloads);
       return payloads;
     } catch (error) {
       if (authService.isAuthError(error)) {
