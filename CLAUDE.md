@@ -9,14 +9,6 @@ ProjectAchilles is a Unified Security Platform with three main modules:
 - **Analytics Module**: Test results analytics via Elasticsearch (Clerk auth + configuration)
 - **Endpoints Module**: Endpoint management via LimaCharlie (Clerk auth + LimaCharlie credentials)
 
-## Authentication
-
-The platform uses **Clerk** for global authentication with social login support:
-- Social providers: Google, Microsoft, GitHub
-- JWT-based authentication with httpOnly cookies
-- Session isolation per authenticated user
-- All routes require Clerk authentication before access
-
 ## Development Commands
 
 ### Start the full stack
@@ -42,12 +34,18 @@ npm run build           # Compile TypeScript (tsc)
 npm run start           # Run compiled JS
 ```
 
+### TypeScript Validation (No test framework)
+```bash
+cd frontend && npm run build    # Validates frontend TypeScript
+cd backend && npm run build     # Validates backend TypeScript
+```
+
 ## Architecture
 
 ### Frontend (`frontend/src/`)
 - **React 19** with **TypeScript**, **Vite**, and **Tailwind CSS v4**
 - **Clerk** for authentication (`@clerk/clerk-react`)
-- **Redux Toolkit** for state management (endpoint auth)
+- **Redux Toolkit** for state management (endpoint auth, sensors)
 - **React Router v7** for routing
 - Path alias: `@/` maps to `src/`
 
@@ -58,7 +56,7 @@ Key directories:
 - `components/shared/ui/` - Base UI primitives (Button, Card, Input, etc.)
 - `services/api/` - API client modules (browser.ts, analytics.ts, endpoints.ts)
 - `hooks/` - Custom hooks (useTheme, useAnalyticsAuth, useAuthenticatedApi)
-- `store/` - Redux store configuration and slices
+- `store/` - Redux store configuration and slices (endpointAuth, sensors)
 - `routes/AppRouter.tsx` - All routing with Clerk-protected route wrappers
 
 ### Backend (`backend/src/`)
@@ -75,10 +73,21 @@ Key directories:
 ### API Routes (All require Clerk authentication)
 - `/api/browser/*` - Security test browser (Clerk auth)
 - `/api/analytics/*` - Elasticsearch-based analytics (Clerk auth)
-- `/api/auth/*` - Endpoint authentication (Clerk auth, rate limited)
+- `/api/auth/*` - Endpoint authentication (Clerk auth, rate limited: 20 req/15 min)
 - `/api/endpoints/*` - Endpoint management (Clerk auth + LimaCharlie credentials)
 
 ## Key Patterns
+
+### ES Module Imports (Backend)
+Backend uses `.js` extensions in imports for ES module compatibility. This is required because TypeScript compiles to `.js` files:
+```typescript
+// Correct - use .js extension even though source is .ts
+import browserRoutes from './api/browser.routes.js';
+import { someUtil } from './utils/helper.js';
+
+// Incorrect - will fail at runtime
+import browserRoutes from './api/browser.routes';
+```
 
 ### Protected Routes (Three-tier authentication)
 1. **Global (Clerk)**: All routes wrapped with `<RequireAuth>` component
@@ -105,8 +114,10 @@ Key directories:
 ### API Proxying
 Vite proxies `/api` requests to backend at `http://localhost:$VITE_BACKEND_PORT` (default 3000)
 
-### Module Imports
-Backend uses `.js` extensions in imports for ES module compatibility:
-```typescript
-import browserRoutes from './api/browser.routes.js';
+### Commit Convention
+Follow [Conventional Commits](https://www.conventionalcommits.org/):
 ```
+<type>(<scope>): <description>
+```
+Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`
+Example: `feat(analytics): add trend visualization chart`
