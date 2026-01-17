@@ -32,3 +32,10 @@ npm-debug.log*
 
 # Claude Code settings
 .claude/settings.local.json
+
+# Lock files (regenerated on install)
+backend/package-lock.json
+frontend/package-lock.json
+
+# Playwright MCP
+.playwright-mcp/
