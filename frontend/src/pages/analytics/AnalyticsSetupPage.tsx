@@ -82,6 +82,23 @@ export default function AnalyticsSetupPage() {
       setError(null);
       setSuccessMessage(null);
 
+      const credentials = connectionType === 'cloud'
+        ? { connectionType, cloudId, apiKey }
+        : { connectionType, node, username, password };
+
+      // Auto-test connection if not already tested successfully
+      if (!testResult?.success) {
+        setTestResult(null);
+        const result = await analyticsApi.testConnection(credentials);
+
+        if (!result.success) {
+          setTestResult({ success: false, message: result.error || 'Connection failed' });
+          setSaving(false);
+          return;
+        }
+        setTestResult({ success: true, message: `Connected successfully! ES version: ${result.version}` });
+      }
+
       const settings = connectionType === 'cloud'
         ? { connectionType, cloudId, apiKey, indexPattern }
         : { connectionType, node, username, password, indexPattern };
@@ -305,7 +322,7 @@ export default function AnalyticsSetupPage() {
           </div>
           <Button
             onClick={handleSave}
-            disabled={!isValid || !testResult?.success || saving}
+            disabled={!isValid || saving}
           >
             {saving ? (
               <>
