@@ -9,8 +9,18 @@ import {
   ResponsiveContainer,
   ReferenceLine
 } from 'recharts';
-import { format, parseISO } from 'date-fns';
+import { format } from 'date-fns';
 import type { TrendDataPoint } from '../../../services/api/analytics';
+
+// Helper to parse timestamp - handles both epoch ms strings and ISO strings
+function parseTimestamp(timestamp: string): Date {
+  // Check if it's a numeric string (epoch milliseconds)
+  if (/^\d+$/.test(timestamp)) {
+    return new Date(parseInt(timestamp, 10));
+  }
+  // Otherwise parse as ISO string
+  return new Date(timestamp);
+}
 import { useTheme } from '../../../hooks/useTheme';
 
 interface TrendChartProps {
@@ -44,11 +54,14 @@ export default function TrendChart({ data, loading, title = 'Defense Score Trend
   const lineColor = isDark ? 'hsl(217.2 91.2% 59.8%)' : 'hsl(221.2 83.2% 53.3%)';
 
   // Format data for chart
-  const chartData = data.map(point => ({
-    ...point,
-    date: format(parseISO(point.timestamp), 'MMM d'),
-    fullDate: format(parseISO(point.timestamp), 'MMM d, yyyy')
-  }));
+  const chartData = data.map(point => {
+    const date = parseTimestamp(point.timestamp);
+    return {
+      ...point,
+      date: format(date, 'MMM d'),
+      fullDate: format(date, 'MMM d, yyyy')
+    };
+  });
 
   // Custom tooltip
   const CustomTooltip = ({ active, payload }: any) => {

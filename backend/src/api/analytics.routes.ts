@@ -3,7 +3,7 @@ import { requireClerkAuth } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { SettingsService } from '../services/analytics/settings.js';
 import { ElasticsearchService } from '../services/analytics/elasticsearch.js';
-import { AnalyticsQueryParams } from '../types/analytics.js';
+import type { AnalyticsQueryParams, PaginatedExecutionsParams } from '../types/analytics.js';
 
 const router = Router();
 
@@ -275,6 +275,153 @@ router.get('/defense-score/by-org', asyncHandler(async (req, res) => {
   const { from, to } = req.query;
 
   const result = await es.getDefenseScoreByOrg({
+    from: from as string,
+    to: to as string,
+  });
+
+  res.json(result);
+}));
+
+// ============================================
+// New Endpoints for Enhanced Analytics
+// ============================================
+
+// GET /api/analytics/executions/paginated - Paginated executions with extended filters
+router.get('/executions/paginated', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const {
+    org, from, to, tests, techniques,
+    hostnames, categories, severities, threatActors, tags, result,
+    page, pageSize, sortField, sortOrder
+  } = req.query;
+
+  const params: PaginatedExecutionsParams = {
+    org: org as string,
+    from: from as string,
+    to: to as string,
+    tests: tests as string,
+    techniques: techniques as string,
+    hostnames: hostnames as string,
+    categories: categories as string,
+    severities: severities as string,
+    threatActors: threatActors as string,
+    tags: tags as string,
+    result: result as 'all' | 'protected' | 'unprotected',
+    page: page ? parseInt(page as string) : 1,
+    pageSize: pageSize ? parseInt(pageSize as string) : 25,
+    sortField: sortField as string,
+    sortOrder: sortOrder as 'asc' | 'desc',
+  };
+
+  const data = await es.getPaginatedExecutions(params);
+  res.json(data);
+}));
+
+// GET /api/analytics/available-hostnames - List available hostnames with counts
+router.get('/available-hostnames', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to } = req.query;
+
+  const hostnames = await es.getAvailableHostnames({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+  });
+
+  res.json(hostnames);
+}));
+
+// GET /api/analytics/available-categories - List available categories with counts
+router.get('/available-categories', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to } = req.query;
+
+  const categories = await es.getAvailableCategories({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+  });
+
+  res.json(categories);
+}));
+
+// GET /api/analytics/available-severities - List available severities with counts
+router.get('/available-severities', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to } = req.query;
+
+  const severities = await es.getAvailableSeverities({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+  });
+
+  res.json(severities);
+}));
+
+// GET /api/analytics/available-threat-actors - List available threat actors with counts
+router.get('/available-threat-actors', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to } = req.query;
+
+  const threatActors = await es.getAvailableThreatActors({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+  });
+
+  res.json(threatActors);
+}));
+
+// GET /api/analytics/available-tags - List available tags with counts
+router.get('/available-tags', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to } = req.query;
+
+  const tags = await es.getAvailableTags({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+  });
+
+  res.json(tags);
+}));
+
+// GET /api/analytics/defense-score/by-severity - Score breakdown by severity
+router.get('/defense-score/by-severity', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to } = req.query;
+
+  const result = await es.getDefenseScoreBySeverity({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+  });
+
+  res.json(result);
+}));
+
+// GET /api/analytics/defense-score/by-category - Score breakdown by category
+router.get('/defense-score/by-category', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to } = req.query;
+
+  const result = await es.getDefenseScoreByCategory({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+  });
+
+  res.json(result);
+}));
+
+// GET /api/analytics/threat-actor-coverage - Threat actor coverage metrics
+router.get('/threat-actor-coverage', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to } = req.query;
+
+  const result = await es.getThreatActorCoverage({
+    org: org as string,
     from: from as string,
     to: to as string,
   });
