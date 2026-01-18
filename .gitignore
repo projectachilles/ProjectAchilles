@@ -39,3 +39,13 @@ frontend/package-lock.json
 
 # Playwright MCP
 .playwright-mcp/
+
+# Python virtual environments
+venv/
+scripts/venv/
+__pycache__/
+*.pyc
+
+# Generated data files
+scripts/*.ndjson
+scripts/*.json
