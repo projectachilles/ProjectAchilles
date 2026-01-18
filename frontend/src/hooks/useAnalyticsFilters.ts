@@ -1,0 +1,311 @@
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import type { ExtendedFilterParams } from '@/services/api/analytics';
+
+// Re-export DateRangeValue interface matching DateRangePicker
+export interface DateRangeValue {
+  preset: string;
+  from?: string;
+  to?: string;
+}
+
+// Helper to convert date range value to ES format (matches DateRangePicker export)
+function getDateRangeFilter(value: DateRangeValue): { from?: string; to?: string } {
+  if (value.preset === 'custom' && value.from && value.to) {
+    return { from: value.from, to: value.to };
+  }
+  if (value.preset === 'all') {
+    return {};
+  }
+  const match = value.preset.match(/^(\d+)([dhw])$/);
+  if (!match) {
+    return { from: 'now-7d' };
+  }
+  return { from: `now-${value.preset}` };
+}
+
+export interface AnalyticsFilterState {
+  // Basic filters (always visible)
+  org: string | null;
+  dateRange: DateRangeValue;
+  result: 'all' | 'protected' | 'unprotected';
+
+  // Advanced filters (expandable)
+  hostnames: string[];
+  tests: string[];
+  techniques: string[];
+  categories: string[];
+  severities: string[];
+  threatActors: string[];
+  tags: string[];
+}
+
+export interface UseAnalyticsFiltersReturn {
+  // State
+  filters: AnalyticsFilterState;
+  isExpanded: boolean;
+  hasActiveFilters: boolean;
+  activeFilterCount: number;
+
+  // Actions
+  setOrg: (org: string | null) => void;
+  setDateRange: (dateRange: DateRangeValue) => void;
+  setResult: (result: 'all' | 'protected' | 'unprotected') => void;
+  setHostnames: (hostnames: string[]) => void;
+  setTests: (tests: string[]) => void;
+  setTechniques: (techniques: string[]) => void;
+  setCategories: (categories: string[]) => void;
+  setSeverities: (severities: string[]) => void;
+  setThreatActors: (threatActors: string[]) => void;
+  setTags: (tags: string[]) => void;
+  toggleExpanded: () => void;
+  clearAllFilters: () => void;
+  clearAdvancedFilters: () => void;
+
+  // Computed
+  getApiParams: () => ExtendedFilterParams;
+}
+
+const defaultFilters: AnalyticsFilterState = {
+  org: null,
+  dateRange: { preset: '7d' },
+  result: 'all',
+  hostnames: [],
+  tests: [],
+  techniques: [],
+  categories: [],
+  severities: [],
+  threatActors: [],
+  tags: [],
+};
+
+// Parse URL params into filter state
+function parseUrlParams(searchParams: URLSearchParams): Partial<AnalyticsFilterState> {
+  const result: Partial<AnalyticsFilterState> = {};
+
+  const org = searchParams.get('org');
+  if (org) result.org = org;
+
+  const datePreset = searchParams.get('date');
+  const dateFrom = searchParams.get('from');
+  const dateTo = searchParams.get('to');
+  if (datePreset) {
+    result.dateRange = { preset: datePreset };
+  } else if (dateFrom && dateTo) {
+    result.dateRange = { preset: 'custom', from: dateFrom, to: dateTo };
+  }
+
+  const resultParam = searchParams.get('result');
+  if (resultParam === 'protected' || resultParam === 'unprotected') {
+    result.result = resultParam;
+  }
+
+  const hostnames = searchParams.get('hostnames');
+  if (hostnames) result.hostnames = hostnames.split(',');
+
+  const tests = searchParams.get('tests');
+  if (tests) result.tests = tests.split(',');
+
+  const techniques = searchParams.get('techniques');
+  if (techniques) result.techniques = techniques.split(',');
+
+  const categories = searchParams.get('categories');
+  if (categories) result.categories = categories.split(',');
+
+  const severities = searchParams.get('severities');
+  if (severities) result.severities = severities.split(',');
+
+  const threatActors = searchParams.get('threatActors');
+  if (threatActors) result.threatActors = threatActors.split(',');
+
+  const tags = searchParams.get('tags');
+  if (tags) result.tags = tags.split(',');
+
+  return result;
+}
+
+// Serialize filter state to URL params
+function serializeToUrlParams(filters: AnalyticsFilterState): Record<string, string> {
+  const params: Record<string, string> = {};
+
+  if (filters.org) params.org = filters.org;
+
+  if (filters.dateRange.preset === 'custom' && filters.dateRange.from && filters.dateRange.to) {
+    params.from = filters.dateRange.from;
+    params.to = filters.dateRange.to;
+  } else if (filters.dateRange.preset && filters.dateRange.preset !== '7d') {
+    params.date = filters.dateRange.preset;
+  }
+
+  if (filters.result !== 'all') params.result = filters.result;
+  if (filters.hostnames.length > 0) params.hostnames = filters.hostnames.join(',');
+  if (filters.tests.length > 0) params.tests = filters.tests.join(',');
+  if (filters.techniques.length > 0) params.techniques = filters.techniques.join(',');
+  if (filters.categories.length > 0) params.categories = filters.categories.join(',');
+  if (filters.severities.length > 0) params.severities = filters.severities.join(',');
+  if (filters.threatActors.length > 0) params.threatActors = filters.threatActors.join(',');
+  if (filters.tags.length > 0) params.tags = filters.tags.join(',');
+
+  return params;
+}
+
+export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersReturn {
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Initialize state from URL params or defaults
+  const [filters, setFilters] = useState<AnalyticsFilterState>(() => {
+    if (syncWithUrl) {
+      return { ...defaultFilters, ...parseUrlParams(searchParams) };
+    }
+    return defaultFilters;
+  });
+
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  // Sync URL when filters change
+  useEffect(() => {
+    if (syncWithUrl) {
+      const params = serializeToUrlParams(filters);
+      setSearchParams(params, { replace: true });
+    }
+  }, [filters, syncWithUrl, setSearchParams]);
+
+  // Calculate active filter count (excluding basic filters)
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filters.hostnames.length > 0) count++;
+    if (filters.tests.length > 0) count++;
+    if (filters.techniques.length > 0) count++;
+    if (filters.categories.length > 0) count++;
+    if (filters.severities.length > 0) count++;
+    if (filters.threatActors.length > 0) count++;
+    if (filters.tags.length > 0) count++;
+    return count;
+  }, [filters]);
+
+  const hasActiveFilters = useMemo(() => {
+    return (
+      filters.org !== null ||
+      filters.result !== 'all' ||
+      activeFilterCount > 0
+    );
+  }, [filters.org, filters.result, activeFilterCount]);
+
+  // Actions
+  const setOrg = useCallback((org: string | null) => {
+    setFilters(prev => ({ ...prev, org }));
+  }, []);
+
+  const setDateRange = useCallback((dateRange: DateRangeValue) => {
+    setFilters(prev => ({ ...prev, dateRange }));
+  }, []);
+
+  const setResult = useCallback((result: 'all' | 'protected' | 'unprotected') => {
+    setFilters(prev => ({ ...prev, result }));
+  }, []);
+
+  const setHostnames = useCallback((hostnames: string[]) => {
+    setFilters(prev => ({ ...prev, hostnames }));
+  }, []);
+
+  const setTests = useCallback((tests: string[]) => {
+    setFilters(prev => ({ ...prev, tests }));
+  }, []);
+
+  const setTechniques = useCallback((techniques: string[]) => {
+    setFilters(prev => ({ ...prev, techniques }));
+  }, []);
+
+  const setCategories = useCallback((categories: string[]) => {
+    setFilters(prev => ({ ...prev, categories }));
+  }, []);
+
+  const setSeverities = useCallback((severities: string[]) => {
+    setFilters(prev => ({ ...prev, severities }));
+  }, []);
+
+  const setThreatActors = useCallback((threatActors: string[]) => {
+    setFilters(prev => ({ ...prev, threatActors }));
+  }, []);
+
+  const setTags = useCallback((tags: string[]) => {
+    setFilters(prev => ({ ...prev, tags }));
+  }, []);
+
+  const toggleExpanded = useCallback(() => {
+    setIsExpanded(prev => !prev);
+  }, []);
+
+  const clearAllFilters = useCallback(() => {
+    setFilters(defaultFilters);
+  }, []);
+
+  const clearAdvancedFilters = useCallback(() => {
+    setFilters(prev => ({
+      ...prev,
+      hostnames: [],
+      tests: [],
+      techniques: [],
+      categories: [],
+      severities: [],
+      threatActors: [],
+      tags: [],
+    }));
+  }, []);
+
+  // Convert filter state to API params
+  const getApiParams = useCallback((): ExtendedFilterParams => {
+    const dateFilter = getDateRangeFilter(filters.dateRange);
+
+    const params: ExtendedFilterParams = {
+      org: filters.org || undefined,
+      ...dateFilter,
+      result: filters.result === 'all' ? undefined : filters.result,
+    };
+
+    if (filters.hostnames.length > 0) {
+      params.hostnames = filters.hostnames.join(',');
+    }
+    if (filters.tests.length > 0) {
+      params.tests = filters.tests.join(',');
+    }
+    if (filters.techniques.length > 0) {
+      params.techniques = filters.techniques.join(',');
+    }
+    if (filters.categories.length > 0) {
+      params.categories = filters.categories.join(',');
+    }
+    if (filters.severities.length > 0) {
+      params.severities = filters.severities.join(',');
+    }
+    if (filters.threatActors.length > 0) {
+      params.threatActors = filters.threatActors.join(',');
+    }
+    if (filters.tags.length > 0) {
+      params.tags = filters.tags.join(',');
+    }
+
+    return params;
+  }, [filters]);
+
+  return {
+    filters,
+    isExpanded,
+    hasActiveFilters,
+    activeFilterCount,
+    setOrg,
+    setDateRange,
+    setResult,
+    setHostnames,
+    setTests,
+    setTechniques,
+    setCategories,
+    setSeverities,
+    setThreatActors,
+    setTags,
+    toggleExpanded,
+    clearAllFilters,
+    clearAdvancedFilters,
+    getApiParams,
+  };
+}

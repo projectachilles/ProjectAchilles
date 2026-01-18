@@ -101,3 +101,93 @@ export interface HostTestMatrixCell {
   testName: string;
   count: number;
 }
+
+// ============================================
+// Enriched Types (for new fields)
+// ============================================
+
+// Severity levels
+export type SeverityLevel = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
+// Category types
+export type CategoryType = 'intel-driven' | 'mitre-top10' | 'cyber-hygiene' | 'phase-aligned';
+
+// Enriched test execution with new fields
+export interface EnrichedTestExecution extends TestExecution {
+  category?: CategoryType;
+  subcategory?: string;
+  severity?: SeverityLevel;
+  tactics?: string[];
+  target?: string;
+  complexity?: 'low' | 'medium' | 'high';
+  threat_actor?: string;
+  tags?: string[];
+  score?: number;
+}
+
+// Pagination support
+export interface PaginationParams {
+  page?: number;
+  pageSize?: number;
+  sortField?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalItems: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrevious: boolean;
+  };
+}
+
+// Extended query params with new filters
+export interface ExtendedAnalyticsQueryParams extends AnalyticsQueryParams {
+  hostnames?: string;      // comma-separated hostnames
+  categories?: string;     // comma-separated categories
+  severities?: string;     // comma-separated severity levels
+  threatActors?: string;   // comma-separated threat actor names
+  tags?: string;           // comma-separated tags
+  result?: 'all' | 'protected' | 'unprotected';
+}
+
+// Combined query params for paginated executions
+export interface PaginatedExecutionsParams extends ExtendedAnalyticsQueryParams, PaginationParams {}
+
+// Filter option with count
+export interface FilterOption {
+  value: string;
+  label: string;
+  count: number;
+}
+
+// Severity breakdown item
+export interface SeverityBreakdownItem {
+  severity: SeverityLevel;
+  score: number;
+  count: number;
+  protected: number;
+  unprotected: number;
+}
+
+// Category breakdown item
+export interface CategoryBreakdownItem {
+  category: CategoryType;
+  score: number;
+  count: number;
+  protected: number;
+  unprotected: number;
+}
+
+// Threat actor coverage item
+export interface ThreatActorCoverageItem {
+  threatActor: string;
+  coverage: number;
+  testCount: number;
+  protectedCount: number;
+  totalExecutions: number;
+}

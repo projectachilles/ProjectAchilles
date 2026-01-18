@@ -102,6 +102,88 @@ export interface OrganizationInfo {
   fullName: string;
 }
 
+// ============================================
+// New Types for Enhanced Analytics
+// ============================================
+
+export type SeverityLevel = 'critical' | 'high' | 'medium' | 'low' | 'info';
+export type CategoryType = 'intel-driven' | 'mitre-top10' | 'cyber-hygiene' | 'phase-aligned';
+
+export interface EnrichedTestExecution extends TestExecution {
+  category?: CategoryType;
+  subcategory?: string;
+  severity?: SeverityLevel;
+  tactics?: string[];
+  target?: string;
+  complexity?: 'low' | 'medium' | 'high';
+  threat_actor?: string;
+  tags?: string[];
+  score?: number;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalItems: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrevious: boolean;
+  };
+}
+
+export interface FilterOption {
+  value: string;
+  label: string;
+  count: number;
+}
+
+export interface SeverityBreakdownItem {
+  severity: SeverityLevel;
+  score: number;
+  count: number;
+  protected: number;
+  unprotected: number;
+}
+
+export interface CategoryBreakdownItem {
+  category: CategoryType;
+  score: number;
+  count: number;
+  protected: number;
+  unprotected: number;
+}
+
+export interface ThreatActorCoverageItem {
+  threatActor: string;
+  coverage: number;
+  testCount: number;
+  protectedCount: number;
+  totalExecutions: number;
+}
+
+export interface ExtendedFilterParams {
+  org?: string;
+  from?: string;
+  to?: string;
+  tests?: string;
+  techniques?: string;
+  hostnames?: string;
+  categories?: string;
+  severities?: string;
+  threatActors?: string;
+  tags?: string;
+  result?: 'all' | 'protected' | 'unprotected';
+}
+
+export interface PaginatedExecutionsParams extends ExtendedFilterParams {
+  page?: number;
+  pageSize?: number;
+  sortField?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
 export const analyticsApi = {
   // Settings
   async getSettings(): Promise<AnalyticsSettings> {
@@ -255,6 +337,55 @@ export const analyticsApi = {
 
   async getAvailableTechniques(): Promise<string[]> {
     const response = await apiClient.get('/analytics/available-techniques');
+    return response.data;
+  },
+
+  // ============================================
+  // New Endpoints for Enhanced Analytics
+  // ============================================
+
+  async getPaginatedExecutions(params: PaginatedExecutionsParams): Promise<PaginatedResponse<EnrichedTestExecution>> {
+    const response = await apiClient.get('/analytics/executions/paginated', { params });
+    return response.data;
+  },
+
+  async getAvailableHostnames(params?: { org?: string; from?: string; to?: string }): Promise<FilterOption[]> {
+    const response = await apiClient.get('/analytics/available-hostnames', { params });
+    return response.data;
+  },
+
+  async getAvailableCategories(params?: { org?: string; from?: string; to?: string }): Promise<FilterOption[]> {
+    const response = await apiClient.get('/analytics/available-categories', { params });
+    return response.data;
+  },
+
+  async getAvailableSeverities(params?: { org?: string; from?: string; to?: string }): Promise<FilterOption[]> {
+    const response = await apiClient.get('/analytics/available-severities', { params });
+    return response.data;
+  },
+
+  async getAvailableThreatActors(params?: { org?: string; from?: string; to?: string }): Promise<FilterOption[]> {
+    const response = await apiClient.get('/analytics/available-threat-actors', { params });
+    return response.data;
+  },
+
+  async getAvailableTags(params?: { org?: string; from?: string; to?: string }): Promise<FilterOption[]> {
+    const response = await apiClient.get('/analytics/available-tags', { params });
+    return response.data;
+  },
+
+  async getDefenseScoreBySeverity(params?: { org?: string; from?: string; to?: string }): Promise<SeverityBreakdownItem[]> {
+    const response = await apiClient.get('/analytics/defense-score/by-severity', { params });
+    return response.data;
+  },
+
+  async getDefenseScoreByCategory(params?: { org?: string; from?: string; to?: string }): Promise<CategoryBreakdownItem[]> {
+    const response = await apiClient.get('/analytics/defense-score/by-category', { params });
+    return response.data;
+  },
+
+  async getThreatActorCoverage(params?: { org?: string; from?: string; to?: string }): Promise<ThreatActorCoverageItem[]> {
+    const response = await apiClient.get('/analytics/threat-actor-coverage', { params });
     return response.data;
   },
 };

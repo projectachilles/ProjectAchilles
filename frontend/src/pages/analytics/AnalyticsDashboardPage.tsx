@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Shield, Monitor, FlaskConical } from 'lucide-react';
+import { Shield, Monitor, FlaskConical, LayoutDashboard, Table } from 'lucide-react';
 import SharedLayout from '../../components/shared/Layout';
 import SettingsModal from './components/SettingsModal';
+import FilterBar from './components/FilterBar';
 import MetricCard from './components/MetricCard';
 import TrendChart from './components/TrendChart';
 import BarChart from './components/BarChart';
@@ -9,22 +10,29 @@ import ErrorTypePieChart from './components/ErrorTypePieChart';
 import ProtectionRateDonut from './components/ProtectionRateDonut';
 import StackedBarChart from './components/StackedBarChart';
 import HeatmapChart from './components/HeatmapChart';
-import ExecutionsTable from './components/ExecutionsTable';
-import OrgFilter from './components/OrgFilter';
-import MultiSelectFilter from './components/MultiSelectFilter';
-import DateRangePicker, { getDateRangeFilter } from './components/DateRangePicker';
+import SeverityBreakdownChart from './components/SeverityBreakdownChart';
+import CategoryBreakdownChart from './components/CategoryBreakdownChart';
+import ThreatActorCoverage from './components/ThreatActorCoverage';
+import ExecutionsDataTable from './components/ExecutionsDataTable';
+import { useAnalyticsFilters } from '@/hooks/useAnalyticsFilters';
 import { analyticsApi } from '../../services/api/analytics';
 import type {
   TrendDataPoint,
   BreakdownItem,
-  TestExecution,
   OrganizationInfo,
   ErrorTypeBreakdown,
   TestCoverageItem,
   TechniqueDistributionItem,
-  HostTestMatrixCell
+  HostTestMatrixCell,
+  FilterOption,
+  SeverityBreakdownItem,
+  CategoryBreakdownItem,
+  ThreatActorCoverageItem,
+  PaginatedResponse,
+  EnrichedTestExecution,
 } from '../../services/api/analytics';
-import type { DateRangeValue } from './components/DateRangePicker';
+
+type TabType = 'dashboard' | 'executions';
 
 interface DefenseScoreData {
   overall: number;
@@ -37,19 +45,22 @@ export default function AnalyticsDashboardPage() {
   // UI State
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
 
-  // Filters
-  const [selectedOrg, setSelectedOrg] = useState<string | null>(null);
-  const [selectedTests, setSelectedTests] = useState<string[]>([]);
-  const [selectedTechniques, setSelectedTechniques] = useState<string[]>([]);
-  const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: '7d' });
+  // Filter state (with URL sync)
+  const filterState = useAnalyticsFilters(true);
 
-  // Filter options
+  // Filter options data
   const [organizations, setOrganizations] = useState<OrganizationInfo[]>([]);
+  const [availableHostnames, setAvailableHostnames] = useState<FilterOption[]>([]);
   const [availableTests, setAvailableTests] = useState<string[]>([]);
   const [availableTechniques, setAvailableTechniques] = useState<string[]>([]);
+  const [availableCategories, setAvailableCategories] = useState<FilterOption[]>([]);
+  const [availableSeverities, setAvailableSeverities] = useState<FilterOption[]>([]);
+  const [availableThreatActors, setAvailableThreatActors] = useState<FilterOption[]>([]);
+  const [availableTags, setAvailableTags] = useState<FilterOption[]>([]);
 
-  // Data State
+  // Dashboard Data State
   const [defenseScore, setDefenseScore] = useState<DefenseScoreData | null>(null);
   const [uniqueHostnames, setUniqueHostnames] = useState<number>(0);
   const [uniqueTestCount, setUniqueTestCount] = useState<number>(0);
@@ -60,46 +71,62 @@ export default function AnalyticsDashboardPage() {
   const [testCoverageData, setTestCoverageData] = useState<TestCoverageItem[]>([]);
   const [techniqueDistData, setTechniqueDistData] = useState<TechniqueDistributionItem[]>([]);
   const [hostTestMatrix, setHostTestMatrix] = useState<HostTestMatrixCell[]>([]);
-  const [executions, setExecutions] = useState<TestExecution[]>([]);
+
+  // New visualization data
+  const [severityBreakdown, setSeverityBreakdown] = useState<SeverityBreakdownItem[]>([]);
+  const [categoryBreakdown, setCategoryBreakdown] = useState<CategoryBreakdownItem[]>([]);
+  const [threatActorCoverage, setThreatActorCoverage] = useState<ThreatActorCoverageItem[]>([]);
+
+  // Executions tab data
+  const [executionsData, setExecutionsData] = useState<PaginatedResponse<EnrichedTestExecution> | null>(null);
+  const [executionsPage, setExecutionsPage] = useState(1);
+  const [executionsPageSize, setExecutionsPageSize] = useState(25);
+  const [executionsSortField, setExecutionsSortField] = useState<string>('routing.event_time');
+  const [executionsSortOrder, setExecutionsSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // Loading States
-  const [loadingOrgs, setLoadingOrgs] = useState(true);
   const [loadingFilters, setLoadingFilters] = useState(true);
-  const [loadingScore, setLoadingScore] = useState(true);
-  const [loadingHostnames, setLoadingHostnames] = useState(true);
-  const [loadingTestCount, setLoadingTestCount] = useState(true);
-  const [loadingTrend, setLoadingTrend] = useState(true);
-  const [loadingErrorType, setLoadingErrorType] = useState(true);
-  const [loadingByTest, setLoadingByTest] = useState(true);
-  const [loadingByTechnique, setLoadingByTechnique] = useState(true);
-  const [loadingTestCoverage, setLoadingTestCoverage] = useState(true);
-  const [loadingTechniqueDist, setLoadingTechniqueDist] = useState(true);
-  const [loadingMatrix, setLoadingMatrix] = useState(true);
-  const [loadingExecutions, setLoadingExecutions] = useState(true);
+  const [loadingDashboard, setLoadingDashboard] = useState(true);
+  const [loadingExecutions, setLoadingExecutions] = useState(false);
 
-  // Load data on mount
-  // Note: AnalyticsProtectedRoute already ensures we're configured before rendering
+  // Load filter options on mount
   useEffect(() => {
     loadFilterOptions();
-    loadAllData();
   }, []);
+
+  // Load dashboard data when filters change
+  useEffect(() => {
+    if (activeTab === 'dashboard') {
+      loadDashboardData();
+    }
+  }, [filterState.filters, activeTab]);
+
+  // Load executions data when tab/filters/pagination changes
+  useEffect(() => {
+    if (activeTab === 'executions') {
+      loadExecutionsData();
+    }
+  }, [filterState.filters, activeTab, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder]);
 
   // Load filter dropdown options
   async function loadFilterOptions() {
-    setLoadingOrgs(true);
     setLoadingFilters(true);
     try {
-      const [orgs, tests, techniques] = await Promise.all([
+      const [orgs, tests, techniques, hostnames, categories, severities, threatActors, tags] = await Promise.all([
         analyticsApi.getOrganizations(),
         analyticsApi.getAvailableTests(),
-        analyticsApi.getAvailableTechniques()
+        analyticsApi.getAvailableTechniques(),
+        analyticsApi.getAvailableHostnames(),
+        analyticsApi.getAvailableCategories(),
+        analyticsApi.getAvailableSeverities(),
+        analyticsApi.getAvailableThreatActors(),
+        analyticsApi.getAvailableTags(),
       ]);
+
       setOrganizations(orgs.map(org => {
-        // Handle both string and object responses
         if (typeof org === 'string') {
           return { uuid: org, shortName: org, fullName: org };
         }
-        // If already an object, ensure it has the required fields
         return {
           uuid: org.uuid,
           shortName: org.shortName || org.uuid,
@@ -108,218 +135,144 @@ export default function AnalyticsDashboardPage() {
       }));
       setAvailableTests(tests);
       setAvailableTechniques(techniques);
+      setAvailableHostnames(hostnames);
+      setAvailableCategories(categories);
+      setAvailableSeverities(severities);
+      setAvailableThreatActors(threatActors);
+      setAvailableTags(tags);
     } catch (error) {
       console.error('Failed to load filter options:', error);
     } finally {
-      setLoadingOrgs(false);
       setLoadingFilters(false);
     }
   }
 
-  // Build params with multi-select filter support
-  const buildParams = useCallback(() => {
-    const dateFilter = getDateRangeFilter(dateRange);
-    const params: Record<string, string | undefined> = {
-      org: selectedOrg || undefined,
-      ...dateFilter
-    };
+  // Load dashboard data
+  const loadDashboardData = useCallback(async () => {
+    setLoadingDashboard(true);
+    const params = filterState.getApiParams();
 
-    // Add test filter (OR logic - comma separated)
-    if (selectedTests.length > 0) {
-      params.tests = selectedTests.join(',');
+    try {
+      const [
+        score,
+        hostnameCount,
+        testCount,
+        trend,
+        errorTypes,
+        byTest,
+        byTechnique,
+        coverage,
+        techDist,
+        matrix,
+        severityData,
+        categoryData,
+        threatActorData,
+      ] = await Promise.all([
+        analyticsApi.getDefenseScore(params),
+        analyticsApi.getUniqueHostnames(params),
+        analyticsApi.getUniqueTests(params),
+        analyticsApi.getDefenseScoreTrend({ ...params, interval: 'day' }),
+        analyticsApi.getResultsByErrorType(params),
+        analyticsApi.getDefenseScoreByTest(params),
+        analyticsApi.getDefenseScoreByTechnique(params),
+        analyticsApi.getTestCoverage(params),
+        analyticsApi.getTechniqueDistribution(params),
+        analyticsApi.getHostTestMatrix(params),
+        analyticsApi.getDefenseScoreBySeverity(params),
+        analyticsApi.getDefenseScoreByCategory(params),
+        analyticsApi.getThreatActorCoverage(params),
+      ]);
+
+      setDefenseScore({
+        overall: score.score,
+        delta: null,
+        total: score.totalExecutions,
+        protected: score.protectedCount
+      });
+      setUniqueHostnames(hostnameCount);
+      setUniqueTestCount(testCount);
+      setTrendData(trend);
+      setErrorTypeData(errorTypes);
+      setByTestData(byTest.slice(0, 10).map((t: any) => ({
+        name: t.testName || t.name || '',
+        score: t.score,
+        count: (t.protectedCount || t.count || 0) + (t.unprotectedCount || 0),
+        protected: t.protectedCount || t.protected || 0
+      })));
+      setByTechniqueData(byTechnique.slice(0, 10).map((t: any) => ({
+        name: t.technique || t.name || '',
+        score: t.score,
+        count: (t.protectedCount || t.count || 0) + (t.unprotectedCount || 0),
+        protected: t.protectedCount || t.protected || 0
+      })));
+      setTestCoverageData(coverage.slice(0, 10));
+      setTechniqueDistData(techDist.slice(0, 10));
+      setHostTestMatrix(matrix);
+      setSeverityBreakdown(severityData);
+      setCategoryBreakdown(categoryData);
+      setThreatActorCoverage(threatActorData);
+    } catch (error) {
+      console.error('Failed to load dashboard data:', error);
+    } finally {
+      setLoadingDashboard(false);
     }
+  }, [filterState]);
 
-    // Add technique filter (OR logic - comma separated)
-    if (selectedTechniques.length > 0) {
-      params.techniques = selectedTechniques.join(',');
+  // Load executions data
+  const loadExecutionsData = useCallback(async () => {
+    setLoadingExecutions(true);
+    const params = filterState.getApiParams();
+
+    try {
+      const data = await analyticsApi.getPaginatedExecutions({
+        ...params,
+        page: executionsPage,
+        pageSize: executionsPageSize,
+        sortField: executionsSortField,
+        sortOrder: executionsSortOrder,
+      });
+      setExecutionsData(data);
+    } catch (error) {
+      console.error('Failed to load executions:', error);
+    } finally {
+      setLoadingExecutions(false);
     }
-
-    return params;
-  }, [selectedOrg, selectedTests, selectedTechniques, dateRange]);
-
-  // Load all data
-  const loadAllData = useCallback(async () => {
-    const params = buildParams();
-
-    // Load all data in parallel for performance
-    const loadPromises = [
-      // Defense Score
-      (async () => {
-        setLoadingScore(true);
-        try {
-          const score = await analyticsApi.getDefenseScore(params);
-          setDefenseScore({
-            overall: score.score,
-            delta: null,
-            total: score.totalExecutions,
-            protected: score.protectedCount
-          });
-        } catch (error) {
-          console.error('Failed to load defense score:', error);
-        } finally {
-          setLoadingScore(false);
-        }
-      })(),
-
-      // Unique Hostnames
-      (async () => {
-        setLoadingHostnames(true);
-        try {
-          const count = await analyticsApi.getUniqueHostnames(params);
-          setUniqueHostnames(count);
-        } catch (error) {
-          console.error('Failed to load unique hostnames:', error);
-        } finally {
-          setLoadingHostnames(false);
-        }
-      })(),
-
-      // Unique Tests
-      (async () => {
-        setLoadingTestCount(true);
-        try {
-          const count = await analyticsApi.getUniqueTests(params);
-          setUniqueTestCount(count);
-        } catch (error) {
-          console.error('Failed to load unique tests:', error);
-        } finally {
-          setLoadingTestCount(false);
-        }
-      })(),
-
-      // Trend Data
-      (async () => {
-        setLoadingTrend(true);
-        try {
-          const trend = await analyticsApi.getDefenseScoreTrend({ ...params, interval: 'day' });
-          setTrendData(trend);
-        } catch (error) {
-          console.error('Failed to load trend data:', error);
-        } finally {
-          setLoadingTrend(false);
-        }
-      })(),
-
-      // Error Type Breakdown
-      (async () => {
-        setLoadingErrorType(true);
-        try {
-          const errorTypes = await analyticsApi.getResultsByErrorType(params);
-          setErrorTypeData(errorTypes);
-        } catch (error) {
-          console.error('Failed to load error type data:', error);
-        } finally {
-          setLoadingErrorType(false);
-        }
-      })(),
-
-      // By Test
-      (async () => {
-        setLoadingByTest(true);
-        try {
-          const byTest = await analyticsApi.getDefenseScoreByTest(params);
-          // Convert TestBreakdown to BreakdownItem
-          const converted = byTest.slice(0, 10).map(t => ({
-            name: t.testName,
-            score: t.score,
-            count: t.protectedCount + t.unprotectedCount,
-            protected: t.protectedCount
-          }));
-          setByTestData(converted);
-        } catch (error) {
-          console.error('Failed to load by test data:', error);
-        } finally {
-          setLoadingByTest(false);
-        }
-      })(),
-
-      // By Technique
-      (async () => {
-        setLoadingByTechnique(true);
-        try {
-          const byTechnique = await analyticsApi.getDefenseScoreByTechnique(params);
-          // Convert TechniqueBreakdown to BreakdownItem
-          const converted = byTechnique.slice(0, 10).map(t => ({
-            name: t.technique,
-            score: t.score,
-            count: t.protectedCount + t.unprotectedCount,
-            protected: t.protectedCount
-          }));
-          setByTechniqueData(converted);
-        } catch (error) {
-          console.error('Failed to load by technique data:', error);
-        } finally {
-          setLoadingByTechnique(false);
-        }
-      })(),
-
-      // Test Coverage (stacked bar)
-      (async () => {
-        setLoadingTestCoverage(true);
-        try {
-          const coverage = await analyticsApi.getTestCoverage(params);
-          setTestCoverageData(coverage.slice(0, 10));
-        } catch (error) {
-          console.error('Failed to load test coverage:', error);
-        } finally {
-          setLoadingTestCoverage(false);
-        }
-      })(),
-
-      // Technique Distribution (stacked bar)
-      (async () => {
-        setLoadingTechniqueDist(true);
-        try {
-          const dist = await analyticsApi.getTechniqueDistribution(params);
-          setTechniqueDistData(dist.slice(0, 10));
-        } catch (error) {
-          console.error('Failed to load technique distribution:', error);
-        } finally {
-          setLoadingTechniqueDist(false);
-        }
-      })(),
-
-      // Host-Test Matrix
-      (async () => {
-        setLoadingMatrix(true);
-        try {
-          const matrix = await analyticsApi.getHostTestMatrix(params);
-          setHostTestMatrix(matrix);
-        } catch (error) {
-          console.error('Failed to load host-test matrix:', error);
-        } finally {
-          setLoadingMatrix(false);
-        }
-      })(),
-
-      // Executions
-      (async () => {
-        setLoadingExecutions(true);
-        try {
-          const execs = await analyticsApi.getRecentExecutions({ ...params, limit: 20 });
-          setExecutions(execs);
-        } catch (error) {
-          console.error('Failed to load executions:', error);
-        } finally {
-          setLoadingExecutions(false);
-        }
-      })()
-    ];
-
-    await Promise.all(loadPromises);
-  }, [buildParams]);
-
-  // Reload when filters change
-  useEffect(() => {
-    loadAllData();
-  }, [loadAllData]);
+  }, [filterState, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder]);
 
   // Refresh handler
   async function handleRefresh() {
     setIsRefreshing(true);
-    await loadAllData();
+    await loadFilterOptions();
+    if (activeTab === 'dashboard') {
+      await loadDashboardData();
+    } else {
+      await loadExecutionsData();
+    }
     setIsRefreshing(false);
   }
+
+  // Handle sort change
+  const handleSort = (field: string, order: 'asc' | 'desc') => {
+    setExecutionsSortField(field);
+    setExecutionsSortOrder(order);
+    setExecutionsPage(1); // Reset to first page when sorting changes
+  };
+
+  // Handle page change
+  const handlePageChange = (page: number) => {
+    setExecutionsPage(page);
+  };
+
+  // Handle page size change
+  const handlePageSizeChange = (size: number) => {
+    setExecutionsPageSize(size);
+    setExecutionsPage(1); // Reset to first page when page size changes
+  };
+
+  // Switch to executions tab with threat actor filter
+  const handleViewThreatActors = () => {
+    setActiveTab('executions');
+  };
 
   return (
     <SharedLayout
@@ -328,144 +281,190 @@ export default function AnalyticsDashboardPage() {
       isRefreshing={isRefreshing}
     >
       <div className="container mx-auto px-4 py-6">
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-3 mb-6">
-          <OrgFilter
-            organizations={organizations}
-            selectedOrg={selectedOrg}
-            onChange={setSelectedOrg}
-            loading={loadingOrgs}
-          />
-          <MultiSelectFilter
-            label="Test"
-            options={availableTests}
-            selected={selectedTests}
-            onChange={setSelectedTests}
-            loading={loadingFilters}
-            placeholder="All Tests"
-          />
-          <MultiSelectFilter
-            label="Technique"
-            options={availableTechniques}
-            selected={selectedTechniques}
-            onChange={setSelectedTechniques}
-            loading={loadingFilters}
-            placeholder="All Techniques"
-          />
-          <DateRangePicker
-            value={dateRange}
-            onChange={setDateRange}
-          />
+        {/* Filter Bar */}
+        <FilterBar
+          filterState={filterState}
+          organizations={organizations}
+          availableHostnames={availableHostnames}
+          availableTests={availableTests}
+          availableTechniques={availableTechniques}
+          availableCategories={availableCategories}
+          availableSeverities={availableSeverities}
+          availableThreatActors={availableThreatActors}
+          availableTags={availableTags}
+          loading={loadingFilters}
+        />
+
+        {/* Tab Navigation */}
+        <div className="flex items-center gap-1 mb-6 border-b border-border">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              activeTab === 'dashboard'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <LayoutDashboard className="w-4 h-4" />
+            Dashboard
+          </button>
+          <button
+            onClick={() => setActiveTab('executions')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              activeTab === 'executions'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Table className="w-4 h-4" />
+            All Executions
+            {executionsData?.pagination && (
+              <span className="ml-1 px-1.5 py-0.5 text-xs bg-secondary rounded">
+                {executionsData.pagination.totalItems.toLocaleString()}
+              </span>
+            )}
+          </button>
         </div>
 
-        {/* Dashboard Grid - Bento Grid Layout with fixed row heights */}
-        <div className="grid grid-cols-12 auto-rows-[140px] gap-4">
-          {/* Row 1: Defense Score Trend (full width, 2 rows) */}
-          <div className="col-span-12 row-span-2">
-            <TrendChart
-              data={trendData}
-              loading={loadingTrend}
-              title="Defense Score Trend"
-            />
-          </div>
+        {/* Tab Content */}
+        {activeTab === 'dashboard' ? (
+          /* Dashboard Tab */
+          <div className="grid grid-cols-12 auto-rows-[140px] gap-4">
+            {/* Row 1: Defense Score Trend (full width, 2 rows) */}
+            <div className="col-span-12 row-span-2">
+              <TrendChart
+                data={trendData}
+                loading={loadingDashboard}
+                title="Defense Score Trend"
+              />
+            </div>
 
-          {/* Row 3: Metrics (1 row each) */}
-          <div className="col-span-12 md:col-span-4 lg:col-span-4 row-span-1">
-            <MetricCard
-              title="Defense Score"
-              value={defenseScore?.overall || 0}
-              format="percent"
-              valueColor="score"
-              icon={Shield}
-              subtitle={defenseScore?.delta !== null && defenseScore?.delta !== undefined
-                ? `${defenseScore.delta > 0 ? '+' : ''}${defenseScore.delta.toFixed(1)}% vs prior`
-                : undefined}
-              loading={loadingScore}
-            />
-          </div>
-          <div className="col-span-6 md:col-span-4 lg:col-span-4 row-span-1">
-            <MetricCard
-              title="Unique Endpoints"
-              value={uniqueHostnames}
-              icon={Monitor}
-              loading={loadingHostnames}
-            />
-          </div>
-          <div className="col-span-6 md:col-span-4 lg:col-span-4 row-span-1">
-            <MetricCard
-              title="Unique Tests"
-              value={uniqueTestCount}
-              icon={FlaskConical}
-              loading={loadingTestCount}
-            />
-          </div>
+            {/* Row 3: Metrics (1 row each) */}
+            <div className="col-span-12 md:col-span-4 lg:col-span-4 row-span-1">
+              <MetricCard
+                title="Defense Score"
+                value={defenseScore?.overall || 0}
+                format="percent"
+                valueColor="score"
+                icon={Shield}
+                subtitle={defenseScore?.delta !== null && defenseScore?.delta !== undefined
+                  ? `${defenseScore.delta > 0 ? '+' : ''}${defenseScore.delta.toFixed(1)}% vs prior`
+                  : undefined}
+                loading={loadingDashboard}
+              />
+            </div>
+            <div className="col-span-6 md:col-span-4 lg:col-span-4 row-span-1">
+              <MetricCard
+                title="Unique Endpoints"
+                value={uniqueHostnames}
+                icon={Monitor}
+                loading={loadingDashboard}
+              />
+            </div>
+            <div className="col-span-6 md:col-span-4 lg:col-span-4 row-span-1">
+              <MetricCard
+                title="Unique Tests"
+                value={uniqueTestCount}
+                icon={FlaskConical}
+                loading={loadingDashboard}
+              />
+            </div>
 
-          {/* Row 4-5: Pie Chart + Donut + Technique Distribution (2 rows each) */}
-          <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
-            <ErrorTypePieChart
-              data={errorTypeData}
-              loading={loadingErrorType}
-              title="Results by Error Type"
-            />
-          </div>
-          <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
-            <ProtectionRateDonut
-              protected={defenseScore?.protected || 0}
-              total={defenseScore?.total || 0}
-              loading={loadingScore}
-              title="Protection Rate"
-            />
-          </div>
-          <div className="col-span-12 lg:col-span-4 row-span-2">
-            <StackedBarChart
-              data={techniqueDistData}
-              loading={loadingTechniqueDist}
-              title="ATT&CK Technique Distribution"
-              layout="vertical"
-            />
-          </div>
+            {/* Row 4-5: New Charts - Severity + Category + Threat Actor (2 rows each) */}
+            <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
+              <SeverityBreakdownChart
+                data={severityBreakdown}
+                loading={loadingDashboard}
+                title="Score by Severity"
+              />
+            </div>
+            <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
+              <CategoryBreakdownChart
+                data={categoryBreakdown}
+                loading={loadingDashboard}
+                title="Score by Category"
+              />
+            </div>
+            <div className="col-span-12 lg:col-span-4 row-span-2">
+              <ThreatActorCoverage
+                data={threatActorCoverage}
+                loading={loadingDashboard}
+                title="Threat Actor Coverage"
+                maxItems={4}
+                onViewAll={handleViewThreatActors}
+              />
+            </div>
 
-          {/* Row 6-7: Defense Score by Test + by Technique (2 rows each) */}
-          <div className="col-span-12 lg:col-span-6 row-span-2">
-            <BarChart
-              data={byTestData}
-              title="Defense Score by Test"
-              loading={loadingByTest}
-            />
-          </div>
-          <div className="col-span-12 lg:col-span-6 row-span-2">
-            <BarChart
-              data={byTechniqueData}
-              title="Defense Score by Technique"
-              loading={loadingByTechnique}
-            />
-          </div>
+            {/* Row 6-7: Pie Chart + Donut + Technique Distribution (2 rows each) */}
+            <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
+              <ErrorTypePieChart
+                data={errorTypeData}
+                loading={loadingDashboard}
+                title="Results by Error Type"
+              />
+            </div>
+            <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
+              <ProtectionRateDonut
+                protected={defenseScore?.protected || 0}
+                total={defenseScore?.total || 0}
+                loading={loadingDashboard}
+                title="Protection Rate"
+              />
+            </div>
+            <div className="col-span-12 lg:col-span-4 row-span-2">
+              <StackedBarChart
+                data={techniqueDistData}
+                loading={loadingDashboard}
+                title="ATT&CK Technique Distribution"
+                layout="vertical"
+              />
+            </div>
 
-          {/* Row 8-9: Test Coverage + Host-Test Matrix (2 rows each) */}
-          <div className="col-span-12 lg:col-span-6 row-span-2">
-            <StackedBarChart
-              data={testCoverageData}
-              loading={loadingTestCoverage}
-              title="Test Coverage"
-              layout="vertical"
-            />
-          </div>
-          <div className="col-span-12 lg:col-span-6 row-span-2">
-            <HeatmapChart
-              data={hostTestMatrix}
-              loading={loadingMatrix}
-              title="Host-Test Coverage Matrix"
-            />
-          </div>
+            {/* Row 8-9: Defense Score by Test + by Technique (2 rows each) */}
+            <div className="col-span-12 lg:col-span-6 row-span-2">
+              <BarChart
+                data={byTestData}
+                title="Defense Score by Test"
+                loading={loadingDashboard}
+              />
+            </div>
+            <div className="col-span-12 lg:col-span-6 row-span-2">
+              <BarChart
+                data={byTechniqueData}
+                title="Defense Score by Technique"
+                loading={loadingDashboard}
+              />
+            </div>
 
-          {/* Row 10-11: Recent Executions (2 rows, full width) */}
-          <div className="col-span-12 row-span-2">
-            <ExecutionsTable
-              data={executions}
-              loading={loadingExecutions}
-            />
+            {/* Row 10-11: Test Coverage + Host-Test Matrix (2 rows each) */}
+            <div className="col-span-12 lg:col-span-6 row-span-2">
+              <StackedBarChart
+                data={testCoverageData}
+                loading={loadingDashboard}
+                title="Test Coverage"
+                layout="vertical"
+              />
+            </div>
+            <div className="col-span-12 lg:col-span-6 row-span-2">
+              <HeatmapChart
+                data={hostTestMatrix}
+                loading={loadingDashboard}
+                title="Host-Test Coverage Matrix"
+              />
+            </div>
           </div>
-        </div>
+        ) : (
+          /* All Executions Tab */
+          <ExecutionsDataTable
+            data={executionsData}
+            loading={loadingExecutions}
+            onPageChange={handlePageChange}
+            onPageSizeChange={handlePageSizeChange}
+            onSort={handleSort}
+            sortField={executionsSortField}
+            sortOrder={executionsSortOrder}
+          />
+        )}
       </div>
 
       {/* Settings Modal */}

@@ -1,12 +1,22 @@
 import { Loader2, ShieldCheck, ShieldX } from 'lucide-react';
-import { formatDistanceToNow, parseISO, isValid } from 'date-fns';
+import { formatDistanceToNow, isValid } from 'date-fns';
 import type { TestExecution } from '../../../services/api/analytics';
+
+// Parse timestamp - handles both epoch ms strings and ISO strings
+function parseTimestamp(timestamp: string): Date {
+  // Check if it's a numeric string (epoch milliseconds)
+  if (/^\d+$/.test(timestamp)) {
+    return new Date(parseInt(timestamp, 10));
+  }
+  // Otherwise parse as Date string
+  return new Date(timestamp);
+}
 
 // Safe date formatting that handles invalid timestamps
 function formatTimestamp(timestamp: string): string {
   if (!timestamp) return 'Unknown';
   try {
-    const date = parseISO(timestamp);
+    const date = parseTimestamp(timestamp);
     if (!isValid(date)) return 'Unknown';
     return formatDistanceToNow(date, { addSuffix: true });
   } catch {
