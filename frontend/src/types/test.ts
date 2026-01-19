@@ -3,18 +3,24 @@
 export interface TestMetadata {
   uuid: string;
   name: string;
-  category?: string;
-  severity?: string;
-  techniques: string[];
-  tactics?: string[];
+  category?: string;           // Category folder: cyber-hygiene, intel-driven, etc.
+  subcategory?: string;        // More specific classification
+  severity?: string;           // critical, high, medium, low
+  techniques: string[];        // MITRE ATT&CK techniques (T1xxx)
+  tactics?: string[];          // MITRE ATT&CK tactics (TA00xx)
+  target?: string;             // Target platform: windows-endpoint, linux-server, etc.
+  complexity?: string;         // Test complexity: low, medium, high
+  threatActor?: string;        // Associated threat actor (if any)
   createdDate?: string;
   version?: string;
+  author?: string;             // Test author
+  unit?: string;               // Test unit identifier
   score?: number;
   scoreBreakdown?: ScoreBreakdown;
   isMultiStage: boolean;
   stages: StageInfo[];
   description?: string;
-  tags?: string[];
+  tags?: string[];             // Additional tags for filtering
   // Computed properties from API
   stageCount?: number;
   hasAttackFlow?: boolean;
@@ -23,6 +29,15 @@ export interface TestMetadata {
   hasSafetyDoc?: boolean;
   hasDetectionFiles?: boolean;
   hasDefenseGuidance?: boolean;
+}
+
+export interface SyncStatus {
+  lastSyncTime: string | null;
+  commitHash: string | null;
+  branch: string;
+  status: 'synced' | 'syncing' | 'error' | 'never_synced';
+  error?: string;
+  testCount?: number;
 }
 
 export interface ScoreBreakdown {

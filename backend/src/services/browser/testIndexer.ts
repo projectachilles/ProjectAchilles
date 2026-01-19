@@ -5,13 +5,32 @@ import * as path from 'path';
 import { TestDetails, TestFile } from '../../types/test.js';
 import { MetadataExtractor } from './metadataExtractor.js';
 
+// Known category folders in the new structure
+const KNOWN_CATEGORIES = ['cyber-hygiene', 'intel-driven', 'mitre-top10', 'phase-aligned'];
+
 export class TestIndexer {
   private testsSourcePath: string;
   private testCache: Map<string, TestDetails> = new Map();
+  // Maps UUID -> category for efficient lookup
+  private uuidToCategory: Map<string, string> = new Map();
   private static readonly UUID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
   constructor(testsSourcePath: string) {
     this.testsSourcePath = path.resolve(testsSourcePath);
+  }
+
+  /**
+   * Detect if the tests_source uses categorical structure (new) or flat structure (legacy)
+   */
+  private detectStructure(): 'categorical' | 'flat' {
+    // Check if any known category folders exist
+    for (const category of KNOWN_CATEGORIES) {
+      const categoryPath = path.join(this.testsSourcePath, category);
+      if (fs.existsSync(categoryPath) && fs.statSync(categoryPath).isDirectory()) {
+        return 'categorical';
+      }
+    }
+    return 'flat';
   }
 
   /**
@@ -132,9 +151,33 @@ export class TestIndexer {
 
   /**
    * Scan a single test directory and extract full details
+   * @param uuid - The test UUID
+   * @param testDir - Full path to the test directory (optional, will be resolved if not provided)
+   * @param category - The category folder name (optional, for categorical structure)
    */
-  private scanTestDirectory(uuid: string): TestDetails | null {
-    const testDir = path.join(this.testsSourcePath, uuid);
+  private scanTestDirectory(uuid: string, testDir?: string, category?: string): TestDetails | null {
+    // Resolve test directory path if not provided
+    if (!testDir) {
+      // Check if we have a cached category mapping
+      const cachedCategory = this.uuidToCategory.get(uuid);
+      if (cachedCategory) {
+        testDir = path.join(this.testsSourcePath, cachedCategory, uuid);
+      } else {
+        // Try categorical structure first
+        for (const cat of KNOWN_CATEGORIES) {
+          const catPath = path.join(this.testsSourcePath, cat, uuid);
+          if (fs.existsSync(catPath)) {
+            testDir = catPath;
+            category = cat;
+            break;
+          }
+        }
+        // Fall back to flat structure
+        if (!testDir) {
+          testDir = path.join(this.testsSourcePath, uuid);
+        }
+      }
+    }
 
     if (!fs.existsSync(testDir)) {
       console.error(`Test directory not found: ${testDir}`);
@@ -142,8 +185,8 @@ export class TestIndexer {
     }
 
     try {
-      // Extract metadata
-      const metadata = MetadataExtractor.extractTestMetadata(testDir, uuid);
+      // Extract metadata, passing category for the new structure
+      const metadata = MetadataExtractor.extractTestMetadata(testDir, uuid, category);
 
       // Get all files
       const files = this.getTestFiles(testDir);
@@ -178,6 +221,7 @@ export class TestIndexer {
 
   /**
    * Scan all tests in the tests_source directory
+   * Supports both categorical (new) and flat (legacy) structures
    */
   public scanAllTests(): TestDetails[] {
     if (!fs.existsSync(this.testsSourcePath)) {
@@ -185,18 +229,54 @@ export class TestIndexer {
     }
 
     const tests: TestDetails[] = [];
-    const entries = fs.readdirSync(this.testsSourcePath);
+    const structure = this.detectStructure();
 
-    for (const entry of entries) {
-      const fullPath = path.join(this.testsSourcePath, entry);
-      const stat = fs.statSync(fullPath);
+    // Clear the UUID-to-category map on full scan
+    this.uuidToCategory.clear();
 
-      // Only process directories with valid UUID names
-      if (stat.isDirectory() && this.isValidTestDirectory(entry)) {
-        const testDetails = this.scanTestDirectory(entry);
-        if (testDetails) {
-          tests.push(testDetails);
-          this.testCache.set(entry, testDetails);
+    if (structure === 'categorical') {
+      console.log('Detected categorical test structure');
+      // Scan each category folder
+      for (const category of KNOWN_CATEGORIES) {
+        const categoryPath = path.join(this.testsSourcePath, category);
+        if (!fs.existsSync(categoryPath)) {
+          continue;
+        }
+
+        const entries = fs.readdirSync(categoryPath);
+        for (const entry of entries) {
+          const fullPath = path.join(categoryPath, entry);
+          const stat = fs.statSync(fullPath);
+
+          // Only process directories with valid UUID names
+          if (stat.isDirectory() && this.isValidTestDirectory(entry)) {
+            // Store the UUID -> category mapping
+            this.uuidToCategory.set(entry, category);
+
+            const testDetails = this.scanTestDirectory(entry, fullPath, category);
+            if (testDetails) {
+              tests.push(testDetails);
+              this.testCache.set(entry, testDetails);
+            }
+          }
+        }
+      }
+    } else {
+      console.log('Detected flat test structure (legacy)');
+      // Flat structure: tests_source/{uuid}/
+      const entries = fs.readdirSync(this.testsSourcePath);
+
+      for (const entry of entries) {
+        const fullPath = path.join(this.testsSourcePath, entry);
+        const stat = fs.statSync(fullPath);
+
+        // Only process directories with valid UUID names
+        if (stat.isDirectory() && this.isValidTestDirectory(entry)) {
+          const testDetails = this.scanTestDirectory(entry, fullPath);
+          if (testDetails) {
+            tests.push(testDetails);
+            this.testCache.set(entry, testDetails);
+          }
         }
       }
     }
@@ -228,7 +308,21 @@ export class TestIndexer {
    */
   public refresh(): TestDetails[] {
     this.testCache.clear();
+    this.uuidToCategory.clear();
     return this.scanAllTests();
+  }
+
+  /**
+   * Get all unique categories from indexed tests
+   */
+  public getCategories(): string[] {
+    const categories = new Set<string>();
+    for (const test of this.testCache.values()) {
+      if (test.category) {
+        categories.add(test.category);
+      }
+    }
+    return Array.from(categories).sort();
   }
 
   /**

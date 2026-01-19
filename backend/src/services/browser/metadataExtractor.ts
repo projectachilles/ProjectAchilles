@@ -7,11 +7,14 @@ import { TestMetadata, StageInfo } from '../../types/test.js';
 export class MetadataExtractor {
   /**
    * Extract metadata from a Go source file header
+   * Supports both legacy (5 fields) and new (12+ fields) formats
    */
   static extractFromGoFile(filePath: string): Partial<TestMetadata> {
     const content = fs.readFileSync(filePath, 'utf-8');
     const metadata: Partial<TestMetadata> = {
       techniques: [],
+      tactics: [],
+      tags: [],
       stages: [],
       isMultiStage: false,
     };
@@ -33,19 +36,81 @@ export class MetadataExtractor {
         metadata.name = nameMatch[1].trim();
       }
 
-      // Extract TECHNIQUE (comma-separated)
-      const techniqueMatch = header.match(/TECHNIQUE:\s*(.+)/i);
-      if (techniqueMatch) {
-        metadata.techniques = techniqueMatch[1]
+      // Extract TECHNIQUES (plural, new format) or TECHNIQUE (singular, legacy)
+      const techniquesMatch = header.match(/TECHNIQUES?:\s*(.+)/i);
+      if (techniquesMatch) {
+        metadata.techniques = techniquesMatch[1]
           .split(',')
           .map(t => t.trim())
           .filter(t => t);
+      }
+
+      // Extract TACTICS (comma-separated)
+      const tacticsMatch = header.match(/TACTICS?:\s*(.+)/i);
+      if (tacticsMatch) {
+        metadata.tactics = tacticsMatch[1]
+          .split(',')
+          .map(t => t.trim())
+          .filter(t => t);
+      }
+
+      // Extract SEVERITY
+      const severityMatch = header.match(/SEVERITY:\s*(\w+)/i);
+      if (severityMatch) {
+        metadata.severity = severityMatch[1].trim().toLowerCase();
+      }
+
+      // Extract TARGET
+      const targetMatch = header.match(/TARGET:\s*(.+)/i);
+      if (targetMatch) {
+        metadata.target = targetMatch[1].trim();
+      }
+
+      // Extract COMPLEXITY
+      const complexityMatch = header.match(/COMPLEXITY:\s*(\w+)/i);
+      if (complexityMatch) {
+        metadata.complexity = complexityMatch[1].trim().toLowerCase();
+      }
+
+      // Extract THREAT_ACTOR
+      const threatActorMatch = header.match(/THREAT_ACTOR:\s*(.+)/i);
+      if (threatActorMatch) {
+        const actor = threatActorMatch[1].trim();
+        // Handle "N/A" or empty values
+        metadata.threatActor = (actor && actor.toLowerCase() !== 'n/a') ? actor : undefined;
+      }
+
+      // Extract SUBCATEGORY
+      const subcategoryMatch = header.match(/SUBCATEGORY:\s*(.+)/i);
+      if (subcategoryMatch) {
+        metadata.subcategory = subcategoryMatch[1].trim();
+      }
+
+      // Extract TAGS (comma-separated)
+      const tagsMatch = header.match(/TAGS:\s*(.+)/i);
+      if (tagsMatch) {
+        metadata.tags = tagsMatch[1]
+          .split(',')
+          .map(t => t.trim())
+          .filter(t => t);
+      }
+
+      // Extract AUTHOR
+      const authorMatch = header.match(/AUTHOR:\s*(.+)/i);
+      if (authorMatch) {
+        metadata.author = authorMatch[1].trim();
       }
 
       // Extract CREATED date
       const createdMatch = header.match(/CREATED:\s*(.+)/i);
       if (createdMatch) {
         metadata.createdDate = createdMatch[1].trim();
+      }
+
+      // Extract UNIT (test unit identifier)
+      const unitMatch = header.match(/UNIT:\s*(.+)/i);
+      if (unitMatch) {
+        metadata.unit = unitMatch[1].trim();
       }
     }
 
@@ -212,19 +277,35 @@ export class MetadataExtractor {
 
   /**
    * Combine metadata from multiple sources
+   * @param testDir - Full path to the test directory
+   * @param uuid - The test UUID
+   * @param category - The category folder name (optional, for categorical structure)
    */
-  static extractTestMetadata(testDir: string, uuid: string): TestMetadata {
+  static extractTestMetadata(testDir: string, uuid: string, category?: string): TestMetadata {
     const metadata: Partial<TestMetadata> = {
       uuid,
+      category, // Set from folder structure
       techniques: [],
+      tactics: [],
+      tags: [],
       stages: [],
       isMultiStage: false,
     };
 
+    // Store category from folder structure (should not be overwritten)
+    const folderCategory = category;
+
     // Extract from main Go file
     const mainGoFile = path.join(testDir, `${uuid}.go`);
     if (fs.existsSync(mainGoFile)) {
-      Object.assign(metadata, this.extractFromGoFile(mainGoFile));
+      const goData = this.extractFromGoFile(mainGoFile);
+      // Merge arrays
+      this.mergeArrayField(metadata, goData, 'techniques');
+      this.mergeArrayField(metadata, goData, 'tactics');
+      this.mergeArrayField(metadata, goData, 'tags');
+      // Assign other fields (but not arrays, we already merged them)
+      const { techniques, tactics, tags, ...otherGoData } = goData;
+      Object.assign(metadata, otherGoData);
     }
 
     // Extract from README
@@ -232,12 +313,10 @@ export class MetadataExtractor {
     if (fs.existsSync(readmePath)) {
       const readmeData = this.extractFromReadme(readmePath);
       // Merge techniques arrays
-      if (readmeData.techniques && readmeData.techniques.length > 0) {
-        metadata.techniques = Array.from(
-          new Set([...(metadata.techniques || []), ...readmeData.techniques])
-        );
-      }
-      Object.assign(metadata, { ...readmeData, techniques: metadata.techniques });
+      this.mergeArrayField(metadata, readmeData, 'techniques');
+      // Assign other fields
+      const { techniques, ...otherReadmeData } = readmeData;
+      Object.assign(metadata, otherReadmeData);
     }
 
     // Extract from info card
@@ -245,18 +324,36 @@ export class MetadataExtractor {
     if (fs.existsSync(infoCardPath)) {
       const infoData = this.extractFromInfoCard(infoCardPath);
       // Merge techniques arrays
-      if (infoData.techniques && infoData.techniques.length > 0) {
-        metadata.techniques = Array.from(
-          new Set([...(metadata.techniques || []), ...infoData.techniques])
-        );
-      }
-      Object.assign(metadata, { ...infoData, techniques: metadata.techniques });
+      this.mergeArrayField(metadata, infoData, 'techniques');
+      // Assign other fields
+      const { techniques, ...otherInfoData } = infoData;
+      Object.assign(metadata, otherInfoData);
     }
 
     // Extract stage information
     metadata.stages = this.extractStageInfo(testDir);
     metadata.isMultiStage = metadata.stages.length > 0;
 
+    // Ensure folder category takes precedence over any extracted category
+    if (folderCategory) {
+      metadata.category = folderCategory;
+    }
+
     return metadata as TestMetadata;
+  }
+
+  /**
+   * Helper to merge array fields from source into target
+   */
+  private static mergeArrayField(
+    target: Partial<TestMetadata>,
+    source: Partial<TestMetadata>,
+    field: 'techniques' | 'tactics' | 'tags'
+  ): void {
+    const sourceArray = source[field];
+    if (sourceArray && sourceArray.length > 0) {
+      const targetArray = target[field] || [];
+      target[field] = Array.from(new Set([...targetArray, ...sourceArray]));
+    }
   }
 }

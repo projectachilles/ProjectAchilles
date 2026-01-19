@@ -49,3 +49,4 @@ __pycache__/
 # Generated data files
 scripts/*.ndjson
 scripts/*.json
+backend/data/
