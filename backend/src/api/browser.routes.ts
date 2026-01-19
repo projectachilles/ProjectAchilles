@@ -4,254 +4,349 @@ import { Router, Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { requireClerkAuth } from '../middleware/clerk.middleware.js';
-import { asyncHandler } from '../middleware/error.middleware.js';
+import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { TestIndexer } from '../services/browser/testIndexer.js';
 import { FileService } from '../services/browser/fileService.js';
-
-const router = Router();
-
-// Protect all browser routes with Clerk authentication
-router.use(requireClerkAuth());
+import { GitSyncService, SyncStatus } from '../services/browser/gitSyncService.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Get tests source path from environment with relative path fallback
-// Default: ProjectAchilles/tests_source (from backend/src/api/)
-const testsSourcePath = process.env.TESTS_SOURCE_PATH || path.resolve(__dirname, '../../../tests_source');
-
-const testIndexer = new TestIndexer(testsSourcePath);
-
-// Initial scan on startup (if tests directory exists)
-console.log(`Scanning tests from: ${testsSourcePath}`);
-try {
-  testIndexer.scanAllTests();
-  console.log('✓ Tests scanned successfully');
-} catch (error) {
-  console.warn('⚠ Tests directory not found - browser module will have no tests available');
-  console.warn(`  Set TESTS_SOURCE_PATH environment variable to enable test browsing`);
-}
+// Module-level state (initialized by createBrowserRouter)
+let testIndexer: TestIndexer | null = null;
+let gitSyncService: GitSyncService | null = null;
 
 /**
- * GET /api/browser/tests
- * Get all tests with optional filtering
+ * Create and configure the browser router
+ * @param options - Configuration options
+ * @returns Configured Express router
  */
-router.get('/tests', asyncHandler(async (req: Request, res: Response) => {
-  const { search, technique, category, severity } = req.query;
+export function createBrowserRouter(options: {
+  testsSourcePath: string;
+  gitSync?: GitSyncService;
+}): Router {
+  const router = Router();
 
-  let tests = testIndexer.getAllTests();
+  // Protect all browser routes with Clerk authentication
+  router.use(requireClerkAuth());
 
-  // Apply filters
-  if (search && typeof search === 'string') {
-    tests = testIndexer.searchTests(search);
-  } else if (technique && typeof technique === 'string') {
-    tests = testIndexer.filterByTechnique(technique);
-  } else if (category && typeof category === 'string') {
-    tests = testIndexer.filterByCategory(category);
-  } else if (severity && typeof severity === 'string') {
-    tests = testIndexer.filterBySeverity(severity);
+  // Initialize the test indexer
+  testIndexer = new TestIndexer(options.testsSourcePath);
+  gitSyncService = options.gitSync || null;
+
+  // Initial scan on startup (if tests directory exists)
+  console.log(`Scanning tests from: ${options.testsSourcePath}`);
+  try {
+    testIndexer.scanAllTests();
+    console.log('✓ Tests scanned successfully');
+  } catch (error) {
+    console.warn('⚠ Tests directory not found - browser module will have no tests available');
+    console.warn('  Tests will be available after sync completes');
   }
 
-  // Return simplified test list (without full file details)
-  const testList = tests.map(test => ({
-    uuid: test.uuid,
-    name: test.name,
-    category: test.category,
-    severity: test.severity,
-    techniques: test.techniques,
-    tactics: test.tactics,
-    createdDate: test.createdDate,
-    score: test.score,
-    isMultiStage: test.isMultiStage,
-    stageCount: test.stages.length,
-    description: test.description,
-    hasAttackFlow: test.hasAttackFlow,
-    hasReadme: test.hasReadme,
-    hasInfoCard: test.hasInfoCard,
-    hasSafetyDoc: test.hasSafetyDoc,
-    hasDetectionFiles: test.hasDetectionFiles,
-    hasDefenseGuidance: test.hasDefenseGuidance,
+  // ============ SYNC ENDPOINTS ============
+
+  /**
+   * POST /api/browser/tests/sync
+   * Trigger a sync from the GitHub repository
+   */
+  router.post('/tests/sync', asyncHandler(async (_req: Request, res: Response) => {
+    if (!gitSyncService) {
+      throw new AppError('Git sync is not configured', 503);
+    }
+
+    if (gitSyncService.isSyncing()) {
+      throw new AppError('Sync already in progress', 409);
+    }
+
+    console.log('Manual sync triggered...');
+
+    try {
+      // Pull latest changes
+      await gitSyncService.sync();
+
+      // Re-scan tests after sync
+      const tests = testIndexer?.refresh() || [];
+
+      const status = gitSyncService.getStatus();
+      res.json({
+        success: true,
+        message: 'Sync completed successfully',
+        syncStatus: status,
+        testCount: tests.length,
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown sync error';
+      console.error('Sync failed:', errorMessage);
+      throw new AppError(`Sync failed: ${errorMessage}`, 500);
+    }
   }));
 
-  res.json({
-    success: true,
-    count: testList.length,
-    tests: testList,
-  });
-}));
+  /**
+   * GET /api/browser/tests/sync/status
+   * Get current sync status
+   */
+  router.get('/tests/sync/status', asyncHandler(async (_req: Request, res: Response) => {
+    const status: SyncStatus = gitSyncService?.getStatus() || {
+      lastSyncTime: null,
+      commitHash: null,
+      branch: 'main',
+      status: 'never_synced',
+      error: 'Git sync not configured',
+    };
 
-/**
- * GET /api/browser/tests/:uuid
- * Get detailed information about a specific test
- */
-router.get('/tests/:uuid', asyncHandler(async (req: Request, res: Response) => {
-  const { uuid } = req.params;
+    // Add test count from indexer
+    status.testCount = testIndexer?.getAllTests().length || 0;
 
-  // Validate UUID format to prevent path traversal
-  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid)) {
-    return res.status(400).json({
-      success: false,
-      error: 'Invalid UUID format',
+    res.json({
+      success: true,
+      syncStatus: status,
     });
-  }
+  }));
 
-  const test = testIndexer.getTest(uuid);
+  // ============ TEST ENDPOINTS ============
 
-  if (!test) {
-    return res.status(404).json({
-      success: false,
-      error: 'Test not found',
+  /**
+   * GET /api/browser/tests
+   * Get all tests with optional filtering
+   */
+  router.get('/tests', asyncHandler(async (req: Request, res: Response) => {
+    if (!testIndexer) {
+      throw new AppError('Test indexer not initialized', 503);
+    }
+
+    const { search, technique, category, severity } = req.query;
+
+    let tests = testIndexer.getAllTests();
+
+    // Apply filters
+    if (search && typeof search === 'string') {
+      tests = testIndexer.searchTests(search);
+    } else if (technique && typeof technique === 'string') {
+      tests = testIndexer.filterByTechnique(technique);
+    } else if (category && typeof category === 'string') {
+      tests = testIndexer.filterByCategory(category);
+    } else if (severity && typeof severity === 'string') {
+      tests = testIndexer.filterBySeverity(severity);
+    }
+
+    // Return simplified test list (without full file details)
+    const testList = tests.map(test => ({
+      uuid: test.uuid,
+      name: test.name,
+      category: test.category,
+      subcategory: test.subcategory,
+      severity: test.severity,
+      techniques: test.techniques,
+      tactics: test.tactics,
+      target: test.target,
+      complexity: test.complexity,
+      threatActor: test.threatActor,
+      author: test.author,
+      tags: test.tags,
+      createdDate: test.createdDate,
+      score: test.score,
+      isMultiStage: test.isMultiStage,
+      stageCount: test.stages.length,
+      description: test.description,
+      hasAttackFlow: test.hasAttackFlow,
+      hasReadme: test.hasReadme,
+      hasInfoCard: test.hasInfoCard,
+      hasSafetyDoc: test.hasSafetyDoc,
+      hasDetectionFiles: test.hasDetectionFiles,
+      hasDefenseGuidance: test.hasDefenseGuidance,
+    }));
+
+    res.json({
+      success: true,
+      count: testList.length,
+      tests: testList,
     });
-  }
+  }));
 
-  res.json({
-    success: true,
-    test,
-  });
-}));
+  /**
+   * GET /api/browser/tests/categories
+   * Get all unique categories
+   */
+  router.get('/tests/categories', asyncHandler(async (_req: Request, res: Response) => {
+    if (!testIndexer) {
+      throw new AppError('Test indexer not initialized', 503);
+    }
 
-/**
- * GET /api/browser/tests/:uuid/files
- * Get list of files in a test directory
- */
-router.get('/tests/:uuid/files', asyncHandler(async (req: Request, res: Response) => {
-  const { uuid } = req.params;
+    const categories = testIndexer.getCategories();
 
-  // Validate UUID format to prevent path traversal
-  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid)) {
-    return res.status(400).json({
-      success: false,
-      error: 'Invalid UUID format',
+    res.json({
+      success: true,
+      categories,
     });
-  }
+  }));
 
-  const test = testIndexer.getTest(uuid);
+  /**
+   * GET /api/browser/tests/:uuid
+   * Get detailed information about a specific test
+   */
+  router.get('/tests/:uuid', asyncHandler(async (req: Request, res: Response) => {
+    if (!testIndexer) {
+      throw new AppError('Test indexer not initialized', 503);
+    }
 
-  if (!test) {
-    return res.status(404).json({
-      success: false,
-      error: 'Test not found',
+    const { uuid } = req.params;
+
+    // Validate UUID format to prevent path traversal
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid)) {
+      throw new AppError('Invalid UUID format', 400);
+    }
+
+    const test = testIndexer.getTest(uuid);
+
+    if (!test) {
+      throw new AppError('Test not found', 404);
+    }
+
+    res.json({
+      success: true,
+      test,
     });
-  }
+  }));
 
-  res.json({
-    success: true,
-    files: test.files,
-  });
-}));
+  /**
+   * GET /api/browser/tests/:uuid/files
+   * Get list of files in a test directory
+   */
+  router.get('/tests/:uuid/files', asyncHandler(async (req: Request, res: Response) => {
+    if (!testIndexer) {
+      throw new AppError('Test indexer not initialized', 503);
+    }
 
-/**
- * GET /api/browser/tests/:uuid/file/:filename
- * Get content of a specific file
- */
-router.get('/tests/:uuid/file/:filename', asyncHandler(async (req: Request, res: Response) => {
-  const { uuid, filename } = req.params;
+    const { uuid } = req.params;
 
-  // Validate UUID format to prevent path traversal
-  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid)) {
-    return res.status(400).json({
-      success: false,
-      error: 'Invalid UUID format',
+    // Validate UUID format to prevent path traversal
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid)) {
+      throw new AppError('Invalid UUID format', 400);
+    }
+
+    const test = testIndexer.getTest(uuid);
+
+    if (!test) {
+      throw new AppError('Test not found', 404);
+    }
+
+    res.json({
+      success: true,
+      files: test.files,
     });
-  }
+  }));
 
-  const decodedFilename = decodeURIComponent(filename);
+  /**
+   * GET /api/browser/tests/:uuid/file/:filename
+   * Get content of a specific file
+   */
+  router.get('/tests/:uuid/file/:filename', asyncHandler(async (req: Request, res: Response) => {
+    if (!testIndexer) {
+      throw new AppError('Test indexer not initialized', 503);
+    }
 
-  // Prevent path traversal - filename must not contain path separators or parent directory references
-  if (decodedFilename.includes('/') || decodedFilename.includes('\\') || decodedFilename.includes('..')) {
-    return res.status(400).json({
-      success: false,
-      error: 'Invalid filename',
+    const { uuid, filename } = req.params;
+
+    // Validate UUID format to prevent path traversal
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid)) {
+      throw new AppError('Invalid UUID format', 400);
+    }
+
+    const decodedFilename = decodeURIComponent(filename);
+
+    // Prevent path traversal - filename must not contain path separators or parent directory references
+    if (decodedFilename.includes('/') || decodedFilename.includes('\\') || decodedFilename.includes('..')) {
+      throw new AppError('Invalid filename', 400);
+    }
+
+    const test = testIndexer.getTest(uuid);
+
+    if (!test) {
+      throw new AppError('Test not found', 404);
+    }
+
+    // Find the file in the test's file list
+    const file = test.files.find(f => f.name === decodedFilename);
+
+    if (!file) {
+      throw new AppError('File not found', 404);
+    }
+
+    // Read file content
+    const fileContent = FileService.readFileContent(file.path);
+
+    res.json({
+      success: true,
+      file: {
+        name: file.name,
+        type: fileContent.type,
+        content: fileContent.content,
+        size: file.size,
+      },
     });
-  }
+  }));
 
-  const test = testIndexer.getTest(uuid);
+  /**
+   * GET /api/browser/tests/:uuid/attack-flow
+   * Get attack flow diagram HTML
+   */
+  router.get('/tests/:uuid/attack-flow', asyncHandler(async (req: Request, res: Response) => {
+    if (!testIndexer) {
+      throw new AppError('Test indexer not initialized', 503);
+    }
 
-  if (!test) {
-    return res.status(404).json({
-      success: false,
-      error: 'Test not found',
+    const { uuid } = req.params;
+
+    // Validate UUID format to prevent path traversal
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid)) {
+      throw new AppError('Invalid UUID format', 400);
+    }
+
+    const test = testIndexer.getTest(uuid);
+
+    if (!test) {
+      throw new AppError('Test not found', 404);
+    }
+
+    if (!test.hasAttackFlow || !test.attackFlowPath) {
+      throw new AppError('Attack flow diagram not available for this test', 404);
+    }
+
+    // Read HTML file
+    const fileContent = FileService.readFileContent(test.attackFlowPath);
+
+    res.json({
+      success: true,
+      html: fileContent.content,
     });
-  }
+  }));
 
-  // Find the file in the test's file list
-  const file = test.files.find(f => f.name === decodedFilename);
+  /**
+   * POST /api/browser/tests/refresh
+   * Refresh test index (rescan tests_source directory)
+   */
+  router.post('/tests/refresh', asyncHandler(async (_req: Request, res: Response) => {
+    if (!testIndexer) {
+      throw new AppError('Test indexer not initialized', 503);
+    }
 
-  if (!file) {
-    return res.status(404).json({
-      success: false,
-      error: 'File not found',
+    console.log('Refreshing test index...');
+    const tests = testIndexer.refresh();
+
+    res.json({
+      success: true,
+      message: 'Test index refreshed successfully',
+      count: tests.length,
     });
-  }
+  }));
 
-  // Read file content
-  const fileContent = FileService.readFileContent(file.path);
+  return router;
+}
 
-  res.json({
-    success: true,
-    file: {
-      name: file.name,
-      type: fileContent.type,
-      content: fileContent.content,
-      size: file.size,
-    },
-  });
-}));
+// Default export for backwards compatibility (creates router with env-based config)
+const defaultTestsSourcePath = process.env.TESTS_SOURCE_PATH || path.resolve(__dirname, '../../../tests_source');
+const defaultRouter = createBrowserRouter({ testsSourcePath: defaultTestsSourcePath });
 
-/**
- * GET /api/browser/tests/:uuid/attack-flow
- * Get attack flow diagram HTML
- */
-router.get('/tests/:uuid/attack-flow', asyncHandler(async (req: Request, res: Response) => {
-  const { uuid } = req.params;
-
-  // Validate UUID format to prevent path traversal
-  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid)) {
-    return res.status(400).json({
-      success: false,
-      error: 'Invalid UUID format',
-    });
-  }
-
-  const test = testIndexer.getTest(uuid);
-
-  if (!test) {
-    return res.status(404).json({
-      success: false,
-      error: 'Test not found',
-    });
-  }
-
-  if (!test.hasAttackFlow || !test.attackFlowPath) {
-    return res.status(404).json({
-      success: false,
-      error: 'Attack flow diagram not available for this test',
-    });
-  }
-
-  // Read HTML file
-  const fileContent = FileService.readFileContent(test.attackFlowPath);
-
-  res.json({
-    success: true,
-    html: fileContent.content,
-  });
-}));
-
-/**
- * POST /api/browser/tests/refresh
- * Refresh test index (rescan tests_source directory)
- */
-router.post('/tests/refresh', asyncHandler(async (_req: Request, res: Response) => {
-  console.log('Refreshing test index...');
-  const tests = testIndexer.refresh();
-
-  res.json({
-    success: true,
-    message: 'Test index refreshed successfully',
-    count: tests.length,
-  });
-}));
-
-export default router;
+export default defaultRouter;

@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { browserApi } from '@/services/api/browser';
-import type { TestMetadata } from '@/types/test';
+import type { TestMetadata, SyncStatus } from '@/types/test';
 import TestCard from '@/components/browser/TestCard';
 import TestListItem from '@/components/browser/TestListItem';
 import SearchBar from '@/components/browser/SearchBar';
-import { Loader2, LayoutGrid, List } from 'lucide-react';
+import { Loader2, LayoutGrid, List, RefreshCw, GitBranch, Clock, AlertCircle } from 'lucide-react';
 
 type ViewMode = 'grid' | 'list';
 
@@ -18,10 +18,14 @@ export default function BrowserHomePage() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
     loadTests();
+    loadSyncStatus();
   }, []);
 
   const filterTests = useCallback(() => {
@@ -84,6 +88,50 @@ export default function BrowserHomePage() {
     }
   }
 
+  async function loadSyncStatus() {
+    try {
+      const status = await browserApi.getSyncStatus();
+      setSyncStatus(status);
+    } catch (err) {
+      console.error('Failed to load sync status:', err);
+    }
+  }
+
+  async function handleSync() {
+    if (syncing) return;
+
+    try {
+      setSyncing(true);
+      setSyncError(null);
+      const result = await browserApi.syncTests();
+      setSyncStatus(result.syncStatus);
+      // Reload tests after successful sync
+      await loadTests();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Sync failed';
+      setSyncError(errorMessage);
+      console.error('Sync failed:', err);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  // Format relative time
+  function formatRelativeTime(dateString: string | null): string {
+    if (!dateString) return 'Never';
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return `${diffDays}d ago`;
+  }
+
   // Get unique categories and severities
   const categories = ['all', ...new Set(tests.map(t => t.category).filter(Boolean))];
   const severities = ['all', ...new Set(tests.map(t => t.severity).filter(Boolean))];
@@ -117,6 +165,57 @@ export default function BrowserHomePage() {
 
   return (
     <div className="container mx-auto h-full px-4 py-6 flex flex-col">
+      {/* Sync Status Bar */}
+      {syncStatus && (
+        <div className="mb-4 flex items-center justify-between p-3 rounded-lg bg-card border border-border">
+          <div className="flex items-center gap-4 text-sm">
+            {/* Sync Status */}
+            <div className="flex items-center gap-2">
+              {syncStatus.status === 'syncing' ? (
+                <Loader2 className="w-4 h-4 animate-spin text-primary" />
+              ) : syncStatus.status === 'synced' ? (
+                <GitBranch className="w-4 h-4 text-green-500" />
+              ) : syncStatus.status === 'error' ? (
+                <AlertCircle className="w-4 h-4 text-red-500" />
+              ) : (
+                <GitBranch className="w-4 h-4 text-muted-foreground" />
+              )}
+              <span className="text-muted-foreground">
+                {syncStatus.branch}
+                {syncStatus.commitHash && (
+                  <span className="ml-1 font-mono text-xs">
+                    ({syncStatus.commitHash.substring(0, 7)})
+                  </span>
+                )}
+              </span>
+            </div>
+
+            {/* Last Sync Time */}
+            {syncStatus.lastSyncTime && (
+              <div className="flex items-center gap-1 text-muted-foreground">
+                <Clock className="w-3.5 h-3.5" />
+                <span>{formatRelativeTime(syncStatus.lastSyncTime)}</span>
+              </div>
+            )}
+
+            {/* Sync Error */}
+            {syncError && (
+              <span className="text-red-500 text-xs">{syncError}</span>
+            )}
+          </div>
+
+          {/* Sync Button */}
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Syncing...' : 'Sync'}
+          </button>
+        </div>
+      )}
+
       {/* Search and Filters */}
       <div className="mb-6 space-y-4">
         <SearchBar

@@ -1,5 +1,12 @@
 import { apiClient } from '@/hooks/useAuthenticatedApi';
-import type { TestMetadata, TestDetails, FileContent, TestFile } from '@/types/test';
+import type { TestMetadata, TestDetails, FileContent, TestFile, SyncStatus } from '@/types/test';
+
+export interface SyncResult {
+  success: boolean;
+  message: string;
+  syncStatus: SyncStatus;
+  testCount: number;
+}
 
 export const browserApi = {
   // Get all tests
@@ -12,6 +19,24 @@ export const browserApi = {
     const response = await apiClient.get('/browser/tests', { params });
     // Backend returns: { success: true, count: number, tests: array }
     return response.data.tests;
+  },
+
+  // Get all unique categories
+  async getCategories(): Promise<string[]> {
+    const response = await apiClient.get('/browser/tests/categories');
+    return response.data.categories;
+  },
+
+  // Trigger sync from GitHub repository
+  async syncTests(): Promise<SyncResult> {
+    const response = await apiClient.post('/browser/tests/sync');
+    return response.data;
+  },
+
+  // Get current sync status
+  async getSyncStatus(): Promise<SyncStatus> {
+    const response = await apiClient.get('/browser/tests/sync/status');
+    return response.data.syncStatus;
   },
 
   // Get test details
@@ -50,4 +75,4 @@ export const browserApi = {
 };
 
 // Re-export types for convenience
-export type { TestMetadata, TestDetails, FileContent, TestFile };
+export type { TestMetadata, TestDetails, FileContent, TestFile, SyncStatus };
