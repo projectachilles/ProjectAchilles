@@ -81,7 +81,7 @@ export default function TrendChart({ data, loading, title = 'Defense Score Trend
           </p>
           {isEstimated ? (
             <p className="text-sm text-muted-foreground italic">
-              No tests on this day
+              {data.total === 0 ? 'No tests on this day' : `Insufficient data (${data.total} tests)`}
             </p>
           ) : (
             <p className="text-sm text-muted-foreground">

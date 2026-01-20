@@ -76,9 +76,25 @@ export class ElasticsearchService {
     return { term: { 'routing.oid': org } };
   }
 
+  // Filter for valid test execution data only
+  // Excludes incomplete records (cleanup operations, etc.)
+  private buildTestDataFilter(): any {
+    return {
+      bool: {
+        must: [
+          { exists: { field: 'f0rtika.test_uuid' } },
+          { exists: { field: 'f0rtika.test_name' } }
+        ]
+      }
+    };
+  }
+
   // Get overall defense score
   async getDefenseScore(params: AnalyticsQueryParams): Promise<DefenseScoreResponse> {
-    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to)
+    ];
 
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -115,7 +131,10 @@ export class ElasticsearchService {
 
   // Get defense score trend over time
   async getDefenseScoreTrend(params: AnalyticsQueryParams): Promise<TrendDataPoint[]> {
-    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to)
+    ];
 
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -162,7 +181,10 @@ export class ElasticsearchService {
 
   // Get defense score by test
   async getDefenseScoreByTest(params: AnalyticsQueryParams): Promise<BreakdownItem[]> {
-    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to)
+    ];
 
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -205,7 +227,10 @@ export class ElasticsearchService {
 
   // Get defense score by technique
   async getDefenseScoreByTechnique(params: AnalyticsQueryParams): Promise<BreakdownItem[]> {
-    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to)
+    ];
 
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -248,7 +273,10 @@ export class ElasticsearchService {
 
   // Get recent test executions
   async getRecentExecutions(params: AnalyticsQueryParams): Promise<TestExecution[]> {
-    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to)
+    ];
 
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -346,7 +374,10 @@ export class ElasticsearchService {
 
   // Get unique hostname count
   async getUniqueHostnames(params: AnalyticsQueryParams): Promise<number> {
-    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to)
+    ];
 
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -369,7 +400,10 @@ export class ElasticsearchService {
 
   // Get unique test count
   async getUniqueTests(params: AnalyticsQueryParams): Promise<number> {
-    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to)
+    ];
 
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -430,7 +464,10 @@ export class ElasticsearchService {
 
   // Get results by error type (for pie chart)
   async getResultsByErrorType(params: AnalyticsQueryParams): Promise<ErrorTypeBreakdown[]> {
-    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to)
+    ];
 
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -464,7 +501,10 @@ export class ElasticsearchService {
 
   // Get test coverage (protected vs unprotected counts per test)
   async getTestCoverage(params: AnalyticsQueryParams): Promise<TestCoverageItem[]> {
-    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to)
+    ];
 
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -507,7 +547,10 @@ export class ElasticsearchService {
 
   // Get technique distribution (protected vs unprotected counts per technique)
   async getTechniqueDistribution(params: AnalyticsQueryParams): Promise<TechniqueDistributionItem[]> {
-    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to)
+    ];
 
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -550,7 +593,10 @@ export class ElasticsearchService {
 
   // Get host-test matrix for heatmap
   async getHostTestMatrix(params: AnalyticsQueryParams): Promise<HostTestMatrixCell[]> {
-    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to)
+    ];
 
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -594,6 +640,9 @@ export class ElasticsearchService {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
+      query: {
+        bool: { filter: [this.buildTestDataFilter()] }
+      },
       aggs: {
         tests: {
           terms: { field: 'f0rtika.test_name', size: 100 },
@@ -610,6 +659,9 @@ export class ElasticsearchService {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
+      query: {
+        bool: { filter: [this.buildTestDataFilter()] }
+      },
       aggs: {
         techniques: {
           terms: { field: 'f0rtika.techniques', size: 100 },
@@ -623,7 +675,10 @@ export class ElasticsearchService {
 
   // Get defense score by organization
   async getDefenseScoreByOrg(params: AnalyticsQueryParams): Promise<OrgBreakdownItem[]> {
-    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to)
+    ];
 
     const response = await this.client.search({
       index: this.settings.indexPattern,
@@ -761,7 +816,10 @@ export class ElasticsearchService {
 
   // Build all extended filters
   private buildExtendedFilters(params: PaginatedExecutionsParams): any[] {
-    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to)
+    ];
 
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -888,8 +946,9 @@ export class ElasticsearchService {
 
   // Get available hostnames with counts
   async getAvailableHostnames(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
-    const filters: any[] = params ? [this.buildDateFilter(params.from, params.to)] : [];
-    if (params?.org) {
+    const filters: any[] = [this.buildTestDataFilter()];
+    if (params) {
+      filters.push(this.buildDateFilter(params.from, params.to));
       const orgFilter = this.buildOrgFilter(params.org);
       if (orgFilter) filters.push(orgFilter);
     }
@@ -897,7 +956,7 @@ export class ElasticsearchService {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
-      query: filters.length > 0 ? { bool: { filter: filters } } : { match_all: {} },
+      query: { bool: { filter: filters } },
       aggs: {
         hostnames: {
           terms: { field: 'routing.hostname', size: 200 },
@@ -915,8 +974,9 @@ export class ElasticsearchService {
 
   // Get available categories with counts
   async getAvailableCategories(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
-    const filters: any[] = params ? [this.buildDateFilter(params.from, params.to)] : [];
-    if (params?.org) {
+    const filters: any[] = [this.buildTestDataFilter()];
+    if (params) {
+      filters.push(this.buildDateFilter(params.from, params.to));
       const orgFilter = this.buildOrgFilter(params.org);
       if (orgFilter) filters.push(orgFilter);
     }
@@ -924,7 +984,7 @@ export class ElasticsearchService {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
-      query: filters.length > 0 ? { bool: { filter: filters } } : { match_all: {} },
+      query: { bool: { filter: filters } },
       aggs: {
         categories: {
           terms: { field: 'f0rtika.category', size: 50 },
@@ -942,8 +1002,9 @@ export class ElasticsearchService {
 
   // Get available severities with counts
   async getAvailableSeverities(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
-    const filters: any[] = params ? [this.buildDateFilter(params.from, params.to)] : [];
-    if (params?.org) {
+    const filters: any[] = [this.buildTestDataFilter()];
+    if (params) {
+      filters.push(this.buildDateFilter(params.from, params.to));
       const orgFilter = this.buildOrgFilter(params.org);
       if (orgFilter) filters.push(orgFilter);
     }
@@ -951,7 +1012,7 @@ export class ElasticsearchService {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
-      query: filters.length > 0 ? { bool: { filter: filters } } : { match_all: {} },
+      query: { bool: { filter: filters } },
       aggs: {
         severities: {
           terms: { field: 'f0rtika.severity', size: 10 },
@@ -974,8 +1035,9 @@ export class ElasticsearchService {
 
   // Get available threat actors with counts
   async getAvailableThreatActors(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
-    const filters: any[] = params ? [this.buildDateFilter(params.from, params.to)] : [];
-    if (params?.org) {
+    const filters: any[] = [this.buildTestDataFilter()];
+    if (params) {
+      filters.push(this.buildDateFilter(params.from, params.to));
       const orgFilter = this.buildOrgFilter(params.org);
       if (orgFilter) filters.push(orgFilter);
     }
@@ -983,7 +1045,7 @@ export class ElasticsearchService {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
-      query: filters.length > 0 ? { bool: { filter: filters } } : { match_all: {} },
+      query: { bool: { filter: filters } },
       aggs: {
         threat_actors: {
           terms: { field: 'f0rtika.threat_actor', size: 100 },
@@ -1003,8 +1065,9 @@ export class ElasticsearchService {
 
   // Get available tags with counts
   async getAvailableTags(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
-    const filters: any[] = params ? [this.buildDateFilter(params.from, params.to)] : [];
-    if (params?.org) {
+    const filters: any[] = [this.buildTestDataFilter()];
+    if (params) {
+      filters.push(this.buildDateFilter(params.from, params.to));
       const orgFilter = this.buildOrgFilter(params.org);
       if (orgFilter) filters.push(orgFilter);
     }
@@ -1012,7 +1075,7 @@ export class ElasticsearchService {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
-      query: filters.length > 0 ? { bool: { filter: filters } } : { match_all: {} },
+      query: { bool: { filter: filters } },
       aggs: {
         tags: {
           terms: { field: 'f0rtika.tags', size: 200 },
@@ -1032,7 +1095,10 @@ export class ElasticsearchService {
 
   // Get defense score by severity
   async getDefenseScoreBySeverity(params: AnalyticsQueryParams): Promise<SeverityBreakdownItem[]> {
-    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to)
+    ];
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
 
@@ -1076,7 +1142,10 @@ export class ElasticsearchService {
 
   // Get defense score by category
   async getDefenseScoreByCategory(params: AnalyticsQueryParams): Promise<CategoryBreakdownItem[]> {
-    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to)
+    ];
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
 
@@ -1117,7 +1186,10 @@ export class ElasticsearchService {
 
   // Get threat actor coverage
   async getThreatActorCoverage(params: AnalyticsQueryParams): Promise<ThreatActorCoverageItem[]> {
-    const filters: any[] = [this.buildDateFilter(params.from, params.to)];
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to)
+    ];
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
 
