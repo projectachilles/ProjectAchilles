@@ -12,6 +12,7 @@ interface AnalyticsAuthContextType {
   configured: boolean;
   loading: boolean;
   settings: AnalyticsSettings | null;
+  settingsVersion: number;
   checkConfiguration: () => Promise<void>;
   updateSettings: (settings: AnalyticsSettings) => void;
 }
@@ -26,6 +27,7 @@ export function AnalyticsAuthProvider({ children }: AnalyticsAuthProviderProps) 
   const [configured, setConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<AnalyticsSettings | null>(null);
+  const [settingsVersion, setSettingsVersion] = useState(0);
 
   const checkConfiguration = useCallback(async () => {
     try {
@@ -49,6 +51,8 @@ export function AnalyticsAuthProvider({ children }: AnalyticsAuthProviderProps) 
   const updateSettings = (newSettings: AnalyticsSettings) => {
     setSettings(newSettings);
     setConfigured(newSettings.configured);
+    // Increment version to notify consumers that settings have changed
+    setSettingsVersion(v => v + 1);
   };
 
   return (
@@ -57,6 +61,7 @@ export function AnalyticsAuthProvider({ children }: AnalyticsAuthProviderProps) 
         configured,
         loading,
         settings,
+        settingsVersion,
         checkConfiguration,
         updateSettings,
       }}

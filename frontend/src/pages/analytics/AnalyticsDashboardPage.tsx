@@ -15,6 +15,7 @@ import CategoryBreakdownChart from './components/CategoryBreakdownChart';
 import ThreatActorCoverage from './components/ThreatActorCoverage';
 import ExecutionsDataTable from './components/ExecutionsDataTable';
 import { useAnalyticsFilters } from '@/hooks/useAnalyticsFilters';
+import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { analyticsApi } from '../../services/api/analytics';
 import type {
   TrendDataPoint,
@@ -49,6 +50,9 @@ export default function AnalyticsDashboardPage() {
 
   // Filter state (with URL sync)
   const filterState = useAnalyticsFilters(true);
+
+  // Watch for settings changes (e.g., index pattern change)
+  const { settingsVersion } = useAnalyticsAuth();
 
   // Filter options data
   const [organizations, setOrganizations] = useState<OrganizationInfo[]>([]);
@@ -89,24 +93,24 @@ export default function AnalyticsDashboardPage() {
   const [loadingDashboard, setLoadingDashboard] = useState(true);
   const [loadingExecutions, setLoadingExecutions] = useState(false);
 
-  // Load filter options on mount
+  // Load filter options on mount and when settings change
   useEffect(() => {
     loadFilterOptions();
-  }, []);
+  }, [settingsVersion]);
 
-  // Load dashboard data when filters change
+  // Load dashboard data when filters or settings change
   useEffect(() => {
     if (activeTab === 'dashboard') {
       loadDashboardData();
     }
-  }, [filterState.filters, activeTab]);
+  }, [filterState.filters, activeTab, settingsVersion]);
 
-  // Load executions data when tab/filters/pagination changes
+  // Load executions data when tab/filters/pagination/settings change
   useEffect(() => {
     if (activeTab === 'executions') {
       loadExecutionsData();
     }
-  }, [filterState.filters, activeTab, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder]);
+  }, [filterState.filters, activeTab, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder, settingsVersion]);
 
   // Load filter dropdown options
   async function loadFilterOptions() {
