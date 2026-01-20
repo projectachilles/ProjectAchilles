@@ -11,6 +11,7 @@ import {
 } from 'recharts';
 import { format } from 'date-fns';
 import type { TrendDataPoint } from '../../../services/api/analytics';
+import { applyForwardFill } from '../utils/trendDataTransformations';
 
 // Helper to parse timestamp - handles both epoch ms strings and ISO strings
 function parseTimestamp(timestamp: string): Date {
@@ -53,8 +54,11 @@ export default function TrendChart({ data, loading, title = 'Defense Score Trend
   const textColor = isDark ? 'hsl(215 20.2% 65.1%)' : 'hsl(215.4 16.3% 46.9%)';
   const lineColor = isDark ? 'hsl(217.2 91.2% 59.8%)' : 'hsl(221.2 83.2% 53.3%)';
 
+  // Apply forward-fill to preserve scores on days without data
+  const filledData = applyForwardFill(data);
+
   // Format data for chart
-  const chartData = data.map(point => {
+  const chartData = filledData.map(point => {
     const date = parseTimestamp(point.timestamp);
     return {
       ...point,
@@ -63,21 +67,64 @@ export default function TrendChart({ data, loading, title = 'Defense Score Trend
     };
   });
 
-  // Custom tooltip
+  // Custom tooltip - shows different content for carried-forward data
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
+      const isEstimated = data.isCarriedForward;
+
       return (
         <div className="bg-background border border-border rounded-lg p-3 shadow-lg">
           <p className="font-medium">{data.fullDate}</p>
-          <p className="text-primary font-bold">{data.score.toFixed(1)}%</p>
-          <p className="text-sm text-muted-foreground">
-            {data.protected} / {data.total} protected
+          <p className="text-primary font-bold">
+            {data.score.toFixed(1)}%{isEstimated && ' (estimated)'}
           </p>
+          {isEstimated ? (
+            <p className="text-sm text-muted-foreground italic">
+              No tests on this day
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {data.protected} / {data.total} protected
+            </p>
+          )}
         </div>
       );
     }
     return null;
+  };
+
+  // Custom dot - hollow for carried-forward, solid for real data
+  const CustomDot = (props: any) => {
+    const { cx, cy, payload } = props;
+    if (cx === undefined || cy === undefined) return null;
+
+    const isEstimated = payload?.isCarriedForward;
+
+    if (isEstimated) {
+      // Hollow circle for estimated/carried-forward data
+      return (
+        <circle
+          cx={cx}
+          cy={cy}
+          r={4}
+          fill="hsl(var(--background))"
+          stroke={lineColor}
+          strokeWidth={2}
+        />
+      );
+    }
+
+    // Solid circle for real data
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        r={4}
+        fill={lineColor}
+        stroke="none"
+      />
+    );
   };
 
   if (loading) {
@@ -124,7 +171,7 @@ export default function TrendChart({ data, loading, title = 'Defense Score Trend
               dataKey="score"
               stroke={lineColor}
               strokeWidth={2}
-              dot={{ fill: lineColor, strokeWidth: 0, r: 4 }}
+              dot={<CustomDot />}
               activeDot={{ r: 6, stroke: lineColor, strokeWidth: 2, fill: 'hsl(var(--background))' }}
             />
           </LineChart>
