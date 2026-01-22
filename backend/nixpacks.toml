@@ -1,11 +1,13 @@
 [phases.setup]
 nixPkgs = ["nodejs_22"]
 
+# Skip install phase - we do npm ci in build phase instead
+# This avoids the "no package-lock.json" error when Root Directory isn't applied
 [phases.install]
-cmds = ["npm ci --prefer-offline --no-audit"]
+cmds = ["echo 'Install phase skipped - see build phase'"]
 
 [phases.build]
-cmds = ["npm run build"]
+cmds = ["npm ci --prefer-offline --no-audit", "npm run build"]
 
 [start]
 cmd = "node dist/server.js"
