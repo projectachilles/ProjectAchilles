@@ -76,12 +76,23 @@ echo "║                                                                   ║"
 echo "╚═══════════════════════════════════════════════════════════════════╝"
 echo ""
 
+# PID file for daemon mode
+PID_FILE="$SCRIPT_DIR/.achilles.pid"
+
 # Check for command line arguments
 KILL_EXISTING=false
+DAEMON_MODE=false
+STOP_DAEMON=false
 for arg in "$@"; do
     case $arg in
         --kill|-k)
             KILL_EXISTING=true
+            ;;
+        --daemon|-d)
+            DAEMON_MODE=true
+            ;;
+        --stop|-s)
+            STOP_DAEMON=true
             ;;
         --backend-port=*)
             BACKEND_PORT="${arg#*=}"
@@ -94,6 +105,8 @@ for arg in "$@"; do
             echo ""
             echo "Options:"
             echo "  --kill, -k              Kill existing processes on default ports"
+            echo "  --daemon, -d            Run in daemon mode (background, no blocking)"
+            echo "  --stop, -s              Stop daemon processes"
             echo "  --backend-port=PORT     Specify backend port (default: 3000)"
             echo "  --frontend-port=PORT    Specify frontend port (default: 5173)"
             echo "  --help, -h              Show this help message"
@@ -102,6 +115,26 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+# Handle --stop flag
+if [ "$STOP_DAEMON" = true ]; then
+    if [ -f "$PID_FILE" ]; then
+        echo "Stopping daemon processes..."
+        while read -r pid; do
+            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+                kill "$pid" 2>/dev/null || true
+                # Also kill child processes
+                pkill -P "$pid" 2>/dev/null || true
+                echo "  Stopped PID $pid"
+            fi
+        done < "$PID_FILE"
+        rm -f "$PID_FILE"
+        echo "Daemon stopped."
+    else
+        echo "No daemon PID file found. Servers may not be running."
+    fi
+    exit 0
+fi
 
 # Kill existing processes if requested
 if [ "$KILL_EXISTING" = true ]; then
@@ -160,7 +193,16 @@ export VITE_BACKEND_PORT=$BACKEND_PORT
 # Start backend in background
 echo "Starting backend server on port $BACKEND_PORT..."
 cd backend
-PORT=$BACKEND_PORT npm run dev &
+if [ "$DAEMON_MODE" = true ]; then
+    # Build and use compiled server for daemon mode (tsx watch exits in non-interactive shells)
+    if [ ! -f "dist/server.js" ] || [ "src/server.ts" -nt "dist/server.js" ]; then
+        echo "  Building backend..."
+        npm run build > /dev/null 2>&1
+    fi
+    nohup env PORT=$BACKEND_PORT npm run start > "$SCRIPT_DIR/.backend.log" 2>&1 &
+else
+    PORT=$BACKEND_PORT npm run dev &
+fi
 BACKEND_PID=$!
 cd ..
 
@@ -171,7 +213,12 @@ sleep 2
 echo "Starting frontend server on port $FRONTEND_PORT..."
 echo "  (proxying /api to backend on port $BACKEND_PORT)"
 cd frontend
-VITE_BACKEND_PORT=$BACKEND_PORT npm run dev -- --port $FRONTEND_PORT &
+if [ "$DAEMON_MODE" = true ]; then
+    # Run vite directly for daemon mode (npm exits in non-interactive shells)
+    nohup env VITE_BACKEND_PORT=$BACKEND_PORT node node_modules/vite/bin/vite.js --port $FRONTEND_PORT > "$SCRIPT_DIR/.frontend.log" 2>&1 &
+else
+    VITE_BACKEND_PORT=$BACKEND_PORT npm run dev -- --port $FRONTEND_PORT &
+fi
 FRONTEND_PID=$!
 cd ..
 
@@ -190,23 +237,35 @@ echo "║     • Analytics:  http://localhost:$FRONTEND_PORT/analytics         
 echo "║     • Endpoints:  http://localhost:$FRONTEND_PORT/endpoints               ║"
 echo "║                                                                   ║"
 echo "╠═══════════════════════════════════════════════════════════════════╣"
-echo "║   Press Ctrl+C to stop                                            ║"
-echo "╚═══════════════════════════════════════════════════════════════════╝"
-echo ""
 
-# Handle cleanup on exit
-cleanup() {
+if [ "$DAEMON_MODE" = true ]; then
+    # Save PIDs for later cleanup
+    echo "$BACKEND_PID" > "$PID_FILE"
+    echo "$FRONTEND_PID" >> "$PID_FILE"
+    echo "║   Running in daemon mode. Use --stop to shut down.              ║"
+    echo "╚═══════════════════════════════════════════════════════════════════╝"
     echo ""
-    echo "Shutting down servers..."
-    kill $BACKEND_PID 2>/dev/null || true
-    kill $FRONTEND_PID 2>/dev/null || true
-    # Also kill any child processes
-    pkill -P $BACKEND_PID 2>/dev/null || true
-    pkill -P $FRONTEND_PID 2>/dev/null || true
+    echo "PIDs saved to $PID_FILE"
     exit 0
-}
+else
+    echo "║   Press Ctrl+C to stop                                            ║"
+    echo "╚═══════════════════════════════════════════════════════════════════╝"
+    echo ""
 
-trap cleanup SIGINT SIGTERM EXIT
+    # Handle cleanup on exit
+    cleanup() {
+        echo ""
+        echo "Shutting down servers..."
+        kill $BACKEND_PID 2>/dev/null || true
+        kill $FRONTEND_PID 2>/dev/null || true
+        # Also kill any child processes
+        pkill -P $BACKEND_PID 2>/dev/null || true
+        pkill -P $FRONTEND_PID 2>/dev/null || true
+        exit 0
+    }
 
-# Wait for either process to exit
-wait
+    trap cleanup SIGINT SIGTERM EXIT
+
+    # Wait for either process to exit
+    wait
+fi
