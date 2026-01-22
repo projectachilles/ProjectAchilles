@@ -1,0 +1,15 @@
+# Root nixpacks.toml for monorepo - handles both backend and frontend
+# This is used when Root Directory is not set per-service
+
+[phases.setup]
+nixPkgs = ["nodejs_22"]
+
+# Skip root install since there's no package.json at root
+[phases.install]
+cmds = ["echo 'Skipping root install - using service-specific directories'"]
+
+[phases.build]
+cmds = ["cd backend && npm ci && npm run build"]
+
+[start]
+cmd = "node backend/dist/server.js"
