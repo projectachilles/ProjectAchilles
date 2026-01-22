@@ -50,3 +50,6 @@ __pycache__/
 scripts/*.ndjson
 scripts/*.json
 backend/data/
+.achilles.pid
+.backend.log
+.frontend.log
