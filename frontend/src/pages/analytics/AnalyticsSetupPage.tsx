@@ -200,7 +200,7 @@ export default function AnalyticsSetupPage() {
               }`}
             >
               <Cloud className={`w-6 h-6 mx-auto mb-2 ${connectionType === 'cloud' ? 'text-primary' : 'text-muted-foreground'}`} />
-              <p className="font-medium">Elastic Cloud</p>
+              <p className="font-medium text-card-foreground">Elastic Cloud</p>
               <p className="text-sm text-muted-foreground">Connect via Cloud ID</p>
             </button>
             <button
@@ -212,7 +212,7 @@ export default function AnalyticsSetupPage() {
               }`}
             >
               <Server className={`w-6 h-6 mx-auto mb-2 ${connectionType === 'direct' ? 'text-primary' : 'text-muted-foreground'}`} />
-              <p className="font-medium">Direct URL</p>
+              <p className="font-medium text-card-foreground">Direct URL</p>
               <p className="text-sm text-muted-foreground">Connect to self-hosted</p>
             </button>
           </div>

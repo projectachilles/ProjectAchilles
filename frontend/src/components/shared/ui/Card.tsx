@@ -10,7 +10,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
     return (
       <div
         ref={ref}
-        className={`rounded-lg border border-border bg-card p-4 ${className}`}
+        className={`rounded-lg border border-border bg-card text-card-foreground p-4 ${className}`}
         {...props}
       >
         {children}

@@ -53,7 +53,7 @@ export default function EndpointLoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary to-purple-800 p-4">
       <div className="w-full max-w-md">
         {/* Login Card */}
-        <div className="bg-card border border-border rounded-xl shadow-2xl p-8">
+        <div className="bg-card text-card-foreground border border-border rounded-xl shadow-2xl p-8">
           {/* Logo & Title */}
           <div className="flex flex-col items-center mb-8">
             <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center mb-4">
