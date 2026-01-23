@@ -32,7 +32,7 @@ export default function ThreatActorCoverage({
   if (sortedData.length === 0) {
     return (
       <div className="h-full bg-secondary/50 border border-border rounded-xl p-4 flex flex-col">
-        <h3 className="font-semibold text-sm mb-4">{title}</h3>
+        <h3 className="font-semibold text-sm mb-4 text-foreground">{title}</h3>
         <div className="flex-1 flex items-center justify-center">
           <p className="text-muted-foreground text-sm">No threat actor data available</p>
         </div>
@@ -51,7 +51,7 @@ export default function ThreatActorCoverage({
   return (
     <div className="h-full bg-secondary/50 border border-border rounded-xl p-4 flex flex-col">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-sm">{title}</h3>
+        <h3 className="font-semibold text-sm text-foreground">{title}</h3>
         <Shield className="w-4 h-4 text-muted-foreground" />
       </div>
 
@@ -80,7 +80,7 @@ export default function ThreatActorCoverage({
                     style={{ width: `${barWidth}%` }}
                   />
                 </div>
-                <span className="text-xs font-medium w-10 text-right">
+                <span className="text-xs font-medium w-10 text-right text-foreground">
                   {item.coverage.toFixed(0)}%
                 </span>
               </div>

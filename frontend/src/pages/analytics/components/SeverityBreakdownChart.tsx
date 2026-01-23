@@ -38,7 +38,7 @@ export default function SeverityBreakdownChart({
   if (sortedData.length === 0) {
     return (
       <div className="h-full bg-secondary/50 border border-border rounded-xl p-4 flex flex-col">
-        <h3 className="font-semibold text-sm mb-4">{title}</h3>
+        <h3 className="font-semibold text-sm mb-4 text-foreground">{title}</h3>
         <div className="flex-1 flex items-center justify-center">
           <p className="text-muted-foreground text-sm">No severity data available</p>
         </div>
@@ -48,7 +48,7 @@ export default function SeverityBreakdownChart({
 
   return (
     <div className="h-full bg-secondary/50 border border-border rounded-xl p-4 flex flex-col">
-      <h3 className="font-semibold text-sm mb-4">{title}</h3>
+      <h3 className="font-semibold text-sm mb-4 text-foreground">{title}</h3>
 
       <div className="flex-1 flex flex-col justify-center space-y-3">
         {sortedData.map((item) => {
@@ -71,7 +71,7 @@ export default function SeverityBreakdownChart({
               </div>
 
               {/* Score */}
-              <div className="w-12 text-right text-sm font-medium">
+              <div className="w-12 text-right text-sm font-medium text-foreground">
                 {item.score.toFixed(0)}%
               </div>
             </div>

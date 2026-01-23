@@ -98,7 +98,7 @@ export default function FilterBar({
   }
 
   return (
-    <div className="bg-card border border-border rounded-lg p-4 mb-6">
+    <div className="bg-card text-card-foreground border border-border rounded-lg p-4 mb-6">
       {/* Primary Filter Row */}
       <div className="flex flex-wrap items-center gap-3">
         {/* Organization Filter */}
@@ -120,7 +120,7 @@ export default function FilterBar({
           <select
             value={filters.result}
             onChange={(e) => setResult(e.target.value as 'all' | 'protected' | 'unprotected')}
-            className="px-3 py-1.5 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            className="px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
           >
             <option value="all">All Results</option>
             <option value="protected">Protected Only</option>

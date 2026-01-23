@@ -81,7 +81,7 @@ export default function DateRangePicker({ value, onChange }: DateRangePickerProp
         <select
           value={value.preset}
           onChange={(e) => handlePresetChange(e.target.value)}
-          className="px-3 py-1.5 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          className="px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
         >
           {DATE_RANGE_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
@@ -90,19 +90,19 @@ export default function DateRangePicker({ value, onChange }: DateRangePickerProp
           ))}
         </select>
       ) : (
-        <div className="flex items-center gap-2 bg-secondary border border-border rounded-lg px-2 py-1">
+        <div className="flex items-center gap-2 bg-secondary text-foreground border border-border rounded-lg px-2 py-1">
           <input
             type="datetime-local"
             value={customFrom}
             onChange={(e) => setCustomFrom(e.target.value)}
-            className="bg-transparent text-sm focus:outline-none w-[160px]"
+            className="bg-transparent text-foreground text-sm focus:outline-none w-[160px]"
           />
           <span className="text-muted-foreground">to</span>
           <input
             type="datetime-local"
             value={customTo}
             onChange={(e) => setCustomTo(e.target.value)}
-            className="bg-transparent text-sm focus:outline-none w-[160px]"
+            className="bg-transparent text-foreground text-sm focus:outline-none w-[160px]"
           />
           <button
             onClick={applyCustomRange}

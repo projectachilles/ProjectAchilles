@@ -145,7 +145,7 @@ export default function TrendChart({ data, loading, title = 'Defense Score Trend
 
   return (
     <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 flex flex-col">
-      <h3 className="font-semibold text-lg mb-4">{title}</h3>
+      <h3 className="font-semibold text-lg mb-4 text-foreground">{title}</h3>
 
       <div className="h-[250px]">
         <ResponsiveContainer width="100%" height="100%">

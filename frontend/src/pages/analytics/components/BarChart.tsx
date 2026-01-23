@@ -79,7 +79,7 @@ export default function BarChart({ data, title, loading }: BarChartProps) {
 
   return (
     <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 flex flex-col">
-      <h3 className="font-semibold text-lg mb-4">{title}</h3>
+      <h3 className="font-semibold text-lg mb-4 text-foreground">{title}</h3>
 
       <div className="flex-1 min-h-0">
         <ResponsiveContainer width="100%" height="100%">

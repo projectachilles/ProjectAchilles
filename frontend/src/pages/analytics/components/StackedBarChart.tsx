@@ -132,7 +132,7 @@ export default function StackedBarChart({
 
   return (
     <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col">
-      <h3 className="font-semibold text-lg mb-2">{title}</h3>
+      <h3 className="font-semibold text-lg mb-2 text-foreground">{title}</h3>
       {renderLegend()}
 
       <div className="flex-1 min-h-0">

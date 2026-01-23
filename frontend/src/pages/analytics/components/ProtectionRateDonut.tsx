@@ -82,7 +82,7 @@ export default function ProtectionRateDonut({
     <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col">
       <div className="flex items-center gap-2 mb-4">
         <Shield className="w-5 h-5 text-primary" />
-        <h3 className="font-semibold text-lg">{title}</h3>
+        <h3 className="font-semibold text-lg text-foreground">{title}</h3>
       </div>
 
       <div className="relative h-[200px]">

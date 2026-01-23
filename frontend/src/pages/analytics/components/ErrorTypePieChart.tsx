@@ -124,7 +124,7 @@ export default function ErrorTypePieChart({
 
   return (
     <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col">
-      <h3 className="font-semibold text-lg mb-4">{title}</h3>
+      <h3 className="font-semibold text-lg mb-4 text-foreground">{title}</h3>
 
       <div className="flex items-center h-[200px]">
         <div className="w-1/2 h-full">

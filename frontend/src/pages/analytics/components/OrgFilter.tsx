@@ -16,7 +16,7 @@ export default function OrgFilter({ organizations, selectedOrg, onChange, loadin
         value={selectedOrg || ''}
         onChange={(e) => onChange(e.target.value || null)}
         disabled={loading}
-        className="px-3 py-1.5 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+        className="px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
       >
         <option value="">All Organizations</option>
         {organizations.map((org) => (
