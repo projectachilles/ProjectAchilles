@@ -1,6 +1,7 @@
 import { Loader2 } from 'lucide-react';
 import type { HostTestMatrixCell } from '../../../services/api/analytics';
 import { useTheme } from '../../../hooks/useTheme';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface HeatmapChartProps {
   data: HostTestMatrixCell[];
@@ -15,19 +16,19 @@ export default function HeatmapChart({
 }: HeatmapChartProps) {
   const { theme } = useTheme();
 
-  // Return early if no data to prevent rendering issues
+  // Return early if no data
   if (!data || data.length === 0) {
     if (loading) {
       return (
-        <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
+        <Card className="h-full min-h-[280px] flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-        </div>
+        </Card>
       );
     }
     return (
-      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
+      <Card className="h-full min-h-[280px] flex items-center justify-center">
         <p className="text-muted-foreground">No matrix data available</p>
-      </div>
+      </Card>
     );
   }
 
@@ -46,14 +47,13 @@ export default function HeatmapChart({
     if (d.count > maxCount) maxCount = d.count;
   });
 
-  // Get color intensity based on count (blues color scheme like Kibana)
+  // Get color intensity based on count (blues color scheme)
   const getColor = (count: number): string => {
     if (count === 0) {
       return isDark ? 'hsl(217 32% 20%)' : 'hsl(217 32% 95%)';
     }
     const intensity = maxCount > 0 ? count / maxCount : 0;
 
-    // Blues gradient
     if (isDark) {
       if (intensity > 0.75) return 'hsl(217 91% 50%)';
       if (intensity > 0.5) return 'hsl(217 91% 40%)';
@@ -75,72 +75,77 @@ export default function HeatmapChart({
 
   if (loading) {
     return (
-      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
+      <Card className="h-full min-h-[280px] flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
+      </Card>
     );
   }
 
-  if (data.length === 0 || hostnames.length === 0 || testNames.length === 0) {
+  if (hostnames.length === 0 || testNames.length === 0) {
     return (
-      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
+      <Card className="h-full min-h-[280px] flex items-center justify-center">
         <p className="text-muted-foreground">No matrix data available</p>
-      </div>
+      </Card>
     );
   }
 
-  const cellSize = 36;
-  const labelWidth = 120;
-  const headerHeight = 100;
+  const cellSize = 28;
+  const labelWidth = 80;
+  const headerHeight = 80;
+
+  // Limit display to first 8 hosts and 10 tests for cleaner view
+  const displayHostnames = hostnames.slice(0, 8);
+  const displayTestNames = testNames.slice(0, 10);
 
   return (
-    <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col">
-      <h3 className="font-semibold text-lg mb-4 text-foreground">{title}</h3>
-
-      <div className="overflow-x-auto">
+    <Card className="h-full flex flex-col overflow-hidden">
+      <CardHeader className="pb-2 flex-shrink-0">
+        <CardTitle className="text-lg font-semibold">{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="flex-1 pb-4 overflow-auto">
         <div
           className="inline-block"
           style={{
-            minWidth: labelWidth + testNames.length * cellSize + 20
+            minWidth: labelWidth + displayTestNames.length * cellSize + 20
           }}
         >
           {/* Header row with test names */}
           <div className="flex" style={{ marginLeft: labelWidth }}>
-            {testNames.map((testName, i) => (
+            {displayTestNames.map((testName, i) => (
               <div
                 key={testName}
-                className="flex items-end justify-center text-xs text-muted-foreground"
+                className="flex items-end justify-center text-[10px] text-muted-foreground"
                 style={{
                   width: cellSize,
                   height: headerHeight,
                   transform: 'rotate(-45deg)',
                   transformOrigin: 'bottom left',
-                  marginLeft: i === 0 ? 18 : 0
+                  marginLeft: i === 0 ? 14 : 0
                 }}
                 title={testName}
               >
-                <span className="truncate max-w-[100px]">
-                  {truncate(testName, 16)}
+                <span className="truncate max-w-[80px]">
+                  {truncate(testName, 12)}
                 </span>
               </div>
             ))}
           </div>
 
           {/* Heatmap grid */}
-          <div className="mt-2">
-            {hostnames.map(hostname => (
+          <div className="mt-1">
+            {displayHostnames.map(hostname => (
               <div key={hostname} className="flex items-center">
                 {/* Hostname label */}
                 <div
-                  className="text-xs text-muted-foreground text-right pr-2 truncate"
+                  className="text-[10px] text-muted-foreground text-right pr-1 truncate"
                   style={{ width: labelWidth }}
                   title={hostname}
                 >
-                  {truncate(hostname, 16)}
+                  {truncate(hostname, 10)}
                 </div>
 
                 {/* Cells */}
-                {testNames.map(testName => {
+                {displayTestNames.map(testName => {
                   const key = `${hostname}|${testName}`;
                   const count = dataMap.get(key) || 0;
                   const color = getColor(count);
@@ -148,7 +153,7 @@ export default function HeatmapChart({
                   return (
                     <div
                       key={key}
-                      className="border border-background/50 flex items-center justify-center text-xs font-medium transition-transform hover:scale-110 hover:z-10 cursor-default"
+                      className="border border-background/50 flex items-center justify-center text-[10px] font-medium transition-transform hover:scale-110 hover:z-10 cursor-default"
                       style={{
                         width: cellSize,
                         height: cellSize,
@@ -166,13 +171,13 @@ export default function HeatmapChart({
           </div>
 
           {/* Legend */}
-          <div className="flex items-center justify-end gap-2 mt-4 text-xs text-muted-foreground">
+          <div className="flex items-center justify-end gap-2 mt-3 text-[10px] text-muted-foreground">
             <span>Low</span>
             <div className="flex">
               {[0.1, 0.25, 0.5, 0.75, 1].map((intensity, i) => (
                 <div
                   key={i}
-                  className="w-5 h-5 border border-background/50"
+                  className="w-4 h-4 border border-background/50"
                   style={{ backgroundColor: getColor(Math.ceil(maxCount * intensity)) }}
                 />
               ))}
@@ -180,7 +185,7 @@ export default function HeatmapChart({
             <span>High ({maxCount})</span>
           </div>
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

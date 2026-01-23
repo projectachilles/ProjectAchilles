@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, Fragment } from 'react';
 import {
   Loader2,
   ShieldCheck,
@@ -15,14 +15,22 @@ import {
 } from 'lucide-react';
 import { formatDistanceToNow, isValid, format } from 'date-fns';
 import type { EnrichedTestExecution, PaginatedResponse, SeverityLevel } from '@/services/api/analytics';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Card, CardContent, CardHeader, CardFooter } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 
 // Parse timestamp - handles both epoch ms strings and ISO strings
 function parseTimestamp(timestamp: string): Date {
-  // Check if it's a numeric string (epoch milliseconds)
   if (/^\d+$/.test(timestamp)) {
     return new Date(parseInt(timestamp, 10));
   }
-  // Otherwise parse as Date string
   return new Date(timestamp);
 }
 
@@ -41,8 +49,8 @@ function formatTimestamp(timestamp: string, relative = true): string {
   }
 }
 
-// Severity colors
-const SEVERITY_COLORS: Record<SeverityLevel, string> = {
+// Severity badge variants
+const SEVERITY_VARIANTS: Record<SeverityLevel, string> = {
   critical: 'bg-red-500/10 text-red-500 border-red-500/30',
   high: 'bg-orange-500/10 text-orange-500 border-orange-500/30',
   medium: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30',
@@ -126,7 +134,6 @@ export default function ExecutionsDataTable({
   // Handle sort click
   const handleSort = (column: ColumnDef) => {
     if (!column.sortable || !column.sortField) return;
-
     const newOrder = sortField === column.sortField && sortOrder === 'desc' ? 'asc' : 'desc';
     onSort(column.sortField, newOrder);
   };
@@ -134,14 +141,11 @@ export default function ExecutionsDataTable({
   // Export to CSV
   const exportToCsv = () => {
     if (!executions.length) return;
-
     const visibleColumnsList = COLUMNS.filter(c => visibleColumns.has(c.key));
     const headers = visibleColumnsList.map(c => c.label);
-
     const rows = executions.map(exec => {
       return visibleColumnsList.map(col => {
         const value = getCellValue(exec, col.key);
-        // Escape quotes and wrap in quotes if contains comma
         const strValue = String(value ?? '');
         if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
           return `"${strValue.replace(/"/g, '""')}"`;
@@ -149,7 +153,6 @@ export default function ExecutionsDataTable({
         return strValue;
       });
     });
-
     const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     downloadFile(csv, 'executions.csv', 'text/csv');
   };
@@ -175,40 +178,24 @@ export default function ExecutionsDataTable({
   };
 
   // Get cell value for a column
-  const getCellValue = (exec: EnrichedTestExecution, key: string): any => {
+  const getCellValue = (exec: EnrichedTestExecution, key: string): string | number | undefined => {
     switch (key) {
-      case 'test_name':
-        return exec.test_name;
-      case 'hostname':
-        return exec.hostname;
-      case 'result':
-        return exec.is_protected ? 'Blocked' : 'Bypassed';
-      case 'severity':
-        return exec.severity;
-      case 'category':
-        return exec.category;
-      case 'subcategory':
-        return exec.subcategory;
-      case 'threat_actor':
-        return exec.threat_actor;
-      case 'techniques':
-        return exec.tactics?.join(', ');
-      case 'tactics':
-        return exec.tactics?.join(', ');
-      case 'tags':
-        return exec.tags?.join(', ');
-      case 'complexity':
-        return exec.complexity;
-      case 'target':
-        return exec.target;
-      case 'score':
-        return exec.score;
-      case 'org':
-        return exec.org;
-      case 'timestamp':
-        return formatTimestamp(exec.timestamp);
-      default:
-        return '';
+      case 'test_name': return exec.test_name;
+      case 'hostname': return exec.hostname;
+      case 'result': return exec.is_protected ? 'Blocked' : 'Bypassed';
+      case 'severity': return exec.severity;
+      case 'category': return exec.category;
+      case 'subcategory': return exec.subcategory;
+      case 'threat_actor': return exec.threat_actor;
+      case 'techniques': return exec.tactics?.join(', ');
+      case 'tactics': return exec.tactics?.join(', ');
+      case 'tags': return exec.tags?.join(', ');
+      case 'complexity': return exec.complexity;
+      case 'target': return exec.target;
+      case 'score': return exec.score;
+      case 'org': return exec.org;
+      case 'timestamp': return formatTimestamp(exec.timestamp);
+      default: return '';
     }
   };
 
@@ -216,7 +203,7 @@ export default function ExecutionsDataTable({
   const renderCell = (exec: EnrichedTestExecution, key: string) => {
     switch (key) {
       case 'test_name':
-        return <span className="font-medium">{exec.test_name}</span>;
+        return <span className="font-medium text-foreground">{exec.test_name}</span>;
 
       case 'hostname':
         return <span className="text-muted-foreground font-mono text-sm">{exec.hostname}</span>;
@@ -237,25 +224,25 @@ export default function ExecutionsDataTable({
       case 'severity':
         if (!exec.severity) return <span className="text-muted-foreground">—</span>;
         return (
-          <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium border uppercase ${SEVERITY_COLORS[exec.severity]}`}>
+          <Badge variant="outline" className={`uppercase text-xs ${SEVERITY_VARIANTS[exec.severity]}`}>
             {exec.severity}
-          </span>
+          </Badge>
         );
 
       case 'category':
         if (!exec.category) return <span className="text-muted-foreground">—</span>;
         return (
-          <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-blue-500/10 text-blue-500 border border-blue-500/30">
+          <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-500 border-blue-500/30">
             {exec.category}
-          </span>
+          </Badge>
         );
 
       case 'threat_actor':
         if (!exec.threat_actor) return <span className="text-muted-foreground">—</span>;
         return (
-          <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-purple-500/10 text-purple-500 border border-purple-500/30">
+          <Badge variant="outline" className="text-xs bg-purple-500/10 text-purple-500 border-purple-500/30">
             {exec.threat_actor}
-          </span>
+          </Badge>
         );
 
       case 'tags':
@@ -263,9 +250,9 @@ export default function ExecutionsDataTable({
         return (
           <div className="flex flex-wrap gap-1">
             {exec.tags.slice(0, 3).map(tag => (
-              <span key={tag} className="inline-flex px-1.5 py-0.5 rounded text-xs bg-secondary text-muted-foreground">
+              <Badge key={tag} variant="secondary" className="text-xs">
                 {tag}
-              </span>
+              </Badge>
             ))}
             {exec.tags.length > 3 && (
               <span className="text-xs text-muted-foreground">+{exec.tags.length - 3}</span>
@@ -281,20 +268,20 @@ export default function ExecutionsDataTable({
           high: 'text-red-500',
         };
         return (
-          <span className={`text-sm capitalize ${complexityColors[exec.complexity] || ''}`}>
+          <span className={`text-sm capitalize ${complexityColors[exec.complexity] || 'text-foreground'}`}>
             {exec.complexity}
           </span>
         );
 
       case 'score':
         if (exec.score === undefined || exec.score === null) return <span className="text-muted-foreground">—</span>;
-        return <span className="text-sm font-medium">{exec.score.toFixed(1)}</span>;
+        return <span className="text-sm font-medium text-foreground">{exec.score.toFixed(1)}</span>;
 
       case 'org':
         return (
-          <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-primary/10 text-primary">
+          <Badge variant="outline" className="text-xs bg-primary/10 text-primary">
             {exec.org}
-          </span>
+          </Badge>
         );
 
       case 'timestamp':
@@ -302,7 +289,7 @@ export default function ExecutionsDataTable({
 
       default:
         const value = getCellValue(exec, key);
-        return <span className="text-sm">{value || '—'}</span>;
+        return <span className="text-sm text-foreground">{value || '—'}</span>;
     }
   };
 
@@ -314,16 +301,16 @@ export default function ExecutionsDataTable({
 
   if (loading && !data) {
     return (
-      <div className="bg-card border border-border rounded-xl p-6 min-h-[400px] flex items-center justify-center">
+      <Card className="min-h-[400px] flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div className="bg-card border border-border rounded-xl overflow-hidden">
+    <Card className="overflow-hidden">
       {/* Table Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+      <CardHeader className="flex flex-row items-center justify-between py-3 border-b">
         <div className="text-sm text-muted-foreground">
           {pagination ? (
             <>
@@ -341,14 +328,14 @@ export default function ExecutionsDataTable({
           <div className="relative">
             <button
               onClick={() => setShowColumnMenu(!showColumnMenu)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary border border-border rounded-lg text-sm hover:bg-accent transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm hover:bg-accent transition-colors"
             >
               <Columns className="w-4 h-4" />
               Columns
             </button>
 
             {showColumnMenu && (
-              <div className="absolute right-0 z-50 mt-1 w-56 bg-background border border-border rounded-lg shadow-lg overflow-hidden">
+              <div className="absolute right-0 z-50 mt-1 w-56 bg-card text-card-foreground border border-border rounded-lg shadow-lg overflow-hidden">
                 <div className="px-3 py-2 border-b border-border flex justify-between items-center">
                   <span className="text-sm font-medium">Columns</span>
                   <button
@@ -371,7 +358,7 @@ export default function ExecutionsDataTable({
                       `}>
                         {visibleColumns.has(col.key) && <Check className="w-3 h-3 text-primary-foreground" />}
                       </div>
-                      <span>{col.label}</span>
+                      <span className="text-foreground">{col.label}</span>
                     </button>
                   ))}
                 </div>
@@ -381,12 +368,12 @@ export default function ExecutionsDataTable({
 
           {/* Export Dropdown */}
           <div className="relative group">
-            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary border border-border rounded-lg text-sm hover:bg-accent transition-colors">
+            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm hover:bg-accent transition-colors">
               <Download className="w-4 h-4" />
               Export
               <ChevronDown className="w-3 h-3" />
             </button>
-            <div className="absolute right-0 z-50 mt-1 w-32 bg-background border border-border rounded-lg shadow-lg overflow-hidden opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+            <div className="absolute right-0 z-50 mt-1 w-32 bg-card text-card-foreground border border-border rounded-lg shadow-lg overflow-hidden opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
               <button
                 onClick={exportToCsv}
                 className="w-full px-3 py-2 text-sm text-left hover:bg-accent transition-colors"
@@ -402,17 +389,17 @@ export default function ExecutionsDataTable({
             </div>
           </div>
         </div>
-      </div>
+      </CardHeader>
 
       {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-border bg-secondary/30">
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/50">
               {visibleColumnsList.map(col => (
-                <th
+                <TableHead
                   key={col.key}
-                  className={`text-left py-3 px-4 text-sm font-medium text-muted-foreground ${col.sortable ? 'cursor-pointer hover:text-foreground select-none' : ''}`}
+                  className={col.sortable ? 'cursor-pointer hover:text-foreground select-none' : ''}
                   onClick={() => col.sortable && handleSort(col)}
                 >
                   <div className="flex items-center gap-1">
@@ -427,63 +414,62 @@ export default function ExecutionsDataTable({
                       </span>
                     )}
                   </div>
-                </th>
+                </TableHead>
               ))}
-            </tr>
-          </thead>
-          <tbody>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {loading && executions.length === 0 ? (
-              <tr>
-                <td colSpan={visibleColumnsList.length} className="py-12 text-center">
+              <TableRow>
+                <TableCell colSpan={visibleColumnsList.length} className="py-12 text-center">
                   <Loader2 className="w-6 h-6 animate-spin text-muted-foreground mx-auto" />
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ) : executions.length === 0 ? (
-              <tr>
-                <td colSpan={visibleColumnsList.length} className="py-12 text-center text-muted-foreground">
+              <TableRow>
+                <TableCell colSpan={visibleColumnsList.length} className="py-12 text-center text-muted-foreground">
                   No executions found
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ) : (
               executions.map((exec, index) => (
-                <>
-                  <tr
-                    key={`${exec.test_uuid}-${exec.timestamp}-${index}`}
-                    className={`border-b border-border/50 hover:bg-accent/50 transition-colors cursor-pointer ${expandedRow === index ? 'bg-accent/30' : ''}`}
+                <Fragment key={`${exec.test_uuid}-${exec.timestamp}-${index}`}>
+                  <TableRow
+                    className={`cursor-pointer ${expandedRow === index ? 'bg-accent/30' : ''}`}
                     onClick={() => setExpandedRow(expandedRow === index ? null : index)}
                   >
                     {visibleColumnsList.map(col => (
-                      <td key={col.key} className="py-3 px-4">
+                      <TableCell key={col.key}>
                         {renderCell(exec, col.key)}
-                      </td>
+                      </TableCell>
                     ))}
-                  </tr>
+                  </TableRow>
 
                   {/* Expanded Row Details */}
                   {expandedRow === index && (
-                    <tr className="bg-accent/20">
-                      <td colSpan={visibleColumnsList.length} className="py-4 px-6">
+                    <TableRow className="bg-accent/20">
+                      <TableCell colSpan={visibleColumnsList.length} className="py-4 px-6">
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                           <div>
                             <span className="text-muted-foreground">Test UUID:</span>
-                            <p className="font-mono text-xs mt-1">{exec.test_uuid}</p>
+                            <p className="font-mono text-xs mt-1 text-foreground">{exec.test_uuid}</p>
                           </div>
                           {exec.tactics?.length && (
                             <div>
                               <span className="text-muted-foreground">Tactics:</span>
-                              <p className="mt-1">{exec.tactics.join(', ')}</p>
+                              <p className="mt-1 text-foreground">{exec.tactics.join(', ')}</p>
                             </div>
                           )}
                           {exec.target && (
                             <div>
                               <span className="text-muted-foreground">Target:</span>
-                              <p className="mt-1">{exec.target}</p>
+                              <p className="mt-1 text-foreground">{exec.target}</p>
                             </div>
                           )}
                           {exec.complexity && (
                             <div>
                               <span className="text-muted-foreground">Complexity:</span>
-                              <p className="mt-1 capitalize">{exec.complexity}</p>
+                              <p className="mt-1 capitalize text-foreground">{exec.complexity}</p>
                             </div>
                           )}
                           {exec.tags?.length && (
@@ -491,9 +477,9 @@ export default function ExecutionsDataTable({
                               <span className="text-muted-foreground">Tags:</span>
                               <div className="flex flex-wrap gap-1 mt-1">
                                 {exec.tags.map(tag => (
-                                  <span key={tag} className="px-2 py-0.5 bg-secondary rounded text-xs">
+                                  <Badge key={tag} variant="secondary" className="text-xs">
                                     {tag}
-                                  </span>
+                                  </Badge>
                                 ))}
                               </div>
                             </div>
@@ -501,33 +487,33 @@ export default function ExecutionsDataTable({
                           {exec.score !== undefined && (
                             <div>
                               <span className="text-muted-foreground">Score:</span>
-                              <p className="mt-1">{exec.score}/10</p>
+                              <p className="mt-1 text-foreground">{exec.score}/10</p>
                             </div>
                           )}
                           <div>
                             <span className="text-muted-foreground">Full Timestamp:</span>
-                            <p className="mt-1">{formatTimestamp(exec.timestamp, false)}</p>
+                            <p className="mt-1 text-foreground">{formatTimestamp(exec.timestamp, false)}</p>
                           </div>
                         </div>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   )}
-                </>
+                </Fragment>
               ))
             )}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+        </Table>
+      </CardContent>
 
       {/* Pagination */}
       {pagination && pagination.totalPages > 0 && (
-        <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+        <CardFooter className="flex items-center justify-between py-3 border-t">
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Rows per page:</span>
             <select
               value={pagination.pageSize}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
-              className="px-2 py-1 bg-secondary border border-border rounded text-sm"
+              className="px-2 py-1 bg-secondary text-foreground border border-border rounded text-sm"
             >
               <option value={10}>10</option>
               <option value={25}>25</option>
@@ -540,39 +526,39 @@ export default function ExecutionsDataTable({
             <button
               onClick={() => onPageChange(1)}
               disabled={!pagination.hasPrevious}
-              className="p-1.5 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-1.5 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed text-foreground"
             >
               <ChevronsLeft className="w-4 h-4" />
             </button>
             <button
               onClick={() => onPageChange(pagination.page - 1)}
               disabled={!pagination.hasPrevious}
-              className="p-1.5 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-1.5 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed text-foreground"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
 
-            <span className="px-3 text-sm">
+            <span className="px-3 text-sm text-foreground">
               Page {pagination.page} of {pagination.totalPages}
             </span>
 
             <button
               onClick={() => onPageChange(pagination.page + 1)}
               disabled={!pagination.hasNext}
-              className="p-1.5 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-1.5 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed text-foreground"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
             <button
               onClick={() => onPageChange(pagination.totalPages)}
               disabled={!pagination.hasNext}
-              className="p-1.5 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-1.5 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed text-foreground"
             >
               <ChevronsRight className="w-4 h-4" />
             </button>
           </div>
-        </div>
+        </CardFooter>
       )}
-    </div>
+    </Card>
   );
 }

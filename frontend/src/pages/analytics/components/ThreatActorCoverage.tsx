@@ -1,5 +1,6 @@
 import { Loader2, Shield, ChevronRight } from 'lucide-react';
 import type { ThreatActorCoverageItem } from '@/services/api/analytics';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 
 interface ThreatActorCoverageProps {
   data: ThreatActorCoverageItem[];
@@ -18,9 +19,9 @@ export default function ThreatActorCoverage({
 }: ThreatActorCoverageProps) {
   if (loading) {
     return (
-      <div className="h-full bg-secondary/50 border border-border rounded-xl p-4 flex items-center justify-center">
+      <Card className="h-full flex items-center justify-center">
         <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-      </div>
+      </Card>
     );
   }
 
@@ -31,12 +32,14 @@ export default function ThreatActorCoverage({
 
   if (sortedData.length === 0) {
     return (
-      <div className="h-full bg-secondary/50 border border-border rounded-xl p-4 flex flex-col">
-        <h3 className="font-semibold text-sm mb-4 text-foreground">{title}</h3>
-        <div className="flex-1 flex items-center justify-center">
+      <Card className="h-full flex flex-col">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+        </CardHeader>
+        <CardContent className="flex-1 flex items-center justify-center">
           <p className="text-muted-foreground text-sm">No threat actor data available</p>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -49,13 +52,14 @@ export default function ThreatActorCoverage({
   };
 
   return (
-    <div className="h-full bg-secondary/50 border border-border rounded-xl p-4 flex flex-col">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-sm text-foreground">{title}</h3>
-        <Shield className="w-4 h-4 text-muted-foreground" />
-      </div>
-
-      <div className="flex-1 space-y-3">
+    <Card className="h-full flex flex-col">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+          <Shield className="w-4 h-4 text-muted-foreground" />
+        </div>
+      </CardHeader>
+      <CardContent className="flex-1 space-y-3">
         {sortedData.map((item) => {
           const barWidth = Math.max(item.coverage, 2);
           const coverageColor = getCoverageColor(item.coverage);
@@ -94,23 +98,25 @@ export default function ThreatActorCoverage({
             </div>
           );
         })}
-      </div>
+      </CardContent>
 
       {/* View All Link */}
       {data.length > maxItems && onViewAll && (
-        <button
-          onClick={onViewAll}
-          className="mt-4 pt-3 border-t border-border flex items-center justify-center gap-1 text-sm text-primary hover:text-primary/80 transition-colors"
-        >
-          View all {data.length} threat actors
-          <ChevronRight className="w-4 h-4" />
-        </button>
+        <CardFooter className="pt-0 border-t border-border">
+          <button
+            onClick={onViewAll}
+            className="w-full flex items-center justify-center gap-1 text-sm text-primary hover:text-primary/80 transition-colors"
+          >
+            View all {data.length} threat actors
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </CardFooter>
       )}
 
       {/* Legend */}
       {!onViewAll && (
-        <div className="mt-4 pt-3 border-t border-border">
-          <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
+        <CardFooter className="pt-0 border-t border-border">
+          <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground w-full">
             <span className="flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-green-500" /> 80%+
             </span>
@@ -124,8 +130,8 @@ export default function ThreatActorCoverage({
               <span className="w-2 h-2 rounded-full bg-red-500" /> &lt;40%
             </span>
           </div>
-        </div>
+        </CardFooter>
       )}
-    </div>
+    </Card>
   );
 }

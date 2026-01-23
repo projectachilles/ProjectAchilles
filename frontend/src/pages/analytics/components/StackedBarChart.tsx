@@ -4,11 +4,17 @@ import {
   Bar,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer
+  CartesianGrid
 } from 'recharts';
-import { useTheme } from '../../../hooks/useTheme';
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  ChartLegend,
+  ChartLegendContent,
+  type ChartConfig
+} from '@/components/ui/chart';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface StackedBarChartProps {
   data: Array<{
@@ -22,9 +28,16 @@ interface StackedBarChartProps {
   layout?: 'horizontal' | 'vertical';
 }
 
-// Colors
-const PROTECTED_COLOR = 'hsl(142 76% 46%)';    // Green
-const UNPROTECTED_COLOR = 'hsl(0 84% 60%)';    // Red
+const chartConfig = {
+  protected: {
+    label: 'Protected',
+    color: 'var(--chart-protected)',
+  },
+  unprotected: {
+    label: 'Bypassed',
+    color: 'var(--chart-bypassed)',
+  },
+} satisfies ChartConfig;
 
 export default function StackedBarChart({
   data,
@@ -32,30 +45,24 @@ export default function StackedBarChart({
   title = 'Coverage',
   layout = 'horizontal'
 }: StackedBarChartProps) {
-  const { theme } = useTheme();
-
-  // Return early if no data to prevent rendering issues
+  // Return early if no data
   if (!data || data.length === 0) {
     if (loading) {
       return (
-        <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
+        <Card className="h-full min-h-[280px] flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-        </div>
+        </Card>
       );
     }
     return (
-      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
+      <Card className="h-full min-h-[280px] flex items-center justify-center">
         <p className="text-muted-foreground">No data available</p>
-      </div>
+      </Card>
     );
   }
 
-  const isDark = theme === 'dark';
-  const gridColor = isDark ? 'hsl(217.2 32.6% 25%)' : 'hsl(214.3 31.8% 91.4%)';
-  const textColor = isDark ? 'hsl(215 20.2% 65.1%)' : 'hsl(215.4 16.3% 46.9%)';
-
-  // Normalize data to have 'name' field
-  const chartData = data.map(item => ({
+  // Normalize data to have 'name' field and limit to 5 items for cleaner display
+  const chartData = data.slice(0, 5).map(item => ({
     name: item.name || item.technique || 'Unknown',
     protected: item.protected,
     unprotected: item.unprotected,
@@ -63,133 +70,118 @@ export default function StackedBarChart({
   }));
 
   // Truncate long names
-  const truncateName = (name: string, maxLength: number = 20) => {
+  const truncateName = (name: string, maxLength: number = 12) => {
     if (name.length <= maxLength) return name;
-    return name.substring(0, maxLength - 2) + '...';
+    return name.substring(0, maxLength - 1) + '…';
   };
-
-  // Custom tooltip
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      const protectedVal = payload.find((p: any) => p.dataKey === 'protected')?.value || 0;
-      const unprotectedVal = payload.find((p: any) => p.dataKey === 'unprotected')?.value || 0;
-      const total = protectedVal + unprotectedVal;
-      const rate = total > 0 ? ((protectedVal / total) * 100).toFixed(1) : '0';
-
-      return (
-        <div className="bg-background border border-border rounded-lg p-3 shadow-lg max-w-[300px]">
-          <p className="font-medium truncate">{label}</p>
-          <div className="mt-2 space-y-1">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: PROTECTED_COLOR }} />
-              <span className="text-sm">Protected: {protectedVal.toLocaleString()}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: UNPROTECTED_COLOR }} />
-              <span className="text-sm">Bypassed: {unprotectedVal.toLocaleString()}</span>
-            </div>
-          </div>
-          <p className="text-sm text-muted-foreground mt-2">
-            Protection rate: {rate}%
-          </p>
-        </div>
-      );
-    }
-    return null;
-  };
-
-  // Custom legend
-  const renderLegend = () => (
-    <div className="flex justify-center gap-6 mb-2">
-      <div className="flex items-center gap-2">
-        <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: PROTECTED_COLOR }} />
-        <span className="text-sm text-muted-foreground">Protected</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: UNPROTECTED_COLOR }} />
-        <span className="text-sm text-muted-foreground">Bypassed</span>
-      </div>
-    </div>
-  );
 
   if (loading) {
     return (
-      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
+      <Card className="h-full min-h-[280px] flex items-center justify-center overflow-hidden">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (data.length === 0) {
-    return (
-      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
-        <p className="text-muted-foreground">No data available</p>
-      </div>
+      </Card>
     );
   }
 
   const isVertical = layout === 'vertical';
+  // Fixed height based on layout
+  const chartHeight = isVertical ? Math.max(180, chartData.length * 36) : 200;
 
   return (
-    <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col">
-      <h3 className="font-semibold text-lg mb-2 text-foreground">{title}</h3>
-      {renderLegend()}
-
-      <div className="flex-1 min-h-0">
-        <ResponsiveContainer width="100%" height="100%">
+    <Card className="h-full flex flex-col overflow-hidden">
+      <CardHeader className="pb-2 flex-shrink-0">
+        <CardTitle className="text-lg font-semibold">{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="flex-1 pb-4 overflow-hidden">
+        <ChartContainer config={chartConfig} className="w-full" style={{ height: chartHeight }}>
           <BarChart
             data={chartData}
             layout={isVertical ? 'vertical' : 'horizontal'}
             margin={
               isVertical
-                ? { top: 10, right: 20, left: 10, bottom: 10 }
-                : { top: 10, right: 20, left: 10, bottom: 30 }
+                ? { top: 5, right: 20, left: 5, bottom: 5 }
+                : { top: 5, right: 10, left: 5, bottom: 20 }
             }
           >
-            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
             {isVertical ? (
               <>
                 <XAxis
                   type="number"
-                  tick={{ fill: textColor, fontSize: 11 }}
-                  tickLine={{ stroke: gridColor }}
-                  axisLine={{ stroke: gridColor }}
+                  tickLine={false}
+                  axisLine={false}
+                  className="text-xs fill-muted-foreground"
                 />
                 <YAxis
                   type="category"
                   dataKey="name"
-                  tick={{ fill: textColor, fontSize: 12 }}
-                  tickLine={{ stroke: gridColor }}
-                  axisLine={{ stroke: gridColor }}
+                  tickLine={false}
+                  axisLine={false}
                   tickFormatter={(value) => truncateName(value, 16)}
                   width={100}
+                  className="text-xs fill-muted-foreground"
                 />
               </>
             ) : (
               <>
                 <XAxis
                   dataKey="name"
-                  tick={{ fill: textColor, fontSize: 11 }}
-                  tickLine={{ stroke: gridColor }}
-                  axisLine={{ stroke: gridColor }}
-                  tickFormatter={(value) => truncateName(value, 12)}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(value) => truncateName(value, 10)}
                   angle={-45}
                   textAnchor="end"
-                  height={60}
+                  height={50}
+                  interval={0}
+                  className="text-xs fill-muted-foreground"
                 />
                 <YAxis
-                  tick={{ fill: textColor, fontSize: 11 }}
-                  tickLine={{ stroke: gridColor }}
-                  axisLine={{ stroke: gridColor }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={35}
+                  className="text-xs fill-muted-foreground"
                 />
               </>
             )}
-            <Tooltip content={<CustomTooltip />} />
-            <Bar dataKey="protected" stackId="stack" fill={PROTECTED_COLOR} radius={[0, 0, 0, 0]} />
-            <Bar dataKey="unprotected" stackId="stack" fill={UNPROTECTED_COLOR} radius={isVertical ? [0, 4, 4, 0] : [4, 4, 0, 0]} />
+            <ChartTooltip
+              content={
+                <ChartTooltipContent
+                  formatter={(value, name, item) => {
+                    const payload = item.payload;
+                    const total = payload.protected + payload.unprotected;
+                    const rate = total > 0 ? ((payload.protected / total) * 100).toFixed(1) : '0';
+                    const label = name === 'protected' ? 'Protected' : 'Bypassed';
+                    return (
+                      <div className="flex flex-col gap-1">
+                        <span className="font-medium">{payload.name}</span>
+                        <span className="text-foreground">
+                          {label}: {Number(value).toLocaleString()}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          Protection rate: {rate}%
+                        </span>
+                      </div>
+                    );
+                  }}
+                />
+              }
+            />
+            <ChartLegend content={<ChartLegendContent />} />
+            <Bar
+              dataKey="protected"
+              stackId="stack"
+              fill="var(--color-protected)"
+              radius={[0, 0, 0, 0]}
+            />
+            <Bar
+              dataKey="unprotected"
+              stackId="stack"
+              fill="var(--color-unprotected)"
+              radius={isVertical ? [0, 4, 4, 0] : [4, 4, 0, 0]}
+            />
           </BarChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
+        </ChartContainer>
+      </CardContent>
+    </Card>
   );
 }

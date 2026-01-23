@@ -335,7 +335,7 @@ export default function AnalyticsDashboardPage() {
           /* Dashboard Tab */
           <div className="grid grid-cols-12 auto-rows-[140px] gap-4">
             {/* Row 1: Defense Score Trend (full width, 2 rows) */}
-            <div className="col-span-12 row-span-2">
+            <div className="col-span-12 row-span-2 min-w-0">
               <TrendChart
                 data={trendData}
                 loading={loadingDashboard}
