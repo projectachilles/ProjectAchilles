@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import UnifiedHeader from './UnifiedHeader';
+import { SidebarLayout } from '@/components/layout';
 
 interface LayoutProps {
   children: ReactNode;
@@ -15,15 +15,12 @@ export default function Layout({
   isRefreshing
 }: LayoutProps) {
   return (
-    <div className="min-h-screen flex flex-col">
-      <UnifiedHeader
-        onSettingsClick={onSettingsClick}
-        onRefreshClick={onRefreshClick}
-        isRefreshing={isRefreshing}
-      />
-      <main className="flex-1">
-        {children}
-      </main>
-    </div>
+    <SidebarLayout
+      onSettingsClick={onSettingsClick}
+      onRefreshClick={onRefreshClick}
+      isRefreshing={isRefreshing}
+    >
+      {children}
+    </SidebarLayout>
   );
 }
