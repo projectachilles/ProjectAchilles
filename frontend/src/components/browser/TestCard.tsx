@@ -21,7 +21,7 @@ export default function TestCard({ test, onClick }: TestCardProps) {
   return (
     <div
       onClick={onClick}
-      className="group cursor-pointer rounded-lg border border-border bg-card p-4 hover:shadow-lg transition-all hover:border-primary/50"
+      className="group cursor-pointer rounded-lg border border-border bg-card text-card-foreground p-4 hover:shadow-lg transition-all hover:border-primary/50"
     >
       {/* Header */}
       <div className="mb-3">

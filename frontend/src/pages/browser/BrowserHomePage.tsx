@@ -167,7 +167,7 @@ export default function BrowserHomePage() {
     <div className="container mx-auto h-full px-4 py-6 flex flex-col">
       {/* Sync Status Bar */}
       {syncStatus && (
-        <div className="mb-4 flex items-center justify-between p-3 rounded-lg bg-card border border-border">
+        <div className="mb-4 flex items-center justify-between p-3 rounded-lg bg-card text-card-foreground border border-border">
           <div className="flex items-center gap-4 text-sm">
             {/* Sync Status */}
             <div className="flex items-center gap-2">
@@ -227,11 +227,11 @@ export default function BrowserHomePage() {
         <div className="flex gap-4 flex-wrap items-center">
           {/* Category Filter */}
           <div className="flex items-center gap-2">
-            <label className="text-sm font-medium">Category:</label>
+            <label className="text-sm font-medium text-foreground">Category:</label>
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="px-3 py-1.5 rounded-lg border border-border bg-background text-sm"
+              className="px-3 py-1.5 rounded-lg border border-border bg-background text-foreground text-sm"
             >
               {categories.map(cat => (
                 <option key={cat} value={cat}>
@@ -243,11 +243,11 @@ export default function BrowserHomePage() {
 
           {/* Severity Filter */}
           <div className="flex items-center gap-2">
-            <label className="text-sm font-medium">Severity:</label>
+            <label className="text-sm font-medium text-foreground">Severity:</label>
             <select
               value={selectedSeverity}
               onChange={(e) => setSelectedSeverity(e.target.value)}
-              className="px-3 py-1.5 rounded-lg border border-border bg-background text-sm"
+              className="px-3 py-1.5 rounded-lg border border-border bg-background text-foreground text-sm"
             >
               {severities.map(sev => (
                 <option key={sev} value={sev}>
@@ -259,13 +259,13 @@ export default function BrowserHomePage() {
 
           <div className="ml-auto flex items-center gap-4">
             {/* View Toggle */}
-            <div className="flex items-center gap-1 border border-border rounded-lg p-1">
+            <div className="flex items-center gap-1 border border-border rounded-lg p-1 bg-background">
               <button
                 onClick={() => setViewMode('grid')}
                 className={`p-1.5 rounded transition-colors ${
                   viewMode === 'grid'
                     ? 'bg-primary text-primary-foreground'
-                    : 'hover:bg-accent'
+                    : 'text-foreground hover:bg-accent'
                 }`}
                 title="Grid view"
               >
@@ -276,7 +276,7 @@ export default function BrowserHomePage() {
                 className={`p-1.5 rounded transition-colors ${
                   viewMode === 'list'
                     ? 'bg-primary text-primary-foreground'
-                    : 'hover:bg-accent'
+                    : 'text-foreground hover:bg-accent'
                 }`}
                 title="List view"
               >
@@ -308,7 +308,7 @@ export default function BrowserHomePage() {
             ))}
           </div>
         ) : (
-          <div className="border border-border rounded-lg overflow-hidden bg-card">
+          <div className="border border-border rounded-lg overflow-hidden bg-card text-card-foreground">
             {filteredTests.map(test => (
               <TestListItem
                 key={test.uuid}
