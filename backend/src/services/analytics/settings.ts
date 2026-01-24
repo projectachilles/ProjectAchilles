@@ -19,6 +19,31 @@ const defaultSettings: AnalyticsSettings = {
 };
 
 export class SettingsService {
+  // Check if environment variables are configured for Elasticsearch
+  private getEnvSettings(): AnalyticsSettings | null {
+    const cloudId = process.env.ELASTICSEARCH_CLOUD_ID;
+    const node = process.env.ELASTICSEARCH_NODE;
+
+    // If neither is set, env config is not active
+    if (!cloudId && !node) return null;
+
+    return {
+      connectionType: cloudId ? 'cloud' : 'direct',
+      cloudId: cloudId || '',
+      node: node || '',
+      apiKey: process.env.ELASTICSEARCH_API_KEY || '',
+      username: process.env.ELASTICSEARCH_USERNAME || '',
+      password: process.env.ELASTICSEARCH_PASSWORD || '',
+      indexPattern: process.env.ELASTICSEARCH_INDEX_PATTERN || 'f0rtika-results-*',
+      configured: true,
+    };
+  }
+
+  // Check if using environment variable configuration
+  isEnvConfigured(): boolean {
+    return this.getEnvSettings() !== null;
+  }
+
   // Derive encryption key from machine ID
   private getEncryptionKey(): Buffer {
     const machineId = os.hostname() + os.userInfo().username;
@@ -63,8 +88,13 @@ export class SettingsService {
     }
   }
 
-  // Load settings from file
+  // Load settings - env vars take priority over file config
   getSettings(): AnalyticsSettings {
+    // Environment variables override file config
+    const envSettings = this.getEnvSettings();
+    if (envSettings) return envSettings;
+
+    // Fall back to file-based config
     this.ensureSettingsDir();
 
     if (!fs.existsSync(SETTINGS_FILE)) {
