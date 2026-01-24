@@ -101,6 +101,7 @@ export default function BarChart({ data, title, loading }: BarChartProps) {
             <ChartTooltip
               content={
                 <ChartTooltipContent
+                  hideLabel={true}
                   formatter={(value, name, item) => {
                     const payload = item.payload;
                     return (

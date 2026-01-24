@@ -7,12 +7,12 @@ import MetricCard from './components/MetricCard';
 import TrendChart from './components/TrendChart';
 import BarChart from './components/BarChart';
 import ErrorTypePieChart from './components/ErrorTypePieChart';
-import ProtectionRateDonut from './components/ProtectionRateDonut';
 import StackedBarChart from './components/StackedBarChart';
 import HeatmapChart from './components/HeatmapChart';
 import SeverityBreakdownChart from './components/SeverityBreakdownChart';
 import CategoryBreakdownChart from './components/CategoryBreakdownChart';
-import ThreatActorCoverage from './components/ThreatActorCoverage';
+import LastTestActivity from './components/LastTestActivity';
+import RecentTestsList from './components/RecentTestsList';
 import ExecutionsDataTable from './components/ExecutionsDataTable';
 import { useAnalyticsFilters } from '@/hooks/useAnalyticsFilters';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
@@ -28,7 +28,6 @@ import type {
   FilterOption,
   SeverityBreakdownItem,
   CategoryBreakdownItem,
-  ThreatActorCoverageItem,
   PaginatedResponse,
   EnrichedTestExecution,
 } from '../../services/api/analytics';
@@ -79,7 +78,7 @@ export default function AnalyticsDashboardPage() {
   // New visualization data
   const [severityBreakdown, setSeverityBreakdown] = useState<SeverityBreakdownItem[]>([]);
   const [categoryBreakdown, setCategoryBreakdown] = useState<CategoryBreakdownItem[]>([]);
-  const [threatActorCoverage, setThreatActorCoverage] = useState<ThreatActorCoverageItem[]>([]);
+  const [recentTests, setRecentTests] = useState<EnrichedTestExecution[]>([]);
 
   // Executions tab data
   const [executionsData, setExecutionsData] = useState<PaginatedResponse<EnrichedTestExecution> | null>(null);
@@ -170,7 +169,7 @@ export default function AnalyticsDashboardPage() {
         matrix,
         severityData,
         categoryData,
-        threatActorData,
+        recentTestsData,
       ] = await Promise.all([
         analyticsApi.getDefenseScore(params),
         analyticsApi.getUniqueHostnames(params),
@@ -184,7 +183,7 @@ export default function AnalyticsDashboardPage() {
         analyticsApi.getHostTestMatrix(params),
         analyticsApi.getDefenseScoreBySeverity(params),
         analyticsApi.getDefenseScoreByCategory(params),
-        analyticsApi.getThreatActorCoverage(params),
+        analyticsApi.getPaginatedExecutions({ ...params, pageSize: 3, sortField: 'routing.event_time', sortOrder: 'desc' }),
       ]);
 
       setDefenseScore({
@@ -214,7 +213,7 @@ export default function AnalyticsDashboardPage() {
       setHostTestMatrix(matrix);
       setSeverityBreakdown(severityData);
       setCategoryBreakdown(categoryData);
-      setThreatActorCoverage(threatActorData);
+      setRecentTests(recentTestsData.data);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
     } finally {
@@ -271,11 +270,6 @@ export default function AnalyticsDashboardPage() {
   const handlePageSizeChange = (size: number) => {
     setExecutionsPageSize(size);
     setExecutionsPage(1); // Reset to first page when page size changes
-  };
-
-  // Switch to executions tab with threat actor filter
-  const handleViewThreatActors = () => {
-    setActiveTab('executions');
   };
 
   return (
@@ -335,7 +329,7 @@ export default function AnalyticsDashboardPage() {
           /* Dashboard Tab */
           <div className="grid grid-cols-12 auto-rows-[140px] gap-4">
             {/* Row 1: Defense Score Trend (full width, 2 rows) */}
-            <div className="col-span-12 row-span-2 min-w-0">
+            <div className="col-span-12 row-span-2 min-w-0 overflow-hidden">
               <TrendChart
                 data={trendData}
                 loading={loadingDashboard}
@@ -390,12 +384,10 @@ export default function AnalyticsDashboardPage() {
               />
             </div>
             <div className="col-span-12 lg:col-span-4 row-span-2">
-              <ThreatActorCoverage
-                data={threatActorCoverage}
+              <LastTestActivity
+                data={trendData}
                 loading={loadingDashboard}
-                title="Threat Actor Coverage"
-                maxItems={4}
-                onViewAll={handleViewThreatActors}
+                title="Last Test Activity"
               />
             </div>
 
@@ -408,11 +400,10 @@ export default function AnalyticsDashboardPage() {
               />
             </div>
             <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
-              <ProtectionRateDonut
-                protected={defenseScore?.protected || 0}
-                total={defenseScore?.total || 0}
+              <RecentTestsList
+                data={recentTests}
                 loading={loadingDashboard}
-                title="Protection Rate"
+                title="Recent Tests"
               />
             </div>
             <div className="col-span-12 lg:col-span-4 row-span-2">
