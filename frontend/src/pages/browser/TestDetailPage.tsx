@@ -172,7 +172,7 @@ export default function TestDetailPage() {
                 <span className="hidden sm:inline">Back</span>
               </button>
               <div className="h-4 w-px bg-border" />
-              <h1 className="text-lg font-semibold truncate max-w-md lg:max-w-xl">{test.name}</h1>
+              <h1 className="text-lg font-semibold truncate max-w-md lg:max-w-xl text-foreground">{test.name}</h1>
               <span className="hidden md:inline text-xs font-mono text-muted-foreground">
                 {test.uuid.slice(0, 8)}...
               </span>
@@ -209,7 +209,7 @@ export default function TestDetailPage() {
 
             <div className="flex items-start justify-between gap-4 mb-3">
               <div className="flex-1">
-                <h1 className="text-2xl font-bold mb-2">{test.name}</h1>
+                <h1 className="text-2xl font-bold mb-2 text-foreground">{test.name}</h1>
                 <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
                   {test.severity && (
                     <span className="font-medium uppercase text-orange-500">
@@ -278,7 +278,7 @@ export default function TestDetailPage() {
                       className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
-                          : 'hover:bg-accent'
+                          : 'text-foreground hover:bg-accent'
                       }`}
                     >
                       {file.name === 'SAFETY.md' && <AlertTriangle className="w-3 h-3 inline mr-2 text-orange-500" />}
@@ -301,7 +301,7 @@ export default function TestDetailPage() {
                   className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
                     activeView === 'attack-flow'
                       ? 'bg-primary text-primary-foreground'
-                      : 'hover:bg-accent'
+                      : 'text-foreground hover:bg-accent'
                   }`}
                 >
                   Attack Flow Diagram
@@ -324,7 +324,7 @@ export default function TestDetailPage() {
                       className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center gap-2 ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
-                          : 'hover:bg-accent'
+                          : 'text-foreground hover:bg-accent'
                       }`}
                     >
                       {file.name.includes('DEFENSE_GUIDANCE') && <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />}
@@ -352,7 +352,7 @@ export default function TestDetailPage() {
                       className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
-                          : 'hover:bg-accent'
+                          : 'text-foreground hover:bg-accent'
                       }`}
                     >
                       {file.name}
@@ -377,7 +377,7 @@ export default function TestDetailPage() {
                       className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
-                          : 'hover:bg-accent'
+                          : 'text-foreground hover:bg-accent'
                       }`}
                     >
                       {file.type === 'kql' && <span className="text-xs text-blue-500 mr-2">KQL</span>}
@@ -404,7 +404,7 @@ export default function TestDetailPage() {
                       className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
-                          : 'hover:bg-accent'
+                          : 'text-foreground hover:bg-accent'
                       }`}
                     >
                       {file.name}

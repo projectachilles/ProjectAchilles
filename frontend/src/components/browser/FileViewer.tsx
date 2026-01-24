@@ -26,7 +26,7 @@ export default function FileViewer({ file }: FileViewerProps) {
           <FileText className="w-4 h-4" />
           <span className="text-sm">{file.name}</span>
         </div>
-        <pre className="p-4 rounded-lg bg-muted text-sm font-mono whitespace-pre-wrap">
+        <pre className="p-4 rounded-lg bg-muted text-sm font-mono whitespace-pre-wrap text-foreground">
           {file.content}
         </pre>
       </div>

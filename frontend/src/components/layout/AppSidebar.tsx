@@ -182,8 +182,8 @@ export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
             collapsed ? 'justify-center' : 'gap-3'
           )}
         >
-          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-purple-600 shrink-0">
-            <Shield className="h-5 w-5 text-white" />
+          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-sidebar-foreground shrink-0">
+            <Shield className="h-5 w-5 text-sidebar" />
           </div>
           {!collapsed && (
             <span className="font-bold text-lg tracking-tight text-sidebar-foreground">
