@@ -411,7 +411,6 @@ export default function AnalyticsDashboardPage() {
                 data={techniqueDistData}
                 loading={loadingDashboard}
                 title="ATT&CK Technique Distribution"
-                layout="vertical"
               />
             </div>
 
@@ -437,7 +436,6 @@ export default function AnalyticsDashboardPage() {
                 data={testCoverageData}
                 loading={loadingDashboard}
                 title="Test Coverage"
-                layout="vertical"
               />
             </div>
             <div className="col-span-12 lg:col-span-6 row-span-2">

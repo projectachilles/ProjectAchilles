@@ -4,16 +4,11 @@ import {
   Bar,
   XAxis,
   YAxis,
-  CartesianGrid
+  CartesianGrid,
+  ResponsiveContainer,
+  Legend,
+  Tooltip
 } from 'recharts';
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  ChartLegend,
-  ChartLegendContent,
-  type ChartConfig
-} from '@/components/ui/chart';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface StackedBarChartProps {
@@ -25,25 +20,22 @@ interface StackedBarChartProps {
   }>;
   loading?: boolean;
   title?: string;
-  layout?: 'horizontal' | 'vertical';
 }
 
-const chartConfig = {
-  protected: {
-    label: 'Protected',
-    color: 'var(--chart-protected)',
-  },
-  unprotected: {
-    label: 'Bypassed',
-    color: 'var(--chart-bypassed)',
-  },
-} satisfies ChartConfig;
+// Use oklch colors directly since SVG doesn't resolve CSS variables properly in fill
+const PROTECTED_COLOR = 'oklch(0.65 0.22 145)';
+const BYPASSED_COLOR = 'oklch(0.6 0.22 25)';
 
+/**
+ * Stacked bar chart showing Protected vs Bypassed counts.
+ *
+ * Note: Uses horizontal layout (vertical bars) because Recharts 2.15.4 has a bug
+ * where stackId + layout="vertical" fails to render bar paths inside the containers.
+ */
 export default function StackedBarChart({
   data,
   loading,
-  title = 'Coverage',
-  layout = 'horizontal'
+  title = 'Coverage'
 }: StackedBarChartProps) {
   // Return early if no data
   if (!data || data.length === 0) {
@@ -69,8 +61,8 @@ export default function StackedBarChart({
     total: item.protected + item.unprotected
   }));
 
-  // Truncate long names
-  const truncateName = (name: string, maxLength: number = 12) => {
+  // Truncate long names for axis labels
+  const truncateName = (name: string, maxLength: number = 8) => {
     if (name.length <= maxLength) return name;
     return name.substring(0, maxLength - 1) + '…';
   };
@@ -83,104 +75,68 @@ export default function StackedBarChart({
     );
   }
 
-  const isVertical = layout === 'vertical';
-  // Fixed height based on layout
-  const chartHeight = isVertical ? Math.max(180, chartData.length * 36) : 200;
-
   return (
     <Card className="h-full flex flex-col overflow-hidden">
       <CardHeader className="pb-2 flex-shrink-0">
         <CardTitle className="text-lg font-semibold">{title}</CardTitle>
       </CardHeader>
       <CardContent className="flex-1 pb-4 overflow-hidden">
-        <ChartContainer config={chartConfig} className="w-full" style={{ height: chartHeight }}>
+        <ResponsiveContainer width="100%" height={200}>
           <BarChart
             data={chartData}
-            layout={isVertical ? 'vertical' : 'horizontal'}
-            margin={
-              isVertical
-                ? { top: 5, right: 20, left: 5, bottom: 5 }
-                : { top: 5, right: 10, left: 5, bottom: 20 }
-            }
+            margin={{ top: 5, right: 10, left: 5, bottom: 50 }}
           >
-            <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-            {isVertical ? (
-              <>
-                <XAxis
-                  type="number"
-                  tickLine={false}
-                  axisLine={false}
-                  className="text-xs fill-muted-foreground"
-                />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(value) => truncateName(value, 16)}
-                  width={100}
-                  className="text-xs fill-muted-foreground"
-                />
-              </>
-            ) : (
-              <>
-                <XAxis
-                  dataKey="name"
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(value) => truncateName(value, 10)}
-                  angle={-45}
-                  textAnchor="end"
-                  height={50}
-                  interval={0}
-                  className="text-xs fill-muted-foreground"
-                />
-                <YAxis
-                  tickLine={false}
-                  axisLine={false}
-                  width={35}
-                  className="text-xs fill-muted-foreground"
-                />
-              </>
-            )}
-            <ChartTooltip
-              content={
-                <ChartTooltipContent
-                  formatter={(value, name, item) => {
-                    const payload = item.payload;
-                    const total = payload.protected + payload.unprotected;
-                    const rate = total > 0 ? ((payload.protected / total) * 100).toFixed(1) : '0';
-                    const label = name === 'protected' ? 'Protected' : 'Bypassed';
-                    return (
-                      <div className="flex flex-col gap-1">
-                        <span className="font-medium">{payload.name}</span>
-                        <span className="text-foreground">
-                          {label}: {Number(value).toLocaleString()}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          Protection rate: {rate}%
-                        </span>
-                      </div>
-                    );
-                  }}
-                />
-              }
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.5} />
+            <XAxis
+              dataKey="name"
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={truncateName}
+              angle={-45}
+              textAnchor="end"
+              height={50}
+              interval={0}
+              tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
             />
-            <ChartLegend content={<ChartLegendContent />} />
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              width={35}
+              tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: 'var(--background)',
+                border: '1px solid var(--border)',
+                borderRadius: '8px',
+                fontSize: '12px'
+              }}
+              formatter={(value: number, name: string) => {
+                const label = name === 'protected' ? 'Protected' : 'Bypassed';
+                return [value.toLocaleString(), label];
+              }}
+              labelFormatter={(label) => label}
+            />
+            <Legend
+              formatter={(value) => (value === 'protected' ? 'Protected' : 'Bypassed')}
+              wrapperStyle={{ fontSize: '12px' }}
+            />
             <Bar
               dataKey="protected"
               stackId="stack"
-              fill="var(--color-protected)"
+              fill={PROTECTED_COLOR}
               radius={[0, 0, 0, 0]}
+              isAnimationActive={false}
             />
             <Bar
               dataKey="unprotected"
               stackId="stack"
-              fill="var(--color-unprotected)"
-              radius={isVertical ? [0, 4, 4, 0] : [4, 4, 0, 0]}
+              fill={BYPASSED_COLOR}
+              radius={[4, 4, 0, 0]}
+              isAnimationActive={false}
             />
           </BarChart>
-        </ChartContainer>
+        </ResponsiveContainer>
       </CardContent>
     </Card>
   );
