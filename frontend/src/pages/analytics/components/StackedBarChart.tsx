@@ -1,15 +1,6 @@
 import { Loader2 } from 'lucide-react';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  ResponsiveContainer,
-  Legend,
-  Tooltip
-} from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useMemo, useState } from 'react';
 
 interface StackedBarChartProps {
   data: Array<{
@@ -26,17 +17,55 @@ interface StackedBarChartProps {
 const PROTECTED_COLOR = 'oklch(0.65 0.22 145)';
 const BYPASSED_COLOR = 'oklch(0.6 0.22 25)';
 
+interface ChartItem {
+  name: string;
+  protected: number;
+  unprotected: number;
+  total: number;
+  percentage: number;
+}
+
+interface TooltipData {
+  item: ChartItem;
+  x: number;
+  y: number;
+}
+
 /**
- * Stacked bar chart showing Protected vs Bypassed counts.
+ * Horizontal stacked bar chart showing Protected vs Bypassed counts.
  *
- * Note: Uses horizontal layout (vertical bars) because Recharts 2.15.4 has a bug
- * where stackId + layout="vertical" fails to render bar paths inside the containers.
+ * Layout:
+ * ┌─────────────────────────────────────────────┐
+ * │  Category Name ████████████████░░░░░░  65%  │
+ * │  Another Item  ██████████████████░░░  82%   │
+ * └─────────────────────────────────────────────┘
+ *   ████ = Protected (green)    ░░░░ = Bypassed (red)
+ *
+ * Uses custom SVG rendering to avoid Recharts stacking bugs.
  */
 export default function StackedBarChart({
   data,
   loading,
   title = 'Coverage'
 }: StackedBarChartProps) {
+  const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+
+  // Normalize data and calculate percentages (limit to 8 items for readability)
+  const chartData = useMemo(() => {
+    if (!data || data.length === 0) return [];
+    return data.slice(0, 8).map(item => {
+      const total = item.protected + item.unprotected;
+      const percentage = total > 0 ? Math.round((item.protected / total) * 100) : 0;
+      return {
+        name: item.name || item.technique || 'Unknown',
+        protected: item.protected,
+        unprotected: item.unprotected,
+        total,
+        percentage
+      };
+    });
+  }, [data]);
+
   // Return early if no data
   if (!data || data.length === 0) {
     if (loading) {
@@ -53,20 +82,6 @@ export default function StackedBarChart({
     );
   }
 
-  // Normalize data to have 'name' field and limit to 5 items for cleaner display
-  const chartData = data.slice(0, 5).map(item => ({
-    name: item.name || item.technique || 'Unknown',
-    protected: item.protected,
-    unprotected: item.unprotected,
-    total: item.protected + item.unprotected
-  }));
-
-  // Truncate long names for axis labels
-  const truncateName = (name: string, maxLength: number = 8) => {
-    if (name.length <= maxLength) return name;
-    return name.substring(0, maxLength - 1) + '…';
-  };
-
   if (loading) {
     return (
       <Card className="h-full min-h-[280px] flex items-center justify-center overflow-hidden">
@@ -75,68 +90,200 @@ export default function StackedBarChart({
     );
   }
 
+  // Truncate long names for inside-bar labels
+  const truncateName = (name: string, maxLength: number = 18) => {
+    if (name.length <= maxLength) return name;
+    return name.substring(0, maxLength - 1) + '…';
+  };
+
+  // Chart dimensions
+  const barHeight = 28;
+  const barGap = 8;
+  const leftPadding = 10;
+  const rightPadding = 50; // Space for percentage labels
+  const topPadding = 5;
+  const chartHeight = chartData.length * (barHeight + barGap) + topPadding;
+
+  // Find max total for scaling
+  const maxTotal = Math.max(...chartData.map(d => d.total), 1);
+
   return (
     <Card className="h-full flex flex-col overflow-hidden">
       <CardHeader className="pb-2 flex-shrink-0">
         <CardTitle className="text-lg font-semibold">{title}</CardTitle>
       </CardHeader>
-      <CardContent className="flex-1 pb-4 overflow-hidden">
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart
-            data={chartData}
-            margin={{ top: 5, right: 10, left: 5, bottom: 50 }}
+      <CardContent className="flex-1 pb-4 overflow-hidden relative">
+        <svg
+          width="100%"
+          height={chartHeight}
+          className="overflow-visible"
+          onMouseLeave={() => setTooltip(null)}
+        >
+          {chartData.map((item, index) => {
+            const y = topPadding + index * (barHeight + barGap);
+            const barWidth = `calc(100% - ${leftPadding + rightPadding}px)`;
+            const protectedRatio = item.total > 0 ? item.protected / item.total : 0;
+            const bypassedRatio = item.total > 0 ? item.unprotected / item.total : 0;
+            // Scale bar to max value
+            const scaleFactor = item.total / maxTotal;
+
+            return (
+              <g
+                key={item.name}
+                onMouseEnter={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setTooltip({
+                    item,
+                    x: rect.left + rect.width / 2,
+                    y: rect.top
+                  });
+                }}
+                onMouseLeave={() => setTooltip(null)}
+                style={{ cursor: 'pointer' }}
+              >
+                {/* Container for the bar using foreignObject for percentage width */}
+                <foreignObject
+                  x={leftPadding}
+                  y={y}
+                  width={barWidth}
+                  height={barHeight}
+                  style={{ overflow: 'visible' }}
+                >
+                  <div
+                    style={{
+                      width: `${scaleFactor * 100}%`,
+                      height: '100%',
+                      display: 'flex',
+                      borderRadius: '4px',
+                      overflow: 'hidden'
+                    }}
+                  >
+                    {/* Protected segment (green) */}
+                    {protectedRatio > 0 && (
+                      <div
+                        style={{
+                          width: `${protectedRatio * 100}%`,
+                          height: '100%',
+                          backgroundColor: PROTECTED_COLOR,
+                          display: 'flex',
+                          alignItems: 'center',
+                          paddingLeft: '8px',
+                          minWidth: protectedRatio > 0.15 ? 'auto' : '0'
+                        }}
+                      >
+                        {protectedRatio > 0.25 && (
+                          <span
+                            style={{
+                              color: 'white',
+                              fontSize: '12px',
+                              fontWeight: 500,
+                              textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis'
+                            }}
+                          >
+                            {truncateName(item.name)}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {/* Bypassed segment (red) */}
+                    {bypassedRatio > 0 && (
+                      <div
+                        style={{
+                          width: `${bypassedRatio * 100}%`,
+                          height: '100%',
+                          backgroundColor: BYPASSED_COLOR,
+                          display: 'flex',
+                          alignItems: 'center',
+                          paddingLeft: protectedRatio <= 0.25 ? '8px' : '0'
+                        }}
+                      >
+                        {/* Show label in red section if green is too small */}
+                        {protectedRatio <= 0.25 && bypassedRatio > 0.25 && (
+                          <span
+                            style={{
+                              color: 'white',
+                              fontSize: '12px',
+                              fontWeight: 500,
+                              textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis'
+                            }}
+                          >
+                            {truncateName(item.name)}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </foreignObject>
+
+                {/* Percentage label on the right */}
+                <text
+                  x="100%"
+                  y={y + barHeight / 2}
+                  dx={-rightPadding + 8}
+                  dy="0.35em"
+                  fill="var(--foreground)"
+                  fontSize="12px"
+                  fontWeight={500}
+                >
+                  {item.percentage}%
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+
+        {/* Tooltip */}
+        {tooltip && (
+          <div
+            className="fixed z-50 pointer-events-none"
+            style={{
+              left: tooltip.x,
+              top: tooltip.y - 10,
+              transform: 'translate(-50%, -100%)'
+            }}
           >
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.5} />
-            <XAxis
-              dataKey="name"
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={truncateName}
-              angle={-45}
-              textAnchor="end"
-              height={50}
-              interval={0}
-              tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
-            />
-            <YAxis
-              tickLine={false}
-              axisLine={false}
-              width={35}
-              tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
-            />
-            <Tooltip
-              contentStyle={{
+            <div
+              className="px-3 py-2 rounded-lg text-xs"
+              style={{
                 backgroundColor: 'var(--background)',
                 border: '1px solid var(--border)',
-                borderRadius: '8px',
-                fontSize: '12px'
+                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
               }}
-              formatter={(value: number, name: string) => {
-                const label = name === 'protected' ? 'Protected' : 'Bypassed';
-                return [value.toLocaleString(), label];
-              }}
-              labelFormatter={(label) => label}
+            >
+              <div className="font-medium mb-1">{tooltip.item.name}</div>
+              <div style={{ color: PROTECTED_COLOR }}>
+                Protected: {tooltip.item.protected.toLocaleString()}
+              </div>
+              <div style={{ color: BYPASSED_COLOR }}>
+                Bypassed: {tooltip.item.unprotected.toLocaleString()}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Legend */}
+        <div className="flex items-center justify-center gap-6 mt-3 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5">
+            <div
+              className="w-3 h-3 rounded-sm"
+              style={{ backgroundColor: PROTECTED_COLOR }}
             />
-            <Legend
-              formatter={(value) => (value === 'protected' ? 'Protected' : 'Bypassed')}
-              wrapperStyle={{ fontSize: '12px' }}
+            <span>Protected</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div
+              className="w-3 h-3 rounded-sm"
+              style={{ backgroundColor: BYPASSED_COLOR }}
             />
-            <Bar
-              dataKey="protected"
-              stackId="stack"
-              fill={PROTECTED_COLOR}
-              radius={[0, 0, 0, 0]}
-              isAnimationActive={false}
-            />
-            <Bar
-              dataKey="unprotected"
-              stackId="stack"
-              fill={BYPASSED_COLOR}
-              radius={[4, 4, 0, 0]}
-              isAnimationActive={false}
-            />
-          </BarChart>
-        </ResponsiveContainer>
+            <span>Bypassed</span>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
