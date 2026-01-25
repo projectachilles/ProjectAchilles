@@ -10,8 +10,7 @@ import StackedBarChart from './components/StackedBarChart';
 import CoverageTreemap from './components/CoverageTreemap';
 import DefenseScoreByHostChart from './components/DefenseScoreByHostChart';
 import CategoryBreakdownChart from './components/CategoryBreakdownChart';
-import LastTestActivity from './components/LastTestActivity';
-import RecentTestsList from './components/RecentTestsList';
+import TestActivityCard from './components/TestActivityCard';
 import ExecutionsDataTable from './components/ExecutionsDataTable';
 import { useAnalyticsFilters } from '@/hooks/useAnalyticsFilters';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
@@ -360,7 +359,7 @@ export default function AnalyticsDashboardPage() {
               />
             </div>
 
-            {/* Row 4-5: Category breakdown + Last Test Activity (2 rows each) */}
+            {/* Row 4-5: Category breakdown + Test Activity (merged) */}
             <div className="col-span-12 md:col-span-6 row-span-2">
               <CategoryBreakdownChart
                 data={categoryBreakdown}
@@ -369,29 +368,23 @@ export default function AnalyticsDashboardPage() {
               />
             </div>
             <div className="col-span-12 md:col-span-6 row-span-2">
-              <LastTestActivity
-                data={trendData}
+              <TestActivityCard
+                trendData={trendData}
+                recentTests={recentTests}
                 loading={loadingDashboard}
-                title="Last Test Activity"
+                title="Test Activity"
               />
             </div>
 
-            {/* Row 6-7: Pie Chart + Donut + Technique Distribution (2 rows each) */}
-            <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
+            {/* Row 6-7: Pie Chart + Technique Distribution (2 rows each) */}
+            <div className="col-span-12 md:col-span-6 row-span-2">
               <ErrorTypePieChart
                 data={errorTypeData}
                 loading={loadingDashboard}
                 title="Results by Error Type"
               />
             </div>
-            <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
-              <RecentTestsList
-                data={recentTests}
-                loading={loadingDashboard}
-                title="Recent Tests"
-              />
-            </div>
-            <div className="col-span-12 lg:col-span-4 row-span-2">
+            <div className="col-span-12 md:col-span-6 row-span-2">
               <StackedBarChart
                 data={techniqueDistData}
                 loading={loadingDashboard}
