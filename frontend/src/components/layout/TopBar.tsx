@@ -105,8 +105,8 @@ export function TopBar({
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-1">
+      {/* Right side actions - pushed to far right */}
+      <div className="flex items-center gap-1 ml-auto">
         {/* Refresh */}
         {onRefreshClick && (
           <Button
@@ -146,29 +146,11 @@ export function TopBar({
           <span className="sr-only">Toggle theme</span>
         </Button>
 
-        {/* User */}
-        {isLoaded && user && (
-          <div className="flex items-center gap-2 ml-2">
-            <span className="text-sm text-muted-foreground hidden lg:inline">
-              {user.firstName || user.emailAddresses[0]?.emailAddress}
-            </span>
-            <UserButton
-              afterSignOutUrl="/sign-in"
-              appearance={{
-                elements: {
-                  avatarBox:
-                    'w-8 h-8 rounded-full border border-border hover:border-primary transition-colors',
-                },
-              }}
-            />
-          </div>
-        )}
-
         {/* Organization (Endpoints) */}
         {isAuthenticated && currentOrg && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="gap-2 ml-2">
+              <Button variant="ghost" size="sm" className="gap-2 ml-1">
                 <Avatar className="h-6 w-6">
                   <AvatarFallback className="text-xs bg-primary/20 text-primary">
                     {currentOrg.name?.charAt(0) || 'O'}
@@ -190,6 +172,24 @@ export function TopBar({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+        )}
+
+        {/* User - Last item */}
+        {isLoaded && user && (
+          <div className="flex items-center gap-2 ml-2">
+            <span className="text-sm text-muted-foreground hidden lg:inline">
+              {user.firstName || user.emailAddresses[0]?.emailAddress}
+            </span>
+            <UserButton
+              afterSignOutUrl="/sign-in"
+              appearance={{
+                elements: {
+                  avatarBox:
+                    'w-8 h-8 rounded-full border border-border hover:border-primary transition-colors',
+                },
+              }}
+            />
+          </div>
         )}
       </div>
     </header>
