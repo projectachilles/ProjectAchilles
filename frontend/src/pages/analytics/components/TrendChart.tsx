@@ -107,19 +107,19 @@ export default function TrendChart({ data, loading, title = 'Defense Score Trend
   }
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="pb-0">
+    <Card className="h-full overflow-hidden flex flex-col">
+      <CardHeader className="flex-shrink-0 pb-0">
         <CardTitle className="text-base font-medium">{title}</CardTitle>
         <CardDescription className="flex items-center gap-1 text-sm">
           <span>Average: {avgScore}%</span>
           <TrendingUp className="h-4 w-4 text-muted-foreground" />
         </CardDescription>
       </CardHeader>
-      <CardContent className="p-4">
-        <div className="w-full min-w-0 overflow-hidden">
+      <CardContent className="flex-1 min-h-0 p-4">
+        <div className="h-full w-full min-h-0 overflow-hidden">
           <ChartContainer
             config={chartConfig}
-            className="aspect-auto h-[200px] w-full max-w-full"
+            className="h-full w-full"
           >
           <AreaChart
             data={chartData}

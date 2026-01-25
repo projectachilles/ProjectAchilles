@@ -91,8 +91,8 @@ export default function ErrorTypePieChart({
         <CardTitle className="text-lg font-semibold">{title}</CardTitle>
       </CardHeader>
       <CardContent className="flex-1 pb-4 overflow-hidden">
-        <div className="flex items-start gap-4 h-[180px]">
-          <div className="w-2/5 h-full flex-shrink-0">
+        <div className="flex items-start gap-2 sm:gap-4 h-[160px] sm:h-[180px]">
+          <div className="w-[90px] sm:w-[120px] md:w-2/5 h-full flex-shrink-0">
             <ChartContainer config={chartConfig} className="h-full w-full">
               <PieChart>
                 <Pie
@@ -102,7 +102,7 @@ export default function ErrorTypePieChart({
                   cx="50%"
                   cy="50%"
                   innerRadius={0}
-                  outerRadius={70}
+                  outerRadius="80%"
                   paddingAngle={1}
                 >
                   {chartData.map((entry, index) => (
@@ -112,7 +112,7 @@ export default function ErrorTypePieChart({
                 <ChartTooltip
                   content={
                     <ChartTooltipContent
-                      formatter={(value, name, item) => {
+                      formatter={(value, _name, item) => {
                         const payload = item.payload;
                         return (
                           <div className="flex flex-col gap-1">
@@ -132,19 +132,19 @@ export default function ErrorTypePieChart({
               </PieChart>
             </ChartContainer>
           </div>
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden min-w-0">
             {/* Legend */}
-            <div className="flex flex-col gap-1.5 overflow-y-auto max-h-[180px]">
+            <div className="flex flex-col gap-1 sm:gap-1.5 overflow-y-auto max-h-[160px] sm:max-h-[180px]">
               {chartData.map((entry, index) => (
-                <div key={`legend-${index}`} className="flex items-center gap-2 min-w-0">
+                <div key={`legend-${index}`} className="flex items-center gap-1.5 sm:gap-2 min-w-0">
                   <div
-                    className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
+                    className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-sm flex-shrink-0"
                     style={{ backgroundColor: entry.fill }}
                   />
-                  <span className="text-xs text-muted-foreground truncate flex-1 min-w-0">
+                  <span className="text-[10px] sm:text-xs text-muted-foreground truncate flex-1 min-w-0">
                     {entry.name.length > 15 ? entry.name.substring(0, 13) + '…' : entry.name}
                   </span>
-                  <span className="text-xs font-medium text-foreground flex-shrink-0">
+                  <span className="text-[10px] sm:text-xs font-medium text-foreground flex-shrink-0">
                     {entry.percentage}%
                   </span>
                 </div>

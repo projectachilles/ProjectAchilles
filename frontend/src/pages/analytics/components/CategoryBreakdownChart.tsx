@@ -108,8 +108,13 @@ export default function CategoryBreakdownChart({
               dataKey="label"
               tickLine={false}
               axisLine={false}
-              width={90}
-              tick={{ fontSize: 12 }}
+              width={85}
+              tick={{ fontSize: 11 }}
+              tickFormatter={(value) => {
+                // Truncate long labels for small screens
+                if (value.length > 12) return value.substring(0, 10) + '…';
+                return value;
+              }}
             />
             <ChartTooltip
               cursor={false}

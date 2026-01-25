@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Shield, Monitor, FlaskConical, LayoutDashboard, Table } from 'lucide-react';
+import { LayoutDashboard, Table } from 'lucide-react';
 import SharedLayout from '../../components/shared/Layout';
 import SettingsModal from './components/SettingsModal';
 import FilterBar from './components/FilterBar';
-import MetricCard from './components/MetricCard';
+import HeroMetricsCard from './components/HeroMetricsCard';
 import TrendChart from './components/TrendChart';
 import ErrorTypePieChart from './components/ErrorTypePieChart';
 import StackedBarChart from './components/StackedBarChart';
@@ -319,8 +319,16 @@ export default function AnalyticsDashboardPage() {
         {activeTab === 'dashboard' ? (
           /* Dashboard Tab */
           <div className="grid grid-cols-12 auto-rows-[140px] gap-4">
-            {/* Row 1: Defense Score Trend (full width, 2 rows) */}
-            <div className="col-span-12 row-span-2 min-w-0 overflow-hidden">
+            {/* Row 1-2: Hero Metrics (1/3) + Defense Score Trend (2/3) */}
+            <div className="col-span-12 md:col-span-4 row-span-2">
+              <HeroMetricsCard
+                defenseScore={defenseScore?.overall ?? null}
+                uniqueEndpoints={uniqueHostnames}
+                executedTests={uniqueTestCount}
+                loading={loadingDashboard}
+              />
+            </div>
+            <div className="col-span-12 md:col-span-8 row-span-2 min-w-0 overflow-hidden">
               <TrendChart
                 data={trendData}
                 loading={loadingDashboard}
@@ -328,38 +336,7 @@ export default function AnalyticsDashboardPage() {
               />
             </div>
 
-            {/* Row 3: Metrics (1 row each) */}
-            <div className="col-span-12 md:col-span-4 lg:col-span-4 row-span-1">
-              <MetricCard
-                title="Defense Score"
-                value={defenseScore?.overall || 0}
-                format="percent"
-                valueColor="score"
-                icon={Shield}
-                subtitle={defenseScore?.delta !== null && defenseScore?.delta !== undefined
-                  ? `${defenseScore.delta > 0 ? '+' : ''}${defenseScore.delta.toFixed(1)}% vs prior`
-                  : undefined}
-                loading={loadingDashboard}
-              />
-            </div>
-            <div className="col-span-6 md:col-span-4 lg:col-span-4 row-span-1">
-              <MetricCard
-                title="Unique Endpoints"
-                value={uniqueHostnames}
-                icon={Monitor}
-                loading={loadingDashboard}
-              />
-            </div>
-            <div className="col-span-6 md:col-span-4 lg:col-span-4 row-span-1">
-              <MetricCard
-                title="Unique Tests"
-                value={uniqueTestCount}
-                icon={FlaskConical}
-                loading={loadingDashboard}
-              />
-            </div>
-
-            {/* Row 4-5: Category breakdown + Test Activity (merged) */}
+            {/* Row 3-4: Category breakdown + Test Activity */}
             <div className="col-span-12 md:col-span-6 row-span-2">
               <CategoryBreakdownChart
                 data={categoryBreakdown}

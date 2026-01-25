@@ -79,17 +79,17 @@ export default function DefenseScoreByHostChart({
     );
   }
 
-  // Truncate long hostnames for inside-bar labels
-  const truncateName = (name: string, maxLength: number = 20) => {
+  // Truncate long hostnames for inside-bar labels (responsive)
+  const truncateName = (name: string, maxLength: number = 16) => {
     if (name.length <= maxLength) return name;
     return name.substring(0, maxLength - 1) + '…';
   };
 
-  // Chart dimensions
-  const barHeight = 28;
-  const barGap = 8;
-  const leftPadding = 10;
-  const rightPadding = 50; // Space for percentage labels
+  // Chart dimensions (responsive-friendly)
+  const barHeight = 26;
+  const barGap = 6;
+  const leftPadding = 8;
+  const rightPadding = 45; // Space for percentage labels
   const topPadding = 5;
   const chartHeight = chartData.length * (barHeight + barGap) + topPadding;
 
@@ -259,24 +259,24 @@ export default function DefenseScoreByHostChart({
         )}
 
         {/* Legend */}
-        <div className="flex items-center justify-center gap-4 mt-3 text-xs text-muted-foreground flex-shrink-0">
-          <div className="flex items-center gap-1.5">
+        <div className="flex items-center justify-center gap-2 sm:gap-4 mt-2 sm:mt-3 text-[10px] sm:text-xs text-muted-foreground flex-shrink-0">
+          <div className="flex items-center gap-1 sm:gap-1.5">
             <div
-              className="w-3 h-3 rounded-sm"
+              className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm"
               style={{ backgroundColor: SCORE_COLORS.high }}
             />
             <span>≥80%</span>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1 sm:gap-1.5">
             <div
-              className="w-3 h-3 rounded-sm"
+              className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm"
               style={{ backgroundColor: SCORE_COLORS.medium }}
             />
             <span>50-79%</span>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1 sm:gap-1.5">
             <div
-              className="w-3 h-3 rounded-sm"
+              className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm"
               style={{ backgroundColor: SCORE_COLORS.low }}
             />
             <span>&lt;50%</span>

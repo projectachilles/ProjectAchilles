@@ -11,6 +11,7 @@ interface StackedBarChartProps {
   }>;
   loading?: boolean;
   title?: string;
+  maxVisibleItems?: number; // Items shown before scrolling (default: 8)
 }
 
 // Use oklch colors directly since SVG doesn't resolve CSS variables properly in fill
@@ -46,14 +47,15 @@ interface TooltipData {
 export default function StackedBarChart({
   data,
   loading,
-  title = 'Coverage'
+  title = 'Coverage',
+  maxVisibleItems = 8
 }: StackedBarChartProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
 
-  // Normalize data and calculate percentages (limit to 8 items for readability)
+  // Normalize data and calculate percentages
   const chartData = useMemo(() => {
     if (!data || data.length === 0) return [];
-    return data.slice(0, 8).map(item => {
+    return data.map(item => {
       const total = item.protected + item.unprotected;
       const percentage = total > 0 ? Math.round((item.protected / total) * 100) : 0;
       return {
@@ -90,30 +92,39 @@ export default function StackedBarChart({
     );
   }
 
-  // Truncate long names for inside-bar labels
-  const truncateName = (name: string, maxLength: number = 18) => {
+  // Truncate long names for inside-bar labels (responsive)
+  const truncateName = (name: string, maxLength: number = 16) => {
     if (name.length <= maxLength) return name;
     return name.substring(0, maxLength - 1) + '…';
   };
 
-  // Chart dimensions
-  const barHeight = 28;
-  const barGap = 8;
-  const leftPadding = 10;
-  const rightPadding = 50; // Space for percentage labels
+  // Chart dimensions (responsive-friendly)
+  const barHeight = 26;
+  const barGap = 6;
+  const leftPadding = 8;
+  const rightPadding = 45; // Space for percentage labels
   const topPadding = 5;
   const chartHeight = chartData.length * (barHeight + barGap) + topPadding;
 
   // Find max total for scaling
   const maxTotal = Math.max(...chartData.map(d => d.total), 1);
 
+  // Calculate scroll container max height (items * row height + padding)
+  const scrollMaxHeight = maxVisibleItems * (barHeight + barGap) + topPadding;
+  const needsScroll = chartData.length > maxVisibleItems;
+
   return (
     <Card className="h-full flex flex-col overflow-hidden">
       <CardHeader className="pb-2 flex-shrink-0">
         <CardTitle className="text-lg font-semibold">{title}</CardTitle>
       </CardHeader>
-      <CardContent className="flex-1 pb-4 overflow-hidden relative">
-        <svg
+      <CardContent className="flex-1 pb-4 overflow-hidden relative flex flex-col">
+        {/* Scrollable chart area */}
+        <div
+          className={needsScroll ? 'overflow-y-auto' : 'overflow-hidden'}
+          style={{ maxHeight: needsScroll ? `${scrollMaxHeight}px` : undefined }}
+        >
+          <svg
           width="100%"
           height={chartHeight}
           className="overflow-visible"
@@ -237,6 +248,7 @@ export default function StackedBarChart({
             );
           })}
         </svg>
+        </div>
 
         {/* Tooltip */}
         {tooltip && (
@@ -267,18 +279,18 @@ export default function StackedBarChart({
           </div>
         )}
 
-        {/* Legend */}
-        <div className="flex items-center justify-center gap-6 mt-3 text-xs text-muted-foreground">
-          <div className="flex items-center gap-1.5">
+        {/* Legend (fixed outside scroll area) */}
+        <div className="flex items-center justify-center gap-3 sm:gap-6 mt-2 sm:mt-3 text-[10px] sm:text-xs text-muted-foreground flex-shrink-0">
+          <div className="flex items-center gap-1 sm:gap-1.5">
             <div
-              className="w-3 h-3 rounded-sm"
+              className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm"
               style={{ backgroundColor: PROTECTED_COLOR }}
             />
             <span>Protected</span>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1 sm:gap-1.5">
             <div
-              className="w-3 h-3 rounded-sm"
+              className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm"
               style={{ backgroundColor: BYPASSED_COLOR }}
             />
             <span>Bypassed</span>

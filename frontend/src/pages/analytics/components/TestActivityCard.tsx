@@ -111,24 +111,24 @@ export default function TestActivityCard({
         </div>
       </CardHeader>
       <CardContent className="flex-1 overflow-hidden">
-        <div className="flex h-full gap-4">
+        <div className="flex h-full gap-2 sm:gap-4">
           {/* Left side: Big metric */}
-          <div className="flex-shrink-0 w-[140px] flex flex-col justify-center items-center border-r border-border pr-4">
+          <div className="flex-shrink-0 w-[100px] sm:w-[120px] md:w-[140px] flex flex-col justify-center items-center border-r border-border pr-2 sm:pr-4">
             {daysSince !== null ? (
               <>
-                <div className="text-4xl font-bold text-foreground">
+                <div className="text-2xl sm:text-3xl md:text-4xl font-bold text-foreground">
                   {daysSince}
                 </div>
-                <div className="text-sm text-muted-foreground">
+                <div className="text-xs sm:text-sm text-muted-foreground">
                   {daysSince === 1 ? 'day ago' : 'days ago'}
                 </div>
                 {lastDate && isValidDate(lastDate) && (
-                  <div className="mt-2 text-center">
-                    <div className="text-xs text-muted-foreground">
+                  <div className="mt-1 sm:mt-2 text-center">
+                    <div className="text-[10px] sm:text-xs text-muted-foreground">
                       {formatDate(lastDate)}
                     </div>
                     {lastActivity && (
-                      <div className="text-xs text-foreground font-medium">
+                      <div className="text-[10px] sm:text-xs text-foreground font-medium">
                         {lastActivity.total.toLocaleString()} test{lastActivity.total !== 1 ? 's' : ''}
                       </div>
                     )}
@@ -136,14 +136,14 @@ export default function TestActivityCard({
                 )}
               </>
             ) : (
-              <div className="text-sm text-muted-foreground text-center">
+              <div className="text-xs sm:text-sm text-muted-foreground text-center">
                 No activity data
               </div>
             )}
           </div>
 
           {/* Right side: Recent tests list */}
-          <div className="flex-1 flex flex-col gap-2 overflow-hidden min-w-0">
+          <div className="flex-1 flex flex-col gap-1 sm:gap-2 overflow-hidden min-w-0">
             {recentTests && recentTests.length > 0 ? (
               recentTests.slice(0, 3).map((execution, index) => {
                 const isProtected = execution.is_protected;
@@ -154,25 +154,25 @@ export default function TestActivityCard({
                 return (
                   <div
                     key={`${execution.test_uuid}-${timestamp}-${index}`}
-                    className="flex flex-col gap-0.5 p-2 rounded-md bg-secondary/50 border border-border/50"
+                    className="flex flex-col gap-0.5 p-1.5 sm:p-2 rounded-md bg-secondary/50 border border-border/50"
                   >
                     {/* Test name and status */}
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center justify-between gap-1 sm:gap-2">
                       <span
-                        className="text-sm font-medium text-foreground truncate"
+                        className="text-xs sm:text-sm font-medium text-foreground truncate"
                         title={testName}
                       >
                         {truncateText(testName, 32)}
                       </span>
                       {isProtected ? (
-                        <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+                        <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-green-500 flex-shrink-0" />
                       ) : (
-                        <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                        <XCircle className="w-3 h-3 sm:w-4 sm:h-4 text-red-500 flex-shrink-0" />
                       )}
                     </div>
 
                     {/* Hostname and time */}
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <div className="flex items-center justify-between text-[10px] sm:text-xs text-muted-foreground">
                       <span className="truncate" title={hostname}>
                         {truncateText(hostname, 24)}
                       </span>
