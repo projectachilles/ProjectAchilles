@@ -947,10 +947,14 @@ export class ElasticsearchService {
   }
 
   // Get available hostnames with counts
+  // Note: For filter dropdowns, we show all available values unless date range is explicitly specified
   async getAvailableHostnames(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
     const filters: any[] = [this.buildTestDataFilter()];
     if (params) {
-      filters.push(this.buildDateFilter(params.from, params.to));
+      // Only apply date filter if explicitly provided (don't default to 7d for filter options)
+      if (params.from || params.to) {
+        filters.push(this.buildDateFilter(params.from, params.to));
+      }
       const orgFilter = this.buildOrgFilter(params.org);
       if (orgFilter) filters.push(orgFilter);
     }
@@ -978,7 +982,9 @@ export class ElasticsearchService {
   async getAvailableCategories(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
     const filters: any[] = [this.buildTestDataFilter()];
     if (params) {
-      filters.push(this.buildDateFilter(params.from, params.to));
+      if (params.from || params.to) {
+        filters.push(this.buildDateFilter(params.from, params.to));
+      }
       const orgFilter = this.buildOrgFilter(params.org);
       if (orgFilter) filters.push(orgFilter);
     }
@@ -1006,7 +1012,9 @@ export class ElasticsearchService {
   async getAvailableSeverities(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
     const filters: any[] = [this.buildTestDataFilter()];
     if (params) {
-      filters.push(this.buildDateFilter(params.from, params.to));
+      if (params.from || params.to) {
+        filters.push(this.buildDateFilter(params.from, params.to));
+      }
       const orgFilter = this.buildOrgFilter(params.org);
       if (orgFilter) filters.push(orgFilter);
     }
@@ -1039,7 +1047,9 @@ export class ElasticsearchService {
   async getAvailableThreatActors(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
     const filters: any[] = [this.buildTestDataFilter()];
     if (params) {
-      filters.push(this.buildDateFilter(params.from, params.to));
+      if (params.from || params.to) {
+        filters.push(this.buildDateFilter(params.from, params.to));
+      }
       const orgFilter = this.buildOrgFilter(params.org);
       if (orgFilter) filters.push(orgFilter);
     }
@@ -1069,7 +1079,9 @@ export class ElasticsearchService {
   async getAvailableTags(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
     const filters: any[] = [this.buildTestDataFilter()];
     if (params) {
-      filters.push(this.buildDateFilter(params.from, params.to));
+      if (params.from || params.to) {
+        filters.push(this.buildDateFilter(params.from, params.to));
+      }
       const orgFilter = this.buildOrgFilter(params.org);
       if (orgFilter) filters.push(orgFilter);
     }
