@@ -178,18 +178,33 @@ export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
         {/* Header */}
         <div
           className={cn(
-            'flex items-center h-14 px-3 border-b border-sidebar-border',
-            collapsed ? 'justify-center' : 'gap-3'
+            'relative flex items-center h-14 px-3 border-b border-sidebar-border overflow-hidden',
+            collapsed ? 'justify-center' : 'justify-start'
           )}
         >
-          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-sidebar-foreground shrink-0">
+          {/* Shield icon - visible when collapsed */}
+          <div
+            className={cn(
+              'absolute flex items-center justify-center w-8 h-8 rounded-lg bg-sidebar-foreground shrink-0 transition-all duration-300',
+              collapsed ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
+            )}
+          >
             <Shield className="h-5 w-5 text-sidebar" />
           </div>
-          {!collapsed && (
-            <span className="font-bold text-lg tracking-tight text-sidebar-foreground">
-              ACHILLES
-            </span>
-          )}
+
+          {/* Full logo - visible when expanded */}
+          <div
+            className={cn(
+              'flex items-center h-8 transition-all duration-300',
+              collapsed ? 'opacity-0 scale-95' : 'opacity-100 scale-100'
+            )}
+          >
+            <img
+              src="/assets/logo-achilles.png"
+              alt="ACHILLES"
+              className="h-6 w-auto dark:invert"
+            />
+          </div>
         </div>
 
         {/* Navigation */}
