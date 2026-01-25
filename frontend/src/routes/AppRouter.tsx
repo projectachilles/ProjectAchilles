@@ -15,11 +15,13 @@ import BrowserHomePage from '../pages/browser/BrowserHomePage';
 import TestDetailPage from '../pages/browser/TestDetailPage';
 
 // Analytics Module Pages
-import AnalyticsSetupPage from '../pages/analytics/AnalyticsSetupPage';
 import AnalyticsDashboardPage from '../pages/analytics/AnalyticsDashboardPage';
 
 // Endpoints Module Pages
-import EndpointLoginPage from '../pages/endpoints/EndpointLoginPage';
+// (EndpointLoginPage removed - now in Settings)
+
+// Settings Page
+import SettingsPage from '../pages/settings/SettingsPage';
 import EndpointDashboardPage from '../pages/endpoints/EndpointDashboardPage';
 import SensorsPage from '../pages/endpoints/SensorsPage';
 import PayloadsPage from '../pages/endpoints/PayloadsPage';
@@ -38,7 +40,7 @@ function AnalyticsProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!configured) {
-    return <Navigate to="/analytics/setup" replace />;
+    return <Navigate to="/settings" replace />;
   }
 
   return <>{children}</>;
@@ -57,7 +59,7 @@ function EndpointsProtectedRoute() {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/endpoints/login" replace />;
+    return <Navigate to="/settings" replace />;
   }
 
   return <Outlet />;
@@ -89,17 +91,17 @@ export default function AppRouter() {
           <Route path="test/:uuid" element={<TestDetailPage />} />
         </Route>
 
+        {/* Settings Page */}
+        <Route path="settings" element={<SettingsPage />} />
+
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
 
       {/* Endpoints Module - DUAL AUTH (Clerk + LimaCharlie) */}
       <Route path="endpoints">
-        <Route path="login" element={
-          <RequireAuth>
-            <EndpointLoginPage />
-          </RequireAuth>
-        } />
+        {/* Old login route redirects to settings */}
+        <Route path="login" element={<Navigate to="/settings" replace />} />
         <Route element={
           <RequireAuth>
             <EndpointsProtectedRoute />
@@ -115,11 +117,8 @@ export default function AppRouter() {
 
       {/* Analytics Module - DUAL AUTH (Clerk + Elasticsearch config) */}
       <Route path="analytics">
-        <Route path="setup" element={
-          <RequireAuth>
-            <AnalyticsSetupPage />
-          </RequireAuth>
-        } />
+        {/* Old setup route redirects to settings */}
+        <Route path="setup" element={<Navigate to="/settings" replace />} />
         <Route index element={
           <RequireAuth>
             <AnalyticsProtectedRoute>
