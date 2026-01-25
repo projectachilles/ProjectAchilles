@@ -5,6 +5,9 @@ import { RequireAuth } from '../components/auth/RequireAuth';
 import Layout from '../components/shared/Layout';
 import { Loading } from '../components/shared/ui/Spinner';
 
+// Public Pages
+import HeroPage from '../pages/HeroPage';
+
 // Auth Pages
 import SignInPage from '../pages/auth/SignInPage';
 import SignUpPage from '../pages/auth/SignUpPage';
@@ -77,6 +80,9 @@ function AppLayout() {
 export default function AppRouter() {
   return (
     <Routes>
+      {/* Public landing page */}
+      <Route path="/" element={<HeroPage />} />
+
       {/* Auth routes (public) */}
       <Route path="/sign-in" element={<SignInPage />} />
       <Route path="/sign-up" element={<SignUpPage />} />
@@ -85,9 +91,9 @@ export default function AppRouter() {
       {/* Main Layout with Header - NOW PROTECTED */}
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
         {/* Browser Module - NOW REQUIRES AUTH */}
-        <Route index element={<BrowserHomePage />} />
+        <Route path="dashboard" element={<BrowserHomePage />} />
         <Route path="browser">
-          <Route index element={<Navigate to="/" replace />} />
+          <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="test/:uuid" element={<TestDetailPage />} />
         </Route>
 
@@ -95,7 +101,7 @@ export default function AppRouter() {
         <Route path="settings" element={<SettingsPage />} />
 
         {/* Fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
 
       {/* Endpoints Module - DUAL AUTH (Clerk + LimaCharlie) */}
