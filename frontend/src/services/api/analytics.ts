@@ -163,6 +163,20 @@ export interface ThreatActorCoverageItem {
   totalExecutions: number;
 }
 
+export interface DefenseScoreByHostItem {
+  hostname: string;
+  score: number;
+  protected: number;
+  unprotected: number;
+  total: number;
+}
+
+export interface CanonicalTestCount {
+  count: number;
+  tests: string[];
+  days: number;
+}
+
 export interface ExtendedFilterParams {
   org?: string;
   from?: string;
@@ -386,6 +400,16 @@ export const analyticsApi = {
 
   async getThreatActorCoverage(params?: { org?: string; from?: string; to?: string }): Promise<ThreatActorCoverageItem[]> {
     const response = await apiClient.get('/analytics/threat-actor-coverage', { params });
+    return response.data;
+  },
+
+  async getDefenseScoreByHostname(params?: { org?: string; from?: string; to?: string; limit?: number }): Promise<DefenseScoreByHostItem[]> {
+    const response = await apiClient.get('/analytics/defense-score/by-hostname', { params });
+    return response.data;
+  },
+
+  async getCanonicalTestCount(params?: { org?: string; days?: number }): Promise<CanonicalTestCount> {
+    const response = await apiClient.get('/analytics/canonical-test-count', { params });
     return response.data;
   },
 };

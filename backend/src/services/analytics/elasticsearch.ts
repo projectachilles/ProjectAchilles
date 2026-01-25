@@ -21,6 +21,8 @@ import type {
   SeverityBreakdownItem,
   CategoryBreakdownItem,
   ThreatActorCoverageItem,
+  DefenseScoreByHostItem,
+  CanonicalTestCountResponse,
   SeverityLevel,
   CategoryType,
 } from '../../types/analytics.js';
@@ -1182,6 +1184,89 @@ export class ElasticsearchService {
         };
       })
       .sort((a: CategoryBreakdownItem, b: CategoryBreakdownItem) => b.score - a.score);
+  }
+
+  // Get defense score by hostname
+  async getDefenseScoreByHostname(params: AnalyticsQueryParams): Promise<DefenseScoreByHostItem[]> {
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to)
+    ];
+
+    const orgFilter = this.buildOrgFilter(params.org);
+    if (orgFilter) filters.push(orgFilter);
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: {
+        bool: { filter: filters },
+      },
+      aggs: {
+        by_hostname: {
+          terms: { field: 'routing.hostname', size: params.limit || 50 },
+          aggs: {
+            protected: {
+              filter: { term: { 'f0rtika.is_protected': true } },
+            },
+          },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.by_hostname as any)?.buckets || [];
+
+    return buckets
+      .map((bucket: any) => {
+        const total = bucket.doc_count;
+        const protectedCount = bucket.protected?.doc_count || 0;
+        const unprotectedCount = total - protectedCount;
+        const score = total > 0 ? (protectedCount / total) * 100 : 0;
+
+        return {
+          hostname: bucket.key,
+          score: Math.round(score * 100) / 100,
+          protected: protectedCount,
+          unprotected: unprotectedCount,
+          total,
+        };
+      })
+      .sort((a: DefenseScoreByHostItem, b: DefenseScoreByHostItem) => b.total - a.total);
+  }
+
+  // Get canonical test count (stable denominator for coverage calculations)
+  // Returns all unique tests seen in the last 90 days
+  async getCanonicalTestCount(params?: { org?: string; days?: number }): Promise<CanonicalTestCountResponse> {
+    const days = params?.days || 90;
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      { range: { 'routing.event_time': { gte: `now-${days}d` } } }
+    ];
+
+    const orgFilter = this.buildOrgFilter(params?.org);
+    if (orgFilter) filters.push(orgFilter);
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: {
+        bool: { filter: filters },
+      },
+      aggs: {
+        unique_test_count: {
+          cardinality: { field: 'f0rtika.test_name' },
+        },
+        test_names: {
+          terms: { field: 'f0rtika.test_name', size: 500 },
+        },
+      },
+    });
+
+    const count = (response.aggregations?.unique_test_count as any)?.value || 0;
+    const buckets = (response.aggregations?.test_names as any)?.buckets || [];
+    const tests = buckets.map((bucket: any) => bucket.key);
+
+    return { count, tests, days };
   }
 
   // Get threat actor coverage

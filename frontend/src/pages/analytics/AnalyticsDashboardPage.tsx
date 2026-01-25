@@ -5,11 +5,10 @@ import SettingsModal from './components/SettingsModal';
 import FilterBar from './components/FilterBar';
 import MetricCard from './components/MetricCard';
 import TrendChart from './components/TrendChart';
-import BarChart from './components/BarChart';
 import ErrorTypePieChart from './components/ErrorTypePieChart';
 import StackedBarChart from './components/StackedBarChart';
-import HeatmapChart from './components/HeatmapChart';
-import SeverityBreakdownChart from './components/SeverityBreakdownChart';
+import CoverageTreemap from './components/CoverageTreemap';
+import DefenseScoreByHostChart from './components/DefenseScoreByHostChart';
 import CategoryBreakdownChart from './components/CategoryBreakdownChart';
 import LastTestActivity from './components/LastTestActivity';
 import RecentTestsList from './components/RecentTestsList';
@@ -19,17 +18,16 @@ import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { analyticsApi } from '../../services/api/analytics';
 import type {
   TrendDataPoint,
-  BreakdownItem,
   OrganizationInfo,
   ErrorTypeBreakdown,
   TestCoverageItem,
   TechniqueDistributionItem,
   HostTestMatrixCell,
   FilterOption,
-  SeverityBreakdownItem,
   CategoryBreakdownItem,
   PaginatedResponse,
   EnrichedTestExecution,
+  DefenseScoreByHostItem,
 } from '../../services/api/analytics';
 
 type TabType = 'dashboard' | 'executions';
@@ -69,16 +67,15 @@ export default function AnalyticsDashboardPage() {
   const [uniqueTestCount, setUniqueTestCount] = useState<number>(0);
   const [trendData, setTrendData] = useState<TrendDataPoint[]>([]);
   const [errorTypeData, setErrorTypeData] = useState<ErrorTypeBreakdown[]>([]);
-  const [byTestData, setByTestData] = useState<BreakdownItem[]>([]);
-  const [byTechniqueData, setByTechniqueData] = useState<BreakdownItem[]>([]);
   const [testCoverageData, setTestCoverageData] = useState<TestCoverageItem[]>([]);
   const [techniqueDistData, setTechniqueDistData] = useState<TechniqueDistributionItem[]>([]);
   const [hostTestMatrix, setHostTestMatrix] = useState<HostTestMatrixCell[]>([]);
 
   // New visualization data
-  const [severityBreakdown, setSeverityBreakdown] = useState<SeverityBreakdownItem[]>([]);
   const [categoryBreakdown, setCategoryBreakdown] = useState<CategoryBreakdownItem[]>([]);
   const [recentTests, setRecentTests] = useState<EnrichedTestExecution[]>([]);
+  const [defenseScoreByHost, setDefenseScoreByHost] = useState<DefenseScoreByHostItem[]>([]);
+  const [canonicalTestCount, setCanonicalTestCount] = useState<number>(0);
 
   // Executions tab data
   const [executionsData, setExecutionsData] = useState<PaginatedResponse<EnrichedTestExecution> | null>(null);
@@ -92,10 +89,21 @@ export default function AnalyticsDashboardPage() {
   const [loadingDashboard, setLoadingDashboard] = useState(true);
   const [loadingExecutions, setLoadingExecutions] = useState(false);
 
-  // Load filter options on mount and when settings change
+  // Load filter options and canonical test count on mount and when settings change
   useEffect(() => {
     loadFilterOptions();
+    loadCanonicalTestCount();
   }, [settingsVersion]);
+
+  // Load canonical test count (stable baseline for coverage calculations)
+  async function loadCanonicalTestCount() {
+    try {
+      const result = await analyticsApi.getCanonicalTestCount({ days: 90 });
+      setCanonicalTestCount(result.count);
+    } catch (error) {
+      console.error('Failed to load canonical test count:', error);
+    }
+  }
 
   // Load dashboard data when filters or settings change
   useEffect(() => {
@@ -162,28 +170,24 @@ export default function AnalyticsDashboardPage() {
         testCount,
         trend,
         errorTypes,
-        byTest,
-        byTechnique,
         coverage,
         techDist,
         matrix,
-        severityData,
         categoryData,
         recentTestsData,
+        hostScores,
       ] = await Promise.all([
         analyticsApi.getDefenseScore(params),
         analyticsApi.getUniqueHostnames(params),
         analyticsApi.getUniqueTests(params),
         analyticsApi.getDefenseScoreTrend({ ...params, interval: 'day' }),
         analyticsApi.getResultsByErrorType(params),
-        analyticsApi.getDefenseScoreByTest(params),
-        analyticsApi.getDefenseScoreByTechnique(params),
         analyticsApi.getTestCoverage(params),
         analyticsApi.getTechniqueDistribution(params),
         analyticsApi.getHostTestMatrix(params),
-        analyticsApi.getDefenseScoreBySeverity(params),
         analyticsApi.getDefenseScoreByCategory(params),
         analyticsApi.getPaginatedExecutions({ ...params, pageSize: 3, sortField: 'routing.event_time', sortOrder: 'desc' }),
+        analyticsApi.getDefenseScoreByHostname(params),
       ]);
 
       setDefenseScore({
@@ -196,24 +200,12 @@ export default function AnalyticsDashboardPage() {
       setUniqueTestCount(testCount);
       setTrendData(trend);
       setErrorTypeData(errorTypes);
-      setByTestData(byTest.slice(0, 10).map((t: any) => ({
-        name: t.testName || t.name || '',
-        score: t.score,
-        count: (t.protectedCount || t.count || 0) + (t.unprotectedCount || 0),
-        protected: t.protectedCount || t.protected || 0
-      })));
-      setByTechniqueData(byTechnique.slice(0, 10).map((t: any) => ({
-        name: t.technique || t.name || '',
-        score: t.score,
-        count: (t.protectedCount || t.count || 0) + (t.unprotectedCount || 0),
-        protected: t.protectedCount || t.protected || 0
-      })));
       setTestCoverageData(coverage.slice(0, 10));
       setTechniqueDistData(techDist.slice(0, 10));
       setHostTestMatrix(matrix);
-      setSeverityBreakdown(severityData);
       setCategoryBreakdown(categoryData);
       setRecentTests(recentTestsData.data);
+      setDefenseScoreByHost(hostScores);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
     } finally {
@@ -368,22 +360,15 @@ export default function AnalyticsDashboardPage() {
               />
             </div>
 
-            {/* Row 4-5: New Charts - Severity + Category + Threat Actor (2 rows each) */}
-            <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
-              <SeverityBreakdownChart
-                data={severityBreakdown}
-                loading={loadingDashboard}
-                title="Score by Severity"
-              />
-            </div>
-            <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
+            {/* Row 4-5: Category breakdown + Last Test Activity (2 rows each) */}
+            <div className="col-span-12 md:col-span-6 row-span-2">
               <CategoryBreakdownChart
                 data={categoryBreakdown}
                 loading={loadingDashboard}
                 title="Score by Category"
               />
             </div>
-            <div className="col-span-12 lg:col-span-4 row-span-2">
+            <div className="col-span-12 md:col-span-6 row-span-2">
               <LastTestActivity
                 data={trendData}
                 loading={loadingDashboard}
@@ -414,23 +399,7 @@ export default function AnalyticsDashboardPage() {
               />
             </div>
 
-            {/* Row 8-9: Defense Score by Test + by Technique (2 rows each) */}
-            <div className="col-span-12 lg:col-span-6 row-span-2">
-              <BarChart
-                data={byTestData}
-                title="Defense Score by Test"
-                loading={loadingDashboard}
-              />
-            </div>
-            <div className="col-span-12 lg:col-span-6 row-span-2">
-              <BarChart
-                data={byTechniqueData}
-                title="Defense Score by Technique"
-                loading={loadingDashboard}
-              />
-            </div>
-
-            {/* Row 10-11: Test Coverage + Host-Test Matrix (2 rows each) */}
+            {/* Row 8-9: Test Coverage + Defense Score by Host (2 rows each, side by side) */}
             <div className="col-span-12 lg:col-span-6 row-span-2">
               <StackedBarChart
                 data={testCoverageData}
@@ -439,10 +408,20 @@ export default function AnalyticsDashboardPage() {
               />
             </div>
             <div className="col-span-12 lg:col-span-6 row-span-2">
-              <HeatmapChart
+              <DefenseScoreByHostChart
+                data={defenseScoreByHost}
+                loading={loadingDashboard}
+                title="Defense Score by Host"
+              />
+            </div>
+
+            {/* Row 10-12: Test Breadth by Host Treemap (full width, 3 rows for better visibility) */}
+            <div className="col-span-12 row-span-3">
+              <CoverageTreemap
                 data={hostTestMatrix}
                 loading={loadingDashboard}
-                title="Host-Test Coverage Matrix"
+                title="Test Breadth by Host"
+                canonicalTestCount={canonicalTestCount}
               />
             </div>
           </div>

@@ -191,3 +191,19 @@ export interface ThreatActorCoverageItem {
   protectedCount: number;
   totalExecutions: number;
 }
+
+// Defense score by hostname item
+export interface DefenseScoreByHostItem {
+  hostname: string;
+  score: number;
+  protected: number;
+  unprotected: number;
+  total: number;
+}
+
+// Canonical test count response (for stable coverage denominators)
+export interface CanonicalTestCountResponse {
+  count: number;
+  tests: string[];
+  days: number;
+}

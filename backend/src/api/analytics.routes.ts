@@ -429,4 +429,32 @@ router.get('/threat-actor-coverage', asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
+// GET /api/analytics/defense-score/by-hostname - Score breakdown by hostname
+router.get('/defense-score/by-hostname', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to, limit } = req.query;
+
+  const result = await es.getDefenseScoreByHostname({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+    limit: limit ? parseInt(limit as string) : 50,
+  });
+
+  res.json(result);
+}));
+
+// GET /api/analytics/canonical-test-count - Stable test count for coverage denominators
+router.get('/canonical-test-count', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, days } = req.query;
+
+  const result = await es.getCanonicalTestCount({
+    org: org as string,
+    days: days ? parseInt(days as string) : 90,
+  });
+
+  res.json(result);
+}));
+
 export default router;
