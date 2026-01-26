@@ -62,7 +62,7 @@ export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
 
   // Module navigation
   const moduleNav: NavItem[] = [
-    { label: 'Tests', icon: Shield, path: '/' },
+    { label: 'Tests', icon: Shield, path: '/dashboard' },
     {
       label: 'Analytics',
       icon: BarChart3,
@@ -85,7 +85,7 @@ export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
           {
             title: 'Tests',
             items: [
-              { label: 'Browse All', icon: Home, path: '/' },
+              { label: 'Browse All', icon: Home, path: '/dashboard' },
               { label: 'Favorites', icon: Bookmark, path: '/favorites' },
               { label: 'Recent', icon: Clock, path: '/recent' },
             ],
@@ -97,7 +97,7 @@ export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
             title: 'Analytics',
             items: [
               { label: 'Dashboard', icon: LayoutDashboard, path: '/analytics' },
-              { label: 'Executions', icon: Activity, path: '/analytics/executions' },
+              { label: 'Executions', icon: Activity, path: '/analytics?tab=executions' },
             ],
           },
         ];
@@ -121,9 +121,31 @@ export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
   const moduleNavSections = getModuleNavSections();
 
   const isActive = (path: string) => {
-    if (path === '/') {
-      return location.pathname === '/' || location.pathname.startsWith('/test/');
+    // Handle paths with query params
+    const [basePath, queryString] = path.split('?');
+    const currentSearch = new URLSearchParams(location.search);
+
+    if (basePath === '/dashboard') {
+      const isOnDashboard = location.pathname === '/dashboard' || location.pathname.startsWith('/test/');
+      // If path has no query params, match dashboard without specific tab
+      if (!queryString) return isOnDashboard;
+      return isOnDashboard;
     }
+
+    // For paths with query params (e.g., /analytics?tab=executions)
+    if (queryString) {
+      const pathParams = new URLSearchParams(queryString);
+      const pathTab = pathParams.get('tab');
+      const currentTab = currentSearch.get('tab');
+      return location.pathname === basePath && currentTab === pathTab;
+    }
+
+    // For /analytics without tab param, only match when no tab is set or tab=dashboard
+    if (basePath === '/analytics') {
+      const currentTab = currentSearch.get('tab');
+      return location.pathname === '/analytics' && (!currentTab || currentTab === 'dashboard');
+    }
+
     return location.pathname === path || location.pathname.startsWith(path + '/');
   };
 

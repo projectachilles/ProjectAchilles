@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { LayoutDashboard, Table } from 'lucide-react';
 import SharedLayout from '../../components/shared/Layout';
 import SettingsModal from './components/SettingsModal';
@@ -39,10 +40,34 @@ interface DefenseScoreData {
 }
 
 export default function AnalyticsDashboardPage() {
+  // URL state for tab
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get('tab') as TabType | null;
+
   // UI State
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl === 'executions' ? 'executions' : 'dashboard');
+
+  // Sync tab state with URL changes
+  useEffect(() => {
+    const urlTab = searchParams.get('tab') as TabType | null;
+    const newTab = urlTab === 'executions' ? 'executions' : 'dashboard';
+    if (newTab !== activeTab) {
+      setActiveTab(newTab);
+    }
+  }, [searchParams]);
+
+  // Handle tab change with URL sync
+  const handleTabChange = useCallback((tab: TabType) => {
+    setActiveTab(tab);
+    if (tab === 'executions') {
+      searchParams.set('tab', 'executions');
+    } else {
+      searchParams.delete('tab');
+    }
+    setSearchParams(searchParams, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   // Filter state (with URL sync)
   const filterState = useAnalyticsFilters(true);
@@ -287,7 +312,7 @@ export default function AnalyticsDashboardPage() {
         {/* Tab Navigation */}
         <div className="flex items-center gap-1 mb-6 border-b border-border">
           <button
-            onClick={() => setActiveTab('dashboard')}
+            onClick={() => handleTabChange('dashboard')}
             className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
               activeTab === 'dashboard'
                 ? 'border-primary text-primary'
@@ -298,7 +323,7 @@ export default function AnalyticsDashboardPage() {
             Dashboard
           </button>
           <button
-            onClick={() => setActiveTab('executions')}
+            onClick={() => handleTabChange('executions')}
             className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
               activeTab === 'executions'
                 ? 'border-primary text-primary'
