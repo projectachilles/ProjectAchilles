@@ -1,15 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { browserApi } from '@/services/api/browser';
 import type { TestDetails, FileContent } from '@/types/test';
 import TechniqueBadge from '@/components/browser/TechniqueBadge';
 import FileViewer from '@/components/browser/FileViewer';
 import DefenseDashboard from '@/components/browser/DefenseDashboard';
+import { useTheme } from '@/hooks/useTheme';
 import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2 } from 'lucide-react';
 
 export default function TestDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
   const navigate = useNavigate();
+  const { theme } = useTheme();
+  const attackFlowIframeRef = useRef<HTMLIFrameElement>(null);
   const [test, setTest] = useState<TestDetails | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<FileContent | null>(null);
@@ -19,6 +22,21 @@ export default function TestDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'file' | 'attack-flow'>('file');
   const [hasUserInteracted, setHasUserInteracted] = useState(false); // Track if user clicked something
+
+  // Sync theme to attack flow iframe via postMessage
+  const syncThemeToIframe = useCallback(() => {
+    if (attackFlowIframeRef.current?.contentWindow) {
+      attackFlowIframeRef.current.contentWindow.postMessage(
+        { type: 'theme-change', theme },
+        '*'
+      );
+    }
+  }, [theme]);
+
+  // Sync theme when it changes or when iframe loads
+  useEffect(() => {
+    syncThemeToIframe();
+  }, [theme, attackFlowHtml, syncThemeToIframe]);
 
   useEffect(() => {
     if (uuid) {
@@ -436,10 +454,12 @@ export default function TestDetailPage() {
               </div>
             ) : activeView === 'attack-flow' && attackFlowHtml ? (
               <iframe
+                ref={attackFlowIframeRef}
                 srcDoc={attackFlowHtml}
                 className="w-full h-full border-0"
                 title="Attack Flow Diagram"
                 sandbox="allow-scripts"
+                onLoad={syncThemeToIframe}
               />
             ) : fileContent ? (
               <FileViewer file={fileContent} />

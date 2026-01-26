@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { TestDetails, FileContent } from '@/types/test';
 import { browserApi } from '@/services/api/browser';
 import FileViewer from './FileViewer';
+import { useTheme } from '@/hooks/useTheme';
 import { FileText, BookOpen, ShieldCheck, Workflow, Loader2 } from 'lucide-react';
 
 interface TabbedViewerProps {
@@ -18,10 +19,29 @@ interface Tab {
 }
 
 export default function TabbedViewer({ test }: TabbedViewerProps) {
+  const { theme } = useTheme();
+  const attackFlowIframeRef = useRef<HTMLIFrameElement>(null);
   const [activeTab, setActiveTab] = useState<string>('readme');
   const [fileContent, setFileContent] = useState<FileContent | null>(null);
   const [attackFlowHtml, setAttackFlowHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Sync theme to attack flow iframe via postMessage
+  const syncThemeToIframe = useCallback(() => {
+    if (attackFlowIframeRef.current?.contentWindow) {
+      attackFlowIframeRef.current.contentWindow.postMessage(
+        { type: 'theme-change', theme },
+        '*'
+      );
+    }
+  }, [theme]);
+
+  // Sync theme when it changes or when attack flow HTML loads
+  useEffect(() => {
+    if (activeTab === 'attack-flow' && attackFlowHtml) {
+      syncThemeToIframe();
+    }
+  }, [theme, activeTab, attackFlowHtml, syncThemeToIframe]);
 
   // Define available tabs based on test files
   const tabs: Tab[] = [
@@ -137,10 +157,12 @@ export default function TabbedViewer({ test }: TabbedViewerProps) {
           </div>
         ) : currentTab?.type === 'attack-flow' && attackFlowHtml ? (
           <iframe
+            ref={attackFlowIframeRef}
             srcDoc={attackFlowHtml}
             className="w-full h-full border-0"
             title="Attack Flow Diagram"
-            sandbox="allow-scripts allow-same-origin"
+            sandbox="allow-scripts"
+            onLoad={syncThemeToIframe}
           />
         ) : fileContent ? (
           <FileViewer file={fileContent} />
