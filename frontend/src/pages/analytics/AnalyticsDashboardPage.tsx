@@ -61,12 +61,13 @@ export default function AnalyticsDashboardPage() {
   // Handle tab change with URL sync
   const handleTabChange = useCallback((tab: TabType) => {
     setActiveTab(tab);
+    const newParams = new URLSearchParams(searchParams);
     if (tab === 'executions') {
-      searchParams.set('tab', 'executions');
+      newParams.set('tab', 'executions');
     } else {
-      searchParams.delete('tab');
+      newParams.delete('tab');
     }
-    setSearchParams(searchParams, { replace: true });
+    setSearchParams(newParams, { replace: true });
   }, [searchParams, setSearchParams]);
 
   // Filter state (with URL sync)
