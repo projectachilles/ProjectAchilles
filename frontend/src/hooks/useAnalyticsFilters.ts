@@ -162,11 +162,22 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
 
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // Sync URL when filters change
+  // Sync URL when filters change (preserve non-filter params like 'tab')
   useEffect(() => {
     if (syncWithUrl) {
-      const params = serializeToUrlParams(filters);
-      setSearchParams(params, { replace: true });
+      const filterParams = serializeToUrlParams(filters);
+      setSearchParams(prev => {
+        // Start with existing params to preserve non-filter params like 'tab'
+        const newParams = new URLSearchParams(prev);
+        // Clear all filter-related params first
+        const filterKeys = ['org', 'date', 'from', 'to', 'result', 'hostnames', 'tests', 'techniques', 'categories', 'severities', 'threatActors', 'tags'];
+        filterKeys.forEach(key => newParams.delete(key));
+        // Add back the current filter params
+        Object.entries(filterParams).forEach(([key, value]) => {
+          newParams.set(key, value);
+        });
+        return newParams;
+      }, { replace: true });
     }
   }, [filters, syncWithUrl, setSearchParams]);
 
