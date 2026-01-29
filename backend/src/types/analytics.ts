@@ -64,6 +64,7 @@ export interface AnalyticsQueryParams {
   limit?: number;
   tests?: string;      // comma-separated test names/UUIDs
   techniques?: string; // comma-separated technique IDs
+  windowDays?: number; // Rolling window size in days for trend aggregation
 }
 
 // Organization breakdown

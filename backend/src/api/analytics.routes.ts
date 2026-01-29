@@ -112,18 +112,36 @@ router.get('/defense-score', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/analytics/defense-score/trend - Score over time
+// Supports rolling window aggregation via windowDays param (1-90 days)
 router.get('/defense-score/trend', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const { org, from, to, interval } = req.query;
+  const { org, from, to, interval, windowDays } = req.query;
 
-  const result = await es.getDefenseScoreTrend({
-    org: org as string,
-    from: from as string,
-    to: to as string,
-    interval: (interval as string) || 'day',
-  });
+  // Parse and clamp windowDays to 1-90 range
+  const parsedWindowDays = windowDays ? parseInt(windowDays as string, 10) : undefined;
+  const clampedWindowDays = parsedWindowDays
+    ? Math.max(1, Math.min(90, parsedWindowDays))
+    : undefined;
 
-  res.json(result);
+  // Use rolling window method when windowDays is provided, otherwise fall back to original
+  if (clampedWindowDays) {
+    const result = await es.getDefenseScoreTrendRolling({
+      org: org as string,
+      from: from as string,
+      to: to as string,
+      interval: (interval as string) || 'day',
+      windowDays: clampedWindowDays,
+    });
+    res.json(result);
+  } else {
+    const result = await es.getDefenseScoreTrend({
+      org: org as string,
+      from: from as string,
+      to: to as string,
+      interval: (interval as string) || 'day',
+    });
+    res.json(result);
+  }
 }));
 
 // GET /api/analytics/defense-score/by-test - Score by test

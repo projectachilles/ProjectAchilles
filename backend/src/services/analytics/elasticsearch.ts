@@ -181,6 +181,144 @@ export class ElasticsearchService {
     });
   }
 
+  // Extend a date string by windowDays for lookback period
+  // Handles both 'now-Xd' format and ISO date strings
+  private extendDateRange(from: string | undefined, windowDays: number): string {
+    if (!from) {
+      return `now-${7 + windowDays - 1}d`; // Default to 7d + lookback
+    }
+
+    // Handle 'now-Xd' format
+    const nowMatch = from.match(/^now-(\d+)([dhwm])$/);
+    if (nowMatch) {
+      const value = parseInt(nowMatch[1], 10);
+      const unit = nowMatch[2];
+      // Convert to days for extension
+      const daysMap: Record<string, number> = { d: 1, h: 1/24, w: 7, m: 30 };
+      const totalDays = Math.ceil(value * (daysMap[unit] || 1)) + windowDays - 1;
+      return `now-${totalDays}d`;
+    }
+
+    // Handle ISO date string - subtract windowDays-1
+    const date = new Date(from);
+    if (!isNaN(date.getTime())) {
+      date.setDate(date.getDate() - (windowDays - 1));
+      return date.toISOString();
+    }
+
+    // Fallback
+    return from;
+  }
+
+  // Check if a timestamp is within the display range (after the extended lookback)
+  private isWithinDisplayRange(timestamp: string, displayFrom: string | undefined): boolean {
+    const pointDate = new Date(parseInt(timestamp, 10) || timestamp);
+
+    if (!displayFrom) {
+      // Default 7d range
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 7);
+      cutoff.setHours(0, 0, 0, 0);
+      return pointDate >= cutoff;
+    }
+
+    // Handle 'now-Xd' format
+    const nowMatch = displayFrom.match(/^now-(\d+)([dhwm])$/);
+    if (nowMatch) {
+      const value = parseInt(nowMatch[1], 10);
+      const unit = nowMatch[2];
+      const daysMap: Record<string, number> = { d: 1, h: 1/24, w: 7, m: 30 };
+      const days = Math.ceil(value * (daysMap[unit] || 1));
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      cutoff.setHours(0, 0, 0, 0);
+      return pointDate >= cutoff;
+    }
+
+    // Handle ISO date string
+    const cutoffDate = new Date(displayFrom);
+    cutoffDate.setHours(0, 0, 0, 0);
+    return pointDate >= cutoffDate;
+  }
+
+  // Get defense score trend with rolling window aggregation
+  async getDefenseScoreTrendRolling(params: AnalyticsQueryParams): Promise<TrendDataPoint[]> {
+    const windowDays = params.windowDays || 7;
+    const displayFrom = params.from;
+
+    // Extend date range to include lookback period
+    const extendedFrom = this.extendDateRange(params.from, windowDays);
+
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(extendedFrom, params.to)
+    ];
+
+    const orgFilter = this.buildOrgFilter(params.org);
+    if (orgFilter) filters.push(orgFilter);
+
+    const interval = params.interval || 'day';
+
+    // Query ES with extended range
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: {
+        bool: { filter: filters },
+      },
+      aggs: {
+        over_time: {
+          date_histogram: {
+            field: 'routing.event_time',
+            calendar_interval: interval as 'day' | 'week' | 'month' | 'hour',
+            min_doc_count: 0,
+          },
+          aggs: {
+            protected: {
+              filter: { term: { 'f0rtika.is_protected': true } },
+            },
+          },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.over_time as any)?.buckets || [];
+
+    // Compute rolling sums
+    const rollingResults: TrendDataPoint[] = [];
+
+    for (let i = 0; i < buckets.length; i++) {
+      const currentBucket = buckets[i];
+      const timestamp = currentBucket.key_as_string;
+
+      // Sum over the window (current day + previous windowDays-1 days)
+      let windowTotal = 0;
+      let windowProtected = 0;
+
+      const windowStart = Math.max(0, i - windowDays + 1);
+      for (let j = windowStart; j <= i; j++) {
+        windowTotal += buckets[j].doc_count;
+        windowProtected += buckets[j].protected?.doc_count || 0;
+      }
+
+      // Skip points that are in the lookback-only period
+      if (!this.isWithinDisplayRange(currentBucket.key.toString(), displayFrom)) {
+        continue;
+      }
+
+      const score = windowTotal > 0 ? (windowProtected / windowTotal) * 100 : 0;
+
+      rollingResults.push({
+        timestamp,
+        score: Math.round(score * 100) / 100,
+        total: windowTotal,
+        protected: windowProtected,
+      });
+    }
+
+    return rollingResults;
+  }
+
   // Get defense score by test
   async getDefenseScoreByTest(params: AnalyticsQueryParams): Promise<BreakdownItem[]> {
     const filters: any[] = [

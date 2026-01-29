@@ -250,6 +250,7 @@ export const analyticsApi = {
     from?: string;
     to?: string;
     interval?: 'hour' | 'day' | 'week';
+    windowDays?: number;
   }): Promise<TrendDataPoint[]> {
     const response = await apiClient.get('/analytics/defense-score/trend', { params });
     return response.data;

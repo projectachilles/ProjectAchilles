@@ -8,7 +8,6 @@ import {
 } from 'recharts';
 import { format } from 'date-fns';
 import type { TrendDataPoint } from '../../../services/api/analytics';
-import { applyForwardFill } from '../utils/trendDataTransformations';
 import {
   ChartContainer,
   ChartTooltip,
@@ -35,6 +34,7 @@ interface TrendChartProps {
   data: TrendDataPoint[];
   loading?: boolean;
   title?: string;
+  windowDays?: number;
 }
 
 const chartConfig = {
@@ -44,7 +44,7 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
-export default function TrendChart({ data, loading, title = 'Defense Score Trend' }: TrendChartProps) {
+export default function TrendChart({ data, loading, title = 'Defense Score Trend', windowDays }: TrendChartProps) {
   // Return early if no data to prevent rendering issues
   if (!data || data.length === 0) {
     if (loading) {
@@ -71,11 +71,8 @@ export default function TrendChart({ data, loading, title = 'Defense Score Trend
     );
   }
 
-  // Apply forward-fill to preserve scores on days without data
-  const filledData = applyForwardFill(data);
-
-  // Format data for chart
-  const chartData = filledData.map(point => {
+  // Format data for chart (rolling window aggregation is now done server-side)
+  const chartData = data.map(point => {
     const date = parseTimestamp(point.timestamp);
     return {
       ...point,
@@ -110,8 +107,11 @@ export default function TrendChart({ data, loading, title = 'Defense Score Trend
     <Card className="h-full overflow-hidden flex flex-col">
       <CardHeader className="flex-shrink-0 pb-0">
         <CardTitle className="text-base font-medium">{title}</CardTitle>
-        <CardDescription className="flex items-center gap-1 text-sm">
+        <CardDescription className="flex items-center gap-2 text-sm">
           <span>Average: {avgScore}%</span>
+          {windowDays && (
+            <span className="text-muted-foreground">({windowDays}-day rolling)</span>
+          )}
           <TrendingUp className="h-4 w-4 text-muted-foreground" />
         </CardDescription>
       </CardHeader>
@@ -168,7 +168,6 @@ export default function TrendChart({ data, loading, title = 'Defense Score Trend
                   }}
                   formatter={(value, name, item) => {
                     const payload = item.payload;
-                    const isEstimated = payload?.isCarriedForward;
                     return (
                       <div className="flex flex-col gap-0.5">
                         <div className="flex items-center gap-2">
@@ -177,10 +176,10 @@ export default function TrendChart({ data, loading, title = 'Defense Score Trend
                             style={{ backgroundColor: 'var(--color-score)' }}
                           />
                           <span className="text-foreground font-medium">
-                            {Number(value).toFixed(1)}%{isEstimated ? ' (est.)' : ''}
+                            {Number(value).toFixed(1)}%
                           </span>
                         </div>
-                        {!isEstimated && payload.total > 0 && (
+                        {payload.total > 0 && (
                           <span className="text-xs text-muted-foreground ml-4">
                             {payload.protected}/{payload.total} protected
                           </span>

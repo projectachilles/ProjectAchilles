@@ -13,7 +13,7 @@ import DefenseScoreByHostChart from './components/DefenseScoreByHostChart';
 import CategoryBreakdownChart from './components/CategoryBreakdownChart';
 import TestActivityCard from './components/TestActivityCard';
 import ExecutionsDataTable from './components/ExecutionsDataTable';
-import { useAnalyticsFilters } from '@/hooks/useAnalyticsFilters';
+import { useAnalyticsFilters, getWindowDaysForDateRange } from '@/hooks/useAnalyticsFilters';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { analyticsApi } from '../../services/api/analytics';
 import type {
@@ -188,6 +188,9 @@ export default function AnalyticsDashboardPage() {
     setLoadingDashboard(true);
     const params = filterState.getApiParams();
 
+    // Calculate window size based on current date range filter
+    const windowDays = getWindowDaysForDateRange(filterState.filters.dateRange);
+
     try {
       const [
         score,
@@ -205,7 +208,7 @@ export default function AnalyticsDashboardPage() {
         analyticsApi.getDefenseScore(params),
         analyticsApi.getUniqueHostnames(params),
         analyticsApi.getUniqueTests(params),
-        analyticsApi.getDefenseScoreTrend({ ...params, interval: 'day' }),
+        analyticsApi.getDefenseScoreTrend({ ...params, interval: 'day', windowDays }),
         analyticsApi.getResultsByErrorType(params),
         analyticsApi.getTestCoverage(params),
         analyticsApi.getTechniqueDistribution(params),
@@ -359,6 +362,7 @@ export default function AnalyticsDashboardPage() {
                 data={trendData}
                 loading={loadingDashboard}
                 title="Defense Score Trend"
+                windowDays={getWindowDaysForDateRange(filterState.filters.dateRange)}
               />
             </div>
 
