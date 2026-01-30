@@ -312,7 +312,8 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
   const es = await getEsService();
   const {
     org, from, to, tests, techniques,
-    hostnames, categories, severities, threatActors, tags, result,
+    hostnames, categories, severities, threatActors, tags,
+    errorNames, errorCodes, result,
     page, pageSize, sortField, sortOrder
   } = req.query;
 
@@ -327,6 +328,8 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
     severities: severities as string,
     threatActors: threatActors as string,
     tags: tags as string,
+    errorNames: errorNames as string,
+    errorCodes: errorCodes as string,
     result: result as 'all' | 'protected' | 'unprotected',
     page: page ? parseInt(page as string) : 1,
     pageSize: pageSize ? parseInt(pageSize as string) : 25,
@@ -408,6 +411,34 @@ router.get('/available-tags', asyncHandler(async (req, res) => {
   res.json(tags);
 }));
 
+// GET /api/analytics/available-error-names - List available error names with counts
+router.get('/available-error-names', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to } = req.query;
+
+  const errorNames = await es.getAvailableErrorNames({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+  });
+
+  res.json(errorNames);
+}));
+
+// GET /api/analytics/available-error-codes - List available error codes with counts
+router.get('/available-error-codes', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to } = req.query;
+
+  const errorCodes = await es.getAvailableErrorCodes({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+  });
+
+  res.json(errorCodes);
+}));
+
 // GET /api/analytics/defense-score/by-severity - Score breakdown by severity
 router.get('/defense-score/by-severity', asyncHandler(async (req, res) => {
   const es = await getEsService();
@@ -460,6 +491,20 @@ router.get('/defense-score/by-hostname', asyncHandler(async (req, res) => {
     from: from as string,
     to: to as string,
     limit: limit ? parseInt(limit as string) : 50,
+  });
+
+  res.json(result);
+}));
+
+// GET /api/analytics/error-rate - Error rate (proportion of non-conclusive test activity)
+router.get('/error-rate', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to } = req.query;
+
+  const result = await es.getErrorRate({
+    org: org as string,
+    from: from as string,
+    to: to as string,
   });
 
   res.json(result);

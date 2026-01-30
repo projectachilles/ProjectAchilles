@@ -23,6 +23,7 @@ import type {
   ThreatActorCoverageItem,
   DefenseScoreByHostItem,
   CanonicalTestCountResponse,
+  ErrorRateResponse,
   SeverityLevel,
   CategoryType,
 } from '../../types/analytics.js';
@@ -30,6 +31,15 @@ import type {
 export class ElasticsearchService {
   private client: Client;
   private settings: AnalyticsSettings;
+
+  // Conclusive test outcome codes (used for Defense Score)
+  private readonly CONCLUSIVE_ERROR_CODES = [101, 105, 126, 127];
+
+  // Error codes representing failed/inconclusive test attempts (used for Error Rate)
+  private readonly ERROR_CODES = [0, 1, 259, 999];
+
+  // Upload confirmation code — not a test outcome, excluded from everything
+  private readonly UPLOAD_CONFIRMATION_CODE = 200;
 
   constructor(settings: AnalyticsSettings) {
     this.settings = settings;
@@ -91,11 +101,26 @@ export class ElasticsearchService {
     };
   }
 
+  // Filter to only conclusive test outcomes (for Defense Score calculations)
+  private buildConclusiveResultsFilter(): any {
+    return { terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } };
+  }
+
+  // Filter to exclude upload confirmations (for Error Rate — real test activity only)
+  private buildTestActivityFilter(): any {
+    return {
+      bool: {
+        must_not: [{ term: { 'event.ERROR': this.UPLOAD_CONFIRMATION_CODE } }]
+      }
+    };
+  }
+
   // Get overall defense score
   async getDefenseScore(params: AnalyticsQueryParams): Promise<DefenseScoreResponse> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
     ];
 
     const orgFilter = this.buildOrgFilter(params.org);
@@ -135,7 +160,8 @@ export class ElasticsearchService {
   async getDefenseScoreTrend(params: AnalyticsQueryParams): Promise<TrendDataPoint[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
     ];
 
     const orgFilter = this.buildOrgFilter(params.org);
@@ -251,7 +277,8 @@ export class ElasticsearchService {
 
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(extendedFrom, params.to)
+      this.buildDateFilter(extendedFrom, params.to),
+      this.buildConclusiveResultsFilter()
     ];
 
     const orgFilter = this.buildOrgFilter(params.org);
@@ -323,7 +350,8 @@ export class ElasticsearchService {
   async getDefenseScoreByTest(params: AnalyticsQueryParams): Promise<BreakdownItem[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
     ];
 
     const orgFilter = this.buildOrgFilter(params.org);
@@ -369,7 +397,8 @@ export class ElasticsearchService {
   async getDefenseScoreByTechnique(params: AnalyticsQueryParams): Promise<BreakdownItem[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
     ];
 
     const orgFilter = this.buildOrgFilter(params.org);
@@ -817,7 +846,8 @@ export class ElasticsearchService {
   async getDefenseScoreByOrg(params: AnalyticsQueryParams): Promise<OrgBreakdownItem[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
     ];
 
     const response = await this.client.search({
@@ -948,6 +978,30 @@ export class ElasticsearchService {
     };
   }
 
+  // Build error names filter (OR logic)
+  private buildErrorNamesFilter(errorNames?: string): any | null {
+    if (!errorNames) return null;
+    const nameList = errorNames.split(',').map(n => n.trim()).filter(Boolean);
+    if (nameList.length === 0) return null;
+    if (nameList.length === 1) {
+      return { term: { 'f0rtika.error_name.keyword': nameList[0] } };
+    }
+    return {
+      bool: {
+        should: nameList.map(n => ({ term: { 'f0rtika.error_name.keyword': n } })),
+        minimum_should_match: 1,
+      },
+    };
+  }
+
+  // Build error codes filter (OR logic, numeric field)
+  private buildErrorCodesFilter(errorCodes?: string): any | null {
+    if (!errorCodes) return null;
+    const codeList = errorCodes.split(',').map(c => parseInt(c.trim(), 10)).filter(n => !isNaN(n));
+    if (codeList.length === 0) return null;
+    return { terms: { 'event.ERROR': codeList } };
+  }
+
   // Build result filter (protected/unprotected)
   private buildResultFilter(result?: 'all' | 'protected' | 'unprotected'): any | null {
     if (!result || result === 'all') return null;
@@ -984,6 +1038,12 @@ export class ElasticsearchService {
 
     const tagsFilter = this.buildTagsFilter(params.tags);
     if (tagsFilter) filters.push(tagsFilter);
+
+    const errorNamesFilter = this.buildErrorNamesFilter(params.errorNames);
+    if (errorNamesFilter) filters.push(errorNamesFilter);
+
+    const errorCodesFilter = this.buildErrorCodesFilter(params.errorCodes);
+    if (errorCodesFilter) filters.push(errorCodesFilter);
 
     const resultFilter = this.buildResultFilter(params.result);
     if (resultFilter) filters.push(resultFilter);
@@ -1245,11 +1305,76 @@ export class ElasticsearchService {
       .sort((a: FilterOption, b: FilterOption) => b.count - a.count);
   }
 
+  // Get available error names with counts
+  async getAvailableErrorNames(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
+    const filters: any[] = [this.buildTestDataFilter()];
+    if (params) {
+      if (params.from || params.to) {
+        filters.push(this.buildDateFilter(params.from, params.to));
+      }
+      const orgFilter = this.buildOrgFilter(params.org);
+      if (orgFilter) filters.push(orgFilter);
+    }
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: { bool: { filter: filters } },
+      aggs: {
+        error_names: {
+          terms: { field: 'f0rtika.error_name.keyword', size: 50 },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.error_names as any)?.buckets || [];
+    return buckets
+      .map((bucket: any) => ({
+        value: bucket.key,
+        label: bucket.key,
+        count: bucket.doc_count,
+      }))
+      .sort((a: FilterOption, b: FilterOption) => b.count - a.count);
+  }
+
+  // Get available error codes with counts
+  async getAvailableErrorCodes(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
+    const filters: any[] = [this.buildTestDataFilter()];
+    if (params) {
+      if (params.from || params.to) {
+        filters.push(this.buildDateFilter(params.from, params.to));
+      }
+      const orgFilter = this.buildOrgFilter(params.org);
+      if (orgFilter) filters.push(orgFilter);
+    }
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: { bool: { filter: filters } },
+      aggs: {
+        error_codes: {
+          terms: { field: 'event.ERROR', size: 50 },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.error_codes as any)?.buckets || [];
+    return buckets
+      .map((bucket: any) => ({
+        value: String(bucket.key),
+        label: String(bucket.key),
+        count: bucket.doc_count,
+      }))
+      .sort((a: FilterOption, b: FilterOption) => b.count - a.count);
+  }
+
   // Get defense score by severity
   async getDefenseScoreBySeverity(params: AnalyticsQueryParams): Promise<SeverityBreakdownItem[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
     ];
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -1296,7 +1421,8 @@ export class ElasticsearchService {
   async getDefenseScoreByCategory(params: AnalyticsQueryParams): Promise<CategoryBreakdownItem[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
     ];
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -1340,7 +1466,8 @@ export class ElasticsearchService {
   async getDefenseScoreByHostname(params: AnalyticsQueryParams): Promise<DefenseScoreByHostItem[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
     ];
 
     const orgFilter = this.buildOrgFilter(params.org);
@@ -1423,7 +1550,8 @@ export class ElasticsearchService {
   async getThreatActorCoverage(params: AnalyticsQueryParams): Promise<ThreatActorCoverageItem[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
     ];
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -1465,5 +1593,45 @@ export class ElasticsearchService {
         };
       })
       .sort((a: ThreatActorCoverageItem, b: ThreatActorCoverageItem) => b.totalExecutions - a.totalExecutions);
+  }
+
+  // Get error rate (proportion of non-conclusive test activity)
+  async getErrorRate(params: AnalyticsQueryParams): Promise<ErrorRateResponse> {
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to),
+      this.buildTestActivityFilter()  // excludes code 200
+    ];
+
+    const orgFilter = this.buildOrgFilter(params.org);
+    if (orgFilter) filters.push(orgFilter);
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: {
+        bool: { filter: filters },
+      },
+      aggs: {
+        errors: {
+          filter: { terms: { 'event.ERROR': this.ERROR_CODES } },
+        },
+        conclusive: {
+          filter: { terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } },
+        },
+      },
+    });
+
+    const errorCount = (response.aggregations?.errors as any)?.doc_count || 0;
+    const conclusiveCount = (response.aggregations?.conclusive as any)?.doc_count || 0;
+    const totalTestActivity = errorCount + conclusiveCount;
+    const errorRate = totalTestActivity > 0 ? (errorCount / totalTestActivity) * 100 : 0;
+
+    return {
+      errorRate: Math.round(errorRate * 100) / 100,
+      errorCount,
+      conclusiveCount,
+      totalTestActivity,
+    };
   }
 }

@@ -85,9 +85,12 @@ export default function AnalyticsDashboardPage() {
   const [availableSeverities, setAvailableSeverities] = useState<FilterOption[]>([]);
   const [availableThreatActors, setAvailableThreatActors] = useState<FilterOption[]>([]);
   const [availableTags, setAvailableTags] = useState<FilterOption[]>([]);
+  const [availableErrorNames, setAvailableErrorNames] = useState<FilterOption[]>([]);
+  const [availableErrorCodes, setAvailableErrorCodes] = useState<FilterOption[]>([]);
 
   // Dashboard Data State
   const [defenseScore, setDefenseScore] = useState<DefenseScoreData | null>(null);
+  const [errorRate, setErrorRate] = useState<number | null>(null);
   const [uniqueHostnames, setUniqueHostnames] = useState<number>(0);
   const [uniqueTestCount, setUniqueTestCount] = useState<number>(0);
   const [trendData, setTrendData] = useState<TrendDataPoint[]>([]);
@@ -148,7 +151,7 @@ export default function AnalyticsDashboardPage() {
   async function loadFilterOptions() {
     setLoadingFilters(true);
     try {
-      const [orgs, tests, techniques, hostnames, categories, severities, threatActors, tags] = await Promise.all([
+      const [orgs, tests, techniques, hostnames, categories, severities, threatActors, tags, errorNames, errorCodes] = await Promise.all([
         analyticsApi.getOrganizations(),
         analyticsApi.getAvailableTests(),
         analyticsApi.getAvailableTechniques(),
@@ -157,6 +160,8 @@ export default function AnalyticsDashboardPage() {
         analyticsApi.getAvailableSeverities(),
         analyticsApi.getAvailableThreatActors(),
         analyticsApi.getAvailableTags(),
+        analyticsApi.getAvailableErrorNames(),
+        analyticsApi.getAvailableErrorCodes(),
       ]);
 
       setOrganizations(orgs.map(org => {
@@ -176,6 +181,8 @@ export default function AnalyticsDashboardPage() {
       setAvailableSeverities(severities);
       setAvailableThreatActors(threatActors);
       setAvailableTags(tags);
+      setAvailableErrorNames(errorNames);
+      setAvailableErrorCodes(errorCodes);
     } catch (error) {
       console.error('Failed to load filter options:', error);
     } finally {
@@ -204,6 +211,7 @@ export default function AnalyticsDashboardPage() {
         categoryData,
         recentTestsData,
         hostScores,
+        errorRateData,
       ] = await Promise.all([
         analyticsApi.getDefenseScore(params),
         analyticsApi.getUniqueHostnames(params),
@@ -216,6 +224,7 @@ export default function AnalyticsDashboardPage() {
         analyticsApi.getDefenseScoreByCategory(params),
         analyticsApi.getPaginatedExecutions({ ...params, pageSize: 3, sortField: 'routing.event_time', sortOrder: 'desc' }),
         analyticsApi.getDefenseScoreByHostname(params),
+        analyticsApi.getErrorRate(params),
       ]);
 
       setDefenseScore({
@@ -234,6 +243,7 @@ export default function AnalyticsDashboardPage() {
       setCategoryBreakdown(categoryData);
       setRecentTests(recentTestsData.data);
       setDefenseScoreByHost(hostScores);
+      setErrorRate(errorRateData.errorRate);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
     } finally {
@@ -310,6 +320,8 @@ export default function AnalyticsDashboardPage() {
           availableSeverities={availableSeverities}
           availableThreatActors={availableThreatActors}
           availableTags={availableTags}
+          availableErrorNames={availableErrorNames}
+          availableErrorCodes={availableErrorCodes}
           loading={loadingFilters}
         />
 
@@ -354,6 +366,7 @@ export default function AnalyticsDashboardPage() {
                 defenseScore={defenseScore?.overall ?? null}
                 uniqueEndpoints={uniqueHostnames}
                 executedTests={uniqueTestCount}
+                errorRate={errorRate}
                 loading={loadingDashboard}
               />
             </div>

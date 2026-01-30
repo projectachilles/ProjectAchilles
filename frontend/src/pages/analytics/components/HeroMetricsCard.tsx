@@ -1,10 +1,11 @@
-import { Loader2, Shield, Monitor, FlaskConical } from 'lucide-react';
+import { Loader2, Shield, Monitor, FlaskConical, AlertTriangle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 
 interface HeroMetricsCardProps {
   defenseScore: number | null;
   uniqueEndpoints: number;
   executedTests: number;
+  errorRate?: number | null;
   loading?: boolean;
 }
 
@@ -17,6 +18,7 @@ export default function HeroMetricsCard({
   defenseScore,
   uniqueEndpoints,
   executedTests,
+  errorRate,
   loading,
 }: HeroMetricsCardProps) {
   // Score-based color: green (≥80%), yellow (≥60%), red (<60%)
@@ -53,6 +55,14 @@ export default function HeroMetricsCard({
         <div className={`text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight ${getScoreColor(defenseScore)}`}>
           {formatScore(defenseScore)}
         </div>
+        {errorRate !== null && errorRate !== undefined && errorRate > 0 && (
+          <div className="flex items-center gap-1 mt-1 sm:mt-2">
+            <AlertTriangle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-500 flex-shrink-0" />
+            <span className="text-xs sm:text-sm text-amber-500">
+              {errorRate.toFixed(1)}% inconclusive
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Horizontal Divider */}
