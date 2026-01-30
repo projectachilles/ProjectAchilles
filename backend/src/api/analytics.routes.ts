@@ -75,15 +75,18 @@ router.post('/settings', asyncHandler(async (req, res) => {
 router.post('/settings/test', asyncHandler(async (req, res) => {
   const { connectionType, cloudId, apiKey, node, username, password } = req.body;
 
+  // Merge with existing settings so edit-mode tests work with blank credentials
+  const existingSettings = settingsService.getSettings();
+
   try {
     const testService = new ElasticsearchService({
-      connectionType,
-      cloudId,
-      apiKey,
-      node,
-      username,
-      password,
-      indexPattern: 'f0rtika-results-*',
+      connectionType: connectionType || existingSettings.connectionType,
+      cloudId: cloudId || existingSettings.cloudId,
+      apiKey: apiKey || existingSettings.apiKey,
+      node: node || existingSettings.node,
+      username: username || existingSettings.username,
+      password: password || existingSettings.password,
+      indexPattern: existingSettings.indexPattern || 'f0rtika-results-*',
       configured: true,
     });
 

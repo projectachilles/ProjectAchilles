@@ -88,17 +88,12 @@ export class SettingsService {
     }
   }
 
-  // Load settings - env vars take priority over file config
-  getSettings(): AnalyticsSettings {
-    // Environment variables override file config
-    const envSettings = this.getEnvSettings();
-    if (envSettings) return envSettings;
-
-    // Fall back to file-based config
+  // Load file-based settings (without env override)
+  private getFileSettings(): AnalyticsSettings | null {
     this.ensureSettingsDir();
 
     if (!fs.existsSync(SETTINGS_FILE)) {
-      return defaultSettings;
+      return null;
     }
 
     try {
@@ -119,8 +114,24 @@ export class SettingsService {
       return settings;
     } catch (error) {
       console.error('Error loading analytics settings:', error);
-      return defaultSettings;
+      return null;
     }
+  }
+
+  // Load settings - env vars provide credentials, user file overrides index pattern
+  getSettings(): AnalyticsSettings {
+    const envSettings = this.getEnvSettings();
+    const fileSettings = this.getFileSettings();
+
+    if (envSettings) {
+      // Env provides credentials, but user-saved index pattern takes priority
+      if (fileSettings?.indexPattern) {
+        envSettings.indexPattern = fileSettings.indexPattern;
+      }
+      return envSettings;
+    }
+
+    return fileSettings || defaultSettings;
   }
 
   // Save settings to file
