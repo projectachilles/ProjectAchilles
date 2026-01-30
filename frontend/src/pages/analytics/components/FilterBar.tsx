@@ -16,6 +16,8 @@ interface FilterBarProps {
   availableSeverities: FilterOption[];
   availableThreatActors: FilterOption[];
   availableTags: FilterOption[];
+  availableErrorNames: FilterOption[];
+  availableErrorCodes: FilterOption[];
   loading?: boolean;
 }
 
@@ -29,6 +31,8 @@ export default function FilterBar({
   availableSeverities,
   availableThreatActors,
   availableTags,
+  availableErrorNames,
+  availableErrorCodes,
   loading = false,
 }: FilterBarProps) {
   const {
@@ -46,6 +50,8 @@ export default function FilterBar({
     setSeverities,
     setThreatActors,
     setTags,
+    setErrorNames,
+    setErrorCodes,
     toggleExpanded,
     clearAllFilters,
     clearAdvancedFilters,
@@ -94,6 +100,18 @@ export default function FilterBar({
     activeFilterTags.push({
       label: `Tags: ${filters.tags.length > 2 ? `${filters.tags.length} selected` : filters.tags.join(', ')}`,
       onClear: () => setTags([]),
+    });
+  }
+  if (filters.errorNames.length > 0) {
+    activeFilterTags.push({
+      label: `Error Name: ${filters.errorNames.length > 2 ? `${filters.errorNames.length} selected` : filters.errorNames.join(', ')}`,
+      onClear: () => setErrorNames([]),
+    });
+  }
+  if (filters.errorCodes.length > 0) {
+    activeFilterTags.push({
+      label: `Error Code: ${filters.errorCodes.length > 2 ? `${filters.errorCodes.length} selected` : filters.errorCodes.join(', ')}`,
+      onClear: () => setErrorCodes([]),
     });
   }
 
@@ -216,6 +234,26 @@ export default function FilterBar({
               onChange={setTags}
               loading={loading}
               placeholder="All Tags"
+            />
+
+            {/* Error Name Filter */}
+            <MultiSelectFilter
+              label="Error Name"
+              options={availableErrorNames.map(e => e.value)}
+              selected={filters.errorNames}
+              onChange={setErrorNames}
+              loading={loading}
+              placeholder="All Error Types"
+            />
+
+            {/* Error Code Filter */}
+            <MultiSelectFilter
+              label="Error Code"
+              options={availableErrorCodes.map(e => e.value)}
+              selected={filters.errorCodes}
+              onChange={setErrorCodes}
+              loading={loading}
+              placeholder="All Error Codes"
             />
 
             {/* Test Filter */}

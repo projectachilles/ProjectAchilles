@@ -76,6 +76,8 @@ export interface AnalyticsFilterState {
   severities: string[];
   threatActors: string[];
   tags: string[];
+  errorNames: string[];
+  errorCodes: string[];
 }
 
 export interface UseAnalyticsFiltersReturn {
@@ -96,6 +98,8 @@ export interface UseAnalyticsFiltersReturn {
   setSeverities: (severities: string[]) => void;
   setThreatActors: (threatActors: string[]) => void;
   setTags: (tags: string[]) => void;
+  setErrorNames: (errorNames: string[]) => void;
+  setErrorCodes: (errorCodes: string[]) => void;
   toggleExpanded: () => void;
   clearAllFilters: () => void;
   clearAdvancedFilters: () => void;
@@ -115,6 +119,8 @@ const defaultFilters: AnalyticsFilterState = {
   severities: [],
   threatActors: [],
   tags: [],
+  errorNames: [],
+  errorCodes: [],
 };
 
 // Parse URL params into filter state
@@ -159,6 +165,12 @@ function parseUrlParams(searchParams: URLSearchParams): Partial<AnalyticsFilterS
   const tags = searchParams.get('tags');
   if (tags) result.tags = tags.split(',');
 
+  const errorNames = searchParams.get('errorNames');
+  if (errorNames) result.errorNames = errorNames.split(',');
+
+  const errorCodes = searchParams.get('errorCodes');
+  if (errorCodes) result.errorCodes = errorCodes.split(',');
+
   return result;
 }
 
@@ -183,6 +195,8 @@ function serializeToUrlParams(filters: AnalyticsFilterState): Record<string, str
   if (filters.severities.length > 0) params.severities = filters.severities.join(',');
   if (filters.threatActors.length > 0) params.threatActors = filters.threatActors.join(',');
   if (filters.tags.length > 0) params.tags = filters.tags.join(',');
+  if (filters.errorNames.length > 0) params.errorNames = filters.errorNames.join(',');
+  if (filters.errorCodes.length > 0) params.errorCodes = filters.errorCodes.join(',');
 
   return params;
 }
@@ -208,7 +222,7 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
         // Start with existing params to preserve non-filter params like 'tab'
         const newParams = new URLSearchParams(prev);
         // Clear all filter-related params first
-        const filterKeys = ['org', 'date', 'from', 'to', 'result', 'hostnames', 'tests', 'techniques', 'categories', 'severities', 'threatActors', 'tags'];
+        const filterKeys = ['org', 'date', 'from', 'to', 'result', 'hostnames', 'tests', 'techniques', 'categories', 'severities', 'threatActors', 'tags', 'errorNames', 'errorCodes'];
         filterKeys.forEach(key => newParams.delete(key));
         // Add back the current filter params
         Object.entries(filterParams).forEach(([key, value]) => {
@@ -229,6 +243,8 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     if (filters.severities.length > 0) count++;
     if (filters.threatActors.length > 0) count++;
     if (filters.tags.length > 0) count++;
+    if (filters.errorNames.length > 0) count++;
+    if (filters.errorCodes.length > 0) count++;
     return count;
   }, [filters]);
 
@@ -281,6 +297,14 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     setFilters(prev => ({ ...prev, tags }));
   }, []);
 
+  const setErrorNames = useCallback((errorNames: string[]) => {
+    setFilters(prev => ({ ...prev, errorNames }));
+  }, []);
+
+  const setErrorCodes = useCallback((errorCodes: string[]) => {
+    setFilters(prev => ({ ...prev, errorCodes }));
+  }, []);
+
   const toggleExpanded = useCallback(() => {
     setIsExpanded(prev => !prev);
   }, []);
@@ -299,6 +323,8 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
       severities: [],
       threatActors: [],
       tags: [],
+      errorNames: [],
+      errorCodes: [],
     }));
   }, []);
 
@@ -333,6 +359,12 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     if (filters.tags.length > 0) {
       params.tags = filters.tags.join(',');
     }
+    if (filters.errorNames.length > 0) {
+      params.errorNames = filters.errorNames.join(',');
+    }
+    if (filters.errorCodes.length > 0) {
+      params.errorCodes = filters.errorCodes.join(',');
+    }
 
     return params;
   }, [filters]);
@@ -352,6 +384,8 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     setSeverities,
     setThreatActors,
     setTags,
+    setErrorNames,
+    setErrorCodes,
     toggleExpanded,
     clearAllFilters,
     clearAdvancedFilters,
