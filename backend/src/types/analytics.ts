@@ -187,6 +187,25 @@ export interface CategoryBreakdownItem {
   unprotected: number;
 }
 
+// Subcategory breakdown item (within a category)
+export interface SubcategoryBreakdownItem {
+  subcategory: string;
+  score: number;
+  count: number;
+  protected: number;
+  unprotected: number;
+}
+
+// Category with nested subcategories
+export interface CategorySubcategoryBreakdownItem {
+  category: CategoryType;
+  score: number;
+  count: number;
+  protected: number;
+  unprotected: number;
+  subcategories: SubcategoryBreakdownItem[];
+}
+
 // Threat actor coverage item
 export interface ThreatActorCoverageItem {
   threatActor: string;

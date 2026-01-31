@@ -20,6 +20,8 @@ import type {
   FilterOption,
   SeverityBreakdownItem,
   CategoryBreakdownItem,
+  CategorySubcategoryBreakdownItem,
+  SubcategoryBreakdownItem,
   ThreatActorCoverageItem,
   DefenseScoreByHostItem,
   CanonicalTestCountResponse,
@@ -1502,6 +1504,76 @@ export class ElasticsearchService {
         };
       })
       .sort((a: CategoryBreakdownItem, b: CategoryBreakdownItem) => b.score - a.score);
+  }
+
+  // Get defense score by category with nested subcategories
+  async getDefenseScoreByCategoryWithSubcategories(params: AnalyticsQueryParams): Promise<CategorySubcategoryBreakdownItem[]> {
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
+    ];
+    const orgFilter = this.buildOrgFilter(params.org);
+    if (orgFilter) filters.push(orgFilter);
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: { bool: { filter: filters } },
+      aggs: {
+        by_category: {
+          terms: { field: 'f0rtika.category.keyword', size: 20 },
+          aggs: {
+            protected: {
+              filter: { term: { 'f0rtika.is_protected': true } },
+            },
+            by_subcategory: {
+              terms: { field: 'f0rtika.subcategory.keyword', size: 50 },
+              aggs: {
+                protected: {
+                  filter: { term: { 'f0rtika.is_protected': true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.by_category as any)?.buckets || [];
+
+    return buckets
+      .map((bucket: any) => {
+        const total = bucket.doc_count;
+        const protectedCount = bucket.protected?.doc_count || 0;
+        const score = total > 0 ? (protectedCount / total) * 100 : 0;
+
+        const subBuckets = bucket.by_subcategory?.buckets || [];
+        const subcategories: SubcategoryBreakdownItem[] = subBuckets
+          .map((sub: any) => {
+            const subTotal = sub.doc_count;
+            const subProtected = sub.protected?.doc_count || 0;
+            const subScore = subTotal > 0 ? (subProtected / subTotal) * 100 : 0;
+            return {
+              subcategory: sub.key,
+              score: Math.round(subScore * 100) / 100,
+              count: subTotal,
+              protected: subProtected,
+              unprotected: subTotal - subProtected,
+            };
+          })
+          .sort((a: SubcategoryBreakdownItem, b: SubcategoryBreakdownItem) => b.count - a.count);
+
+        return {
+          category: bucket.key as CategoryType,
+          score: Math.round(score * 100) / 100,
+          count: total,
+          protected: protectedCount,
+          unprotected: total - protectedCount,
+          subcategories,
+        };
+      })
+      .sort((a: CategorySubcategoryBreakdownItem, b: CategorySubcategoryBreakdownItem) => b.score - a.score);
   }
 
   // Get defense score by hostname

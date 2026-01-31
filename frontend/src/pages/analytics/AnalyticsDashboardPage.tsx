@@ -24,7 +24,7 @@ import type {
   TechniqueDistributionItem,
   HostTestMatrixCell,
   FilterOption,
-  CategoryBreakdownItem,
+  CategorySubcategoryBreakdownItem,
   PaginatedResponse,
   EnrichedTestExecution,
   DefenseScoreByHostItem,
@@ -99,7 +99,7 @@ export default function AnalyticsDashboardPage() {
   const [hostTestMatrix, setHostTestMatrix] = useState<HostTestMatrixCell[]>([]);
 
   // New visualization data
-  const [categoryBreakdown, setCategoryBreakdown] = useState<CategoryBreakdownItem[]>([]);
+  const [categoryBreakdown, setCategoryBreakdown] = useState<CategorySubcategoryBreakdownItem[]>([]);
   const [recentTests, setRecentTests] = useState<EnrichedTestExecution[]>([]);
   const [defenseScoreByHost, setDefenseScoreByHost] = useState<DefenseScoreByHostItem[]>([]);
   const [canonicalTestCount, setCanonicalTestCount] = useState<number>(0);
@@ -209,7 +209,7 @@ export default function AnalyticsDashboardPage() {
         analyticsApi.getTestCoverage(params),
         analyticsApi.getTechniqueDistribution(params),
         analyticsApi.getHostTestMatrix(params),
-        analyticsApi.getDefenseScoreByCategory(params),
+        analyticsApi.getDefenseScoreByCategorySubcategory(params),
         analyticsApi.getPaginatedExecutions({ ...params, pageSize: 3, sortField: 'routing.event_time', sortOrder: 'desc' }),
         analyticsApi.getDefenseScoreByHostname(params),
         analyticsApi.getErrorRate(params),
