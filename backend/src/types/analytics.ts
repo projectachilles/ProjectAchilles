@@ -76,9 +76,10 @@ export interface OrgBreakdownItem {
   protected: number;
 }
 
-// Error type breakdown (for pie chart)
+// Error type breakdown (for donut chart)
 export interface ErrorTypeBreakdown {
   name: string;
+  code: number;
   count: number;
 }
 
@@ -207,9 +208,9 @@ export interface DefenseScoreByHostItem {
 // Error rate response
 export interface ErrorRateResponse {
   errorRate: number;          // percentage (0-100)
-  errorCount: number;         // docs with codes [0, 1, 259, 999]
-  conclusiveCount: number;    // docs with codes [101, 105, 126, 127]
-  totalTestActivity: number;  // errorCount + conclusiveCount (excludes code 200)
+  errorCount: number;         // docs with codes [0=NormalExit, 1=BinaryNotRecognized, 259=StillActive, 999=UnexpectedTestError]
+  conclusiveCount: number;    // docs with codes [101=Unprotected, 105=FileQuarantinedOnExtraction, 126=ExecutionPrevented, 127=QuarantinedOnExecution]
+  totalTestActivity: number;  // errorCount + conclusiveCount (excludes code 200=NoOutput)
 }
 
 // Canonical test count response (for stable coverage denominators)

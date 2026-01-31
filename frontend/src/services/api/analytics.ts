@@ -75,6 +75,7 @@ export interface TestExecution {
 
 export interface ErrorTypeBreakdown {
   name: string;
+  code: number;
   count: number;
 }
 

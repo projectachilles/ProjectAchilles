@@ -28,6 +28,29 @@ import type {
   CategoryType,
 } from '../../types/analytics.js';
 
+// Canonical error code → name mapping
+// Categories: protected, failed, inconclusive, contextual, error
+export const ERROR_CODE_MAP: Record<number, { name: string; description: string; category: string }> = {
+  0:   { name: 'NormalExit',                description: 'Normal exit - varies by context',              category: 'inconclusive' },
+  1:   { name: 'BinaryNotRecognized',       description: 'Binary not recognized or permission denied',   category: 'contextual' },
+  101: { name: 'Unprotected',               description: 'Attack succeeded - endpoint unprotected',      category: 'failed' },
+  105: { name: 'FileQuarantinedOnExtraction', description: 'File quarantined during extraction',          category: 'protected' },
+  126: { name: 'ExecutionPrevented',         description: 'Execution blocked/prevented by AV/EDR',       category: 'protected' },
+  127: { name: 'QuarantinedOnExecution',     description: 'Quarantined on execution attempt',            category: 'protected' },
+  200: { name: 'NoOutput',                   description: 'No output - quick AV block before execution', category: 'inconclusive' },
+  259: { name: 'StillActive',               description: 'Windows STILL_ACTIVE - process timeout',      category: 'inconclusive' },
+  999: { name: 'UnexpectedTestError',        description: 'Test error - prerequisites not met',          category: 'error' },
+};
+
+/** Resolve an error code to its canonical name, with optional fallback to f0rtika.error_name */
+export function resolveErrorName(errorCode: number | undefined, storedName?: string): string {
+  if (errorCode !== undefined && ERROR_CODE_MAP[errorCode]) {
+    return ERROR_CODE_MAP[errorCode].name;
+  }
+  if (storedName) return storedName;
+  return `Unknown (${errorCode ?? '?'})`;
+}
+
 export class ElasticsearchService {
   private client: Client;
   private settings: AnalyticsSettings;
@@ -494,7 +517,7 @@ export class ElasticsearchService {
         org: orgNames[orgUuid] || (orgUuid ? orgUuid.substring(0, 8) : ''),
         timestamp: getField(source, 'routing.event_time') || '',
         error_code: getField(source, 'event.ERROR'),
-        error_name: getField(source, 'f0rtika.error_name'),
+        error_name: resolveErrorName(getField(source, 'event.ERROR'), getField(source, 'f0rtika.error_name')),
       };
     });
   }
@@ -654,16 +677,17 @@ export class ElasticsearchService {
         bool: { filter: filters },
       },
       aggs: {
-        by_error_type: {
-          terms: { field: 'f0rtika.error_name.keyword', size: 20 },
+        by_error_code: {
+          terms: { field: 'event.ERROR', size: 20 },
         },
       },
     });
 
-    const buckets = (response.aggregations?.by_error_type as any)?.buckets || [];
+    const buckets = (response.aggregations?.by_error_code as any)?.buckets || [];
 
     return buckets.map((bucket: any) => ({
-      name: bucket.key,
+      name: resolveErrorName(bucket.key),
+      code: bucket.key as number,
       count: bucket.doc_count,
     }));
   }
@@ -978,11 +1002,26 @@ export class ElasticsearchService {
     };
   }
 
-  // Build error names filter (OR logic)
+  // Build error names filter (OR logic) — resolves canonical names to error codes
   private buildErrorNamesFilter(errorNames?: string): any | null {
     if (!errorNames) return null;
     const nameList = errorNames.split(',').map(n => n.trim()).filter(Boolean);
     if (nameList.length === 0) return null;
+
+    // Reverse-resolve canonical names to numeric error codes
+    const codes: number[] = [];
+    for (const name of nameList) {
+      const entry = Object.entries(ERROR_CODE_MAP).find(([, v]) => v.name === name);
+      if (entry) {
+        codes.push(Number(entry[0]));
+      }
+    }
+
+    if (codes.length > 0) {
+      return { terms: { 'event.ERROR': codes } };
+    }
+
+    // Fallback: try matching against the stored field for any unrecognised names
     if (nameList.length === 1) {
       return { term: { 'f0rtika.error_name.keyword': nameList[0] } };
     }
@@ -1115,7 +1154,7 @@ export class ElasticsearchService {
         org: orgNames[orgUuid] || (orgUuid ? orgUuid.substring(0, 8) : ''),
         timestamp: getField(source, 'routing.event_time') || '',
         error_code: getField(source, 'event.ERROR'),
-        error_name: getField(source, 'f0rtika.error_name'),
+        error_name: resolveErrorName(getField(source, 'event.ERROR'), getField(source, 'f0rtika.error_name')),
         // Enriched fields
         category: getField(source, 'f0rtika.category') as CategoryType | undefined,
         subcategory: getField(source, 'f0rtika.subcategory'),
@@ -1321,19 +1360,22 @@ export class ElasticsearchService {
       size: 0,
       query: { bool: { filter: filters } },
       aggs: {
-        error_names: {
-          terms: { field: 'f0rtika.error_name.keyword', size: 50 },
+        error_codes: {
+          terms: { field: 'event.ERROR', size: 50 },
         },
       },
     });
 
-    const buckets = (response.aggregations?.error_names as any)?.buckets || [];
+    const buckets = (response.aggregations?.error_codes as any)?.buckets || [];
     return buckets
-      .map((bucket: any) => ({
-        value: bucket.key,
-        label: bucket.key,
-        count: bucket.doc_count,
-      }))
+      .map((bucket: any) => {
+        const name = resolveErrorName(bucket.key);
+        return {
+          value: name,
+          label: name,
+          count: bucket.doc_count,
+        };
+      })
       .sort((a: FilterOption, b: FilterOption) => b.count - a.count);
   }
 
@@ -1363,7 +1405,7 @@ export class ElasticsearchService {
     return buckets
       .map((bucket: any) => ({
         value: String(bucket.key),
-        label: String(bucket.key),
+        label: `${bucket.key} (${resolveErrorName(bucket.key)})`,
         count: bucket.doc_count,
       }))
       .sort((a: FilterOption, b: FilterOption) => b.count - a.count);
