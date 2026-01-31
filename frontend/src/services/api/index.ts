@@ -2,6 +2,7 @@
 export { browserApi } from './browser';
 export { analyticsApi } from './analytics';
 export { endpointsApi } from './endpoints';
+export { testsApi } from './tests';
 
 // Re-export types
 export type {
