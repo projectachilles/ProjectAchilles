@@ -233,9 +233,10 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     }
   }, [filters, syncWithUrl, setSearchParams]);
 
-  // Calculate active filter count (excluding basic filters)
+  // Calculate active filter count (all executions-tab filters)
   const activeFilterCount = useMemo(() => {
     let count = 0;
+    if (filters.result !== 'all') count++;
     if (filters.hostnames.length > 0) count++;
     if (filters.tests.length > 0) count++;
     if (filters.techniques.length > 0) count++;
@@ -249,12 +250,8 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
   }, [filters]);
 
   const hasActiveFilters = useMemo(() => {
-    return (
-      filters.org !== null ||
-      filters.result !== 'all' ||
-      activeFilterCount > 0
-    );
-  }, [filters.org, filters.result, activeFilterCount]);
+    return activeFilterCount > 0;
+  }, [activeFilterCount]);
 
   // Actions
   const setOrg = useCallback((org: string | null) => {
@@ -316,6 +313,7 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
   const clearAdvancedFilters = useCallback(() => {
     setFilters(prev => ({
       ...prev,
+      result: 'all',
       hostnames: [],
       tests: [],
       techniques: [],

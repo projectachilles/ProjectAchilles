@@ -4,6 +4,7 @@ import { LayoutDashboard, Table } from 'lucide-react';
 import SharedLayout from '../../components/shared/Layout';
 import SettingsModal from './components/SettingsModal';
 import FilterBar from './components/FilterBar';
+import DateRangePicker from './components/DateRangePicker';
 import HeroMetricsCard from './components/HeroMetricsCard';
 import TrendChart from './components/TrendChart';
 import ErrorTypePieChart from './components/ErrorTypePieChart';
@@ -18,7 +19,6 @@ import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { analyticsApi } from '../../services/api/analytics';
 import type {
   TrendDataPoint,
-  OrganizationInfo,
   ErrorTypeBreakdown,
   TestCoverageItem,
   TechniqueDistributionItem,
@@ -77,7 +77,6 @@ export default function AnalyticsDashboardPage() {
   const { settingsVersion } = useAnalyticsAuth();
 
   // Filter options data
-  const [organizations, setOrganizations] = useState<OrganizationInfo[]>([]);
   const [availableHostnames, setAvailableHostnames] = useState<FilterOption[]>([]);
   const [availableTests, setAvailableTests] = useState<string[]>([]);
   const [availableTechniques, setAvailableTechniques] = useState<string[]>([]);
@@ -151,8 +150,7 @@ export default function AnalyticsDashboardPage() {
   async function loadFilterOptions() {
     setLoadingFilters(true);
     try {
-      const [orgs, tests, techniques, hostnames, categories, severities, threatActors, tags, errorNames, errorCodes] = await Promise.all([
-        analyticsApi.getOrganizations(),
+      const [tests, techniques, hostnames, categories, severities, threatActors, tags, errorNames, errorCodes] = await Promise.all([
         analyticsApi.getAvailableTests(),
         analyticsApi.getAvailableTechniques(),
         analyticsApi.getAvailableHostnames(),
@@ -164,16 +162,6 @@ export default function AnalyticsDashboardPage() {
         analyticsApi.getAvailableErrorCodes(),
       ]);
 
-      setOrganizations(orgs.map(org => {
-        if (typeof org === 'string') {
-          return { uuid: org, shortName: org, fullName: org };
-        }
-        return {
-          uuid: org.uuid,
-          shortName: org.shortName || org.uuid,
-          fullName: org.fullName || org.shortName || org.uuid
-        };
-      }));
       setAvailableTests(tests);
       setAvailableTechniques(techniques);
       setAvailableHostnames(hostnames);
@@ -309,23 +297,7 @@ export default function AnalyticsDashboardPage() {
       isRefreshing={isRefreshing}
     >
       <div className="container mx-auto px-4 py-6">
-        {/* Filter Bar */}
-        <FilterBar
-          filterState={filterState}
-          organizations={organizations}
-          availableHostnames={availableHostnames}
-          availableTests={availableTests}
-          availableTechniques={availableTechniques}
-          availableCategories={availableCategories}
-          availableSeverities={availableSeverities}
-          availableThreatActors={availableThreatActors}
-          availableTags={availableTags}
-          availableErrorNames={availableErrorNames}
-          availableErrorCodes={availableErrorCodes}
-          loading={loadingFilters}
-        />
-
-        {/* Tab Navigation */}
+        {/* Tab Navigation + Date Range Picker */}
         <div className="flex items-center gap-1 mb-6 border-b border-border">
           <button
             onClick={() => handleTabChange('dashboard')}
@@ -354,6 +326,9 @@ export default function AnalyticsDashboardPage() {
               </span>
             )}
           </button>
+          <div className="ml-auto pb-2">
+            <DateRangePicker value={filterState.filters.dateRange} onChange={filterState.setDateRange} />
+          </div>
         </div>
 
         {/* Tab Content */}
@@ -440,15 +415,35 @@ export default function AnalyticsDashboardPage() {
           </div>
         ) : (
           /* All Executions Tab */
-          <ExecutionsDataTable
-            data={executionsData}
-            loading={loadingExecutions}
-            onPageChange={handlePageChange}
-            onPageSizeChange={handlePageSizeChange}
-            onSort={handleSort}
-            sortField={executionsSortField}
-            sortOrder={executionsSortOrder}
-          />
+          <>
+            {filterState.isExpanded && (
+              <FilterBar
+                filterState={filterState}
+                availableHostnames={availableHostnames}
+                availableTests={availableTests}
+                availableTechniques={availableTechniques}
+                availableCategories={availableCategories}
+                availableSeverities={availableSeverities}
+                availableThreatActors={availableThreatActors}
+                availableTags={availableTags}
+                availableErrorNames={availableErrorNames}
+                availableErrorCodes={availableErrorCodes}
+                loading={loadingFilters}
+              />
+            )}
+            <ExecutionsDataTable
+              data={executionsData}
+              loading={loadingExecutions}
+              onPageChange={handlePageChange}
+              onPageSizeChange={handlePageSizeChange}
+              onSort={handleSort}
+              sortField={executionsSortField}
+              sortOrder={executionsSortOrder}
+              filtersExpanded={filterState.isExpanded}
+              onToggleFilters={filterState.toggleExpanded}
+              activeFilterCount={filterState.activeFilterCount}
+            />
+          </>
         )}
       </div>
 

@@ -12,6 +12,7 @@ import {
   Download,
   Columns,
   Check,
+  Filter,
 } from 'lucide-react';
 import { formatDistanceToNow, isValid, format } from 'date-fns';
 import type { EnrichedTestExecution, PaginatedResponse, SeverityLevel } from '@/services/api/analytics';
@@ -93,6 +94,9 @@ interface ExecutionsDataTableProps {
   onSort: (field: string, order: 'asc' | 'desc') => void;
   sortField?: string;
   sortOrder?: 'asc' | 'desc';
+  filtersExpanded?: boolean;
+  onToggleFilters?: () => void;
+  activeFilterCount?: number;
 }
 
 export default function ExecutionsDataTable({
@@ -103,6 +107,9 @@ export default function ExecutionsDataTable({
   onSort,
   sortField,
   sortOrder = 'desc',
+  filtersExpanded = false,
+  onToggleFilters,
+  activeFilterCount = 0,
 }: ExecutionsDataTableProps) {
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
     new Set(COLUMNS.filter(c => c.defaultVisible).map(c => c.key))
@@ -324,6 +331,34 @@ export default function ExecutionsDataTable({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Filters Toggle */}
+          {onToggleFilters && (
+            <button
+              onClick={onToggleFilters}
+              className={`
+                flex items-center gap-1.5 px-3 py-1.5
+                border rounded-lg text-sm transition-colors
+                ${filtersExpanded || activeFilterCount > 0
+                  ? 'bg-primary/10 border-primary text-primary'
+                  : 'bg-secondary border-border text-foreground hover:bg-accent'
+                }
+              `}
+            >
+              <Filter className="w-4 h-4" />
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="px-1.5 py-0.5 bg-primary text-primary-foreground text-xs rounded-full">
+                  {activeFilterCount}
+                </span>
+              )}
+              {filtersExpanded ? (
+                <ChevronUp className="w-3 h-3" />
+              ) : (
+                <ChevronDown className="w-3 h-3" />
+              )}
+            </button>
+          )}
+
           {/* Column Visibility Toggle */}
           <div className="relative">
             <button
