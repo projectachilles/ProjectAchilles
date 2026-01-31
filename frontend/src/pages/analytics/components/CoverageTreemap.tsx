@@ -29,19 +29,20 @@ interface TooltipPayload {
   payload?: TreemapNode;
 }
 
-// Coverage threshold colors (theme-aware) - using darker shades for better text contrast
+// Coverage threshold colors (theme-aware) - oklch for consistency with other dashboard charts
+// Lightness tuned for white text contrast on filled backgrounds
 const COVERAGE_COLORS = {
   dark: {
-    high: '#15803d',    // green-700: ≥80% (darker for contrast)
-    medium: '#a16207',  // yellow-700: 50-79%
-    low: '#b91c1c',     // red-700: <50%
-    empty: '#3f3f46',   // zinc-700: no data
+    high: 'oklch(0.50 0.14 155)',    // teal-green ≥80% — matches --chart-protected hue family
+    medium: 'oklch(0.50 0.12 75)',   // warm amber 50-79% — matches --chart-4 hue family
+    low: 'oklch(0.45 0.15 25)',      // muted red <50% — matches --chart-bypassed hue family
+    empty: 'oklch(0.30 0.01 260)',   // neutral zinc — no data
   },
   light: {
-    high: '#166534',    // green-800 (darker for contrast)
-    medium: '#854d0e',  // yellow-800
-    low: '#991b1b',     // red-800
-    empty: '#e4e4e7',   // zinc-200
+    high: 'oklch(0.58 0.16 155)',    // teal-green
+    medium: 'oklch(0.58 0.14 75)',   // warm amber
+    low: 'oklch(0.52 0.17 25)',      // red
+    empty: 'oklch(0.90 0.01 260)',   // light zinc
   },
 };
 
@@ -87,8 +88,9 @@ function CustomTreemapContent(props: CustomContentProps) {
   const displayName = name && name.length > maxChars ? name.slice(0, maxChars) + '…' : name;
 
   // Responsive font sizes: larger for better readability
-  const fontSize = Math.min(16, Math.max(14, width / 6));
-  const detailsFontSize = 12;
+  const fontSize = Math.min(14, Math.max(11, width / 8));
+  const detailsFontSize = Math.min(11, Math.max(9, width / 10));
+  const fontFamily = 'Inter, ui-sans-serif, system-ui, -apple-system, sans-serif';
 
   // Bottom-left anchored positioning
   const textPadding = 10;
@@ -111,8 +113,8 @@ function CustomTreemapContent(props: CustomContentProps) {
         height={height}
         fill={fill}
         stroke="var(--background)"
-        strokeWidth={2}
-        rx={4}
+        strokeWidth={3}
+        rx={6}
         className="transition-opacity hover:opacity-80"
       />
 
@@ -124,9 +126,11 @@ function CustomTreemapContent(props: CustomContentProps) {
           textAnchor="start"
           dominantBaseline="auto"
           fill="white"
+          stroke="none"
           fontSize={fontSize}
-          fontWeight={600}
-          style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.3))' }}
+          fontWeight={500}
+          fontFamily={fontFamily}
+          letterSpacing={0.2}
         >
           {displayName}
         </text>
@@ -139,10 +143,12 @@ function CustomTreemapContent(props: CustomContentProps) {
           y={statsY}
           textAnchor="start"
           dominantBaseline="auto"
-          fill="rgba(255, 255, 255, 0.9)"
+          fill="rgba(255, 255, 255, 0.75)"
+          stroke="none"
           fontSize={detailsFontSize}
-          fontWeight={500}
-          style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.3))' }}
+          fontWeight={400}
+          fontFamily={fontFamily}
+          letterSpacing={0.3}
         >
           {statsText}
         </text>
@@ -175,7 +181,7 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: Toolti
             Coverage:{' '}
             <span
               className="font-medium"
-              style={{ color: coverage >= 0.8 ? '#22c55e' : coverage >= 0.5 ? '#eab308' : '#ef4444' }}
+              style={{ color: coverage >= 0.8 ? 'oklch(0.65 0.22 145)' : coverage >= 0.5 ? 'oklch(0.65 0.18 85)' : 'oklch(0.6 0.22 25)' }}
             >
               {(coverage * 100).toFixed(0)}% ({getCoverageLabel(coverage)})
             </span>

@@ -147,7 +147,15 @@ When encountering a login page (Clerk auth, external services):
 | `list_console_messages` | Check for errors |
 | `list_network_requests` | Debug API calls |
 
+### Analytics / Elasticsearch Credentials
+When testing the Analytics module via Chrome DevTools and you need Elasticsearch credentials (e.g., to configure the connection in Settings), pick them from `backend/.env` (Cloud ID, API Key, index pattern).
+
 ### Security Notes
 - Never log or display credentials in output
 - Credentials entered via MCP are visible to the browser - use dev/test accounts
 - Avoid testing with production credentials
+
+## Gotchas
+
+### SVG Text Stroke Inheritance in Recharts
+When writing custom `content` renderers for Recharts components (Treemap, etc.), always set `stroke="none"` on `<text>` elements. Recharts sets `stroke="var(--background)"` on the parent SVG container for cell borders, and SVG `stroke` is an inherited property — it cascades to all children including text. In dark mode `--background` is near-black, so text renders with a visible dark outline around every glyph. In light mode the stroke is white-on-white (invisible), making the bug theme-specific and easy to miss.
