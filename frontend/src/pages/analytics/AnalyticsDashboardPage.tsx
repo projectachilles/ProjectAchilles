@@ -103,6 +103,7 @@ export default function AnalyticsDashboardPage() {
   const [recentTests, setRecentTests] = useState<EnrichedTestExecution[]>([]);
   const [defenseScoreByHost, setDefenseScoreByHost] = useState<DefenseScoreByHostItem[]>([]);
   const [canonicalTestCount, setCanonicalTestCount] = useState<number>(0);
+  const [canonicalTestCount30d, setCanonicalTestCount30d] = useState<number>(0);
 
   // Executions tab data
   const [executionsData, setExecutionsData] = useState<PaginatedResponse<EnrichedTestExecution> | null>(null);
@@ -122,11 +123,15 @@ export default function AnalyticsDashboardPage() {
     loadCanonicalTestCount();
   }, [settingsVersion]);
 
-  // Load canonical test count (stable baseline for coverage calculations)
+  // Load canonical test counts (stable baselines for coverage calculations)
   async function loadCanonicalTestCount() {
     try {
-      const result = await analyticsApi.getCanonicalTestCount({ days: 90 });
-      setCanonicalTestCount(result.count);
+      const [result90d, result30d] = await Promise.all([
+        analyticsApi.getCanonicalTestCount({ days: 90 }),
+        analyticsApi.getCanonicalTestCount({ days: 30 }),
+      ]);
+      setCanonicalTestCount(result90d.count);
+      setCanonicalTestCount30d(result30d.count);
     } catch (error) {
       console.error('Failed to load canonical test count:', error);
     }
@@ -410,6 +415,7 @@ export default function AnalyticsDashboardPage() {
                 loading={loadingDashboard}
                 title="Test Breadth by Host"
                 canonicalTestCount={canonicalTestCount}
+                canonicalTestCount30d={canonicalTestCount30d}
               />
             </div>
           </div>
