@@ -215,7 +215,7 @@ export interface ExtendedFilterParams {
   tags?: string;
   errorNames?: string;
   errorCodes?: string;
-  result?: 'all' | 'protected' | 'unprotected';
+  result?: 'all' | 'protected' | 'unprotected' | 'inconclusive';
 }
 
 export interface PaginatedExecutionsParams extends ExtendedFilterParams {

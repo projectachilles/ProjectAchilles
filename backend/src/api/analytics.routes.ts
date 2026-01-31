@@ -330,7 +330,7 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
     tags: tags as string,
     errorNames: errorNames as string,
     errorCodes: errorCodes as string,
-    result: result as 'all' | 'protected' | 'unprotected',
+    result: result as 'all' | 'protected' | 'unprotected' | 'inconclusive',
     page: page ? parseInt(page as string) : 1,
     pageSize: pageSize ? parseInt(pageSize as string) : 25,
     sortField: sortField as string,

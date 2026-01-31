@@ -3,6 +3,7 @@ import {
   Loader2,
   ShieldCheck,
   ShieldX,
+  ShieldQuestion,
   ChevronDown,
   ChevronUp,
   ChevronLeft,
@@ -79,6 +80,17 @@ const ERROR_CATEGORY_COLORS: Record<string, string> = {
   contextual:   'text-yellow-600 dark:text-yellow-400',
   error:        'text-orange-600 dark:text-orange-400',
 };
+
+// Derive result from error code (three-state: protected/unprotected/inconclusive)
+const PROTECTED_CODES = new Set([105, 126, 127]);
+const UNPROTECTED_CODES = new Set([101]);
+
+function getResultFromErrorCode(errorCode: number | undefined): 'protected' | 'unprotected' | 'inconclusive' {
+  if (errorCode === undefined || errorCode === null) return 'inconclusive';
+  if (UNPROTECTED_CODES.has(errorCode)) return 'unprotected';
+  if (PROTECTED_CODES.has(errorCode)) return 'protected';
+  return 'inconclusive';
+}
 
 // Column definitions
 interface ColumnDef {
@@ -211,7 +223,10 @@ export default function ExecutionsDataTable({
     switch (key) {
       case 'test_name': return exec.test_name;
       case 'hostname': return exec.hostname;
-      case 'result': return exec.is_protected ? 'Protected' : 'Unprotected';
+      case 'result': {
+        const r = getResultFromErrorCode(exec.error_code);
+        return r === 'protected' ? 'Protected' : r === 'unprotected' ? 'Unprotected' : 'Inconclusive';
+      }
       case 'severity': return exec.severity;
       case 'category': return exec.category;
       case 'subcategory': return exec.subcategory;
@@ -249,18 +264,31 @@ export default function ExecutionsDataTable({
           </span>
         );
 
-      case 'result':
-        return exec.is_protected ? (
-          <span className="inline-flex items-center gap-1.5 text-green-600 dark:text-green-400">
-            <ShieldCheck className="w-4 h-4" />
-            <span className="text-sm font-medium">Protected</span>
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1.5 text-red-600 dark:text-red-400">
-            <ShieldX className="w-4 h-4" />
-            <span className="text-sm font-medium">Unprotected</span>
+      case 'result': {
+        const result = getResultFromErrorCode(exec.error_code);
+        if (result === 'protected') {
+          return (
+            <span className="inline-flex items-center gap-1.5 text-green-600 dark:text-green-400">
+              <ShieldCheck className="w-4 h-4" />
+              <span className="text-sm font-medium">Protected</span>
+            </span>
+          );
+        }
+        if (result === 'unprotected') {
+          return (
+            <span className="inline-flex items-center gap-1.5 text-red-600 dark:text-red-400">
+              <ShieldX className="w-4 h-4" />
+              <span className="text-sm font-medium">Unprotected</span>
+            </span>
+          );
+        }
+        return (
+          <span className="inline-flex items-center gap-1.5 text-yellow-600 dark:text-yellow-400">
+            <ShieldQuestion className="w-4 h-4" />
+            <span className="text-sm font-medium">Inconclusive</span>
           </span>
         );
+      }
 
       case 'severity':
         if (!exec.severity) return <span className="text-muted-foreground">—</span>;

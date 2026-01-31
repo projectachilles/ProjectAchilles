@@ -1043,10 +1043,13 @@ export class ElasticsearchService {
     return { terms: { 'event.ERROR': codeList } };
   }
 
-  // Build result filter (protected/unprotected)
-  private buildResultFilter(result?: 'all' | 'protected' | 'unprotected'): any | null {
+  // Build result filter (protected/unprotected/inconclusive)
+  private buildResultFilter(result?: 'all' | 'protected' | 'unprotected' | 'inconclusive'): any | null {
     if (!result || result === 'all') return null;
-    return { term: { 'f0rtika.is_protected': result === 'protected' } };
+    if (result === 'protected') return { terms: { 'event.ERROR': [105, 126, 127] } };
+    if (result === 'unprotected') return { term: { 'event.ERROR': 101 } };
+    // inconclusive: everything NOT in [101, 105, 126, 127]
+    return { bool: { must_not: { terms: { 'event.ERROR': [101, 105, 126, 127] } } } };
   }
 
   // Build all extended filters
