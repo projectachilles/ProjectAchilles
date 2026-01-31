@@ -1,13 +1,13 @@
 import { Loader2 } from 'lucide-react';
-import {
-  PieChart,
-  Pie,
-  Cell,
-  ResponsiveContainer,
-  Tooltip
-} from 'recharts';
+import { PieChart, Pie, Cell } from 'recharts';
 import type { ErrorTypeBreakdown } from '../../../services/api/analytics';
-import { useTheme } from '../../../hooks/useTheme';
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig
+} from '@/components/ui/chart';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface ErrorTypePieChartProps {
   data: ErrorTypeBreakdown[];
@@ -15,21 +15,21 @@ interface ErrorTypePieChartProps {
   title?: string;
 }
 
-// Color palette for error types
+// Color palette for error types - use CSS variables directly (oklch values)
 const ERROR_TYPE_COLORS: Record<string, string> = {
-  'ExecutionPrevented': 'hsl(142 76% 46%)',      // Green - blocked
-  'FileQuarantined': 'hsl(142 76% 36%)',          // Dark green - quarantined
-  'Unprotected': 'hsl(0 84% 60%)',                // Red - bypassed
-  'UnexpectedTestError': 'hsl(45 93% 47%)',       // Yellow - error
+  'ExecutionPrevented': 'var(--chart-protected)',
+  'FileQuarantined': 'oklch(0.55 0.18 145)',
+  'Unprotected': 'var(--chart-bypassed)',
+  'UnexpectedTestError': 'var(--chart-4)',
 };
 
-// Fallback colors for unknown types
+// Fallback colors for unknown types - use CSS variables directly
 const FALLBACK_COLORS = [
-  'hsl(217 91% 60%)',   // Blue
-  'hsl(262 83% 58%)',   // Purple
-  'hsl(330 81% 60%)',   // Pink
-  'hsl(173 80% 40%)',   // Teal
-  'hsl(25 95% 53%)',    // Orange
+  'var(--chart-1)',
+  'var(--chart-2)',
+  'var(--chart-3)',
+  'var(--chart-4)',
+  'var(--chart-5)',
 ];
 
 export default function ErrorTypePieChart({
@@ -37,22 +37,19 @@ export default function ErrorTypePieChart({
   loading,
   title = 'Results by Error Type'
 }: ErrorTypePieChartProps) {
-  // Theme hook available if needed for future styling
-  useTheme();
-
-  // Return early if no data to prevent rendering issues
+  // Return early if no data
   if (!data || data.length === 0) {
     if (loading) {
       return (
-        <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
+        <Card className="h-full min-h-[280px] flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-        </div>
+        </Card>
       );
     }
     return (
-      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
+      <Card className="h-full min-h-[280px] flex items-center justify-center">
         <p className="text-muted-foreground">No data available</p>
-      </div>
+      </Card>
     );
   }
 
@@ -67,91 +64,95 @@ export default function ErrorTypePieChart({
   // Format data with colors and percentages
   const chartData = data.map((item, index) => ({
     ...item,
-    color: getColor(item.name, index),
+    fill: getColor(item.name, index),
     percentage: total > 0 ? ((item.count / total) * 100).toFixed(1) : '0'
   }));
 
-  // Custom tooltip
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const data = payload[0].payload;
-      return (
-        <div className="bg-background border border-border rounded-lg p-3 shadow-lg">
-          <p className="font-medium">{data.name}</p>
-          <p className="text-primary font-bold">{data.count.toLocaleString()} executions</p>
-          <p className="text-sm text-muted-foreground">{data.percentage}% of total</p>
-        </div>
-      );
-    }
-    return null;
-  };
-
-  // Custom legend
-  const renderLegend = () => (
-    <div className="flex flex-col gap-2 ml-4">
-      {chartData.map((entry, index) => (
-        <div key={`legend-${index}`} className="flex items-center gap-2">
-          <div
-            className="w-3 h-3 rounded-sm flex-shrink-0"
-            style={{ backgroundColor: entry.color }}
-          />
-          <span className="text-sm text-muted-foreground truncate">
-            {entry.name}
-          </span>
-          <span className="text-sm font-medium ml-auto">
-            {entry.percentage}%
-          </span>
-        </div>
-      ))}
-    </div>
-  );
+  // Build chart config from data
+  const chartConfig = chartData.reduce((acc, item) => {
+    acc[item.name] = {
+      label: item.name,
+      color: item.fill,
+    };
+    return acc;
+  }, {} as ChartConfig);
 
   if (loading) {
     return (
-      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
+      <Card className="h-full min-h-[280px] flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (data.length === 0) {
-    return (
-      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[280px] flex items-center justify-center shadow-sm">
-        <p className="text-muted-foreground">No data available</p>
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col">
-      <h3 className="font-semibold text-lg mb-4">{title}</h3>
-
-      <div className="flex items-center h-[200px]">
-        <div className="w-1/2 h-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={chartData}
-                dataKey="count"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                innerRadius={0}
-                outerRadius={80}
-                paddingAngle={1}
-              >
-                {chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip content={<CustomTooltip />} />
-            </PieChart>
-          </ResponsiveContainer>
+    <Card className="h-full flex flex-col overflow-hidden">
+      <CardHeader className="pb-2 flex-shrink-0">
+        <CardTitle className="text-lg font-semibold">{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="flex-1 pb-4 overflow-hidden">
+        <div className="flex items-start gap-2 sm:gap-4 h-[160px] sm:h-[180px]">
+          <div className="w-[90px] sm:w-[120px] md:w-2/5 h-full flex-shrink-0">
+            <ChartContainer config={chartConfig} className="h-full w-full">
+              <PieChart>
+                <Pie
+                  data={chartData}
+                  dataKey="count"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={0}
+                  outerRadius="80%"
+                  paddingAngle={1}
+                >
+                  {chartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.fill} />
+                  ))}
+                </Pie>
+                <ChartTooltip
+                  content={
+                    <ChartTooltipContent
+                      formatter={(value, _name, item) => {
+                        const payload = item.payload;
+                        return (
+                          <div className="flex flex-col gap-1">
+                            <span className="font-medium">{payload.name}</span>
+                            <span className="text-foreground font-bold">
+                              {Number(value).toLocaleString()} executions
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {payload.percentage}% of total
+                            </span>
+                          </div>
+                        );
+                      }}
+                    />
+                  }
+                />
+              </PieChart>
+            </ChartContainer>
+          </div>
+          <div className="flex-1 overflow-hidden min-w-0">
+            {/* Legend */}
+            <div className="flex flex-col gap-1 sm:gap-1.5 overflow-y-auto max-h-[160px] sm:max-h-[180px]">
+              {chartData.map((entry, index) => (
+                <div key={`legend-${index}`} className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+                  <div
+                    className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-sm flex-shrink-0"
+                    style={{ backgroundColor: entry.fill }}
+                  />
+                  <span className="text-[10px] sm:text-xs text-muted-foreground truncate flex-1 min-w-0">
+                    {entry.name.length > 15 ? entry.name.substring(0, 13) + '…' : entry.name}
+                  </span>
+                  <span className="text-[10px] sm:text-xs font-medium text-foreground flex-shrink-0">
+                    {entry.percentage}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="w-1/2">
-          {renderLegend()}
-        </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

@@ -9,6 +9,44 @@ export interface DateRangeValue {
   to?: string;
 }
 
+/**
+ * Get the appropriate rolling window size for a given date range.
+ *
+ * Window size mapping:
+ * - 7 days or less: 7-day window (full coverage)
+ * - 8-30 days: 7-day rolling window
+ * - 31-90 days: 30-day rolling window
+ * - Custom ranges: min(days, 30) capped at 7 minimum
+ */
+export function getWindowDaysForDateRange(dateRange: DateRangeValue): number {
+  const windowMap: Record<string, number> = {
+    '7d': 7,
+    '14d': 7,
+    '30d': 7,
+    '90d': 30,
+    'all': 30,
+  };
+
+  // Use mapped value for presets
+  if (dateRange.preset && windowMap[dateRange.preset] !== undefined) {
+    return windowMap[dateRange.preset];
+  }
+
+  // Handle custom date ranges
+  if (dateRange.preset === 'custom' && dateRange.from && dateRange.to) {
+    const fromDate = new Date(dateRange.from);
+    const toDate = new Date(dateRange.to);
+    const diffMs = toDate.getTime() - fromDate.getTime();
+    const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+    // Cap at 30, minimum of 7
+    return Math.max(7, Math.min(diffDays, 30));
+  }
+
+  // Default for unknown presets
+  return 7;
+}
+
 // Helper to convert date range value to ES format (matches DateRangePicker export)
 function getDateRangeFilter(value: DateRangeValue): { from?: string; to?: string } {
   if (value.preset === 'custom' && value.from && value.to) {
@@ -38,6 +76,8 @@ export interface AnalyticsFilterState {
   severities: string[];
   threatActors: string[];
   tags: string[];
+  errorNames: string[];
+  errorCodes: string[];
 }
 
 export interface UseAnalyticsFiltersReturn {
@@ -58,6 +98,8 @@ export interface UseAnalyticsFiltersReturn {
   setSeverities: (severities: string[]) => void;
   setThreatActors: (threatActors: string[]) => void;
   setTags: (tags: string[]) => void;
+  setErrorNames: (errorNames: string[]) => void;
+  setErrorCodes: (errorCodes: string[]) => void;
   toggleExpanded: () => void;
   clearAllFilters: () => void;
   clearAdvancedFilters: () => void;
@@ -77,6 +119,8 @@ const defaultFilters: AnalyticsFilterState = {
   severities: [],
   threatActors: [],
   tags: [],
+  errorNames: [],
+  errorCodes: [],
 };
 
 // Parse URL params into filter state
@@ -121,6 +165,12 @@ function parseUrlParams(searchParams: URLSearchParams): Partial<AnalyticsFilterS
   const tags = searchParams.get('tags');
   if (tags) result.tags = tags.split(',');
 
+  const errorNames = searchParams.get('errorNames');
+  if (errorNames) result.errorNames = errorNames.split(',');
+
+  const errorCodes = searchParams.get('errorCodes');
+  if (errorCodes) result.errorCodes = errorCodes.split(',');
+
   return result;
 }
 
@@ -145,6 +195,8 @@ function serializeToUrlParams(filters: AnalyticsFilterState): Record<string, str
   if (filters.severities.length > 0) params.severities = filters.severities.join(',');
   if (filters.threatActors.length > 0) params.threatActors = filters.threatActors.join(',');
   if (filters.tags.length > 0) params.tags = filters.tags.join(',');
+  if (filters.errorNames.length > 0) params.errorNames = filters.errorNames.join(',');
+  if (filters.errorCodes.length > 0) params.errorCodes = filters.errorCodes.join(',');
 
   return params;
 }
@@ -162,17 +214,29 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
 
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // Sync URL when filters change
+  // Sync URL when filters change (preserve non-filter params like 'tab')
   useEffect(() => {
     if (syncWithUrl) {
-      const params = serializeToUrlParams(filters);
-      setSearchParams(params, { replace: true });
+      const filterParams = serializeToUrlParams(filters);
+      setSearchParams(prev => {
+        // Start with existing params to preserve non-filter params like 'tab'
+        const newParams = new URLSearchParams(prev);
+        // Clear all filter-related params first
+        const filterKeys = ['org', 'date', 'from', 'to', 'result', 'hostnames', 'tests', 'techniques', 'categories', 'severities', 'threatActors', 'tags', 'errorNames', 'errorCodes'];
+        filterKeys.forEach(key => newParams.delete(key));
+        // Add back the current filter params
+        Object.entries(filterParams).forEach(([key, value]) => {
+          newParams.set(key, value);
+        });
+        return newParams;
+      }, { replace: true });
     }
   }, [filters, syncWithUrl, setSearchParams]);
 
-  // Calculate active filter count (excluding basic filters)
+  // Calculate active filter count (all executions-tab filters)
   const activeFilterCount = useMemo(() => {
     let count = 0;
+    if (filters.result !== 'all') count++;
     if (filters.hostnames.length > 0) count++;
     if (filters.tests.length > 0) count++;
     if (filters.techniques.length > 0) count++;
@@ -180,16 +244,14 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     if (filters.severities.length > 0) count++;
     if (filters.threatActors.length > 0) count++;
     if (filters.tags.length > 0) count++;
+    if (filters.errorNames.length > 0) count++;
+    if (filters.errorCodes.length > 0) count++;
     return count;
   }, [filters]);
 
   const hasActiveFilters = useMemo(() => {
-    return (
-      filters.org !== null ||
-      filters.result !== 'all' ||
-      activeFilterCount > 0
-    );
-  }, [filters.org, filters.result, activeFilterCount]);
+    return activeFilterCount > 0;
+  }, [activeFilterCount]);
 
   // Actions
   const setOrg = useCallback((org: string | null) => {
@@ -232,6 +294,14 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     setFilters(prev => ({ ...prev, tags }));
   }, []);
 
+  const setErrorNames = useCallback((errorNames: string[]) => {
+    setFilters(prev => ({ ...prev, errorNames }));
+  }, []);
+
+  const setErrorCodes = useCallback((errorCodes: string[]) => {
+    setFilters(prev => ({ ...prev, errorCodes }));
+  }, []);
+
   const toggleExpanded = useCallback(() => {
     setIsExpanded(prev => !prev);
   }, []);
@@ -243,6 +313,7 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
   const clearAdvancedFilters = useCallback(() => {
     setFilters(prev => ({
       ...prev,
+      result: 'all',
       hostnames: [],
       tests: [],
       techniques: [],
@@ -250,6 +321,8 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
       severities: [],
       threatActors: [],
       tags: [],
+      errorNames: [],
+      errorCodes: [],
     }));
   }, []);
 
@@ -284,6 +357,12 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     if (filters.tags.length > 0) {
       params.tags = filters.tags.join(',');
     }
+    if (filters.errorNames.length > 0) {
+      params.errorNames = filters.errorNames.join(',');
+    }
+    if (filters.errorCodes.length > 0) {
+      params.errorCodes = filters.errorCodes.join(',');
+    }
 
     return params;
   }, [filters]);
@@ -303,6 +382,8 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     setSeverities,
     setThreatActors,
     setTags,
+    setErrorNames,
+    setErrorCodes,
     toggleExpanded,
     clearAllFilters,
     clearAdvancedFilters,

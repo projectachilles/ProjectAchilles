@@ -163,6 +163,27 @@ export interface ThreatActorCoverageItem {
   totalExecutions: number;
 }
 
+export interface DefenseScoreByHostItem {
+  hostname: string;
+  score: number;
+  protected: number;
+  unprotected: number;
+  total: number;
+}
+
+export interface CanonicalTestCount {
+  count: number;
+  tests: string[];
+  days: number;
+}
+
+export interface ErrorRateResponse {
+  errorRate: number;
+  errorCount: number;
+  conclusiveCount: number;
+  totalTestActivity: number;
+}
+
 export interface ExtendedFilterParams {
   org?: string;
   from?: string;
@@ -174,6 +195,8 @@ export interface ExtendedFilterParams {
   severities?: string;
   threatActors?: string;
   tags?: string;
+  errorNames?: string;
+  errorCodes?: string;
   result?: 'all' | 'protected' | 'unprotected';
 }
 
@@ -236,6 +259,7 @@ export const analyticsApi = {
     from?: string;
     to?: string;
     interval?: 'hour' | 'day' | 'week';
+    windowDays?: number;
   }): Promise<TrendDataPoint[]> {
     const response = await apiClient.get('/analytics/defense-score/trend', { params });
     return response.data;
@@ -374,6 +398,16 @@ export const analyticsApi = {
     return response.data;
   },
 
+  async getAvailableErrorNames(params?: { org?: string; from?: string; to?: string }): Promise<FilterOption[]> {
+    const response = await apiClient.get('/analytics/available-error-names', { params });
+    return response.data;
+  },
+
+  async getAvailableErrorCodes(params?: { org?: string; from?: string; to?: string }): Promise<FilterOption[]> {
+    const response = await apiClient.get('/analytics/available-error-codes', { params });
+    return response.data;
+  },
+
   async getDefenseScoreBySeverity(params?: { org?: string; from?: string; to?: string }): Promise<SeverityBreakdownItem[]> {
     const response = await apiClient.get('/analytics/defense-score/by-severity', { params });
     return response.data;
@@ -386,6 +420,21 @@ export const analyticsApi = {
 
   async getThreatActorCoverage(params?: { org?: string; from?: string; to?: string }): Promise<ThreatActorCoverageItem[]> {
     const response = await apiClient.get('/analytics/threat-actor-coverage', { params });
+    return response.data;
+  },
+
+  async getDefenseScoreByHostname(params?: { org?: string; from?: string; to?: string; limit?: number }): Promise<DefenseScoreByHostItem[]> {
+    const response = await apiClient.get('/analytics/defense-score/by-hostname', { params });
+    return response.data;
+  },
+
+  async getCanonicalTestCount(params?: { org?: string; days?: number }): Promise<CanonicalTestCount> {
+    const response = await apiClient.get('/analytics/canonical-test-count', { params });
+    return response.data;
+  },
+
+  async getErrorRate(params?: { org?: string; from?: string; to?: string }): Promise<ErrorRateResponse> {
+    const response = await apiClient.get('/analytics/error-rate', { params });
     return response.data;
   },
 };

@@ -6,6 +6,7 @@ threat_actor, tags, complexity, target, score.
 
 Usage:
     python generate_synthetic_data.py --count 1000 --output synthetic_data.ndjson
+    python generate_synthetic_data.py --count 5000 --days 90 --output synthetic_data.ndjson
 
 Then upload to Elasticsearch:
     curl -X POST "https://your-es-host:9200/f0rtika-results-*/_bulk" \
@@ -406,7 +407,7 @@ def generate_execution(test, org, hostname, timestamp):
     }
 
 
-def generate_bulk_data(count, index_name="f0rtika-results-synthetic"):
+def generate_bulk_data(count, index_name="f0rtika-results-synthetic", days_back=30):
     """Generate NDJSON bulk data for Elasticsearch."""
     lines = []
 
@@ -415,7 +416,7 @@ def generate_bulk_data(count, index_name="f0rtika-results-synthetic"):
         test = random.choice(TESTS)
         org = random.choice(ORGANIZATIONS)
         hostname = random.choice(HOSTNAMES)
-        timestamp = generate_timestamp(days_back=30)
+        timestamp = generate_timestamp(days_back=days_back)
 
         # Generate the execution document
         doc = generate_execution(test, org, hostname, timestamp)
@@ -431,7 +432,7 @@ def generate_bulk_data(count, index_name="f0rtika-results-synthetic"):
     return "\n".join(lines) + "\n"
 
 
-def generate_json_array(count):
+def generate_json_array(count, days_back=30):
     """Generate a JSON array of documents (for easier inspection)."""
     docs = []
 
@@ -439,7 +440,7 @@ def generate_json_array(count):
         test = random.choice(TESTS)
         org = random.choice(ORGANIZATIONS)
         hostname = random.choice(HOSTNAMES)
-        timestamp = generate_timestamp(days_back=30)
+        timestamp = generate_timestamp(days_back=days_back)
 
         doc = generate_execution(test, org, hostname, timestamp)
         docs.append(doc)
@@ -482,18 +483,25 @@ def main():
         default="ndjson",
         help="Output format: ndjson (bulk) or json (array)"
     )
+    parser.add_argument(
+        "--days", "-d",
+        type=int,
+        default=30,
+        help="Number of days back to spread timestamps (default: 30)"
+    )
 
     args = parser.parse_args()
 
     print(f"Generating {args.count} synthetic documents...")
     print(f"Index: {args.index}")
     print(f"Format: {args.format}")
+    print(f"Days back: {args.days}")
     print()
 
     if args.format == "ndjson":
-        data = generate_bulk_data(args.count, args.index)
+        data = generate_bulk_data(args.count, args.index, days_back=args.days)
     else:
-        docs = generate_json_array(args.count)
+        docs = generate_json_array(args.count, days_back=args.days)
         data = json.dumps(docs, indent=2)
 
     with open(args.output, "w") as f:

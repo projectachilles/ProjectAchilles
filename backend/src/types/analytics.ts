@@ -64,6 +64,7 @@ export interface AnalyticsQueryParams {
   limit?: number;
   tests?: string;      // comma-separated test names/UUIDs
   techniques?: string; // comma-separated technique IDs
+  windowDays?: number; // Rolling window size in days for trend aggregation
 }
 
 // Organization breakdown
@@ -152,6 +153,8 @@ export interface ExtendedAnalyticsQueryParams extends AnalyticsQueryParams {
   severities?: string;     // comma-separated severity levels
   threatActors?: string;   // comma-separated threat actor names
   tags?: string;           // comma-separated tags
+  errorNames?: string;     // comma-separated error names
+  errorCodes?: string;     // comma-separated numeric error codes
   result?: 'all' | 'protected' | 'unprotected';
 }
 
@@ -190,4 +193,28 @@ export interface ThreatActorCoverageItem {
   testCount: number;
   protectedCount: number;
   totalExecutions: number;
+}
+
+// Defense score by hostname item
+export interface DefenseScoreByHostItem {
+  hostname: string;
+  score: number;
+  protected: number;
+  unprotected: number;
+  total: number;
+}
+
+// Error rate response
+export interface ErrorRateResponse {
+  errorRate: number;          // percentage (0-100)
+  errorCount: number;         // docs with codes [0, 1, 259, 999]
+  conclusiveCount: number;    // docs with codes [101, 105, 126, 127]
+  totalTestActivity: number;  // errorCount + conclusiveCount (excludes code 200)
+}
+
+// Canonical test count response (for stable coverage denominators)
+export interface CanonicalTestCountResponse {
+  count: number;
+  tests: string[];
+  days: number;
 }

@@ -1,4 +1,5 @@
 import { Shield, TrendingUp, TrendingDown, Minus, Loader2 } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface DefenseScoreCardProps {
   score: number;
@@ -42,32 +43,35 @@ export default function DefenseScoreCard({
 
   if (loading) {
     return (
-      <div className="bg-secondary/50 border border-border rounded-xl p-6 flex items-center justify-center min-h-[180px]">
+      <Card className="min-h-[180px] flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div className="bg-secondary/50 border border-border rounded-xl p-6">
-      <div className="flex items-center gap-2 mb-4">
-        <Shield className="w-5 h-5 text-primary" />
-        <h3 className="font-semibold text-lg">Defense Score</h3>
-      </div>
-
-      <div className="flex flex-col items-center justify-center py-4">
-        <div className={`text-6xl font-bold ${getScoreColor(score)}`}>
-          {score.toFixed(1)}%
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <Shield className="w-5 h-5 text-primary" />
+          <CardTitle className="text-lg font-semibold">Defense Score</CardTitle>
         </div>
-
-        {getDeltaDisplay()}
-
-        {total !== undefined && protectedCount !== undefined && (
-          <div className="mt-4 text-sm text-muted-foreground">
-            {protectedCount} protected of {total} executions
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col items-center justify-center py-4">
+          <div className={`text-6xl font-bold ${getScoreColor(score)}`}>
+            {score.toFixed(1)}%
           </div>
-        )}
-      </div>
-    </div>
+
+          {getDeltaDisplay()}
+
+          {total !== undefined && protectedCount !== undefined && (
+            <div className="mt-4 text-sm text-muted-foreground">
+              {protectedCount} protected of {total} executions
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

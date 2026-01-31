@@ -19,6 +19,31 @@ const defaultSettings: AnalyticsSettings = {
 };
 
 export class SettingsService {
+  // Check if environment variables are configured for Elasticsearch
+  private getEnvSettings(): AnalyticsSettings | null {
+    const cloudId = process.env.ELASTICSEARCH_CLOUD_ID;
+    const node = process.env.ELASTICSEARCH_NODE;
+
+    // If neither is set, env config is not active
+    if (!cloudId && !node) return null;
+
+    return {
+      connectionType: cloudId ? 'cloud' : 'direct',
+      cloudId: cloudId || '',
+      node: node || '',
+      apiKey: process.env.ELASTICSEARCH_API_KEY || '',
+      username: process.env.ELASTICSEARCH_USERNAME || '',
+      password: process.env.ELASTICSEARCH_PASSWORD || '',
+      indexPattern: process.env.ELASTICSEARCH_INDEX_PATTERN || 'f0rtika-results-*',
+      configured: true,
+    };
+  }
+
+  // Check if using environment variable configuration
+  isEnvConfigured(): boolean {
+    return this.getEnvSettings() !== null;
+  }
+
   // Derive encryption key from machine ID
   private getEncryptionKey(): Buffer {
     const machineId = os.hostname() + os.userInfo().username;
@@ -63,12 +88,12 @@ export class SettingsService {
     }
   }
 
-  // Load settings from file
-  getSettings(): AnalyticsSettings {
+  // Load file-based settings (without env override)
+  private getFileSettings(): AnalyticsSettings | null {
     this.ensureSettingsDir();
 
     if (!fs.existsSync(SETTINGS_FILE)) {
-      return defaultSettings;
+      return null;
     }
 
     try {
@@ -89,8 +114,24 @@ export class SettingsService {
       return settings;
     } catch (error) {
       console.error('Error loading analytics settings:', error);
-      return defaultSettings;
+      return null;
     }
+  }
+
+  // Load settings - env vars provide credentials, user file overrides index pattern
+  getSettings(): AnalyticsSettings {
+    const envSettings = this.getEnvSettings();
+    const fileSettings = this.getFileSettings();
+
+    if (envSettings) {
+      // Env provides credentials, but user-saved index pattern takes priority
+      if (fileSettings?.indexPattern) {
+        envSettings.indexPattern = fileSettings.indexPattern;
+      }
+      return envSettings;
+    }
+
+    return fileSettings || defaultSettings;
   }
 
   // Save settings to file

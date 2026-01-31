@@ -1,36 +1,33 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Shield, Monitor, FlaskConical, LayoutDashboard, Table } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { LayoutDashboard, Table } from 'lucide-react';
 import SharedLayout from '../../components/shared/Layout';
 import SettingsModal from './components/SettingsModal';
 import FilterBar from './components/FilterBar';
-import MetricCard from './components/MetricCard';
+import DateRangePicker from './components/DateRangePicker';
+import HeroMetricsCard from './components/HeroMetricsCard';
 import TrendChart from './components/TrendChart';
-import BarChart from './components/BarChart';
 import ErrorTypePieChart from './components/ErrorTypePieChart';
-import ProtectionRateDonut from './components/ProtectionRateDonut';
 import StackedBarChart from './components/StackedBarChart';
-import HeatmapChart from './components/HeatmapChart';
-import SeverityBreakdownChart from './components/SeverityBreakdownChart';
+import CoverageTreemap from './components/CoverageTreemap';
+import DefenseScoreByHostChart from './components/DefenseScoreByHostChart';
 import CategoryBreakdownChart from './components/CategoryBreakdownChart';
-import ThreatActorCoverage from './components/ThreatActorCoverage';
+import TestActivityCard from './components/TestActivityCard';
 import ExecutionsDataTable from './components/ExecutionsDataTable';
-import { useAnalyticsFilters } from '@/hooks/useAnalyticsFilters';
+import { useAnalyticsFilters, getWindowDaysForDateRange } from '@/hooks/useAnalyticsFilters';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { analyticsApi } from '../../services/api/analytics';
 import type {
   TrendDataPoint,
-  BreakdownItem,
-  OrganizationInfo,
   ErrorTypeBreakdown,
   TestCoverageItem,
   TechniqueDistributionItem,
   HostTestMatrixCell,
   FilterOption,
-  SeverityBreakdownItem,
   CategoryBreakdownItem,
-  ThreatActorCoverageItem,
   PaginatedResponse,
   EnrichedTestExecution,
+  DefenseScoreByHostItem,
 } from '../../services/api/analytics';
 
 type TabType = 'dashboard' | 'executions';
@@ -43,10 +40,35 @@ interface DefenseScoreData {
 }
 
 export default function AnalyticsDashboardPage() {
+  // URL state for tab
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get('tab') as TabType | null;
+
   // UI State
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl === 'executions' ? 'executions' : 'dashboard');
+
+  // Sync tab state with URL changes
+  useEffect(() => {
+    const urlTab = searchParams.get('tab') as TabType | null;
+    const newTab = urlTab === 'executions' ? 'executions' : 'dashboard';
+    if (newTab !== activeTab) {
+      setActiveTab(newTab);
+    }
+  }, [searchParams]);
+
+  // Handle tab change with URL sync
+  const handleTabChange = useCallback((tab: TabType) => {
+    setActiveTab(tab);
+    const newParams = new URLSearchParams(searchParams);
+    if (tab === 'executions') {
+      newParams.set('tab', 'executions');
+    } else {
+      newParams.delete('tab');
+    }
+    setSearchParams(newParams, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   // Filter state (with URL sync)
   const filterState = useAnalyticsFilters(true);
@@ -55,7 +77,6 @@ export default function AnalyticsDashboardPage() {
   const { settingsVersion } = useAnalyticsAuth();
 
   // Filter options data
-  const [organizations, setOrganizations] = useState<OrganizationInfo[]>([]);
   const [availableHostnames, setAvailableHostnames] = useState<FilterOption[]>([]);
   const [availableTests, setAvailableTests] = useState<string[]>([]);
   const [availableTechniques, setAvailableTechniques] = useState<string[]>([]);
@@ -63,23 +84,25 @@ export default function AnalyticsDashboardPage() {
   const [availableSeverities, setAvailableSeverities] = useState<FilterOption[]>([]);
   const [availableThreatActors, setAvailableThreatActors] = useState<FilterOption[]>([]);
   const [availableTags, setAvailableTags] = useState<FilterOption[]>([]);
+  const [availableErrorNames, setAvailableErrorNames] = useState<FilterOption[]>([]);
+  const [availableErrorCodes, setAvailableErrorCodes] = useState<FilterOption[]>([]);
 
   // Dashboard Data State
   const [defenseScore, setDefenseScore] = useState<DefenseScoreData | null>(null);
+  const [errorRate, setErrorRate] = useState<number | null>(null);
   const [uniqueHostnames, setUniqueHostnames] = useState<number>(0);
   const [uniqueTestCount, setUniqueTestCount] = useState<number>(0);
   const [trendData, setTrendData] = useState<TrendDataPoint[]>([]);
   const [errorTypeData, setErrorTypeData] = useState<ErrorTypeBreakdown[]>([]);
-  const [byTestData, setByTestData] = useState<BreakdownItem[]>([]);
-  const [byTechniqueData, setByTechniqueData] = useState<BreakdownItem[]>([]);
   const [testCoverageData, setTestCoverageData] = useState<TestCoverageItem[]>([]);
   const [techniqueDistData, setTechniqueDistData] = useState<TechniqueDistributionItem[]>([]);
   const [hostTestMatrix, setHostTestMatrix] = useState<HostTestMatrixCell[]>([]);
 
   // New visualization data
-  const [severityBreakdown, setSeverityBreakdown] = useState<SeverityBreakdownItem[]>([]);
   const [categoryBreakdown, setCategoryBreakdown] = useState<CategoryBreakdownItem[]>([]);
-  const [threatActorCoverage, setThreatActorCoverage] = useState<ThreatActorCoverageItem[]>([]);
+  const [recentTests, setRecentTests] = useState<EnrichedTestExecution[]>([]);
+  const [defenseScoreByHost, setDefenseScoreByHost] = useState<DefenseScoreByHostItem[]>([]);
+  const [canonicalTestCount, setCanonicalTestCount] = useState<number>(0);
 
   // Executions tab data
   const [executionsData, setExecutionsData] = useState<PaginatedResponse<EnrichedTestExecution> | null>(null);
@@ -93,10 +116,21 @@ export default function AnalyticsDashboardPage() {
   const [loadingDashboard, setLoadingDashboard] = useState(true);
   const [loadingExecutions, setLoadingExecutions] = useState(false);
 
-  // Load filter options on mount and when settings change
+  // Load filter options and canonical test count on mount and when settings change
   useEffect(() => {
     loadFilterOptions();
+    loadCanonicalTestCount();
   }, [settingsVersion]);
+
+  // Load canonical test count (stable baseline for coverage calculations)
+  async function loadCanonicalTestCount() {
+    try {
+      const result = await analyticsApi.getCanonicalTestCount({ days: 90 });
+      setCanonicalTestCount(result.count);
+    } catch (error) {
+      console.error('Failed to load canonical test count:', error);
+    }
+  }
 
   // Load dashboard data when filters or settings change
   useEffect(() => {
@@ -116,8 +150,7 @@ export default function AnalyticsDashboardPage() {
   async function loadFilterOptions() {
     setLoadingFilters(true);
     try {
-      const [orgs, tests, techniques, hostnames, categories, severities, threatActors, tags] = await Promise.all([
-        analyticsApi.getOrganizations(),
+      const [tests, techniques, hostnames, categories, severities, threatActors, tags, errorNames, errorCodes] = await Promise.all([
         analyticsApi.getAvailableTests(),
         analyticsApi.getAvailableTechniques(),
         analyticsApi.getAvailableHostnames(),
@@ -125,18 +158,10 @@ export default function AnalyticsDashboardPage() {
         analyticsApi.getAvailableSeverities(),
         analyticsApi.getAvailableThreatActors(),
         analyticsApi.getAvailableTags(),
+        analyticsApi.getAvailableErrorNames(),
+        analyticsApi.getAvailableErrorCodes(),
       ]);
 
-      setOrganizations(orgs.map(org => {
-        if (typeof org === 'string') {
-          return { uuid: org, shortName: org, fullName: org };
-        }
-        return {
-          uuid: org.uuid,
-          shortName: org.shortName || org.uuid,
-          fullName: org.fullName || org.shortName || org.uuid
-        };
-      }));
       setAvailableTests(tests);
       setAvailableTechniques(techniques);
       setAvailableHostnames(hostnames);
@@ -144,6 +169,8 @@ export default function AnalyticsDashboardPage() {
       setAvailableSeverities(severities);
       setAvailableThreatActors(threatActors);
       setAvailableTags(tags);
+      setAvailableErrorNames(errorNames);
+      setAvailableErrorCodes(errorCodes);
     } catch (error) {
       console.error('Failed to load filter options:', error);
     } finally {
@@ -156,6 +183,9 @@ export default function AnalyticsDashboardPage() {
     setLoadingDashboard(true);
     const params = filterState.getApiParams();
 
+    // Calculate window size based on current date range filter
+    const windowDays = getWindowDaysForDateRange(filterState.filters.dateRange);
+
     try {
       const [
         score,
@@ -163,28 +193,26 @@ export default function AnalyticsDashboardPage() {
         testCount,
         trend,
         errorTypes,
-        byTest,
-        byTechnique,
         coverage,
         techDist,
         matrix,
-        severityData,
         categoryData,
-        threatActorData,
+        recentTestsData,
+        hostScores,
+        errorRateData,
       ] = await Promise.all([
         analyticsApi.getDefenseScore(params),
         analyticsApi.getUniqueHostnames(params),
         analyticsApi.getUniqueTests(params),
-        analyticsApi.getDefenseScoreTrend({ ...params, interval: 'day' }),
+        analyticsApi.getDefenseScoreTrend({ ...params, interval: 'day', windowDays }),
         analyticsApi.getResultsByErrorType(params),
-        analyticsApi.getDefenseScoreByTest(params),
-        analyticsApi.getDefenseScoreByTechnique(params),
         analyticsApi.getTestCoverage(params),
         analyticsApi.getTechniqueDistribution(params),
         analyticsApi.getHostTestMatrix(params),
-        analyticsApi.getDefenseScoreBySeverity(params),
         analyticsApi.getDefenseScoreByCategory(params),
-        analyticsApi.getThreatActorCoverage(params),
+        analyticsApi.getPaginatedExecutions({ ...params, pageSize: 3, sortField: 'routing.event_time', sortOrder: 'desc' }),
+        analyticsApi.getDefenseScoreByHostname(params),
+        analyticsApi.getErrorRate(params),
       ]);
 
       setDefenseScore({
@@ -197,24 +225,13 @@ export default function AnalyticsDashboardPage() {
       setUniqueTestCount(testCount);
       setTrendData(trend);
       setErrorTypeData(errorTypes);
-      setByTestData(byTest.slice(0, 10).map((t: any) => ({
-        name: t.testName || t.name || '',
-        score: t.score,
-        count: (t.protectedCount || t.count || 0) + (t.unprotectedCount || 0),
-        protected: t.protectedCount || t.protected || 0
-      })));
-      setByTechniqueData(byTechnique.slice(0, 10).map((t: any) => ({
-        name: t.technique || t.name || '',
-        score: t.score,
-        count: (t.protectedCount || t.count || 0) + (t.unprotectedCount || 0),
-        protected: t.protectedCount || t.protected || 0
-      })));
       setTestCoverageData(coverage.slice(0, 10));
       setTechniqueDistData(techDist.slice(0, 10));
       setHostTestMatrix(matrix);
-      setSeverityBreakdown(severityData);
       setCategoryBreakdown(categoryData);
-      setThreatActorCoverage(threatActorData);
+      setRecentTests(recentTestsData.data);
+      setDefenseScoreByHost(hostScores);
+      setErrorRate(errorRateData.errorRate);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
     } finally {
@@ -273,11 +290,6 @@ export default function AnalyticsDashboardPage() {
     setExecutionsPage(1); // Reset to first page when page size changes
   };
 
-  // Switch to executions tab with threat actor filter
-  const handleViewThreatActors = () => {
-    setActiveTab('executions');
-  };
-
   return (
     <SharedLayout
       onSettingsClick={() => setSettingsOpen(true)}
@@ -285,24 +297,10 @@ export default function AnalyticsDashboardPage() {
       isRefreshing={isRefreshing}
     >
       <div className="container mx-auto px-4 py-6">
-        {/* Filter Bar */}
-        <FilterBar
-          filterState={filterState}
-          organizations={organizations}
-          availableHostnames={availableHostnames}
-          availableTests={availableTests}
-          availableTechniques={availableTechniques}
-          availableCategories={availableCategories}
-          availableSeverities={availableSeverities}
-          availableThreatActors={availableThreatActors}
-          availableTags={availableTags}
-          loading={loadingFilters}
-        />
-
-        {/* Tab Navigation */}
+        {/* Tab Navigation + Date Range Picker */}
         <div className="flex items-center gap-1 mb-6 border-b border-border">
           <button
-            onClick={() => setActiveTab('dashboard')}
+            onClick={() => handleTabChange('dashboard')}
             className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
               activeTab === 'dashboard'
                 ? 'border-primary text-primary'
@@ -313,7 +311,7 @@ export default function AnalyticsDashboardPage() {
             Dashboard
           </button>
           <button
-            onClick={() => setActiveTab('executions')}
+            onClick={() => handleTabChange('executions')}
             className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
               activeTab === 'executions'
                 ? 'border-primary text-primary'
@@ -328,146 +326,124 @@ export default function AnalyticsDashboardPage() {
               </span>
             )}
           </button>
+          <div className="ml-auto pb-2">
+            <DateRangePicker value={filterState.filters.dateRange} onChange={filterState.setDateRange} />
+          </div>
         </div>
 
         {/* Tab Content */}
         {activeTab === 'dashboard' ? (
           /* Dashboard Tab */
           <div className="grid grid-cols-12 auto-rows-[140px] gap-4">
-            {/* Row 1: Defense Score Trend (full width, 2 rows) */}
-            <div className="col-span-12 row-span-2">
+            {/* Row 1-2: Hero Metrics (1/3) + Defense Score Trend (2/3) */}
+            <div className="col-span-12 md:col-span-4 row-span-2">
+              <HeroMetricsCard
+                defenseScore={defenseScore?.overall ?? null}
+                uniqueEndpoints={uniqueHostnames}
+                executedTests={uniqueTestCount}
+                errorRate={errorRate}
+                loading={loadingDashboard}
+              />
+            </div>
+            <div className="col-span-12 md:col-span-8 row-span-2 min-w-0 overflow-hidden">
               <TrendChart
                 data={trendData}
                 loading={loadingDashboard}
                 title="Defense Score Trend"
+                windowDays={getWindowDaysForDateRange(filterState.filters.dateRange)}
               />
             </div>
 
-            {/* Row 3: Metrics (1 row each) */}
-            <div className="col-span-12 md:col-span-4 lg:col-span-4 row-span-1">
-              <MetricCard
-                title="Defense Score"
-                value={defenseScore?.overall || 0}
-                format="percent"
-                valueColor="score"
-                icon={Shield}
-                subtitle={defenseScore?.delta !== null && defenseScore?.delta !== undefined
-                  ? `${defenseScore.delta > 0 ? '+' : ''}${defenseScore.delta.toFixed(1)}% vs prior`
-                  : undefined}
-                loading={loadingDashboard}
-              />
-            </div>
-            <div className="col-span-6 md:col-span-4 lg:col-span-4 row-span-1">
-              <MetricCard
-                title="Unique Endpoints"
-                value={uniqueHostnames}
-                icon={Monitor}
-                loading={loadingDashboard}
-              />
-            </div>
-            <div className="col-span-6 md:col-span-4 lg:col-span-4 row-span-1">
-              <MetricCard
-                title="Unique Tests"
-                value={uniqueTestCount}
-                icon={FlaskConical}
-                loading={loadingDashboard}
-              />
-            </div>
-
-            {/* Row 4-5: New Charts - Severity + Category + Threat Actor (2 rows each) */}
-            <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
-              <SeverityBreakdownChart
-                data={severityBreakdown}
-                loading={loadingDashboard}
-                title="Score by Severity"
-              />
-            </div>
-            <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
+            {/* Row 3-4: Category breakdown + Test Activity */}
+            <div className="col-span-12 md:col-span-6 row-span-2">
               <CategoryBreakdownChart
                 data={categoryBreakdown}
                 loading={loadingDashboard}
                 title="Score by Category"
               />
             </div>
-            <div className="col-span-12 lg:col-span-4 row-span-2">
-              <ThreatActorCoverage
-                data={threatActorCoverage}
+            <div className="col-span-12 md:col-span-6 row-span-2">
+              <TestActivityCard
+                trendData={trendData}
+                recentTests={recentTests}
                 loading={loadingDashboard}
-                title="Threat Actor Coverage"
-                maxItems={4}
-                onViewAll={handleViewThreatActors}
+                title="Test Activity"
               />
             </div>
 
-            {/* Row 6-7: Pie Chart + Donut + Technique Distribution (2 rows each) */}
-            <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
+            {/* Row 6-7: Pie Chart + Technique Distribution (2 rows each) */}
+            <div className="col-span-12 md:col-span-6 row-span-2">
               <ErrorTypePieChart
                 data={errorTypeData}
                 loading={loadingDashboard}
                 title="Results by Error Type"
               />
             </div>
-            <div className="col-span-12 md:col-span-6 lg:col-span-4 row-span-2">
-              <ProtectionRateDonut
-                protected={defenseScore?.protected || 0}
-                total={defenseScore?.total || 0}
-                loading={loadingDashboard}
-                title="Protection Rate"
-              />
-            </div>
-            <div className="col-span-12 lg:col-span-4 row-span-2">
+            <div className="col-span-12 md:col-span-6 row-span-2">
               <StackedBarChart
                 data={techniqueDistData}
                 loading={loadingDashboard}
                 title="ATT&CK Technique Distribution"
-                layout="vertical"
               />
             </div>
 
-            {/* Row 8-9: Defense Score by Test + by Technique (2 rows each) */}
-            <div className="col-span-12 lg:col-span-6 row-span-2">
-              <BarChart
-                data={byTestData}
-                title="Defense Score by Test"
-                loading={loadingDashboard}
-              />
-            </div>
-            <div className="col-span-12 lg:col-span-6 row-span-2">
-              <BarChart
-                data={byTechniqueData}
-                title="Defense Score by Technique"
-                loading={loadingDashboard}
-              />
-            </div>
-
-            {/* Row 10-11: Test Coverage + Host-Test Matrix (2 rows each) */}
+            {/* Row 8-9: Test Coverage + Defense Score by Host (2 rows each, side by side) */}
             <div className="col-span-12 lg:col-span-6 row-span-2">
               <StackedBarChart
                 data={testCoverageData}
                 loading={loadingDashboard}
                 title="Test Coverage"
-                layout="vertical"
               />
             </div>
             <div className="col-span-12 lg:col-span-6 row-span-2">
-              <HeatmapChart
+              <DefenseScoreByHostChart
+                data={defenseScoreByHost}
+                loading={loadingDashboard}
+                title="Defense Score by Host"
+              />
+            </div>
+
+            {/* Row 10-12: Test Breadth by Host Treemap (full width, 3 rows for better visibility) */}
+            <div className="col-span-12 row-span-3">
+              <CoverageTreemap
                 data={hostTestMatrix}
                 loading={loadingDashboard}
-                title="Host-Test Coverage Matrix"
+                title="Test Breadth by Host"
+                canonicalTestCount={canonicalTestCount}
               />
             </div>
           </div>
         ) : (
           /* All Executions Tab */
-          <ExecutionsDataTable
-            data={executionsData}
-            loading={loadingExecutions}
-            onPageChange={handlePageChange}
-            onPageSizeChange={handlePageSizeChange}
-            onSort={handleSort}
-            sortField={executionsSortField}
-            sortOrder={executionsSortOrder}
-          />
+          <>
+            {filterState.isExpanded && (
+              <FilterBar
+                filterState={filterState}
+                availableHostnames={availableHostnames}
+                availableTests={availableTests}
+                availableTechniques={availableTechniques}
+                availableCategories={availableCategories}
+                availableSeverities={availableSeverities}
+                availableThreatActors={availableThreatActors}
+                availableTags={availableTags}
+                availableErrorNames={availableErrorNames}
+                availableErrorCodes={availableErrorCodes}
+                loading={loadingFilters}
+              />
+            )}
+            <ExecutionsDataTable
+              data={executionsData}
+              loading={loadingExecutions}
+              onPageChange={handlePageChange}
+              onPageSizeChange={handlePageSizeChange}
+              onSort={handleSort}
+              sortField={executionsSortField}
+              sortOrder={executionsSortOrder}
+              filtersExpanded={filterState.isExpanded}
+              onToggleFilters={filterState.toggleExpanded}
+              activeFilterCount={filterState.activeFilterCount}
+            />
+          </>
         )}
       </div>
 

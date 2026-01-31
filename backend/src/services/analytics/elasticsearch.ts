@@ -21,6 +21,9 @@ import type {
   SeverityBreakdownItem,
   CategoryBreakdownItem,
   ThreatActorCoverageItem,
+  DefenseScoreByHostItem,
+  CanonicalTestCountResponse,
+  ErrorRateResponse,
   SeverityLevel,
   CategoryType,
 } from '../../types/analytics.js';
@@ -28,6 +31,15 @@ import type {
 export class ElasticsearchService {
   private client: Client;
   private settings: AnalyticsSettings;
+
+  // Conclusive test outcome codes (used for Defense Score)
+  private readonly CONCLUSIVE_ERROR_CODES = [101, 105, 126, 127];
+
+  // Error codes representing failed/inconclusive test attempts (used for Error Rate)
+  private readonly ERROR_CODES = [0, 1, 259, 999];
+
+  // Upload confirmation code — not a test outcome, excluded from everything
+  private readonly UPLOAD_CONFIRMATION_CODE = 200;
 
   constructor(settings: AnalyticsSettings) {
     this.settings = settings;
@@ -82,9 +94,23 @@ export class ElasticsearchService {
     return {
       bool: {
         must: [
-          { exists: { field: 'f0rtika.test_uuid' } },
-          { exists: { field: 'f0rtika.test_name' } }
+          { exists: { field: 'f0rtika.test_uuid.keyword' } },
+          { exists: { field: 'f0rtika.test_name.keyword' } }
         ]
+      }
+    };
+  }
+
+  // Filter to only conclusive test outcomes (for Defense Score calculations)
+  private buildConclusiveResultsFilter(): any {
+    return { terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } };
+  }
+
+  // Filter to exclude upload confirmations (for Error Rate — real test activity only)
+  private buildTestActivityFilter(): any {
+    return {
+      bool: {
+        must_not: [{ term: { 'event.ERROR': this.UPLOAD_CONFIRMATION_CODE } }]
       }
     };
   }
@@ -93,7 +119,8 @@ export class ElasticsearchService {
   async getDefenseScore(params: AnalyticsQueryParams): Promise<DefenseScoreResponse> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
     ];
 
     const orgFilter = this.buildOrgFilter(params.org);
@@ -133,7 +160,8 @@ export class ElasticsearchService {
   async getDefenseScoreTrend(params: AnalyticsQueryParams): Promise<TrendDataPoint[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
     ];
 
     const orgFilter = this.buildOrgFilter(params.org);
@@ -179,11 +207,151 @@ export class ElasticsearchService {
     });
   }
 
+  // Extend a date string by windowDays for lookback period
+  // Handles both 'now-Xd' format and ISO date strings
+  private extendDateRange(from: string | undefined, windowDays: number): string {
+    if (!from) {
+      return `now-${7 + windowDays - 1}d`; // Default to 7d + lookback
+    }
+
+    // Handle 'now-Xd' format
+    const nowMatch = from.match(/^now-(\d+)([dhwm])$/);
+    if (nowMatch) {
+      const value = parseInt(nowMatch[1], 10);
+      const unit = nowMatch[2];
+      // Convert to days for extension
+      const daysMap: Record<string, number> = { d: 1, h: 1/24, w: 7, m: 30 };
+      const totalDays = Math.ceil(value * (daysMap[unit] || 1)) + windowDays - 1;
+      return `now-${totalDays}d`;
+    }
+
+    // Handle ISO date string - subtract windowDays-1
+    const date = new Date(from);
+    if (!isNaN(date.getTime())) {
+      date.setDate(date.getDate() - (windowDays - 1));
+      return date.toISOString();
+    }
+
+    // Fallback
+    return from;
+  }
+
+  // Check if a timestamp is within the display range (after the extended lookback)
+  private isWithinDisplayRange(timestamp: string, displayFrom: string | undefined): boolean {
+    const pointDate = new Date(parseInt(timestamp, 10) || timestamp);
+
+    if (!displayFrom) {
+      // Default 7d range
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 7);
+      cutoff.setHours(0, 0, 0, 0);
+      return pointDate >= cutoff;
+    }
+
+    // Handle 'now-Xd' format
+    const nowMatch = displayFrom.match(/^now-(\d+)([dhwm])$/);
+    if (nowMatch) {
+      const value = parseInt(nowMatch[1], 10);
+      const unit = nowMatch[2];
+      const daysMap: Record<string, number> = { d: 1, h: 1/24, w: 7, m: 30 };
+      const days = Math.ceil(value * (daysMap[unit] || 1));
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      cutoff.setHours(0, 0, 0, 0);
+      return pointDate >= cutoff;
+    }
+
+    // Handle ISO date string
+    const cutoffDate = new Date(displayFrom);
+    cutoffDate.setHours(0, 0, 0, 0);
+    return pointDate >= cutoffDate;
+  }
+
+  // Get defense score trend with rolling window aggregation
+  async getDefenseScoreTrendRolling(params: AnalyticsQueryParams): Promise<TrendDataPoint[]> {
+    const windowDays = params.windowDays || 7;
+    const displayFrom = params.from;
+
+    // Extend date range to include lookback period
+    const extendedFrom = this.extendDateRange(params.from, windowDays);
+
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(extendedFrom, params.to),
+      this.buildConclusiveResultsFilter()
+    ];
+
+    const orgFilter = this.buildOrgFilter(params.org);
+    if (orgFilter) filters.push(orgFilter);
+
+    const interval = params.interval || 'day';
+
+    // Query ES with extended range
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: {
+        bool: { filter: filters },
+      },
+      aggs: {
+        over_time: {
+          date_histogram: {
+            field: 'routing.event_time',
+            calendar_interval: interval as 'day' | 'week' | 'month' | 'hour',
+            min_doc_count: 0,
+          },
+          aggs: {
+            protected: {
+              filter: { term: { 'f0rtika.is_protected': true } },
+            },
+          },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.over_time as any)?.buckets || [];
+
+    // Compute rolling sums
+    const rollingResults: TrendDataPoint[] = [];
+
+    for (let i = 0; i < buckets.length; i++) {
+      const currentBucket = buckets[i];
+      const timestamp = currentBucket.key_as_string;
+
+      // Sum over the window (current day + previous windowDays-1 days)
+      let windowTotal = 0;
+      let windowProtected = 0;
+
+      const windowStart = Math.max(0, i - windowDays + 1);
+      for (let j = windowStart; j <= i; j++) {
+        windowTotal += buckets[j].doc_count;
+        windowProtected += buckets[j].protected?.doc_count || 0;
+      }
+
+      // Skip points that are in the lookback-only period
+      if (!this.isWithinDisplayRange(currentBucket.key.toString(), displayFrom)) {
+        continue;
+      }
+
+      const score = windowTotal > 0 ? (windowProtected / windowTotal) * 100 : 0;
+
+      rollingResults.push({
+        timestamp,
+        score: Math.round(score * 100) / 100,
+        total: windowTotal,
+        protected: windowProtected,
+      });
+    }
+
+    return rollingResults;
+  }
+
   // Get defense score by test
   async getDefenseScoreByTest(params: AnalyticsQueryParams): Promise<BreakdownItem[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
     ];
 
     const orgFilter = this.buildOrgFilter(params.org);
@@ -197,7 +365,7 @@ export class ElasticsearchService {
       },
       aggs: {
         by_test: {
-          terms: { field: 'f0rtika.test_name', size: params.limit || 50 },
+          terms: { field: 'f0rtika.test_name.keyword', size: params.limit || 50 },
           aggs: {
             protected: {
               filter: { term: { 'f0rtika.is_protected': true } },
@@ -229,7 +397,8 @@ export class ElasticsearchService {
   async getDefenseScoreByTechnique(params: AnalyticsQueryParams): Promise<BreakdownItem[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
     ];
 
     const orgFilter = this.buildOrgFilter(params.org);
@@ -243,7 +412,7 @@ export class ElasticsearchService {
       },
       aggs: {
         by_technique: {
-          terms: { field: 'f0rtika.techniques', size: 50 },
+          terms: { field: 'f0rtika.techniques.keyword', size: 50 },
           aggs: {
             protected: {
               filter: { term: { 'f0rtika.is_protected': true } },
@@ -416,7 +585,7 @@ export class ElasticsearchService {
       },
       aggs: {
         unique_tests: {
-          cardinality: { field: 'f0rtika.test_uuid' },
+          cardinality: { field: 'f0rtika.test_uuid.keyword' },
         },
       },
     });
@@ -432,12 +601,12 @@ export class ElasticsearchService {
     if (testList.length === 0) return null;
 
     if (testList.length === 1) {
-      return { term: { 'f0rtika.test_name': testList[0] } };
+      return { term: { 'f0rtika.test_name.keyword': testList[0] } };
     }
 
     return {
       bool: {
-        should: testList.map(test => ({ term: { 'f0rtika.test_name': test } })),
+        should: testList.map(test => ({ term: { 'f0rtika.test_name.keyword': test } })),
         minimum_should_match: 1,
       },
     };
@@ -451,12 +620,12 @@ export class ElasticsearchService {
     if (techniqueList.length === 0) return null;
 
     if (techniqueList.length === 1) {
-      return { term: { 'f0rtika.techniques': techniqueList[0] } };
+      return { term: { 'f0rtika.techniques.keyword': techniqueList[0] } };
     }
 
     return {
       bool: {
-        should: techniqueList.map(technique => ({ term: { 'f0rtika.techniques': technique } })),
+        should: techniqueList.map(technique => ({ term: { 'f0rtika.techniques.keyword': technique } })),
         minimum_should_match: 1,
       },
     };
@@ -486,7 +655,7 @@ export class ElasticsearchService {
       },
       aggs: {
         by_error_type: {
-          terms: { field: 'f0rtika.error_name', size: 20 },
+          terms: { field: 'f0rtika.error_name.keyword', size: 20 },
         },
       },
     });
@@ -523,7 +692,7 @@ export class ElasticsearchService {
       },
       aggs: {
         by_test: {
-          terms: { field: 'f0rtika.test_name', size: 50 },
+          terms: { field: 'f0rtika.test_name.keyword', size: 50 },
           aggs: {
             protected: {
               filter: { term: { 'f0rtika.is_protected': true } },
@@ -569,7 +738,7 @@ export class ElasticsearchService {
       },
       aggs: {
         by_technique: {
-          terms: { field: 'f0rtika.techniques', size: 50 },
+          terms: { field: 'f0rtika.techniques.keyword', size: 50 },
           aggs: {
             protected: {
               filter: { term: { 'f0rtika.is_protected': true } },
@@ -619,7 +788,7 @@ export class ElasticsearchService {
             size: 1000,
             sources: [
               { hostname: { terms: { field: 'routing.hostname' } } },
-              { test_name: { terms: { field: 'f0rtika.test_name' } } },
+              { test_name: { terms: { field: 'f0rtika.test_name.keyword' } } },
             ],
           },
         },
@@ -645,7 +814,7 @@ export class ElasticsearchService {
       },
       aggs: {
         tests: {
-          terms: { field: 'f0rtika.test_name', size: 100 },
+          terms: { field: 'f0rtika.test_name.keyword', size: 100 },
         },
       },
     });
@@ -664,7 +833,7 @@ export class ElasticsearchService {
       },
       aggs: {
         techniques: {
-          terms: { field: 'f0rtika.techniques', size: 100 },
+          terms: { field: 'f0rtika.techniques.keyword', size: 100 },
         },
       },
     });
@@ -677,7 +846,8 @@ export class ElasticsearchService {
   async getDefenseScoreByOrg(params: AnalyticsQueryParams): Promise<OrgBreakdownItem[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
     ];
 
     const response = await this.client.search({
@@ -750,11 +920,11 @@ export class ElasticsearchService {
     const categoryList = categories.split(',').map(c => c.trim()).filter(Boolean);
     if (categoryList.length === 0) return null;
     if (categoryList.length === 1) {
-      return { term: { 'f0rtika.category': categoryList[0] } };
+      return { term: { 'f0rtika.category.keyword': categoryList[0] } };
     }
     return {
       bool: {
-        should: categoryList.map(c => ({ term: { 'f0rtika.category': c } })),
+        should: categoryList.map(c => ({ term: { 'f0rtika.category.keyword': c } })),
         minimum_should_match: 1,
       },
     };
@@ -766,11 +936,11 @@ export class ElasticsearchService {
     const severityList = severities.split(',').map(s => s.trim()).filter(Boolean);
     if (severityList.length === 0) return null;
     if (severityList.length === 1) {
-      return { term: { 'f0rtika.severity': severityList[0] } };
+      return { term: { 'f0rtika.severity.keyword': severityList[0] } };
     }
     return {
       bool: {
-        should: severityList.map(s => ({ term: { 'f0rtika.severity': s } })),
+        should: severityList.map(s => ({ term: { 'f0rtika.severity.keyword': s } })),
         minimum_should_match: 1,
       },
     };
@@ -782,11 +952,11 @@ export class ElasticsearchService {
     const actorList = threatActors.split(',').map(a => a.trim()).filter(Boolean);
     if (actorList.length === 0) return null;
     if (actorList.length === 1) {
-      return { term: { 'f0rtika.threat_actor': actorList[0] } };
+      return { term: { 'f0rtika.threat_actor.keyword': actorList[0] } };
     }
     return {
       bool: {
-        should: actorList.map(a => ({ term: { 'f0rtika.threat_actor': a } })),
+        should: actorList.map(a => ({ term: { 'f0rtika.threat_actor.keyword': a } })),
         minimum_should_match: 1,
       },
     };
@@ -798,14 +968,38 @@ export class ElasticsearchService {
     const tagList = tags.split(',').map(t => t.trim()).filter(Boolean);
     if (tagList.length === 0) return null;
     if (tagList.length === 1) {
-      return { term: { 'f0rtika.tags': tagList[0] } };
+      return { term: { 'f0rtika.tags.keyword': tagList[0] } };
     }
     return {
       bool: {
-        should: tagList.map(t => ({ term: { 'f0rtika.tags': t } })),
+        should: tagList.map(t => ({ term: { 'f0rtika.tags.keyword': t } })),
         minimum_should_match: 1,
       },
     };
+  }
+
+  // Build error names filter (OR logic)
+  private buildErrorNamesFilter(errorNames?: string): any | null {
+    if (!errorNames) return null;
+    const nameList = errorNames.split(',').map(n => n.trim()).filter(Boolean);
+    if (nameList.length === 0) return null;
+    if (nameList.length === 1) {
+      return { term: { 'f0rtika.error_name.keyword': nameList[0] } };
+    }
+    return {
+      bool: {
+        should: nameList.map(n => ({ term: { 'f0rtika.error_name.keyword': n } })),
+        minimum_should_match: 1,
+      },
+    };
+  }
+
+  // Build error codes filter (OR logic, numeric field)
+  private buildErrorCodesFilter(errorCodes?: string): any | null {
+    if (!errorCodes) return null;
+    const codeList = errorCodes.split(',').map(c => parseInt(c.trim(), 10)).filter(n => !isNaN(n));
+    if (codeList.length === 0) return null;
+    return { terms: { 'event.ERROR': codeList } };
   }
 
   // Build result filter (protected/unprotected)
@@ -844,6 +1038,12 @@ export class ElasticsearchService {
 
     const tagsFilter = this.buildTagsFilter(params.tags);
     if (tagsFilter) filters.push(tagsFilter);
+
+    const errorNamesFilter = this.buildErrorNamesFilter(params.errorNames);
+    if (errorNamesFilter) filters.push(errorNamesFilter);
+
+    const errorCodesFilter = this.buildErrorCodesFilter(params.errorCodes);
+    if (errorCodesFilter) filters.push(errorCodesFilter);
 
     const resultFilter = this.buildResultFilter(params.result);
     if (resultFilter) filters.push(resultFilter);
@@ -945,10 +1145,14 @@ export class ElasticsearchService {
   }
 
   // Get available hostnames with counts
+  // Note: For filter dropdowns, we show all available values unless date range is explicitly specified
   async getAvailableHostnames(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
     const filters: any[] = [this.buildTestDataFilter()];
     if (params) {
-      filters.push(this.buildDateFilter(params.from, params.to));
+      // Only apply date filter if explicitly provided (don't default to 7d for filter options)
+      if (params.from || params.to) {
+        filters.push(this.buildDateFilter(params.from, params.to));
+      }
       const orgFilter = this.buildOrgFilter(params.org);
       if (orgFilter) filters.push(orgFilter);
     }
@@ -976,7 +1180,9 @@ export class ElasticsearchService {
   async getAvailableCategories(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
     const filters: any[] = [this.buildTestDataFilter()];
     if (params) {
-      filters.push(this.buildDateFilter(params.from, params.to));
+      if (params.from || params.to) {
+        filters.push(this.buildDateFilter(params.from, params.to));
+      }
       const orgFilter = this.buildOrgFilter(params.org);
       if (orgFilter) filters.push(orgFilter);
     }
@@ -987,7 +1193,7 @@ export class ElasticsearchService {
       query: { bool: { filter: filters } },
       aggs: {
         categories: {
-          terms: { field: 'f0rtika.category', size: 50 },
+          terms: { field: 'f0rtika.category.keyword', size: 50 },
         },
       },
     });
@@ -1004,7 +1210,9 @@ export class ElasticsearchService {
   async getAvailableSeverities(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
     const filters: any[] = [this.buildTestDataFilter()];
     if (params) {
-      filters.push(this.buildDateFilter(params.from, params.to));
+      if (params.from || params.to) {
+        filters.push(this.buildDateFilter(params.from, params.to));
+      }
       const orgFilter = this.buildOrgFilter(params.org);
       if (orgFilter) filters.push(orgFilter);
     }
@@ -1015,7 +1223,7 @@ export class ElasticsearchService {
       query: { bool: { filter: filters } },
       aggs: {
         severities: {
-          terms: { field: 'f0rtika.severity', size: 10 },
+          terms: { field: 'f0rtika.severity.keyword', size: 10 },
         },
       },
     });
@@ -1037,7 +1245,9 @@ export class ElasticsearchService {
   async getAvailableThreatActors(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
     const filters: any[] = [this.buildTestDataFilter()];
     if (params) {
-      filters.push(this.buildDateFilter(params.from, params.to));
+      if (params.from || params.to) {
+        filters.push(this.buildDateFilter(params.from, params.to));
+      }
       const orgFilter = this.buildOrgFilter(params.org);
       if (orgFilter) filters.push(orgFilter);
     }
@@ -1048,7 +1258,7 @@ export class ElasticsearchService {
       query: { bool: { filter: filters } },
       aggs: {
         threat_actors: {
-          terms: { field: 'f0rtika.threat_actor', size: 100 },
+          terms: { field: 'f0rtika.threat_actor.keyword', size: 100 },
         },
       },
     });
@@ -1067,7 +1277,9 @@ export class ElasticsearchService {
   async getAvailableTags(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
     const filters: any[] = [this.buildTestDataFilter()];
     if (params) {
-      filters.push(this.buildDateFilter(params.from, params.to));
+      if (params.from || params.to) {
+        filters.push(this.buildDateFilter(params.from, params.to));
+      }
       const orgFilter = this.buildOrgFilter(params.org);
       if (orgFilter) filters.push(orgFilter);
     }
@@ -1078,7 +1290,7 @@ export class ElasticsearchService {
       query: { bool: { filter: filters } },
       aggs: {
         tags: {
-          terms: { field: 'f0rtika.tags', size: 200 },
+          terms: { field: 'f0rtika.tags.keyword', size: 200 },
         },
       },
     });
@@ -1093,11 +1305,76 @@ export class ElasticsearchService {
       .sort((a: FilterOption, b: FilterOption) => b.count - a.count);
   }
 
+  // Get available error names with counts
+  async getAvailableErrorNames(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
+    const filters: any[] = [this.buildTestDataFilter()];
+    if (params) {
+      if (params.from || params.to) {
+        filters.push(this.buildDateFilter(params.from, params.to));
+      }
+      const orgFilter = this.buildOrgFilter(params.org);
+      if (orgFilter) filters.push(orgFilter);
+    }
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: { bool: { filter: filters } },
+      aggs: {
+        error_names: {
+          terms: { field: 'f0rtika.error_name.keyword', size: 50 },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.error_names as any)?.buckets || [];
+    return buckets
+      .map((bucket: any) => ({
+        value: bucket.key,
+        label: bucket.key,
+        count: bucket.doc_count,
+      }))
+      .sort((a: FilterOption, b: FilterOption) => b.count - a.count);
+  }
+
+  // Get available error codes with counts
+  async getAvailableErrorCodes(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
+    const filters: any[] = [this.buildTestDataFilter()];
+    if (params) {
+      if (params.from || params.to) {
+        filters.push(this.buildDateFilter(params.from, params.to));
+      }
+      const orgFilter = this.buildOrgFilter(params.org);
+      if (orgFilter) filters.push(orgFilter);
+    }
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: { bool: { filter: filters } },
+      aggs: {
+        error_codes: {
+          terms: { field: 'event.ERROR', size: 50 },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.error_codes as any)?.buckets || [];
+    return buckets
+      .map((bucket: any) => ({
+        value: String(bucket.key),
+        label: String(bucket.key),
+        count: bucket.doc_count,
+      }))
+      .sort((a: FilterOption, b: FilterOption) => b.count - a.count);
+  }
+
   // Get defense score by severity
   async getDefenseScoreBySeverity(params: AnalyticsQueryParams): Promise<SeverityBreakdownItem[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
     ];
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -1108,7 +1385,7 @@ export class ElasticsearchService {
       query: { bool: { filter: filters } },
       aggs: {
         by_severity: {
-          terms: { field: 'f0rtika.severity', size: 10 },
+          terms: { field: 'f0rtika.severity.keyword', size: 10 },
           aggs: {
             protected: {
               filter: { term: { 'f0rtika.is_protected': true } },
@@ -1144,7 +1421,8 @@ export class ElasticsearchService {
   async getDefenseScoreByCategory(params: AnalyticsQueryParams): Promise<CategoryBreakdownItem[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
     ];
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -1155,7 +1433,7 @@ export class ElasticsearchService {
       query: { bool: { filter: filters } },
       aggs: {
         by_category: {
-          terms: { field: 'f0rtika.category', size: 20 },
+          terms: { field: 'f0rtika.category.keyword', size: 20 },
           aggs: {
             protected: {
               filter: { term: { 'f0rtika.is_protected': true } },
@@ -1184,11 +1462,96 @@ export class ElasticsearchService {
       .sort((a: CategoryBreakdownItem, b: CategoryBreakdownItem) => b.score - a.score);
   }
 
+  // Get defense score by hostname
+  async getDefenseScoreByHostname(params: AnalyticsQueryParams): Promise<DefenseScoreByHostItem[]> {
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
+    ];
+
+    const orgFilter = this.buildOrgFilter(params.org);
+    if (orgFilter) filters.push(orgFilter);
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: {
+        bool: { filter: filters },
+      },
+      aggs: {
+        by_hostname: {
+          terms: { field: 'routing.hostname', size: params.limit || 50 },
+          aggs: {
+            protected: {
+              filter: { term: { 'f0rtika.is_protected': true } },
+            },
+          },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.by_hostname as any)?.buckets || [];
+
+    return buckets
+      .map((bucket: any) => {
+        const total = bucket.doc_count;
+        const protectedCount = bucket.protected?.doc_count || 0;
+        const unprotectedCount = total - protectedCount;
+        const score = total > 0 ? (protectedCount / total) * 100 : 0;
+
+        return {
+          hostname: bucket.key,
+          score: Math.round(score * 100) / 100,
+          protected: protectedCount,
+          unprotected: unprotectedCount,
+          total,
+        };
+      })
+      .sort((a: DefenseScoreByHostItem, b: DefenseScoreByHostItem) => b.total - a.total);
+  }
+
+  // Get canonical test count (stable denominator for coverage calculations)
+  // Returns all unique tests seen in the last 90 days
+  async getCanonicalTestCount(params?: { org?: string; days?: number }): Promise<CanonicalTestCountResponse> {
+    const days = params?.days || 90;
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      { range: { 'routing.event_time': { gte: `now-${days}d` } } }
+    ];
+
+    const orgFilter = this.buildOrgFilter(params?.org);
+    if (orgFilter) filters.push(orgFilter);
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: {
+        bool: { filter: filters },
+      },
+      aggs: {
+        unique_test_count: {
+          cardinality: { field: 'f0rtika.test_name.keyword' },
+        },
+        test_names: {
+          terms: { field: 'f0rtika.test_name.keyword', size: 500 },
+        },
+      },
+    });
+
+    const count = (response.aggregations?.unique_test_count as any)?.value || 0;
+    const buckets = (response.aggregations?.test_names as any)?.buckets || [];
+    const tests = buckets.map((bucket: any) => bucket.key);
+
+    return { count, tests, days };
+  }
+
   // Get threat actor coverage
   async getThreatActorCoverage(params: AnalyticsQueryParams): Promise<ThreatActorCoverageItem[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
-      this.buildDateFilter(params.from, params.to)
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
     ];
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
@@ -1199,13 +1562,13 @@ export class ElasticsearchService {
       query: { bool: { filter: filters } },
       aggs: {
         by_threat_actor: {
-          terms: { field: 'f0rtika.threat_actor', size: 50 },
+          terms: { field: 'f0rtika.threat_actor.keyword', size: 50 },
           aggs: {
             protected: {
               filter: { term: { 'f0rtika.is_protected': true } },
             },
             unique_tests: {
-              cardinality: { field: 'f0rtika.test_uuid' },
+              cardinality: { field: 'f0rtika.test_uuid.keyword' },
             },
           },
         },
@@ -1230,5 +1593,45 @@ export class ElasticsearchService {
         };
       })
       .sort((a: ThreatActorCoverageItem, b: ThreatActorCoverageItem) => b.totalExecutions - a.totalExecutions);
+  }
+
+  // Get error rate (proportion of non-conclusive test activity)
+  async getErrorRate(params: AnalyticsQueryParams): Promise<ErrorRateResponse> {
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to),
+      this.buildTestActivityFilter()  // excludes code 200
+    ];
+
+    const orgFilter = this.buildOrgFilter(params.org);
+    if (orgFilter) filters.push(orgFilter);
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: {
+        bool: { filter: filters },
+      },
+      aggs: {
+        errors: {
+          filter: { terms: { 'event.ERROR': this.ERROR_CODES } },
+        },
+        conclusive: {
+          filter: { terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } },
+        },
+      },
+    });
+
+    const errorCount = (response.aggregations?.errors as any)?.doc_count || 0;
+    const conclusiveCount = (response.aggregations?.conclusive as any)?.doc_count || 0;
+    const totalTestActivity = errorCount + conclusiveCount;
+    const errorRate = totalTestActivity > 0 ? (errorCount / totalTestActivity) * 100 : 0;
+
+    return {
+      errorRate: Math.round(errorRate * 100) / 100,
+      errorCount,
+      conclusiveCount,
+      totalTestActivity,
+    };
   }
 }

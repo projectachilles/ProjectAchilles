@@ -1,14 +1,11 @@
-import { ChevronDown, ChevronUp, X, Filter } from 'lucide-react';
-import OrgFilter from './OrgFilter';
-import DateRangePicker from './DateRangePicker';
+import { X } from 'lucide-react';
 import MultiSelectFilter from './MultiSelectFilter';
 import SeverityFilter from './SeverityFilter';
 import type { UseAnalyticsFiltersReturn } from '@/hooks/useAnalyticsFilters';
-import type { OrganizationInfo, FilterOption } from '@/services/api/analytics';
+import type { FilterOption } from '@/services/api/analytics';
 
 interface FilterBarProps {
   filterState: UseAnalyticsFiltersReturn;
-  organizations: OrganizationInfo[];
   availableHostnames: FilterOption[];
   availableTests: string[];
   availableTechniques: string[];
@@ -16,12 +13,13 @@ interface FilterBarProps {
   availableSeverities: FilterOption[];
   availableThreatActors: FilterOption[];
   availableTags: FilterOption[];
+  availableErrorNames: FilterOption[];
+  availableErrorCodes: FilterOption[];
   loading?: boolean;
 }
 
 export default function FilterBar({
   filterState,
-  organizations,
   availableHostnames,
   availableTests,
   availableTechniques,
@@ -29,15 +27,13 @@ export default function FilterBar({
   availableSeverities,
   availableThreatActors,
   availableTags,
+  availableErrorNames,
+  availableErrorCodes,
   loading = false,
 }: FilterBarProps) {
   const {
     filters,
-    isExpanded,
-    hasActiveFilters,
     activeFilterCount,
-    setOrg,
-    setDateRange,
     setResult,
     setHostnames,
     setTests,
@@ -46,14 +42,20 @@ export default function FilterBar({
     setSeverities,
     setThreatActors,
     setTags,
-    toggleExpanded,
-    clearAllFilters,
+    setErrorNames,
+    setErrorCodes,
     clearAdvancedFilters,
   } = filterState;
 
   // Build active filter tags for display
   const activeFilterTags: { label: string; onClear: () => void }[] = [];
 
+  if (filters.result !== 'all') {
+    activeFilterTags.push({
+      label: `Result: ${filters.result === 'protected' ? 'Protected' : 'Unprotected'}`,
+      onClear: () => setResult('all'),
+    });
+  }
   if (filters.severities.length > 0) {
     activeFilterTags.push({
       label: `Severity: ${filters.severities.join(', ')}`,
@@ -96,31 +98,29 @@ export default function FilterBar({
       onClear: () => setTags([]),
     });
   }
+  if (filters.errorNames.length > 0) {
+    activeFilterTags.push({
+      label: `Error Name: ${filters.errorNames.length > 2 ? `${filters.errorNames.length} selected` : filters.errorNames.join(', ')}`,
+      onClear: () => setErrorNames([]),
+    });
+  }
+  if (filters.errorCodes.length > 0) {
+    activeFilterTags.push({
+      label: `Error Code: ${filters.errorCodes.length > 2 ? `${filters.errorCodes.length} selected` : filters.errorCodes.join(', ')}`,
+      onClear: () => setErrorCodes([]),
+    });
+  }
 
   return (
-    <div className="bg-card border border-border rounded-lg p-4 mb-6">
-      {/* Primary Filter Row */}
+    <div className="bg-card text-card-foreground border border-border rounded-lg p-4 mb-4">
+      {/* Filter Controls */}
       <div className="flex flex-wrap items-center gap-3">
-        {/* Organization Filter */}
-        <OrgFilter
-          organizations={organizations}
-          selectedOrg={filters.org}
-          onChange={setOrg}
-          loading={loading}
-        />
-
-        {/* Date Range Filter */}
-        <DateRangePicker
-          value={filters.dateRange}
-          onChange={setDateRange}
-        />
-
         {/* Result Filter */}
         <div className="flex items-center gap-2">
           <select
             value={filters.result}
             onChange={(e) => setResult(e.target.value as 'all' | 'protected' | 'unprotected')}
-            className="px-3 py-1.5 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            className="px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
           >
             <option value="all">All Results</option>
             <option value="protected">Protected Only</option>
@@ -128,36 +128,98 @@ export default function FilterBar({
           </select>
         </div>
 
-        {/* Expand/Collapse Button */}
-        <button
-          onClick={toggleExpanded}
-          className={`
-            flex items-center gap-2 px-3 py-1.5
-            border rounded-lg text-sm transition-colors
-            ${isExpanded || activeFilterCount > 0
-              ? 'bg-primary/10 border-primary text-primary'
-              : 'bg-secondary border-border text-muted-foreground hover:bg-accent'
-            }
-          `}
-        >
-          <Filter className="w-4 h-4" />
-          <span>More Filters</span>
-          {activeFilterCount > 0 && (
-            <span className="px-1.5 py-0.5 bg-primary text-primary-foreground text-xs rounded-full">
-              {activeFilterCount}
-            </span>
-          )}
-          {isExpanded ? (
-            <ChevronUp className="w-4 h-4" />
-          ) : (
-            <ChevronDown className="w-4 h-4" />
-          )}
-        </button>
+        {/* Hostname Filter */}
+        <MultiSelectFilter
+          label="Hostname"
+          options={availableHostnames.map(h => h.value)}
+          selected={filters.hostnames}
+          onChange={setHostnames}
+          loading={loading}
+          placeholder="All Hosts"
+        />
 
-        {/* Clear All Button (when filters are active) */}
-        {hasActiveFilters && (
+        {/* Category Filter */}
+        <MultiSelectFilter
+          label="Category"
+          options={availableCategories.map(c => c.value)}
+          selected={filters.categories}
+          onChange={setCategories}
+          loading={loading}
+          placeholder="All Categories"
+        />
+
+        {/* Severity Filter */}
+        <SeverityFilter
+          options={availableSeverities}
+          selected={filters.severities}
+          onChange={setSeverities}
+          loading={loading}
+        />
+
+        {/* Threat Actor Filter */}
+        <MultiSelectFilter
+          label="Threat Actor"
+          options={availableThreatActors.map(t => t.value)}
+          selected={filters.threatActors}
+          onChange={setThreatActors}
+          loading={loading}
+          placeholder="All Actors"
+        />
+
+        {/* Tags Filter */}
+        <MultiSelectFilter
+          label="Tags"
+          options={availableTags.map(t => t.value)}
+          selected={filters.tags}
+          onChange={setTags}
+          loading={loading}
+          placeholder="All Tags"
+        />
+
+        {/* Error Name Filter */}
+        <MultiSelectFilter
+          label="Error Name"
+          options={availableErrorNames.map(e => e.value)}
+          selected={filters.errorNames}
+          onChange={setErrorNames}
+          loading={loading}
+          placeholder="All Error Types"
+        />
+
+        {/* Error Code Filter */}
+        <MultiSelectFilter
+          label="Error Code"
+          options={availableErrorCodes.map(e => e.value)}
+          selected={filters.errorCodes}
+          onChange={setErrorCodes}
+          loading={loading}
+          placeholder="All Error Codes"
+        />
+
+        {/* Test Filter */}
+        <MultiSelectFilter
+          label="Test"
+          options={availableTests}
+          selected={filters.tests}
+          onChange={setTests}
+          loading={loading}
+          placeholder="All Tests"
+        />
+
+        {/* Technique Filter */}
+        <MultiSelectFilter
+          label="Technique"
+          options={availableTechniques}
+          selected={filters.techniques}
+          onChange={setTechniques}
+          loading={loading}
+          placeholder="All Techniques"
+        />
+
+        {/* Clear All Filters */}
+        {activeFilterCount > 0 && (
           <button
-            onClick={clearAllFilters}
+            onClick={clearAdvancedFilters}
             className="flex items-center gap-1 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             <X className="w-4 h-4" />
@@ -165,91 +227,6 @@ export default function FilterBar({
           </button>
         )}
       </div>
-
-      {/* Expanded Filters */}
-      {isExpanded && (
-        <div className="mt-4 pt-4 border-t border-border">
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Hostname Filter */}
-            <MultiSelectFilter
-              label="Hostname"
-              options={availableHostnames.map(h => h.value)}
-              selected={filters.hostnames}
-              onChange={setHostnames}
-              loading={loading}
-              placeholder="All Hosts"
-            />
-
-            {/* Category Filter */}
-            <MultiSelectFilter
-              label="Category"
-              options={availableCategories.map(c => c.value)}
-              selected={filters.categories}
-              onChange={setCategories}
-              loading={loading}
-              placeholder="All Categories"
-            />
-
-            {/* Severity Filter */}
-            <SeverityFilter
-              options={availableSeverities}
-              selected={filters.severities}
-              onChange={setSeverities}
-              loading={loading}
-            />
-
-            {/* Threat Actor Filter */}
-            <MultiSelectFilter
-              label="Threat Actor"
-              options={availableThreatActors.map(t => t.value)}
-              selected={filters.threatActors}
-              onChange={setThreatActors}
-              loading={loading}
-              placeholder="All Actors"
-            />
-
-            {/* Tags Filter */}
-            <MultiSelectFilter
-              label="Tags"
-              options={availableTags.map(t => t.value)}
-              selected={filters.tags}
-              onChange={setTags}
-              loading={loading}
-              placeholder="All Tags"
-            />
-
-            {/* Test Filter */}
-            <MultiSelectFilter
-              label="Test"
-              options={availableTests}
-              selected={filters.tests}
-              onChange={setTests}
-              loading={loading}
-              placeholder="All Tests"
-            />
-
-            {/* Technique Filter */}
-            <MultiSelectFilter
-              label="Technique"
-              options={availableTechniques}
-              selected={filters.techniques}
-              onChange={setTechniques}
-              loading={loading}
-              placeholder="All Techniques"
-            />
-
-            {/* Clear Advanced Filters */}
-            {activeFilterCount > 0 && (
-              <button
-                onClick={clearAdvancedFilters}
-                className="text-sm text-muted-foreground hover:text-foreground"
-              >
-                Clear Advanced Filters
-              </button>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Active Filter Tags */}
       {activeFilterTags.length > 0 && (

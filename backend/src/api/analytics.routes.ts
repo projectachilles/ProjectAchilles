@@ -75,15 +75,18 @@ router.post('/settings', asyncHandler(async (req, res) => {
 router.post('/settings/test', asyncHandler(async (req, res) => {
   const { connectionType, cloudId, apiKey, node, username, password } = req.body;
 
+  // Merge with existing settings so edit-mode tests work with blank credentials
+  const existingSettings = settingsService.getSettings();
+
   try {
     const testService = new ElasticsearchService({
-      connectionType,
-      cloudId,
-      apiKey,
-      node,
-      username,
-      password,
-      indexPattern: 'f0rtika-results-*',
+      connectionType: connectionType || existingSettings.connectionType,
+      cloudId: cloudId || existingSettings.cloudId,
+      apiKey: apiKey || existingSettings.apiKey,
+      node: node || existingSettings.node,
+      username: username || existingSettings.username,
+      password: password || existingSettings.password,
+      indexPattern: existingSettings.indexPattern || 'f0rtika-results-*',
       configured: true,
     });
 
@@ -112,18 +115,36 @@ router.get('/defense-score', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/analytics/defense-score/trend - Score over time
+// Supports rolling window aggregation via windowDays param (1-90 days)
 router.get('/defense-score/trend', asyncHandler(async (req, res) => {
   const es = await getEsService();
-  const { org, from, to, interval } = req.query;
+  const { org, from, to, interval, windowDays } = req.query;
 
-  const result = await es.getDefenseScoreTrend({
-    org: org as string,
-    from: from as string,
-    to: to as string,
-    interval: (interval as string) || 'day',
-  });
+  // Parse and clamp windowDays to 1-90 range
+  const parsedWindowDays = windowDays ? parseInt(windowDays as string, 10) : undefined;
+  const clampedWindowDays = parsedWindowDays
+    ? Math.max(1, Math.min(90, parsedWindowDays))
+    : undefined;
 
-  res.json(result);
+  // Use rolling window method when windowDays is provided, otherwise fall back to original
+  if (clampedWindowDays) {
+    const result = await es.getDefenseScoreTrendRolling({
+      org: org as string,
+      from: from as string,
+      to: to as string,
+      interval: (interval as string) || 'day',
+      windowDays: clampedWindowDays,
+    });
+    res.json(result);
+  } else {
+    const result = await es.getDefenseScoreTrend({
+      org: org as string,
+      from: from as string,
+      to: to as string,
+      interval: (interval as string) || 'day',
+    });
+    res.json(result);
+  }
 }));
 
 // GET /api/analytics/defense-score/by-test - Score by test
@@ -291,7 +312,8 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
   const es = await getEsService();
   const {
     org, from, to, tests, techniques,
-    hostnames, categories, severities, threatActors, tags, result,
+    hostnames, categories, severities, threatActors, tags,
+    errorNames, errorCodes, result,
     page, pageSize, sortField, sortOrder
   } = req.query;
 
@@ -306,6 +328,8 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
     severities: severities as string,
     threatActors: threatActors as string,
     tags: tags as string,
+    errorNames: errorNames as string,
+    errorCodes: errorCodes as string,
     result: result as 'all' | 'protected' | 'unprotected',
     page: page ? parseInt(page as string) : 1,
     pageSize: pageSize ? parseInt(pageSize as string) : 25,
@@ -387,6 +411,34 @@ router.get('/available-tags', asyncHandler(async (req, res) => {
   res.json(tags);
 }));
 
+// GET /api/analytics/available-error-names - List available error names with counts
+router.get('/available-error-names', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to } = req.query;
+
+  const errorNames = await es.getAvailableErrorNames({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+  });
+
+  res.json(errorNames);
+}));
+
+// GET /api/analytics/available-error-codes - List available error codes with counts
+router.get('/available-error-codes', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to } = req.query;
+
+  const errorCodes = await es.getAvailableErrorCodes({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+  });
+
+  res.json(errorCodes);
+}));
+
 // GET /api/analytics/defense-score/by-severity - Score breakdown by severity
 router.get('/defense-score/by-severity', asyncHandler(async (req, res) => {
   const es = await getEsService();
@@ -424,6 +476,48 @@ router.get('/threat-actor-coverage', asyncHandler(async (req, res) => {
     org: org as string,
     from: from as string,
     to: to as string,
+  });
+
+  res.json(result);
+}));
+
+// GET /api/analytics/defense-score/by-hostname - Score breakdown by hostname
+router.get('/defense-score/by-hostname', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to, limit } = req.query;
+
+  const result = await es.getDefenseScoreByHostname({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+    limit: limit ? parseInt(limit as string) : 50,
+  });
+
+  res.json(result);
+}));
+
+// GET /api/analytics/error-rate - Error rate (proportion of non-conclusive test activity)
+router.get('/error-rate', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to } = req.query;
+
+  const result = await es.getErrorRate({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+  });
+
+  res.json(result);
+}));
+
+// GET /api/analytics/canonical-test-count - Stable test count for coverage denominators
+router.get('/canonical-test-count', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, days } = req.query;
+
+  const result = await es.getCanonicalTestCount({
+    org: org as string,
+    days: days ? parseInt(days as string) : 90,
   });
 
   res.json(result);

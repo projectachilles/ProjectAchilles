@@ -10,6 +10,9 @@ import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { checkSession } from './store/endpointAuthSlice';
 import AppRouter from './routes/AppRouter';
 
+// Hero page styles
+import './styles/hero.css';
+
 function AppContent() {
   const dispatch = useDispatch<AppDispatch>();
   useAuthenticatedApi(); // Setup JWT interceptor

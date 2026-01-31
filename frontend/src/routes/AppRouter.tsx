@@ -5,6 +5,9 @@ import { RequireAuth } from '../components/auth/RequireAuth';
 import Layout from '../components/shared/Layout';
 import { Loading } from '../components/shared/ui/Spinner';
 
+// Public Pages
+import HeroPage from '../pages/HeroPage';
+
 // Auth Pages
 import SignInPage from '../pages/auth/SignInPage';
 import SignUpPage from '../pages/auth/SignUpPage';
@@ -15,11 +18,13 @@ import BrowserHomePage from '../pages/browser/BrowserHomePage';
 import TestDetailPage from '../pages/browser/TestDetailPage';
 
 // Analytics Module Pages
-import AnalyticsSetupPage from '../pages/analytics/AnalyticsSetupPage';
 import AnalyticsDashboardPage from '../pages/analytics/AnalyticsDashboardPage';
 
 // Endpoints Module Pages
-import EndpointLoginPage from '../pages/endpoints/EndpointLoginPage';
+// (EndpointLoginPage removed - now in Settings)
+
+// Settings Page
+import SettingsPage from '../pages/settings/SettingsPage';
 import EndpointDashboardPage from '../pages/endpoints/EndpointDashboardPage';
 import SensorsPage from '../pages/endpoints/SensorsPage';
 import PayloadsPage from '../pages/endpoints/PayloadsPage';
@@ -38,7 +43,7 @@ function AnalyticsProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!configured) {
-    return <Navigate to="/analytics/setup" replace />;
+    return <Navigate to="/settings" replace />;
   }
 
   return <>{children}</>;
@@ -57,7 +62,7 @@ function EndpointsProtectedRoute() {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/endpoints/login" replace />;
+    return <Navigate to="/settings" replace />;
   }
 
   return <Outlet />;
@@ -75,6 +80,9 @@ function AppLayout() {
 export default function AppRouter() {
   return (
     <Routes>
+      {/* Public landing page */}
+      <Route path="/" element={<HeroPage />} />
+
       {/* Auth routes (public) */}
       <Route path="/sign-in" element={<SignInPage />} />
       <Route path="/sign-up" element={<SignUpPage />} />
@@ -83,23 +91,23 @@ export default function AppRouter() {
       {/* Main Layout with Header - NOW PROTECTED */}
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
         {/* Browser Module - NOW REQUIRES AUTH */}
-        <Route index element={<BrowserHomePage />} />
+        <Route path="dashboard" element={<BrowserHomePage />} />
         <Route path="browser">
-          <Route index element={<Navigate to="/" replace />} />
+          <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="test/:uuid" element={<TestDetailPage />} />
         </Route>
 
+        {/* Settings Page */}
+        <Route path="settings" element={<SettingsPage />} />
+
         {/* Fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
 
       {/* Endpoints Module - DUAL AUTH (Clerk + LimaCharlie) */}
       <Route path="endpoints">
-        <Route path="login" element={
-          <RequireAuth>
-            <EndpointLoginPage />
-          </RequireAuth>
-        } />
+        {/* Old login route redirects to settings */}
+        <Route path="login" element={<Navigate to="/settings" replace />} />
         <Route element={
           <RequireAuth>
             <EndpointsProtectedRoute />
@@ -115,11 +123,8 @@ export default function AppRouter() {
 
       {/* Analytics Module - DUAL AUTH (Clerk + Elasticsearch config) */}
       <Route path="analytics">
-        <Route path="setup" element={
-          <RequireAuth>
-            <AnalyticsSetupPage />
-          </RequireAuth>
-        } />
+        {/* Old setup route redirects to settings */}
+        <Route path="setup" element={<Navigate to="/settings" replace />} />
         <Route index element={
           <RequireAuth>
             <AnalyticsProtectedRoute>

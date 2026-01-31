@@ -15,7 +15,7 @@ export default function SearchBar({ value, onChange, placeholder }: SearchBarPro
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder || 'Search...'}
-        className="w-full pl-10 pr-10 py-2.5 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+        className="w-full pl-10 pr-10 py-2.5 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
       />
       {value && (
         <button

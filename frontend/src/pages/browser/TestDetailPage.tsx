@@ -1,15 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { browserApi } from '@/services/api/browser';
 import type { TestDetails, FileContent } from '@/types/test';
 import TechniqueBadge from '@/components/browser/TechniqueBadge';
 import FileViewer from '@/components/browser/FileViewer';
 import DefenseDashboard from '@/components/browser/DefenseDashboard';
+import { useTheme } from '@/hooks/useTheme';
 import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2 } from 'lucide-react';
 
 export default function TestDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
   const navigate = useNavigate();
+  const { theme } = useTheme();
+  const attackFlowIframeRef = useRef<HTMLIFrameElement>(null);
   const [test, setTest] = useState<TestDetails | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<FileContent | null>(null);
@@ -19,6 +22,21 @@ export default function TestDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'file' | 'attack-flow'>('file');
   const [hasUserInteracted, setHasUserInteracted] = useState(false); // Track if user clicked something
+
+  // Sync theme to attack flow iframe via postMessage
+  const syncThemeToIframe = useCallback(() => {
+    if (attackFlowIframeRef.current?.contentWindow) {
+      attackFlowIframeRef.current.contentWindow.postMessage(
+        { type: 'theme-change', theme },
+        '*'
+      );
+    }
+  }, [theme]);
+
+  // Sync theme when it changes or when iframe loads
+  useEffect(() => {
+    syncThemeToIframe();
+  }, [theme, attackFlowHtml, syncThemeToIframe]);
 
   useEffect(() => {
     if (uuid) {
@@ -172,7 +190,7 @@ export default function TestDetailPage() {
                 <span className="hidden sm:inline">Back</span>
               </button>
               <div className="h-4 w-px bg-border" />
-              <h1 className="text-lg font-semibold truncate max-w-md lg:max-w-xl">{test.name}</h1>
+              <h1 className="text-lg font-semibold truncate max-w-md lg:max-w-xl text-foreground">{test.name}</h1>
               <span className="hidden md:inline text-xs font-mono text-muted-foreground">
                 {test.uuid.slice(0, 8)}...
               </span>
@@ -209,7 +227,7 @@ export default function TestDetailPage() {
 
             <div className="flex items-start justify-between gap-4 mb-3">
               <div className="flex-1">
-                <h1 className="text-2xl font-bold mb-2">{test.name}</h1>
+                <h1 className="text-2xl font-bold mb-2 text-foreground">{test.name}</h1>
                 <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
                   {test.severity && (
                     <span className="font-medium uppercase text-orange-500">
@@ -278,7 +296,7 @@ export default function TestDetailPage() {
                       className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
-                          : 'hover:bg-accent'
+                          : 'text-foreground hover:bg-accent'
                       }`}
                     >
                       {file.name === 'SAFETY.md' && <AlertTriangle className="w-3 h-3 inline mr-2 text-orange-500" />}
@@ -301,7 +319,7 @@ export default function TestDetailPage() {
                   className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
                     activeView === 'attack-flow'
                       ? 'bg-primary text-primary-foreground'
-                      : 'hover:bg-accent'
+                      : 'text-foreground hover:bg-accent'
                   }`}
                 >
                   Attack Flow Diagram
@@ -324,7 +342,7 @@ export default function TestDetailPage() {
                       className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center gap-2 ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
-                          : 'hover:bg-accent'
+                          : 'text-foreground hover:bg-accent'
                       }`}
                     >
                       {file.name.includes('DEFENSE_GUIDANCE') && <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />}
@@ -352,7 +370,7 @@ export default function TestDetailPage() {
                       className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
-                          : 'hover:bg-accent'
+                          : 'text-foreground hover:bg-accent'
                       }`}
                     >
                       {file.name}
@@ -377,7 +395,7 @@ export default function TestDetailPage() {
                       className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
-                          : 'hover:bg-accent'
+                          : 'text-foreground hover:bg-accent'
                       }`}
                     >
                       {file.type === 'kql' && <span className="text-xs text-blue-500 mr-2">KQL</span>}
@@ -404,7 +422,7 @@ export default function TestDetailPage() {
                       className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
-                          : 'hover:bg-accent'
+                          : 'text-foreground hover:bg-accent'
                       }`}
                     >
                       {file.name}
@@ -436,10 +454,12 @@ export default function TestDetailPage() {
               </div>
             ) : activeView === 'attack-flow' && attackFlowHtml ? (
               <iframe
+                ref={attackFlowIframeRef}
                 srcDoc={attackFlowHtml}
                 className="w-full h-full border-0"
                 title="Attack Flow Diagram"
                 sandbox="allow-scripts"
+                onLoad={syncThemeToIframe}
               />
             ) : fileContent ? (
               <FileViewer file={fileContent} />

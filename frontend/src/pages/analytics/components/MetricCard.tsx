@@ -1,5 +1,6 @@
 import { Loader2 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface MetricCardProps {
   title: string;
@@ -43,30 +44,33 @@ export default function MetricCard({
 
   if (loading) {
     return (
-      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 flex items-center justify-center min-h-[140px] shadow-sm">
+      <Card className="h-full min-h-[140px] flex items-center justify-center">
         <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
-      <div className="flex items-center gap-2 mb-3">
-        {Icon && <Icon className="w-4 h-4 text-primary" />}
-        <h3 className="font-medium text-sm text-muted-foreground">{title}</h3>
-      </div>
-
-      <div className="flex flex-col">
-        <div className={`text-4xl font-bold ${getScoreColor(value)}`}>
-          {formattedValue}
+    <Card className="h-full">
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          {Icon && <Icon className="w-4 h-4 text-primary" />}
+          <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
         </div>
-
-        {subtitle && (
-          <div className="mt-2 text-xs text-muted-foreground">
-            {subtitle}
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col">
+          <div className={`text-4xl font-bold ${getScoreColor(value)}`}>
+            {formattedValue}
           </div>
-        )}
-      </div>
-    </div>
+
+          {subtitle && (
+            <div className="mt-2 text-xs text-muted-foreground">
+              {subtitle}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
