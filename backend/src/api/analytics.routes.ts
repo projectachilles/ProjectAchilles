@@ -8,7 +8,7 @@ import type { AnalyticsQueryParams, PaginatedExecutionsParams } from '../types/a
 const router = Router();
 
 // Protect all analytics routes with Clerk authentication
-router.use(requireClerkAuth());
+router.use(requireClerkAuth);
 
 // Initialize services
 const settingsService = new SettingsService();

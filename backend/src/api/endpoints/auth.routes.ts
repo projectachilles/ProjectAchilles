@@ -17,7 +17,7 @@ import { v4 as uuidv4 } from 'uuid';
 const router = Router();
 
 // Require Clerk auth for all endpoints auth routes
-router.use(requireClerkAuth());
+router.use(requireClerkAuth);
 
 // Validation schemas
 const loginSchema = z.object({

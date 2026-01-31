@@ -1,5 +1,5 @@
-import { clerkMiddleware, requireAuth } from '@clerk/express';
-import { Request, NextFunction } from 'express';
+import { clerkMiddleware, getAuth } from "@clerk/express";
+import { Request, NextFunction, Response } from "express";
 
 /**
  * Clerk authentication middleware
@@ -15,8 +15,16 @@ export const clerkAuth = clerkMiddleware({
  * Require Clerk authentication
  * Returns 401 if user is not authenticated
  */
-export function requireClerkAuth() {
-  return requireAuth();
+export function requireClerkAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  const auth = getAuth(req);
+  if (!auth.isAuthenticated) {
+    return res.status(401).send("Unauthorized");
+  }
+  next();
 }
 
 /**
@@ -31,7 +39,11 @@ export function getUserId(auth: any): string | undefined {
  * Link Clerk user to session
  * Stores Clerk user ID in session for tracking
  */
-export function linkClerkSession(req: Request, _res: unknown, next: NextFunction) {
+export function linkClerkSession(
+  req: Request,
+  _res: unknown,
+  next: NextFunction,
+) {
   const userId = getUserId(req.auth);
   if (userId) {
     req.session.clerkUserId = userId;

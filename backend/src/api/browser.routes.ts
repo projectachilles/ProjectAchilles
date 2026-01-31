@@ -29,7 +29,7 @@ export function createBrowserRouter(options: {
   const router = Router();
 
   // Protect all browser routes with Clerk authentication
-  router.use(requireClerkAuth());
+  router.use(requireClerkAuth);
 
   // Initialize the test indexer
   testIndexer = new TestIndexer(options.testsSourcePath);
