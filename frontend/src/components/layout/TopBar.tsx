@@ -1,7 +1,6 @@
 import { useLocation } from 'react-router-dom';
 import { UserButton, useUser } from '@clerk/clerk-react';
 import { useTheme } from '@/hooks/useTheme';
-import { useAppSelector } from '@/store';
 import {
   Menu,
   Moon,
@@ -14,15 +13,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 
 interface TopBarProps {
@@ -41,9 +31,6 @@ export function TopBar({
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { user, isLoaded } = useUser();
-  const { isAuthenticated, currentOrg } = useAppSelector(
-    (state) => state.endpointAuth
-  );
 
   // Generate breadcrumb from path
   const getBreadcrumb = () => {
@@ -145,34 +132,6 @@ export function TopBar({
           )}
           <span className="sr-only">Toggle theme</span>
         </Button>
-
-        {/* Organization (Endpoints) */}
-        {isAuthenticated && currentOrg && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="gap-2 ml-1">
-                <Avatar className="h-6 w-6">
-                  <AvatarFallback className="text-xs bg-primary/20 text-primary">
-                    {currentOrg.name?.charAt(0) || 'O'}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="hidden md:inline text-sm max-w-24 truncate">
-                  {currentOrg.name || currentOrg.oid}
-                </span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>Organization</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="flex-col items-start">
-                <span className="font-medium">{currentOrg.name}</span>
-                <span className="text-xs text-muted-foreground font-mono">
-                  {currentOrg.oid}
-                </span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
 
         {/* User - Last item */}
         {isLoaded && user && (

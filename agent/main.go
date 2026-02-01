@@ -10,6 +10,7 @@ import (
 	"github.com/f0rt1ka/achilles-agent/internal/config"
 	"github.com/f0rt1ka/achilles-agent/internal/enrollment"
 	"github.com/f0rt1ka/achilles-agent/internal/poller"
+	"github.com/f0rt1ka/achilles-agent/internal/service"
 	"github.com/f0rt1ka/achilles-agent/internal/store"
 )
 
@@ -42,18 +43,31 @@ func main() {
 			os.Exit(1)
 		}
 		if *install {
-			fmt.Println("[placeholder] Installing agent as system service")
+			if err := service.Install(*configPath); err != nil {
+				fmt.Fprintf(os.Stderr, "install error: %v\n", err)
+				os.Exit(1)
+			}
 		}
 		os.Exit(0)
 	}
 
 	if *uninstall {
-		fmt.Println("[placeholder] Uninstalling agent service")
+		if err := service.Uninstall(); err != nil {
+			fmt.Fprintf(os.Stderr, "uninstall error: %v\n", err)
+			os.Exit(1)
+		}
 		os.Exit(0)
 	}
 
 	if *status {
-		fmt.Println("[placeholder] Agent status")
+		cfg, err := config.Load(*configPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "not enrolled (no config at %s)\n", *configPath)
+			os.Exit(1)
+		}
+		fmt.Printf("Agent ID: %s\n", cfg.AgentID)
+		fmt.Printf("Server:   %s\n", cfg.ServerURL)
+		fmt.Printf("Version:  %s\n", version)
 		os.Exit(0)
 	}
 

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
-import { requireClerkAuth, getUserId } from '../../middleware/clerk.middleware.js';
+import { getUserId } from '../../middleware/clerk.middleware.js';
 import {
   createToken,
   enrollAgent,
@@ -48,15 +48,14 @@ agentEnrollmentRouter.post(
 
 export const adminEnrollmentRouter = Router();
 
-// All admin routes require Clerk authentication
-adminEnrollmentRouter.use(requireClerkAuth());
+// Clerk auth is applied at mount time in the parent router.
 
 /**
- * POST /admin/tokens
+ * POST /tokens
  * Create a new enrollment token.
  */
 adminEnrollmentRouter.post(
-  '/admin/tokens',
+  '/tokens',
   asyncHandler(async (req, res) => {
     const userId = getUserId(req.auth);
     if (!userId) {
@@ -86,7 +85,7 @@ adminEnrollmentRouter.post(
  * List active enrollment tokens for an organization.
  */
 adminEnrollmentRouter.get(
-  '/admin/tokens',
+  '/tokens',
   asyncHandler(async (req, res) => {
     const orgId = req.query.org_id as string;
 
@@ -105,7 +104,7 @@ adminEnrollmentRouter.get(
  * Revoke an enrollment token.
  */
 adminEnrollmentRouter.delete(
-  '/admin/tokens/:id',
+  '/tokens/:id',
   asyncHandler(async (req, res) => {
     revokeToken(req.params.id);
 

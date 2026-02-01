@@ -1,13 +1,10 @@
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useState, useRef, useEffect } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { UserButton, useUser } from '@clerk/clerk-react';
 import { useTheme } from '../../hooks/useTheme';
 import { useAnalyticsAuth } from '../../hooks/useAnalyticsAuth';
-import { useAppDispatch, useAppSelector } from '../../store';
-import { logout } from '../../store/endpointAuthSlice';
 import {
   Moon, Sun, Shield, Target, Cpu, Lock, Home,
-  User, ChevronDown, LogOut, RefreshCw, Settings
+  RefreshCw, Settings
 } from 'lucide-react';
 import { Button } from './ui/Button';
 
@@ -56,18 +53,11 @@ export default function UnifiedHeader({
   isRefreshing,
 }: UnifiedHeaderProps) {
   const location = useLocation();
-  const navigate = useNavigate();
-  const dispatch = useAppDispatch();
   const { theme, toggleTheme } = useTheme();
   const { user, isLoaded } = useUser();
 
   // Auth states
   const { configured: analyticsConfigured } = useAnalyticsAuth();
-  const { isAuthenticated, currentOrg, organizations } = useAppSelector(state => state.endpointAuth);
-
-  // User menu state
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   // Determine current module from pathname
   const getCurrentModule = (): ModuleConfig => {
@@ -103,34 +93,17 @@ export default function UnifiedHeader({
       id: 'endpoints',
       label: 'Endpoints',
       path: '/endpoints',
-      locked: !isAuthenticated,
+      locked: false,
       description: 'Endpoint Management'
     },
   ];
 
   // Secondary navigation items (Endpoints module only)
   const secondaryNavItems = [
-    { label: 'Sensors', path: '/endpoints/sensors' },
-    { label: 'Payloads', path: '/endpoints/payloads' },
-    { label: 'Events', path: '/endpoints/events' },
+    { label: 'Dashboard', path: '/endpoints/dashboard' },
+    { label: 'Agents', path: '/endpoints/agents' },
+    { label: 'Tasks', path: '/endpoints/tasks' },
   ];
-
-  // Close user menu on click outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setUserMenuOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const handleLogout = async () => {
-    await dispatch(logout());
-    navigate('/endpoints/login');
-  };
 
   return (
     <div>
@@ -230,70 +203,12 @@ export default function UnifiedHeader({
               </div>
             )}
 
-            {/* User Menu (when endpoints authenticated) */}
-            {isAuthenticated && currentOrg && (
-              <div className="relative" ref={menuRef}>
-                <button
-                  onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent transition-colors"
-                >
-                  <User className="w-4 h-4" />
-                  <span className="text-sm font-medium max-w-32 truncate">
-                    {currentOrg.name || currentOrg.oid}
-                  </span>
-                  <ChevronDown className={`w-4 h-4 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
-                </button>
-
-                {/* Dropdown Menu */}
-                {userMenuOpen && (
-                  <div className="absolute right-0 top-full mt-2 w-64 rounded-lg border border-border bg-card shadow-lg py-2 z-50">
-                    {/* Current Org Info */}
-                    <div className="px-4 py-2 border-b border-border">
-                      <p className="text-xs text-muted-foreground">Current Organization</p>
-                      <p className="text-sm font-medium truncate">{currentOrg.name}</p>
-                      <p className="text-xs text-muted-foreground font-mono truncate">{currentOrg.oid}</p>
-                    </div>
-
-                    {/* Other Organizations */}
-                    {organizations.length > 1 && (
-                      <div className="py-2 border-b border-border">
-                        <p className="px-4 py-1 text-xs text-muted-foreground">Switch Organization</p>
-                        {organizations
-                          .filter(org => org.oid !== currentOrg.oid)
-                          .map(org => (
-                            <button
-                              key={org.oid}
-                              className="w-full px-4 py-2 text-left text-sm hover:bg-accent transition-colors"
-                              onClick={() => {
-                                // TODO: Implement org switching
-                                setUserMenuOpen(false);
-                              }}
-                            >
-                              <span className="block truncate">{org.name}</span>
-                              <span className="text-xs text-muted-foreground font-mono truncate">{org.oid}</span>
-                            </button>
-                          ))}
-                      </div>
-                    )}
-
-                    {/* Logout */}
-                    <button
-                      onClick={handleLogout}
-                      className="w-full px-4 py-2 text-left text-sm text-destructive hover:bg-accent transition-colors flex items-center gap-2"
-                    >
-                      <LogOut className="w-4 h-4" />
-                      Sign Out
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </header>
 
-      {/* Secondary Navigation Bar (Endpoints only, when authenticated) */}
-      {currentModule.showSecondaryNav && isAuthenticated && (
+      {/* Secondary Navigation Bar (Endpoints only) */}
+      {currentModule.showSecondaryNav && (
         <nav className="h-14 border-b border-border bg-background">
           <div className="container mx-auto h-full px-4 flex items-center gap-2">
             <Link

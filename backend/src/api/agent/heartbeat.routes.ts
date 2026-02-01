@@ -61,7 +61,7 @@ export const adminAgentRouter = Router();
  * Get aggregate agent metrics.
  */
 adminAgentRouter.get(
-  '/admin/metrics',
+  '/metrics',
   asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.query.org_id as string | undefined;
     const metrics = getAgentMetrics(orgId);
@@ -75,7 +75,7 @@ adminAgentRouter.get(
  * List agents with filters and online status.
  */
 adminAgentRouter.get(
-  '/admin/agents',
+  '/agents',
   asyncHandler(async (req: Request, res: Response) => {
     const filters: ListAgentsRequest = {
       org_id: req.query.org_id as string | undefined,
@@ -105,7 +105,7 @@ adminAgentRouter.get(
  * Get single agent detail.
  */
 adminAgentRouter.get(
-  '/admin/agents/:id',
+  '/agents/:id',
   asyncHandler(async (req: Request, res: Response) => {
     const agent = getAgent(req.params.id);
     if (!agent) {
@@ -121,7 +121,7 @@ adminAgentRouter.get(
  * Update agent status or tags.
  */
 adminAgentRouter.patch(
-  '/admin/agents/:id',
+  '/agents/:id',
   asyncHandler(async (req: Request, res: Response) => {
     const existing = getAgent(req.params.id);
     if (!existing) {
@@ -145,7 +145,7 @@ adminAgentRouter.patch(
  * Soft-delete (decommission) an agent.
  */
 adminAgentRouter.delete(
-  '/admin/agents/:id',
+  '/agents/:id',
   asyncHandler(async (req: Request, res: Response) => {
     const existing = getAgent(req.params.id);
     if (!existing) {
@@ -163,7 +163,7 @@ adminAgentRouter.delete(
  * Add a tag to an agent.
  */
 adminAgentRouter.post(
-  '/admin/agents/:id/tag',
+  '/agents/:id/tag',
   asyncHandler(async (req: Request, res: Response) => {
     const { tag } = req.body as { tag: string };
     if (!tag || typeof tag !== 'string') {
@@ -181,7 +181,7 @@ adminAgentRouter.post(
  * Remove a tag from an agent.
  */
 adminAgentRouter.delete(
-  '/admin/agents/:id/tag',
+  '/agents/:id/tag',
   asyncHandler(async (req: Request, res: Response) => {
     const { tag } = req.body as { tag: string };
     if (!tag || typeof tag !== 'string') {

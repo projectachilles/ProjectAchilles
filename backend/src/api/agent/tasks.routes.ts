@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
-import { requireClerkAuth, getUserId } from '../../middleware/clerk.middleware.js';
+import { getUserId } from '../../middleware/clerk.middleware.js';
 import {
   createTasks,
   getNextTask,
@@ -102,8 +102,7 @@ agentTasksRouter.post(
 
 export const adminTasksRouter = Router();
 
-// All admin routes require Clerk authentication
-adminTasksRouter.use(requireClerkAuth());
+// Clerk auth is applied at mount time in the parent router.
 
 /**
  * POST /admin/tasks
@@ -111,7 +110,7 @@ adminTasksRouter.use(requireClerkAuth());
  * Body: CreateTaskRequest + org_id
  */
 adminTasksRouter.post(
-  '/admin/tasks',
+  '/tasks',
   asyncHandler(async (req, res) => {
     const userId = getUserId(req.auth);
     if (!userId) {
@@ -140,7 +139,7 @@ adminTasksRouter.post(
  * Query params: agent_id, org_id, status, type, limit, offset
  */
 adminTasksRouter.get(
-  '/admin/tasks',
+  '/tasks',
   asyncHandler(async (req, res) => {
     const filters: ListTasksRequest = {
       agent_id: req.query.agent_id as string | undefined,

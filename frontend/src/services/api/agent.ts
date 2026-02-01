@@ -16,7 +16,9 @@ export const agentApi = {
 
   async listAgents(params?: ListAgentsRequest): Promise<AgentSummary[]> {
     const response = await apiClient.get('/agent/admin/agents', { params });
-    return response.data.data;
+    const data = response.data.data;
+    // Backend returns { agents: [...], total: N }
+    return Array.isArray(data) ? data : data.agents ?? [];
   },
 
   async getAgent(agentId: string): Promise<Agent> {
@@ -73,7 +75,9 @@ export const agentApi = {
 
   async listTasks(params?: ListTasksRequest): Promise<AgentTask[]> {
     const response = await apiClient.get('/agent/admin/tasks', { params });
-    return response.data.data;
+    const data = response.data.data;
+    // Backend returns { tasks: [...], total: N }
+    return Array.isArray(data) ? data : data.tasks ?? [];
   },
 
   async getTask(taskId: string): Promise<AgentTask> {
