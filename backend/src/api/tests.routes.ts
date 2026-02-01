@@ -1,70 +1,153 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { requireClerkAuth } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { TestsSettingsService } from '../services/tests/settings.js';
+import { BuildService, BuildError } from '../services/tests/buildService.js';
 import type { PlatformSettings } from '../types/tests.js';
-
-const router = Router();
-
-// Protect all tests routes with Clerk authentication
-router.use(requireClerkAuth());
-
-const testsSettings = new TestsSettingsService();
 
 const VALID_OS = ['windows', 'linux', 'darwin'] as const;
 const VALID_ARCH = ['amd64', '386', 'arm64'] as const;
+const UUID_REGEX = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
-// GET /api/tests/platform - Get platform settings
-router.get('/platform', (_req, res) => {
-  const platform = testsSettings.getPlatformSettings();
-  res.json({ success: true, data: platform });
-});
+export function createTestsRouter(options: { testsSourcePath: string }): Router {
+  const router = Router();
+  router.use(requireClerkAuth());
 
-// POST /api/tests/platform - Save platform settings
-router.post('/platform', asyncHandler(async (req, res) => {
-  const { os, arch } = req.body;
+  const testsSettings = new TestsSettingsService();
+  const buildService = new BuildService(testsSettings, options.testsSourcePath);
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-  if (!os || !VALID_OS.includes(os)) {
-    throw new AppError(`Invalid OS. Must be one of: ${VALID_OS.join(', ')}`, 400);
-  }
-  if (!arch || !VALID_ARCH.includes(arch)) {
-    throw new AppError(`Invalid architecture. Must be one of: ${VALID_ARCH.join(', ')}`, 400);
-  }
+  // ── Platform Settings ──────────────────────────────────────
 
-  try {
-    testsSettings.savePlatformSettings({ os, arch } as PlatformSettings);
+  // GET /api/tests/platform
+  router.get('/platform', (_req, res) => {
+    const platform = testsSettings.getPlatformSettings();
+    res.json({ success: true, data: platform });
+  });
+
+  // POST /api/tests/platform
+  router.post('/platform', asyncHandler(async (req, res) => {
+    const { os, arch } = req.body;
+
+    if (!os || !VALID_OS.includes(os)) {
+      throw new AppError(`Invalid OS. Must be one of: ${VALID_OS.join(', ')}`, 400);
+    }
+    if (!arch || !VALID_ARCH.includes(arch)) {
+      throw new AppError(`Invalid architecture. Must be one of: ${VALID_ARCH.join(', ')}`, 400);
+    }
+
+    try {
+      testsSettings.savePlatformSettings({ os, arch } as PlatformSettings);
+      res.json({ success: true });
+    } catch (err) {
+      throw new AppError(err instanceof Error ? err.message : 'Failed to save platform settings', 400);
+    }
+  }));
+
+  // ── Certificate Management ─────────────────────────────────
+
+  // GET /api/tests/certificate
+  router.get('/certificate', (_req, res) => {
+    const info = testsSettings.getCertificateInfo();
+    res.json({ success: true, data: info });
+  });
+
+  // POST /api/tests/certificate
+  router.post('/certificate', asyncHandler(async (req, res) => {
+    const { commonName, organization, country } = req.body;
+
+    if (!commonName || !organization || !country) {
+      throw new AppError('commonName, organization, and country are required', 400);
+    }
+
+    if (country.length !== 2) {
+      throw new AppError('Country must be a 2-letter ISO code', 400);
+    }
+
+    const info = await testsSettings.generateCertificate({ commonName, organization, country });
+    res.json({ success: true, data: info });
+  }));
+
+  // DELETE /api/tests/certificate
+  router.delete('/certificate', (_req, res) => {
+    testsSettings.deleteCertificate();
     res.json({ success: true });
-  } catch (err) {
-    throw new AppError(err instanceof Error ? err.message : 'Failed to save platform settings', 400);
-  }
-}));
+  });
 
-// GET /api/tests/certificate - Get certificate info
-router.get('/certificate', (_req, res) => {
-  const info = testsSettings.getCertificateInfo();
-  res.json({ success: true, data: info });
-});
+  // ── Build Routes ───────────────────────────────────────────
 
-// POST /api/tests/certificate - Generate certificate
-router.post('/certificate', asyncHandler(async (req, res) => {
-  const { commonName, organization, country } = req.body;
-
-  if (!commonName || !organization || !country) {
-    throw new AppError('commonName, organization, and country are required', 400);
+  function validateUuid(uuid: string): void {
+    if (!UUID_REGEX.test(uuid)) {
+      throw new AppError('Invalid UUID format', 400);
+    }
   }
 
-  if (country.length !== 2) {
-    throw new AppError('Country must be a 2-letter ISO code', 400);
-  }
+  // GET /api/tests/builds/:uuid - Get build info
+  router.get('/builds/:uuid', asyncHandler(async (req, res) => {
+    validateUuid(req.params.uuid);
+    const info = buildService.getBuildInfo(req.params.uuid);
+    res.json({ success: true, data: info });
+  }));
 
-  const info = await testsSettings.generateCertificate({ commonName, organization, country });
-  res.json({ success: true, data: info });
-}));
+  // POST /api/tests/builds/:uuid - Build & sign
+  router.post('/builds/:uuid', asyncHandler(async (req, res) => {
+    validateUuid(req.params.uuid);
+    try {
+      const info = await buildService.buildAndSign(req.params.uuid);
+      res.json({ success: true, data: info });
+    } catch (err) {
+      if (err instanceof BuildError) {
+        throw new AppError(err.message, 422);
+      }
+      throw err;
+    }
+  }));
 
-// DELETE /api/tests/certificate - Delete certificate
-router.delete('/certificate', (_req, res) => {
-  testsSettings.deleteCertificate();
-  res.json({ success: true });
-});
+  // DELETE /api/tests/builds/:uuid - Delete build
+  router.delete('/builds/:uuid', asyncHandler(async (req, res) => {
+    validateUuid(req.params.uuid);
+    buildService.deleteBuild(req.params.uuid);
+    res.json({ success: true });
+  }));
 
-export default router;
+  // GET /api/tests/builds/:uuid/download - Download binary
+  router.get('/builds/:uuid/download', asyncHandler(async (req, res) => {
+    validateUuid(req.params.uuid);
+    const binaryPath = buildService.getBinaryPath(req.params.uuid);
+    if (!binaryPath) {
+      throw new AppError('Build not found', 404);
+    }
+    res.download(binaryPath);
+  }));
+
+  // GET /api/tests/builds/:uuid/dependencies - Get embed dependencies
+  router.get('/builds/:uuid/dependencies', asyncHandler(async (req, res) => {
+    validateUuid(req.params.uuid);
+    const deps = buildService.getEmbedDependencies(req.params.uuid);
+    res.json({ success: true, data: deps });
+  }));
+
+  // POST /api/tests/builds/:uuid/upload - Upload embed dependency file
+  router.post('/builds/:uuid/upload', upload.single('file'), asyncHandler(async (req, res) => {
+    validateUuid(req.params.uuid);
+
+    if (!req.file) {
+      throw new AppError('No file uploaded', 400);
+    }
+
+    const filename = req.body.filename as string;
+    if (!filename) {
+      throw new AppError('filename field is required', 400);
+    }
+
+    try {
+      buildService.saveUploadedFile(req.params.uuid, filename, req.file.buffer);
+      res.json({ success: true });
+    } catch (err) {
+      throw new AppError(err instanceof Error ? err.message : 'Failed to save file', 400);
+    }
+  }));
+
+  return router;
+}

@@ -70,10 +70,10 @@ export class GitSyncService {
   }
 
   /**
-   * Clone the repository using sparse checkout (only tests_source folder)
+   * Clone the repository using sparse checkout (tests_source + shared libraries)
    */
   public async clone(): Promise<void> {
-    console.log(`Cloning repository from ${this.config.repoUrl} (sparse: tests_source only)...`);
+    console.log(`Cloning repository from ${this.config.repoUrl} (sparse: tests_source + preludeorg-libraries)...`);
     this.syncStatus.status = 'syncing';
 
     try {
@@ -93,9 +93,10 @@ export class GitSyncService {
         '--sparse',            // Enable sparse checkout
       ]);
 
-      // Configure sparse checkout to only include tests_source
+      // Configure sparse checkout to include tests_source and shared Go libraries
+      // (preludeorg-libraries is needed because go.mod replace directives reference it)
       const repoGit = simpleGit(this.config.localPath);
-      await repoGit.raw(['sparse-checkout', 'set', 'tests_source']);
+      await repoGit.raw(['sparse-checkout', 'set', 'tests_source', 'preludeorg-libraries']);
 
       // Update status
       await this.updateStatus();

@@ -12,7 +12,7 @@ import { fileURLToPath } from 'url';
 import { clerkAuth, linkClerkSession } from './middleware/clerk.middleware.js';
 import { createBrowserRouter } from './api/browser.routes.js';
 import analyticsRoutes from './api/analytics.routes.js';
-import testsRoutes from './api/tests.routes.js';
+import { createTestsRouter } from './api/tests.routes.js';
 import endpointAuthRoutes from './api/endpoints/auth.routes.js';
 import endpointsRoutes from './api/endpoints/index.js';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware.js';
@@ -149,8 +149,9 @@ async function startServer() {
   // Analytics module - Settings-based auth (Elasticsearch)
   app.use('/api/analytics', analyticsRoutes);
 
-  // Tests module - Platform & certificate settings
-  app.use('/api/tests', testsRoutes);
+  // Tests module - Platform, certificate & build settings
+  const testsRouter = createTestsRouter({ testsSourcePath });
+  app.use('/api/tests', testsRouter);
 
   // Endpoints module - Session-based auth (LimaCharlie)
   app.use('/api/auth', authLimiter, endpointAuthRoutes);

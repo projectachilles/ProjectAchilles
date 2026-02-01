@@ -26,3 +26,26 @@ export interface CertificateMetadata {
   expiresAt: string;
   fingerprint: string;
 }
+
+export interface BuildInfo {
+  exists: boolean;
+  platform?: { os: string; arch: string };
+  signed?: boolean;
+  fileSize?: number;
+  builtAt?: string;
+  filename?: string;
+}
+
+export interface BuildMetadata {
+  platform: { os: string; arch: string };
+  builtAt: string;
+  signed: boolean;
+  fileSize: number;
+  filename: string;
+}
+
+export interface EmbedDependency {
+  filename: string;
+  sourceFile: string;
+  exists: boolean;
+}
