@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/f0rt1ka/achilles-agent/internal/config"
+	"github.com/f0rt1ka/achilles-agent/internal/enrollment"
 )
 
 var version = "0.1.0"
@@ -32,7 +33,10 @@ func main() {
 			fmt.Fprintln(os.Stderr, "error: --server is required with --enroll")
 			os.Exit(1)
 		}
-		fmt.Printf("[placeholder] Enrolling agent with server %s (token=%s)\n", *server, *enroll)
+		if err := enrollment.Enroll(*server, *enroll, *configPath); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 		if *install {
 			fmt.Println("[placeholder] Installing agent as system service")
 		}
