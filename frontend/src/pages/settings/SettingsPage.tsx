@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SettingsSidebar, type SettingsTab } from './components/SettingsSidebar';
 import { IntegrationsTab } from './components/IntegrationsTab';
+import { TestsTab } from './components/TestsTab';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('integrations');
@@ -9,6 +10,8 @@ export default function SettingsPage() {
     switch (activeTab) {
       case 'integrations':
         return <IntegrationsTab />;
+      case 'tests':
+        return <TestsTab />;
       default:
         return <IntegrationsTab />;
     }

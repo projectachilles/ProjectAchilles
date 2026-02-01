@@ -20,6 +20,8 @@ import type {
   FilterOption,
   SeverityBreakdownItem,
   CategoryBreakdownItem,
+  CategorySubcategoryBreakdownItem,
+  SubcategoryBreakdownItem,
   ThreatActorCoverageItem,
   DefenseScoreByHostItem,
   CanonicalTestCountResponse,
@@ -27,6 +29,29 @@ import type {
   SeverityLevel,
   CategoryType,
 } from '../../types/analytics.js';
+
+// Canonical error code → name mapping
+// Categories: protected, failed, inconclusive, contextual, error
+export const ERROR_CODE_MAP: Record<number, { name: string; description: string; category: string }> = {
+  0:   { name: 'NormalExit',                description: 'Normal exit - varies by context',              category: 'inconclusive' },
+  1:   { name: 'BinaryNotRecognized',       description: 'Binary not recognized or permission denied',   category: 'contextual' },
+  101: { name: 'Unprotected',               description: 'Attack succeeded - endpoint unprotected',      category: 'failed' },
+  105: { name: 'FileQuarantinedOnExtraction', description: 'File quarantined during extraction',          category: 'protected' },
+  126: { name: 'ExecutionPrevented',         description: 'Execution blocked/prevented by AV/EDR',       category: 'protected' },
+  127: { name: 'QuarantinedOnExecution',     description: 'Quarantined on execution attempt',            category: 'protected' },
+  200: { name: 'NoOutput',                   description: 'No output - quick AV block before execution', category: 'inconclusive' },
+  259: { name: 'StillActive',               description: 'Windows STILL_ACTIVE - process timeout',      category: 'inconclusive' },
+  999: { name: 'UnexpectedTestError',        description: 'Test error - prerequisites not met',          category: 'error' },
+};
+
+/** Resolve an error code to its canonical name, with optional fallback to f0rtika.error_name */
+export function resolveErrorName(errorCode: number | undefined, storedName?: string): string {
+  if (errorCode !== undefined && ERROR_CODE_MAP[errorCode]) {
+    return ERROR_CODE_MAP[errorCode].name;
+  }
+  if (storedName) return storedName;
+  return `Unknown (${errorCode ?? '?'})`;
+}
 
 export class ElasticsearchService {
   private client: Client;
@@ -494,7 +519,7 @@ export class ElasticsearchService {
         org: orgNames[orgUuid] || (orgUuid ? orgUuid.substring(0, 8) : ''),
         timestamp: getField(source, 'routing.event_time') || '',
         error_code: getField(source, 'event.ERROR'),
-        error_name: getField(source, 'f0rtika.error_name'),
+        error_name: resolveErrorName(getField(source, 'event.ERROR'), getField(source, 'f0rtika.error_name')),
       };
     });
   }
@@ -654,16 +679,17 @@ export class ElasticsearchService {
         bool: { filter: filters },
       },
       aggs: {
-        by_error_type: {
-          terms: { field: 'f0rtika.error_name.keyword', size: 20 },
+        by_error_code: {
+          terms: { field: 'event.ERROR', size: 20 },
         },
       },
     });
 
-    const buckets = (response.aggregations?.by_error_type as any)?.buckets || [];
+    const buckets = (response.aggregations?.by_error_code as any)?.buckets || [];
 
     return buckets.map((bucket: any) => ({
-      name: bucket.key,
+      name: resolveErrorName(bucket.key),
+      code: bucket.key as number,
       count: bucket.doc_count,
     }));
   }
@@ -978,11 +1004,26 @@ export class ElasticsearchService {
     };
   }
 
-  // Build error names filter (OR logic)
+  // Build error names filter (OR logic) — resolves canonical names to error codes
   private buildErrorNamesFilter(errorNames?: string): any | null {
     if (!errorNames) return null;
     const nameList = errorNames.split(',').map(n => n.trim()).filter(Boolean);
     if (nameList.length === 0) return null;
+
+    // Reverse-resolve canonical names to numeric error codes
+    const codes: number[] = [];
+    for (const name of nameList) {
+      const entry = Object.entries(ERROR_CODE_MAP).find(([, v]) => v.name === name);
+      if (entry) {
+        codes.push(Number(entry[0]));
+      }
+    }
+
+    if (codes.length > 0) {
+      return { terms: { 'event.ERROR': codes } };
+    }
+
+    // Fallback: try matching against the stored field for any unrecognised names
     if (nameList.length === 1) {
       return { term: { 'f0rtika.error_name.keyword': nameList[0] } };
     }
@@ -1002,10 +1043,13 @@ export class ElasticsearchService {
     return { terms: { 'event.ERROR': codeList } };
   }
 
-  // Build result filter (protected/unprotected)
-  private buildResultFilter(result?: 'all' | 'protected' | 'unprotected'): any | null {
+  // Build result filter (protected/unprotected/inconclusive)
+  private buildResultFilter(result?: 'all' | 'protected' | 'unprotected' | 'inconclusive'): any | null {
     if (!result || result === 'all') return null;
-    return { term: { 'f0rtika.is_protected': result === 'protected' } };
+    if (result === 'protected') return { terms: { 'event.ERROR': [105, 126, 127] } };
+    if (result === 'unprotected') return { term: { 'event.ERROR': 101 } };
+    // inconclusive: everything NOT in [101, 105, 126, 127]
+    return { bool: { must_not: { terms: { 'event.ERROR': [101, 105, 126, 127] } } } };
   }
 
   // Build all extended filters
@@ -1115,7 +1159,7 @@ export class ElasticsearchService {
         org: orgNames[orgUuid] || (orgUuid ? orgUuid.substring(0, 8) : ''),
         timestamp: getField(source, 'routing.event_time') || '',
         error_code: getField(source, 'event.ERROR'),
-        error_name: getField(source, 'f0rtika.error_name'),
+        error_name: resolveErrorName(getField(source, 'event.ERROR'), getField(source, 'f0rtika.error_name')),
         // Enriched fields
         category: getField(source, 'f0rtika.category') as CategoryType | undefined,
         subcategory: getField(source, 'f0rtika.subcategory'),
@@ -1321,19 +1365,22 @@ export class ElasticsearchService {
       size: 0,
       query: { bool: { filter: filters } },
       aggs: {
-        error_names: {
-          terms: { field: 'f0rtika.error_name.keyword', size: 50 },
+        error_codes: {
+          terms: { field: 'event.ERROR', size: 50 },
         },
       },
     });
 
-    const buckets = (response.aggregations?.error_names as any)?.buckets || [];
+    const buckets = (response.aggregations?.error_codes as any)?.buckets || [];
     return buckets
-      .map((bucket: any) => ({
-        value: bucket.key,
-        label: bucket.key,
-        count: bucket.doc_count,
-      }))
+      .map((bucket: any) => {
+        const name = resolveErrorName(bucket.key);
+        return {
+          value: name,
+          label: name,
+          count: bucket.doc_count,
+        };
+      })
       .sort((a: FilterOption, b: FilterOption) => b.count - a.count);
   }
 
@@ -1363,7 +1410,7 @@ export class ElasticsearchService {
     return buckets
       .map((bucket: any) => ({
         value: String(bucket.key),
-        label: String(bucket.key),
+        label: `${bucket.key} (${resolveErrorName(bucket.key)})`,
         count: bucket.doc_count,
       }))
       .sort((a: FilterOption, b: FilterOption) => b.count - a.count);
@@ -1460,6 +1507,76 @@ export class ElasticsearchService {
         };
       })
       .sort((a: CategoryBreakdownItem, b: CategoryBreakdownItem) => b.score - a.score);
+  }
+
+  // Get defense score by category with nested subcategories
+  async getDefenseScoreByCategoryWithSubcategories(params: AnalyticsQueryParams): Promise<CategorySubcategoryBreakdownItem[]> {
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter()
+    ];
+    const orgFilter = this.buildOrgFilter(params.org);
+    if (orgFilter) filters.push(orgFilter);
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: { bool: { filter: filters } },
+      aggs: {
+        by_category: {
+          terms: { field: 'f0rtika.category.keyword', size: 20 },
+          aggs: {
+            protected: {
+              filter: { term: { 'f0rtika.is_protected': true } },
+            },
+            by_subcategory: {
+              terms: { field: 'f0rtika.subcategory.keyword', size: 50 },
+              aggs: {
+                protected: {
+                  filter: { term: { 'f0rtika.is_protected': true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.by_category as any)?.buckets || [];
+
+    return buckets
+      .map((bucket: any) => {
+        const total = bucket.doc_count;
+        const protectedCount = bucket.protected?.doc_count || 0;
+        const score = total > 0 ? (protectedCount / total) * 100 : 0;
+
+        const subBuckets = bucket.by_subcategory?.buckets || [];
+        const subcategories: SubcategoryBreakdownItem[] = subBuckets
+          .map((sub: any) => {
+            const subTotal = sub.doc_count;
+            const subProtected = sub.protected?.doc_count || 0;
+            const subScore = subTotal > 0 ? (subProtected / subTotal) * 100 : 0;
+            return {
+              subcategory: sub.key,
+              score: Math.round(subScore * 100) / 100,
+              count: subTotal,
+              protected: subProtected,
+              unprotected: subTotal - subProtected,
+            };
+          })
+          .sort((a: SubcategoryBreakdownItem, b: SubcategoryBreakdownItem) => b.count - a.count);
+
+        return {
+          category: bucket.key as CategoryType,
+          score: Math.round(score * 100) / 100,
+          count: total,
+          protected: protectedCount,
+          unprotected: total - protectedCount,
+          subcategories,
+        };
+      })
+      .sort((a: CategorySubcategoryBreakdownItem, b: CategorySubcategoryBreakdownItem) => b.score - a.score);
   }
 
   // Get defense score by hostname

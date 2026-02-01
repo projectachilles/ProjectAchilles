@@ -249,7 +249,7 @@ export default function DefenseScoreByHostChart({
                 Protected: {tooltip.item.protected.toLocaleString()}
               </div>
               <div style={{ color: SCORE_COLORS.low }}>
-                Bypassed: {tooltip.item.unprotected.toLocaleString()}
+                Unprotected: {tooltip.item.unprotected.toLocaleString()}
               </div>
               <div className="text-muted-foreground mt-1">
                 Total: {tooltip.item.total.toLocaleString()} executions

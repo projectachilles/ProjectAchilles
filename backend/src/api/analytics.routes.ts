@@ -330,7 +330,7 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
     tags: tags as string,
     errorNames: errorNames as string,
     errorCodes: errorCodes as string,
-    result: result as 'all' | 'protected' | 'unprotected',
+    result: result as 'all' | 'protected' | 'unprotected' | 'inconclusive',
     page: page ? parseInt(page as string) : 1,
     pageSize: pageSize ? parseInt(pageSize as string) : 25,
     sortField: sortField as string,
@@ -459,6 +459,20 @@ router.get('/defense-score/by-category', asyncHandler(async (req, res) => {
   const { org, from, to } = req.query;
 
   const result = await es.getDefenseScoreByCategory({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+  });
+
+  res.json(result);
+}));
+
+// GET /api/analytics/defense-score/by-category-subcategory - Score breakdown by category with subcategories
+router.get('/defense-score/by-category-subcategory', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to } = req.query;
+
+  const result = await es.getDefenseScoreByCategoryWithSubcategories({
     org: org as string,
     from: from as string,
     to: to as string,

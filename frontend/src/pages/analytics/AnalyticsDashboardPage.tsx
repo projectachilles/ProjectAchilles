@@ -24,7 +24,7 @@ import type {
   TechniqueDistributionItem,
   HostTestMatrixCell,
   FilterOption,
-  CategoryBreakdownItem,
+  CategorySubcategoryBreakdownItem,
   PaginatedResponse,
   EnrichedTestExecution,
   DefenseScoreByHostItem,
@@ -99,10 +99,11 @@ export default function AnalyticsDashboardPage() {
   const [hostTestMatrix, setHostTestMatrix] = useState<HostTestMatrixCell[]>([]);
 
   // New visualization data
-  const [categoryBreakdown, setCategoryBreakdown] = useState<CategoryBreakdownItem[]>([]);
+  const [categoryBreakdown, setCategoryBreakdown] = useState<CategorySubcategoryBreakdownItem[]>([]);
   const [recentTests, setRecentTests] = useState<EnrichedTestExecution[]>([]);
   const [defenseScoreByHost, setDefenseScoreByHost] = useState<DefenseScoreByHostItem[]>([]);
   const [canonicalTestCount, setCanonicalTestCount] = useState<number>(0);
+  const [canonicalTestCount30d, setCanonicalTestCount30d] = useState<number>(0);
 
   // Executions tab data
   const [executionsData, setExecutionsData] = useState<PaginatedResponse<EnrichedTestExecution> | null>(null);
@@ -122,11 +123,15 @@ export default function AnalyticsDashboardPage() {
     loadCanonicalTestCount();
   }, [settingsVersion]);
 
-  // Load canonical test count (stable baseline for coverage calculations)
+  // Load canonical test counts (stable baselines for coverage calculations)
   async function loadCanonicalTestCount() {
     try {
-      const result = await analyticsApi.getCanonicalTestCount({ days: 90 });
-      setCanonicalTestCount(result.count);
+      const [result90d, result30d] = await Promise.all([
+        analyticsApi.getCanonicalTestCount({ days: 90 }),
+        analyticsApi.getCanonicalTestCount({ days: 30 }),
+      ]);
+      setCanonicalTestCount(result90d.count);
+      setCanonicalTestCount30d(result30d.count);
     } catch (error) {
       console.error('Failed to load canonical test count:', error);
     }
@@ -209,7 +214,7 @@ export default function AnalyticsDashboardPage() {
         analyticsApi.getTestCoverage(params),
         analyticsApi.getTechniqueDistribution(params),
         analyticsApi.getHostTestMatrix(params),
-        analyticsApi.getDefenseScoreByCategory(params),
+        analyticsApi.getDefenseScoreByCategorySubcategory(params),
         analyticsApi.getPaginatedExecutions({ ...params, pageSize: 3, sortField: 'routing.event_time', sortOrder: 'desc' }),
         analyticsApi.getDefenseScoreByHostname(params),
         analyticsApi.getErrorRate(params),
@@ -410,6 +415,7 @@ export default function AnalyticsDashboardPage() {
                 loading={loadingDashboard}
                 title="Test Breadth by Host"
                 canonicalTestCount={canonicalTestCount}
+                canonicalTestCount30d={canonicalTestCount30d}
               />
             </div>
           </div>

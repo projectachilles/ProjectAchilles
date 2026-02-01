@@ -75,6 +75,7 @@ export interface TestExecution {
 
 export interface ErrorTypeBreakdown {
   name: string;
+  code: number;
   count: number;
 }
 
@@ -155,6 +156,23 @@ export interface CategoryBreakdownItem {
   unprotected: number;
 }
 
+export interface SubcategoryBreakdownItem {
+  subcategory: string;
+  score: number;
+  count: number;
+  protected: number;
+  unprotected: number;
+}
+
+export interface CategorySubcategoryBreakdownItem {
+  category: CategoryType;
+  score: number;
+  count: number;
+  protected: number;
+  unprotected: number;
+  subcategories: SubcategoryBreakdownItem[];
+}
+
 export interface ThreatActorCoverageItem {
   threatActor: string;
   coverage: number;
@@ -197,7 +215,7 @@ export interface ExtendedFilterParams {
   tags?: string;
   errorNames?: string;
   errorCodes?: string;
-  result?: 'all' | 'protected' | 'unprotected';
+  result?: 'all' | 'protected' | 'unprotected' | 'inconclusive';
 }
 
 export interface PaginatedExecutionsParams extends ExtendedFilterParams {
@@ -415,6 +433,11 @@ export const analyticsApi = {
 
   async getDefenseScoreByCategory(params?: { org?: string; from?: string; to?: string }): Promise<CategoryBreakdownItem[]> {
     const response = await apiClient.get('/analytics/defense-score/by-category', { params });
+    return response.data;
+  },
+
+  async getDefenseScoreByCategorySubcategory(params?: { org?: string; from?: string; to?: string }): Promise<CategorySubcategoryBreakdownItem[]> {
+    const response = await apiClient.get('/analytics/defense-score/by-category-subcategory', { params });
     return response.data;
   },
 

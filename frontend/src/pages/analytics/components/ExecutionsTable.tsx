@@ -79,12 +79,12 @@ export default function ExecutionsTable({ data, loading }: ExecutionsTableProps)
                   {execution.is_protected ? (
                     <span className="inline-flex items-center gap-1.5 text-green-600 dark:text-green-400">
                       <ShieldCheck className="w-4 h-4" />
-                      <span className="text-sm font-medium">Blocked</span>
+                      <span className="text-sm font-medium">Protected</span>
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 text-red-600 dark:text-red-400">
                       <ShieldX className="w-4 h-4" />
-                      <span className="text-sm font-medium">Bypassed</span>
+                      <span className="text-sm font-medium">Unprotected</span>
                     </span>
                   )}
                 </td>

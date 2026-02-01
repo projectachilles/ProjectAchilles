@@ -76,9 +76,10 @@ export interface OrgBreakdownItem {
   protected: number;
 }
 
-// Error type breakdown (for pie chart)
+// Error type breakdown (for donut chart)
 export interface ErrorTypeBreakdown {
   name: string;
+  code: number;
   count: number;
 }
 
@@ -155,7 +156,7 @@ export interface ExtendedAnalyticsQueryParams extends AnalyticsQueryParams {
   tags?: string;           // comma-separated tags
   errorNames?: string;     // comma-separated error names
   errorCodes?: string;     // comma-separated numeric error codes
-  result?: 'all' | 'protected' | 'unprotected';
+  result?: 'all' | 'protected' | 'unprotected' | 'inconclusive';
 }
 
 // Combined query params for paginated executions
@@ -186,6 +187,25 @@ export interface CategoryBreakdownItem {
   unprotected: number;
 }
 
+// Subcategory breakdown item (within a category)
+export interface SubcategoryBreakdownItem {
+  subcategory: string;
+  score: number;
+  count: number;
+  protected: number;
+  unprotected: number;
+}
+
+// Category with nested subcategories
+export interface CategorySubcategoryBreakdownItem {
+  category: CategoryType;
+  score: number;
+  count: number;
+  protected: number;
+  unprotected: number;
+  subcategories: SubcategoryBreakdownItem[];
+}
+
 // Threat actor coverage item
 export interface ThreatActorCoverageItem {
   threatActor: string;
@@ -207,9 +227,9 @@ export interface DefenseScoreByHostItem {
 // Error rate response
 export interface ErrorRateResponse {
   errorRate: number;          // percentage (0-100)
-  errorCount: number;         // docs with codes [0, 1, 259, 999]
-  conclusiveCount: number;    // docs with codes [101, 105, 126, 127]
-  totalTestActivity: number;  // errorCount + conclusiveCount (excludes code 200)
+  errorCount: number;         // docs with codes [0=NormalExit, 1=BinaryNotRecognized, 259=StillActive, 999=UnexpectedTestError]
+  conclusiveCount: number;    // docs with codes [101=Unprotected, 105=FileQuarantinedOnExtraction, 126=ExecutionPrevented, 127=QuarantinedOnExecution]
+  totalTestActivity: number;  // errorCount + conclusiveCount (excludes code 200=NoOutput)
 }
 
 // Canonical test count response (for stable coverage denominators)

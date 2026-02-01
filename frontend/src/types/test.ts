@@ -80,3 +80,18 @@ export interface FileContent {
   type: string;
   size?: number;
 }
+
+export interface BuildInfo {
+  exists: boolean;
+  platform?: { os: string; arch: string };
+  signed?: boolean;
+  fileSize?: number;
+  builtAt?: string;
+  filename?: string;
+}
+
+export interface EmbedDependency {
+  filename: string;
+  sourceFile: string;
+  exists: boolean;
+}

@@ -66,7 +66,7 @@ export interface AnalyticsFilterState {
   // Basic filters (always visible)
   org: string | null;
   dateRange: DateRangeValue;
-  result: 'all' | 'protected' | 'unprotected';
+  result: 'all' | 'protected' | 'unprotected' | 'inconclusive';
 
   // Advanced filters (expandable)
   hostnames: string[];
@@ -90,7 +90,7 @@ export interface UseAnalyticsFiltersReturn {
   // Actions
   setOrg: (org: string | null) => void;
   setDateRange: (dateRange: DateRangeValue) => void;
-  setResult: (result: 'all' | 'protected' | 'unprotected') => void;
+  setResult: (result: 'all' | 'protected' | 'unprotected' | 'inconclusive') => void;
   setHostnames: (hostnames: string[]) => void;
   setTests: (tests: string[]) => void;
   setTechniques: (techniques: string[]) => void;
@@ -140,7 +140,7 @@ function parseUrlParams(searchParams: URLSearchParams): Partial<AnalyticsFilterS
   }
 
   const resultParam = searchParams.get('result');
-  if (resultParam === 'protected' || resultParam === 'unprotected') {
+  if (resultParam === 'protected' || resultParam === 'unprotected' || resultParam === 'inconclusive') {
     result.result = resultParam;
   }
 
@@ -262,7 +262,7 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     setFilters(prev => ({ ...prev, dateRange }));
   }, []);
 
-  const setResult = useCallback((result: 'all' | 'protected' | 'unprotected') => {
+  const setResult = useCallback((result: 'all' | 'protected' | 'unprotected' | 'inconclusive') => {
     setFilters(prev => ({ ...prev, result }));
   }, []);
 

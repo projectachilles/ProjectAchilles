@@ -3,6 +3,7 @@ import {
   Loader2,
   ShieldCheck,
   ShieldX,
+  ShieldQuestion,
   ChevronDown,
   ChevronUp,
   ChevronLeft,
@@ -59,6 +60,38 @@ const SEVERITY_VARIANTS: Record<SeverityLevel, string> = {
   info: 'bg-gray-500/10 text-gray-500 border-gray-500/30',
 };
 
+// Error code → category mapping (mirrors backend ERROR_CODE_MAP)
+const ERROR_CODE_CATEGORIES: Record<number, string> = {
+  0:   'inconclusive',
+  1:   'contextual',
+  101: 'failed',
+  105: 'protected',
+  126: 'protected',
+  127: 'protected',
+  200: 'inconclusive',
+  259: 'inconclusive',
+  999: 'error',
+};
+
+const ERROR_CATEGORY_COLORS: Record<string, string> = {
+  protected:    'text-green-600 dark:text-green-400',
+  failed:       'text-red-600 dark:text-red-400',
+  inconclusive: 'text-yellow-600 dark:text-yellow-400',
+  contextual:   'text-yellow-600 dark:text-yellow-400',
+  error:        'text-orange-600 dark:text-orange-400',
+};
+
+// Derive result from error code (three-state: protected/unprotected/inconclusive)
+const PROTECTED_CODES = new Set([105, 126, 127]);
+const UNPROTECTED_CODES = new Set([101]);
+
+function getResultFromErrorCode(errorCode: number | undefined): 'protected' | 'unprotected' | 'inconclusive' {
+  if (errorCode === undefined || errorCode === null) return 'inconclusive';
+  if (UNPROTECTED_CODES.has(errorCode)) return 'unprotected';
+  if (PROTECTED_CODES.has(errorCode)) return 'protected';
+  return 'inconclusive';
+}
+
 // Column definitions
 interface ColumnDef {
   key: string;
@@ -72,17 +105,18 @@ const COLUMNS: ColumnDef[] = [
   { key: 'test_name', label: 'Test Name', sortable: true, defaultVisible: true, sortField: 'f0rtika.test_name' },
   { key: 'hostname', label: 'Hostname', sortable: true, defaultVisible: true, sortField: 'routing.hostname' },
   { key: 'result', label: 'Result', sortable: true, defaultVisible: true, sortField: 'f0rtika.is_protected' },
-  { key: 'severity', label: 'Severity', sortable: true, defaultVisible: true, sortField: 'f0rtika.severity' },
+  { key: 'severity', label: 'Severity', sortable: true, defaultVisible: false, sortField: 'f0rtika.severity' },
   { key: 'category', label: 'Category', sortable: true, defaultVisible: true, sortField: 'f0rtika.category' },
   { key: 'subcategory', label: 'Subcategory', sortable: false, defaultVisible: false },
-  { key: 'threat_actor', label: 'Threat Actor', sortable: true, defaultVisible: true, sortField: 'f0rtika.threat_actor' },
-  { key: 'techniques', label: 'Techniques', sortable: false, defaultVisible: false },
+  { key: 'threat_actor', label: 'Threat Actor', sortable: true, defaultVisible: false, sortField: 'f0rtika.threat_actor' },
+  { key: 'techniques', label: 'Techniques', sortable: false, defaultVisible: true },
   { key: 'tactics', label: 'Tactics', sortable: false, defaultVisible: false },
   { key: 'tags', label: 'Tags', sortable: false, defaultVisible: false },
   { key: 'complexity', label: 'Complexity', sortable: true, defaultVisible: false, sortField: 'f0rtika.complexity' },
   { key: 'target', label: 'Target', sortable: false, defaultVisible: false },
   { key: 'score', label: 'Score', sortable: true, defaultVisible: false, sortField: 'f0rtika.score' },
-  { key: 'org', label: 'Organization', sortable: false, defaultVisible: true },
+  { key: 'error', label: 'Result Code', sortable: false, defaultVisible: true },
+  { key: 'org', label: 'Organization', sortable: false, defaultVisible: false },
   { key: 'timestamp', label: 'Time', sortable: true, defaultVisible: true, sortField: 'routing.event_time' },
 ];
 
@@ -189,7 +223,10 @@ export default function ExecutionsDataTable({
     switch (key) {
       case 'test_name': return exec.test_name;
       case 'hostname': return exec.hostname;
-      case 'result': return exec.is_protected ? 'Blocked' : 'Bypassed';
+      case 'result': {
+        const r = getResultFromErrorCode(exec.error_code);
+        return r === 'protected' ? 'Protected' : r === 'unprotected' ? 'Unprotected' : 'Inconclusive';
+      }
       case 'severity': return exec.severity;
       case 'category': return exec.category;
       case 'subcategory': return exec.subcategory;
@@ -200,6 +237,11 @@ export default function ExecutionsDataTable({
       case 'complexity': return exec.complexity;
       case 'target': return exec.target;
       case 'score': return exec.score;
+      case 'error': {
+        if (!exec.error_name && !exec.error_code) return '';
+        if (exec.error_name && exec.error_code) return `${exec.error_name} (${exec.error_code})`;
+        return exec.error_name || String(exec.error_code ?? '');
+      }
       case 'org': return exec.org;
       case 'timestamp': return formatTimestamp(exec.timestamp);
       default: return '';
@@ -213,20 +255,40 @@ export default function ExecutionsDataTable({
         return <span className="font-medium text-foreground">{exec.test_name}</span>;
 
       case 'hostname':
-        return <span className="text-muted-foreground font-mono text-sm">{exec.hostname}</span>;
-
-      case 'result':
-        return exec.is_protected ? (
-          <span className="inline-flex items-center gap-1.5 text-green-600 dark:text-green-400">
-            <ShieldCheck className="w-4 h-4" />
-            <span className="text-sm font-medium">Blocked</span>
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1.5 text-red-600 dark:text-red-400">
-            <ShieldX className="w-4 h-4" />
-            <span className="text-sm font-medium">Bypassed</span>
+        return (
+          <span
+            className="text-muted-foreground font-mono text-sm block max-w-[220px] truncate"
+            title={exec.hostname}
+          >
+            {exec.hostname}
           </span>
         );
+
+      case 'result': {
+        const result = getResultFromErrorCode(exec.error_code);
+        if (result === 'protected') {
+          return (
+            <span className="inline-flex items-center gap-1.5 text-green-600 dark:text-green-400">
+              <ShieldCheck className="w-4 h-4" />
+              <span className="text-sm font-medium">Protected</span>
+            </span>
+          );
+        }
+        if (result === 'unprotected') {
+          return (
+            <span className="inline-flex items-center gap-1.5 text-red-600 dark:text-red-400">
+              <ShieldX className="w-4 h-4" />
+              <span className="text-sm font-medium">Unprotected</span>
+            </span>
+          );
+        }
+        return (
+          <span className="inline-flex items-center gap-1.5 text-yellow-600 dark:text-yellow-400">
+            <ShieldQuestion className="w-4 h-4" />
+            <span className="text-sm font-medium">Inconclusive</span>
+          </span>
+        );
+      }
 
       case 'severity':
         if (!exec.severity) return <span className="text-muted-foreground">—</span>;
@@ -290,6 +352,24 @@ export default function ExecutionsDataTable({
             {exec.org}
           </Badge>
         );
+
+      case 'error': {
+        if (!exec.error_name && !exec.error_code) return <span className="text-muted-foreground">—</span>;
+        const errorText = exec.error_name && exec.error_code
+          ? `${exec.error_name} (${exec.error_code})`
+          : exec.error_name || String(exec.error_code ?? '');
+        const errorCategory = exec.error_code != null
+          ? ERROR_CODE_CATEGORIES[exec.error_code]
+          : undefined;
+        const errorColor = errorCategory
+          ? ERROR_CATEGORY_COLORS[errorCategory]
+          : 'text-muted-foreground';
+        return (
+          <span className={`text-sm font-mono ${errorColor}`}>
+            {errorText}
+          </span>
+        );
+      }
 
       case 'timestamp':
         return <span className="text-sm text-muted-foreground">{formatTimestamp(exec.timestamp)}</span>;

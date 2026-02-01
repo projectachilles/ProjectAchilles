@@ -6,6 +6,7 @@ import TechniqueBadge from '@/components/browser/TechniqueBadge';
 import FileViewer from '@/components/browser/FileViewer';
 import DefenseDashboard from '@/components/browser/DefenseDashboard';
 import { useTheme } from '@/hooks/useTheme';
+import BuildSection from '@/components/browser/BuildSection';
 import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2 } from 'lucide-react';
 
 export default function TestDetailPage() {
@@ -378,6 +379,11 @@ export default function TestDetailPage() {
                   ))}
                 </div>
               </div>
+            )}
+
+            {/* Build */}
+            {sourceFiles.length > 0 && uuid && (
+              <BuildSection uuid={uuid} />
             )}
 
             {/* Detection Rules */}

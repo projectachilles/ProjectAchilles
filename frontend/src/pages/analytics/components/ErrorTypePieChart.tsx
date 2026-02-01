@@ -15,15 +15,23 @@ interface ErrorTypePieChartProps {
   title?: string;
 }
 
-// Color palette for error types - use CSS variables directly (oklch values)
+// Color palette for error types - keyed to canonical error names from ERROR_CODE_MAP
 const ERROR_TYPE_COLORS: Record<string, string> = {
+  // Protected outcomes (greens)
   'ExecutionPrevented': 'var(--chart-protected)',
-  'FileQuarantined': 'oklch(0.55 0.18 145)',
+  'FileQuarantinedOnExtraction': 'oklch(0.55 0.18 145)',
+  'QuarantinedOnExecution': 'oklch(0.50 0.16 155)',
+  // Failed outcome (red)
   'Unprotected': 'var(--chart-bypassed)',
-  'UnexpectedTestError': 'var(--chart-4)',
+  // Inconclusive / error outcomes
+  'NormalExit': 'var(--chart-3)',
+  'BinaryNotRecognized': 'var(--chart-4)',
+  'StillActive': 'var(--chart-5)',
+  'NoOutput': 'var(--chart-1)',
+  'UnexpectedTestError': 'var(--chart-2)',
 };
 
-// Fallback colors for unknown types - use CSS variables directly
+// Fallback colors for unknown types
 const FALLBACK_COLORS = [
   'var(--chart-1)',
   'var(--chart-2)',
@@ -65,13 +73,14 @@ export default function ErrorTypePieChart({
   const chartData = data.map((item, index) => ({
     ...item,
     fill: getColor(item.name, index),
-    percentage: total > 0 ? ((item.count / total) * 100).toFixed(1) : '0'
+    percentage: total > 0 ? ((item.count / total) * 100).toFixed(1) : '0',
+    displayName: `${item.name} (${item.code})`,
   }));
 
   // Build chart config from data
   const chartConfig = chartData.reduce((acc, item) => {
     acc[item.name] = {
-      label: item.name,
+      label: item.displayName,
       color: item.fill,
     };
     return acc;
@@ -91,8 +100,9 @@ export default function ErrorTypePieChart({
         <CardTitle className="text-lg font-semibold">{title}</CardTitle>
       </CardHeader>
       <CardContent className="flex-1 pb-4 overflow-hidden">
-        <div className="flex items-start gap-2 sm:gap-4 h-[160px] sm:h-[180px]">
-          <div className="w-[90px] sm:w-[120px] md:w-2/5 h-full flex-shrink-0">
+        <div className="flex items-center gap-4 h-full">
+          {/* Donut chart - compact left side */}
+          <div className="w-[120px] h-[120px] flex-shrink-0">
             <ChartContainer config={chartConfig} className="h-full w-full">
               <PieChart>
                 <Pie
@@ -101,9 +111,9 @@ export default function ErrorTypePieChart({
                   nameKey="name"
                   cx="50%"
                   cy="50%"
-                  innerRadius={0}
-                  outerRadius="80%"
-                  paddingAngle={1}
+                  innerRadius="45%"
+                  outerRadius="85%"
+                  paddingAngle={2}
                 >
                   {chartData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.fill} />
@@ -116,7 +126,7 @@ export default function ErrorTypePieChart({
                         const payload = item.payload;
                         return (
                           <div className="flex flex-col gap-1">
-                            <span className="font-medium">{payload.name}</span>
+                            <span className="font-medium">{payload.displayName}</span>
                             <span className="text-foreground font-bold">
                               {Number(value).toLocaleString()} executions
                             </span>
@@ -132,24 +142,22 @@ export default function ErrorTypePieChart({
               </PieChart>
             </ChartContainer>
           </div>
-          <div className="flex-1 overflow-hidden min-w-0">
-            {/* Legend */}
-            <div className="flex flex-col gap-1 sm:gap-1.5 overflow-y-auto max-h-[160px] sm:max-h-[180px]">
-              {chartData.map((entry, index) => (
-                <div key={`legend-${index}`} className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-                  <div
-                    className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-sm flex-shrink-0"
-                    style={{ backgroundColor: entry.fill }}
-                  />
-                  <span className="text-[10px] sm:text-xs text-muted-foreground truncate flex-1 min-w-0">
-                    {entry.name.length > 15 ? entry.name.substring(0, 13) + '…' : entry.name}
-                  </span>
-                  <span className="text-[10px] sm:text-xs font-medium text-foreground flex-shrink-0">
-                    {entry.percentage}%
-                  </span>
-                </div>
-              ))}
-            </div>
+          {/* Legend - takes remaining space, no truncation */}
+          <div className="flex flex-col gap-1.5 overflow-y-auto flex-1 min-w-0 max-h-full">
+            {chartData.map((entry, index) => (
+              <div key={`legend-${index}`} className="flex items-center gap-2">
+                <div
+                  className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
+                  style={{ backgroundColor: entry.fill }}
+                />
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  {entry.displayName}
+                </span>
+                <span className="text-xs font-medium text-foreground tabular-nums flex-shrink-0 ml-auto">
+                  {entry.percentage}%
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       </CardContent>

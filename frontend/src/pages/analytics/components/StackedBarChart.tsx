@@ -33,14 +33,14 @@ interface TooltipData {
 }
 
 /**
- * Horizontal stacked bar chart showing Protected vs Bypassed counts.
+ * Horizontal stacked bar chart showing Protected vs Unprotected counts.
  *
  * Layout:
  * ┌─────────────────────────────────────────────┐
  * │  Category Name ████████████████░░░░░░  65%  │
  * │  Another Item  ██████████████████░░░  82%   │
  * └─────────────────────────────────────────────┘
- *   ████ = Protected (green)    ░░░░ = Bypassed (red)
+ *   ████ = Protected (green)    ░░░░ = Unprotected (red)
  *
  * Uses custom SVG rendering to avoid Recharts stacking bugs.
  */
@@ -199,7 +199,7 @@ export default function StackedBarChart({
                         )}
                       </div>
                     )}
-                    {/* Bypassed segment (red) */}
+                    {/* Unprotected segment (red) */}
                     {bypassedRatio > 0 && (
                       <div
                         style={{
@@ -273,7 +273,7 @@ export default function StackedBarChart({
                 Protected: {tooltip.item.protected.toLocaleString()}
               </div>
               <div style={{ color: BYPASSED_COLOR }}>
-                Bypassed: {tooltip.item.unprotected.toLocaleString()}
+                Unprotected: {tooltip.item.unprotected.toLocaleString()}
               </div>
             </div>
           </div>
@@ -293,7 +293,7 @@ export default function StackedBarChart({
               className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm"
               style={{ backgroundColor: BYPASSED_COLOR }}
             />
-            <span>Bypassed</span>
+            <span>Unprotected</span>
           </div>
         </div>
       </CardContent>

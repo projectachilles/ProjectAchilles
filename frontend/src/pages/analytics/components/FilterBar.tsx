@@ -52,7 +52,7 @@ export default function FilterBar({
 
   if (filters.result !== 'all') {
     activeFilterTags.push({
-      label: `Result: ${filters.result === 'protected' ? 'Protected' : 'Unprotected'}`,
+      label: `Result: ${filters.result === 'protected' ? 'Protected' : filters.result === 'unprotected' ? 'Unprotected' : 'Inconclusive'}`,
       onClear: () => setResult('all'),
     });
   }
@@ -119,12 +119,13 @@ export default function FilterBar({
         <div className="flex items-center gap-2">
           <select
             value={filters.result}
-            onChange={(e) => setResult(e.target.value as 'all' | 'protected' | 'unprotected')}
+            onChange={(e) => setResult(e.target.value as 'all' | 'protected' | 'unprotected' | 'inconclusive')}
             className="px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
           >
             <option value="all">All Results</option>
             <option value="protected">Protected Only</option>
             <option value="unprotected">Unprotected Only</option>
+            <option value="inconclusive">Inconclusive Only</option>
           </select>
         </div>
 
