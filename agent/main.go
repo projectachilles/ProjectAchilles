@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/f0rt1ka/achilles-agent/internal/config"
 	"github.com/f0rt1ka/achilles-agent/internal/enrollment"
+	"github.com/f0rt1ka/achilles-agent/internal/poller"
+	"github.com/f0rt1ka/achilles-agent/internal/store"
 )
 
 var version = "0.1.0"
@@ -66,8 +70,19 @@ func main() {
 	}
 
 	if *run {
-		fmt.Printf("Running agent in foreground (server=%s, poll=%s)\n", cfg.ServerURL, cfg.PollInterval)
-		// Placeholder: agent run loop will be implemented in later tasks
+		log.Printf("Running agent in foreground (server=%s, poll=%s)", cfg.ServerURL, cfg.PollInterval)
+
+		st, err := store.New(cfg.WorkDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error initializing store: %v\n", err)
+			os.Exit(1)
+		}
+
+		ctx := context.Background()
+		if err := poller.Run(ctx, cfg, st, version); err != nil && err != context.Canceled {
+			fmt.Fprintf(os.Stderr, "agent error: %v\n", err)
+			os.Exit(1)
+		}
 		os.Exit(0)
 	}
 
