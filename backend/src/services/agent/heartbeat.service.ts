@@ -156,6 +156,9 @@ export function listAgents(filters: ListAgentsRequest): ListAgentsResult {
   if (filters.status) {
     conditions.push('status = ?');
     params.push(filters.status);
+  } else {
+    // By default, exclude decommissioned agents (matches getAgentMetrics behavior)
+    conditions.push("status != 'decommissioned'");
   }
 
   if (filters.os) {

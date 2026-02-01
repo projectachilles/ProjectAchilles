@@ -115,7 +115,13 @@ export default function EnrollmentSection({ orgId }: EnrollmentSectionProps): Re
     }
   }
 
-  const serverUrl = window.location.origin;
+  const [serverUrl, setServerUrl] = useState(window.location.origin);
+
+  useEffect(() => {
+    agentApi.getConfig()
+      .then((config) => setServerUrl(config.server_url))
+      .catch(() => { /* keep window.location.origin fallback */ });
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -161,12 +167,16 @@ export default function EnrollmentSection({ orgId }: EnrollmentSectionProps): Re
 
               <div className="mt-4 space-y-3">
                 <InstallCommand
-                  label="Linux"
-                  command={`sudo ./achilles-agent --enroll ${newToken} --server ${serverUrl} --install`}
+                  label="Linux (amd64)"
+                  command={`curl -fSL -H "ngrok-skip-browser-warning: true" "${serverUrl}/api/agent/download?os=linux&arch=amd64" -o achilles-agent && chmod +x achilles-agent && sudo ./achilles-agent --enroll ${newToken} --server ${serverUrl} --install`}
+                />
+                <InstallCommand
+                  label="Linux (arm64)"
+                  command={`curl -fSL -H "ngrok-skip-browser-warning: true" "${serverUrl}/api/agent/download?os=linux&arch=arm64" -o achilles-agent && chmod +x achilles-agent && sudo ./achilles-agent --enroll ${newToken} --server ${serverUrl} --install`}
                 />
                 <InstallCommand
                   label="Windows (PowerShell)"
-                  command={`.\\achilles-agent.exe --enroll ${newToken} --server ${serverUrl} --install`}
+                  command={`Invoke-WebRequest -Uri "${serverUrl}/api/agent/download?os=windows&arch=amd64" -Headers @{"ngrok-skip-browser-warning"="true"} -OutFile achilles-agent.exe; .\\achilles-agent.exe --enroll ${newToken} --server ${serverUrl} --install`}
                 />
               </div>
             </div>

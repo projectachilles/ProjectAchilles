@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -9,12 +8,11 @@ import (
 
 	"github.com/f0rt1ka/achilles-agent/internal/config"
 	"github.com/f0rt1ka/achilles-agent/internal/enrollment"
-	"github.com/f0rt1ka/achilles-agent/internal/poller"
 	"github.com/f0rt1ka/achilles-agent/internal/service"
 	"github.com/f0rt1ka/achilles-agent/internal/store"
 )
 
-var version = "0.1.0"
+var version = "0.3.0"
 
 func main() {
 	enroll := flag.String("enroll", "", "Enrollment token")
@@ -38,7 +36,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "error: --server is required with --enroll")
 			os.Exit(1)
 		}
-		if err := enrollment.Enroll(*server, *enroll, *configPath); err != nil {
+		if err := enrollment.Enroll(*server, *enroll, *configPath, version); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -84,7 +82,7 @@ func main() {
 	}
 
 	if *run {
-		log.Printf("Running agent in foreground (server=%s, poll=%s)", cfg.ServerURL, cfg.PollInterval)
+		log.Printf("Starting agent (server=%s, poll=%s)", cfg.ServerURL, cfg.PollInterval)
 
 		st, err := store.New(cfg.WorkDir)
 		if err != nil {
@@ -92,8 +90,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		ctx := context.Background()
-		if err := poller.Run(ctx, cfg, st, version); err != nil && err != context.Canceled {
+		if err := service.RunService(cfg, st, version); err != nil {
 			fmt.Fprintf(os.Stderr, "agent error: %v\n", err)
 			os.Exit(1)
 		}

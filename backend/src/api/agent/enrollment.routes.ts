@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
 import { getUserId } from '../../middleware/clerk.middleware.js';
 import {
@@ -7,7 +8,8 @@ import {
   listTokens,
   revokeToken,
 } from '../../services/agent/enrollment.service.js';
-import type { EnrollmentRequest, CreateTokenRequest } from '../../types/agent.js';
+import { streamUpdate } from '../../services/agent/update.service.js';
+import type { EnrollmentRequest, CreateTokenRequest, AgentOS, AgentArch } from '../../types/agent.js';
 
 // ============================================================================
 // Agent-facing router (no auth required)
@@ -39,6 +41,49 @@ agentEnrollmentRouter.post(
     const result = await enrollAgent({ token, hostname, os, arch, agent_version });
 
     res.status(201).json({ success: true, data: result });
+  })
+);
+
+/**
+ * GET /config
+ * Returns the server URL for agent communication.
+ */
+agentEnrollmentRouter.get('/config', (_req, res) => {
+  const serverUrl = process.env.AGENT_SERVER_URL || `http://localhost:${process.env.PORT || '3000'}`;
+  res.json({ success: true, data: { server_url: serverUrl } });
+});
+
+const downloadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many download requests, try again later' },
+});
+
+/**
+ * GET /download?os={linux|windows}&arch={amd64|arm64}
+ * Public binary download endpoint (rate-limited).
+ */
+agentEnrollmentRouter.get(
+  '/download',
+  downloadLimiter,
+  asyncHandler(async (req, res) => {
+    const os = req.query.os as string;
+    const arch = req.query.arch as string;
+
+    const validOs: AgentOS[] = ['linux', 'windows'];
+    const validArch: AgentArch[] = ['amd64', 'arm64'];
+
+    if (!os || !validOs.includes(os as AgentOS)) {
+      throw new AppError('Invalid or missing "os" parameter: must be "linux" or "windows"', 400);
+    }
+
+    if (!arch || !validArch.includes(arch as AgentArch)) {
+      throw new AppError('Invalid or missing "arch" parameter: must be "amd64" or "arm64"', 400);
+    }
+
+    streamUpdate(os as AgentOS, arch as AgentArch, res);
   })
 );
 

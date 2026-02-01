@@ -146,3 +146,14 @@ export interface AgentMetrics {
   by_status: Record<string, number>;
   pending_tasks: number;
 }
+
+export interface AgentVersion {
+  version: string;
+  os: AgentOS;
+  arch: AgentArch;
+  binary_sha256: string;
+  binary_size: number;
+  release_notes: string;
+  mandatory: boolean;
+  created_at: string;
+}

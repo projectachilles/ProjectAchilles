@@ -13,8 +13,6 @@ import (
 	"github.com/f0rt1ka/achilles-agent/internal/config"
 )
 
-const agentVersion = "0.1.0"
-
 // enrollRequest is the JSON body sent to the enrollment endpoint.
 type enrollRequest struct {
 	Token        string `json:"token"`
@@ -43,7 +41,7 @@ type enrollResponse struct {
 // Enroll performs the one-time enrollment handshake with the server.
 // It POSTs system information and the enrollment token, then saves the
 // returned configuration to configPath.
-func Enroll(serverURL, token, configPath string) error {
+func Enroll(serverURL, token, configPath, version string) error {
 	hostname, err := os.Hostname()
 	if err != nil {
 		return fmt.Errorf("get hostname: %w", err)
@@ -54,7 +52,7 @@ func Enroll(serverURL, token, configPath string) error {
 		Hostname:     hostname,
 		OS:           runtime.GOOS,
 		Arch:         runtime.GOARCH,
-		AgentVersion: agentVersion,
+		AgentVersion: version,
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)

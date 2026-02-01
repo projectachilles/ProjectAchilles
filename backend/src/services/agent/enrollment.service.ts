@@ -38,7 +38,7 @@ export async function createToken(
 ): Promise<CreateTokenResponse> {
   const db = getDatabase();
 
-  const plainToken = TOKEN_PREFIX + crypto.randomBytes(16).toString('hex');
+  const plainToken = TOKEN_PREFIX + crypto.randomBytes(32).toString('hex');
   const tokenHash = await bcrypt.hash(plainToken, BCRYPT_ROUNDS);
   const id = crypto.randomUUID();
 

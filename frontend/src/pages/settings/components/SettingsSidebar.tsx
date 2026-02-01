@@ -1,7 +1,7 @@
-import { Plug, FlaskConical } from 'lucide-react';
+import { Plug, FlaskConical, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-type SettingsTab = 'integrations' | 'tests';
+type SettingsTab = 'integrations' | 'tests' | 'agent';
 
 interface SettingsSidebarProps {
   activeTab: SettingsTab;
@@ -17,6 +17,7 @@ interface TabItem {
 const tabs: TabItem[] = [
   { id: 'integrations', label: 'Integrations', icon: Plug },
   { id: 'tests', label: 'Tests', icon: FlaskConical },
+  { id: 'agent', label: 'Agent', icon: Bot },
 ];
 
 export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps) {

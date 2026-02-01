@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState, useRef } from 'react';
+import { UserPlus, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../../store';
 import {
   fetchAgents,
@@ -18,7 +19,10 @@ import AgentFilters from '../../components/endpoints/agents/AgentFilters';
 import AgentList from '../../components/endpoints/agents/AgentList';
 import AgentDetailPanel from '../../components/endpoints/agents/AgentDetailPanel';
 import TagManager from '../../components/endpoints/sensors/TagManager';
+import EnrollmentSection from '@/components/endpoints/enrollment/EnrollmentSection';
+import AvailableBinaries from '@/components/endpoints/agents/AvailableBinaries';
 import { Alert, Toast } from '../../components/shared/ui/Alert';
+import { Button } from '../../components/shared/ui/Button';
 import { Loading } from '../../components/shared/ui/Spinner';
 import { agentApi } from '@/services/api/agent';
 import type { AgentSummary, ListAgentsRequest, Agent } from '@/types/agent';
@@ -31,6 +35,7 @@ export default function AgentsPage() {
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [detailAgent, setDetailAgent] = useState<Agent | null>(null);
+  const [showEnrollment, setShowEnrollment] = useState(false);
   const isInitialMount = useRef(true);
 
   useEffect(() => {
@@ -116,7 +121,29 @@ export default function AgentsPage() {
         <PageHeader
           title="Agents"
           description="Manage and monitor your Achilles agents"
+          actions={
+            <Button
+              variant={showEnrollment ? 'secondary' : 'default'}
+              onClick={() => setShowEnrollment((v) => !v)}
+            >
+              <UserPlus className="w-4 h-4 mr-2" />
+              Enroll Agent
+              {showEnrollment ? (
+                <ChevronUp className="w-4 h-4 ml-2" />
+              ) : (
+                <ChevronDown className="w-4 h-4 ml-2" />
+              )}
+            </Button>
+          }
         />
+
+        {showEnrollment && (
+          <div className="mb-6">
+            <EnrollmentSection orgId="default" />
+          </div>
+        )}
+
+        <AvailableBinaries />
 
         {error && (
           <Alert variant="destructive" className="mb-4">

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { SettingsSidebar, type SettingsTab } from './components/SettingsSidebar';
 import { IntegrationsTab } from './components/IntegrationsTab';
 import { TestsTab } from './components/TestsTab';
+import { AgentTab } from './components/AgentTab';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('integrations');
@@ -12,6 +13,8 @@ export default function SettingsPage() {
         return <IntegrationsTab />;
       case 'tests':
         return <TestsTab />;
+      case 'agent':
+        return <AgentTab />;
       default:
         return <IntegrationsTab />;
     }

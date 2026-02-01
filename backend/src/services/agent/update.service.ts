@@ -1,8 +1,12 @@
 import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import crypto from 'crypto';
 import { getDatabase } from './database.js';
 import type { Response } from 'express';
 import type { AgentVersion, VersionCheckResponse, AgentOS, AgentArch } from '../../types/agent.js';
+
+const VERSION_REGEX = /^[\w.\-]+$/;
 
 interface VersionRow {
   version: string;
@@ -134,4 +138,60 @@ export function listVersions(): AgentVersion[] {
   `).all() as VersionRow[];
 
   return rows.map(toAgentVersion);
+}
+
+/**
+ * Register an agent version from an uploaded file buffer.
+ * Writes the binary to ~/.projectachilles/binaries/{os}-{arch}/ and
+ * delegates to registerVersion() for SHA-256 computation and DB insert.
+ */
+export function registerVersionFromUpload(
+  version: string,
+  agentOs: AgentOS,
+  arch: AgentArch,
+  fileBuffer: Buffer,
+  releaseNotes: string,
+  mandatory: boolean
+): AgentVersion {
+  if (!VERSION_REGEX.test(version)) {
+    throw new Error('Invalid version string');
+  }
+
+  const dir = path.join(os.homedir(), '.projectachilles', 'binaries', `${agentOs}-${arch}`);
+  fs.mkdirSync(dir, { recursive: true });
+
+  const ext = agentOs === 'windows' ? '.exe' : '';
+  const filename = `achilles-agent-${version}${ext}`;
+  const binaryPath = path.join(dir, filename);
+
+  fs.writeFileSync(binaryPath, fileBuffer);
+
+  return registerVersion(version, agentOs, arch, binaryPath, releaseNotes, mandatory);
+}
+
+/**
+ * Delete a registered agent version. Removes binary from disk and DB row.
+ * Returns true if the version existed and was deleted.
+ */
+export function deleteVersion(version: string, agentOs: AgentOS, arch: AgentArch): boolean {
+  const db = getDatabase();
+  const row = db.prepare(`
+    SELECT binary_path FROM agent_versions
+    WHERE version = ? AND os = ? AND arch = ?
+  `).get(version, agentOs, arch) as Pick<VersionRow, 'binary_path'> | undefined;
+
+  if (!row) return false;
+
+  try {
+    fs.unlinkSync(row.binary_path);
+  } catch {
+    // Binary may already be gone from disk — continue with DB cleanup
+  }
+
+  db.prepare(`
+    DELETE FROM agent_versions
+    WHERE version = ? AND os = ? AND arch = ?
+  `).run(version, agentOs, arch);
+
+  return true;
 }

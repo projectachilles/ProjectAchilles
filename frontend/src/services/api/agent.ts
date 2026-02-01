@@ -4,6 +4,7 @@ import type {
   AgentSummary,
   AgentMetrics,
   AgentTask,
+  AgentVersion,
   EnrollmentToken,
   CreateTokenRequest,
   CreateTasksRequest,
@@ -12,6 +13,13 @@ import type {
 } from '@/types/agent';
 
 export const agentApi = {
+  // --- Config (public) ---
+
+  async getConfig(): Promise<{ server_url: string }> {
+    const response = await apiClient.get('/agent/config');
+    return response.data.data;
+  },
+
   // --- Agents ---
 
   async listAgents(params?: ListAgentsRequest): Promise<AgentSummary[]> {
@@ -89,6 +97,24 @@ export const agentApi = {
     const response = await apiClient.post(`/agent/admin/tasks/${taskId}/cancel`);
     return response.data.data;
   },
+
+  // --- Agent Versions ---
+
+  async listVersions(): Promise<AgentVersion[]> {
+    const response = await apiClient.get('/agent/admin/versions');
+    return response.data.data;
+  },
+
+  async uploadVersion(formData: FormData): Promise<AgentVersion> {
+    const response = await apiClient.post('/agent/admin/versions/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data.data;
+  },
+
+  async deleteVersion(version: string, os: string, arch: string): Promise<void> {
+    await apiClient.delete(`/agent/admin/versions/${encodeURIComponent(version)}/${os}/${arch}`);
+  },
 };
 
 // Re-export types for convenience
@@ -97,6 +123,7 @@ export type {
   AgentSummary,
   AgentMetrics,
   AgentTask,
+  AgentVersion,
   EnrollmentToken,
   CreateTokenRequest,
   CreateTasksRequest,
