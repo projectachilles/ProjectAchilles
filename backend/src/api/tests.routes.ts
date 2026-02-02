@@ -12,7 +12,7 @@ const UUID_REGEX = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12
 
 export function createTestsRouter(options: { testsSourcePath: string }): Router {
   const router = Router();
-  router.use(requireClerkAuth());
+  router.use(requireClerkAuth);
 
   const testsSettings = new TestsSettingsService();
   const buildService = new BuildService(testsSettings, options.testsSourcePath);
