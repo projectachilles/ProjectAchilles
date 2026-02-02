@@ -102,17 +102,25 @@ export default function AgentsPage() {
   }
 
   async function handleAddTag(tag: string): Promise<void> {
+    let succeeded = 0;
     for (const id of selectedAgents) {
-      await dispatch(tagAgent({ id, tag }));
+      const result = await dispatch(tagAgent({ id, tag }));
+      if (tagAgent.fulfilled.match(result)) succeeded++;
     }
-    showSuccess(`Tag "${tag}" added to ${selectedAgents.length} agent(s)`);
+    if (succeeded > 0) {
+      showSuccess(`Tag "${tag}" added to ${succeeded} agent(s)`);
+    }
   }
 
   async function handleRemoveTag(tag: string): Promise<void> {
+    let succeeded = 0;
     for (const id of selectedAgents) {
-      await dispatch(untagAgent({ id, tag }));
+      const result = await dispatch(untagAgent({ id, tag }));
+      if (untagAgent.fulfilled.match(result)) succeeded++;
     }
-    showSuccess(`Tag "${tag}" removed from ${selectedAgents.length} agent(s)`);
+    if (succeeded > 0) {
+      showSuccess(`Tag "${tag}" removed from ${succeeded} agent(s)`);
+    }
   }
 
   return (

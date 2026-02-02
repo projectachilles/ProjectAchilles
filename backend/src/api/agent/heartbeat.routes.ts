@@ -159,11 +159,11 @@ adminAgentRouter.delete(
 );
 
 /**
- * POST /admin/agents/:id/tag
+ * POST /admin/agents/:id/tags
  * Add a tag to an agent.
  */
 adminAgentRouter.post(
-  '/agents/:id/tag',
+  '/agents/:id/tags',
   asyncHandler(async (req: Request, res: Response) => {
     const { tag } = req.body as { tag: string };
     if (!tag || typeof tag !== 'string') {
@@ -177,13 +177,13 @@ adminAgentRouter.post(
 );
 
 /**
- * DELETE /admin/agents/:id/tag
+ * DELETE /admin/agents/:id/tags/:tag
  * Remove a tag from an agent.
  */
 adminAgentRouter.delete(
-  '/agents/:id/tag',
+  '/agents/:id/tags/:tag',
   asyncHandler(async (req: Request, res: Response) => {
-    const { tag } = req.body as { tag: string };
+    const { tag } = req.params;
     if (!tag || typeof tag !== 'string') {
       throw new AppError('Tag is required and must be a string', 400);
     }
