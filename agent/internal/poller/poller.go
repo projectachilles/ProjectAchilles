@@ -15,6 +15,7 @@ import (
 	"github.com/f0rt1ka/achilles-agent/internal/config"
 	"github.com/f0rt1ka/achilles-agent/internal/httpclient"
 	"github.com/f0rt1ka/achilles-agent/internal/store"
+	"github.com/f0rt1ka/achilles-agent/internal/sysinfo"
 )
 
 // systemInfo holds basic host information sent with heartbeats.
@@ -98,6 +99,8 @@ func sendHeartbeat(ctx context.Context, client *httpclient.Client, st *store.Sto
 		lastTask = &lt
 	}
 
+	info := sysinfo.Collect()
+
 	payload := heartbeatPayload{
 		Timestamp:   time.Now().UTC(),
 		Status:      "idle",
@@ -106,10 +109,10 @@ func sendHeartbeat(ctx context.Context, client *httpclient.Client, st *store.Sto
 			Hostname:      hostname,
 			OS:            runtime.GOOS,
 			Arch:          runtime.GOARCH,
-			UptimeSeconds: 0,
-			CPUPercent:    0,
-			MemoryMB:      0,
-			DiskFreeMB:    0,
+			UptimeSeconds: info.UptimeSeconds,
+			CPUPercent:    info.CPUPercent,
+			MemoryMB:      info.MemoryMB,
+			DiskFreeMB:    info.DiskFreeMB,
 		},
 		AgentVersion:      version,
 		LastTaskCompleted: lastTask,
