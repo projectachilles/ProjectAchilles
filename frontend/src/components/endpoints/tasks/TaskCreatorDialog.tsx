@@ -127,7 +127,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
     setCreating(true);
     try {
       const selectedAgent = agents.find((a) => targetAgentIds.includes(a.id));
-      const tasks = await agentApi.createTasks({
+      const taskIds = await agentApi.createTasks({
         agent_ids: targetAgentIds,
         org_id: selectedAgent?.org_id ?? 'default',
         test_uuid: testUuid,
@@ -138,7 +138,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
         metadata: EMPTY_METADATA,
       });
 
-      setResult(`Created ${tasks.length} task(s) for ${targetAgentIds.length} agent(s)`);
+      setResult(`Created ${taskIds.length} task(s) for ${targetAgentIds.length} agent(s)`);
       onCreated?.();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create tasks';
@@ -208,18 +208,18 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
             </div>
 
             {testUuid && (
-              <div className="grid grid-cols-3 gap-3 text-sm">
-                <div>
-                  <span className="block text-muted-foreground text-xs mb-0.5">Test UUID</span>
-                  <span className="block truncate" title={testUuid}>{testUuid}</span>
+              <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm space-y-1.5">
+                <div className="flex gap-2">
+                  <span className="text-muted-foreground shrink-0 w-20">Test UUID</span>
+                  <span className="font-mono text-xs break-all">{testUuid}</span>
                 </div>
-                <div>
-                  <span className="block text-muted-foreground text-xs mb-0.5">Test Name</span>
-                  <span className="block truncate" title={testName}>{testName}</span>
+                <div className="flex gap-2">
+                  <span className="text-muted-foreground shrink-0 w-20">Test Name</span>
+                  <span>{testName}</span>
                 </div>
-                <div>
-                  <span className="block text-muted-foreground text-xs mb-0.5">Binary</span>
-                  <span className="block truncate" title={binaryName}>{binaryName}</span>
+                <div className="flex gap-2">
+                  <span className="text-muted-foreground shrink-0 w-20">Binary</span>
+                  <span className="font-mono text-xs break-all">{binaryName}</span>
                 </div>
               </div>
             )}

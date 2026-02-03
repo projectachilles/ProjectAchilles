@@ -171,6 +171,10 @@ const agentSlice = createSlice({
     clearError: (state) => {
       state.error = null;
     },
+    setAgents: (state, action: PayloadAction<AgentSummary[]>) => {
+      state.agents = action.payload;
+      state.pagination.total = action.payload.length;
+    },
   },
   extraReducers: (builder) => {
     // Fetch agents
@@ -223,5 +227,5 @@ const agentSlice = createSlice({
   },
 });
 
-export const { setFilters, setPage, setPageSize, selectAgent, clearError } = agentSlice.actions;
+export const { setFilters, setPage, setPageSize, selectAgent, clearError, setAgents } = agentSlice.actions;
 export default agentSlice.reducer;

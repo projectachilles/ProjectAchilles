@@ -3,13 +3,14 @@
  * ACHILLES - Endpoint Management
  */
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { UserPlus, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../../store';
 import {
   fetchAgents,
   fetchAgent,
   setFilters,
+  setAgents,
   tagAgent,
   untagAgent,
   updateAgentStatus,
@@ -52,6 +53,21 @@ export default function AgentsPage() {
 
     return () => clearTimeout(timeoutId);
   }, [filters, dispatch]);
+
+  // Silent poll — refresh agent list without loading spinner
+  const pollAgents = useCallback(async () => {
+    try {
+      const result = await agentApi.listAgents(filters);
+      dispatch(setAgents(result));
+    } catch {
+      // Silent — don't surface transient poll failures
+    }
+  }, [filters, dispatch]);
+
+  useEffect(() => {
+    const id = setInterval(pollAgents, 15_000);
+    return () => clearInterval(id);
+  }, [pollAgents]);
 
   function handleFilterChange(newFilters: Partial<ListAgentsRequest>): void {
     dispatch(setFilters(newFilters));

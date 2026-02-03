@@ -76,9 +76,9 @@ export const agentApi = {
 
   // --- Tasks ---
 
-  async createTasks(data: CreateTasksRequest): Promise<AgentTask[]> {
+  async createTasks(data: CreateTasksRequest): Promise<string[]> {
     const response = await apiClient.post('/agent/admin/tasks', data);
-    return response.data.data;
+    return response.data.data.task_ids;
   },
 
   async listTasks(params?: ListTasksRequest): Promise<AgentTask[]> {

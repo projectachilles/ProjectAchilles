@@ -35,6 +35,22 @@ export default function TasksPage() {
     fetchTasks();
   }, [fetchTasks]);
 
+  // Silent poll — refresh task list without loading spinner
+  const pollTasks = useCallback(async () => {
+    try {
+      const filters = statusFilter ? { status: statusFilter } : {};
+      const result = await agentApi.listTasks(filters);
+      setTasks(result);
+    } catch {
+      // Silent — don't surface transient poll failures
+    }
+  }, [statusFilter]);
+
+  useEffect(() => {
+    const id = setInterval(pollTasks, 10_000);
+    return () => clearInterval(id);
+  }, [pollTasks]);
+
   function showToast(message: string): void {
     setSuccessMessage(message);
     globalThis.setTimeout(() => setSuccessMessage(null), TOAST_DURATION_MS);
