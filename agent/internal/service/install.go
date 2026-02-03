@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/f0rt1ka/achilles-agent/internal/config"
 	"github.com/f0rt1ka/achilles-agent/internal/poller"
@@ -26,8 +27,14 @@ func RunService(cfg *config.Config, st *store.Store, version string) error {
 
 // runForeground is shared logic: starts the poller loop until context cancels.
 func runForeground(ctx context.Context, cfg *config.Config, st *store.Store, version string) error {
-	if err := poller.Run(ctx, cfg, st, version); err != nil && err != context.Canceled {
-		return fmt.Errorf("agent error: %w", err)
+	if err := poller.Run(ctx, cfg, st, version); err != nil {
+		if err == poller.ErrUpdateApplied {
+			log.Println("restarting after update")
+			return nil // clean exit; systemd/SCM restarts us
+		}
+		if err != context.Canceled {
+			return fmt.Errorf("agent error: %w", err)
+		}
 	}
 	return nil
 }

@@ -26,6 +26,7 @@ import { Alert, Toast } from '../../components/shared/ui/Alert';
 import { Button } from '../../components/shared/ui/Button';
 import { Loading } from '../../components/shared/ui/Spinner';
 import { agentApi } from '@/services/api/agent';
+import { getLatestVersionMap } from '@/pages/endpoints/utils/versionHelpers';
 import type { AgentSummary, ListAgentsRequest, Agent } from '@/types/agent';
 
 export default function AgentsPage() {
@@ -37,6 +38,7 @@ export default function AgentsPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [detailAgent, setDetailAgent] = useState<Agent | null>(null);
   const [showEnrollment, setShowEnrollment] = useState(false);
+  const [latestVersions, setLatestVersions] = useState<Map<string, string>>(new Map());
   const isInitialMount = useRef(true);
 
   useEffect(() => {
@@ -54,7 +56,19 @@ export default function AgentsPage() {
     return () => clearTimeout(timeoutId);
   }, [filters, dispatch]);
 
-  // Silent poll — refresh agent list without loading spinner
+  const refreshVersions = useCallback(async () => {
+    try {
+      const versions = await agentApi.listVersions();
+      setLatestVersions(getLatestVersionMap(versions));
+    } catch {
+      // Silent — version comparison just won't appear
+    }
+  }, []);
+
+  // Fetch latest binary versions on mount
+  useEffect(() => { refreshVersions(); }, [refreshVersions]);
+
+  // Silent poll — refresh agent list and versions without loading spinner
   const pollAgents = useCallback(async () => {
     try {
       const result = await agentApi.listAgents(filters);
@@ -62,7 +76,8 @@ export default function AgentsPage() {
     } catch {
       // Silent — don't surface transient poll failures
     }
-  }, [filters, dispatch]);
+    refreshVersions();
+  }, [filters, dispatch, refreshVersions]);
 
   useEffect(() => {
     const id = setInterval(pollAgents, 15_000);
@@ -193,6 +208,7 @@ export default function AgentsPage() {
           <AgentList
             agents={agents}
             selectedAgents={selectedAgents}
+            latestVersions={latestVersions}
             onToggleSelect={handleToggleSelect}
             onToggleSelectAll={handleToggleSelectAll}
             onAction={handleAction}
@@ -202,6 +218,7 @@ export default function AgentsPage() {
 
         <AgentDetailPanel
           agent={detailAgent}
+          latestVersion={detailAgent ? latestVersions.get(`${detailAgent.os}-${detailAgent.arch}`) : undefined}
           onClose={() => setDetailAgent(null)}
         />
 

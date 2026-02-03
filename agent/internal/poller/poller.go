@@ -3,6 +3,7 @@ package poller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -20,6 +21,7 @@ import (
 	"github.com/f0rt1ka/achilles-agent/internal/reporter"
 	"github.com/f0rt1ka/achilles-agent/internal/store"
 	"github.com/f0rt1ka/achilles-agent/internal/sysinfo"
+	"github.com/f0rt1ka/achilles-agent/internal/updater"
 )
 
 // systemInfo holds basic host information sent with heartbeats.
@@ -48,6 +50,10 @@ type serverTaskResponse struct {
 	Success bool          `json:"success"`
 	Data    executor.Task `json:"data"`
 }
+
+// ErrUpdateApplied is returned from Run when a self-update has been applied
+// and the agent should exit so the service manager (systemd/SCM) can restart it.
+var ErrUpdateApplied = errors.New("update applied, restart required")
 
 var (
 	currentTaskMu sync.Mutex
@@ -95,6 +101,14 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 	pollTicker := time.NewTicker(pollInterval)
 	defer pollTicker.Stop()
 
+	// Update ticker: only created when UpdateInterval > 0 (zero = disabled).
+	var updateC <-chan time.Time
+	if cfg.UpdateInterval > 0 {
+		updateTicker := time.NewTicker(addJitter(cfg.UpdateInterval))
+		defer updateTicker.Stop()
+		updateC = updateTicker.C
+	}
+
 	// Send an initial heartbeat immediately.
 	sendHeartbeat(ctx, client, st, version)
 
@@ -106,6 +120,14 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 			sendHeartbeat(ctx, client, st, version)
 		case <-pollTicker.C:
 			pollTasks(ctx, client, st, cfg)
+		case <-updateC:
+			updated, err := updater.CheckAndUpdate(ctx, client, version, cfg)
+			if err != nil {
+				log.Printf("update check error: %v", err)
+			} else if updated {
+				log.Println("update applied, exiting for restart")
+				return ErrUpdateApplied
+			}
 		}
 	}
 }
@@ -256,8 +278,4 @@ func addJitter(interval time.Duration) time.Duration {
 	return result
 }
 
-// init seeds the random number generator (for Go < 1.20 compatibility).
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
 

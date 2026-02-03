@@ -20,6 +20,7 @@ import type { AgentSummary } from '@/types/agent';
 interface AgentListProps {
   agents: AgentSummary[];
   selectedAgents: string[];
+  latestVersions: Map<string, string>;
   onToggleSelect: (agentId: string) => void;
   onToggleSelectAll: () => void;
   onAction: (agentId: string, action: 'enable' | 'disable' | 'decommission' | 'delete') => void;
@@ -40,6 +41,7 @@ function timeAgo(dateStr: string | null): string {
 export default function AgentList({
   agents,
   selectedAgents,
+  latestVersions,
   onToggleSelect,
   onToggleSelectAll,
   onAction,
@@ -105,6 +107,12 @@ export default function AgentList({
                 <TableCell className="text-muted-foreground">{agent.arch}</TableCell>
                 <TableCell>
                   <span className="font-mono text-xs">{agent.agent_version}</span>
+                  {(() => {
+                    const latest = latestVersions.get(`${agent.os}-${agent.arch}`);
+                    return latest && latest !== agent.agent_version ? (
+                      <Badge variant="warning" className="text-xs ml-1">outdated</Badge>
+                    ) : null;
+                  })()}
                 </TableCell>
                 <TableCell>
                   <span className="text-xs text-muted-foreground">

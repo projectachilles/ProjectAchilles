@@ -22,6 +22,7 @@ type Config struct {
 	LogFile           string        `yaml:"log_file"`
 	MaxExecutionTime  time.Duration `yaml:"max_execution_time"`
 	MaxBinarySize     int64         `yaml:"max_binary_size"`
+	UpdateInterval    time.Duration `yaml:"update_interval"`
 	CACert            string        `yaml:"ca_cert"`
 	SkipTLSVerify     bool          `yaml:"skip_tls_verify"`
 }
@@ -39,6 +40,7 @@ func DefaultConfig() Config {
 		PollInterval:      30 * time.Second,
 		HeartbeatInterval: 60 * time.Second,
 		MaxExecutionTime:  5 * time.Minute,
+		UpdateInterval:    1 * time.Hour,
 		MaxBinarySize:     100 * 1024 * 1024, // 100 MB
 		WorkDir:           workDir,
 		LogFile:           logFile,

@@ -9,6 +9,7 @@ import type { Agent } from '@/types/agent';
 
 interface AgentDetailPanelProps {
   agent: Agent | null;
+  latestVersion?: string;
   onClose: () => void;
 }
 
@@ -40,7 +41,7 @@ function getRuntimeVariant(status: string): 'default' | 'warning' | 'destructive
   }
 }
 
-export default function AgentDetailPanel({ agent, onClose }: AgentDetailPanelProps) {
+export default function AgentDetailPanel({ agent, latestVersion, onClose }: AgentDetailPanelProps) {
   if (!agent) return null;
 
   const heartbeat = agent.last_heartbeat_data;
@@ -82,9 +83,18 @@ export default function AgentDetailPanel({ agent, onClose }: AgentDetailPanelPro
                   <span>{agent.arch}</span>
                 </div>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Version</span>
-                <span className="font-mono text-xs">{agent.agent_version}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs">{agent.agent_version}</span>
+                  {latestVersion && latestVersion !== agent.agent_version && (
+                    <>
+                      <span className="text-muted-foreground">→</span>
+                      <span className="font-mono text-xs">{latestVersion}</span>
+                      <Badge variant="warning">update pending</Badge>
+                    </>
+                  )}
+                </div>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Enrolled</span>

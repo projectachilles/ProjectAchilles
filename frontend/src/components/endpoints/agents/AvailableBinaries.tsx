@@ -12,22 +12,12 @@ import {
 import { agentApi } from '@/services/api/agent';
 import type { AgentVersion } from '@/types/agent';
 import { cn } from '@/lib/utils';
+import { getLatestPerPlatform } from '@/pages/endpoints/utils/versionHelpers';
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/** Pick the latest version per os/arch combination. */
-function getLatestPerPlatform(versions: AgentVersion[]): AgentVersion[] {
-  const map = new Map<string, AgentVersion>();
-  // versions arrive sorted newest-first from backend
-  for (const v of versions) {
-    const key = `${v.os}-${v.arch}`;
-    if (!map.has(key)) map.set(key, v);
-  }
-  return Array.from(map.values());
 }
 
 export default function AvailableBinaries() {
