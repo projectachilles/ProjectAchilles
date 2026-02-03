@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogContent, DialogFooter } from '@/components/shared/ui/Dialog';
 import { Button } from '@/components/shared/ui/Button';
 import { Input } from '@/components/shared/ui/Input';
+import { Switch } from '@/components/shared/ui/Switch';
+import { Search, Tag, X } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
 import { browserApi } from '@/services/api/browser';
 import type { AgentSummary, TaskTestMetadata } from '@/types/agent';
@@ -41,8 +43,15 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
   const [creating, setCreating] = useState(false);
   const [result, setResult] = useState<string | null>(null);
 
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [onlineOnly, setOnlineOnly] = useState(false);
+
   const [availableTests, setAvailableTests] = useState<AvailableTest[]>([]);
   const [loadingTests, setLoadingTests] = useState(false);
+
+  const [testSearchQuery, setTestSearchQuery] = useState('');
+  const [testDropdownOpen, setTestDropdownOpen] = useState(false);
 
   // Stabilize selectedAgents so a new [] default doesn't re-trigger effects every render
   const stableSelectedAgents = useMemo(
@@ -86,12 +95,55 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
       .finally(() => setLoadingTests(false));
   }, [open]);
 
+  const allTags = useMemo(() => {
+    const s = new Set<string>();
+    agents.forEach((a) => a.tags.forEach((t) => s.add(t)));
+    return Array.from(s).sort();
+  }, [agents]);
+
+  const filteredAgents = useMemo(() => {
+    return agents.filter((agent) => {
+      if (searchQuery && !agent.hostname.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+      if (selectedTags.length > 0 && !selectedTags.every((t) => agent.tags.includes(t))) return false;
+      if (onlineOnly && !agent.is_online) return false;
+      return true;
+    });
+  }, [agents, searchQuery, selectedTags, onlineOnly]);
+
+  const filteredTests = useMemo(() => {
+    if (!testSearchQuery) return availableTests;
+    const q = testSearchQuery.toLowerCase();
+    return availableTests.filter(({ test }) =>
+      test.name.toLowerCase().includes(q) ||
+      (test.category?.toLowerCase().includes(q) ?? false)
+    );
+  }, [availableTests, testSearchQuery]);
+
   function toggleAgent(agentId: string, checked: boolean): void {
     if (checked) {
       setTargetAgentIds([...targetAgentIds, agentId]);
     } else {
       setTargetAgentIds(targetAgentIds.filter((id) => id !== agentId));
     }
+  }
+
+  function toggleTag(tag: string): void {
+    setSelectedTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+    );
+  }
+
+  function selectAllFiltered(): void {
+    setTargetAgentIds((prev) => {
+      const ids = new Set(prev);
+      filteredAgents.forEach((a) => ids.add(a.id));
+      return Array.from(ids);
+    });
+  }
+
+  function deselectAllFiltered(): void {
+    const filteredIds = new Set(filteredAgents.map((a) => a.id));
+    setTargetAgentIds((prev) => prev.filter((id) => !filteredIds.has(id)));
   }
 
   function handleTestSelect(uuid: string): void {
@@ -105,6 +157,8 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
       setTestName('');
       setBinaryName('');
     }
+    setTestDropdownOpen(false);
+    setTestSearchQuery('');
   }
 
   function resetForm(): void {
@@ -114,6 +168,11 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
     setBinaryName('');
     setTimeout_('300');
     setPriority('1');
+    setSearchQuery('');
+    setSelectedTags([]);
+    setOnlineOnly(false);
+    setTestSearchQuery('');
+    setTestDropdownOpen(false);
   }
 
   function handleClose(): void {
@@ -151,7 +210,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
   const isFormValid = targetAgentIds.length > 0 && testUuid && testName && binaryName;
 
   return (
-    <Dialog open={open} onClose={handleClose} className="max-w-xl">
+    <Dialog open={open} onClose={handleClose} className="max-w-2xl">
       <DialogHeader onClose={handleClose}>
         <DialogTitle>Create Task</DialogTitle>
         <DialogDescription>Deploy a security test to selected agents</DialogDescription>
@@ -169,42 +228,168 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
               <label className="block text-sm font-medium mb-1">
                 Target Agents ({targetAgentIds.length} selected)
               </label>
-              <div className="border border-border rounded-lg p-2 max-h-32 overflow-y-auto">
-                {agents.map((agent) => (
-                  <label key={agent.id} className="flex items-center gap-2 py-1 text-sm cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 appearance-auto accent-primary"
-                      checked={targetAgentIds.includes(agent.id)}
-                      onChange={(e) => toggleAgent(agent.id, e.target.checked)}
-                    />
-                    <span className={`inline-block h-2 w-2 rounded-full ${agent.is_online ? 'bg-green-500' : 'bg-zinc-500'}`} />
-                    <span className={agent.is_online ? '' : 'text-muted-foreground'}>
-                      {agent.hostname} ({agent.os}/{agent.arch})
-                    </span>
-                    {!agent.is_online && <span className="text-xs text-muted-foreground">offline</span>}
-                  </label>
-                ))}
+
+              {/* Search + Online toggle */}
+              <div className="flex items-center gap-2 mb-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search hostname..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-8"
+                  />
+                </div>
+                <Switch
+                  label="Online"
+                  checked={onlineOnly}
+                  onChange={(e) => setOnlineOnly(e.target.checked)}
+                />
+              </div>
+
+              {/* Tag chips */}
+              {allTags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  <Tag className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
+                  {allTags.map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => toggleTag(tag)}
+                      className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                        selectedTags.includes(tag)
+                          ? 'bg-primary/10 text-primary border-primary/30'
+                          : 'bg-muted text-muted-foreground border-border hover:border-primary/20'
+                      }`}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Bulk actions */}
+              <div className="flex gap-3 mb-1.5 text-xs">
+                <button
+                  type="button"
+                  onClick={selectAllFiltered}
+                  className="text-primary hover:underline"
+                >
+                  Select all ({filteredAgents.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={deselectAllFiltered}
+                  className="text-muted-foreground hover:underline"
+                >
+                  Deselect all
+                </button>
+              </div>
+
+              {/* Agent list */}
+              <div className="border border-border rounded-lg p-2 max-h-48 overflow-y-auto">
+                {filteredAgents.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-3">No agents match filters</p>
+                ) : (
+                  filteredAgents.map((agent) => (
+                    <label key={agent.id} className="flex items-center gap-2 py-1 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 appearance-auto accent-primary"
+                        checked={targetAgentIds.includes(agent.id)}
+                        onChange={(e) => toggleAgent(agent.id, e.target.checked)}
+                      />
+                      <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${agent.is_online ? 'bg-green-500' : 'bg-zinc-500'}`} />
+                      <span className={`truncate ${agent.is_online ? '' : 'text-muted-foreground'}`}>
+                        {agent.hostname} ({agent.os}/{agent.arch})
+                      </span>
+                      {!agent.is_online && <span className="text-xs text-muted-foreground shrink-0">offline</span>}
+                      {agent.tags.length > 0 && (
+                        <span className="ml-auto flex gap-1 shrink-0">
+                          {agent.tags.slice(0, 2).map((t) => (
+                            <span key={t} className="text-[10px] bg-muted rounded px-1 py-0.5">{t}</span>
+                          ))}
+                          {agent.tags.length > 2 && (
+                            <span className="text-[10px] text-muted-foreground">+{agent.tags.length - 2}</span>
+                          )}
+                        </span>
+                      )}
+                    </label>
+                  ))
+                )}
               </div>
             </div>
 
             <div>
               <label className="block text-sm font-medium mb-1.5">Security Test</label>
-              <select
-                className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
-                value={testUuid}
-                onChange={(e) => handleTestSelect(e.target.value)}
-                disabled={loadingTests}
+              <div
+                className="relative"
+                onBlur={() => window.setTimeout(() => setTestDropdownOpen(false), 150)}
               >
-                <option value="">
-                  {loadingTests ? 'Loading tests...' : '— Select a test —'}
-                </option>
-                {availableTests.map(({ test }) => (
-                  <option key={test.uuid} value={test.uuid}>
-                    {test.name}{test.category ? ` (${test.category})` : ''}
-                  </option>
-                ))}
-              </select>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder={loadingTests ? 'Loading tests...' : 'Search tests...'}
+                      value={testUuid ? testName : testSearchQuery}
+                      onChange={(e) => {
+                        if (testUuid) {
+                          setTestUuid('');
+                          setTestName('');
+                          setBinaryName('');
+                        }
+                        setTestSearchQuery(e.target.value);
+                        setTestDropdownOpen(true);
+                      }}
+                      onFocus={() => { if (!testUuid) setTestDropdownOpen(true); }}
+                      className="pl-8"
+                      disabled={loadingTests}
+                    />
+                  </div>
+                  {testUuid && (
+                    <Button
+                      variant="outline"
+                      className="px-2"
+                      onClick={() => {
+                        setTestUuid('');
+                        setTestName('');
+                        setBinaryName('');
+                        setTestSearchQuery('');
+                        setTestDropdownOpen(false);
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+
+                {testDropdownOpen && !testUuid && (
+                  <div className="absolute z-10 w-full mt-1 border border-border rounded-lg bg-background max-h-48 overflow-y-auto shadow-lg">
+                    {filteredTests.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-3">
+                        {availableTests.length === 0 ? 'No tests available' : 'No tests match'}
+                      </p>
+                    ) : (
+                      filteredTests.map(({ test }) => (
+                        <button
+                          key={test.uuid}
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors flex items-center gap-2"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => handleTestSelect(test.uuid)}
+                        >
+                          <span className="truncate">{test.name}</span>
+                          {test.category && (
+                            <span className="ml-auto text-[10px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground shrink-0">
+                              {test.category}
+                            </span>
+                          )}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             {testUuid && (
