@@ -26,6 +26,7 @@ export interface HeartbeatData {
 
 export interface AgentSummary {
   id: string;
+  org_id: string;
   hostname: string;
   os: AgentOS;
   arch: AgentArch;
@@ -111,6 +112,7 @@ export interface CreateTokenRequest {
 
 export interface CreateTasksRequest {
   agent_ids: string[];
+  org_id: string;
   test_uuid: string;
   test_name: string;
   binary_name: string;

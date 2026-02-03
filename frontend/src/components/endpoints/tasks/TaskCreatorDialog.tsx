@@ -70,8 +70,10 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
 
     setCreating(true);
     try {
+      const selectedAgent = agents.find((a) => targetAgentIds.includes(a.id));
       const tasks = await agentApi.createTasks({
         agent_ids: targetAgentIds,
+        org_id: selectedAgent?.org_id ?? 'default',
         test_uuid: testUuid,
         test_name: testName,
         binary_name: binaryName,
