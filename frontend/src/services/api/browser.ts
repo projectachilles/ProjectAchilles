@@ -1,5 +1,5 @@
 import { apiClient } from '@/hooks/useAuthenticatedApi';
-import type { TestMetadata, TestDetails, FileContent, TestFile, SyncStatus } from '@/types/test';
+import type { TestMetadata, TestDetails, FileContent, TestFile, SyncStatus, BuildInfo } from '@/types/test';
 
 export interface SyncResult {
   success: boolean;
@@ -67,6 +67,12 @@ export const browserApi = {
     return response.data.html;
   },
 
+  // Get build info for a test
+  async getBuildInfo(uuid: string): Promise<BuildInfo> {
+    const response = await apiClient.get(`/tests/builds/${uuid}`);
+    return response.data.data;
+  },
+
   // Refresh test index
   async refreshTests(): Promise<{ message: string; count: number }> {
     const response = await apiClient.post('/browser/tests/refresh');
@@ -75,4 +81,4 @@ export const browserApi = {
 };
 
 // Re-export types for convenience
-export type { TestMetadata, TestDetails, FileContent, TestFile, SyncStatus };
+export type { TestMetadata, TestDetails, FileContent, TestFile, SyncStatus, BuildInfo };
