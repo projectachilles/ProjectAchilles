@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogContent, DialogFooter } from '@/components/shared/ui/Dialog';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/shared/ui/Tabs';
 import { Button } from '@/components/shared/ui/Button';
 import { Input } from '@/components/shared/ui/Input';
 import { Switch } from '@/components/shared/ui/Switch';
-import { Search, Tag, X } from 'lucide-react';
+import { Search, Tag, X, Play, Calendar } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
 import { browserApi } from '@/services/api/browser';
-import type { AgentSummary, TaskTestMetadata } from '@/types/agent';
+import type { AgentSummary, TaskTestMetadata, ScheduleType, ScheduleConfig } from '@/types/agent';
 import type { TestMetadata, BuildInfo } from '@/types/test';
 
 interface AvailableTest {
@@ -32,6 +33,23 @@ const EMPTY_METADATA: TaskTestMetadata = {
   tags: [],
 };
 
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const COMMON_TIMEZONES = [
+  'UTC',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'Europe/London',
+  'Europe/Berlin',
+  'Europe/Paris',
+  'Asia/Tokyo',
+  'Asia/Shanghai',
+  'Asia/Kolkata',
+  'Australia/Sydney',
+];
+
 export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], onCreated }: TaskCreatorDialogProps) {
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [targetAgentIds, setTargetAgentIds] = useState<string[]>(selectedAgents);
@@ -52,6 +70,19 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
 
   const [testSearchQuery, setTestSearchQuery] = useState('');
   const [testDropdownOpen, setTestDropdownOpen] = useState(false);
+
+  // Schedule state
+  const [activeTab, setActiveTab] = useState<'run-now' | 'schedule'>('run-now');
+  const [scheduleName, setScheduleName] = useState('');
+  const [scheduleType, setScheduleType] = useState<ScheduleType>('daily');
+  const [scheduleTime, setScheduleTime] = useState('09:00');
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleDays, setScheduleDays] = useState<number[]>([1, 2, 3, 4, 5]);
+  const [scheduleDayOfMonth, setScheduleDayOfMonth] = useState(1);
+  const [scheduleTimezone, setScheduleTimezone] = useState(
+    Intl.DateTimeFormat().resolvedOptions().timeZone
+  );
+  const [randomizeTime, setRandomizeTime] = useState(false);
 
   // Stabilize selectedAgents so a new [] default doesn't re-trigger effects every render
   const stableSelectedAgents = useMemo(
@@ -161,6 +192,12 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
     setTestSearchQuery('');
   }
 
+  function toggleDay(day: number): void {
+    setScheduleDays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort()
+    );
+  }
+
   function resetForm(): void {
     setResult(null);
     setTestUuid('');
@@ -173,11 +210,34 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
     setOnlineOnly(false);
     setTestSearchQuery('');
     setTestDropdownOpen(false);
+    setActiveTab('run-now');
+    setScheduleName('');
+    setScheduleType('daily');
+    setScheduleTime('09:00');
+    setScheduleDate('');
+    setScheduleDays([1, 2, 3, 4, 5]);
+    setScheduleDayOfMonth(1);
+    setScheduleTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    setRandomizeTime(false);
   }
 
   function handleClose(): void {
     resetForm();
     onClose();
+  }
+
+  function buildScheduleConfig(): ScheduleConfig {
+    const rt = randomizeTime || undefined;
+    switch (scheduleType) {
+      case 'once':
+        return { date: scheduleDate, time: scheduleTime };
+      case 'daily':
+        return { time: scheduleTime, randomize_time: rt };
+      case 'weekly':
+        return { days: scheduleDays, time: scheduleTime, randomize_time: rt };
+      case 'monthly':
+        return { dayOfMonth: scheduleDayOfMonth, time: scheduleTime, randomize_time: rt };
+    }
   }
 
   async function handleCreate(): Promise<void> {
@@ -186,28 +246,59 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
     setCreating(true);
     try {
       const selectedAgent = agents.find((a) => targetAgentIds.includes(a.id));
-      const taskIds = await agentApi.createTasks({
-        agent_ids: targetAgentIds,
-        org_id: selectedAgent?.org_id ?? 'default',
-        test_uuid: testUuid,
-        test_name: testName,
-        binary_name: binaryName,
-        execution_timeout: parseInt(timeout) || 300,
-        priority: parseInt(priority) || 1,
-        metadata: EMPTY_METADATA,
-      });
+      const orgId = selectedAgent?.org_id ?? 'default';
 
-      setResult(`Created ${taskIds.length} task(s) for ${targetAgentIds.length} agent(s)`);
+      if (activeTab === 'schedule') {
+        const schedule = await agentApi.createSchedule({
+          name: scheduleName || undefined,
+          agent_ids: targetAgentIds,
+          org_id: orgId,
+          test_uuid: testUuid,
+          test_name: testName,
+          binary_name: binaryName,
+          execution_timeout: parseInt(timeout) || 300,
+          priority: parseInt(priority) || 1,
+          metadata: EMPTY_METADATA,
+          schedule_type: scheduleType,
+          schedule_config: buildScheduleConfig(),
+          timezone: scheduleTimezone,
+        });
+        setResult(`Schedule created: "${schedule.name || schedule.test_name}" (${schedule.schedule_type})`);
+      } else {
+        const taskIds = await agentApi.createTasks({
+          agent_ids: targetAgentIds,
+          org_id: orgId,
+          test_uuid: testUuid,
+          test_name: testName,
+          binary_name: binaryName,
+          execution_timeout: parseInt(timeout) || 300,
+          priority: parseInt(priority) || 1,
+          metadata: EMPTY_METADATA,
+        });
+        setResult(`Created ${taskIds.length} task(s) for ${targetAgentIds.length} agent(s)`);
+      }
       onCreated?.();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create tasks';
+      const message = err instanceof Error ? err.message : 'Failed to create';
       setResult(`Error: ${message}`);
     } finally {
       setCreating(false);
     }
   }
 
-  const isFormValid = targetAgentIds.length > 0 && testUuid && testName && binaryName;
+  const isScheduleValid = (() => {
+    if (activeTab !== 'schedule') return true;
+    if (!randomizeTime && !scheduleTime) return false;
+    if (scheduleType === 'once' && !scheduleDate) return false;
+    if (scheduleType === 'once' && scheduleDate) {
+      const target = new Date(`${scheduleDate}T${scheduleTime}`);
+      if (target <= new Date()) return false;
+    }
+    if (scheduleType === 'weekly' && scheduleDays.length === 0) return false;
+    return true;
+  })();
+
+  const isFormValid = targetAgentIds.length > 0 && testUuid && testName && binaryName && isScheduleValid;
 
   return (
     <Dialog open={open} onClose={handleClose} className="max-w-2xl">
@@ -224,12 +315,12 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
           </div>
         ) : (
           <div className="space-y-4">
+            {/* === Agent Selector (shared) === */}
             <div>
               <label className="block text-sm font-medium mb-1">
                 Target Agents ({targetAgentIds.length} selected)
               </label>
 
-              {/* Search + Online toggle */}
               <div className="flex items-center gap-2 mb-2">
                 <div className="relative flex-1">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -247,7 +338,6 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                 />
               </div>
 
-              {/* Tag chips */}
               {allTags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-2">
                   <Tag className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
@@ -268,7 +358,6 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                 </div>
               )}
 
-              {/* Bulk actions */}
               <div className="flex gap-3 mb-1.5 text-xs">
                 <button
                   type="button"
@@ -286,7 +375,6 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                 </button>
               </div>
 
-              {/* Agent list */}
               <div className="border border-border rounded-lg p-2 max-h-48 overflow-y-auto">
                 {filteredAgents.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-3">No agents match filters</p>
@@ -320,6 +408,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
               </div>
             </div>
 
+            {/* === Test Selector (shared) === */}
             <div>
               <label className="block text-sm font-medium mb-1.5">Security Test</label>
               <div
@@ -392,6 +481,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
               </div>
             </div>
 
+            {/* === Test Info Card (shared) === */}
             {testUuid && (
               <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm space-y-1.5">
                 <div className="flex gap-2">
@@ -409,26 +499,251 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <Input
-                label="Timeout (seconds)"
-                type="number"
-                value={timeout}
-                onChange={(e) => setTimeout_(e.target.value)}
-              />
-              <div>
-                <label className="block text-sm font-medium mb-1.5">Priority</label>
-                <select
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value)}
-                >
-                  <option value="1">Normal (1)</option>
-                  <option value="2">Medium (2)</option>
-                  <option value="3">High (3)</option>
-                </select>
-              </div>
-            </div>
+            {/* === Tabs: Run Now / Schedule === */}
+            <Tabs defaultValue="run-now" onValueChange={(v) => setActiveTab(v as 'run-now' | 'schedule')}>
+              <TabsList>
+                <TabsTrigger value="run-now">
+                  <Play className="h-3.5 w-3.5" />
+                  Run Now
+                </TabsTrigger>
+                <TabsTrigger value="schedule">
+                  <Calendar className="h-3.5 w-3.5" />
+                  Schedule
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="run-now">
+                <div className="grid grid-cols-2 gap-4">
+                  <Input
+                    label="Timeout (seconds)"
+                    type="number"
+                    value={timeout}
+                    onChange={(e) => setTimeout_(e.target.value)}
+                  />
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5">Priority</label>
+                    <select
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                      value={priority}
+                      onChange={(e) => setPriority(e.target.value)}
+                    >
+                      <option value="1">Normal (1)</option>
+                      <option value="2">Medium (2)</option>
+                      <option value="3">High (3)</option>
+                    </select>
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="schedule">
+                <div className="space-y-4">
+                  {/* Schedule name */}
+                  <Input
+                    label="Schedule Name (optional)"
+                    placeholder="e.g. Daily persistence check"
+                    value={scheduleName}
+                    onChange={(e) => setScheduleName(e.target.value)}
+                  />
+
+                  {/* Frequency pills */}
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5">Frequency</label>
+                    <div className="flex gap-2">
+                      {(['once', 'daily', 'weekly', 'monthly'] as ScheduleType[]).map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => { setScheduleType(t); if (t === 'once') setRandomizeTime(false); }}
+                          className={`text-xs px-3 py-1.5 rounded-full border transition-colors capitalize ${
+                            scheduleType === t
+                              ? 'bg-primary/10 text-primary border-primary/30'
+                              : 'bg-muted text-muted-foreground border-border hover:border-primary/20'
+                          }`}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Conditional: Once → date picker */}
+                  {scheduleType === 'once' && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-1.5">Date</label>
+                        <input
+                          type="date"
+                          className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                          value={scheduleDate}
+                          onChange={(e) => setScheduleDate(e.target.value)}
+                          min={new Date().toISOString().slice(0, 10)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1.5">Time</label>
+                        <input
+                          type="time"
+                          className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                          value={scheduleTime}
+                          onChange={(e) => setScheduleTime(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Conditional: Daily → time or randomize */}
+                  {scheduleType === 'daily' && (
+                    <div className="space-y-3">
+                      <Switch
+                        label="Randomize time"
+                        checked={randomizeTime}
+                        onChange={(e) => setRandomizeTime(e.target.checked)}
+                      />
+                      {randomizeTime ? (
+                        <p className="text-xs text-muted-foreground">
+                          Weekdays 09:00–17:00 &middot; Weekends anytime
+                        </p>
+                      ) : (
+                        <div>
+                          <label className="block text-sm font-medium mb-1.5">Time</label>
+                          <input
+                            type="time"
+                            className="w-full max-w-48 rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                            value={scheduleTime}
+                            onChange={(e) => setScheduleTime(e.target.value)}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Conditional: Weekly → day toggles + time */}
+                  {scheduleType === 'weekly' && (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-sm font-medium mb-1.5">Days</label>
+                        <div className="flex gap-1.5">
+                          {DAY_LABELS.map((label, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => toggleDay(idx)}
+                              className={`text-xs w-10 py-1.5 rounded-full border transition-colors ${
+                                scheduleDays.includes(idx)
+                                  ? 'bg-primary/10 text-primary border-primary/30'
+                                  : 'bg-muted text-muted-foreground border-border hover:border-primary/20'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <Switch
+                        label="Randomize time"
+                        checked={randomizeTime}
+                        onChange={(e) => setRandomizeTime(e.target.checked)}
+                      />
+                      {randomizeTime ? (
+                        <p className="text-xs text-muted-foreground">
+                          Weekdays 09:00–17:00 &middot; Weekends anytime
+                        </p>
+                      ) : (
+                        <div>
+                          <label className="block text-sm font-medium mb-1.5">Time</label>
+                          <input
+                            type="time"
+                            className="w-full max-w-48 rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                            value={scheduleTime}
+                            onChange={(e) => setScheduleTime(e.target.value)}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Conditional: Monthly → day of month + time */}
+                  {scheduleType === 'monthly' && (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium mb-1.5">Day of Month</label>
+                          <select
+                            className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                            value={scheduleDayOfMonth}
+                            onChange={(e) => setScheduleDayOfMonth(parseInt(e.target.value))}
+                          >
+                            {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                              <option key={d} value={d}>{d}</option>
+                            ))}
+                          </select>
+                        </div>
+                        {!randomizeTime && (
+                          <div>
+                            <label className="block text-sm font-medium mb-1.5">Time</label>
+                            <input
+                              type="time"
+                              className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                              value={scheduleTime}
+                              onChange={(e) => setScheduleTime(e.target.value)}
+                            />
+                          </div>
+                        )}
+                      </div>
+                      <Switch
+                        label="Randomize time"
+                        checked={randomizeTime}
+                        onChange={(e) => setRandomizeTime(e.target.checked)}
+                      />
+                      {randomizeTime && (
+                        <p className="text-xs text-muted-foreground">
+                          Weekdays 09:00–17:00 &middot; Weekends anytime
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Timezone */}
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5">Timezone</label>
+                    <select
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                      value={scheduleTimezone}
+                      onChange={(e) => setScheduleTimezone(e.target.value)}
+                    >
+                      {COMMON_TIMEZONES.map((tz) => (
+                        <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
+                      ))}
+                      {!COMMON_TIMEZONES.includes(scheduleTimezone) && (
+                        <option value={scheduleTimezone}>{scheduleTimezone.replace(/_/g, ' ')}</option>
+                      )}
+                    </select>
+                  </div>
+
+                  {/* Timeout + Priority */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <Input
+                      label="Timeout (seconds)"
+                      type="number"
+                      value={timeout}
+                      onChange={(e) => setTimeout_(e.target.value)}
+                    />
+                    <div>
+                      <label className="block text-sm font-medium mb-1.5">Priority</label>
+                      <select
+                        className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                        value={priority}
+                        onChange={(e) => setPriority(e.target.value)}
+                      >
+                        <option value="1">Normal (1)</option>
+                        <option value="2">Medium (2)</option>
+                        <option value="3">High (3)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </TabsContent>
+            </Tabs>
           </div>
         )}
       </DialogContent>
@@ -437,7 +752,12 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
         <DialogFooter>
           <Button variant="outline" onClick={handleClose}>Cancel</Button>
           <Button onClick={handleCreate} disabled={creating || !isFormValid}>
-            {creating ? 'Creating...' : `Create ${targetAgentIds.length} Task(s)`}
+            {creating
+              ? 'Creating...'
+              : activeTab === 'schedule'
+                ? 'Create Schedule'
+                : `Create ${targetAgentIds.length} Task(s)`
+            }
           </Button>
         </DialogFooter>
       )}

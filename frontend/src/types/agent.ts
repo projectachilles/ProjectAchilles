@@ -149,6 +149,68 @@ export interface AgentMetrics {
   pending_tasks: number;
 }
 
+// Schedules
+
+export type ScheduleType = 'once' | 'daily' | 'weekly' | 'monthly';
+export type ScheduleStatus = 'active' | 'paused' | 'completed' | 'deleted';
+
+export interface ScheduleConfigOnce { date: string; time: string; }
+export interface ScheduleConfigDaily { time: string; randomize_time?: boolean; }
+export interface ScheduleConfigWeekly { days: number[]; time: string; randomize_time?: boolean; }
+export interface ScheduleConfigMonthly { dayOfMonth: number; time: string; randomize_time?: boolean; }
+export type ScheduleConfig =
+  | ScheduleConfigOnce
+  | ScheduleConfigDaily
+  | ScheduleConfigWeekly
+  | ScheduleConfigMonthly;
+
+export interface Schedule {
+  id: string;
+  name: string | null;
+  agent_ids: string[];
+  org_id: string;
+  test_uuid: string;
+  test_name: string;
+  binary_name: string;
+  execution_timeout: number;
+  priority: number;
+  metadata: TaskTestMetadata;
+  schedule_type: ScheduleType;
+  schedule_config: ScheduleConfig;
+  timezone: string;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  status: ScheduleStatus;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateScheduleRequest {
+  name?: string;
+  agent_ids: string[];
+  org_id: string;
+  test_uuid: string;
+  test_name: string;
+  binary_name: string;
+  execution_timeout?: number;
+  priority?: number;
+  metadata?: TaskTestMetadata;
+  schedule_type: ScheduleType;
+  schedule_config: ScheduleConfig;
+  timezone?: string;
+}
+
+export interface UpdateScheduleRequest {
+  name?: string;
+  agent_ids?: string[];
+  schedule_config?: ScheduleConfig;
+  timezone?: string;
+  status?: 'active' | 'paused';
+  priority?: number;
+  execution_timeout?: number;
+}
+
 export interface AgentVersion {
   version: string;
   os: AgentOS;

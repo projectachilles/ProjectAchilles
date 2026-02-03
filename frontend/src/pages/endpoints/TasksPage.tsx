@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
-import type { AgentTask, TaskStatus } from '@/types/agent';
+import type { AgentTask, TaskStatus, Schedule } from '@/types/agent';
 import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
 import TaskList from '@/components/endpoints/tasks/TaskList';
+import ScheduleList from '@/components/endpoints/tasks/ScheduleList';
 import TaskCreatorDialog from '@/components/endpoints/tasks/TaskCreatorDialog';
 import { Button } from '@/components/shared/ui/Button';
 import { Loading } from '@/components/shared/ui/Spinner';
@@ -17,6 +18,7 @@ export default function TasksPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
 
   const fetchTasks = useCallback(async () => {
     setLoading(true);
@@ -31,25 +33,39 @@ export default function TasksPage() {
     }
   }, [statusFilter]);
 
+  const fetchSchedules = useCallback(async () => {
+    try {
+      const result = await agentApi.listSchedules();
+      setSchedules(result);
+    } catch {
+      // Silent
+    }
+  }, []);
+
   useEffect(() => {
     fetchTasks();
-  }, [fetchTasks]);
+    fetchSchedules();
+  }, [fetchTasks, fetchSchedules]);
 
-  // Silent poll — refresh task list without loading spinner
-  const pollTasks = useCallback(async () => {
+  // Silent poll — refresh task list and schedules without loading spinner
+  const poll = useCallback(async () => {
     try {
       const filters = statusFilter ? { status: statusFilter } : {};
-      const result = await agentApi.listTasks(filters);
-      setTasks(result);
+      const [taskResult, scheduleResult] = await Promise.all([
+        agentApi.listTasks(filters),
+        agentApi.listSchedules(),
+      ]);
+      setTasks(taskResult);
+      setSchedules(scheduleResult);
     } catch {
       // Silent — don't surface transient poll failures
     }
   }, [statusFilter]);
 
   useEffect(() => {
-    const id = setInterval(pollTasks, 10_000);
+    const id = setInterval(poll, 10_000);
     return () => clearInterval(id);
-  }, [pollTasks]);
+  }, [poll]);
 
   function showToast(message: string): void {
     setSuccessMessage(message);
@@ -66,6 +82,31 @@ export default function TasksPage() {
     }
   }
 
+  async function handleTogglePause(id: string, newStatus: 'active' | 'paused'): Promise<void> {
+    try {
+      await agentApi.updateSchedule(id, { status: newStatus });
+      showToast(`Schedule ${newStatus === 'paused' ? 'paused' : 'resumed'}`);
+      fetchSchedules();
+    } catch (err) {
+      console.error('Failed to update schedule:', err);
+    }
+  }
+
+  async function handleDeleteSchedule(id: string): Promise<void> {
+    try {
+      await agentApi.deleteSchedule(id);
+      showToast('Schedule deleted');
+      fetchSchedules();
+    } catch (err) {
+      console.error('Failed to delete schedule:', err);
+    }
+  }
+
+  function handleCreated(): void {
+    fetchTasks();
+    fetchSchedules();
+  }
+
   return (
     <>
       <PageContainer>
@@ -79,6 +120,20 @@ export default function TasksPage() {
             </Button>
           }
         />
+
+        {/* Schedules section */}
+        {schedules.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-sm font-medium text-muted-foreground mb-2">
+              Scheduled Tasks ({schedules.length})
+            </h2>
+            <ScheduleList
+              schedules={schedules}
+              onTogglePause={handleTogglePause}
+              onDelete={handleDeleteSchedule}
+            />
+          </div>
+        )}
 
         <div className="border border-border rounded-lg bg-card p-4 mb-4">
           <div className="flex gap-4 items-center">
@@ -99,7 +154,7 @@ export default function TasksPage() {
               </select>
             </div>
             <div className="flex-grow" />
-            <Button variant="outline" onClick={fetchTasks}>
+            <Button variant="outline" onClick={() => { fetchTasks(); fetchSchedules(); }}>
               <RefreshCw className="w-4 h-4 mr-2" />
               Refresh
             </Button>
@@ -115,7 +170,7 @@ export default function TasksPage() {
         <TaskCreatorDialog
           open={dialogOpen}
           onClose={() => setDialogOpen(false)}
-          onCreated={fetchTasks}
+          onCreated={handleCreated}
         />
 
         {successMessage && (

@@ -5,6 +5,7 @@ import { agentEnrollmentRouter, adminEnrollmentRouter } from './enrollment.route
 import { agentHeartbeatRouter, adminAgentRouter } from './heartbeat.routes.js';
 import { agentTasksRouter, adminTasksRouter } from './tasks.routes.js';
 import { agentUpdateRouter, adminUpdateRouter } from './update.routes.js';
+import { adminSchedulesRouter } from './schedules.routes.js';
 import binaryRouter from './binary.routes.js';
 
 export function createAgentRouter(): Router {
@@ -16,6 +17,7 @@ export function createAgentRouter(): Router {
   router.use('/admin', requireClerkAuth(), adminAgentRouter);
   router.use('/admin', requireClerkAuth(), adminTasksRouter);
   router.use('/admin', requireClerkAuth(), adminUpdateRouter);
+  router.use('/admin', requireClerkAuth(), adminSchedulesRouter);
 
   // Public agent endpoint (no auth required for enrollment)
   router.use(agentEnrollmentRouter);

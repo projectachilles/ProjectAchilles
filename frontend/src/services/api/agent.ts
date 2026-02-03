@@ -10,6 +10,10 @@ import type {
   CreateTasksRequest,
   ListAgentsRequest,
   ListTasksRequest,
+  Schedule,
+  ScheduleStatus,
+  CreateScheduleRequest,
+  UpdateScheduleRequest,
 } from '@/types/agent';
 
 export const agentApi = {
@@ -115,6 +119,27 @@ export const agentApi = {
   async deleteVersion(version: string, os: string, arch: string): Promise<void> {
     await apiClient.delete(`/agent/admin/versions/${encodeURIComponent(version)}/${os}/${arch}`);
   },
+
+  // --- Schedules ---
+
+  async createSchedule(data: CreateScheduleRequest): Promise<Schedule> {
+    const response = await apiClient.post('/agent/admin/schedules', data);
+    return response.data.data;
+  },
+
+  async listSchedules(params?: { status?: ScheduleStatus }): Promise<Schedule[]> {
+    const response = await apiClient.get('/agent/admin/schedules', { params });
+    return response.data.data;
+  },
+
+  async updateSchedule(id: string, updates: UpdateScheduleRequest): Promise<Schedule> {
+    const response = await apiClient.patch(`/agent/admin/schedules/${id}`, updates);
+    return response.data.data;
+  },
+
+  async deleteSchedule(id: string): Promise<void> {
+    await apiClient.delete(`/agent/admin/schedules/${id}`);
+  },
 };
 
 // Re-export types for convenience
@@ -129,4 +154,8 @@ export type {
   CreateTasksRequest,
   ListAgentsRequest,
   ListTasksRequest,
+  Schedule,
+  ScheduleStatus,
+  CreateScheduleRequest,
+  UpdateScheduleRequest,
 };

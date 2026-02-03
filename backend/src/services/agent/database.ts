@@ -84,6 +84,31 @@ function initializeTables(database: Database.Database): void {
       PRIMARY KEY (version, os, arch)
     );
 
+    CREATE TABLE IF NOT EXISTS schedules (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      agent_ids TEXT NOT NULL,
+      org_id TEXT NOT NULL,
+      test_uuid TEXT NOT NULL,
+      test_name TEXT NOT NULL,
+      binary_name TEXT NOT NULL,
+      execution_timeout INTEGER NOT NULL DEFAULT 300,
+      priority INTEGER NOT NULL DEFAULT 1,
+      metadata TEXT NOT NULL DEFAULT '{}',
+      schedule_type TEXT NOT NULL CHECK(schedule_type IN ('once','daily','weekly','monthly')),
+      schedule_config TEXT NOT NULL,
+      timezone TEXT NOT NULL DEFAULT 'UTC',
+      next_run_at TEXT,
+      last_run_at TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused','completed','deleted')),
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_schedules_status_next_run ON schedules(status, next_run_at);
+    CREATE INDEX IF NOT EXISTS idx_schedules_org ON schedules(org_id);
+
     CREATE INDEX IF NOT EXISTS idx_agents_org ON agents(org_id);
     CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
     CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(agent_id);

@@ -19,6 +19,7 @@ import { createTestsRouter } from './api/tests.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware.js';
 import { GitSyncService } from './services/browser/gitSyncService.js';
 import { createAgentRouter } from './api/agent/index.js';
+import { processSchedules } from './services/agent/schedules.service.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -187,6 +188,17 @@ async function startServer() {
     }
     console.log('╚═══════════════════════════════════════════════════════════╝');
     console.log('');
+
+    // --- Task scheduler: process due schedules every 60s ---
+    processSchedules(); // Startup recovery: catch up on past-due schedules
+    const schedulerInterval = setInterval(processSchedules, 60_000);
+
+    const shutdown = () => {
+      clearInterval(schedulerInterval);
+      httpServer.close();
+    };
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
   });
 }
 
