@@ -54,6 +54,35 @@ function parseScheduleRow(row: ScheduleRow): Schedule {
 }
 
 /**
+ * For active recurring schedules whose next_run_at is in the past (e.g. after
+ * the machine was off and missed a run), recompute next_run_at to the next
+ * future occurrence so the UI doesn't show "8h ago".
+ */
+function freshenNextRun(schedule: Schedule): Schedule {
+  if (
+    schedule.status !== 'active' ||
+    schedule.schedule_type === 'once' ||
+    !schedule.next_run_at
+  ) {
+    return schedule;
+  }
+
+  const nextRunDate = new Date(schedule.next_run_at);
+  if (nextRunDate > new Date()) return schedule;
+
+  const freshNext = computeNextRun(
+    schedule.schedule_type,
+    schedule.schedule_config,
+    schedule.timezone,
+  );
+
+  return {
+    ...schedule,
+    next_run_at: freshNext ? freshNext.toISOString() : schedule.next_run_at,
+  };
+}
+
+/**
  * Convert a date/time in a given timezone to a UTC Date.
  * Uses Intl.DateTimeFormat for timezone support without external deps.
  */
@@ -319,14 +348,14 @@ export function listSchedules(
     `SELECT * FROM schedules ${whereClause} ORDER BY created_at DESC`
   ).all(...params) as ScheduleRow[];
 
-  return rows.map(parseScheduleRow);
+  return rows.map(parseScheduleRow).map(freshenNextRun);
 }
 
 export function getSchedule(id: string): Schedule {
   const db = getDatabase();
   const row = db.prepare('SELECT * FROM schedules WHERE id = ?').get(id) as ScheduleRow | undefined;
   if (!row) throw new AppError('Schedule not found', 404);
-  return parseScheduleRow(row);
+  return freshenNextRun(parseScheduleRow(row));
 }
 
 export function updateSchedule(

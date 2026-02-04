@@ -17,6 +17,8 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   const testsSettings = new TestsSettingsService();
   const buildService = new BuildService(testsSettings, options.testsSourcePath);
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+  const certUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+  const CERT_ID_REGEX = /^cert-\d+$/;
 
   // ── Platform Settings ──────────────────────────────────────
 
@@ -74,6 +76,111 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
     testsSettings.deleteCertificate();
     res.json({ success: true });
   });
+
+  // ── Multi-Certificate Routes ────────────────────────────────
+
+  function validateCertId(id: string): void {
+    if (!CERT_ID_REGEX.test(id)) {
+      throw new AppError('Invalid certificate ID format', 400);
+    }
+  }
+
+  // GET /api/tests/certificates — List all certs + active ID
+  router.get('/certificates', (_req, res) => {
+    const data = testsSettings.listCertificates();
+    res.json({ success: true, data });
+  });
+
+  // POST /api/tests/certificates/upload — Upload a PFX certificate
+  router.post('/certificates/upload', certUpload.single('file'), asyncHandler(async (req, res) => {
+    if (!req.file) {
+      throw new AppError('No file uploaded', 400);
+    }
+
+    const originalName = req.file.originalname.toLowerCase();
+    if (!originalName.endsWith('.pfx') && !originalName.endsWith('.p12')) {
+      throw new AppError('File must be a .pfx or .p12 certificate', 400);
+    }
+
+    const password = req.body.password as string;
+    if (!password) {
+      throw new AppError('Password is required', 400);
+    }
+
+    const label = req.body.label as string | undefined;
+
+    try {
+      const info = await testsSettings.uploadCertificate(req.file.buffer, password, label || undefined);
+      res.json({ success: true, data: info });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to upload certificate';
+      throw new AppError(msg, 400);
+    }
+  }));
+
+  // POST /api/tests/certificates/generate — Generate a self-signed cert
+  router.post('/certificates/generate', asyncHandler(async (req, res) => {
+    const { commonName, organization, country, label } = req.body;
+
+    if (!commonName || !organization || !country) {
+      throw new AppError('commonName, organization, and country are required', 400);
+    }
+
+    if (country.length !== 2) {
+      throw new AppError('Country must be a 2-letter ISO code', 400);
+    }
+
+    try {
+      const info = await testsSettings.generateCertificate(
+        { commonName, organization, country },
+        label || undefined,
+      );
+      res.json({ success: true, data: info });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to generate certificate';
+      throw new AppError(msg, 400);
+    }
+  }));
+
+  // PUT /api/tests/certificates/:id/active — Set active cert
+  router.put('/certificates/:id/active', asyncHandler(async (req, res) => {
+    validateCertId(req.params.id);
+    try {
+      testsSettings.setActiveCertificateId(req.params.id);
+      res.json({ success: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to set active certificate';
+      throw new AppError(msg, 400);
+    }
+  }));
+
+  // PATCH /api/tests/certificates/:id — Update label
+  router.patch('/certificates/:id', asyncHandler(async (req, res) => {
+    validateCertId(req.params.id);
+    const { label } = req.body;
+    if (typeof label !== 'string') {
+      throw new AppError('label must be a string', 400);
+    }
+    try {
+      const info = testsSettings.updateCertificateLabel(req.params.id, label);
+      res.json({ success: true, data: info });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to update certificate';
+      throw new AppError(msg, 400);
+    }
+  }));
+
+  // DELETE /api/tests/certificates/:id — Delete cert by ID
+  router.delete('/certificates/:id', asyncHandler(async (req, res) => {
+    validateCertId(req.params.id);
+    try {
+      testsSettings.deleteCertificate(req.params.id);
+      res.json({ success: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete certificate';
+      throw new AppError(msg, 400);
+    }
+  }));
 
   // ── Build Routes ───────────────────────────────────────────
 

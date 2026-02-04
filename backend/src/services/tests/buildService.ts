@@ -37,8 +37,6 @@ async function runBuildCommand(
 
 const SETTINGS_DIR = path.join(os.homedir(), '.projectachilles');
 const BUILDS_DIR = path.join(SETTINGS_DIR, 'builds');
-const CERTS_DIR = path.join(SETTINGS_DIR, 'certs');
-const PFX_PATH = path.join(CERTS_DIR, 'cert.pfx');
 
 const KNOWN_CATEGORIES = ['cyber-hygiene', 'intel-driven', 'mitre-top10', 'phase-aligned'];
 
@@ -257,16 +255,16 @@ export class BuildService {
       });
     }
 
-    // 7. Sign if certificate exists
+    // 7. Sign if an active certificate exists
     let signed = false;
-    const password = this.settingsService.getCertificatePassword();
-    if (password && fs.existsSync(PFX_PATH)) {
+    const activeCert = this.settingsService.getActiveCertPfxPath();
+    if (activeCert) {
       const signedPath = outputPath + '.signed';
       try {
         await execFileAsync('osslsigncode', [
           'sign',
-          '-pkcs12', PFX_PATH,
-          '-pass', password,
+          '-pkcs12', activeCert.pfxPath,
+          '-pass', activeCert.password,
           '-in', outputPath,
           '-out', signedPath,
         ], { timeout: 60_000 });
