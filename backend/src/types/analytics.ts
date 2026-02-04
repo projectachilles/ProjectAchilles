@@ -232,6 +232,15 @@ export interface ErrorRateResponse {
   totalTestActivity: number;  // errorCount + conclusiveCount (excludes code 200=NoOutput)
 }
 
+// Error rate trend data point (rolling window)
+export interface ErrorRateTrendDataPoint {
+  timestamp: string;
+  errorRate: number;      // percentage 0-100
+  errorCount: number;     // rolling window error count
+  conclusiveCount: number; // rolling window conclusive count
+  total: number;          // errorCount + conclusiveCount
+}
+
 // Canonical test count response (for stable coverage denominators)
 export interface CanonicalTestCountResponse {
   count: number;

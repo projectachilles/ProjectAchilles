@@ -202,6 +202,14 @@ export interface ErrorRateResponse {
   totalTestActivity: number;
 }
 
+export interface ErrorRateTrendDataPoint {
+  timestamp: string;
+  errorRate: number;      // percentage 0-100
+  errorCount: number;     // rolling window error count
+  conclusiveCount: number; // rolling window conclusive count
+  total: number;          // errorCount + conclusiveCount
+}
+
 export interface ExtendedFilterParams {
   org?: string;
   from?: string;
@@ -458,6 +466,17 @@ export const analyticsApi = {
 
   async getErrorRate(params?: { org?: string; from?: string; to?: string }): Promise<ErrorRateResponse> {
     const response = await apiClient.get('/analytics/error-rate', { params });
+    return response.data;
+  },
+
+  async getErrorRateTrend(params?: {
+    org?: string;
+    from?: string;
+    to?: string;
+    interval?: 'hour' | 'day' | 'week';
+    windowDays?: number;
+  }): Promise<ErrorRateTrendDataPoint[]> {
+    const response = await apiClient.get('/analytics/error-rate/trend', { params });
     return response.data;
   },
 };

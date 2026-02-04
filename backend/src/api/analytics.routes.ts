@@ -510,6 +510,27 @@ router.get('/defense-score/by-hostname', asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
+// GET /api/analytics/error-rate/trend - Error rate over time (rolling window)
+router.get('/error-rate/trend', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to, interval, windowDays } = req.query;
+
+  const parsedWindowDays = windowDays ? parseInt(windowDays as string, 10) : undefined;
+  const clampedWindowDays = parsedWindowDays
+    ? Math.max(1, Math.min(90, parsedWindowDays))
+    : undefined;
+
+  const result = await es.getErrorRateTrendRolling({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+    interval: (interval as string) || 'day',
+    windowDays: clampedWindowDays || 7,
+  });
+
+  res.json(result);
+}));
+
 // GET /api/analytics/error-rate - Error rate (proportion of non-conclusive test activity)
 router.get('/error-rate', asyncHandler(async (req, res) => {
   const es = await getEsService();

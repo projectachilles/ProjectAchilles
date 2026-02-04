@@ -28,6 +28,7 @@ import type {
   PaginatedResponse,
   EnrichedTestExecution,
   DefenseScoreByHostItem,
+  ErrorRateTrendDataPoint,
 } from '../../services/api/analytics';
 
 type TabType = 'dashboard' | 'executions';
@@ -93,6 +94,7 @@ export default function AnalyticsDashboardPage() {
   const [uniqueHostnames, setUniqueHostnames] = useState<number>(0);
   const [uniqueTestCount, setUniqueTestCount] = useState<number>(0);
   const [trendData, setTrendData] = useState<TrendDataPoint[]>([]);
+  const [errorRateTrendData, setErrorRateTrendData] = useState<ErrorRateTrendDataPoint[]>([]);
   const [errorTypeData, setErrorTypeData] = useState<ErrorTypeBreakdown[]>([]);
   const [testCoverageData, setTestCoverageData] = useState<TestCoverageItem[]>([]);
   const [techniqueDistData, setTechniqueDistData] = useState<TechniqueDistributionItem[]>([]);
@@ -205,6 +207,7 @@ export default function AnalyticsDashboardPage() {
         recentTestsData,
         hostScores,
         errorRateData,
+        errorRateTrend,
       ] = await Promise.all([
         analyticsApi.getDefenseScore(params),
         analyticsApi.getUniqueHostnames(params),
@@ -218,6 +221,7 @@ export default function AnalyticsDashboardPage() {
         analyticsApi.getPaginatedExecutions({ ...params, pageSize: 3, sortField: 'routing.event_time', sortOrder: 'desc' }),
         analyticsApi.getDefenseScoreByHostname(params),
         analyticsApi.getErrorRate(params),
+        analyticsApi.getErrorRateTrend({ ...params, interval: 'day', windowDays }),
       ]);
 
       setDefenseScore({
@@ -237,6 +241,7 @@ export default function AnalyticsDashboardPage() {
       setRecentTests(recentTestsData.data);
       setDefenseScoreByHost(hostScores);
       setErrorRate(errorRateData.errorRate);
+      setErrorRateTrendData(errorRateTrend);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
     } finally {
@@ -340,7 +345,7 @@ export default function AnalyticsDashboardPage() {
         {activeTab === 'dashboard' ? (
           /* Dashboard Tab */
           <div className="grid grid-cols-12 auto-rows-[140px] gap-4">
-            {/* Row 1-2: Hero Metrics (1/3) + Defense Score Trend (2/3) */}
+            {/* Row 1-2: Hero Metrics (1/3) + Trend Overview (2/3) */}
             <div className="col-span-12 md:col-span-4 row-span-2">
               <HeroMetricsCard
                 defenseScore={defenseScore?.overall ?? null}
@@ -353,8 +358,9 @@ export default function AnalyticsDashboardPage() {
             <div className="col-span-12 md:col-span-8 row-span-2 min-w-0 overflow-hidden">
               <TrendChart
                 data={trendData}
+                errorRateData={errorRateTrendData}
                 loading={loadingDashboard}
-                title="Defense Score Trend"
+                title="Trend Overview"
                 windowDays={getWindowDaysForDateRange(filterState.filters.dateRange)}
               />
             </div>
