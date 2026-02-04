@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, StickyNote, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, Check, StickyNote, X } from 'lucide-react';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/shared/ui/Table';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
@@ -31,6 +31,22 @@ function timeAgo(dateStr: string | null): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+function CopyButton({ text }: { text: string }): React.ReactElement {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy(): void {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <Button variant="ghost" size="sm" className="h-6 px-1.5 ml-2" onClick={handleCopy}>
+      {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+    </Button>
+  );
 }
 
 function isCancellable(status: TaskStatus): boolean {
@@ -126,13 +142,19 @@ export default function TaskList({ tasks, loading, onCancel, onOpenNotes }: Task
                     <TableCell colSpan={9}>
                       <div className="bg-muted/50 rounded-lg p-4 space-y-3 text-sm">
                         <div>
-                          <span className="font-medium">Stdout:</span>
+                          <div className="flex items-center">
+                            <span className="font-medium">Stdout:</span>
+                            {task.result.stdout && <CopyButton text={task.result.stdout} />}
+                          </div>
                           <pre className="mt-1 p-2 bg-background rounded text-xs overflow-x-auto max-h-40">
                             {task.result.stdout || '(empty)'}
                           </pre>
                         </div>
                         <div>
-                          <span className="font-medium">Stderr:</span>
+                          <div className="flex items-center">
+                            <span className="font-medium">Stderr:</span>
+                            {task.result.stderr && <CopyButton text={task.result.stderr} />}
+                          </div>
                           <pre className="mt-1 p-2 bg-background rounded text-xs overflow-x-auto max-h-40">
                             {task.result.stderr || '(empty)'}
                           </pre>
