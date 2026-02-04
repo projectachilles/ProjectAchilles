@@ -6,6 +6,7 @@ import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
 import TaskList from '@/components/endpoints/tasks/TaskList';
 import ScheduleList from '@/components/endpoints/tasks/ScheduleList';
 import TaskCreatorDialog from '@/components/endpoints/tasks/TaskCreatorDialog';
+import TaskNotesDialog from '@/components/endpoints/tasks/TaskNotesDialog';
 import { Button } from '@/components/shared/ui/Button';
 import { Loading } from '@/components/shared/ui/Spinner';
 import { Toast } from '@/components/shared/ui/Alert';
@@ -16,6 +17,7 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<AgentTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [notesTask, setNotesTask] = useState<AgentTask | null>(null);
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -164,13 +166,20 @@ export default function TasksPage() {
         {loading ? (
           <Loading message="Loading tasks..." />
         ) : (
-          <TaskList tasks={tasks} loading={loading} onCancel={handleCancel} />
+          <TaskList tasks={tasks} loading={loading} onCancel={handleCancel} onOpenNotes={setNotesTask} />
         )}
 
         <TaskCreatorDialog
           open={dialogOpen}
           onClose={() => setDialogOpen(false)}
           onCreated={handleCreated}
+        />
+
+        <TaskNotesDialog
+          open={notesTask !== null}
+          onClose={() => setNotesTask(null)}
+          task={notesTask}
+          onSaved={fetchTasks}
         />
 
         {successMessage && (

@@ -10,6 +10,7 @@ import type {
   TaskResult,
   TaskStatus,
   TaskTestMetadata,
+  TaskNoteEntry,
   CreateTaskRequest,
   ListTasksRequest,
 } from '../../types/agent.js';
@@ -28,6 +29,8 @@ interface TaskRow {
   status: string;
   payload: string;
   result: string | null;
+  notes: string | null;
+  notes_history: string;
   created_at: string;
   assigned_at: string | null;
   completed_at: string | null;
@@ -40,6 +43,7 @@ function parseTaskRow(row: TaskRow): Task {
     ...row,
     payload: JSON.parse(row.payload) as TaskPayload,
     result: row.result ? (JSON.parse(row.result) as TaskResult) : null,
+    notes_history: row.notes_history ? (JSON.parse(row.notes_history) as TaskNoteEntry[]) : [],
   } as Task;
 }
 
@@ -388,4 +392,36 @@ export function expireOldTasks(): number {
   `).run();
 
   return result.changes;
+}
+
+/**
+ * Update the notes for a task. Appends a versioned entry to `notes_history`.
+ */
+export function updateTaskNotes(
+  taskId: string,
+  content: string,
+  editedBy: string
+): Task {
+  const db = getDatabase();
+
+  const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as TaskRow | undefined;
+
+  if (!row) {
+    throw new AppError('Task not found', 404);
+  }
+
+  const history: TaskNoteEntry[] = row.notes_history
+    ? (JSON.parse(row.notes_history) as TaskNoteEntry[])
+    : [];
+
+  history.push({ content, editedBy, editedAt: new Date().toISOString() });
+
+  db.prepare(`UPDATE tasks SET notes = ?, notes_history = ? WHERE id = ?`).run(
+    content,
+    JSON.stringify(history),
+    taskId
+  );
+
+  const updated = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as TaskRow;
+  return parseTaskRow(updated);
 }

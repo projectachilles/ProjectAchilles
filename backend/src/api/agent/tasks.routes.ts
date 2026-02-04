@@ -9,6 +9,7 @@ import {
   listTasks,
   getTask,
   cancelTask,
+  updateTaskNotes,
 } from '../../services/agent/tasks.service.js';
 import { ingestResult } from '../../services/agent/results.service.js';
 import type {
@@ -184,6 +185,30 @@ adminTasksRouter.patch(
   '/admin/tasks/:id',
   asyncHandler(async (req, res) => {
     const task = cancelTask(req.params.id);
+
+    res.json({ success: true, data: task });
+  })
+);
+
+/**
+ * PATCH /tasks/:id/notes
+ * Update the notes for a task.
+ * Body: { content: string }
+ */
+adminTasksRouter.patch(
+  '/tasks/:id/notes',
+  asyncHandler(async (req, res) => {
+    const userId = getUserId(req.auth);
+    if (!userId) {
+      throw new AppError('Unable to determine user identity', 401);
+    }
+
+    const { content } = req.body as { content: string };
+    if (typeof content !== 'string') {
+      throw new AppError('Missing required field: content', 400);
+    }
+
+    const task = updateTaskNotes(req.params.id, content, userId);
 
     res.json({ success: true, data: task });
   })

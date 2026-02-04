@@ -151,6 +151,12 @@ export interface TaskTestMetadata {
   score: number | null;
 }
 
+export interface TaskNoteEntry {
+  content: string;
+  editedBy: string;
+  editedAt: string;
+}
+
 export interface Task {
   id: string;
   agent_id: string;
@@ -160,6 +166,8 @@ export interface Task {
   status: TaskStatus;
   payload: TaskPayload;
   result: TaskResult | null;
+  notes: string | null;
+  notes_history: TaskNoteEntry[];
   created_at: string;
   assigned_at: string | null;
   completed_at: string | null;

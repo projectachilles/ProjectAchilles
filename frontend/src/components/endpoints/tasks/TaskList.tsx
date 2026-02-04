@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, StickyNote, X } from 'lucide-react';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/shared/ui/Table';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
@@ -9,6 +9,7 @@ interface TaskListProps {
   tasks: AgentTask[];
   loading: boolean;
   onCancel?: (taskId: string) => void;
+  onOpenNotes?: (task: AgentTask) => void;
 }
 
 const statusVariants: Record<TaskStatus, 'default' | 'primary' | 'warning' | 'success' | 'destructive'> = {
@@ -36,7 +37,7 @@ function isCancellable(status: TaskStatus): boolean {
   return status === 'pending' || status === 'assigned';
 }
 
-export default function TaskList({ tasks, loading, onCancel }: TaskListProps) {
+export default function TaskList({ tasks, loading, onCancel, onOpenNotes }: TaskListProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (loading) return null;
@@ -56,13 +57,14 @@ export default function TaskList({ tasks, loading, onCancel }: TaskListProps) {
           <TableHead>Created</TableHead>
           <TableHead>Duration</TableHead>
           <TableHead>Exit Code</TableHead>
+          <TableHead className="w-12">Notes</TableHead>
           <TableHead className="w-16">Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {tasks.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+            <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
               No tasks found
             </TableCell>
           </TableRow>
@@ -105,6 +107,13 @@ export default function TaskList({ tasks, loading, onCancel }: TaskListProps) {
                     ) : '-'}
                   </TableCell>
                   <TableCell>
+                    {onOpenNotes && (
+                      <Button variant="ghost" size="icon" onClick={() => onOpenNotes(task)}>
+                        <StickyNote className={`w-4 h-4 ${task.notes ? 'text-primary' : 'text-muted-foreground/40'}`} />
+                      </Button>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     {isCancellable(task.status) && onCancel && (
                       <Button variant="ghost" size="icon" onClick={() => onCancel(task.id)}>
                         <X className="w-4 h-4" />
@@ -114,7 +123,7 @@ export default function TaskList({ tasks, loading, onCancel }: TaskListProps) {
                 </TableRow>
                 {isExpanded && task.result && (
                   <TableRow key={`${task.id}-detail`}>
-                    <TableCell colSpan={8}>
+                    <TableCell colSpan={9}>
                       <div className="bg-muted/50 rounded-lg p-4 space-y-3 text-sm">
                         <div>
                           <span className="font-medium">Stdout:</span>

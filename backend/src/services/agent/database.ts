@@ -116,6 +116,16 @@ function initializeTables(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_tasks_org ON tasks(org_id);
     CREATE INDEX IF NOT EXISTS idx_enrollment_tokens_org ON enrollment_tokens(org_id);
   `);
+
+  // Migration: add notes columns to tasks table
+  const columns = database.prepare(`PRAGMA table_info(tasks)`).all() as { name: string }[];
+  const colNames = new Set(columns.map((c) => c.name));
+  if (!colNames.has('notes')) {
+    database.exec(`ALTER TABLE tasks ADD COLUMN notes TEXT DEFAULT NULL`);
+  }
+  if (!colNames.has('notes_history')) {
+    database.exec(`ALTER TABLE tasks ADD COLUMN notes_history TEXT DEFAULT '[]'`);
+  }
 }
 
 export function closeDatabase(): void {

@@ -10,6 +10,7 @@ import type {
   CreateTasksRequest,
   ListAgentsRequest,
   ListTasksRequest,
+  TaskNoteEntry,
   Schedule,
   ScheduleStatus,
   CreateScheduleRequest,
@@ -102,6 +103,11 @@ export const agentApi = {
     return response.data.data;
   },
 
+  async updateTaskNotes(taskId: string, content: string): Promise<AgentTask> {
+    const response = await apiClient.patch(`/agent/admin/tasks/${taskId}/notes`, { content });
+    return response.data.data;
+  },
+
   // --- Agent Versions ---
 
   async listVersions(): Promise<AgentVersion[]> {
@@ -154,6 +160,7 @@ export type {
   CreateTasksRequest,
   ListAgentsRequest,
   ListTasksRequest,
+  TaskNoteEntry,
   Schedule,
   ScheduleStatus,
   CreateScheduleRequest,
