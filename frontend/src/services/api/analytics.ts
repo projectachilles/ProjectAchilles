@@ -233,6 +233,13 @@ export interface PaginatedExecutionsParams extends ExtendedFilterParams {
   sortOrder?: 'asc' | 'desc';
 }
 
+export interface IndexInfo {
+  name: string;
+  docsCount: number;
+  storeSize: number;
+  status: string;
+}
+
 export const analyticsApi = {
   // Settings
   async getSettings(): Promise<AnalyticsSettings> {
@@ -477,6 +484,19 @@ export const analyticsApi = {
     windowDays?: number;
   }): Promise<ErrorRateTrendDataPoint[]> {
     const response = await apiClient.get('/analytics/error-rate/trend', { params });
+    return response.data;
+  },
+
+  // Index management
+  async listIndices(pattern?: string): Promise<IndexInfo[]> {
+    const response = await apiClient.get('/analytics/indices', {
+      params: pattern ? { pattern } : undefined,
+    });
+    return response.data.indices;
+  },
+
+  async createIndex(indexName: string): Promise<{ created: boolean; message: string }> {
+    const response = await apiClient.post('/analytics/index/create', { index_name: indexName });
     return response.data;
   },
 };

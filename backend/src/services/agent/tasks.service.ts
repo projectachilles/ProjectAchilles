@@ -9,9 +9,11 @@ import type {
   TaskPayload,
   TaskResult,
   TaskStatus,
+  TaskTestMetadata,
   CreateTaskRequest,
   ListTasksRequest,
 } from '../../types/agent.js';
+import { getTestMetadata } from './test-catalog.service.js';
 
 // ============================================================================
 // HELPERS
@@ -107,7 +109,39 @@ export function createTasks(
   const binarySha256 = crypto.createHash('sha256').update(binaryBuffer).digest('hex');
   const binarySize = fs.statSync(binaryPath).size;
 
-  // Build payload
+  // Build payload with metadata enrichment from test catalog
+  let enrichedMetadata: TaskTestMetadata = metadata ?? {
+    category: '',
+    subcategory: '',
+    severity: '',
+    techniques: [],
+    tactics: [],
+    threat_actor: '',
+    target: '',
+    complexity: '',
+    tags: [],
+    score: null,
+  };
+
+  // If metadata is empty (no category, no techniques), enrich from the test catalog
+  if (!enrichedMetadata.category && enrichedMetadata.techniques.length === 0) {
+    const entry = getTestMetadata(test_uuid);
+    if (entry) {
+      enrichedMetadata = {
+        category: entry.category ?? '',
+        subcategory: entry.subcategory ?? '',
+        severity: entry.severity ?? '',
+        techniques: entry.techniques ?? [],
+        tactics: entry.tactics ?? [],
+        threat_actor: entry.threatActor ?? '',
+        target: entry.target ?? '',
+        complexity: entry.complexity ?? '',
+        tags: entry.tags ?? [],
+        score: entry.score ?? null,
+      };
+    }
+  }
+
   const payload: TaskPayload = {
     test_uuid,
     test_name,
@@ -116,16 +150,7 @@ export function createTasks(
     binary_size: binarySize,
     execution_timeout,
     arguments: args,
-    metadata: metadata ?? {
-      category: '',
-      severity: '',
-      techniques: [],
-      tactics: [],
-      threat_actor: '',
-      target: '',
-      complexity: '',
-      tags: [],
-    },
+    metadata: enrichedMetadata,
   };
 
   const payloadJson = JSON.stringify(payload);

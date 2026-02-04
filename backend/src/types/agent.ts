@@ -140,6 +140,7 @@ export interface TaskPayload {
 
 export interface TaskTestMetadata {
   category: string;
+  subcategory: string;
   severity: string;
   techniques: string[];
   tactics: string[];
@@ -147,6 +148,7 @@ export interface TaskTestMetadata {
   target: string;
   complexity: string;
   tags: string[];
+  score: number | null;
 }
 
 export interface Task {

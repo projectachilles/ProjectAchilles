@@ -265,8 +265,8 @@ export function createSchedule(
 
   const id = crypto.randomUUID();
   const defaultMetadata: TaskTestMetadata = {
-    category: '', severity: '', techniques: [], tactics: [],
-    threat_actor: '', target: '', complexity: '', tags: [],
+    category: '', subcategory: '', severity: '', techniques: [], tactics: [],
+    threat_actor: '', target: '', complexity: '', tags: [], score: null,
   };
 
   db.prepare(`

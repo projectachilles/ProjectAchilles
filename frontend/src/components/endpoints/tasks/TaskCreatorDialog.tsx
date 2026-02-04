@@ -24,6 +24,7 @@ interface TaskCreatorDialogProps {
 
 const EMPTY_METADATA: TaskTestMetadata = {
   category: '',
+  subcategory: '',
   severity: '',
   techniques: [],
   tactics: [],
@@ -31,6 +32,7 @@ const EMPTY_METADATA: TaskTestMetadata = {
   target: '',
   complexity: '',
   tags: [],
+  score: null,
 };
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

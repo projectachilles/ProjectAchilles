@@ -1,11 +1,11 @@
 // Result ingestion service — transforms agent task results into the existing
 // Elasticsearch document schema so the Analytics module works unchanged.
 
-import { Client } from '@elastic/elasticsearch';
+import type { Client } from '@elastic/elasticsearch';
 import type { Task, TaskResult } from '../../types/agent.js';
-import type { AnalyticsSettings } from '../../types/analytics.js';
 import { ERROR_CODE_MAP } from '../analytics/elasticsearch.js';
 import { SettingsService } from '../analytics/settings.js';
+import { createEsClient } from '../analytics/client.js';
 
 // Protected exit codes: file quarantined, execution prevented, quarantined on execution
 const PROTECTED_CODES = new Set([105, 126, 127]);
@@ -19,29 +19,6 @@ function isProtectedCode(exitCode: number): boolean {
 function getErrorName(exitCode: number): string {
   const entry = ERROR_CODE_MAP[exitCode];
   return entry ? entry.name : `Unknown (${exitCode})`;
-}
-
-/** Create an ES Client from analytics settings (same pattern as ElasticsearchService). */
-function createClient(settings: AnalyticsSettings): Client {
-  if (settings.connectionType === 'cloud' && settings.cloudId) {
-    return new Client({
-      cloud: { id: settings.cloudId },
-      auth: { apiKey: settings.apiKey || '' },
-    });
-  }
-
-  if (settings.node) {
-    const auth = settings.apiKey
-      ? { apiKey: settings.apiKey }
-      : { username: settings.username || '', password: settings.password || '' };
-
-    return new Client({
-      node: settings.node,
-      auth,
-    });
-  }
-
-  throw new Error('Invalid Elasticsearch configuration');
 }
 
 // Lazy-initialised ES client and index pattern
@@ -61,7 +38,7 @@ async function getClient(): Promise<{ client: Client; index: string }> {
   }
 
   const settings = settingsService.getSettings();
-  esClient = createClient(settings);
+  esClient = createEsClient(settings);
   indexPattern = settings.indexPattern;
 
   return { client: esClient, index: indexPattern };
@@ -91,6 +68,7 @@ export async function ingestResult(task: Task, result: TaskResult): Promise<void
       is_protected: isProtectedCode(result.exit_code),
       error_name: getErrorName(result.exit_code),
       category: task.payload.metadata?.category,
+      subcategory: task.payload.metadata?.subcategory,
       severity: task.payload.metadata?.severity,
       techniques: task.payload.metadata?.techniques,
       tactics: task.payload.metadata?.tactics,
@@ -98,6 +76,7 @@ export async function ingestResult(task: Task, result: TaskResult): Promise<void
       target: task.payload.metadata?.target,
       complexity: task.payload.metadata?.complexity,
       tags: task.payload.metadata?.tags,
+      score: task.payload.metadata?.score,
     },
   };
 

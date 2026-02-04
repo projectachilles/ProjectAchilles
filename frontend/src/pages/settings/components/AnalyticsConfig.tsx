@@ -6,6 +6,7 @@ import { Input } from '@/components/shared/ui/Input';
 import { Button } from '@/components/shared/ui/Button';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Spinner } from '@/components/shared/ui/Spinner';
+import { IndexManagement } from './IndexManagement';
 
 interface AnalyticsConfigProps {
   onStatusChange?: (configured: boolean) => void;
@@ -308,6 +309,14 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
           )}
         </Button>
       </div>
+
+      {/* Index Management — only when ES is configured */}
+      {editMode && (
+        <>
+          <div className="border-t border-border my-6" />
+          <IndexManagement />
+        </>
+      )}
     </div>
   );
 }

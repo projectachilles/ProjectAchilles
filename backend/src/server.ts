@@ -20,6 +20,7 @@ import { errorHandler, notFoundHandler } from './middleware/error.middleware.js'
 import { GitSyncService } from './services/browser/gitSyncService.js';
 import { createAgentRouter } from './api/agent/index.js';
 import { processSchedules } from './services/agent/schedules.service.js';
+import { initCatalog } from './services/agent/test-catalog.service.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -130,6 +131,9 @@ async function startServer() {
     console.log(`📁 Using local tests source: ${testsSourcePath}`);
   }
 
+  // ============ TEST CATALOG ============
+  initCatalog(testsSourcePath);
+
   // ============ ROUTES ============
 
   // Health check
@@ -161,7 +165,7 @@ async function startServer() {
   // app.use('/api/endpoints', endpointsRoutes);
 
   // Agent module - Achilles Agent management
-  app.use('/api/agent', createAgentRouter());
+  app.use('/api/agent', createAgentRouter({ testsSourcePath }));
 
   // ============ ERROR HANDLING ============
   app.use(notFoundHandler);

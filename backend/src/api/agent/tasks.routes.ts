@@ -10,6 +10,7 @@ import {
   getTask,
   cancelTask,
 } from '../../services/agent/tasks.service.js';
+import { ingestResult } from '../../services/agent/results.service.js';
 import type {
   CreateTaskRequest,
   TaskStatus,
@@ -91,6 +92,12 @@ agentTasksRouter.post(
     }
 
     const task = submitResult(req.params.id, agent.id, result);
+
+    // Fire-and-forget: ingest into Elasticsearch for analytics
+    ingestResult(task, result).catch((err) => {
+      console.error('[ES Ingestion] Failed for task %s:', task.id,
+        err instanceof Error ? err.message : err);
+    });
 
     res.json({ success: true, data: task });
   })
