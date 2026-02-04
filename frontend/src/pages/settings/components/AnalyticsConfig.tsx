@@ -314,7 +314,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
       {editMode && (
         <>
           <div className="border-t border-border my-6" />
-          <IndexManagement />
+          <IndexManagement onSelectIndex={setIndexPattern} />
         </>
       )}
     </div>

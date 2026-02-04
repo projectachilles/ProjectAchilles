@@ -30,7 +30,11 @@ function HealthDot({ status }: { status: string }) {
   return <span className={`inline-block w-2 h-2 rounded-full ${color}`} title={status} />;
 }
 
-export function IndexManagement() {
+interface IndexManagementProps {
+  onSelectIndex?: (name: string) => void;
+}
+
+export function IndexManagement({ onSelectIndex }: IndexManagementProps) {
   const [indices, setIndices] = useState<IndexInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -132,7 +136,12 @@ export function IndexManagement() {
             <tbody>
               {indices.map((idx) => (
                 <tr key={idx.name} className="border-b border-border last:border-b-0 hover:bg-muted/30">
-                  <td className="px-3 py-2 font-mono text-xs text-card-foreground">{idx.name}</td>
+                  <td
+                    className={`px-3 py-2 font-mono text-xs text-card-foreground ${onSelectIndex ? 'cursor-pointer hover:text-primary hover:underline' : ''}`}
+                    onClick={() => onSelectIndex?.(idx.name)}
+                  >
+                    {idx.name}
+                  </td>
                   <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                     {idx.docsCount.toLocaleString()}
                   </td>
