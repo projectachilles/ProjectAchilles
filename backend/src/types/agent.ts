@@ -173,6 +173,7 @@ export interface Task {
   completed_at: string | null;
   ttl: number;
   created_by: string;
+  target_index: string | null;
 }
 
 export interface TaskResult {
@@ -199,6 +200,7 @@ export interface CreateTaskRequest {
   arguments?: string[];
   priority?: number;
   metadata?: TaskTestMetadata;
+  target_index?: string;
 }
 
 // ============================================================================
@@ -285,6 +287,7 @@ export interface Schedule {
   created_by: string;
   created_at: string;
   updated_at: string;
+  target_index: string | null;
 }
 
 export interface CreateScheduleRequest {
@@ -300,6 +303,7 @@ export interface CreateScheduleRequest {
   schedule_type: ScheduleType;
   schedule_config: ScheduleConfig;
   timezone?: string;
+  target_index?: string;
 }
 
 export interface UpdateScheduleRequest {

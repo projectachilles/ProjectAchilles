@@ -7,6 +7,7 @@ import { Switch } from '@/components/shared/ui/Switch';
 import { Search, Tag, X, Play, Calendar } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
 import { browserApi } from '@/services/api/browser';
+import { analyticsApi, type IndexInfo } from '@/services/api/analytics';
 import type { AgentSummary, TaskTestMetadata, ScheduleType, ScheduleConfig } from '@/types/agent';
 import type { TestMetadata, BuildInfo } from '@/types/test';
 
@@ -86,6 +87,11 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
   );
   const [randomizeTime, setRandomizeTime] = useState(false);
 
+  // Target index state
+  const [targetIndex, setTargetIndex] = useState('');
+  const [availableIndices, setAvailableIndices] = useState<IndexInfo[]>([]);
+  const [indicesLoading, setIndicesLoading] = useState(false);
+
   // Stabilize selectedAgents so a new [] default doesn't re-trigger effects every render
   const stableSelectedAgents = useMemo(
     () => selectedAgents,
@@ -127,6 +133,21 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
       .catch(() => {})
       .finally(() => setLoadingTests(false));
   }, [open]);
+
+  // Effect 3: fetch available ES indices
+  useEffect(() => {
+    if (!open) return;
+    setIndicesLoading(true);
+    analyticsApi.listIndices()
+      .then((indices) => {
+        setAvailableIndices(indices);
+        if (indices.length > 0 && !targetIndex) {
+          setTargetIndex(indices[0].name);
+        }
+      })
+      .catch(() => setAvailableIndices([]))
+      .finally(() => setIndicesLoading(false));
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const allTags = useMemo(() => {
     const s = new Set<string>();
@@ -221,6 +242,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
     setScheduleDayOfMonth(1);
     setScheduleTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
     setRandomizeTime(false);
+    setTargetIndex('');
   }
 
   function handleClose(): void {
@@ -264,6 +286,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
           schedule_type: scheduleType,
           schedule_config: buildScheduleConfig(),
           timezone: scheduleTimezone,
+          target_index: targetIndex || undefined,
         });
         setResult(`Schedule created: "${schedule.name || schedule.test_name}" (${schedule.schedule_type})`);
       } else {
@@ -276,6 +299,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
           execution_timeout: parseInt(timeout) || 300,
           priority: parseInt(priority) || 1,
           metadata: EMPTY_METADATA,
+          target_index: targetIndex || undefined,
         });
         setResult(`Created ${taskIds.length} task(s) for ${targetAgentIds.length} agent(s)`);
       }
@@ -515,7 +539,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
               </TabsList>
 
               <TabsContent value="run-now">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <Input
                     label="Timeout (seconds)"
                     type="number"
@@ -532,6 +556,20 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                       <option value="1">Normal (1)</option>
                       <option value="2">Medium (2)</option>
                       <option value="3">High (3)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5">Target Index</label>
+                    <select
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                      value={targetIndex}
+                      onChange={(e) => setTargetIndex(e.target.value)}
+                      disabled={indicesLoading}
+                    >
+                      <option value="">Default (global)</option>
+                      {availableIndices.map((idx) => (
+                        <option key={idx.name} value={idx.name}>{idx.name}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -722,8 +760,8 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                     </select>
                   </div>
 
-                  {/* Timeout + Priority */}
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* Timeout + Priority + Target Index */}
+                  <div className="grid grid-cols-3 gap-4">
                     <Input
                       label="Timeout (seconds)"
                       type="number"
@@ -740,6 +778,20 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                         <option value="1">Normal (1)</option>
                         <option value="2">Medium (2)</option>
                         <option value="3">High (3)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1.5">Target Index</label>
+                      <select
+                        className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                        value={targetIndex}
+                        onChange={(e) => setTargetIndex(e.target.value)}
+                        disabled={indicesLoading}
+                      >
+                        <option value="">Default (global)</option>
+                        {availableIndices.map((idx) => (
+                          <option key={idx.name} value={idx.name}>{idx.name}</option>
+                        ))}
                       </select>
                     </div>
                   </div>

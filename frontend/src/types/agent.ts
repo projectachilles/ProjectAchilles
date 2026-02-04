@@ -130,6 +130,7 @@ export interface CreateTasksRequest {
   arguments?: string[];
   priority?: number;
   metadata: TaskTestMetadata;
+  target_index?: string;
 }
 
 export interface ListAgentsRequest {
@@ -194,6 +195,7 @@ export interface Schedule {
   created_by: string;
   created_at: string;
   updated_at: string;
+  target_index?: string | null;
 }
 
 export interface CreateScheduleRequest {
@@ -209,6 +211,7 @@ export interface CreateScheduleRequest {
   schedule_type: ScheduleType;
   schedule_config: ScheduleConfig;
   timezone?: string;
+  target_index?: string;
 }
 
 export interface UpdateScheduleRequest {

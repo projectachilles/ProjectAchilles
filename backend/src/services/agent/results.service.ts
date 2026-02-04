@@ -51,7 +51,8 @@ async function getClient(): Promise<{ client: Client; index: string }> {
  * module so dashboards, filters, and aggregations work without changes.
  */
 export async function ingestResult(task: Task, result: TaskResult): Promise<void> {
-  const { client, index } = await getClient();
+  const { client, index: defaultIndex } = await getClient();
+  const index = task.target_index ?? defaultIndex;
 
   const doc = {
     routing: {

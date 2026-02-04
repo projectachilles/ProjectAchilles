@@ -36,6 +36,7 @@ interface TaskRow {
   completed_at: string | null;
   ttl: number;
   created_by: string;
+  target_index: string | null;
 }
 
 function parseTaskRow(row: TaskRow): Task {
@@ -82,6 +83,7 @@ export function createTasks(
     arguments: args = [],
     priority = 1,
     metadata,
+    target_index,
   } = request;
 
   if (!agent_ids || agent_ids.length === 0) {
@@ -161,8 +163,8 @@ export function createTasks(
 
   // Insert tasks inside a transaction
   const insertStmt = db.prepare(`
-    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_at, ttl, created_by)
-    VALUES (?, ?, ?, 'execute_test', ?, 'pending', ?, datetime('now'), 604800, ?)
+    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_at, ttl, created_by, target_index)
+    VALUES (?, ?, ?, 'execute_test', ?, 'pending', ?, datetime('now'), 604800, ?, ?)
   `);
 
   const taskIds: string[] = [];
@@ -170,7 +172,7 @@ export function createTasks(
   const insertAll = db.transaction(() => {
     for (const agentId of agent_ids) {
       const taskId = crypto.randomUUID();
-      insertStmt.run(taskId, agentId, orgId, priority, payloadJson, createdBy);
+      insertStmt.run(taskId, agentId, orgId, priority, payloadJson, createdBy, target_index ?? null);
       taskIds.push(taskId);
     }
   });

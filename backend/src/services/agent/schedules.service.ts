@@ -40,6 +40,7 @@ interface ScheduleRow {
   created_by: string;
   created_at: string;
   updated_at: string;
+  target_index: string | null;
 }
 
 function parseScheduleRow(row: ScheduleRow): Schedule {
@@ -275,6 +276,7 @@ export function createSchedule(
     schedule_type,
     schedule_config,
     timezone = 'UTC',
+    target_index,
   } = request;
 
   if (!agent_ids || agent_ids.length === 0) {
@@ -302,8 +304,8 @@ export function createSchedule(
     INSERT INTO schedules (
       id, name, agent_ids, org_id, test_uuid, test_name, binary_name,
       execution_timeout, priority, metadata, schedule_type, schedule_config,
-      timezone, next_run_at, status, created_by
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+      timezone, next_run_at, status, created_by, target_index
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
   `).run(
     id,
     name ?? null,
@@ -320,6 +322,7 @@ export function createSchedule(
     timezone,
     nextRun ? nextRun.toISOString() : null,
     userId,
+    target_index ?? null,
   );
 
   const row = db.prepare('SELECT * FROM schedules WHERE id = ?').get(id) as ScheduleRow;
@@ -459,6 +462,7 @@ export function processSchedules(): { processed: number; errors: string[] } {
           execution_timeout: schedule.execution_timeout,
           priority: schedule.priority,
           metadata: schedule.metadata,
+          target_index: schedule.target_index ?? undefined,
         },
         schedule.org_id,
         schedule.created_by,

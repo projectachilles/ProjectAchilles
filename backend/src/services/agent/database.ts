@@ -126,6 +126,16 @@ function initializeTables(database: Database.Database): void {
   if (!colNames.has('notes_history')) {
     database.exec(`ALTER TABLE tasks ADD COLUMN notes_history TEXT DEFAULT '[]'`);
   }
+  if (!colNames.has('target_index')) {
+    database.exec(`ALTER TABLE tasks ADD COLUMN target_index TEXT DEFAULT NULL`);
+  }
+
+  // Migration: add target_index to schedules table
+  const scheduleCols = database.prepare(`PRAGMA table_info(schedules)`).all() as { name: string }[];
+  const scheduleColNames = new Set(scheduleCols.map((c) => c.name));
+  if (!scheduleColNames.has('target_index')) {
+    database.exec(`ALTER TABLE schedules ADD COLUMN target_index TEXT DEFAULT NULL`);
+  }
 }
 
 export function closeDatabase(): void {
