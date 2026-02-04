@@ -359,6 +359,7 @@ export default function AnalyticsDashboardPage() {
               <TrendChart
                 data={trendData}
                 errorRateData={errorRateTrendData}
+                errorRateOverall={errorRate}
                 loading={loadingDashboard}
                 title="Trend Overview"
                 windowDays={getWindowDaysForDateRange(filterState.filters.dateRange)}

@@ -39,6 +39,7 @@ function toDateKey(timestamp: string): string {
 interface TrendChartProps {
   data: TrendDataPoint[];
   errorRateData?: ErrorRateTrendDataPoint[];
+  errorRateOverall?: number | null;
   loading?: boolean;
   title?: string;
   windowDays?: number;
@@ -55,7 +56,7 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
-export default function TrendChart({ data, errorRateData, loading, title = 'Trend Overview', windowDays }: TrendChartProps) {
+export default function TrendChart({ data, errorRateData, errorRateOverall, loading, title = 'Trend Overview', windowDays }: TrendChartProps) {
   const hasErrorRate = errorRateData && errorRateData.length > 0;
 
   // Return early if no data to prevent rendering issues
@@ -116,8 +117,8 @@ export default function TrendChart({ data, errorRateData, loading, title = 'Tren
     ? (chartData.reduce((sum, d) => sum + d.score, 0) / chartData.length).toFixed(1)
     : '0';
 
-  const avgErrorRate = hasErrorRate && chartData.length > 0
-    ? (chartData.reduce((sum, d) => sum + (d.errorRate ?? 0), 0) / chartData.filter(d => d.errorRate !== null).length).toFixed(1)
+  const avgErrorRate = hasErrorRate && errorRateOverall != null
+    ? errorRateOverall.toFixed(1)
     : null;
 
   // Show only 5-7 ticks max to prevent overflow
