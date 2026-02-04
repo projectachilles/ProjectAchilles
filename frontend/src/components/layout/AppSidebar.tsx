@@ -120,10 +120,12 @@ export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
     const currentSearch = new URLSearchParams(location.search);
 
     if (basePath === '/dashboard') {
-      const isOnDashboard = location.pathname === '/dashboard' || location.pathname.startsWith('/test/');
-      // If path has no query params, match dashboard without specific tab
-      if (!queryString) return isOnDashboard;
-      return isOnDashboard;
+      return location.pathname === '/dashboard';
+    }
+
+    // Exact match for favorites and recent
+    if (basePath === '/favorites' || basePath === '/recent') {
+      return location.pathname === basePath;
     }
 
     // For paths with query params (e.g., /analytics?tab=executions)

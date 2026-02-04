@@ -70,6 +70,8 @@ export default function AppRouter() {
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
         {/* Browser Module - NOW REQUIRES AUTH */}
         <Route path="dashboard" element={<BrowserHomePage />} />
+        <Route path="favorites" element={<BrowserHomePage mode="favorites" />} />
+        <Route path="recent" element={<BrowserHomePage mode="recent" />} />
         <Route path="browser">
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="test/:uuid" element={<TestDetailPage />} />

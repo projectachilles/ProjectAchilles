@@ -1,15 +1,21 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { browserApi } from '@/services/api/browser';
 import type { TestMetadata, SyncStatus } from '@/types/test';
 import TestCard from '@/components/browser/TestCard';
 import TestListItem from '@/components/browser/TestListItem';
 import SearchBar from '@/components/browser/SearchBar';
-import { Loader2, LayoutGrid, List, RefreshCw, GitBranch, Clock, AlertCircle } from 'lucide-react';
+import { useTestPreferences } from '@/hooks/useTestPreferences';
+import { Loader2, LayoutGrid, List, RefreshCw, GitBranch, Clock, AlertCircle, Heart, History } from 'lucide-react';
 
 type ViewMode = 'grid' | 'list';
+type BrowseMode = 'browse' | 'favorites' | 'recent';
 
-export default function BrowserHomePage() {
+interface BrowserHomePageProps {
+  mode?: BrowseMode;
+}
+
+export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProps) {
   const [tests, setTests] = useState<TestMetadata[]>([]);
   const [filteredTests, setFilteredTests] = useState<TestMetadata[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,15 +28,32 @@ export default function BrowserHomePage() {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const { favorites, recentTests, isFavorite, toggleFavorite } = useTestPreferences();
 
   useEffect(() => {
     loadTests();
-    loadSyncStatus();
-  }, []);
+    if (mode === 'browse') loadSyncStatus();
+  }, [mode]);
+
+  // Apply mode-based pre-filtering before search/category/severity filters
+  const modeFilteredTests = useMemo(() => {
+    if (mode === 'favorites') {
+      return tests.filter(t => favorites.has(t.uuid));
+    }
+    if (mode === 'recent') {
+      const recentUuids = recentTests.map(r => r.uuid);
+      const recentSet = new Set(recentUuids);
+      const matching = tests.filter(t => recentSet.has(t.uuid));
+      // Preserve recent order
+      matching.sort((a, b) => recentUuids.indexOf(a.uuid) - recentUuids.indexOf(b.uuid));
+      return matching;
+    }
+    return tests;
+  }, [tests, mode, favorites, recentTests]);
 
   const filterTests = useCallback(() => {
     try {
-      let filtered = [...tests]; // Create a copy to avoid mutations
+      let filtered = [...modeFilteredTests]; // Create a copy to avoid mutations
 
       // Search filter with defensive checks
       if (searchQuery && searchQuery.trim()) {
@@ -65,10 +88,9 @@ export default function BrowserHomePage() {
       setFilteredTests(filtered);
     } catch (err) {
       console.error('Error in filterTests:', err);
-      // Fallback to showing all tests if filtering fails
-      setFilteredTests(tests);
+      setFilteredTests(modeFilteredTests);
     }
-  }, [tests, searchQuery, selectedCategory, selectedSeverity]);
+  }, [modeFilteredTests, searchQuery, selectedCategory, selectedSeverity]);
 
   useEffect(() => {
     filterTests();
@@ -132,9 +154,9 @@ export default function BrowserHomePage() {
     return `${diffDays}d ago`;
   }
 
-  // Get unique categories and severities
-  const categories = ['all', ...new Set(tests.map(t => t.category).filter(Boolean))];
-  const severities = ['all', ...new Set(tests.map(t => t.severity).filter(Boolean))];
+  // Get unique categories and severities from the mode-filtered set
+  const categories = ['all', ...new Set(modeFilteredTests.map(t => t.category).filter(Boolean))];
+  const severities = ['all', ...new Set(modeFilteredTests.map(t => t.severity).filter(Boolean))];
 
   if (loading) {
     return (
@@ -165,8 +187,8 @@ export default function BrowserHomePage() {
 
   return (
     <div className="container mx-auto h-full px-4 py-6 flex flex-col">
-      {/* Sync Status Bar */}
-      {syncStatus && (
+      {/* Sync Status Bar — only in browse mode */}
+      {mode === 'browse' && syncStatus && (
         <div className="mb-4 flex items-center justify-between p-3 rounded-lg bg-card text-card-foreground border border-border">
           <div className="flex items-center gap-4 text-sm">
             {/* Sync Status */}
@@ -285,7 +307,8 @@ export default function BrowserHomePage() {
             </div>
 
             <div className="text-sm text-muted-foreground">
-              Showing {filteredTests.length} of {tests.length} tests
+              Showing {filteredTests.length} of {modeFilteredTests.length}{' '}
+              {mode === 'favorites' ? 'favorites' : mode === 'recent' ? 'recent' : 'tests'}
             </div>
           </div>
         </div>
@@ -294,8 +317,20 @@ export default function BrowserHomePage() {
       {/* Test Grid/List */}
       <div className="flex-1 overflow-y-auto">
         {filteredTests.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-muted-foreground">
-            No tests found matching your criteria
+          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
+            {mode === 'favorites' ? (
+              <>
+                <Heart className="w-10 h-10 opacity-30" />
+                <p>No favorites yet. Browse tests and click the heart icon to save your favorites.</p>
+              </>
+            ) : mode === 'recent' ? (
+              <>
+                <History className="w-10 h-10 opacity-30" />
+                <p>No recently viewed tests yet.</p>
+              </>
+            ) : (
+              <p>No tests found matching your criteria</p>
+            )}
           </div>
         ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-6">
@@ -304,6 +339,8 @@ export default function BrowserHomePage() {
                 key={test.uuid}
                 test={test}
                 onClick={() => navigate(`/browser/test/${test.uuid}`)}
+                isFavorite={isFavorite(test.uuid)}
+                onToggleFavorite={(e) => { e.stopPropagation(); toggleFavorite(test.uuid); }}
               />
             ))}
           </div>
@@ -314,6 +351,8 @@ export default function BrowserHomePage() {
                 key={test.uuid}
                 test={test}
                 onClick={() => navigate(`/browser/test/${test.uuid}`)}
+                isFavorite={isFavorite(test.uuid)}
+                onToggleFavorite={(e) => { e.stopPropagation(); toggleFavorite(test.uuid); }}
               />
             ))}
           </div>

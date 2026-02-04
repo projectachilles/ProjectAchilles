@@ -1,13 +1,15 @@
 import type { TestMetadata } from '@/types/test';
 import TechniqueBadge from './TechniqueBadge';
-import { Calendar, Layers, Star, Shield, Workflow } from 'lucide-react';
+import { Calendar, Layers, Star, Shield, Workflow, Heart } from 'lucide-react';
 
 interface TestListItemProps {
   test: TestMetadata;
   onClick: () => void;
+  isFavorite?: boolean;
+  onToggleFavorite?: (e: React.MouseEvent) => void;
 }
 
-export default function TestListItem({ test, onClick }: TestListItemProps) {
+export default function TestListItem({ test, onClick, isFavorite, onToggleFavorite }: TestListItemProps) {
   const getSeverityColor = (severity?: string) => {
     switch (severity?.toLowerCase()) {
       case 'critical':
@@ -99,6 +101,17 @@ export default function TestListItem({ test, onClick }: TestListItemProps) {
               <Workflow className="w-3 h-3" />
               <span className="text-xs font-medium">Flow</span>
             </div>
+          )}
+
+          {/* Favorite Toggle */}
+          {onToggleFavorite && (
+            <button
+              onClick={onToggleFavorite}
+              className="p-1 rounded-md hover:bg-accent transition-colors"
+              title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+            >
+              <Heart className={`w-4 h-4 transition-colors ${isFavorite ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
+            </button>
           )}
         </div>
       </div>

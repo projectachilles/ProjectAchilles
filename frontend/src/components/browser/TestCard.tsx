@@ -1,13 +1,15 @@
 import type { TestMetadata } from '@/types/test';
-import { FileCode2, Calendar, Layers, Star, Shield, Workflow, ShieldCheck } from 'lucide-react';
+import { FileCode2, Calendar, Layers, Star, Shield, Workflow, ShieldCheck, Heart } from 'lucide-react';
 import TechniqueBadge from './TechniqueBadge';
 
 interface TestCardProps {
   test: TestMetadata;
   onClick: () => void;
+  isFavorite?: boolean;
+  onToggleFavorite?: (e: React.MouseEvent) => void;
 }
 
-export default function TestCard({ test, onClick }: TestCardProps) {
+export default function TestCard({ test, onClick, isFavorite, onToggleFavorite }: TestCardProps) {
   const severityColors: Record<string, string> = {
     'critical': 'text-red-500',
     'high': 'text-orange-500',
@@ -29,12 +31,23 @@ export default function TestCard({ test, onClick }: TestCardProps) {
           <h3 className="font-semibold text-lg leading-tight group-hover:text-primary transition-colors">
             {test.name}
           </h3>
-          {test.score && (
-            <div className="flex items-center gap-1 text-sm font-medium text-amber-500 shrink-0">
-              <Star className="w-4 h-4 fill-current" />
-              <span>{test.score.toFixed(1)}</span>
-            </div>
-          )}
+          <div className="flex items-center gap-2 shrink-0">
+            {onToggleFavorite && (
+              <button
+                onClick={onToggleFavorite}
+                className="p-1 rounded-md hover:bg-accent transition-colors"
+                title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+              >
+                <Heart className={`w-4 h-4 transition-colors ${isFavorite ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
+              </button>
+            )}
+            {test.score && (
+              <div className="flex items-center gap-1 text-sm font-medium text-amber-500">
+                <Star className="w-4 h-4 fill-current" />
+                <span>{test.score.toFixed(1)}</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Metadata Row */}
