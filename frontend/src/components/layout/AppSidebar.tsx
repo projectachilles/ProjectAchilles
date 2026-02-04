@@ -1,6 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
-import { useAppSelector } from '@/store';
 import {
   Shield,
   BarChart3,
@@ -47,9 +46,6 @@ interface NavSection {
 export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
   const location = useLocation();
   const { configured: analyticsConfigured } = useAnalyticsAuth();
-  const { isAuthenticated: endpointsAuthenticated } = useAppSelector(
-    (state) => state.endpointAuth
-  );
 
   // Determine current module
   const getCurrentModule = () => {
@@ -73,7 +69,6 @@ export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
       label: 'Endpoints',
       icon: Monitor,
       path: '/endpoints',
-      locked: !endpointsAuthenticated,
     },
   ];
 
@@ -107,9 +102,8 @@ export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
             title: 'Endpoints',
             items: [
               { label: 'Dashboard', icon: LayoutDashboard, path: '/endpoints/dashboard' },
-              { label: 'Sensors', icon: Cpu, path: '/endpoints/sensors' },
-              { label: 'Payloads', icon: Package, path: '/endpoints/payloads' },
-              { label: 'Events', icon: Activity, path: '/endpoints/events' },
+              { label: 'Agents', icon: Cpu, path: '/endpoints/agents' },
+              { label: 'Tasks', icon: Package, path: '/endpoints/tasks' },
             ],
           },
         ];

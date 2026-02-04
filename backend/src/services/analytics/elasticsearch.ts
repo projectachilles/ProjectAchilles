@@ -26,6 +26,7 @@ import type {
   DefenseScoreByHostItem,
   CanonicalTestCountResponse,
   ErrorRateResponse,
+  ErrorRateTrendDataPoint,
   SeverityLevel,
   CategoryType,
 } from '../../types/analytics.js';
@@ -1710,6 +1711,90 @@ export class ElasticsearchService {
         };
       })
       .sort((a: ThreatActorCoverageItem, b: ThreatActorCoverageItem) => b.totalExecutions - a.totalExecutions);
+  }
+
+  // Get error rate trend with rolling window aggregation
+  async getErrorRateTrendRolling(params: AnalyticsQueryParams): Promise<ErrorRateTrendDataPoint[]> {
+    const windowDays = params.windowDays || 7;
+    const displayFrom = params.from;
+
+    // Extend date range to include lookback period
+    const extendedFrom = this.extendDateRange(params.from, windowDays);
+
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(extendedFrom, params.to),
+      this.buildTestActivityFilter()  // excludes code 200
+    ];
+
+    const orgFilter = this.buildOrgFilter(params.org);
+    if (orgFilter) filters.push(orgFilter);
+
+    const interval = params.interval || 'day';
+
+    // Query ES with extended range
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: {
+        bool: { filter: filters },
+      },
+      aggs: {
+        over_time: {
+          date_histogram: {
+            field: 'routing.event_time',
+            calendar_interval: interval as 'day' | 'week' | 'month' | 'hour',
+            min_doc_count: 0,
+          },
+          aggs: {
+            errors: {
+              filter: { terms: { 'event.ERROR': this.ERROR_CODES } },
+            },
+            conclusive: {
+              filter: { terms: { 'event.ERROR': this.CONCLUSIVE_ERROR_CODES } },
+            },
+          },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.over_time as any)?.buckets || [];
+
+    // Compute rolling sums
+    const rollingResults: ErrorRateTrendDataPoint[] = [];
+
+    for (let i = 0; i < buckets.length; i++) {
+      const currentBucket = buckets[i];
+      const timestamp = currentBucket.key_as_string;
+
+      // Sum over the window (current day + previous windowDays-1 days)
+      let windowErrors = 0;
+      let windowConclusive = 0;
+
+      const windowStart = Math.max(0, i - windowDays + 1);
+      for (let j = windowStart; j <= i; j++) {
+        windowErrors += buckets[j].errors?.doc_count || 0;
+        windowConclusive += buckets[j].conclusive?.doc_count || 0;
+      }
+
+      // Skip points that are in the lookback-only period
+      if (!this.isWithinDisplayRange(currentBucket.key.toString(), displayFrom)) {
+        continue;
+      }
+
+      const total = windowErrors + windowConclusive;
+      const errorRate = total > 0 ? (windowErrors / total) * 100 : 0;
+
+      rollingResults.push({
+        timestamp,
+        errorRate: Math.round(errorRate * 100) / 100,
+        errorCount: windowErrors,
+        conclusiveCount: windowConclusive,
+        total,
+      });
+    }
+
+    return rollingResults;
   }
 
   // Get error rate (proportion of non-conclusive test activity)

@@ -3,7 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import session from 'express-session';
-import rateLimit from 'express-rate-limit';
+// import rateLimit from 'express-rate-limit'; // Unused - LimaCharlie routes disabled
 import dotenv from 'dotenv';
 import http from 'http';
 import path from 'path';
@@ -13,10 +13,14 @@ import { clerkAuth, linkClerkSession } from './middleware/clerk.middleware.js';
 import { createBrowserRouter } from './api/browser.routes.js';
 import analyticsRoutes from './api/analytics.routes.js';
 import { createTestsRouter } from './api/tests.routes.js';
-import endpointAuthRoutes from './api/endpoints/auth.routes.js';
-import endpointsRoutes from './api/endpoints/index.js';
+// LimaCharlie routes disabled - replaced by Achilles Agent module
+// import endpointAuthRoutes from './api/endpoints/auth.routes.js';
+// import endpointsRoutes from './api/endpoints/index.js';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware.js';
 import { GitSyncService } from './services/browser/gitSyncService.js';
+import { createAgentRouter } from './api/agent/index.js';
+import { processSchedules } from './services/agent/schedules.service.js';
+import { initCatalog } from './services/agent/test-catalog.service.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -84,12 +88,12 @@ app.use(session({
 app.use(clerkAuth);
 app.use(linkClerkSession);
 
-// Rate limiting for auth endpoints
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20, // 20 requests per window
-  message: { error: 'Too many authentication attempts, please try again later' },
-});
+// Rate limiting for auth endpoints (currently unused - LimaCharlie routes disabled)
+// const authLimiter = rateLimit({
+//   windowMs: 15 * 60 * 1000, // 15 minutes
+//   max: 20, // 20 requests per window
+//   message: { error: 'Too many authentication attempts, please try again later' },
+// });
 
 // ============ ASYNC STARTUP ============
 async function startServer() {
@@ -127,6 +131,9 @@ async function startServer() {
     console.log(`📁 Using local tests source: ${testsSourcePath}`);
   }
 
+  // ============ TEST CATALOG ============
+  initCatalog(testsSourcePath);
+
   // ============ ROUTES ============
 
   // Health check
@@ -153,9 +160,12 @@ async function startServer() {
   const testsRouter = createTestsRouter({ testsSourcePath });
   app.use('/api/tests', testsRouter);
 
-  // Endpoints module - Session-based auth (LimaCharlie)
-  app.use('/api/auth', authLimiter, endpointAuthRoutes);
-  app.use('/api/endpoints', endpointsRoutes);
+  // LimaCharlie endpoints disabled - replaced by Achilles Agent module
+  // app.use('/api/auth', authLimiter, endpointAuthRoutes);
+  // app.use('/api/endpoints', endpointsRoutes);
+
+  // Agent module - Achilles Agent management
+  app.use('/api/agent', createAgentRouter({ testsSourcePath }));
 
   // ============ ERROR HANDLING ============
   app.use(notFoundHandler);
@@ -174,8 +184,7 @@ async function startServer() {
     console.log('║   Routes:                                                 ║');
     console.log('║     /api/browser/*     - Security Test Browser            ║');
     console.log('║     /api/analytics/*   - Test Results Analytics           ║');
-    console.log('║     /api/auth/*        - Endpoint Auth (LimaCharlie)      ║');
-    console.log('║     /api/endpoints/*   - Endpoint Management              ║');
+    console.log('║     /api/agent/*       - Achilles Agent Management        ║');
     console.log('║                                                           ║');
     if (gitSyncService) {
       const status = gitSyncService.getStatus();
@@ -183,6 +192,17 @@ async function startServer() {
     }
     console.log('╚═══════════════════════════════════════════════════════════╝');
     console.log('');
+
+    // --- Task scheduler: process due schedules every 60s ---
+    processSchedules(); // Startup recovery: catch up on past-due schedules
+    const schedulerInterval = setInterval(processSchedules, 60_000);
+
+    const shutdown = () => {
+      clearInterval(schedulerInterval);
+      httpServer.close();
+    };
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
   });
 }
 

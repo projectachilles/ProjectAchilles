@@ -7,7 +7,7 @@ import {
   CartesianGrid
 } from 'recharts';
 import { format } from 'date-fns';
-import type { TrendDataPoint } from '../../../services/api/analytics';
+import type { TrendDataPoint, ErrorRateTrendDataPoint } from '../../../services/api/analytics';
 import {
   ChartContainer,
   ChartTooltip,
@@ -30,8 +30,16 @@ function parseTimestamp(timestamp: string): Date {
   return new Date(timestamp);
 }
 
+// Normalize timestamp to a YYYY-MM-DD key for merging
+function toDateKey(timestamp: string): string {
+  const d = parseTimestamp(timestamp);
+  return format(d, 'yyyy-MM-dd');
+}
+
 interface TrendChartProps {
   data: TrendDataPoint[];
+  errorRateData?: ErrorRateTrendDataPoint[];
+  errorRateOverall?: number | null;
   loading?: boolean;
   title?: string;
   windowDays?: number;
@@ -40,55 +48,33 @@ interface TrendChartProps {
 const chartConfig = {
   score: {
     label: 'Defense Score',
-    color: 'var(--chart-primary-line)',
+    color: 'var(--chart-protected)',
+  },
+  errorRate: {
+    label: 'Error Rate',
+    color: 'var(--chart-bypassed)',
   },
 } satisfies ChartConfig;
 
-export default function TrendChart({ data, loading, title = 'Defense Score Trend', windowDays }: TrendChartProps) {
+export default function TrendChart({ data, errorRateData, errorRateOverall, loading, title = 'Trend Overview', windowDays }: TrendChartProps) {
+  const hasErrorRate = errorRateData && errorRateData.length > 0;
+
   // Return early if no data to prevent rendering issues
   if (!data || data.length === 0) {
-    if (loading) {
-      return (
-        <Card className="overflow-hidden">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-base font-medium">{title}</CardTitle>
-          </CardHeader>
-          <CardContent className="h-[200px] flex items-center justify-center">
-            <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-          </CardContent>
-        </Card>
-      );
-    }
     return (
       <Card className="overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-base font-medium">{title}</CardTitle>
         </CardHeader>
         <CardContent className="h-[200px] flex items-center justify-center">
-          <p className="text-sm text-muted-foreground">No trend data available</p>
+          {loading
+            ? <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            : <p className="text-sm text-muted-foreground">No trend data available</p>
+          }
         </CardContent>
       </Card>
     );
   }
-
-  // Format data for chart (rolling window aggregation is now done server-side)
-  const chartData = data.map(point => {
-    const date = parseTimestamp(point.timestamp);
-    return {
-      ...point,
-      date: format(date, 'MMM d'),
-      fullDate: format(date, 'MMM d, yyyy')
-    };
-  });
-
-  // Calculate average score for description
-  const avgScore = chartData.length > 0
-    ? (chartData.reduce((sum, d) => sum + d.score, 0) / chartData.length).toFixed(1)
-    : '0';
-
-  // Show only 5-7 ticks max to prevent overflow
-  const tickCount = Math.min(7, chartData.length);
-  const tickInterval = chartData.length > tickCount ? Math.floor(chartData.length / tickCount) : 0;
 
   if (loading) {
     return (
@@ -103,20 +89,62 @@ export default function TrendChart({ data, loading, title = 'Defense Score Trend
     );
   }
 
+  // Build error rate lookup by date key
+  const errorRateByDate = new Map<string, ErrorRateTrendDataPoint>();
+  if (hasErrorRate) {
+    for (const point of errorRateData) {
+      errorRateByDate.set(toDateKey(point.timestamp), point);
+    }
+  }
+
+  // Merge datasets: defense score is the primary axis, error rate is joined by date
+  const chartData = data.map(point => {
+    const date = parseTimestamp(point.timestamp);
+    const dateKey = toDateKey(point.timestamp);
+    const errPoint = errorRateByDate.get(dateKey);
+    return {
+      ...point,
+      errorRate: errPoint?.errorRate ?? null,
+      errorCount: errPoint?.errorCount ?? 0,
+      errorTotal: errPoint?.total ?? 0,
+      date: format(date, 'MMM d'),
+      fullDate: format(date, 'MMM d, yyyy'),
+    };
+  });
+
+  // Calculate averages for description
+  const avgScore = chartData.length > 0
+    ? (chartData.reduce((sum, d) => sum + d.score, 0) / chartData.length).toFixed(1)
+    : '0';
+
+  const avgErrorRate = hasErrorRate && errorRateOverall != null
+    ? errorRateOverall.toFixed(1)
+    : null;
+
+  // Show only 5-7 ticks max to prevent overflow
+  const tickCount = Math.min(7, chartData.length);
+  const tickInterval = chartData.length > tickCount ? Math.floor(chartData.length / tickCount) : 0;
+
   return (
     <Card className="h-full overflow-hidden flex flex-col">
       <CardHeader className="flex-shrink-0 pb-0">
         <CardTitle className="text-base font-medium">{title}</CardTitle>
-        <CardDescription className="flex items-center gap-2 text-sm">
-          <span>Average: {avgScore}%</span>
+        <CardDescription className="flex items-center gap-2 text-sm flex-wrap">
+          <span>Defense: {avgScore}%</span>
+          {avgErrorRate !== null && (
+            <>
+              <span className="text-muted-foreground">|</span>
+              <span>Error rate: {avgErrorRate}%</span>
+            </>
+          )}
           {windowDays && (
             <span className="text-muted-foreground">({windowDays}-day rolling)</span>
           )}
           <TrendingUp className="h-4 w-4 text-muted-foreground" />
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex-1 min-h-0 p-4">
-        <div className="h-full w-full min-h-0 overflow-hidden">
+      <CardContent className="flex-1 min-h-0 p-4 flex flex-col">
+        <div className="flex-1 w-full min-h-0 overflow-hidden">
           <ChartContainer
             config={chartConfig}
             className="h-full w-full"
@@ -138,6 +166,18 @@ export default function TrendChart({ data, loading, title = 'Defense Score Trend
                   stopOpacity={0.1}
                 />
               </linearGradient>
+              <linearGradient id="fillErrorRate" x1="0" y1="0" x2="0" y2="1">
+                <stop
+                  offset="5%"
+                  stopColor="var(--color-errorRate)"
+                  stopOpacity={0.8}
+                />
+                <stop
+                  offset="95%"
+                  stopColor="var(--color-errorRate)"
+                  stopOpacity={0.1}
+                />
+              </linearGradient>
             </defs>
             <CartesianGrid vertical={false} />
             <XAxis
@@ -154,7 +194,7 @@ export default function TrendChart({ data, loading, title = 'Defense Score Trend
               axisLine={false}
               tickMargin={8}
               tickFormatter={(value) => `${value}%`}
-              width={40}
+              width={48}
             />
             <ChartTooltip
               cursor={false}
@@ -168,20 +208,28 @@ export default function TrendChart({ data, loading, title = 'Defense Score Trend
                   }}
                   formatter={(value, name, item) => {
                     const payload = item.payload;
+                    const config = chartConfig[name as keyof typeof chartConfig];
+                    if (!config) return null;
                     return (
                       <div className="flex flex-col gap-0.5">
                         <div className="flex items-center gap-2">
                           <div
                             className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-                            style={{ backgroundColor: 'var(--color-score)' }}
+                            style={{ backgroundColor: config.color }}
                           />
+                          <span className="text-muted-foreground">{config.label}:</span>
                           <span className="text-foreground font-medium">
                             {Number(value).toFixed(1)}%
                           </span>
                         </div>
-                        {payload.total > 0 && (
-                          <span className="text-xs text-muted-foreground ml-4">
+                        {name === 'score' && payload.total > 0 && (
+                          <span className="text-xs text-muted-foreground ml-[18px]">
                             {payload.protected}/{payload.total} protected
+                          </span>
+                        )}
+                        {name === 'errorRate' && payload.errorTotal > 0 && (
+                          <span className="text-xs text-muted-foreground ml-[18px]">
+                            {payload.errorCount}/{payload.errorTotal} errors
                           </span>
                         )}
                       </div>
@@ -197,9 +245,32 @@ export default function TrendChart({ data, loading, title = 'Defense Score Trend
               strokeWidth={2}
               fill="url(#fillScore)"
             />
+            {hasErrorRate && (
+              <Area
+                type="monotone"
+                dataKey="errorRate"
+                stroke="var(--color-errorRate)"
+                strokeWidth={2}
+                fill="url(#fillErrorRate)"
+                connectNulls
+              />
+            )}
           </AreaChart>
           </ChartContainer>
         </div>
+        {hasErrorRate && (
+          <div className="flex items-center justify-center gap-4 pt-2 flex-shrink-0">
+            {Object.entries(chartConfig).map(([key, cfg]) => (
+              <div key={key} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <div
+                  className="h-2.5 w-2.5 rounded-[2px]"
+                  style={{ backgroundColor: cfg.color }}
+                />
+                <span>{cfg.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

@@ -1,0 +1,164 @@
+//go:build windows
+
+package service
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"time"
+
+	"golang.org/x/sys/windows/svc"
+
+	"github.com/f0rt1ka/achilles-agent/internal/config"
+	"github.com/f0rt1ka/achilles-agent/internal/store"
+)
+
+const (
+	serviceName    = "AchillesAgent"
+	serviceDisplay = "Achilles Agent"
+	serviceDesc    = "F0RT1KA Achilles security testing agent"
+)
+
+// achillesSvc implements svc.Handler for the Windows Service Control Manager.
+type achillesSvc struct {
+	cfg     *config.Config
+	st      *store.Store
+	version string
+}
+
+func (s *achillesSvc) Execute(_ []string, r <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
+	const accepted = svc.AcceptStop | svc.AcceptShutdown
+
+	// Tell SCM we're starting.
+	status <- svc.Status{State: svc.StartPending}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Run the poller in the background.
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runForeground(ctx, s.cfg, s.st, s.version)
+	}()
+
+	// Tell SCM we're running.
+	status <- svc.Status{State: svc.Running, Accepts: accepted}
+
+	for {
+		select {
+		case cr := <-r:
+			switch cr.Cmd {
+			case svc.Stop, svc.Shutdown:
+				status <- svc.Status{State: svc.StopPending}
+				cancel()
+				<-errCh
+				return false, 0
+			case svc.Interrogate:
+				status <- cr.CurrentStatus
+			}
+		case err := <-errCh:
+			if err != nil {
+				return false, 1
+			}
+			return false, 0
+		}
+	}
+}
+
+func platformInstall(configPath string) error {
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("cannot determine executable path: %w", err)
+	}
+	execPath, err = filepath.EvalSymlinks(execPath)
+	if err != nil {
+		return fmt.Errorf("cannot resolve executable path: %w", err)
+	}
+
+	// Remove any existing service to make install idempotent.
+	_ = exec.Command("sc", "stop", serviceName).Run()
+	_ = exec.Command("sc", "delete", serviceName).Run()
+	time.Sleep(1 * time.Second)
+
+	// Use sc.exe to create and start the service.
+	binPath := fmt.Sprintf(`"%s" --run`, execPath)
+	cmd := exec.Command("sc", "create", serviceName,
+		"binPath=", binPath,
+		"DisplayName=", serviceDisplay,
+		"start=", "auto",
+	)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("sc create failed: %w", err)
+	}
+
+	// Set description.
+	cmd = exec.Command("sc", "description", serviceName, serviceDesc)
+	_ = cmd.Run()
+
+	// Configure recovery: restart after 10 seconds on failure.
+	cmd = exec.Command("sc", "failure", serviceName,
+		"reset=", "86400",
+		"actions=", "restart/10000/restart/10000/restart/10000",
+	)
+	_ = cmd.Run()
+
+	// Start the service.
+	cmd = exec.Command("sc", "start", serviceName)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("sc start failed: %w", err)
+	}
+
+	fmt.Println("Service installed and started")
+	return nil
+}
+
+func platformUninstall() error {
+	// Stop the service first.
+	cmd := exec.Command("sc", "stop", serviceName)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	_ = cmd.Run()
+
+	// Give it a moment to stop.
+	time.Sleep(2 * time.Second)
+
+	// Delete the service.
+	cmd = exec.Command("sc", "delete", serviceName)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("sc delete failed: %w", err)
+	}
+
+	fmt.Println("Service uninstalled")
+	return nil
+}
+
+func platformRun(cfg *config.Config, st *store.Store, version string) error {
+	// Detect whether we're running under the Windows SCM or interactively.
+	inService, err := svc.IsWindowsService()
+	if err != nil {
+		return fmt.Errorf("failed to detect service environment: %w", err)
+	}
+
+	if !inService {
+		// Interactive / foreground mode (e.g. --run from command line).
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		return runForeground(ctx, cfg, st, version)
+	}
+
+	// Running under SCM — register as a proper Windows service.
+	return svc.Run(serviceName, &achillesSvc{
+		cfg:     cfg,
+		st:      st,
+		version: version,
+	})
+}

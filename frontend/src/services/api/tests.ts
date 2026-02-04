@@ -13,11 +13,19 @@ export interface CertificateSubject {
 }
 
 export interface CertificateInfo {
+  id: string;
   exists: boolean;
+  label?: string;
+  source: 'generated' | 'uploaded';
   subject?: CertificateSubject;
   expiry?: string;
   fingerprint?: string;
   createdAt?: string;
+}
+
+export interface CertificateListResponse {
+  certificates: CertificateInfo[];
+  activeCertId: string | null;
 }
 
 export const testsApi = {
@@ -43,6 +51,50 @@ export const testsApi = {
 
   async deleteCertificate(): Promise<{ success: boolean }> {
     const response = await apiClient.delete('/tests/certificate');
+    return response.data;
+  },
+
+  // ── Multi-Certificate API ──────────────────────────────────
+
+  async listCertificates(): Promise<CertificateListResponse> {
+    const response = await apiClient.get('/tests/certificates');
+    return response.data.data;
+  },
+
+  async uploadCertificate(file: File, password: string, label?: string): Promise<CertificateInfo> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('password', password);
+    if (label) formData.append('label', label);
+    const response = await apiClient.post('/tests/certificates/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data.data;
+  },
+
+  async generateCertificateWithLabel(
+    subject: CertificateSubject,
+    label?: string,
+  ): Promise<CertificateInfo> {
+    const response = await apiClient.post('/tests/certificates/generate', {
+      ...subject,
+      label,
+    });
+    return response.data.data;
+  },
+
+  async setActiveCertificate(id: string): Promise<{ success: boolean }> {
+    const response = await apiClient.put(`/tests/certificates/${id}/active`);
+    return response.data;
+  },
+
+  async updateCertificateLabel(id: string, label: string): Promise<CertificateInfo> {
+    const response = await apiClient.patch(`/tests/certificates/${id}`, { label });
+    return response.data.data;
+  },
+
+  async deleteCertificateById(id: string): Promise<{ success: boolean }> {
+    const response = await apiClient.delete(`/tests/certificates/${id}`);
     return response.data;
   },
 
