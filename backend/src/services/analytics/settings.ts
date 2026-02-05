@@ -118,20 +118,22 @@ export class SettingsService {
     }
   }
 
-  // Load settings - env vars provide credentials, user file overrides index pattern
+  // Load settings - file settings (user-configured) take priority over env vars
   getSettings(): AnalyticsSettings {
-    const envSettings = this.getEnvSettings();
     const fileSettings = this.getFileSettings();
 
+    // If user has configured settings via UI, those take priority
+    if (fileSettings?.configured) {
+      return fileSettings;
+    }
+
+    // Fall back to env vars if no user-configured settings
+    const envSettings = this.getEnvSettings();
     if (envSettings) {
-      // Env provides credentials, but user-saved index pattern takes priority
-      if (fileSettings?.indexPattern) {
-        envSettings.indexPattern = fileSettings.indexPattern;
-      }
       return envSettings;
     }
 
-    return fileSettings || defaultSettings;
+    return defaultSettings;
   }
 
   // Save settings to file
