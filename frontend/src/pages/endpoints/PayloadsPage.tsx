@@ -98,7 +98,7 @@ export default function PayloadsPage() {
     try {
       // Use the backend's download endpoint which proxies the file
       // and sets the correct Content-Disposition header with the filename
-      const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
       const downloadUrl = `${apiBaseUrl}/api/endpoints/payloads/${encodeURIComponent(name)}/download`;
 
       // Create a temporary link and trigger download
