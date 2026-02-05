@@ -20,10 +20,8 @@ services:
     restart: unless-stopped
 
   frontend:
-    build:
-      context: ./frontend
-      args:
-        VITE_CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY}
+    build: ./frontend
+    env_file: ./backend/.env
     ports:
       - "80:80"
     depends_on:
