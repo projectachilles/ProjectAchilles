@@ -106,21 +106,63 @@ Vite proxies `/api` → `http://localhost:$VITE_BACKEND_PORT` (default 3000)
 ```
 Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`
 
-## Browser Testing with Chrome DevTools MCP
+## Browser Testing
 
-This project has Chrome DevTools MCP configured (`.mcp.json`). Use it for visual verification, debugging, and UI testing.
+Two browser tools are available for visual verification, debugging, and UI testing. **Prefer the Claude Code Chrome Extension by default**; fall back to Playwright when the extension lacks a needed capability.
 
-### When to Use Chrome DevTools
-- **Visual verification**: After implementing UI changes, take screenshots to verify
-- **Debugging**: Inspect network requests, console errors, DOM state
-- **Form testing**: Fill forms, click buttons, verify interactions
-- **Performance**: Record traces for performance analysis
+### Tool Selection
 
-### Workflow
+| Use Case | Tool | Why |
+|----------|------|-----|
+| Interactive testing with Clerk auth | **CC Chrome Extension** | Uses the real browser with existing sessions/cookies |
+| Visual verification of UI changes | **CC Chrome Extension** | Sees exactly what the user sees |
+| Filling forms, clicking buttons | **CC Chrome Extension** | Works with real auth state |
+| Headless/automated screenshots | **Playwright** | No real browser needed |
+| Running custom JS on the page | **Playwright** (`browser_evaluate`, `browser_run_code`) | More powerful programmatic control |
+| Multi-tab workflows | **Playwright** (`browser_tabs`) | Tab management API |
+| Drag-and-drop testing | **Playwright** (`browser_drag`) | Not available in extension |
+| File upload testing | **Playwright** (`browser_file_upload`) | Not available in extension |
+| Waiting for async UI updates | **Playwright** (`browser_wait_for`) | Built-in wait primitives |
+
+**Rule of thumb**: If the CC Chrome Extension has a tool for it, use that. If not, use Playwright.
+
+### Workflow (CC Chrome Extension - Default)
 1. Start dev server: `./start.sh -k --daemon`
-2. Navigate: `mcp__chrome-devtools__navigate_page` to `http://localhost:5173`
-3. Inspect: `mcp__chrome-devtools__take_snapshot` for page structure
-4. Screenshot: `mcp__chrome-devtools__take_screenshot` for visual verification
+2. Ensure the user has Chrome open with the Claude Code extension connected
+3. Navigate to `http://localhost:5173`
+4. Use snapshot/screenshot tools for verification
+
+### Workflow (Playwright - Fallback)
+1. Start dev server: `./start.sh -k --daemon`
+2. Navigate: `mcp__plugin_playwright_playwright__browser_navigate` to `http://localhost:5173`
+3. Inspect: `mcp__plugin_playwright_playwright__browser_snapshot` for page structure
+4. Screenshot: `mcp__plugin_playwright_playwright__browser_take_screenshot` for visual verification
+
+### Playwright Tool Reference
+| Tool | Purpose |
+|------|---------|
+| `browser_navigate` | Go to URL |
+| `browser_navigate_back` | Go back in history |
+| `browser_snapshot` | Get page accessibility tree (prefer over screenshot) |
+| `browser_take_screenshot` | Visual capture for verification |
+| `browser_click` | Click elements by ref from snapshot |
+| `browser_type` | Type text into elements |
+| `browser_fill_form` | Fill multiple form fields |
+| `browser_select_option` | Select dropdown options |
+| `browser_evaluate` | Run JavaScript on page or element |
+| `browser_run_code` | Run Playwright code snippets |
+| `browser_console_messages` | Check for errors |
+| `browser_network_requests` | Debug API calls |
+| `browser_tabs` | List, create, close, select tabs |
+| `browser_drag` | Drag and drop between elements |
+| `browser_file_upload` | Upload files |
+| `browser_wait_for` | Wait for text/element/time |
+| `browser_press_key` | Press keyboard keys |
+| `browser_hover` | Hover over elements |
+| `browser_handle_dialog` | Accept/dismiss dialogs |
+| `browser_resize` | Resize browser window |
+
+All Playwright tools are prefixed with `mcp__plugin_playwright_playwright__`.
 
 ### Handling Login Pages
 When encountering a login page (Clerk auth, external services):
@@ -132,27 +174,15 @@ When encountering a login page (Clerk auth, external services):
    - Password"
    ```
 3. **Never assume**: Do not guess or use placeholder credentials
-4. **Fill securely**: Use `mcp__chrome-devtools__fill_form` for credential entry
+4. **Fill securely**: Use the appropriate fill/form tool for credential entry
 5. **Verify**: Take snapshot after login to confirm success
 
-### Common Tools
-| Tool | Purpose |
-|------|---------|
-| `navigate_page` | Go to URL, back/forward, reload |
-| `take_snapshot` | Get page accessibility tree (prefer over screenshot) |
-| `take_screenshot` | Visual capture for verification |
-| `click` | Click elements by uid from snapshot |
-| `fill` / `fill_form` | Enter text in inputs |
-| `evaluate_script` | Run JavaScript in page context |
-| `list_console_messages` | Check for errors |
-| `list_network_requests` | Debug API calls |
-
 ### Analytics / Elasticsearch Credentials
-When testing the Analytics module via Chrome DevTools and you need Elasticsearch credentials (e.g., to configure the connection in Settings), pick them from `backend/.env` (Cloud ID, API Key, index pattern).
+When testing the Analytics module and you need Elasticsearch credentials (e.g., to configure the connection in Settings), pick them from `backend/.env` (Cloud ID, API Key, index pattern).
 
 ### Security Notes
 - Never log or display credentials in output
-- Credentials entered via MCP are visible to the browser - use dev/test accounts
+- Credentials entered via browser tools are visible to the browser - use dev/test accounts
 - Avoid testing with production credentials
 
 ## Gotchas
