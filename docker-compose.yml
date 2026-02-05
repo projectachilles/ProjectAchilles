@@ -11,6 +11,7 @@ services:
     volumes:
       - achilles-data:/root/.projectachilles
       - repo-cache:/app/data
+      - go-cache:/root/go
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
       interval: 30s
@@ -19,7 +20,10 @@ services:
     restart: unless-stopped
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        VITE_CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY}
     ports:
       - "80:80"
     depends_on:
@@ -30,3 +34,4 @@ services:
 volumes:
   achilles-data:
   repo-cache:
+  go-cache:

@@ -1,10 +1,20 @@
 # ProjectAchilles Backend Dockerfile
 FROM node:22-slim
 
-# Install git (repo sync), openssl (cert generation), and native build deps for better-sqlite3
+# Install system dependencies:
+#   git       - test repository sync
+#   openssl   - certificate generation
+#   osslsigncode - Windows Authenticode signing
+#   python3 make g++ - native addon compilation (better-sqlite3)
+#   wget      - health check
 RUN apt-get update && \
-    apt-get install -y git openssl python3 make g++ wget && \
+    apt-get install -y git openssl osslsigncode python3 make g++ wget curl && \
     rm -rf /var/lib/apt/lists/*
+
+# Install Go (required for building security tests)
+ARG GO_VERSION=1.24.3
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz
+ENV PATH="/usr/local/go/bin:${PATH}"
 
 WORKDIR /app
 
