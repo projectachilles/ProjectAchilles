@@ -44,9 +44,9 @@ export class SettingsService {
     return this.getEnvSettings() !== null;
   }
 
-  // Derive encryption key from machine ID
+  // Derive encryption key from ENCRYPTION_SECRET env var, or fall back to machine ID
   private getEncryptionKey(): Buffer {
-    const machineId = os.hostname() + os.userInfo().username;
+    const machineId = process.env.ENCRYPTION_SECRET || (os.hostname() + os.userInfo().username);
     return crypto.createHash('sha256').update(machineId).digest();
   }
 
