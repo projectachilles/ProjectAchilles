@@ -49,3 +49,6 @@ backend/data/
 .achilles.pid
 .backend.log
 .frontend.log
+
+# Personal scripts
+tunnel.sh
