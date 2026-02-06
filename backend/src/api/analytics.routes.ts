@@ -60,7 +60,7 @@ router.post('/settings', asyncHandler(async (req, res) => {
     node: node || existingSettings.node,
     username: username || existingSettings.username,
     password: password || existingSettings.password,
-    indexPattern: indexPattern || existingSettings.indexPattern || 'f0rtika-results-*',
+    indexPattern: indexPattern || existingSettings.indexPattern || 'achilles-results-*',
     configured: true,
   };
 
@@ -87,7 +87,7 @@ router.post('/settings/test', asyncHandler(async (req, res) => {
       node: node || existingSettings.node,
       username: username || existingSettings.username,
       password: password || existingSettings.password,
-      indexPattern: existingSettings.indexPattern || 'f0rtika-results-*',
+      indexPattern: existingSettings.indexPattern || 'achilles-results-*',
       configured: true,
     });
 
@@ -565,7 +565,7 @@ router.get('/indices', asyncHandler(async (req, res) => {
 
   // Always default to all results indices — the configured indexPattern scopes
   // analytics queries, not the management view.
-  const indexPattern = (pattern as string | undefined) || 'f0rtika-results-*';
+  const indexPattern = (pattern as string | undefined) || 'achilles-results-*';
 
   const indices = await listResultsIndices(indexPattern);
   res.json({ success: true, indices });

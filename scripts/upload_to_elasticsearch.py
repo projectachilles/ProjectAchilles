@@ -56,7 +56,7 @@ def upload_with_es_client(file_path, es_client, chunk_size=500):
         doc = json.loads(doc_line)
 
         # Extract index name from action
-        index_name = action.get('index', {}).get('_index', 'f0rtika-results-synthetic')
+        index_name = action.get('index', {}).get('_index', 'achilles-results-synthetic')
 
         actions.append({
             '_index': index_name,
@@ -131,7 +131,7 @@ def upload_with_requests(file_path, host, auth_header=None, chunk_size=5000):
 
         # Extract index from first action
         first_action = json.loads(chunk_lines[0])
-        index_name = first_action.get('index', {}).get('_index', 'f0rtika-results-synthetic')
+        index_name = first_action.get('index', {}).get('_index', 'achilles-results-synthetic')
 
         url = f"{host.rstrip('/')}/{index_name}/_bulk"
 
@@ -268,8 +268,8 @@ def main():
     parser.add_argument(
         "--index",
         type=str,
-        default="f0rtika-results-synthetic",
-        help="Index name (default: f0rtika-results-synthetic)"
+        default="achilles-results-synthetic",
+        help="Index name (default: achilles-results-synthetic)"
     )
 
     args = parser.parse_args()

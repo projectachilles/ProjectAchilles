@@ -15,7 +15,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
   const [node, setNode] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [indexPattern, setIndexPattern] = useState('f0rtika-results-*');
+  const [indexPattern, setIndexPattern] = useState('achilles-results-*');
 
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -34,7 +34,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
       const settings = await analyticsApi.getSettings();
       if (settings.configured && settings.connectionType) {
         setConnectionType(settings.connectionType);
-        setIndexPattern(settings.indexPattern || 'f0rtika-results-*');
+        setIndexPattern(settings.indexPattern || 'achilles-results-*');
         // Note: Credentials come back masked, so we don't populate them
       }
     } catch (err) {
@@ -220,7 +220,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
               type="text"
               value={indexPattern}
               onChange={(e) => setIndexPattern(e.target.value)}
-              placeholder="f0rtika-results-*"
+              placeholder="achilles-results-*"
               className="w-full px-3 py-2 bg-secondary border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>

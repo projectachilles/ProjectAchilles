@@ -38,7 +38,7 @@ export function IndexManagement({ onSelectIndex }: IndexManagementProps) {
   const [indices, setIndices] = useState<IndexInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [newIndexName, setNewIndexName] = useState('f0rtika-results-');
+  const [newIndexName, setNewIndexName] = useState('achilles-results-');
   const [creating, setCreating] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -75,7 +75,7 @@ export function IndexManagement({ onSelectIndex }: IndexManagementProps) {
       const result = await analyticsApi.createIndex(name);
       setFeedback({ type: result.created ? 'success' : 'error', message: result.message });
       if (result.created) {
-        setNewIndexName('f0rtika-results-');
+        setNewIndexName('achilles-results-');
         await fetchIndices();
       }
     } catch (err) {
@@ -161,7 +161,7 @@ export function IndexManagement({ onSelectIndex }: IndexManagementProps) {
         <div className="flex-1">
           <Input
             label="Create New Index"
-            placeholder="f0rtika-results-2025-01"
+            placeholder="achilles-results-2025-01"
             value={newIndexName}
             onChange={(e) => {
               setNewIndexName(e.target.value);

@@ -9,7 +9,7 @@ Usage:
     python generate_synthetic_data.py --count 5000 --days 90 --output synthetic_data.ndjson
 
 Then upload to Elasticsearch:
-    curl -X POST "https://your-es-host:9200/f0rtika-results-*/_bulk" \
+    curl -X POST "https://your-es-host:9200/achilles-results-*/_bulk" \
          -H "Content-Type: application/x-ndjson" \
          --data-binary @synthetic_data.ndjson
 """
@@ -441,7 +441,7 @@ def generate_execution(test, org, hostname, timestamp):
     }
 
 
-def generate_bulk_data(count, index_name="f0rtika-results-synthetic", days_back=30):
+def generate_bulk_data(count, index_name="achilles-results-synthetic", days_back=30):
     """Generate NDJSON bulk data for Elasticsearch."""
     lines = []
 
@@ -508,8 +508,8 @@ def main():
     parser.add_argument(
         "--index", "-i",
         type=str,
-        default="f0rtika-results-synthetic",
-        help="Elasticsearch index name (default: f0rtika-results-synthetic)"
+        default="achilles-results-synthetic",
+        help="Elasticsearch index name (default: achilles-results-synthetic)"
     )
     parser.add_argument(
         "--format", "-f",

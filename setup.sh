@@ -28,6 +28,20 @@ elif command -v dialog &>/dev/null; then
     TUI="dialog"
 fi
 
+# Notify about TUI mode
+if [[ -z "$TUI" ]]; then
+    echo "Tip: Install 'whiptail' for a better experience (apt install whiptail)"
+    echo "Using plain-text prompts."
+    echo ""
+fi
+
+# Check required dependencies
+if ! command -v openssl &>/dev/null; then
+    echo "Error: 'openssl' is required but not found."
+    echo "Install with: sudo apt install openssl  (or your package manager)"
+    exit 1
+fi
+
 NON_INTERACTIVE=false
 if [[ "${1:-}" == "--non-interactive" ]]; then
     NON_INTERACTIVE=true
@@ -44,7 +58,7 @@ show_msgbox() {
     else
         echo ""
         echo "=== $title ==="
-        echo "$text"
+        echo -e "$text"
         echo ""
     fi
 }
@@ -60,7 +74,7 @@ show_yesno() {
     else
         echo ""
         echo "=== $title ==="
-        echo "$text"
+        echo -e "$text"
         while true; do
             read -rp "[y/n]: " yn
             case "$yn" in
@@ -81,7 +95,7 @@ show_inputbox() {
     else
         echo "" >&2
         echo "=== $title ===" >&2
-        echo "$text" >&2
+        echo -e "$text" >&2
         if [[ -n "$default" ]]; then
             read -rp "[$default]: " result
             echo "${result:-$default}"
@@ -101,7 +115,7 @@ show_passwordbox() {
     else
         echo "" >&2
         echo "=== $title ===" >&2
-        echo "$text" >&2
+        echo -e "$text" >&2
         read -rsp "> " result
         echo "" >&2
         echo "$result"
@@ -288,7 +302,7 @@ step_elasticsearch() {
     case "$ES_MODE" in
         local)
             ES_NODE="http://elasticsearch:9200"
-            ES_INDEX="f0rtika-results-*"
+            ES_INDEX="achilles-results-*"
             ;;
         cloud)
             ES_CLOUD_ID=$(show_inputbox "Elastic Cloud" \
@@ -298,7 +312,7 @@ step_elasticsearch() {
                 "Enter your Elasticsearch API Key")
             ES_INDEX=$(show_inputbox "Index Pattern" \
                 "Index pattern for analytics queries" \
-                "$(env_get 'ELASTICSEARCH_INDEX_PATTERN' || echo 'f0rtika-results-*')")
+                "$(env_get 'ELASTICSEARCH_INDEX_PATTERN' || echo 'achilles-results-*')")
             ;;
         self-hosted)
             ES_NODE=$(show_inputbox "Self-hosted Elasticsearch" \
@@ -315,7 +329,7 @@ step_elasticsearch() {
             fi
             ES_INDEX=$(show_inputbox "Index Pattern" \
                 "Index pattern for analytics queries" \
-                "$(env_get 'ELASTICSEARCH_INDEX_PATTERN' || echo 'f0rtika-results-*')")
+                "$(env_get 'ELASTICSEARCH_INDEX_PATTERN' || echo 'achilles-results-*')")
             ;;
     esac
 }
@@ -454,6 +468,14 @@ show_summary() {
             summary+="\nSeed data: es-seed container will load ~1000 records on first start"
         fi
     fi
+
+    summary+="\n--- Tunnel (optional) ---"
+    summary+="\nngrok tunnels are pre-configured for external access."
+    summary+="\nSet these in backend/.env if you want to use your own domains:"
+    summary+="\n  NGROK_FRONTEND_DOMAIN=projectachilles.ngrok.app"
+    summary+="\n  NGROK_BACKEND_DOMAIN=achilles-agent.ngrok.app"
+    summary+="\n  AGENT_SERVER_URL=https://achilles-agent.ngrok.app"
+    summary+="\nThen start with: ./start.sh --tunnel"
 
     show_msgbox "Setup Complete" "$summary"
 }

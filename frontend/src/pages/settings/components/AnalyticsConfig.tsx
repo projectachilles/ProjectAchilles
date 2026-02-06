@@ -22,7 +22,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
   const [node, setNode] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [indexPattern, setIndexPattern] = useState('f0rtika-results-*');
+  const [indexPattern, setIndexPattern] = useState('achilles-results-*');
 
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
@@ -42,7 +42,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
       if (settings.configured) {
         setEditMode(true);
         setConnectionType(settings.connectionType || 'cloud');
-        setIndexPattern(settings.indexPattern || 'f0rtika-results-*');
+        setIndexPattern(settings.indexPattern || 'achilles-results-*');
         onStatusChange?.(true);
       }
     } catch {
@@ -266,7 +266,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
       {/* Index Pattern */}
       <Input
         label="Index Pattern"
-        placeholder="f0rtika-results-*"
+        placeholder="achilles-results-*"
         value={indexPattern}
         onChange={(e) => setIndexPattern(e.target.value)}
       />

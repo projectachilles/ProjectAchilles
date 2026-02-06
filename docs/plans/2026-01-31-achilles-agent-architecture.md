@@ -33,7 +33,7 @@ Achilles Agent is a lightweight, cross-platform agent written in Go that replace
 │         │                  │                    ▼                │
 │         │                  │           ┌───────────────┐        │
 │         │                  │           │ Elasticsearch  │        │
-│         │                  │           │ (f0rtika-*)    │        │
+│         │                  │           │ (achilles-results-*)    │        │
 │         │                  │           └───────────────┘        │
 │  ┌──────┴──────────────────┴────────────────────┐               │
 │  │         Agent Management Service              │               │
@@ -303,7 +303,7 @@ Content-Type: application/json
 }
 ```
 
-The backend transforms this into the Elasticsearch document format (`f0rtika-results-*`), mapping exit codes to the existing canonical error code system (101=Unprotected, 126=ExecutionPrevented, etc.).
+The backend transforms this into the Elasticsearch document format (`achilles-results-*`), mapping exit codes to the existing canonical error code system (101=Unprotected, 126=ExecutionPrevented, etc.).
 
 ---
 
@@ -341,7 +341,7 @@ Agent                              Backend                    Elasticsearch
   │                                  │  Map exit code to result   │
   │                                  │  Build ES document         │
   │                                  │ ──────────────────────────►│
-  │                                  │  Index to f0rtika-results  │
+  │                                  │  Index to achilles-results │
   │                                  │                            │
   │  PATCH /tasks/:id/status         │                            │
   │  { status: "completed" }         │                            │

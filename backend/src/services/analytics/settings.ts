@@ -14,7 +14,7 @@ const defaultSettings: AnalyticsSettings = {
   connectionType: 'cloud',
   cloudId: '',
   apiKey: '',
-  indexPattern: 'f0rtika-results-*',
+  indexPattern: 'achilles-results-*',
   configured: false,
 };
 
@@ -34,7 +34,7 @@ export class SettingsService {
       apiKey: process.env.ELASTICSEARCH_API_KEY || '',
       username: process.env.ELASTICSEARCH_USERNAME || '',
       password: process.env.ELASTICSEARCH_PASSWORD || '',
-      indexPattern: process.env.ELASTICSEARCH_INDEX_PATTERN || 'f0rtika-results-*',
+      indexPattern: process.env.ELASTICSEARCH_INDEX_PATTERN || 'achilles-results-*',
       configured: true,
     };
   }
