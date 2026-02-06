@@ -7,7 +7,9 @@ services:
     environment:
       - PORT=3000
       - NODE_ENV=production
-      - CORS_ORIGIN=http://localhost
+      # These can be overridden via .env file in project root or shell environment
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost}
+      - AGENT_SERVER_URL=${AGENT_SERVER_URL:-}
     volumes:
       - achilles-data:/root/.projectachilles
       - repo-cache:/app/data

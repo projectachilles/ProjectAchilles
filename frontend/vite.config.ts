@@ -12,6 +12,7 @@ export default defineConfig({
     },
   },
   server: {
+    allowedHosts: true, // Allow ngrok and custom domains
     proxy: {
       '/api': {
         target: `http://localhost:${BACKEND_PORT}`,
