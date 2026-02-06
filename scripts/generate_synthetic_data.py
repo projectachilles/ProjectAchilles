@@ -20,6 +20,9 @@ import uuid
 import argparse
 from datetime import datetime, timedelta
 
+# Namespace UUID for deterministic test_uuid generation (uuid5)
+TEST_UUID_NAMESPACE = uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+
 # =============================================================================
 # Reference Data
 # =============================================================================
@@ -301,16 +304,35 @@ TESTS = [
     },
 ]
 
+# Error codes matching the analytics dashboard's ERROR_CODE_MAP
+# (backend/src/services/analytics/elasticsearch.ts)
+#
+# Conclusive outcomes (drive Defense Score):
+#   101 = Unprotected (attack succeeded)
+#   105 = FileQuarantinedOnExtraction (protected)
+#   126 = ExecutionPrevented (protected)
+#   127 = QuarantinedOnExecution (protected)
+#
+# Inconclusive / error (drive Error Rate):
+#   0   = NormalExit (inconclusive)
+#   259 = StillActive / timeout (inconclusive)
+#   999 = UnexpectedTestError (error)
 ERROR_TYPES = [
-    {"code": 0, "name": "SUCCESS"},
-    {"code": 1, "name": "BLOCKED_BY_AV"},
-    {"code": 2, "name": "BLOCKED_BY_EDR"},
-    {"code": 3, "name": "BLOCKED_BY_POLICY"},
-    {"code": 4, "name": "EXECUTION_FAILED"},
-    {"code": 5, "name": "TIMEOUT"},
-    {"code": 6, "name": "ACCESS_DENIED"},
-    {"code": 7, "name": "NETWORK_ERROR"},
+    # --- Conclusive: unprotected ---
+    {"code": 101, "name": "Unprotected"},
+    # --- Conclusive: protected ---
+    {"code": 105, "name": "FileQuarantinedOnExtraction"},
+    {"code": 126, "name": "ExecutionPrevented"},
+    {"code": 127, "name": "QuarantinedOnExecution"},
+    # --- Inconclusive / error ---
+    {"code": 0,   "name": "NormalExit"},
+    {"code": 259, "name": "StillActive"},
+    {"code": 999, "name": "UnexpectedTestError"},
 ]
+
+PROTECTED_CODES = [105, 126, 127]
+UNPROTECTED_CODES = [101]
+INCONCLUSIVE_CODES = [0, 259, 999]
 
 # =============================================================================
 # Data Generation Functions
@@ -353,16 +375,25 @@ def determine_protection_status(test, org_index):
 
 
 def select_error_type(is_protected):
-    """Select an appropriate error type based on protection status."""
+    """Select an appropriate error type based on protection status.
+
+    ~90% of results are conclusive (drive the defense score),
+    ~10% are inconclusive/error (drive the error rate).
+    """
+    _by_code = {e["code"]: e for e in ERROR_TYPES}
+
+    # 10% chance of an inconclusive / error result regardless of protection
+    if random.random() < 0.10:
+        code = random.choices(INCONCLUSIVE_CODES, weights=[0.5, 0.3, 0.2])[0]
+        return _by_code[code]
+
     if is_protected:
-        # Blocked - use blocking error codes
-        blocked_errors = [e for e in ERROR_TYPES if e["code"] in [1, 2, 3, 6]]
-        return random.choice(blocked_errors)
+        # Protected — pick among the three protection codes
+        code = random.choices(PROTECTED_CODES, weights=[0.25, 0.45, 0.30])[0]
+        return _by_code[code]
     else:
-        # Bypassed - use success or failure codes
-        bypass_errors = [e for e in ERROR_TYPES if e["code"] in [0, 4, 5, 7]]
-        weights = [0.7, 0.15, 0.1, 0.05]  # SUCCESS most common
-        return random.choices(bypass_errors, weights=weights)[0]
+        # Unprotected — attack succeeded
+        return _by_code[101]
 
 
 def generate_execution(test, org, hostname, timestamp):
@@ -378,6 +409,9 @@ def generate_execution(test, org, hostname, timestamp):
     # Select a random threat actor from the test's associated actors
     threat_actor = random.choice(test["threat_actors"]) if test["threat_actors"] else None
 
+    # is_protected should agree with the error code, not the random roll
+    actually_protected = error["code"] in PROTECTED_CODES
+
     return {
         "routing": {
             "event_time": timestamp,
@@ -385,9 +419,9 @@ def generate_execution(test, org, hostname, timestamp):
             "hostname": hostname,
         },
         "f0rtika": {
-            "test_uuid": str(uuid.uuid4()),
+            "test_uuid": str(uuid.uuid5(TEST_UUID_NAMESPACE, test["name"])),
             "test_name": test["name"],
-            "is_protected": is_protected,
+            "is_protected": actually_protected,
             "techniques": test["techniques"],
             "error_name": error["name"],
             # Enriched fields

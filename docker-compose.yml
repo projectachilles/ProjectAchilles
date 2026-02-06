@@ -31,7 +31,56 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ---------------------------------------------------------------------------
+  # Optional: Local Elasticsearch for analytics
+  # Activate with: docker compose --profile elasticsearch up -d
+  # ---------------------------------------------------------------------------
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
+    profiles: ["elasticsearch"]
+    container_name: achilles-es
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx1024m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    ports:
+      - "127.0.0.1:9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    restart: unless-stopped
+
+  # One-shot container: creates index + seeds ~1000 records, then exits
+  es-seed:
+    image: python:3.12-slim
+    profiles: ["elasticsearch"]
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ./scripts:/scripts:ro
+    entrypoint: >
+      sh -c "pip install -q elasticsearch &&
+             python /scripts/generate_synthetic_data.py -c 1000 -o /tmp/seed.ndjson -d 30 &&
+             python /scripts/upload_to_elasticsearch.py -f /tmp/seed.ndjson --host http://elasticsearch:9200 --create-index"
+    restart: "no"
+
 volumes:
   achilles-data:
   repo-cache:
   go-cache:
+  esdata:
