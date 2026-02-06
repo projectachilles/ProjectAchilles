@@ -125,7 +125,7 @@ show_radiolist() {
         while [[ $# -ge 3 ]]; do
             local tag="$1" desc="$2" state="$3"
             local marker=""
-            [[ "$state" == "ON" ]] && marker=" (default)"
+            [[ "$state" == "ON" ]] && marker=" (default)" || true
             echo "  $i) $tag — $desc$marker" >&2
             shift 3
             ((i++))
@@ -189,9 +189,9 @@ detect_environment() {
     HAS_NODE=false
     HAS_EXISTING_ENV=false
 
-    command -v docker &>/dev/null && HAS_DOCKER=true
-    command -v node &>/dev/null && HAS_NODE=true
-    [[ -f "$ENV_FILE" ]] && HAS_EXISTING_ENV=true
+    command -v docker &>/dev/null && HAS_DOCKER=true || true
+    command -v node &>/dev/null && HAS_NODE=true || true
+    [[ -f "$ENV_FILE" ]] && HAS_EXISTING_ENV=true || true
 }
 
 step_welcome() {
@@ -383,8 +383,8 @@ write_env() {
     fi
 
     # --- Authentication ---
-    [[ -n "${CLERK_PUB:-}" ]] && env_set "CLERK_PUBLISHABLE_KEY" "$CLERK_PUB"
-    [[ -n "${CLERK_SEC:-}" ]] && env_set "CLERK_SECRET_KEY" "$CLERK_SEC"
+    [[ -n "${CLERK_PUB:-}" ]] && env_set "CLERK_PUBLISHABLE_KEY" "$CLERK_PUB" || true
+    [[ -n "${CLERK_SEC:-}" ]] && env_set "CLERK_SECRET_KEY" "$CLERK_SEC" || true
 
     # --- Secrets ---
     env_set "SESSION_SECRET" "$SESSION_SECRET"
@@ -400,8 +400,8 @@ write_env() {
     fi
 
     # --- Test Repository ---
-    [[ -n "${GITHUB_TOKEN:-}" ]] && env_set "GITHUB_TOKEN" "$GITHUB_TOKEN"
-    [[ -n "${TESTS_REPO_URL:-}" ]] && env_set "TESTS_REPO_URL" "$TESTS_REPO_URL"
+    [[ -n "${GITHUB_TOKEN:-}" ]] && env_set "GITHUB_TOKEN" "$GITHUB_TOKEN" || true
+    [[ -n "${TESTS_REPO_URL:-}" ]] && env_set "TESTS_REPO_URL" "$TESTS_REPO_URL" || true
 
     # --- Elasticsearch ---
     # Clear all ES vars first, then set only the relevant ones
@@ -418,23 +418,23 @@ write_env() {
             env_set "ELASTICSEARCH_INDEX_PATTERN" "$ES_INDEX"
             ;;
         cloud)
-            [[ -n "$ES_CLOUD_ID" ]] && env_set "ELASTICSEARCH_CLOUD_ID" "$ES_CLOUD_ID"
-            [[ -n "$ES_API_KEY" ]]  && env_set "ELASTICSEARCH_API_KEY" "$ES_API_KEY"
-            [[ -n "$ES_INDEX" ]]    && env_set "ELASTICSEARCH_INDEX_PATTERN" "$ES_INDEX"
+            [[ -n "$ES_CLOUD_ID" ]] && env_set "ELASTICSEARCH_CLOUD_ID" "$ES_CLOUD_ID" || true
+            [[ -n "$ES_API_KEY" ]]  && env_set "ELASTICSEARCH_API_KEY" "$ES_API_KEY" || true
+            [[ -n "$ES_INDEX" ]]    && env_set "ELASTICSEARCH_INDEX_PATTERN" "$ES_INDEX" || true
             ;;
         self-hosted)
-            [[ -n "$ES_NODE" ]]     && env_set "ELASTICSEARCH_NODE" "$ES_NODE"
-            [[ -n "$ES_API_KEY" ]]  && env_set "ELASTICSEARCH_API_KEY" "$ES_API_KEY"
-            [[ -n "$ES_USERNAME" ]] && env_set "ELASTICSEARCH_USERNAME" "$ES_USERNAME"
-            [[ -n "$ES_PASSWORD" ]] && env_set "ELASTICSEARCH_PASSWORD" "$ES_PASSWORD"
-            [[ -n "$ES_INDEX" ]]    && env_set "ELASTICSEARCH_INDEX_PATTERN" "$ES_INDEX"
+            [[ -n "$ES_NODE" ]]     && env_set "ELASTICSEARCH_NODE" "$ES_NODE" || true
+            [[ -n "$ES_API_KEY" ]]  && env_set "ELASTICSEARCH_API_KEY" "$ES_API_KEY" || true
+            [[ -n "$ES_USERNAME" ]] && env_set "ELASTICSEARCH_USERNAME" "$ES_USERNAME" || true
+            [[ -n "$ES_PASSWORD" ]] && env_set "ELASTICSEARCH_PASSWORD" "$ES_PASSWORD" || true
+            [[ -n "$ES_INDEX" ]]    && env_set "ELASTICSEARCH_INDEX_PATTERN" "$ES_INDEX" || true
             ;;
     esac
 }
 
 show_summary() {
     local docker_cmd="docker compose up -d"
-    [[ "${ES_MODE:-skip}" == "local" ]] && docker_cmd="docker compose --profile elasticsearch up -d"
+    [[ "${ES_MODE:-skip}" == "local" ]] && docker_cmd="docker compose --profile elasticsearch up -d" || true
 
     local summary="Configuration saved to: backend/.env\n\n"
 
