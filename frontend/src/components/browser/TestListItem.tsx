@@ -1,6 +1,7 @@
 import type { TestMetadata } from '@/types/test';
 import TechniqueBadge from './TechniqueBadge';
-import { Calendar, Layers, Star, Shield, Workflow, Heart } from 'lucide-react';
+import { Calendar, Layers, Star, Shield, Workflow, Heart, User, Clock } from 'lucide-react';
+import { formatRelativeDate, formatFullDate } from '@/utils/dateFormatters';
 
 interface TestListItemProps {
   test: TestMetadata;
@@ -84,6 +85,22 @@ export default function TestListItem({ test, onClick, isFavorite, onToggleFavori
             <div className="flex items-center gap-1 min-w-[100px]">
               <Calendar className="w-3 h-3" />
               <span className="text-xs">{test.createdDate.split(' ')[0]}</span>
+            </div>
+          )}
+
+          {/* Author */}
+          {test.author && (
+            <div className="flex items-center gap-1 min-w-[80px]">
+              <User className="w-3 h-3" />
+              <span className="text-xs truncate max-w-[80px]">{test.author}</span>
+            </div>
+          )}
+
+          {/* Last Modified */}
+          {test.lastModifiedDate && (
+            <div className="flex items-center gap-1 min-w-[70px]" title={formatFullDate(test.lastModifiedDate)}>
+              <Clock className="w-3 h-3" />
+              <span className="text-xs">{formatRelativeDate(test.lastModifiedDate)}</span>
             </div>
           )}
 

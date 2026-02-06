@@ -8,7 +8,8 @@ import DefenseDashboard from '@/components/browser/DefenseDashboard';
 import { useTheme } from '@/hooks/useTheme';
 import BuildSection from '@/components/browser/BuildSection';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
-import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2, Heart } from 'lucide-react';
+import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2, Heart, Tag, User, Clock } from 'lucide-react';
+import { formatRelativeDate, formatFullDate } from '@/utils/dateFormatters';
 
 export default function TestDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
@@ -251,10 +252,33 @@ export default function TestDetailPage() {
                       <span>{test.stages.length} stages</span>
                     </div>
                   )}
+                  {test.version && (
+                    <div className="flex items-center gap-1">
+                      <Tag className="w-4 h-4" />
+                      <span>v{test.version}</span>
+                    </div>
+                  )}
+                  {test.author && (
+                    <div className="flex items-center gap-1">
+                      <User className="w-4 h-4" />
+                      <span>{test.author}</span>
+                    </div>
+                  )}
                   {test.createdDate && (
                     <div className="flex items-center gap-1">
                       <Calendar className="w-4 h-4" />
                       <span>{test.createdDate}</span>
+                    </div>
+                  )}
+                  {test.lastModifiedDate && (
+                    <div
+                      className="flex items-center gap-1"
+                      title={test.lastCommitMessage
+                        ? `${formatFullDate(test.lastModifiedDate)} — ${test.lastCommitMessage}`
+                        : formatFullDate(test.lastModifiedDate)}
+                    >
+                      <Clock className="w-4 h-4" />
+                      <span>Modified {formatRelativeDate(test.lastModifiedDate)}</span>
                     </div>
                   )}
                   <span className="font-mono text-xs">{test.uuid}</span>

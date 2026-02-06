@@ -1,6 +1,7 @@
 import type { TestMetadata } from '@/types/test';
-import { FileCode2, Calendar, Layers, Star, Shield, Workflow, ShieldCheck, Heart } from 'lucide-react';
+import { FileCode2, Calendar, Layers, Star, Shield, Workflow, ShieldCheck, Heart, User, Clock } from 'lucide-react';
 import TechniqueBadge from './TechniqueBadge';
+import { formatRelativeDate, formatFullDate } from '@/utils/dateFormatters';
 
 interface TestCardProps {
   test: TestMetadata;
@@ -67,6 +68,18 @@ export default function TestCard({ test, onClick, isFavorite, onToggleFavorite }
             <div className="flex items-center gap-1">
               <Calendar className="w-3 h-3" />
               <span>{test.createdDate}</span>
+            </div>
+          )}
+          {test.author && (
+            <div className="flex items-center gap-1">
+              <User className="w-3 h-3" />
+              <span>{test.author}</span>
+            </div>
+          )}
+          {test.lastModifiedDate && (
+            <div className="flex items-center gap-1" title={formatFullDate(test.lastModifiedDate)}>
+              <Clock className="w-3 h-3" />
+              <span>{formatRelativeDate(test.lastModifiedDate)}</span>
             </div>
           )}
         </div>

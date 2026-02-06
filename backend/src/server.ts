@@ -18,6 +18,7 @@ import { createTestsRouter } from './api/tests.routes.js';
 // import endpointsRoutes from './api/endpoints/index.js';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware.js';
 import { GitSyncService } from './services/browser/gitSyncService.js';
+import { GitHubMetadataService } from './services/browser/githubMetadataService.js';
 import { createAgentRouter } from './api/agent/index.js';
 import { processSchedules } from './services/agent/schedules.service.js';
 import { initCatalog } from './services/agent/test-catalog.service.js';
@@ -134,6 +135,21 @@ async function startServer() {
   // ============ TEST CATALOG ============
   initCatalog(testsSourcePath);
 
+  // ============ GITHUB METADATA SERVICE ============
+  let githubMetadata: GitHubMetadataService | undefined;
+  if (repoUrl && process.env.GITHUB_TOKEN) {
+    try {
+      githubMetadata = new GitHubMetadataService({
+        repoUrl,
+        branch: process.env.TESTS_REPO_BRANCH || 'main',
+        githubToken: process.env.GITHUB_TOKEN,
+      });
+      console.log('✓ GitHub metadata service initialized');
+    } catch (error) {
+      console.warn('⚠ GitHub metadata service unavailable:', error instanceof Error ? error.message : error);
+    }
+  }
+
   // ============ ROUTES ============
 
   // Health check
@@ -150,6 +166,7 @@ async function startServer() {
   const browserRouter = createBrowserRouter({
     testsSourcePath,
     gitSync: gitSyncService,
+    githubMetadata,
   });
   app.use('/api/browser', browserRouter);
 
