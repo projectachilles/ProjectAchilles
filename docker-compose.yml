@@ -9,7 +9,6 @@ services:
       - NODE_ENV=production
       # These can be overridden via .env file in project root or shell environment
       - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost}
-      - AGENT_SERVER_URL=${AGENT_SERVER_URL:-}
       - AGENT_SOURCE_PATH=/agent-src
       # Default to local Docker ES (override Cloud settings that may come from env_file).
       # To use Elastic Cloud instead, configure via the Settings UI — file-based
