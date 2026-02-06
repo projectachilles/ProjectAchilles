@@ -63,7 +63,17 @@ export class AgentBuildService {
       throw new Error(`Agent source not found: missing go.mod at ${this.agentSourcePath}`);
     }
 
-    // 3. Prepare output directory
+    // 3. Copy source to a writable temp directory.
+    //    The source may be on a read-only mount (Docker `:ro`), and
+    //    `go mod tidy` needs to write go.mod/go.sum.
+    const buildWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-build-'));
+    try {
+      fs.cpSync(this.agentSourcePath, buildWorkDir, { recursive: true });
+    } catch (err) {
+      throw new Error(`Failed to copy agent source to temp dir: ${(err as Error).message}`);
+    }
+
+    // 4. Prepare output directory
     const binDir = path.join(os.homedir(), '.projectachilles', 'binaries', `${targetOs}-${arch}`);
     fs.mkdirSync(binDir, { recursive: true });
 
@@ -74,7 +84,7 @@ export class AgentBuildService {
     // Use a temp path during build to avoid partial files
     const tmpPath = outputPath + '.tmp';
 
-    // 4. Build environment
+    // 5. Build environment
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       GOOS: targetOs,
@@ -82,32 +92,35 @@ export class AgentBuildService {
       CGO_ENABLED: '0',
     };
 
-    // 5. Download dependencies
-    if (fs.existsSync(goModPath)) {
+    try {
+      // 6. Download dependencies
       await runBuildCommand('go', ['mod', 'tidy'], {
-        cwd: this.agentSourcePath,
+        cwd: buildWorkDir,
         env,
         timeout: BUILD_TIMEOUT,
       });
       await runBuildCommand('go', ['mod', 'download'], {
-        cwd: this.agentSourcePath,
+        cwd: buildWorkDir,
         env,
         timeout: BUILD_TIMEOUT,
       });
+
+      // 7. Cross-compile
+      const ldflags = `-s -w -X main.version=${version}`;
+      await runBuildCommand(
+        'go',
+        ['build', '-ldflags', ldflags, '-o', tmpPath, '.'],
+        { cwd: buildWorkDir, env, timeout: BUILD_TIMEOUT },
+      );
+
+      // Move temp to final
+      fs.renameSync(tmpPath, outputPath);
+    } finally {
+      // Clean up temp build directory
+      fs.rmSync(buildWorkDir, { recursive: true, force: true });
     }
 
-    // 6. Cross-compile
-    const ldflags = `-s -w -X main.version=${version}`;
-    await runBuildCommand(
-      'go',
-      ['build', '-ldflags', ldflags, '-o', tmpPath, '.'],
-      { cwd: this.agentSourcePath, env, timeout: BUILD_TIMEOUT },
-    );
-
-    // Move temp to final
-    fs.renameSync(tmpPath, outputPath);
-
-    // 7. Sign Windows binaries if active certificate exists
+    // 8. Sign Windows binaries if active certificate exists
     let signed = false;
     if (targetOs === 'windows') {
       const activeCert = this.settingsService.getActiveCertPfxPath();
