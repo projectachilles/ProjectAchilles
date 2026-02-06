@@ -168,10 +168,9 @@ export class SettingsService {
     if (settings.connectionType === 'cloud') {
       return !!(settings.cloudId && settings.apiKey);
     } else {
-      return !!(
-        settings.node &&
-        (settings.apiKey || (settings.username && settings.password))
-      );
+      // Direct connections only require a node URL; auth is optional
+      // (e.g. local ES with xpack.security.enabled=false)
+      return !!settings.node;
     }
   }
 }

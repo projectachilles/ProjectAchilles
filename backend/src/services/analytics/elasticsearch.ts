@@ -120,8 +120,8 @@ export class ElasticsearchService {
     return {
       bool: {
         must: [
-          { exists: { field: 'f0rtika.test_uuid.keyword' } },
-          { exists: { field: 'f0rtika.test_name.keyword' } }
+          { exists: { field: 'f0rtika.test_uuid' } },
+          { exists: { field: 'f0rtika.test_name' } }
         ]
       }
     };

@@ -140,7 +140,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
     ? true
     : connectionType === 'cloud'
       ? cloudId && apiKey
-      : node && (apiKey || (username && password));
+      : !!node; // Auth is optional for direct connections (e.g. local ES with security disabled)
 
   if (loading) {
     return (
@@ -242,7 +242,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
             placeholder={editMode ? 'Leave blank to keep current' : 'Your Elasticsearch API key'}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            helperText={editMode ? 'Optional: Only fill in to update' : undefined}
+            helperText={editMode ? 'Optional: Only fill in to update' : 'Optional for local instances with security disabled'}
           />
           <div className="text-center text-sm text-muted-foreground">— or —</div>
           <Input

@@ -10,6 +10,13 @@ services:
       # These can be overridden via .env file in project root or shell environment
       - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost}
       - AGENT_SERVER_URL=${AGENT_SERVER_URL:-}
+      # Default to local Docker ES (override Cloud settings that may come from env_file).
+      # To use Elastic Cloud instead, configure via the Settings UI — file-based
+      # settings take priority over these env vars.
+      - ELASTICSEARCH_NODE=${ELASTICSEARCH_NODE:-http://elasticsearch:9200}
+      - ELASTICSEARCH_CLOUD_ID=
+      - ELASTICSEARCH_API_KEY=
+      - ELASTICSEARCH_INDEX_PATTERN=${ELASTICSEARCH_INDEX_PATTERN:-achilles-results-*}
     volumes:
       - achilles-data:/root/.projectachilles
       - repo-cache:/app/data
