@@ -136,6 +136,13 @@ function initializeTables(database: Database.Database): void {
   if (!scheduleColNames.has('target_index')) {
     database.exec(`ALTER TABLE schedules ADD COLUMN target_index TEXT DEFAULT NULL`);
   }
+
+  // Migration: add signed column to agent_versions table
+  const versionCols = database.prepare(`PRAGMA table_info(agent_versions)`).all() as { name: string }[];
+  const versionColNames = new Set(versionCols.map((c) => c.name));
+  if (!versionColNames.has('signed')) {
+    database.exec(`ALTER TABLE agent_versions ADD COLUMN signed INTEGER DEFAULT 0`);
+  }
 }
 
 export function closeDatabase(): void {

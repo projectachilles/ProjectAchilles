@@ -232,5 +232,6 @@ export interface AgentVersion {
   binary_size: number;
   release_notes: string;
   mandatory: boolean;
+  signed?: boolean;
   created_at: string;
 }

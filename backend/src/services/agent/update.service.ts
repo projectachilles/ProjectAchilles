@@ -17,6 +17,7 @@ interface VersionRow {
   binary_size: number;
   release_notes: string;
   mandatory: number;
+  signed: number;
   created_at: string;
 }
 
@@ -24,6 +25,7 @@ function toAgentVersion(row: VersionRow): AgentVersion {
   return {
     ...row,
     mandatory: row.mandatory === 1,
+    signed: row.signed === 1,
   };
 }
 
@@ -37,7 +39,8 @@ export function registerVersion(
   arch: AgentArch,
   binaryPath: string,
   releaseNotes: string,
-  mandatory: boolean
+  mandatory: boolean,
+  signed: boolean = false,
 ): AgentVersion {
   if (!fs.existsSync(binaryPath)) {
     throw new Error(`Binary not found: ${binaryPath}`);
@@ -49,9 +52,9 @@ export function registerVersion(
 
   const db = getDatabase();
   db.prepare(`
-    INSERT OR REPLACE INTO agent_versions (version, os, arch, binary_path, binary_sha256, binary_size, release_notes, mandatory)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(version, os, arch, binaryPath, sha256, stat.size, releaseNotes, mandatory ? 1 : 0);
+    INSERT OR REPLACE INTO agent_versions (version, os, arch, binary_path, binary_sha256, binary_size, release_notes, mandatory, signed)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(version, os, arch, binaryPath, sha256, stat.size, releaseNotes, mandatory ? 1 : 0, signed ? 1 : 0);
 
   return {
     version,
@@ -62,6 +65,7 @@ export function registerVersion(
     binary_size: stat.size,
     release_notes: releaseNotes,
     mandatory,
+    signed,
     created_at: new Date().toISOString(),
   };
 }
@@ -132,7 +136,7 @@ export function streamUpdate(os: AgentOS, arch: AgentArch, res: Response): void 
 export function listVersions(): AgentVersion[] {
   const db = getDatabase();
   const rows = db.prepare(`
-    SELECT version, os, arch, binary_path, binary_sha256, binary_size, release_notes, mandatory, created_at
+    SELECT version, os, arch, binary_path, binary_sha256, binary_size, release_notes, mandatory, signed, created_at
     FROM agent_versions
     ORDER BY created_at DESC
   `).all() as VersionRow[];

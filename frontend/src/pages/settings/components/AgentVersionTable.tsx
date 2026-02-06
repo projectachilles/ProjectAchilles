@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/shared/ui/Button';
 import { Spinner } from '@/components/shared/ui/Spinner';
 import { Badge } from '@/components/shared/ui/Badge';
@@ -58,6 +58,7 @@ export function AgentVersionTable({ versions, onDeleted }: AgentVersionTableProp
           <TableHead>Arch</TableHead>
           <TableHead>Size</TableHead>
           <TableHead>SHA-256</TableHead>
+          <TableHead>Signed</TableHead>
           <TableHead>Mandatory</TableHead>
           <TableHead>Created</TableHead>
           <TableHead className="w-16">Delete</TableHead>
@@ -78,6 +79,13 @@ export function AgentVersionTable({ versions, onDeleted }: AgentVersionTableProp
                 title={v.binary_sha256}
               >
                 {v.binary_sha256.slice(0, 12)}...
+              </TableCell>
+              <TableCell>
+                {v.signed ? (
+                  <ShieldCheck className="w-4 h-4 text-green-500" />
+                ) : (
+                  <span className="text-muted-foreground text-sm">—</span>
+                )}
               </TableCell>
               <TableCell>
                 {v.mandatory ? (

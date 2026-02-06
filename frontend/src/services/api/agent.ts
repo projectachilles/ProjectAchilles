@@ -126,6 +126,11 @@ export const agentApi = {
     await apiClient.delete(`/agent/admin/versions/${encodeURIComponent(version)}/${os}/${arch}`);
   },
 
+  async buildVersion(version: string, os: string, arch: string): Promise<AgentVersion> {
+    const response = await apiClient.post('/agent/admin/versions/build', { version, os, arch });
+    return response.data.data;
+  },
+
   // --- Schedules ---
 
   async createSchedule(data: CreateScheduleRequest): Promise<Schedule> {

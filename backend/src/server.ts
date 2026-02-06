@@ -182,7 +182,8 @@ async function startServer() {
   // app.use('/api/endpoints', endpointsRoutes);
 
   // Agent module - Achilles Agent management
-  app.use('/api/agent', createAgentRouter({ testsSourcePath }));
+  const agentSourcePath = process.env.AGENT_SOURCE_PATH || path.resolve(__dirname, '../../agent');
+  app.use('/api/agent', createAgentRouter({ testsSourcePath, agentSourcePath }));
 
   // ============ ERROR HANDLING ============
   app.use(notFoundHandler);

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Upload, Package } from 'lucide-react';
+import { Upload, Package, Hammer } from 'lucide-react';
 import { IntegrationCard, type IntegrationStatus } from './IntegrationCard';
+import { AgentBuildFromSource } from './AgentBuildFromSource';
 import { AgentBinaryUpload } from './AgentBinaryUpload';
 import { AgentVersionTable } from './AgentVersionTable';
 import { agentApi } from '@/services/api/agent';
@@ -39,17 +40,27 @@ export function AgentTab() {
       <div className="mb-6">
         <h2 className="text-xl font-semibold">Agent</h2>
         <p className="text-muted-foreground text-sm mt-1">
-          Upload and manage Achilles agent binaries
+          Build, upload, and manage Achilles agent binaries
         </p>
       </div>
 
       <IntegrationCard
-        icon={Upload}
-        title="Upload Agent Binary"
-        description="Upload a compiled agent binary for distribution"
+        icon={Hammer}
+        title="Build Agent Binary"
+        description="Cross-compile the agent from source for a target platform"
         status={status}
         statusMessage={statusMessage}
         defaultExpanded
+      >
+        <AgentBuildFromSource onBuilt={fetchVersions} />
+      </IntegrationCard>
+
+      <IntegrationCard
+        icon={Upload}
+        title="Upload Agent Binary"
+        description="Upload a pre-compiled agent binary for distribution"
+        status={status}
+        statusMessage={statusMessage}
       >
         <AgentBinaryUpload onUploaded={fetchVersions} />
       </IntegrationCard>
