@@ -469,13 +469,13 @@ show_summary() {
         fi
     fi
 
-    summary+="\n--- Tunnel (optional) ---"
-    summary+="\nngrok tunnels are pre-configured for external access."
-    summary+="\nSet these in backend/.env if you want to use your own domains:"
+    summary+="\n--- Tunnel (./start.sh only) ---"
+    summary+="\nngrok domains are pre-configured in backend/.env for external access."
+    summary+="\nThis does NOT apply to Docker Compose — only to: ./start.sh --tunnel"
+    summary+="\nDefaults:"
     summary+="\n  NGROK_FRONTEND_DOMAIN=projectachilles.ngrok.app"
     summary+="\n  NGROK_BACKEND_DOMAIN=achilles-agent.ngrok.app"
-    summary+="\n  AGENT_SERVER_URL=https://achilles-agent.ngrok.app"
-    summary+="\nThen start with: ./start.sh --tunnel"
+    summary+="\nEdit backend/.env to use your own ngrok domains."
 
     show_msgbox "Setup Complete" "$summary"
 }
