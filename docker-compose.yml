@@ -74,7 +74,7 @@ services:
     volumes:
       - ./scripts:/scripts:ro
     entrypoint: >
-      sh -c "pip install -q elasticsearch &&
+      sh -c "pip install -q 'elasticsearch>=8,<9' &&
              python /scripts/generate_synthetic_data.py -c 1000 -o /tmp/seed.ndjson -d 30 &&
              python /scripts/upload_to_elasticsearch.py -f /tmp/seed.ndjson --host http://elasticsearch:9200 --create-index"
     restart: "no"
