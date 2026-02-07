@@ -33,8 +33,19 @@ const INVALID_COMBOS: Array<{ os: string; arch: string }> = [
 export class TestsSettingsService {
   // Derive encryption key from ENCRYPTION_SECRET env var, or fall back to machine ID
   private getEncryptionKey(): Buffer {
-    const machineId = process.env.ENCRYPTION_SECRET || (os.hostname() + os.userInfo().username);
-    return crypto.createHash('sha256').update(machineId).digest();
+    const secret = process.env.ENCRYPTION_SECRET;
+    if (!secret) {
+      console.warn('');
+      console.warn('WARNING: ENCRYPTION_SECRET not set — using weak machine-derived key.');
+      console.warn('  Set ENCRYPTION_SECRET in .env: openssl rand -base64 32');
+      console.warn('');
+      const machineId = os.hostname() + os.userInfo().username;
+      return crypto.createHash('sha256').update(machineId).digest();
+    }
+    if (secret.length < 16) {
+      throw new Error('ENCRYPTION_SECRET must be at least 16 characters');
+    }
+    return crypto.createHash('sha256').update(secret).digest();
   }
 
   private encrypt(text: string): string {
@@ -316,6 +327,18 @@ export class TestsSettingsService {
     const certPath = path.join(certDir, 'cert.crt');
     const pfxPath = path.join(certDir, 'cert.pfx');
     const cerPath = path.join(certDir, 'cert.cer');
+
+    // M1: Validate subject fields to prevent injection into the openssl -subj string
+    const SAFE_SUBJECT = /^[a-zA-Z0-9 .\-,&'()]+$/;
+    if (!SAFE_SUBJECT.test(subject.commonName)) {
+      throw new Error('commonName contains invalid characters');
+    }
+    if (!SAFE_SUBJECT.test(subject.organization)) {
+      throw new Error('organization contains invalid characters');
+    }
+    if (!SAFE_SUBJECT.test(subject.country)) {
+      throw new Error('country contains invalid characters');
+    }
 
     const subjectStr = `/CN=${subject.commonName}/O=${subject.organization}/C=${subject.country}`;
 

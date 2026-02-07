@@ -9,7 +9,7 @@ import type {
   CreateTokenResponse,
 } from '../../types/agent.js';
 
-const BCRYPT_ROUNDS = 10;
+const BCRYPT_ROUNDS = 12;
 const TOKEN_PREFIX = 'acht_';
 const API_KEY_PREFIX = 'ak_';
 
@@ -96,11 +96,16 @@ export async function enrollAgent(request: EnrollmentRequest): Promise<Enrollmen
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]')
   `);
 
+  // M3: Atomically increment use_count only if still below max_uses (prevents TOCTOU race)
   const incrementUseCount = db.prepare(`
-    UPDATE enrollment_tokens SET use_count = use_count + 1 WHERE id = ?
+    UPDATE enrollment_tokens SET use_count = use_count + 1 WHERE id = ? AND use_count < max_uses
   `);
 
   const transaction = db.transaction(() => {
+    const result = incrementUseCount.run(matchedToken!.id);
+    if (result.changes === 0) {
+      throw new AppError('Enrollment token no longer available', 409);
+    }
     insertAgent.run(
       agentId,
       matchedToken!.org_id,
@@ -112,7 +117,6 @@ export async function enrollAgent(request: EnrollmentRequest): Promise<Enrollmen
       now,
       matchedToken!.id
     );
-    incrementUseCount.run(matchedToken!.id);
   });
 
   transaction();

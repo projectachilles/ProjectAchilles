@@ -46,8 +46,19 @@ export class SettingsService {
 
   // Derive encryption key from ENCRYPTION_SECRET env var, or fall back to machine ID
   private getEncryptionKey(): Buffer {
-    const machineId = process.env.ENCRYPTION_SECRET || (os.hostname() + os.userInfo().username);
-    return crypto.createHash('sha256').update(machineId).digest();
+    const secret = process.env.ENCRYPTION_SECRET;
+    if (!secret) {
+      console.warn('');
+      console.warn('WARNING: ENCRYPTION_SECRET not set — using weak machine-derived key.');
+      console.warn('  Set ENCRYPTION_SECRET in .env: openssl rand -base64 32');
+      console.warn('');
+      const machineId = os.hostname() + os.userInfo().username;
+      return crypto.createHash('sha256').update(machineId).digest();
+    }
+    if (secret.length < 16) {
+      throw new Error('ENCRYPTION_SECRET must be at least 16 characters');
+    }
+    return crypto.createHash('sha256').update(secret).digest();
   }
 
   // Encrypt a string

@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { Router } from 'express';
 import { requireAgentAuth } from '../../middleware/agentAuth.middleware.js';
-import { requireClerkAuth } from '../../middleware/clerk.middleware.js';
+import { requireClerkAuth, requireOrgAccess } from '../../middleware/clerk.middleware.js';
 import { agentEnrollmentRouter, adminEnrollmentRouter } from './enrollment.routes.js';
 import { agentHeartbeatRouter, adminAgentRouter } from './heartbeat.routes.js';
 import { agentTasksRouter, adminTasksRouter } from './tasks.routes.js';
@@ -24,14 +24,14 @@ export function createAgentRouter(options: { testsSourcePath: string; agentSourc
     console.log(`  Agent build-from-source enabled (source: ${options.agentSourcePath})`);
   }
 
-  // Admin endpoints mounted at /admin - Clerk auth applied here so
-  // individual admin routers don't need their own Clerk middleware.
-  router.use('/admin', requireClerkAuth(), adminEnrollmentRouter);
-  router.use('/admin', requireClerkAuth(), adminAgentRouter);
-  router.use('/admin', requireClerkAuth(), adminTasksRouter);
-  router.use('/admin', requireClerkAuth(), createAdminUpdateRouter(buildService));
-  router.use('/admin', requireClerkAuth(), adminSchedulesRouter);
-  router.use('/admin', requireClerkAuth(), createAdminCatalogRouter(options.testsSourcePath));
+  // Admin endpoints mounted at /admin - Clerk auth + org access applied here so
+  // individual admin routers don't need their own Clerk/org middleware.
+  router.use('/admin', requireClerkAuth(), requireOrgAccess, adminEnrollmentRouter);
+  router.use('/admin', requireClerkAuth(), requireOrgAccess, adminAgentRouter);
+  router.use('/admin', requireClerkAuth(), requireOrgAccess, adminTasksRouter);
+  router.use('/admin', requireClerkAuth(), requireOrgAccess, createAdminUpdateRouter(buildService));
+  router.use('/admin', requireClerkAuth(), requireOrgAccess, adminSchedulesRouter);
+  router.use('/admin', requireClerkAuth(), requireOrgAccess, createAdminCatalogRouter(options.testsSourcePath));
 
   // Public agent endpoint (no auth required for enrollment)
   router.use(agentEnrollmentRouter);

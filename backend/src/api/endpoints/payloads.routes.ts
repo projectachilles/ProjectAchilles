@@ -7,9 +7,12 @@ import { z } from 'zod';
 import multer from 'multer';
 import { payloadsService } from '../../services/endpoints/payloads.service.js';
 import { requireAuth, getCredentials } from '../../middleware/auth.middleware.js';
-import { asyncHandler } from '../../middleware/error.middleware.js';
+import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
+
+const ALLOWED_UPLOAD_DIR = path.join(os.homedir(), '.projectachilles', 'builds');
 
 const router = Router();
 
@@ -94,7 +97,13 @@ router.post(
       })
       .parse(req.body);
 
-    const result = await payloadsService.uploadPayload(credentials, filePath);
+    // C1: Confine file reads to the builds directory to prevent arbitrary file read
+    const resolvedPath = path.resolve(filePath);
+    if (!resolvedPath.startsWith(ALLOWED_UPLOAD_DIR + path.sep) && resolvedPath !== ALLOWED_UPLOAD_DIR) {
+      throw new AppError('File path must be within the builds directory', 403);
+    }
+
+    const result = await payloadsService.uploadPayload(credentials, resolvedPath);
 
     res.json({
       success: true,
@@ -145,8 +154,9 @@ router.get(
       return res.status(401).json({ success: false, error: 'Not authenticated' });
     }
 
-    // Create temp download path
-    const tempPath = path.join('/tmp', `lc-download-${Date.now()}-${req.params.name}`);
+    // H3: Sanitize name to prevent path traversal in temp file path
+    const safeName = path.basename(req.params.name);
+    const tempPath = path.join('/tmp', `lc-download-${Date.now()}-${safeName}`);
 
     try {
       const filePath = await payloadsService.downloadPayload(

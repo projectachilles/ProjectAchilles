@@ -3,7 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import session from 'express-session';
-// import rateLimit from 'express-rate-limit'; // Unused - LimaCharlie routes disabled
+import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import http from 'http';
 import path from 'path';
@@ -44,9 +44,21 @@ app.set('trust proxy', 1);
 
 // ============ MIDDLEWARE ============
 
-// Security headers (relaxed for development)
+// Security headers with Content Security Policy
 app.use(helmet({
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],       // Clerk SDK needs inline scripts
+      styleSrc: ["'self'", "'unsafe-inline'"],         // Tailwind
+      imgSrc: ["'self'", "data:", "https:", "blob:"],
+      connectSrc: ["'self'", "https://*.clerk.com", "https://*.clerk.accounts.dev"],
+      frameSrc: ["'self'", "blob:"],
+      fontSrc: ["'self'", "data:"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+    },
+  },
   crossOriginEmbedderPolicy: false,
 }));
 
@@ -89,12 +101,15 @@ app.use(session({
 app.use(clerkAuth);
 app.use(linkClerkSession);
 
-// Rate limiting for auth endpoints (currently unused - LimaCharlie routes disabled)
-// const authLimiter = rateLimit({
-//   windowMs: 15 * 60 * 1000, // 15 minutes
-//   max: 20, // 20 requests per window
-//   message: { error: 'Too many authentication attempts, please try again later' },
-// });
+// Global API rate limiter
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 300,                  // 300 requests per 15-minute window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many requests, please try again later' },
+});
+app.use('/api', apiLimiter);
 
 // ============ ASYNC STARTUP ============
 async function startServer() {

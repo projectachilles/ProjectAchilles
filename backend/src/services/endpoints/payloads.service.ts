@@ -35,7 +35,7 @@ export class PayloadsService {
 
       // Step 1: Get pre-signed upload URL
       const authHeader = await authService.getAuthHeader(credentials);
-      const uploadUrl = `${API_BASE_URL}/v1/payload/${credentials.oid}/${fileName}`;
+      const uploadUrl = `${API_BASE_URL}/v1/payload/${encodeURIComponent(credentials.oid)}/${encodeURIComponent(fileName)}`;
 
       const urlResponse = await axios.post<{ put_url: string }>(
         uploadUrl,
@@ -81,7 +81,7 @@ export class PayloadsService {
   ): Promise<DownloadPayloadResponse> {
     try {
       const authHeader = await authService.getAuthHeader(credentials);
-      const url = `${API_BASE_URL}/v1/payload/${credentials.oid}/${payloadName}`;
+      const url = `${API_BASE_URL}/v1/payload/${encodeURIComponent(credentials.oid)}/${encodeURIComponent(payloadName)}`;
 
       const response = await axios.get<{ get_url: string }>(url, {
         headers: { Authorization: authHeader },
@@ -138,7 +138,7 @@ export class PayloadsService {
   async listPayloads(credentials: Credentials): Promise<{ name: string }[]> {
     try {
       const authHeader = await authService.getAuthHeader(credentials);
-      const url = `${API_BASE_URL}/v1/payload/${credentials.oid}`;
+      const url = `${API_BASE_URL}/v1/payload/${encodeURIComponent(credentials.oid)}`;
 
       const response = await axios.get(url, {
         headers: { Authorization: authHeader },
@@ -201,7 +201,7 @@ export class PayloadsService {
   async deletePayload(credentials: Credentials, payloadName: string): Promise<void> {
     try {
       const authHeader = await authService.getAuthHeader(credentials);
-      const url = `${API_BASE_URL}/v1/payload/${credentials.oid}/${payloadName}`;
+      const url = `${API_BASE_URL}/v1/payload/${encodeURIComponent(credentials.oid)}/${encodeURIComponent(payloadName)}`;
 
       await axios.delete(url, {
         headers: { Authorization: authHeader },
@@ -226,7 +226,7 @@ export class PayloadsService {
     try {
       // Step 1: Get pre-signed upload URL
       const authHeader = await authService.getAuthHeader(credentials);
-      const uploadUrl = `${API_BASE_URL}/v1/payload/${credentials.oid}/${fileName}`;
+      const uploadUrl = `${API_BASE_URL}/v1/payload/${encodeURIComponent(credentials.oid)}/${encodeURIComponent(fileName)}`;
 
       const urlResponse = await axios.post<{ put_url: string }>(
         uploadUrl,

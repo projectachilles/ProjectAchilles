@@ -13,6 +13,9 @@ interface AgentRow {
   api_key_hash: string;
 }
 
+// M2: Pre-computed dummy hash so bcrypt.compare always runs, eliminating timing oracle
+const DUMMY_HASH = bcrypt.hashSync('dummy-value-for-timing', 12);
+
 /**
  * Express middleware that authenticates agent API calls.
  *
@@ -21,7 +24,7 @@ interface AgentRow {
  *   - X-Agent-ID: <agent_id>
  *
  * On success, attaches `req.agent` as AuthenticatedAgent.
- * On failure, returns 401 (invalid/missing credentials) or 403 (disabled agent).
+ * On failure, returns 401 with uniform error message for all failure modes.
  */
 export function requireAgentAuth(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
@@ -48,21 +51,18 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
     'SELECT id, org_id, hostname, os, arch, status, api_key_hash FROM agents WHERE id = ?'
   ).get(agentId) as AgentRow | undefined;
 
-  if (!row) {
-    res.status(401).json({ success: false, error: 'Invalid agent credentials' });
-    return;
-  }
+  // M2: Always run bcrypt.compare to prevent timing oracle — use dummy hash if agent not found
+  const hashToCompare = row?.api_key_hash ?? DUMMY_HASH;
 
-  // Check agent status before expensive bcrypt comparison
-  if (row.status !== 'active') {
-    res.status(403).json({ success: false, error: 'Agent is disabled' });
-    return;
-  }
-
-  // Verify API key (async bcrypt compare)
-  bcrypt.compare(token, row.api_key_hash)
+  bcrypt.compare(token, hashToCompare)
     .then((match) => {
-      if (!match) {
+      // Uniform rejection: agent not found, wrong key, or inactive — same 401 message
+      if (!row || !match) {
+        res.status(401).json({ success: false, error: 'Invalid agent credentials' });
+        return;
+      }
+
+      if (row.status !== 'active') {
         res.status(401).json({ success: false, error: 'Invalid agent credentials' });
         return;
       }

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
+import { requireAgentOrgAccess } from '../../middleware/clerk.middleware.js';
 import {
   processHeartbeat,
   getAgentMetrics,
@@ -106,6 +107,7 @@ adminAgentRouter.get(
  */
 adminAgentRouter.get(
   '/agents/:id',
+  requireAgentOrgAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const agent = getAgent(req.params.id);
     if (!agent) {
@@ -122,6 +124,7 @@ adminAgentRouter.get(
  */
 adminAgentRouter.patch(
   '/agents/:id',
+  requireAgentOrgAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const existing = getAgent(req.params.id);
     if (!existing) {
@@ -146,6 +149,7 @@ adminAgentRouter.patch(
  */
 adminAgentRouter.delete(
   '/agents/:id',
+  requireAgentOrgAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const existing = getAgent(req.params.id);
     if (!existing) {
@@ -164,6 +168,7 @@ adminAgentRouter.delete(
  */
 adminAgentRouter.post(
   '/agents/:id/tags',
+  requireAgentOrgAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { tag } = req.body as { tag: string };
     if (!tag || typeof tag !== 'string') {
@@ -182,6 +187,7 @@ adminAgentRouter.post(
  */
 adminAgentRouter.delete(
   '/agents/:id/tags/:tag',
+  requireAgentOrgAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { tag } = req.params;
     if (!tag || typeof tag !== 'string') {

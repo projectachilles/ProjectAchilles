@@ -69,7 +69,7 @@ describe('requireAgentAuth', () => {
     expect(res.status).toHaveBeenCalledWith(401);
   });
 
-  it('returns 401 when agent ID does not exist', () => {
+  it('returns 401 when agent ID does not exist', async () => {
     const req = mockReq({
       authorization: `Bearer ${apiKeyPlain}`,
       'x-agent-id': 'nonexistent',
@@ -79,10 +79,13 @@ describe('requireAgentAuth', () => {
 
     requireAgentAuth(req, res, next);
 
-    expect(res.status).toHaveBeenCalledWith(401);
+    // bcrypt.compare runs against dummy hash to prevent timing oracle
+    await vi.waitFor(() => {
+      expect(res.status).toHaveBeenCalledWith(401);
+    });
   });
 
-  it('returns 403 when agent is disabled', async () => {
+  it('returns 401 when agent is disabled (uniform error)', async () => {
     insertTestAgent(testDb, {
       id: 'disabled-agent',
       api_key_hash: apiKeyHash,
@@ -98,9 +101,12 @@ describe('requireAgentAuth', () => {
 
     requireAgentAuth(req, res, next);
 
-    expect(res.status).toHaveBeenCalledWith(403);
+    // Timing oracle fix: disabled agents return 401 with same message as not-found
+    await vi.waitFor(() => {
+      expect(res.status).toHaveBeenCalledWith(401);
+    });
     expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ error: 'Agent is disabled' })
+      expect.objectContaining({ error: 'Invalid agent credentials' })
     );
   });
 

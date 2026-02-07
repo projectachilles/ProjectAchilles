@@ -17,12 +17,21 @@ import type { EnrollmentRequest, CreateTokenRequest, AgentOS, AgentArch } from '
 
 export const agentEnrollmentRouter = Router();
 
+const enrollmentLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many enrollment attempts, try again later' },
+});
+
 /**
  * POST /enroll
  * Agent enrollment using an enrollment token.
  */
 agentEnrollmentRouter.post(
   '/enroll',
+  enrollmentLimiter,
   asyncHandler(async (req, res) => {
     const { token, hostname, os, arch, agent_version } = req.body as EnrollmentRequest;
 
