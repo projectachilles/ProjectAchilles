@@ -308,7 +308,8 @@ All 27 findings have been resolved or accepted. Remediation was completed across
 ## GitHub Actions — Continuous Security
 
 A security review workflow has been created at `.github/workflows/security-review.yml` that runs:
-1. `npm audit` on both frontend and backend dependencies
-2. Claude Code security review on every PR touching source code or config files
+1. **Semgrep SAST** — Static analysis with `p/javascript`, `p/typescript`, `p/nodejs`, `p/react`, `p/owasp-top-ten`, and `p/security-audit` rulesets. Results uploaded to GitHub Security tab via SARIF.
+2. **`npm audit`** on both frontend and backend dependencies
+3. **Claude Code security review** on every PR touching source code or config files
 
 This provides ongoing automated security review for all future changes.

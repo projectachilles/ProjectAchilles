@@ -11,6 +11,36 @@ on:
       - ".env*"
 
 jobs:
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run Semgrep
+        run: |
+          semgrep scan \
+            --config p/javascript \
+            --config p/typescript \
+            --config p/nodejs \
+            --config p/react \
+            --config p/owasp-top-ten \
+            --config p/security-audit \
+            --error \
+            --sarif --output semgrep-results.sarif \
+            backend/src frontend/src
+
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep-results.sarif
+
   dependency-audit:
     runs-on: ubuntu-latest
     steps:
