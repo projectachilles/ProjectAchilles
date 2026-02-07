@@ -30,8 +30,8 @@ npm-debug.log*
 # Vite cache
 .vite/
 
-# Claude Code settings
-.claude/settings.local.json
+# Claude Code
+.claude/
 
 # Playwright MCP
 .playwright-mcp/
