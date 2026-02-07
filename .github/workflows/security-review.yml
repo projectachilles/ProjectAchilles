@@ -1,0 +1,71 @@
+name: Security Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+    paths:
+      - "backend/src/**"
+      - "frontend/src/**"
+      - "backend/package*.json"
+      - "frontend/package*.json"
+      - ".env*"
+
+jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Audit backend dependencies
+        run: npm audit --audit-level=moderate
+        working-directory: backend
+        continue-on-error: true
+
+      - name: Audit frontend dependencies
+        run: npm audit --audit-level=moderate
+        working-directory: frontend
+        continue-on-error: true
+
+  claude-security-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run Claude Security Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Review the changes in this PR for security vulnerabilities. Focus on:
+
+            1. **Command Injection**: execFile/spawn calls with user input, shell metacharacters
+            2. **Path Traversal**: path.join/path.resolve with user-controlled segments, ../
+            3. **Authentication Bypass**: Missing auth middleware, timing oracles, token enumeration
+            4. **Cryptographic Issues**: Weak KDF, IV reuse, hardcoded secrets
+            5. **Input Validation**: Unsanitized user input in queries, commands, file paths
+            6. **XSS**: dangerouslySetInnerHTML, unsanitized rendering
+            7. **SSRF**: URL handling without validation (git URLs, ES URLs)
+            8. **File Upload**: Missing MIME validation, oversized uploads without limits
+            9. **Information Disclosure**: Verbose errors, stack traces, credential leaks
+
+            For each finding, include:
+            - Severity (Critical/High/Medium/Low)
+            - OWASP category
+            - File and line number
+            - Description and impact
+            - Recommended fix
+
+            If no security issues are found, confirm the PR passes security review.
