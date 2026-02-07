@@ -32,7 +32,7 @@ export default function TestDetailPage() {
     if (attackFlowIframeRef.current?.contentWindow) {
       attackFlowIframeRef.current.contentWindow.postMessage(
         { type: 'theme-change', theme },
-        '*'
+        window.location.origin
       );
     }
   }, [theme]);

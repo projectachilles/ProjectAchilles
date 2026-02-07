@@ -162,6 +162,13 @@ export class BuildService {
       throw new Error('Invalid filename');
     }
 
+    // M8: Only allow known embed dependency filenames to prevent arbitrary file writes
+    const deps = this.getEmbedDependencies(uuid);
+    const allowed = deps.map(d => d.filename);
+    if (!allowed.includes(baseName)) {
+      throw new Error(`Filename '${baseName}' is not a known embed dependency for this test`);
+    }
+
     fs.writeFileSync(path.join(testDir, baseName), buffer);
   }
 
@@ -260,11 +267,14 @@ export class BuildService {
     const activeCert = this.settingsService.getActiveCertPfxPath();
     if (activeCert) {
       const signedPath = outputPath + '.signed';
+      // L1: Pass password via temp file to avoid /proc/PID/cmdline exposure
+      const passFile = path.join(buildDir, '.tmp-pass');
       try {
+        fs.writeFileSync(passFile, activeCert.password, { mode: 0o600 });
         await execFileAsync('osslsigncode', [
           'sign',
           '-pkcs12', activeCert.pfxPath,
-          '-pass', activeCert.password,
+          '-readpass', passFile,
           '-in', outputPath,
           '-out', signedPath,
         ], { timeout: 60_000 });
@@ -276,6 +286,8 @@ export class BuildService {
         if (fs.existsSync(signedPath)) {
           fs.unlinkSync(signedPath);
         }
+      } finally {
+        if (fs.existsSync(passFile)) fs.unlinkSync(passFile);
       }
     }
 

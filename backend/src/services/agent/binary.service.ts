@@ -45,9 +45,10 @@ export async function getBinaryInfo(testUuid: string, binaryName: string): Promi
 export function streamBinary(binaryPath: string, binaryName: string, res: Response): void {
   const stat = fs.statSync(binaryPath);
 
+  const safeName = binaryName.replace(/["\r\n\\]/g, '_');
   res.setHeader('Content-Type', 'application/octet-stream');
   res.setHeader('Content-Length', stat.size);
-  res.setHeader('Content-Disposition', `attachment; filename="${binaryName}"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
 
   const readStream = fs.createReadStream(binaryPath);
   readStream.pipe(res);

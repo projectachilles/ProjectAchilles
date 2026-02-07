@@ -16,9 +16,9 @@ const ALLOWED_UPLOAD_DIR = path.join(os.homedir(), '.projectachilles', 'builds')
 
 const router = Router();
 
-// Configure multer for file uploads
+// L10: Use memory storage to avoid temp file leaks on crash
 const upload = multer({
-  dest: '/tmp/lc-uploads',
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 500 * 1024 * 1024, // 500MB limit
   },
@@ -48,34 +48,20 @@ router.post(
       });
     }
 
-    try {
-      // Read file buffer
-      const fileBuffer = fs.readFileSync(req.file.path);
+    // Upload to LimaCharlie directly from memory buffer
+    const result = await payloadsService.uploadPayloadFromBuffer(
+      credentials,
+      req.file.originalname,
+      req.file.buffer
+    );
 
-      // Upload to LimaCharlie
-      const result = await payloadsService.uploadPayloadFromBuffer(
-        credentials,
-        req.file.originalname,
-        fileBuffer
-      );
-
-      // Clean up temp file
-      fs.unlinkSync(req.file.path);
-
-      res.json({
-        success: true,
-        data: {
-          name: result.name,
-          message: `Payload '${result.name}' uploaded successfully`,
-        },
-      });
-    } catch (error) {
-      // Clean up temp file on error
-      if (req.file && fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path);
-      }
-      throw error;
-    }
+    res.json({
+      success: true,
+      data: {
+        name: result.name,
+        message: `Payload '${result.name}' uploaded successfully`,
+      },
+    });
   })
 );
 

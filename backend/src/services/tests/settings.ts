@@ -360,14 +360,21 @@ export class TestsSettingsService {
       const password = passwordRaw.trim();
 
       // 3. Create PFX (PKCS#12) with -legacy for OpenSSL 3.x compat
-      await execFileAsync('openssl', [
-        'pkcs12', '-export',
-        '-out', pfxPath,
-        '-inkey', keyPath,
-        '-in', certPath,
-        '-passout', `pass:${password}`,
-        '-legacy',
-      ]);
+      // L1: Pass password via temp file to avoid /proc/PID/cmdline exposure
+      const passFile = path.join(certDir, '.tmp-pass');
+      fs.writeFileSync(passFile, password, { mode: 0o600 });
+      try {
+        await execFileAsync('openssl', [
+          'pkcs12', '-export',
+          '-out', pfxPath,
+          '-inkey', keyPath,
+          '-in', certPath,
+          '-passout', `file:${passFile}`,
+          '-legacy',
+        ]);
+      } finally {
+        if (fs.existsSync(passFile)) fs.unlinkSync(passFile);
+      }
 
       // 4. Create DER-encoded .cer
       await execFileAsync('openssl', [
@@ -440,22 +447,31 @@ export class TestsSettingsService {
       // Write PFX to disk
       fs.writeFileSync(pfxPath, pfxBuffer);
 
-      // Validate PFX by extracting info
-      const { stdout: pkcs12Info } = await execFileAsync('openssl', [
-        'pkcs12', '-info', '-in', pfxPath,
-        '-passin', `pass:${password}`,
-        '-nokeys', '-legacy',
-      ]);
-
-      // Extract the certificate from PFX to a temp PEM for parsing
+      // L1: Pass password via temp file to avoid /proc/PID/cmdline exposure
+      const passFile = path.join(certDir, '.tmp-pass');
+      fs.writeFileSync(passFile, password, { mode: 0o600 });
+      let pkcs12Info: string;
       const tempCertPem = path.join(certDir, '_temp_cert.pem');
-      await execFileAsync('openssl', [
-        'pkcs12', '-in', pfxPath,
-        '-passin', `pass:${password}`,
-        '-nokeys', '-clcerts',
-        '-out', tempCertPem,
-        '-legacy',
-      ]);
+      try {
+        // Validate PFX by extracting info
+        const { stdout } = await execFileAsync('openssl', [
+          'pkcs12', '-info', '-in', pfxPath,
+          '-passin', `file:${passFile}`,
+          '-nokeys', '-legacy',
+        ]);
+        pkcs12Info = stdout;
+
+        // Extract the certificate from PFX to a temp PEM for parsing
+        await execFileAsync('openssl', [
+          'pkcs12', '-in', pfxPath,
+          '-passin', `file:${passFile}`,
+          '-nokeys', '-clcerts',
+          '-out', tempCertPem,
+          '-legacy',
+        ]);
+      } finally {
+        if (fs.existsSync(passFile)) fs.unlinkSync(passFile);
+      }
 
       // Extract subject
       const { stdout: subjectRaw } = await execFileAsync('openssl', [

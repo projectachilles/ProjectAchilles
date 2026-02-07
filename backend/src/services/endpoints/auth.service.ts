@@ -3,6 +3,7 @@
  * Based on internal/auth/auth.go
  */
 
+import * as crypto from 'crypto';
 import axios from 'axios';
 import { Credentials, JWTResponse, JWTPayload } from '../../types/endpoints.js';
 
@@ -16,7 +17,7 @@ export class AuthService {
    * Get JWT token for credentials (with caching)
    */
   async getJWT(credentials: Credentials): Promise<string> {
-    const cacheKey = `${credentials.oid}:${credentials.apiKey}`;
+    const cacheKey = crypto.createHash('sha256').update(`${credentials.oid}:${credentials.apiKey}`).digest('hex');
     const cached = this.tokenCache.get(cacheKey);
 
     // Return cached token if still valid
@@ -118,7 +119,7 @@ export class AuthService {
    * Clear cached token for credentials
    */
   clearToken(credentials: Credentials): void {
-    const cacheKey = `${credentials.oid}:${credentials.apiKey}`;
+    const cacheKey = crypto.createHash('sha256').update(`${credentials.oid}:${credentials.apiKey}`).digest('hex');
     this.tokenCache.delete(cacheKey);
   }
 

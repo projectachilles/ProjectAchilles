@@ -25,7 +25,7 @@ export function requireClerkAuth() {
  * Handles different Clerk SDK versions and auth object structures
  */
 export function getUserId(auth: any): string | undefined {
-  return auth?.userId || auth?.sub || auth?.subject || auth?.id;
+  return auth?.userId ?? auth?.sub ?? auth?.subject ?? auth?.id;
 }
 
 /**

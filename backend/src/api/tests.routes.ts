@@ -102,6 +102,11 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
       throw new AppError('File must be a .pfx or .p12 certificate', 400);
     }
 
+    // L8: PKCS#12 files are ASN.1 SEQUENCE — first byte must be 0x30
+    if (req.file.buffer.length < 4 || req.file.buffer[0] !== 0x30) {
+      throw new AppError('File does not appear to be a valid PKCS#12/PFX certificate', 400);
+    }
+
     const password = req.body.password as string;
     if (!password) {
       throw new AppError('Password is required', 400);

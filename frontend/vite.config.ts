@@ -12,7 +12,7 @@ export default defineConfig({
     },
   },
   server: {
-    allowedHosts: true, // Allow ngrok and custom domains
+    allowedHosts: ['localhost', '.ngrok.app', '.ngrok-free.app', '.railway.app'],
     proxy: {
       '/api': {
         target: `http://localhost:${BACKEND_PORT}`,
@@ -28,6 +28,6 @@ export default defineConfig({
     port: parseInt(process.env.PORT || '5173'),
     host: '0.0.0.0', // Allow external connections (required for Railway)
     strictPort: false,
-    allowedHosts: true, // Allow Railway and custom domains
+    allowedHosts: ['localhost', '.ngrok.app', '.ngrok-free.app', '.railway.app'],
   },
 })

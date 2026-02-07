@@ -126,11 +126,14 @@ export class AgentBuildService {
       const activeCert = this.settingsService.getActiveCertPfxPath();
       if (activeCert) {
         const signedPath = outputPath + '.signed';
+        // L1: Pass password via temp file to avoid /proc/PID/cmdline exposure
+        const passFile = path.join(binDir, '.tmp-pass');
         try {
+          fs.writeFileSync(passFile, activeCert.password, { mode: 0o600 });
           await execFileAsync('osslsigncode', [
             'sign',
             '-pkcs12', activeCert.pfxPath,
-            '-pass', activeCert.password,
+            '-readpass', passFile,
             '-in', outputPath,
             '-out', signedPath,
           ], { timeout: 60_000 });
@@ -142,6 +145,8 @@ export class AgentBuildService {
           if (fs.existsSync(signedPath)) {
             fs.unlinkSync(signedPath);
           }
+        } finally {
+          if (fs.existsSync(passFile)) fs.unlinkSync(passFile);
         }
       }
     }
