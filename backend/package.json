@@ -12,7 +12,7 @@
   "dependencies": {
     "@clerk/backend": "^2.30.1",
     "@clerk/express": "^1.7.69",
-    "@elastic/elasticsearch": "^8.11.0",
+    "@elastic/elasticsearch": "^9.3.0",
     "axios": "^1.13.4",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.6.2",
