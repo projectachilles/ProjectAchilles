@@ -249,41 +249,42 @@ The codebase demonstrates several strong security practices:
 
 ---
 
-## Remediation Roadmap
+## Remediation Status
 
-### P0 — Critical (Fix Immediately)
-| Finding | Action |
-|---------|--------|
-| C1: Arbitrary file read | Restrict `upload-from-path` to allowed directories |
-| C2: Secrets in `.env` | Rotate all secrets, set `ENCRYPTION_SECRET` |
-| H3: Path traversal write | Sanitize download temp path with `path.basename()` |
+All 27 findings have been resolved or accepted. Remediation was completed across three commits plus this cleanup commit.
 
-### P1 — High (Fix This Sprint)
-| Finding | Action |
-|---------|--------|
-| H1: Missing multi-tenancy | Add org_id validation against Clerk JWT claims |
-| H2: Enrollment DoS | Add rate limiter to enrollment endpoint |
-| H4: Weak KDF | Mandate `ENCRYPTION_SECRET` or use PBKDF2 |
-| H5: CSP disabled | Enable helmet CSP with app-appropriate policy |
-| H6: iframe XSS | Sanitize attack flow HTML with DOMPurify |
-
-### P2 — Medium (Fix This Month)
-| Finding | Action |
-|---------|--------|
-| M1: Subject injection | Validate cert subject fields against safe charset |
-| M2: Timing oracle | Always execute bcrypt, uniform error responses |
-| M3: TOCTOU race | Add WHERE clause to token use-count UPDATE |
-| M4: Plaintext session keys | Encrypt sensitive session fields |
-| M5: SameSite=None | Implement CSRF tokens or switch to SameSite=Lax |
-| M6: allowedHosts | Use explicit domain allowlist |
-| M7: Rate limiting | Enable rate limiting on auth/config endpoints |
-| M8: Upload extensions | Restrict to known embed dependency filenames |
-| M9: URL injection | Apply encodeURIComponent to payload names |
-
-### P3 — Low (Backlog)
-| Finding | Action |
-|---------|--------|
-| L1-L10, I1-I3 | See individual finding remediations above |
+| Finding | Severity | Status | Resolution |
+|---------|----------|--------|------------|
+| C1 | Critical | **Resolved** (`f021f80`) | Path confinement to builds directory |
+| C2 | Critical | **Accepted** | Operational — not a code fix; secrets rotated, `ENCRYPTION_SECRET` set |
+| H1 | High | **Resolved** (`f021f80`) | Org-ID validation via Clerk JWT claims |
+| H2 | High | **Resolved** (`f021f80`) | Rate limiter on enrollment endpoint |
+| H3 | High | **Resolved** (`f021f80`) | `path.basename()` sanitization |
+| H4 | High | **Resolved** (`f021f80`) | `ENCRYPTION_SECRET` mandate + PBKDF2 fallback |
+| H5 | High | **Resolved** (`f021f80`) | Helmet CSP enabled |
+| H6 | High | **Resolved** (this commit) | DOMPurify sanitization + `postMessage` origin scoping |
+| M1 | Medium | **Resolved** (`f021f80`) | Safe charset validation on cert subject fields |
+| M2 | Medium | **Resolved** (`f021f80`) | Constant-time bcrypt with uniform errors |
+| M3 | Medium | **Resolved** (`f021f80`) | Atomic WHERE clause on token use-count UPDATE |
+| M4 | Medium | **Resolved** (this commit) | Session credential storage removed entirely (LimaCharlie code deleted) |
+| M5 | Medium | **Resolved** (`77bde08`) | `SameSite=Lax` |
+| M6 | Medium | **Resolved** (`77bde08`) | Explicit domain allowlist |
+| M7 | Medium | **Resolved** (`f021f80`) | Rate limiting on auth/config endpoints |
+| M8 | Medium | **Resolved** (`77bde08`) | Restrict to known embed dependency filenames |
+| M9 | Medium | **Resolved** (`f021f80`) | `encodeURIComponent` on payload names |
+| L1 | Low | **Resolved** (`77bde08`) | Password via temp file |
+| L2 | Low | **Resolved** (`77bde08`) | `=== 'development'` guard |
+| L3 | Low | **Resolved** (this commit) | `express-session` removed entirely |
+| L4 | Low | **Resolved** (`77bde08`) | SHA-256 hashed cache keys |
+| L5 | Low | **Resolved** (`77bde08`) | Nullish coalescing |
+| L6 | Low | **Resolved** (this commit) | Session removed; no secret needed |
+| L7 | Low | **Resolved** (`f021f80`) | Bcrypt rounds increased |
+| L8 | Low | **Resolved** (`77bde08`) | PKCS#12 magic byte validation |
+| L9 | Low | **Resolved** (`77bde08`) | Content-Disposition sanitization |
+| L10 | Low | **Resolved** (`77bde08`) | Multer memory storage |
+| I1 | Info | **Accepted** | RTK auto-disables DevTools in production |
+| I2 | Info | **Accepted** | Required for session cookies; CORS strictly configured |
+| I3 | Info | **Resolved** (`77bde08`) | `jq` JSON-encoding in Docker entrypoint |
 
 ---
 

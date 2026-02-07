@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import DOMPurify from 'dompurify';
 import { browserApi } from '@/services/api/browser';
 import type { TestDetails, FileContent } from '@/types/test';
 import TechniqueBadge from '@/components/browser/TechniqueBadge';
@@ -100,7 +101,12 @@ export default function TestDetailPage() {
     try {
       setFileLoading(true);
       const html = await browserApi.getAttackFlow(uuid);
-      setAttackFlowHtml(html);
+      const sanitized = DOMPurify.sanitize(html, {
+        ADD_TAGS: ['style'],
+        ADD_ATTR: ['class', 'style', 'viewBox', 'xmlns', 'fill', 'stroke', 'd', 'transform'],
+        WHOLE_DOCUMENT: true,
+      });
+      setAttackFlowHtml(sanitized);
       setActiveView('attack-flow');
     } catch (err) {
       console.error('Failed to load attack flow:', err);
@@ -507,7 +513,7 @@ export default function TestDetailPage() {
                 srcDoc={attackFlowHtml}
                 className="w-full h-full border-0"
                 title="Attack Flow Diagram"
-                sandbox="allow-scripts"
+                sandbox=""
                 onLoad={syncThemeToIframe}
               />
             ) : fileContent ? (

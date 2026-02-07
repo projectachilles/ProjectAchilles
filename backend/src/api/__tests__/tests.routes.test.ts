@@ -15,7 +15,6 @@ vi.mock('../../middleware/clerk.middleware.js', () => ({
     next();
   },
   getUserId: (auth: any) => auth?.userId || 'test-user-001',
-  linkClerkSession: (_req: any, _res: any, next: any) => next(),
 }));
 
 // Mock TestsSettingsService

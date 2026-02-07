@@ -104,14 +104,3 @@ export function requireAgentOrgAccess(req: Request, res: Response, next: NextFun
   next();
 }
 
-/**
- * Link Clerk user to session
- * Stores Clerk user ID in session for tracking
- */
-export function linkClerkSession(req: Request, _res: unknown, next: NextFunction) {
-  const userId = getUserId(req.auth);
-  if (userId) {
-    req.session.clerkUserId = userId;
-  }
-  next();
-}

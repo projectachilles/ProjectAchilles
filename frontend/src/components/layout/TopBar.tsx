@@ -43,9 +43,8 @@ export function TopBar({
     if (path === '/analytics/executions') return ['Analytics', 'Executions'];
     if (path === '/endpoints') return ['Endpoints', 'Login'];
     if (path === '/endpoints/dashboard') return ['Endpoints', 'Dashboard'];
-    if (path === '/endpoints/sensors') return ['Endpoints', 'Sensors'];
-    if (path === '/endpoints/payloads') return ['Endpoints', 'Payloads'];
-    if (path === '/endpoints/events') return ['Endpoints', 'Events'];
+    if (path === '/endpoints/agents') return ['Endpoints', 'Agents'];
+    if (path === '/endpoints/tasks') return ['Endpoints', 'Tasks'];
 
     return ['Home'];
   };

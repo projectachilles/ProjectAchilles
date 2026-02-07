@@ -2,20 +2,16 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import session from 'express-session';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { clerkAuth, linkClerkSession } from './middleware/clerk.middleware.js';
+import { clerkAuth } from './middleware/clerk.middleware.js';
 import { createBrowserRouter } from './api/browser.routes.js';
 import analyticsRoutes from './api/analytics.routes.js';
 import { createTestsRouter } from './api/tests.routes.js';
-// LimaCharlie routes disabled - replaced by Achilles Agent module
-// import endpointAuthRoutes from './api/endpoints/auth.routes.js';
-// import endpointsRoutes from './api/endpoints/index.js';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware.js';
 import { GitSyncService } from './services/browser/gitSyncService.js';
 import { GitHubMetadataService } from './services/browser/githubMetadataService.js';
@@ -78,28 +74,8 @@ app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Session management (for endpoints auth)
-app.use(session({
-  secret: process.env.SESSION_SECRET || (() => {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('SESSION_SECRET must be set in production');
-    }
-    console.warn('⚠️  Using development session secret - DO NOT use in production!');
-    return 'project-achilles-dev-secret';
-  })(),
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    sameSite: 'lax',
-  },
-}));
-
 // Clerk authentication middleware
 app.use(clerkAuth);
-app.use(linkClerkSession);
 
 // Global API rate limiter
 const apiLimiter = rateLimit({
@@ -191,10 +167,6 @@ async function startServer() {
   // Tests module - Platform, certificate & build settings
   const testsRouter = createTestsRouter({ testsSourcePath });
   app.use('/api/tests', testsRouter);
-
-  // LimaCharlie endpoints disabled - replaced by Achilles Agent module
-  // app.use('/api/auth', authLimiter, endpointAuthRoutes);
-  // app.use('/api/endpoints', endpointsRoutes);
 
   // Agent module - Achilles Agent management
   const agentSourcePath = process.env.AGENT_SOURCE_PATH || path.resolve(__dirname, '../../agent');
