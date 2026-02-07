@@ -189,7 +189,7 @@ https://projectachilles.io
 3. Click **New Project**
 4. Select **Deploy from GitHub repo**
 5. Connect your GitHub account if not already connected
-6. Search for and select: `ubercylon8/ProjectAchilles`
+6. Search for and select: `projectachilles/ProjectAchilles`
 7. Click **Deploy**
 
 Railway will detect the monorepo structure automatically.
@@ -685,7 +685,7 @@ git push origin main
 
 - **Railway Docs:** https://docs.railway.app
 - **Clerk Docs:** https://clerk.com/docs
-- **Project Issues:** https://github.com/ubercylon8/ProjectAchilles/issues
+- **Project Issues:** https://github.com/projectachilles/ProjectAchilles/issues
 
 ---
 

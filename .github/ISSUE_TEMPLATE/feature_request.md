@@ -14,7 +14,9 @@ A clear and concise description of the feature you'd like to see.
 
 - [ ] Browser (Test browsing)
 - [ ] Analytics (Elasticsearch integration)
-- [ ] Endpoints (LimaCharlie integration)
+- [ ] Agents (Go agent system)
+- [ ] Build (Compilation & signing)
+- [ ] Settings
 - [ ] Core/Infrastructure
 - [ ] New Module
 

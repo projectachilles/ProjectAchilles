@@ -25,7 +25,7 @@
 
 ```
 1. Go to: https://railway.app → New Project → From GitHub
-2. Select: ubercylon8/ProjectAchilles
+2. Select: projectachilles/ProjectAchilles
 3. Configure backend service:
    - Name: projectachilles-backend
    - Root: /backend
