@@ -30,8 +30,12 @@ interface AgentListProps {
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return 'Never';
 
-  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  // SQLite datetime('now') returns UTC without a Z suffix.
+  // Append Z so JS parses it as UTC rather than local time.
+  const normalized = dateStr.endsWith('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z';
+  const seconds = Math.floor((Date.now() - new Date(normalized).getTime()) / 1000);
 
+  if (seconds < 0) return 'just now';
   if (seconds < 60) return `${seconds}s ago`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
