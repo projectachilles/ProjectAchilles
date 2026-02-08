@@ -12,10 +12,13 @@ import type { RootState } from '../index';
 
 const rootReducer = combineReducers({ agent: agentReducer });
 
-function createStore(preloaded?: Partial<RootState>) {
+// Test helper: accepts deep-partial state for convenience (partial agent objects, etc.)
+type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
+
+function createStore(preloaded?: DeepPartial<RootState>) {
   return configureStore({
     reducer: rootReducer,
-    preloadedState: preloaded,
+    preloadedState: preloaded as Partial<RootState>,
   });
 }
 
