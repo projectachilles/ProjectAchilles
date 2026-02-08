@@ -20,7 +20,7 @@ interface MetricCardProps {
   color: string;
 }
 
-function MetricCard({ icon: Icon, label, value, color }: MetricCardProps): JSX.Element {
+function MetricCard({ icon: Icon, label, value, color }: MetricCardProps) {
   return (
     <Card>
       <CardContent className="pt-6">
@@ -84,7 +84,7 @@ interface DistributionBarProps {
   label: string;
 }
 
-function DistributionBar({ data, colorMap, label }: DistributionBarProps): JSX.Element {
+function DistributionBar({ data, colorMap, label }: DistributionBarProps) {
   const entries = Object.entries(data);
   const total = entries.reduce((sum, [, count]) => sum + count, 0);
 
@@ -126,7 +126,7 @@ function DistributionBar({ data, colorMap, label }: DistributionBarProps): JSX.E
   );
 }
 
-export default function AgentDashboardPage(): JSX.Element {
+export default function AgentDashboardPage() {
   const navigate = useNavigate();
   const [metrics, setMetrics] = useState<AgentMetrics | null>(null);
   const [recentTasks, setRecentTasks] = useState<AgentTask[]>([]);

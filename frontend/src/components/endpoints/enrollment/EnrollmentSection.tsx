@@ -67,7 +67,7 @@ function InstallCommand({
 
 export default function EnrollmentSection({ orgId }: EnrollmentSectionProps): React.ReactElement {
   const [tokens, setTokens] = useState<EnrollmentToken[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [ttlHours, setTtlHours] = useState('24');
   const [maxUses, setMaxUses] = useState('1');
   const [creating, setCreating] = useState(false);

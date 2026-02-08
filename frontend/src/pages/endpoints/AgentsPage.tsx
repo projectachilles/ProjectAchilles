@@ -162,7 +162,7 @@ export default function AgentsPage() {
           description="Manage and monitor your Achilles agents"
           actions={
             <Button
-              variant={showEnrollment ? 'secondary' : 'default'}
+              variant={showEnrollment ? 'secondary' : 'primary'}
               onClick={() => setShowEnrollment((v) => !v)}
             >
               <UserPlus className="w-4 h-4 mr-2" />

@@ -76,10 +76,13 @@ interface CustomContentProps {
   fill?: string;
   onClick?: () => void;
   isClickable?: boolean;
+  hideCoverageStats?: boolean;
 }
 
 function CustomTreemapContent(props: CustomContentProps) {
-  const { x = 0, y = 0, width = 0, height = 0, name, coverage, testCount, fill, isClickable = true } = props;
+  const { x = 0, y = 0, width = 0, height = 0, name, coverage: rawCoverage, testCount: rawTestCount, fill, isClickable = true, hideCoverageStats = false } = props;
+  const coverage = hideCoverageStats ? undefined : rawCoverage;
+  const testCount = hideCoverageStats ? undefined : rawTestCount;
 
   // Don't render tiny cells
   if (width < 30 || height < 20) return null;
@@ -318,7 +321,7 @@ export default function CoverageTreemap({
   const [baselineMode, setBaselineMode] = useState<'90d' | '30d' | 'window'>('90d');
 
   // Transform flat data to hierarchical treemap structure
-  const { treemapData, allUniqueTests, effectiveTestCount, remainingHostnames } = useMemo(() => {
+  const { treemapData, effectiveTestCount, remainingHostnames } = useMemo(() => {
     if (!data || data.length === 0) {
       return { treemapData: null, allUniqueTests: new Set<string>(), effectiveTestCount: 0, remainingHostnames: new Set<string>() };
     }
@@ -659,19 +662,12 @@ export default function CoverageTreemap({
                 handleCellClick({ name: node.name });
               }
             }}
-            content={({ x, y, width, height, name, coverage, testCount, fill }) => (
+            content={
               <CustomTreemapContent
-                x={x}
-                y={y}
-                width={width}
-                height={height}
-                name={name}
-                coverage={isSingleHostDrillDown ? undefined : coverage}
-                testCount={isSingleHostDrillDown ? undefined : testCount}
-                fill={fill}
                 isClickable={!isSingleHostDrillDown}
+                hideCoverageStats={isSingleHostDrillDown}
               />
-            )}
+            }
           >
             <Tooltip content={isSingleHostDrillDown
               ? <DrillDownTooltip />

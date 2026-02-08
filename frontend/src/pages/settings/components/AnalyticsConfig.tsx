@@ -13,7 +13,7 @@ interface AnalyticsConfigProps {
 }
 
 export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
-  const { updateSettings, configured } = useAnalyticsAuth();
+  const { updateSettings } = useAnalyticsAuth();
 
   const [editMode, setEditMode] = useState(false);
   const [connectionType, setConnectionType] = useState<'cloud' | 'direct'>('cloud');

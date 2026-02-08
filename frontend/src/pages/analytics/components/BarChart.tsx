@@ -102,7 +102,7 @@ export default function BarChart({ data, title, loading }: BarChartProps) {
               content={
                 <ChartTooltipContent
                   hideLabel={true}
-                  formatter={(value, name, item) => {
+                  formatter={(value, _name, item) => {
                     const payload = item.payload;
                     return (
                       <div className="flex flex-col gap-1">

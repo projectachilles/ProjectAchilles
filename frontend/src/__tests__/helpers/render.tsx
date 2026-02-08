@@ -2,9 +2,11 @@ import { render } from '@testing-library/react';
 import type { RenderOptions } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
-import { configureStore } from '@reduxjs/toolkit';
+import { combineReducers, configureStore } from '@reduxjs/toolkit';
 import agentReducer from '@/store/agentSlice';
 import type { RootState } from '@/store';
+
+const rootReducer = combineReducers({ agent: agentReducer });
 
 interface ExtendedRenderOptions extends Omit<RenderOptions, 'wrapper'> {
   preloadedState?: Partial<RootState>;
@@ -24,7 +26,7 @@ export function renderWithProviders(
   }: ExtendedRenderOptions = {}
 ) {
   const store = configureStore({
-    reducer: { agent: agentReducer },
+    reducer: rootReducer,
     preloadedState,
   });
 

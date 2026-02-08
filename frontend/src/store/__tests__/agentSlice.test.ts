@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { configureStore } from '@reduxjs/toolkit';
+import { combineReducers, configureStore } from '@reduxjs/toolkit';
 import agentReducer, {
   setFilters,
   setPage,
@@ -8,10 +8,13 @@ import agentReducer, {
   clearError,
   setAgents,
 } from '../agentSlice';
+import type { RootState } from '../index';
 
-function createStore(preloaded?: any) {
+const rootReducer = combineReducers({ agent: agentReducer });
+
+function createStore(preloaded?: Partial<RootState>) {
   return configureStore({
-    reducer: { agent: agentReducer },
+    reducer: rootReducer,
     preloadedState: preloaded,
   });
 }
