@@ -314,6 +314,7 @@ CLERK_SECRET_KEY=sk_test_...
 ## Documentation
 
 ### Getting Started
+- [Windows Docker Installation](WINDOWS_DOCKER_INSTALL.md) — Complete guide for Windows with Docker Desktop
 - [Quick Start Deployment](QUICK_START_DEPLOYMENT.md) — 50-minute production deployment
 - [Docker Compose guide](docker-compose.yml) — Local deployment with optional Elasticsearch
 
