@@ -31,8 +31,8 @@ cd backend && npm run build      # tsc → dist/
 
 ```bash
 # All tests
-cd backend && npm test           # 111 tests across 8 files (~10s)
-cd frontend && npm test          # 67 tests across 5 files (~2s)
+cd backend && npm test           # 176 tests across 10 files (~10s)
+cd frontend && npm test          # 119 tests across 7 files (~2s)
 
 # Single file
 cd backend && npx vitest src/services/agent/__tests__/enrollment.service.test.ts
