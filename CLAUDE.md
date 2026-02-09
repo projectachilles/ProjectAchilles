@@ -4,25 +4,57 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-ProjectAchilles is a Unified Security Platform with three main modules:
-- **Browser Module**: Security test browsing and viewing (Clerk auth required)
-- **Analytics Module**: Test results analytics via Elasticsearch (Clerk auth + configuration)
-- **Endpoints Module**: Endpoint management via LimaCharlie (Clerk auth + LimaCharlie credentials)
+ProjectAchilles is a purple team platform for continuous security validation. It deploys a custom Go agent to endpoints, executes security tests, and measures detection coverage via Elasticsearch analytics.
+
+**Modules:**
+- **Browser**: Git-synced test library with MITRE ATT&CK mapping, build/sign/download (Clerk auth)
+- **Analytics**: 30+ Elasticsearch query endpoints — defense scores, heatmaps, treemaps, trends (Clerk auth)
+- **Agent**: Custom Go agent enrollment, heartbeat monitoring, task execution, scheduling (Clerk auth + SQLite)
 
 ## Development Commands
 
 ```bash
-# Full stack (installs deps, finds available ports)
-./start.sh -k --daemon           # RECOMMENDED: Kill existing processes and start fresh
-# ./start.sh              # Starts both frontend and backend (may fail if ports in use)
+# Full stack (auto port detection, installs deps)
+./start.sh -k --daemon           # Kill existing processes and start fresh
+./start.sh --stop                # Stop daemon processes
 
 # Individual services
-cd frontend && npm run dev      # Development server (port 5173)
-cd backend && npm run dev       # Dev with hot reload (tsx watch, port 3000)
+cd frontend && npm run dev       # Vite dev server (port 5173)
+cd backend && npm run dev        # tsx watch with hot reload (port 3000)
 
-# TypeScript validation (no test framework configured)
-cd frontend && npm run build    # Validates frontend TS + builds
-cd backend && npm run build     # Validates backend TS
+# TypeScript validation
+cd frontend && npm run build     # tsc -b + vite build
+cd backend && npm run build      # tsc → dist/
+```
+
+### Testing (Vitest)
+
+```bash
+# All tests
+cd backend && npm test           # 111 tests across 8 files (~10s)
+cd frontend && npm test          # 67 tests across 5 files (~2s)
+
+# Single file
+cd backend && npx vitest src/services/agent/__tests__/enrollment.service.test.ts
+cd frontend && npx vitest src/hooks/__tests__/useAnalyticsFilters.test.ts
+
+# Filter by test name
+cd backend && npx vitest -t "creates a token"
+
+# Watch mode / coverage
+cd backend && npm run test:watch
+cd backend && npm run test:coverage
+```
+
+Test file pattern: `src/**/__tests__/**/*.test.{ts,tsx}`
+
+### Go Agent
+
+```bash
+cd agent && make build-all       # Cross-compile Windows + Linux (amd64)
+cd agent && make sign-windows    # Build + Authenticode sign
+cd agent && go test ./...        # Run Go tests
+cd agent && go build ./...       # Validate compilation
 ```
 
 ## Architecture
@@ -36,8 +68,8 @@ Key directories:
 - `pages/` - Module pages (browser/, analytics/, endpoints/, auth/)
 - `components/shared/ui/` - Base UI primitives (Button, Card, Input)
 - `services/api/` - API client modules
-- `hooks/` - Custom hooks (useAuthenticatedApi injects JWT automatically)
-- `store/` - Redux slices (endpointAuth, sensors)
+- `hooks/` - Custom hooks (`useAuthenticatedApi` injects JWT automatically)
+- `store/` - Redux slices; use typed hooks `useAppDispatch`/`useAppSelector` (not raw `useDispatch`/`useSelector`)
 
 ### Backend (`backend/src/`)
 - **Express** + **TypeScript** (ES modules)
@@ -45,16 +77,33 @@ Key directories:
 
 Key directories:
 - `api/` - Route handlers (`*.routes.ts`)
-- `services/` - Business logic by module
-- `middleware/` - Express middleware (clerk, auth, error handling)
+- `services/` - Business logic organized by module:
+  - `agent/` - Enrollment, heartbeat, tasks, schedules, update, database
+  - `analytics/` - Elasticsearch queries, client factory, encrypted settings
+  - `browser/` - Git sync, test indexing, metadata extraction
+  - `tests/` - Go cross-compilation (build service), multi-cert management
+- `middleware/` - Auth, error handling, rate limiting
+
+### Agent (`agent/`)
+- **Go 1.24** — lightweight binary with enrollment, heartbeat, task execution, self-update
+- Internal packages: `config`, `enrollment`, `executor`, `httpclient`, `poller`, `reporter`, `service`, `store`, `sysinfo`, `updater`
+- CGO disabled for static cross-platform binaries
+- Version set via LDFLAGS: `-X main.version=$(VERSION)`
+
+### Database (SQLite)
+- **Location**: `~/.projectachilles/agents.db` (better-sqlite3, WAL mode)
+- **Schema**: Created via `CREATE TABLE IF NOT EXISTS` in `backend/src/services/agent/database.ts` — no migration system
+- **Tables**: `agents`, `enrollment_tokens`, `tasks`, `agent_versions`, `schedules`
+- **Settings storage**: `~/.projectachilles/` — `analytics.json` (AES-256-GCM encrypted), `tests.json`, `certs/`
 
 ### API Routes
 | Route | Auth | Purpose |
 |-------|------|---------|
 | `/api/browser/*` | Clerk | Security test browser |
 | `/api/analytics/*` | Clerk | Elasticsearch analytics |
-| `/api/auth/*` | Clerk (rate limited: 20/15min) | LimaCharlie auth |
-| `/api/endpoints/*` | Clerk + LimaCharlie | Endpoint management |
+| `/api/agent/admin/*` | Clerk | Agent management (tokens, tasks, schedules) |
+| `/api/agent/*` | Agent key | Device endpoints (enroll, heartbeat, tasks) |
+| `/api/tests/*` | Clerk | Build system, certificates |
 
 ## Code Patterns
 
@@ -91,7 +140,18 @@ Error response format: `{ success: false, error: "message" }`
 **Three-tier model:**
 1. **Clerk (global)**: All routes use `<RequireAuth>` wrapper; JWT injected via `useAuthenticatedApi` hook
 2. **Analytics**: `AnalyticsAuthProvider` context → redirects to `/analytics/setup` if unconfigured
-3. **Endpoints (dual-auth)**: Clerk + LimaCharlie credentials → sessions linked to Clerk user ID
+3. **Agent admin**: Clerk JWT required; device endpoints use agent API key (hashed in DB)
+
+### Backend Test Pattern
+Tests use in-memory SQLite via `createTestDatabase()` from `backend/src/__tests__/helpers/db.ts`. The `vi.mock` + dynamic import ordering is critical:
+```typescript
+let testDb: Database.Database;
+vi.mock('../database.js', () => ({ getDatabase: () => testDb }));
+// Import the module AFTER mock setup
+const { functionToTest } = await import('../service.js');
+```
+
+Frontend tests mock all Clerk hooks globally via `frontend/src/__tests__/setup.ts`.
 
 ### Frontend Imports
 - Use `@/` alias for `frontend/src` paths
@@ -105,87 +165,41 @@ Vite proxies `/api` → `http://localhost:$VITE_BACKEND_PORT` (default 3000)
 <type>(<scope>): <description>
 ```
 Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`
+Scopes: `frontend`, `backend`, `agent`, `analytics`, `browser`, `docker`, `settings`, `certs`, `deps`
+
+## CI/CD
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on push/PR to main:
+- `test-backend`: npm ci → build → test
+- `test-frontend`: npm ci → build → test
+- Node 22
+
+## Docker
+
+```bash
+docker compose up -d                            # Backend + frontend
+docker compose --profile elasticsearch up -d    # Include ES + synthetic seed data
+```
+
+The `elasticsearch` profile starts ES 8.17 (single-node, security disabled) and seeds 1000 synthetic test results.
 
 ## Browser Testing
 
-Two browser tools are available for visual verification, debugging, and UI testing. **Prefer the Claude Code Chrome Extension by default**; fall back to Playwright when the extension lacks a needed capability.
+Two browser tools are available for visual verification. **Prefer the Claude Code Chrome Extension** (uses real browser with auth sessions); fall back to **Playwright** (`mcp__plugin_playwright_playwright__*`) for headless screenshots, drag-and-drop, file uploads, `browser_wait_for`, or programmatic JS execution.
 
-### Tool Selection
-
-| Use Case | Tool | Why |
-|----------|------|-----|
-| Interactive testing with Clerk auth | **CC Chrome Extension** | Uses the real browser with existing sessions/cookies |
-| Visual verification of UI changes | **CC Chrome Extension** | Sees exactly what the user sees |
-| Filling forms, clicking buttons | **CC Chrome Extension** | Works with real auth state |
-| Headless/automated screenshots | **Playwright** | No real browser needed |
-| Running custom JS on the page | **Playwright** (`browser_evaluate`, `browser_run_code`) | More powerful programmatic control |
-| Multi-tab workflows | **Playwright** (`browser_tabs`) | Tab management API |
-| Drag-and-drop testing | **Playwright** (`browser_drag`) | Not available in extension |
-| File upload testing | **Playwright** (`browser_file_upload`) | Not available in extension |
-| Waiting for async UI updates | **Playwright** (`browser_wait_for`) | Built-in wait primitives |
-
-**Rule of thumb**: If the CC Chrome Extension has a tool for it, use that. If not, use Playwright.
-
-### Workflow (CC Chrome Extension - Default)
+### Workflow
 1. Start dev server: `./start.sh -k --daemon`
-2. Ensure the user has Chrome open with the Claude Code extension connected
-3. Navigate to `http://localhost:5173`
-4. Use snapshot/screenshot tools for verification
-
-### Workflow (Playwright - Fallback)
-1. Start dev server: `./start.sh -k --daemon`
-2. Navigate: `mcp__plugin_playwright_playwright__browser_navigate` to `http://localhost:5173`
-3. Inspect: `mcp__plugin_playwright_playwright__browser_snapshot` for page structure
-4. Screenshot: `mcp__plugin_playwright_playwright__browser_take_screenshot` for visual verification
-
-### Playwright Tool Reference
-| Tool | Purpose |
-|------|---------|
-| `browser_navigate` | Go to URL |
-| `browser_navigate_back` | Go back in history |
-| `browser_snapshot` | Get page accessibility tree (prefer over screenshot) |
-| `browser_take_screenshot` | Visual capture for verification |
-| `browser_click` | Click elements by ref from snapshot |
-| `browser_type` | Type text into elements |
-| `browser_fill_form` | Fill multiple form fields |
-| `browser_select_option` | Select dropdown options |
-| `browser_evaluate` | Run JavaScript on page or element |
-| `browser_run_code` | Run Playwright code snippets |
-| `browser_console_messages` | Check for errors |
-| `browser_network_requests` | Debug API calls |
-| `browser_tabs` | List, create, close, select tabs |
-| `browser_drag` | Drag and drop between elements |
-| `browser_file_upload` | Upload files |
-| `browser_wait_for` | Wait for text/element/time |
-| `browser_press_key` | Press keyboard keys |
-| `browser_hover` | Hover over elements |
-| `browser_handle_dialog` | Accept/dismiss dialogs |
-| `browser_resize` | Resize browser window |
-
-All Playwright tools are prefixed with `mcp__plugin_playwright_playwright__`.
-
-### Handling Login Pages
-When encountering a login page (Clerk auth, external services):
-1. **Detect**: Check snapshot for login form elements (email/password inputs, sign-in buttons)
-2. **Ask user**: Request credentials using `AskUserQuestion` tool:
-   ```
-   "I've encountered a login page. Please provide credentials to continue:
-   - Email/username
-   - Password"
-   ```
-3. **Never assume**: Do not guess or use placeholder credentials
-4. **Fill securely**: Use the appropriate fill/form tool for credential entry
-5. **Verify**: Take snapshot after login to confirm success
-
-### Analytics / Elasticsearch Credentials
-When testing the Analytics module and you need Elasticsearch credentials (e.g., to configure the connection in Settings), pick them from `backend/.env` (Cloud ID, API Key, index pattern).
-
-### Security Notes
-- Never log or display credentials in output
-- Credentials entered via browser tools are visible to the browser - use dev/test accounts
-- Avoid testing with production credentials
+2. Navigate to `http://localhost:5173`
+3. When encountering Clerk login, ask the user for credentials — never guess
+4. For Analytics setup, read Elasticsearch credentials from `backend/.env`
 
 ## Gotchas
 
 ### SVG Text Stroke Inheritance in Recharts
 When writing custom `content` renderers for Recharts components (Treemap, etc.), always set `stroke="none"` on `<text>` elements. Recharts sets `stroke="var(--background)"` on the parent SVG container for cell borders, and SVG `stroke` is an inherited property — it cascades to all children including text. In dark mode `--background` is near-black, so text renders with a visible dark outline around every glyph. In light mode the stroke is white-on-white (invisible), making the bug theme-specific and easy to miss.
+
+### Certificate System
+- Multi-cert storage: `~/.projectachilles/certs/cert-<timestamp>/` (max 5)
+- Active cert tracked in `active-cert.txt`
+- Legacy flat files auto-migrate to subdirectory on first `listCertificates()` call
+- Build service reads active cert dynamically via `settingsService.getActiveCertPfxPath()`
