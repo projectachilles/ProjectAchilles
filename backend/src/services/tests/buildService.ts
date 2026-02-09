@@ -242,24 +242,43 @@ export class BuildService {
       }
     } else {
       // Standard Go build
-      if (fs.existsSync(path.join(testDir, 'go.mod'))) {
-        await runBuildCommand('go', ['mod', 'tidy'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
-        await runBuildCommand('go', ['mod', 'download'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
-      }
+      const goModPath = path.join(testDir, 'go.mod');
+      const goSumPath = path.join(testDir, 'go.sum');
+      const hadGoMod = fs.existsSync(goModPath);
 
       const goFiles = fs.readdirSync(testDir).filter(f => f.endsWith('.go'));
       if (goFiles.length === 0) {
         throw new BuildError('No Go source files found in test directory');
       }
 
-      // Use package mode ("go build .") for proper GOOS/GOARCH constraint evaluation.
-      // File-list mode ("go build a.go b.go") doesn't resolve cross-platform build tags
-      // on transitive dependencies, causing failures for windows-only imports on Linux.
-      await runBuildCommand('go', ['build', '-o', outputPath, '.'], {
-        cwd: testDir,
-        env,
-        timeout: BUILD_TIMEOUT,
-      });
+      try {
+        if (!hadGoMod) {
+          // Auto-init a temporary module so "go build ." works in package mode
+          await runBuildCommand('go', ['mod', 'init', 'testbuild'], {
+            cwd: testDir,
+            env,
+            timeout: BUILD_TIMEOUT,
+          });
+        }
+
+        await runBuildCommand('go', ['mod', 'tidy'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
+        await runBuildCommand('go', ['mod', 'download'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
+
+        // Use package mode ("go build .") for proper GOOS/GOARCH constraint evaluation.
+        // File-list mode ("go build a.go b.go") doesn't resolve cross-platform build tags
+        // on transitive dependencies, causing failures for windows-only imports on Linux.
+        await runBuildCommand('go', ['build', '-o', outputPath, '.'], {
+          cwd: testDir,
+          env,
+          timeout: BUILD_TIMEOUT,
+        });
+      } finally {
+        // Clean up auto-generated module files to avoid dirtying the test source tree
+        if (!hadGoMod) {
+          if (fs.existsSync(goModPath)) fs.unlinkSync(goModPath);
+          if (fs.existsSync(goSumPath)) fs.unlinkSync(goSumPath);
+        }
+      }
     }
 
     // 7. Sign if an active certificate exists
