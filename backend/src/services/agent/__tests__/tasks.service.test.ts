@@ -9,11 +9,44 @@ vi.mock('../database.js', () => ({
 }));
 
 // Mock the test-catalog service (used for metadata enrichment in createTasks)
+const mockGetTestMetadata = vi.fn().mockReturnValue(null);
 vi.mock('../test-catalog.service.js', () => ({
-  getTestMetadata: () => null,
+  getTestMetadata: (...args: unknown[]) => mockGetTestMetadata(...args),
 }));
 
+// Mock fs and os for createTasks (reads build metadata from disk)
+// The source does `import fs from 'fs'` which becomes `fs.default` in ESM.
+// vi.mock provides both named exports and default to cover all access patterns.
+const mockExistsSync = vi.fn().mockReturnValue(true);
+const mockReadFileSync = vi.fn();
+const mockStatSync = vi.fn().mockReturnValue({ size: 1024 });
+
+vi.mock('fs', async () => {
+  const actual = await vi.importActual<typeof import('fs')>('fs');
+  const overrides = {
+    existsSync: mockExistsSync,
+    readFileSync: mockReadFileSync,
+    statSync: mockStatSync,
+  };
+  return {
+    ...actual,
+    ...overrides,
+    default: { ...actual, ...overrides },
+  };
+});
+
+vi.mock('os', async () => {
+  const actual = await vi.importActual<typeof import('os')>('os');
+  const overrides = { homedir: () => '/mock-home' };
+  return {
+    ...actual,
+    ...overrides,
+    default: { ...actual, ...overrides },
+  };
+});
+
 const {
+  createTasks,
   getNextTask,
   updateTaskStatus,
   submitResult,
@@ -302,6 +335,168 @@ describe('tasks.service', () => {
 
     it('throws for nonexistent task', () => {
       expect(() => updateTaskNotes('nonexistent', 'note', 'user')).toThrow('Task not found');
+    });
+  });
+
+  describe('createTasks', () => {
+    function setupFsMocks() {
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (typeof p === 'string' && p.endsWith('build-meta.json')) {
+          return JSON.stringify({ binary_name: 'test-binary.exe', filename: 'test-binary.exe' });
+        }
+        return Buffer.from('fake-binary-content');
+      });
+      mockStatSync.mockReturnValue({ size: 2048 });
+    }
+
+    beforeEach(() => {
+      setupFsMocks();
+      mockGetTestMetadata.mockReturnValue(null);
+    });
+
+    it('creates a task for a single agent', () => {
+      const taskIds = createTasks({
+        agent_ids: ['agent-001'],
+        test_uuid: 'test-uuid-001',
+        test_name: 'Test One',
+        binary_name: 'test-binary.exe',
+      }, 'org-001', 'user-001');
+
+      expect(taskIds).toHaveLength(1);
+
+      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get(taskIds[0]) as any;
+      expect(row).toBeDefined();
+      expect(row.agent_id).toBe('agent-001');
+      expect(row.org_id).toBe('org-001');
+      expect(row.status).toBe('pending');
+      expect(row.type).toBe('execute_test');
+
+      const payload = JSON.parse(row.payload);
+      expect(payload.test_uuid).toBe('test-uuid-001');
+      expect(payload.binary_sha256).toBeDefined();
+      expect(payload.binary_size).toBe(2048);
+    });
+
+    it('creates tasks for multiple agents', () => {
+      insertTestAgent(testDb, { id: 'agent-002' });
+      insertTestAgent(testDb, { id: 'agent-003' });
+
+      const taskIds = createTasks({
+        agent_ids: ['agent-001', 'agent-002', 'agent-003'],
+        test_uuid: 'test-uuid-001',
+        test_name: 'Test One',
+        binary_name: 'test-binary.exe',
+      }, 'org-001', 'user-001');
+
+      expect(taskIds).toHaveLength(3);
+
+      // Each agent should have a separate task
+      const rows = testDb.prepare('SELECT agent_id FROM tasks').all() as any[];
+      const agentIds = rows.map((r: any) => r.agent_id).sort();
+      expect(agentIds).toEqual(['agent-001', 'agent-002', 'agent-003']);
+    });
+
+    it('throws 400 for missing agent_ids', () => {
+      expect(() =>
+        createTasks({
+          agent_ids: [],
+          test_uuid: 'uuid',
+          test_name: 'name',
+          binary_name: 'bin.exe',
+        }, 'org-001', 'user-001')
+      ).toThrow('At least one agent_id is required');
+    });
+
+    it('throws 400 for missing test_uuid', () => {
+      expect(() =>
+        createTasks({
+          agent_ids: ['agent-001'],
+          test_uuid: '',
+          test_name: 'name',
+          binary_name: 'bin.exe',
+        }, 'org-001', 'user-001')
+      ).toThrow('test_uuid, test_name, and binary_name are required');
+    });
+
+    it('throws 404 when build-meta.json is missing', () => {
+      mockExistsSync.mockImplementation((p: string) => {
+        if (typeof p === 'string' && p.endsWith('build-meta.json')) return false;
+        return true;
+      });
+
+      expect(() =>
+        createTasks({
+          agent_ids: ['agent-001'],
+          test_uuid: 'uuid',
+          test_name: 'name',
+          binary_name: 'bin.exe',
+        }, 'org-001', 'user-001')
+      ).toThrow('Build metadata not found');
+    });
+
+    it('throws 404 when binary file is missing', () => {
+      let callCount = 0;
+      mockExistsSync.mockImplementation(() => {
+        callCount++;
+        // First call is for build-meta.json → exists
+        // Second call is for binary file → doesn't exist
+        return callCount === 1;
+      });
+
+      expect(() =>
+        createTasks({
+          agent_ids: ['agent-001'],
+          test_uuid: 'uuid',
+          test_name: 'name',
+          binary_name: 'bin.exe',
+        }, 'org-001', 'user-001')
+      ).toThrow('Binary file not found');
+    });
+
+    it('enriches metadata from test catalog when request metadata is empty', () => {
+      mockGetTestMetadata.mockReturnValue({
+        category: 'defense_evasion',
+        subcategory: 'process_injection',
+        severity: 'high',
+        techniques: ['T1055'],
+        tactics: ['TA0005'],
+        threatActor: 'APT29',
+        target: 'windows',
+        complexity: 'medium',
+        tags: ['edr-test'],
+        score: 8,
+      });
+
+      const taskIds = createTasks({
+        agent_ids: ['agent-001'],
+        test_uuid: 'test-uuid-001',
+        test_name: 'Test One',
+        binary_name: 'test-binary.exe',
+      }, 'org-001', 'user-001');
+
+      const row = testDb.prepare('SELECT payload FROM tasks WHERE id = ?').get(taskIds[0]) as any;
+      const payload = JSON.parse(row.payload);
+      expect(payload.metadata.category).toBe('defense_evasion');
+      expect(payload.metadata.techniques).toEqual(['T1055']);
+      expect(payload.metadata.threat_actor).toBe('APT29');
+    });
+
+    it('uses default values for execution_timeout, arguments, and priority', () => {
+      const taskIds = createTasks({
+        agent_ids: ['agent-001'],
+        test_uuid: 'test-uuid-001',
+        test_name: 'Test One',
+        binary_name: 'test-binary.exe',
+      }, 'org-001', 'user-001');
+
+      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get(taskIds[0]) as any;
+      expect(row.priority).toBe(1);
+      expect(row.ttl).toBe(604800);
+
+      const payload = JSON.parse(row.payload);
+      expect(payload.execution_timeout).toBe(300);
+      expect(payload.arguments).toEqual([]);
     });
   });
 });
