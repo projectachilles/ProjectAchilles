@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useUser } from "@clerk/clerk-react";
+import { apiClient } from "./useAuthenticatedApi";
 
 export interface RecentEntry {
   uuid: string;
@@ -13,18 +14,22 @@ interface TestPreferences {
 }
 
 const RECENT_LIMIT = 20;
-const PREFS_EVENT = 'test-prefs-changed';
+const PREFS_EVENT = "test-prefs-changed";
 
 function getStorageKey(userId: string): string {
   return `achilles-test-prefs-${userId}`;
 }
 
-function readPrefs(userId: string): TestPreferences {
+async function readPrefs(_userId?: string): Promise<TestPreferences> {
   try {
-    const raw = localStorage.getItem(getStorageKey(userId));
-    if (raw) return JSON.parse(raw);
-  } catch { /* ignore corrupt data */ }
-  return { favorites: [], recent: [] };
+    // Fetch favorites from backend via API
+    const res = await apiClient.get("/favorites");
+    const backendData = res.data as { favorites: string[] };
+    return { favorites: backendData.favorites || [], recent: [] };
+  } catch (e) {
+    console.error("Failed to read preferences:", e);
+    return { favorites: [], recent: [] };
+  }
 }
 
 function writePrefs(userId: string, prefs: TestPreferences) {
@@ -34,15 +39,19 @@ function writePrefs(userId: string, prefs: TestPreferences) {
 
 export function useTestPreferences() {
   const { user } = useUser();
-  const userId = user?.id ?? '';
-  const [prefs, setPrefs] = useState<TestPreferences>(() => readPrefs(userId));
+  const userId = user?.id ?? "";
+  const [prefs, setPrefs] = useState<TestPreferences>({ favorites: [], recent: [] });
 
   // Re-read when userId changes or when another hook instance writes
   useEffect(() => {
     if (!userId) return;
-    setPrefs(readPrefs(userId));
 
-    const handler = () => setPrefs(readPrefs(userId));
+    // Load from backend on mount
+    readPrefs(userId).then((data) => setPrefs(data));
+
+    const handler = () => {
+      readPrefs(userId).then((data) => setPrefs(data));
+    };
     window.addEventListener(PREFS_EVENT, handler);
     return () => window.removeEventListener(PREFS_EVENT, handler);
   }, [userId]);
@@ -51,37 +60,42 @@ export function useTestPreferences() {
 
   const isFavorite = useCallback(
     (uuid: string) => favorites.has(uuid),
-    [favorites]
+    [favorites],
   );
 
   const toggleFavorite = useCallback(
-    (uuid: string) => {
+    async (uuid: string) => {
       if (!userId) return;
-      const current = readPrefs(userId);
-      const idx = current.favorites.indexOf(uuid);
-      if (idx >= 0) {
-        current.favorites.splice(idx, 1);
-      } else {
-        current.favorites.push(uuid);
+      try {
+        await apiClient.post("/favorites/add", { test_id: uuid });
+        const current = await readPrefs(userId);
+        const idx = current.favorites.indexOf(uuid);
+        if (idx >= 0) {
+          current.favorites.splice(idx, 1);
+        } else {
+          current.favorites.push(uuid);
+        }
+        writePrefs(userId, current);
+      } catch (error) {
+        console.error("Failed to toggle favorite:", error);
       }
-      writePrefs(userId, current);
     },
-    [userId]
+    [userId],
   );
 
   const trackView = useCallback(
     (uuid: string, name: string) => {
       if (!userId) return;
-      const current = readPrefs(userId);
-      // Remove existing entry for this uuid
-      current.recent = current.recent.filter(r => r.uuid !== uuid);
-      // Prepend new entry
-      current.recent.unshift({ uuid, name, viewedAt: Date.now() });
-      // Trim to limit
-      current.recent = current.recent.slice(0, RECENT_LIMIT);
-      writePrefs(userId, current);
+      setPrefs((prev) => {
+        const current = { ...prev };
+        current.recent = current.recent.filter((r: RecentEntry) => r.uuid !== uuid);
+        current.recent.unshift({ uuid, name, viewedAt: Date.now() });
+        current.recent = current.recent.slice(0, RECENT_LIMIT);
+        writePrefs(userId, current);
+        return current;
+      });
     },
-    [userId]
+    [userId],
   );
 
   return {
