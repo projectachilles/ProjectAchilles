@@ -1,0 +1,5 @@
+# Enforce LF line endings for files used inside Docker containers.
+# Prevents CRLF issues on Windows that cause "$'\r': command not found" errors.
+*.sh text eol=lf
+Dockerfile text eol=lf
+docker-entrypoint.sh text eol=lf

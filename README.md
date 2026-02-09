@@ -67,6 +67,16 @@ docker compose up -d
 docker compose --profile elasticsearch up -d
 ```
 
+### Path C — Windows (PowerShell)
+
+```powershell
+git clone https://github.com/ubercylon8/ProjectAchilles.git
+cd ProjectAchilles
+.\Install-ProjectAchilles.ps1
+```
+
+The PowerShell script checks prerequisites, fixes line endings, configures `backend/.env` interactively, builds Docker images, and opens the dashboard. See [Windows Docker Installation](WINDOWS_DOCKER_INSTALL.md) for the full manual guide.
+
 ## Features
 
 ### Test Browser
@@ -196,7 +206,8 @@ ProjectAchilles/
 │   ├── main.go                # CLI entry point (--enroll, --run, --install)
 │   └── internal/              # Agent modules (poller, executor, updater, sysinfo)
 ├── docker-compose.yml         # Multi-service deployment
-├── setup.sh                   # Interactive setup wizard
+├── setup.sh                   # Interactive setup wizard (Linux/macOS)
+├── Install-ProjectAchilles.ps1 # Bootstrap script (Windows PowerShell)
 ├── start.sh                   # Development startup script
 └── CLAUDE.md                  # AI assistant development guidance
 ```

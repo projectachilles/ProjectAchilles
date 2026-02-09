@@ -168,9 +168,42 @@ ProjectAchilles uses [Clerk](https://clerk.com) for authentication. You need a f
 
 ## 6. Configure Environment
 
-### Option A: Setup Wizard (Recommended)
+### Option A: PowerShell Bootstrap Script (Recommended)
 
-The interactive setup wizard configures everything for you.
+The all-in-one PowerShell script handles configuration **and** building/launching in a single step:
+
+```powershell
+.\Install-ProjectAchilles.ps1
+```
+
+The script will:
+- Check that Git, Docker, and Docker Compose are installed and running
+- Fix CRLF line endings in shell scripts (prevents Docker build failures)
+- Ask for your Clerk keys (with input masking for the secret key)
+- Ask about Elasticsearch and test repository configuration
+- Generate secure secrets (SESSION_SECRET, ENCRYPTION_SECRET)
+- Write everything to `backend/.env`
+- Build and start Docker containers
+- Wait for services to become healthy
+- Open `http://localhost` in your browser
+
+**Quick mode** (minimal prompts — just provide Clerk keys):
+
+```powershell
+.\Install-ProjectAchilles.ps1 -Quick -ClerkPublishableKey pk_test_YOUR_KEY -ClerkSecretKey sk_test_YOUR_KEY
+```
+
+**With local Elasticsearch** (skips the ES prompt):
+
+```powershell
+.\Install-ProjectAchilles.ps1 -WithElasticsearch
+```
+
+> If you use the bootstrap script, skip to [Section 8: Verify Installation](#8-verify-installation) — the script handles Sections 6 and 7 automatically.
+
+### Option B: Setup Wizard (Git Bash)
+
+The interactive setup wizard configures `backend/.env` (but does not build or launch containers).
 
 **Using Git Bash** (installed with Git for Windows):
 
@@ -187,7 +220,9 @@ The wizard will:
 - Generate secure secrets (SESSION_SECRET, ENCRYPTION_SECRET)
 - Write everything to `backend/.env`
 
-### Option B: Manual Configuration
+After the wizard completes, continue to [Section 7](#7-build-and-start-services) to build and start services.
+
+### Option C: Manual Configuration
 
 If you prefer manual setup or the wizard doesn't work:
 
@@ -241,7 +276,7 @@ Replace both `REPLACE_ME` values with the generated strings.
 If you have access to a private test library repository, also set:
 
 ```env
-TESTS_REPO_URL=https://github.com/projectachilles/f0_library.git
+TESTS_REPO_URL=https://github.com/ubercylon8/f0_library.git
 GITHUB_TOKEN=ghp_YOUR_PERSONAL_ACCESS_TOKEN
 ```
 
