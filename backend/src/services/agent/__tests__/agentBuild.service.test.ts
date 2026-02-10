@@ -63,6 +63,7 @@ const AGENT_SOURCE = '/repo/agent';
 const BUILD_WORK_DIR = '/tmp/agent-build-xyz';
 const BIN_DIR_WIN = '/mock-home/.projectachilles/binaries/windows-amd64';
 const BIN_DIR_LINUX = '/mock-home/.projectachilles/binaries/linux-amd64';
+const BIN_DIR_DARWIN = '/mock-home/.projectachilles/binaries/darwin-arm64';
 
 function createMockSettingsService(overrides: Record<string, unknown> = {}) {
   return {
@@ -380,7 +381,98 @@ describe('AgentBuildService', () => {
     });
   });
 
-  // ── Group 5: Error Handling ────────────────────────────────
+  // ── Group 5: Darwin (macOS) Builds ───────────────────────────
+
+  describe('darwin builds', () => {
+    beforeEach(() => {
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${AGENT_SOURCE}/go.mod`) return true;
+        return false;
+      });
+    });
+
+    it('produces no .exe extension for darwin builds', async () => {
+      mockRegisterVersion.mockReturnValue({ ...MOCK_VERSION_RESULT, os: 'darwin', arch: 'arm64' });
+
+      await service.buildAndSign('1.0.0', 'darwin', 'arm64');
+
+      expect(mockRenameSync).toHaveBeenCalledWith(
+        expect.anything(),
+        `${BIN_DIR_DARWIN}/achilles-agent-1.0.0`,
+      );
+    });
+
+    it('sets GOOS=darwin in build environment', async () => {
+      mockRegisterVersion.mockReturnValue({ ...MOCK_VERSION_RESULT, os: 'darwin', arch: 'arm64' });
+
+      await service.buildAndSign('1.0.0', 'darwin', 'arm64');
+
+      const buildCall = mockExecFileAsync.mock.calls.find(
+        c => (c[1] as string[]).includes('build'),
+      );
+      const opts = buildCall![2] as { env: NodeJS.ProcessEnv };
+      expect(opts.env.GOOS).toBe('darwin');
+      expect(opts.env.GOARCH).toBe('arm64');
+    });
+
+    it('calls rcodesign for darwin builds when available', async () => {
+      mockRegisterVersion.mockReturnValue({ ...MOCK_VERSION_RESULT, os: 'darwin', arch: 'arm64' });
+
+      await service.buildAndSign('1.0.0', 'darwin', 'arm64');
+
+      const rcodesignCall = mockExecFileAsync.mock.calls.find(
+        c => c[0] === 'rcodesign',
+      );
+      expect(rcodesignCall).toBeDefined();
+      expect(rcodesignCall![1]).toEqual([
+        'sign', '--code-signature-flags', 'adhoc',
+        expect.stringContaining('achilles-agent-1.0.0'),
+      ]);
+      expect(mockRegisterVersion).toHaveBeenCalledWith(
+        '1.0.0', 'darwin', 'arm64',
+        expect.any(String), expect.any(String),
+        false, true, // signed = true
+      );
+    });
+
+    it('continues unsigned when rcodesign fails for darwin', async () => {
+      mockRegisterVersion.mockReturnValue({ ...MOCK_VERSION_RESULT, os: 'darwin', arch: 'arm64' });
+
+      mockExecFileAsync.mockImplementation(async (cmd: string) => {
+        if (cmd === 'rcodesign') {
+          throw new Error('rcodesign not found');
+        }
+        return { stdout: '', stderr: '' };
+      });
+
+      await service.buildAndSign('1.0.0', 'darwin', 'arm64');
+
+      expect(mockRegisterVersion).toHaveBeenCalledWith(
+        '1.0.0', 'darwin', 'arm64',
+        expect.any(String), expect.any(String),
+        false, false, // signed = false
+      );
+    });
+
+    it('does not call osslsigncode for darwin builds', async () => {
+      mockRegisterVersion.mockReturnValue({ ...MOCK_VERSION_RESULT, os: 'darwin', arch: 'arm64' });
+      const svc = createService({
+        getActiveCertPfxPath: vi.fn().mockReturnValue({
+          pfxPath: '/certs/cert.pfx',
+          password: 'cert-pass',
+        }),
+      });
+
+      await svc.buildAndSign('1.0.0', 'darwin', 'arm64');
+
+      const osslsigncodeCall = mockExecFileAsync.mock.calls.find(
+        c => c[0] === 'osslsigncode',
+      );
+      expect(osslsigncodeCall).toBeUndefined();
+    });
+  });
+
+  // ── Group 6: Error Handling ────────────────────────────────
 
   describe('error handling', () => {
     beforeEach(() => {

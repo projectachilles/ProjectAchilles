@@ -17,7 +17,7 @@ const upload = multer({
   limits: { fileSize: 200 * 1024 * 1024 },
 });
 
-const VALID_OS: AgentOS[] = ['windows', 'linux'];
+const VALID_OS: AgentOS[] = ['windows', 'linux', 'darwin'];
 const VALID_ARCH: AgentArch[] = ['amd64', 'arm64'];
 
 // ============================================================================

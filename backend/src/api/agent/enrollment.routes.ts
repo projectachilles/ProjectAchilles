@@ -39,8 +39,8 @@ agentEnrollmentRouter.post(
       throw new AppError('Missing required fields: token, hostname, os, arch, agent_version', 400);
     }
 
-    if (!['windows', 'linux'].includes(os)) {
-      throw new AppError('Invalid os: must be "windows" or "linux"', 400);
+    if (!['windows', 'linux', 'darwin'].includes(os)) {
+      throw new AppError('Invalid os: must be "windows", "linux", or "darwin"', 400);
     }
 
     if (!['amd64', 'arm64'].includes(arch)) {
@@ -81,11 +81,11 @@ agentEnrollmentRouter.get(
     const os = req.query.os as string;
     const arch = req.query.arch as string;
 
-    const validOs: AgentOS[] = ['linux', 'windows'];
+    const validOs: AgentOS[] = ['linux', 'windows', 'darwin'];
     const validArch: AgentArch[] = ['amd64', 'arm64'];
 
     if (!os || !validOs.includes(os as AgentOS)) {
-      throw new AppError('Invalid or missing "os" parameter: must be "linux" or "windows"', 400);
+      throw new AppError('Invalid or missing "os" parameter: must be "linux", "windows", or "darwin"', 400);
     }
 
     if (!arch || !validArch.includes(arch as AgentArch)) {

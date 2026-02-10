@@ -28,7 +28,7 @@ function initializeTables(database: Database.Database): void {
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL,
       hostname TEXT NOT NULL,
-      os TEXT NOT NULL CHECK(os IN ('windows', 'linux')),
+      os TEXT NOT NULL CHECK(os IN ('windows', 'linux', 'darwin')),
       arch TEXT NOT NULL CHECK(arch IN ('amd64', 'arm64')),
       agent_version TEXT NOT NULL,
       api_key_hash TEXT NOT NULL,
@@ -73,7 +73,7 @@ function initializeTables(database: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS agent_versions (
       version TEXT NOT NULL,
-      os TEXT NOT NULL CHECK(os IN ('windows', 'linux')),
+      os TEXT NOT NULL CHECK(os IN ('windows', 'linux', 'darwin')),
       arch TEXT NOT NULL CHECK(arch IN ('amd64', 'arm64')),
       binary_path TEXT NOT NULL,
       binary_sha256 TEXT NOT NULL,
@@ -142,6 +142,104 @@ function initializeTables(database: Database.Database): void {
   const versionColNames = new Set(versionCols.map((c) => c.name));
   if (!versionColNames.has('signed')) {
     database.exec(`ALTER TABLE agent_versions ADD COLUMN signed INTEGER DEFAULT 0`);
+  }
+
+  // Migration: expand os CHECK constraint to include 'darwin' for agents and agent_versions.
+  // SQLite doesn't support ALTER COLUMN, so recreate tables if constraint rejects 'darwin'.
+  migrateDarwinConstraint(database);
+}
+
+function migrateDarwinConstraint(database: Database.Database): void {
+  // Test if agents table already accepts 'darwin'
+  let agentsNeedMigration = false;
+  try {
+    database.exec(`SAVEPOINT darwin_check`);
+    database.exec(`INSERT INTO agents (id, org_id, hostname, os, arch, agent_version, api_key_hash, enrolled_at)
+                    VALUES ('__darwin_check__', '__test__', '__test__', 'darwin', 'amd64', '0', '__test__', datetime('now'))`);
+    database.exec(`DELETE FROM agents WHERE id = '__darwin_check__'`);
+    database.exec(`RELEASE darwin_check`);
+  } catch {
+    database.exec(`ROLLBACK TO darwin_check`);
+    database.exec(`RELEASE darwin_check`);
+    agentsNeedMigration = true;
+  }
+
+  if (agentsNeedMigration) {
+    // Determine which columns exist (notes/notes_history/target_index may have been added by migration)
+    const cols = database.prepare(`PRAGMA table_info(agents)`).all() as { name: string }[];
+    const colSet = new Set(cols.map((c) => c.name));
+    const selectCols = cols.map((c) => c.name).join(', ');
+
+    const extraCols = [
+      colSet.has('notes') ? 'notes TEXT DEFAULT NULL' : null,
+      colSet.has('notes_history') ? "notes_history TEXT DEFAULT '[]'" : null,
+      colSet.has('target_index') ? 'target_index TEXT DEFAULT NULL' : null,
+    ].filter(Boolean);
+
+    database.exec(`
+      CREATE TABLE agents_new (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        hostname TEXT NOT NULL,
+        os TEXT NOT NULL CHECK(os IN ('windows', 'linux', 'darwin')),
+        arch TEXT NOT NULL CHECK(arch IN ('amd64', 'arm64')),
+        agent_version TEXT NOT NULL,
+        api_key_hash TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'disabled', 'decommissioned')),
+        last_heartbeat TEXT,
+        last_heartbeat_data TEXT,
+        enrolled_at TEXT NOT NULL,
+        enrolled_by TEXT,
+        tags TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        ${extraCols.length > 0 ? ', ' + extraCols.join(', ') : ''}
+      );
+      INSERT INTO agents_new (${selectCols}) SELECT ${selectCols} FROM agents;
+      DROP TABLE agents;
+      ALTER TABLE agents_new RENAME TO agents;
+      CREATE INDEX IF NOT EXISTS idx_agents_org ON agents(org_id);
+      CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
+    `);
+  }
+
+  // Test if agent_versions table already accepts 'darwin'
+  let versionsNeedMigration = false;
+  try {
+    database.exec(`SAVEPOINT darwin_ver_check`);
+    database.exec(`INSERT INTO agent_versions (version, os, arch, binary_path, binary_sha256, binary_size)
+                    VALUES ('__check__', 'darwin', 'amd64', '__test__', '__test__', 0)`);
+    database.exec(`DELETE FROM agent_versions WHERE version = '__check__' AND os = 'darwin'`);
+    database.exec(`RELEASE darwin_ver_check`);
+  } catch {
+    database.exec(`ROLLBACK TO darwin_ver_check`);
+    database.exec(`RELEASE darwin_ver_check`);
+    versionsNeedMigration = true;
+  }
+
+  if (versionsNeedMigration) {
+    const vCols = database.prepare(`PRAGMA table_info(agent_versions)`).all() as { name: string }[];
+    const vSelectCols = vCols.map((c) => c.name).join(', ');
+    const hasSigned = vCols.some((c) => c.name === 'signed');
+
+    database.exec(`
+      CREATE TABLE agent_versions_new (
+        version TEXT NOT NULL,
+        os TEXT NOT NULL CHECK(os IN ('windows', 'linux', 'darwin')),
+        arch TEXT NOT NULL CHECK(arch IN ('amd64', 'arm64')),
+        binary_path TEXT NOT NULL,
+        binary_sha256 TEXT NOT NULL,
+        binary_size INTEGER NOT NULL,
+        release_notes TEXT,
+        mandatory INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        ${hasSigned ? ', signed INTEGER DEFAULT 0' : ''}
+        , PRIMARY KEY (version, os, arch)
+      );
+      INSERT INTO agent_versions_new (${vSelectCols}) SELECT ${vSelectCols} FROM agent_versions;
+      DROP TABLE agent_versions;
+      ALTER TABLE agent_versions_new RENAME TO agent_versions;
+    `);
   }
 }
 

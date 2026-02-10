@@ -9,7 +9,7 @@
 
 export type AgentStatus = 'active' | 'disabled' | 'decommissioned';
 
-export type AgentOS = 'windows' | 'linux';
+export type AgentOS = 'windows' | 'linux' | 'darwin';
 
 export type AgentArch = 'amd64' | 'arm64';
 

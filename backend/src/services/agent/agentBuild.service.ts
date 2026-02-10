@@ -151,7 +151,21 @@ export class AgentBuildService {
       }
     }
 
-    // 8. Register in the agent versions database
+    // 9. Sign darwin binaries with ad-hoc signature via rcodesign
+    if (targetOs === 'darwin') {
+      try {
+        await execFileAsync('rcodesign', [
+          'sign',
+          '--code-signature-flags', 'adhoc',
+          outputPath,
+        ], { timeout: 60_000 });
+        signed = true;
+      } catch {
+        // rcodesign not installed or signing failed — continue unsigned
+      }
+    }
+
+    // 10. Register in the agent versions database
     const result = registerVersion(
       version,
       targetOs,

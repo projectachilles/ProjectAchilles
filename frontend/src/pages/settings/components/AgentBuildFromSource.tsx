@@ -10,6 +10,7 @@ import { agentApi } from '@/services/api/agent';
 const OS_OPTIONS = [
   { value: 'linux', label: 'Linux' },
   { value: 'windows', label: 'Windows' },
+  { value: 'darwin', label: 'macOS' },
 ];
 
 const ARCH_OPTIONS = [
@@ -83,12 +84,17 @@ export function AgentBuildFromSource({ onBuilt }: AgentBuildFromSourceProps) {
         {os === 'windows' ? (
           <>
             <ShieldCheck className="w-4 h-4 text-primary" />
-            <span>Windows binaries will be signed if an active certificate is configured in Tests settings</span>
+            <span>Windows binaries will be Authenticode-signed if an active certificate is configured</span>
+          </>
+        ) : os === 'darwin' ? (
+          <>
+            <ShieldCheck className="w-4 h-4 text-primary" />
+            <span>macOS binaries will be ad-hoc signed via rcodesign if installed</span>
           </>
         ) : (
           <>
             <ShieldOff className="w-4 h-4" />
-            <span>Code signing is only available for Windows binaries</span>
+            <span>Code signing is not available for Linux binaries</span>
           </>
         )}
       </div>

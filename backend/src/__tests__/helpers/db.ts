@@ -14,7 +14,7 @@ export function createTestDatabase(): Database.Database {
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL,
       hostname TEXT NOT NULL,
-      os TEXT NOT NULL CHECK(os IN ('windows', 'linux')),
+      os TEXT NOT NULL CHECK(os IN ('windows', 'linux', 'darwin')),
       arch TEXT NOT NULL CHECK(arch IN ('amd64', 'arm64')),
       agent_version TEXT NOT NULL,
       api_key_hash TEXT NOT NULL,
@@ -62,7 +62,7 @@ export function createTestDatabase(): Database.Database {
 
     CREATE TABLE IF NOT EXISTS agent_versions (
       version TEXT NOT NULL,
-      os TEXT NOT NULL CHECK(os IN ('windows', 'linux')),
+      os TEXT NOT NULL CHECK(os IN ('windows', 'linux', 'darwin')),
       arch TEXT NOT NULL CHECK(arch IN ('amd64', 'arm64')),
       binary_path TEXT NOT NULL,
       binary_sha256 TEXT NOT NULL,

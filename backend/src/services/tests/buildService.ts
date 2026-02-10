@@ -281,32 +281,45 @@ export class BuildService {
       }
     }
 
-    // 7. Sign if an active certificate exists
+    // 7. Sign binary (Windows via osslsigncode, darwin via rcodesign ad-hoc)
     let signed = false;
-    const activeCert = this.settingsService.getActiveCertPfxPath();
-    if (activeCert) {
-      const signedPath = outputPath + '.signed';
-      // L1: Pass password via temp file to avoid /proc/PID/cmdline exposure
-      const passFile = path.join(buildDir, '.tmp-pass');
-      try {
-        fs.writeFileSync(passFile, activeCert.password, { mode: 0o600 });
-        await execFileAsync('osslsigncode', [
-          'sign',
-          '-pkcs12', activeCert.pfxPath,
-          '-readpass', passFile,
-          '-in', outputPath,
-          '-out', signedPath,
-        ], { timeout: 60_000 });
+    if (platform.os === 'windows') {
+      const activeCert = this.settingsService.getActiveCertPfxPath();
+      if (activeCert) {
+        const signedPath = outputPath + '.signed';
+        // L1: Pass password via temp file to avoid /proc/PID/cmdline exposure
+        const passFile = path.join(buildDir, '.tmp-pass');
+        try {
+          fs.writeFileSync(passFile, activeCert.password, { mode: 0o600 });
+          await execFileAsync('osslsigncode', [
+            'sign',
+            '-pkcs12', activeCert.pfxPath,
+            '-readpass', passFile,
+            '-in', outputPath,
+            '-out', signedPath,
+          ], { timeout: 60_000 });
 
-        fs.renameSync(signedPath, outputPath);
+          fs.renameSync(signedPath, outputPath);
+          signed = true;
+        } catch {
+          // Signing failed — continue with unsigned binary
+          if (fs.existsSync(signedPath)) {
+            fs.unlinkSync(signedPath);
+          }
+        } finally {
+          if (fs.existsSync(passFile)) fs.unlinkSync(passFile);
+        }
+      }
+    } else if (platform.os === 'darwin') {
+      try {
+        await execFileAsync('rcodesign', [
+          'sign',
+          '--code-signature-flags', 'adhoc',
+          outputPath,
+        ], { timeout: 60_000 });
         signed = true;
       } catch {
-        // Signing failed — continue with unsigned binary
-        if (fs.existsSync(signedPath)) {
-          fs.unlinkSync(signedPath);
-        }
-      } finally {
-        if (fs.existsSync(passFile)) fs.unlinkSync(passFile);
+        // rcodesign not installed or signing failed — continue unsigned
       }
     }
 
