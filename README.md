@@ -3,10 +3,14 @@
 <div align="center">
 
 ![ProjectAchilles](https://img.shields.io/badge/ProjectAchilles-Purple%20Team%20Platform-7C3AED?style=for-the-badge)
-[![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
-[![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react)](https://react.dev/)
-[![Go](https://img.shields.io/badge/Go-1.24-00ADD8?style=for-the-badge&logo=go)](https://go.dev/)
+
+[![CI](https://github.com/projectachilles/ProjectAchilles/actions/workflows/ci.yml/badge.svg)](https://github.com/projectachilles/ProjectAchilles/actions/workflows/ci.yml)
+[![Security Review](https://github.com/projectachilles/ProjectAchilles/actions/workflows/security-review.yml/badge.svg)](https://github.com/projectachilles/ProjectAchilles/actions/workflows/security-review.yml)
+[![Semgrep](https://img.shields.io/badge/semgrep-SAST-orange?logo=semgrep)](https://github.com/projectachilles/ProjectAchilles/actions/workflows/security-review.yml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev/)
+[![Go](https://img.shields.io/badge/Go-1.24-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
 **The Open-Source Purple Team Platform for Continuous Security Validation**
 
