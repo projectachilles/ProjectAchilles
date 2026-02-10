@@ -31,7 +31,7 @@ cd backend && npm run build      # tsc → dist/
 
 ```bash
 # All tests
-cd backend && npm test           # 176 tests across 10 files (~10s)
+cd backend && npm test           # 267 tests across 11 files (~10s)
 cd frontend && npm test          # 119 tests across 7 files (~2s)
 
 # Single file
