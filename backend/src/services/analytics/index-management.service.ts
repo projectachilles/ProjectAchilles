@@ -67,7 +67,7 @@ export async function createResultsIndex(
 
   await client.indices.create({
     index: indexName,
-    body: RESULTS_INDEX_MAPPING,
+    ...RESULTS_INDEX_MAPPING,
   });
 
   return { created: true, message: `Index "${indexName}" created successfully` };
