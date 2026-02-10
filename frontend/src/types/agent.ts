@@ -5,7 +5,7 @@ export type AgentOS = 'windows' | 'linux';
 export type AgentArch = 'amd64' | 'arm64';
 export type AgentRuntimeStatus = 'idle' | 'executing' | 'updating' | 'error' | 'offline';
 export type TaskStatus = 'pending' | 'assigned' | 'downloading' | 'executing' | 'completed' | 'failed' | 'expired';
-export type TaskType = 'execute_test' | 'update_agent' | 'uninstall';
+export type TaskType = 'execute_test' | 'update_agent' | 'uninstall' | 'execute_command';
 
 export interface HeartbeatData {
   timestamp: string;
@@ -93,6 +93,7 @@ export interface AgentTask {
     test_name: string;
     binary_name: string;
     execution_timeout: number;
+    command?: string;
   };
   result: TaskResult | null;
   notes: string | null;
@@ -131,6 +132,14 @@ export interface CreateTasksRequest {
   priority?: number;
   metadata: TaskTestMetadata;
   target_index?: string;
+}
+
+export interface CreateCommandTasksRequest {
+  agent_ids: string[];
+  org_id: string;
+  command: string;
+  execution_timeout?: number;
+  priority?: number;
 }
 
 export interface ListAgentsRequest {

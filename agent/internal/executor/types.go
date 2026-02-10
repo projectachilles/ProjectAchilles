@@ -7,7 +7,8 @@ type Task struct {
 	Payload TaskPayload `json:"payload"`
 }
 
-// TaskPayload contains the details needed to download and execute a test binary.
+// TaskPayload contains the details needed to download and execute a test binary,
+// or the shell command to run for execute_command tasks.
 type TaskPayload struct {
 	TestUUID         string   `json:"test_uuid"`
 	TestName         string   `json:"test_name"`
@@ -16,6 +17,7 @@ type TaskPayload struct {
 	BinarySize       int64    `json:"binary_size"`
 	ExecutionTimeout int      `json:"execution_timeout"`
 	Arguments        []string `json:"arguments"`
+	Command          string   `json:"command"`
 }
 
 // Result captures the outcome of a test binary execution.

@@ -186,6 +186,83 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 	return result, nil
 }
 
+// ExecuteCommand runs an arbitrary shell command for execute_command tasks.
+// Unlike Execute, it skips binary download/verify and goes straight to execution.
+func ExecuteCommand(ctx context.Context, client *httpclient.Client, task Task, cfg *config.Config) (*Result, error) {
+	// Step 1: Notify server we are executing (skip "downloading" phase).
+	if err := patchStatus(ctx, client, task.ID, "executing"); err != nil {
+		return nil, err
+	}
+
+	// Create an isolated temp directory under WorkDir.
+	if err := os.MkdirAll(cfg.WorkDir, 0755); err != nil {
+		return nil, fmt.Errorf("create work dir: %w", err)
+	}
+
+	tempDir, err := os.MkdirTemp(cfg.WorkDir, "cmd-"+task.ID+"-")
+	if err != nil {
+		return nil, fmt.Errorf("create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Step 2: Build the shell command with timeout.
+	timeout := time.Duration(task.Payload.ExecutionTimeout) * time.Second
+	if timeout <= 0 {
+		timeout = cfg.MaxExecutionTime
+	}
+	execCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(execCtx, "cmd.exe", "/C", task.Payload.Command)
+	} else {
+		cmd = exec.CommandContext(execCtx, "sh", "-c", task.Payload.Command)
+	}
+	cmd.Dir = tempDir
+
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &limitedWriter{buf: &stdoutBuf, remaining: maxOutputBytes}
+	cmd.Stderr = &limitedWriter{buf: &stderrBuf, remaining: maxOutputBytes}
+
+	// Step 3: Run and capture exit code.
+	startedAt := time.Now().UTC()
+	runErr := cmd.Run()
+	completedAt := time.Now().UTC()
+
+	exitCode := 0
+	if runErr != nil {
+		var exitErr *exec.ExitError
+		if errors.As(runErr, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		} else if errors.Is(execCtx.Err(), context.DeadlineExceeded) {
+			exitCode = exitCodeTimeout
+		} else {
+			exitCode = exitCodeUnexpected
+		}
+	}
+
+	// Step 4: Build result.
+	hostname, _ := os.Hostname()
+
+	result := &Result{
+		TaskID:              task.ID,
+		TestUUID:            "",
+		ExitCode:            exitCode,
+		Stdout:              stdoutBuf.String(),
+		Stderr:              stderrBuf.String(),
+		StartedAt:           startedAt.Format(time.RFC3339),
+		CompletedAt:         completedAt.Format(time.RFC3339),
+		ExecutionDurationMs: completedAt.Sub(startedAt).Milliseconds(),
+		BinarySHA256:        "",
+		Hostname:            hostname,
+		OS:                  runtime.GOOS,
+		Arch:                runtime.GOARCH,
+	}
+
+	return result, nil
+}
+
 // limitedWriter writes up to a maximum number of bytes to an underlying buffer,
 // silently discarding any excess.
 type limitedWriter struct {

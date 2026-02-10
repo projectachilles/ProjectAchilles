@@ -12,6 +12,7 @@ import type {
   TaskTestMetadata,
   TaskNoteEntry,
   CreateTaskRequest,
+  CreateCommandTaskRequest,
   ListTasksRequest,
 } from '../../types/agent.js';
 import { getTestMetadata } from './test-catalog.service.js';
@@ -54,7 +55,7 @@ function parseTaskRow(row: TaskRow): Task {
  */
 const VALID_TRANSITIONS: Record<string, TaskStatus[]> = {
   pending: ['assigned', 'expired'],
-  assigned: ['downloading', 'failed', 'expired'],
+  assigned: ['downloading', 'executing', 'failed', 'expired'],
   downloading: ['executing', 'failed', 'expired'],
   executing: ['completed', 'failed'],
 };
@@ -173,6 +174,81 @@ export function createTasks(
     for (const agentId of agent_ids) {
       const taskId = crypto.randomUUID();
       insertStmt.run(taskId, agentId, orgId, priority, payloadJson, createdBy, target_index ?? null);
+      taskIds.push(taskId);
+    }
+  });
+
+  insertAll();
+
+  return taskIds;
+}
+
+/**
+ * Create command tasks for one or more agents. Unlike createTasks, this
+ * does not look up a binary — it stores a shell command in the payload.
+ */
+export function createCommandTasks(
+  request: CreateCommandTaskRequest,
+  orgId: string,
+  createdBy: string
+): string[] {
+  const db = getDatabase();
+
+  const {
+    agent_ids,
+    command,
+    execution_timeout = 300,
+    priority = 1,
+  } = request;
+
+  if (!agent_ids || agent_ids.length === 0) {
+    throw new AppError('At least one agent_id is required', 400);
+  }
+
+  if (!command || typeof command !== 'string' || command.trim().length === 0) {
+    throw new AppError('command is required and must be a non-empty string', 400);
+  }
+
+  if (command.length > 10240) {
+    throw new AppError('command exceeds maximum length (10 KB)', 400);
+  }
+
+  const payload: TaskPayload = {
+    test_uuid: '',
+    test_name: '',
+    binary_name: '',
+    binary_sha256: '',
+    binary_size: 0,
+    execution_timeout,
+    arguments: [],
+    metadata: {
+      category: '',
+      subcategory: '',
+      severity: '',
+      techniques: [],
+      tactics: [],
+      threat_actor: '',
+      target: '',
+      complexity: '',
+      tags: [],
+      score: null,
+    },
+    command,
+  };
+
+  const payloadJson = JSON.stringify(payload);
+
+  const insertStmt = db.prepare(`
+    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_at, ttl, created_by)
+    VALUES (?, ?, ?, 'execute_command', ?, 'pending', ?, datetime('now'), 604800, ?)
+  `);
+
+  const taskIds: string[] = [];
+
+  const insertAll = db.transaction(() => {
+    for (const agentId of agent_ids) {
+      const taskId = crypto.randomUUID();
+      insertStmt.run(taskId, agentId, orgId, priority, payloadJson, createdBy);
       taskIds.push(taskId);
     }
   });

@@ -72,7 +72,7 @@ export default function TaskList({ tasks, loading, onCancel, onOpenNotes }: Task
         <TableRow>
           <TableHead className="w-8" />
           <TableHead>Status</TableHead>
-          <TableHead>Test Name</TableHead>
+          <TableHead>Task</TableHead>
           <TableHead>Agent</TableHead>
           <TableHead>Created</TableHead>
           <TableHead>Duration</TableHead>
@@ -109,7 +109,16 @@ export default function TaskList({ tasks, loading, onCancel, onOpenNotes }: Task
                       {task.status}
                     </Badge>
                   </TableCell>
-                  <TableCell className="font-medium">{task.payload.test_name}</TableCell>
+                  <TableCell className="font-medium">
+                    {task.type === 'execute_command'
+                      ? <span className="font-mono text-xs" title={task.payload.command}>
+                          {(task.payload.command ?? '').length > 60
+                            ? task.payload.command!.slice(0, 60) + '...'
+                            : task.payload.command}
+                        </span>
+                      : task.payload.test_name
+                    }
+                  </TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     {task.agent_id.slice(0, 8)}...
                   </TableCell>

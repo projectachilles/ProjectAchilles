@@ -44,7 +44,7 @@ export function createTestDatabase(): Database.Database {
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
       org_id TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('execute_test', 'update_agent', 'uninstall')),
+      type TEXT NOT NULL CHECK(type IN ('execute_test', 'update_agent', 'uninstall', 'execute_command')),
       priority INTEGER NOT NULL DEFAULT 1,
       status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'assigned', 'downloading', 'executing', 'completed', 'failed', 'expired')),
       payload TEXT NOT NULL,

@@ -3,6 +3,7 @@ import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
 import { getUserId } from '../../middleware/clerk.middleware.js';
 import {
   createTasks,
+  createCommandTasks,
   getNextTask,
   updateTaskStatus,
   submitResult,
@@ -14,6 +15,7 @@ import {
 import { ingestResult } from '../../services/agent/results.service.js';
 import type {
   CreateTaskRequest,
+  CreateCommandTaskRequest,
   TaskStatus,
   TaskResult,
   ListTasksRequest,
@@ -94,11 +96,13 @@ agentTasksRouter.post(
 
     const task = submitResult(req.params.id, agent.id, result);
 
-    // Fire-and-forget: ingest into Elasticsearch for analytics
-    ingestResult(task, result).catch((err) => {
-      console.error('[ES Ingestion] Failed for task %s:', task.id,
-        err instanceof Error ? err.message : err);
-    });
+    // Only ingest security test results into ES (not command results)
+    if (task.type === 'execute_test') {
+      ingestResult(task, result).catch((err) => {
+        console.error('[ES Ingestion] Failed for task %s:', task.id,
+          err instanceof Error ? err.message : err);
+      });
+    }
 
     res.json({ success: true, data: task });
   })
@@ -136,6 +140,39 @@ adminTasksRouter.post(
     }
 
     const taskIds = createTasks(taskRequest, org_id, userId);
+
+    res.status(201).json({ success: true, data: { task_ids: taskIds } });
+  })
+);
+
+/**
+ * POST /admin/tasks/command
+ * Create command execution tasks for one or more agents.
+ * Body: CreateCommandTaskRequest + org_id
+ */
+adminTasksRouter.post(
+  '/tasks/command',
+  asyncHandler(async (req, res) => {
+    const userId = getUserId(req.auth);
+    if (!userId) {
+      throw new AppError('Unable to determine user identity', 401);
+    }
+
+    const { org_id, ...cmdRequest } = req.body as CreateCommandTaskRequest & { org_id: string };
+
+    if (!org_id) {
+      throw new AppError('Missing required field: org_id', 400);
+    }
+
+    if (!cmdRequest.agent_ids || cmdRequest.agent_ids.length === 0) {
+      throw new AppError('Missing required field: agent_ids', 400);
+    }
+
+    if (!cmdRequest.command) {
+      throw new AppError('Missing required field: command', 400);
+    }
+
+    const taskIds = createCommandTasks(cmdRequest, org_id, userId);
 
     res.status(201).json({ success: true, data: { task_ids: taskIds } });
   })

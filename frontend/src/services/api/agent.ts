@@ -8,6 +8,7 @@ import type {
   EnrollmentToken,
   CreateTokenRequest,
   CreateTasksRequest,
+  CreateCommandTasksRequest,
   ListAgentsRequest,
   ListTasksRequest,
   TaskNoteEntry,
@@ -83,6 +84,11 @@ export const agentApi = {
 
   async createTasks(data: CreateTasksRequest): Promise<string[]> {
     const response = await apiClient.post('/agent/admin/tasks', data);
+    return response.data.data.task_ids;
+  },
+
+  async createCommandTasks(data: CreateCommandTasksRequest): Promise<string[]> {
+    const response = await apiClient.post('/agent/admin/tasks/command', data);
     return response.data.data.task_ids;
   },
 
@@ -163,6 +169,7 @@ export type {
   EnrollmentToken,
   CreateTokenRequest,
   CreateTasksRequest,
+  CreateCommandTasksRequest,
   ListAgentsRequest,
   ListTasksRequest,
   TaskNoteEntry,

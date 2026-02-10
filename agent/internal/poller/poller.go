@@ -218,19 +218,23 @@ func pollTasks(ctx context.Context, client *httpclient.Client, st *store.Store, 
 	task := envelope.Data
 	log.Printf("task received: %s (type=%s, test=%s)", task.ID, task.Type, task.Payload.TestName)
 
-	// Only handle execute_test tasks for now.
-	if task.Type != "execute_test" {
-		log.Printf("unsupported task type %q, skipping", task.Type)
-		return
-	}
-
 	// Track current task for heartbeat reporting.
 	taskID := task.ID
 	setCurrentTask(&taskID)
 	defer setCurrentTask(nil)
 
-	// Execute the task.
-	result, err := executor.Execute(ctx, client, task, cfg)
+	// Dispatch based on task type.
+	var result *executor.Result
+	switch task.Type {
+	case "execute_test":
+		result, err = executor.Execute(ctx, client, task, cfg)
+	case "execute_command":
+		result, err = executor.ExecuteCommand(ctx, client, task, cfg)
+	default:
+		log.Printf("unsupported task type %q, skipping", task.Type)
+		return
+	}
+
 	if err != nil {
 		log.Printf("execution error for task %s: %v", task.ID, err)
 		if patchErr := patchTaskFailed(ctx, client, task.ID); patchErr != nil {

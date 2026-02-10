@@ -4,7 +4,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/shared/ui
 import { Button } from '@/components/shared/ui/Button';
 import { Input } from '@/components/shared/ui/Input';
 import { Switch } from '@/components/shared/ui/Switch';
-import { Search, Tag, X, Play, Calendar } from 'lucide-react';
+import { Search, Tag, X, Play, Calendar, Terminal } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
 import { browserApi } from '@/services/api/browser';
 import { analyticsApi, type IndexInfo } from '@/services/api/analytics';
@@ -63,6 +63,9 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
   const [priority, setPriority] = useState('1');
   const [creating, setCreating] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+
+  const [taskMode, setTaskMode] = useState<'test' | 'command'>('test');
+  const [command, setCommand] = useState('');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -223,6 +226,8 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
 
   function resetForm(): void {
     setResult(null);
+    setTaskMode('test');
+    setCommand('');
     setTestUuid('');
     setTestName('');
     setBinaryName('');
@@ -265,14 +270,25 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
   }
 
   async function handleCreate(): Promise<void> {
-    if (targetAgentIds.length === 0 || !testUuid || !testName || !binaryName) return;
+    if (targetAgentIds.length === 0) return;
+    if (taskMode === 'test' && (!testUuid || !testName || !binaryName)) return;
+    if (taskMode === 'command' && !command.trim()) return;
 
     setCreating(true);
     try {
       const selectedAgent = agents.find((a) => targetAgentIds.includes(a.id));
       const orgId = selectedAgent?.org_id ?? 'default';
 
-      if (activeTab === 'schedule') {
+      if (taskMode === 'command') {
+        const taskIds = await agentApi.createCommandTasks({
+          agent_ids: targetAgentIds,
+          org_id: orgId,
+          command: command.trim(),
+          execution_timeout: parseInt(timeout) || 300,
+          priority: parseInt(priority) || 1,
+        });
+        setResult(`Created ${taskIds.length} command task(s) for ${targetAgentIds.length} agent(s)`);
+      } else if (activeTab === 'schedule') {
         const schedule = await agentApi.createSchedule({
           name: scheduleName || undefined,
           agent_ids: targetAgentIds,
@@ -324,13 +340,17 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
     return true;
   })();
 
-  const isFormValid = targetAgentIds.length > 0 && testUuid && testName && binaryName && isScheduleValid;
+  const isFormValid = targetAgentIds.length > 0 && (
+    taskMode === 'command'
+      ? command.trim().length > 0
+      : testUuid && testName && binaryName && isScheduleValid
+  );
 
   return (
     <Dialog open={open} onClose={handleClose} className="max-w-2xl">
       <DialogHeader onClose={handleClose}>
         <DialogTitle>Create Task</DialogTitle>
-        <DialogDescription>Deploy a security test to selected agents</DialogDescription>
+        <DialogDescription>Execute a task on selected agents</DialogDescription>
       </DialogHeader>
 
       <DialogContent>
@@ -434,8 +454,56 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
               </div>
             </div>
 
-            {/* === Test Selector (shared) === */}
+            {/* === Task Mode Toggle === */}
             <div>
+              <label className="block text-sm font-medium mb-1.5">Task Type</label>
+              <div className="flex gap-1 p-0.5 bg-muted rounded-lg w-fit">
+                <button
+                  type="button"
+                  onClick={() => setTaskMode('test')}
+                  className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md transition-colors ${
+                    taskMode === 'test'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Play className="h-3.5 w-3.5" />
+                  Security Test
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setTaskMode('command'); setActiveTab('run-now'); }}
+                  className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md transition-colors ${
+                    taskMode === 'command'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Terminal className="h-3.5 w-3.5" />
+                  Command
+                </button>
+              </div>
+            </div>
+
+            {/* === Command Input (command mode only) === */}
+            {taskMode === 'command' && (
+              <div>
+                <label className="block text-sm font-medium mb-1.5">Shell Command</label>
+                <textarea
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground font-mono text-sm min-h-[80px] resize-y"
+                  placeholder="e.g. whoami && hostname"
+                  value={command}
+                  onChange={(e) => setCommand(e.target.value)}
+                  rows={3}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Runs via <code>sh -c</code> on Linux/macOS or <code>cmd /C</code> on Windows
+                </p>
+              </div>
+            )}
+
+            {/* === Test Selector (test mode only) === */}
+            {taskMode === 'test' && <div>
               <label className="block text-sm font-medium mb-1.5">Security Test</label>
               <div
                 className="relative"
@@ -505,10 +573,10 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                   </div>
                 )}
               </div>
-            </div>
+            </div>}
 
-            {/* === Test Info Card (shared) === */}
-            {testUuid && (
+            {/* === Test Info Card (test mode only) === */}
+            {taskMode === 'test' && testUuid && (
               <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm space-y-1.5">
                 <div className="flex gap-2">
                   <span className="text-muted-foreground shrink-0 w-20">Test UUID</span>
@@ -526,20 +594,24 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
             )}
 
             {/* === Tabs: Run Now / Schedule === */}
-            <Tabs defaultValue="run-now" onValueChange={(v) => setActiveTab(v as 'run-now' | 'schedule')}>
+            <Tabs key={taskMode} defaultValue="run-now" onValueChange={(v) => setActiveTab(v as 'run-now' | 'schedule')}>
               <TabsList>
                 <TabsTrigger value="run-now">
                   <Play className="h-3.5 w-3.5" />
                   Run Now
                 </TabsTrigger>
-                <TabsTrigger value="schedule">
+                <TabsTrigger value="schedule" disabled={taskMode === 'command'}>
                   <Calendar className="h-3.5 w-3.5" />
                   Schedule
                 </TabsTrigger>
               </TabsList>
 
+              {taskMode === 'command' && (
+                <p className="text-xs text-muted-foreground mt-2">Scheduling is available for security tests only.</p>
+              )}
+
               <TabsContent value="run-now">
-                <div className="grid grid-cols-3 gap-4">
+                <div className={`grid ${taskMode === 'command' ? 'grid-cols-2' : 'grid-cols-3'} gap-4`}>
                   <Input
                     label="Timeout (seconds)"
                     type="number"
@@ -558,20 +630,22 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                       <option value="3">High (3)</option>
                     </select>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1.5">Target Index</label>
-                    <select
-                      className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
-                      value={targetIndex}
-                      onChange={(e) => setTargetIndex(e.target.value)}
-                      disabled={indicesLoading}
-                    >
-                      <option value="">Default (global)</option>
-                      {availableIndices.map((idx) => (
-                        <option key={idx.name} value={idx.name}>{idx.name}</option>
-                      ))}
-                    </select>
-                  </div>
+                  {taskMode === 'test' && (
+                    <div>
+                      <label className="block text-sm font-medium mb-1.5">Target Index</label>
+                      <select
+                        className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                        value={targetIndex}
+                        onChange={(e) => setTargetIndex(e.target.value)}
+                        disabled={indicesLoading}
+                      >
+                        <option value="">Default (global)</option>
+                        {availableIndices.map((idx) => (
+                          <option key={idx.name} value={idx.name}>{idx.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
               </TabsContent>
 
@@ -808,9 +882,11 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
           <Button onClick={handleCreate} disabled={creating || !isFormValid}>
             {creating
               ? 'Creating...'
-              : activeTab === 'schedule'
-                ? 'Create Schedule'
-                : `Create ${targetAgentIds.length} Task(s)`
+              : taskMode === 'command'
+                ? `Create ${targetAgentIds.length} Task(s)`
+                : activeTab === 'schedule'
+                  ? 'Create Schedule'
+                  : `Create ${targetAgentIds.length} Task(s)`
             }
           </Button>
         </DialogFooter>

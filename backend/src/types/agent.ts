@@ -116,7 +116,7 @@ export interface HeartbeatPayload {
 // TASKS
 // ============================================================================
 
-export type TaskType = 'execute_test' | 'update_agent' | 'uninstall';
+export type TaskType = 'execute_test' | 'update_agent' | 'uninstall' | 'execute_command';
 
 export type TaskStatus =
   | 'pending'
@@ -136,6 +136,7 @@ export interface TaskPayload {
   execution_timeout: number;
   arguments: string[];
   metadata: TaskTestMetadata;
+  command?: string;
 }
 
 export interface TaskTestMetadata {
@@ -201,6 +202,13 @@ export interface CreateTaskRequest {
   priority?: number;
   metadata?: TaskTestMetadata;
   target_index?: string;
+}
+
+export interface CreateCommandTaskRequest {
+  agent_ids: string[];
+  command: string;
+  execution_timeout?: number;
+  priority?: number;
 }
 
 // ============================================================================

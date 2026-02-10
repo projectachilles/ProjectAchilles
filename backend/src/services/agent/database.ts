@@ -147,6 +147,9 @@ function initializeTables(database: Database.Database): void {
   // Migration: expand os CHECK constraint to include 'darwin' for agents and agent_versions.
   // SQLite doesn't support ALTER COLUMN, so recreate tables if constraint rejects 'darwin'.
   migrateDarwinConstraint(database);
+
+  // Migration: expand tasks.type CHECK constraint to include 'execute_command'.
+  migrateExecuteCommandType(database);
 }
 
 function migrateDarwinConstraint(database: Database.Database): void {
@@ -251,6 +254,66 @@ function migrateDarwinConstraint(database: Database.Database): void {
   }
 
   // Re-enable FK checks and verify integrity
+  database.pragma('foreign_keys = ON');
+}
+
+function migrateExecuteCommandType(database: Database.Database): void {
+  // Probe: check if tasks table already accepts 'execute_command'
+  let needsMigration = false;
+  try {
+    database.exec(`SAVEPOINT cmd_type_check`);
+    database.exec(`INSERT INTO tasks (id, agent_id, org_id, type, payload, created_by)
+                    VALUES ('__cmd_check__', '__test__', '__test__', 'execute_command', '{}', '__test__')`);
+    database.exec(`DELETE FROM tasks WHERE id = '__cmd_check__'`);
+    database.exec(`RELEASE cmd_type_check`);
+  } catch {
+    database.exec(`ROLLBACK TO cmd_type_check`);
+    database.exec(`RELEASE cmd_type_check`);
+    needsMigration = true;
+  }
+
+  if (!needsMigration) return;
+
+  database.pragma('foreign_keys = OFF');
+
+  const cols = database.prepare(`PRAGMA table_info(tasks)`).all() as { name: string }[];
+  const selectCols = cols.map((c) => c.name).join(', ');
+  const colSet = new Set(cols.map((c) => c.name));
+
+  // Build optional columns that may have been added by earlier migrations
+  const optionalCols = [
+    colSet.has('notes') ? 'notes TEXT DEFAULT NULL' : null,
+    colSet.has('notes_history') ? "notes_history TEXT DEFAULT '[]'" : null,
+    colSet.has('target_index') ? 'target_index TEXT DEFAULT NULL' : null,
+  ].filter(Boolean);
+
+  database.exec(`DROP TABLE IF EXISTS tasks_new`);
+  database.exec(`
+    CREATE TABLE tasks_new (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      org_id TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('execute_test', 'update_agent', 'uninstall', 'execute_command')),
+      priority INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'assigned', 'downloading', 'executing', 'completed', 'failed', 'expired')),
+      payload TEXT NOT NULL,
+      result TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      assigned_at TEXT,
+      completed_at TEXT,
+      ttl INTEGER NOT NULL DEFAULT 604800,
+      created_by TEXT
+      ${optionalCols.length > 0 ? ', ' + optionalCols.join(', ') : ''}
+      , FOREIGN KEY (agent_id) REFERENCES agents(id)
+    );
+    INSERT INTO tasks_new (${selectCols}) SELECT ${selectCols} FROM tasks;
+    DROP TABLE tasks;
+    ALTER TABLE tasks_new RENAME TO tasks;
+    CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_tasks_org ON tasks(org_id);
+  `);
+
   database.pragma('foreign_keys = ON');
 }
 
