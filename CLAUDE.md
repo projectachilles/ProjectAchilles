@@ -101,6 +101,13 @@ Key directories:
 - **Tables**: `agents`, `enrollment_tokens`, `tasks`, `agent_versions`, `schedules`
 - **Settings storage**: `~/.projectachilles/` — `analytics.json` (AES-256-GCM encrypted), `tests.json`, `certs/`
 
+#### Table Recreation Migrations (CHECK constraint changes)
+SQLite has no `ALTER COLUMN`, so changing CHECK constraints requires recreating the table. Follow this pattern to avoid pitfalls:
+1. **Drop leftover temp tables first** — `DROP TABLE IF EXISTS <temp>` prevents `SQLITE_ERROR` if a previous migration crashed partway through
+2. **Disable FK checks** — `database.pragma('foreign_keys = OFF')` before the swap. Tables like `tasks` reference `agents` via FK; SQLite refuses `DROP TABLE` with FKs on (`SQLITE_CONSTRAINT_FOREIGNKEY`)
+3. **Use `pragma()` not string SQL** — `PRAGMA foreign_keys` only works outside transactions; use `database.pragma(...)` not `database.exec('PRAGMA ...')`
+4. **Full pattern**: FK OFF, DROP IF EXISTS temp, CREATE temp, INSERT SELECT, DROP old, RENAME, recreate indexes, FK ON
+
 ### API Routes
 | Route | Auth | Purpose |
 |-------|------|---------|
