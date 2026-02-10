@@ -102,7 +102,7 @@ describe('index-management.service', () => {
       expect(result.message).toContain('created successfully');
       expect(mockIndicesCreate).toHaveBeenCalledWith({
         index: 'new-index',
-        body: RESULTS_INDEX_MAPPING,
+        ...RESULTS_INDEX_MAPPING,
       });
     });
   });
