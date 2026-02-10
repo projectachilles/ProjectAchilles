@@ -176,6 +176,8 @@ function migrateDarwinConstraint(database: Database.Database): void {
       colSet.has('target_index') ? 'target_index TEXT DEFAULT NULL' : null,
     ].filter(Boolean);
 
+    // Drop leftover temp table from a previous interrupted migration
+    database.exec(`DROP TABLE IF EXISTS agents_new`);
     database.exec(`
       CREATE TABLE agents_new (
         id TEXT PRIMARY KEY,
@@ -222,6 +224,8 @@ function migrateDarwinConstraint(database: Database.Database): void {
     const vSelectCols = vCols.map((c) => c.name).join(', ');
     const hasSigned = vCols.some((c) => c.name === 'signed');
 
+    // Drop leftover temp table from a previous interrupted migration
+    database.exec(`DROP TABLE IF EXISTS agent_versions_new`);
     database.exec(`
       CREATE TABLE agent_versions_new (
         version TEXT NOT NULL,
