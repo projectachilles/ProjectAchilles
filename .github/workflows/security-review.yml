@@ -6,9 +6,13 @@ on:
     paths:
       - "backend/src/**"
       - "frontend/src/**"
+      - "agent/**/*.go"
       - "backend/package*.json"
       - "frontend/package*.json"
       - ".env*"
+      - "Dockerfile*"
+      - "docker-compose*"
+      - ".github/workflows/**"
 
 jobs:
   semgrep:
@@ -18,28 +22,105 @@ jobs:
       image: semgrep/semgrep
     permissions:
       contents: read
-      security-events: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Run Semgrep
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           semgrep scan \
             --config p/javascript \
             --config p/typescript \
             --config p/nodejs \
             --config p/react \
+            --config p/express \
             --config p/owasp-top-ten \
             --config p/security-audit \
+            --config p/secrets \
+            --config p/golang \
+            --config p/dockerfile \
+            --config p/github-actions \
+            --config .semgrep/rules/ \
             --error \
+            --baseline-commit "$BASE_SHA" \
             --sarif --output semgrep-results.sarif \
-            backend/src frontend/src
+            --json --output semgrep-results.json \
+            backend/src frontend/src agent/ .github/ Dockerfile* docker-compose*
 
-      - name: Upload SARIF to GitHub Security
+      - name: Upload SARIF artifact
         if: always()
-        uses: github/codeql-action/upload-sarif@v4
+        uses: actions/upload-artifact@v4
         with:
-          sarif_file: semgrep-results.sarif
+          name: semgrep-results
+          path: |
+            semgrep-results.sarif
+            semgrep-results.json
+
+      - name: Post findings summary
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '## Semgrep SAST Results\n\n';
+
+            try {
+              const raw = fs.readFileSync('semgrep-results.json', 'utf8');
+              const data = JSON.parse(raw);
+              const results = data.results || [];
+
+              if (results.length === 0) {
+                body += '**No security findings.** All checks passed.\n';
+              } else {
+                body += `**${results.length} finding(s) detected:**\n\n`;
+                body += '| Severity | Rule | File | Line |\n';
+                body += '|----------|------|------|------|\n';
+                for (const r of results.slice(0, 25)) {
+                  const sev = (r.extra?.severity || 'unknown').toUpperCase();
+                  const rule = r.check_id?.split('.').pop() || r.check_id;
+                  const file = r.path;
+                  const line = r.start?.line || '?';
+                  body += `| ${sev} | ${rule} | \`${file}\` | ${line} |\n`;
+                }
+                if (results.length > 25) {
+                  body += `\n_...and ${results.length - 25} more. See full SARIF artifact._\n`;
+                }
+              }
+            } catch (e) {
+              body += `Scan completed but results could not be parsed: ${e.message}\n`;
+              body += 'Download the SARIF artifact for full results.\n';
+            }
+
+            // Find and update existing comment, or create new one
+            const marker = '<!-- semgrep-results -->';
+            body = marker + '\n' + body;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body?.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
 
   dependency-audit:
     runs-on: ubuntu-latest
@@ -61,6 +142,7 @@ jobs:
         continue-on-error: true
 
   claude-security-review:
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -78,19 +160,21 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          allowed_bots: 'dependabot[bot]'
           prompt: |
             Review the changes in this PR for security vulnerabilities. Focus on:
 
             1. **Command Injection**: execFile/spawn calls with user input, shell metacharacters
-            2. **Path Traversal**: path.join/path.resolve with user-controlled segments, ../
-            3. **Authentication Bypass**: Missing auth middleware, timing oracles, token enumeration
-            4. **Cryptographic Issues**: Weak KDF, IV reuse, hardcoded secrets
+            2. **Path Traversal**: path.join/path.resolve with user-controlled segments without path.basename sanitization
+            3. **Authentication Bypass**: Missing requireClerkAuth middleware on new route files, timing oracles, token enumeration
+            4. **Cryptographic Issues**: Weak KDF, AES-256-GCM IV reuse, missing auth tag verification, hardcoded secrets
             5. **Input Validation**: Unsanitized user input in queries, commands, file paths
             6. **XSS**: dangerouslySetInnerHTML, unsanitized rendering
-            7. **SSRF**: URL handling without validation (git URLs, ES URLs)
+            7. **SSRF**: URL handling without validation (git URLs, Elasticsearch URLs)
             8. **File Upload**: Missing MIME validation, oversized uploads without limits
-            9. **Information Disclosure**: Verbose errors, stack traces, credential leaks
+            9. **Information Disclosure**: Verbose errors with stack traces in production, credential leaks in responses
+            10. **Fail-Open Defaults**: process.env fallbacks with insecure literal defaults for SECRET/KEY/TOKEN/PASSWORD variables
+            11. **SQL Injection**: String concatenation in SQLite queries instead of parameterized statements
+            12. **Argument Injection**: User-controlled values passed to execFile/spawn without regex validation
 
             For each finding, include:
             - Severity (Critical/High/Medium/Low)

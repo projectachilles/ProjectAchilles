@@ -50,5 +50,8 @@ backend/data/
 .backend.log
 .frontend.log
 
+# Semgrep local scan results
+semgrep-results-*/
+
 # Personal scripts
 tunnel.sh

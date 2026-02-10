@@ -1,0 +1,27 @@
+rules:
+  - id: projectachilles-execfile-user-input
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      User-controlled input ($INPUT) is passed as an argument to execFile/spawn
+      without prior validation. An attacker may inject unexpected arguments.
+      Validate user input with a strict regex (e.g. UUID format) before passing
+      to command execution functions.
+    metadata:
+      cwe:
+        - "CWE-78: OS Command Injection"
+      owasp:
+        - A03:2021 Injection
+      references:
+        - https://owasp.org/Top10/A03_2021-Injection/
+    patterns:
+      - pattern-either:
+          - pattern: execFile($CMD, [..., req.params.$KEY, ...], ...)
+          - pattern: execFile($CMD, [..., req.query.$KEY, ...], ...)
+          - pattern: execFile($CMD, [..., req.body.$KEY, ...], ...)
+          - pattern: execFileAsync($CMD, [..., req.params.$KEY, ...], ...)
+          - pattern: execFileAsync($CMD, [..., req.query.$KEY, ...], ...)
+          - pattern: execFileAsync($CMD, [..., req.body.$KEY, ...], ...)
+          - pattern: spawn($CMD, [..., req.params.$KEY, ...], ...)
+          - pattern: spawn($CMD, [..., req.query.$KEY, ...], ...)
+          - pattern: spawn($CMD, [..., req.body.$KEY, ...], ...)

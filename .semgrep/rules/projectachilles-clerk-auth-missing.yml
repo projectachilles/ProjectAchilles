@@ -1,0 +1,28 @@
+rules:
+  - id: projectachilles-clerk-auth-missing
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      Route handler defined without requireClerkAuth() middleware in the chain.
+      All non-agent-device routes must use requireClerkAuth(). If this endpoint
+      is intentionally public or uses agent API key auth, add a nosemgrep comment.
+    metadata:
+      cwe:
+        - "CWE-306: Missing Authentication for Critical Function"
+      owasp:
+        - A07:2021 Identification and Authentication Failures
+    patterns:
+      - pattern-either:
+          - pattern: $ROUTER.get($PATH, asyncHandler(...))
+          - pattern: $ROUTER.post($PATH, asyncHandler(...))
+          - pattern: $ROUTER.put($PATH, asyncHandler(...))
+          - pattern: $ROUTER.delete($PATH, asyncHandler(...))
+          - pattern: $ROUTER.patch($PATH, asyncHandler(...))
+      - pattern-not-inside: |
+          $ROUTER.use(requireClerkAuth());
+          ...
+      - pattern-not-inside: |
+          $ROUTER.use(requireClerkAuth(), ...);
+          ...
+      - pattern-not-inside: |
+          $ROUTER.$METHOD($PATH, requireClerkAuth(), ...);

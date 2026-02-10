@@ -1,0 +1,19 @@
+rules:
+  - id: projectachilles-error-stack-leak
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      Error stack trace is included in HTTP response without a NODE_ENV guard.
+      Stack traces leak internal paths, dependency versions, and code structure.
+      Only include stack traces when process.env.NODE_ENV === 'development'.
+    metadata:
+      cwe:
+        - "CWE-209: Generation of Error Message Containing Sensitive Information"
+      owasp:
+        - A04:2021 Insecure Design
+    patterns:
+      - pattern-either:
+          - pattern: "res.json({..., stack: $ERR.stack, ...})"
+          - pattern: "res.send({..., stack: $ERR.stack, ...})"
+      - pattern-not-inside: |
+          if (process.env.NODE_ENV === 'development') { ... }
