@@ -31,7 +31,7 @@ cd backend && npm run build      # tsc → dist/
 
 ```bash
 # All tests
-cd backend && npm test           # 587 tests across 26 files (~10s)
+cd backend && npm test           # 592 tests across 26 files (~10s)
 cd frontend && npm test          # 119 tests across 7 files (~2s)
 
 # Single file
@@ -51,8 +51,9 @@ Test file pattern: `src/**/__tests__/**/*.test.{ts,tsx}`
 ### Go Agent
 
 ```bash
-cd agent && make build-all       # Cross-compile Windows + Linux (amd64)
-cd agent && make sign-windows    # Build + Authenticode sign
+cd agent && make build-all       # Cross-compile Windows/Linux/macOS (amd64 + arm64)
+cd agent && make sign-windows    # Build + Authenticode sign (osslsigncode)
+cd agent && make sign-darwin     # Build + ad-hoc sign (rcodesign)
 cd agent && go test ./...        # Run Go tests
 cd agent && go build ./...       # Validate compilation
 ```
@@ -86,13 +87,17 @@ Key directories:
 
 ### Agent (`agent/`)
 - **Go 1.24** — lightweight binary with enrollment, heartbeat, task execution, self-update
+- **Platforms**: Windows (amd64), Linux (amd64), macOS (amd64 + arm64)
 - Internal packages: `config`, `enrollment`, `executor`, `httpclient`, `poller`, `reporter`, `service`, `store`, `sysinfo`, `updater`
+- Platform-specific files use build tags (`//go:build darwin`, etc.) for service management, sysinfo, and binary updates
 - CGO disabled for static cross-platform binaries
 - Version set via LDFLAGS: `-X main.version=$(VERSION)`
+- **Service integration**: Windows (SCM via `sc.exe`), Linux (systemd), macOS (launchd plist at `/Library/LaunchDaemons/`)
+- **Code signing**: Windows (Authenticode via `osslsigncode`), macOS (ad-hoc via `rcodesign`), Linux (none)
 
 ### Database (SQLite)
 - **Location**: `~/.projectachilles/agents.db` (better-sqlite3, WAL mode)
-- **Schema**: Created via `CREATE TABLE IF NOT EXISTS` in `backend/src/services/agent/database.ts` — no migration system
+- **Schema**: Created via `CREATE TABLE IF NOT EXISTS` in `backend/src/services/agent/database.ts` with incremental migrations (column additions, CHECK constraint updates)
 - **Tables**: `agents`, `enrollment_tokens`, `tasks`, `agent_versions`, `schedules`
 - **Settings storage**: `~/.projectachilles/` — `analytics.json` (AES-256-GCM encrypted), `tests.json`, `certs/`
 
@@ -198,8 +203,13 @@ Two browser tools are available for visual verification. **Prefer the Claude Cod
 ### SVG Text Stroke Inheritance in Recharts
 When writing custom `content` renderers for Recharts components (Treemap, etc.), always set `stroke="none"` on `<text>` elements. Recharts sets `stroke="var(--background)"` on the parent SVG container for cell borders, and SVG `stroke` is an inherited property — it cascades to all children including text. In dark mode `--background` is near-black, so text renders with a visible dark outline around every glyph. In light mode the stroke is white-on-white (invisible), making the bug theme-specific and easy to miss.
 
-### Certificate System
+### Certificate System & Code Signing
 - Multi-cert storage: `~/.projectachilles/certs/cert-<timestamp>/` (max 5)
 - Active cert tracked in `active-cert.txt`
 - Legacy flat files auto-migrate to subdirectory on first `listCertificates()` call
 - Build service reads active cert dynamically via `settingsService.getActiveCertPfxPath()`
+- **Windows signing**: `osslsigncode` with PFX certificate (password via temp file, not CLI arg)
+- **macOS signing**: `rcodesign sign --code-signature-flags adhoc` (in-place, no certificate needed)
+- **Linux**: No code signing
+- Both agent builds (`agentBuild.service.ts`) and test builds (`buildService.ts`) follow the same signing logic
+- Signing failures are non-fatal — builds continue unsigned
