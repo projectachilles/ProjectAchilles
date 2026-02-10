@@ -48,7 +48,7 @@ import { promisify } from 'util';
 const mockExecFileAsync = vi.fn<(cmd: string, args: string[]) => Promise<{ stdout: string; stderr: string }>>();
 const mockExecFile = vi.fn();
 // Attach the custom promisify handler so `promisify(execFile)` returns mockExecFileAsync
-(mockExecFile as Record<symbol, unknown>)[promisify.custom] = mockExecFileAsync;
+(mockExecFile as unknown as Record<symbol, unknown>)[promisify.custom] = mockExecFileAsync;
 
 vi.mock('child_process', async () => {
   const actual = await vi.importActual<typeof import('child_process')>('child_process');
