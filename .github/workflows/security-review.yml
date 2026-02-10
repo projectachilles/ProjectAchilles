@@ -28,35 +28,38 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Run Semgrep
+      - name: Run Semgrep (JSON)
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          SEMGREP_CONFIGS="\
-            --config p/javascript \
-            --config p/typescript \
-            --config p/nodejs \
-            --config p/react \
-            --config p/express \
-            --config p/owasp-top-ten \
-            --config p/security-audit \
-            --config p/secrets \
-            --config p/golang \
-            --config p/dockerfile \
-            --config p/github-actions \
-            --config .semgrep/rules/"
-          SEMGREP_TARGETS="backend/src frontend/src agent/ .github/ Dockerfile* docker-compose*"
+        run: >
+          semgrep scan
+          --config p/javascript --config p/typescript --config p/nodejs
+          --config p/react --config p/express
+          --config p/owasp-top-ten --config p/security-audit
+          --config p/secrets --config p/golang
+          --config p/dockerfile --config p/github-actions
+          --config .semgrep/rules/
+          --error
+          --baseline-commit "$BASE_SHA"
+          --json --output semgrep-results.json
+          backend/src frontend/src agent/ .github/
 
-          semgrep scan $SEMGREP_CONFIGS \
-            --error \
-            --baseline-commit "$BASE_SHA" \
-            --json --output semgrep-results.json \
-            $SEMGREP_TARGETS
-
-          semgrep scan $SEMGREP_CONFIGS \
-            --baseline-commit "$BASE_SHA" \
-            --sarif --output semgrep-results.sarif \
-            $SEMGREP_TARGETS || true
+      - name: Run Semgrep (SARIF)
+        if: always()
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: >
+          semgrep scan
+          --config p/javascript --config p/typescript --config p/nodejs
+          --config p/react --config p/express
+          --config p/owasp-top-ten --config p/security-audit
+          --config p/secrets --config p/golang
+          --config p/dockerfile --config p/github-actions
+          --config .semgrep/rules/
+          --baseline-commit "$BASE_SHA"
+          --sarif --output semgrep-results.sarif
+          backend/src frontend/src agent/ .github/
+          || true
 
       - name: Upload SARIF artifact
         if: always()
