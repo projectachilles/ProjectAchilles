@@ -29,7 +29,7 @@ jobs:
       - name: Install Semgrep
         run: pip install semgrep
 
-      - name: Run Semgrep (JSON)
+      - name: Run Semgrep
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
@@ -42,10 +42,11 @@ jobs:
             --config .semgrep/rules/ \
             --error \
             --baseline-commit "$BASE_SHA" \
-            --json --output semgrep-results.json \
-            backend/src frontend/src agent/ .github/
+            --json \
+            backend/src frontend/src agent/ .github/ \
+            > semgrep-results.json
 
-      - name: Run Semgrep (SARIF)
+      - name: Generate SARIF
         if: always()
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -58,8 +59,9 @@ jobs:
             --config p/dockerfile --config p/github-actions \
             --config .semgrep/rules/ \
             --baseline-commit "$BASE_SHA" \
-            --sarif --output semgrep-results.sarif \
+            --sarif \
             backend/src frontend/src agent/ .github/ \
+            > semgrep-results.sarif \
             || true
 
       - name: Upload SARIF artifact
