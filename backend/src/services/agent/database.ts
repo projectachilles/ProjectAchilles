@@ -150,6 +150,10 @@ function initializeTables(database: Database.Database): void {
 }
 
 function migrateDarwinConstraint(database: Database.Database): void {
+  // Temporarily disable FK checks — dropping `agents` would fail because `tasks` references it.
+  // PRAGMA foreign_keys can only be toggled outside a transaction.
+  database.pragma('foreign_keys = OFF');
+
   // Test if agents table already accepts 'darwin'
   let agentsNeedMigration = false;
   try {
@@ -245,6 +249,9 @@ function migrateDarwinConstraint(database: Database.Database): void {
       ALTER TABLE agent_versions_new RENAME TO agent_versions;
     `);
   }
+
+  // Re-enable FK checks and verify integrity
+  database.pragma('foreign_keys = ON');
 }
 
 export function closeDatabase(): void {
