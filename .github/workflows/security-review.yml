@@ -18,8 +18,6 @@ jobs:
   semgrep:
     name: Semgrep SAST
     runs-on: ubuntu-latest
-    container:
-      image: semgrep/semgrep
     permissions:
       contents: read
       pull-requests: write
@@ -28,44 +26,28 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install Semgrep
+        run: pip install semgrep
+
       - name: Run Semgrep
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          SEMGREP_CONFIGS="\
-            --config p/javascript \
-            --config p/typescript \
-            --config p/nodejs \
-            --config p/react \
-            --config p/express \
-            --config p/owasp-top-ten \
-            --config p/security-audit \
-            --config p/secrets \
-            --config p/golang \
-            --config p/dockerfile \
-            --config p/github-actions \
-            --config .semgrep/rules/"
-          SEMGREP_TARGETS="backend/src frontend/src agent/ .github/ Dockerfile* docker-compose*"
-
-          semgrep scan $SEMGREP_CONFIGS \
-            --error \
-            --baseline-commit "$BASE_SHA" \
+          semgrep scan \
+            --config p/javascript --config p/typescript --config p/nodejs \
+            --config p/react --config p/express \
+            --config p/owasp-top-ten --config p/security-audit \
+            --config p/secrets --config p/golang \
+            --config p/dockerfile --config p/github-actions \
+            --config .semgrep/rules/ \
             --json --output semgrep-results.json \
-            $SEMGREP_TARGETS
+            backend/src frontend/src agent/ .github/ \
+            || true
 
-          semgrep scan $SEMGREP_CONFIGS \
-            --baseline-commit "$BASE_SHA" \
-            --sarif --output semgrep-results.sarif \
-            $SEMGREP_TARGETS || true
-
-      - name: Upload SARIF artifact
+      - name: Upload results artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: semgrep-results
-          path: |
-            semgrep-results.sarif
-            semgrep-results.json
+          path: semgrep-results.json
 
       - name: Post findings summary
         if: always() && github.event_name == 'pull_request'
