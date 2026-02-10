@@ -32,7 +32,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          semgrep scan \
+          SEMGREP_CONFIGS="\
             --config p/javascript \
             --config p/typescript \
             --config p/nodejs \
@@ -44,12 +44,19 @@ jobs:
             --config p/golang \
             --config p/dockerfile \
             --config p/github-actions \
-            --config .semgrep/rules/ \
+            --config .semgrep/rules/"
+          SEMGREP_TARGETS="backend/src frontend/src agent/ .github/ Dockerfile* docker-compose*"
+
+          semgrep scan $SEMGREP_CONFIGS \
             --error \
             --baseline-commit "$BASE_SHA" \
-            --sarif --output semgrep-results.sarif \
             --json --output semgrep-results.json \
-            backend/src frontend/src agent/ .github/ Dockerfile* docker-compose*
+            $SEMGREP_TARGETS
+
+          semgrep scan $SEMGREP_CONFIGS \
+            --baseline-commit "$BASE_SHA" \
+            --sarif --output semgrep-results.sarif \
+            $SEMGREP_TARGETS || true
 
       - name: Upload SARIF artifact
         if: always()
