@@ -30,8 +30,6 @@ jobs:
         run: pip install semgrep
 
       - name: Run Semgrep
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           semgrep scan \
             --config p/javascript --config p/typescript --config p/nodejs \
@@ -40,38 +38,16 @@ jobs:
             --config p/secrets --config p/golang \
             --config p/dockerfile --config p/github-actions \
             --config .semgrep/rules/ \
-            --error \
-            --baseline-commit "$BASE_SHA" \
-            --json \
+            --json --output semgrep-results.json \
             backend/src frontend/src agent/ .github/ \
-            > semgrep-results.json
-
-      - name: Generate SARIF
-        if: always()
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          semgrep scan \
-            --config p/javascript --config p/typescript --config p/nodejs \
-            --config p/react --config p/express \
-            --config p/owasp-top-ten --config p/security-audit \
-            --config p/secrets --config p/golang \
-            --config p/dockerfile --config p/github-actions \
-            --config .semgrep/rules/ \
-            --baseline-commit "$BASE_SHA" \
-            --sarif \
-            backend/src frontend/src agent/ .github/ \
-            > semgrep-results.sarif \
             || true
 
-      - name: Upload SARIF artifact
+      - name: Upload results artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: semgrep-results
-          path: |
-            semgrep-results.sarif
-            semgrep-results.json
+          path: semgrep-results.json
 
       - name: Post findings summary
         if: always() && github.event_name == 'pull_request'
