@@ -204,12 +204,12 @@ describe('tasks routes', () => {
     });
   });
 
-  describe('GET /admin/admin/tasks/:id', () => {
+  describe('GET /admin/tasks/:id', () => {
     it('returns task by ID', async () => {
       const app = createApp();
       insertTestTask(testDb, { id: 'task-001' });
 
-      const res = await request(app).get('/admin/admin/tasks/task-001');
+      const res = await request(app).get('/admin/tasks/task-001');
 
       expect(res.status).toBe(200);
       expect(res.body.data.id).toBe('task-001');
@@ -218,18 +218,18 @@ describe('tasks routes', () => {
     it('returns 404 for nonexistent task', async () => {
       const app = createApp();
 
-      const res = await request(app).get('/admin/admin/tasks/nonexistent');
+      const res = await request(app).get('/admin/tasks/nonexistent');
 
       expect(res.status).toBe(404);
     });
   });
 
-  describe('PATCH /admin/admin/tasks/:id', () => {
+  describe('POST /admin/tasks/:id/cancel', () => {
     it('cancels a pending task', async () => {
       const app = createApp();
       insertTestTask(testDb, { id: 't1', status: 'pending' });
 
-      const res = await request(app).patch('/admin/admin/tasks/t1');
+      const res = await request(app).post('/admin/tasks/t1/cancel');
 
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe('expired');
@@ -239,7 +239,7 @@ describe('tasks routes', () => {
       const app = createApp();
       insertTestTask(testDb, { id: 't1', status: 'completed' });
 
-      const res = await request(app).patch('/admin/admin/tasks/t1');
+      const res = await request(app).post('/admin/tasks/t1/cancel');
 
       expect(res.status).toBe(400);
     });

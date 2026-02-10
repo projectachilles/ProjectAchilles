@@ -206,7 +206,7 @@ adminTasksRouter.get(
  * Get a single task by ID.
  */
 adminTasksRouter.get(
-  '/admin/tasks/:id',
+  '/tasks/:id',
   asyncHandler(async (req, res) => {
     const task = getTask(req.params.id);
 
@@ -215,11 +215,11 @@ adminTasksRouter.get(
 );
 
 /**
- * PATCH /admin/tasks/:id
+ * POST /tasks/:id/cancel
  * Cancel a task (set status to expired).
  */
-adminTasksRouter.patch(
-  '/admin/tasks/:id',
+adminTasksRouter.post(
+  '/tasks/:id/cancel',
   asyncHandler(async (req, res) => {
     const task = cancelTask(req.params.id);
 
