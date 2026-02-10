@@ -175,6 +175,14 @@ export default function EnrollmentSection({ orgId }: EnrollmentSectionProps): Re
                   command={`curl -fSL -H "ngrok-skip-browser-warning: true" "${serverUrl}/api/agent/download?os=linux&arch=arm64" -o achilles-agent && chmod +x achilles-agent && sudo ./achilles-agent --enroll ${newToken} --server ${serverUrl} --install`}
                 />
                 <InstallCommand
+                  label="macOS (Apple Silicon)"
+                  command={`curl -fSL -H "ngrok-skip-browser-warning: true" "${serverUrl}/api/agent/download?os=darwin&arch=arm64" -o achilles-agent && chmod +x achilles-agent && sudo ./achilles-agent --enroll ${newToken} --server ${serverUrl} --install`}
+                />
+                <InstallCommand
+                  label="macOS (Intel)"
+                  command={`curl -fSL -H "ngrok-skip-browser-warning: true" "${serverUrl}/api/agent/download?os=darwin&arch=amd64" -o achilles-agent && chmod +x achilles-agent && sudo ./achilles-agent --enroll ${newToken} --server ${serverUrl} --install`}
+                />
+                <InstallCommand
                   label="Windows (PowerShell)"
                   command={`Invoke-WebRequest -Uri "${serverUrl}/api/agent/download?os=windows&arch=amd64" -Headers @{"ngrok-skip-browser-warning"="true"} -OutFile achilles-agent.exe; .\\achilles-agent.exe --enroll ${newToken} --server ${serverUrl} --install`}
                 />
