@@ -1,0 +1,27 @@
+rules:
+  - id: projectachilles-path-traversal-user-input
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      User-controlled input ($INPUT) flows into path.join/path.resolve without
+      path.basename() sanitization. This allows path traversal (e.g. ../../etc/passwd).
+      Use path.basename() to strip directory components before constructing file paths.
+    metadata:
+      cwe:
+        - "CWE-22: Path Traversal"
+      owasp:
+        - A01:2021 Broken Access Control
+      references:
+        - https://owasp.org/Top10/A01_2021-Broken_Access_Control/
+    patterns:
+      - pattern-either:
+          - pattern: path.join(..., req.params.$KEY, ...)
+          - pattern: path.join(..., req.query.$KEY, ...)
+          - pattern: path.join(..., req.body.$KEY, ...)
+          - pattern: path.resolve(..., req.params.$KEY, ...)
+          - pattern: path.resolve(..., req.query.$KEY, ...)
+          - pattern: path.resolve(..., req.body.$KEY, ...)
+      - pattern-not-inside: |
+          const $SAFE = path.basename(...);
+          ...
+          path.$FN(..., $SAFE, ...);
