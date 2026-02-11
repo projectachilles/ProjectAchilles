@@ -192,6 +192,7 @@ adminTasksRouter.get(
       org_id: req.query.org_id as string | undefined,
       status: req.query.status as TaskStatus | undefined,
       type: req.query.type as TaskType | undefined,
+      search: req.query.search as string | undefined,
       limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
       offset: req.query.offset ? parseInt(req.query.offset as string, 10) : undefined,
     };

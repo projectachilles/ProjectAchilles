@@ -552,6 +552,87 @@ describe('tasks.service', () => {
     });
   });
 
+  describe('listTasks search filtering', () => {
+    it('filters by test_name in payload', () => {
+      const payload = JSON.stringify({
+        test_uuid: 'uuid-1', test_name: 'Mimikatz Credential Dump',
+        binary_name: 'mimi.exe', binary_sha256: 'abc', binary_size: 100,
+        execution_timeout: 300, arguments: [],
+        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: '', complexity: '', tags: [], score: null },
+      });
+      insertTestTask(testDb, { id: 't-match', payload });
+      insertTestTask(testDb, { id: 't-other' }); // default payload with "Test Name"
+
+      const result = listTasks({ search: 'Mimikatz' });
+      expect(result.total).toBe(1);
+      expect(result.tasks[0].id).toBe('t-match');
+    });
+
+    it('filters by command in payload', () => {
+      const payload = JSON.stringify({
+        test_uuid: '', test_name: '', binary_name: '', binary_sha256: '', binary_size: 0,
+        execution_timeout: 300, arguments: [],
+        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: '', complexity: '', tags: [], score: null },
+        command: 'whoami /priv',
+      });
+      insertTestTask(testDb, { id: 't-cmd', payload, type: 'execute_command' });
+      insertTestTask(testDb, { id: 't-other' });
+
+      const result = listTasks({ search: 'whoami' });
+      expect(result.total).toBe(1);
+      expect(result.tasks[0].id).toBe('t-cmd');
+    });
+
+    it('filters by agent hostname', () => {
+      insertTestAgent(testDb, { id: 'agent-search', hostname: 'prod-server-42' });
+      insertTestTask(testDb, { id: 't-host', agent_id: 'agent-search' });
+      insertTestTask(testDb, { id: 't-default' }); // agent-001 with hostname "test-host"
+
+      const result = listTasks({ search: 'prod-server' });
+      expect(result.total).toBe(1);
+      expect(result.tasks[0].id).toBe('t-host');
+    });
+
+    it('returns correct total with search and pagination', () => {
+      const makePayload = (name: string) => JSON.stringify({
+        test_uuid: 'uuid', test_name: name,
+        binary_name: 'b.exe', binary_sha256: 'abc', binary_size: 100,
+        execution_timeout: 300, arguments: [],
+        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: '', complexity: '', tags: [], score: null },
+      });
+      insertTestTask(testDb, { id: 't1', payload: makePayload('LaZagne Extract') });
+      insertTestTask(testDb, { id: 't2', payload: makePayload('LaZagne Dump') });
+      insertTestTask(testDb, { id: 't3', payload: makePayload('Other Test') });
+
+      const result = listTasks({ search: 'LaZagne', limit: 1, offset: 0 });
+      expect(result.tasks).toHaveLength(1);
+      expect(result.total).toBe(2); // total reflects full filtered count
+    });
+
+    it('combines search with status filter', () => {
+      const payload = JSON.stringify({
+        test_uuid: 'uuid', test_name: 'Rubeus Kerberoast',
+        binary_name: 'r.exe', binary_sha256: 'abc', binary_size: 100,
+        execution_timeout: 300, arguments: [],
+        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: '', complexity: '', tags: [], score: null },
+      });
+      insertTestTask(testDb, { id: 't-pending', payload, status: 'pending' });
+      insertTestTask(testDb, { id: 't-completed', payload, status: 'completed' });
+
+      const result = listTasks({ search: 'Rubeus', status: 'completed' });
+      expect(result.total).toBe(1);
+      expect(result.tasks[0].id).toBe('t-completed');
+    });
+
+    it('returns empty results for no-match search', () => {
+      insertTestTask(testDb, { id: 't1' });
+
+      const result = listTasks({ search: 'nonexistent-term-xyz' });
+      expect(result.total).toBe(0);
+      expect(result.tasks).toHaveLength(0);
+    });
+  });
+
   describe('agent_hostname in listTasks', () => {
     it('populates agent_hostname from joined agent data', () => {
       insertTestAgent(testDb, { id: 'agent-host', hostname: 'workstation-01' });

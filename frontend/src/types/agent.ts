@@ -157,6 +157,7 @@ export interface ListTasksRequest {
   agent_id?: string;
   status?: TaskStatus;
   type?: TaskType;
+  search?: string;
   limit?: number;
   offset?: number;
 }

@@ -402,13 +402,22 @@ export function listTasks(
     conditions.push('t.type = ?');
     params.push(filters.type);
   }
+  if (filters.search) {
+    const searchPattern = `%${filters.search}%`;
+    conditions.push(`(
+      json_extract(t.payload, '$.test_name') LIKE ?
+      OR json_extract(t.payload, '$.command') LIKE ?
+      OR a.hostname LIKE ?
+    )`);
+    params.push(searchPattern, searchPattern, searchPattern);
+  }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const limit = filters.limit ?? 50;
   const offset = filters.offset ?? 0;
 
   const countRow = db.prepare(
-    `SELECT COUNT(*) as total FROM tasks t ${whereClause}`
+    `SELECT COUNT(*) as total FROM tasks t LEFT JOIN agents a ON t.agent_id = a.id ${whereClause}`
   ).get(...params) as { total: number };
 
   const rows = db.prepare(

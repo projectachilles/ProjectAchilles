@@ -3,11 +3,15 @@ import { ChevronDown, ChevronRight, Copy, Check, StickyNote, X, Trash2 } from 'l
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/shared/ui/Table';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
+import { Checkbox } from '@/components/shared/ui/Checkbox';
 import type { AgentTask, TaskStatus } from '@/types/agent';
 
 interface TaskListProps {
   tasks: AgentTask[];
   loading: boolean;
+  selectedTasks?: string[];
+  onToggleSelect?: (taskId: string) => void;
+  onToggleSelectAll?: () => void;
   onCancel?: (taskId: string) => void;
   onDelete?: (taskId: string) => void;
   onOpenNotes?: (task: AgentTask) => void;
@@ -62,8 +66,9 @@ function isDeletable(status: TaskStatus): boolean {
   return status === 'completed' || status === 'failed' || status === 'expired';
 }
 
-export default function TaskList({ tasks, loading, onCancel, onDelete, onOpenNotes }: TaskListProps) {
+export default function TaskList({ tasks, loading, selectedTasks = [], onToggleSelect, onToggleSelectAll, onCancel, onDelete, onOpenNotes }: TaskListProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const allSelected = tasks.length > 0 && tasks.every((t) => selectedTasks.includes(t.id));
 
   if (loading) return null;
 
@@ -75,6 +80,11 @@ export default function TaskList({ tasks, loading, onCancel, onDelete, onOpenNot
     <Table>
       <TableHeader>
         <TableRow>
+          {onToggleSelectAll && (
+            <TableHead className="w-10">
+              <Checkbox checked={allSelected} onChange={onToggleSelectAll} />
+            </TableHead>
+          )}
           <TableHead className="w-8" />
           <TableHead>Status</TableHead>
           <TableHead>Task</TableHead>
@@ -89,17 +99,26 @@ export default function TaskList({ tasks, loading, onCancel, onDelete, onOpenNot
       <TableBody>
         {tasks.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+            <TableCell colSpan={onToggleSelectAll ? 10 : 9} className="text-center text-muted-foreground py-8">
               No tasks found
             </TableCell>
           </TableRow>
         ) : (
           tasks.map((task) => {
             const isExpanded = expandedId === task.id;
+            const isSelected = selectedTasks.includes(task.id);
 
             return (
               <>
-                <TableRow key={task.id}>
+                <TableRow key={task.id} className={isSelected ? 'bg-primary/5' : ''}>
+                  {onToggleSelect && (
+                    <TableCell>
+                      <Checkbox
+                        checked={isSelected}
+                        onChange={() => onToggleSelect(task.id)}
+                      />
+                    </TableCell>
+                  )}
                   <TableCell>
                     <button onClick={() => toggleExpanded(task.id)}>
                       {isExpanded ? (
@@ -164,7 +183,7 @@ export default function TaskList({ tasks, loading, onCancel, onDelete, onOpenNot
                 </TableRow>
                 {isExpanded && task.result && (
                   <TableRow key={`${task.id}-detail`}>
-                    <TableCell colSpan={9}>
+                    <TableCell colSpan={onToggleSelectAll ? 10 : 9}>
                       <div className="bg-muted/50 rounded-lg p-4 space-y-3 text-sm">
                         <div>
                           <div className="flex items-center">

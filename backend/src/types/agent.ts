@@ -256,6 +256,7 @@ export interface ListTasksRequest {
   org_id?: string;
   status?: TaskStatus;
   type?: TaskType;
+  search?: string;
   limit?: number;
   offset?: number;
 }

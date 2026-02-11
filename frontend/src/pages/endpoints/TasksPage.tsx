@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
-import { Plus, RefreshCw, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { Plus, RefreshCw, Search, X, Trash2, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
 import type { AgentTask, TaskStatus, Schedule } from '@/types/agent';
 import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
@@ -8,11 +8,13 @@ import ScheduleList from '@/components/endpoints/tasks/ScheduleList';
 import TaskCreatorDialog from '@/components/endpoints/tasks/TaskCreatorDialog';
 import TaskNotesDialog from '@/components/endpoints/tasks/TaskNotesDialog';
 import { Button } from '@/components/shared/ui/Button';
+import { Input } from '@/components/shared/ui/Input';
 import { Loading } from '@/components/shared/ui/Spinner';
 import { Toast } from '@/components/shared/ui/Alert';
 
 const TOAST_DURATION_MS = 4000;
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
+const SEARCH_DEBOUNCE_MS = 300;
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<AgentTask[]>([]);
@@ -25,18 +27,27 @@ export default function TasksPage() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const totalPages = Math.max(1, Math.ceil(totalTasks / pageSize));
 
+  function buildFilters() {
+    return {
+      ...(statusFilter ? { status: statusFilter } : {}),
+      ...(debouncedSearch ? { search: debouncedSearch } : {}),
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
+    };
+  }
+
   const fetchTasks = useCallback(async () => {
     setLoading(true);
+    setSelectedTasks([]);
     try {
-      const filters = {
-        ...(statusFilter ? { status: statusFilter } : {}),
-        limit: pageSize,
-        offset: (page - 1) * pageSize,
-      };
-      const { tasks: fetchedTasks, total } = await agentApi.listTasks(filters);
+      const { tasks: fetchedTasks, total } = await agentApi.listTasks(buildFilters());
       setTasks(fetchedTasks);
       setTotalTasks(total);
     } catch (err) {
@@ -44,7 +55,8 @@ export default function TasksPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, page, pageSize]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, debouncedSearch, page, pageSize]);
 
   const fetchSchedules = useCallback(async () => {
     try {
@@ -61,13 +73,10 @@ export default function TasksPage() {
   }, [fetchTasks, fetchSchedules]);
 
   // Silent poll — refresh task list and schedules without loading spinner
+  // Does NOT clear selectedTasks to preserve in-progress selection
   const poll = useCallback(async () => {
     try {
-      const filters = {
-        ...(statusFilter ? { status: statusFilter } : {}),
-        limit: pageSize,
-        offset: (page - 1) * pageSize,
-      };
+      const filters = buildFilters();
       const [taskResult, scheduleResult] = await Promise.all([
         agentApi.listTasks(filters),
         agentApi.listSchedules(),
@@ -78,14 +87,27 @@ export default function TasksPage() {
     } catch {
       // Silent — don't surface transient poll failures
     }
-  }, [statusFilter, page, pageSize]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, debouncedSearch, page, pageSize]);
 
   useEffect(() => {
     const id = setInterval(poll, 10_000);
     return () => clearInterval(id);
   }, [poll]);
 
-  // Reset to page 1 when filter changes
+  // --- Search ---
+
+  function handleSearchChange(value: string): void {
+    setSearchTerm(value);
+    clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      setDebouncedSearch(value);
+      setPage(1);
+    }, SEARCH_DEBOUNCE_MS);
+  }
+
+  // --- Filters ---
+
   function handleStatusFilterChange(value: TaskStatus | ''): void {
     setStatusFilter(value);
     setPage(1);
@@ -96,10 +118,33 @@ export default function TasksPage() {
     setPage(1);
   }
 
+  // --- Selection ---
+
+  function handleToggleSelect(taskId: string): void {
+    setSelectedTasks((prev) =>
+      prev.includes(taskId)
+        ? prev.filter((id) => id !== taskId)
+        : [...prev, taskId]
+    );
+  }
+
+  function handleToggleSelectAll(): void {
+    const allSelected = tasks.length > 0 && tasks.every((t) => selectedTasks.includes(t.id));
+    if (allSelected) {
+      setSelectedTasks([]);
+    } else {
+      setSelectedTasks(tasks.map((t) => t.id));
+    }
+  }
+
+  // --- Toasts ---
+
   function showToast(message: string): void {
     setSuccessMessage(message);
     globalThis.setTimeout(() => setSuccessMessage(null), TOAST_DURATION_MS);
   }
+
+  // --- Single actions ---
 
   async function handleCancel(taskId: string): Promise<void> {
     try {
@@ -120,6 +165,50 @@ export default function TasksPage() {
       console.error('Failed to delete task:', err);
     }
   }
+
+  // --- Bulk actions ---
+
+  async function handleBulkCancel(): Promise<void> {
+    let count = 0;
+    for (const taskId of selectedTasks) {
+      try {
+        await agentApi.cancelTask(taskId);
+        count++;
+      } catch {
+        // continue with remaining tasks
+      }
+    }
+    showToast(`${count} task(s) cancelled`);
+    setSelectedTasks([]);
+    fetchTasks();
+  }
+
+  async function handleBulkDelete(): Promise<void> {
+    let count = 0;
+    for (const taskId of selectedTasks) {
+      try {
+        await agentApi.deleteTask(taskId);
+        count++;
+      } catch {
+        // continue with remaining tasks
+      }
+    }
+    showToast(`${count} task(s) deleted`);
+    setSelectedTasks([]);
+    fetchTasks();
+  }
+
+  // --- Bulk action enablement ---
+
+  const selectedTaskObjects = tasks.filter((t) => selectedTasks.includes(t.id));
+  const canBulkCancel = selectedTaskObjects.length > 0 && selectedTaskObjects.every(
+    (t) => t.status === 'pending' || t.status === 'assigned'
+  );
+  const canBulkDelete = selectedTaskObjects.length > 0 && selectedTaskObjects.every(
+    (t) => t.status === 'completed' || t.status === 'failed' || t.status === 'expired'
+  );
+
+  // --- Schedules ---
 
   async function handleTogglePause(id: string, newStatus: 'active' | 'paused'): Promise<void> {
     try {
@@ -177,6 +266,7 @@ export default function TasksPage() {
           </div>
         )}
 
+        {/* Filter bar */}
         <div className="border border-border rounded-lg bg-card p-4 mb-4">
           <div className="flex gap-4 items-center">
             <div className="min-w-40">
@@ -195,6 +285,14 @@ export default function TasksPage() {
                 <option value="expired">Expired</option>
               </select>
             </div>
+            <div className="flex-grow max-w-sm">
+              <Input
+                placeholder="Search tasks..."
+                value={searchTerm}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                leftIcon={<Search className="w-4 h-4" />}
+              />
+            </div>
             <div className="flex-grow" />
             <Button variant="outline" onClick={() => { fetchTasks(); fetchSchedules(); }}>
               <RefreshCw className="w-4 h-4 mr-2" />
@@ -203,10 +301,48 @@ export default function TasksPage() {
           </div>
         </div>
 
+        {/* Bulk actions bar */}
+        {selectedTasks.length > 0 && (
+          <div className="bg-primary/5 border border-primary/20 rounded-lg px-4 py-3 mb-4 flex items-center justify-between">
+            <span className="text-sm font-medium">
+              {selectedTasks.length} task(s) selected
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!canBulkCancel}
+                onClick={handleBulkCancel}
+              >
+                <X className="w-4 h-4 mr-1" />
+                Cancel Selected
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={!canBulkDelete}
+                onClick={handleBulkDelete}
+              >
+                <Trash2 className="w-4 h-4 mr-1" />
+                Delete Selected
+              </Button>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <Loading message="Loading tasks..." />
         ) : (
-          <TaskList tasks={tasks} loading={loading} onCancel={handleCancel} onDelete={handleDelete} onOpenNotes={setNotesTask} />
+          <TaskList
+            tasks={tasks}
+            loading={loading}
+            selectedTasks={selectedTasks}
+            onToggleSelect={handleToggleSelect}
+            onToggleSelectAll={handleToggleSelectAll}
+            onCancel={handleCancel}
+            onDelete={handleDelete}
+            onOpenNotes={setNotesTask}
+          />
         )}
 
         {/* Pagination controls */}
