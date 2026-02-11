@@ -82,6 +82,11 @@ export function UsersTab() {
         setToast({ message: `Role updated to ${ROLE_LABELS[value as AppRole]}`, variant: 'success' });
       }
       await fetchUsers();
+      // If the admin changed their own role, reload the Clerk session
+      // so the header badge and permission checks update immediately.
+      if (userId === currentUser?.id) {
+        await currentUser.reload();
+      }
     } catch (err) {
       setToast({
         message: err instanceof Error ? err.message : 'Failed to update role',

@@ -194,11 +194,12 @@ export default function UnifiedHeader({
             {/* Clerk User Button (Global Auth) */}
             {isLoaded && user && (
               <div className="ml-2 flex items-center gap-3">
-                {role && (
-                  <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full hidden sm:inline', ROLE_COLORS[role])}>
-                    {ROLE_LABELS[role]}
-                  </span>
-                )}
+                <span className={cn(
+                  'text-xs font-medium px-2 py-0.5 rounded-full hidden sm:inline',
+                  role ? ROLE_COLORS[role] : ROLE_COLORS.admin
+                )}>
+                  {role ? ROLE_LABELS[role] : ROLE_LABELS.admin}
+                </span>
                 <span className="text-sm text-muted-foreground hidden sm:inline">
                   {user.firstName || user.emailAddresses[0]?.emailAddress}
                 </span>
