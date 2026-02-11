@@ -21,6 +21,7 @@ interface AgentListProps {
   agents: AgentSummary[];
   selectedAgents: string[];
   latestVersions: Map<string, string>;
+  canDelete?: boolean;
   onToggleSelect: (agentId: string) => void;
   onToggleSelectAll: () => void;
   onAction: (agentId: string, action: 'enable' | 'disable' | 'decommission' | 'delete') => void;
@@ -46,6 +47,7 @@ export default function AgentList({
   agents,
   selectedAgents,
   latestVersions,
+  canDelete = true,
   onToggleSelect,
   onToggleSelectAll,
   onAction,
@@ -163,12 +165,14 @@ export default function AgentList({
                             <Power className="w-4 h-4" /> Enable
                           </button>
                         )}
-                        <button
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-muted text-destructive flex items-center gap-2"
-                          onClick={() => { onAction(agent.id, 'delete'); setOpenMenu(null); }}
-                        >
-                          <Trash2 className="w-4 h-4" /> Delete
-                        </button>
+                        {canDelete && (
+                          <button
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-muted text-destructive flex items-center gap-2"
+                            onClick={() => { onAction(agent.id, 'delete'); setOpenMenu(null); }}
+                          >
+                            <Trash2 className="w-4 h-4" /> Delete
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

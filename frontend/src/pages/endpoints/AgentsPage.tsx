@@ -43,6 +43,7 @@ export default function AgentsPage() {
   const isInitialMount = useRef(true);
   const canEnroll = useHasPermission('endpoints:tokens:create');
   const canWriteAgent = useHasPermission('endpoints:agents:write');
+  const canDeleteAgent = useHasPermission('endpoints:agents:delete');
 
   useEffect(() => {
     if (isInitialMount.current) {
@@ -214,6 +215,7 @@ export default function AgentsPage() {
             agents={agents}
             selectedAgents={selectedAgents}
             latestVersions={latestVersions}
+            canDelete={canDeleteAgent}
             onToggleSelect={handleToggleSelect}
             onToggleSelectAll={handleToggleSelectAll}
             onAction={handleAction}
