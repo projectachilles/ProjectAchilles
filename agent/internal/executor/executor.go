@@ -215,11 +215,25 @@ func ExecuteCommand(ctx context.Context, client *httpclient.Client, task Task, c
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(execCtx, "cmd.exe", "/C", task.Payload.Command)
+		// Write command to a batch file to avoid Go's argument escaping
+		// issues with cmd.exe — backslashes before quotes get mangled
+		// (e.g., "dir c:\" becomes "dir c:" due to \" escape sequence).
+		batPath := filepath.Join(tempDir, "cmd.bat")
+		if err := os.WriteFile(batPath, []byte(task.Payload.Command+"\r\n"), 0644); err != nil {
+			return nil, fmt.Errorf("write command batch file: %w", err)
+		}
+		cmd = exec.CommandContext(execCtx, "cmd.exe", "/C", batPath)
 	} else {
 		cmd = exec.CommandContext(execCtx, "sh", "-c", task.Payload.Command)
 	}
-	cmd.Dir = tempDir
+
+	// Use system root as working directory so commands see useful output
+	// by default (e.g. "dir" shows C:\, "ls" shows /).
+	if runtime.GOOS == "windows" {
+		cmd.Dir = `C:\`
+	} else {
+		cmd.Dir = "/"
+	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &limitedWriter{buf: &stdoutBuf, remaining: maxOutputBytes}
