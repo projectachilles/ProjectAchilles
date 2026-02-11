@@ -10,7 +10,7 @@ vi.mock('@clerk/express', () => ({
 
 vi.mock('../../middleware/clerk.middleware.js', () => ({
   clerkAuth: (_req: any, _res: any, next: any) => next(),
-  requireClerkAuth: () => (req: any, _res: any, next: any) => {
+  requireClerkAuth:(req: any, _res: any, next: any) => {
     req.auth = { userId: 'test-user-001' };
     next();
   },
