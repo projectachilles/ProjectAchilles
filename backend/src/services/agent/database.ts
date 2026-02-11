@@ -129,6 +129,11 @@ function initializeTables(database: Database.Database): void {
   if (!colNames.has('target_index')) {
     database.exec(`ALTER TABLE tasks ADD COLUMN target_index TEXT DEFAULT NULL`);
   }
+  if (!colNames.has('batch_id')) {
+    database.exec("ALTER TABLE tasks ADD COLUMN batch_id TEXT");
+    database.exec("UPDATE tasks SET batch_id = id WHERE batch_id IS NULL");
+    database.exec("CREATE INDEX IF NOT EXISTS idx_tasks_batch ON tasks(batch_id)");
+  }
 
   // Migration: add target_index to schedules table
   const scheduleCols = database.prepare(`PRAGMA table_info(schedules)`).all() as { name: string }[];

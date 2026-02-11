@@ -47,10 +47,12 @@ vi.mock('os', async () => {
 
 const {
   createTasks,
+  createCommandTasks,
   getNextTask,
   updateTaskStatus,
   submitResult,
   listTasks,
+  listTasksGrouped,
   getTask,
   cancelTask,
   deleteTask,
@@ -656,6 +658,195 @@ describe('tasks.service', () => {
 
       expect(task).toBeDefined();
       expect(task!.agent_hostname).toBeNull();
+    });
+  });
+
+  describe('batch_id assignment', () => {
+    function setupFsMocks() {
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (typeof p === 'string' && p.endsWith('build-meta.json')) {
+          return JSON.stringify({ binary_name: 'test-binary.exe', filename: 'test-binary.exe' });
+        }
+        return Buffer.from('fake-binary-content');
+      });
+      mockStatSync.mockReturnValue({ size: 2048 });
+    }
+
+    beforeEach(() => {
+      setupFsMocks();
+      mockGetTestMetadata.mockReturnValue(null);
+    });
+
+    it('createTasks assigns same batch_id to all tasks in a batch', () => {
+      insertTestAgent(testDb, { id: 'agent-002' });
+      insertTestAgent(testDb, { id: 'agent-003' });
+
+      const taskIds = createTasks({
+        agent_ids: ['agent-001', 'agent-002', 'agent-003'],
+        test_uuid: 'test-uuid-001',
+        test_name: 'Test One',
+        binary_name: 'test-binary.exe',
+      }, 'org-001', 'user-001');
+
+      const rows = taskIds.map((id: string) =>
+        testDb.prepare('SELECT batch_id FROM tasks WHERE id = ?').get(id) as { batch_id: string }
+      );
+
+      // All tasks share the same batch_id
+      expect(rows[0].batch_id).toBeDefined();
+      expect(rows[0].batch_id).toBe(rows[1].batch_id);
+      expect(rows[1].batch_id).toBe(rows[2].batch_id);
+    });
+
+    it('createCommandTasks assigns same batch_id to all tasks', () => {
+      insertTestAgent(testDb, { id: 'agent-002' });
+
+      const taskIds = createCommandTasks({
+        agent_ids: ['agent-001', 'agent-002'],
+        command: 'whoami',
+      }, 'org-001', 'user-001');
+
+      const rows = taskIds.map((id: string) =>
+        testDb.prepare('SELECT batch_id FROM tasks WHERE id = ?').get(id) as { batch_id: string }
+      );
+
+      expect(rows[0].batch_id).toBeDefined();
+      expect(rows[0].batch_id).toBe(rows[1].batch_id);
+    });
+
+    it('separate createTasks calls get different batch_ids', () => {
+      const taskIds1 = createTasks({
+        agent_ids: ['agent-001'],
+        test_uuid: 'test-uuid-001',
+        test_name: 'Test One',
+        binary_name: 'test-binary.exe',
+      }, 'org-001', 'user-001');
+
+      const taskIds2 = createTasks({
+        agent_ids: ['agent-001'],
+        test_uuid: 'test-uuid-001',
+        test_name: 'Test One',
+        binary_name: 'test-binary.exe',
+      }, 'org-001', 'user-001');
+
+      const row1 = testDb.prepare('SELECT batch_id FROM tasks WHERE id = ?').get(taskIds1[0]) as { batch_id: string };
+      const row2 = testDb.prepare('SELECT batch_id FROM tasks WHERE id = ?').get(taskIds2[0]) as { batch_id: string };
+
+      expect(row1.batch_id).not.toBe(row2.batch_id);
+    });
+  });
+
+  describe('listTasksGrouped', () => {
+    it('returns correct group structure for multi-agent batch', () => {
+      insertTestAgent(testDb, { id: 'agent-002', hostname: 'host-2' });
+      insertTestAgent(testDb, { id: 'agent-003', hostname: 'host-3' });
+
+      const batchId = 'batch-001';
+      insertTestTask(testDb, { id: 't1', agent_id: 'agent-001', batch_id: batchId, created_at: '2026-02-01 10:00:00' });
+      insertTestTask(testDb, { id: 't2', agent_id: 'agent-002', batch_id: batchId, created_at: '2026-02-01 10:00:00' });
+      insertTestTask(testDb, { id: 't3', agent_id: 'agent-003', batch_id: batchId, created_at: '2026-02-01 10:00:00' });
+
+      const result = listTasksGrouped({});
+
+      expect(result.total).toBe(1);
+      expect(result.groups).toHaveLength(1);
+      expect(result.groups[0].batch_id).toBe(batchId);
+      expect(result.groups[0].agent_count).toBe(3);
+      expect(result.groups[0].tasks).toHaveLength(3);
+    });
+
+    it('returns single-agent tasks as groups of 1', () => {
+      insertTestTask(testDb, { id: 't1', created_at: '2026-02-01 10:00:01' });
+      insertTestTask(testDb, { id: 't2', created_at: '2026-02-01 10:00:02' });
+
+      const result = listTasksGrouped({});
+
+      expect(result.total).toBe(2);
+      expect(result.groups).toHaveLength(2);
+      expect(result.groups[0].agent_count).toBe(1);
+      expect(result.groups[1].agent_count).toBe(1);
+    });
+
+    it('computes status_counts from child tasks', () => {
+      insertTestAgent(testDb, { id: 'agent-002' });
+
+      const batchId = 'batch-status';
+      insertTestTask(testDb, { id: 't1', agent_id: 'agent-001', batch_id: batchId, status: 'completed', created_at: '2026-02-01 10:00:00' });
+      insertTestTask(testDb, { id: 't2', agent_id: 'agent-002', batch_id: batchId, status: 'failed', created_at: '2026-02-01 10:00:00' });
+
+      const result = listTasksGrouped({});
+
+      expect(result.groups[0].status_counts).toEqual({ completed: 1, failed: 1 });
+    });
+
+    it('pagination counts groups not individual tasks', () => {
+      insertTestAgent(testDb, { id: 'agent-002' });
+
+      // Batch of 2 tasks
+      const batchId = 'batch-page';
+      insertTestTask(testDb, { id: 't1', agent_id: 'agent-001', batch_id: batchId, created_at: '2026-02-01 10:00:00' });
+      insertTestTask(testDb, { id: 't2', agent_id: 'agent-002', batch_id: batchId, created_at: '2026-02-01 10:00:00' });
+
+      // Single task (different batch)
+      insertTestTask(testDb, { id: 't3', created_at: '2026-02-01 10:00:01' });
+
+      const result = listTasksGrouped({ limit: 1, offset: 0 });
+
+      expect(result.total).toBe(2); // 2 groups
+      expect(result.groups).toHaveLength(1); // page size 1
+    });
+
+    it('filters by status — group included if any task matches', () => {
+      insertTestAgent(testDb, { id: 'agent-002' });
+
+      const batchId = 'batch-filter';
+      insertTestTask(testDb, { id: 't1', agent_id: 'agent-001', batch_id: batchId, status: 'completed', created_at: '2026-02-01 10:00:00' });
+      insertTestTask(testDb, { id: 't2', agent_id: 'agent-002', batch_id: batchId, status: 'failed', created_at: '2026-02-01 10:00:00' });
+
+      // Another group with only completed
+      insertTestTask(testDb, { id: 't3', status: 'completed', created_at: '2026-02-01 10:00:01' });
+
+      const result = listTasksGrouped({ status: 'failed' });
+
+      expect(result.total).toBe(1); // only the batch containing a failed task
+      expect(result.groups[0].batch_id).toBe(batchId);
+      // The group should still contain both tasks (the full batch)
+      expect(result.groups[0].tasks).toHaveLength(2);
+    });
+
+    it('filters by search — group included if any task matches', () => {
+      insertTestAgent(testDb, { id: 'agent-search', hostname: 'prod-server-42' });
+
+      const batchId = 'batch-search';
+      insertTestTask(testDb, { id: 't1', agent_id: 'agent-001', batch_id: batchId, created_at: '2026-02-01 10:00:00' });
+      insertTestTask(testDb, { id: 't2', agent_id: 'agent-search', batch_id: batchId, created_at: '2026-02-01 10:00:00' });
+
+      // Separate task that won't match
+      insertTestTask(testDb, { id: 't3', created_at: '2026-02-01 10:00:01' });
+
+      const result = listTasksGrouped({ search: 'prod-server' });
+
+      expect(result.total).toBe(1);
+      expect(result.groups[0].batch_id).toBe(batchId);
+    });
+
+    it('returns empty groups for no-match', () => {
+      insertTestTask(testDb, { id: 't1' });
+
+      const result = listTasksGrouped({ search: 'nonexistent-xyz' });
+      expect(result.total).toBe(0);
+      expect(result.groups).toHaveLength(0);
+    });
+
+    it('orders groups by latest created_at descending', () => {
+      insertTestTask(testDb, { id: 't-old', batch_id: 'batch-old', created_at: '2026-01-01 10:00:00' });
+      insertTestTask(testDb, { id: 't-new', batch_id: 'batch-new', created_at: '2026-02-01 10:00:00' });
+
+      const result = listTasksGrouped({});
+
+      expect(result.groups[0].batch_id).toBe('batch-new');
+      expect(result.groups[1].batch_id).toBe('batch-old');
     });
   });
 });

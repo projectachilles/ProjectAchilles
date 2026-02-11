@@ -8,6 +8,7 @@ import {
   updateTaskStatus,
   submitResult,
   listTasks,
+  listTasksGrouped,
   getTask,
   cancelTask,
   deleteTask,
@@ -199,6 +200,28 @@ adminTasksRouter.get(
 
     const result = listTasks(filters);
 
+    res.json({ success: true, data: result });
+  })
+);
+
+/**
+ * GET /admin/tasks/grouped
+ * List tasks grouped by batch_id with server-side pagination.
+ */
+adminTasksRouter.get(
+  '/tasks/grouped',
+  asyncHandler(async (req, res) => {
+    const filters: ListTasksRequest = {
+      agent_id: req.query.agent_id as string | undefined,
+      org_id: req.query.org_id as string | undefined,
+      status: req.query.status as TaskStatus | undefined,
+      type: req.query.type as TaskType | undefined,
+      search: req.query.search as string | undefined,
+      limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
+      offset: req.query.offset ? parseInt(req.query.offset as string, 10) : undefined,
+    };
+
+    const result = listTasksGrouped(filters);
     res.json({ success: true, data: result });
   })
 );

@@ -102,6 +102,18 @@ export interface AgentTask {
   created_at: string;
   assigned_at: string | null;
   completed_at: string | null;
+  batch_id: string;
+}
+
+export interface TaskGroup {
+  batch_id: string;
+  type: TaskType;
+  payload: AgentTask['payload'];
+  created_at: string;
+  created_by: string | null;
+  agent_count: number;
+  status_counts: Partial<Record<TaskStatus, number>>;
+  tasks: AgentTask[];
 }
 
 export interface EnrollmentToken {

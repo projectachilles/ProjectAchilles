@@ -11,6 +11,7 @@ import type {
   CreateCommandTasksRequest,
   ListAgentsRequest,
   ListTasksRequest,
+  TaskGroup,
   TaskNoteEntry,
   Schedule,
   ScheduleStatus,
@@ -99,6 +100,12 @@ export const agentApi = {
     return { tasks: data.tasks ?? [], total: data.total ?? 0 };
   },
 
+  async listTasksGrouped(params?: ListTasksRequest): Promise<{ groups: TaskGroup[]; total: number }> {
+    const response = await apiClient.get('/agent/admin/tasks/grouped', { params });
+    const data = response.data.data;
+    return { groups: data.groups ?? [], total: data.total ?? 0 };
+  },
+
   async getTask(taskId: string): Promise<AgentTask> {
     const response = await apiClient.get(`/agent/admin/tasks/${taskId}`);
     return response.data.data;
@@ -176,6 +183,7 @@ export type {
   CreateCommandTasksRequest,
   ListAgentsRequest,
   ListTasksRequest,
+  TaskGroup,
   TaskNoteEntry,
   Schedule,
   ScheduleStatus,

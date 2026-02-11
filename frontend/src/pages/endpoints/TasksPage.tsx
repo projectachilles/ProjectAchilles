@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Plus, RefreshCw, Search, X, Trash2, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
-import type { AgentTask, TaskStatus, Schedule } from '@/types/agent';
+import type { AgentTask, TaskGroup, TaskStatus, Schedule } from '@/types/agent';
 import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
 import TaskList from '@/components/endpoints/tasks/TaskList';
 import ScheduleList from '@/components/endpoints/tasks/ScheduleList';
@@ -17,8 +17,8 @@ const PAGE_SIZE_OPTIONS = [25, 50, 100];
 const SEARCH_DEBOUNCE_MS = 300;
 
 export default function TasksPage() {
-  const [tasks, setTasks] = useState<AgentTask[]>([]);
-  const [totalTasks, setTotalTasks] = useState(0);
+  const [groups, setGroups] = useState<TaskGroup[]>([]);
+  const [totalGroups, setTotalGroups] = useState(0);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [notesTask, setNotesTask] = useState<AgentTask | null>(null);
@@ -32,7 +32,7 @@ export default function TasksPage() {
   const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const totalPages = Math.max(1, Math.ceil(totalTasks / pageSize));
+  const totalPages = Math.max(1, Math.ceil(totalGroups / pageSize));
 
   function buildFilters() {
     return {
@@ -47,9 +47,9 @@ export default function TasksPage() {
     setLoading(true);
     setSelectedTasks([]);
     try {
-      const { tasks: fetchedTasks, total } = await agentApi.listTasks(buildFilters());
-      setTasks(fetchedTasks);
-      setTotalTasks(total);
+      const result = await agentApi.listTasksGrouped(buildFilters());
+      setGroups(result.groups);
+      setTotalGroups(result.total);
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
     } finally {
@@ -78,11 +78,11 @@ export default function TasksPage() {
     try {
       const filters = buildFilters();
       const [taskResult, scheduleResult] = await Promise.all([
-        agentApi.listTasks(filters),
+        agentApi.listTasksGrouped(filters),
         agentApi.listSchedules(),
       ]);
-      setTasks(taskResult.tasks);
-      setTotalTasks(taskResult.total);
+      setGroups(taskResult.groups);
+      setTotalGroups(taskResult.total);
       setSchedules(scheduleResult);
     } catch {
       // Silent — don't surface transient poll failures
@@ -129,11 +129,24 @@ export default function TasksPage() {
   }
 
   function handleToggleSelectAll(): void {
-    const allSelected = tasks.length > 0 && tasks.every((t) => selectedTasks.includes(t.id));
+    const allTaskIds = groups.flatMap((g) => g.tasks.map((t) => t.id));
+    const allSelected = allTaskIds.length > 0 && allTaskIds.every((id) => selectedTasks.includes(id));
     if (allSelected) {
       setSelectedTasks([]);
     } else {
-      setSelectedTasks(tasks.map((t) => t.id));
+      setSelectedTasks(allTaskIds);
+    }
+  }
+
+  function handleToggleGroupSelect(batchId: string): void {
+    const group = groups.find((g) => g.batch_id === batchId);
+    if (!group) return;
+    const groupTaskIds = group.tasks.map((t) => t.id);
+    const allGroupSelected = groupTaskIds.every((id) => selectedTasks.includes(id));
+    if (allGroupSelected) {
+      setSelectedTasks((prev) => prev.filter((id) => !groupTaskIds.includes(id)));
+    } else {
+      setSelectedTasks((prev) => [...new Set([...prev, ...groupTaskIds])]);
     }
   }
 
@@ -200,7 +213,8 @@ export default function TasksPage() {
 
   // --- Bulk action enablement ---
 
-  const selectedTaskObjects = tasks.filter((t) => selectedTasks.includes(t.id));
+  const allTasks = groups.flatMap((g) => g.tasks);
+  const selectedTaskObjects = allTasks.filter((t) => selectedTasks.includes(t.id));
   const canBulkCancel = selectedTaskObjects.length > 0 && selectedTaskObjects.every(
     (t) => t.status === 'pending' || t.status === 'assigned'
   );
@@ -235,8 +249,8 @@ export default function TasksPage() {
     fetchSchedules();
   }
 
-  const rangeStart = totalTasks === 0 ? 0 : (page - 1) * pageSize + 1;
-  const rangeEnd = Math.min(page * pageSize, totalTasks);
+  const rangeStart = totalGroups === 0 ? 0 : (page - 1) * pageSize + 1;
+  const rangeEnd = Math.min(page * pageSize, totalGroups);
 
   return (
     <>
@@ -334,11 +348,12 @@ export default function TasksPage() {
           <Loading message="Loading tasks..." />
         ) : (
           <TaskList
-            tasks={tasks}
+            groups={groups}
             loading={loading}
             selectedTasks={selectedTasks}
             onToggleSelect={handleToggleSelect}
             onToggleSelectAll={handleToggleSelectAll}
+            onToggleGroupSelect={handleToggleGroupSelect}
             onCancel={handleCancel}
             onDelete={handleDelete}
             onOpenNotes={setNotesTask}
@@ -346,10 +361,10 @@ export default function TasksPage() {
         )}
 
         {/* Pagination controls */}
-        {!loading && totalTasks > 0 && (
+        {!loading && totalGroups > 0 && (
           <div className="flex items-center justify-between mt-4 text-sm text-muted-foreground">
             <div className="flex items-center gap-3">
-              <span>Showing {rangeStart}&ndash;{rangeEnd} of {totalTasks}</span>
+              <span>Showing {rangeStart}&ndash;{rangeEnd} of {totalGroups}</span>
               <select
                 className="rounded border border-border bg-background px-2 py-1 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={pageSize}
