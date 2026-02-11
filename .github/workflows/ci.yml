@@ -10,6 +10,9 @@ jobs:
   test-job:
     name: Test ${{ matrix.project }}
     runs-on: ubuntu-latest
+    permissions:
+      # Explicitly deny all other permissions to follow the principle of least privilege
+      contents: read
     strategy:
       fail-fast: false
       matrix:
