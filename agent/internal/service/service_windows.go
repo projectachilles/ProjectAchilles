@@ -4,7 +4,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +15,7 @@ import (
 	"golang.org/x/sys/windows/svc"
 
 	"github.com/f0rt1ka/achilles-agent/internal/config"
+	"github.com/f0rt1ka/achilles-agent/internal/poller"
 	"github.com/f0rt1ka/achilles-agent/internal/store"
 )
 
@@ -61,10 +64,63 @@ func (s *achillesSvc) Execute(_ []string, r <-chan svc.ChangeRequest, status cha
 			}
 		case err := <-errCh:
 			if err != nil {
+				if errors.Is(err, poller.ErrUpdateApplied) {
+					// Ensure SCM recovery actions are configured before
+					// exiting — the initial sc failure during install may
+					// have silently failed, leaving no recovery actions.
+					ensureRecoveryActions()
+					// Schedule a fallback restart via Task Scheduler in
+					// case SCM recovery doesn't trigger (exhausted failure
+					// counter, misconfigured recovery, etc.).
+					scheduleFallbackRestart()
+				}
 				return false, 1
 			}
 			return false, 0
 		}
+	}
+}
+
+// ensureRecoveryActions re-configures SCM failure recovery actions right
+// before an update exit. This guarantees the service will restart even if
+// the initial "sc failure" during install silently failed.
+func ensureRecoveryActions() {
+	cmd := exec.Command("sc", "failure", serviceName,
+		"reset=", "86400",
+		"actions=", "restart/5000/restart/5000/restart/5000",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("warning: failed to configure SCM recovery: %v: %s", err, out)
+	} else {
+		log.Println("SCM recovery actions configured for restart after update")
+	}
+}
+
+// scheduleFallbackRestart creates a one-time Windows Scheduled Task that
+// restarts the service ~2 minutes from now. This is a belt-and-suspenders
+// fallback in case SCM recovery doesn't fire (exhausted failure counter,
+// job object kills child processes, etc.). The task self-deletes after running.
+// If SCM recovery already restarted the service, the "sc start" is a harmless
+// no-op on an already-running service.
+func scheduleFallbackRestart() {
+	when := time.Now().Add(2 * time.Minute)
+	taskName := "AchillesAgentRestart"
+	// The /TR command restarts the service and then deletes the scheduled task.
+	tr := fmt.Sprintf(`cmd.exe /C "sc start %s & schtasks /Delete /TN %s /F"`, serviceName, taskName)
+
+	cmd := exec.Command("schtasks", "/Create",
+		"/TN", taskName,
+		"/TR", tr,
+		"/SC", "ONCE",
+		"/SD", when.Format("01/02/2006"),
+		"/ST", when.Format("15:04"),
+		"/F",
+		"/RU", "SYSTEM",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("warning: failed to schedule fallback restart: %v: %s", err, out)
+	} else {
+		log.Printf("fallback restart scheduled via Task Scheduler at %s", when.Format("15:04"))
 	}
 }
 
@@ -105,7 +161,9 @@ func platformInstall(configPath string) error {
 		"reset=", "86400",
 		"actions=", "restart/10000/restart/10000/restart/10000",
 	)
-	_ = cmd.Run()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: sc failure configuration failed: %v: %s\n", err, out)
+	}
 
 	// Start the service.
 	cmd = exec.Command("sc", "start", serviceName)
