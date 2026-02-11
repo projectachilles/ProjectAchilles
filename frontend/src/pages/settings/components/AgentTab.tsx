@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Upload, Package, Hammer } from 'lucide-react';
+import { useHasPermission } from '@/hooks/useAppRole';
 import { IntegrationCard, type IntegrationStatus } from './IntegrationCard';
 import { AgentBuildFromSource } from './AgentBuildFromSource';
 import { AgentBinaryUpload } from './AgentBinaryUpload';
@@ -8,6 +9,7 @@ import { agentApi } from '@/services/api/agent';
 import type { AgentVersion } from '@/types/agent';
 
 export function AgentTab() {
+  const canDeleteVersion = useHasPermission('endpoints:versions:delete');
   const [versions, setVersions] = useState<AgentVersion[]>([]);
   const [status, setStatus] = useState<IntegrationStatus>('not-configured');
   const [statusMessage, setStatusMessage] = useState('No binaries uploaded');
@@ -73,7 +75,7 @@ export function AgentTab() {
         statusMessage={versions.length > 0 ? `${versions.length} version(s)` : 'None'}
         defaultExpanded={versions.length > 0}
       >
-        <AgentVersionTable versions={versions} onDeleted={fetchVersions} />
+        <AgentVersionTable versions={versions} canDelete={canDeleteVersion} onDeleted={fetchVersions} />
       </IntegrationCard>
     </div>
   );

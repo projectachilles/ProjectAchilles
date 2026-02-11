@@ -1,10 +1,12 @@
 import { useState, useCallback } from 'react';
 import { Monitor, ShieldCheck } from 'lucide-react';
+import { useHasPermission } from '@/hooks/useAppRole';
 import { IntegrationCard, type IntegrationStatus } from './IntegrationCard';
 import { PlatformConfig } from './PlatformConfig';
 import { CertificateConfig } from './CertificateConfig';
 
 export function TestsTab() {
+  const canDeleteCert = useHasPermission('settings:certificates:delete');
   const [certStatus, setCertStatus] = useState<IntegrationStatus>('not-configured');
 
   const handleCertStatusChange = useCallback((exists: boolean) => {
@@ -38,7 +40,7 @@ export function TestsTab() {
         status={certStatus}
         defaultExpanded={certStatus === 'not-configured'}
       >
-        <CertificateConfig onStatusChange={handleCertStatusChange} />
+        <CertificateConfig canDelete={canDeleteCert} onStatusChange={handleCertStatusChange} />
       </IntegrationCard>
     </div>
   );

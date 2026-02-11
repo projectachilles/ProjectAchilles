@@ -9,10 +9,11 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/shared/ui
 import { Trash2, Upload, KeyRound } from 'lucide-react';
 
 interface CertificateConfigProps {
+  canDelete?: boolean;
   onStatusChange?: (exists: boolean) => void;
 }
 
-export function CertificateConfig({ onStatusChange }: CertificateConfigProps) {
+export function CertificateConfig({ canDelete = true, onStatusChange }: CertificateConfigProps) {
   const [data, setData] = useState<CertificateListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -137,6 +138,7 @@ export function CertificateConfig({ onStatusChange }: CertificateConfigProps) {
                 key={cert.id}
                 cert={cert}
                 isActive={cert.id === activeCertId}
+                canDelete={canDelete}
                 onSetActive={handleSetActive}
                 onDelete={handleDelete}
                 isSettingActive={settingActiveId === cert.id}
@@ -264,6 +266,7 @@ export function CertificateConfig({ onStatusChange }: CertificateConfigProps) {
 interface CertificateListItemProps {
   cert: CertificateInfo;
   isActive: boolean;
+  canDelete?: boolean;
   onSetActive: (id: string) => void;
   onDelete: (id: string) => void;
   isSettingActive: boolean;
@@ -273,6 +276,7 @@ interface CertificateListItemProps {
 function CertificateListItem({
   cert,
   isActive,
+  canDelete = true,
   onSetActive,
   onDelete,
   isSettingActive,
@@ -331,21 +335,23 @@ function CertificateListItem({
       </div>
 
       {/* Delete */}
-      <button
-        type="button"
-        onClick={() => onDelete(cert.id)}
-        disabled={isActive || isDeleting}
-        className={`
-          shrink-0 p-1.5 rounded-md transition-colors
-          ${isActive
-            ? 'text-muted-foreground/30 cursor-not-allowed'
-            : 'text-muted-foreground hover:text-destructive hover:bg-destructive/10'
-          }
-        `}
-        title={isActive ? 'Cannot delete the active certificate' : 'Delete certificate'}
-      >
-        {isDeleting ? <Spinner size="sm" /> : <Trash2 className="h-4 w-4" />}
-      </button>
+      {canDelete && (
+        <button
+          type="button"
+          onClick={() => onDelete(cert.id)}
+          disabled={isActive || isDeleting}
+          className={`
+            shrink-0 p-1.5 rounded-md transition-colors
+            ${isActive
+              ? 'text-muted-foreground/30 cursor-not-allowed'
+              : 'text-muted-foreground hover:text-destructive hover:bg-destructive/10'
+            }
+          `}
+          title={isActive ? 'Cannot delete the active certificate' : 'Delete certificate'}
+        >
+          {isDeleting ? <Spinner size="sm" /> : <Trash2 className="h-4 w-4" />}
+        </button>
+      )}
     </div>
   );
 }
