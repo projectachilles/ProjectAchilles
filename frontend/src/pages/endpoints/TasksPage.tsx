@@ -36,6 +36,7 @@ export default function TasksPage() {
   const canCancelTask = useHasPermission('endpoints:tasks:cancel');
   const canDeleteTask = useHasPermission('endpoints:tasks:delete');
   const canDeleteSchedule = useHasPermission('endpoints:schedules:delete');
+  const canWriteSchedule = useHasPermission('endpoints:schedules:write');
   const canSelectTasks = canCancelTask || canDeleteTask;
 
   const totalPages = Math.max(1, Math.ceil(totalGroups / pageSize));
@@ -280,7 +281,7 @@ export default function TasksPage() {
             </h2>
             <ScheduleList
               schedules={schedules}
-              onTogglePause={handleTogglePause}
+              onTogglePause={canWriteSchedule ? handleTogglePause : undefined}
               onDelete={canDeleteSchedule ? handleDeleteSchedule : undefined}
             />
           </div>

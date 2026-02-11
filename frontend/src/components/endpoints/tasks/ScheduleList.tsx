@@ -59,7 +59,7 @@ const STATUS_STYLES: Record<string, string> = {
 
 interface ScheduleListProps {
   schedules: Schedule[];
-  onTogglePause: (id: string, newStatus: 'active' | 'paused') => void;
+  onTogglePause?: (id: string, newStatus: 'active' | 'paused') => void;
   onDelete?: (id: string) => void;
 }
 
@@ -105,7 +105,7 @@ export default function ScheduleList({ schedules, onTogglePause, onDelete }: Sch
           </div>
 
           <div className="flex gap-1 shrink-0">
-            {schedule.status !== 'completed' && (
+            {onTogglePause && schedule.status !== 'completed' && (
               <Button
                 variant="outline"
                 className="px-2 py-1 h-8"
