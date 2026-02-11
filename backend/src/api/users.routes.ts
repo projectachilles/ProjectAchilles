@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { clerkClient } from '@clerk/express';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
-import { getUserId, requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
+import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
 import { VALID_ROLES } from '../types/roles.js';
 import type { AppRole } from '../types/roles.js';
 
@@ -43,12 +43,6 @@ router.put('/:userId/role', asyncHandler(async (req, res) => {
     throw new AppError(`Invalid role. Must be one of: ${VALID_ROLES.join(', ')}`, 400);
   }
 
-  // Prevent self-role-change
-  const currentUserId = getUserId(req.auth);
-  if (currentUserId === userId) {
-    throw new AppError('Cannot change your own role', 400);
-  }
-
   await clerkClient.users.updateUserMetadata(userId, {
     publicMetadata: { role },
   });
@@ -62,11 +56,6 @@ router.put('/:userId/role', asyncHandler(async (req, res) => {
  */
 router.delete('/:userId/role', asyncHandler(async (req, res) => {
   const { userId } = req.params;
-
-  const currentUserId = getUserId(req.auth);
-  if (currentUserId === userId) {
-    throw new AppError('Cannot remove your own role', 400);
-  }
 
   await clerkClient.users.updateUserMetadata(userId, {
     publicMetadata: { role: null },

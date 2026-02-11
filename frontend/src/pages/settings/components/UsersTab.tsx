@@ -97,6 +97,7 @@ export function UsersTab() {
                   <div className="text-sm font-medium truncate">
                     {u.firstName} {u.lastName}
                     {isSelf && <span className="ml-1 text-xs text-muted-foreground">(you)</span>}
+
                   </div>
                   <div className="text-xs text-muted-foreground truncate">{u.email}</div>
                 </div>
@@ -113,14 +114,10 @@ export function UsersTab() {
 
                 {/* Role selector */}
                 <select
-                  disabled={isSelf || pendingUserId === u.id}
+                  disabled={pendingUserId === u.id}
                   value={u.role ?? ''}
                   onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                  className={cn(
-                    'text-sm rounded-lg border border-border bg-background px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/50',
-                    isSelf && 'opacity-50 cursor-not-allowed'
-                  )}
-                  title={isSelf ? 'Cannot change your own role' : undefined}
+                  className="text-sm rounded-lg border border-border bg-background px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/50"
                 >
                   <option value="">No role (full access)</option>
                   {VALID_ROLES.map((r) => (
