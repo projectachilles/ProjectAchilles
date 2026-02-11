@@ -37,9 +37,11 @@ function AnalyticsProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="min-h-[400px] flex items-center justify-center">
-        <Loading message="Checking configuration..." />
-      </div>
+      <Layout>
+        <div className="min-h-[400px] flex items-center justify-center">
+          <Loading message="Checking configuration..." />
+        </div>
+      </Layout>
     );
   }
 
@@ -48,11 +50,13 @@ function AnalyticsProtectedRoute({ children }: { children: React.ReactNode }) {
       return <Navigate to="/settings" replace />;
     }
     return (
-      <div className="min-h-[400px] flex items-center justify-center">
-        <Alert variant="destructive">
-          Analytics is not configured. Ask an Administrator to configure Elasticsearch in Settings.
-        </Alert>
-      </div>
+      <Layout>
+        <div className="min-h-[400px] flex items-center justify-center">
+          <Alert variant="destructive">
+            Analytics is not configured. Ask an Administrator to configure Elasticsearch in Settings.
+          </Alert>
+        </div>
+      </Layout>
     );
   }
 
