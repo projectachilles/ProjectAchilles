@@ -90,21 +90,23 @@ export default function AppRouter() {
           <Route path="test/:uuid" element={<TestDetailPage />} />
         </Route>
 
-        {/* Analytics Module - DUAL AUTH (Clerk + Elasticsearch config) */}
-        <Route path="analytics">
-          <Route path="setup" element={<Navigate to="/settings" replace />} />
-          <Route index element={
-            <AnalyticsProtectedRoute>
-              <AnalyticsDashboardPage />
-            </AnalyticsProtectedRoute>
-          } />
-        </Route>
-
         {/* Settings Page */}
         <Route path="settings" element={<RequireModule module="settings"><SettingsPage /></RequireModule>} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Route>
+
+      {/* Analytics Module - has its own Layout, must be outside AppLayout */}
+      <Route path="analytics">
+        <Route path="setup" element={<Navigate to="/settings" replace />} />
+        <Route index element={
+          <RequireAuth>
+            <AnalyticsProtectedRoute>
+              <AnalyticsDashboardPage />
+            </AnalyticsProtectedRoute>
+          </RequireAuth>
+        } />
       </Route>
 
       {/* Endpoints Module - ACHILLES AGENT (Clerk auth + RBAC) */}
