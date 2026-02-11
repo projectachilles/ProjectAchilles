@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Copy, Check, StickyNote, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, Check, StickyNote, X, Trash2 } from 'lucide-react';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/shared/ui/Table';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
@@ -9,6 +9,7 @@ interface TaskListProps {
   tasks: AgentTask[];
   loading: boolean;
   onCancel?: (taskId: string) => void;
+  onDelete?: (taskId: string) => void;
   onOpenNotes?: (task: AgentTask) => void;
 }
 
@@ -57,7 +58,11 @@ function isCancellable(status: TaskStatus): boolean {
   return status === 'pending' || status === 'assigned';
 }
 
-export default function TaskList({ tasks, loading, onCancel, onOpenNotes }: TaskListProps) {
+function isDeletable(status: TaskStatus): boolean {
+  return status === 'completed' || status === 'failed' || status === 'expired';
+}
+
+export default function TaskList({ tasks, loading, onCancel, onDelete, onOpenNotes }: TaskListProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (loading) return null;
@@ -119,8 +124,8 @@ export default function TaskList({ tasks, loading, onCancel, onOpenNotes }: Task
                       : task.payload.test_name
                     }
                   </TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    {task.agent_id.slice(0, 8)}...
+                  <TableCell className="text-sm text-muted-foreground" title={task.agent_id}>
+                    {task.agent_hostname ?? <span className="font-mono text-xs">{task.agent_id.slice(0, 8)}...</span>}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {timeAgo(task.created_at)}
@@ -143,11 +148,18 @@ export default function TaskList({ tasks, loading, onCancel, onOpenNotes }: Task
                     )}
                   </TableCell>
                   <TableCell>
-                    {isCancellable(task.status) && onCancel && (
-                      <Button variant="ghost" size="icon" onClick={() => onCancel(task.id)}>
-                        <X className="w-4 h-4" />
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-1">
+                      {isCancellable(task.status) && onCancel && (
+                        <Button variant="ghost" size="icon" onClick={() => onCancel(task.id)}>
+                          <X className="w-4 h-4" />
+                        </Button>
+                      )}
+                      {isDeletable(task.status) && onDelete && (
+                        <Button variant="ghost" size="icon" onClick={() => onDelete(task.id)}>
+                          <Trash2 className="w-4 h-4 text-red-400" />
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
                 {isExpanded && task.result && (
@@ -172,7 +184,8 @@ export default function TaskList({ tasks, loading, onCancel, onOpenNotes }: Task
                             {task.result.stderr || '(empty)'}
                           </pre>
                         </div>
-                        <div className="flex gap-4 text-muted-foreground">
+                        <div className="flex flex-wrap gap-4 text-muted-foreground">
+                          <span>Agent ID: <span className="font-mono text-xs">{task.agent_id}</span></span>
                           <span>Started: {task.result.started_at ? new Date(task.result.started_at).toLocaleString() : '-'}</span>
                           <span>Completed: {task.result.completed_at ? new Date(task.result.completed_at).toLocaleString() : '-'}</span>
                           <span>Host: {task.result.hostname}</span>

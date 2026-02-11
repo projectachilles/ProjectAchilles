@@ -161,6 +161,7 @@ export interface TaskNoteEntry {
 export interface Task {
   id: string;
   agent_id: string;
+  agent_hostname: string | null;
   org_id: string;
   type: TaskType;
   priority: number;

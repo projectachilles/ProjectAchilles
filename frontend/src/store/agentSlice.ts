@@ -90,7 +90,8 @@ export const fetchTasks = createAsyncThunk(
   'agents/fetchTasks',
   async (filters: ListTasksRequest | undefined, { rejectWithValue }) => {
     try {
-      return await agentApi.listTasks(filters);
+      const result = await agentApi.listTasks(filters);
+      return result.tasks;
     } catch (error: unknown) {
       return rejectWithValue(extractErrorMessage(error, 'Failed to fetch tasks'));
     }

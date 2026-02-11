@@ -85,6 +85,7 @@ export interface TaskNoteEntry {
 export interface AgentTask {
   id: string;
   agent_id: string;
+  agent_hostname: string | null;
   type: TaskType;
   priority: number;
   status: TaskStatus;

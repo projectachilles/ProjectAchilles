@@ -53,6 +53,7 @@ const {
   listTasks,
   getTask,
   cancelTask,
+  deleteTask,
   expireOldTasks,
   updateTaskNotes,
 } = await import('../tasks.service.js');
@@ -497,6 +498,83 @@ describe('tasks.service', () => {
       const payload = JSON.parse(row.payload);
       expect(payload.execution_timeout).toBe(300);
       expect(payload.arguments).toEqual([]);
+    });
+  });
+
+  describe('deleteTask', () => {
+    it('deletes a completed task', () => {
+      insertTestTask(testDb, { id: 't1', status: 'completed' });
+
+      deleteTask('t1');
+
+      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
+      expect(row).toBeUndefined();
+    });
+
+    it('deletes a failed task', () => {
+      insertTestTask(testDb, { id: 't1', status: 'failed' });
+
+      deleteTask('t1');
+
+      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
+      expect(row).toBeUndefined();
+    });
+
+    it('deletes an expired task', () => {
+      insertTestTask(testDb, { id: 't1', status: 'expired' });
+
+      deleteTask('t1');
+
+      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
+      expect(row).toBeUndefined();
+    });
+
+    it('rejects deletion of pending task', () => {
+      insertTestTask(testDb, { id: 't1', status: 'pending' });
+
+      expect(() => deleteTask('t1')).toThrow('Cannot delete task in status: pending');
+    });
+
+    it('rejects deletion of assigned task', () => {
+      insertTestTask(testDb, { id: 't1', status: 'assigned' });
+
+      expect(() => deleteTask('t1')).toThrow('Cannot delete task in status: assigned');
+    });
+
+    it('rejects deletion of executing task', () => {
+      insertTestTask(testDb, { id: 't1', status: 'executing' });
+
+      expect(() => deleteTask('t1')).toThrow('Cannot delete task in status: executing');
+    });
+
+    it('throws 404 for nonexistent task', () => {
+      expect(() => deleteTask('nonexistent')).toThrow('Task not found');
+    });
+  });
+
+  describe('agent_hostname in listTasks', () => {
+    it('populates agent_hostname from joined agent data', () => {
+      insertTestAgent(testDb, { id: 'agent-host', hostname: 'workstation-01' });
+      insertTestTask(testDb, { id: 't1', agent_id: 'agent-host' });
+
+      const result = listTasks({});
+      const task = result.tasks.find(t => t.id === 't1');
+
+      expect(task).toBeDefined();
+      expect(task!.agent_hostname).toBe('workstation-01');
+    });
+
+    it('returns null agent_hostname when agent does not exist', () => {
+      // Insert task referencing a non-existent agent (bypass FK with pragma)
+      testDb.pragma('foreign_keys = OFF');
+      insertTestTask(testDb, { id: 't-orphan', agent_id: 'deleted-agent' });
+      testDb.pragma('foreign_keys = ON');
+
+      const result = listTasks({});
+      const task = result.tasks.find(t => t.id === 't-orphan');
+
+      expect(task).toBeDefined();
+      expect(task!.agent_hostname).toBeNull();
     });
   });
 });

@@ -139,13 +139,13 @@ export default function AgentDashboardPage() {
       setError(null);
 
       try {
-        const [metricsData, tasksData] = await Promise.all([
+        const [metricsData, tasksResult] = await Promise.all([
           agentApi.getMetrics(),
           agentApi.listTasks({ limit: 5 }),
         ]);
 
         setMetrics(metricsData);
-        setRecentTasks(tasksData);
+        setRecentTasks(tasksResult.tasks);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to load dashboard data';
         setError(message);

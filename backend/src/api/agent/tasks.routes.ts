@@ -10,6 +10,7 @@ import {
   listTasks,
   getTask,
   cancelTask,
+  deleteTask,
   updateTaskNotes,
 } from '../../services/agent/tasks.service.js';
 import { ingestResult } from '../../services/agent/results.service.js';
@@ -224,6 +225,18 @@ adminTasksRouter.post(
     const task = cancelTask(req.params.id);
 
     res.json({ success: true, data: task });
+  })
+);
+
+/**
+ * DELETE /tasks/:id
+ * Delete a terminal task (completed/failed/expired).
+ */
+adminTasksRouter.delete(
+  '/tasks/:id',
+  asyncHandler(async (req, res) => {
+    deleteTask(req.params.id);
+    res.json({ success: true, data: null });
   })
 );
 

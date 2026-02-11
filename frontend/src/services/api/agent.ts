@@ -92,11 +92,11 @@ export const agentApi = {
     return response.data.data.task_ids;
   },
 
-  async listTasks(params?: ListTasksRequest): Promise<AgentTask[]> {
+  async listTasks(params?: ListTasksRequest): Promise<{ tasks: AgentTask[]; total: number }> {
     const response = await apiClient.get('/agent/admin/tasks', { params });
     const data = response.data.data;
-    // Backend returns { tasks: [...], total: N }
-    return Array.isArray(data) ? data : data.tasks ?? [];
+    if (Array.isArray(data)) return { tasks: data, total: data.length };
+    return { tasks: data.tasks ?? [], total: data.total ?? 0 };
   },
 
   async getTask(taskId: string): Promise<AgentTask> {
@@ -107,6 +107,10 @@ export const agentApi = {
   async cancelTask(taskId: string): Promise<AgentTask> {
     const response = await apiClient.post(`/agent/admin/tasks/${taskId}/cancel`);
     return response.data.data;
+  },
+
+  async deleteTask(taskId: string): Promise<void> {
+    await apiClient.delete(`/agent/admin/tasks/${taskId}`);
   },
 
   async updateTaskNotes(taskId: string, content: string): Promise<AgentTask> {
