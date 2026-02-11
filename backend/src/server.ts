@@ -35,8 +35,8 @@ if (!process.env.CLERK_PUBLISHABLE_KEY || !process.env.CLERK_SECRET_KEY) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Trust Railway's proxy (required for secure cookies behind proxy)
-app.set('trust proxy', 1);
+// Trust proxy chain: client → ngrok → nginx → Express (2 hops)
+app.set('trust proxy', 2);
 
 // ============ MIDDLEWARE ============
 
@@ -77,13 +77,18 @@ app.use(express.urlencoded({ extended: true }));
 // Clerk authentication middleware
 app.use(clerkAuth);
 
-// Global API rate limiter
+// Global API rate limiter (dashboard/UI traffic only)
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300,                  // 300 requests per 15-minute window
+  max: 1000,                 // 1000 requests per 15-minute window
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: 'Too many requests, please try again later' },
+  skip: (req) => {
+    // Agent device endpoints have their own dedicated rate limiter
+    const p = req.originalUrl;
+    return p.startsWith('/api/agent/') && !p.startsWith('/api/agent/admin/');
+  },
 });
 app.use('/api', apiLimiter);
 
