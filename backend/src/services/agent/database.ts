@@ -290,6 +290,7 @@ function migrateExecuteCommandType(database: Database.Database): void {
     colSet.has('notes') ? 'notes TEXT DEFAULT NULL' : null,
     colSet.has('notes_history') ? "notes_history TEXT DEFAULT '[]'" : null,
     colSet.has('target_index') ? 'target_index TEXT DEFAULT NULL' : null,
+    colSet.has('batch_id') ? 'batch_id TEXT' : null,
   ].filter(Boolean);
 
   database.exec(`DROP TABLE IF EXISTS tasks_new`);
@@ -317,6 +318,7 @@ function migrateExecuteCommandType(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(agent_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
     CREATE INDEX IF NOT EXISTS idx_tasks_org ON tasks(org_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_batch ON tasks(batch_id);
   `);
 
   database.pragma('foreign_keys = ON');
