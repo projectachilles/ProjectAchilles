@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -82,7 +83,18 @@ func main() {
 	}
 
 	if *run {
-		log.Printf("Starting agent (server=%s, poll=%s)", cfg.ServerURL, cfg.PollInterval)
+		// Wire up log file if configured, writing to both stderr and the file.
+		if cfg.LogFile != "" {
+			f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not open log file %s: %v\n", cfg.LogFile, err)
+			} else {
+				log.SetOutput(io.MultiWriter(os.Stderr, f))
+			}
+		}
+
+		log.Printf("Starting agent v%s (server=%s, poll=%s, update=%s)",
+			version, cfg.ServerURL, cfg.PollInterval, cfg.UpdateInterval)
 
 		st, err := store.New(cfg.WorkDir)
 		if err != nil {

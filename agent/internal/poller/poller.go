@@ -109,8 +109,22 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 		updateC = updateTicker.C
 	}
 
+	log.Printf("Poller started (heartbeat=%s, poll=%s, update=%s)",
+		cfg.HeartbeatInterval, cfg.PollInterval, cfg.UpdateInterval)
+
 	// Send an initial heartbeat immediately.
 	sendHeartbeat(ctx, client, st, version)
+
+	// Run an initial update check immediately (don't wait for the first tick).
+	if updateC != nil {
+		updated, err := updater.CheckAndUpdate(ctx, client, version, cfg)
+		if err != nil {
+			log.Printf("initial update check error: %v", err)
+		} else if updated {
+			log.Println("update applied on startup, exiting for restart")
+			return ErrUpdateApplied
+		}
+	}
 
 	for {
 		select {
