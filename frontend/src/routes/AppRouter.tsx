@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAnalyticsAuth } from '../hooks/useAnalyticsAuth';
 import { RequireAuth } from '../components/auth/RequireAuth';
+import { RequireModule } from '../components/auth/RequireModule';
 import Layout from '../components/shared/Layout';
 import { Loading } from '../components/shared/ui/Spinner';
 
@@ -78,14 +79,14 @@ export default function AppRouter() {
         </Route>
 
         {/* Settings Page */}
-        <Route path="settings" element={<SettingsPage />} />
+        <Route path="settings" element={<RequireModule module="settings"><SettingsPage /></RequireModule>} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
 
-      {/* Endpoints Module - ACHILLES AGENT (Clerk auth only) */}
-      <Route path="endpoints" element={<RequireAuth><AppLayout /></RequireAuth>}>
+      {/* Endpoints Module - ACHILLES AGENT (Clerk auth + RBAC) */}
+      <Route path="endpoints" element={<RequireAuth><RequireModule module="endpoints"><AppLayout /></RequireModule></RequireAuth>}>
         <Route index element={<Navigate to="/endpoints/dashboard" replace />} />
         <Route path="dashboard" element={<AgentDashboardPage />} />
         <Route path="agents" element={<AgentsPage />} />

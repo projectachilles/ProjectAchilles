@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
-import { getUserId } from '../../middleware/clerk.middleware.js';
+import { getUserId, requirePermission } from '../../middleware/clerk.middleware.js';
 import {
   createTasks,
   createCommandTasks,
@@ -125,6 +125,7 @@ export const adminTasksRouter = Router();
  */
 adminTasksRouter.post(
   '/tasks',
+  requirePermission('endpoints:tasks:create'),
   asyncHandler(async (req, res) => {
     const userId = getUserId(req.auth);
     if (!userId) {
@@ -154,6 +155,7 @@ adminTasksRouter.post(
  */
 adminTasksRouter.post(
   '/tasks/command',
+  requirePermission('endpoints:tasks:command'),
   asyncHandler(async (req, res) => {
     const userId = getUserId(req.auth);
     if (!userId) {
@@ -187,6 +189,7 @@ adminTasksRouter.post(
  */
 adminTasksRouter.get(
   '/tasks',
+  requirePermission('endpoints:tasks:read'),
   asyncHandler(async (req, res) => {
     const filters: ListTasksRequest = {
       agent_id: req.query.agent_id as string | undefined,
@@ -210,6 +213,7 @@ adminTasksRouter.get(
  */
 adminTasksRouter.get(
   '/tasks/grouped',
+  requirePermission('endpoints:tasks:read'),
   asyncHandler(async (req, res) => {
     const filters: ListTasksRequest = {
       agent_id: req.query.agent_id as string | undefined,
@@ -232,6 +236,7 @@ adminTasksRouter.get(
  */
 adminTasksRouter.get(
   '/tasks/:id',
+  requirePermission('endpoints:tasks:read'),
   asyncHandler(async (req, res) => {
     const task = getTask(req.params.id);
 
@@ -245,6 +250,7 @@ adminTasksRouter.get(
  */
 adminTasksRouter.post(
   '/tasks/:id/cancel',
+  requirePermission('endpoints:tasks:cancel'),
   asyncHandler(async (req, res) => {
     const task = cancelTask(req.params.id);
 
@@ -258,6 +264,7 @@ adminTasksRouter.post(
  */
 adminTasksRouter.delete(
   '/tasks/:id',
+  requirePermission('endpoints:tasks:delete'),
   asyncHandler(async (req, res) => {
     deleteTask(req.params.id);
     res.json({ success: true, data: null });
@@ -271,6 +278,7 @@ adminTasksRouter.delete(
  */
 adminTasksRouter.patch(
   '/tasks/:id/notes',
+  requirePermission('endpoints:tasks:notes'),
   asyncHandler(async (req, res) => {
     const userId = getUserId(req.auth);
     if (!userId) {

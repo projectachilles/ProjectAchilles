@@ -1,7 +1,8 @@
-import { Plug, FlaskConical, Bot } from 'lucide-react';
+import { Plug, FlaskConical, Bot, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useHasPermission } from '@/hooks/useAppRole';
 
-type SettingsTab = 'integrations' | 'tests' | 'agent';
+type SettingsTab = 'integrations' | 'tests' | 'agent' | 'users';
 
 interface SettingsSidebarProps {
   activeTab: SettingsTab;
@@ -14,13 +15,21 @@ interface TabItem {
   icon: typeof Plug;
 }
 
-const tabs: TabItem[] = [
+const allTabs: TabItem[] = [
   { id: 'integrations', label: 'Integrations', icon: Plug },
   { id: 'tests', label: 'Tests', icon: FlaskConical },
   { id: 'agent', label: 'Agent', icon: Bot },
+  { id: 'users', label: 'Users', icon: Users },
 ];
 
 export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps) {
+  const canManageUsers = useHasPermission('settings:users:manage');
+
+  const tabs = allTabs.filter((tab) => {
+    if (tab.id === 'users') return canManageUsers;
+    return true;
+  });
+
   return (
     <div className="w-52 shrink-0">
       <h1 className="text-2xl font-bold mb-6">Settings</h1>

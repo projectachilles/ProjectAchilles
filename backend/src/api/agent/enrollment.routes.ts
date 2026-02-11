@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
-import { getUserId } from '../../middleware/clerk.middleware.js';
+import { getUserId, requirePermission } from '../../middleware/clerk.middleware.js';
 import {
   createToken,
   enrollAgent,
@@ -110,6 +110,7 @@ export const adminEnrollmentRouter = Router();
  */
 adminEnrollmentRouter.post(
   '/tokens',
+  requirePermission('endpoints:tokens:create'),
   asyncHandler(async (req, res) => {
     const userId = getUserId(req.auth);
     if (!userId) {
@@ -140,6 +141,7 @@ adminEnrollmentRouter.post(
  */
 adminEnrollmentRouter.get(
   '/tokens',
+  requirePermission('endpoints:tokens:create'),
   asyncHandler(async (req, res) => {
     const orgId = req.query.org_id as string;
 
@@ -159,6 +161,7 @@ adminEnrollmentRouter.get(
  */
 adminEnrollmentRouter.delete(
   '/tokens/:id',
+  requirePermission('endpoints:tokens:delete'),
   asyncHandler(async (req, res) => {
     revokeToken(req.params.id);
 

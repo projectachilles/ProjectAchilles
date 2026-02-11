@@ -9,6 +9,7 @@ import DefenseDashboard from '@/components/browser/DefenseDashboard';
 import { useTheme } from '@/hooks/useTheme';
 import BuildSection from '@/components/browser/BuildSection';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
+import { useHasPermission } from '@/hooks/useAppRole';
 import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2, Heart, Tag, User, Clock } from 'lucide-react';
 import { formatRelativeDate, formatFullDate } from '@/utils/dateFormatters';
 
@@ -27,6 +28,7 @@ export default function TestDetailPage() {
   const [activeView, setActiveView] = useState<'file' | 'attack-flow'>('file');
   const [hasUserInteracted, setHasUserInteracted] = useState(false); // Track if user clicked something
   const { isFavorite, toggleFavorite, trackView } = useTestPreferences();
+  const canBuild = useHasPermission('tests:builds:create');
 
   // Sync theme to attack flow iframe via postMessage
   const syncThemeToIframe = useCallback(() => {
@@ -431,7 +433,7 @@ export default function TestDetailPage() {
             )}
 
             {/* Build */}
-            {sourceFiles.length > 0 && uuid && (
+            {canBuild && sourceFiles.length > 0 && uuid && (
               <BuildSection uuid={uuid} />
             )}
 

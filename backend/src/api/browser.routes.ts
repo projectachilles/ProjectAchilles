@@ -3,7 +3,7 @@
 import { Router, Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { requireClerkAuth } from '../middleware/clerk.middleware.js';
+import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { TestIndexer } from '../services/browser/testIndexer.js';
 import { FileService } from '../services/browser/fileService.js';
@@ -32,8 +32,9 @@ export function createBrowserRouter(options: {
 }): Router {
   const router = Router();
 
-  // Protect all browser routes with Clerk authentication
+  // Protect all browser routes with Clerk authentication + library read permission
   router.use(requireClerkAuth());
+  router.use(requirePermission('tests:library:read'));
 
   // Initialize the test indexer
   testIndexer = new TestIndexer(options.testsSourcePath);
@@ -64,7 +65,7 @@ export function createBrowserRouter(options: {
    * POST /api/browser/tests/sync
    * Trigger a sync from the GitHub repository
    */
-  router.post('/tests/sync', asyncHandler(async (_req: Request, res: Response) => {
+  router.post('/tests/sync', requirePermission('tests:sync:execute'), asyncHandler(async (_req: Request, res: Response) => {
     if (!gitSyncService) {
       throw new AppError('Git sync is not configured', 503);
     }
@@ -363,7 +364,7 @@ export function createBrowserRouter(options: {
    * POST /api/browser/tests/refresh
    * Refresh test index (rescan tests_source directory)
    */
-  router.post('/tests/refresh', asyncHandler(async (_req: Request, res: Response) => {
+  router.post('/tests/refresh', requirePermission('tests:sync:execute'), asyncHandler(async (_req: Request, res: Response) => {
     if (!testIndexer) {
       throw new AppError('Test indexer not initialized', 503);
     }

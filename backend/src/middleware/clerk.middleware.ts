@@ -1,6 +1,8 @@
 import { clerkMiddleware, requireAuth } from '@clerk/express';
 import type { Request, Response, NextFunction } from 'express';
 import { getDatabase } from '../services/agent/database.js';
+import type { AppRole, Permission } from '../types/roles.js';
+import { hasPermissions } from '../types/roles.js';
 
 /**
  * Clerk authentication middleware
@@ -102,5 +104,33 @@ export function requireAgentOrgAccess(req: Request, res: Response, next: NextFun
   }
 
   next();
+}
+
+/**
+ * Extract the user's role from Clerk session claims.
+ * Returns undefined when no role is assigned (= full access for migration safety).
+ */
+export function getUserRole(auth: any): AppRole | undefined {
+  const role = auth?.sessionClaims?.metadata?.role;
+  if (role === 'admin' || role === 'operator' || role === 'analyst' || role === 'explorer') {
+    return role;
+  }
+  return undefined;
+}
+
+/**
+ * Middleware factory: require one or more permissions.
+ * Extracts the role from the JWT, expands to the permission set, and checks inclusion.
+ * If the user has no role set, all permissions are granted (backward-compatible migration).
+ */
+export function requirePermission(...permissions: Permission[]) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const role = getUserRole(req.auth);
+    if (hasPermissions(role, ...permissions)) {
+      next();
+      return;
+    }
+    res.status(403).json({ success: false, error: 'Insufficient permissions' });
+  };
 }
 

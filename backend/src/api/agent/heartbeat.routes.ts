@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
-import { requireAgentOrgAccess } from '../../middleware/clerk.middleware.js';
+import { requireAgentOrgAccess, requirePermission } from '../../middleware/clerk.middleware.js';
 import {
   processHeartbeat,
   getAgentMetrics,
@@ -63,6 +63,7 @@ export const adminAgentRouter = Router();
  */
 adminAgentRouter.get(
   '/metrics',
+  requirePermission('endpoints:agents:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const orgId = req.query.org_id as string | undefined;
     const metrics = getAgentMetrics(orgId);
@@ -77,6 +78,7 @@ adminAgentRouter.get(
  */
 adminAgentRouter.get(
   '/agents',
+  requirePermission('endpoints:agents:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const filters: ListAgentsRequest = {
       org_id: req.query.org_id as string | undefined,
@@ -107,6 +109,7 @@ adminAgentRouter.get(
  */
 adminAgentRouter.get(
   '/agents/:id',
+  requirePermission('endpoints:agents:read'),
   requireAgentOrgAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const agent = getAgent(req.params.id);
@@ -124,6 +127,7 @@ adminAgentRouter.get(
  */
 adminAgentRouter.patch(
   '/agents/:id',
+  requirePermission('endpoints:agents:write'),
   requireAgentOrgAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const existing = getAgent(req.params.id);
@@ -149,6 +153,7 @@ adminAgentRouter.patch(
  */
 adminAgentRouter.delete(
   '/agents/:id',
+  requirePermission('endpoints:agents:delete'),
   requireAgentOrgAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const existing = getAgent(req.params.id);
@@ -168,6 +173,7 @@ adminAgentRouter.delete(
  */
 adminAgentRouter.post(
   '/agents/:id/tags',
+  requirePermission('endpoints:agents:write'),
   requireAgentOrgAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { tag } = req.body as { tag: string };
@@ -187,6 +193,7 @@ adminAgentRouter.post(
  */
 adminAgentRouter.delete(
   '/agents/:id/tags/:tag',
+  requirePermission('endpoints:agents:delete'),
   requireAgentOrgAccess,
   asyncHandler(async (req: Request, res: Response) => {
     const { tag } = req.params;

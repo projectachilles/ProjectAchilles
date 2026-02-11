@@ -11,6 +11,7 @@ import { Button } from '@/components/shared/ui/Button';
 import { Input } from '@/components/shared/ui/Input';
 import { Loading } from '@/components/shared/ui/Spinner';
 import { Toast } from '@/components/shared/ui/Alert';
+import { useHasPermission } from '@/hooks/useAppRole';
 
 const TOAST_DURATION_MS = 4000;
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
@@ -31,6 +32,10 @@ export default function TasksPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const canCreateTask = useHasPermission('endpoints:tasks:create');
+  const canCancelTask = useHasPermission('endpoints:tasks:cancel');
+  const canDeleteTask = useHasPermission('endpoints:tasks:delete');
+  const canSelectTasks = canCancelTask || canDeleteTask;
 
   const totalPages = Math.max(1, Math.ceil(totalGroups / pageSize));
 
@@ -258,12 +263,12 @@ export default function TasksPage() {
         <PageHeader
           title="Tasks"
           description="Create and monitor security test tasks"
-          actions={
+          actions={canCreateTask ? (
             <Button onClick={() => setDialogOpen(true)}>
               <Plus className="w-4 h-4 mr-2" />
               Create Task
             </Button>
-          }
+          ) : undefined}
         />
 
         {/* Schedules section */}
@@ -316,30 +321,34 @@ export default function TasksPage() {
         </div>
 
         {/* Bulk actions bar */}
-        {selectedTasks.length > 0 && (
+        {canSelectTasks && selectedTasks.length > 0 && (
           <div className="bg-primary/5 border border-primary/20 rounded-lg px-4 py-3 mb-4 flex items-center justify-between">
             <span className="text-sm font-medium">
               {selectedTasks.length} task(s) selected
             </span>
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!canBulkCancel}
-                onClick={handleBulkCancel}
-              >
-                <X className="w-4 h-4 mr-1" />
-                Cancel Selected
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={!canBulkDelete}
-                onClick={handleBulkDelete}
-              >
-                <Trash2 className="w-4 h-4 mr-1" />
-                Delete Selected
-              </Button>
+              {canCancelTask && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!canBulkCancel}
+                  onClick={handleBulkCancel}
+                >
+                  <X className="w-4 h-4 mr-1" />
+                  Cancel Selected
+                </Button>
+              )}
+              {canDeleteTask && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={!canBulkDelete}
+                  onClick={handleBulkDelete}
+                >
+                  <Trash2 className="w-4 h-4 mr-1" />
+                  Delete Selected
+                </Button>
+              )}
             </div>
           </div>
         )}
@@ -350,12 +359,12 @@ export default function TasksPage() {
           <TaskList
             groups={groups}
             loading={loading}
-            selectedTasks={selectedTasks}
-            onToggleSelect={handleToggleSelect}
-            onToggleSelectAll={handleToggleSelectAll}
-            onToggleGroupSelect={handleToggleGroupSelect}
-            onCancel={handleCancel}
-            onDelete={handleDelete}
+            selectedTasks={canSelectTasks ? selectedTasks : []}
+            onToggleSelect={canSelectTasks ? handleToggleSelect : undefined}
+            onToggleSelectAll={canSelectTasks ? handleToggleSelectAll : undefined}
+            onToggleGroupSelect={canSelectTasks ? handleToggleGroupSelect : undefined}
+            onCancel={canCancelTask ? handleCancel : undefined}
+            onDelete={canDeleteTask ? handleDelete : undefined}
             onOpenNotes={setNotesTask}
           />
         )}
@@ -395,11 +404,13 @@ export default function TasksPage() {
           </div>
         )}
 
-        <TaskCreatorDialog
-          open={dialogOpen}
-          onClose={() => setDialogOpen(false)}
-          onCreated={handleCreated}
-        />
+        {canCreateTask && (
+          <TaskCreatorDialog
+            open={dialogOpen}
+            onClose={() => setDialogOpen(false)}
+            onCreated={handleCreated}
+          />
+        )}
 
         <TaskNotesDialog
           open={notesTask !== null}

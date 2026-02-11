@@ -16,6 +16,7 @@ import { errorHandler, notFoundHandler } from './middleware/error.middleware.js'
 import { GitSyncService } from './services/browser/gitSyncService.js';
 import { GitHubMetadataService } from './services/browser/githubMetadataService.js';
 import { createAgentRouter } from './api/agent/index.js';
+import usersRoutes from './api/users.routes.js';
 import { processSchedules } from './services/agent/schedules.service.js';
 import { initCatalog } from './services/agent/test-catalog.service.js';
 
@@ -176,6 +177,9 @@ async function startServer() {
   // Agent module - Achilles Agent management
   const agentSourcePath = process.env.AGENT_SOURCE_PATH || path.resolve(__dirname, '../../agent');
   app.use('/api/agent', createAgentRouter({ testsSourcePath, agentSourcePath }));
+
+  // User management - RBAC role assignment (admin-only)
+  app.use('/api/users', usersRoutes);
 
   // ============ ERROR HANDLING ============
   app.use(notFoundHandler);

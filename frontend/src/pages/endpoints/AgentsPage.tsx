@@ -5,6 +5,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { UserPlus, ChevronDown, ChevronUp } from 'lucide-react';
+import { useHasPermission } from '@/hooks/useAppRole';
 import { useAppDispatch, useAppSelector } from '../../store';
 import {
   fetchAgents,
@@ -40,6 +41,8 @@ export default function AgentsPage() {
   const [showEnrollment, setShowEnrollment] = useState(false);
   const [latestVersions, setLatestVersions] = useState<Map<string, string>>(new Map());
   const isInitialMount = useRef(true);
+  const canEnroll = useHasPermission('endpoints:tokens:create');
+  const canWriteAgent = useHasPermission('endpoints:agents:write');
 
   useEffect(() => {
     if (isInitialMount.current) {
@@ -160,7 +163,7 @@ export default function AgentsPage() {
         <PageHeader
           title="Agents"
           description="Manage and monitor your Achilles agents"
-          actions={
+          actions={canEnroll ? (
             <Button
               variant={showEnrollment ? 'secondary' : 'primary'}
               onClick={() => setShowEnrollment((v) => !v)}
@@ -173,7 +176,7 @@ export default function AgentsPage() {
                 <ChevronDown className="w-4 h-4 ml-2" />
               )}
             </Button>
-          }
+          ) : undefined}
         />
 
         {showEnrollment && (
@@ -196,11 +199,13 @@ export default function AgentsPage() {
           onRefresh={handleRefresh}
         />
 
-        <TagManager
-          selectedCount={selectedAgents.length}
-          onAddTag={handleAddTag}
-          onRemoveTag={handleRemoveTag}
-        />
+        {canWriteAgent && (
+          <TagManager
+            selectedCount={selectedAgents.length}
+            onAddTag={handleAddTag}
+            onRemoveTag={handleRemoveTag}
+          />
+        )}
 
         {loading ? (
           <Loading message="Loading agents..." />

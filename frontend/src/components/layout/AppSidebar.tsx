@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
+import { useCanAccessModule, useHasPermission } from '@/hooks/useAppRole';
 import {
   Shield,
   BarChart3,
@@ -46,6 +47,9 @@ interface NavSection {
 export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
   const location = useLocation();
   const { configured: analyticsConfigured } = useAnalyticsAuth();
+  const canAccessEndpoints = useCanAccessModule('endpoints');
+  const canAccessSettings = useCanAccessModule('settings');
+  const canAccessAgents = useHasPermission('endpoints:agents:read');
 
   // Determine current module
   const getCurrentModule = () => {
@@ -56,7 +60,7 @@ export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
 
   const currentModule = getCurrentModule();
 
-  // Module navigation
+  // Module navigation — filtered by role
   const moduleNav: NavItem[] = [
     { label: 'Tests', icon: Shield, path: '/dashboard' },
     {
@@ -65,11 +69,9 @@ export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
       path: '/analytics',
       locked: !analyticsConfigured,
     },
-    {
-      label: 'Endpoints',
-      icon: Monitor,
-      path: '/endpoints',
-    },
+    ...(canAccessEndpoints
+      ? [{ label: 'Endpoints', icon: Monitor, path: '/endpoints' }]
+      : []),
   ];
 
   // Module-specific navigation sections
@@ -101,8 +103,10 @@ export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
           {
             title: 'Endpoints',
             items: [
-              { label: 'Dashboard', icon: LayoutDashboard, path: '/endpoints/dashboard' },
-              { label: 'Agents', icon: Cpu, path: '/endpoints/agents' },
+              ...(canAccessAgents ? [
+                { label: 'Dashboard', icon: LayoutDashboard, path: '/endpoints/dashboard' },
+                { label: 'Agents', icon: Cpu, path: '/endpoints/agents' },
+              ] : []),
               { label: 'Tasks', icon: Package, path: '/endpoints/tasks' },
             ],
           },
@@ -258,9 +262,11 @@ export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
 
         {/* Footer */}
         <div className="border-t border-sidebar-border p-2">
-          <NavItemComponent
-            item={{ label: 'Settings', icon: Settings, path: '/settings' }}
-          />
+          {canAccessSettings && (
+            <NavItemComponent
+              item={{ label: 'Settings', icon: Settings, path: '/settings' }}
+            />
+          )}
 
           {/* Collapse Button */}
           <Button
