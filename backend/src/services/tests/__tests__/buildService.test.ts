@@ -1,0 +1,600 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { promisify } from 'util';
+
+// ── Mock setup ──────────────────────────────────────────────────────
+
+const mockExistsSync = vi.fn();
+const mockReadFileSync = vi.fn();
+const mockWriteFileSync = vi.fn();
+const mockMkdirSync = vi.fn();
+const mockReaddirSync = vi.fn();
+const mockRmSync = vi.fn();
+const mockStatSync = vi.fn();
+const mockUnlinkSync = vi.fn();
+const mockCopyFileSync = vi.fn();
+const mockRenameSync = vi.fn();
+
+vi.mock('fs', async () => {
+  const actual = await vi.importActual<typeof import('fs')>('fs');
+  const overrides = {
+    existsSync: mockExistsSync,
+    readFileSync: mockReadFileSync,
+    writeFileSync: mockWriteFileSync,
+    mkdirSync: mockMkdirSync,
+    readdirSync: mockReaddirSync,
+    rmSync: mockRmSync,
+    statSync: mockStatSync,
+    unlinkSync: mockUnlinkSync,
+    copyFileSync: mockCopyFileSync,
+    renameSync: mockRenameSync,
+  };
+  return { ...actual, ...overrides, default: { ...actual, ...overrides } };
+});
+
+vi.mock('os', async () => {
+  const actual = await vi.importActual<typeof import('os')>('os');
+  const overrides = {
+    homedir: () => '/mock-home',
+  };
+  return { ...actual, ...overrides, default: { ...actual, ...overrides } };
+});
+
+const mockExecFileAsync = vi.fn<(cmd: string, args: string[], opts?: unknown) => Promise<{ stdout: string; stderr: string }>>();
+const mockExecFile = vi.fn();
+(mockExecFile as unknown as Record<symbol, unknown>)[promisify.custom] = mockExecFileAsync;
+
+vi.mock('child_process', async () => {
+  const actual = await vi.importActual<typeof import('child_process')>('child_process');
+  return {
+    ...actual,
+    execFile: mockExecFile,
+    default: { ...actual, execFile: mockExecFile },
+  };
+});
+
+const { BuildService } = await import('../buildService.js');
+type TestsSettingsService = import('../settings.js').TestsSettingsService;
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+const BUILDS_DIR = '/mock-home/.projectachilles/builds';
+const TESTS_SOURCE = '/mock-tests';
+const VALID_UUID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+
+function createMockSettingsService(overrides: Record<string, unknown> = {}) {
+  return {
+    getPlatformSettings: vi.fn().mockReturnValue({ os: 'windows', arch: 'amd64' }),
+    getActiveCertPfxPath: vi.fn().mockReturnValue(null),
+    ...overrides,
+  } as unknown as TestsSettingsService;
+}
+
+function createService(settingsOverrides: Record<string, unknown> = {}) {
+  return new BuildService(createMockSettingsService(settingsOverrides), TESTS_SOURCE);
+}
+
+// ── Tests ────────────────────────────────────────────────────────────
+
+describe('BuildService', () => {
+  let service: InstanceType<typeof BuildService>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    service = createService();
+    mockExistsSync.mockReturnValue(false);
+    mockExecFileAsync.mockResolvedValue({ stdout: '', stderr: '' });
+  });
+
+  // ── Group 1: getBuildInfo ─────────────────────────────────
+
+  describe('getBuildInfo', () => {
+    it('returns { exists: false } when no meta file', () => {
+      mockExistsSync.mockReturnValue(false);
+
+      const info = service.getBuildInfo(VALID_UUID);
+
+      expect(info).toEqual({ exists: false });
+    });
+
+    it('returns build info from valid meta + binary', () => {
+      const meta = {
+        platform: { os: 'windows', arch: 'amd64' },
+        builtAt: '2026-01-01T00:00:00.000Z',
+        signed: true,
+        fileSize: 1024,
+        filename: `${VALID_UUID}.exe`,
+      };
+
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${BUILDS_DIR}/${VALID_UUID}/build-meta.json`) return true;
+        if (p === `${BUILDS_DIR}/${VALID_UUID}/${VALID_UUID}.exe`) return true;
+        return false;
+      });
+      mockReadFileSync.mockReturnValue(JSON.stringify(meta));
+
+      const info = service.getBuildInfo(VALID_UUID);
+
+      expect(info.exists).toBe(true);
+      expect(info.platform).toEqual({ os: 'windows', arch: 'amd64' });
+      expect(info.signed).toBe(true);
+      expect(info.fileSize).toBe(1024);
+      expect(info.filename).toBe(`${VALID_UUID}.exe`);
+    });
+
+    it('returns { exists: false } when meta exists but binary missing', () => {
+      const meta = {
+        platform: { os: 'windows', arch: 'amd64' },
+        filename: `${VALID_UUID}.exe`,
+      };
+
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${BUILDS_DIR}/${VALID_UUID}/build-meta.json`) return true;
+        return false;
+      });
+      mockReadFileSync.mockReturnValue(JSON.stringify(meta));
+
+      const info = service.getBuildInfo(VALID_UUID);
+
+      expect(info).toEqual({ exists: false });
+    });
+
+    it('handles corrupt meta JSON gracefully', () => {
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${BUILDS_DIR}/${VALID_UUID}/build-meta.json`) return true;
+        return false;
+      });
+      mockReadFileSync.mockReturnValue('not-valid-json{{{');
+
+      const info = service.getBuildInfo(VALID_UUID);
+
+      expect(info).toEqual({ exists: false });
+    });
+  });
+
+  // ── Group 2: getBinaryPath ────────────────────────────────
+
+  describe('getBinaryPath', () => {
+    it('returns binary path when meta + file exist', () => {
+      const meta = { filename: `${VALID_UUID}.exe` };
+
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${BUILDS_DIR}/${VALID_UUID}/build-meta.json`) return true;
+        if (p === `${BUILDS_DIR}/${VALID_UUID}/${VALID_UUID}.exe`) return true;
+        return false;
+      });
+      mockReadFileSync.mockReturnValue(JSON.stringify(meta));
+
+      const result = service.getBinaryPath(VALID_UUID);
+
+      expect(result).toBe(`${BUILDS_DIR}/${VALID_UUID}/${VALID_UUID}.exe`);
+    });
+
+    it('returns null when no meta file', () => {
+      mockExistsSync.mockReturnValue(false);
+
+      expect(service.getBinaryPath(VALID_UUID)).toBeNull();
+    });
+
+    it('returns null when meta exists but binary missing', () => {
+      const meta = { filename: `${VALID_UUID}.exe` };
+
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${BUILDS_DIR}/${VALID_UUID}/build-meta.json`) return true;
+        return false;
+      });
+      mockReadFileSync.mockReturnValue(JSON.stringify(meta));
+
+      expect(service.getBinaryPath(VALID_UUID)).toBeNull();
+    });
+  });
+
+  // ── Group 3: deleteBuild ──────────────────────────────────
+
+  describe('deleteBuild', () => {
+    it('removes build directory with rmSync', () => {
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${BUILDS_DIR}/${VALID_UUID}`) return true;
+        return false;
+      });
+
+      service.deleteBuild(VALID_UUID);
+
+      expect(mockRmSync).toHaveBeenCalledWith(
+        `${BUILDS_DIR}/${VALID_UUID}`,
+        { recursive: true, force: true },
+      );
+    });
+
+    it('no-op when build directory does not exist', () => {
+      mockExistsSync.mockReturnValue(false);
+
+      service.deleteBuild(VALID_UUID);
+
+      expect(mockRmSync).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Group 4: getEmbedDependencies ─────────────────────────
+
+  describe('getEmbedDependencies', () => {
+    it('parses //go:embed directives from Go files', () => {
+      const goSource = `package main
+
+//go:embed payload.bin
+var payloadData []byte
+
+//go:embed config.yaml
+var configData string
+`;
+      // findTestDir: try known categories
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`) return true;
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}/payload.bin`) return true;
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}/config.yaml`) return false;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+      mockReaddirSync.mockReturnValue(['main.go']);
+      mockReadFileSync.mockReturnValue(goSource);
+
+      const deps = service.getEmbedDependencies(VALID_UUID);
+
+      expect(deps).toHaveLength(2);
+      expect(deps[0]).toEqual({ filename: 'payload.bin', sourceFile: 'main.go', exists: true });
+      expect(deps[1]).toEqual({ filename: 'config.yaml', sourceFile: 'main.go', exists: false });
+    });
+
+    it('skips .go and .ps1 embed targets', () => {
+      const goSource = `package main
+
+//go:embed helper.go
+var helperSrc string
+
+//go:embed script.ps1
+var scriptSrc string
+
+//go:embed data.txt
+var data string
+`;
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`) return true;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+      mockReaddirSync.mockReturnValue(['main.go']);
+      mockReadFileSync.mockReturnValue(goSource);
+
+      const deps = service.getEmbedDependencies(VALID_UUID);
+
+      expect(deps).toHaveLength(1);
+      expect(deps[0].filename).toBe('data.txt');
+    });
+
+    it('returns empty array when test dir not found', () => {
+      mockExistsSync.mockReturnValue(false);
+
+      const deps = service.getEmbedDependencies(VALID_UUID);
+
+      expect(deps).toEqual([]);
+    });
+  });
+
+  // ── Group 5: saveUploadedFile ─────────────────────────────
+
+  describe('saveUploadedFile', () => {
+    beforeEach(() => {
+      // Set up findTestDir to find the test directory
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`) return true;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+    });
+
+    it('writes buffer to test directory', () => {
+      // Set up embed deps
+      const goSource = '//go:embed payload.bin\nvar d []byte\n';
+      mockReaddirSync.mockReturnValue(['main.go']);
+      mockReadFileSync.mockReturnValue(goSource);
+      // Also need existsSync for the embed check
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`) return true;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+
+      const buffer = Buffer.from('file-content');
+      service.saveUploadedFile(VALID_UUID, 'payload.bin', buffer);
+
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}/payload.bin`,
+        buffer,
+      );
+    });
+
+    it('rejects path traversal (../malicious)', () => {
+      expect(() =>
+        service.saveUploadedFile(VALID_UUID, '../malicious.txt', Buffer.from('x')),
+      ).toThrow('Invalid filename');
+    });
+
+    it('rejects filenames not in embed dependencies list', () => {
+      // No embed deps
+      mockReaddirSync.mockReturnValue(['main.go']);
+      mockReadFileSync.mockReturnValue('package main\n');
+
+      expect(() =>
+        service.saveUploadedFile(VALID_UUID, 'unknown.bin', Buffer.from('x')),
+      ).toThrow("Filename 'unknown.bin' is not a known embed dependency for this test");
+    });
+  });
+
+  // ── Group 6: buildAndSign — Standard Go Build ─────────────
+
+  describe('buildAndSign — standard go build', () => {
+    const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
+
+    beforeEach(() => {
+      // findTestDir: category match
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === testDir) return true;
+        // go.mod doesn't exist (we auto-create it)
+        if (p.endsWith('go.mod')) return false;
+        if (p.endsWith('go.sum')) return false;
+        // build_all.sh doesn't exist (standard build)
+        if (p.endsWith('build_all.sh')) return false;
+        // Build output dir
+        if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
+        return false;
+      });
+      mockStatSync.mockImplementation((p: string) => {
+        if (p === testDir) return { isDirectory: () => true };
+        // After build, stat the output binary
+        return { size: 2048 };
+      });
+      mockReaddirSync.mockReturnValue(['main.go']);
+    });
+
+    it('calls go mod init, mod tidy, mod download, go build', async () => {
+      const result = await service.buildAndSign(VALID_UUID);
+
+      expect(result.exists).toBe(true);
+      expect(result.platform).toEqual({ os: 'windows', arch: 'amd64' });
+
+      const calls = mockExecFileAsync.mock.calls;
+      const cmds = calls.map(c => `${c[0]} ${c[1].join(' ')}`);
+
+      expect(cmds).toEqual(expect.arrayContaining([
+        expect.stringContaining('go mod init'),
+        expect.stringContaining('go mod tidy'),
+        expect.stringContaining('go mod download'),
+        expect.stringContaining('go build'),
+      ]));
+    });
+
+    it('cleans up auto-generated go.mod/go.sum in finally block', async () => {
+      // After the build, go.mod and go.sum will exist
+      const existingFiles = new Set<string>();
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === testDir) return true;
+        if (p.endsWith('build_all.sh')) return false;
+        if (existingFiles.has(p)) return true;
+        if (p.endsWith('go.mod')) return false; // No pre-existing go.mod
+        if (p.endsWith('go.sum')) return false;
+        return false;
+      });
+
+      // After mod init, go.mod should exist for cleanup
+      mockExecFileAsync.mockImplementation(async (_cmd: string, args: string[]) => {
+        if (args.includes('init')) {
+          existingFiles.add(`${testDir}/go.mod`);
+        }
+        if (args.includes('tidy')) {
+          existingFiles.add(`${testDir}/go.sum`);
+        }
+        return { stdout: '', stderr: '' };
+      });
+
+      await service.buildAndSign(VALID_UUID);
+
+      expect(mockUnlinkSync).toHaveBeenCalledWith(`${testDir}/go.mod`);
+      expect(mockUnlinkSync).toHaveBeenCalledWith(`${testDir}/go.sum`);
+    });
+
+    it('writes build metadata JSON on success', async () => {
+      await service.buildAndSign(VALID_UUID);
+
+      const metaWrite = mockWriteFileSync.mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].endsWith('build-meta.json'),
+      );
+      expect(metaWrite).toBeDefined();
+
+      const meta = JSON.parse(metaWrite![1] as string);
+      expect(meta.platform).toEqual({ os: 'windows', arch: 'amd64' });
+      expect(meta.signed).toBe(false);
+      expect(meta.filename).toBe(`${VALID_UUID}.exe`);
+    });
+
+    it('rejects invalid UUID format', async () => {
+      await expect(service.buildAndSign('not-a-uuid')).rejects.toThrow('Invalid UUID format');
+    });
+
+    it('throws BuildError when no Go source files found', async () => {
+      mockReaddirSync.mockReturnValue([]);
+
+      await expect(service.buildAndSign(VALID_UUID)).rejects.toThrow('No Go source files found');
+    });
+
+    it('throws when test directory not found', async () => {
+      mockExistsSync.mockReturnValue(false);
+
+      await expect(service.buildAndSign(VALID_UUID)).rejects.toThrow('Test directory not found');
+    });
+  });
+
+  // ── Group 7: buildAndSign — build_all.sh Mode ─────────────
+
+  describe('buildAndSign — build_all.sh mode', () => {
+    const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
+
+    it('executes bash build_all.sh when script exists', async () => {
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === testDir) return true;
+        if (p === `${testDir}/build_all.sh`) return true;
+        // Candidate output: testDir/build/uuid/filename
+        if (p === `${testDir}/build/${VALID_UUID}/${VALID_UUID}.exe`) return true;
+        if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
+        return false;
+      });
+      mockStatSync.mockImplementation((p: string) => {
+        if (p === testDir) return { isDirectory: () => true };
+        return { size: 4096 };
+      });
+
+      await service.buildAndSign(VALID_UUID);
+
+      expect(mockExecFileAsync).toHaveBeenCalledWith(
+        'bash',
+        ['build_all.sh'],
+        expect.objectContaining({ cwd: testDir }),
+      );
+      expect(mockCopyFileSync).toHaveBeenCalled();
+    });
+
+    it('searches candidate output paths for binary', async () => {
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === testDir) return true;
+        if (p === `${testDir}/build_all.sh`) return true;
+        // First candidate doesn't exist, second does
+        if (p === `${testDir}/build/${VALID_UUID}/${VALID_UUID}.exe`) return false;
+        if (p === `${testDir}/${VALID_UUID}.exe`) return true;
+        if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
+        return false;
+      });
+      mockStatSync.mockImplementation((p: string) => {
+        if (p === testDir) return { isDirectory: () => true };
+        return { size: 2048 };
+      });
+
+      await service.buildAndSign(VALID_UUID);
+
+      // Should copy from the second candidate
+      expect(mockCopyFileSync).toHaveBeenCalledWith(
+        `${testDir}/${VALID_UUID}.exe`,
+        expect.stringContaining(VALID_UUID),
+      );
+    });
+  });
+
+  // ── Group 8: buildAndSign — Code Signing ──────────────────
+
+  describe('buildAndSign — code signing', () => {
+    const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
+
+    function setupStandardBuild() {
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === testDir) return true;
+        if (p.endsWith('build_all.sh')) return false;
+        if (p.endsWith('go.mod')) return false;
+        if (p.endsWith('go.sum')) return false;
+        if (p.endsWith('.signed')) return false;
+        if (p.endsWith('.tmp-pass')) return true;
+        if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
+        return false;
+      });
+      mockStatSync.mockImplementation((p: string) => {
+        if (p === testDir) return { isDirectory: () => true };
+        return { size: 2048 };
+      });
+      mockReaddirSync.mockReturnValue(['main.go']);
+    }
+
+    it('signs binary with osslsigncode when active cert exists', async () => {
+      setupStandardBuild();
+
+      const certService = createMockSettingsService({
+        getActiveCertPfxPath: vi.fn().mockReturnValue({
+          pfxPath: '/certs/cert.pfx',
+          password: 'cert-pass',
+        }),
+      });
+      const svc = new BuildService(certService, TESTS_SOURCE);
+
+      // Make the signed file "exist" after osslsigncode runs
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === testDir) return true;
+        if (p.endsWith('build_all.sh')) return false;
+        if (p.endsWith('go.mod') || p.endsWith('go.sum')) return false;
+        if (p.endsWith('.tmp-pass')) return true;
+        if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
+        return false;
+      });
+
+      const result = await svc.buildAndSign(VALID_UUID);
+
+      expect(result.signed).toBe(true);
+
+      // Verify osslsigncode was called
+      const signCall = mockExecFileAsync.mock.calls.find(
+        c => c[0] === 'osslsigncode',
+      );
+      expect(signCall).toBeDefined();
+      expect(signCall![1]).toEqual(expect.arrayContaining([
+        'sign', '-pkcs12', '/certs/cert.pfx',
+      ]));
+    });
+
+    it('passes password via temp file (security pattern)', async () => {
+      setupStandardBuild();
+
+      const certService = createMockSettingsService({
+        getActiveCertPfxPath: vi.fn().mockReturnValue({
+          pfxPath: '/certs/cert.pfx',
+          password: 'cert-pass',
+        }),
+      });
+      const svc = new BuildService(certService, TESTS_SOURCE);
+
+      await svc.buildAndSign(VALID_UUID);
+
+      // Check that password was written to a temp file
+      const passWrite = mockWriteFileSync.mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].endsWith('.tmp-pass'),
+      );
+      expect(passWrite).toBeDefined();
+      expect(passWrite![1]).toBe('cert-pass');
+      expect(passWrite![2]).toEqual({ mode: 0o600 });
+
+      // Temp file should be cleaned up
+      const passUnlink = mockUnlinkSync.mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].endsWith('.tmp-pass'),
+      );
+      expect(passUnlink).toBeDefined();
+    });
+
+    it('continues with unsigned binary when signing fails', async () => {
+      setupStandardBuild();
+
+      const certService = createMockSettingsService({
+        getActiveCertPfxPath: vi.fn().mockReturnValue({
+          pfxPath: '/certs/cert.pfx',
+          password: 'cert-pass',
+        }),
+      });
+      const svc = new BuildService(certService, TESTS_SOURCE);
+
+      // Make osslsigncode fail
+      mockExecFileAsync.mockImplementation(async (cmd: string) => {
+        if (cmd === 'osslsigncode') {
+          throw new Error('Signing failed');
+        }
+        return { stdout: '', stderr: '' };
+      });
+
+      const result = await svc.buildAndSign(VALID_UUID);
+
+      expect(result.exists).toBe(true);
+      expect(result.signed).toBe(false);
+    });
+  });
+});

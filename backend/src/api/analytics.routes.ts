@@ -3,6 +3,7 @@ import { requireClerkAuth } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { SettingsService } from '../services/analytics/settings.js';
 import { ElasticsearchService } from '../services/analytics/elasticsearch.js';
+import { createResultsIndex, listResultsIndices } from '../services/analytics/index-management.service.js';
 import type { AnalyticsQueryParams, PaginatedExecutionsParams } from '../types/analytics.js';
 
 const router = Router();
@@ -59,7 +60,7 @@ router.post('/settings', asyncHandler(async (req, res) => {
     node: node || existingSettings.node,
     username: username || existingSettings.username,
     password: password || existingSettings.password,
-    indexPattern: indexPattern || existingSettings.indexPattern || 'f0rtika-results-*',
+    indexPattern: indexPattern || existingSettings.indexPattern || 'achilles-results-*',
     configured: true,
   };
 
@@ -86,7 +87,7 @@ router.post('/settings/test', asyncHandler(async (req, res) => {
       node: node || existingSettings.node,
       username: username || existingSettings.username,
       password: password || existingSettings.password,
-      indexPattern: existingSettings.indexPattern || 'f0rtika-results-*',
+      indexPattern: existingSettings.indexPattern || 'achilles-results-*',
       configured: true,
     });
 
@@ -510,6 +511,27 @@ router.get('/defense-score/by-hostname', asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
+// GET /api/analytics/error-rate/trend - Error rate over time (rolling window)
+router.get('/error-rate/trend', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to, interval, windowDays } = req.query;
+
+  const parsedWindowDays = windowDays ? parseInt(windowDays as string, 10) : undefined;
+  const clampedWindowDays = parsedWindowDays
+    ? Math.max(1, Math.min(90, parsedWindowDays))
+    : undefined;
+
+  const result = await es.getErrorRateTrendRolling({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+    interval: (interval as string) || 'day',
+    windowDays: clampedWindowDays || 7,
+  });
+
+  res.json(result);
+}));
+
 // GET /api/analytics/error-rate - Error rate (proportion of non-conclusive test activity)
 router.get('/error-rate', asyncHandler(async (req, res) => {
   const es = await getEsService();
@@ -535,6 +557,39 @@ router.get('/canonical-test-count', asyncHandler(async (req, res) => {
   });
 
   res.json(result);
+}));
+
+// GET /api/analytics/indices - List ES indices matching a pattern
+router.get('/indices', asyncHandler(async (req, res) => {
+  const { pattern } = req.query;
+
+  // Always default to all results indices — the configured indexPattern scopes
+  // analytics queries, not the management view.
+  const indexPattern = (pattern as string | undefined) || 'achilles-results-*';
+
+  const indices = await listResultsIndices(indexPattern);
+  res.json({ success: true, indices });
+}));
+
+// POST /api/analytics/index/create - Create an ES index with the results mapping
+router.post('/index/create', asyncHandler(async (req, res) => {
+  const { index_name } = req.body as { index_name?: string };
+
+  if (!index_name || typeof index_name !== 'string') {
+    throw new AppError('Missing required field: index_name', 400);
+  }
+
+  // Validate index name: lowercase, alphanumeric + hyphens only
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(index_name)) {
+    throw new AppError(
+      'Invalid index name. Must be lowercase, start with a letter or digit, and contain only letters, digits, and hyphens.',
+      400,
+    );
+  }
+
+  const result = await createResultsIndex(index_name);
+
+  res.json({ success: true, ...result });
 }));
 
 export default router;

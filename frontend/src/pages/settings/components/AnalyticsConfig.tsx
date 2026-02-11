@@ -6,13 +6,14 @@ import { Input } from '@/components/shared/ui/Input';
 import { Button } from '@/components/shared/ui/Button';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Spinner } from '@/components/shared/ui/Spinner';
+import { IndexManagement } from './IndexManagement';
 
 interface AnalyticsConfigProps {
   onStatusChange?: (configured: boolean) => void;
 }
 
 export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
-  const { updateSettings, configured } = useAnalyticsAuth();
+  const { updateSettings } = useAnalyticsAuth();
 
   const [editMode, setEditMode] = useState(false);
   const [connectionType, setConnectionType] = useState<'cloud' | 'direct'>('cloud');
@@ -21,7 +22,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
   const [node, setNode] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [indexPattern, setIndexPattern] = useState('f0rtika-results-*');
+  const [indexPattern, setIndexPattern] = useState('achilles-results-*');
 
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
@@ -41,7 +42,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
       if (settings.configured) {
         setEditMode(true);
         setConnectionType(settings.connectionType || 'cloud');
-        setIndexPattern(settings.indexPattern || 'f0rtika-results-*');
+        setIndexPattern(settings.indexPattern || 'achilles-results-*');
         onStatusChange?.(true);
       }
     } catch {
@@ -139,7 +140,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
     ? true
     : connectionType === 'cloud'
       ? cloudId && apiKey
-      : node && (apiKey || (username && password));
+      : !!node; // Auth is optional for direct connections (e.g. local ES with security disabled)
 
   if (loading) {
     return (
@@ -241,7 +242,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
             placeholder={editMode ? 'Leave blank to keep current' : 'Your Elasticsearch API key'}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            helperText={editMode ? 'Optional: Only fill in to update' : undefined}
+            helperText={editMode ? 'Optional: Only fill in to update' : 'Optional for local instances with security disabled'}
           />
           <div className="text-center text-sm text-muted-foreground">— or —</div>
           <Input
@@ -265,7 +266,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
       {/* Index Pattern */}
       <Input
         label="Index Pattern"
-        placeholder="f0rtika-results-*"
+        placeholder="achilles-results-*"
         value={indexPattern}
         onChange={(e) => setIndexPattern(e.target.value)}
       />
@@ -308,6 +309,14 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
           )}
         </Button>
       </div>
+
+      {/* Index Management — only when ES is configured */}
+      {editMode && (
+        <>
+          <div className="border-t border-border my-6" />
+          <IndexManagement onSelectIndex={setIndexPattern} />
+        </>
+      )}
     </div>
   );
 }

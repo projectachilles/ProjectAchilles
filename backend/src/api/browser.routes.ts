@@ -8,6 +8,8 @@ import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { TestIndexer } from '../services/browser/testIndexer.js';
 import { FileService } from '../services/browser/fileService.js';
 import { GitSyncService, SyncStatus } from '../services/browser/gitSyncService.js';
+import { GitHubMetadataService } from '../services/browser/githubMetadataService.js';
+import { initCatalog } from '../services/agent/test-catalog.service.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -16,6 +18,7 @@ const __dirname = path.dirname(__filename);
 // Module-level state (initialized by createBrowserRouter)
 let testIndexer: TestIndexer | null = null;
 let gitSyncService: GitSyncService | null = null;
+let githubMetadataService: GitHubMetadataService | null = null;
 
 /**
  * Create and configure the browser router
@@ -25,6 +28,7 @@ let gitSyncService: GitSyncService | null = null;
 export function createBrowserRouter(options: {
   testsSourcePath: string;
   gitSync?: GitSyncService;
+  githubMetadata?: GitHubMetadataService;
 }): Router {
   const router = Router();
 
@@ -34,12 +38,21 @@ export function createBrowserRouter(options: {
   // Initialize the test indexer
   testIndexer = new TestIndexer(options.testsSourcePath);
   gitSyncService = options.gitSync || null;
+  githubMetadataService = options.githubMetadata || null;
 
   // Initial scan on startup (if tests directory exists)
   console.log(`Scanning tests from: ${options.testsSourcePath}`);
   try {
     testIndexer.scanAllTests();
     console.log('✓ Tests scanned successfully');
+
+    // Trigger background GitHub metadata fetch
+    if (githubMetadataService) {
+      const allTests = testIndexer.getAllTests();
+      githubMetadataService.fetchAllModificationDates(allTests).catch(err => {
+        console.warn('⚠ Background GitHub metadata fetch failed:', err instanceof Error ? err.message : err);
+      });
+    }
   } catch (error) {
     console.warn('⚠ Tests directory not found - browser module will have no tests available');
     console.warn('  Tests will be available after sync completes');
@@ -68,6 +81,17 @@ export function createBrowserRouter(options: {
 
       // Re-scan tests after sync
       const tests = testIndexer?.refresh() || [];
+
+      // Reload agent test catalog so new tests are available for enrichment
+      initCatalog(options.testsSourcePath);
+
+      // Re-fetch GitHub metadata in background
+      if (githubMetadataService && tests.length > 0) {
+        githubMetadataService.clearCache();
+        githubMetadataService.fetchAllModificationDates(tests).catch(err => {
+          console.warn('⚠ Post-sync GitHub metadata fetch failed:', err instanceof Error ? err.message : err);
+        });
+      }
 
       const status = gitSyncService.getStatus();
       res.json({
@@ -132,31 +156,37 @@ export function createBrowserRouter(options: {
     }
 
     // Return simplified test list (without full file details)
-    const testList = tests.map(test => ({
-      uuid: test.uuid,
-      name: test.name,
-      category: test.category,
-      subcategory: test.subcategory,
-      severity: test.severity,
-      techniques: test.techniques,
-      tactics: test.tactics,
-      target: test.target,
-      complexity: test.complexity,
-      threatActor: test.threatActor,
-      author: test.author,
-      tags: test.tags,
-      createdDate: test.createdDate,
-      score: test.score,
-      isMultiStage: test.isMultiStage,
-      stageCount: test.stages.length,
-      description: test.description,
-      hasAttackFlow: test.hasAttackFlow,
-      hasReadme: test.hasReadme,
-      hasInfoCard: test.hasInfoCard,
-      hasSafetyDoc: test.hasSafetyDoc,
-      hasDetectionFiles: test.hasDetectionFiles,
-      hasDefenseGuidance: test.hasDefenseGuidance,
-    }));
+    const testList = tests.map(test => {
+      const gitInfo = githubMetadataService?.getCommitInfo(test.uuid);
+      return {
+        uuid: test.uuid,
+        name: test.name,
+        category: test.category,
+        subcategory: test.subcategory,
+        severity: test.severity,
+        techniques: test.techniques,
+        tactics: test.tactics,
+        target: test.target,
+        complexity: test.complexity,
+        threatActor: test.threatActor,
+        author: test.author,
+        version: test.version,
+        tags: test.tags,
+        createdDate: test.createdDate,
+        score: test.score,
+        isMultiStage: test.isMultiStage,
+        stageCount: test.stages.length,
+        description: test.description,
+        hasAttackFlow: test.hasAttackFlow,
+        hasReadme: test.hasReadme,
+        hasInfoCard: test.hasInfoCard,
+        hasSafetyDoc: test.hasSafetyDoc,
+        hasDetectionFiles: test.hasDetectionFiles,
+        hasDefenseGuidance: test.hasDefenseGuidance,
+        lastModifiedDate: gitInfo?.lastModifiedDate,
+        lastCommitMessage: gitInfo?.lastCommitMessage,
+      };
+    });
 
     res.json({
       success: true,
@@ -204,9 +234,15 @@ export function createBrowserRouter(options: {
       throw new AppError('Test not found', 404);
     }
 
+    // Merge GitHub metadata if available
+    const gitInfo = githubMetadataService?.getCommitInfo(uuid);
+    const enrichedTest = gitInfo
+      ? { ...test, lastModifiedDate: gitInfo.lastModifiedDate, lastCommitMessage: gitInfo.lastCommitMessage }
+      : test;
+
     res.json({
       success: true,
-      test,
+      test: enrichedTest,
     });
   }));
 

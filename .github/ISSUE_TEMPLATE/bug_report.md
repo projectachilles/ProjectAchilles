@@ -14,7 +14,9 @@ A clear and concise description of what the bug is.
 
 - [ ] Browser (Test browsing)
 - [ ] Analytics (Elasticsearch integration)
-- [ ] Endpoints (LimaCharlie integration)
+- [ ] Agents (Go agent system)
+- [ ] Build (Compilation & signing)
+- [ ] Settings
 - [ ] Core/Other
 
 ## Steps to Reproduce

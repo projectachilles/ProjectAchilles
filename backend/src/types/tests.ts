@@ -12,7 +12,10 @@ export interface CertificateSubject {
 }
 
 export interface CertificateInfo {
+  id: string;
   exists: boolean;
+  label?: string;
+  source: 'generated' | 'uploaded';
   subject?: CertificateSubject;
   expiry?: string;
   fingerprint?: string;
@@ -20,11 +23,19 @@ export interface CertificateInfo {
 }
 
 export interface CertificateMetadata {
+  id: string;
+  label?: string;
+  source: 'generated' | 'uploaded';
   subject: CertificateSubject;
   password: string;
   createdAt: string;
   expiresAt: string;
   fingerprint: string;
+}
+
+export interface CertificateListResponse {
+  certificates: CertificateInfo[];
+  activeCertId: string | null;
 }
 
 export interface BuildInfo {

@@ -21,9 +21,11 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 
 ### Prerequisites
 
-- Node.js 18.x or higher
-- npm 9.x or higher
-- Git
+- **Node.js** 18.x or higher
+- **npm** 9.x or higher
+- **Git**
+- **Go** 1.24+ (optional — only needed for agent development)
+- **Docker** and Docker Compose (optional — for containerized development)
 
 ### Setting Up Your Development Environment
 
@@ -37,20 +39,23 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 
 3. **Add the upstream remote**
    ```bash
-   git remote add upstream https://github.com/ubercylon8/ProjectAchilles.git
+   git remote add upstream https://github.com/projectachilles/ProjectAchilles.git
    ```
 
 4. **Install dependencies and start development**
    ```bash
-   ./start.sh
+   ./start.sh -k --daemon
    ```
 
 ### Project Structure
 
 ```
 ProjectAchilles/
-├── frontend/          # React frontend application
-├── backend/           # Express backend API
+├── frontend/          # React 19 + TypeScript + Vite
+├── backend/           # Express + TypeScript (ES modules)
+├── agent/             # Go agent source (cross-platform)
+├── docker-compose.yml # Multi-service deployment
+├── setup.sh           # Interactive setup wizard
 ├── start.sh           # Development startup script
 └── CLAUDE.md          # Development guidance
 ```
@@ -88,8 +93,10 @@ git checkout -b feature/your-feature-name
    ```
 
 2. **Ensure your changes work**
-   - Test locally with `./start.sh`
+   - Test locally with `./start.sh -k --daemon`
    - Verify no TypeScript errors: `cd frontend && npm run build` and `cd backend && npm run build`
+   - If modifying Go agent: `cd agent && go build ./...`
+   - If modifying Docker: `docker compose build`
 
 3. **Create a Pull Request**
    - Use a clear, descriptive title
@@ -109,6 +116,8 @@ git checkout -b feature/your-feature-name
 - [ ] Self-review completed
 - [ ] Documentation updated (if applicable)
 - [ ] No sensitive data or credentials included
+- [ ] Go agent compiles (if changed): `cd agent && go build ./...`
+- [ ] Docker Compose builds (if changed): `docker compose build`
 
 ## Coding Standards
 
@@ -118,6 +127,7 @@ git checkout -b feature/your-feature-name
 - Enable strict mode
 - Define explicit types for function parameters and return values
 - Avoid `any` type; use `unknown` when type is truly unknown
+- Use `import type` for type-only imports
 
 ```typescript
 // Good
@@ -131,14 +141,16 @@ function processData(input: any): any {
 }
 ```
 
-### React Components
+### Frontend (React)
 
 - Use functional components with hooks
 - Place component-specific types in the same file
 - Use named exports for components
+- Use the `@/` path alias for imports within `frontend/src/`
+- Wrap authenticated routes with `<RequireAuth>`
+- Use the `useAuthenticatedApi` hook for API calls (auto-injects JWT)
 
 ```typescript
-// Good
 interface ButtonProps {
   variant: 'primary' | 'secondary';
   onClick: () => void;
@@ -149,6 +161,35 @@ export function Button({ variant, onClick, children }: ButtonProps) {
   // ...
 }
 ```
+
+### Backend (Express)
+
+- **ES Module imports require `.js` extensions** — TypeScript compiles to `.js`, so runtime imports must use `.js`:
+  ```typescript
+  // Correct
+  import browserRoutes from './api/browser.routes.js';
+
+  // Incorrect — fails at runtime
+  import browserRoutes from './api/browser.routes';
+  ```
+- Wrap async route handlers with `asyncHandler`
+- Throw `AppError` for HTTP errors:
+  ```typescript
+  import { asyncHandler, AppError } from '../middleware/error.middleware.js';
+
+  router.get('/resource/:id', asyncHandler(async (req, res) => {
+    const item = await findItem(req.params.id);
+    if (!item) throw new AppError('Resource not found', 404);
+    res.json({ success: true, data: item });
+  }));
+  ```
+
+### Agent (Go)
+
+- Follow standard Go project layout (`internal/` for private packages)
+- Use `context.Context` for cancellation and timeouts
+- Handle errors explicitly — no panic in library code
+- Test cross-compilation: `GOOS=linux GOARCH=amd64 go build ./...`
 
 ### File Organization
 
@@ -165,6 +206,10 @@ export function Button({ variant, onClick, children }: ButtonProps) {
   - Types: `src/types/`
   - Middleware: `src/middleware/`
 
+- **Agent**
+  - CLI entry: `main.go`
+  - Modules: `internal/{module}/`
+
 ### Naming Conventions
 
 | Type | Convention | Example |
@@ -176,6 +221,7 @@ export function Button({ variant, onClick, children }: ButtonProps) {
 | Functions | camelCase | `fetchTestResults` |
 | Constants | UPPER_SNAKE_CASE | `MAX_RETRY_ATTEMPTS` |
 | Types/Interfaces | PascalCase | `TestMetadata` |
+| Go packages | lowercase | `executor`, `sysinfo` |
 
 ## Commit Guidelines
 
@@ -200,13 +246,18 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 - `test`: Adding or updating tests
 - `chore`: Maintenance tasks
 
+### Scopes
+
+Common scopes: `frontend`, `backend`, `agent`, `analytics`, `browser`, `docker`, `settings`, `certs`, `deps`
+
 ### Examples
 
 ```bash
-feat(analytics): add trend visualization chart
-fix(endpoints): resolve session timeout issue
-docs(readme): update installation instructions
+feat(agent): add self-update polling mechanism
+feat(analytics): add defense score trend endpoint
+fix(docker): stop overriding AGENT_SERVER_URL from env_file
 refactor(browser): simplify test filtering logic
+docs(readme): update architecture diagram
 ```
 
 ## Testing
@@ -215,7 +266,7 @@ refactor(browser): simplify test filtering logic
 
 Before submitting a PR, verify:
 
-- [ ] Application starts without errors
+- [ ] Application starts without errors (`./start.sh -k --daemon`)
 - [ ] New features work as expected
 - [ ] Existing features still work (no regressions)
 - [ ] UI is responsive and accessible
@@ -232,6 +283,22 @@ cd frontend && npm run build
 cd backend && npm run build
 ```
 
+### Go Validation (if applicable)
+
+```bash
+cd agent && go build ./...
+cd agent && go test ./...
+```
+
+### Docker Validation (if applicable)
+
+```bash
+docker compose build
+docker compose up -d
+# Verify services are healthy
+docker compose ps
+```
+
 ## Documentation
 
 ### When to Update Documentation
@@ -240,18 +307,20 @@ cd backend && npm run build
 - Changing API endpoints
 - Modifying configuration options
 - Updating dependencies with breaking changes
+- Adding new modules or services
 
 ### Documentation Files
 
-- `README.md` - Project overview and quick start
+- `README.md` - Project overview, features, and quick start
 - `CLAUDE.md` - AI assistant development guidance
 - `CONTRIBUTING.md` - This file
-- `SECURITY.md` - Security policy
+- `SECURITY.md` - Security policy and architecture
 - `CHANGELOG.md` - Version history
+- `ROADMAP.md` - Planned features and direction
 
 ## Questions?
 
-If you have questions about contributing, please open a GitHub issue with the "question" label.
+If you have questions about contributing, please open a GitHub issue with the "question" label or start a [Discussion](https://github.com/projectachilles/ProjectAchilles/discussions).
 
 ---
 

@@ -4,25 +4,58 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-ProjectAchilles is a Unified Security Platform with three main modules:
-- **Browser Module**: Security test browsing and viewing (Clerk auth required)
-- **Analytics Module**: Test results analytics via Elasticsearch (Clerk auth + configuration)
-- **Endpoints Module**: Endpoint management via LimaCharlie (Clerk auth + LimaCharlie credentials)
+ProjectAchilles is a purple team platform for continuous security validation. It deploys a custom Go agent to endpoints, executes security tests, and measures detection coverage via Elasticsearch analytics.
+
+**Modules:**
+- **Browser**: Git-synced test library with MITRE ATT&CK mapping, build/sign/download (Clerk auth)
+- **Analytics**: 30+ Elasticsearch query endpoints — defense scores, heatmaps, treemaps, trends (Clerk auth)
+- **Agent**: Custom Go agent enrollment, heartbeat monitoring, task execution, scheduling (Clerk auth + SQLite)
 
 ## Development Commands
 
 ```bash
-# Full stack (installs deps, finds available ports)
-./start.sh -k --daemon           # RECOMMENDED: Kill existing processes and start fresh
-# ./start.sh              # Starts both frontend and backend (may fail if ports in use)
+# Full stack (auto port detection, installs deps)
+./start.sh -k --daemon           # Kill existing processes and start fresh
+./start.sh --stop                # Stop daemon processes
 
 # Individual services
-cd frontend && npm run dev      # Development server (port 5173)
-cd backend && npm run dev       # Dev with hot reload (tsx watch, port 3000)
+cd frontend && npm run dev       # Vite dev server (port 5173)
+cd backend && npm run dev        # tsx watch with hot reload (port 3000)
 
-# TypeScript validation (no test framework configured)
-cd frontend && npm run build    # Validates frontend TS + builds
-cd backend && npm run build     # Validates backend TS
+# TypeScript validation
+cd frontend && npm run build     # tsc -b + vite build
+cd backend && npm run build      # tsc → dist/
+```
+
+### Testing (Vitest)
+
+```bash
+# All tests
+cd backend && npm test           # 592 tests across 26 files (~10s)
+cd frontend && npm test          # 119 tests across 7 files (~2s)
+
+# Single file
+cd backend && npx vitest src/services/agent/__tests__/enrollment.service.test.ts
+cd frontend && npx vitest src/hooks/__tests__/useAnalyticsFilters.test.ts
+
+# Filter by test name
+cd backend && npx vitest -t "creates a token"
+
+# Watch mode / coverage
+cd backend && npm run test:watch
+cd backend && npm run test:coverage
+```
+
+Test file pattern: `src/**/__tests__/**/*.test.{ts,tsx}`
+
+### Go Agent
+
+```bash
+cd agent && make build-all       # Cross-compile Windows/Linux/macOS (amd64 + arm64)
+cd agent && make sign-windows    # Build + Authenticode sign (osslsigncode)
+cd agent && make sign-darwin     # Build + ad-hoc sign (rcodesign)
+cd agent && go test ./...        # Run Go tests
+cd agent && go build ./...       # Validate compilation
 ```
 
 ## Architecture
@@ -36,8 +69,8 @@ Key directories:
 - `pages/` - Module pages (browser/, analytics/, endpoints/, auth/)
 - `components/shared/ui/` - Base UI primitives (Button, Card, Input)
 - `services/api/` - API client modules
-- `hooks/` - Custom hooks (useAuthenticatedApi injects JWT automatically)
-- `store/` - Redux slices (endpointAuth, sensors)
+- `hooks/` - Custom hooks (`useAuthenticatedApi` injects JWT automatically)
+- `store/` - Redux slices; use typed hooks `useAppDispatch`/`useAppSelector` (not raw `useDispatch`/`useSelector`)
 
 ### Backend (`backend/src/`)
 - **Express** + **TypeScript** (ES modules)
@@ -45,16 +78,44 @@ Key directories:
 
 Key directories:
 - `api/` - Route handlers (`*.routes.ts`)
-- `services/` - Business logic by module
-- `middleware/` - Express middleware (clerk, auth, error handling)
+- `services/` - Business logic organized by module:
+  - `agent/` - Enrollment, heartbeat, tasks, schedules, update, database
+  - `analytics/` - Elasticsearch queries, client factory, encrypted settings
+  - `browser/` - Git sync, test indexing, metadata extraction
+  - `tests/` - Go cross-compilation (build service), multi-cert management
+- `middleware/` - Auth, error handling, rate limiting
+
+### Agent (`agent/`)
+- **Go 1.24** — lightweight binary with enrollment, heartbeat, task execution, self-update
+- **Platforms**: Windows (amd64), Linux (amd64), macOS (amd64 + arm64)
+- Internal packages: `config`, `enrollment`, `executor`, `httpclient`, `poller`, `reporter`, `service`, `store`, `sysinfo`, `updater`
+- Platform-specific files use build tags (`//go:build darwin`, etc.) for service management, sysinfo, and binary updates
+- CGO disabled for static cross-platform binaries
+- Version set via LDFLAGS: `-X main.version=$(VERSION)`
+- **Service integration**: Windows (SCM via `sc.exe`), Linux (systemd), macOS (launchd plist at `/Library/LaunchDaemons/`)
+- **Code signing**: Windows (Authenticode via `osslsigncode`), macOS (ad-hoc via `rcodesign`), Linux (none)
+
+### Database (SQLite)
+- **Location**: `~/.projectachilles/agents.db` (better-sqlite3, WAL mode)
+- **Schema**: Created via `CREATE TABLE IF NOT EXISTS` in `backend/src/services/agent/database.ts` with incremental migrations (column additions, CHECK constraint updates)
+- **Tables**: `agents`, `enrollment_tokens`, `tasks`, `agent_versions`, `schedules`
+- **Settings storage**: `~/.projectachilles/` — `analytics.json` (AES-256-GCM encrypted), `tests.json`, `certs/`
+
+#### Table Recreation Migrations (CHECK constraint changes)
+SQLite has no `ALTER COLUMN`, so changing CHECK constraints requires recreating the table. Follow this pattern to avoid pitfalls:
+1. **Drop leftover temp tables first** — `DROP TABLE IF EXISTS <temp>` prevents `SQLITE_ERROR` if a previous migration crashed partway through
+2. **Disable FK checks** — `database.pragma('foreign_keys = OFF')` before the swap. Tables like `tasks` reference `agents` via FK; SQLite refuses `DROP TABLE` with FKs on (`SQLITE_CONSTRAINT_FOREIGNKEY`)
+3. **Use `pragma()` not string SQL** — `PRAGMA foreign_keys` only works outside transactions; use `database.pragma(...)` not `database.exec('PRAGMA ...')`
+4. **Full pattern**: FK OFF, DROP IF EXISTS temp, CREATE temp, INSERT SELECT, DROP old, RENAME, recreate indexes, FK ON
 
 ### API Routes
 | Route | Auth | Purpose |
 |-------|------|---------|
 | `/api/browser/*` | Clerk | Security test browser |
 | `/api/analytics/*` | Clerk | Elasticsearch analytics |
-| `/api/auth/*` | Clerk (rate limited: 20/15min) | LimaCharlie auth |
-| `/api/endpoints/*` | Clerk + LimaCharlie | Endpoint management |
+| `/api/agent/admin/*` | Clerk | Agent management (tokens, tasks, schedules) |
+| `/api/agent/*` | Agent key | Device endpoints (enroll, heartbeat, tasks) |
+| `/api/tests/*` | Clerk | Build system, certificates |
 
 ## Code Patterns
 
@@ -91,7 +152,18 @@ Error response format: `{ success: false, error: "message" }`
 **Three-tier model:**
 1. **Clerk (global)**: All routes use `<RequireAuth>` wrapper; JWT injected via `useAuthenticatedApi` hook
 2. **Analytics**: `AnalyticsAuthProvider` context → redirects to `/analytics/setup` if unconfigured
-3. **Endpoints (dual-auth)**: Clerk + LimaCharlie credentials → sessions linked to Clerk user ID
+3. **Agent admin**: Clerk JWT required; device endpoints use agent API key (hashed in DB)
+
+### Backend Test Pattern
+Tests use in-memory SQLite via `createTestDatabase()` from `backend/src/__tests__/helpers/db.ts`. The `vi.mock` + dynamic import ordering is critical:
+```typescript
+let testDb: Database.Database;
+vi.mock('../database.js', () => ({ getDatabase: () => testDb }));
+// Import the module AFTER mock setup
+const { functionToTest } = await import('../service.js');
+```
+
+Frontend tests mock all Clerk hooks globally via `frontend/src/__tests__/setup.ts`.
 
 ### Frontend Imports
 - Use `@/` alias for `frontend/src` paths
@@ -105,57 +177,46 @@ Vite proxies `/api` → `http://localhost:$VITE_BACKEND_PORT` (default 3000)
 <type>(<scope>): <description>
 ```
 Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`
+Scopes: `frontend`, `backend`, `agent`, `analytics`, `browser`, `docker`, `settings`, `certs`, `deps`
 
-## Browser Testing with Chrome DevTools MCP
+## CI/CD
 
-This project has Chrome DevTools MCP configured (`.mcp.json`). Use it for visual verification, debugging, and UI testing.
+GitHub Actions (`.github/workflows/ci.yml`) runs on push/PR to main:
+- `test-backend`: npm ci → build → test
+- `test-frontend`: npm ci → build → test
+- Node 22
 
-### When to Use Chrome DevTools
-- **Visual verification**: After implementing UI changes, take screenshots to verify
-- **Debugging**: Inspect network requests, console errors, DOM state
-- **Form testing**: Fill forms, click buttons, verify interactions
-- **Performance**: Record traces for performance analysis
+## Docker
+
+```bash
+docker compose up -d                            # Backend + frontend
+docker compose --profile elasticsearch up -d    # Include ES + synthetic seed data
+```
+
+The `elasticsearch` profile starts ES 8.17 (single-node, security disabled) and seeds 1000 synthetic test results.
+
+## Browser Testing
+
+Two browser tools are available for visual verification. **Prefer the Claude Code Chrome Extension** (uses real browser with auth sessions); fall back to **Playwright** (`mcp__plugin_playwright_playwright__*`) for headless screenshots, drag-and-drop, file uploads, `browser_wait_for`, or programmatic JS execution.
 
 ### Workflow
 1. Start dev server: `./start.sh -k --daemon`
-2. Navigate: `mcp__chrome-devtools__navigate_page` to `http://localhost:5173`
-3. Inspect: `mcp__chrome-devtools__take_snapshot` for page structure
-4. Screenshot: `mcp__chrome-devtools__take_screenshot` for visual verification
-
-### Handling Login Pages
-When encountering a login page (Clerk auth, external services):
-1. **Detect**: Check snapshot for login form elements (email/password inputs, sign-in buttons)
-2. **Ask user**: Request credentials using `AskUserQuestion` tool:
-   ```
-   "I've encountered a login page. Please provide credentials to continue:
-   - Email/username
-   - Password"
-   ```
-3. **Never assume**: Do not guess or use placeholder credentials
-4. **Fill securely**: Use `mcp__chrome-devtools__fill_form` for credential entry
-5. **Verify**: Take snapshot after login to confirm success
-
-### Common Tools
-| Tool | Purpose |
-|------|---------|
-| `navigate_page` | Go to URL, back/forward, reload |
-| `take_snapshot` | Get page accessibility tree (prefer over screenshot) |
-| `take_screenshot` | Visual capture for verification |
-| `click` | Click elements by uid from snapshot |
-| `fill` / `fill_form` | Enter text in inputs |
-| `evaluate_script` | Run JavaScript in page context |
-| `list_console_messages` | Check for errors |
-| `list_network_requests` | Debug API calls |
-
-### Analytics / Elasticsearch Credentials
-When testing the Analytics module via Chrome DevTools and you need Elasticsearch credentials (e.g., to configure the connection in Settings), pick them from `backend/.env` (Cloud ID, API Key, index pattern).
-
-### Security Notes
-- Never log or display credentials in output
-- Credentials entered via MCP are visible to the browser - use dev/test accounts
-- Avoid testing with production credentials
+2. Navigate to `http://localhost:5173`
+3. When encountering Clerk login, ask the user for credentials — never guess
+4. For Analytics setup, read Elasticsearch credentials from `backend/.env`
 
 ## Gotchas
 
 ### SVG Text Stroke Inheritance in Recharts
 When writing custom `content` renderers for Recharts components (Treemap, etc.), always set `stroke="none"` on `<text>` elements. Recharts sets `stroke="var(--background)"` on the parent SVG container for cell borders, and SVG `stroke` is an inherited property — it cascades to all children including text. In dark mode `--background` is near-black, so text renders with a visible dark outline around every glyph. In light mode the stroke is white-on-white (invisible), making the bug theme-specific and easy to miss.
+
+### Certificate System & Code Signing
+- Multi-cert storage: `~/.projectachilles/certs/cert-<timestamp>/` (max 5)
+- Active cert tracked in `active-cert.txt`
+- Legacy flat files auto-migrate to subdirectory on first `listCertificates()` call
+- Build service reads active cert dynamically via `settingsService.getActiveCertPfxPath()`
+- **Windows signing**: `osslsigncode` with PFX certificate (password via temp file, not CLI arg)
+- **macOS signing**: `rcodesign sign --code-signature-flags adhoc` (in-place, no certificate needed)
+- **Linux**: No code signing
+- Both agent builds (`agentBuild.service.ts`) and test builds (`buildService.ts`) follow the same signing logic
+- Signing failures are non-fatal — builds continue unsigned

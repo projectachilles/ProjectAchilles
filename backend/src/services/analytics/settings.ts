@@ -14,7 +14,7 @@ const defaultSettings: AnalyticsSettings = {
   connectionType: 'cloud',
   cloudId: '',
   apiKey: '',
-  indexPattern: 'f0rtika-results-*',
+  indexPattern: 'achilles-results-*',
   configured: false,
 };
 
@@ -34,7 +34,7 @@ export class SettingsService {
       apiKey: process.env.ELASTICSEARCH_API_KEY || '',
       username: process.env.ELASTICSEARCH_USERNAME || '',
       password: process.env.ELASTICSEARCH_PASSWORD || '',
-      indexPattern: process.env.ELASTICSEARCH_INDEX_PATTERN || 'f0rtika-results-*',
+      indexPattern: process.env.ELASTICSEARCH_INDEX_PATTERN || 'achilles-results-*',
       configured: true,
     };
   }
@@ -44,10 +44,21 @@ export class SettingsService {
     return this.getEnvSettings() !== null;
   }
 
-  // Derive encryption key from machine ID
+  // Derive encryption key from ENCRYPTION_SECRET env var, or fall back to machine ID
   private getEncryptionKey(): Buffer {
-    const machineId = os.hostname() + os.userInfo().username;
-    return crypto.createHash('sha256').update(machineId).digest();
+    const secret = process.env.ENCRYPTION_SECRET;
+    if (!secret) {
+      console.warn('');
+      console.warn('WARNING: ENCRYPTION_SECRET not set — using weak machine-derived key.');
+      console.warn('  Set ENCRYPTION_SECRET in .env: openssl rand -base64 32');
+      console.warn('');
+      const machineId = os.hostname() + os.userInfo().username;
+      return crypto.createHash('sha256').update(machineId).digest();
+    }
+    if (secret.length < 16) {
+      throw new Error('ENCRYPTION_SECRET must be at least 16 characters');
+    }
+    return crypto.createHash('sha256').update(secret).digest();
   }
 
   // Encrypt a string
@@ -72,7 +83,7 @@ export class SettingsService {
     const iv = Buffer.from(ivHex, 'hex');
     const authTag = Buffer.from(authTagHex, 'hex');
 
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
     decipher.setAuthTag(authTag);
 
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
@@ -118,20 +129,22 @@ export class SettingsService {
     }
   }
 
-  // Load settings - env vars provide credentials, user file overrides index pattern
+  // Load settings - file settings (user-configured) take priority over env vars
   getSettings(): AnalyticsSettings {
-    const envSettings = this.getEnvSettings();
     const fileSettings = this.getFileSettings();
 
+    // If user has configured settings via UI, those take priority
+    if (fileSettings?.configured) {
+      return fileSettings;
+    }
+
+    // Fall back to env vars if no user-configured settings
+    const envSettings = this.getEnvSettings();
     if (envSettings) {
-      // Env provides credentials, but user-saved index pattern takes priority
-      if (fileSettings?.indexPattern) {
-        envSettings.indexPattern = fileSettings.indexPattern;
-      }
       return envSettings;
     }
 
-    return fileSettings || defaultSettings;
+    return defaultSettings;
   }
 
   // Save settings to file
@@ -166,10 +179,9 @@ export class SettingsService {
     if (settings.connectionType === 'cloud') {
       return !!(settings.cloudId && settings.apiKey);
     } else {
-      return !!(
-        settings.node &&
-        (settings.apiKey || (settings.username && settings.password))
-      );
+      // Direct connections only require a node URL; auth is optional
+      // (e.g. local ES with xpack.security.enabled=false)
+      return !!settings.node;
     }
   }
 }

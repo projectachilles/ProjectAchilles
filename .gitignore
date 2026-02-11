@@ -30,8 +30,8 @@ npm-debug.log*
 # Vite cache
 .vite/
 
-# Claude Code settings
-.claude/settings.local.json
+# Claude Code
+.claude/
 
 # Playwright MCP
 .playwright-mcp/
@@ -49,3 +49,9 @@ backend/data/
 .achilles.pid
 .backend.log
 .frontend.log
+
+# Semgrep local scan results
+semgrep-results-*/
+
+# Personal scripts
+tunnel.sh

@@ -1,5 +1,4 @@
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
-import { useAppSelector } from '../store';
 import { useAnalyticsAuth } from '../hooks/useAnalyticsAuth';
 import { RequireAuth } from '../components/auth/RequireAuth';
 import Layout from '../components/shared/Layout';
@@ -20,15 +19,13 @@ import TestDetailPage from '../pages/browser/TestDetailPage';
 // Analytics Module Pages
 import AnalyticsDashboardPage from '../pages/analytics/AnalyticsDashboardPage';
 
-// Endpoints Module Pages
-// (EndpointLoginPage removed - now in Settings)
-
 // Settings Page
 import SettingsPage from '../pages/settings/SettingsPage';
-import EndpointDashboardPage from '../pages/endpoints/EndpointDashboardPage';
-import SensorsPage from '../pages/endpoints/SensorsPage';
-import PayloadsPage from '../pages/endpoints/PayloadsPage';
-import EventsPage from '../pages/endpoints/EventsPage';
+
+// Endpoints Module Pages (Achilles Agent)
+import AgentDashboardPage from '../pages/endpoints/AgentDashboardPage';
+import AgentsPage from '../pages/endpoints/AgentsPage';
+import TasksPage from '../pages/endpoints/TasksPage';
 
 // Protected Route wrapper for Analytics
 function AnalyticsProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -47,25 +44,6 @@ function AnalyticsProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   return <>{children}</>;
-}
-
-// Protected Route wrapper for Endpoints
-function EndpointsProtectedRoute() {
-  const { isAuthenticated, loading } = useAppSelector((state) => state.endpointAuth);
-
-  if (loading) {
-    return (
-      <div className="min-h-[400px] flex items-center justify-center">
-        <Loading message="Checking session..." />
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/settings" replace />;
-  }
-
-  return <Outlet />;
 }
 
 // Main Layout wrapper
@@ -92,6 +70,8 @@ export default function AppRouter() {
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
         {/* Browser Module - NOW REQUIRES AUTH */}
         <Route path="dashboard" element={<BrowserHomePage />} />
+        <Route path="favorites" element={<BrowserHomePage mode="favorites" />} />
+        <Route path="recent" element={<BrowserHomePage mode="recent" />} />
         <Route path="browser">
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="test/:uuid" element={<TestDetailPage />} />
@@ -104,21 +84,12 @@ export default function AppRouter() {
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
 
-      {/* Endpoints Module - DUAL AUTH (Clerk + LimaCharlie) */}
-      <Route path="endpoints">
-        {/* Old login route redirects to settings */}
-        <Route path="login" element={<Navigate to="/settings" replace />} />
-        <Route element={
-          <RequireAuth>
-            <EndpointsProtectedRoute />
-          </RequireAuth>
-        }>
-          <Route index element={<Navigate to="/endpoints/dashboard" replace />} />
-          <Route path="dashboard" element={<EndpointDashboardPage />} />
-          <Route path="sensors" element={<SensorsPage />} />
-          <Route path="payloads" element={<PayloadsPage />} />
-          <Route path="events" element={<EventsPage />} />
-        </Route>
+      {/* Endpoints Module - ACHILLES AGENT (Clerk auth only) */}
+      <Route path="endpoints" element={<RequireAuth><AppLayout /></RequireAuth>}>
+        <Route index element={<Navigate to="/endpoints/dashboard" replace />} />
+        <Route path="dashboard" element={<AgentDashboardPage />} />
+        <Route path="agents" element={<AgentsPage />} />
+        <Route path="tasks" element={<TasksPage />} />
       </Route>
 
       {/* Analytics Module - DUAL AUTH (Clerk + Elasticsearch config) */}

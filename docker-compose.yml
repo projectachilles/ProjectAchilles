@@ -1,0 +1,94 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "3000:3000"
+    env_file: ./backend/.env
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      # These can be overridden via .env file in project root or shell environment
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost}
+      - AGENT_SOURCE_PATH=/agent-src
+      # Default to local Docker ES (override Cloud settings that may come from env_file).
+      # To use Elastic Cloud instead, configure via the Settings UI — file-based
+      # settings take priority over these env vars.
+      - ELASTICSEARCH_NODE=${ELASTICSEARCH_NODE:-http://elasticsearch:9200}
+      - ELASTICSEARCH_CLOUD_ID=
+      - ELASTICSEARCH_API_KEY=
+      - ELASTICSEARCH_INDEX_PATTERN=${ELASTICSEARCH_INDEX_PATTERN:-achilles-results-*}
+    volumes:
+      - achilles-data:/root/.projectachilles
+      - repo-cache:/app/data
+      - go-cache:/root/go
+      - ./agent:/agent-src:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    env_file: ./backend/.env
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Optional: Local Elasticsearch for analytics
+  # Activate with: docker compose --profile elasticsearch up -d
+  # ---------------------------------------------------------------------------
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
+    profiles: ["elasticsearch"]
+    container_name: achilles-es
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx1024m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    ports:
+      - "127.0.0.1:9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    restart: unless-stopped
+
+  # One-shot container: creates index + seeds ~1000 records, then exits
+  es-seed:
+    image: python:3.12-slim
+    profiles: ["elasticsearch"]
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ./scripts:/scripts:ro
+    entrypoint: >
+      sh -c "pip install -q 'elasticsearch>=8,<9' &&
+             python /scripts/generate_synthetic_data.py -c 1000 -o /tmp/seed.ndjson -d 30 &&
+             python /scripts/upload_to_elasticsearch.py -f /tmp/seed.ndjson --host http://elasticsearch:9200 --create-index"
+    restart: "no"
+
+volumes:
+  achilles-data:
+  repo-cache:
+  go-cache:
+  esdata:

@@ -56,7 +56,7 @@ def upload_with_es_client(file_path, es_client, chunk_size=500):
         doc = json.loads(doc_line)
 
         # Extract index name from action
-        index_name = action.get('index', {}).get('_index', 'f0rtika-results-synthetic')
+        index_name = action.get('index', {}).get('_index', 'achilles-results-synthetic')
 
         actions.append({
             '_index': index_name,
@@ -131,7 +131,7 @@ def upload_with_requests(file_path, host, auth_header=None, chunk_size=5000):
 
         # Extract index from first action
         first_action = json.loads(chunk_lines[0])
-        index_name = first_action.get('index', {}).get('_index', 'f0rtika-results-synthetic')
+        index_name = first_action.get('index', {}).get('_index', 'achilles-results-synthetic')
 
         url = f"{host.rstrip('/')}/{index_name}/_bulk"
 
@@ -166,7 +166,14 @@ def upload_with_requests(file_path, host, auth_header=None, chunk_size=5000):
 
 
 def create_index_mapping(es_client, index_name):
-    """Create index with proper mappings for all fields."""
+    """Create index with mappings matching ES dynamic mapping behaviour.
+
+    String fields use text + keyword sub-field so the analytics service
+    can query ``f0rtika.test_name.keyword`` for exact-match aggregations
+    — the same layout ES would create automatically for real agent data.
+    """
+    kw_field = {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}}
+
     mapping = {
         "mappings": {
             "properties": {
@@ -179,19 +186,19 @@ def create_index_mapping(es_client, index_name):
                 },
                 "f0rtika": {
                     "properties": {
-                        "test_uuid": {"type": "keyword"},
-                        "test_name": {"type": "keyword"},
+                        "test_uuid": kw_field,
+                        "test_name": kw_field,
                         "is_protected": {"type": "boolean"},
-                        "techniques": {"type": "keyword"},
-                        "error_name": {"type": "keyword"},
-                        "category": {"type": "keyword"},
-                        "subcategory": {"type": "keyword"},
-                        "severity": {"type": "keyword"},
-                        "tactics": {"type": "keyword"},
-                        "target": {"type": "keyword"},
-                        "complexity": {"type": "keyword"},
-                        "threat_actor": {"type": "keyword"},
-                        "tags": {"type": "keyword"},
+                        "techniques": kw_field,
+                        "error_name": kw_field,
+                        "category": kw_field,
+                        "subcategory": kw_field,
+                        "severity": kw_field,
+                        "tactics": kw_field,
+                        "target": kw_field,
+                        "complexity": kw_field,
+                        "threat_actor": kw_field,
+                        "tags": kw_field,
                         "score": {"type": "float"}
                     }
                 },
@@ -268,8 +275,8 @@ def main():
     parser.add_argument(
         "--index",
         type=str,
-        default="f0rtika-results-synthetic",
-        help="Index name (default: f0rtika-results-synthetic)"
+        default="achilles-results-synthetic",
+        help="Index name (default: achilles-results-synthetic)"
     )
 
     args = parser.parse_args()

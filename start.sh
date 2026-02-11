@@ -79,10 +79,25 @@ echo ""
 # PID file for daemon mode
 PID_FILE="$SCRIPT_DIR/.achilles.pid"
 
+# ngrok tunnel configuration (can be overridden via environment or .env file)
+NGROK_CONFIG_MAIN="$HOME/.config/ngrok/ngrok.yml"
+NGROK_CONFIG_TUNNELS="${NGROK_CONFIG_TUNNELS:-$HOME/.config/ngrok/achilles-tunnels.yml}"
+
+# Load .env if present (for NGROK_*_DOMAIN overrides)
+if [ -f "$SCRIPT_DIR/backend/.env" ]; then
+    # Only load NGROK_ variables to avoid polluting environment
+    eval "$(grep -E '^NGROK_' "$SCRIPT_DIR/backend/.env" 2>/dev/null | sed 's/^/export /')"
+fi
+
+# Tunnel domains - users should set these in backend/.env or environment
+NGROK_FRONTEND_DOMAIN="${NGROK_FRONTEND_DOMAIN:-projectachilles.ngrok.app}"
+NGROK_BACKEND_DOMAIN="${NGROK_BACKEND_DOMAIN:-achilles-agent.ngrok.app}"
+
 # Check for command line arguments
 KILL_EXISTING=false
 DAEMON_MODE=false
 STOP_DAEMON=false
+TUNNEL_MODE=false
 for arg in "$@"; do
     case $arg in
         --kill|-k)
@@ -93,6 +108,9 @@ for arg in "$@"; do
             ;;
         --stop|-s)
             STOP_DAEMON=true
+            ;;
+        --tunnel|-t)
+            TUNNEL_MODE=true
             ;;
         --backend-port=*)
             BACKEND_PORT="${arg#*=}"
@@ -107,9 +125,18 @@ for arg in "$@"; do
             echo "  --kill, -k              Kill existing processes on default ports"
             echo "  --daemon, -d            Run in daemon mode (background, no blocking)"
             echo "  --stop, -s              Stop daemon processes"
+            echo "  --tunnel, -t            Start ngrok tunnels for external access"
             echo "  --backend-port=PORT     Specify backend port (default: 3000)"
             echo "  --frontend-port=PORT    Specify frontend port (default: 5173)"
             echo "  --help, -h              Show this help message"
+            echo ""
+            echo "Tunnel mode exposes:"
+            echo "  Frontend: https://$NGROK_FRONTEND_DOMAIN"
+            echo "  Backend:  https://$NGROK_BACKEND_DOMAIN"
+            echo ""
+            echo "Custom domains (set in backend/.env or environment):"
+            echo "  NGROK_FRONTEND_DOMAIN=your-app.ngrok.app"
+            echo "  NGROK_BACKEND_DOMAIN=your-api.ngrok.app"
             echo ""
             exit 0
             ;;
@@ -141,6 +168,41 @@ if [ "$KILL_EXISTING" = true ]; then
     echo "Killing existing processes..."
     kill_port $BACKEND_PORT
     kill_port $FRONTEND_PORT
+    # Also kill any existing ngrok processes for our tunnels
+    pkill -f "ngrok.*achilles" 2>/dev/null || true
+fi
+
+# Validate tunnel mode requirements
+if [ "$TUNNEL_MODE" = true ]; then
+    if ! command -v ngrok &> /dev/null; then
+        echo "Error: ngrok is required for tunnel mode but not installed."
+        echo "Install with: yay -S ngrok  (or download from ngrok.com)"
+        exit 1
+    fi
+    if [ ! -f "$NGROK_CONFIG_MAIN" ]; then
+        echo "Error: ngrok main config not found at $NGROK_CONFIG_MAIN"
+        echo "Run: ngrok config add-authtoken YOUR_TOKEN"
+        exit 1
+    fi
+
+    # Generate tunnel config dynamically from environment variables
+    NGROK_CONFIG_TUNNELS="/tmp/achilles-tunnels-$$.yml"
+    cat > "$NGROK_CONFIG_TUNNELS" << EOF
+# Auto-generated ngrok tunnel configuration
+# Domains configured via NGROK_FRONTEND_DOMAIN and NGROK_BACKEND_DOMAIN
+
+version: "3"
+tunnels:
+  achilles-frontend:
+    proto: http
+    addr: $FRONTEND_PORT
+    domain: $NGROK_FRONTEND_DOMAIN
+  achilles-backend:
+    proto: http
+    addr: $BACKEND_PORT
+    domain: $NGROK_BACKEND_DOMAIN
+EOF
+    echo "  Generated tunnel config for: $NGROK_FRONTEND_DOMAIN, $NGROK_BACKEND_DOMAIN"
 fi
 
 # Find available ports
@@ -173,6 +235,36 @@ else
 fi
 
 echo ""
+
+# Start ngrok tunnels if requested
+NGROK_PID=""
+if [ "$TUNNEL_MODE" = true ]; then
+    echo "Starting ngrok tunnels..."
+    ngrok start --config "$NGROK_CONFIG_MAIN" --config "$NGROK_CONFIG_TUNNELS" --all > /tmp/ngrok-achilles.log 2>&1 &
+    NGROK_PID=$!
+    sleep 3
+
+    # Verify tunnels are running
+    if ! kill -0 $NGROK_PID 2>/dev/null; then
+        echo "Error: Failed to start ngrok tunnels. Check /tmp/ngrok-achilles.log"
+        exit 1
+    fi
+
+    # Verify both tunnels are active
+    TUNNEL_COUNT=$(curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null | grep -c "public_url" || echo "0")
+    if [ "$TUNNEL_COUNT" -lt 2 ]; then
+        echo "Warning: Expected 2 tunnels but found $TUNNEL_COUNT"
+        echo "Check ngrok dashboard: http://127.0.0.1:4040"
+    else
+        echo "  ✓ Frontend tunnel: https://$NGROK_FRONTEND_DOMAIN"
+        echo "  ✓ Backend tunnel:  https://$NGROK_BACKEND_DOMAIN"
+        echo "  ✓ Inspect:         http://127.0.0.1:4040"
+    fi
+    echo ""
+
+    # Set CORS to allow frontend tunnel domain
+    export CORS_ORIGIN="https://$NGROK_FRONTEND_DOMAIN"
+fi
 
 # Check if npm dependencies are installed
 if [ ! -d "backend/node_modules" ]; then
@@ -227,14 +319,26 @@ echo "╔═══════════════════════�
 echo "║   ProjectAchilles is running!                                     ║"
 echo "╠═══════════════════════════════════════════════════════════════════╣"
 echo "║                                                                   ║"
+if [ "$TUNNEL_MODE" = true ]; then
+echo "║   Frontend:  https://$NGROK_FRONTEND_DOMAIN                  ║"
+echo "║   Backend:   https://$NGROK_BACKEND_DOMAIN                   ║"
+echo "║   Inspect:   http://127.0.0.1:4040                                ║"
+else
 echo "║   Frontend:  http://localhost:$FRONTEND_PORT                              ║"
 echo "║   Backend:   http://localhost:$BACKEND_PORT                               ║"
+fi
 echo "║                                                                   ║"
 echo "╠═══════════════════════════════════════════════════════════════════╣"
 echo "║   Modules:                                                        ║"
+if [ "$TUNNEL_MODE" = true ]; then
+echo "║     • Tests:      https://$NGROK_FRONTEND_DOMAIN/            ║"
+echo "║     • Analytics:  https://$NGROK_FRONTEND_DOMAIN/analytics   ║"
+echo "║     • Agent:      https://$NGROK_FRONTEND_DOMAIN/agent       ║"
+else
 echo "║     • Tests:      http://localhost:$FRONTEND_PORT/                        ║"
 echo "║     • Analytics:  http://localhost:$FRONTEND_PORT/analytics               ║"
-echo "║     • Endpoints:  http://localhost:$FRONTEND_PORT/endpoints               ║"
+echo "║     • Agent:      http://localhost:$FRONTEND_PORT/agent                   ║"
+fi
 echo "║                                                                   ║"
 echo "╠═══════════════════════════════════════════════════════════════════╣"
 
@@ -242,10 +346,12 @@ if [ "$DAEMON_MODE" = true ]; then
     # Save PIDs for later cleanup
     echo "$BACKEND_PID" > "$PID_FILE"
     echo "$FRONTEND_PID" >> "$PID_FILE"
+    [ -n "$NGROK_PID" ] && echo "$NGROK_PID" >> "$PID_FILE"
     echo "║   Running in daemon mode. Use --stop to shut down.              ║"
     echo "╚═══════════════════════════════════════════════════════════════════╝"
     echo ""
     echo "PIDs saved to $PID_FILE"
+    [ "$TUNNEL_MODE" = true ] && echo "ngrok logs: /tmp/ngrok-achilles.log"
     exit 0
 else
     echo "║   Press Ctrl+C to stop                                            ║"
@@ -258,6 +364,7 @@ else
         echo "Shutting down servers..."
         kill $BACKEND_PID 2>/dev/null || true
         kill $FRONTEND_PID 2>/dev/null || true
+        [ -n "$NGROK_PID" ] && kill $NGROK_PID 2>/dev/null || true
         # Also kill any child processes
         pkill -P $BACKEND_PID 2>/dev/null || true
         pkill -P $FRONTEND_PID 2>/dev/null || true

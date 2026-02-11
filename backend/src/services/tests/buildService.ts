@@ -37,8 +37,6 @@ async function runBuildCommand(
 
 const SETTINGS_DIR = path.join(os.homedir(), '.projectachilles');
 const BUILDS_DIR = path.join(SETTINGS_DIR, 'builds');
-const CERTS_DIR = path.join(SETTINGS_DIR, 'certs');
-const PFX_PATH = path.join(CERTS_DIR, 'cert.pfx');
 
 const KNOWN_CATEGORIES = ['cyber-hygiene', 'intel-driven', 'mitre-top10', 'phase-aligned'];
 
@@ -164,6 +162,13 @@ export class BuildService {
       throw new Error('Invalid filename');
     }
 
+    // M8: Only allow known embed dependency filenames to prevent arbitrary file writes
+    const deps = this.getEmbedDependencies(uuid);
+    const allowed = deps.map(d => d.filename);
+    if (!allowed.includes(baseName)) {
+      throw new Error(`Filename '${baseName}' is not a known embed dependency for this test`);
+    }
+
     fs.writeFileSync(path.join(testDir, baseName), buffer);
   }
 
@@ -237,47 +242,84 @@ export class BuildService {
       }
     } else {
       // Standard Go build
-      if (fs.existsSync(path.join(testDir, 'go.mod'))) {
-        await runBuildCommand('go', ['mod', 'tidy'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
-        await runBuildCommand('go', ['mod', 'download'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
-      }
+      const goModPath = path.join(testDir, 'go.mod');
+      const goSumPath = path.join(testDir, 'go.sum');
+      const hadGoMod = fs.existsSync(goModPath);
 
       const goFiles = fs.readdirSync(testDir).filter(f => f.endsWith('.go'));
       if (goFiles.length === 0) {
         throw new BuildError('No Go source files found in test directory');
       }
 
-      // Use package mode ("go build .") for proper GOOS/GOARCH constraint evaluation.
-      // File-list mode ("go build a.go b.go") doesn't resolve cross-platform build tags
-      // on transitive dependencies, causing failures for windows-only imports on Linux.
-      await runBuildCommand('go', ['build', '-o', outputPath, '.'], {
-        cwd: testDir,
-        env,
-        timeout: BUILD_TIMEOUT,
-      });
+      try {
+        if (!hadGoMod) {
+          // Auto-init a temporary module so "go build ." works in package mode
+          await runBuildCommand('go', ['mod', 'init', 'testbuild'], {
+            cwd: testDir,
+            env,
+            timeout: BUILD_TIMEOUT,
+          });
+        }
+
+        await runBuildCommand('go', ['mod', 'tidy'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
+        await runBuildCommand('go', ['mod', 'download'], { cwd: testDir, env, timeout: BUILD_TIMEOUT });
+
+        // Use package mode ("go build .") for proper GOOS/GOARCH constraint evaluation.
+        // File-list mode ("go build a.go b.go") doesn't resolve cross-platform build tags
+        // on transitive dependencies, causing failures for windows-only imports on Linux.
+        await runBuildCommand('go', ['build', '-o', outputPath, '.'], {
+          cwd: testDir,
+          env,
+          timeout: BUILD_TIMEOUT,
+        });
+      } finally {
+        // Clean up auto-generated module files to avoid dirtying the test source tree
+        if (!hadGoMod) {
+          if (fs.existsSync(goModPath)) fs.unlinkSync(goModPath);
+          if (fs.existsSync(goSumPath)) fs.unlinkSync(goSumPath);
+        }
+      }
     }
 
-    // 7. Sign if certificate exists
+    // 7. Sign binary (Windows via osslsigncode, darwin via rcodesign ad-hoc)
     let signed = false;
-    const password = this.settingsService.getCertificatePassword();
-    if (password && fs.existsSync(PFX_PATH)) {
-      const signedPath = outputPath + '.signed';
-      try {
-        await execFileAsync('osslsigncode', [
-          'sign',
-          '-pkcs12', PFX_PATH,
-          '-pass', password,
-          '-in', outputPath,
-          '-out', signedPath,
-        ], { timeout: 60_000 });
+    if (platform.os === 'windows') {
+      const activeCert = this.settingsService.getActiveCertPfxPath();
+      if (activeCert) {
+        const signedPath = outputPath + '.signed';
+        // L1: Pass password via temp file to avoid /proc/PID/cmdline exposure
+        const passFile = path.join(buildDir, '.tmp-pass');
+        try {
+          fs.writeFileSync(passFile, activeCert.password, { mode: 0o600 });
+          await execFileAsync('osslsigncode', [
+            'sign',
+            '-pkcs12', activeCert.pfxPath,
+            '-readpass', passFile,
+            '-in', outputPath,
+            '-out', signedPath,
+          ], { timeout: 60_000 });
 
-        fs.renameSync(signedPath, outputPath);
+          fs.renameSync(signedPath, outputPath);
+          signed = true;
+        } catch {
+          // Signing failed — continue with unsigned binary
+          if (fs.existsSync(signedPath)) {
+            fs.unlinkSync(signedPath);
+          }
+        } finally {
+          if (fs.existsSync(passFile)) fs.unlinkSync(passFile);
+        }
+      }
+    } else if (platform.os === 'darwin') {
+      try {
+        await execFileAsync('rcodesign', [
+          'sign',
+          '--code-signature-flags', 'adhoc',
+          outputPath,
+        ], { timeout: 60_000 });
         signed = true;
       } catch {
-        // Signing failed — continue with unsigned binary
-        if (fs.existsSync(signedPath)) {
-          fs.unlinkSync(signedPath);
-        }
+        // rcodesign not installed or signing failed — continue unsigned
       }
     }
 

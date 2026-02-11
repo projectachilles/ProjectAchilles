@@ -34,7 +34,7 @@ export function TestsTab() {
       <IntegrationCard
         icon={ShieldCheck}
         title="Code Signing Certificate"
-        description="Self-signed PFX certificate for osslsigncode binary signing"
+        description="PFX certificates for osslsigncode binary signing (upload or generate)"
         status={certStatus}
         defaultExpanded={certStatus === 'not-configured'}
       >

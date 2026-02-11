@@ -1,0 +1,21 @@
+rules:
+  - id: projectachilles-env-fallback-insecure
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      Environment variable containing a sensitive name ($ENVVAR) has a hardcoded
+      literal fallback. If the env var is unset, the application will silently run
+      with the fallback value, potentially using weak or default credentials in production.
+      Either throw an error when the variable is missing, or log a clear warning.
+    metadata:
+      cwe:
+        - "CWE-1188: Insecure Default Initialization of Resource"
+      owasp:
+        - A05:2021 Security Misconfiguration
+    patterns:
+      - pattern-either:
+          - pattern: process.env.$ENVVAR || "..."
+          - pattern: process.env.$ENVVAR ?? "..."
+      - metavariable-regex:
+          metavariable: $ENVVAR
+          regex: ".*(SECRET|KEY|PASSWORD|TOKEN|CREDENTIAL|AUTH).*"

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import DOMPurify from 'dompurify';
 import type { TestDetails, FileContent } from '@/types/test';
 import { browserApi } from '@/services/api/browser';
 import FileViewer from './FileViewer';
@@ -31,7 +32,7 @@ export default function TabbedViewer({ test }: TabbedViewerProps) {
     if (attackFlowIframeRef.current?.contentWindow) {
       attackFlowIframeRef.current.contentWindow.postMessage(
         { type: 'theme-change', theme },
-        '*'
+        window.location.origin
       );
     }
   }, [theme]);
@@ -116,7 +117,12 @@ export default function TabbedViewer({ test }: TabbedViewerProps) {
     try {
       setLoading(true);
       const html = await browserApi.getAttackFlow(test.uuid);
-      setAttackFlowHtml(html);
+      const sanitized = DOMPurify.sanitize(html, {
+        ADD_TAGS: ['style'],
+        ADD_ATTR: ['class', 'style', 'viewBox', 'xmlns', 'fill', 'stroke', 'd', 'transform'],
+        WHOLE_DOCUMENT: true,
+      });
+      setAttackFlowHtml(sanitized);
     } catch (err) {
       console.error('Failed to load attack flow:', err);
     } finally {
@@ -161,7 +167,7 @@ export default function TabbedViewer({ test }: TabbedViewerProps) {
             srcDoc={attackFlowHtml}
             className="w-full h-full border-0"
             title="Attack Flow Diagram"
-            sandbox="allow-scripts"
+            sandbox=""
             onLoad={syncThemeToIframe}
           />
         ) : fileContent ? (

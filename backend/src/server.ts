@@ -2,21 +2,22 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import session from 'express-session';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { clerkAuth, linkClerkSession } from './middleware/clerk.middleware.js';
+import { clerkAuth } from './middleware/clerk.middleware.js';
 import { createBrowserRouter } from './api/browser.routes.js';
 import analyticsRoutes from './api/analytics.routes.js';
 import { createTestsRouter } from './api/tests.routes.js';
-import endpointAuthRoutes from './api/endpoints/auth.routes.js';
-import endpointsRoutes from './api/endpoints/index.js';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware.js';
 import { GitSyncService } from './services/browser/gitSyncService.js';
+import { GitHubMetadataService } from './services/browser/githubMetadataService.js';
+import { createAgentRouter } from './api/agent/index.js';
+import { processSchedules } from './services/agent/schedules.service.js';
+import { initCatalog } from './services/agent/test-catalog.service.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -39,9 +40,21 @@ app.set('trust proxy', 1);
 
 // ============ MIDDLEWARE ============
 
-// Security headers (relaxed for development)
+// Security headers with Content Security Policy
 app.use(helmet({
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],       // Clerk SDK needs inline scripts
+      styleSrc: ["'self'", "'unsafe-inline'"],         // Tailwind
+      imgSrc: ["'self'", "data:", "https:", "blob:"],
+      connectSrc: ["'self'", "https://*.clerk.com", "https://*.clerk.accounts.dev"],
+      frameSrc: ["'self'", "blob:"],
+      fontSrc: ["'self'", "data:"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+    },
+  },
   crossOriginEmbedderPolicy: false,
 }));
 
@@ -61,35 +74,18 @@ app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Session management (for endpoints auth)
-app.use(session({
-  secret: process.env.SESSION_SECRET || (() => {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('SESSION_SECRET must be set in production');
-    }
-    console.warn('⚠️  Using development session secret - DO NOT use in production!');
-    return 'project-achilles-dev-secret';
-  })(),
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' required for cross-origin cookies
-  },
-}));
-
 // Clerk authentication middleware
 app.use(clerkAuth);
-app.use(linkClerkSession);
 
-// Rate limiting for auth endpoints
-const authLimiter = rateLimit({
+// Global API rate limiter
+const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20, // 20 requests per window
-  message: { error: 'Too many authentication attempts, please try again later' },
+  max: 300,                  // 300 requests per 15-minute window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many requests, please try again later' },
 });
+app.use('/api', apiLimiter);
 
 // ============ ASYNC STARTUP ============
 async function startServer() {
@@ -127,6 +123,24 @@ async function startServer() {
     console.log(`📁 Using local tests source: ${testsSourcePath}`);
   }
 
+  // ============ TEST CATALOG ============
+  initCatalog(testsSourcePath);
+
+  // ============ GITHUB METADATA SERVICE ============
+  let githubMetadata: GitHubMetadataService | undefined;
+  if (repoUrl && process.env.GITHUB_TOKEN) {
+    try {
+      githubMetadata = new GitHubMetadataService({
+        repoUrl,
+        branch: process.env.TESTS_REPO_BRANCH || 'main',
+        githubToken: process.env.GITHUB_TOKEN,
+      });
+      console.log('✓ GitHub metadata service initialized');
+    } catch (error) {
+      console.warn('⚠ GitHub metadata service unavailable:', error instanceof Error ? error.message : error);
+    }
+  }
+
   // ============ ROUTES ============
 
   // Health check
@@ -143,6 +157,7 @@ async function startServer() {
   const browserRouter = createBrowserRouter({
     testsSourcePath,
     gitSync: gitSyncService,
+    githubMetadata,
   });
   app.use('/api/browser', browserRouter);
 
@@ -153,9 +168,9 @@ async function startServer() {
   const testsRouter = createTestsRouter({ testsSourcePath });
   app.use('/api/tests', testsRouter);
 
-  // Endpoints module - Session-based auth (LimaCharlie)
-  app.use('/api/auth', authLimiter, endpointAuthRoutes);
-  app.use('/api/endpoints', endpointsRoutes);
+  // Agent module - Achilles Agent management
+  const agentSourcePath = process.env.AGENT_SOURCE_PATH || path.resolve(__dirname, '../../agent');
+  app.use('/api/agent', createAgentRouter({ testsSourcePath, agentSourcePath }));
 
   // ============ ERROR HANDLING ============
   app.use(notFoundHandler);
@@ -174,8 +189,7 @@ async function startServer() {
     console.log('║   Routes:                                                 ║');
     console.log('║     /api/browser/*     - Security Test Browser            ║');
     console.log('║     /api/analytics/*   - Test Results Analytics           ║');
-    console.log('║     /api/auth/*        - Endpoint Auth (LimaCharlie)      ║');
-    console.log('║     /api/endpoints/*   - Endpoint Management              ║');
+    console.log('║     /api/agent/*       - Achilles Agent Management        ║');
     console.log('║                                                           ║');
     if (gitSyncService) {
       const status = gitSyncService.getStatus();
@@ -183,6 +197,17 @@ async function startServer() {
     }
     console.log('╚═══════════════════════════════════════════════════════════╝');
     console.log('');
+
+    // --- Task scheduler: process due schedules every 60s ---
+    processSchedules(); // Startup recovery: catch up on past-due schedules
+    const schedulerInterval = setInterval(processSchedules, 60_000);
+
+    const shutdown = () => {
+      clearInterval(schedulerInterval);
+      httpServer.close();
+    };
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
   });
 }
 

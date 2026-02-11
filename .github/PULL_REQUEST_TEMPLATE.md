@@ -16,7 +16,8 @@
 
 - [ ] Browser
 - [ ] Analytics
-- [ ] Endpoints
+- [ ] Agents
+- [ ] Build & Settings
 - [ ] Core/Infrastructure
 - [ ] Documentation
 
@@ -48,6 +49,8 @@
 
 - [ ] Frontend builds without errors (`cd frontend && npm run build`)
 - [ ] Backend builds without errors (`cd backend && npm run build`)
+- [ ] Go agent compiles (if changed): `cd agent && go build ./...`
+- [ ] Docker Compose builds (if changed): `docker compose build`
 
 ## Checklist
 

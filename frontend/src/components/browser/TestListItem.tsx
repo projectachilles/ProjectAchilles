@@ -1,13 +1,16 @@
 import type { TestMetadata } from '@/types/test';
 import TechniqueBadge from './TechniqueBadge';
-import { Calendar, Layers, Star, Shield, Workflow } from 'lucide-react';
+import { Calendar, Layers, Star, Shield, Workflow, Heart, User, Clock } from 'lucide-react';
+import { formatRelativeDate, formatFullDate } from '@/utils/dateFormatters';
 
 interface TestListItemProps {
   test: TestMetadata;
   onClick: () => void;
+  isFavorite?: boolean;
+  onToggleFavorite?: (e: React.MouseEvent) => void;
 }
 
-export default function TestListItem({ test, onClick }: TestListItemProps) {
+export default function TestListItem({ test, onClick, isFavorite, onToggleFavorite }: TestListItemProps) {
   const getSeverityColor = (severity?: string) => {
     switch (severity?.toLowerCase()) {
       case 'critical':
@@ -85,6 +88,22 @@ export default function TestListItem({ test, onClick }: TestListItemProps) {
             </div>
           )}
 
+          {/* Author */}
+          {test.author && (
+            <div className="flex items-center gap-1 min-w-[80px]">
+              <User className="w-3 h-3" />
+              <span className="text-xs truncate max-w-[80px]">{test.author}</span>
+            </div>
+          )}
+
+          {/* Last Modified */}
+          {test.lastModifiedDate && (
+            <div className="flex items-center gap-1 min-w-[70px]" title={formatFullDate(test.lastModifiedDate)}>
+              <Clock className="w-3 h-3" />
+              <span className="text-xs">{formatRelativeDate(test.lastModifiedDate)}</span>
+            </div>
+          )}
+
           {/* Detection Files Badge */}
           {test.hasDetectionFiles && (
             <div className="flex items-center gap-1 min-w-[50px] text-blue-500" title="Detection rules (KQL/YARA)">
@@ -99,6 +118,17 @@ export default function TestListItem({ test, onClick }: TestListItemProps) {
               <Workflow className="w-3 h-3" />
               <span className="text-xs font-medium">Flow</span>
             </div>
+          )}
+
+          {/* Favorite Toggle */}
+          {onToggleFavorite && (
+            <button
+              onClick={onToggleFavorite}
+              className="p-1 rounded-md hover:bg-accent transition-colors"
+              title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+            >
+              <Heart className={`w-4 h-4 transition-colors ${isFavorite ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
+            </button>
           )}
         </div>
       </div>

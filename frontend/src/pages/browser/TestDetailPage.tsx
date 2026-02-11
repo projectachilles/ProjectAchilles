@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import DOMPurify from 'dompurify';
 import { browserApi } from '@/services/api/browser';
 import type { TestDetails, FileContent } from '@/types/test';
 import TechniqueBadge from '@/components/browser/TechniqueBadge';
@@ -7,7 +8,9 @@ import FileViewer from '@/components/browser/FileViewer';
 import DefenseDashboard from '@/components/browser/DefenseDashboard';
 import { useTheme } from '@/hooks/useTheme';
 import BuildSection from '@/components/browser/BuildSection';
-import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2 } from 'lucide-react';
+import { useTestPreferences } from '@/hooks/useTestPreferences';
+import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2, Heart, Tag, User, Clock } from 'lucide-react';
+import { formatRelativeDate, formatFullDate } from '@/utils/dateFormatters';
 
 export default function TestDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
@@ -23,13 +26,14 @@ export default function TestDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'file' | 'attack-flow'>('file');
   const [hasUserInteracted, setHasUserInteracted] = useState(false); // Track if user clicked something
+  const { isFavorite, toggleFavorite, trackView } = useTestPreferences();
 
   // Sync theme to attack flow iframe via postMessage
   const syncThemeToIframe = useCallback(() => {
     if (attackFlowIframeRef.current?.contentWindow) {
       attackFlowIframeRef.current.contentWindow.postMessage(
         { type: 'theme-change', theme },
-        '*'
+        window.location.origin
       );
     }
   }, [theme]);
@@ -62,6 +66,7 @@ export default function TestDetailPage() {
       setLoading(true);
       const data = await browserApi.getTestDetails(testUuid);
       setTest(data);
+      trackView(testUuid, data.name);
 
       // Auto-select README if available
       if (data.hasReadme) {
@@ -96,7 +101,12 @@ export default function TestDetailPage() {
     try {
       setFileLoading(true);
       const html = await browserApi.getAttackFlow(uuid);
-      setAttackFlowHtml(html);
+      const sanitized = DOMPurify.sanitize(html, {
+        ADD_TAGS: ['style'],
+        ADD_ATTR: ['class', 'style', 'viewBox', 'xmlns', 'fill', 'stroke', 'd', 'transform'],
+        WHOLE_DOCUMENT: true,
+      });
+      setAttackFlowHtml(sanitized);
       setActiveView('attack-flow');
     } catch (err) {
       console.error('Failed to load attack flow:', err);
@@ -197,6 +207,13 @@ export default function TestDetailPage() {
               </span>
             </div>
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => toggleFavorite(test.uuid)}
+                className="p-1.5 rounded-md hover:bg-accent transition-colors"
+                title={isFavorite(test.uuid) ? 'Remove from favorites' : 'Add to favorites'}
+              >
+                <Heart className={`w-4 h-4 transition-colors ${isFavorite(test.uuid) ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
+              </button>
               {test.score && (
                 <div className="flex items-center gap-1 text-amber-500">
                   <Star className="w-4 h-4 fill-current" />
@@ -241,25 +258,57 @@ export default function TestDetailPage() {
                       <span>{test.stages.length} stages</span>
                     </div>
                   )}
+                  {test.version && (
+                    <div className="flex items-center gap-1">
+                      <Tag className="w-4 h-4" />
+                      <span>v{test.version}</span>
+                    </div>
+                  )}
+                  {test.author && (
+                    <div className="flex items-center gap-1">
+                      <User className="w-4 h-4" />
+                      <span>{test.author}</span>
+                    </div>
+                  )}
                   {test.createdDate && (
                     <div className="flex items-center gap-1">
                       <Calendar className="w-4 h-4" />
                       <span>{test.createdDate}</span>
                     </div>
                   )}
+                  {test.lastModifiedDate && (
+                    <div
+                      className="flex items-center gap-1"
+                      title={test.lastCommitMessage
+                        ? `${formatFullDate(test.lastModifiedDate)} — ${test.lastCommitMessage}`
+                        : formatFullDate(test.lastModifiedDate)}
+                    >
+                      <Clock className="w-4 h-4" />
+                      <span>Modified {formatRelativeDate(test.lastModifiedDate)}</span>
+                    </div>
+                  )}
                   <span className="font-mono text-xs">{test.uuid}</span>
                 </div>
               </div>
 
-              {test.score && (
-                <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                  <Star className="w-5 h-5 text-amber-500 fill-current" />
-                  <div>
-                    <div className="text-2xl font-bold text-amber-500">{test.score.toFixed(1)}</div>
-                    <div className="text-xs text-muted-foreground">Test Score</div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => toggleFavorite(test.uuid)}
+                  className="p-2 rounded-lg hover:bg-accent transition-colors"
+                  title={isFavorite(test.uuid) ? 'Remove from favorites' : 'Add to favorites'}
+                >
+                  <Heart className={`w-5 h-5 transition-colors ${isFavorite(test.uuid) ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
+                </button>
+                {test.score && (
+                  <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <Star className="w-5 h-5 text-amber-500 fill-current" />
+                    <div>
+                      <div className="text-2xl font-bold text-amber-500">{test.score.toFixed(1)}</div>
+                      <div className="text-xs text-muted-foreground">Test Score</div>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             {/* Techniques */}
@@ -464,7 +513,7 @@ export default function TestDetailPage() {
                 srcDoc={attackFlowHtml}
                 className="w-full h-full border-0"
                 title="Attack Flow Diagram"
-                sandbox="allow-scripts"
+                sandbox=""
                 onLoad={syncThemeToIframe}
               />
             ) : fileContent ? (

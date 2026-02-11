@@ -202,6 +202,14 @@ export interface ErrorRateResponse {
   totalTestActivity: number;
 }
 
+export interface ErrorRateTrendDataPoint {
+  timestamp: string;
+  errorRate: number;      // percentage 0-100
+  errorCount: number;     // rolling window error count
+  conclusiveCount: number; // rolling window conclusive count
+  total: number;          // errorCount + conclusiveCount
+}
+
 export interface ExtendedFilterParams {
   org?: string;
   from?: string;
@@ -223,6 +231,13 @@ export interface PaginatedExecutionsParams extends ExtendedFilterParams {
   pageSize?: number;
   sortField?: string;
   sortOrder?: 'asc' | 'desc';
+}
+
+export interface IndexInfo {
+  name: string;
+  docsCount: number;
+  storeSize: number;
+  status: string;
 }
 
 export const analyticsApi = {
@@ -458,6 +473,30 @@ export const analyticsApi = {
 
   async getErrorRate(params?: { org?: string; from?: string; to?: string }): Promise<ErrorRateResponse> {
     const response = await apiClient.get('/analytics/error-rate', { params });
+    return response.data;
+  },
+
+  async getErrorRateTrend(params?: {
+    org?: string;
+    from?: string;
+    to?: string;
+    interval?: 'hour' | 'day' | 'week';
+    windowDays?: number;
+  }): Promise<ErrorRateTrendDataPoint[]> {
+    const response = await apiClient.get('/analytics/error-rate/trend', { params });
+    return response.data;
+  },
+
+  // Index management
+  async listIndices(pattern?: string): Promise<IndexInfo[]> {
+    const response = await apiClient.get('/analytics/indices', {
+      params: pattern ? { pattern } : undefined,
+    });
+    return response.data.indices;
+  },
+
+  async createIndex(indexName: string): Promise<{ created: boolean; message: string }> {
+    const response = await apiClient.post('/analytics/index/create', { index_name: indexName });
     return response.data;
   },
 };

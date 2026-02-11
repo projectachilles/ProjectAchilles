@@ -2,14 +2,21 @@
 
 <div align="center">
 
-![ProjectAchilles](https://img.shields.io/badge/ProjectAchilles-Security%20Platform-blue?style=for-the-badge)
-[![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
-[![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react)](https://reactjs.org/)
+![ProjectAchilles](https://img.shields.io/badge/ProjectAchilles-Purple%20Team%20Platform-7C3AED?style=for-the-badge)
 
-**A Unified Security Testing Platform**
+[![CI](https://github.com/projectachilles/ProjectAchilles/actions/workflows/ci.yml/badge.svg)](https://github.com/projectachilles/ProjectAchilles/actions/workflows/ci.yml)
+[![Security Review](https://github.com/projectachilles/ProjectAchilles/actions/workflows/security-review.yml/badge.svg)](https://github.com/projectachilles/ProjectAchilles/actions/workflows/security-review.yml)
+[![Semgrep](https://img.shields.io/badge/semgrep-SAST-orange?logo=semgrep)](https://github.com/projectachilles/ProjectAchilles/actions/workflows/security-review.yml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev/)
+[![Go](https://img.shields.io/badge/Go-1.24-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
-[Features](#features) • [Quick Start](#quick-start) • [Architecture](#architecture) • [Documentation](#documentation) • [Contributing](#contributing)
+**The Open-Source Purple Team Platform for Continuous Security Validation**
+
+Execute security tests on endpoints, measure detection coverage, and close defensive gaps — all from one unified interface.
+
+[Quick Start](#quick-start) · [Features](#features) · [Architecture](#architecture) · [Documentation](#documentation) · [Roadmap](ROADMAP.md) · [Contributing](#contributing)
 
 </div>
 
@@ -17,246 +24,345 @@
 
 ## Overview
 
-ProjectAchilles is a comprehensive security testing platform that provides a unified interface for browsing security tests, analyzing test results, and managing endpoints. Built with modern web technologies, it offers a seamless experience for security professionals to assess and improve their organization's security posture.
+ProjectAchilles is a purple team platform that bridges the gap between offensive testing and defensive measurement. Red teams deploy a lightweight Go agent to endpoints and execute security tests on demand or on schedule. Blue teams track detection coverage through an analytics dashboard backed by Elasticsearch, identifying which techniques are detected, which are missed, and where to focus hardening efforts.
 
-## Features
+The platform replaces the need for commercial endpoint management tools with a purpose-built, open-source agent system — complete with cross-compilation, code signing, task scheduling, and result ingestion.
 
-### 🔐 Secure Authentication
-- **Multiple Authentication Methods:**
-  - Email/password with verification
-  - Social OAuth (Google, Microsoft, GitHub)
-- Enterprise-grade security with JWT and httpOnly cookies
-- Email verification and password reset flows
-- Session isolation per authenticated user
-- Automatic token refresh and management
+## Key Highlights
 
-### 🔍 Security Test Browser
-- Browse and search security test cases
-- View detailed test documentation and procedures
-- Filter tests by MITRE ATT&CK techniques, platforms, and categories
-- Access test artifacts and supporting files
-
-### 📊 Analytics Dashboard
-- Visualize test execution results via Elasticsearch integration
-- Track defense scores and security metrics over time
-- Analyze technique coverage and detection gaps
-- Generate reports on security posture trends
-
-### 🖥️ Endpoint Management
-- Manage endpoints via LimaCharlie integration
-- Monitor sensor status and health
-- View endpoint inventory across organizations
-- Real-time endpoint telemetry
+- **Custom Go Agent** — Lightweight agent with enrollment, heartbeat monitoring, task execution, and self-updating
+- **Build From Source** — Cross-compile test binaries for Windows/Linux (amd64/arm64) directly from the UI
+- **Code Signing** — Sign Windows binaries with Authenticode via multi-certificate management (up to 5 certs)
+- **30+ Analytics Endpoints** — Defense scores, heatmaps, treemaps, error rate trends, and coverage breakdowns
+- **MITRE ATT&CK Mapping** — Filter tests and results by technique, tactic, and threat actor
+- **Task Scheduling** — Recurring execution (daily/weekly/monthly) with randomized timing
+- **Docker Compose Deployment** — One-command deployment with optional local Elasticsearch
+- **Git-Synced Test Library** — Tests pulled from a Git repository with automatic sync
+- **Multi-Index Management** — Per-task Elasticsearch index targeting for isolated result sets
+- **Dark/Light Themes** — Full theme support across all modules
 
 ## Quick Start
 
-### Prerequisites
-
-- **Node.js** 18.x or higher
-- **npm** 9.x or higher
-- **Git**
-
-### Installation
+### Path A — Local Development
 
 ```bash
 # Clone the repository
-git clone https://github.com/ubercylon8/ProjectAchilles.git
+git clone https://github.com/projectachilles/ProjectAchilles.git
 cd ProjectAchilles
 
-# Start the full stack (installs dependencies automatically)
-./start.sh
+# Start the full stack (installs deps, finds available ports)
+./start.sh -k --daemon
 ```
 
-The application will be available at:
-- **Frontend**: http://localhost:5173
-- **Backend API**: http://localhost:3000
+Configure Clerk authentication (see [Configuration](#configuration)), then open http://localhost:5173.
 
-### Configuration
-
-#### Authentication (Required)
-1. Create a Clerk account at https://clerk.com
-2. Create a new application and enable social providers (Google, Microsoft, GitHub)
-3. Copy your API keys to `.env` files:
+### Path B — Docker Compose
 
 ```bash
-# Frontend .env
-VITE_CLERK_PUBLISHABLE_KEY=pk_test_...
+# Clone and run the setup wizard
+git clone https://github.com/projectachilles/ProjectAchilles.git
+cd ProjectAchilles
+./setup.sh
 
-# Backend .env
-CLERK_PUBLISHABLE_KEY=pk_test_...
-CLERK_SECRET_KEY=sk_test_...
+# Start services
+docker compose up -d
+
+# Optional: include local Elasticsearch with synthetic data
+docker compose --profile elasticsearch up -d
 ```
 
-4. Access the application at http://localhost:5173 and sign in
+### Path C — Windows (PowerShell)
 
-#### Analytics Module (Optional)
-Navigate to `/analytics/setup` to configure your Elasticsearch connection for test results analytics.
+```powershell
+git clone https://github.com/ubercylon8/ProjectAchilles.git
+cd ProjectAchilles
+.\Install-ProjectAchilles.ps1
+```
 
-#### Endpoints Module (Optional)
-Navigate to `/endpoints/login` to authenticate with your LimaCharlie credentials for endpoint management.
+The PowerShell script checks prerequisites, fixes line endings, configures `backend/.env` interactively, builds Docker images, and opens the dashboard. See [Windows Docker Installation](WINDOWS_DOCKER_INSTALL.md) for the full manual guide.
+
+## Features
+
+### Test Browser
+
+Browse a git-synced library of security tests with rich metadata. Each test includes source code, documentation, detection rules (KQL/YARA), and attack flow diagrams.
+
+- Filter by MITRE ATT&CK technique, platform, category, and severity
+- Favorite tests and track recent views
+- View version history, author info, and Git modification dates
+- Copy-to-clipboard for detection rules and test artifacts
+- Build, sign, and download test binaries directly from test detail pages
+
+### Analytics Dashboard
+
+Measure your defensive posture with 30+ query endpoints powered by Elasticsearch.
+
+- **Defense Score** — Aggregate score with breakdowns by test, technique, category, hostname, and severity
+- **Trend Analysis** — Rolling-window defense score and error rate trends over time
+- **Heatmaps** — Host-test matrix showing protection status across your fleet
+- **Treemaps** — Hierarchical category/subcategory coverage visualization
+- **Execution Table** — Paginated results with advanced filtering (technique, hostname, threat actor, tags, error codes)
+- **Multi-Index Management** — Switch between Elasticsearch indices, create new ones, view index metadata
+
+### Agent System
+
+Deploy a custom Go agent to endpoints for remote test execution with full lifecycle management.
+
+- **Enrollment** — Token-based registration with configurable TTL and max uses
+- **Heartbeat Monitoring** — Real-time online/offline status with CPU, memory, disk, and uptime metrics
+- **Task Execution** — Download, verify (SHA256), execute, and report results with stdout/stderr capture
+- **Self-Updating** — Agents poll for new versions and auto-apply updates
+- **Tagging** — Organize agents with custom tags for filtering and bulk operations
+- **Cross-Platform** — Windows and Linux support (amd64/arm64)
+
+### Build System
+
+Compile and sign test binaries on demand with Go cross-compilation.
+
+- **Cross-Compilation** — Build for Linux/Windows × amd64/arm64 from any host OS
+- **Code Signing** — Windows Authenticode signing via osslsigncode
+- **Multi-Certificate Management** — Upload PFX/P12 or generate self-signed certs (up to 5)
+- **Embed Dependencies** — Detects `//go:embed` directives and allows uploading required files
+- **Build Caching** — Previously built binaries cached for instant download
+
+### Task Scheduling
+
+Automate test execution across agent pools with flexible scheduling.
+
+- **Schedule Types** — Once, daily, weekly (specific days), monthly (specific day)
+- **Randomized Timing** — Optional randomization within office hours for realistic simulation
+- **Per-Task ES Index** — Target specific Elasticsearch indices per task for result isolation
+- **Task Notes** — Editable, version-tracked notes on each task
+- **Priority Queue** — Higher-priority tasks assigned first
 
 ## Architecture
 
 ```
-ProjectAchilles/
-├── frontend/                 # React 19 + TypeScript + Vite
-│   ├── src/
-│   │   ├── components/       # Shared UI components
-│   │   │   ├── auth/         # Authentication components
-│   │   │   └── shared/       # Reusable UI components
-│   │   ├── pages/            # Module-specific pages
-│   │   │   ├── auth/         # Sign in/up pages
-│   │   │   ├── browser/      # Security test browser
-│   │   │   ├── analytics/    # Analytics dashboard
-│   │   │   └── endpoints/    # Endpoint management
-│   │   ├── services/api/     # API client modules
-│   │   ├── hooks/            # Custom React hooks
-│   │   ├── store/            # Redux state management
-│   │   └── routes/           # React Router configuration
-│   └── package.json
-├── backend/                  # Express + TypeScript
-│   ├── src/
-│   │   ├── api/              # Route handlers
-│   │   ├── services/         # Business logic by module
-│   │   ├── middleware/       # Express middleware (auth, Clerk)
-│   │   └── types/            # TypeScript definitions
-│   └── package.json
-├── tests_source/             # Security test repository (20 tests)
-│   └── {uuid}/               # Individual test directories
-│       ├── {uuid}.go         # Test source code
-│       ├── README.md         # Test documentation
-│       ├── {uuid}_info.md    # Test metadata card
-│       ├── *.kql             # Detection rules (KQL)
-│       ├── *.yar             # Detection rules (YARA)
-│       └── *.html            # Attack flow diagrams
-├── start.sh                  # Unified startup script
-└── CLAUDE.md                 # AI assistant guidance
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Frontend (React SPA)                        │
+│   Browser  │  Analytics  │  Agents  │  Settings  │  Scheduling     │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │ REST API
+┌──────────────────────────────┴──────────────────────────────────────┐
+│                      Backend (Express + TS)                        │
+│                                                                    │
+│  ┌──────────┐  ┌───────────┐  ┌──────────┐  ┌──────────────────┐  │
+│  │ Browser  │  │ Analytics │  │  Agent   │  │     Build        │  │
+│  │ Service  │  │  Service  │  │ Service  │  │    Service       │  │
+│  └────┬─────┘  └─────┬─────┘  └────┬─────┘  └───────┬──────────┘  │
+│       │              │             │                │              │
+│  ┌────┴─────┐  ┌─────┴─────┐  ┌───┴──────┐  ┌──────┴──────────┐  │
+│  │ Git Repo │  │Elastic-   │  │ SQLite   │  │ Go Toolchain    │  │
+│  │ (Tests)  │  │search     │  │ (Agents, │  │ + osslsigncode  │  │
+│  └──────────┘  └───────────┘  │  Tasks)  │  └─────────────────┘  │
+│                               └──────────┘                        │
+└───────────────────────────────────────────────────────────────────┘
+                               │ Agent API
+                    ┌──────────┴──────────┐
+                    │   Achilles Agent    │
+                    │   (Go binary)       │
+                    │   ┌──────────────┐  │
+                    │   │ Heartbeat    │  │
+                    │   │ Task Poller  │  │
+                    │   │ Executor     │  │
+                    │   │ Self-Updater │  │
+                    │   └──────────────┘  │
+                    └─────────────────────┘
+                         Endpoints
 ```
 
 ### Tech Stack
 
-| Layer | Technology |
-|-------|------------|
-| Frontend Framework | React 19 |
-| Build Tool | Vite 7 |
-| Styling | Tailwind CSS 4 |
-| State Management | Redux Toolkit |
-| Routing | React Router 7 |
-| Authentication | Clerk |
-| Backend Framework | Express |
-| Language | TypeScript 5 |
-| Analytics Backend | Elasticsearch |
-| Endpoint Backend | LimaCharlie |
+| Layer | Technology | Version |
+|-------|------------|---------|
+| Frontend | React | 19.2 |
+| Build Tool | Vite | 7.2 |
+| Styling | Tailwind CSS | 4.1 |
+| State Management | Redux Toolkit | 2.10 |
+| Routing | React Router | 7.13 |
+| Authentication | Clerk | 5.x |
+| Backend | Express | 4.18 |
+| Language | TypeScript | 5.9 |
+| Agent | Go | 1.24 |
+| Analytics Store | Elasticsearch | 8.17 |
+| Agent Database | SQLite | 3.x |
+| Code Signing | osslsigncode | — |
+| Containerization | Docker Compose | — |
 
-## API Reference
+### Project Structure
 
-> **Note:** All API endpoints require Clerk authentication. Include the JWT token in the `Authorization: Bearer <token>` header.
-
-### Browser Module
-| Endpoint | Description | Auth Required |
-|----------|-------------|---------------|
-| `GET /api/browser/tests` | List all security tests | Clerk |
-| `GET /api/browser/tests/:uuid` | Get test details | Clerk |
-| `GET /api/browser/tests/:uuid/files` | Get test files | Clerk |
-
-### Analytics Module
-| Endpoint | Description | Auth Required |
-|----------|-------------|---------------|
-| `POST /api/analytics/settings` | Configure Elasticsearch | Clerk |
-| `POST /api/analytics/settings/test` | Test Elasticsearch connection | Clerk |
-| `GET /api/analytics/defense-score` | Get defense score metrics | Clerk |
-| `GET /api/analytics/executions` | List test executions | Clerk |
-
-### Endpoints Module
-| Endpoint | Description | Auth Required |
-|----------|-------------|---------------|
-| `POST /api/auth/login` | Authenticate with LimaCharlie | Clerk |
-| `GET /api/auth/session` | Get current session info | Clerk |
-| `POST /api/auth/logout` | Clear session | Clerk |
-| `GET /api/endpoints/sensors` | List sensors | Clerk + LC |
-| `GET /api/endpoints/tasks` | List tasks | Clerk + LC |
-| `GET /api/endpoints/payloads` | List payloads | Clerk + LC |
-
-**Auth Legend:**
-- **Clerk**: Requires Clerk JWT authentication
-- **Clerk + LC**: Requires both Clerk authentication and LimaCharlie credentials
-
-## Documentation
-
-### Development & Contributing
-- [CLAUDE.md](CLAUDE.md) - AI assistant guidance for development
-- [CONTRIBUTING.md](CONTRIBUTING.md) - Contribution guidelines
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) - Community guidelines
-
-### Security & Compliance
-- [SECURITY.md](SECURITY.md) - Security policy
-- [CHANGELOG.md](CHANGELOG.md) - Version history
-
-### Authentication Setup
-- [Email Authentication Quick Start](docs/EMAIL_AUTH_QUICKSTART.md) - 5-minute email auth setup
-- [Email Authentication Guide](docs/EMAIL_AUTH_SETUP.md) - Complete email auth documentation
-
-### Production Deployment
-- [Quick Start Deployment](QUICK_START_DEPLOYMENT.md) - 50-minute production deployment
-- [Production Deployment Guide](PRODUCTION_DEPLOYMENT.md) - Comprehensive deployment guide
-- [Deployment Checklist](DEPLOYMENT_CHECKLIST.md) - Interactive deployment checklist
-
-## Development
-
-### Running Individual Services
-
-```bash
-# Frontend only
-cd frontend && npm run dev
-
-# Backend only
-cd backend && npm run dev
+```
+ProjectAchilles/
+├── frontend/                  # React 19 + TypeScript + Vite
+│   └── src/
+│       ├── components/        # Shared UI primitives
+│       ├── pages/             # Module pages (browser, analytics, agents, settings)
+│       ├── services/api/      # API client modules
+│       ├── hooks/             # Custom hooks (useAuthenticatedApi, etc.)
+│       └── store/             # Redux slices
+├── backend/                   # Express + TypeScript (ES modules)
+│   └── src/
+│       ├── api/               # Route handlers (*.routes.ts)
+│       ├── services/          # Business logic by module
+│       ├── middleware/         # Auth, error handling, rate limiting
+│       └── types/             # TypeScript definitions
+├── agent/                     # Go agent source
+│   ├── main.go                # CLI entry point (--enroll, --run, --install)
+│   └── internal/              # Agent modules (poller, executor, updater, sysinfo)
+├── docker-compose.yml         # Multi-service deployment
+├── setup.sh                   # Interactive setup wizard (Linux/macOS)
+├── Install-ProjectAchilles.ps1 # Bootstrap script (Windows PowerShell)
+├── start.sh                   # Development startup script
+└── CLAUDE.md                  # AI assistant development guidance
 ```
 
-### Building for Production
+## Configuration
+
+### Authentication (Required)
+
+All modules require [Clerk](https://clerk.com) authentication. Create a Clerk application and configure your keys:
 
 ```bash
-# Frontend
-cd frontend && npm run build
+# frontend/.env
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_...
 
-# Backend
-cd backend && npm run build
+# backend/.env
+CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
 ```
 
 ### Environment Variables
 
 #### Frontend
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `VITE_CLERK_PUBLISHABLE_KEY` | Clerk publishable key | ✅ Yes |
-| `VITE_BACKEND_PORT` | Backend port for Vite proxy | No (default: 3000) |
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `VITE_CLERK_PUBLISHABLE_KEY` | Clerk publishable key | — (required) |
+| `VITE_BACKEND_PORT` | Backend port for Vite proxy | `3000` |
+| `VITE_API_URL` | Full backend URL (production) | — |
 
 #### Backend
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `CLERK_PUBLISHABLE_KEY` | Clerk publishable key | ✅ Yes |
-| `CLERK_SECRET_KEY` | Clerk secret key | ✅ Yes |
-| `PORT` | Backend server port | No (default: 3000) |
-| `SESSION_SECRET` | Express session secret | ⚠️ Yes (production) |
-| `CORS_ORIGIN` | Allowed CORS origin | No (default: localhost:5173) |
-| `TESTS_SOURCE_PATH` | Path to security tests directory | No (default: ./tests_source) |
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CLERK_PUBLISHABLE_KEY` | Clerk publishable key | — (required) |
+| `CLERK_SECRET_KEY` | Clerk secret key | — (required) |
+| `PORT` | Server port | `3000` |
+| `SESSION_SECRET` | Session signing key | — (required in prod) |
+| `CORS_ORIGIN` | Allowed CORS origin | `http://localhost:5173` |
+| `TESTS_REPO_URL` | Git URL for test library | — |
+| `GITHUB_TOKEN` | PAT for private repos | — |
+| `TESTS_SOURCE_PATH` | Local fallback path for tests | `./tests_source` |
+| `AGENT_SERVER_URL` | External URL for agent communication | — |
+| `ENCRYPTION_SECRET` | Encryption key for settings at rest | Machine-derived |
+
+#### Elasticsearch (optional)
+
+| Variable | Description |
+|----------|-------------|
+| `ELASTICSEARCH_CLOUD_ID` | Elastic Cloud deployment ID |
+| `ELASTICSEARCH_API_KEY` | API key for authentication |
+| `ELASTICSEARCH_NODE` | Direct node URL (e.g., `http://localhost:9200`) |
+| `ELASTICSEARCH_INDEX_PATTERN` | Index pattern (default: `achilles-results-*`) |
+
+#### Docker
+
+| Variable | Description |
+|----------|-------------|
+| `NGROK_FRONTEND_DOMAIN` | ngrok domain for frontend tunnel |
+| `NGROK_BACKEND_DOMAIN` | ngrok domain for backend/agent tunnel |
+
+## API Reference
+
+> All endpoints require Clerk JWT authentication unless noted. Include `Authorization: Bearer <token>` header.
+
+### Browser
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/browser/tests` | List all security tests |
+| `GET` | `/api/browser/tests/:uuid` | Get test details with metadata |
+| `GET` | `/api/browser/tests/:uuid/files` | List test files |
+| `GET` | `/api/browser/tests/:uuid/files/:filename` | Get file contents |
+
+### Analytics
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/analytics/defense-score` | Aggregate defense score |
+| `GET` | `/api/analytics/defense-score/trend` | Score trend over time |
+| `GET` | `/api/analytics/host-test-matrix` | Host × test heatmap data |
+| `GET` | `/api/analytics/technique-distribution` | Technique coverage breakdown |
+| `GET` | `/api/analytics/executions/paginated` | Paginated results with filters |
+| `POST` | `/api/analytics/settings` | Configure Elasticsearch connection |
+
+### Agent (Admin)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/agent/admin/agents` | List agents with filters |
+| `POST` | `/api/agent/admin/tokens` | Create enrollment token |
+| `POST` | `/api/agent/admin/tasks` | Create task for agent(s) |
+| `GET` | `/api/agent/admin/schedules` | List schedules |
+| `POST` | `/api/agent/admin/schedules` | Create recurring schedule |
+
+### Agent (Device)
+
+| Method | Endpoint | Auth |
+|--------|----------|------|
+| `POST` | `/api/agent/enroll` | Enrollment token |
+| `POST` | `/api/agent/heartbeat` | Agent key |
+| `GET` | `/api/agent/tasks` | Agent key |
+| `POST` | `/api/agent/tasks/:id/result` | Agent key |
+| `GET` | `/api/agent/update` | Agent key |
+
+### Build & Settings
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/tests/builds/:uuid` | Trigger cross-compilation |
+| `GET` | `/api/tests/builds/:uuid/download` | Download built binary |
+| `GET` | `/api/tests/certificates` | List certificates |
+| `POST` | `/api/tests/certificates/upload` | Upload PFX/P12 certificate |
+| `POST` | `/api/tests/certificates/generate` | Generate self-signed certificate |
+
+## Documentation
+
+### Getting Started
+- [Windows Docker Installation](WINDOWS_DOCKER_INSTALL.md) — Complete guide for Windows with Docker Desktop
+- [Quick Start Deployment](QUICK_START_DEPLOYMENT.md) — 50-minute production deployment
+- [Docker Compose guide](docker-compose.yml) — Local deployment with optional Elasticsearch
+
+### Deployment
+- [Production Deployment Guide](PRODUCTION_DEPLOYMENT.md) — Comprehensive Railway deployment
+- [Deployment Checklist](DEPLOYMENT_CHECKLIST.md) — Interactive pre-flight checklist
+
+### Development
+- [CLAUDE.md](CLAUDE.md) — AI-assisted development guidance
+- [Contributing Guide](CONTRIBUTING.md) — Contribution guidelines and code standards
+- [Changelog](CHANGELOG.md) — Version history
+
+### Security & Community
+- [Security Policy](SECURITY.md) — Vulnerability reporting and security model
+- [Code of Conduct](CODE_OF_CONDUCT.md) — Community guidelines
+- [Roadmap](ROADMAP.md) — Planned features and direction
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+We welcome contributions across all modules — frontend, backend, agent (Go), and documentation. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on setup, coding standards, and the PR process.
 
 ## Security
 
-For security concerns, please review our [Security Policy](SECURITY.md) and report vulnerabilities responsibly.
+For security vulnerabilities, please report via [GitHub Security Advisories](https://github.com/projectachilles/ProjectAchilles/security/advisories) or review our [Security Policy](SECURITY.md).
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
 ---
 
 <div align="center">
 
-**Built with security in mind**
+**Built for purple teams**
 
 </div>

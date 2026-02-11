@@ -59,7 +59,7 @@
 ### Railway Project
 - [ ] Created account at https://railway.app
 - [ ] Created new project
-- [ ] Connected GitHub repo: `ubercylon8/ProjectAchilles`
+- [ ] Connected GitHub repo: `projectachilles/ProjectAchilles`
 - [ ] Railway detected monorepo structure
 
 ### Backend Service
@@ -252,4 +252,4 @@ _______________________________________________________________________________
 **Support:**
 - Railway Docs: https://docs.railway.app
 - Clerk Docs: https://clerk.com/docs
-- Project Repo: https://github.com/ubercylon8/ProjectAchilles
+- Project Repo: https://github.com/projectachilles/ProjectAchilles
