@@ -23,7 +23,7 @@ export function requireClerkAuth(
 ) {
   const auth = getAuth(req);
   if (!auth.isAuthenticated) {
-    return res.status(401).send("Unauthorized");
+    return res.status(401).json({success:false,error:"Unauthorized"});
   }
   next();
 }
