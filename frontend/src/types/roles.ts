@@ -70,10 +70,12 @@ export const ROLE_PERMISSIONS: Record<AppRole, readonly Permission[]> = {
     'tests:library:read',
     'analytics:dashboards:read', 'analytics:settings:read',
     'endpoints:tasks:read', 'endpoints:tasks:notes',
+    'settings:platform:read',
   ],
   explorer: [
     'tests:library:read',
     'analytics:dashboards:read', 'analytics:settings:read',
+    'settings:platform:read',
   ],
 };
 

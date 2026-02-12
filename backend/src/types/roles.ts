@@ -128,6 +128,8 @@ export const ROLE_PERMISSIONS: Record<AppRole, readonly Permission[]> = {
     // Endpoints — tasks read-only + notes
     'endpoints:tasks:read',
     'endpoints:tasks:notes',
+    // Settings — read-only integrations (see ES connection status)
+    'settings:platform:read',
   ],
 
   explorer: [
@@ -136,6 +138,8 @@ export const ROLE_PERMISSIONS: Record<AppRole, readonly Permission[]> = {
     // Analytics — full read
     'analytics:dashboards:read',
     'analytics:settings:read',
+    // Settings — read-only integrations (see ES connection status)
+    'settings:platform:read',
   ],
 } as const;
 
