@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
 import { requireAgentOrgAccess, requirePermission } from '../../middleware/clerk.middleware.js';
 import {
@@ -174,12 +175,22 @@ adminAgentRouter.delete(
   })
 );
 
+// M6: Strict rate limit for key rotation — bcrypt hash generation is expensive
+const keyRotationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many key rotation attempts, try again later' },
+});
+
 /**
  * POST /admin/agents/:id/rotate-key
  * Rotate an agent's API key. Returns the new key exactly once.
  */
 adminAgentRouter.post(
   '/agents/:id/rotate-key',
+  keyRotationLimiter,
   requirePermission('endpoints:agents:write'),
   requireAgentOrgAccess,
   asyncHandler(async (req: Request, res: Response) => {
