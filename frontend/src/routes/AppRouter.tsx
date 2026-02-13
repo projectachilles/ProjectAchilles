@@ -1,8 +1,11 @@
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAnalyticsAuth } from '../hooks/useAnalyticsAuth';
+import { useCanAccessModule } from '../hooks/useAppRole';
 import { RequireAuth } from '../components/auth/RequireAuth';
+import { RequireModule } from '../components/auth/RequireModule';
 import Layout from '../components/shared/Layout';
 import { Loading } from '../components/shared/ui/Spinner';
+import { Alert } from '../components/shared/ui/Alert';
 
 // Public Pages
 import HeroPage from '../pages/HeroPage';
@@ -30,17 +33,31 @@ import TasksPage from '../pages/endpoints/TasksPage';
 // Protected Route wrapper for Analytics
 function AnalyticsProtectedRoute({ children }: { children: React.ReactNode }) {
   const { configured, loading } = useAnalyticsAuth();
+  const canAccessSettings = useCanAccessModule('settings');
 
   if (loading) {
     return (
-      <div className="min-h-[400px] flex items-center justify-center">
-        <Loading message="Checking configuration..." />
-      </div>
+      <Layout>
+        <div className="min-h-[400px] flex items-center justify-center">
+          <Loading message="Checking configuration..." />
+        </div>
+      </Layout>
     );
   }
 
   if (!configured) {
-    return <Navigate to="/settings" replace />;
+    if (canAccessSettings) {
+      return <Navigate to="/settings" replace />;
+    }
+    return (
+      <Layout>
+        <div className="min-h-[400px] flex items-center justify-center">
+          <Alert variant="destructive">
+            Analytics is not configured. Ask an Administrator to configure Elasticsearch in Settings.
+          </Alert>
+        </div>
+      </Layout>
+    );
   }
 
   return <>{children}</>;
@@ -78,23 +95,14 @@ export default function AppRouter() {
         </Route>
 
         {/* Settings Page */}
-        <Route path="settings" element={<SettingsPage />} />
+        <Route path="settings" element={<RequireModule module="settings"><SettingsPage /></RequireModule>} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
 
-      {/* Endpoints Module - ACHILLES AGENT (Clerk auth only) */}
-      <Route path="endpoints" element={<RequireAuth><AppLayout /></RequireAuth>}>
-        <Route index element={<Navigate to="/endpoints/dashboard" replace />} />
-        <Route path="dashboard" element={<AgentDashboardPage />} />
-        <Route path="agents" element={<AgentsPage />} />
-        <Route path="tasks" element={<TasksPage />} />
-      </Route>
-
-      {/* Analytics Module - DUAL AUTH (Clerk + Elasticsearch config) */}
+      {/* Analytics Module - has its own Layout, must be outside AppLayout */}
       <Route path="analytics">
-        {/* Old setup route redirects to settings */}
         <Route path="setup" element={<Navigate to="/settings" replace />} />
         <Route index element={
           <RequireAuth>
@@ -103,6 +111,14 @@ export default function AppRouter() {
             </AnalyticsProtectedRoute>
           </RequireAuth>
         } />
+      </Route>
+
+      {/* Endpoints Module - ACHILLES AGENT (Clerk auth + RBAC) */}
+      <Route path="endpoints" element={<RequireAuth><RequireModule module="endpoints"><AppLayout /></RequireModule></RequireAuth>}>
+        <Route index element={<Navigate to="/endpoints/dashboard" replace />} />
+        <Route path="dashboard" element={<AgentDashboardPage />} />
+        <Route path="agents" element={<AgentsPage />} />
+        <Route path="tasks" element={<TasksPage />} />
       </Route>
     </Routes>
   );

@@ -3,6 +3,7 @@ import { SettingsSidebar, type SettingsTab } from './components/SettingsSidebar'
 import { IntegrationsTab } from './components/IntegrationsTab';
 import { TestsTab } from './components/TestsTab';
 import { AgentTab } from './components/AgentTab';
+import { UsersTab } from './components/UsersTab';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('integrations');
@@ -15,6 +16,8 @@ export default function SettingsPage() {
         return <TestsTab />;
       case 'agent':
         return <AgentTab />;
+      case 'users':
+        return <UsersTab />;
       default:
         return <IntegrationsTab />;
     }

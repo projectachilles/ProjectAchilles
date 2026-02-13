@@ -22,10 +22,11 @@ function formatSize(bytes: number): string {
 
 interface AgentVersionTableProps {
   versions: AgentVersion[];
+  canDelete?: boolean;
   onDeleted: () => void;
 }
 
-export function AgentVersionTable({ versions, onDeleted }: AgentVersionTableProps) {
+export function AgentVersionTable({ versions, canDelete = true, onDeleted }: AgentVersionTableProps) {
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
 
   async function handleDelete(v: AgentVersion) {
@@ -61,7 +62,7 @@ export function AgentVersionTable({ versions, onDeleted }: AgentVersionTableProp
           <TableHead>Signed</TableHead>
           <TableHead>Mandatory</TableHead>
           <TableHead>Created</TableHead>
-          <TableHead className="w-16">Delete</TableHead>
+          {canDelete && <TableHead className="w-16">Delete</TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -97,20 +98,22 @@ export function AgentVersionTable({ versions, onDeleted }: AgentVersionTableProp
               <TableCell className="text-sm">
                 {new Date(v.created_at).toLocaleDateString()}
               </TableCell>
-              <TableCell>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => handleDelete(v)}
-                  disabled={isDeleting}
-                >
-                  {isDeleting ? (
-                    <Spinner size="sm" />
-                  ) : (
-                    <Trash2 className="w-4 h-4 text-destructive" />
-                  )}
-                </Button>
-              </TableCell>
+              {canDelete && (
+                <TableCell>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleDelete(v)}
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? (
+                      <Spinner size="sm" />
+                    ) : (
+                      <Trash2 className="w-4 h-4 text-destructive" />
+                    )}
+                  </Button>
+                </TableCell>
+              )}
             </TableRow>
           );
         })}

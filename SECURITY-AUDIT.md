@@ -39,7 +39,7 @@ This audit identified **27 unique findings** across 20+ security-critical files.
 #### H1: No Multi-Tenancy Authorization on Admin Endpoints
 - **OWASP**: A01 Broken Access Control
 - **Location**: `backend/src/api/agent/index.ts:29-34` and all admin route handlers
-- **Description**: Admin endpoints are protected by `requireClerkAuth()` but do NOT verify the authenticated user belongs to the organization they are querying. The `org_id` parameter is user-supplied and never validated against Clerk organization membership. Any authenticated user can enumerate agents, create enrollment tokens, push tasks, and delete agents in any organization.
+- **Description**: Admin endpoints are protected by `requireClerkAuth` but do NOT verify the authenticated user belongs to the organization they are querying. The `org_id` parameter is user-supplied and never validated against Clerk organization membership. Any authenticated user can enumerate agents, create enrollment tokens, push tasks, and delete agents in any organization.
 - **Impact**: Complete cross-tenant data access and modification.
 - **Remediation**: Extract org membership from Clerk JWT claims and enforce that users can only access their own organization's resources.
 

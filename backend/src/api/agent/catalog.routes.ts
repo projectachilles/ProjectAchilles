@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../middleware/error.middleware.js';
+import { requirePermission } from '../../middleware/clerk.middleware.js';
 import { initCatalog, getCatalogSize } from '../../services/agent/test-catalog.service.js';
 
 export function createAdminCatalogRouter(testsSourcePath: string): Router {
@@ -11,6 +12,7 @@ export function createAdminCatalogRouter(testsSourcePath: string): Router {
    */
   router.post(
     '/catalog/reload',
+    requirePermission('tests:sync:execute'),
     asyncHandler(async (_req, res) => {
       initCatalog(testsSourcePath);
       res.json({ success: true, catalogSize: getCatalogSize() });

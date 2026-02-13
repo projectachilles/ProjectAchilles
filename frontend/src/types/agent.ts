@@ -85,6 +85,7 @@ export interface TaskNoteEntry {
 export interface AgentTask {
   id: string;
   agent_id: string;
+  agent_hostname: string | null;
   type: TaskType;
   priority: number;
   status: TaskStatus;
@@ -101,6 +102,18 @@ export interface AgentTask {
   created_at: string;
   assigned_at: string | null;
   completed_at: string | null;
+  batch_id: string;
+}
+
+export interface TaskGroup {
+  batch_id: string;
+  type: TaskType;
+  payload: AgentTask['payload'];
+  created_at: string;
+  created_by: string | null;
+  agent_count: number;
+  status_counts: Partial<Record<TaskStatus, number>>;
+  tasks: AgentTask[];
 }
 
 export interface EnrollmentToken {
@@ -156,6 +169,7 @@ export interface ListTasksRequest {
   agent_id?: string;
   status?: TaskStatus;
   type?: TaskType;
+  search?: string;
   limit?: number;
   offset?: number;
 }

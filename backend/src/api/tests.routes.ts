@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { requireClerkAuth } from '../middleware/clerk.middleware.js';
+import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { TestsSettingsService } from '../services/tests/settings.js';
 import { BuildService, BuildError } from '../services/tests/buildService.js';
@@ -23,13 +23,13 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   // ── Platform Settings ──────────────────────────────────────
 
   // GET /api/tests/platform
-  router.get('/platform', (_req, res) => {
+  router.get('/platform', requirePermission('settings:platform:read'), (_req, res) => {
     const platform = testsSettings.getPlatformSettings();
     res.json({ success: true, data: platform });
   });
 
   // POST /api/tests/platform
-  router.post('/platform', asyncHandler(async (req, res) => {
+  router.post('/platform', requirePermission('settings:platform:write'), asyncHandler(async (req, res) => {
     const { os, arch } = req.body;
 
     if (!os || !VALID_OS.includes(os)) {
@@ -50,13 +50,13 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   // ── Certificate Management ─────────────────────────────────
 
   // GET /api/tests/certificate
-  router.get('/certificate', (_req, res) => {
+  router.get('/certificate', requirePermission('settings:certificates:read'), (_req, res) => {
     const info = testsSettings.getCertificateInfo();
     res.json({ success: true, data: info });
   });
 
   // POST /api/tests/certificate
-  router.post('/certificate', asyncHandler(async (req, res) => {
+  router.post('/certificate', requirePermission('settings:certificates:create'), asyncHandler(async (req, res) => {
     const { commonName, organization, country } = req.body;
 
     if (!commonName || !organization || !country) {
@@ -72,7 +72,7 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   }));
 
   // DELETE /api/tests/certificate
-  router.delete('/certificate', (_req, res) => {
+  router.delete('/certificate', requirePermission('settings:certificates:delete'), (_req, res) => {
     testsSettings.deleteCertificate();
     res.json({ success: true });
   });
@@ -86,13 +86,13 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   }
 
   // GET /api/tests/certificates — List all certs + active ID
-  router.get('/certificates', (_req, res) => {
+  router.get('/certificates', requirePermission('settings:certificates:read'), (_req, res) => {
     const data = testsSettings.listCertificates();
     res.json({ success: true, data });
   });
 
   // POST /api/tests/certificates/upload — Upload a PFX certificate
-  router.post('/certificates/upload', certUpload.single('file'), asyncHandler(async (req, res) => {
+  router.post('/certificates/upload', requirePermission('settings:certificates:create'), certUpload.single('file'), asyncHandler(async (req, res) => {
     if (!req.file) {
       throw new AppError('No file uploaded', 400);
     }
@@ -124,7 +124,7 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   }));
 
   // POST /api/tests/certificates/generate — Generate a self-signed cert
-  router.post('/certificates/generate', asyncHandler(async (req, res) => {
+  router.post('/certificates/generate', requirePermission('settings:certificates:create'), asyncHandler(async (req, res) => {
     const { commonName, organization, country, label } = req.body;
 
     if (!commonName || !organization || !country) {
@@ -148,7 +148,7 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   }));
 
   // PUT /api/tests/certificates/:id/active — Set active cert
-  router.put('/certificates/:id/active', asyncHandler(async (req, res) => {
+  router.put('/certificates/:id/active', requirePermission('settings:certificates:create'), asyncHandler(async (req, res) => {
     validateCertId(req.params.id);
     try {
       testsSettings.setActiveCertificateId(req.params.id);
@@ -160,7 +160,7 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   }));
 
   // PATCH /api/tests/certificates/:id — Update label
-  router.patch('/certificates/:id', asyncHandler(async (req, res) => {
+  router.patch('/certificates/:id', requirePermission('settings:certificates:create'), asyncHandler(async (req, res) => {
     validateCertId(req.params.id);
     const { label } = req.body;
     if (typeof label !== 'string') {
@@ -176,7 +176,7 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   }));
 
   // DELETE /api/tests/certificates/:id — Delete cert by ID
-  router.delete('/certificates/:id', asyncHandler(async (req, res) => {
+  router.delete('/certificates/:id', requirePermission('settings:certificates:delete'), asyncHandler(async (req, res) => {
     validateCertId(req.params.id);
     try {
       testsSettings.deleteCertificate(req.params.id);
@@ -196,14 +196,14 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   }
 
   // GET /api/tests/builds/:uuid - Get build info
-  router.get('/builds/:uuid', asyncHandler(async (req, res) => {
+  router.get('/builds/:uuid', requirePermission('tests:builds:read'), asyncHandler(async (req, res) => {
     validateUuid(req.params.uuid);
     const info = buildService.getBuildInfo(req.params.uuid);
     res.json({ success: true, data: info });
   }));
 
   // POST /api/tests/builds/:uuid - Build & sign
-  router.post('/builds/:uuid', asyncHandler(async (req, res) => {
+  router.post('/builds/:uuid', requirePermission('tests:builds:create'), asyncHandler(async (req, res) => {
     validateUuid(req.params.uuid);
     try {
       const info = await buildService.buildAndSign(req.params.uuid);
@@ -217,14 +217,14 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   }));
 
   // DELETE /api/tests/builds/:uuid - Delete build
-  router.delete('/builds/:uuid', asyncHandler(async (req, res) => {
+  router.delete('/builds/:uuid', requirePermission('tests:builds:delete'), asyncHandler(async (req, res) => {
     validateUuid(req.params.uuid);
     buildService.deleteBuild(req.params.uuid);
     res.json({ success: true });
   }));
 
   // GET /api/tests/builds/:uuid/download - Download binary
-  router.get('/builds/:uuid/download', asyncHandler(async (req, res) => {
+  router.get('/builds/:uuid/download', requirePermission('tests:builds:create'), asyncHandler(async (req, res) => {
     validateUuid(req.params.uuid);
     const binaryPath = buildService.getBinaryPath(req.params.uuid);
     if (!binaryPath) {
@@ -234,14 +234,14 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   }));
 
   // GET /api/tests/builds/:uuid/dependencies - Get embed dependencies
-  router.get('/builds/:uuid/dependencies', asyncHandler(async (req, res) => {
+  router.get('/builds/:uuid/dependencies', requirePermission('tests:builds:create'), asyncHandler(async (req, res) => {
     validateUuid(req.params.uuid);
     const deps = buildService.getEmbedDependencies(req.params.uuid);
     res.json({ success: true, data: deps });
   }));
 
   // POST /api/tests/builds/:uuid/upload - Upload embed dependency file
-  router.post('/builds/:uuid/upload', upload.single('file'), asyncHandler(async (req, res) => {
+  router.post('/builds/:uuid/upload', requirePermission('tests:builds:create'), upload.single('file'), asyncHandler(async (req, res) => {
     validateUuid(req.params.uuid);
 
     if (!req.file) {

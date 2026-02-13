@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
-import { getUserId } from '../../middleware/clerk.middleware.js';
+import { getUserId, requirePermission } from '../../middleware/clerk.middleware.js';
 import {
   createTasks,
   createCommandTasks,
@@ -8,8 +8,10 @@ import {
   updateTaskStatus,
   submitResult,
   listTasks,
+  listTasksGrouped,
   getTask,
   cancelTask,
+  deleteTask,
   updateTaskNotes,
 } from '../../services/agent/tasks.service.js';
 import { ingestResult } from '../../services/agent/results.service.js';
@@ -123,6 +125,7 @@ export const adminTasksRouter = Router();
  */
 adminTasksRouter.post(
   '/tasks',
+  requirePermission('endpoints:tasks:create'),
   asyncHandler(async (req, res) => {
     const userId = getUserId(req.auth);
     if (!userId) {
@@ -152,6 +155,7 @@ adminTasksRouter.post(
  */
 adminTasksRouter.post(
   '/tasks/command',
+  requirePermission('endpoints:tasks:command'),
   asyncHandler(async (req, res) => {
     const userId = getUserId(req.auth);
     if (!userId) {
@@ -185,12 +189,14 @@ adminTasksRouter.post(
  */
 adminTasksRouter.get(
   '/tasks',
+  requirePermission('endpoints:tasks:read'),
   asyncHandler(async (req, res) => {
     const filters: ListTasksRequest = {
       agent_id: req.query.agent_id as string | undefined,
       org_id: req.query.org_id as string | undefined,
       status: req.query.status as TaskStatus | undefined,
       type: req.query.type as TaskType | undefined,
+      search: req.query.search as string | undefined,
       limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
       offset: req.query.offset ? parseInt(req.query.offset as string, 10) : undefined,
     };
@@ -202,11 +208,35 @@ adminTasksRouter.get(
 );
 
 /**
+ * GET /admin/tasks/grouped
+ * List tasks grouped by batch_id with server-side pagination.
+ */
+adminTasksRouter.get(
+  '/tasks/grouped',
+  requirePermission('endpoints:tasks:read'),
+  asyncHandler(async (req, res) => {
+    const filters: ListTasksRequest = {
+      agent_id: req.query.agent_id as string | undefined,
+      org_id: req.query.org_id as string | undefined,
+      status: req.query.status as TaskStatus | undefined,
+      type: req.query.type as TaskType | undefined,
+      search: req.query.search as string | undefined,
+      limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
+      offset: req.query.offset ? parseInt(req.query.offset as string, 10) : undefined,
+    };
+
+    const result = listTasksGrouped(filters);
+    res.json({ success: true, data: result });
+  })
+);
+
+/**
  * GET /admin/tasks/:id
  * Get a single task by ID.
  */
 adminTasksRouter.get(
   '/tasks/:id',
+  requirePermission('endpoints:tasks:read'),
   asyncHandler(async (req, res) => {
     const task = getTask(req.params.id);
 
@@ -220,10 +250,24 @@ adminTasksRouter.get(
  */
 adminTasksRouter.post(
   '/tasks/:id/cancel',
+  requirePermission('endpoints:tasks:cancel'),
   asyncHandler(async (req, res) => {
     const task = cancelTask(req.params.id);
 
     res.json({ success: true, data: task });
+  })
+);
+
+/**
+ * DELETE /tasks/:id
+ * Delete a terminal task (completed/failed/expired).
+ */
+adminTasksRouter.delete(
+  '/tasks/:id',
+  requirePermission('endpoints:tasks:delete'),
+  asyncHandler(async (req, res) => {
+    deleteTask(req.params.id);
+    res.json({ success: true, data: null });
   })
 );
 
@@ -234,6 +278,7 @@ adminTasksRouter.post(
  */
 adminTasksRouter.patch(
   '/tasks/:id/notes',
+  requirePermission('endpoints:tasks:notes'),
   asyncHandler(async (req, res) => {
     const userId = getUserId(req.auth);
     if (!userId) {

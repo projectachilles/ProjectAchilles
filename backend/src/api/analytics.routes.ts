@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireClerkAuth } from '../middleware/clerk.middleware.js';
+import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { SettingsService } from '../services/analytics/settings.js';
 import { ElasticsearchService } from '../services/analytics/elasticsearch.js';
@@ -28,7 +28,7 @@ async function getEsService(): Promise<ElasticsearchService> {
 }
 
 // GET /api/analytics/settings - Get settings (masked)
-router.get('/settings', (_req, res) => {
+router.get('/settings', requirePermission('analytics:settings:read'), (_req, res) => {
   const settings = settingsService.getSettings();
   res.json({
     configured: settings.configured,
@@ -41,7 +41,7 @@ router.get('/settings', (_req, res) => {
 });
 
 // POST /api/analytics/settings - Save settings
-router.post('/settings', asyncHandler(async (req, res) => {
+router.post('/settings', requirePermission('analytics:settings:write'), asyncHandler(async (req, res) => {
   const { connectionType, cloudId, apiKey, node, username, password, indexPattern } = req.body;
 
   if (!connectionType) {
@@ -73,7 +73,7 @@ router.post('/settings', asyncHandler(async (req, res) => {
 }));
 
 // POST /api/analytics/settings/test - Test connection
-router.post('/settings/test', asyncHandler(async (req, res) => {
+router.post('/settings/test', requirePermission('analytics:settings:read'), asyncHandler(async (req, res) => {
   const { connectionType, cloudId, apiKey, node, username, password } = req.body;
 
   // Merge with existing settings so edit-mode tests work with blank credentials
@@ -100,6 +100,9 @@ router.post('/settings/test', asyncHandler(async (req, res) => {
     });
   }
 }));
+
+// All dashboard/query routes below require analytics:dashboards:read
+router.use(requirePermission('analytics:dashboards:read'));
 
 // GET /api/analytics/defense-score - Overall defense score
 router.get('/defense-score', asyncHandler(async (req, res) => {
@@ -572,7 +575,7 @@ router.get('/indices', asyncHandler(async (req, res) => {
 }));
 
 // POST /api/analytics/index/create - Create an ES index with the results mapping
-router.post('/index/create', asyncHandler(async (req, res) => {
+router.post('/index/create', requirePermission('analytics:index:create'), asyncHandler(async (req, res) => {
   const { index_name } = req.body as { index_name?: string };
 
   if (!index_name || typeof index_name !== 'string') {

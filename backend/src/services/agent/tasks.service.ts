@@ -6,6 +6,7 @@ import { getDatabase } from './database.js';
 import { AppError } from '../../middleware/error.middleware.js';
 import type {
   Task,
+  TaskGroup,
   TaskPayload,
   TaskResult,
   TaskStatus,
@@ -24,6 +25,7 @@ import { getTestMetadata } from './test-catalog.service.js';
 interface TaskRow {
   id: string;
   agent_id: string;
+  agent_hostname?: string | null;
   org_id: string;
   type: string;
   priority: number;
@@ -38,11 +40,13 @@ interface TaskRow {
   ttl: number;
   created_by: string;
   target_index: string | null;
+  batch_id: string;
 }
 
 function parseTaskRow(row: TaskRow): Task {
   return {
     ...row,
+    agent_hostname: row.agent_hostname ?? null,
     payload: JSON.parse(row.payload) as TaskPayload,
     result: row.result ? (JSON.parse(row.result) as TaskResult) : null,
     notes_history: row.notes_history ? (JSON.parse(row.notes_history) as TaskNoteEntry[]) : [],
@@ -163,9 +167,10 @@ export function createTasks(
   const payloadJson = JSON.stringify(payload);
 
   // Insert tasks inside a transaction
+  const batchId = crypto.randomUUID();
   const insertStmt = db.prepare(`
-    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_at, ttl, created_by, target_index)
-    VALUES (?, ?, ?, 'execute_test', ?, 'pending', ?, datetime('now'), 604800, ?, ?)
+    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_at, ttl, created_by, target_index, batch_id)
+    VALUES (?, ?, ?, 'execute_test', ?, 'pending', ?, datetime('now'), 604800, ?, ?, ?)
   `);
 
   const taskIds: string[] = [];
@@ -173,7 +178,7 @@ export function createTasks(
   const insertAll = db.transaction(() => {
     for (const agentId of agent_ids) {
       const taskId = crypto.randomUUID();
-      insertStmt.run(taskId, agentId, orgId, priority, payloadJson, createdBy, target_index ?? null);
+      insertStmt.run(taskId, agentId, orgId, priority, payloadJson, createdBy, target_index ?? null, batchId);
       taskIds.push(taskId);
     }
   });
@@ -238,9 +243,10 @@ export function createCommandTasks(
 
   const payloadJson = JSON.stringify(payload);
 
+  const batchId = crypto.randomUUID();
   const insertStmt = db.prepare(`
-    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_at, ttl, created_by)
-    VALUES (?, ?, ?, 'execute_command', ?, 'pending', ?, datetime('now'), 604800, ?)
+    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_at, ttl, created_by, batch_id)
+    VALUES (?, ?, ?, 'execute_command', ?, 'pending', ?, datetime('now'), 604800, ?, ?)
   `);
 
   const taskIds: string[] = [];
@@ -248,7 +254,7 @@ export function createCommandTasks(
   const insertAll = db.transaction(() => {
     for (const agentId of agent_ids) {
       const taskId = crypto.randomUUID();
-      insertStmt.run(taskId, agentId, orgId, priority, payloadJson, createdBy);
+      insertStmt.run(taskId, agentId, orgId, priority, payloadJson, createdBy, batchId);
       taskIds.push(taskId);
     }
   });
@@ -385,20 +391,29 @@ export function listTasks(
   const params: (string | number)[] = [];
 
   if (filters.agent_id) {
-    conditions.push('agent_id = ?');
+    conditions.push('t.agent_id = ?');
     params.push(filters.agent_id);
   }
   if (filters.org_id) {
-    conditions.push('org_id = ?');
+    conditions.push('t.org_id = ?');
     params.push(filters.org_id);
   }
   if (filters.status) {
-    conditions.push('status = ?');
+    conditions.push('t.status = ?');
     params.push(filters.status);
   }
   if (filters.type) {
-    conditions.push('type = ?');
+    conditions.push('t.type = ?');
     params.push(filters.type);
+  }
+  if (filters.search) {
+    const searchPattern = `%${filters.search}%`;
+    conditions.push(`(
+      json_extract(t.payload, '$.test_name') LIKE ?
+      OR json_extract(t.payload, '$.command') LIKE ?
+      OR a.hostname LIKE ?
+    )`);
+    params.push(searchPattern, searchPattern, searchPattern);
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -406,17 +421,130 @@ export function listTasks(
   const offset = filters.offset ?? 0;
 
   const countRow = db.prepare(
-    `SELECT COUNT(*) as total FROM tasks ${whereClause}`
+    `SELECT COUNT(*) as total FROM tasks t LEFT JOIN agents a ON t.agent_id = a.id ${whereClause}`
   ).get(...params) as { total: number };
 
   const rows = db.prepare(
-    `SELECT * FROM tasks ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`
+    `SELECT t.*, a.hostname AS agent_hostname FROM tasks t LEFT JOIN agents a ON t.agent_id = a.id ${whereClause} ORDER BY t.created_at DESC LIMIT ? OFFSET ?`
   ).all(...params, limit, offset) as TaskRow[];
 
   return {
     tasks: rows.map(parseTaskRow),
     total: countRow.total,
   };
+}
+
+/**
+ * List tasks grouped by batch_id with server-side pagination.
+ * A group is included if ANY task within it matches the filter conditions.
+ */
+export function listTasksGrouped(
+  filters: ListTasksRequest
+): { groups: TaskGroup[]; total: number } {
+  const db = getDatabase();
+
+  const conditions: string[] = [];
+  const params: (string | number)[] = [];
+
+  if (filters.agent_id) {
+    conditions.push('t.agent_id = ?');
+    params.push(filters.agent_id);
+  }
+  if (filters.org_id) {
+    conditions.push('t.org_id = ?');
+    params.push(filters.org_id);
+  }
+  if (filters.status) {
+    conditions.push('t.status = ?');
+    params.push(filters.status);
+  }
+  if (filters.type) {
+    conditions.push('t.type = ?');
+    params.push(filters.type);
+  }
+  if (filters.search) {
+    const searchPattern = `%${filters.search}%`;
+    conditions.push(`(
+      json_extract(t.payload, '$.test_name') LIKE ?
+      OR json_extract(t.payload, '$.command') LIKE ?
+      OR a.hostname LIKE ?
+    )`);
+    params.push(searchPattern, searchPattern, searchPattern);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const limit = filters.limit ?? 50;
+  const offset = filters.offset ?? 0;
+
+  // 1. Get paginated batch_ids
+  const batchRows = db.prepare(`
+    SELECT t.batch_id, MAX(t.created_at) as latest_created
+    FROM tasks t LEFT JOIN agents a ON t.agent_id = a.id
+    ${whereClause}
+    GROUP BY t.batch_id
+    ORDER BY latest_created DESC
+    LIMIT ? OFFSET ?
+  `).all(...params, limit, offset) as { batch_id: string; latest_created: string }[];
+
+  // 2. Get total group count
+  const countRow = db.prepare(`
+    SELECT COUNT(*) as total FROM (
+      SELECT DISTINCT t.batch_id FROM tasks t
+      LEFT JOIN agents a ON t.agent_id = a.id
+      ${whereClause}
+    )
+  `).get(...params) as { total: number };
+
+  if (batchRows.length === 0) {
+    return { groups: [], total: countRow.total };
+  }
+
+  // 3. Fetch full task details for matched batches
+  const placeholders = batchRows.map(() => '?').join(', ');
+  const batchIds = batchRows.map((r) => r.batch_id);
+
+  const taskRows = db.prepare(`
+    SELECT t.*, a.hostname AS agent_hostname
+    FROM tasks t LEFT JOIN agents a ON t.agent_id = a.id
+    WHERE t.batch_id IN (${placeholders})
+    ORDER BY t.batch_id, a.hostname
+  `).all(...batchIds) as TaskRow[];
+
+  // Group tasks by batch_id
+  const tasksByBatch = new Map<string, Task[]>();
+  for (const row of taskRows) {
+    const task = parseTaskRow(row);
+    const existing = tasksByBatch.get(row.batch_id);
+    if (existing) {
+      existing.push(task);
+    } else {
+      tasksByBatch.set(row.batch_id, [task]);
+    }
+  }
+
+  // Build TaskGroup objects in the order returned by the batch query
+  const groups: TaskGroup[] = batchRows.map((batchRow) => {
+    const tasks = tasksByBatch.get(batchRow.batch_id) ?? [];
+    const first = tasks[0];
+
+    const statusCounts: Partial<Record<TaskStatus, number>> = {};
+    for (const t of tasks) {
+      statusCounts[t.status] = (statusCounts[t.status] ?? 0) + 1;
+    }
+
+    return {
+      batch_id: batchRow.batch_id,
+      type: first?.type ?? 'execute_test',
+      payload: first?.payload ?? ({} as TaskPayload),
+      created_at: first?.created_at ?? batchRow.latest_created,
+      created_by: first?.created_by ?? null,
+      agent_count: tasks.length,
+      status_counts: statusCounts,
+      tasks,
+    };
+  });
+
+  return { groups, total: countRow.total };
 }
 
 /**
@@ -454,6 +582,26 @@ export function cancelTask(taskId: string): Task {
 
   const updated = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as TaskRow;
   return parseTaskRow(updated);
+}
+
+/**
+ * Delete a task. Only terminal statuses (completed, failed, expired) can be deleted.
+ */
+export function deleteTask(taskId: string): void {
+  const db = getDatabase();
+
+  const row = db.prepare('SELECT status FROM tasks WHERE id = ?').get(taskId) as { status: string } | undefined;
+
+  if (!row) {
+    throw new AppError('Task not found', 404);
+  }
+
+  const terminalStatuses = ['completed', 'failed', 'expired'];
+  if (!terminalStatuses.includes(row.status)) {
+    throw new AppError(`Cannot delete task in status: ${row.status}`, 400);
+  }
+
+  db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
 }
 
 /**

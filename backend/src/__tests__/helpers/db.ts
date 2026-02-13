@@ -52,6 +52,7 @@ export function createTestDatabase(): Database.Database {
       notes TEXT DEFAULT NULL,
       notes_history TEXT DEFAULT '[]',
       target_index TEXT DEFAULT NULL,
+      batch_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       assigned_at TEXT,
       completed_at TEXT,
@@ -102,6 +103,7 @@ export function createTestDatabase(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(agent_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
     CREATE INDEX IF NOT EXISTS idx_tasks_org ON tasks(org_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_batch ON tasks(batch_id);
     CREATE INDEX IF NOT EXISTS idx_enrollment_tokens_org ON enrollment_tokens(org_id);
   `);
 
@@ -170,6 +172,8 @@ export function insertTestTask(
     payload: string;
     created_by: string;
     ttl: number;
+    batch_id: string;
+    created_at: string;
   }> = {}
 ): string {
   const id = overrides.id ?? 'task-001';
@@ -196,8 +200,8 @@ export function insertTestTask(
   });
 
   db.prepare(`
-    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_by, ttl)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_by, ttl, batch_id, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     overrides.agent_id ?? 'agent-001',
@@ -208,6 +212,8 @@ export function insertTestTask(
     overrides.payload ?? defaultPayload,
     overrides.created_by ?? 'user-001',
     overrides.ttl ?? 604800,
+    overrides.batch_id ?? id,
+    overrides.created_at ?? new Date().toISOString().replace('T', ' ').slice(0, 19),
   );
 
   return id;

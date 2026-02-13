@@ -2,10 +2,13 @@ import { Link, useLocation } from 'react-router-dom';
 import { UserButton, useUser } from '@clerk/clerk-react';
 import { useTheme } from '../../hooks/useTheme';
 import { useAnalyticsAuth } from '../../hooks/useAnalyticsAuth';
+import { useAppRole, useCanAccessModule } from '../../hooks/useAppRole';
+import { ROLE_LABELS, ROLE_COLORS } from '../../types/roles';
 import {
   Moon, Sun, Shield, Target, Cpu, Lock, Home,
   RefreshCw, Settings
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Button } from './ui/Button';
 
 // Module configuration
@@ -55,6 +58,8 @@ export default function UnifiedHeader({
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { user, isLoaded } = useUser();
+  const role = useAppRole();
+  const canAccessEndpoints = useCanAccessModule('endpoints');
 
   // Auth states
   const { configured: analyticsConfigured } = useAnalyticsAuth();
@@ -73,7 +78,7 @@ export default function UnifiedHeader({
   const currentModule = getCurrentModule();
   const ModuleIcon = currentModule.icon;
 
-  // Module tabs configuration
+  // Module tabs configuration — filtered by role
   const moduleTabs = [
     {
       id: 'tests',
@@ -89,13 +94,13 @@ export default function UnifiedHeader({
       locked: !analyticsConfigured,
       description: 'Test Results Dashboard'
     },
-    {
+    ...(canAccessEndpoints ? [{
       id: 'endpoints',
       label: 'Endpoints',
       path: '/endpoints',
       locked: false,
       description: 'Endpoint Management'
-    },
+    }] : []),
   ];
 
   // Secondary navigation items (Endpoints module only)
@@ -189,6 +194,12 @@ export default function UnifiedHeader({
             {/* Clerk User Button (Global Auth) */}
             {isLoaded && user && (
               <div className="ml-2 flex items-center gap-3">
+                <span className={cn(
+                  'text-xs font-medium px-2 py-0.5 rounded-full hidden sm:inline',
+                  role ? ROLE_COLORS[role] : ROLE_COLORS.admin
+                )}>
+                  {role ? ROLE_LABELS[role] : ROLE_LABELS.admin}
+                </span>
                 <span className="text-sm text-muted-foreground hidden sm:inline">
                   {user.firstName || user.emailAddresses[0]?.emailAddress}
                 </span>

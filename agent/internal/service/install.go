@@ -29,8 +29,8 @@ func RunService(cfg *config.Config, st *store.Store, version string) error {
 func runForeground(ctx context.Context, cfg *config.Config, st *store.Store, version string) error {
 	if err := poller.Run(ctx, cfg, st, version); err != nil {
 		if err == poller.ErrUpdateApplied {
-			log.Println("restarting after update")
-			return nil // clean exit; systemd/SCM restarts us
+			log.Println("update applied, exiting for restart")
+			return poller.ErrUpdateApplied
 		}
 		if err != context.Canceled {
 			return fmt.Errorf("agent error: %w", err)

@@ -5,7 +5,7 @@
 ![ProjectAchilles](https://img.shields.io/badge/ProjectAchilles-Purple%20Team%20Platform-7C3AED?style=for-the-badge)
 
 [![CI](https://github.com/projectachilles/ProjectAchilles/actions/workflows/ci.yml/badge.svg)](https://github.com/projectachilles/ProjectAchilles/actions/workflows/ci.yml)
-[![Security Review](https://github.com/projectachilles/ProjectAchilles/actions/workflows/security-review.yml/badge.svg)](https://github.com/projectachilles/ProjectAchilles/actions/workflows/security-review.yml)
+[![Security Review](https://github.com/projectachilles/ProjectAchilles/actions/workflows/security-review.yml/badge.svg?event=pull_request)](https://github.com/projectachilles/ProjectAchilles/actions/workflows/security-review.yml)
 [![Semgrep](https://img.shields.io/badge/semgrep-SAST-orange?logo=semgrep)](https://github.com/projectachilles/ProjectAchilles/actions/workflows/security-review.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -357,7 +357,7 @@ For security vulnerabilities, please report via [GitHub Security Advisories](htt
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0 — see the [LICENSE](LICENSE) file for details.
 
 ---
 

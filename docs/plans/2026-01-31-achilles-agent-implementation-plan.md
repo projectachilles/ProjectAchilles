@@ -1433,7 +1433,7 @@ git commit -m "feat(agent): add result reporter with retry logic"
 - Create two sub-routers:
   - Agent-facing routes (authenticated via `requireAgentAuth`):
     `POST /enroll` (NO auth), `POST /heartbeat`, `GET /tasks`, `PATCH /tasks/:id/status`, `POST /tasks/:id/result`, `GET /binary/:name`, `GET /version`, `GET /update`
-  - Admin routes (authenticated via `requireClerkAuth()`):
+  - Admin routes (authenticated via `requireClerkAuth`):
     `POST /admin/tokens`, `GET /admin/tokens`, `DELETE /admin/tokens/:id`, `GET /admin/agents`, `GET /admin/agents/:id`, `PATCH /admin/agents/:id`, `DELETE /admin/agents/:id`, `POST /admin/agents/:id/tag`, `DELETE /admin/agents/:id/tag`, `GET /admin/metrics`, `POST /admin/tasks`, `GET /admin/tasks`, `GET /admin/tasks/:id`, `PATCH /admin/tasks/:id`, `POST /admin/versions`, `GET /admin/versions`
 - Export: `createAgentRouter()` function returning the combined Router
 

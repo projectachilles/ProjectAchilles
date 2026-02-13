@@ -1,6 +1,8 @@
 import { useLocation } from 'react-router-dom';
 import { UserButton, useUser } from '@clerk/clerk-react';
 import { useTheme } from '@/hooks/useTheme';
+import { useAppRole } from '@/hooks/useAppRole';
+import { ROLE_LABELS, ROLE_COLORS } from '@/types/roles';
 import {
   Menu,
   Moon,
@@ -31,6 +33,7 @@ export function TopBar({
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { user, isLoaded } = useUser();
+  const role = useAppRole();
 
   // Generate breadcrumb from path
   const getBreadcrumb = () => {
@@ -135,6 +138,12 @@ export function TopBar({
         {/* User - Last item */}
         {isLoaded && user && (
           <div className="flex items-center gap-2 ml-2">
+            <span className={cn(
+              'text-xs font-medium px-2 py-0.5 rounded-full hidden sm:inline',
+              role ? ROLE_COLORS[role] : ROLE_COLORS.admin
+            )}>
+              {role ? ROLE_LABELS[role] : ROLE_LABELS.admin}
+            </span>
             <span className="text-sm text-muted-foreground hidden lg:inline">
               {user.firstName || user.emailAddresses[0]?.emailAddress}
             </span>

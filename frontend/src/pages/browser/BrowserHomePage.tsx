@@ -6,6 +6,7 @@ import TestCard from '@/components/browser/TestCard';
 import TestListItem from '@/components/browser/TestListItem';
 import SearchBar from '@/components/browser/SearchBar';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
+import { useHasPermission } from '@/hooks/useAppRole';
 import { Loader2, LayoutGrid, List, RefreshCw, GitBranch, Clock, AlertCircle, Heart, History } from 'lucide-react';
 
 type ViewMode = 'grid' | 'list';
@@ -29,6 +30,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
   const [syncError, setSyncError] = useState<string | null>(null);
   const navigate = useNavigate();
   const { favorites, recentTests, isFavorite, toggleFavorite } = useTestPreferences();
+  const canSync = useHasPermission('tests:sync:execute');
 
   useEffect(() => {
     loadTests();
@@ -227,14 +229,16 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
           </div>
 
           {/* Sync Button */}
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Syncing...' : 'Sync'}
-          </button>
+          {canSync && (
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Syncing...' : 'Sync'}
+            </button>
+          )}
         </div>
       )}
 

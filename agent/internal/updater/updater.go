@@ -59,6 +59,12 @@ func CheckAndUpdate(ctx context.Context, client *httpclient.Client, currentVersi
 	return true, nil
 }
 
+// versionResponse wraps the server's JSON envelope for a version check.
+type versionResponse struct {
+	Success bool        `json:"success"`
+	Data    VersionInfo `json:"data"`
+}
+
 // fetchVersionInfo queries the server for the latest version. Returns nil when
 // no update is available (204 response or version matches currentVersion).
 func fetchVersionInfo(ctx context.Context, client *httpclient.Client, currentVersion string) (*VersionInfo, error) {
@@ -76,11 +82,12 @@ func fetchVersionInfo(ctx context.Context, client *httpclient.Client, currentVer
 		return nil, fmt.Errorf("version check returned status %d", resp.StatusCode)
 	}
 
-	var info VersionInfo
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+	var envelope versionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
 		return nil, fmt.Errorf("decode version info: %w", err)
 	}
 
+	info := envelope.Data
 	if info.Version == currentVersion {
 		return nil, nil
 	}

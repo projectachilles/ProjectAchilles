@@ -161,6 +161,7 @@ export interface TaskNoteEntry {
 export interface Task {
   id: string;
   agent_id: string;
+  agent_hostname: string | null;
   org_id: string;
   type: TaskType;
   priority: number;
@@ -175,6 +176,18 @@ export interface Task {
   ttl: number;
   created_by: string;
   target_index: string | null;
+  batch_id: string;
+}
+
+export interface TaskGroup {
+  batch_id: string;
+  type: TaskType;
+  payload: TaskPayload;
+  created_at: string;
+  created_by: string | null;
+  agent_count: number;
+  status_counts: Partial<Record<TaskStatus, number>>;
+  tasks: Task[];
 }
 
 export interface TaskResult {
@@ -255,6 +268,7 @@ export interface ListTasksRequest {
   org_id?: string;
   status?: TaskStatus;
   type?: TaskType;
+  search?: string;
   limit?: number;
   offset?: number;
 }

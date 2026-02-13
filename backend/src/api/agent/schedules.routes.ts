@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
-import { getUserId } from '../../middleware/clerk.middleware.js';
+import { getUserId, requirePermission } from '../../middleware/clerk.middleware.js';
 import {
   createSchedule,
   listSchedules,
@@ -22,6 +22,7 @@ export const adminSchedulesRouter = Router();
  */
 adminSchedulesRouter.post(
   '/schedules',
+  requirePermission('endpoints:schedules:create'),
   asyncHandler(async (req, res) => {
     const userId = getUserId(req.auth);
     if (!userId) {
@@ -41,6 +42,7 @@ adminSchedulesRouter.post(
  */
 adminSchedulesRouter.get(
   '/schedules',
+  requirePermission('endpoints:schedules:read'),
   asyncHandler(async (req, res) => {
     const filters: { org_id?: string; status?: ScheduleStatus } = {
       org_id: req.query.org_id as string | undefined,
@@ -59,6 +61,7 @@ adminSchedulesRouter.get(
  */
 adminSchedulesRouter.get(
   '/schedules/:id',
+  requirePermission('endpoints:schedules:read'),
   asyncHandler(async (req, res) => {
     const schedule = getSchedule(req.params.id);
     res.json({ success: true, data: schedule });
@@ -71,6 +74,7 @@ adminSchedulesRouter.get(
  */
 adminSchedulesRouter.patch(
   '/schedules/:id',
+  requirePermission('endpoints:schedules:write'),
   asyncHandler(async (req, res) => {
     const updates = req.body as UpdateScheduleRequest;
     const schedule = updateSchedule(req.params.id, updates);
@@ -84,6 +88,7 @@ adminSchedulesRouter.patch(
  */
 adminSchedulesRouter.delete(
   '/schedules/:id',
+  requirePermission('endpoints:schedules:delete'),
   asyncHandler(async (req, res) => {
     deleteSchedule(req.params.id);
     res.json({ success: true, data: null });

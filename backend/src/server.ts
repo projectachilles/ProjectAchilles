@@ -16,6 +16,7 @@ import { errorHandler, notFoundHandler } from './middleware/error.middleware.js'
 import { GitSyncService } from './services/browser/gitSyncService.js';
 import { GitHubMetadataService } from './services/browser/githubMetadataService.js';
 import { createAgentRouter } from './api/agent/index.js';
+import usersRoutes from './api/users.routes.js';
 import { processSchedules } from './services/agent/schedules.service.js';
 import { initCatalog } from './services/agent/test-catalog.service.js';
 
@@ -35,8 +36,8 @@ if (!process.env.CLERK_PUBLISHABLE_KEY || !process.env.CLERK_SECRET_KEY) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Trust Railway's proxy (required for secure cookies behind proxy)
-app.set('trust proxy', 1);
+// Trust proxy chain: client → ngrok → nginx → Express (2 hops)
+app.set('trust proxy', 2);
 
 // ============ MIDDLEWARE ============
 
@@ -77,13 +78,18 @@ app.use(express.urlencoded({ extended: true }));
 // Clerk authentication middleware
 app.use(clerkAuth);
 
-// Global API rate limiter
+// Global API rate limiter (dashboard/UI traffic only)
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300,                  // 300 requests per 15-minute window
+  max: 1000,                 // 1000 requests per 15-minute window
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: 'Too many requests, please try again later' },
+  skip: (req) => {
+    // Agent device endpoints have their own dedicated rate limiter
+    const p = req.originalUrl;
+    return p.startsWith('/api/agent/') && !p.startsWith('/api/agent/admin/');
+  },
 });
 app.use('/api', apiLimiter);
 
@@ -171,6 +177,9 @@ async function startServer() {
   // Agent module - Achilles Agent management
   const agentSourcePath = process.env.AGENT_SOURCE_PATH || path.resolve(__dirname, '../../agent');
   app.use('/api/agent', createAgentRouter({ testsSourcePath, agentSourcePath }));
+
+  // User management - RBAC role assignment (admin-only)
+  app.use('/api/users', usersRoutes);
 
   // ============ ERROR HANDLING ============
   app.use(notFoundHandler);
