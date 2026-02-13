@@ -191,16 +191,17 @@ if [ "$TUNNEL_MODE" = true ]; then
 # Auto-generated ngrok tunnel configuration
 # Domains configured via NGROK_FRONTEND_DOMAIN and NGROK_BACKEND_DOMAIN
 
-version: "3"
-tunnels:
-  achilles-frontend:
-    proto: http
-    addr: $FRONTEND_PORT
-    domain: $NGROK_FRONTEND_DOMAIN
-  achilles-backend:
-    proto: http
-    addr: $BACKEND_PORT
-    domain: $NGROK_BACKEND_DOMAIN
+version: 3
+
+endpoints:
+  - name: achilles-frontend
+    url: https://$NGROK_FRONTEND_DOMAIN
+    upstream:
+      url: $FRONTEND_PORT
+  - name: achilles-backend
+    url: https://$NGROK_BACKEND_DOMAIN
+    upstream:
+      url: $BACKEND_PORT
 EOF
     echo "  Generated tunnel config for: $NGROK_FRONTEND_DOMAIN, $NGROK_BACKEND_DOMAIN"
 fi
