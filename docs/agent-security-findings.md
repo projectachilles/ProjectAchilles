@@ -10,9 +10,9 @@ Auditor: Internal security review
 | 1 | SkipTLSVerify no production guard | HIGH | **Fixed** |
 | 2 | No API key rotation | HIGH | **Fixed** |
 | 3 | No replay attack protection | MED-HIGH | **Fixed** |
-| 4 | Enrollment token timing oracle | MEDIUM | Open |
-| 5 | Agent updates lack signature verification | MEDIUM | Open |
-| 6 | Rate limiting gaps on expensive endpoints | MEDIUM | Open |
+| 4 | Enrollment token timing oracle | MEDIUM | **Fixed** |
+| 5 | Agent updates lack signature verification | MEDIUM | **Fixed** |
+| 6 | Rate limiting gaps on expensive endpoints | MEDIUM | **Fixed** |
 | 7 | Hostname disclosure in heartbeat payloads | LOW-MED | Open |
 
 ---
@@ -95,7 +95,8 @@ Nonce tracking (per-agent monotonic counter or UUID) to fully prevent replay of 
 ## Finding 4: Enrollment Token Timing Oracle
 
 **Severity:** MEDIUM
-**Status:** Open
+**Status:** Fixed (commit `594d932`)
+**MITRE ATT&CK:** T1110.001 (Brute Force: Password Guessing)
 
 ### Description
 
@@ -103,24 +104,18 @@ The enrollment endpoint iterates over candidate tokens using `bcrypt.compare()` 
 
 ### Affected Files
 
-- `backend/src/services/agent/enrollment.service.ts` (lines 68-82)
+- `backend/src/services/agent/enrollment.service.ts`
 
-### Current Mitigations
+### Fix
 
-- Enrollment tokens are short-lived (default 24h TTL)
-- Tokens are single-use by default
-- The timing difference requires network-level measurement precision
-
-### Recommended Fix
-
-Always perform at least one `bcrypt.compare()` against a dummy hash when no candidates are found, similar to the pattern already used in `agentAuth.middleware.ts` (the `DUMMY_HASH` approach).
+Added a pre-computed `DUMMY_HASH` constant. When no candidate tokens are found, `bcrypt.compare()` runs against the dummy hash before rejecting, ensuring at least one bcrypt operation always executes. This is the same pattern already used in `agentAuth.middleware.ts` (M2).
 
 ---
 
 ## Finding 5: Agent Updates Lack Signature Verification
 
 **Severity:** MEDIUM
-**Status:** Open
+**Status:** Fixed (commit `e45df86`)
 **MITRE ATT&CK:** T1195.002 (Supply Chain Compromise: Compromise Software Supply Chain)
 
 ### Description
@@ -129,24 +124,34 @@ The agent self-update mechanism downloads new binaries from the server and repla
 
 ### Affected Files
 
-- `agent/internal/updater/` (update logic)
-- `backend/src/services/agent/` (version publishing)
+- `backend/src/services/agent/signing.service.ts` (new — Ed25519 keypair management)
+- `backend/src/services/agent/update.service.ts` (sign on register, include sig in response)
+- `backend/src/services/agent/enrollment.service.ts` (return public key at enrollment)
+- `backend/src/services/agent/database.ts` (migration: `binary_signature` column)
+- `backend/src/types/agent.ts` (type updates)
+- `agent/internal/config/config.go` (`UpdatePublicKey` field)
+- `agent/internal/enrollment/enrollment.go` (save public key)
+- `agent/internal/updater/verify.go` (new — Ed25519 verification)
+- `agent/internal/updater/updater.go` (verify before apply)
 
-### Current Mitigations
+### Fix
 
-- TLS encryption protects the download channel (when properly configured)
-- SHA256 hash verification prevents corruption in transit
+Ed25519 detached signatures. Server auto-generates a signing keypair on first use (`~/.projectachilles/signing/`), signs the SHA256 hash of each binary during version registration, and includes the hex signature in version check responses. Agent receives the raw 32-byte public key (base64) during enrollment and saves it to config. Before applying updates, the agent verifies the Ed25519 signature over the downloaded binary's SHA256 hash.
 
-### Recommended Fix
-
-Sign agent binaries with the code signing certificate and verify the signature before applying the update. The signing infrastructure already exists for Windows (osslsigncode) and macOS (rcodesign) builds.
+**Backwards compatibility:**
+| Scenario | Behavior |
+|----------|----------|
+| Old agent + new server | Agent ignores `signature` and `update_public_key` fields |
+| New agent + old server | `UpdatePublicKey` empty → warns, allows update |
+| New agent + new server (no sig) | `Signature` empty → warns, allows update |
+| New agent + new server | Full Ed25519 verification |
 
 ---
 
 ## Finding 6: Rate Limiting Gaps on Expensive Endpoints
 
 **Severity:** MEDIUM
-**Status:** Open
+**Status:** Fixed (commit `8302335`)
 **MITRE ATT&CK:** T1499 (Endpoint Denial of Service)
 
 ### Description
@@ -158,20 +163,21 @@ Several agent endpoints involve expensive operations (bcrypt hashing, database w
 
 ### Affected Files
 
-- `backend/src/middleware/` (rate limiting middleware)
-- `backend/src/api/agent/` (route handlers)
+- `backend/src/api/agent/heartbeat.routes.ts`
 
-### Current Mitigations
+### Fix
 
-- Agent heartbeats are naturally throttled by `heartbeat_interval` (default 60s)
-- Enrollment tokens expire and are single-use
+The audit found that enrollment (5/15min per IP), agent device endpoints (100/15min per agent), and downloads (10/15min per IP) were already rate-limited. Only the key rotation endpoint was missing a dedicated limiter.
 
-### Recommended Fix
+Added `keyRotationLimiter`: 3 requests per 15 minutes per IP, applied to `POST /admin/agents/:id/rotate-key`. This prevents bcrypt-based CPU exhaustion through rapid rotation attempts.
 
-Add express-rate-limit middleware on agent endpoints:
-- Enrollment: 5 attempts per IP per 15 minutes
-- Heartbeat: 10 requests per agent per minute
-- Key rotation: 3 attempts per admin per hour
+**Rate limiting inventory:**
+| Endpoint | Limiter | Budget |
+|----------|---------|--------|
+| `POST /enroll` | `enrollmentLimiter` | 5/15min per IP |
+| `GET /download` | `downloadLimiter` | 10/15min per IP |
+| Agent device endpoints | `agentDeviceLimiter` | 100/15min per agent |
+| `POST /rotate-key` | `keyRotationLimiter` | 3/15min per IP |
 
 ---
 
