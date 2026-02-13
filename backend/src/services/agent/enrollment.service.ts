@@ -123,6 +123,14 @@ export async function enrollAgent(request: EnrollmentRequest): Promise<Enrollmen
 
   const serverUrl = process.env.AGENT_SERVER_URL || `http://localhost:${process.env.PORT || '3000'}`;
 
+  // Warn if agents will receive an insecure URL — they will reject it.
+  if (serverUrl.startsWith('http://') && !isLocalhostUrl(serverUrl)) {
+    console.warn(
+      `[enrollment] WARNING: AGENT_SERVER_URL is "${serverUrl}" (plaintext HTTP to remote host). ` +
+      `Agents will reject this URL. Set AGENT_SERVER_URL to an https:// URL.`
+    );
+  }
+
   return {
     agent_id: agentId,
     agent_key: plainApiKey,
@@ -167,5 +175,15 @@ export function revokeToken(tokenId: string): void {
 
   if (result.changes === 0) {
     throw new AppError('Token not found', 404);
+  }
+}
+
+/** Check if a URL points to localhost/127.0.0.1/[::1]. */
+function isLocalhostUrl(rawUrl: string): boolean {
+  try {
+    const { hostname } = new URL(rawUrl);
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  } catch {
+    return false;
   }
 }

@@ -1,0 +1,74 @@
+package config
+
+import (
+	"testing"
+)
+
+func TestValidateServerURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		// Valid HTTPS
+		{"https remote", "https://server.example.com", false},
+		{"https with port", "https://server.example.com:8443", false},
+		{"https with path", "https://server.example.com/api", false},
+		{"https localhost", "https://localhost:3000", false},
+		{"https IP", "https://10.0.0.1:443", false},
+
+		// Valid HTTP localhost exceptions
+		{"http localhost", "http://localhost:3000", false},
+		{"http localhost no port", "http://localhost", false},
+		{"http 127.0.0.1", "http://127.0.0.1:3000", false},
+		{"http 127.0.0.1 no port", "http://127.0.0.1", false},
+		{"http [::1]", "http://[::1]:3000", false},
+		{"http [::1] no port", "http://[::1]", false},
+
+		// Rejected: HTTP to remote hosts
+		{"http remote", "http://server.example.com", true},
+		{"http remote with port", "http://10.0.0.1:3000", true},
+		{"http remote IP", "http://192.168.1.100", true},
+		// Tricky: localhost.evil.com is NOT localhost
+		{"http localhost.evil.com", "http://localhost.evil.com", true},
+
+		// Rejected: missing scheme
+		{"no scheme", "server.example.com", true},
+
+		// Rejected: other schemes
+		{"ftp scheme", "ftp://server.example.com", true},
+		{"ws scheme", "ws://server.example.com", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateServerURL(tc.url)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("ValidateServerURL(%q) error = %v, wantErr %v", tc.url, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateIntegration(t *testing.T) {
+	// Validate() should reject http:// to remote
+	cfg := DefaultConfig()
+	cfg.ServerURL = "http://remote.example.com"
+	cfg.AgentID = "agent-001"
+	cfg.AgentKey = "ak_key"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected Validate() to reject http:// remote URL")
+	}
+
+	// Validate() should accept https://
+	cfg.ServerURL = "https://server.example.com"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("unexpected validation error: %v", err)
+	}
+
+	// Validate() should accept http://localhost
+	cfg.ServerURL = "http://localhost:3000"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("unexpected validation error for localhost: %v", err)
+	}
+}

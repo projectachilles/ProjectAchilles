@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -92,10 +93,38 @@ func (c *Config) Save(path string) error {
 	return nil
 }
 
+// ValidateServerURL checks that rawURL uses https://, or http:// only for
+// localhost/127.0.0.1/[::1]. This prevents agents from sending credentials
+// over plaintext connections to remote servers.
+func ValidateServerURL(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid server URL %q: %w", rawURL, err)
+	}
+
+	switch parsed.Scheme {
+	case "https":
+		return nil
+	case "http":
+		host := parsed.Hostname()
+		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+			return nil
+		}
+		return fmt.Errorf("server URL %q uses plaintext HTTP to a remote host; use https:// or connect to localhost for development", rawURL)
+	case "":
+		return fmt.Errorf("server URL %q has no scheme; use https://", rawURL)
+	default:
+		return fmt.Errorf("server URL %q uses unsupported scheme %q; use https://", rawURL, parsed.Scheme)
+	}
+}
+
 // Validate checks that required fields are populated.
 func (c *Config) Validate() error {
 	if c.ServerURL == "" {
 		return fmt.Errorf("server_url is required")
+	}
+	if err := ValidateServerURL(c.ServerURL); err != nil {
+		return err
 	}
 	if c.AgentID == "" {
 		return fmt.Errorf("agent_id is required")

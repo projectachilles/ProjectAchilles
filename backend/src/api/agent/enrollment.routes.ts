@@ -59,6 +59,14 @@ agentEnrollmentRouter.post(
  */
 agentEnrollmentRouter.get('/config', (_req, res) => {
   const serverUrl = process.env.AGENT_SERVER_URL || `http://localhost:${process.env.PORT || '3000'}`;
+
+  if (serverUrl.startsWith('http://') && !isLocalhostUrl(serverUrl)) {
+    console.warn(
+      `[enrollment] WARNING: AGENT_SERVER_URL is "${serverUrl}" (plaintext HTTP to remote host). ` +
+      `Agents will reject this URL. Set AGENT_SERVER_URL to an https:// URL.`
+    );
+  }
+
   res.json({ success: true, data: { server_url: serverUrl } });
 });
 
@@ -168,3 +176,13 @@ adminEnrollmentRouter.delete(
     res.json({ success: true, data: { message: 'Token revoked' } });
   })
 );
+
+/** Check if a URL points to localhost/127.0.0.1/[::1]. */
+function isLocalhostUrl(rawUrl: string): boolean {
+  try {
+    const { hostname } = new URL(rawUrl);
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  } catch {
+    return false;
+  }
+}

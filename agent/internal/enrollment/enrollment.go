@@ -42,6 +42,11 @@ type enrollResponse struct {
 // It POSTs system information and the enrollment token, then saves the
 // returned configuration to configPath.
 func Enroll(serverURL, token, configPath, version string) error {
+	// Validate server URL before sending credentials over the wire.
+	if err := config.ValidateServerURL(serverURL); err != nil {
+		return fmt.Errorf("refusing to enroll: %w", err)
+	}
+
 	hostname, err := os.Hostname()
 	if err != nil {
 		return fmt.Errorf("get hostname: %w", err)
@@ -60,10 +65,17 @@ func Enroll(serverURL, token, configPath, version string) error {
 		return fmt.Errorf("marshal enrollment request: %w", err)
 	}
 
-	url := serverURL + "/api/agent/enroll"
-	resp, err := http.Post(url, "application/json", bytes.NewReader(bodyBytes))
+	// Use an http.Client with redirect downgrade protection instead of
+	// the bare http.Post, which follows redirects blindly.
+	client := &http.Client{
+		Timeout:       30 * time.Second,
+		CheckRedirect: checkRedirectDowngrade,
+	}
+
+	enrollURL := serverURL + "/api/agent/enroll"
+	resp, err := client.Post(enrollURL, "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
-		return fmt.Errorf("network error contacting %s: %w", url, err)
+		return fmt.Errorf("network error contacting %s: %w", enrollURL, err)
 	}
 	defer resp.Body.Close()
 
@@ -94,6 +106,12 @@ func Enroll(serverURL, token, configPath, version string) error {
 
 	data := enrollResp.Data
 
+	// Validate the server-returned URL before saving it — a misconfigured
+	// backend could hand back http:// even when we connected via https://.
+	if err := config.ValidateServerURL(data.ServerURL); err != nil {
+		return fmt.Errorf("server returned insecure URL: %w", err)
+	}
+
 	cfg := config.DefaultConfig()
 	cfg.AgentID = data.AgentID
 	cfg.AgentKey = data.AgentKey
@@ -108,5 +126,17 @@ func Enroll(serverURL, token, configPath, version string) error {
 	}
 
 	fmt.Printf("Enrolled successfully. Agent ID: %s\n", data.AgentID)
+	return nil
+}
+
+// checkRedirectDowngrade blocks HTTPS→HTTP redirect downgrades. It is used as
+// an http.Client.CheckRedirect handler.
+func checkRedirectDowngrade(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return fmt.Errorf("too many redirects")
+	}
+	if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme == "http" {
+		return fmt.Errorf("refusing redirect from %s to %s: HTTPS to HTTP downgrade", via[len(via)-1].URL, req.URL)
+	}
 	return nil
 }
