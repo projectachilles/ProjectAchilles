@@ -75,6 +75,7 @@ export interface EnrollmentResponse {
   org_id: string;
   server_url: string;
   poll_interval: number;
+  update_public_key: string;
 }
 
 export interface CreateTokenRequest {
@@ -238,6 +239,7 @@ export interface AgentVersion {
   release_notes: string;
   mandatory: boolean;
   signed: boolean;
+  binary_signature: string | null;
   created_at: string;
 }
 
@@ -246,6 +248,7 @@ export interface VersionCheckResponse {
   sha256: string;
   size: number;
   mandatory: boolean;
+  signature?: string;
 }
 
 // ============================================================================

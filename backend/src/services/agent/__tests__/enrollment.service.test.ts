@@ -9,6 +9,11 @@ vi.mock('../database.js', () => ({
   getDatabase: () => testDb,
 }));
 
+// Mock signing service — enrollment now returns update_public_key
+vi.mock('../signing.service.js', () => ({
+  getPublicKeyBase64: () => 'dGVzdC1wdWJsaWMta2V5LTMyLWJ5dGVzIQ==',
+}));
+
 // Import AFTER mock setup
 const { createToken, enrollAgent, listTokens, revokeToken, rotateAgentKey } = await import('../enrollment.service.js');
 
@@ -67,6 +72,7 @@ describe('enrollment.service', () => {
       expect(result.agent_key).toMatch(/^ak_/);
       expect(result.org_id).toBe('org-001');
       expect(result.poll_interval).toBe(30);
+      expect(result.update_public_key).toBeDefined();
     });
 
     it('increments token use_count after enrollment', async () => {

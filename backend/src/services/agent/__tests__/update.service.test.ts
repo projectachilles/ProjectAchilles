@@ -36,6 +36,11 @@ vi.mock('os', async () => {
 
 // Do NOT mock crypto — let real SHA-256 run
 
+// Mock signing service so registerVersion doesn't try to read real key files
+vi.mock('../signing.service.js', () => ({
+  signHash: () => 'deadbeef'.repeat(16),
+}));
+
 let testDb: Database.Database;
 vi.mock('../../agent/database.js', () => ({ getDatabase: () => testDb }));
 

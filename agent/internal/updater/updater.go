@@ -3,7 +3,7 @@ package updater
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/hex" // used by both downloadAndVerify and CheckAndUpdate
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,6 +23,7 @@ type VersionInfo struct {
 	SHA256    string `json:"sha256"`
 	Size      int64  `json:"size"`
 	Mandatory bool   `json:"mandatory"`
+	Signature string `json:"signature,omitempty"`
 }
 
 // CheckAndUpdate checks for a newer agent version and applies the update if available.
@@ -50,6 +51,22 @@ func CheckAndUpdate(ctx context.Context, client *httpclient.Client, currentVersi
 	}
 	// Clean up the temp file on any error after this point.
 	defer os.Remove(tmpPath)
+
+	// Ed25519 signature verification (M5)
+	if cfg.UpdatePublicKey == "" {
+		log.Printf("WARNING: no update_public_key configured — skipping signature verification")
+	} else if info.Signature == "" {
+		log.Printf("WARNING: server did not provide a signature — skipping signature verification")
+	} else {
+		hashBytes, hexErr := hex.DecodeString(info.SHA256)
+		if hexErr != nil {
+			return false, fmt.Errorf("decode update SHA256: %w", hexErr)
+		}
+		if verifyErr := verifySignature(hashBytes, info.Signature, cfg.UpdatePublicKey); verifyErr != nil {
+			return false, fmt.Errorf("update signature verification failed: %w", verifyErr)
+		}
+		log.Printf("Update signature verified (Ed25519)")
+	}
 
 	if err := applyUpdate(currentBin, tmpPath); err != nil {
 		return false, fmt.Errorf("apply update: %w", err)

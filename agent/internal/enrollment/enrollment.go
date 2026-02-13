@@ -24,11 +24,12 @@ type enrollRequest struct {
 
 // enrollResponseData holds the fields returned on successful enrollment.
 type enrollResponseData struct {
-	AgentID      string `json:"agent_id"`
-	AgentKey     string `json:"agent_key"`
-	OrgID        string `json:"org_id"`
-	ServerURL    string `json:"server_url"`
-	PollInterval int    `json:"poll_interval"`
+	AgentID         string `json:"agent_id"`
+	AgentKey        string `json:"agent_key"`
+	OrgID           string `json:"org_id"`
+	ServerURL       string `json:"server_url"`
+	PollInterval    int    `json:"poll_interval"`
+	UpdatePublicKey string `json:"update_public_key"`
 }
 
 // enrollResponse is the top-level JSON envelope from the server.
@@ -120,6 +121,7 @@ func Enroll(serverURL, token, configPath, version string) error {
 	if data.PollInterval > 0 {
 		cfg.PollInterval = time.Duration(data.PollInterval) * time.Second
 	}
+	cfg.UpdatePublicKey = data.UpdatePublicKey
 
 	if err := cfg.Save(configPath); err != nil {
 		return fmt.Errorf("save config: %w", err)

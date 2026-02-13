@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { getDatabase } from './database.js';
 import type { Response } from 'express';
 import type { AgentVersion, VersionCheckResponse, AgentOS, AgentArch } from '../../types/agent.js';
+import { signHash } from './signing.service.js';
 
 const VERSION_REGEX = /^[\w.\-]+$/;
 
@@ -18,6 +19,7 @@ interface VersionRow {
   release_notes: string;
   mandatory: number;
   signed: number;
+  binary_signature: string | null;
   created_at: string;
 }
 
@@ -26,6 +28,7 @@ function toAgentVersion(row: VersionRow): AgentVersion {
     ...row,
     mandatory: row.mandatory === 1,
     signed: row.signed === 1,
+    binary_signature: row.binary_signature,
   };
 }
 
@@ -50,11 +53,14 @@ export function registerVersion(
   const fileBuffer = fs.readFileSync(binaryPath);
   const sha256 = crypto.createHash('sha256').update(fileBuffer).digest('hex');
 
+  // Ed25519-sign the binary hash for update signature verification (M5)
+  const binarySignature = signHash(sha256);
+
   const db = getDatabase();
   db.prepare(`
-    INSERT OR REPLACE INTO agent_versions (version, os, arch, binary_path, binary_sha256, binary_size, release_notes, mandatory, signed)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(version, os, arch, binaryPath, sha256, stat.size, releaseNotes, mandatory ? 1 : 0, signed ? 1 : 0);
+    INSERT OR REPLACE INTO agent_versions (version, os, arch, binary_path, binary_sha256, binary_size, release_notes, mandatory, signed, binary_signature)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(version, os, arch, binaryPath, sha256, stat.size, releaseNotes, mandatory ? 1 : 0, signed ? 1 : 0, binarySignature);
 
   return {
     version,
@@ -66,6 +72,7 @@ export function registerVersion(
     release_notes: releaseNotes,
     mandatory,
     signed,
+    binary_signature: binarySignature,
     created_at: new Date().toISOString(),
   };
 }
@@ -77,21 +84,27 @@ export function registerVersion(
 export function getLatestVersion(os: AgentOS, arch: AgentArch): VersionCheckResponse | null {
   const db = getDatabase();
   const row = db.prepare(`
-    SELECT version, binary_sha256, binary_size, mandatory
+    SELECT version, binary_sha256, binary_size, mandatory, binary_signature
     FROM agent_versions
     WHERE os = ? AND arch = ?
     ORDER BY created_at DESC
     LIMIT 1
-  `).get(os, arch) as Pick<VersionRow, 'version' | 'binary_sha256' | 'binary_size' | 'mandatory'> | undefined;
+  `).get(os, arch) as Pick<VersionRow, 'version' | 'binary_sha256' | 'binary_size' | 'mandatory' | 'binary_signature'> | undefined;
 
   if (!row) return null;
 
-  return {
+  const response: VersionCheckResponse = {
     version: row.version,
     sha256: row.binary_sha256,
     size: row.binary_size,
     mandatory: row.mandatory === 1,
   };
+
+  if (row.binary_signature) {
+    response.signature = row.binary_signature;
+  }
+
+  return response;
 }
 
 /**
@@ -136,7 +149,7 @@ export function streamUpdate(os: AgentOS, arch: AgentArch, res: Response): void 
 export function listVersions(): AgentVersion[] {
   const db = getDatabase();
   const rows = db.prepare(`
-    SELECT version, os, arch, binary_path, binary_sha256, binary_size, release_notes, mandatory, signed, created_at
+    SELECT version, os, arch, binary_path, binary_sha256, binary_size, release_notes, mandatory, signed, binary_signature, created_at
     FROM agent_versions
     ORDER BY created_at DESC
   `).all() as VersionRow[];

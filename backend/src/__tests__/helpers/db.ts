@@ -72,6 +72,7 @@ export function createTestDatabase(): Database.Database {
       release_notes TEXT,
       mandatory INTEGER NOT NULL DEFAULT 0,
       signed INTEGER DEFAULT 0,
+      binary_signature TEXT DEFAULT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (version, os, arch)
     );

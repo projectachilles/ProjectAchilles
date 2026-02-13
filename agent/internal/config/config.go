@@ -26,6 +26,7 @@ type Config struct {
 	UpdateInterval    time.Duration `yaml:"update_interval"`
 	CACert            string        `yaml:"ca_cert"`
 	SkipTLSVerify     bool          `yaml:"skip_tls_verify"`
+	UpdatePublicKey   string        `yaml:"update_public_key"`
 }
 
 // DefaultConfig returns a Config populated with sensible defaults.

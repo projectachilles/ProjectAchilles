@@ -8,6 +8,7 @@ import type {
   EnrollmentToken,
   CreateTokenResponse,
 } from '../../types/agent.js';
+import { getPublicKeyBase64 } from './signing.service.js';
 
 const BCRYPT_ROUNDS = 12;
 const TOKEN_PREFIX = 'acht_';
@@ -147,6 +148,7 @@ export async function enrollAgent(request: EnrollmentRequest): Promise<Enrollmen
     org_id: matchedToken.org_id,
     server_url: serverUrl,
     poll_interval: 30,
+    update_public_key: getPublicKeyBase64(),
   };
 }
 
