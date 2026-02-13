@@ -13,6 +13,10 @@ const BCRYPT_ROUNDS = 12;
 const TOKEN_PREFIX = 'acht_';
 const API_KEY_PREFIX = 'ak_';
 
+// Pre-computed dummy hash so bcrypt.compare always runs at least once,
+// eliminating the timing oracle that leaks whether valid tokens exist.
+const DUMMY_HASH = bcrypt.hashSync('dummy-value-for-enrollment-timing', 12);
+
 interface TokenRow {
   id: string;
   token_hash: string;
@@ -71,13 +75,19 @@ export async function enrollAgent(request: EnrollmentRequest): Promise<Enrollmen
     WHERE expires_at > ? AND use_count < max_uses
   `).all(now) as TokenRow[];
 
-  // Validate the provided token against stored hashes
+  // Validate the provided token against stored hashes.
+  // Always run at least one bcrypt.compare to prevent timing oracle
+  // that leaks whether valid tokens exist (M4 fix).
   let matchedToken: TokenRow | null = null;
-  for (const candidate of candidates) {
-    const isMatch = await bcrypt.compare(request.token, candidate.token_hash);
-    if (isMatch) {
-      matchedToken = candidate;
-      break;
+  if (candidates.length === 0) {
+    await bcrypt.compare(request.token, DUMMY_HASH);
+  } else {
+    for (const candidate of candidates) {
+      const isMatch = await bcrypt.compare(request.token, candidate.token_hash);
+      if (isMatch) {
+        matchedToken = candidate;
+        break;
+      }
     }
   }
 

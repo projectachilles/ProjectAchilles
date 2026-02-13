@@ -115,6 +115,26 @@ describe('enrollment.service', () => {
       ).rejects.toThrow('Invalid or expired enrollment token');
     });
 
+    it('runs bcrypt even when no tokens exist (timing oracle fix)', async () => {
+      // When zero candidate tokens exist, bcrypt.compare should still run
+      // against a dummy hash to prevent timing-based detection of valid tokens.
+      const start = Date.now();
+
+      await expect(
+        enrollAgent({
+          token: 'acht_nonexistenttoken',
+          hostname: 'host',
+          os: 'linux',
+          arch: 'amd64',
+          agent_version: '1.0.0',
+        })
+      ).rejects.toThrow('Invalid or expired enrollment token');
+
+      const elapsed = Date.now() - start;
+      // bcrypt round-12 takes >50ms even on fast hardware
+      expect(elapsed).toBeGreaterThan(50);
+    });
+
     it('rejects expired token', async () => {
       // Create token with 0 TTL (expired immediately)
       const token = await createToken('org-001', 'user-001', 0);
