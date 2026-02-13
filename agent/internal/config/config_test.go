@@ -50,6 +50,46 @@ func TestValidateServerURL(t *testing.T) {
 	}
 }
 
+func TestValidateTLSConfig(t *testing.T) {
+	tests := []struct {
+		name          string
+		serverURL     string
+		skipTLS       bool
+		allowInsecure bool
+		wantErr       bool
+	}{
+		// TLS verification enabled — always pass
+		{"tls enabled, remote", "https://server.example.com", false, false, false},
+		{"tls enabled, localhost", "https://localhost:3000", false, false, false},
+
+		// skip_tls_verify + localhost — always pass
+		{"skip + localhost", "https://localhost:3000", true, false, false},
+		{"skip + 127.0.0.1", "https://127.0.0.1:8443", true, false, false},
+		{"skip + [::1]", "https://[::1]:3000", true, false, false},
+
+		// skip_tls_verify + remote — error unless allowInsecure
+		{"skip + remote, no override", "https://server.example.com", true, false, true},
+		{"skip + remote IP, no override", "https://10.0.0.1:8443", true, false, true},
+		{"skip + remote, allow-insecure", "https://server.example.com", true, true, false},
+		{"skip + remote IP, allow-insecure", "https://10.0.0.1:8443", true, true, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.ServerURL = tc.serverURL
+			cfg.AgentID = "agent-001"
+			cfg.AgentKey = "ak_key"
+			cfg.SkipTLSVerify = tc.skipTLS
+
+			err := cfg.ValidateTLSConfig(tc.allowInsecure)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("ValidateTLSConfig() error = %v, wantErr %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestValidateIntegration(t *testing.T) {
 	// Validate() should reject http:// to remote
 	cfg := DefaultConfig()

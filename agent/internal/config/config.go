@@ -118,6 +118,36 @@ func ValidateServerURL(rawURL string) error {
 	}
 }
 
+// ValidateTLSConfig checks that SkipTLSVerify is not enabled for remote servers
+// unless explicitly overridden with --allow-insecure. This is called from main.go
+// after Validate(), keeping the Validate() signature unchanged for other callers.
+func (c *Config) ValidateTLSConfig(allowInsecure bool) error {
+	if !c.SkipTLSVerify {
+		return nil
+	}
+
+	// Always allow skip_tls_verify for localhost/loopback
+	parsed, err := url.Parse(c.ServerURL)
+	if err != nil {
+		return fmt.Errorf("invalid server URL %q: %w", c.ServerURL, err)
+	}
+	host := parsed.Hostname()
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return nil
+	}
+
+	// Explicit override for legitimate self-signed cert scenarios
+	if allowInsecure {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"skip_tls_verify is enabled for remote server %q — this disables all certificate verification. "+
+			"Use ca_cert to trust a specific CA, or pass --allow-insecure to override this check",
+		c.ServerURL,
+	)
+}
+
 // Validate checks that required fields are populated.
 func (c *Config) Validate() error {
 	if c.ServerURL == "" {

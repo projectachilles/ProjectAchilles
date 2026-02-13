@@ -24,6 +24,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	configPath := flag.String("config", config.DefaultConfigPath(), "Path to config file")
 	run := flag.Bool("run", false, "Run agent in foreground")
+	allowInsecure := flag.Bool("allow-insecure", false, "Allow skip_tls_verify for remote servers (NOT recommended)")
 
 	flag.Parse()
 
@@ -80,6 +81,14 @@ func main() {
 	if err := cfg.Validate(); err != nil {
 		fmt.Fprintf(os.Stderr, "config validation error: %v\n", err)
 		os.Exit(1)
+	}
+
+	if err := cfg.ValidateTLSConfig(*allowInsecure); err != nil {
+		fmt.Fprintf(os.Stderr, "TLS config error: %v\n", err)
+		os.Exit(1)
+	}
+	if *allowInsecure && cfg.SkipTLSVerify {
+		log.Println("WARNING: TLS certificate verification is disabled via --allow-insecure. This is NOT recommended for production.")
 	}
 
 	if *run {
