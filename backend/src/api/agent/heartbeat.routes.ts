@@ -40,6 +40,12 @@ agentHeartbeatRouter.post(
       throw new AppError('Invalid heartbeat payload', 400);
     }
 
+    // Defense-in-depth: validate payload timestamp is within ±5 min of server time
+    const payloadTime = new Date(payload.timestamp).getTime();
+    if (isNaN(payloadTime) || Math.abs(Date.now() - payloadTime) / 1000 > 300) {
+      throw new AppError('Stale or invalid heartbeat timestamp', 400);
+    }
+
     processHeartbeat(agent.id, payload);
 
     res.json({

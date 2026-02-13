@@ -130,6 +130,95 @@ describe('requireAgentAuth', () => {
     expect(req.agent.org_id).toBe('org-001');
   });
 
+  describe('timestamp validation', () => {
+    it('allows request with missing timestamp (backwards compat)', async () => {
+      const req = mockReq({
+        authorization: `Bearer ${apiKeyPlain}`,
+        'x-agent-id': 'agent-001',
+      }) as any;
+      const res = mockRes();
+      const next = vi.fn();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      requireAgentAuth(req, res, next);
+
+      await vi.waitFor(() => {
+        expect(next).toHaveBeenCalled();
+      });
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('without X-Request-Timestamp'));
+      warnSpy.mockRestore();
+    });
+
+    it('allows request with valid recent timestamp', async () => {
+      const req = mockReq({
+        authorization: `Bearer ${apiKeyPlain}`,
+        'x-agent-id': 'agent-001',
+        'x-request-timestamp': new Date().toISOString(),
+      }) as any;
+      const res = mockRes();
+      const next = vi.fn();
+
+      requireAgentAuth(req, res, next);
+
+      await vi.waitFor(() => {
+        expect(next).toHaveBeenCalled();
+      });
+    });
+
+    it('rejects stale timestamp (6 min old)', async () => {
+      const staleTime = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+      const req = mockReq({
+        authorization: `Bearer ${apiKeyPlain}`,
+        'x-agent-id': 'agent-001',
+        'x-request-timestamp': staleTime,
+      });
+      const res = mockRes();
+      const next = vi.fn();
+
+      requireAgentAuth(req, res, next);
+
+      await vi.waitFor(() => {
+        expect(res.status).toHaveBeenCalledWith(401);
+      });
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('rejects future timestamp (6 min ahead)', async () => {
+      const futureTime = new Date(Date.now() + 6 * 60 * 1000).toISOString();
+      const req = mockReq({
+        authorization: `Bearer ${apiKeyPlain}`,
+        'x-agent-id': 'agent-001',
+        'x-request-timestamp': futureTime,
+      });
+      const res = mockRes();
+      const next = vi.fn();
+
+      requireAgentAuth(req, res, next);
+
+      await vi.waitFor(() => {
+        expect(res.status).toHaveBeenCalledWith(401);
+      });
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('rejects invalid timestamp format', async () => {
+      const req = mockReq({
+        authorization: `Bearer ${apiKeyPlain}`,
+        'x-agent-id': 'agent-001',
+        'x-request-timestamp': 'not-a-date',
+      });
+      const res = mockRes();
+      const next = vi.fn();
+
+      requireAgentAuth(req, res, next);
+
+      await vi.waitFor(() => {
+        expect(res.status).toHaveBeenCalledWith(401);
+      });
+      expect(next).not.toHaveBeenCalled();
+    });
+  });
+
   it('returns 401 for wrong API key', async () => {
     const req = mockReq({
       authorization: 'Bearer ak_wrongkey',

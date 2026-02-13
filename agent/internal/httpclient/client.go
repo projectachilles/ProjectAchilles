@@ -91,6 +91,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body interface{}) 
 		req.Header.Set("Authorization", "Bearer "+c.config.AgentKey)
 		req.Header.Set("X-Agent-ID", c.config.AgentID)
 		req.Header.Set("X-Agent-Version", c.version)
+		req.Header.Set("X-Request-Timestamp", time.Now().UTC().Format(time.RFC3339))
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := c.http.Do(req)
