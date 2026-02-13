@@ -94,6 +94,14 @@ func ensureRecoveryActions() {
 	} else {
 		log.Println("SCM recovery actions configured for restart after update")
 	}
+
+	// Enable recovery actions on clean exits (non-crash). Without this flag
+	// SCM only triggers recovery when the service crashes — a clean stop
+	// with non-zero exit code (which is what svc.Run produces) is ignored.
+	cmd = exec.Command("sc", "failureflag", serviceName, "1")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("warning: failed to set failureflag: %v: %s", err, out)
+	}
 }
 
 // scheduleFallbackRestart creates a one-time Windows Scheduled Task that
@@ -163,6 +171,13 @@ func platformInstall(configPath string) error {
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: sc failure configuration failed: %v: %s\n", err, out)
+	}
+
+	// Enable recovery actions on clean exits. By default SCM only triggers
+	// recovery on crashes; the agent exits cleanly via svc.Run after updates.
+	cmd = exec.Command("sc", "failureflag", serviceName, "1")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: sc failureflag failed: %v: %s\n", err, out)
 	}
 
 	// Start the service.
