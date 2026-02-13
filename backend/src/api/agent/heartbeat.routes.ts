@@ -12,6 +12,7 @@ import {
   addTag,
   removeTag,
 } from '../../services/agent/heartbeat.service.js';
+import { rotateAgentKey } from '../../services/agent/enrollment.service.js';
 import type { HeartbeatPayload, ListAgentsRequest } from '../../types/agent.js';
 
 // ============================================================================
@@ -164,6 +165,29 @@ adminAgentRouter.delete(
     deleteAgent(req.params.id);
 
     res.json({ success: true, data: { id: req.params.id, status: 'decommissioned' } });
+  })
+);
+
+/**
+ * POST /admin/agents/:id/rotate-key
+ * Rotate an agent's API key. Returns the new key exactly once.
+ */
+adminAgentRouter.post(
+  '/agents/:id/rotate-key',
+  requirePermission('endpoints:agents:write'),
+  requireAgentOrgAccess,
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await rotateAgentKey(req.params.id);
+
+    res.json({
+      success: true,
+      data: {
+        agent_id: result.agent_id,
+        agent_key: result.agent_key,
+        rotated_at: result.rotated_at,
+        warning: 'This key is shown once. Update the agent config file with the new key.',
+      },
+    });
   })
 );
 

@@ -178,6 +178,33 @@ export function revokeToken(tokenId: string): void {
   }
 }
 
+/**
+ * Rotate an agent's API key. Returns the new plaintext key exactly once.
+ * The admin must update the agent's config file with the new key.
+ */
+export async function rotateAgentKey(agentId: string): Promise<{ agent_key: string; agent_id: string; rotated_at: string }> {
+  const db = getDatabase();
+
+  const agent = db.prepare('SELECT id FROM agents WHERE id = ?').get(agentId) as { id: string } | undefined;
+  if (!agent) {
+    throw new AppError('Agent not found', 404);
+  }
+
+  const plainApiKey = API_KEY_PREFIX + crypto.randomBytes(32).toString('hex');
+  const apiKeyHash = await bcrypt.hash(plainApiKey, BCRYPT_ROUNDS);
+  const now = new Date().toISOString();
+
+  db.prepare(
+    'UPDATE agents SET api_key_hash = ?, api_key_rotated_at = ?, updated_at = ? WHERE id = ?'
+  ).run(apiKeyHash, now, now, agentId);
+
+  return {
+    agent_key: plainApiKey,
+    agent_id: agentId,
+    rotated_at: now,
+  };
+}
+
 /** Check if a URL points to localhost/127.0.0.1/[::1]. */
 function isLocalhostUrl(rawUrl: string): boolean {
   try {

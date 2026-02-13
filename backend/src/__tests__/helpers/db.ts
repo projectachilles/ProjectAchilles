@@ -24,6 +24,7 @@ export function createTestDatabase(): Database.Database {
       enrolled_at TEXT NOT NULL,
       enrolled_by TEXT,
       tags TEXT NOT NULL DEFAULT '[]',
+      api_key_rotated_at TEXT DEFAULT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );

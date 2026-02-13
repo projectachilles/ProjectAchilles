@@ -10,7 +10,7 @@ vi.mock('../database.js', () => ({
 }));
 
 // Import AFTER mock setup
-const { createToken, enrollAgent, listTokens, revokeToken } = await import('../enrollment.service.js');
+const { createToken, enrollAgent, listTokens, revokeToken, rotateAgentKey } = await import('../enrollment.service.js');
 
 describe('enrollment.service', () => {
   beforeEach(() => {
@@ -177,6 +177,84 @@ describe('enrollment.service', () => {
     it('returns empty array for unknown org', () => {
       const tokens = listTokens('nonexistent');
       expect(tokens).toEqual([]);
+    });
+  });
+
+  describe('rotateAgentKey', () => {
+    it('generates a new key with ak_ prefix', async () => {
+      const token = await createToken('org-001', 'user-001');
+      const enrolled = await enrollAgent({
+        token: token.token,
+        hostname: 'host-1',
+        os: 'linux',
+        arch: 'amd64',
+        agent_version: '1.0.0',
+      });
+
+      const result = await rotateAgentKey(enrolled.agent_id);
+
+      expect(result.agent_key).toMatch(/^ak_/);
+      expect(result.agent_id).toBe(enrolled.agent_id);
+      expect(result.rotated_at).toBeDefined();
+    });
+
+    it('updates hash in DB so old key no longer validates', async () => {
+      const token = await createToken('org-001', 'user-001');
+      const enrolled = await enrollAgent({
+        token: token.token,
+        hostname: 'host-1',
+        os: 'linux',
+        arch: 'amd64',
+        agent_version: '1.0.0',
+      });
+
+      const oldHash = (testDb.prepare('SELECT api_key_hash FROM agents WHERE id = ?').get(enrolled.agent_id) as any).api_key_hash;
+
+      await rotateAgentKey(enrolled.agent_id);
+
+      const newHash = (testDb.prepare('SELECT api_key_hash FROM agents WHERE id = ?').get(enrolled.agent_id) as any).api_key_hash;
+      expect(newHash).not.toBe(oldHash);
+    });
+
+    it('sets api_key_rotated_at timestamp', async () => {
+      const token = await createToken('org-001', 'user-001');
+      const enrolled = await enrollAgent({
+        token: token.token,
+        hostname: 'host-1',
+        os: 'linux',
+        arch: 'amd64',
+        agent_version: '1.0.0',
+      });
+
+      await rotateAgentKey(enrolled.agent_id);
+
+      const agent = testDb.prepare('SELECT api_key_rotated_at FROM agents WHERE id = ?').get(enrolled.agent_id) as any;
+      expect(agent.api_key_rotated_at).toBeDefined();
+      expect(agent.api_key_rotated_at).not.toBeNull();
+    });
+
+    it('throws 404 for nonexistent agent', async () => {
+      await expect(rotateAgentKey('nonexistent')).rejects.toThrow('Agent not found');
+    });
+
+    it('new key authenticates, old key does not', async () => {
+      const bcrypt = await import('bcryptjs');
+      const token = await createToken('org-001', 'user-001');
+      const enrolled = await enrollAgent({
+        token: token.token,
+        hostname: 'host-1',
+        os: 'linux',
+        arch: 'amd64',
+        agent_version: '1.0.0',
+      });
+      const oldKey = enrolled.agent_key;
+
+      const result = await rotateAgentKey(enrolled.agent_id);
+      const newKey = result.agent_key;
+
+      const row = testDb.prepare('SELECT api_key_hash FROM agents WHERE id = ?').get(enrolled.agent_id) as any;
+      expect(await bcrypt.compare(newKey, row.api_key_hash)).toBe(true);
+      expect(await bcrypt.compare(oldKey, row.api_key_hash)).toBe(false);
     });
   });
 

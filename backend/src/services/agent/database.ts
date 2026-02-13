@@ -135,6 +135,13 @@ function initializeTables(database: Database.Database): void {
     database.exec("CREATE INDEX IF NOT EXISTS idx_tasks_batch ON tasks(batch_id)");
   }
 
+  // Migration: add api_key_rotated_at column to agents table
+  const agentCols = database.prepare(`PRAGMA table_info(agents)`).all() as { name: string }[];
+  const agentColNames = new Set(agentCols.map((c) => c.name));
+  if (!agentColNames.has('api_key_rotated_at')) {
+    database.exec(`ALTER TABLE agents ADD COLUMN api_key_rotated_at TEXT DEFAULT NULL`);
+  }
+
   // Migration: add target_index to schedules table
   const scheduleCols = database.prepare(`PRAGMA table_info(schedules)`).all() as { name: string }[];
   const scheduleColNames = new Set(scheduleCols.map((c) => c.name));
