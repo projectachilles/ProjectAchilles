@@ -10,6 +10,25 @@ vi.mock('../../services/agent/database.js', () => ({
   getDatabase: () => testDb,
 }));
 
+// Mock the enrollment service exports used by the auth middleware.
+// promotePendingKey needs to operate on the real test database.
+vi.mock('../../services/agent/enrollment.service.js', () => ({
+  ROTATION_GRACE_PERIOD_SECONDS: 300,
+  promotePendingKey: (agentId: string) => {
+    const now = new Date().toISOString();
+    testDb.prepare(`
+      UPDATE agents
+      SET api_key_hash = pending_api_key_hash,
+          pending_api_key_hash = NULL,
+          pending_api_key_encrypted = NULL,
+          key_rotation_initiated_at = NULL,
+          api_key_rotated_at = ?,
+          updated_at = ?
+      WHERE id = ?
+    `).run(now, now, agentId);
+  },
+}));
+
 const { requireAgentAuth } = await import('../agentAuth.middleware.js');
 
 function mockReq(headers: Record<string, string> = {}): Request {
@@ -234,5 +253,128 @@ describe('requireAgentAuth', () => {
     });
 
     expect(next).not.toHaveBeenCalled();
+  });
+
+  describe('dual-key rotation', () => {
+    let pendingKeyPlain: string;
+    let pendingKeyHash: string;
+
+    beforeEach(async () => {
+      pendingKeyPlain = 'ak_newpendingkey99999';
+      pendingKeyHash = await bcrypt.hash(pendingKeyPlain, 10);
+    });
+
+    it('authenticates with current key when no pending rotation', async () => {
+      const req = mockReq({
+        authorization: `Bearer ${apiKeyPlain}`,
+        'x-agent-id': 'agent-001',
+      }) as any;
+      const res = mockRes();
+      const next = vi.fn();
+
+      requireAgentAuth(req, res, next);
+
+      await vi.waitFor(() => {
+        expect(next).toHaveBeenCalled();
+      });
+      expect(req.agent.id).toBe('agent-001');
+    });
+
+    it('authenticates with current key during grace period', async () => {
+      // Set pending key (within grace period)
+      const recentTime = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      testDb.prepare(`
+        UPDATE agents SET pending_api_key_hash = ?, key_rotation_initiated_at = ? WHERE id = ?
+      `).run(pendingKeyHash, recentTime, 'agent-001');
+
+      const req = mockReq({
+        authorization: `Bearer ${apiKeyPlain}`,
+        'x-agent-id': 'agent-001',
+      }) as any;
+      const res = mockRes();
+      const next = vi.fn();
+
+      requireAgentAuth(req, res, next);
+
+      await vi.waitFor(() => {
+        expect(next).toHaveBeenCalled();
+      });
+      expect(req.agent.id).toBe('agent-001');
+    });
+
+    it('authenticates with pending key and promotes it', async () => {
+      // Set pending key (within grace period)
+      const recentTime = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      testDb.prepare(`
+        UPDATE agents SET pending_api_key_hash = ?, pending_api_key_encrypted = 'encrypted_data', key_rotation_initiated_at = ? WHERE id = ?
+      `).run(pendingKeyHash, recentTime, 'agent-001');
+
+      const req = mockReq({
+        authorization: `Bearer ${pendingKeyPlain}`,
+        'x-agent-id': 'agent-001',
+      }) as any;
+      const res = mockRes();
+      const next = vi.fn();
+
+      requireAgentAuth(req, res, next);
+
+      await vi.waitFor(() => {
+        expect(next).toHaveBeenCalled();
+      });
+
+      // Pending key should have been promoted
+      const row = testDb.prepare('SELECT api_key_hash, pending_api_key_hash FROM agents WHERE id = ?').get('agent-001') as any;
+      expect(row.pending_api_key_hash).toBeNull();
+      // New api_key_hash should match the pending key
+      expect(await bcrypt.compare(pendingKeyPlain, row.api_key_hash)).toBe(true);
+    });
+
+    it('promotes pending key when grace period expires then authenticates with promoted key', async () => {
+      // Set pending key with expired grace period (6 min ago)
+      const expiredTime = new Date(Date.now() - 6 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+      testDb.prepare(`
+        UPDATE agents SET pending_api_key_hash = ?, pending_api_key_encrypted = 'encrypted_data', key_rotation_initiated_at = ? WHERE id = ?
+      `).run(pendingKeyHash, expiredTime, 'agent-001');
+
+      // Try to auth with the pending (now promoted) key
+      const req = mockReq({
+        authorization: `Bearer ${pendingKeyPlain}`,
+        'x-agent-id': 'agent-001',
+      }) as any;
+      const res = mockRes();
+      const next = vi.fn();
+
+      requireAgentAuth(req, res, next);
+
+      await vi.waitFor(() => {
+        expect(next).toHaveBeenCalled();
+      });
+
+      // Pending columns should be cleared after promotion
+      const row = testDb.prepare('SELECT pending_api_key_hash, key_rotation_initiated_at FROM agents WHERE id = ?').get('agent-001') as any;
+      expect(row.pending_api_key_hash).toBeNull();
+      expect(row.key_rotation_initiated_at).toBeNull();
+    });
+
+    it('rejects wrong key even when pending key exists', async () => {
+      const recentTime = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      testDb.prepare(`
+        UPDATE agents SET pending_api_key_hash = ?, key_rotation_initiated_at = ? WHERE id = ?
+      `).run(pendingKeyHash, recentTime, 'agent-001');
+
+      const req = mockReq({
+        authorization: 'Bearer ak_totallywrongkey',
+        'x-agent-id': 'agent-001',
+      });
+      const res = mockRes();
+      const next = vi.fn();
+
+      requireAgentAuth(req, res, next);
+
+      await vi.waitFor(() => {
+        expect(res.status).toHaveBeenCalledWith(401);
+      });
+      expect(next).not.toHaveBeenCalled();
+    });
   });
 });

@@ -63,9 +63,16 @@ Added `POST /admin/agents/:id/rotate-key` admin endpoint. Generates a new `ak_`-
 
 A frontend dialog was added to the Endpoints → Agents page, accessible via the agent action dropdown ("Rotate API Key"). Uses a two-phase flow: confirmation with warning → one-time display of the new key with copy-to-clipboard. This removes the operational friction of requiring curl for key rotation.
 
-### Future Work
+### Enhancement: Automated Key Delivery via Heartbeat
 
-Agent-side automated key rotation (requires trusted push channel, e.g., mTLS or signed rotation commands).
+Zero-downtime key rotation was implemented using a grace-period dual-key model:
+
+1. **Admin rotates key** → server stores the new key as "pending" (bcrypt hash + AES-256-GCM encrypted plaintext). The old key remains active.
+2. **Grace period (5 min)** → both old and new keys authenticate. Each heartbeat response includes the new plaintext key in `new_api_key`.
+3. **Agent auto-receives** → the agent parses the heartbeat response, updates `cfg.AgentKey` in memory, and calls `cfg.Persist()` to save the encrypted key to disk. Zero manual intervention.
+4. **Promotion** → when the agent authenticates with the new key (or the grace period expires), the server promotes the pending key to primary and clears pending columns.
+
+**Backwards compatibility**: Old agents (pre-rotation-support) ignore `new_api_key` in the heartbeat response. After the 5-minute grace period, the pending key is promoted and the old key stops working — identical to the previous immediate-rotation behavior, but with a 5-minute buffer.
 
 ---
 

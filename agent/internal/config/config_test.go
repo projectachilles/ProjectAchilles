@@ -172,6 +172,57 @@ func TestLoadEncryptedKey(t *testing.T) {
 	}
 }
 
+func TestPersistSavesToLoadPath(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+
+	// Write initial config
+	content := `server_url: https://example.com
+agent_id: agent-001
+agent_key: ak_persist_test
+`
+	if err := os.WriteFile(cfgPath, []byte(content), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Modify the key in memory
+	cfg.AgentKey = "ak_new_rotated_key"
+
+	// Persist should save to the same path
+	if err := cfg.Persist(); err != nil {
+		t.Fatalf("Persist: %v", err)
+	}
+
+	// Reload and verify
+	reloaded, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	if reloaded.AgentKey != "ak_new_rotated_key" {
+		t.Errorf("expected AgentKey=ak_new_rotated_key, got %q", reloaded.AgentKey)
+	}
+}
+
+func TestPersistErrorsWithEmptyConfigPath(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ServerURL = "https://example.com"
+	cfg.AgentID = "agent-001"
+	cfg.AgentKey = "ak_test"
+
+	err := cfg.Persist()
+	if err == nil {
+		t.Fatal("expected Persist() to error when configPath is empty")
+	}
+	if !strings.Contains(err.Error(), "not loaded from a file") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestSaveNeverWritesPlaintextKey(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

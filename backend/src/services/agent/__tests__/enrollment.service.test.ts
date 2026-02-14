@@ -9,13 +9,28 @@ vi.mock('../database.js', () => ({
   getDatabase: () => testDb,
 }));
 
-// Mock signing service — enrollment now returns update_public_key
-vi.mock('../signing.service.js', () => ({
-  getPublicKeyBase64: () => 'dGVzdC1wdWJsaWMta2V5LTMyLWJ5dGVzIQ==',
-}));
+// Mock signing service — use real ensureSigningKeyPair (creates key on disk)
+// so that pending key encryption works, but override getPublicKeyBase64 for
+// deterministic enrollment response.
+vi.mock('../signing.service.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../signing.service.js')>();
+  return {
+    ...actual,
+    getPublicKeyBase64: () => 'dGVzdC1wdWJsaWMta2V5LTMyLWJ5dGVzIQ==',
+  };
+});
 
 // Import AFTER mock setup
-const { createToken, enrollAgent, listTokens, revokeToken, rotateAgentKey } = await import('../enrollment.service.js');
+const {
+  createToken,
+  enrollAgent,
+  listTokens,
+  revokeToken,
+  rotateAgentKey,
+  encryptPendingKey,
+  decryptPendingKey,
+  promotePendingKey,
+} = await import('../enrollment.service.js');
 
 describe('enrollment.service', () => {
   beforeEach(() => {
@@ -224,7 +239,7 @@ describe('enrollment.service', () => {
       expect(result.rotated_at).toBeDefined();
     });
 
-    it('updates hash in DB so old key no longer validates', async () => {
+    it('stores pending hash, not primary (grace period model)', async () => {
       const token = await createToken('org-001', 'user-001');
       const enrolled = await enrollAgent({
         token: token.token,
@@ -238,11 +253,35 @@ describe('enrollment.service', () => {
 
       await rotateAgentKey(enrolled.agent_id);
 
-      const newHash = (testDb.prepare('SELECT api_key_hash FROM agents WHERE id = ?').get(enrolled.agent_id) as any).api_key_hash;
-      expect(newHash).not.toBe(oldHash);
+      const row = testDb.prepare('SELECT api_key_hash, pending_api_key_hash, key_rotation_initiated_at FROM agents WHERE id = ?').get(enrolled.agent_id) as any;
+      // Primary hash unchanged during grace period
+      expect(row.api_key_hash).toBe(oldHash);
+      // Pending hash is set
+      expect(row.pending_api_key_hash).toBeDefined();
+      expect(row.pending_api_key_hash).not.toBeNull();
+      expect(row.key_rotation_initiated_at).toBeDefined();
     });
 
-    it('sets api_key_rotated_at timestamp', async () => {
+    it('stores encrypted pending key', async () => {
+      const token = await createToken('org-001', 'user-001');
+      const enrolled = await enrollAgent({
+        token: token.token,
+        hostname: 'host-1',
+        os: 'linux',
+        arch: 'amd64',
+        agent_version: '1.0.0',
+      });
+
+      await rotateAgentKey(enrolled.agent_id);
+
+      const row = testDb.prepare('SELECT pending_api_key_encrypted FROM agents WHERE id = ?').get(enrolled.agent_id) as any;
+      expect(row.pending_api_key_encrypted).toBeDefined();
+      expect(row.pending_api_key_encrypted).not.toBeNull();
+      // Should be base64 (iv + authTag + ciphertext)
+      expect(() => Buffer.from(row.pending_api_key_encrypted, 'base64')).not.toThrow();
+    });
+
+    it('does not set api_key_rotated_at until promotion', async () => {
       const token = await createToken('org-001', 'user-001');
       const enrolled = await enrollAgent({
         token: token.token,
@@ -255,15 +294,15 @@ describe('enrollment.service', () => {
       await rotateAgentKey(enrolled.agent_id);
 
       const agent = testDb.prepare('SELECT api_key_rotated_at FROM agents WHERE id = ?').get(enrolled.agent_id) as any;
-      expect(agent.api_key_rotated_at).toBeDefined();
-      expect(agent.api_key_rotated_at).not.toBeNull();
+      // api_key_rotated_at is only set when pending key is promoted
+      expect(agent.api_key_rotated_at).toBeNull();
     });
 
     it('throws 404 for nonexistent agent', async () => {
       await expect(rotateAgentKey('nonexistent')).rejects.toThrow('Agent not found');
     });
 
-    it('new key authenticates, old key does not', async () => {
+    it('new key validates against pending hash', async () => {
       const bcrypt = await import('bcryptjs');
       const token = await createToken('org-001', 'user-001');
       const enrolled = await enrollAgent({
@@ -278,9 +317,70 @@ describe('enrollment.service', () => {
       const result = await rotateAgentKey(enrolled.agent_id);
       const newKey = result.agent_key;
 
-      const row = testDb.prepare('SELECT api_key_hash FROM agents WHERE id = ?').get(enrolled.agent_id) as any;
-      expect(await bcrypt.compare(newKey, row.api_key_hash)).toBe(true);
-      expect(await bcrypt.compare(oldKey, row.api_key_hash)).toBe(false);
+      const row = testDb.prepare('SELECT api_key_hash, pending_api_key_hash FROM agents WHERE id = ?').get(enrolled.agent_id) as any;
+      // New key matches pending hash
+      expect(await bcrypt.compare(newKey, row.pending_api_key_hash)).toBe(true);
+      // Old key still matches primary hash (grace period)
+      expect(await bcrypt.compare(oldKey, row.api_key_hash)).toBe(true);
+    });
+
+    it('double rotation replaces previous pending key', async () => {
+      const token = await createToken('org-001', 'user-001');
+      const enrolled = await enrollAgent({
+        token: token.token,
+        hostname: 'host-1',
+        os: 'linux',
+        arch: 'amd64',
+        agent_version: '1.0.0',
+      });
+
+      const result1 = await rotateAgentKey(enrolled.agent_id);
+      const row1 = testDb.prepare('SELECT pending_api_key_hash FROM agents WHERE id = ?').get(enrolled.agent_id) as any;
+
+      const result2 = await rotateAgentKey(enrolled.agent_id);
+      const row2 = testDb.prepare('SELECT pending_api_key_hash FROM agents WHERE id = ?').get(enrolled.agent_id) as any;
+
+      expect(result1.agent_key).not.toBe(result2.agent_key);
+      expect(row1.pending_api_key_hash).not.toBe(row2.pending_api_key_hash);
+    });
+
+    it('promotePendingKey moves pending to primary', async () => {
+      const bcrypt = await import('bcryptjs');
+      const token = await createToken('org-001', 'user-001');
+      const enrolled = await enrollAgent({
+        token: token.token,
+        hostname: 'host-1',
+        os: 'linux',
+        arch: 'amd64',
+        agent_version: '1.0.0',
+      });
+
+      const result = await rotateAgentKey(enrolled.agent_id);
+
+      promotePendingKey(enrolled.agent_id);
+
+      const row = testDb.prepare('SELECT api_key_hash, pending_api_key_hash, pending_api_key_encrypted, key_rotation_initiated_at, api_key_rotated_at FROM agents WHERE id = ?').get(enrolled.agent_id) as any;
+      expect(await bcrypt.compare(result.agent_key, row.api_key_hash)).toBe(true);
+      expect(row.pending_api_key_hash).toBeNull();
+      expect(row.pending_api_key_encrypted).toBeNull();
+      expect(row.key_rotation_initiated_at).toBeNull();
+      expect(row.api_key_rotated_at).not.toBeNull();
+    });
+  });
+
+  describe('pendingKey encryption', () => {
+    it('round-trips encrypt/decrypt', () => {
+      const original = 'ak_test_key_12345';
+      const encrypted = encryptPendingKey(original);
+      const decrypted = decryptPendingKey(encrypted);
+      expect(decrypted).toBe(original);
+    });
+
+    it('produces different ciphertext each time (unique IV)', () => {
+      const key = 'ak_same_key';
+      const enc1 = encryptPendingKey(key);
+      const enc2 = encryptPendingKey(key);
+      expect(enc1).not.toBe(enc2);
     });
   });
 

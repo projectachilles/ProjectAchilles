@@ -8,9 +8,29 @@ vi.mock('../database.js', () => ({
   getDatabase: () => testDb,
 }));
 
+// Mock the enrollment service — getPendingRotationKey calls decrypt/promote
+vi.mock('../enrollment.service.js', () => ({
+  ROTATION_GRACE_PERIOD_SECONDS: 300,
+  decryptPendingKey: (encrypted: string) => `decrypted_${encrypted}`,
+  promotePendingKey: (agentId: string) => {
+    const now = new Date().toISOString();
+    testDb.prepare(`
+      UPDATE agents
+      SET api_key_hash = pending_api_key_hash,
+          pending_api_key_hash = NULL,
+          pending_api_key_encrypted = NULL,
+          key_rotation_initiated_at = NULL,
+          api_key_rotated_at = ?,
+          updated_at = ?
+      WHERE id = ?
+    `).run(now, now, agentId);
+  },
+}));
+
 const {
   processHeartbeat,
   isAgentOnline,
+  getPendingRotationKey,
   getAgentMetrics,
   listAgents,
   getAgent,
@@ -239,6 +259,78 @@ describe('heartbeat.service', () => {
 
     it('throws for nonexistent agent', () => {
       expect(() => addTag('nonexistent', 'tag')).toThrow('not found');
+    });
+  });
+
+  describe('getPendingRotationKey', () => {
+    it('returns decrypted key when pending and within grace period', () => {
+      const recentTime = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      insertTestAgent(testDb, { id: 'a1' });
+      testDb.prepare(`
+        UPDATE agents SET pending_api_key_encrypted = 'test_enc', key_rotation_initiated_at = ? WHERE id = ?
+      `).run(recentTime, 'a1');
+
+      const key = getPendingRotationKey('a1');
+      expect(key).toBe('decrypted_test_enc');
+    });
+
+    it('returns null when no pending rotation', () => {
+      insertTestAgent(testDb, { id: 'a1' });
+
+      const key = getPendingRotationKey('a1');
+      expect(key).toBeNull();
+    });
+
+    it('auto-promotes and returns null when grace period expired', () => {
+      const expiredTime = new Date(Date.now() - 6 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+      insertTestAgent(testDb, { id: 'a1' });
+      testDb.prepare(`
+        UPDATE agents SET pending_api_key_hash = 'hash', pending_api_key_encrypted = 'enc', key_rotation_initiated_at = ? WHERE id = ?
+      `).run(expiredTime, 'a1');
+
+      const key = getPendingRotationKey('a1');
+      expect(key).toBeNull();
+
+      // Should have promoted
+      const row = testDb.prepare('SELECT pending_api_key_hash, key_rotation_initiated_at FROM agents WHERE id = ?').get('a1') as any;
+      expect(row.pending_api_key_hash).toBeNull();
+      expect(row.key_rotation_initiated_at).toBeNull();
+    });
+
+    it('returns null for nonexistent agent', () => {
+      const key = getPendingRotationKey('nonexistent');
+      expect(key).toBeNull();
+    });
+  });
+
+  describe('rotation_pending in agent queries', () => {
+    it('listAgents includes rotation_pending: true when rotation is active', () => {
+      const recentTime = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      insertTestAgent(testDb, { id: 'a1' });
+      testDb.prepare(`
+        UPDATE agents SET key_rotation_initiated_at = ? WHERE id = ?
+      `).run(recentTime, 'a1');
+
+      const result = listAgents({});
+      expect(result.agents[0].rotation_pending).toBe(true);
+    });
+
+    it('listAgents includes rotation_pending: false when no rotation', () => {
+      insertTestAgent(testDb, { id: 'a1' });
+
+      const result = listAgents({});
+      expect(result.agents[0].rotation_pending).toBe(false);
+    });
+
+    it('getAgent includes rotation_pending field', () => {
+      const recentTime = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      insertTestAgent(testDb, { id: 'a1' });
+      testDb.prepare(`
+        UPDATE agents SET key_rotation_initiated_at = ? WHERE id = ?
+      `).run(recentTime, 'a1');
+
+      const agent = getAgent('a1');
+      expect(agent!.rotation_pending).toBe(true);
     });
   });
 });
