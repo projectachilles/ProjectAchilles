@@ -30,6 +30,7 @@ export interface Agent {
   tags: string[];
   created_at: string;
   updated_at: string;
+  rotation_pending?: boolean;
 }
 
 export interface AgentSummary {
@@ -43,6 +44,7 @@ export interface AgentSummary {
   last_heartbeat: string;
   tags: string[];
   is_online: boolean;
+  rotation_pending?: boolean;
 }
 
 // ============================================================================

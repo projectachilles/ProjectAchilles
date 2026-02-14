@@ -1,4 +1,5 @@
 import { getDatabase } from './database.js';
+import { decryptPendingKey, promotePendingKey, ROTATION_GRACE_PERIOD_SECONDS } from './enrollment.service.js';
 import type {
   HeartbeatPayload,
   AgentSummary,
@@ -30,6 +31,40 @@ export function processHeartbeat(agentId: string, payload: HeartbeatPayload): vo
   `);
 
   stmt.run(now, JSON.stringify(payload), payload.agent_version, now, agentId);
+}
+
+// ============================================================================
+// KEY ROTATION — HEARTBEAT DELIVERY
+// ============================================================================
+
+/**
+ * Check if the agent has a pending rotation key that should be delivered via heartbeat.
+ * Returns the plaintext key if within grace period, or null.
+ * If the grace period has expired, promotes the pending key and returns null.
+ */
+export function getPendingRotationKey(agentId: string): string | null {
+  const db = getDatabase();
+  const row = db.prepare(
+    'SELECT pending_api_key_encrypted, key_rotation_initiated_at FROM agents WHERE id = ?'
+  ).get(agentId) as { pending_api_key_encrypted: string | null; key_rotation_initiated_at: string | null } | undefined;
+
+  if (!row?.pending_api_key_encrypted || !row.key_rotation_initiated_at) {
+    return null;
+  }
+
+  // Check if grace period has expired
+  const initiatedAt = new Date(row.key_rotation_initiated_at + 'Z').getTime();
+  const elapsed = (Date.now() - initiatedAt) / 1000;
+  if (elapsed > ROTATION_GRACE_PERIOD_SECONDS) {
+    promotePendingKey(agentId);
+    return null;
+  }
+
+  try {
+    return decryptPendingKey(row.pending_api_key_encrypted);
+  } catch {
+    return null;
+  }
 }
 
 // ============================================================================
@@ -193,7 +228,7 @@ export function listAgents(filters: ListAgentsRequest): ListAgentsResult {
 
   // Get agents
   const rows = db.prepare(
-    `SELECT id, hostname, os, arch, agent_version, status, last_heartbeat, last_heartbeat_data, tags
+    `SELECT id, hostname, os, arch, agent_version, status, last_heartbeat, last_heartbeat_data, tags, key_rotation_initiated_at
      FROM agents ${whereClause}
      ORDER BY last_heartbeat DESC NULLS LAST
      LIMIT ? OFFSET ?`
@@ -207,6 +242,7 @@ export function listAgents(filters: ListAgentsRequest): ListAgentsResult {
     last_heartbeat: string | null;
     last_heartbeat_data: string | null;
     tags: string;
+    key_rotation_initiated_at: string | null;
   }[];
 
   const agents: AgentSummary[] = rows.map((row) => ({
@@ -220,6 +256,7 @@ export function listAgents(filters: ListAgentsRequest): ListAgentsResult {
     last_heartbeat: row.last_heartbeat ?? '',
     tags: parseTags(row.tags),
     is_online: isAgentOnline(row.last_heartbeat),
+    rotation_pending: row.key_rotation_initiated_at != null,
   }));
 
   return { agents, total: countRow.count };
@@ -255,6 +292,7 @@ export function getAgent(agentId: string): Agent | null {
     tags: parseTags(row.tags as string),
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
+    rotation_pending: (row.key_rotation_initiated_at as string | null) != null,
   };
 }
 

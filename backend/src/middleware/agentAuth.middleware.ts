@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { getDatabase } from '../services/agent/database.js';
+import { promotePendingKey, ROTATION_GRACE_PERIOD_SECONDS } from '../services/agent/enrollment.service.js';
 import type { AuthenticatedAgent, AgentStatus, AgentOS, AgentArch } from '../types/agent.js';
 
 const MAX_TIMESTAMP_SKEW_SECONDS = 300; // 5 minutes
@@ -13,6 +14,8 @@ interface AgentRow {
   arch: AgentArch;
   status: AgentStatus;
   api_key_hash: string;
+  pending_api_key_hash: string | null;
+  key_rotation_initiated_at: string | null;
 }
 
 // M2: Pre-computed dummy hash so bcrypt.compare always runs, eliminating timing oracle
@@ -24,6 +27,12 @@ const DUMMY_HASH = bcrypt.hashSync('dummy-value-for-timing', 12);
  * Expects:
  *   - Authorization: Bearer ak_<token>
  *   - X-Agent-ID: <agent_id>
+ *
+ * Supports dual-key authentication during rotation grace periods:
+ *   1. If a pending key exists and the grace period has expired, promote it first
+ *   2. Try the current api_key_hash
+ *   3. If no match and a pending key exists (within grace), try the pending hash
+ *   4. If the pending hash matches, promote it (agent has adopted the new key)
  *
  * On success, attaches `req.agent` as AuthenticatedAgent.
  * On failure, returns 401 with uniform error message for all failure modes.
@@ -47,17 +56,45 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
 
   const token = parts[1];
 
-  // Look up agent in database
+  // Look up agent in database (include pending rotation columns)
   const db = getDatabase();
   const row = db.prepare(
-    'SELECT id, org_id, hostname, os, arch, status, api_key_hash FROM agents WHERE id = ?'
+    'SELECT id, org_id, hostname, os, arch, status, api_key_hash, pending_api_key_hash, key_rotation_initiated_at FROM agents WHERE id = ?'
   ).get(agentId) as AgentRow | undefined;
+
+  // If grace period has expired, promote pending → primary before auth check
+  if (row?.pending_api_key_hash && row.key_rotation_initiated_at) {
+    const initiatedAt = new Date(row.key_rotation_initiated_at + 'Z').getTime();
+    const elapsed = (Date.now() - initiatedAt) / 1000;
+    if (elapsed > ROTATION_GRACE_PERIOD_SECONDS) {
+      promotePendingKey(row.id);
+      // Re-read the row to get the promoted hash
+      const updatedRow = db.prepare(
+        'SELECT api_key_hash, pending_api_key_hash, key_rotation_initiated_at FROM agents WHERE id = ?'
+      ).get(agentId) as Pick<AgentRow, 'api_key_hash' | 'pending_api_key_hash' | 'key_rotation_initiated_at'> | undefined;
+      if (updatedRow) {
+        row.api_key_hash = updatedRow.api_key_hash;
+        row.pending_api_key_hash = updatedRow.pending_api_key_hash;
+        row.key_rotation_initiated_at = updatedRow.key_rotation_initiated_at;
+      }
+    }
+  }
 
   // M2: Always run bcrypt.compare to prevent timing oracle — use dummy hash if agent not found
   const hashToCompare = row?.api_key_hash ?? DUMMY_HASH;
 
   bcrypt.compare(token, hashToCompare)
-    .then((match) => {
+    .then(async (match) => {
+      // If primary key didn't match, try pending key (within grace period)
+      if (!match && row?.pending_api_key_hash) {
+        const pendingMatch = await bcrypt.compare(token, row.pending_api_key_hash);
+        if (pendingMatch) {
+          // Agent is using the new key — promote it
+          promotePendingKey(row.id);
+          match = true;
+        }
+      }
+
       // Uniform rejection: agent not found, wrong key, or inactive — same 401 message
       if (!row || !match) {
         res.status(401).json({ success: false, error: 'Invalid agent credentials' });

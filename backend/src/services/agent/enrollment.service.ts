@@ -8,7 +8,10 @@ import type {
   EnrollmentToken,
   CreateTokenResponse,
 } from '../../types/agent.js';
-import { getPublicKeyBase64 } from './signing.service.js';
+import { getPublicKeyBase64, ensureSigningKeyPair } from './signing.service.js';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 
 const BCRYPT_ROUNDS = 12;
 const TOKEN_PREFIX = 'acht_';
@@ -190,9 +193,73 @@ export function revokeToken(tokenId: string): void {
   }
 }
 
+// Grace period for dual-key rotation (seconds). During this window, both
+// the old key and the pending (new) key authenticate successfully.
+export const ROTATION_GRACE_PERIOD_SECONDS = 300; // 5 minutes
+
+const SIGNING_KEY_PATH = path.join(os.homedir(), '.projectachilles', 'signing', 'ed25519.key');
+const PENDING_KEY_SALT = 'achilles-pending-rotation-v1';
+
 /**
- * Rotate an agent's API key. Returns the new plaintext key exactly once.
- * The admin must update the agent's config file with the new key.
+ * Derive an AES-256 key from the Ed25519 signing private key.
+ * Uses HMAC-SHA256 with a fixed salt to produce a 32-byte symmetric key.
+ */
+function derivePendingKeyEncryptionKey(): Buffer {
+  ensureSigningKeyPair();
+  const privateKeyDer = fs.readFileSync(SIGNING_KEY_PATH);
+  return crypto.createHmac('sha256', PENDING_KEY_SALT).update(privateKeyDer).digest();
+}
+
+/**
+ * Encrypt a plaintext API key for server-side storage.
+ * Returns base64(iv + authTag + ciphertext).
+ */
+export function encryptPendingKey(plaintext: string): string {
+  const key = derivePendingKeyEncryptionKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return Buffer.concat([iv, authTag, encrypted]).toString('base64');
+}
+
+/**
+ * Decrypt a pending API key from server-side storage.
+ */
+export function decryptPendingKey(encryptedBase64: string): string {
+  const key = derivePendingKeyEncryptionKey();
+  const data = Buffer.from(encryptedBase64, 'base64');
+  const iv = data.subarray(0, 12);
+  const authTag = data.subarray(12, 28);
+  const ciphertext = data.subarray(28);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(authTag);
+  return decipher.update(ciphertext) + decipher.final('utf8');
+}
+
+/**
+ * Promote a pending key to primary. Clears pending columns and sets rotated_at.
+ */
+export function promotePendingKey(agentId: string): void {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE agents
+    SET api_key_hash = pending_api_key_hash,
+        pending_api_key_hash = NULL,
+        pending_api_key_encrypted = NULL,
+        key_rotation_initiated_at = NULL,
+        api_key_rotated_at = ?,
+        updated_at = ?
+    WHERE id = ?
+  `).run(now, now, agentId);
+}
+
+/**
+ * Rotate an agent's API key using a grace-period model.
+ * The new key is stored as "pending" — both old and new keys work during
+ * the grace period. The agent receives the new key via its next heartbeat
+ * and auto-updates. Returns the new plaintext key exactly once.
  */
 export async function rotateAgentKey(agentId: string): Promise<{ agent_key: string; agent_id: string; rotated_at: string }> {
   const db = getDatabase();
@@ -204,11 +271,17 @@ export async function rotateAgentKey(agentId: string): Promise<{ agent_key: stri
 
   const plainApiKey = API_KEY_PREFIX + crypto.randomBytes(32).toString('hex');
   const apiKeyHash = await bcrypt.hash(plainApiKey, BCRYPT_ROUNDS);
+  const encryptedKey = encryptPendingKey(plainApiKey);
   const now = new Date().toISOString();
 
-  db.prepare(
-    'UPDATE agents SET api_key_hash = ?, api_key_rotated_at = ?, updated_at = ? WHERE id = ?'
-  ).run(apiKeyHash, now, now, agentId);
+  db.prepare(`
+    UPDATE agents
+    SET pending_api_key_hash = ?,
+        pending_api_key_encrypted = ?,
+        key_rotation_initiated_at = ?,
+        updated_at = ?
+    WHERE id = ?
+  `).run(apiKeyHash, encryptedKey, now, now, agentId);
 
   return {
     agent_key: plainApiKey,

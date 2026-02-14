@@ -5,6 +5,7 @@ import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
 import { requireAgentOrgAccess, requirePermission } from '../../middleware/clerk.middleware.js';
 import {
   processHeartbeat,
+  getPendingRotationKey,
   getAgentMetrics,
   listAgents,
   getAgent,
@@ -49,11 +50,14 @@ agentHeartbeatRouter.post(
 
     processHeartbeat(agent.id, payload);
 
+    const pendingKey = getPendingRotationKey(agent.id);
+
     res.json({
       success: true,
       data: {
         acknowledged: true,
         server_time: new Date().toISOString(),
+        ...(pendingKey && { new_api_key: pendingKey }),
       },
     });
   })
@@ -202,7 +206,7 @@ adminAgentRouter.post(
         agent_id: result.agent_id,
         agent_key: result.agent_key,
         rotated_at: result.rotated_at,
-        warning: 'This key is shown once. Update the agent config file with the new key.',
+        warning: 'Copy this key as a backup. The agent will receive it automatically via heartbeat within ~60 seconds.',
       },
     });
   })

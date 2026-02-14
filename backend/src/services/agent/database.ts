@@ -142,6 +142,17 @@ function initializeTables(database: Database.Database): void {
     database.exec(`ALTER TABLE agents ADD COLUMN api_key_rotated_at TEXT DEFAULT NULL`);
   }
 
+  // Migration: add pending key rotation columns for zero-downtime rotation
+  if (!agentColNames.has('pending_api_key_hash')) {
+    database.exec(`ALTER TABLE agents ADD COLUMN pending_api_key_hash TEXT DEFAULT NULL`);
+  }
+  if (!agentColNames.has('pending_api_key_encrypted')) {
+    database.exec(`ALTER TABLE agents ADD COLUMN pending_api_key_encrypted TEXT DEFAULT NULL`);
+  }
+  if (!agentColNames.has('key_rotation_initiated_at')) {
+    database.exec(`ALTER TABLE agents ADD COLUMN key_rotation_initiated_at TEXT DEFAULT NULL`);
+  }
+
   // Migration: add target_index to schedules table
   const scheduleCols = database.prepare(`PRAGMA table_info(schedules)`).all() as { name: string }[];
   const scheduleColNames = new Set(scheduleCols.map((c) => c.name));
