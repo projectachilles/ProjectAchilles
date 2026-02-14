@@ -14,6 +14,7 @@ Auditor: Internal security review
 | 5 | Agent updates lack signature verification | MEDIUM | **Fixed** |
 | 6 | Rate limiting gaps on expensive endpoints | MEDIUM | **Fixed** |
 | 7 | Hostname disclosure in heartbeat payloads | LOW-MED | Open |
+| 8 | Plaintext credential storage in agent config | MEDIUM | **Fixed** |
 
 ---
 
@@ -57,6 +58,10 @@ Agent API keys were generated once at enrollment and could never be rotated. A c
 ### Fix
 
 Added `POST /admin/agents/:id/rotate-key` admin endpoint. Generates a new `ak_`-prefixed key, bcrypt-hashes it, immediately invalidates the old key, and returns the new plaintext key exactly once. The admin must update the agent's config file with the new key out-of-band.
+
+### Enhancement: Key Rotation UI
+
+A frontend dialog was added to the Endpoints → Agents page, accessible via the agent action dropdown ("Rotate API Key"). Uses a two-phase flow: confirmation with warning → one-time display of the new key with copy-to-clipboard. This removes the operational friction of requiring curl for key rotation.
 
 ### Future Work
 
@@ -205,3 +210,42 @@ Agent heartbeats include the system hostname in plaintext (`payload.system.hostn
 ### Recommended Fix
 
 Consider hashing or truncating hostnames for display purposes, while retaining the full hostname in an encrypted field accessible only to authorized admins. Alternatively, accept the risk given the existing access controls and focus on strengthening server-side security.
+
+---
+
+## Finding 8: Plaintext Credential Storage in Agent Config
+
+**Severity:** MEDIUM
+**Status:** Fixed
+**MITRE ATT&CK:** T1552.001 (Unsecured Credentials: Credentials In Files)
+
+### Description
+
+The agent API key (`agent_key`) was stored in plaintext in the YAML config file (e.g. `C:\F0\achilles-agent.yaml`). While `os.WriteFile` used mode `0600`, Windows ignores Unix mode bits — the file was readable by any local user. Even on Unix systems, a disclosed config file (via backup, forensic image, or LFI) would expose the key immediately, allowing agent impersonation from any machine.
+
+### Affected Files
+
+- `agent/internal/config/config.go`
+- `agent/internal/config/secure_windows.go` (new)
+- `agent/internal/config/secure_unix.go` (new)
+- `agent/internal/config/keyprotect.go` (new)
+- `agent/internal/config/machineid_linux.go` (new)
+- `agent/internal/config/machineid_darwin.go` (new)
+- `agent/internal/config/machineid_windows.go` (new)
+
+### Fix
+
+Two-layer defense:
+
+1. **Platform-specific file permissions:** On Windows, `icacls` strips inherited permissions and grants only `NT AUTHORITY\SYSTEM` and `BUILTIN\Administrators` read/write access. On Unix, explicit `os.Chmod(0600)` is called after every write as defense-in-depth.
+
+2. **Machine-bound encryption:** The agent key is encrypted with AES-256-GCM before writing to disk. The encryption key is derived via `HMAC-SHA256(salt="achilles-agent-config-v1", message=machineID)` where the machine ID comes from `/etc/machine-id` (Linux), `IOPlatformUUID` (macOS), or the Windows registry `MachineGuid`. This makes the config file useless if copied to another machine.
+
+### Backwards Compatibility
+
+| Scenario | Behavior |
+|----------|----------|
+| Old config (plaintext `agent_key`) | Auto-encrypts on first load, re-saves with `agent_key_encrypted` |
+| New config (`agent_key_encrypted`) | Decrypts normally |
+| Config moved to different machine | Decryption fails with clear error; agent must re-enroll |
+| Machine ID unavailable (e.g. Docker) | Falls back to plaintext with warning |
