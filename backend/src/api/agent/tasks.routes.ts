@@ -4,6 +4,7 @@ import { getUserId, requirePermission } from '../../middleware/clerk.middleware.
 import {
   createTasks,
   createCommandTasks,
+  createUpdateTasks,
   getNextTask,
   updateTaskStatus,
   submitResult,
@@ -177,6 +178,36 @@ adminTasksRouter.post(
     }
 
     const taskIds = createCommandTasks(cmdRequest, org_id, userId);
+
+    res.status(201).json({ success: true, data: { task_ids: taskIds } });
+  })
+);
+
+/**
+ * POST /admin/tasks/update
+ * Create update_agent tasks for one or more agents.
+ * Body: { org_id: string, agent_ids: string[] }
+ */
+adminTasksRouter.post(
+  '/tasks/update',
+  requirePermission('endpoints:tasks:create'),
+  asyncHandler(async (req, res) => {
+    const userId = getUserId(req.auth);
+    if (!userId) {
+      throw new AppError('Unable to determine user identity', 401);
+    }
+
+    const { org_id, agent_ids } = req.body as { org_id: string; agent_ids: string[] };
+
+    if (!org_id) {
+      throw new AppError('Missing required field: org_id', 400);
+    }
+
+    if (!agent_ids || agent_ids.length === 0) {
+      throw new AppError('Missing required field: agent_ids', 400);
+    }
+
+    const taskIds = createUpdateTasks(agent_ids, org_id, userId);
 
     res.status(201).json({ success: true, data: { task_ids: taskIds } });
   })

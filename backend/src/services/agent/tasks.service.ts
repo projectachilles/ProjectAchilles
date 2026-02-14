@@ -265,6 +265,66 @@ export function createCommandTasks(
 }
 
 /**
+ * Create update_agent tasks for one or more agents. Unlike createTasks, this
+ * does not look up a binary — it signals the agent to check for updates.
+ */
+export function createUpdateTasks(
+  agentIds: string[],
+  orgId: string,
+  createdBy: string
+): string[] {
+  const db = getDatabase();
+
+  if (!agentIds || agentIds.length === 0) {
+    throw new AppError('At least one agent_id is required', 400);
+  }
+
+  const payload: TaskPayload = {
+    test_uuid: '',
+    test_name: '',
+    binary_name: '',
+    binary_sha256: '',
+    binary_size: 0,
+    execution_timeout: 600,
+    arguments: [],
+    metadata: {
+      category: '',
+      subcategory: '',
+      severity: '',
+      techniques: [],
+      tactics: [],
+      threat_actor: '',
+      target: '',
+      complexity: '',
+      tags: [],
+      score: null,
+    },
+  };
+
+  const payloadJson = JSON.stringify(payload);
+  const batchId = crypto.randomUUID();
+
+  const insertStmt = db.prepare(`
+    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_at, ttl, created_by, batch_id)
+    VALUES (?, ?, ?, 'update_agent', 10, 'pending', ?, datetime('now'), 604800, ?, ?)
+  `);
+
+  const taskIds: string[] = [];
+
+  const insertAll = db.transaction(() => {
+    for (const agentId of agentIds) {
+      const taskId = crypto.randomUUID();
+      insertStmt.run(taskId, agentId, orgId, payloadJson, createdBy, batchId);
+      taskIds.push(taskId);
+    }
+  });
+
+  insertAll();
+
+  return taskIds;
+}
+
+/**
  * Fetch the next pending task for a given agent. Expires old tasks first,
  * then atomically assigns the highest-priority oldest pending task.
  */
