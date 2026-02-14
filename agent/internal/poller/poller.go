@@ -45,6 +45,16 @@ type heartbeatPayload struct {
 	LastTaskCompleted *string     `json:"last_task_completed"`
 }
 
+// heartbeatResponse wraps the server's JSON envelope for heartbeat acknowledgement.
+type heartbeatResponse struct {
+	Success bool `json:"success"`
+	Data    struct {
+		Acknowledged bool   `json:"acknowledged"`
+		ServerTime   string `json:"server_time"`
+		NewAPIKey    string `json:"new_api_key,omitempty"`
+	} `json:"data"`
+}
+
 // serverTaskResponse wraps the server's JSON envelope for a task.
 type serverTaskResponse struct {
 	Success bool          `json:"success"`
@@ -113,7 +123,7 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 		cfg.HeartbeatInterval, cfg.PollInterval, cfg.UpdateInterval)
 
 	// Send an initial heartbeat immediately.
-	sendHeartbeat(ctx, client, st, version)
+	sendHeartbeat(ctx, client, cfg, st, version)
 
 	// Run an initial update check immediately (don't wait for the first tick).
 	if updateC != nil {
@@ -131,7 +141,7 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-heartbeatTicker.C:
-			sendHeartbeat(ctx, client, st, version)
+			sendHeartbeat(ctx, client, cfg, st, version)
 		case <-pollTicker.C:
 			pollTasks(ctx, client, st, cfg)
 		case <-updateC:
@@ -146,8 +156,10 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 	}
 }
 
-// sendHeartbeat posts agent status to the server.
-func sendHeartbeat(ctx context.Context, client *httpclient.Client, st *store.Store, version string) {
+// sendHeartbeat posts agent status to the server and processes the response.
+// If the server includes a new_api_key field (key rotation), the agent updates
+// its config in memory and persists to disk automatically.
+func sendHeartbeat(ctx context.Context, client *httpclient.Client, cfg *config.Config, st *store.Store, version string) {
 	hostname, _ := os.Hostname()
 
 	state := st.Get()
@@ -187,7 +199,21 @@ func sendHeartbeat(ctx context.Context, client *httpclient.Client, st *store.Sto
 		log.Printf("heartbeat error: %v", err)
 		return
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
+
+	// Parse response to check for key rotation
+	var hbResp heartbeatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&hbResp); err != nil {
+		log.Printf("heartbeat response decode error: %v", err)
+	} else if hbResp.Data.NewAPIKey != "" {
+		// Server is delivering a rotated key — update in-memory and persist
+		cfg.AgentKey = hbResp.Data.NewAPIKey
+		if persistErr := cfg.Persist(); persistErr != nil {
+			log.Printf("warning: failed to persist rotated key to config: %v", persistErr)
+		} else {
+			log.Println("API key rotated automatically via heartbeat")
+		}
+	}
 
 	now := time.Now()
 	_ = st.Update(func(s *store.State) {

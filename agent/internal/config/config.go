@@ -29,6 +29,10 @@ type Config struct {
 	CACert            string        `yaml:"ca_cert"`
 	SkipTLSVerify     bool          `yaml:"skip_tls_verify"`
 	UpdatePublicKey   string        `yaml:"update_public_key"`
+
+	// configPath tracks the file this config was loaded from, enabling Persist().
+	// Not serialized to YAML.
+	configPath string
 }
 
 // DefaultConfig returns a Config populated with sensible defaults.
@@ -87,8 +91,11 @@ func Load(path string) (*Config, error) {
 		}
 		cfg.AgentKey = plaintext
 		cfg.AgentKeyEncrypted = ""
+		cfg.configPath = path
 		return &cfg, nil
 	}
+
+	cfg.configPath = path
 
 	// Auto-migrate plaintext key to encrypted form
 	if cfg.AgentKey != "" {
@@ -153,6 +160,15 @@ func (c *Config) Save(path string) error {
 	}
 
 	return nil
+}
+
+// Persist saves the config back to the file it was loaded from.
+// Returns an error if the config was not loaded from a file (configPath is empty).
+func (c *Config) Persist() error {
+	if c.configPath == "" {
+		return fmt.Errorf("cannot persist: config was not loaded from a file")
+	}
+	return c.Save(c.configPath)
 }
 
 // ValidateServerURL checks that rawURL uses https://, or http:// only for
