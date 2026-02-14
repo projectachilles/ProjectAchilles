@@ -74,11 +74,15 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
       if (typeof requestTimestamp === 'string') {
         const requestTime = new Date(requestTimestamp).getTime();
         if (isNaN(requestTime)) {
+          console.warn(`[agentAuth] Agent ${row.id} (${row.hostname}) sent unparseable X-Request-Timestamp: ${requestTimestamp}`);
           res.status(401).json({ success: false, error: 'Invalid agent credentials' });
           return;
         }
-        const skew = Math.abs(Date.now() - requestTime) / 1000;
+        const now = Date.now();
+        const skew = Math.abs(now - requestTime) / 1000;
         if (skew > MAX_TIMESTAMP_SKEW_SECONDS) {
+          const direction = requestTime > now ? 'ahead' : 'behind';
+          console.warn(`[agentAuth] Agent ${row.id} (${row.hostname}) rejected: clock skew ${skew.toFixed(0)}s ${direction} (max ${MAX_TIMESTAMP_SKEW_SECONDS}s). agent=${requestTimestamp} server=${new Date(now).toISOString()}`);
           res.status(401).json({ success: false, error: 'Invalid agent credentials' });
           return;
         }
