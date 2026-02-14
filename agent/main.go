@@ -94,7 +94,7 @@ func main() {
 	if *run {
 		// Wire up log file if configured, writing to both stderr and the file.
 		if cfg.LogFile != "" {
-			f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0640)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "warning: could not open log file %s: %v\n", cfg.LogFile, err)
 			} else {

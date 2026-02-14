@@ -110,10 +110,12 @@ Deploy a custom Go agent to endpoints for remote test execution with full lifecy
 
 - **Enrollment** — Token-based registration with configurable TTL and max uses
 - **Heartbeat Monitoring** — Real-time online/offline status with CPU, memory, disk, and uptime metrics
-- **Task Execution** — Download, verify (SHA256), execute, and report results with stdout/stderr capture
-- **Self-Updating** — Agents poll for new versions and auto-apply updates
+- **Task Execution** — Download, verify (SHA256 + Ed25519 signature), execute, and report results with stdout/stderr capture
+- **Self-Updating** — Agents poll for new versions and auto-apply cryptographically signed updates
+- **Zero-Downtime Key Rotation** — Rotated API keys delivered automatically via heartbeat with 5-minute dual-key grace period
+- **Encrypted Config** — Agent credentials encrypted at rest with AES-256-GCM using machine-bound keys
 - **Tagging** — Organize agents with custom tags for filtering and bulk operations
-- **Cross-Platform** — Windows and Linux support (amd64/arm64)
+- **Cross-Platform** — Windows, Linux, and macOS support (amd64 + arm64)
 
 ### Build System
 
@@ -134,6 +136,21 @@ Automate test execution across agent pools with flexible scheduling.
 - **Per-Task ES Index** — Target specific Elasticsearch indices per task for result isolation
 - **Task Notes** — Editable, version-tracked notes on each task
 - **Priority Queue** — Higher-priority tasks assigned first
+
+### Agent Communication Security
+
+The agent-server communication channel has been hardened through an internal security audit covering 9 findings. All HIGH and MEDIUM findings are resolved. See [Agent Security Findings](docs/agent-security-findings.md) for full details.
+
+| Protection | Description |
+|------------|-------------|
+| **TLS Enforcement** | `skip_tls_verify` blocked for non-localhost servers; explicit `--allow-insecure` override required |
+| **API Key Rotation** | Zero-downtime rotation via heartbeat delivery with 5-minute dual-key grace period |
+| **Replay Protection** | `X-Request-Timestamp` header with 5-minute skew window; payload-level timestamp validation |
+| **Timing Oracle Prevention** | Constant-time bcrypt comparison on enrollment and auth (dummy hash on miss) |
+| **Update Signatures** | Ed25519 detached signatures on agent binaries; verified before applying updates |
+| **Rate Limiting** | Per-endpoint budgets: enrollment (5/15min), device (100/15min), download (10/15min), rotation (3/15min) |
+| **Encrypted Credentials** | Agent API key encrypted at rest with AES-256-GCM; key derived from machine ID (non-portable) |
+| **Least-Privilege Permissions** | Binary `0700` / Windows SYSTEM+Admins ACL; config `0600`; work dirs `0700` |
 
 ## Architecture
 
@@ -344,6 +361,7 @@ CLERK_SECRET_KEY=sk_test_...
 
 ### Security & Community
 - [Security Policy](SECURITY.md) — Vulnerability reporting and security model
+- [Agent Security Findings](docs/agent-security-findings.md) — Internal audit: 9 findings, 8 fixed
 - [Code of Conduct](CODE_OF_CONDUCT.md) — Community guidelines
 - [Roadmap](ROADMAP.md) — Planned features and direction
 

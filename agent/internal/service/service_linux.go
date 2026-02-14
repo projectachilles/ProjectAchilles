@@ -47,6 +47,12 @@ func platformInstall(configPath string) error {
 	}
 	workDir := filepath.Dir(execPath)
 
+	// Harden the binary — only root needs read/execute. The admin may have
+	// placed it with 0755 (world-executable) from the download.
+	if err := os.Chmod(execPath, 0700); err != nil {
+		return fmt.Errorf("chmod binary: %w", err)
+	}
+
 	unit := fmt.Sprintf(unitTemplate, execPath, workDir)
 	if err := os.WriteFile(unitPath, []byte(unit), 0644); err != nil {
 		return fmt.Errorf("failed to write unit file: %w", err)

@@ -68,15 +68,40 @@ ProjectAchilles uses a multi-layer authentication model:
 2. **Agent API Keys** — Agents authenticate with unique keys issued during enrollment
    - Separate from Clerk — agents do not require web UI credentials
    - Keys are bound to a specific agent ID and organization
+   - Keys rotatable with zero downtime — new key delivered via heartbeat, old key valid for 5-minute grace period
+   - Stored encrypted at rest (AES-256-GCM with machine-bound key derivation)
 3. **Enrollment Tokens** — One-time or limited-use tokens for agent registration
    - Configurable TTL (time-to-live) and maximum usage count
    - Revocable through the admin interface
 
 ### Agent Security
 
-- **Binary Verification** — Agents verify test binary integrity via SHA256 checksum before execution
-- **Isolated Execution** — Test binaries run in temporary directories that are cleaned up after execution
-- **Rate Limiting** — Public binary download endpoint limited to 10 requests per 15 minutes
+The agent-server communication channel has been hardened through a dedicated internal security audit. See [Agent Security Findings](docs/agent-security-findings.md) for the full audit report covering 9 findings.
+
+**Transport Security:**
+- **TLS Enforcement** — `skip_tls_verify` blocked for non-localhost servers at config validation; explicit `--allow-insecure` CLI flag required for self-signed certificate scenarios
+- **Replay Protection** — Agent sends `X-Request-Timestamp` (RFC3339 UTC) on every request; server rejects timestamps with >5 minute clock skew; heartbeat payloads include a second timestamp for defense-in-depth
+
+**Authentication & Credential Management:**
+- **API Key Rotation** — Zero-downtime key rotation via heartbeat delivery; 5-minute grace period where both old and new keys authenticate; agent auto-saves rotated key to encrypted config
+- **Timing Oracle Prevention** — Constant-time bcrypt comparison on both enrollment and agent auth middleware; dummy hash comparison when no candidate matches to prevent distinguishing "no tokens exist" from "wrong token"
+- **Encrypted Credential Storage** — Agent API key encrypted at rest with AES-256-GCM; encryption key derived via HMAC-SHA256 from machine ID (`/etc/machine-id`, `IOPlatformUUID`, or Windows `MachineGuid`); config is non-portable across machines
+
+**Binary Integrity:**
+- **SHA256 Verification** — Agents verify test binary integrity via checksum before execution
+- **Ed25519 Update Signatures** — Server signs agent binary SHA256 hashes with an Ed25519 keypair; agents verify signatures before applying self-updates; public key distributed during enrollment
+- **Isolated Execution** — Test binaries run in temporary directories (0700) that are cleaned up after execution
+
+**Rate Limiting:**
+- Enrollment: 5 requests / 15 minutes per IP
+- Agent device endpoints: 100 requests / 15 minutes per agent
+- Binary download: 10 requests / 15 minutes per IP
+- Key rotation: 3 requests / 15 minutes per IP
+
+**Platform Hardening:**
+- **File Permissions** — Agent binary `0700` (owner-only), config `0600`, work directories `0700`, log files `0640`
+- **Windows ACLs** — Binary and config restricted via `icacls` to `NT AUTHORITY\SYSTEM` and `BUILTIN\Administrators` only; inherited permissions stripped
+- **Permission Enforcement** — Hardened at three points: install time, self-update time, and runtime file creation
 - **Heartbeat Jitter** — ±5s randomization on poll intervals to prevent thundering herd
 - **Graceful Shutdown** — Agents handle SIGINT/SIGTERM for clean termination
 
@@ -106,10 +131,12 @@ ProjectAchilles uses a multi-layer authentication model:
 
 ### Agent Communication
 
-- Use **HTTPS** for `AGENT_SERVER_URL` in production
+- Use **HTTPS** for `AGENT_SERVER_URL` in production — the agent enforces TLS for non-localhost servers
 - Use ngrok or a reverse proxy with TLS termination for agent-to-server communication
 - Revoke enrollment tokens after use to prevent unauthorized agent registration
+- **Rotate API keys** regularly via the admin UI — agents receive new keys automatically with zero downtime
 - Monitor agent heartbeats for unexpected offline/online patterns
+- Agent config files are encrypted with machine-bound keys — copying a config to another machine will not work
 
 ### Docker Deployment
 
@@ -143,15 +170,20 @@ AGENT_SERVER_URL=https://your-agent-endpoint.com
 | Feature | Implementation |
 |---------|----------------|
 | Helmet.js | Security headers |
-| Rate Limiting | Auth endpoints (20 req/15 min), binary download (10 req/15 min) |
+| Rate Limiting | Tiered per-endpoint limits: enrollment (5/15min), device (100/15min), download (10/15min), rotation (3/15min), auth (20/15min) |
 | Session Security | HttpOnly cookies, secure in production |
 | Input Validation | Zod schema validation |
 | CORS | Configurable origin restrictions |
-| Binary Verification | SHA256 checksum on agent-side |
-| Code Signing | Windows Authenticode via osslsigncode |
-| Credential Encryption | AES encryption for settings at rest |
-| Enrollment Tokens | TTL + max-use limits, revocable |
+| TLS Enforcement | `skip_tls_verify` blocked for remote servers; `--allow-insecure` override with warning |
+| Replay Protection | Timestamp validation (5-min window) on all agent requests + payload-level defense-in-depth |
+| Binary Verification | SHA256 checksum + Ed25519 signature verification on agent-side |
+| Code Signing | Windows Authenticode via osslsigncode, macOS ad-hoc via rcodesign |
+| API Key Rotation | Zero-downtime dual-key rotation with heartbeat delivery |
+| Credential Encryption | AES-256-GCM for agent config (machine-bound), AES for backend settings |
+| Enrollment Tokens | TTL + max-use limits, revocable, timing-oracle-resistant |
+| File Permission Hardening | Binary `0700`, config `0600`, Windows ACLs via icacls |
 | Dependabot | Automated dependency vulnerability monitoring |
+| Semgrep SAST | 11 community rulesets + 5 custom rules in CI |
 
 ## Vulnerability Disclosure Policy
 

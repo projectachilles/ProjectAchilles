@@ -10,7 +10,7 @@ import (
 // applyUpdate replaces the current binary with the new one. On Linux a running
 // binary's file can be replaced atomically via rename on the same filesystem.
 func applyUpdate(currentBin, newBin string) error {
-	if err := os.Chmod(newBin, 0755); err != nil {
+	if err := os.Chmod(newBin, 0700); err != nil {
 		return fmt.Errorf("chmod: %w", err)
 	}
 

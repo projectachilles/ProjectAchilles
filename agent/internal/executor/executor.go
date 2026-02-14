@@ -93,7 +93,7 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 	}
 
 	// Create an isolated temp directory under WorkDir.
-	if err := os.MkdirAll(cfg.WorkDir, 0755); err != nil {
+	if err := os.MkdirAll(cfg.WorkDir, 0700); err != nil {
 		return nil, fmt.Errorf("create work dir: %w", err)
 	}
 
@@ -122,7 +122,7 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 
 	// Step 5: Make executable on Linux/macOS.
 	if runtime.GOOS != "windows" {
-		if err := os.Chmod(binaryPath, 0755); err != nil {
+		if err := os.Chmod(binaryPath, 0700); err != nil {
 			return nil, fmt.Errorf("chmod binary: %w", err)
 		}
 	}
@@ -195,7 +195,7 @@ func ExecuteCommand(ctx context.Context, client *httpclient.Client, task Task, c
 	}
 
 	// Create an isolated temp directory under WorkDir.
-	if err := os.MkdirAll(cfg.WorkDir, 0755); err != nil {
+	if err := os.MkdirAll(cfg.WorkDir, 0700); err != nil {
 		return nil, fmt.Errorf("create work dir: %w", err)
 	}
 

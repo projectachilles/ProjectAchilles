@@ -15,6 +15,7 @@ Auditor: Internal security review
 | 6 | Rate limiting gaps on expensive endpoints | MEDIUM | **Fixed** |
 | 7 | Hostname disclosure in heartbeat payloads | LOW-MED | Open |
 | 8 | Plaintext credential storage in agent config | MEDIUM | **Fixed** |
+| 9 | Overpermissive file permissions on agent binary and work dirs | MEDIUM | **Fixed** |
 
 ---
 
@@ -256,3 +257,51 @@ Two-layer defense:
 | New config (`agent_key_encrypted`) | Decrypts normally |
 | Config moved to different machine | Decryption fails with clear error; agent must re-enroll |
 | Machine ID unavailable (e.g. Docker) | Falls back to plaintext with warning |
+
+---
+
+## Finding 9: Overpermissive File Permissions on Agent Binary and Work Directories
+
+**Severity:** MEDIUM
+**Status:** Fixed
+**MITRE ATT&CK:** T1222.002 (File and Directory Permissions Modification: Linux and Mac File and Directory Permissions Modification)
+
+### Description
+
+The agent binary was set to `0755` (`-rwxr-xr-x`) on Linux and macOS, allowing any local user to read and execute it. On Windows, the binary inherited directory permissions with no explicit ACL restriction. The same pattern applied to the task work directory (`0755`) and log file (`0644`).
+
+Since the agent runs exclusively as a root-level system service (systemd, launchd, SCM/SYSTEM), no unprivileged user needs access. The overpermissive settings allow a local attacker to:
+- Reverse-engineer the binary to learn the agent-server protocol
+- Execute a rogue instance to probe behavior and discover server URLs
+- Read test execution output from the work directory
+- Read operational logs for reconnaissance
+
+### Affected Files
+
+- `agent/internal/updater/update_linux.go`
+- `agent/internal/updater/update_darwin.go`
+- `agent/internal/updater/update_windows.go`
+- `agent/internal/executor/executor.go`
+- `agent/internal/service/service_linux.go`
+- `agent/internal/service/service_darwin.go`
+- `agent/internal/service/service_windows.go`
+- `agent/main.go`
+
+### Fix
+
+Applied least-privilege permissions across all agent file operations:
+
+| Resource | Before | After | Rationale |
+|----------|--------|-------|-----------|
+| Agent binary (update) | `0755` | `0700` | Only root executes via service manager |
+| Agent binary (install) | Inherited | `0700` / icacls | Harden admin-placed binary at install time |
+| Test binary (download) | `0755` | `0700` | Only root executes test payloads |
+| Work directory | `0755` | `0700` | Test output not world-readable |
+| Log file | `0644` | `0640` | Operational logs restricted to owner + group |
+| Windows binary (update) | Inherited | icacls: SYSTEM(RX) + Admins(F) | Explicit ACL, strip inherited permissions |
+| Windows binary (install) | Inherited | icacls: SYSTEM(RX) + Admins(F) | Same |
+
+**Three enforcement points:**
+1. **At install time** — `platformInstall()` hardens the binary before starting the service, catching admin-placed binaries with default download permissions
+2. **At update time** — `applyUpdate()` hardens the new binary before atomic rename
+3. **At runtime** — executor and log file creation use restricted modes

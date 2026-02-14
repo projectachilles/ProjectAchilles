@@ -160,6 +160,18 @@ func platformInstall(configPath string) error {
 		return fmt.Errorf("sc create failed: %w", err)
 	}
 
+	// Harden the binary — restrict to SYSTEM and Administrators only.
+	// The admin may have placed it with inherited permissions from the
+	// download directory, allowing any local user to read/execute it.
+	aclCmd := exec.Command("icacls", execPath,
+		"/inheritance:r",
+		"/grant:r", "NT AUTHORITY\\SYSTEM:(RX)",
+		"/grant:r", "BUILTIN\\Administrators:(F)",
+	)
+	if out, err := aclCmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: icacls on binary failed: %v: %s\n", err, out)
+	}
+
 	// Set description.
 	cmd = exec.Command("sc", "description", serviceName, serviceDesc)
 	_ = cmd.Run()

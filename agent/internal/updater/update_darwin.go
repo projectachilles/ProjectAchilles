@@ -13,7 +13,7 @@ import (
 // binary's file can be replaced atomically via rename on the same filesystem
 // (same as Linux — APFS and HFS+ support this).
 func applyUpdate(currentBin, newBin string) error {
-	if err := os.Chmod(newBin, 0755); err != nil {
+	if err := os.Chmod(newBin, 0700); err != nil {
 		return fmt.Errorf("chmod: %w", err)
 	}
 

@@ -4,7 +4,9 @@ package updater
 
 import (
 	"fmt"
+	"log"
 	"os"
+	"os/exec"
 )
 
 // applyUpdate replaces the current binary with the new one. Windows cannot
@@ -26,5 +28,20 @@ func applyUpdate(currentBin, newBin string) error {
 		return fmt.Errorf("rename new to current: %w", err)
 	}
 
+	secureBinaryPermissions(currentBin)
 	return nil
+}
+
+// secureBinaryPermissions restricts binary access to SYSTEM and Administrators.
+// Windows ignores Unix mode bits, so we use icacls to strip inherited permissions
+// and grant explicit access to privileged accounts only.
+func secureBinaryPermissions(path string) {
+	cmd := exec.Command("icacls", path,
+		"/inheritance:r",
+		"/grant:r", "NT AUTHORITY\\SYSTEM:(RX)",
+		"/grant:r", "BUILTIN\\Administrators:(F)",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("warning: icacls on binary failed: %v: %s", err, out)
+	}
 }
