@@ -15,6 +15,10 @@ import {
   removeTag,
 } from '../../services/agent/heartbeat.service.js';
 import { rotateAgentKey } from '../../services/agent/enrollment.service.js';
+import {
+  getAutoRotationSettings,
+  saveAutoRotationSettings,
+} from '../../services/agent/autoRotation.service.js';
 import type { HeartbeatPayload, ListAgentsRequest } from '../../types/agent.js';
 
 // ============================================================================
@@ -249,5 +253,45 @@ adminAgentRouter.delete(
     const tags = removeTag(req.params.id, tag);
 
     res.json({ success: true, data: { id: req.params.id, tags } });
+  })
+);
+
+// ============================================================================
+// AUTO-ROTATION SETTINGS
+// ============================================================================
+
+/**
+ * GET /admin/settings/auto-rotation
+ * Returns the current auto-rotation configuration.
+ */
+adminAgentRouter.get(
+  '/settings/auto-rotation',
+  requirePermission('endpoints:agents:write'),
+  asyncHandler(async (_req: Request, res: Response) => {
+    const settings = getAutoRotationSettings();
+    res.json({ success: true, data: settings });
+  })
+);
+
+/**
+ * PUT /admin/settings/auto-rotation
+ * Update auto-rotation configuration.
+ */
+adminAgentRouter.put(
+  '/settings/auto-rotation',
+  requirePermission('endpoints:agents:write'),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { enabled, intervalDays } = req.body as { enabled?: boolean; intervalDays?: number };
+
+    if (typeof enabled !== 'boolean') {
+      throw new AppError('enabled is required and must be a boolean', 400);
+    }
+    if (typeof intervalDays !== 'number' || intervalDays < 30 || intervalDays > 365) {
+      throw new AppError('intervalDays must be a number between 30 and 365', 400);
+    }
+
+    saveAutoRotationSettings({ enabled, intervalDays });
+
+    res.json({ success: true, data: { enabled, intervalDays } });
   })
 );

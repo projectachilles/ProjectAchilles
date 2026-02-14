@@ -183,6 +183,17 @@ export const agentApi = {
   async deleteSchedule(id: string): Promise<void> {
     await apiClient.delete(`/agent/admin/schedules/${id}`);
   },
+
+  // --- Auto-Rotation Settings ---
+
+  async getAutoRotationSettings(): Promise<{ enabled: boolean; intervalDays: number }> {
+    const response = await apiClient.get('/agent/admin/settings/auto-rotation');
+    return response.data.data;
+  },
+
+  async saveAutoRotationSettings(settings: { enabled: boolean; intervalDays: number }): Promise<void> {
+    await apiClient.put('/agent/admin/settings/auto-rotation', settings);
+  },
 };
 
 // Re-export types for convenience

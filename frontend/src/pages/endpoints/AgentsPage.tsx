@@ -24,6 +24,7 @@ import RotateKeyDialog from '../../components/endpoints/agents/RotateKeyDialog';
 import TagManager from '../../components/endpoints/sensors/TagManager';
 import EnrollmentSection from '@/components/endpoints/enrollment/EnrollmentSection';
 import AvailableBinaries from '@/components/endpoints/agents/AvailableBinaries';
+import AutoRotationSettings from '@/components/endpoints/agents/AutoRotationSettings';
 import { Alert, Toast } from '../../components/shared/ui/Alert';
 import { Button } from '../../components/shared/ui/Button';
 import { Loading } from '../../components/shared/ui/Spinner';
@@ -212,6 +213,8 @@ export default function AgentsPage() {
         )}
 
         <AvailableBinaries />
+
+        {canWriteAgent && <AutoRotationSettings />}
 
         {error && (
           <Alert variant="destructive" className="mb-4">

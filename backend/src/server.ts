@@ -18,6 +18,7 @@ import { GitHubMetadataService } from './services/browser/githubMetadataService.
 import { createAgentRouter } from './api/agent/index.js';
 import usersRoutes from './api/users.routes.js';
 import { processSchedules } from './services/agent/schedules.service.js';
+import { processAutoRotation } from './services/agent/autoRotation.service.js';
 import { initCatalog } from './services/agent/test-catalog.service.js';
 
 // Get __dirname equivalent in ES modules
@@ -211,8 +212,12 @@ async function startServer() {
     processSchedules(); // Startup recovery: catch up on past-due schedules
     const schedulerInterval = setInterval(processSchedules, 60_000);
 
+    // --- Auto key rotation: check every 60s ---
+    const autoRotationInterval = setInterval(processAutoRotation, 60_000);
+
     const shutdown = () => {
       clearInterval(schedulerInterval);
+      clearInterval(autoRotationInterval);
       httpServer.close();
     };
     process.on('SIGTERM', shutdown);
