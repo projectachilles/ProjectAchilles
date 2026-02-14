@@ -10,3 +10,9 @@ import "os"
 func secureFilePermissions(path string) error {
 	return os.Chmod(path, 0600)
 }
+
+// SecureBinaryPermissions enforces 0700 (owner rwx only) on the agent binary.
+// Called at startup to retroactively fix permissions left by older applyUpdate() code.
+func SecureBinaryPermissions(path string) error {
+	return os.Chmod(path, 0700)
+}

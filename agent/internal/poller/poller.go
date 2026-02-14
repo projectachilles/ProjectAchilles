@@ -143,7 +143,10 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 		case <-heartbeatTicker.C:
 			sendHeartbeat(ctx, client, cfg, st, version)
 		case <-pollTicker.C:
-			pollTasks(ctx, client, st, cfg)
+			if pollTasks(ctx, client, st, cfg, version) {
+				log.Println("admin-triggered update applied, exiting for restart")
+				return ErrUpdateApplied
+			}
 		case <-updateC:
 			updated, err := updater.CheckAndUpdate(ctx, client, version, cfg)
 			if err != nil {
@@ -225,34 +228,35 @@ func sendHeartbeat(ctx context.Context, client *httpclient.Client, cfg *config.C
 
 // pollTasks checks the server for pending tasks. If a task is received,
 // it executes the binary and reports the result.
-func pollTasks(ctx context.Context, client *httpclient.Client, st *store.Store, cfg *config.Config) {
+// Returns true if an update_agent task applied an update (caller should exit for restart).
+func pollTasks(ctx context.Context, client *httpclient.Client, st *store.Store, cfg *config.Config, version string) bool {
 	log.Println("polling for tasks")
 
 	resp, err := client.Do(ctx, http.MethodGet, "/api/agent/tasks", nil)
 	if err != nil {
 		log.Printf("poll error: %v", err)
-		return
+		return false
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNoContent {
-		return
+		return false
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("unexpected poll response: %d", resp.StatusCode)
-		return
+		return false
 	}
 
 	var envelope serverTaskResponse
 	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
 		log.Printf("decode task error: %v", err)
-		return
+		return false
 	}
 
 	if !envelope.Success || envelope.Data.ID == "" {
 		log.Println("no valid task in response")
-		return
+		return false
 	}
 
 	task := envelope.Data
@@ -265,14 +269,32 @@ func pollTasks(ctx context.Context, client *httpclient.Client, st *store.Store, 
 
 	// Dispatch based on task type.
 	var result *executor.Result
+	var updateApplied bool
 	switch task.Type {
 	case "execute_test":
 		result, err = executor.Execute(ctx, client, task, cfg)
 	case "execute_command":
 		result, err = executor.ExecuteCommand(ctx, client, task, cfg)
+	case "update_agent":
+		updated, updateErr := updater.CheckAndUpdate(ctx, client, version, cfg)
+		if updateErr != nil {
+			log.Printf("admin-triggered update failed: %v", updateErr)
+			if patchErr := patchTaskFailed(ctx, client, task.ID); patchErr != nil {
+				log.Printf("failed to mark task %s as failed: %v", task.ID, patchErr)
+			}
+			_ = st.Update(func(s *store.State) { s.LastTaskID = task.ID })
+			return false
+		}
+		updateApplied = updated
+		result = &executor.Result{ExitCode: 0}
+		if updated {
+			result.Stdout = "update applied, restart pending"
+		} else {
+			result.Stdout = "already up to date"
+		}
 	default:
 		log.Printf("unsupported task type %q, skipping", task.Type)
-		return
+		return false
 	}
 
 	if err != nil {
@@ -283,7 +305,7 @@ func pollTasks(ctx context.Context, client *httpclient.Client, st *store.Store, 
 		_ = st.Update(func(s *store.State) {
 			s.LastTaskID = task.ID
 		})
-		return
+		return false
 	}
 
 	// Report the result.
@@ -296,6 +318,8 @@ func pollTasks(ctx context.Context, client *httpclient.Client, st *store.Store, 
 	_ = st.Update(func(s *store.State) {
 		s.LastTaskID = task.ID
 	})
+
+	return updateApplied
 }
 
 // patchTaskFailed sends a PATCH to mark a task as failed when execution errors occur

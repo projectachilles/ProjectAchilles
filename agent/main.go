@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/f0rt1ka/achilles-agent/internal/config"
 	"github.com/f0rt1ka/achilles-agent/internal/enrollment"
@@ -89,6 +90,16 @@ func main() {
 	}
 	if *allowInsecure && cfg.SkipTLSVerify {
 		log.Println("WARNING: TLS certificate verification is disabled via --allow-insecure. This is NOT recommended for production.")
+	}
+
+	// Harden own binary permissions on every startup.
+	// Fixes permissions left by older applyUpdate() code in a single restart cycle.
+	if exe, err := os.Executable(); err == nil {
+		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+			if err := config.SecureBinaryPermissions(resolved); err != nil {
+				log.Printf("warning: could not secure binary permissions: %v", err)
+			}
+		}
 	}
 
 	if *run {

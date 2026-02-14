@@ -22,3 +22,19 @@ func secureFilePermissions(path string) error {
 	}
 	return nil
 }
+
+// SecureBinaryPermissions restricts the agent binary to SYSTEM (read+execute)
+// and Administrators (full control). Called at startup to retroactively fix
+// permissions left by older applyUpdate() code.
+func SecureBinaryPermissions(path string) error {
+	cmd := exec.Command("icacls", path,
+		"/inheritance:r",
+		"/grant:r", "NT AUTHORITY\\SYSTEM:(RX)",
+		"/grant:r", "BUILTIN\\Administrators:(F)",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("icacls failed: %w: %s", err, out)
+	}
+	return nil
+}
