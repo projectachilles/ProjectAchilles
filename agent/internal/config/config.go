@@ -85,6 +85,8 @@ func Load(path string) (*Config, error) {
 
 	// Decrypt encrypted key
 	if cfg.AgentKeyEncrypted != "" {
+		wasLegacy := isLegacyEncrypted(cfg.AgentKeyEncrypted)
+
 		plaintext, err := decryptAgentKey(cfg.AgentKeyEncrypted)
 		if err != nil {
 			return nil, fmt.Errorf("decrypt agent key: %w", err)
@@ -92,6 +94,15 @@ func Load(path string) (*Config, error) {
 		cfg.AgentKey = plaintext
 		cfg.AgentKeyEncrypted = ""
 		cfg.configPath = path
+
+		// Auto-migrate legacy (HMAC) encryption to v2 (PBKDF2)
+		if wasLegacy {
+			log.Printf("migrating agent key encryption from legacy to v2 (PBKDF2)")
+			if saveErr := cfg.Save(path); saveErr != nil {
+				log.Printf("warning: could not re-save config with v2 encryption: %v", saveErr)
+			}
+		}
+
 		return &cfg, nil
 	}
 
