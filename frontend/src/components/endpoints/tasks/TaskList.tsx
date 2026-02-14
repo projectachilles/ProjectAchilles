@@ -84,6 +84,12 @@ function TaskName({ task }: { task: Pick<AgentTask, 'type' | 'payload'> }): Reac
       </span>
     );
   }
+  if (task.type === 'update_agent') {
+    return <span className="text-muted-foreground italic">Agent Update</span>;
+  }
+  if (task.type === 'uninstall') {
+    return <span className="text-muted-foreground italic">Agent Uninstall</span>;
+  }
   return <>{task.payload.test_name}</>;
 }
 
