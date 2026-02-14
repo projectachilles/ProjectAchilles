@@ -18,7 +18,8 @@ type Config struct {
 	PollInterval      time.Duration `yaml:"poll_interval"`
 	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
 	AgentID           string        `yaml:"agent_id"`
-	AgentKey          string        `yaml:"agent_key"`
+	AgentKey          string        `yaml:"agent_key,omitempty"`
+	AgentKeyEncrypted string        `yaml:"agent_key_encrypted,omitempty"`
 	OrgID             string        `yaml:"org_id"`
 	WorkDir           string        `yaml:"work_dir"`
 	LogFile           string        `yaml:"log_file"`
@@ -60,6 +61,12 @@ func DefaultConfigPath() string {
 
 // Load reads a YAML config file and unmarshals it on top of DefaultConfig,
 // so any fields missing from the file retain their default values.
+//
+// Key encryption handling:
+//   - If agent_key_encrypted is set, it is decrypted into AgentKey
+//   - If only agent_key (plaintext) is set, it is auto-encrypted and re-saved
+//   - If decryption fails (wrong machine), returns an error
+//   - If machine ID is unavailable, falls back to plaintext with a warning
 func Load(path string) (*Config, error) {
 	cfg := DefaultConfig()
 
@@ -72,18 +79,67 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
 
+	// Decrypt encrypted key
+	if cfg.AgentKeyEncrypted != "" {
+		plaintext, err := decryptAgentKey(cfg.AgentKeyEncrypted)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt agent key: %w", err)
+		}
+		cfg.AgentKey = plaintext
+		cfg.AgentKeyEncrypted = ""
+		return &cfg, nil
+	}
+
+	// Auto-migrate plaintext key to encrypted form
+	if cfg.AgentKey != "" {
+		encrypted, err := encryptAgentKey(cfg.AgentKey)
+		if err != nil {
+			// Machine ID unavailable (e.g. Docker without /etc/machine-id) —
+			// continue with plaintext key but warn the operator
+			log.Printf("warning: could not encrypt agent key (machine ID unavailable): %v — key remains in plaintext", err)
+			return &cfg, nil
+		}
+		cfg.AgentKeyEncrypted = encrypted
+		plaintextKey := cfg.AgentKey
+		cfg.AgentKey = "" // Clear plaintext for save
+		if saveErr := cfg.Save(path); saveErr != nil {
+			log.Printf("warning: could not re-save config with encrypted key: %v", saveErr)
+		}
+		// Restore plaintext in memory for runtime use
+		cfg.AgentKey = plaintextKey
+		cfg.AgentKeyEncrypted = ""
+	}
+
 	return &cfg, nil
 }
 
 // Save writes the Config as YAML to the given path, creating parent directories
-// with mode 0700 and the file with mode 0600.
+// with mode 0700 and the file with mode 0600. If the agent key is set in
+// plaintext, it is encrypted before writing so the file never contains a
+// plaintext key (unless machine ID is unavailable).
 func (c *Config) Save(path string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create config dir %s: %w", dir, err)
 	}
 
+	// Encrypt the agent key for on-disk storage
+	savedKey := c.AgentKey
+	savedEncKey := c.AgentKeyEncrypted
+	if c.AgentKey != "" {
+		encrypted, err := encryptAgentKey(c.AgentKey)
+		if err != nil {
+			log.Printf("warning: could not encrypt agent key for save: %v — writing plaintext", err)
+		} else {
+			c.AgentKeyEncrypted = encrypted
+			c.AgentKey = ""
+		}
+	}
+
 	data, err := yaml.Marshal(c)
+	// Restore in-memory values regardless of marshal outcome
+	c.AgentKey = savedKey
+	c.AgentKeyEncrypted = savedEncKey
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}

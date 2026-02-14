@@ -1,6 +1,9 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -110,5 +113,85 @@ func TestValidateIntegration(t *testing.T) {
 	cfg.ServerURL = "http://localhost:3000"
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("unexpected validation error for localhost: %v", err)
+	}
+}
+
+func TestLoadPlaintextKeyAutoMigrates(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	// Write a config with plaintext agent_key
+	content := `server_url: https://example.com
+agent_id: agent-001
+agent_key: ak_secret123
+`
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// In-memory should have the decrypted key
+	if cfg.AgentKey != "ak_secret123" {
+		t.Errorf("expected AgentKey=ak_secret123, got %q", cfg.AgentKey)
+	}
+
+	// On-disk should no longer have plaintext
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "ak_secret123") {
+		t.Error("plaintext key should not appear in saved config after auto-migration")
+	}
+	if !strings.Contains(string(data), "agent_key_encrypted:") {
+		t.Error("saved config should contain agent_key_encrypted field")
+	}
+}
+
+func TestLoadEncryptedKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	// Save a config (will encrypt the key)
+	cfg := DefaultConfig()
+	cfg.ServerURL = "https://example.com"
+	cfg.AgentID = "agent-001"
+	cfg.AgentKey = "ak_encrypted-test"
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Load should decrypt successfully
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.AgentKey != "ak_encrypted-test" {
+		t.Errorf("expected AgentKey=ak_encrypted-test, got %q", loaded.AgentKey)
+	}
+}
+
+func TestSaveNeverWritesPlaintextKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	cfg := DefaultConfig()
+	cfg.ServerURL = "https://example.com"
+	cfg.AgentID = "agent-001"
+	cfg.AgentKey = "ak_should-not-appear"
+
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "ak_should-not-appear") {
+		t.Error("plaintext key should never appear in saved config")
+	}
+
+	// Runtime struct should still have the key
+	if cfg.AgentKey != "ak_should-not-appear" {
+		t.Error("Save should not modify in-memory AgentKey")
 	}
 }
