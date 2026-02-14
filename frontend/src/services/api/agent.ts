@@ -103,6 +103,11 @@ export const agentApi = {
     return response.data.data.task_ids;
   },
 
+  async triggerUpdate(data: { org_id: string; agent_ids: string[] }): Promise<string[]> {
+    const response = await apiClient.post('/agent/admin/tasks/update', data);
+    return response.data.data.task_ids;
+  },
+
   async listTasks(params?: ListTasksRequest): Promise<{ tasks: AgentTask[]; total: number }> {
     const response = await apiClient.get('/agent/admin/tasks', { params });
     const data = response.data.data;

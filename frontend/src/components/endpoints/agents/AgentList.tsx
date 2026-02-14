@@ -2,7 +2,7 @@
  * Agent List Component - Table view of agents
  */
 
-import { MoreHorizontal, Power, PowerOff, Trash2, KeyRound } from 'lucide-react';
+import { MoreHorizontal, Power, PowerOff, Trash2, KeyRound, Download } from 'lucide-react';
 import { useState } from 'react';
 import {
   Table,
@@ -24,7 +24,7 @@ interface AgentListProps {
   canDelete?: boolean;
   onToggleSelect: (agentId: string) => void;
   onToggleSelectAll: () => void;
-  onAction: (agentId: string, action: 'enable' | 'disable' | 'decommission' | 'delete' | 'rotate-key') => void;
+  onAction: (agentId: string, action: 'enable' | 'disable' | 'decommission' | 'delete' | 'rotate-key' | 'update') => void;
   onSelectAgent: (agent: AgentSummary) => void;
 }
 
@@ -168,6 +168,12 @@ export default function AgentList({
                             <Power className="w-4 h-4" /> Enable
                           </button>
                         )}
+                        <button
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2"
+                          onClick={() => { onAction(agent.id, 'update'); setOpenMenu(null); }}
+                        >
+                          <Download className="w-4 h-4" /> Update
+                        </button>
                         {canDelete && (
                           <button
                             className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2"

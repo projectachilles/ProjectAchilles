@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { UserPlus, ChevronDown, ChevronUp } from 'lucide-react';
+import { UserPlus, ChevronDown, ChevronUp, Download } from 'lucide-react';
 import { useHasPermission } from '@/hooks/useAppRole';
 import { useAppDispatch, useAppSelector } from '../../store';
 import {
@@ -122,6 +122,10 @@ export default function AgentsPage() {
       setRotateKeyAgentId(agentId);
       return;
     }
+    if (action === 'update') {
+      await handleTriggerUpdate([agentId]);
+      return;
+    }
     if (action === 'enable') {
       await dispatch(updateAgentStatus({ id: agentId, status: 'active' }));
       showSuccess('Agent enabled');
@@ -161,6 +165,21 @@ export default function AgentsPage() {
     }
     if (succeeded > 0) {
       showSuccess(`Tag "${tag}" removed from ${succeeded} agent(s)`);
+    }
+  }
+
+  async function handleTriggerUpdate(agentIds: string[]): Promise<void> {
+    try {
+      const taskIds = await agentApi.triggerUpdate({
+        org_id: 'default',
+        agent_ids: agentIds,
+      });
+      if (taskIds.length > 0) {
+        showSuccess(`Update triggered for ${taskIds.length} agent(s)`);
+        setSelectedAgents([]);
+      }
+    } catch {
+      // Error handled by global interceptor
     }
   }
 
@@ -207,11 +226,25 @@ export default function AgentsPage() {
         />
 
         {canWriteAgent && (
-          <TagManager
-            selectedCount={selectedAgents.length}
-            onAddTag={handleAddTag}
-            onRemoveTag={handleRemoveTag}
-          />
+          <>
+            <TagManager
+              selectedCount={selectedAgents.length}
+              onAddTag={handleAddTag}
+              onRemoveTag={handleRemoveTag}
+            />
+            {selectedAgents.length > 0 && (
+              <div className="flex items-center gap-2 mb-4">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleTriggerUpdate(selectedAgents)}
+                >
+                  <Download className="w-4 h-4 mr-1" />
+                  Update Selected ({selectedAgents.length})
+                </Button>
+              </div>
+            )}
+          </>
         )}
 
         {loading ? (
