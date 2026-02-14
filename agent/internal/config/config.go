@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -89,6 +90,10 @@ func (c *Config) Save(path string) error {
 
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("write config %s: %w", path, err)
+	}
+
+	if err := secureFilePermissions(path); err != nil {
+		log.Printf("warning: could not set file permissions on %s: %v", path, err)
 	}
 
 	return nil
