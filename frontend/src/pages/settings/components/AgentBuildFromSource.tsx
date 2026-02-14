@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Hammer, ShieldCheck, ShieldOff } from 'lucide-react';
 import { Button } from '@/components/shared/ui/Button';
 import { Input } from '@/components/shared/ui/Input';
@@ -6,6 +6,31 @@ import { Select } from '@/components/shared/ui/Select';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Spinner } from '@/components/shared/ui/Spinner';
 import { agentApi } from '@/services/api/agent';
+import type { AgentVersion } from '@/types/agent';
+
+function getNextVersion(versions: AgentVersion[], os: string): string {
+  let best: { major: number; minor: number; patch: number } | null = null;
+  for (const v of versions) {
+    if (v.os !== os) continue;
+    const m = v.version.match(/^(\d+)\.(\d+)\.(\d+)$/);
+    if (!m) continue;
+    const cur = { major: +m[1], minor: +m[2], patch: +m[3] };
+    if (
+      !best ||
+      cur.major > best.major ||
+      (cur.major === best.major && cur.minor > best.minor) ||
+      (cur.major === best.major && cur.minor === best.minor && cur.patch > best.patch)
+    ) {
+      best = cur;
+    }
+  }
+  if (!best) return '';
+  return `${best.major}.${best.minor}.${best.patch + 1}`;
+}
+
+function getDefaultOs(versions: AgentVersion[]): string {
+  return versions.length > 0 ? versions[0].os : 'linux';
+}
 
 const OS_OPTIONS = [
   { value: 'linux', label: 'Linux' },
@@ -19,15 +44,21 @@ const ARCH_OPTIONS = [
 ];
 
 interface AgentBuildFromSourceProps {
+  versions: AgentVersion[];
   onBuilt: () => void;
 }
 
-export function AgentBuildFromSource({ onBuilt }: AgentBuildFromSourceProps) {
-  const [version, setVersion] = useState('');
-  const [os, setOs] = useState('linux');
+export function AgentBuildFromSource({ versions, onBuilt }: AgentBuildFromSourceProps) {
+  const [os, setOs] = useState(() => getDefaultOs(versions));
+  const [version, setVersion] = useState(() => getNextVersion(versions, os));
   const [arch, setArch] = useState('amd64');
   const [building, setBuilding] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (versions.length === 0) return;
+    setVersion(getNextVersion(versions, os));
+  }, [versions, os]);
 
   async function handleBuild() {
     if (!version) return;
@@ -42,7 +73,9 @@ export function AgentBuildFromSource({ onBuilt }: AgentBuildFromSourceProps) {
         type: 'success',
         text: `Built ${result.version} for ${result.os}/${result.arch}${signedLabel} — ${formatSize(result.binary_size)}`,
       });
-      setVersion('');
+      // Bump to next patch version so the form is ready for another build
+      const m = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
+      setVersion(m ? `${m[1]}.${m[2]}.${+m[3] + 1}` : '');
       onBuilt();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Build failed';

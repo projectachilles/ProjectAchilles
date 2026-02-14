@@ -54,7 +54,7 @@ export function AgentTab() {
         statusMessage={statusMessage}
         defaultExpanded
       >
-        <AgentBuildFromSource onBuilt={fetchVersions} />
+        <AgentBuildFromSource versions={versions} onBuilt={fetchVersions} />
       </IntegrationCard>
 
       <IntegrationCard
