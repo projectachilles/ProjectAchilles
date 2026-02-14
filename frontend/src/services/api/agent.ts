@@ -50,6 +50,16 @@ export const agentApi = {
     await apiClient.delete(`/agent/admin/agents/${agentId}`);
   },
 
+  async rotateAgentKey(agentId: string): Promise<{
+    agent_id: string;
+    agent_key: string;
+    rotated_at: string;
+    warning: string;
+  }> {
+    const response = await apiClient.post(`/agent/admin/agents/${agentId}/rotate-key`);
+    return response.data.data;
+  },
+
   async tagAgent(agentId: string, tag: string): Promise<Agent> {
     const response = await apiClient.post(`/agent/admin/agents/${agentId}/tags`, { tag });
     return response.data.data;

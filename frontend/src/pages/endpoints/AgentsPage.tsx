@@ -20,6 +20,7 @@ import { PageContainer, PageHeader } from '../../components/endpoints/Layout';
 import AgentFilters from '../../components/endpoints/agents/AgentFilters';
 import AgentList from '../../components/endpoints/agents/AgentList';
 import AgentDetailPanel from '../../components/endpoints/agents/AgentDetailPanel';
+import RotateKeyDialog from '../../components/endpoints/agents/RotateKeyDialog';
 import TagManager from '../../components/endpoints/sensors/TagManager';
 import EnrollmentSection from '@/components/endpoints/enrollment/EnrollmentSection';
 import AvailableBinaries from '@/components/endpoints/agents/AvailableBinaries';
@@ -38,6 +39,7 @@ export default function AgentsPage() {
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [detailAgent, setDetailAgent] = useState<Agent | null>(null);
+  const [rotateKeyAgentId, setRotateKeyAgentId] = useState<string | null>(null);
   const [showEnrollment, setShowEnrollment] = useState(false);
   const [latestVersions, setLatestVersions] = useState<Map<string, string>>(new Map());
   const isInitialMount = useRef(true);
@@ -116,6 +118,10 @@ export default function AgentsPage() {
   }
 
   async function handleAction(agentId: string, action: string): Promise<void> {
+    if (action === 'rotate-key') {
+      setRotateKeyAgentId(agentId);
+      return;
+    }
     if (action === 'enable') {
       await dispatch(updateAgentStatus({ id: agentId, status: 'active' }));
       showSuccess('Agent enabled');
@@ -228,6 +234,18 @@ export default function AgentsPage() {
           latestVersion={detailAgent ? latestVersions.get(`${detailAgent.os}-${detailAgent.arch}`) : undefined}
           onClose={() => setDetailAgent(null)}
         />
+
+        {rotateKeyAgentId && (
+          <RotateKeyDialog
+            open={!!rotateKeyAgentId}
+            onClose={() => setRotateKeyAgentId(null)}
+            agentId={rotateKeyAgentId}
+            onRotated={() => {
+              showSuccess('API key rotated successfully');
+              dispatch(fetchAgents(filters));
+            }}
+          />
+        )}
 
         {successMessage && (
           <div className="fixed bottom-4 right-4 z-50">
