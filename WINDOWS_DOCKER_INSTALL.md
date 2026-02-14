@@ -28,6 +28,7 @@ Complete guide for installing and running ProjectAchilles on Windows using Docke
 | Requirement | Minimum | Recommended |
 |-------------|---------|-------------|
 | Windows | 10 (21H2+) or 11 | Windows 11 |
+| PowerShell | 7.0+ | Latest version |
 | RAM | 8 GB | 16 GB (32 GB if using Elasticsearch) |
 | Disk | 10 GB free | 20 GB free |
 | CPU | 64-bit with virtualization | 4+ cores |
