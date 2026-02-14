@@ -119,6 +119,9 @@ export default function AgentList({
                       <Badge variant="warning" className="text-xs ml-1">outdated</Badge>
                     ) : null;
                   })()}
+                  {agent.rotation_pending && (
+                    <Badge variant="warning" className="text-xs ml-1">key rotating</Badge>
+                  )}
                 </TableCell>
                 <TableCell>
                   <span className="text-xs text-muted-foreground">

@@ -77,9 +77,9 @@ export default function RotateKeyDialog({
           </DialogHeader>
           <DialogContent>
             <Alert variant="warning">
-              This will immediately invalidate the agent's current API key. The
-              agent will be unable to communicate until its config file is updated
-              with the new key.
+              This will generate a new API key. Both old and new keys will work
+              during a 5-minute grace period while the agent auto-receives the
+              new key via heartbeat.
             </Alert>
             {error && (
               <Alert variant="destructive" className="mt-3">
@@ -102,7 +102,7 @@ export default function RotateKeyDialog({
           <DialogHeader>
             <DialogTitle>New API Key Generated</DialogTitle>
             <DialogDescription>
-              Copy this key now — it will not be shown again
+              Copy this key as a backup — the agent will receive it automatically
             </DialogDescription>
           </DialogHeader>
           <DialogContent>
@@ -122,9 +122,9 @@ export default function RotateKeyDialog({
               </Button>
             </div>
             <Alert variant="warning" className="mt-3">
-              Update the agent's config file with this new key. The agent cannot
-              authenticate until the config is updated and the agent process is
-              restarted.
+              The agent will automatically receive this key within ~60 seconds via
+              its next heartbeat. If the agent is offline, you'll need to manually
+              update the config file.
             </Alert>
           </DialogContent>
           <DialogFooter>

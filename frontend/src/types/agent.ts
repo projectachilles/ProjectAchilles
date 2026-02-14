@@ -36,6 +36,7 @@ export interface AgentSummary {
   last_heartbeat: string | null;
   tags: string[];
   is_online: boolean;
+  rotation_pending?: boolean;
 }
 
 export interface Agent {
@@ -51,6 +52,7 @@ export interface Agent {
   enrolled_at: string;
   enrolled_by: string | null;
   tags: string[];
+  rotation_pending?: boolean;
 }
 
 export interface TaskTestMetadata {
