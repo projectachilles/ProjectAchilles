@@ -5,13 +5,22 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Monitor, Wifi, WifiOff, ClipboardList } from 'lucide-react';
+import { Monitor, Wifi, WifiOff, ClipboardList, CheckCircle, XCircle, Activity, ArrowRight } from 'lucide-react';
 import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/shared/ui/Card';
 import { Badge } from '@/components/shared/ui/Badge';
+import { Button } from '@/components/shared/ui/Button';
 import { Loading } from '@/components/shared/ui/Spinner';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/ui/Table';
 import { agentApi } from '@/services/api/agent';
-import type { AgentMetrics, AgentTask, TaskStatus } from '@/types/agent';
+import type { AgentMetrics, AgentTask, TaskStatus, TaskType } from '@/types/agent';
 
 interface MetricCardProps {
   icon: React.ComponentType<{ className?: string }>;
@@ -41,6 +50,7 @@ function MetricCard({ icon: Icon, label, value, color }: MetricCardProps) {
 const OS_COLORS: Record<string, string> = {
   windows: 'bg-blue-500',
   linux: 'bg-orange-500',
+  darwin: 'bg-gray-500',
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -48,6 +58,17 @@ const STATUS_COLORS: Record<string, string> = {
   disabled: 'bg-yellow-500',
   decommissioned: 'bg-red-500',
 };
+
+const VERSION_COLORS = [
+  'bg-violet-500',
+  'bg-cyan-500',
+  'bg-amber-500',
+  'bg-emerald-500',
+  'bg-rose-500',
+  'bg-sky-500',
+  'bg-lime-500',
+  'bg-fuchsia-500',
+];
 
 function taskStatusVariant(status: TaskStatus): 'success' | 'warning' | 'destructive' | 'default' | 'primary' {
   switch (status) {
@@ -76,6 +97,37 @@ function formatRelativeTime(dateString: string): string {
   if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)}m ago`;
   if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)}h ago`;
   return `${Math.floor(diffSeconds / 86400)}d ago`;
+}
+
+function formatDuration(ms: number | undefined): string {
+  if (ms == null) return '-';
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
+}
+
+function getTaskLabel(type: TaskType, payload: AgentTask['payload']): React.ReactNode {
+  switch (type) {
+    case 'execute_test':
+      return payload.test_name;
+    case 'execute_command':
+      return <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{payload.command ?? 'command'}</code>;
+    case 'update_agent':
+      return <span className="italic">Agent Update</span>;
+    case 'uninstall':
+      return <span className="italic">Uninstall</span>;
+    default:
+      return type;
+  }
+}
+
+function buildVersionColorMap(versions: Record<string, number>): Record<string, string> {
+  const colorMap: Record<string, string> = {};
+  const keys = Object.keys(versions).sort();
+  for (let i = 0; i < keys.length; i++) {
+    colorMap[keys[i]] = VERSION_COLORS[i % VERSION_COLORS.length];
+  }
+  return colorMap;
 }
 
 interface DistributionBarProps {
@@ -126,6 +178,50 @@ function DistributionBar({ data, colorMap, label }: DistributionBarProps) {
   );
 }
 
+function TaskActivityCard({ activity }: { activity: AgentMetrics['task_activity_24h'] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Task Activity (24h)</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-green-500" />
+            <div>
+              <p className="text-lg font-semibold">{activity.completed}</p>
+              <p className="text-xs text-muted-foreground">Completed</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <XCircle className="w-4 h-4 text-red-500" />
+            <div>
+              <p className="text-lg font-semibold">{activity.failed}</p>
+              <p className="text-xs text-muted-foreground">Failed</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Activity className="w-4 h-4 text-blue-500" />
+            <div>
+              <p className="text-lg font-semibold">{activity.in_progress}</p>
+              <p className="text-xs text-muted-foreground">In Progress</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 flex items-center justify-center">
+              <span className="text-xs font-bold text-muted-foreground">%</span>
+            </div>
+            <div>
+              <p className="text-lg font-semibold">{activity.success_rate}%</p>
+              <p className="text-xs text-muted-foreground">Success Rate</p>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AgentDashboardPage() {
   const navigate = useNavigate();
   const [metrics, setMetrics] = useState<AgentMetrics | null>(null);
@@ -141,7 +237,7 @@ export default function AgentDashboardPage() {
       try {
         const [metricsData, tasksResult] = await Promise.all([
           agentApi.getMetrics(),
-          agentApi.listTasks({ limit: 5 }),
+          agentApi.listTasks({ limit: 10 }),
         ]);
 
         setMetrics(metricsData);
@@ -172,7 +268,7 @@ export default function AgentDashboardPage() {
     return (
       <>
         <PageContainer>
-          <PageHeader title="Agent Dashboard" description="Fleet overview and quick actions" />
+          <PageHeader title="Agent Dashboard" description="Fleet overview and operational status" />
           <Card className="border-destructive/20 bg-destructive/5">
             <CardContent className="pt-6">
               <p className="text-destructive font-medium">Failed to load dashboard</p>
@@ -184,32 +280,17 @@ export default function AgentDashboardPage() {
     );
   }
 
-  const quickActions = [
-    {
-      title: 'Agents',
-      description: 'View and manage registered agents',
-      icon: Monitor,
-      path: '/endpoints/agents',
-      color: 'text-blue-500',
-    },
-    {
-      title: 'Tasks',
-      description: 'View and dispatch security test tasks',
-      icon: ClipboardList,
-      path: '/endpoints/tasks',
-      color: 'text-purple-500',
-    },
-  ];
+  const versionColorMap = buildVersionColorMap(metrics?.by_version ?? {});
 
   return (
     <>
       <PageContainer>
         <PageHeader
           title="Agent Dashboard"
-          description="Fleet overview and quick actions"
+          description="Fleet overview and operational status"
         />
 
-        {/* Metric Cards */}
+        {/* Row 1: Metric Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <MetricCard
             icon={Monitor}
@@ -237,7 +318,19 @@ export default function AgentDashboardPage() {
           />
         </div>
 
-        {/* Distribution Charts */}
+        {/* Row 2: Task Activity + Version Distribution */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <TaskActivityCard
+            activity={metrics?.task_activity_24h ?? { completed: 0, failed: 0, total: 0, success_rate: 0, in_progress: 0 }}
+          />
+          <DistributionBar
+            data={metrics?.by_version ?? {}}
+            colorMap={versionColorMap}
+            label="Agent Version Distribution"
+          />
+        </div>
+
+        {/* Row 3: OS + Status Distribution */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <DistributionBar
             data={metrics?.by_os ?? {}}
@@ -251,63 +344,61 @@ export default function AgentDashboardPage() {
           />
         </div>
 
-        {/* Quick Actions */}
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {quickActions.map((action) => (
-              <Card
-                key={action.title}
-                className="cursor-pointer hover:border-primary/50 transition-colors"
-                onClick={() => navigate(action.path)}
-              >
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-4">
-                    <div className={`p-3 rounded-lg bg-muted ${action.color}`}>
-                      <action.icon className="w-6 h-6" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold mb-1">{action.title}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {action.description}
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-
-        {/* Recent Tasks */}
+        {/* Row 4: Recent Tasks Table */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">Recent Tasks</CardTitle>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs gap-1"
+              onClick={() => navigate('/endpoints/tasks')}
+            >
+              View All <ArrowRight className="w-3 h-3" />
+            </Button>
           </CardHeader>
           <CardContent>
             {recentTasks.length === 0 ? (
               <p className="text-sm text-muted-foreground">No tasks yet</p>
             ) : (
-              <div className="space-y-3">
-                {recentTasks.map((task) => (
-                  <div
-                    key={task.id}
-                    className="flex items-center justify-between py-2 border-b border-border last:border-0"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        {task.payload.test_name}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Task</TableHead>
+                    <TableHead>Agent</TableHead>
+                    <TableHead>Duration</TableHead>
+                    <TableHead>Exit Code</TableHead>
+                    <TableHead>Created</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {recentTasks.map((task) => (
+                    <TableRow key={task.id}>
+                      <TableCell>
+                        <Badge variant={taskStatusVariant(task.status)}>
+                          {task.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[240px] truncate">
+                        {getTaskLabel(task.type, task.payload)}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {task.agent_hostname ?? task.agent_id.slice(0, 8)}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {formatDuration(task.result?.execution_duration_ms)}
+                      </TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {task.result?.exit_code != null ? task.result.exit_code : '-'}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
                         {formatRelativeTime(task.created_at)}
-                      </p>
-                    </div>
-                    <Badge variant={taskStatusVariant(task.status)}>
-                      {task.status}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             )}
           </CardContent>
         </Card>

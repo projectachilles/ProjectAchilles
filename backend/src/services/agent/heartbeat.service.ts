@@ -112,6 +112,14 @@ interface AgentMetrics {
   by_os: Record<string, number>;
   by_status: Record<string, number>;
   pending_tasks: number;
+  task_activity_24h: {
+    completed: number;
+    failed: number;
+    total: number;
+    success_rate: number;
+    in_progress: number;
+  };
+  by_version: Record<string, number>;
 }
 
 export function getAgentMetrics(orgId?: string): AgentMetrics {
@@ -158,6 +166,34 @@ export function getAgentMetrics(orgId?: string): AgentMetrics {
     `SELECT COUNT(*) as count FROM tasks WHERE status = 'pending'${orgCondition.replace('org_id', 'tasks.org_id')}`
   ).get(...orgParams) as { count: number };
 
+  // Task activity — last 24 hours
+  const taskOrgCondition = orgCondition.replace('org_id', 'tasks.org_id');
+
+  const completedRow = db.prepare(
+    `SELECT COUNT(*) as count FROM tasks WHERE status = 'completed' AND completed_at > datetime('now', '-24 hours')${taskOrgCondition}`
+  ).get(...orgParams) as { count: number };
+
+  const failedRow = db.prepare(
+    `SELECT COUNT(*) as count FROM tasks WHERE status = 'failed' AND completed_at > datetime('now', '-24 hours')${taskOrgCondition}`
+  ).get(...orgParams) as { count: number };
+
+  const inProgressRow = db.prepare(
+    `SELECT COUNT(*) as count FROM tasks WHERE status IN ('assigned', 'downloading', 'executing')${taskOrgCondition}`
+  ).get(...orgParams) as { count: number };
+
+  const finished24h = completedRow.count + failedRow.count;
+  const successRate = finished24h > 0 ? Math.round((completedRow.count / finished24h) * 100) : 0;
+
+  // Agent version distribution (non-decommissioned)
+  const versionRows = db.prepare(
+    `SELECT agent_version, COUNT(*) as count FROM agents WHERE status != 'decommissioned'${orgCondition} GROUP BY agent_version`
+  ).all(...orgParams) as { agent_version: string; count: number }[];
+
+  const by_version: Record<string, number> = {};
+  for (const row of versionRows) {
+    by_version[row.agent_version] = row.count;
+  }
+
   return {
     total: totalRow.count,
     online: onlineRow.count,
@@ -165,6 +201,14 @@ export function getAgentMetrics(orgId?: string): AgentMetrics {
     by_os,
     by_status,
     pending_tasks: pendingRow.count,
+    task_activity_24h: {
+      completed: completedRow.count,
+      failed: failedRow.count,
+      total: finished24h,
+      success_rate: successRate,
+      in_progress: inProgressRow.count,
+    },
+    by_version,
   };
 }
 

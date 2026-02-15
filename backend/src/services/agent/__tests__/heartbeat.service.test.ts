@@ -124,6 +124,54 @@ describe('heartbeat.service', () => {
       const metrics = getAgentMetrics();
       expect(metrics.pending_tasks).toBe(1);
     });
+
+    it('includes task_activity_24h stats', () => {
+      insertTestAgent(testDb, { id: 'a1' });
+
+      const recentTime = new Date(Date.now() - 2 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+      const oldTime = new Date(Date.now() - 48 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+
+      // Completed within 24h
+      testDb.prepare(`
+        INSERT INTO tasks (id, agent_id, org_id, type, status, payload, created_by, ttl, completed_at)
+        VALUES ('t1', 'a1', 'org-001', 'execute_test', 'completed', '{}', 'user', 604800, ?)
+      `).run(recentTime);
+
+      // Failed within 24h
+      testDb.prepare(`
+        INSERT INTO tasks (id, agent_id, org_id, type, status, payload, created_by, ttl, completed_at)
+        VALUES ('t2', 'a1', 'org-001', 'execute_test', 'failed', '{}', 'user', 604800, ?)
+      `).run(recentTime);
+
+      // Completed outside 24h — should not count
+      testDb.prepare(`
+        INSERT INTO tasks (id, agent_id, org_id, type, status, payload, created_by, ttl, completed_at)
+        VALUES ('t3', 'a1', 'org-001', 'execute_test', 'completed', '{}', 'user', 604800, ?)
+      `).run(oldTime);
+
+      // In-progress task (executing)
+      testDb.prepare(`
+        INSERT INTO tasks (id, agent_id, org_id, type, status, payload, created_by, ttl)
+        VALUES ('t4', 'a1', 'org-001', 'execute_test', 'executing', '{}', 'user', 604800)
+      `).run();
+
+      const metrics = getAgentMetrics();
+      expect(metrics.task_activity_24h.completed).toBe(1);
+      expect(metrics.task_activity_24h.failed).toBe(1);
+      expect(metrics.task_activity_24h.total).toBe(2);
+      expect(metrics.task_activity_24h.success_rate).toBe(50);
+      expect(metrics.task_activity_24h.in_progress).toBe(1);
+    });
+
+    it('includes by_version distribution', () => {
+      insertTestAgent(testDb, { id: 'a1', agent_version: '1.0.0' });
+      insertTestAgent(testDb, { id: 'a2', agent_version: '1.0.0' });
+      insertTestAgent(testDb, { id: 'a3', agent_version: '1.1.0' });
+      insertTestAgent(testDb, { id: 'a4', agent_version: '1.1.0', status: 'decommissioned' });
+
+      const metrics = getAgentMetrics();
+      expect(metrics.by_version).toEqual({ '1.0.0': 2, '1.1.0': 1 });
+    });
   });
 
   describe('listAgents', () => {

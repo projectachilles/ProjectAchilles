@@ -183,6 +183,14 @@ export interface AgentMetrics {
   by_os: Record<string, number>;
   by_status: Record<string, number>;
   pending_tasks: number;
+  task_activity_24h: {
+    completed: number;
+    failed: number;
+    total: number;
+    success_rate: number;
+    in_progress: number;
+  };
+  by_version: Record<string, number>;
 }
 
 // Schedules
