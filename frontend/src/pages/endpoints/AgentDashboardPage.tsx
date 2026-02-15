@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Monitor, Wifi, WifiOff, ClipboardList, CheckCircle, XCircle, Activity, ArrowRight } from 'lucide-react';
+import { PieChart, Pie, Cell } from 'recharts';
 import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/shared/ui/Card';
 import { Badge } from '@/components/shared/ui/Badge';
@@ -19,6 +20,12 @@ import {
   TableHead,
   TableCell,
 } from '@/components/shared/ui/Table';
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from '@/components/ui/chart';
 import { agentApi } from '@/services/api/agent';
 import type { AgentMetrics, AgentTask, TaskStatus, TaskType } from '@/types/agent';
 
@@ -53,21 +60,21 @@ const OS_COLORS: Record<string, string> = {
   darwin: 'bg-gray-500',
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  active: 'bg-green-500',
-  disabled: 'bg-yellow-500',
-  decommissioned: 'bg-red-500',
+const STATUS_DONUT_COLORS: Record<string, string> = {
+  active: 'oklch(0.60 0.18 145)',
+  disabled: 'oklch(0.70 0.18 85)',
+  decommissioned: 'oklch(0.55 0.22 25)',
 };
 
-const VERSION_COLORS = [
-  'bg-violet-500',
-  'bg-cyan-500',
-  'bg-amber-500',
-  'bg-emerald-500',
-  'bg-rose-500',
-  'bg-sky-500',
-  'bg-lime-500',
-  'bg-fuchsia-500',
+const VERSION_PALETTE = [
+  'oklch(0.55 0.20 290)',  // violet
+  'oklch(0.65 0.15 200)',  // cyan
+  'oklch(0.65 0.18 85)',   // amber
+  'oklch(0.60 0.18 160)',  // emerald
+  'oklch(0.58 0.22 15)',   // rose
+  'oklch(0.62 0.14 230)',  // sky
+  'oklch(0.68 0.18 130)',  // lime
+  'oklch(0.58 0.22 320)',  // fuchsia
 ];
 
 function taskStatusVariant(status: TaskStatus): 'success' | 'warning' | 'destructive' | 'default' | 'primary' {
@@ -125,7 +132,7 @@ function buildVersionColorMap(versions: Record<string, number>): Record<string, 
   const colorMap: Record<string, string> = {};
   const keys = Object.keys(versions).sort();
   for (let i = 0; i < keys.length; i++) {
-    colorMap[keys[i]] = VERSION_COLORS[i % VERSION_COLORS.length];
+    colorMap[keys[i]] = VERSION_PALETTE[i % VERSION_PALETTE.length];
   }
   return colorMap;
 }
@@ -173,6 +180,113 @@ function DistributionBar({ data, colorMap, label }: DistributionBarProps) {
             })}
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+interface DonutChartProps {
+  data: Record<string, number>;
+  colorMap: Record<string, string>;
+  label: string;
+}
+
+function DonutChart({ data, colorMap, label }: DonutChartProps) {
+  const entries = Object.entries(data);
+  const total = entries.reduce((sum, [, count]) => sum + count, 0);
+
+  if (total === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{label}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">No data available</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const chartData = entries.map(([key, count]) => ({
+    name: key,
+    value: count,
+    fill: colorMap[key] || 'oklch(0.55 0.01 250)',
+    percentage: Math.round((count / total) * 100),
+  }));
+
+  const chartConfig = chartData.reduce<ChartConfig>((acc, item) => {
+    acc[item.name] = { label: item.name, color: item.fill };
+    return acc;
+  }, {});
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{label}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center gap-4">
+          <div className="w-[120px] h-[120px] flex-shrink-0">
+            <ChartContainer config={chartConfig} className="h-full w-full">
+              <PieChart>
+                <Pie
+                  data={chartData}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius="45%"
+                  outerRadius="85%"
+                  paddingAngle={2}
+                  stroke="none"
+                >
+                  {chartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.fill} />
+                  ))}
+                </Pie>
+                <ChartTooltip
+                  content={
+                    <ChartTooltipContent
+                      hideLabel
+                      formatter={(value, _name, item) => {
+                        const p = item.payload;
+                        return (
+                          <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                                style={{ backgroundColor: p.fill }}
+                              />
+                              <span className="font-medium capitalize">{p.name}</span>
+                            </div>
+                            <span className="text-foreground font-bold ml-[18px]">
+                              {Number(value).toLocaleString()} ({p.percentage}%)
+                            </span>
+                          </div>
+                        );
+                      }}
+                    />
+                  }
+                />
+              </PieChart>
+            </ChartContainer>
+          </div>
+          <div className="flex flex-col gap-2 flex-1 min-w-0">
+            {chartData.map((entry, index) => (
+              <div key={`legend-${index}`} className="flex items-center gap-2">
+                <div
+                  className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
+                  style={{ backgroundColor: entry.fill }}
+                />
+                <span className="text-sm capitalize truncate">{entry.name}</span>
+                <span className="text-sm text-muted-foreground tabular-nums flex-shrink-0 ml-auto">
+                  {entry.value} ({entry.percentage}%)
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
@@ -323,7 +437,7 @@ export default function AgentDashboardPage() {
           <TaskActivityCard
             activity={metrics?.task_activity_24h ?? { completed: 0, failed: 0, total: 0, success_rate: 0, in_progress: 0 }}
           />
-          <DistributionBar
+          <DonutChart
             data={metrics?.by_version ?? {}}
             colorMap={versionColorMap}
             label="Agent Version Distribution"
@@ -337,9 +451,9 @@ export default function AgentDashboardPage() {
             colorMap={OS_COLORS}
             label="OS Distribution"
           />
-          <DistributionBar
+          <DonutChart
             data={metrics?.by_status ?? {}}
-            colorMap={STATUS_COLORS}
+            colorMap={STATUS_DONUT_COLORS}
             label="Status Distribution"
           />
         </div>
