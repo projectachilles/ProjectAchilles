@@ -1,9 +1,10 @@
 import { useState, Fragment } from 'react';
-import { ChevronDown, ChevronRight, Copy, Check, StickyNote, X, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, Check, Maximize, StickyNote, X, Trash2 } from 'lucide-react';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/shared/ui/Table';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
 import { Checkbox } from '@/components/shared/ui/Checkbox';
+import { Dialog, DialogHeader, DialogTitle, DialogContent } from '@/components/shared/ui/Dialog';
 import type { AgentTask, TaskGroup, TaskStatus } from '@/types/agent';
 
 interface TaskListProps {
@@ -107,15 +108,21 @@ function StatusBadges({ statusCounts }: { statusCounts: Partial<Record<TaskStatu
 }
 
 function TaskDetailRow({ task, colSpan }: { task: AgentTask; colSpan: number }): React.ReactElement | null {
+  const [outputExpanded, setOutputExpanded] = useState(false);
+
   if (!task.result) return null;
   return (
     <TableRow>
       <TableCell colSpan={colSpan}>
         <div className="bg-muted/50 rounded-lg p-4 space-y-3 text-sm">
           <div>
-            <div className="flex items-center">
+            <div className="flex items-center gap-1">
               <span className="font-medium">Stdout:</span>
               {task.result.stdout && <CopyButton text={task.result.stdout} />}
+              <Button variant="ghost" size="sm" className="h-6 px-1.5"
+                onClick={() => setOutputExpanded(true)} title="Expand output">
+                <Maximize className="w-3.5 h-3.5" />
+              </Button>
             </div>
             <pre className="mt-1 p-2 bg-background rounded text-xs overflow-x-auto max-h-40">
               {task.result.stdout || '(empty)'}
@@ -137,6 +144,33 @@ function TaskDetailRow({ task, colSpan }: { task: AgentTask; colSpan: number }):
             <span>Host: {task.result.hostname}</span>
           </div>
         </div>
+        <Dialog open={outputExpanded} onClose={() => setOutputExpanded(false)} className="!max-w-5xl">
+          <DialogHeader onClose={() => setOutputExpanded(false)}>
+            <DialogTitle>Task Output</DialogTitle>
+          </DialogHeader>
+          <DialogContent>
+            <div className="space-y-4">
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="font-medium">Stdout:</span>
+                  {task.result.stdout && <CopyButton text={task.result.stdout} />}
+                </div>
+                <pre className="p-3 bg-muted rounded text-xs overflow-auto max-h-[35vh] whitespace-pre-wrap break-words">
+                  {task.result.stdout || '(empty)'}
+                </pre>
+              </div>
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="font-medium">Stderr:</span>
+                  {task.result.stderr && <CopyButton text={task.result.stderr} />}
+                </div>
+                <pre className="p-3 bg-muted rounded text-xs overflow-auto max-h-[35vh] whitespace-pre-wrap break-words">
+                  {task.result.stderr || '(empty)'}
+                </pre>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </TableCell>
     </TableRow>
   );
