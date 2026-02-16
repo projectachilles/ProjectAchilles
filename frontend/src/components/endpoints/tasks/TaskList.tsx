@@ -155,7 +155,7 @@ function TaskDetailRow({ task, colSpan }: { task: AgentTask; colSpan: number }):
                   <span className="font-medium">Stdout:</span>
                   {task.result.stdout && <CopyButton text={task.result.stdout} />}
                 </div>
-                <pre className="p-3 bg-muted rounded text-xs overflow-auto max-h-[50vh] whitespace-pre-wrap break-words">
+                <pre className="p-3 bg-muted rounded text-xs overflow-auto max-h-[35vh] whitespace-pre-wrap break-words">
                   {task.result.stdout || '(empty)'}
                 </pre>
               </div>
@@ -164,7 +164,7 @@ function TaskDetailRow({ task, colSpan }: { task: AgentTask; colSpan: number }):
                   <span className="font-medium">Stderr:</span>
                   {task.result.stderr && <CopyButton text={task.result.stderr} />}
                 </div>
-                <pre className="p-3 bg-muted rounded text-xs overflow-auto max-h-[50vh] whitespace-pre-wrap break-words">
+                <pre className="p-3 bg-muted rounded text-xs overflow-auto max-h-[35vh] whitespace-pre-wrap break-words">
                   {task.result.stderr || '(empty)'}
                 </pre>
               </div>
