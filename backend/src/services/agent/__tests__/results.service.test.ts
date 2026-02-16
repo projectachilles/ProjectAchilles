@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { Task, TaskResult } from '../../../types/agent.js';
+import type { Task, TaskResult, BundleResults } from '../../../types/agent.js';
 
 // ── Mock setup ──────────────────────────────────────────────────────
 
@@ -14,10 +14,12 @@ vi.mock('../../analytics/settings.js', () => ({
 }));
 
 const mockEsIndex = vi.fn();
+const mockEsBulk = vi.fn();
 
 vi.mock('../../analytics/client.js', () => ({
   createEsClient: vi.fn(() => ({
     index: mockEsIndex,
+    bulk: mockEsBulk,
   })),
 }));
 
@@ -88,6 +90,42 @@ function makeResult(overrides: Partial<TaskResult> = {}): TaskResult {
   };
 }
 
+function makeBundle(overrides: Partial<BundleResults> = {}): BundleResults {
+  return {
+    schema_version: '1.0',
+    bundle_id: 'a3c923ae-1a46-4b1f-b696-be6c2731a628',
+    bundle_name: 'Cyber-Hygiene Bundle',
+    bundle_category: 'cyber-hygiene',
+    bundle_subcategory: 'baseline',
+    execution_id: 'exec-001',
+    started_at: '2026-02-16T14:30:00Z',
+    completed_at: '2026-02-16T14:31:45Z',
+    overall_exit_code: 101,
+    total_controls: 2,
+    passed_controls: 1,
+    failed_controls: 1,
+    controls: [
+      {
+        control_id: 'CH-DEF-001', control_name: 'Real-time Protection',
+        validator: 'Microsoft Defender', exit_code: 126, compliant: true,
+        severity: 'critical', category: 'cyber-hygiene', subcategory: 'baseline',
+        techniques: ['T1562.001'], tactics: ['defense-evasion'],
+        expected: 'Enabled', actual: 'Enabled', details: 'Enabled',
+        skipped: false, error_message: '',
+      },
+      {
+        control_id: 'CH-DEF-002', control_name: 'Behavior Monitoring',
+        validator: 'Microsoft Defender', exit_code: 101, compliant: false,
+        severity: 'high', category: 'cyber-hygiene', subcategory: 'baseline',
+        techniques: ['T1562.001'], tactics: ['defense-evasion'],
+        expected: 'Enabled', actual: 'Disabled', details: 'Disabled',
+        skipped: false, error_message: '',
+      },
+    ],
+    ...overrides,
+  };
+}
+
 function configuredSettings() {
   return {
     connectionType: 'direct' as const,
@@ -107,6 +145,7 @@ describe('results.service', () => {
     mockIsConfigured.mockReturnValue(true);
     mockGetSettings.mockReturnValue(configuredSettings());
     mockEsIndex.mockResolvedValue({});
+    mockEsBulk.mockResolvedValue({});
   });
 
   // ── Group 1: Client Initialization ─────────────────────────
@@ -248,6 +287,86 @@ describe('results.service', () => {
       expect(mockEsIndex).toHaveBeenCalledWith(
         expect.objectContaining({ index: 'custom-results-2026' }),
       );
+    });
+  });
+
+  // ── Group 6: Bundle Results Ingestion ─────────────────────
+
+  describe('bundle results ingestion', () => {
+    it('fans out bundle controls to bulk API (one doc per control)', async () => {
+      const result = makeResult({ bundle_results: makeBundle() });
+      await ingestResult(makeTask(), result);
+
+      expect(mockEsBulk).toHaveBeenCalledTimes(1);
+      expect(mockEsIndex).not.toHaveBeenCalled();
+      const ops = mockEsBulk.mock.calls[0][0].operations;
+      // 2 controls × 2 (action + doc) = 4 operations
+      expect(ops).toHaveLength(4);
+    });
+
+    it('sets per-control f0rtika fields correctly', async () => {
+      const result = makeResult({ bundle_results: makeBundle() });
+      await ingestResult(makeTask(), result);
+
+      const ops = mockEsBulk.mock.calls[0][0].operations;
+      const doc1 = ops[1]; // first control document
+      expect(doc1.f0rtika.test_uuid).toBe('CH-DEF-001');
+      expect(doc1.f0rtika.test_name).toBe('Real-time Protection');
+      expect(doc1.f0rtika.is_protected).toBe(true);
+      expect(doc1.f0rtika.bundle_id).toBe('a3c923ae-1a46-4b1f-b696-be6c2731a628');
+      expect(doc1.f0rtika.is_bundle_control).toBe(true);
+      expect(doc1.f0rtika.control_id).toBe('CH-DEF-001');
+      expect(doc1.f0rtika.control_validator).toBe('Microsoft Defender');
+    });
+
+    it('maps control exit codes to is_protected correctly', async () => {
+      const result = makeResult({ bundle_results: makeBundle() });
+      await ingestResult(makeTask(), result);
+
+      const ops = mockEsBulk.mock.calls[0][0].operations;
+      expect(ops[1].f0rtika.is_protected).toBe(true);   // 126 = protected
+      expect(ops[3].f0rtika.is_protected).toBe(false);   // 101 = unprotected
+    });
+
+    it('inherits task-level metadata for bundle controls', async () => {
+      const result = makeResult({ bundle_results: makeBundle() });
+      await ingestResult(makeTask(), result);
+
+      const ops = mockEsBulk.mock.calls[0][0].operations;
+      const doc1 = ops[1];
+      expect(doc1.f0rtika.threat_actor).toBe('APT29');
+      expect(doc1.f0rtika.target).toEqual(['windows-endpoint']);
+      expect(doc1.f0rtika.complexity).toBe('medium');
+      expect(doc1.f0rtika.score).toBe(8.5);
+    });
+
+    it('uses per-control severity, techniques, and tactics', async () => {
+      const result = makeResult({ bundle_results: makeBundle() });
+      await ingestResult(makeTask(), result);
+
+      const ops = mockEsBulk.mock.calls[0][0].operations;
+      const doc1 = ops[1];
+      expect(doc1.f0rtika.severity).toBe('critical');
+      expect(doc1.f0rtika.techniques).toEqual(['T1562.001']);
+      expect(doc1.f0rtika.tactics).toEqual(['defense-evasion']);
+
+      const doc2 = ops[3];
+      expect(doc2.f0rtika.severity).toBe('high');
+    });
+
+    it('falls through to standard ingestion when no bundle_results', async () => {
+      await ingestResult(makeTask(), makeResult());
+      expect(mockEsIndex).toHaveBeenCalledTimes(1);
+      expect(mockEsBulk).not.toHaveBeenCalled();
+    });
+
+    it('uses task.target_index for bundle controls', async () => {
+      const task = makeTask({ target_index: 'custom-index' });
+      const result = makeResult({ bundle_results: makeBundle() });
+      await ingestResult(task, result);
+
+      const ops = mockEsBulk.mock.calls[0][0].operations;
+      expect(ops[0]).toEqual({ index: { _index: 'custom-index' } });
     });
   });
 });

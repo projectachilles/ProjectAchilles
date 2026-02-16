@@ -54,6 +54,13 @@ export async function ingestResult(task: Task, result: TaskResult): Promise<void
   const { client, index: defaultIndex } = await getClient();
   const index = task.target_index ?? defaultIndex;
 
+  // Bundle results: fan out to one ES document per control
+  if (result.bundle_results?.controls?.length) {
+    await ingestBundleControls(client, index, task, result);
+    return;
+  }
+
+  // Standard single-document path (unchanged)
   const doc = {
     routing: {
       event_time: result.completed_at,
@@ -82,6 +89,57 @@ export async function ingestResult(task: Task, result: TaskResult): Promise<void
   };
 
   await client.index({ index, document: doc });
+}
+
+/**
+ * Fan out bundle controls into individual ES documents via the bulk API.
+ * Each control becomes an independent document so existing dashboards and
+ * Defense Score formulas count them as separate test results.
+ */
+async function ingestBundleControls(
+  client: Client,
+  index: string,
+  task: Task,
+  result: TaskResult,
+): Promise<void> {
+  const bundle = result.bundle_results!;
+
+  const operations = bundle.controls.flatMap((control) => [
+    { index: { _index: index } },
+    {
+      routing: {
+        event_time: result.completed_at,
+        oid: task.org_id,
+        hostname: result.hostname,
+      },
+      event: {
+        ERROR: control.exit_code,
+      },
+      f0rtika: {
+        test_uuid: control.control_id,
+        test_name: control.control_name,
+        is_protected: isProtectedCode(control.exit_code),
+        error_name: getErrorName(control.exit_code),
+        category: control.category,
+        subcategory: control.subcategory,
+        severity: control.severity,
+        techniques: control.techniques,
+        tactics: control.tactics,
+        threat_actor: task.payload.metadata?.threat_actor,
+        target: task.payload.metadata?.target,
+        complexity: task.payload.metadata?.complexity,
+        tags: task.payload.metadata?.tags,
+        score: task.payload.metadata?.score,
+        bundle_id: bundle.bundle_id,
+        bundle_name: bundle.bundle_name,
+        control_id: control.control_id,
+        control_validator: control.validator,
+        is_bundle_control: true,
+      },
+    },
+  ]);
+
+  await client.bulk({ operations });
 }
 
 /**

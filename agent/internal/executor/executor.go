@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -180,6 +181,16 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 		Hostname:            hostname,
 		OS:                  runtime.GOOS,
 		Arch:                runtime.GOARCH,
+	}
+
+	// Step 9b: Check for bundle_results.json (cyber-hygiene bundles write per-control results).
+	bundlePath := filepath.Join(`C:\F0`, "bundle_results.json")
+	if data, err := os.ReadFile(bundlePath); err == nil {
+		var bundle BundleResults
+		if json.Unmarshal(data, &bundle) == nil && bundle.BundleID == task.Payload.TestUUID {
+			result.BundleResults = &bundle
+		}
+		os.Remove(bundlePath)
 	}
 
 	// Steps 10-11: Cleanup handled by defer; return result.

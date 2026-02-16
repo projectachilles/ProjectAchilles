@@ -206,6 +206,41 @@ export interface TaskResult {
   hostname: string;
   os: AgentOS;
   arch: AgentArch;
+  bundle_results?: BundleResults;
+}
+
+export interface BundleControlResult {
+  control_id: string;
+  control_name: string;
+  validator: string;
+  exit_code: number;
+  compliant: boolean;
+  severity: string;
+  category: string;
+  subcategory: string;
+  techniques: string[];
+  tactics: string[];
+  expected: string;
+  actual: string;
+  details: string;
+  skipped: boolean;
+  error_message: string;
+}
+
+export interface BundleResults {
+  schema_version: string;
+  bundle_id: string;
+  bundle_name: string;
+  bundle_category: string;
+  bundle_subcategory: string;
+  execution_id: string;
+  started_at: string;
+  completed_at: string;
+  overall_exit_code: number;
+  total_controls: number;
+  passed_controls: number;
+  failed_controls: number;
+  controls: BundleControlResult[];
 }
 
 export interface CreateTaskRequest {

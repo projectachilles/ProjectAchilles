@@ -37,6 +37,11 @@ export const RESULTS_INDEX_MAPPING = {
           threat_actor: { type: 'keyword' as const },
           tags: { type: 'keyword' as const },
           score: { type: 'float' as const },
+          bundle_id: { type: 'keyword' as const },
+          bundle_name: { type: 'keyword' as const },
+          control_id: { type: 'keyword' as const },
+          control_validator: { type: 'keyword' as const },
+          is_bundle_control: { type: 'boolean' as const },
         },
       },
       event: {
