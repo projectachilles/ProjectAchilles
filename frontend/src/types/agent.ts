@@ -62,7 +62,7 @@ export interface TaskTestMetadata {
   techniques: string[];
   tactics: string[];
   threat_actor: string;
-  target: string;
+  target: string[];
   complexity: string;
   tags: string[];
   score: number | null;

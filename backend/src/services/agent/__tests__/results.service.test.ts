@@ -51,7 +51,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
         techniques: ['T1003'],
         tactics: ['TA0006'],
         threat_actor: 'APT29',
-        target: 'windows-endpoint',
+        target: ['windows-endpoint'],
         complexity: 'medium',
         tags: ['lsass'],
         score: 8.5,

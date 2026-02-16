@@ -30,7 +30,7 @@ const EMPTY_METADATA: TaskTestMetadata = {
   techniques: [],
   tactics: [],
   threat_actor: '',
-  target: '',
+  target: [],
   complexity: '',
   tags: [],
   score: null,

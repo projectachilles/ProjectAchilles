@@ -8,7 +8,7 @@ export interface TestMetadata {
   severity?: string;           // critical, high, medium, low
   techniques: string[];        // MITRE ATT&CK techniques (T1xxx)
   tactics?: string[];          // MITRE ATT&CK tactics (TA00xx)
-  target?: string;             // Target platform: windows-endpoint, linux-server, etc.
+  target?: string[];            // Target platforms: windows-endpoint, linux-server, entra-id, etc.
   complexity?: string;         // Test complexity: low, medium, high
   threatActor?: string;        // Associated threat actor (if any)
   createdDate?: string;

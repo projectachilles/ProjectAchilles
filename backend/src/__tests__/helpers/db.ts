@@ -197,7 +197,7 @@ export function insertTestTask(
       techniques: [],
       tactics: [],
       threat_actor: '',
-      target: '',
+      target: [],
       complexity: '',
       tags: [],
       score: null,

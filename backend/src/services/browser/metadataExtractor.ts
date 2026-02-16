@@ -60,10 +60,10 @@ export class MetadataExtractor {
         metadata.severity = severityMatch[1].trim().toLowerCase();
       }
 
-      // Extract TARGET
+      // Extract TARGET (comma-separated list)
       const targetMatch = header.match(/TARGET:\s*(.+)/i);
       if (targetMatch) {
-        metadata.target = targetMatch[1].trim();
+        metadata.target = targetMatch[1].split(',').map(t => t.trim()).filter(Boolean);
       }
 
       // Extract COMPLEXITY

@@ -465,7 +465,7 @@ describe('tasks.service', () => {
         techniques: ['T1055'],
         tactics: ['TA0005'],
         threatActor: 'APT29',
-        target: 'windows',
+        target: ['windows'],
         complexity: 'medium',
         tags: ['edr-test'],
         score: 8,
@@ -560,7 +560,7 @@ describe('tasks.service', () => {
         test_uuid: 'uuid-1', test_name: 'Mimikatz Credential Dump',
         binary_name: 'mimi.exe', binary_sha256: 'abc', binary_size: 100,
         execution_timeout: 300, arguments: [],
-        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: '', complexity: '', tags: [], score: null },
+        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: [], complexity: '', tags: [], score: null },
       });
       insertTestTask(testDb, { id: 't-match', payload });
       insertTestTask(testDb, { id: 't-other' }); // default payload with "Test Name"
@@ -574,7 +574,7 @@ describe('tasks.service', () => {
       const payload = JSON.stringify({
         test_uuid: '', test_name: '', binary_name: '', binary_sha256: '', binary_size: 0,
         execution_timeout: 300, arguments: [],
-        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: '', complexity: '', tags: [], score: null },
+        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: [], complexity: '', tags: [], score: null },
         command: 'whoami /priv',
       });
       insertTestTask(testDb, { id: 't-cmd', payload, type: 'execute_command' });
@@ -600,7 +600,7 @@ describe('tasks.service', () => {
         test_uuid: 'uuid', test_name: name,
         binary_name: 'b.exe', binary_sha256: 'abc', binary_size: 100,
         execution_timeout: 300, arguments: [],
-        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: '', complexity: '', tags: [], score: null },
+        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: [], complexity: '', tags: [], score: null },
       });
       insertTestTask(testDb, { id: 't1', payload: makePayload('LaZagne Extract') });
       insertTestTask(testDb, { id: 't2', payload: makePayload('LaZagne Dump') });
@@ -616,7 +616,7 @@ describe('tasks.service', () => {
         test_uuid: 'uuid', test_name: 'Rubeus Kerberoast',
         binary_name: 'r.exe', binary_sha256: 'abc', binary_size: 100,
         execution_timeout: 300, arguments: [],
-        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: '', complexity: '', tags: [], score: null },
+        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: [], complexity: '', tags: [], score: null },
       });
       insertTestTask(testDb, { id: 't-pending', payload, status: 'pending' });
       insertTestTask(testDb, { id: 't-completed', payload, status: 'completed' });

@@ -79,7 +79,7 @@ describe('MetadataExtractor', () => {
       expect(result.techniques).toEqual(['T1055', 'T1055.001']);
       expect(result.tactics).toEqual(['TA0005', 'TA0004']);
       expect(result.severity).toBe('high');
-      expect(result.target).toBe('windows-endpoint');
+      expect(result.target).toEqual(['windows-endpoint']);
       expect(result.complexity).toBe('medium');
       expect(result.threatActor).toBe('APT29');
       expect(result.subcategory).toBe('dll-injection');
