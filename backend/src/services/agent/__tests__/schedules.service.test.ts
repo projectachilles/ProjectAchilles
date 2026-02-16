@@ -50,6 +50,7 @@ describe('schedules.service', () => {
   beforeEach(() => {
     testDb = createTestDatabase();
     insertTestAgent(testDb, { id: 'agent-001' });
+    mockCreateTasks.mockClear();
     mockCreateTasks.mockReturnValue(['task-001']);
   });
 
@@ -536,6 +537,61 @@ describe('schedules.service', () => {
       expect(row.last_run_at).toBeDefined();
 
       consoleSpy.mockRestore();
+    });
+
+    it('skips decommissioned agents in schedule', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-02-09T08:00:00Z'));
+
+      // Insert a second agent that is decommissioned
+      insertTestAgent(testDb, { id: 'agent-decomm', status: 'decommissioned' });
+
+      const schedule = createSchedule(baseScheduleRequest({
+        agent_ids: ['agent-001', 'agent-decomm'],
+      }), 'user-001');
+
+      testDb.prepare("UPDATE schedules SET next_run_at = datetime('now', '-1 hour') WHERE id = ?")
+        .run(schedule.id);
+
+      const result = processSchedules();
+
+      expect(result.processed).toBe(1);
+      expect(result.errors).toHaveLength(0);
+      expect(mockCreateTasks).toHaveBeenCalledTimes(1);
+
+      // Only the active agent should be passed to createTasks
+      const callArgs = mockCreateTasks.mock.calls[0][0];
+      expect(callArgs.agent_ids).toEqual(['agent-001']);
+    });
+
+    it('skips createTasks entirely when all agents are decommissioned', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-02-09T08:00:00Z'));
+
+      insertTestAgent(testDb, { id: 'agent-decomm-only', status: 'decommissioned' });
+
+      const schedule = createSchedule(baseScheduleRequest({
+        agent_ids: ['agent-decomm-only'],
+      }), 'user-001');
+
+      testDb.prepare("UPDATE schedules SET next_run_at = datetime('now', '-1 hour') WHERE id = ?")
+        .run(schedule.id);
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const result = processSchedules();
+
+      expect(result.processed).toBe(1);
+      expect(result.errors).toHaveLength(0);
+      expect(mockCreateTasks).not.toHaveBeenCalled();
+
+      // next_run_at should still be advanced (avoid retry spam)
+      const row = testDb.prepare('SELECT next_run_at, last_run_at FROM schedules WHERE id = ?')
+        .get(schedule.id) as any;
+      expect(row.last_run_at).toBeDefined();
+      expect(row.next_run_at).toBeDefined();
+
+      warnSpy.mockRestore();
     });
   });
 });

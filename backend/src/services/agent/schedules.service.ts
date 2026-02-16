@@ -452,26 +452,40 @@ export function processSchedules(): { processed: number; errors: string[] } {
   for (const row of dueRows) {
     const schedule = parseScheduleRow(row);
 
-    try {
-      createTasks(
-        {
-          agent_ids: schedule.agent_ids,
-          test_uuid: schedule.test_uuid,
-          test_name: schedule.test_name,
-          binary_name: schedule.binary_name,
-          execution_timeout: schedule.execution_timeout,
-          priority: schedule.priority,
-          metadata: schedule.metadata,
-          target_index: schedule.target_index ?? undefined,
-        },
-        schedule.org_id,
-        schedule.created_by,
+    // Filter out decommissioned agents — they'll never pick up tasks
+    const placeholders = schedule.agent_ids.map(() => '?').join(', ');
+    const activeAgentRows = db.prepare(
+      `SELECT id FROM agents WHERE id IN (${placeholders}) AND status != 'decommissioned'`
+    ).all(...schedule.agent_ids) as { id: string }[];
+    const eligibleAgentIds = activeAgentRows.map(r => r.id);
+
+    if (eligibleAgentIds.length === 0) {
+      console.warn(
+        `[Scheduler] Skipping schedule "${schedule.name ?? schedule.id}" — all agents are decommissioned`
       );
       processed++;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`Schedule ${schedule.id}: ${msg}`);
-      console.error(`[Scheduler] Failed to create tasks for schedule ${schedule.id}:`, msg);
+    } else {
+      try {
+        createTasks(
+          {
+            agent_ids: eligibleAgentIds,
+            test_uuid: schedule.test_uuid,
+            test_name: schedule.test_name,
+            binary_name: schedule.binary_name,
+            execution_timeout: schedule.execution_timeout,
+            priority: schedule.priority,
+            metadata: schedule.metadata,
+            target_index: schedule.target_index ?? undefined,
+          },
+          schedule.org_id,
+          schedule.created_by,
+        );
+        processed++;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`Schedule ${schedule.id}: ${msg}`);
+        console.error(`[Scheduler] Failed to create tasks for schedule ${schedule.id}:`, msg);
+      }
     }
 
     // Advance next_run_at regardless of success (avoid retry spam)
