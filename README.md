@@ -116,6 +116,7 @@ Deploy a custom Go agent to endpoints for remote test execution with full lifecy
 - **Encrypted Config** — Agent credentials encrypted at rest with AES-256-GCM using machine-bound keys
 - **Tagging** — Organize agents with custom tags for filtering and bulk operations
 - **Cross-Platform** — Windows, Linux, and macOS support (amd64 + arm64)
+- **Bundle Results** — Reads per-control results from cyber-hygiene bundles and fans out to individual ES documents for granular compliance tracking
 
 ### Build System
 
@@ -332,6 +333,8 @@ CLERK_SECRET_KEY=sk_test_...
 | `GET` | `/api/agent/tasks` | Agent key |
 | `POST` | `/api/agent/tasks/:id/result` | Agent key |
 | `GET` | `/api/agent/update` | Agent key |
+
+> `POST /api/agent/tasks/:id/result` accepts an optional `bundle_results` field. When present, each control is indexed as an independent ES document for per-control analytics.
 
 ### Build & Settings
 

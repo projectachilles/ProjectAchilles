@@ -148,6 +148,36 @@ router.get('/resource/:id', asyncHandler(async (req, res) => {
 
 Error response format: `{ success: false, error: "message" }`
 
+### Bundle Results Ingestion
+
+Cyber-hygiene bundle tests produce per-control results that are fanned out into individual Elasticsearch documents for granular compliance tracking.
+
+**Data flow:**
+1. **Agent reads** `c:\F0\bundle_results.json` after test execution, validates `bundle_id` matches task UUID, and includes it in the result payload (`agent/internal/executor/executor.go`)
+2. **Backend detects** `bundle_results.controls` in the task result and routes to `ingestBundleControls()` instead of the standard single-document path (`backend/src/services/agent/results.service.ts`)
+3. **Bulk fan-out** — each control becomes an independent ES document with its own `exit_code`, `severity`, `techniques`, and `tactics` via `client.bulk()` operations
+
+**Additional ES fields for bundle controls:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `f0rtika.bundle_id` | keyword | Bundle test UUID |
+| `f0rtika.bundle_name` | keyword | Bundle human-readable name |
+| `f0rtika.control_id` | keyword | Individual control ID (e.g., `CH-DEF-001`) |
+| `f0rtika.control_validator` | keyword | Parent validator name |
+| `f0rtika.is_bundle_control` | boolean | `true` for fan-out bundle control documents |
+
+Each control uses its own `exit_code`/`severity`/`techniques`, so the Defense Score counts each control independently.
+
+**Key files:**
+- `agent/internal/executor/executor.go` — bundle file read and validation
+- `agent/internal/executor/types.go` — `BundleResults` and `BundleControlResult` Go structs
+- `backend/src/types/agent.ts` — `BundleResults` and `BundleControlResult` TS interfaces
+- `backend/src/services/agent/results.service.ts` — `ingestBundleControls()` fan-out logic
+- `backend/src/services/analytics/index-management.service.ts` — ES mapping with bundle fields
+
+The bundle results protocol is defined in the f0_library (`CLAUDE.md` → "Bundle Results Protocol" section).
+
 ### Authentication
 **Three-tier model:**
 1. **Clerk (global)**: All routes use `<RequireAuth>` wrapper; JWT injected via `useAuthenticatedApi` hook
