@@ -124,7 +124,7 @@ function TaskDetailRow({ task, colSpan }: { task: AgentTask; colSpan: number }):
                 <Maximize className="w-3.5 h-3.5" />
               </Button>
             </div>
-            <pre className="mt-1 p-2 bg-background rounded text-xs overflow-x-auto max-h-80">
+            <pre className="mt-1 p-2 bg-background rounded text-xs overflow-x-auto max-h-40">
               {task.result.stdout || '(empty)'}
             </pre>
           </div>
@@ -133,7 +133,7 @@ function TaskDetailRow({ task, colSpan }: { task: AgentTask; colSpan: number }):
               <span className="font-medium">Stderr:</span>
               {task.result.stderr && <CopyButton text={task.result.stderr} />}
             </div>
-            <pre className="mt-1 p-2 bg-background rounded text-xs overflow-x-auto max-h-80">
+            <pre className="mt-1 p-2 bg-background rounded text-xs overflow-x-auto max-h-40">
               {task.result.stderr || '(empty)'}
             </pre>
           </div>
@@ -155,7 +155,7 @@ function TaskDetailRow({ task, colSpan }: { task: AgentTask; colSpan: number }):
                   <span className="font-medium">Stdout:</span>
                   {task.result.stdout && <CopyButton text={task.result.stdout} />}
                 </div>
-                <pre className="p-3 bg-muted rounded text-xs overflow-auto max-h-[35vh] whitespace-pre-wrap break-words">
+                <pre className="p-3 bg-muted rounded text-xs overflow-auto max-h-[50vh] whitespace-pre-wrap break-words">
                   {task.result.stdout || '(empty)'}
                 </pre>
               </div>
@@ -164,7 +164,7 @@ function TaskDetailRow({ task, colSpan }: { task: AgentTask; colSpan: number }):
                   <span className="font-medium">Stderr:</span>
                   {task.result.stderr && <CopyButton text={task.result.stderr} />}
                 </div>
-                <pre className="p-3 bg-muted rounded text-xs overflow-auto max-h-[35vh] whitespace-pre-wrap break-words">
+                <pre className="p-3 bg-muted rounded text-xs overflow-auto max-h-[50vh] whitespace-pre-wrap break-words">
                   {task.result.stderr || '(empty)'}
                 </pre>
               </div>
