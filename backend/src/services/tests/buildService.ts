@@ -194,7 +194,7 @@ export class BuildService {
     const outputPath = path.join(buildDir, filename);
 
     // 5. Build environment
-    const env = {
+    const env: Record<string, string | undefined> = {
       ...process.env,
       GOOS: platform.os,
       GOARCH: platform.arch,
@@ -206,12 +206,32 @@ export class BuildService {
     const hasBuildScript = fs.existsSync(buildAllPath);
 
     if (hasBuildScript) {
-      // Execute build_all.sh — uses execFile with array args (no shell injection)
-      await runBuildCommand('bash', ['build_all.sh'], {
-        cwd: testDir,
-        env,
-        timeout: BUILD_TIMEOUT,
-      });
+      // Pass active signing cert to build_all.sh so it can sign inner binaries
+      // (e.g., multi-binary bundles sign validators before embedding)
+      let innerPassFile: string | null = null;
+      if (platform.os === 'windows') {
+        const activeCert = this.settingsService.getActiveCertPfxPath();
+        if (activeCert) {
+          env.F0_SIGN_CERT_PATH = activeCert.pfxPath;
+          innerPassFile = path.join(buildDir, '.tmp-inner-pass');
+          fs.writeFileSync(innerPassFile, activeCert.password, { mode: 0o600 });
+          env.F0_SIGN_CERT_PASS_FILE = innerPassFile;
+        }
+      }
+
+      try {
+        // Execute build_all.sh — uses execFile with array args (no shell injection)
+        await runBuildCommand('bash', ['build_all.sh'], {
+          cwd: testDir,
+          env,
+          timeout: BUILD_TIMEOUT,
+        });
+      } finally {
+        // Clean up inner cert password file
+        if (innerPassFile && fs.existsSync(innerPassFile)) {
+          fs.unlinkSync(innerPassFile);
+        }
+      }
 
       // Locate output binary
       const candidates = [

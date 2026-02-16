@@ -178,6 +178,13 @@ Each control uses its own `exit_code`/`severity`/`techniques`, so the Defense Sc
 
 The bundle results protocol is defined in the f0_library (`CLAUDE.md` → "Bundle Results Protocol" section).
 
+**Multi-binary bundle support:**
+Some bundles (baseline, identity-endpoint) use a multi-binary architecture where each validator is a separate embedded binary. The orchestrator runs `build_all.sh` which needs the active signing certificate to sign validator binaries before embedding. The build service passes the cert via environment variables:
+- `F0_SIGN_CERT_PATH` — absolute path to the active PFX certificate
+- `F0_SIGN_CERT_PASS_FILE` — path to a temporary file containing the cert password (cleaned up after build)
+
+These env vars are set automatically in `buildService.ts` when a `build_all.sh` is detected and the target platform is Windows. The inner cert password file uses mode `0o600` and is deleted in a `finally` block.
+
 ### Authentication
 **Three-tier model:**
 1. **Clerk (global)**: All routes use `<RequireAuth>` wrapper; JWT injected via `useAuthenticatedApi` hook
