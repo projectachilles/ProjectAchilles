@@ -40,6 +40,51 @@ const BUILDS_DIR = path.join(SETTINGS_DIR, 'builds');
 
 const KNOWN_CATEGORIES = ['cyber-hygiene', 'intel-driven', 'mitre-top10', 'phase-aligned'];
 
+/**
+ * Determine whether an embedded binary is compiled from Go source by build_all.sh.
+ * Uses four heuristics in order:
+ *  1. Direct match — foo.exe → foo.go
+ *  2. Hyphen-to-underscore — validator-defender.exe → validator_defender.go
+ *  3. UUID-prefix stage — <uuid>-T1486.exe → stage-T1486.go  (or prefix match)
+ *  4. Fallback — parse build_all.sh for literal `go build -o <filename>`
+ */
+function isSourceBuiltBinary(
+  filename: string,
+  testUuid: string,
+  goFileSet: Set<string>,
+  buildScript: string | null,
+): boolean {
+  if (!buildScript) return false;
+
+  const base = filename.replace(/\.[^.]+$/, ''); // strip extension
+
+  // 1. Direct match: foo.exe → foo.go
+  if (goFileSet.has(`${base}.go`)) return true;
+
+  // 2. Hyphen-to-underscore: validator-defender.exe → validator_defender.go
+  const underscored = base.replace(/-/g, '_');
+  if (underscored !== base && goFileSet.has(`${underscored}.go`)) return true;
+
+  // 3. UUID-prefix stage: <uuid>-suffix.exe → strip UUID, match source
+  const uuidPrefix = `${testUuid}-`;
+  if (filename.startsWith(uuidPrefix)) {
+    const suffix = base.slice(uuidPrefix.length);
+    if (goFileSet.has(`${suffix}.go`)) return true;
+    if (goFileSet.has(`stage-${suffix}.go`)) return true;
+    // Prefix match for numbered stages: <uuid>-stage1.exe → stage1-defense-evasion.go
+    for (const goFile of goFileSet) {
+      if (goFile.startsWith(`${suffix}-`)) return true;
+    }
+  }
+
+  // 4. Fallback: parse build_all.sh for literal `go build -o <filename>`
+  const escaped = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const buildPattern = new RegExp(`go\\s+build\\b.*-o\\s+(?:["'])?${escaped}(?:["'])?(?:\\s|$)`, 'm');
+  if (buildPattern.test(buildScript)) return true;
+
+  return false;
+}
+
 const UUID_REGEX = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
 const BUILD_TIMEOUT = 300_000; // 5 minutes
@@ -133,7 +178,14 @@ export class BuildService {
 
     const deps: EmbedDependency[] = [];
     const goFiles = fs.readdirSync(testDir).filter(f => f.endsWith('.go'));
+    const goFileSet = new Set(goFiles);
     const embedRegex = /\/\/go:embed\s+(\S+)/g;
+
+    // Read build_all.sh content for source-built detection
+    const buildScriptPath = path.join(testDir, 'build_all.sh');
+    const buildScript = fs.existsSync(buildScriptPath)
+      ? fs.readFileSync(buildScriptPath, 'utf8')
+      : null;
 
     for (const goFile of goFiles) {
       const content = fs.readFileSync(path.join(testDir, goFile), 'utf8');
@@ -143,7 +195,8 @@ export class BuildService {
         // Skip .go and .ps1 files — those are source that build_all.sh handles
         if (filename.endsWith('.go') || filename.endsWith('.ps1')) continue;
         const exists = fs.existsSync(path.join(testDir, filename));
-        deps.push({ filename, sourceFile: goFile, exists });
+        const sourceBuilt = isSourceBuiltBinary(filename, uuid, goFileSet, buildScript);
+        deps.push({ filename, sourceFile: goFile, exists, sourceBuilt });
       }
     }
 
@@ -164,9 +217,14 @@ export class BuildService {
 
     // M8: Only allow known embed dependency filenames to prevent arbitrary file writes
     const deps = this.getEmbedDependencies(uuid);
-    const allowed = deps.map(d => d.filename);
-    if (!allowed.includes(baseName)) {
+    const dep = deps.find(d => d.filename === baseName);
+    if (!dep) {
       throw new Error(`Filename '${baseName}' is not a known embed dependency for this test`);
+    }
+
+    // Reject uploads for source-built dependencies — these are compiled by build_all.sh
+    if (dep.sourceBuilt) {
+      throw new Error(`Cannot upload '${baseName}': this binary is built from source by build_all.sh`);
     }
 
     fs.writeFileSync(path.join(testDir, baseName), buffer);

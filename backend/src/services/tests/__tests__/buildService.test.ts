@@ -240,8 +240,8 @@ var configData string
       const deps = service.getEmbedDependencies(VALID_UUID);
 
       expect(deps).toHaveLength(2);
-      expect(deps[0]).toEqual({ filename: 'payload.bin', sourceFile: 'main.go', exists: true });
-      expect(deps[1]).toEqual({ filename: 'config.yaml', sourceFile: 'main.go', exists: false });
+      expect(deps[0]).toEqual({ filename: 'payload.bin', sourceFile: 'main.go', exists: true, sourceBuilt: false });
+      expect(deps[1]).toEqual({ filename: 'config.yaml', sourceFile: 'main.go', exists: false, sourceBuilt: false });
     });
 
     it('skips .go and .ps1 embed targets', () => {
@@ -276,6 +276,174 @@ var data string
       const deps = service.getEmbedDependencies(VALID_UUID);
 
       expect(deps).toEqual([]);
+    });
+
+    it('marks all deps sourceBuilt: false when no build_all.sh', () => {
+      const goSource = '//go:embed payload.bin\nvar d []byte\n';
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`) return true;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+      mockReaddirSync.mockReturnValue(['main.go']);
+      mockReadFileSync.mockReturnValue(goSource);
+
+      const deps = service.getEmbedDependencies(VALID_UUID);
+
+      expect(deps).toHaveLength(1);
+      expect(deps[0].sourceBuilt).toBe(false);
+    });
+
+    it('detects source-built via hyphen-to-underscore (validator pattern)', () => {
+      const orchestratorGo = '//go:embed validator-foo.exe\nvar bin []byte\n';
+      const buildScript = '#!/bin/bash\ngo build -o "validator-${vname}.exe"';
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`) return true;
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}/build_all.sh`) return true;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+      mockReaddirSync.mockReturnValue(['orchestrator.go', 'validator_foo.go', 'check_utils.go']);
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (typeof p === 'string' && p.endsWith('/build_all.sh')) return buildScript;
+        if (typeof p === 'string' && p.endsWith('/orchestrator.go')) return orchestratorGo;
+        return 'package main\n';
+      });
+
+      const deps = service.getEmbedDependencies(VALID_UUID);
+
+      expect(deps).toHaveLength(1);
+      expect(deps[0]).toEqual({
+        filename: 'validator-foo.exe',
+        sourceFile: 'orchestrator.go',
+        exists: false,
+        sourceBuilt: true,
+      });
+    });
+
+    it('detects source-built via UUID-prefix stage (technique pattern)', () => {
+      const orchestratorGo = `//go:embed ${VALID_UUID}-T1105.exe\nvar bin []byte\n`;
+      const buildScript = '#!/bin/bash\ngo build -o "${UUID}-${stage}.exe" stage-${stage}.go';
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`) return true;
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}/build_all.sh`) return true;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+      mockReaddirSync.mockReturnValue(['orchestrator.go', 'stage-T1105.go', 'test_logger.go']);
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (typeof p === 'string' && p.endsWith('/build_all.sh')) return buildScript;
+        if (typeof p === 'string' && p.endsWith('/orchestrator.go')) return orchestratorGo;
+        return 'package main\n';
+      });
+
+      const deps = service.getEmbedDependencies(VALID_UUID);
+
+      expect(deps).toHaveLength(1);
+      expect(deps[0]).toEqual({
+        filename: `${VALID_UUID}-T1105.exe`,
+        sourceFile: 'orchestrator.go',
+        exists: false,
+        sourceBuilt: true,
+      });
+    });
+
+    it('detects source-built via UUID-prefix stage (numbered prefix match)', () => {
+      const orchestratorGo = `//go:embed ${VALID_UUID}-stage1.exe\nvar bin []byte\n`;
+      const buildScript = '#!/bin/bash\ngo build -o "${UUID}-${stage_name}.exe"';
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`) return true;
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}/build_all.sh`) return true;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+      mockReaddirSync.mockReturnValue(['orchestrator.go', 'stage1-defense-evasion.go']);
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (typeof p === 'string' && p.endsWith('/build_all.sh')) return buildScript;
+        if (typeof p === 'string' && p.endsWith('/orchestrator.go')) return orchestratorGo;
+        return 'package main\n';
+      });
+
+      const deps = service.getEmbedDependencies(VALID_UUID);
+
+      expect(deps).toHaveLength(1);
+      expect(deps[0].sourceBuilt).toBe(true);
+    });
+
+    it('marks external deps as not sourceBuilt even with build_all.sh', () => {
+      const orchestratorGo = '//go:embed external-tool.msi\nvar bin []byte\n';
+      const buildScript = '#!/bin/bash\ngo build -o orchestrator.exe orchestrator.go';
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`) return true;
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}/build_all.sh`) return true;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+      mockReaddirSync.mockReturnValue(['orchestrator.go']);
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (typeof p === 'string' && p.endsWith('/build_all.sh')) return buildScript;
+        if (typeof p === 'string' && p.endsWith('/orchestrator.go')) return orchestratorGo;
+        return 'package main\n';
+      });
+
+      const deps = service.getEmbedDependencies(VALID_UUID);
+
+      expect(deps).toHaveLength(1);
+      expect(deps[0]).toEqual({
+        filename: 'external-tool.msi',
+        sourceFile: 'orchestrator.go',
+        exists: false,
+        sourceBuilt: false,
+      });
+    });
+
+    it('uses build_all.sh fallback for literal go build -o match', () => {
+      const orchestratorGo = '//go:embed MsSense.exe\nvar bin []byte\n';
+      const buildScript = '#!/bin/bash\nGOOS=windows go build -o MsSense.exe fake_mssense.go';
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`) return true;
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}/build_all.sh`) return true;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+      mockReaddirSync.mockReturnValue(['orchestrator.go', 'fake_mssense.go']);
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (typeof p === 'string' && p.endsWith('/build_all.sh')) return buildScript;
+        if (typeof p === 'string' && p.endsWith('/orchestrator.go')) return orchestratorGo;
+        return 'package main\n';
+      });
+
+      const deps = service.getEmbedDependencies(VALID_UUID);
+
+      expect(deps).toHaveLength(1);
+      expect(deps[0]).toEqual({
+        filename: 'MsSense.exe',
+        sourceFile: 'orchestrator.go',
+        exists: false,
+        sourceBuilt: true,
+      });
+    });
+
+    it('detects source-built via direct match (cleanup_utility pattern)', () => {
+      const orchestratorGo = '//go:embed cleanup_utility.exe\nvar bin []byte\n';
+      const buildScript = '#!/bin/bash\ngo build -o "${cleanup}" cleanup_utility.go';
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`) return true;
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}/build_all.sh`) return true;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+      mockReaddirSync.mockReturnValue(['orchestrator.go', 'cleanup_utility.go']);
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (typeof p === 'string' && p.endsWith('/build_all.sh')) return buildScript;
+        if (typeof p === 'string' && p.endsWith('/orchestrator.go')) return orchestratorGo;
+        return 'package main\n';
+      });
+
+      const deps = service.getEmbedDependencies(VALID_UUID);
+
+      expect(deps).toHaveLength(1);
+      expect(deps[0].sourceBuilt).toBe(true);
     });
   });
 
@@ -326,6 +494,27 @@ var data string
       expect(() =>
         service.saveUploadedFile(VALID_UUID, 'unknown.bin', Buffer.from('x')),
       ).toThrow("Filename 'unknown.bin' is not a known embed dependency for this test");
+    });
+
+    it('rejects uploads for source-built dependencies', () => {
+      const orchestratorGo = '//go:embed validator-foo.exe\nvar bin []byte\n';
+      const buildScript = '#!/bin/bash\ngo build -o "validator-${vname}.exe"';
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`) return true;
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}/build_all.sh`) return true;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+      mockReaddirSync.mockReturnValue(['orchestrator.go', 'validator_foo.go']);
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (typeof p === 'string' && p.endsWith('/build_all.sh')) return buildScript;
+        if (typeof p === 'string' && p.endsWith('/orchestrator.go')) return orchestratorGo;
+        return 'package main\n';
+      });
+
+      expect(() =>
+        service.saveUploadedFile(VALID_UUID, 'validator-foo.exe', Buffer.from('x')),
+      ).toThrow("Cannot upload 'validator-foo.exe': this binary is built from source by build_all.sh");
     });
   });
 

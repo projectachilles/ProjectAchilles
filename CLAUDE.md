@@ -257,3 +257,12 @@ When writing custom `content` renderers for Recharts components (Treemap, etc.),
 - **Linux**: No code signing
 - Both agent builds (`agentBuild.service.ts`) and test builds (`buildService.ts`) follow the same signing logic
 - Signing failures are non-fatal — builds continue unsigned
+
+### Source-Built vs External Embed Dependencies
+`EmbedDependency` has a `sourceBuilt: boolean` flag distinguishing binaries compiled from Go source by `build_all.sh` from external pre-compiled binaries. Detection uses four heuristics in `isSourceBuiltBinary()` (`buildService.ts`):
+1. **Direct match** — `foo.exe` → `foo.go` exists
+2. **Hyphen-to-underscore** — `validator-defender.exe` → `validator_defender.go` exists
+3. **UUID-prefix stage** — `<uuid>-T1486.exe` → strip UUID, check `stage-T1486.go` or prefix match (`stage1-defense-evasion.go`)
+4. **Fallback** — parse `build_all.sh` for literal `go build -o <filename>`
+
+Only external (non-source-built) missing deps block the Build button and show Upload. Source-built deps show a wrench icon + "Auto-built" label. `saveUploadedFile()` rejects uploads for source-built deps.

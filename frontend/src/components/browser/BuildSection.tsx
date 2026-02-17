@@ -3,7 +3,7 @@ import { testsApi } from '@/services/api/tests';
 import type { BuildInfo, EmbedDependency } from '@/types/test';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
-import { Hammer, Loader2, Download, RotateCw, Trash2, Upload, Check, X } from 'lucide-react';
+import { Hammer, Loader2, Download, RotateCw, Trash2, Upload, Check, X, Wrench } from 'lucide-react';
 
 interface BuildSectionProps {
   uuid: string;
@@ -112,8 +112,8 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
     }
   }
 
-  const missingDeps = deps.filter(d => !d.exists);
-  const hasMissingDeps = missingDeps.length > 0;
+  const missingExternalDeps = deps.filter(d => !d.exists && !d.sourceBuilt);
+  const hasMissingDeps = missingExternalDeps.length > 0;
 
   if (loading) {
     return (
@@ -145,7 +145,7 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
         onChange={handleFileSelected}
       />
 
-      {/* Missing embed dependencies */}
+      {/* Embed dependencies */}
       {deps.length > 0 && (
         <div className="mb-2 space-y-1">
           {deps.map(dep => (
@@ -153,12 +153,17 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
               <span className="flex items-center gap-1.5 font-mono truncate">
                 {dep.exists ? (
                   <Check className="w-3 h-3 text-green-500 flex-shrink-0" />
+                ) : dep.sourceBuilt ? (
+                  <Wrench className="w-3 h-3 text-muted-foreground flex-shrink-0" />
                 ) : (
                   <X className="w-3 h-3 text-red-500 flex-shrink-0" />
                 )}
                 {dep.filename}
+                {!dep.exists && dep.sourceBuilt && (
+                  <span className="text-muted-foreground ml-1">Auto-built</span>
+                )}
               </span>
-              {!dep.exists && (
+              {!dep.exists && !dep.sourceBuilt && (
                 <button
                   onClick={() => handleUploadClick(dep.filename)}
                   disabled={uploadingFile === dep.filename}

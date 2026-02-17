@@ -59,4 +59,5 @@ export interface EmbedDependency {
   filename: string;
   sourceFile: string;
   exists: boolean;
+  sourceBuilt: boolean;
 }
