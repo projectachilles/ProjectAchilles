@@ -8,22 +8,50 @@ export const apiClient = axios.create({
   withCredentials: true,
 });
 
+// Module-level token getter reference — updated synchronously during render
+// so it's available before any child useEffect fires (eliminates the race
+// condition where child effects called the API before the parent's useEffect
+// registered the interceptor).
+let tokenGetter: (() => Promise<string | null>) | null = null;
+
+// Register the request interceptor once at module load. It always exists, but
+// only attaches a JWT when tokenGetter has been set by useAuthenticatedApi().
+apiClient.interceptors.request.use(async (config) => {
+  if (tokenGetter) {
+    const token = await tokenGetter();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  return config;
+});
+
+// Response interceptor: catch auth redirects (302) that axios follows silently.
+// When Clerk returns a redirect, the final response is often HTML — detect this
+// and throw a clear error instead of letting callers parse undefined fields.
+apiClient.interceptors.response.use((response) => {
+  const ct = response.headers['content-type'] || '';
+  if (response.config.responseType !== 'blob' && !ct.includes('application/json') && response.config.url) {
+    throw new axios.AxiosError(
+      'Session expired or authentication failed',
+      'ERR_AUTH_REDIRECT',
+      response.config,
+      response.request,
+      response,
+    );
+  }
+  return response;
+});
+
 export function useAuthenticatedApi() {
   const { getToken } = useAuth();
 
-  useEffect(() => {
-    const interceptor = apiClient.interceptors.request.use(
-      async (config) => {
-        const token = await getToken();
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
-        return config;
-      }
-    );
+  // Set synchronously during render — runs in AppContent's render pass,
+  // which completes before any child useEffect fires.
+  tokenGetter = getToken;
 
-    return () => {
-      apiClient.interceptors.request.eject(interceptor);
-    };
-  }, [getToken]);
+  // Clear on unmount so stale getToken refs aren't called after sign-out.
+  useEffect(() => {
+    return () => { tokenGetter = null; };
+  }, []);
 }

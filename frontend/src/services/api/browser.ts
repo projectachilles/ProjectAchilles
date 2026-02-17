@@ -18,7 +18,11 @@ export const browserApi = {
   }): Promise<TestMetadata[]> {
     const response = await apiClient.get('/browser/tests', { params });
     // Backend returns: { success: true, count: number, tests: array }
-    return response.data.tests;
+    const tests = response.data?.tests;
+    if (!Array.isArray(tests)) {
+      throw new Error(response.data?.error || 'Invalid response: expected tests array');
+    }
+    return tests;
   },
 
   // Get all unique categories
