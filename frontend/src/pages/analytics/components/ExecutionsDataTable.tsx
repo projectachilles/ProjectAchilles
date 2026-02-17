@@ -15,6 +15,7 @@ import {
   Check,
   Filter,
   Package,
+  SkipForward,
 } from 'lucide-react';
 import { formatDistanceToNow, isValid, format } from 'date-fns';
 import type { EnrichedTestExecution, PaginatedResponse, SeverityLevel, CategoryType } from '@/services/api/analytics';
@@ -350,6 +351,15 @@ export default function ExecutionsDataTable({
         );
 
       case 'result': {
+        // Skipped bundle stages (non-cyber-hygiene with exit code 0) show "Skipped"
+        if (exec.is_bundle_control && exec.error_code === 0 && exec.category !== 'cyber-hygiene') {
+          return (
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+              <SkipForward className="w-4 h-4" />
+              <span className="text-sm font-medium">Skipped</span>
+            </span>
+          );
+        }
         const result = getResultFromErrorCode(exec.error_code);
         if (result === 'protected') {
           return (
@@ -471,7 +481,8 @@ export default function ExecutionsDataTable({
   // Render a bundle parent row cell
   const renderBundleCell = (group: BundleGroup, key: string, isExpanded: boolean) => {
     switch (key) {
-      case 'test_name':
+      case 'test_name': {
+        const itemLabel = group.category === 'cyber-hygiene' ? 'controls' : 'stages';
         return (
           <span className="inline-flex items-center gap-2 font-medium text-foreground">
             {isExpanded ? (
@@ -482,10 +493,11 @@ export default function ExecutionsDataTable({
             <Package className="w-4 h-4 text-blue-500 shrink-0" />
             <span>{group.bundle_name}</span>
             <Badge variant="secondary" className="text-xs ml-1">
-              {group.totalCount} controls
+              {group.totalCount} {itemLabel}
             </Badge>
           </span>
         );
+      }
 
       case 'hostname':
         return (
@@ -570,8 +582,16 @@ export default function ExecutionsDataTable({
       )}
       {exec.is_bundle_control && exec.control_validator && (
         <div>
-          <span className="text-muted-foreground">Validator:</span>
+          <span className="text-muted-foreground">
+            {exec.category === 'cyber-hygiene' ? 'Validator:' : 'Stage:'}
+          </span>
           <p className="mt-1 text-foreground">{exec.control_validator}</p>
+        </div>
+      )}
+      {exec.is_bundle_control && exec.control_id && exec.category !== 'cyber-hygiene' && (
+        <div>
+          <span className="text-muted-foreground">Technique:</span>
+          <p className="mt-1 font-mono text-foreground">{exec.control_id}</p>
         </div>
       )}
       {exec.tactics?.length ? (

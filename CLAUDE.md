@@ -150,7 +150,7 @@ Error response format: `{ success: false, error: "message" }`
 
 ### Bundle Results Ingestion
 
-Cyber-hygiene bundle tests produce per-control results that are fanned out into individual Elasticsearch documents for granular compliance tracking.
+Both cyber-hygiene bundle tests and multi-stage intel-driven tests produce per-control/per-stage results that are fanned out into individual Elasticsearch documents for granular tracking. The same `bundle_results.json` protocol and backend ingestion pipeline handles both.
 
 **Data flow:**
 1. **Agent reads** `c:\F0\bundle_results.json` after test execution, validates `bundle_id` matches task UUID, and includes it in the result payload (`agent/internal/executor/executor.go`)
@@ -171,7 +171,7 @@ Each control uses its own `exit_code`/`severity`/`techniques`, so the Defense Sc
 
 **Composite test_uuid**: Bundle control documents use `<bundle-uuid>::<control-id>` as the `test_uuid` (e.g., `7659eeba-f315-440e-9882-4aa015d68b27::CH-IEP-003`). The `::` separator is unambiguous — UUIDs and control IDs contain only hyphens. Use `split('::')` to decompose.
 
-**Executions table grouping**: The frontend Executions table groups bundle controls under collapsible parent rows. The parent row shows the bundle name, a `X/Y Protected` summary badge, and a control count. Expanding reveals individual control sub-rows with per-control results. Standalone (non-bundle) tests render as flat rows unchanged.
+**Executions table grouping**: The frontend Executions table groups bundle controls under collapsible parent rows. The parent row shows the bundle name, a `X/Y Protected` summary badge, and an item count badge. The badge shows "X controls" for cyber-hygiene bundles and "X stages" for other categories (e.g., intel-driven). Expanding reveals individual sub-rows with per-control/per-stage results. Skipped stages (non-cyber-hygiene bundles with exit code 0) render with a "Skipped" label and are excluded from the Protected/Unprotected count. Standalone (non-bundle) tests render as flat rows unchanged.
 
 **Key files:**
 - `agent/internal/executor/executor.go` — bundle file read and validation
