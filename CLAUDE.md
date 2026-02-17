@@ -169,6 +169,10 @@ Cyber-hygiene bundle tests produce per-control results that are fanned out into 
 
 Each control uses its own `exit_code`/`severity`/`techniques`, so the Defense Score counts each control independently.
 
+**Composite test_uuid**: Bundle control documents use `<bundle-uuid>::<control-id>` as the `test_uuid` (e.g., `7659eeba-f315-440e-9882-4aa015d68b27::CH-IEP-003`). The `::` separator is unambiguous — UUIDs and control IDs contain only hyphens. Use `split('::')` to decompose.
+
+**Executions table grouping**: The frontend Executions table groups bundle controls under collapsible parent rows. The parent row shows the bundle name, a `X/Y Protected` summary badge, and a control count. Expanding reveals individual control sub-rows with per-control results. Standalone (non-bundle) tests render as flat rows unchanged.
+
 **Key files:**
 - `agent/internal/executor/executor.go` — bundle file read and validation
 - `agent/internal/executor/types.go` — `BundleResults` and `BundleControlResult` Go structs

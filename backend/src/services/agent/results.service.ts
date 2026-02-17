@@ -116,7 +116,7 @@ async function ingestBundleControls(
         ERROR: control.exit_code,
       },
       f0rtika: {
-        test_uuid: control.control_id,
+        test_uuid: `${bundle.bundle_id}::${control.control_id}`,
         test_name: control.control_name,
         is_protected: isProtectedCode(control.exit_code),
         error_name: getErrorName(control.exit_code),

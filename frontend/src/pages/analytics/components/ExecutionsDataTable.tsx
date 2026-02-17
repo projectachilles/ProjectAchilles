@@ -14,9 +14,10 @@ import {
   Columns,
   Check,
   Filter,
+  Package,
 } from 'lucide-react';
 import { formatDistanceToNow, isValid, format } from 'date-fns';
-import type { EnrichedTestExecution, PaginatedResponse, SeverityLevel } from '@/services/api/analytics';
+import type { EnrichedTestExecution, PaginatedResponse, SeverityLevel, CategoryType } from '@/services/api/analytics';
 import {
   Table,
   TableBody,
@@ -92,6 +93,81 @@ function getResultFromErrorCode(errorCode: number | undefined): 'protected' | 'u
   return 'inconclusive';
 }
 
+// ── Bundle grouping types ─────────────────────────────────────────
+
+interface BundleGroup {
+  type: 'bundle';
+  key: string;
+  bundle_id: string;
+  bundle_name: string;
+  hostname: string;
+  timestamp: string;
+  controls: EnrichedTestExecution[];
+  protectedCount: number;
+  unprotectedCount: number;
+  totalCount: number;
+  category?: CategoryType;
+}
+
+interface StandaloneRow {
+  type: 'standalone';
+  key: string;
+  execution: EnrichedTestExecution;
+}
+
+type DisplayRow = BundleGroup | StandaloneRow;
+
+/** Group consecutive bundle controls by bundle_id + hostname. */
+function groupExecutions(executions: EnrichedTestExecution[]): DisplayRow[] {
+  const rows: DisplayRow[] = [];
+  const bundleMap = new Map<string, BundleGroup>();
+  // Track insertion order so bundles appear at the position of their first control
+  const insertionOrder: string[] = [];
+
+  for (let i = 0; i < executions.length; i++) {
+    const exec = executions[i];
+
+    if (exec.is_bundle_control && exec.bundle_id) {
+      const groupKey = `${exec.bundle_id}::${exec.hostname}`;
+
+      if (!bundleMap.has(groupKey)) {
+        const group: BundleGroup = {
+          type: 'bundle',
+          key: groupKey,
+          bundle_id: exec.bundle_id,
+          bundle_name: exec.bundle_name || 'Bundle',
+          hostname: exec.hostname,
+          timestamp: exec.timestamp,
+          controls: [],
+          protectedCount: 0,
+          unprotectedCount: 0,
+          totalCount: 0,
+          category: exec.category,
+        };
+        bundleMap.set(groupKey, group);
+        insertionOrder.push(groupKey);
+        // Insert a placeholder — we'll fill it in the final pass
+        rows.push(group);
+      }
+
+      const group = bundleMap.get(groupKey)!;
+      group.controls.push(exec);
+      group.totalCount++;
+      const result = getResultFromErrorCode(exec.error_code);
+      if (result === 'protected') group.protectedCount++;
+      if (result === 'unprotected') group.unprotectedCount++;
+    } else {
+      rows.push({
+        type: 'standalone',
+        key: `standalone-${exec.test_uuid}-${exec.timestamp}-${i}`,
+        execution: exec,
+      });
+    }
+  }
+
+  return rows;
+}
+
 // Column definitions
 interface ColumnDef {
   key: string;
@@ -148,11 +224,15 @@ export default function ExecutionsDataTable({
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
     new Set(COLUMNS.filter(c => c.defaultVisible).map(c => c.key))
   );
-  const [expandedRow, setExpandedRow] = useState<number | null>(null);
+  const [expandedBundles, setExpandedBundles] = useState<Set<string>>(new Set());
+  const [expandedDetail, setExpandedDetail] = useState<string | null>(null);
   const [showColumnMenu, setShowColumnMenu] = useState(false);
 
   const executions = data?.data || [];
   const pagination = data?.pagination;
+
+  // Group executions into bundle groups and standalone rows
+  const displayRows = useMemo(() => groupExecutions(executions), [executions]);
 
   // Toggle column visibility
   const toggleColumn = (key: string) => {
@@ -249,10 +329,15 @@ export default function ExecutionsDataTable({
   };
 
   // Render cell content
-  const renderCell = (exec: EnrichedTestExecution, key: string) => {
+  const renderCell = (exec: EnrichedTestExecution, key: string, indent = false) => {
     switch (key) {
       case 'test_name':
-        return <span className="font-medium text-foreground">{exec.test_name}</span>;
+        return (
+          <span className={`font-medium text-foreground ${indent ? 'pl-6' : ''}`}>
+            {indent && <span className="text-muted-foreground mr-1.5">&#x2514;</span>}
+            {exec.test_name}
+          </span>
+        );
 
       case 'hostname':
         return (
@@ -331,16 +416,18 @@ export default function ExecutionsDataTable({
 
       case 'complexity':
         if (!exec.complexity) return <span className="text-muted-foreground">—</span>;
-        const complexityColors: Record<string, string> = {
-          low: 'text-green-500',
-          medium: 'text-yellow-500',
-          high: 'text-red-500',
-        };
-        return (
-          <span className={`text-sm capitalize ${complexityColors[exec.complexity] || 'text-foreground'}`}>
-            {exec.complexity}
-          </span>
-        );
+        {
+          const complexityColors: Record<string, string> = {
+            low: 'text-green-500',
+            medium: 'text-yellow-500',
+            high: 'text-red-500',
+          };
+          return (
+            <span className={`text-sm capitalize ${complexityColors[exec.complexity] || 'text-foreground'}`}>
+              {exec.complexity}
+            </span>
+          );
+        }
 
       case 'score':
         if (exec.score === undefined || exec.score === null) return <span className="text-muted-foreground">—</span>;
@@ -374,17 +461,190 @@ export default function ExecutionsDataTable({
       case 'timestamp':
         return <span className="text-sm text-muted-foreground">{formatTimestamp(exec.timestamp)}</span>;
 
-      default:
+      default: {
         const value = getCellValue(exec, key);
         return <span className="text-sm text-foreground">{value || '—'}</span>;
+      }
     }
   };
+
+  // Render a bundle parent row cell
+  const renderBundleCell = (group: BundleGroup, key: string, isExpanded: boolean) => {
+    switch (key) {
+      case 'test_name':
+        return (
+          <span className="inline-flex items-center gap-2 font-medium text-foreground">
+            {isExpanded ? (
+              <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+            ) : (
+              <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+            )}
+            <Package className="w-4 h-4 text-blue-500 shrink-0" />
+            <span>{group.bundle_name}</span>
+            <Badge variant="secondary" className="text-xs ml-1">
+              {group.totalCount} controls
+            </Badge>
+          </span>
+        );
+
+      case 'hostname':
+        return (
+          <span
+            className="text-muted-foreground font-mono text-sm block max-w-[220px] truncate"
+            title={group.hostname}
+          >
+            {group.hostname}
+          </span>
+        );
+
+      case 'result': {
+        const ratio = group.totalCount > 0 ? group.protectedCount / group.totalCount : 0;
+        const color = ratio >= 0.8 ? 'text-green-600 dark:text-green-400'
+          : ratio >= 0.5 ? 'text-yellow-600 dark:text-yellow-400'
+          : 'text-red-600 dark:text-red-400';
+        return (
+          <span className={`inline-flex items-center gap-1.5 ${color}`}>
+            <ShieldCheck className="w-4 h-4" />
+            <span className="text-sm font-medium">
+              {group.protectedCount}/{group.totalCount} Protected
+            </span>
+          </span>
+        );
+      }
+
+      case 'category':
+        if (!group.category) return <span className="text-muted-foreground">—</span>;
+        return (
+          <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-500 border-blue-500/30">
+            {group.category}
+          </Badge>
+        );
+
+      case 'techniques': {
+        // Collect unique techniques from all controls
+        const allTechniques = new Set<string>();
+        for (const ctrl of group.controls) {
+          if (ctrl.tactics) ctrl.tactics.forEach(t => allTechniques.add(t));
+        }
+        if (allTechniques.size === 0) return <span className="text-muted-foreground">—</span>;
+        const techniqueArr = [...allTechniques];
+        return (
+          <div className="flex flex-wrap gap-1">
+            {techniqueArr.slice(0, 2).map(t => (
+              <Badge key={t} variant="secondary" className="text-xs">{t}</Badge>
+            ))}
+            {techniqueArr.length > 2 && (
+              <span className="text-xs text-muted-foreground">+{techniqueArr.length - 2}</span>
+            )}
+          </div>
+        );
+      }
+
+      case 'error':
+        return (
+          <span className="text-sm text-muted-foreground font-mono">
+            {group.protectedCount}P / {group.unprotectedCount}F
+          </span>
+        );
+
+      case 'timestamp':
+        return <span className="text-sm text-muted-foreground">{formatTimestamp(group.timestamp)}</span>;
+
+      default:
+        return <span className="text-muted-foreground">—</span>;
+    }
+  };
+
+  // Render the detail panel for a single execution
+  const renderDetailPanel = (exec: EnrichedTestExecution) => (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+      <div>
+        <span className="text-muted-foreground">Test UUID:</span>
+        <p className="font-mono text-xs mt-1 text-foreground">{exec.test_uuid}</p>
+      </div>
+      {exec.is_bundle_control && exec.bundle_name && (
+        <div>
+          <span className="text-muted-foreground">Bundle:</span>
+          <p className="mt-1 text-foreground">{exec.bundle_name}</p>
+        </div>
+      )}
+      {exec.is_bundle_control && exec.control_validator && (
+        <div>
+          <span className="text-muted-foreground">Validator:</span>
+          <p className="mt-1 text-foreground">{exec.control_validator}</p>
+        </div>
+      )}
+      {exec.tactics?.length ? (
+        <div>
+          <span className="text-muted-foreground">Tactics:</span>
+          <p className="mt-1 text-foreground">{exec.tactics.join(', ')}</p>
+        </div>
+      ) : null}
+      {exec.target && (
+        <div>
+          <span className="text-muted-foreground">Target:</span>
+          <p className="mt-1 text-foreground">{exec.target}</p>
+        </div>
+      )}
+      {exec.complexity && (
+        <div>
+          <span className="text-muted-foreground">Complexity:</span>
+          <p className="mt-1 capitalize text-foreground">{exec.complexity}</p>
+        </div>
+      )}
+      {exec.tags?.length ? (
+        <div className="col-span-2">
+          <span className="text-muted-foreground">Tags:</span>
+          <div className="flex flex-wrap gap-1 mt-1">
+            {exec.tags.map(tag => (
+              <Badge key={tag} variant="secondary" className="text-xs">
+                {tag}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {exec.score !== undefined && (
+        <div>
+          <span className="text-muted-foreground">Score:</span>
+          <p className="mt-1 text-foreground">{exec.score}/10</p>
+        </div>
+      )}
+      <div>
+        <span className="text-muted-foreground">Full Timestamp:</span>
+        <p className="mt-1 text-foreground">{formatTimestamp(exec.timestamp, false)}</p>
+      </div>
+    </div>
+  );
 
   // Visible columns for rendering
   const visibleColumnsList = useMemo(
     () => COLUMNS.filter(c => visibleColumns.has(c.key)),
     [visibleColumns]
   );
+
+  // Toggle bundle expand/collapse
+  const toggleBundle = (key: string) => {
+    setExpandedBundles(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+        // Also close any detail panel for controls in this bundle
+        setExpandedDetail(current => {
+          if (current?.startsWith(key)) return null;
+          return current;
+        });
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  // Toggle detail panel for a specific row
+  const toggleDetail = (key: string) => {
+    setExpandedDetail(prev => prev === key ? null : key);
+  };
 
   if (loading && !data) {
     return (
@@ -547,74 +807,84 @@ export default function ExecutionsDataTable({
                 </TableCell>
               </TableRow>
             ) : (
-              executions.map((exec, index) => (
-                <Fragment key={`${exec.test_uuid}-${exec.timestamp}-${index}`}>
-                  <TableRow
-                    className={`cursor-pointer ${expandedRow === index ? 'bg-accent/30' : ''}`}
-                    onClick={() => setExpandedRow(expandedRow === index ? null : index)}
-                  >
-                    {visibleColumnsList.map(col => (
-                      <TableCell key={col.key}>
-                        {renderCell(exec, col.key)}
-                      </TableCell>
-                    ))}
-                  </TableRow>
+              displayRows.map((row) => {
+                if (row.type === 'standalone') {
+                  const exec = row.execution;
+                  const detailKey = row.key;
+                  return (
+                    <Fragment key={detailKey}>
+                      <TableRow
+                        className={`cursor-pointer ${expandedDetail === detailKey ? 'bg-accent/30' : ''}`}
+                        onClick={() => toggleDetail(detailKey)}
+                      >
+                        {visibleColumnsList.map(col => (
+                          <TableCell key={col.key}>
+                            {renderCell(exec, col.key)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
 
-                  {/* Expanded Row Details */}
-                  {expandedRow === index && (
-                    <TableRow className="bg-accent/20">
-                      <TableCell colSpan={visibleColumnsList.length} className="py-4 px-6">
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                          <div>
-                            <span className="text-muted-foreground">Test UUID:</span>
-                            <p className="font-mono text-xs mt-1 text-foreground">{exec.test_uuid}</p>
-                          </div>
-                          {exec.tactics?.length && (
-                            <div>
-                              <span className="text-muted-foreground">Tactics:</span>
-                              <p className="mt-1 text-foreground">{exec.tactics.join(', ')}</p>
-                            </div>
-                          )}
-                          {exec.target && (
-                            <div>
-                              <span className="text-muted-foreground">Target:</span>
-                              <p className="mt-1 text-foreground">{exec.target}</p>
-                            </div>
-                          )}
-                          {exec.complexity && (
-                            <div>
-                              <span className="text-muted-foreground">Complexity:</span>
-                              <p className="mt-1 capitalize text-foreground">{exec.complexity}</p>
-                            </div>
-                          )}
-                          {exec.tags?.length && (
-                            <div className="col-span-2">
-                              <span className="text-muted-foreground">Tags:</span>
-                              <div className="flex flex-wrap gap-1 mt-1">
-                                {exec.tags.map(tag => (
-                                  <Badge key={tag} variant="secondary" className="text-xs">
-                                    {tag}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          {exec.score !== undefined && (
-                            <div>
-                              <span className="text-muted-foreground">Score:</span>
-                              <p className="mt-1 text-foreground">{exec.score}/10</p>
-                            </div>
-                          )}
-                          <div>
-                            <span className="text-muted-foreground">Full Timestamp:</span>
-                            <p className="mt-1 text-foreground">{formatTimestamp(exec.timestamp, false)}</p>
-                          </div>
-                        </div>
-                      </TableCell>
+                      {expandedDetail === detailKey && (
+                        <TableRow className="bg-accent/20">
+                          <TableCell colSpan={visibleColumnsList.length} className="py-4 px-6">
+                            {renderDetailPanel(exec)}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
+                  );
+                }
+
+                // Bundle group
+                const group = row;
+                const isExpanded = expandedBundles.has(group.key);
+
+                return (
+                  <Fragment key={group.key}>
+                    {/* Bundle parent row */}
+                    <TableRow
+                      className={`cursor-pointer bg-muted/30 hover:bg-muted/50 ${isExpanded ? 'border-b-0' : ''}`}
+                      onClick={() => toggleBundle(group.key)}
+                    >
+                      {visibleColumnsList.map(col => (
+                        <TableCell key={col.key}>
+                          {renderBundleCell(group, col.key, isExpanded)}
+                        </TableCell>
+                      ))}
                     </TableRow>
-                  )}
-                </Fragment>
-              ))
+
+                    {/* Expanded control sub-rows */}
+                    {isExpanded && group.controls.map((ctrl, ctrlIdx) => {
+                      const ctrlDetailKey = `${group.key}::ctrl-${ctrlIdx}`;
+                      return (
+                        <Fragment key={ctrlDetailKey}>
+                          <TableRow
+                            className={`cursor-pointer bg-card/50 border-l-2 border-l-blue-500/30 ${expandedDetail === ctrlDetailKey ? 'bg-accent/30' : 'hover:bg-accent/10'}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleDetail(ctrlDetailKey);
+                            }}
+                          >
+                            {visibleColumnsList.map(col => (
+                              <TableCell key={col.key}>
+                                {renderCell(ctrl, col.key, col.key === 'test_name')}
+                              </TableCell>
+                            ))}
+                          </TableRow>
+
+                          {expandedDetail === ctrlDetailKey && (
+                            <TableRow className="bg-accent/20 border-l-2 border-l-blue-500/30">
+                              <TableCell colSpan={visibleColumnsList.length} className="py-4 px-6">
+                                {renderDetailPanel(ctrl)}
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </Fragment>
+                );
+              })
             )}
           </TableBody>
         </Table>

@@ -1171,6 +1171,12 @@ export class ElasticsearchService {
         threat_actor: getField(source, 'f0rtika.threat_actor'),
         tags: getField(source, 'f0rtika.tags'),
         score: getField(source, 'f0rtika.score'),
+        // Bundle control fields
+        bundle_id: getField(source, 'f0rtika.bundle_id'),
+        bundle_name: getField(source, 'f0rtika.bundle_name'),
+        control_id: getField(source, 'f0rtika.control_id'),
+        control_validator: getField(source, 'f0rtika.control_validator'),
+        is_bundle_control: getField(source, 'f0rtika.is_bundle_control') ?? false,
       };
     });
 

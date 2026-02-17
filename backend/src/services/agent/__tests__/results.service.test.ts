@@ -310,7 +310,7 @@ describe('results.service', () => {
 
       const ops = mockEsBulk.mock.calls[0][0].operations;
       const doc1 = ops[1]; // first control document
-      expect(doc1.f0rtika.test_uuid).toBe('CH-DEF-001');
+      expect(doc1.f0rtika.test_uuid).toBe('a3c923ae-1a46-4b1f-b696-be6c2731a628::CH-DEF-001');
       expect(doc1.f0rtika.test_name).toBe('Real-time Protection');
       expect(doc1.f0rtika.is_protected).toBe(true);
       expect(doc1.f0rtika.bundle_id).toBe('a3c923ae-1a46-4b1f-b696-be6c2731a628');

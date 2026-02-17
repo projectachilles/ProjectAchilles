@@ -120,6 +120,12 @@ export interface EnrichedTestExecution extends TestExecution {
   threat_actor?: string;
   tags?: string[];
   score?: number;
+  // Bundle control fields (present when is_bundle_control === true)
+  bundle_id?: string;
+  bundle_name?: string;
+  control_id?: string;
+  control_validator?: string;
+  is_bundle_control?: boolean;
 }
 
 export interface PaginatedResponse<T> {
