@@ -40,6 +40,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD wget -qO- http://localhost:3000/api/health || exit 1
 
-# Start the server
-# Use shell form to ensure stdout/stderr are captured by Railway's log collector
-CMD node dist/server.js 2>&1
+# Start the server — debug: echo first to confirm container boots
+CMD echo "=== CONTAINER STARTING ===" && ls -la dist/server.js && node --version && node dist/server.js 2>&1
