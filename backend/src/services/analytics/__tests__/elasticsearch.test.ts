@@ -599,7 +599,7 @@ describe('elasticsearch.ts', () => {
   });
 
   describe('getUniqueTests', () => {
-    it('targets f0rtika.test_uuid.keyword field', async () => {
+    it('targets f0rtika.test_uuid field', async () => {
       mockSearch.mockResolvedValue(esSearchResponse({
         aggs: { unique_tests: { value: 15 } },
       }));
@@ -607,7 +607,7 @@ describe('elasticsearch.ts', () => {
       await svc.getUniqueTests(makeParams());
 
       const callArg = mockSearch.mock.calls[0][0];
-      expect(callArg.aggs.unique_tests.cardinality.field).toBe('f0rtika.test_uuid.keyword');
+      expect(callArg.aggs.unique_tests.cardinality.field).toBe('f0rtika.test_uuid');
     });
   });
 
@@ -947,7 +947,7 @@ describe('elasticsearch.ts', () => {
       );
     });
 
-    it('buildErrorNamesFilter: unrecognized names → fallback to f0rtika.error_name.keyword', async () => {
+    it('buildErrorNamesFilter: unrecognized names → fallback to f0rtika.error_name', async () => {
       const svc = createService();
       await svc.getPaginatedExecutions({
         from: '2025-01-01', to: '2025-01-31',
@@ -956,7 +956,7 @@ describe('elasticsearch.ts', () => {
 
       const countCall = mockCount.mock.calls[0][0];
       const filters = countCall.query.bool.filter;
-      expect(filters).toContainEqual({ term: { 'f0rtika.error_name.keyword': 'UnknownCustomError' } });
+      expect(filters).toContainEqual({ term: { 'f0rtika.error_name': 'UnknownCustomError' } });
     });
   });
 
@@ -1093,7 +1093,7 @@ describe('elasticsearch.ts', () => {
   // Group 13: Smoke Tests
   // ================================================================
   describe('smoke tests (structurally identical methods)', () => {
-    it('getDefenseScoreByTechnique — uses f0rtika.techniques.keyword', async () => {
+    it('getDefenseScoreByTechnique — uses f0rtika.techniques', async () => {
       mockSearch.mockResolvedValue(esSearchResponse({
         aggs: {
           by_technique: {
@@ -1107,7 +1107,7 @@ describe('elasticsearch.ts', () => {
       expect(result[0].score).toBe(70);
 
       const callArg = mockSearch.mock.calls[0][0];
-      expect(callArg.aggs.by_technique.terms.field).toBe('f0rtika.techniques.keyword');
+      expect(callArg.aggs.by_technique.terms.field).toBe('f0rtika.techniques');
     });
 
     it('getResultsByErrorType — resolves error codes', async () => {

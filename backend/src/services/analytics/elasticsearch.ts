@@ -391,7 +391,7 @@ export class ElasticsearchService {
       },
       aggs: {
         by_test: {
-          terms: { field: 'f0rtika.test_name.keyword', size: params.limit || 50 },
+          terms: { field: 'f0rtika.test_name', size: params.limit || 50 },
           aggs: {
             protected: {
               filter: { term: { 'f0rtika.is_protected': true } },
@@ -438,7 +438,7 @@ export class ElasticsearchService {
       },
       aggs: {
         by_technique: {
-          terms: { field: 'f0rtika.techniques.keyword', size: 50 },
+          terms: { field: 'f0rtika.techniques', size: 50 },
           aggs: {
             protected: {
               filter: { term: { 'f0rtika.is_protected': true } },
@@ -611,7 +611,7 @@ export class ElasticsearchService {
       },
       aggs: {
         unique_tests: {
-          cardinality: { field: 'f0rtika.test_uuid.keyword' },
+          cardinality: { field: 'f0rtika.test_uuid' },
         },
       },
     });
@@ -627,12 +627,12 @@ export class ElasticsearchService {
     if (testList.length === 0) return null;
 
     if (testList.length === 1) {
-      return { term: { 'f0rtika.test_name.keyword': testList[0] } };
+      return { term: { 'f0rtika.test_name': testList[0] } };
     }
 
     return {
       bool: {
-        should: testList.map(test => ({ term: { 'f0rtika.test_name.keyword': test } })),
+        should: testList.map(test => ({ term: { 'f0rtika.test_name': test } })),
         minimum_should_match: 1,
       },
     };
@@ -646,12 +646,12 @@ export class ElasticsearchService {
     if (techniqueList.length === 0) return null;
 
     if (techniqueList.length === 1) {
-      return { term: { 'f0rtika.techniques.keyword': techniqueList[0] } };
+      return { term: { 'f0rtika.techniques': techniqueList[0] } };
     }
 
     return {
       bool: {
-        should: techniqueList.map(technique => ({ term: { 'f0rtika.techniques.keyword': technique } })),
+        should: techniqueList.map(technique => ({ term: { 'f0rtika.techniques': technique } })),
         minimum_should_match: 1,
       },
     };
@@ -719,7 +719,7 @@ export class ElasticsearchService {
       },
       aggs: {
         by_test: {
-          terms: { field: 'f0rtika.test_name.keyword', size: 50 },
+          terms: { field: 'f0rtika.test_name', size: 50 },
           aggs: {
             protected: {
               filter: { term: { 'f0rtika.is_protected': true } },
@@ -765,7 +765,7 @@ export class ElasticsearchService {
       },
       aggs: {
         by_technique: {
-          terms: { field: 'f0rtika.techniques.keyword', size: 50 },
+          terms: { field: 'f0rtika.techniques', size: 50 },
           aggs: {
             protected: {
               filter: { term: { 'f0rtika.is_protected': true } },
@@ -815,7 +815,7 @@ export class ElasticsearchService {
             size: 1000,
             sources: [
               { hostname: { terms: { field: 'routing.hostname' } } },
-              { test_name: { terms: { field: 'f0rtika.test_name.keyword' } } },
+              { test_name: { terms: { field: 'f0rtika.test_name' } } },
             ],
           },
         },
@@ -841,7 +841,7 @@ export class ElasticsearchService {
       },
       aggs: {
         tests: {
-          terms: { field: 'f0rtika.test_name.keyword', size: 100 },
+          terms: { field: 'f0rtika.test_name', size: 100 },
         },
       },
     });
@@ -860,7 +860,7 @@ export class ElasticsearchService {
       },
       aggs: {
         techniques: {
-          terms: { field: 'f0rtika.techniques.keyword', size: 100 },
+          terms: { field: 'f0rtika.techniques', size: 100 },
         },
       },
     });
@@ -947,11 +947,11 @@ export class ElasticsearchService {
     const categoryList = categories.split(',').map(c => c.trim()).filter(Boolean);
     if (categoryList.length === 0) return null;
     if (categoryList.length === 1) {
-      return { term: { 'f0rtika.category.keyword': categoryList[0] } };
+      return { term: { 'f0rtika.category': categoryList[0] } };
     }
     return {
       bool: {
-        should: categoryList.map(c => ({ term: { 'f0rtika.category.keyword': c } })),
+        should: categoryList.map(c => ({ term: { 'f0rtika.category': c } })),
         minimum_should_match: 1,
       },
     };
@@ -963,11 +963,11 @@ export class ElasticsearchService {
     const severityList = severities.split(',').map(s => s.trim()).filter(Boolean);
     if (severityList.length === 0) return null;
     if (severityList.length === 1) {
-      return { term: { 'f0rtika.severity.keyword': severityList[0] } };
+      return { term: { 'f0rtika.severity': severityList[0] } };
     }
     return {
       bool: {
-        should: severityList.map(s => ({ term: { 'f0rtika.severity.keyword': s } })),
+        should: severityList.map(s => ({ term: { 'f0rtika.severity': s } })),
         minimum_should_match: 1,
       },
     };
@@ -979,11 +979,11 @@ export class ElasticsearchService {
     const actorList = threatActors.split(',').map(a => a.trim()).filter(Boolean);
     if (actorList.length === 0) return null;
     if (actorList.length === 1) {
-      return { term: { 'f0rtika.threat_actor.keyword': actorList[0] } };
+      return { term: { 'f0rtika.threat_actor': actorList[0] } };
     }
     return {
       bool: {
-        should: actorList.map(a => ({ term: { 'f0rtika.threat_actor.keyword': a } })),
+        should: actorList.map(a => ({ term: { 'f0rtika.threat_actor': a } })),
         minimum_should_match: 1,
       },
     };
@@ -995,11 +995,11 @@ export class ElasticsearchService {
     const tagList = tags.split(',').map(t => t.trim()).filter(Boolean);
     if (tagList.length === 0) return null;
     if (tagList.length === 1) {
-      return { term: { 'f0rtika.tags.keyword': tagList[0] } };
+      return { term: { 'f0rtika.tags': tagList[0] } };
     }
     return {
       bool: {
-        should: tagList.map(t => ({ term: { 'f0rtika.tags.keyword': t } })),
+        should: tagList.map(t => ({ term: { 'f0rtika.tags': t } })),
         minimum_should_match: 1,
       },
     };
@@ -1026,11 +1026,11 @@ export class ElasticsearchService {
 
     // Fallback: try matching against the stored field for any unrecognised names
     if (nameList.length === 1) {
-      return { term: { 'f0rtika.error_name.keyword': nameList[0] } };
+      return { term: { 'f0rtika.error_name': nameList[0] } };
     }
     return {
       bool: {
-        should: nameList.map(n => ({ term: { 'f0rtika.error_name.keyword': n } })),
+        should: nameList.map(n => ({ term: { 'f0rtika.error_name': n } })),
         minimum_should_match: 1,
       },
     };
@@ -1244,7 +1244,7 @@ export class ElasticsearchService {
       query: { bool: { filter: filters } },
       aggs: {
         categories: {
-          terms: { field: 'f0rtika.category.keyword', size: 50 },
+          terms: { field: 'f0rtika.category', size: 50 },
         },
       },
     });
@@ -1274,7 +1274,7 @@ export class ElasticsearchService {
       query: { bool: { filter: filters } },
       aggs: {
         severities: {
-          terms: { field: 'f0rtika.severity.keyword', size: 10 },
+          terms: { field: 'f0rtika.severity', size: 10 },
         },
       },
     });
@@ -1309,7 +1309,7 @@ export class ElasticsearchService {
       query: { bool: { filter: filters } },
       aggs: {
         threat_actors: {
-          terms: { field: 'f0rtika.threat_actor.keyword', size: 100 },
+          terms: { field: 'f0rtika.threat_actor', size: 100 },
         },
       },
     });
@@ -1341,7 +1341,7 @@ export class ElasticsearchService {
       query: { bool: { filter: filters } },
       aggs: {
         tags: {
-          terms: { field: 'f0rtika.tags.keyword', size: 200 },
+          terms: { field: 'f0rtika.tags', size: 200 },
         },
       },
     });
@@ -1439,7 +1439,7 @@ export class ElasticsearchService {
       query: { bool: { filter: filters } },
       aggs: {
         by_severity: {
-          terms: { field: 'f0rtika.severity.keyword', size: 10 },
+          terms: { field: 'f0rtika.severity', size: 10 },
           aggs: {
             protected: {
               filter: { term: { 'f0rtika.is_protected': true } },
@@ -1487,7 +1487,7 @@ export class ElasticsearchService {
       query: { bool: { filter: filters } },
       aggs: {
         by_category: {
-          terms: { field: 'f0rtika.category.keyword', size: 20 },
+          terms: { field: 'f0rtika.category', size: 20 },
           aggs: {
             protected: {
               filter: { term: { 'f0rtika.is_protected': true } },
@@ -1532,13 +1532,13 @@ export class ElasticsearchService {
       query: { bool: { filter: filters } },
       aggs: {
         by_category: {
-          terms: { field: 'f0rtika.category.keyword', size: 20 },
+          terms: { field: 'f0rtika.category', size: 20 },
           aggs: {
             protected: {
               filter: { term: { 'f0rtika.is_protected': true } },
             },
             by_subcategory: {
-              terms: { field: 'f0rtika.subcategory.keyword', size: 50 },
+              terms: { field: 'f0rtika.subcategory', size: 50 },
               aggs: {
                 protected: {
                   filter: { term: { 'f0rtika.is_protected': true } },
@@ -1655,10 +1655,10 @@ export class ElasticsearchService {
       },
       aggs: {
         unique_test_count: {
-          cardinality: { field: 'f0rtika.test_name.keyword' },
+          cardinality: { field: 'f0rtika.test_name' },
         },
         test_names: {
-          terms: { field: 'f0rtika.test_name.keyword', size: 500 },
+          terms: { field: 'f0rtika.test_name', size: 500 },
         },
       },
     });
@@ -1686,13 +1686,13 @@ export class ElasticsearchService {
       query: { bool: { filter: filters } },
       aggs: {
         by_threat_actor: {
-          terms: { field: 'f0rtika.threat_actor.keyword', size: 50 },
+          terms: { field: 'f0rtika.threat_actor', size: 50 },
           aggs: {
             protected: {
               filter: { term: { 'f0rtika.is_protected': true } },
             },
             unique_tests: {
-              cardinality: { field: 'f0rtika.test_uuid.keyword' },
+              cardinality: { field: 'f0rtika.test_uuid' },
             },
           },
         },
