@@ -75,10 +75,12 @@ export const testsApi = {
   async generateCertificateWithLabel(
     subject: CertificateSubject,
     label?: string,
+    password?: string,
   ): Promise<CertificateInfo> {
     const response = await apiClient.post('/tests/certificates/generate', {
       ...subject,
       label,
+      password,
     });
     return response.data.data;
   },

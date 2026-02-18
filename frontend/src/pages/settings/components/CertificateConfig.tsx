@@ -29,6 +29,7 @@ export function CertificateConfig({ canDelete = true, onStatusChange }: Certific
   const [organization, setOrganization] = useState('Microsoft Corporation');
   const [country, setCountry] = useState('US');
   const [generateLabel, setGenerateLabel] = useState('');
+  const [generatePassword, setGeneratePassword] = useState('');
   const [generating, setGenerating] = useState(false);
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -77,8 +78,10 @@ export function CertificateConfig({ canDelete = true, onStatusChange }: Certific
       await testsApi.generateCertificateWithLabel(
         { commonName, organization, country },
         generateLabel || undefined,
+        generatePassword || undefined,
       );
       setGenerateLabel('');
+      setGeneratePassword('');
       await loadCertificates();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate certificate');
@@ -234,6 +237,13 @@ export function CertificateConfig({ canDelete = true, onStatusChange }: Certific
                 onChange={(e) => setCountry(e.target.value.toUpperCase().slice(0, 2))}
                 placeholder="US"
                 maxLength={2}
+              />
+              <Input
+                label="Password (optional)"
+                type="password"
+                value={generatePassword}
+                onChange={(e) => setGeneratePassword(e.target.value)}
+                placeholder="Leave blank for auto-generated password"
               />
               <Input
                 label="Label (optional)"

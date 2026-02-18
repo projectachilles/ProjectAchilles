@@ -125,7 +125,7 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
 
   // POST /api/tests/certificates/generate — Generate a self-signed cert
   router.post('/certificates/generate', requirePermission('settings:certificates:create'), asyncHandler(async (req, res) => {
-    const { commonName, organization, country, label } = req.body;
+    const { commonName, organization, country, label, password } = req.body;
 
     if (!commonName || !organization || !country) {
       throw new AppError('commonName, organization, and country are required', 400);
@@ -139,6 +139,7 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
       const info = await testsSettings.generateCertificate(
         { commonName, organization, country },
         label || undefined,
+        password || undefined,
       );
       res.json({ success: true, data: info });
     } catch (err) {

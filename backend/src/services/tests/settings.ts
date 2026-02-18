@@ -310,7 +310,7 @@ export class TestsSettingsService {
 
   // ── Generate Certificate ────────────────────────────────────
 
-  async generateCertificate(subject: CertificateSubject, label?: string): Promise<CertificateInfo> {
+  async generateCertificate(subject: CertificateSubject, label?: string, password?: string): Promise<CertificateInfo> {
     this.ensureDir(CERTS_DIR);
 
     // Check max limit
@@ -353,16 +353,21 @@ export class TestsSettingsService {
         '-subj', subjectStr,
       ]);
 
-      // 2. Generate random password
-      const { stdout: passwordRaw } = await execFileAsync('openssl', [
-        'rand', '-base64', '32',
-      ]);
-      const password = passwordRaw.trim();
+      // 2. Use provided password or generate a random one
+      let certPassword: string;
+      if (password) {
+        certPassword = password;
+      } else {
+        const { stdout: passwordRaw } = await execFileAsync('openssl', [
+          'rand', '-base64', '32',
+        ]);
+        certPassword = passwordRaw.trim();
+      }
 
       // 3. Create PFX (PKCS#12) with -legacy for OpenSSL 3.x compat
       // L1: Pass password via temp file to avoid /proc/PID/cmdline exposure
       const passFile = path.join(certDir, '.tmp-pass');
-      fs.writeFileSync(passFile, password, { mode: 0o600 });
+      fs.writeFileSync(passFile, certPassword, { mode: 0o600 });
       try {
         await execFileAsync('openssl', [
           'pkcs12', '-export',
@@ -405,7 +410,7 @@ export class TestsSettingsService {
         label,
         source: 'generated',
         subject,
-        password: 'enc:' + this.encrypt(password),
+        password: 'enc:' + this.encrypt(certPassword),
         createdAt: new Date().toISOString(),
         expiresAt,
         fingerprint,
