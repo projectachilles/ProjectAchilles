@@ -104,7 +104,8 @@ AGENT_SERVER_URL=https://${{ backend.RAILWAY_PUBLIC_DOMAIN }}
 | Volume | Mount Path | Contents |
 |--------|-----------|----------|
 | Backend data | `/root/.projectachilles` | `agents.db` (SQLite), `analytics.json` (encrypted ES config), `tests.json`, `certs/` |
-| Repo cache | `/app/data` | Cloned test repository (git-synced) |
+
+> **Single volume only.** Railway fails to start containers with multiple volumes attached to one service. The test repo cache (`/app/data`) is not persisted — the backend re-clones the repo from GitHub on each deploy, which takes ~10 seconds.
 
 These persist across deploys. Railway volumes mount as root, which matches the backend container's default user.
 

@@ -36,9 +36,9 @@ RUN npm prune --omit=dev
 # Expose port (default 3000 for Docker Compose, Railway overrides via PORT env)
 EXPOSE 3000
 
-# Health check for Docker Compose dependency ordering (disabled on Railway — uses its own)
-# HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-#     CMD wget -qO- http://localhost:3000/api/health || exit 1
+# Health check for Docker Compose dependency ordering
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD wget -qO- http://localhost:3000/api/health || exit 1
 
 # Start the server
 CMD ["node", "dist/server.js"]
