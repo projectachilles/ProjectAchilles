@@ -41,4 +41,5 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD wget -qO- http://localhost:3000/api/health || exit 1
 
 # Start the server
-CMD ["node", "dist/server.js"]
+# Use shell form to ensure stdout/stderr are captured by Railway's log collector
+CMD node dist/server.js 2>&1
