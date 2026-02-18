@@ -100,6 +100,27 @@ export const testsApi = {
     return response.data;
   },
 
+  async downloadCertificate(id: string): Promise<void> {
+    const response = await apiClient.get(`/tests/certificates/${id}/download`, {
+      responseType: 'blob',
+    });
+    const blob = new Blob([response.data]);
+    const contentDisposition = response.headers['content-disposition'] as string | undefined;
+    let filename = `${id}.pfx`;
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename="?([^";\s]+)"?/);
+      if (match) filename = match[1];
+    }
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  },
+
   // ── Build API ────────────────────────────────────────────
 
   async getBuildInfo(uuid: string): Promise<BuildInfo> {

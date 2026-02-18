@@ -188,6 +188,16 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
     }
   }));
 
+  // GET /api/tests/certificates/:id/download — Download cert PFX
+  router.get('/certificates/:id/download', requirePermission('settings:certificates:read'), asyncHandler(async (req, res) => {
+    validateCertId(req.params.id);
+    const result = testsSettings.getCertDownloadPath(req.params.id);
+    if (!result) {
+      throw new AppError('Certificate not found', 404);
+    }
+    res.download(result.pfxPath, result.filename);
+  }));
+
   // ── Build Routes ───────────────────────────────────────────
 
   function validateUuid(uuid: string): void {

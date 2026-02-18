@@ -293,6 +293,21 @@ export class TestsSettingsService {
     }
   }
 
+  // ── Certificate Download Path ────────────────────────────────
+
+  getCertDownloadPath(id: string): { pfxPath: string; filename: string } | null {
+    if (!CERT_DIR_REGEX.test(id)) return null;
+
+    const pfxPath = path.join(CERTS_DIR, id, 'cert.pfx');
+    if (!fs.existsSync(pfxPath)) return null;
+
+    const meta = this.readMetadata(id);
+    const baseName = meta?.label || meta?.subject?.commonName || id;
+    // Sanitize for use as a filename
+    const safeName = baseName.replace(/[^a-zA-Z0-9 .\-_()]/g, '').trim() || id;
+    return { pfxPath, filename: `${safeName}.pfx` };
+  }
+
   // ── Active Cert PFX Path (for build service) ───────────────
 
   getActiveCertPfxPath(): { pfxPath: string; password: string } | null {

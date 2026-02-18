@@ -6,7 +6,7 @@ import { Spinner } from '@/components/shared/ui/Spinner';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/shared/ui/Tabs';
-import { Trash2, Upload, KeyRound } from 'lucide-react';
+import { Download, Trash2, Upload, KeyRound } from 'lucide-react';
 
 interface CertificateConfigProps {
   canDelete?: boolean;
@@ -33,6 +33,7 @@ export function CertificateConfig({ canDelete = true, onStatusChange }: Certific
   const [generating, setGenerating] = useState(false);
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [settingActiveId, setSettingActiveId] = useState<string | null>(null);
 
   const loadCertificates = useCallback(async () => {
@@ -116,6 +117,18 @@ export function CertificateConfig({ canDelete = true, onStatusChange }: Certific
     }
   };
 
+  const handleDownload = async (id: string) => {
+    setError(null);
+    setDownloadingId(id);
+    try {
+      await testsApi.downloadCertificate(id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to download certificate');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
@@ -144,8 +157,10 @@ export function CertificateConfig({ canDelete = true, onStatusChange }: Certific
                 canDelete={canDelete}
                 onSetActive={handleSetActive}
                 onDelete={handleDelete}
+                onDownload={handleDownload}
                 isSettingActive={settingActiveId === cert.id}
                 isDeleting={deletingId === cert.id}
+                isDownloading={downloadingId === cert.id}
               />
             ))}
           </div>
@@ -279,8 +294,10 @@ interface CertificateListItemProps {
   canDelete?: boolean;
   onSetActive: (id: string) => void;
   onDelete: (id: string) => void;
+  onDownload: (id: string) => void;
   isSettingActive: boolean;
   isDeleting: boolean;
+  isDownloading: boolean;
 }
 
 function CertificateListItem({
@@ -289,8 +306,10 @@ function CertificateListItem({
   canDelete = true,
   onSetActive,
   onDelete,
+  onDownload,
   isSettingActive,
   isDeleting,
+  isDownloading,
 }: CertificateListItemProps) {
   const displayName = cert.label || cert.subject?.commonName || cert.id;
 
@@ -344,24 +363,35 @@ function CertificateListItem({
         </div>
       </div>
 
-      {/* Delete */}
-      {canDelete && (
+      {/* Actions */}
+      <div className="flex items-center gap-1 shrink-0">
         <button
           type="button"
-          onClick={() => onDelete(cert.id)}
-          disabled={isActive || isDeleting}
-          className={`
-            shrink-0 p-1.5 rounded-md transition-colors
-            ${isActive
-              ? 'text-muted-foreground/30 cursor-not-allowed'
-              : 'text-muted-foreground hover:text-destructive hover:bg-destructive/10'
-            }
-          `}
-          title={isActive ? 'Cannot delete the active certificate' : 'Delete certificate'}
+          onClick={() => onDownload(cert.id)}
+          disabled={isDownloading}
+          className="p-1.5 rounded-md transition-colors text-muted-foreground hover:text-primary hover:bg-primary/10"
+          title="Download certificate"
         >
-          {isDeleting ? <Spinner size="sm" /> : <Trash2 className="h-4 w-4" />}
+          {isDownloading ? <Spinner size="sm" /> : <Download className="h-4 w-4" />}
         </button>
-      )}
+        {canDelete && (
+          <button
+            type="button"
+            onClick={() => onDelete(cert.id)}
+            disabled={isActive || isDeleting}
+            className={`
+              p-1.5 rounded-md transition-colors
+              ${isActive
+                ? 'text-muted-foreground/30 cursor-not-allowed'
+                : 'text-muted-foreground hover:text-destructive hover:bg-destructive/10'
+              }
+            `}
+            title={isActive ? 'Cannot delete the active certificate' : 'Delete certificate'}
+          >
+            {isDeleting ? <Spinner size="sm" /> : <Trash2 className="h-4 w-4" />}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
