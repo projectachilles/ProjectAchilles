@@ -11,4 +11,14 @@ window.__env__ = {
   VITE_API_URL: ${API_URL_JSON}
 };
 EOF
+
+# Rewrite nginx backend proxy for PaaS environments (e.g. Railway).
+# Docker Compose uses the default "backend:3000" from nginx.conf.
+# Set BACKEND_HOST to override (e.g. "backend.railway.internal").
+if [ -n "${BACKEND_HOST}" ]; then
+  BACKEND_PORT="${BACKEND_PORT:-3000}"
+  sed -i "s|proxy_pass http://backend:3000|proxy_pass http://${BACKEND_HOST}:${BACKEND_PORT}|g" \
+    /etc/nginx/conf.d/default.conf
+fi
+
 exec "$@"
