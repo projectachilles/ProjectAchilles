@@ -10,7 +10,7 @@ import { Loading } from '@/components/shared/ui/Spinner';
 import { Toast } from '@/components/shared/ui/Alert';
 import { Input } from '@/components/shared/ui/Input';
 import { Button } from '@/components/shared/ui/Button';
-import { AlertTriangle, RefreshCw, Send, X, ChevronDown, Check, Minus, Loader2 } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Send, X, ChevronDown, Check, Minus, Loader2, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function timeAgo(epoch: number): string {
@@ -38,6 +38,10 @@ export function UsersTab() {
   const [inviting, setInviting] = useState(false);
   const [invitations, setInvitations] = useState<InvitationInfo[]>([]);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+
+  // Delete user state
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
 
   // Permission reference
   const [permRefOpen, setPermRefOpen] = useState(false);
@@ -114,6 +118,28 @@ export function UsersTab() {
       });
     } finally {
       setInviting(false);
+    }
+  }
+
+  async function handleDeleteUser(userId: string) {
+    if (confirmDeleteId !== userId) {
+      setConfirmDeleteId(userId);
+      const timer = setTimeout(() => setConfirmDeleteId((prev) => prev === userId ? null : prev), 3000);
+      return () => clearTimeout(timer);
+    }
+    setConfirmDeleteId(null);
+    setDeletingUserId(userId);
+    try {
+      await usersApi.deleteUser(userId);
+      setToast({ message: 'User removed', variant: 'success' });
+      await fetchUsers();
+    } catch (err) {
+      setToast({
+        message: err instanceof Error ? err.message : 'Failed to remove user',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeletingUserId(null);
     }
   }
 
@@ -271,6 +297,27 @@ export function UsersTab() {
                     <option key={r} value={r}>{ROLE_LABELS[r]}</option>
                   ))}
                 </select>
+
+                {/* Delete user */}
+                {!isSelf && (
+                  deletingUserId === u.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                  ) : confirmDeleteId === u.id ? (
+                    <button
+                      onClick={() => handleDeleteUser(u.id)}
+                      className="text-xs font-medium text-destructive hover:text-destructive/80 transition-colors"
+                    >
+                      Remove?
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleDeleteUser(u.id)}
+                      className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )
+                )}
               </div>
             </div>
           );

@@ -47,4 +47,8 @@ export const usersApi = {
   async revokeInvitation(invitationId: string): Promise<void> {
     await apiClient.post(`/users/invitations/${invitationId}/revoke`);
   },
+
+  async deleteUser(userId: string): Promise<void> {
+    await apiClient.delete(`/users/${userId}`);
+  },
 };

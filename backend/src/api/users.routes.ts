@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { clerkClient } from '@clerk/express';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
-import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
+import { requireClerkAuth, requirePermission, getUserId } from '../middleware/clerk.middleware.js';
 import { VALID_ROLES } from '../types/roles.js';
 import type { AppRole } from '../types/roles.js';
 
@@ -126,6 +126,21 @@ router.delete('/:userId/role', asyncHandler(async (req, res) => {
   });
 
   res.json({ success: true, data: { userId, role: null } });
+}));
+
+/**
+ * DELETE /api/users/:userId
+ * Permanently remove a user from Clerk.
+ */
+router.delete('/:userId', asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+
+  if (getUserId(req.auth) === userId) {
+    throw new AppError('You cannot delete your own account', 400);
+  }
+
+  await clerkClient.users.deleteUser(userId);
+  res.json({ success: true });
 }));
 
 export default router;
