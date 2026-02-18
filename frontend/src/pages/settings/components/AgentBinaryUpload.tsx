@@ -10,6 +10,7 @@ import { agentApi } from '@/services/api/agent';
 const OS_OPTIONS = [
   { value: 'linux', label: 'Linux' },
   { value: 'windows', label: 'Windows' },
+  { value: 'darwin', label: 'macOS' },
 ];
 
 const ARCH_OPTIONS = [
