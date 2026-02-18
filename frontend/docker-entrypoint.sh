@@ -23,6 +23,8 @@ if [ -n "${BACKEND_HOST}" ]; then
   # backend redeploys and gets a new private network address.
   RESOLVER=$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf)
   RESOLVER=${RESOLVER:-127.0.0.11}
+  # Nginx requires IPv6 addresses in square brackets
+  case "$RESOLVER" in *:*) RESOLVER="[${RESOLVER}]" ;; esac
   sed -i "/index index.html;/a\\    resolver ${RESOLVER} valid=5s;" \
     /etc/nginx/conf.d/default.conf
   sed -i "s|proxy_pass http://backend:3000;|set \$backend_upstream http://${BACKEND_HOST}:${BACKEND_PORT};\n        proxy_pass \$backend_upstream;|g" \
