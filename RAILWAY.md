@@ -143,6 +143,11 @@ The nginx proxy can't reach the backend. Verify:
 - The backend service is running and healthy
 - Both services are in the same Railway project/environment
 
+The entrypoint configures nginx with dynamic DNS resolution (`resolver` + variable-based `proxy_pass`) so that backend IP changes after redeployment are picked up automatically. If you see 502s immediately after a backend redeploy, the frontend should self-heal within 5 seconds.
+
+### Custom domains require TXT verification
+Railway requires both a CNAME record and a `_railway-verify.app` TXT record for custom domain SSL provisioning. Without the TXT record, DNS will resolve but Railway returns "Application not found" and won't issue a Let's Encrypt certificate. Check Settings → Networking on each service for the exact TXT values.
+
 ### Encrypted settings lost after redeploy
 `ENCRYPTION_SECRET` is not set. Without it, the backend derives a key from the container's hostname, which changes on every deploy. Set a stable `ENCRYPTION_SECRET` in Railway variables.
 

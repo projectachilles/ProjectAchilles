@@ -17,7 +17,15 @@ EOF
 # Set BACKEND_HOST to override (e.g. "backend.railway.internal").
 if [ -n "${BACKEND_HOST}" ]; then
   BACKEND_PORT="${BACKEND_PORT:-3000}"
-  sed -i "s|proxy_pass http://backend:3000|proxy_pass http://${BACKEND_HOST}:${BACKEND_PORT}|g" \
+  # Read the container's DNS resolver for dynamic upstream resolution.
+  # When proxy_pass uses a variable, nginx re-resolves DNS on each request
+  # instead of caching it once at startup. This prevents stale IPs when the
+  # backend redeploys and gets a new private network address.
+  RESOLVER=$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf)
+  RESOLVER=${RESOLVER:-127.0.0.11}
+  sed -i "/index index.html;/a\\    resolver ${RESOLVER} valid=5s;" \
+    /etc/nginx/conf.d/default.conf
+  sed -i "s|proxy_pass http://backend:3000;|set \$backend_upstream http://${BACKEND_HOST}:${BACKEND_PORT};\n        proxy_pass \$backend_upstream;|g" \
     /etc/nginx/conf.d/default.conf
 fi
 
