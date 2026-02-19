@@ -78,9 +78,9 @@ export default function AppRouter() {
       {/* Public landing page */}
       <Route path="/" element={<HeroPage />} />
 
-      {/* Auth routes (public) */}
-      <Route path="/sign-in" element={<SignInPage />} />
-      <Route path="/sign-up" element={<SignUpPage />} />
+      {/* Auth routes (public) — wildcard needed for Clerk sub-routes like /sign-up/continue */}
+      <Route path="/sign-in/*" element={<SignInPage />} />
+      <Route path="/sign-up/*" element={<SignUpPage />} />
       <Route path="/user-profile" element={<UserProfilePage />} />
 
       {/* Main Layout with Header - NOW PROTECTED */}
