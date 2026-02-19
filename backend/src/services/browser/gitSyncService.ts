@@ -18,6 +18,8 @@ export interface GitSyncConfig {
   branch: string;
   localPath: string;
   githubToken?: string;
+  sparseCheckoutPaths?: string[];
+  sourceSubdir?: string;
 }
 
 export class GitSyncService {
@@ -63,17 +65,25 @@ export class GitSyncService {
   }
 
   /**
-   * Get the path to tests_source within the repo
+   * Get the path to the configured source subdirectory within the repo
+   */
+  public getSourcePath(): string {
+    return path.join(this.config.localPath, this.config.sourceSubdir || 'tests_source');
+  }
+
+  /**
+   * Get the path to tests_source within the repo (alias for backward compat)
    */
   public getTestsSourcePath(): string {
-    return path.join(this.config.localPath, 'tests_source');
+    return this.getSourcePath();
   }
 
   /**
    * Clone the repository using sparse checkout (tests_source + shared libraries)
    */
   public async clone(): Promise<void> {
-    console.log(`Cloning repository from ${this.config.repoUrl} (sparse: tests_source + preludeorg-libraries)...`);
+    const sparsePaths = this.config.sparseCheckoutPaths || ['tests_source', 'preludeorg-libraries'];
+    console.log(`Cloning repository from ${this.config.repoUrl} (sparse: ${sparsePaths.join(', ')})...`);
     this.syncStatus.status = 'syncing';
 
     try {
@@ -93,14 +103,13 @@ export class GitSyncService {
         '--sparse',            // Enable sparse checkout
       ]);
 
-      // Configure sparse checkout to include tests_source and shared Go libraries
-      // (preludeorg-libraries is needed because go.mod replace directives reference it)
+      // Configure sparse checkout to include only the requested paths
       const repoGit = simpleGit(this.config.localPath);
-      await repoGit.raw(['sparse-checkout', 'set', 'tests_source', 'preludeorg-libraries']);
+      await repoGit.raw(['sparse-checkout', 'set', ...sparsePaths]);
 
       // Update status
       await this.updateStatus();
-      console.log(`✓ Repository cloned successfully (sparse checkout: tests_source only)`);
+      console.log(`✓ Repository cloned successfully (sparse checkout: ${sparsePaths.join(', ')})`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error during clone';
       // Remove token from error messages for security

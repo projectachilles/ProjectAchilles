@@ -148,6 +148,37 @@ async function startServer() {
     }
   }
 
+  // ============ AGENT SOURCE GIT SYNC ============
+  let agentSourcePath: string;
+
+  const agentRepoUrl = process.env.AGENT_REPO_URL;
+  if (agentRepoUrl) {
+    console.log('');
+    console.log('📦 Initializing agent source sync...');
+
+    const agentGitSync = new GitSyncService({
+      repoUrl: agentRepoUrl,
+      branch: process.env.AGENT_REPO_BRANCH || 'main',
+      localPath: process.env.AGENT_LOCAL_PATH || path.resolve(__dirname, '../../data/agent-source'),
+      githubToken: process.env.GITHUB_TOKEN,
+      sparseCheckoutPaths: ['agent'],
+      sourceSubdir: 'agent',
+    });
+
+    try {
+      await agentGitSync.ensureRepo();
+      agentSourcePath = agentGitSync.getSourcePath();
+      console.log(`✓ Agent source ready at: ${agentSourcePath}`);
+    } catch (error) {
+      console.warn('⚠ Failed to sync agent source:', error instanceof Error ? error.message : error);
+      agentSourcePath = process.env.AGENT_SOURCE_PATH || path.resolve(__dirname, '../../agent');
+      console.warn(`  Falling back to: ${agentSourcePath}`);
+    }
+  } else {
+    agentSourcePath = process.env.AGENT_SOURCE_PATH || path.resolve(__dirname, '../../agent');
+    console.log(`📁 Using local agent source: ${agentSourcePath}`);
+  }
+
   // ============ ROUTES ============
 
   // Health check
@@ -176,7 +207,6 @@ async function startServer() {
   app.use('/api/tests', testsRouter);
 
   // Agent module - Achilles Agent management
-  const agentSourcePath = process.env.AGENT_SOURCE_PATH || path.resolve(__dirname, '../../agent');
   app.use('/api/agent', createAgentRouter({ testsSourcePath, agentSourcePath }));
 
   // User management - RBAC role assignment (admin-only)
