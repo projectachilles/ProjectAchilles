@@ -45,9 +45,7 @@ router.post('/invite', asyncHandler(async (req, res) => {
     throw new AppError(`Invalid role. Must be one of: ${VALID_ROLES.join(', ')}`, 400);
   }
 
-  const redirectUrl = process.env.PUBLIC_APP_URL
-    ? `${process.env.PUBLIC_APP_URL}/sign-in`
-    : 'http://localhost:5173/sign-in';
+  const redirectUrl = `${process.env.PUBLIC_APP_URL || process.env.CORS_ORIGIN || 'http://localhost:5173'}/sign-up`;
 
   const invitation = await clerkClient.invitations.createInvitation({
     emailAddress: email,
