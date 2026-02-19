@@ -47,11 +47,18 @@ router.post('/invite', asyncHandler(async (req, res) => {
 
   const redirectUrl = `${process.env.PUBLIC_APP_URL || process.env.CORS_ORIGIN || 'http://localhost:5173'}/sign-up`;
 
-  const invitation = await clerkClient.invitations.createInvitation({
-    emailAddress: email,
-    publicMetadata: { role },
-    redirectUrl,
-  });
+  let invitation;
+  try {
+    invitation = await clerkClient.invitations.createInvitation({
+      emailAddress: email,
+      publicMetadata: { role },
+      redirectUrl,
+    });
+  } catch (err: unknown) {
+    const clerkErr = err as { status?: number; errors?: Array<{ message?: string; longMessage?: string; code?: string }> };
+    const detail = clerkErr.errors?.[0]?.longMessage || clerkErr.errors?.[0]?.message || String(err);
+    throw new AppError(detail, clerkErr.status || 500);
+  }
 
   res.json({
     success: true,
