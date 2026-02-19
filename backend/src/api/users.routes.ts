@@ -53,6 +53,7 @@ router.post('/invite', asyncHandler(async (req, res) => {
       emailAddress: email,
       publicMetadata: { role },
       redirectUrl,
+      ignoreExisting: true,
     });
   } catch (err: unknown) {
     const clerkErr = err as { status?: number; errors?: Array<{ message?: string; longMessage?: string; code?: string }> };
