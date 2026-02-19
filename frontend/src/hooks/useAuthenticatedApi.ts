@@ -26,6 +26,17 @@ apiClient.interceptors.request.use(async (config) => {
   return config;
 });
 
+// Response error interceptor: surface the backend's error message so catch
+// blocks that read err.message get the real detail instead of "Request failed
+// with status code 400".
+apiClient.interceptors.response.use(undefined, (error) => {
+  const serverMsg = error?.response?.data?.error;
+  if (serverMsg && typeof serverMsg === 'string') {
+    error.message = serverMsg;
+  }
+  return Promise.reject(error);
+});
+
 // Response interceptor: catch auth redirects (302) that axios follows silently.
 // When Clerk returns a redirect, the final response is often HTML — detect this
 // and throw a clear error instead of letting callers parse undefined fields.
