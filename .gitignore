@@ -55,3 +55,6 @@ semgrep-results-*/
 
 # Personal scripts
 tunnel.sh
+
+# Presentation
+presentation-abstract.md
