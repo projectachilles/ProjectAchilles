@@ -1,0 +1,83 @@
+# Render Blueprint — ProjectAchilles
+# Deploy: https://render.com/deploy?repo=<your-repo-url>
+# Docs:   https://render.com/docs/blueprint-spec
+
+services:
+  # ─── Backend (Express + TypeScript) ──────────────────────────────────────────
+  - type: web
+    name: achilles-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: ./backend
+    rootDir: backend
+    plan: starter  # minimum tier with persistent disk support
+    healthCheckPath: /api/health
+    buildFilter:
+      paths:
+        - src/**
+        - package.json
+        - package-lock.json
+        - tsconfig.json
+        - Dockerfile
+    disk:
+      name: achilles-data
+      mountPath: /root/.projectachilles
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: CLERK_PUBLISHABLE_KEY
+        sync: false  # set manually in Render dashboard
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true  # Render auto-generates a random 256-bit secret
+      - key: ENCRYPTION_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN
+        fromService:
+          name: achilles-frontend
+          type: web
+          property: host  # resolves to https://<frontend>.onrender.com
+      - key: AGENT_SERVER_URL
+        fromService:
+          name: achilles-backend
+          type: web
+          property: host  # resolves to https://<backend>.onrender.com
+      - key: TESTS_REPO_URL
+        sync: false
+      - key: TESTS_REPO_BRANCH
+        value: main
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: ELASTICSEARCH_CLOUD_ID
+        sync: false
+      - key: ELASTICSEARCH_API_KEY
+        sync: false
+
+  # ─── Frontend (Vite + nginx) ─────────────────────────────────────────────────
+  - type: web
+    name: achilles-frontend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: ./frontend
+    rootDir: frontend
+    plan: starter
+    buildFilter:
+      paths:
+        - src/**
+        - package.json
+        - package-lock.json
+        - tsconfig.json
+        - Dockerfile
+        - nginx.conf
+        - docker-entrypoint.sh
+    envVars:
+      - key: CLERK_PUBLISHABLE_KEY
+        sync: false  # same publishable key as backend — set manually
+      - key: BACKEND_HOST
+        value: achilles-backend  # Render private network hostname (same as service name)
+      - key: BACKEND_PORT
+        value: "3000"
