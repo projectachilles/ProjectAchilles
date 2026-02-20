@@ -4,6 +4,7 @@ import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { SettingsService } from '../services/analytics/settings.js';
 import { ElasticsearchService } from '../services/analytics/elasticsearch.js';
 import { createResultsIndex, listResultsIndices } from '../services/analytics/index-management.service.js';
+import { resetClient as resetResultsClient } from '../services/agent/results.service.js';
 import type { AnalyticsQueryParams, PaginatedExecutionsParams } from '../types/analytics.js';
 
 const router = Router();
@@ -68,6 +69,9 @@ router.post('/settings', requirePermission('analytics:settings:write'), asyncHan
 
   // Reset ES service to use new settings
   esService = null;
+
+  // Also reset the results ingestion client so it picks up the new credentials
+  resetResultsClient();
 
   res.json({ success: true });
 }));
