@@ -31,8 +31,9 @@ cd backend && npm run build      # tsc → dist/
 
 ```bash
 # All tests
-cd backend && npm test           # 592 tests across 26 files (~10s)
+cd backend && npm test           # 672 tests across 27 files (~10s)
 cd frontend && npm test          # 119 tests across 7 files (~2s)
+cd backend-serverless && npm test  # 552 tests across 23 files (~11s)
 
 # Single file
 cd backend && npx vitest src/services/agent/__tests__/enrollment.service.test.ts
@@ -218,7 +219,7 @@ Vite proxies `/api` → `http://localhost:$VITE_BACKEND_PORT` (default 3000)
 <type>(<scope>): <description>
 ```
 Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`
-Scopes: `frontend`, `backend`, `agent`, `analytics`, `browser`, `docker`, `settings`, `certs`, `deps`
+Scopes: `frontend`, `backend`, `backend-serverless`, `agent`, `analytics`, `browser`, `docker`, `render`, `vercel`, `settings`, `certs`, `deps`
 
 ## CI/CD
 
@@ -227,7 +228,18 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push/PR to main:
 - `test-frontend`: npm ci → build → test
 - Node 22
 
-## Docker
+## Deployment
+
+Four deployment targets are supported. The original `backend/` and `frontend/` are used for all targets except Vercel, which uses a purpose-built serverless fork.
+
+| Target | Backend | DB | File Storage | Builds (Go) | Guide |
+|--------|---------|-----|-------------|-------------|-------|
+| **Docker Compose** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Below |
+| **Railway** | `backend/` | SQLite (volume) | Filesystem (volume) | Partial | `RAILWAY.md` |
+| **Render** | `backend/` | SQLite (persistent disk) | Filesystem (disk) | Partial | `RENDER.md` |
+| **Vercel** | `backend-serverless/` | Turso (@libsql) | Vercel Blob | No | `VERCEL.md` |
+
+### Docker Compose
 
 ```bash
 docker compose up -d                            # Backend + frontend
@@ -235,6 +247,47 @@ docker compose --profile elasticsearch up -d    # Include ES + synthetic seed da
 ```
 
 The `elasticsearch` profile starts ES 8.17 (single-node, security disabled) and seeds 1000 synthetic test results.
+
+### Render
+
+Uses the existing Dockerfiles with Render's persistent disk for SQLite and settings. Deploy via Blueprint (`render.yaml`) or manual setup. See `RENDER.md` for full walkthrough.
+
+```bash
+# Blueprint deploy: push render.yaml then connect repo at render.com/deploy
+# Key env vars: CLERK_*, ENCRYPTION_SECRET, CORS_ORIGIN, AGENT_SERVER_URL, ELASTICSEARCH_*
+# Persistent disk: /root/.projectachilles (1 GB)
+# Port: 10000 (Render default for Docker services)
+```
+
+### Vercel (Serverless)
+
+Uses `backend-serverless/` — a fork of the backend adapted for serverless. Replaces SQLite with Turso, filesystem with Vercel Blob, and signing keys with env vars. Features not available on serverless (Go builds, cert generation, git sync) return 503. See `VERCEL.md` for full walkthrough.
+
+```bash
+# Two Vercel projects: backend (backend-serverless/), frontend (frontend/)
+# Key env vars: CLERK_*, TURSO_*, BLOB_READ_WRITE_TOKEN, ENCRYPTION_SECRET
+# Cron routes: /api/cron/schedules, /api/cron/auto-rotation
+# Capabilities endpoint: GET /api/capabilities (feature flags for frontend)
+cd backend-serverless && npm test    # 552 tests across 23 files
+```
+
+### Backend Serverless (`backend-serverless/`)
+
+A separate directory — **not** a build target of `backend/`. Key differences from the original backend:
+
+| Component | `backend/` | `backend-serverless/` |
+|-----------|-----------|----------------------|
+| Database | `better-sqlite3` (sync) | `@libsql/client` (async, Turso) |
+| DB helper | `getDatabase()` returns sync `Database` | `getDb()` returns async `DbHelper` |
+| Storage | `fs` (filesystem) | `@vercel/blob` (via `storage.ts`) |
+| Signing | Filesystem keypair | `SIGNING_PRIVATE_KEY_B64` / `SIGNING_PUBLIC_KEY_B64` env vars |
+| Entry point | `server.ts` (Express listen) | `app.ts` (Express export) + `api/index.ts` |
+| Scheduling | `setInterval` in process | Vercel Crons → `cron.routes.ts` |
+| Test library | Runtime git sync | Build-time clone (`vercel-build` script) |
+| Build system | Go cross-compilation | Stubbed (returns 503) |
+| Cert generation | OpenSSL | Stubbed (returns 503) |
+
+When modifying `backend/`, changes do **not** propagate to `backend-serverless/` — they are independent codebases. If a change affects shared logic (types, API contracts, ES mappings), update both.
 
 ## Browser Testing
 
