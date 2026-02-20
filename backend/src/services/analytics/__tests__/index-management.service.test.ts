@@ -82,18 +82,16 @@ describe('index-management.service', () => {
         .rejects.toThrow('Elasticsearch is not configured');
     });
 
-    it('returns created=false when index already exists', async () => {
-      mockIndicesExists.mockResolvedValue(true);
+    it('returns created=false when index already exists (ES 400)', async () => {
+      mockIndicesCreate.mockRejectedValue({ statusCode: 400, message: 'resource_already_exists_exception' });
 
       const result = await createResultsIndex('existing-index');
 
       expect(result.created).toBe(false);
       expect(result.message).toContain('already exists');
-      expect(mockIndicesCreate).not.toHaveBeenCalled();
     });
 
     it('creates index with correct mapping when it does not exist', async () => {
-      mockIndicesExists.mockResolvedValue(false);
       mockIndicesCreate.mockResolvedValue({});
 
       const result = await createResultsIndex('new-index');
@@ -104,6 +102,12 @@ describe('index-management.service', () => {
         index: 'new-index',
         ...RESULTS_INDEX_MAPPING,
       });
+    });
+
+    it('re-throws non-400 ES errors', async () => {
+      mockIndicesCreate.mockRejectedValue({ statusCode: 403, message: 'security_exception' });
+
+      await expect(createResultsIndex('test-index')).rejects.toEqual({ statusCode: 403, message: 'security_exception' });
     });
   });
 

@@ -65,17 +65,19 @@ export async function createResultsIndex(
 
   const client = createEsClient(settings);
 
-  const exists = await client.indices.exists({ index: indexName });
-  if (exists) {
-    return { created: false, message: `Index "${indexName}" already exists` };
+  try {
+    await client.indices.create({
+      index: indexName,
+      ...RESULTS_INDEX_MAPPING,
+    });
+    return { created: true, message: `Index "${indexName}" created successfully` };
+  } catch (err: unknown) {
+    // ES returns 400 with resource_already_exists_exception when the index exists
+    if (err && typeof err === 'object' && 'statusCode' in err && (err as { statusCode: number }).statusCode === 400) {
+      return { created: false, message: `Index "${indexName}" already exists` };
+    }
+    throw err;
   }
-
-  await client.indices.create({
-    index: indexName,
-    ...RESULTS_INDEX_MAPPING,
-  });
-
-  return { created: true, message: `Index "${indexName}" created successfully` };
 }
 
 export async function listResultsIndices(pattern: string): Promise<IndexInfo[]> {
