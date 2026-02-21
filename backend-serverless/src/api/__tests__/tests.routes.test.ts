@@ -23,6 +23,7 @@ const mockGetPlatform = vi.fn().mockReturnValue({ os: 'linux', arch: 'amd64' });
 const mockSavePlatform = vi.fn();
 const mockGetCertInfo = vi.fn().mockReturnValue(null);
 const mockListCerts = vi.fn().mockReturnValue({ certificates: [], activeCertId: null });
+const mockGenerateCert = vi.fn();
 
 vi.mock('../../services/tests/settings.js', () => ({
   TestsSettingsService: class MockSettingsService {
@@ -32,6 +33,7 @@ vi.mock('../../services/tests/settings.js', () => ({
     deleteCertificate = vi.fn();
     listCertificates = mockListCerts;
     uploadCertificate = vi.fn();
+    generateCertificate = mockGenerateCert;
     setActiveCertificateId = vi.fn();
     updateCertificateLabel = vi.fn();
     getActiveCertificateId = vi.fn().mockResolvedValue(null);
@@ -99,15 +101,82 @@ describe('tests routes', () => {
   });
 
   describe('POST /api/tests/certificate', () => {
-    it('returns 503 — cert generation not available on serverless', async () => {
+    it('generates certificate on success', async () => {
       const app = createApp();
+      mockGenerateCert.mockResolvedValue({
+        id: 'cert-1700000000000', exists: true, source: 'generated',
+        label: undefined, subject: { commonName: 'Test', organization: 'Org', country: 'US' },
+        fingerprint: 'AA:BB:CC:DD', expiry: '2031-01-01T00:00:00.000Z',
+      });
 
       const res = await request(app)
         .post('/api/tests/certificate')
         .send({ commonName: 'Test', organization: 'Org', country: 'US' });
 
-      expect(res.status).toBe(503);
-      expect(res.body.error).toContain('not available on serverless');
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.source).toBe('generated');
+    });
+
+    it('returns 400 when commonName is missing', async () => {
+      const app = createApp();
+
+      const res = await request(app)
+        .post('/api/tests/certificate')
+        .send({ organization: 'Org', country: 'US' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('commonName is required');
+    });
+
+    it('returns 400 when organization is missing', async () => {
+      const app = createApp();
+
+      const res = await request(app)
+        .post('/api/tests/certificate')
+        .send({ commonName: 'Test', country: 'US' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('organization is required');
+    });
+
+    it('returns 400 when country is missing', async () => {
+      const app = createApp();
+
+      const res = await request(app)
+        .post('/api/tests/certificate')
+        .send({ commonName: 'Test', organization: 'Org' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('country is required');
+    });
+  });
+
+  describe('POST /api/tests/certificates/generate', () => {
+    it('generates certificate via multi-cert endpoint', async () => {
+      const app = createApp();
+      mockGenerateCert.mockResolvedValue({
+        id: 'cert-1700000000000', exists: true, source: 'generated',
+        subject: { commonName: 'Test', organization: 'Org', country: 'US' },
+        fingerprint: 'AA:BB:CC:DD', expiry: '2031-01-01T00:00:00.000Z',
+      });
+
+      const res = await request(app)
+        .post('/api/tests/certificates/generate')
+        .send({ commonName: 'Test', organization: 'Org', country: 'US' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+    });
+
+    it('returns 400 for missing fields', async () => {
+      const app = createApp();
+
+      const res = await request(app)
+        .post('/api/tests/certificates/generate')
+        .send({ commonName: 'Test' });
+
+      expect(res.status).toBe(400);
     });
   });
 

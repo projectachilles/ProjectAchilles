@@ -112,7 +112,7 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/capabilities', (_req, res) => {
   res.json({
     build: false,
-    certGenerate: false,
+    certGenerate: true,
     certUpload: true,
     gitSync: false,
     agentBuild: false,

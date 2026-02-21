@@ -55,9 +55,30 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
     res.json({ success: true, data: info });
   }));
 
-  // POST /api/tests/certificate — cert generation not available on serverless
-  router.post('/certificate', requirePermission('settings:certificates:create'), asyncHandler(async () => {
-    throw new AppError('Certificate generation is not available on serverless. Upload a PFX certificate instead.', 503);
+  // POST /api/tests/certificate — generate a self-signed certificate
+  router.post('/certificate', requirePermission('settings:certificates:create'), asyncHandler(async (req, res) => {
+    const { commonName, organization, country, label, password } = req.body;
+    if (typeof commonName !== 'string' || !commonName.trim()) {
+      throw new AppError('commonName is required', 400);
+    }
+    if (typeof organization !== 'string' || !organization.trim()) {
+      throw new AppError('organization is required', 400);
+    }
+    if (typeof country !== 'string' || !country.trim()) {
+      throw new AppError('country is required', 400);
+    }
+
+    try {
+      const info = await testsSettings.generateCertificate(
+        { commonName: commonName.trim(), organization: organization.trim(), country: country.trim() },
+        typeof label === 'string' ? label : undefined,
+        typeof password === 'string' ? password : undefined,
+      );
+      res.json({ success: true, data: info });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to generate certificate';
+      throw new AppError(msg, 400);
+    }
   }));
 
   // DELETE /api/tests/certificate
@@ -115,9 +136,30 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
     }
   }));
 
-  // POST /api/tests/certificates/generate — Not available on serverless
-  router.post('/certificates/generate', requirePermission('settings:certificates:create'), asyncHandler(async (_req, _res) => {
-    throw new AppError('Certificate generation is not available on serverless. Upload a PFX certificate instead.', 503);
+  // POST /api/tests/certificates/generate — generate a self-signed certificate
+  router.post('/certificates/generate', requirePermission('settings:certificates:create'), asyncHandler(async (req, res) => {
+    const { commonName, organization, country, label, password } = req.body;
+    if (typeof commonName !== 'string' || !commonName.trim()) {
+      throw new AppError('commonName is required', 400);
+    }
+    if (typeof organization !== 'string' || !organization.trim()) {
+      throw new AppError('organization is required', 400);
+    }
+    if (typeof country !== 'string' || !country.trim()) {
+      throw new AppError('country is required', 400);
+    }
+
+    try {
+      const info = await testsSettings.generateCertificate(
+        { commonName: commonName.trim(), organization: organization.trim(), country: country.trim() },
+        typeof label === 'string' ? label : undefined,
+        typeof password === 'string' ? password : undefined,
+      );
+      res.json({ success: true, data: info });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to generate certificate';
+      throw new AppError(msg, 400);
+    }
   }));
 
   // PUT /api/tests/certificates/:id/active — Set active cert

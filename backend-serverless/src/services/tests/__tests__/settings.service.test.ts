@@ -20,6 +20,23 @@ vi.mock('../../storage.js', () => ({
   blobExists: vi.fn().mockResolvedValue(false),
 }));
 
+// Mock certificate module to avoid slow RSA key generation in unit tests
+const mockForgeCertGenerate = vi.fn<() => Promise<{
+  pfxBuffer: Buffer; password: string; fingerprint: string; expiresAt: string;
+  subject: { commonName: string; organization: string; country: string };
+}>>();
+const mockParsePfxCertificate = vi.fn<() => {
+  fingerprint: string; expiresAt: string;
+  subject: { commonName: string; organization: string; country: string };
+}>();
+const mockValidateSubject = vi.fn();
+
+vi.mock('../certificate.js', () => ({
+  generateCertificate: mockForgeCertGenerate,
+  parsePfxCertificate: mockParsePfxCertificate,
+  validateSubject: mockValidateSubject,
+}));
+
 const { TestsSettingsService } = await import('../settings.js');
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -361,11 +378,108 @@ describe('TestsSettingsService', () => {
     });
   });
 
-  // ── Group 6: Upload Certificate ────────────────────────────
+  // ── Group 6: Generate Certificate ──────────────────────────
+
+  describe('generateCertificate', () => {
+    const subject = { commonName: 'Test Corp', organization: 'Test Org', country: 'US' };
+    const mockResult = {
+      pfxBuffer: Buffer.from('generated-pfx'),
+      password: 'generated-password',
+      fingerprint: 'AA:BB:CC:DD',
+      expiresAt: '2031-01-01T00:00:00.000Z',
+      subject,
+    };
+
+    beforeEach(() => {
+      mockForgeCertGenerate.mockResolvedValue(mockResult);
+      mockValidateSubject.mockImplementation(() => { /* pass */ });
+    });
+
+    it('generates cert and stores PFX + metadata', async () => {
+      const result = await service.generateCertificate(subject, 'My Cert');
+
+      expect(result.exists).toBe(true);
+      expect(result.source).toBe('generated');
+      expect(result.label).toBe('My Cert');
+      expect(result.fingerprint).toBe('AA:BB:CC:DD');
+
+      const pfxWriteCall = mockBlobWrite.mock.calls.find(
+        (call) => (call[0] as string).endsWith('cert.pfx'),
+      );
+      expect(pfxWriteCall).toBeDefined();
+    });
+
+    it('calls validateSubject before generation', async () => {
+      await service.generateCertificate(subject);
+
+      expect(mockValidateSubject).toHaveBeenCalledWith(subject);
+    });
+
+    it('enforces max 5 certificates limit', async () => {
+      mockBlobList.mockResolvedValue([
+        { key: 'certs/cert-1/cert-meta.json', url: '', size: 0 },
+        { key: 'certs/cert-2/cert-meta.json', url: '', size: 0 },
+        { key: 'certs/cert-3/cert-meta.json', url: '', size: 0 },
+        { key: 'certs/cert-4/cert-meta.json', url: '', size: 0 },
+        { key: 'certs/cert-5/cert-meta.json', url: '', size: 0 },
+      ]);
+
+      await expect(
+        service.generateCertificate(subject),
+      ).rejects.toThrow('Maximum of 5 certificates reached');
+    });
+
+    it('auto-activates when no active cert exists', async () => {
+      mockBlobReadText.mockResolvedValue(null);
+
+      await service.generateCertificate(subject);
+
+      const activeWriteCall = mockBlobWrite.mock.calls.find(
+        (call) => call[0] === ACTIVE_CERT_KEY,
+      );
+      expect(activeWriteCall).toBeDefined();
+    });
+
+    it('cleans up blobs on failure', async () => {
+      mockBlobWrite
+        .mockResolvedValueOnce('https://blob.example.com/pfx') // PFX write succeeds
+        .mockRejectedValueOnce(new Error('blob write failed')); // Meta write fails
+
+      await expect(service.generateCertificate(subject)).rejects.toThrow('blob write failed');
+
+      expect(mockBlobDelete).toHaveBeenCalled();
+    });
+
+    it('stores encrypted password with enc: prefix', async () => {
+      let writtenMeta = '';
+      mockBlobWrite.mockImplementation(async (key: string, data: string | Buffer) => {
+        if (key.endsWith('cert-meta.json')) {
+          writtenMeta = data as string;
+        }
+        return 'https://blob.example.com/mock';
+      });
+
+      await service.generateCertificate(subject);
+
+      const meta = JSON.parse(writtenMeta);
+      expect(meta.password).toMatch(/^enc:/);
+    });
+  });
+
+  // ── Group 7: Upload Certificate ────────────────────────────
 
   describe('uploadCertificate', () => {
     const pfxBuffer = Buffer.from('fake-pfx-data');
     const password = 'test-password';
+
+    beforeEach(() => {
+      // Default: PFX parsing succeeds
+      mockParsePfxCertificate.mockReturnValue({
+        fingerprint: 'AA:BB:CC:DD',
+        expiresAt: '2031-01-01T00:00:00.000Z',
+        subject: { commonName: 'Parsed CN', organization: 'Parsed Org', country: 'DE' },
+      });
+    });
 
     it('saves PFX and writes metadata on success', async () => {
       const result = await service.uploadCertificate(pfxBuffer, password, 'Uploaded Cert');
@@ -379,6 +493,46 @@ describe('TestsSettingsService', () => {
         (call) => (call[0] as string).endsWith('cert.pfx'),
       );
       expect(pfxWriteCall).toBeDefined();
+    });
+
+    it('uses parsed subject and fingerprint from PFX', async () => {
+      let writtenMeta = '';
+      mockBlobWrite.mockImplementation(async (key: string, data: string | Buffer) => {
+        if (key.endsWith('cert-meta.json')) {
+          writtenMeta = data as string;
+        }
+        return 'https://blob.example.com/mock';
+      });
+
+      await service.uploadCertificate(pfxBuffer, password);
+
+      const meta = JSON.parse(writtenMeta);
+      expect(meta.subject.commonName).toBe('Parsed CN');
+      expect(meta.fingerprint).toBe('AA:BB:CC:DD');
+      expect(meta.expiresAt).toBe('2031-01-01T00:00:00.000Z');
+    });
+
+    it('falls back to buffer-hash fingerprint when PFX parsing fails', async () => {
+      mockParsePfxCertificate.mockImplementation(() => {
+        throw new Error('Unsupported PFX algorithm');
+      });
+
+      let writtenMeta = '';
+      mockBlobWrite.mockImplementation(async (key: string, data: string | Buffer) => {
+        if (key.endsWith('cert-meta.json')) {
+          writtenMeta = data as string;
+        }
+        return 'https://blob.example.com/mock';
+      });
+
+      await service.uploadCertificate(pfxBuffer, password, 'Fallback Cert');
+
+      const meta = JSON.parse(writtenMeta);
+      expect(meta.subject.commonName).toBe('Fallback Cert');
+      expect(meta.subject.organization).toBe('Unknown');
+      expect(meta.expiresAt).toBe('');
+      // Fingerprint should be colon-separated hex (from buffer hash)
+      expect(meta.fingerprint).toMatch(/^([0-9A-F]{2}:)+[0-9A-F]{2}$/);
     });
 
     it('enforces max 5 certificates limit', async () => {
@@ -424,7 +578,7 @@ describe('TestsSettingsService', () => {
     });
   });
 
-  // ── Group 7: Certificate Operations ────────────────────────
+  // ── Group 8: Certificate Operations ────────────────────────
 
   describe('updateCertificateLabel', () => {
     it('updates label in metadata', async () => {

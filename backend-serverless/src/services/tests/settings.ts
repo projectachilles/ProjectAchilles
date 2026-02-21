@@ -1,9 +1,10 @@
 // Settings service for tests module (platform + certificate management) — Vercel Blob version
-// No openssl operations (cert generation removed for serverless)
+// Uses node-forge for pure-JS certificate generation and PFX parsing.
 
 import * as crypto from 'crypto';
 import type { PlatformSettings, CertificateSubject, CertificateInfo, CertificateMetadata, CertificateListResponse } from '../../types/tests.js';
 import { blobReadText, blobWrite, blobDelete, blobList, blobUrl } from '../storage.js';
+import { validateSubject, generateCertificate as forgeCertGenerate, parsePfxCertificate } from './certificate.js';
 
 const SETTINGS_KEY = 'settings/tests.json';
 const CERTS_PREFIX = 'certs/';
@@ -233,7 +234,56 @@ export class TestsSettingsService {
     return { url, filename: `${safeName}.pfx` };
   }
 
-  // ── Upload Certificate (simplified — no openssl validation) ──
+  // ── Generate Certificate (pure-JS via node-forge) ──────────────
+
+  async generateCertificate(subject: CertificateSubject, label?: string, password?: string): Promise<CertificateInfo> {
+    // Check max limit
+    const existing = await this.getCertSubdirs();
+    if (existing.length >= MAX_CERTIFICATES) {
+      throw new Error(`Maximum of ${MAX_CERTIFICATES} certificates reached. Delete one before generating a new one.`);
+    }
+
+    validateSubject(subject);
+
+    const dirName = this.generateCertDirName();
+    const pfxKey = `${CERTS_PREFIX}${dirName}/cert.pfx`;
+    const metaKey = `${CERTS_PREFIX}${dirName}/cert-meta.json`;
+
+    const result = await forgeCertGenerate(subject, password);
+
+    try {
+      // Store PFX in Blob
+      await blobWrite(pfxKey, result.pfxBuffer);
+
+      // Write metadata with encrypted password
+      const meta: CertificateMetadata = {
+        id: dirName,
+        label,
+        source: 'generated',
+        subject: result.subject,
+        password: 'enc:' + this.encrypt(result.password),
+        createdAt: new Date().toISOString(),
+        expiresAt: result.expiresAt,
+        fingerprint: result.fingerprint,
+      };
+      await blobWrite(metaKey, JSON.stringify(meta, null, 2));
+
+      // Auto-set as active if no active cert
+      const activeId = await this.getActiveCertificateId();
+      if (!activeId) {
+        await blobWrite(ACTIVE_CERT_KEY, dirName);
+      }
+
+      return this.metadataToInfo(meta);
+    } catch (err) {
+      // Clean up partial writes on failure
+      try { await blobDelete(pfxKey); } catch { /* ignore */ }
+      try { await blobDelete(metaKey); } catch { /* ignore */ }
+      throw err;
+    }
+  }
+
+  // ── Upload Certificate ────────────────────────────────────────
 
   async uploadCertificate(pfxBuffer: Buffer, password: string, label?: string): Promise<CertificateInfo> {
     // Check max limit
@@ -249,16 +299,27 @@ export class TestsSettingsService {
     // Store PFX in Blob
     await blobWrite(pfxKey, pfxBuffer);
 
-    // Compute fingerprint from PFX buffer (SHA-256 of the raw file)
-    const fingerprint = crypto.createHash('sha256').update(pfxBuffer).digest('hex')
-      .match(/.{2}/g)!.join(':').toUpperCase();
+    // Try to extract real metadata from the PFX using node-forge
+    let subject: CertificateSubject;
+    let fingerprint: string;
+    let expiresAt: string;
 
-    // Basic metadata — no openssl extraction on serverless
-    const subject: CertificateSubject = {
-      commonName: label || 'Uploaded Certificate',
-      organization: 'Unknown',
-      country: 'XX',
-    };
+    try {
+      const parsed = parsePfxCertificate(pfxBuffer, password);
+      subject = parsed.subject;
+      fingerprint = parsed.fingerprint;
+      expiresAt = parsed.expiresAt;
+    } catch {
+      // Fallback: PFX uses algorithms node-forge can't parse
+      subject = {
+        commonName: label || 'Uploaded Certificate',
+        organization: 'Unknown',
+        country: 'XX',
+      };
+      fingerprint = crypto.createHash('sha256').update(pfxBuffer).digest('hex')
+        .match(/.{2}/g)!.join(':').toUpperCase();
+      expiresAt = '';
+    }
 
     const meta: CertificateMetadata = {
       id: dirName,
@@ -267,7 +328,7 @@ export class TestsSettingsService {
       subject,
       password: 'enc:' + this.encrypt(password),
       createdAt: new Date().toISOString(),
-      expiresAt: '', // Unknown without openssl
+      expiresAt,
       fingerprint,
     };
     await blobWrite(metaKey, JSON.stringify(meta, null, 2));
