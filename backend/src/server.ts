@@ -66,7 +66,7 @@ app.use(cors({
   credentials: true,
   // Add for Clerk authentication flows
   allowedHeaders: ['Content-Type', 'Authorization'],
-  exposedHeaders: ['Authorization'],
+  exposedHeaders: ['Authorization', 'Content-Disposition'],
 }));
 
 // Request logging
