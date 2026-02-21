@@ -20,6 +20,8 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+const apiBaseUrl = window.__env__?.VITE_API_URL || import.meta.env.VITE_API_URL || '';
+
 export default function AvailableBinaries() {
   const [versions, setVersions] = useState<AgentVersion[]>([]);
   const [expanded, setExpanded] = useState(true);
@@ -81,7 +83,7 @@ export default function AvailableBinaries() {
                   </TableCell>
                   <TableCell>
                     <a
-                      href={`/api/agent/download?os=${v.os}&arch=${v.arch}`}
+                      href={`${apiBaseUrl}/api/agent/download?os=${v.os}&arch=${v.arch}`}
                       download
                       className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
                     >
