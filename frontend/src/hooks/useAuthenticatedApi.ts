@@ -2,9 +2,12 @@ import { useAuth } from '@clerk/clerk-react';
 import { useEffect } from 'react';
 import axios from 'axios';
 
+// Resolve API base URL: runtime env (Docker/PaaS entrypoint) → build-time env → relative path
+const apiBaseUrl = window.__env__?.VITE_API_URL || import.meta.env.VITE_API_URL || '';
+
 // Create axios instance
 export const apiClient = axios.create({
-  baseURL: `${import.meta.env.VITE_API_URL ?? 'http://localhost:3000'}/api`,
+  baseURL: `${apiBaseUrl}/api`,
   withCredentials: true,
 });
 
