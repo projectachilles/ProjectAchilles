@@ -13,6 +13,7 @@ export function AgentTab() {
   const [versions, setVersions] = useState<AgentVersion[]>([]);
   const [status, setStatus] = useState<IntegrationStatus>('not-configured');
   const [statusMessage, setStatusMessage] = useState('No binaries uploaded');
+  const [buildAvailable, setBuildAvailable] = useState<boolean | null>(null);
 
   const fetchVersions = useCallback(async () => {
     try {
@@ -35,6 +36,7 @@ export function AgentTab() {
 
   useEffect(() => {
     fetchVersions();
+    agentApi.checkBuildAvailable().then(setBuildAvailable).catch(() => setBuildAvailable(false));
   }, [fetchVersions]);
 
   return (
@@ -46,16 +48,18 @@ export function AgentTab() {
         </p>
       </div>
 
-      <IntegrationCard
-        icon={Hammer}
-        title="Build Agent Binary"
-        description="Cross-compile the agent from source for a target platform"
-        status={status}
-        statusMessage={statusMessage}
-        defaultExpanded
-      >
-        <AgentBuildFromSource versions={versions} onBuilt={fetchVersions} />
-      </IntegrationCard>
+      {buildAvailable && (
+        <IntegrationCard
+          icon={Hammer}
+          title="Build Agent Binary"
+          description="Cross-compile the agent from source for a target platform"
+          status={status}
+          statusMessage={statusMessage}
+          defaultExpanded
+        >
+          <AgentBuildFromSource versions={versions} onBuilt={fetchVersions} />
+        </IntegrationCard>
+      )}
 
       <IntegrationCard
         icon={Upload}
