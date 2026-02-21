@@ -146,7 +146,7 @@ Configure these in the Vercel Dashboard (**Settings → Environment Variables**)
 
 | Variable | Value | Notes |
 |----------|-------|-------|
-| `CLERK_PUBLISHABLE_KEY` | `pk_live_...` | Same publishable key as backend |
+| `VITE_CLERK_PUBLISHABLE_KEY` | `pk_test_...` or `pk_live_...` | **Must** have `VITE_` prefix for Vite to expose it |
 | `VITE_API_URL` | `https://<backend>.vercel.app` | Backend's Vercel URL |
 
 > **Tip:** After the first deployment, update `CORS_ORIGIN`, `AGENT_SERVER_URL`, and `VITE_API_URL` with the actual assigned `.vercel.app` domains, then redeploy.
@@ -245,12 +245,62 @@ Build agents locally and upload them through the UI. The frontend automatically 
 
 For comparison: Railway ~$10-13/mo (usage-based), Render ~$14/mo (flat rate). The Vercel Pro plan includes both projects, cron jobs, and Blob storage. See [Vercel pricing](https://vercel.com/pricing) for current rates.
 
+## Gotchas
+
+### Local `.env` files leak into Vercel builds
+
+Vercel uploads all files not excluded by `.vercelignore`. If `.vercelignore` exists, it **completely replaces** `.gitignore` for the upload filter — `.gitignore` exclusions are ignored. Both `backend-serverless/.vercelignore` and `frontend/.vercelignore` exclude `.env` and `.env.*` to prevent local environment variables from overriding Vercel env vars at runtime (via `dotenv.config()`).
+
+If you add new ignore patterns, add them to **both** `.gitignore` and `.vercelignore`.
+
+### `CORS_ORIGIN` must not contain trailing whitespace or newlines
+
+When setting `CORS_ORIGIN` via the Vercel CLI with `echo ... | vercel env add`, `echo` appends a trailing newline. This newline gets stored in the env var and causes Express to set an invalid `Access-Control-Allow-Origin` header, resulting in HTTP 500 on every request. Use `printf` (no trailing newline) instead:
+
+```bash
+# Correct — no trailing newline
+printf "https://your-frontend.vercel.app" | vercel env add CORS_ORIGIN production
+
+# Wrong — echo adds \n which breaks CORS
+echo "https://your-frontend.vercel.app" | vercel env add CORS_ORIGIN production
+```
+
+### `__dirname` is unreliable in `@vercel/node`
+
+`@vercel/node` bundles TypeScript source with ncc/esbuild, which changes the directory layout at runtime. `__dirname` (derived from `import.meta.url`) points to the bundled output location, not the source tree. Use `process.cwd()` instead — it reliably returns `/var/task` in the Vercel runtime:
+
+```typescript
+// Correct — works in Vercel
+path.resolve(process.cwd(), 'data/f0_library/tests_source')
+
+// Wrong — __dirname points to bundle internals
+path.resolve(__dirname, '../../data/f0_library/tests_source')
+```
+
+### Frontend Clerk key must use `VITE_` prefix
+
+Vite only exposes env vars prefixed with `VITE_` to client-side code via `import.meta.env`. The frontend reads `VITE_CLERK_PUBLISHABLE_KEY` — setting `CLERK_PUBLISHABLE_KEY` (without prefix) on the frontend project has no effect. The Docker/Railway deployments work differently because `docker-entrypoint.sh` injects `window.__env__` at runtime.
+
+### Clerk custom domains require DNS setup
+
+If you create a Clerk application with a custom domain (e.g., `clerk.yourdomain.com`), Clerk issues `pk_live_` keys even in Development mode and routes all JS loading through that domain. Without a DNS CNAME record pointing to Clerk's servers, the browser gets `ERR_NAME_NOT_RESOLVED`. For initial setup, create the Clerk app **without** a custom domain to get standard `pk_test_`/`sk_test_` keys that use `*.clerk.accounts.dev` (no DNS required). Add a custom domain later when ready for production.
+
+### `includeFiles` required for static data
+
+`@vercel/node` only bundles imported JavaScript/TypeScript modules. Static data files (like the cloned test library in `data/`) must be explicitly included via `includeFiles` in `vercel.json`:
+
+```json
+{ "src": "api/index.ts", "use": "@vercel/node", "config": { "includeFiles": "data/**" } }
+```
+
+Without this, the test library directory won't exist at runtime even though it was cloned during the build step.
+
 ## Troubleshooting
 
 ### Frontend API calls return CORS errors
 `CORS_ORIGIN` on the backend doesn't match the frontend's actual URL. Verify:
 - The value includes the protocol (`https://`)
-- It matches exactly (no trailing slash)
+- It matches exactly (no trailing slash, no trailing newline — see Gotchas above)
 - If using a custom domain, update `CORS_ORIGIN` to the custom domain
 
 ### `ENCRYPTION_SECRET` errors
