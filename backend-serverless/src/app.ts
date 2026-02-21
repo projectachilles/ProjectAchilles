@@ -5,7 +5,6 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
 import { clerkAuth } from './middleware/clerk.middleware.js';
 import { createBrowserRouter } from './api/browser.routes.js';
@@ -16,10 +15,6 @@ import { createAgentRouter } from './api/agent/index.js';
 import usersRoutes from './api/users.routes.js';
 import cronRoutes from './api/cron.routes.js';
 import { initCatalog } from './services/agent/test-catalog.service.js';
-
-// Get __dirname equivalent in ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // Load environment variables
 dotenv.config();
@@ -92,8 +87,10 @@ app.use('/api', apiLimiter);
 // ============ INITIALIZATION ============
 
 // Tests source path: baked in at build time via vercel-build script
+// In Vercel runtime, process.cwd() is /var/task — __dirname is unreliable
+// because @vercel/node bundles the source and changes the directory layout.
 const testsSourcePath = process.env.TESTS_SOURCE_PATH
-  || path.resolve(__dirname, '../../data/f0_library');
+  || path.resolve(process.cwd(), 'data/f0_library/tests_source');
 
 // Initialize test catalog (lazy — scans on first request or at module load)
 initCatalog(testsSourcePath);

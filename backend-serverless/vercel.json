@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "builds": [{ "src": "api/index.ts", "use": "@vercel/node" }],
+  "builds": [{ "src": "api/index.ts", "use": "@vercel/node", "config": { "includeFiles": "data/**" } }],
   "routes": [{ "src": "/api/(.*)", "dest": "/api/index.ts" }],
   "crons": [
     { "path": "/api/cron/schedules", "schedule": "* * * * *" },

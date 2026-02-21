@@ -1,5 +1,4 @@
 node_modules/
-dist/
-data/
-*.db
+.env
+.env.*
 .vercel
