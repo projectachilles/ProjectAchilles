@@ -6,8 +6,8 @@ This guide covers promoting a Vercel deployment from development to production w
 
 | Component | Development | Production |
 |-----------|------------|------------|
-| **Frontend URL** | `*.vercel.app` | `rga.projectachilles.io` |
-| **Backend URL** | `*.vercel.app` | `rga.agent.projectachilles.io` |
+| **Frontend URL** | `*.vercel.app` | `<frontend>.<yourdomain>` |
+| **Backend URL** | `*.vercel.app` | `<backend>.<yourdomain>` |
 | **Clerk instance** | Development (`pk_test_`) | Production (`pk_live_`) |
 | **OAuth providers** | Clerk shared credentials | Custom GitHub & Google apps |
 
@@ -17,24 +17,24 @@ This guide covers promoting a Vercel deployment from development to production w
 2. Click the **Development** dropdown in the top breadcrumb
 3. Click **Create production instance**
 4. Choose **Clone from Development** — this copies your auth settings (email/password, social providers, etc.)
-5. Set your **Application domain** to your frontend domain (e.g., `rga.projectachilles.io`)
+5. Set your **Application domain** to your frontend domain (e.g., `<frontend>.<yourdomain>`)
 6. Complete the setup wizard
 
 > **Note**: Clerk's "Secondary application" option is correct for subdomain-based deployments. "Primary application" claims the root domain.
 
 ## Step 2: DNS Records
 
-Clerk requires 5 CNAME records, and Vercel requires A records for each custom domain. All records go in your DNS provider for the parent domain (e.g., `projectachilles.io`).
+Clerk requires 5 CNAME records, and Vercel requires A records for each custom domain. All records go in your DNS provider for the parent domain (e.g., `<yourdomain>`).
 
 ### Clerk CNAME Records
 
 | Type | Name | Value |
 |------|------|-------|
-| CNAME | `clerk.rga` | `frontend-api.clerk.services` |
-| CNAME | `accounts.rga` | `accounts.clerk.services` |
-| CNAME | `clkmail.rga` | `mail.<your-clerk-id>.clerk.services` |
-| CNAME | `clk._domainkey.rga` | `dkim1.<your-clerk-id>.clerk.services` |
-| CNAME | `clk2._domainkey.rga` | `dkim2.<your-clerk-id>.clerk.services` |
+| CNAME | `clerk.<frontend>` | `frontend-api.clerk.services` |
+| CNAME | `accounts.<frontend>` | `accounts.clerk.services` |
+| CNAME | `clkmail.<frontend>` | `mail.<your-clerk-id>.clerk.services` |
+| CNAME | `clk._domainkey.<frontend>` | `dkim1.<your-clerk-id>.clerk.services` |
+| CNAME | `clk2._domainkey.<frontend>` | `dkim2.<your-clerk-id>.clerk.services` |
 
 > The exact CNAME values (including `<your-clerk-id>`) are shown on the Clerk Dashboard under **Configure → Domains**.
 
@@ -42,8 +42,8 @@ Clerk requires 5 CNAME records, and Vercel requires A records for each custom do
 
 | Type | Name | Value |
 |------|------|-------|
-| A | `rga` | `76.76.21.21` |
-| A | `rga.agent` | `76.76.21.21` |
+| A | `<frontend>` | `76.76.21.21` |
+| A | `<backend>` | `76.76.21.21` |
 
 > `76.76.21.21` is Vercel's IP for custom domains.
 
@@ -58,11 +58,11 @@ Add domain aliases to each Vercel project:
 ```bash
 # Frontend project
 cd frontend
-vercel alias rga.projectachilles.io
+vercel alias <frontend>.<yourdomain>
 
 # Backend project
 cd backend-serverless
-vercel alias rga.agent.projectachilles.io
+vercel alias <backend>.<yourdomain>
 ```
 
 Or add them via the Vercel Dashboard under **Project → Settings → Domains**.
@@ -85,14 +85,14 @@ Remove old development values and set production ones. Use `printf` (not `echo`)
 cd backend-serverless
 
 # CORS origin — must exactly match frontend domain (no trailing slash)
-printf "https://rga.projectachilles.io" | vercel env add CORS_ORIGIN production
+printf "https://<frontend>.<yourdomain>" | vercel env add CORS_ORIGIN production
 
 # Clerk production keys
 printf "pk_live_..." | vercel env add CLERK_PUBLISHABLE_KEY production
 printf "sk_live_..." | vercel env add CLERK_SECRET_KEY production
 
 # Agent server URL — agents connect to the backend domain
-printf "https://rga.agent.projectachilles.io" | vercel env add AGENT_SERVER_URL production
+printf "https://<backend>.<yourdomain>" | vercel env add AGENT_SERVER_URL production
 ```
 
 ### Frontend (`frontend/`)
@@ -104,7 +104,7 @@ cd frontend
 printf "pk_live_..." | vercel env add VITE_CLERK_PUBLISHABLE_KEY production
 
 # API URL — frontend calls the backend domain
-printf "https://rga.agent.projectachilles.io" | vercel env add VITE_API_URL production
+printf "https://<backend>.<yourdomain>" | vercel env add VITE_API_URL production
 ```
 
 > **Important**: `echo` adds a trailing `\n` which breaks header values and URL parsing. Always use `printf`.
@@ -127,9 +127,9 @@ Production Clerk instances require custom OAuth credentials (Clerk's shared dev 
 1. Go to [GitHub Developer Settings → OAuth Apps](https://github.com/settings/developers)
 2. Click **New OAuth App**
 3. Fill in:
-   - **Application name**: `ProjectAchilles`
-   - **Homepage URL**: `https://rga.projectachilles.io`
-   - **Authorization callback URL**: `https://clerk.rga.projectachilles.io/v1/oauth_callback`
+   - **Application name**: `<your-app-name>`
+   - **Homepage URL**: `https://<frontend>.<yourdomain>`
+   - **Authorization callback URL**: `https://clerk.<frontend>.<yourdomain>/v1/oauth_callback`
 4. Click **Register application**
 5. Copy the **Client ID** and generate a **Client Secret**
 6. In Clerk Dashboard → **Configure → SSO connections → GitHub**:
@@ -142,12 +142,12 @@ Production Clerk instances require custom OAuth credentials (Clerk's shared dev 
 2. Select or create a project
 3. If prompted, configure the **OAuth consent screen**:
    - User type: **External**
-   - App name: `ProjectAchilles`
-   - Authorized domains: `projectachilles.io`
+   - App name: `<your-app-name>`
+   - Authorized domains: `<yourdomain>`
 4. Create credentials → **OAuth client ID**:
    - Application type: **Web application**
-   - Name: `ProjectAchilles - Vercel`
-   - **Authorized redirect URIs**: `https://clerk.rga.projectachilles.io/v1/oauth_callback`
+   - Name: `<your-app-name> - Vercel`
+   - **Authorized redirect URIs**: `https://clerk.<frontend>.<yourdomain>/v1/oauth_callback`
    - Leave "Authorized JavaScript origins" **empty**
 5. Copy the **Client ID** and **Client Secret**
 6. In Clerk Dashboard → **Configure → SSO connections → Google**:
@@ -158,37 +158,37 @@ Production Clerk instances require custom OAuth credentials (Clerk's shared dev 
 
 ## Step 8: Verify
 
-1. Navigate to `https://rga.projectachilles.io`
-2. Sign in with GitHub — should redirect through `clerk.rga.projectachilles.io` and return
+1. Navigate to `https://<frontend>.<yourdomain>`
+2. Sign in with GitHub — should redirect through `clerk.<frontend>.<yourdomain>` and return
 3. Sign in with Google — same flow
-4. Verify the backend responds: `curl https://rga.agent.projectachilles.io/api/health`
+4. Verify the backend responds: `curl https://<backend>.<yourdomain>/api/health`
 
 ## Summary of URLs
 
 | Service | URL |
 |---------|-----|
-| Frontend | `https://rga.projectachilles.io` |
-| Backend API | `https://rga.agent.projectachilles.io` |
-| Clerk Frontend API | `https://clerk.rga.projectachilles.io` |
-| Clerk Account Portal | `https://accounts.rga.projectachilles.io` |
-| Health Check | `https://rga.agent.projectachilles.io/api/health` |
+| Frontend | `https://<frontend>.<yourdomain>` |
+| Backend API | `https://<backend>.<yourdomain>` |
+| Clerk Frontend API | `https://clerk.<frontend>.<yourdomain>` |
+| Clerk Account Portal | `https://accounts.<frontend>.<yourdomain>` |
+| Health Check | `https://<backend>.<yourdomain>/api/health` |
 
 ## Troubleshooting
 
 ### "Invalid character in header content" (500 error)
 The `CORS_ORIGIN` env var has a trailing newline. Re-set it with `printf` (not `echo`):
 ```bash
-printf "https://rga.projectachilles.io" | vercel env add CORS_ORIGIN production
+printf "https://<frontend>.<yourdomain>" | vercel env add CORS_ORIGIN production
 ```
 
 ### Clerk sign-in redirects to wrong domain
 Check that `VITE_CLERK_PUBLISHABLE_KEY` uses the `pk_live_` key, not `pk_test_`. The publishable key encodes the domain — using a dev key will redirect to `*.clerk.accounts.dev`.
 
 ### OAuth callback fails
-- Verify the callback URL in both the OAuth provider (GitHub/Google) and Clerk match exactly: `https://clerk.rga.projectachilles.io/v1/oauth_callback`
+- Verify the callback URL in both the OAuth provider (GitHub/Google) and Clerk match exactly: `https://clerk.<frontend>.<yourdomain>/v1/oauth_callback`
 - For Google: ensure the URL is in "Authorized redirect URIs", **not** "Authorized JavaScript origins"
 
 ### DNS not resolving
 - CNAME records can take up to 5 minutes to propagate
-- Use `dig CNAME clerk.rga.projectachilles.io` to check propagation
+- Use `dig CNAME clerk.<frontend>.<yourdomain>` to check propagation
 - All 5 Clerk CNAMEs must verify before SSL certificates are issued
