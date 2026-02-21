@@ -29,6 +29,14 @@ if [ -n "${BACKEND_HOST}" ]; then
     /etc/nginx/conf.d/default.conf
   sed -i "s|proxy_pass http://backend:3000;|set \$backend_upstream http://${BACKEND_HOST}:${BACKEND_PORT};\n        proxy_pass \$backend_upstream;|g" \
     /etc/nginx/conf.d/default.conf
+elif [ -n "${VITE_API_URL}" ]; then
+  # Direct CORS mode: frontend calls backend via VITE_API_URL, so the
+  # /api/ and /ws proxy blocks are unused. Remove them to prevent nginx
+  # from failing to resolve the hardcoded "backend" upstream at startup.
+  # This is needed on Fly.io, Render Starter, and any PaaS without a
+  # "backend" DNS name on the internal network.
+  sed -i '/location \/api\//,/}/d' /etc/nginx/conf.d/default.conf
+  sed -i '/location \/ws/,/}/d' /etc/nginx/conf.d/default.conf
 fi
 
 exec "$@"

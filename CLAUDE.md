@@ -230,13 +230,14 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push/PR to main:
 
 ## Deployment
 
-Four deployment targets are supported. The original `backend/` and `frontend/` are used for all targets except Vercel, which uses a purpose-built serverless fork.
+Five deployment targets are supported. The original `backend/` and `frontend/` are used for all targets except Vercel, which uses a purpose-built serverless fork.
 
 | Target | Backend | DB | File Storage | Builds (Go) | Guide |
 |--------|---------|-----|-------------|-------------|-------|
 | **Docker Compose** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Below |
 | **Railway** | `backend/` | SQLite (volume) | Filesystem (volume) | Partial | `RAILWAY.md` |
 | **Render** | `backend/` | SQLite (persistent disk) | Filesystem (disk) | Partial | `RENDER.md` |
+| **Fly.io** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | `FLY.md` |
 | **Vercel** | `backend-serverless/` | Turso (@libsql) | Vercel Blob | No | `VERCEL.md` |
 
 ### Docker Compose
@@ -257,6 +258,18 @@ Uses the existing Dockerfiles with Render's persistent disk for SQLite and setti
 # Key env vars: CLERK_*, ENCRYPTION_SECRET, CORS_ORIGIN, AGENT_SERVER_URL, ELASTICSEARCH_*
 # Persistent disk: /root/.projectachilles (1 GB)
 # Port: 10000 (Render default for Docker services)
+```
+
+### Fly.io
+
+Uses the existing Dockerfiles with Fly.io Machines and a persistent volume for SQLite and settings. Deploy via `flyctl` CLI. See `FLY.md` for full walkthrough.
+
+```bash
+# Create apps + volume, set secrets, deploy
+# Key env vars: CLERK_*, ENCRYPTION_SECRET, CORS_ORIGIN, AGENT_SERVER_URL, ELASTICSEARCH_*
+# Persistent volume: /root/.projectachilles (1 GB)
+# Backend: shared-2x 512 MB, Frontend: shared-1x 256 MB
+# Cost: ~$8/mo (cheapest always-on option)
 ```
 
 ### Vercel (Serverless)
