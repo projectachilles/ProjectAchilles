@@ -253,17 +253,22 @@ Vercel uploads all files not excluded by `.vercelignore`. If `.vercelignore` exi
 
 If you add new ignore patterns, add them to **both** `.gitignore` and `.vercelignore`.
 
-### `CORS_ORIGIN` must not contain trailing whitespace or newlines
+### Always use `printf` (not `echo`) when piping to `vercel env add`
 
-When setting `CORS_ORIGIN` via the Vercel CLI with `echo ... | vercel env add`, `echo` appends a trailing newline. This newline gets stored in the env var and causes Express to set an invalid `Access-Control-Allow-Origin` header, resulting in HTTP 500 on every request. Use `printf` (no trailing newline) instead:
+`echo` appends a trailing newline that gets stored in the env var value. This breaks any variable where the value is parsed strictly. **Always use `printf`** for all env vars:
 
 ```bash
 # Correct — no trailing newline
+printf "libsql://projectachilles-org.turso.io" | vercel env add TURSO_DATABASE_URL production
 printf "https://your-frontend.vercel.app" | vercel env add CORS_ORIGIN production
 
-# Wrong — echo adds \n which breaks CORS
-echo "https://your-frontend.vercel.app" | vercel env add CORS_ORIGIN production
+# Wrong — echo adds \n which silently corrupts the value
+echo "libsql://projectachilles-org.turso.io" | vercel env add TURSO_DATABASE_URL production
 ```
+
+Known symptoms by variable:
+- **`TURSO_DATABASE_URL`**: `@libsql/client` throws "Invalid URL" → all `/api/agent/admin/*` endpoints return 500, while non-database endpoints (health, browser, analytics) work fine
+- **`CORS_ORIGIN`**: Express sets an invalid `Access-Control-Allow-Origin` header → HTTP 500 "Invalid character in header content" on every cross-origin request
 
 ### `__dirname` is unreliable in `@vercel/node`
 
