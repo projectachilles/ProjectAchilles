@@ -39,6 +39,7 @@ The fastest path — Render reads `render.yaml` and creates both services automa
    CORS_ORIGIN=https://<your-frontend>.onrender.com
    AGENT_SERVER_URL=https://<your-backend>.onrender.com
    TESTS_REPO_URL=https://github.com/your-org/f0_library.git
+   AGENT_REPO_URL=https://github.com/your-org/ProjectAchilles.git
    GITHUB_TOKEN=ghp_...
    ELASTICSEARCH_CLOUD_ID=<from Elastic Cloud console>
    ELASTICSEARCH_API_KEY=<from Elastic Cloud console>
@@ -87,6 +88,8 @@ The fastest path — Render reads `render.yaml` and creates both services automa
    | `AGENT_SERVER_URL` | `https://achilles-backend.onrender.com` | Your backend's Render URL |
    | `TESTS_REPO_URL` | `https://github.com/your-org/f0_library.git` | Test library repo |
    | `TESTS_REPO_BRANCH` | `main` | |
+   | `AGENT_REPO_URL` | `https://github.com/your-org/ProjectAchilles.git` | Agent source for builds |
+   | `AGENT_REPO_BRANCH` | `main` | |
    | `GITHUB_TOKEN` | `ghp_...` | PAT with `repo` scope |
    | `ELASTICSEARCH_CLOUD_ID` | `<from Elastic Cloud>` | |
    | `ELASTICSEARCH_API_KEY` | `<from Elastic Cloud>` | |
@@ -167,9 +170,17 @@ Create a **separate Clerk application** for your Render deployment:
 3. If using a custom domain, add that too
 4. Copy the publishable key and secret key to both services' environment variables
 
-## What's Not Available on Render
+## Agent Build from Source
 
-**Agent cross-compilation** — The backend's build-from-source feature (Go agent compilation) requires the `agent/` source directory mounted at `/agent-src`. On Render, the backend's build context is `backend/` only, so this directory isn't available. The backend gracefully disables this feature when the source is missing. Build agents locally and upload them through the UI instead.
+The backend Docker image includes Go 1.24.3, so agent cross-compilation works on Render — same as Railway. Set `AGENT_REPO_URL` to your ProjectAchilles repo and the backend will git-clone the `agent/` subdirectory at startup (sparse checkout), then use it for Go cross-compilation.
+
+| Variable | Value | Notes |
+|----------|-------|-------|
+| `AGENT_REPO_URL` | `https://github.com/your-org/ProjectAchilles.git` | Required for agent builds |
+| `AGENT_REPO_BRANCH` | `main` | Branch to clone from |
+| `GITHUB_TOKEN` | `ghp_...` | Required if the repo is private (same token used for test library) |
+
+If `AGENT_REPO_URL` is not set, the backend disables the build feature and shows "Agent build from source is not available" in the UI. You can still upload pre-built binaries manually.
 
 ## Cost Estimate
 
