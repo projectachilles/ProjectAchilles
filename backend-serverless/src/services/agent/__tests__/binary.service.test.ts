@@ -1,116 +1,88 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { EventEmitter } from 'events';
 
 // ── Mock setup ──────────────────────────────────────────────────────
 
-const mockExistsSync = vi.fn();
-const mockStatSync = vi.fn();
-const mockCreateReadStream = vi.fn();
+const mockBlobRead = vi.fn();
+const mockBlobHead = vi.fn();
+const mockBlobUrl = vi.fn();
 
-vi.mock('fs', async () => {
-  const actual = await vi.importActual<typeof import('fs')>('fs');
-  const overrides = {
-    existsSync: mockExistsSync,
-    statSync: mockStatSync,
-    createReadStream: mockCreateReadStream,
-  };
-  return { ...actual, ...overrides, default: { ...actual, ...overrides } };
-});
+vi.mock('../../storage.js', () => ({
+  blobRead: (...args: unknown[]) => mockBlobRead(...args),
+  blobHead: (...args: unknown[]) => mockBlobHead(...args),
+  blobUrl: (...args: unknown[]) => mockBlobUrl(...args),
+}));
 
-vi.mock('os', async () => {
-  const actual = await vi.importActual<typeof import('os')>('os');
-  const overrides = {
-    homedir: () => '/mock-home',
-  };
-  return { ...actual, ...overrides, default: { ...actual, ...overrides } };
-});
-
-const { getBinaryInfo, streamBinary } = await import('../binary.service.js');
+const { getBinaryInfo, redirectToBinary } = await import('../binary.service.js');
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-const BUILDS_DIR = '/mock-home/.projectachilles/builds';
 const UUID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
 const BINARY_NAME = `${UUID}.exe`;
-
-function createMockStream(data: string) {
-  const stream = new EventEmitter();
-  (stream as unknown as Record<string, unknown>).pipe = vi.fn();
-  // Emit data and end on next tick
-  process.nextTick(() => {
-    stream.emit('data', Buffer.from(data));
-    stream.emit('end');
-  });
-  return stream;
-}
 
 function createMockRes() {
   return {
     setHeader: vi.fn(),
-    pipe: vi.fn(),
+    redirect: vi.fn(),
   };
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
 
-describe('binary.service', () => {
+describe('binary.service (Blob)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockExistsSync.mockReturnValue(false);
+    mockBlobRead.mockResolvedValue(null);
+    mockBlobUrl.mockResolvedValue(null);
   });
 
   // ── getBinaryInfo ──────────────────────────────────────────
 
   describe('getBinaryInfo', () => {
-    it('throws 404 AppError when binary does not exist', async () => {
-      mockExistsSync.mockReturnValue(false);
+    it('throws 404 AppError when binary does not exist in Blob', async () => {
+      mockBlobRead.mockResolvedValue(null);
 
       await expect(getBinaryInfo(UUID, BINARY_NAME))
         .rejects.toThrow('Binary not found');
     });
 
-    it('returns path, sha256, size, and name for existing binary', async () => {
-      const binaryPath = `${BUILDS_DIR}/${UUID}/${BINARY_NAME}`;
-      mockExistsSync.mockImplementation((p: string) => p === binaryPath);
-      mockStatSync.mockReturnValue({ size: 4096 });
-      mockCreateReadStream.mockReturnValue(createMockStream('binary-content'));
+    it('returns url, sha256, size, and name for existing binary', async () => {
+      const binaryContent = Buffer.from('binary-content');
+      mockBlobRead.mockResolvedValue(binaryContent);
+      mockBlobUrl.mockResolvedValue('https://blob.test/builds/uuid/file.exe');
 
       const info = await getBinaryInfo(UUID, BINARY_NAME);
 
-      expect(info.path).toBe(binaryPath);
-      expect(info.size).toBe(4096);
+      expect(info.url).toBe('https://blob.test/builds/uuid/file.exe');
+      expect(info.size).toBe(binaryContent.length);
       expect(info.name).toBe(BINARY_NAME);
       expect(info.sha256).toMatch(/^[a-f0-9]{64}$/);
     });
 
     it('prevents path traversal in UUID parameter', async () => {
-      // path.basename strips "../" so it won't escape the builds dir
-      mockExistsSync.mockReturnValue(false);
+      mockBlobRead.mockResolvedValue(null);
 
       await expect(getBinaryInfo('../../../etc', 'passwd'))
         .rejects.toThrow('Binary not found');
 
-      // Should have checked the safe path, not the traversal path
-      const checkedPath = mockExistsSync.mock.calls[0][0];
-      expect(checkedPath).not.toContain('..');
+      // Should have called blobRead with safe path (no ..)
+      const calledKey = mockBlobRead.mock.calls[0][0];
+      expect(calledKey).not.toContain('..');
     });
 
     it('prevents path traversal in binaryName parameter', async () => {
-      mockExistsSync.mockReturnValue(false);
+      mockBlobRead.mockResolvedValue(null);
 
       await expect(getBinaryInfo(UUID, '../../secret.txt'))
         .rejects.toThrow('Binary not found');
 
-      const checkedPath = mockExistsSync.mock.calls[0][0];
-      expect(checkedPath).not.toContain('..');
+      const calledKey = mockBlobRead.mock.calls[0][0];
+      expect(calledKey).not.toContain('..');
     });
 
     it('computes correct SHA256 hash', async () => {
-      const content = 'test-binary-data';
-      const binaryPath = `${BUILDS_DIR}/${UUID}/${BINARY_NAME}`;
-      mockExistsSync.mockImplementation((p: string) => p === binaryPath);
-      mockStatSync.mockReturnValue({ size: content.length });
-      mockCreateReadStream.mockReturnValue(createMockStream(content));
+      const content = Buffer.from('test-binary-data');
+      mockBlobRead.mockResolvedValue(content);
+      mockBlobUrl.mockResolvedValue('https://blob.test/key');
 
       const info = await getBinaryInfo(UUID, BINARY_NAME);
 
@@ -120,46 +92,23 @@ describe('binary.service', () => {
     });
   });
 
-  // ── streamBinary ───────────────────────────────────────────
+  // ── redirectToBinary ───────────────────────────────────────
 
-  describe('streamBinary', () => {
-    it('sets correct response headers', () => {
-      mockStatSync.mockReturnValue({ size: 2048 });
-      const mockStream = new EventEmitter();
-      (mockStream as unknown as Record<string, unknown>).pipe = vi.fn();
-      mockCreateReadStream.mockReturnValue(mockStream);
-
+  describe('redirectToBinary', () => {
+    it('sets Content-Disposition and redirects to Blob URL', () => {
       const res = createMockRes();
-      streamBinary('/path/to/binary', 'agent.exe', res as unknown as import('express').Response);
+      redirectToBinary('https://blob.test/binary', 'agent.exe', res as unknown as import('express').Response);
 
-      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'application/octet-stream');
-      expect(res.setHeader).toHaveBeenCalledWith('Content-Length', 2048);
       expect(res.setHeader).toHaveBeenCalledWith(
         'Content-Disposition',
         'attachment; filename="agent.exe"',
       );
-    });
-
-    it('pipes read stream to response', () => {
-      mockStatSync.mockReturnValue({ size: 1024 });
-      const mockStream = new EventEmitter();
-      (mockStream as unknown as Record<string, unknown>).pipe = vi.fn();
-      mockCreateReadStream.mockReturnValue(mockStream);
-
-      const res = createMockRes();
-      streamBinary('/path/to/binary', 'agent.exe', res as unknown as import('express').Response);
-
-      expect((mockStream as unknown as Record<string, ReturnType<typeof vi.fn>>).pipe).toHaveBeenCalledWith(res);
+      expect(res.redirect).toHaveBeenCalledWith(302, 'https://blob.test/binary');
     });
 
     it('sanitizes special characters in filename', () => {
-      mockStatSync.mockReturnValue({ size: 1024 });
-      const mockStream = new EventEmitter();
-      (mockStream as unknown as Record<string, unknown>).pipe = vi.fn();
-      mockCreateReadStream.mockReturnValue(mockStream);
-
       const res = createMockRes();
-      streamBinary('/path/to/binary', 'file"name\r\n\\test.exe', res as unknown as import('express').Response);
+      redirectToBinary('https://blob.test/binary', 'file"name\r\n\\test.exe', res as unknown as import('express').Response);
 
       const dispositionCall = res.setHeader.mock.calls.find(
         (c: string[]) => c[0] === 'Content-Disposition',

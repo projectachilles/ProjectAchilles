@@ -272,5 +272,21 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
     }
   }));
 
+  // POST /api/tests/builds/:uuid/upload-binary - Upload pre-built test binary
+  router.post('/builds/:uuid/upload-binary', requirePermission('tests:builds:create'), upload.single('file'), asyncHandler(async (req, res) => {
+    validateUuid(req.params.uuid);
+
+    if (!req.file) {
+      throw new AppError('No file uploaded', 400);
+    }
+
+    try {
+      const info = buildService.uploadBinary(req.params.uuid, req.file.buffer);
+      res.json({ success: true, data: info });
+    } catch (err) {
+      throw new AppError(err instanceof Error ? err.message : 'Failed to upload binary', 400);
+    }
+  }));
+
   return router;
 }

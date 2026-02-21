@@ -1,9 +1,7 @@
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
 import { getDb } from './database.js';
 import { AppError } from '../../middleware/error.middleware.js';
+import { blobRead, blobReadText } from '../storage.js';
 import type {
   Task,
   TaskGroup,
@@ -99,26 +97,23 @@ export async function createTasks(
     throw new AppError('test_uuid, test_name, and binary_name are required', 400);
   }
 
-  // Resolve build directory and read build-meta.json
-  const buildDir = path.join(os.homedir(), '.projectachilles', 'builds', test_uuid);
-  const metaPath = path.join(buildDir, 'build-meta.json');
-
-  if (!fs.existsSync(metaPath)) {
+  // Resolve build metadata and binary from Blob storage
+  const metaJson = await blobReadText(`builds/${test_uuid}/build-meta.json`);
+  if (!metaJson) {
     throw new AppError(`Build metadata not found for test ${test_uuid}`, 404);
   }
 
-  const buildMeta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+  const buildMeta = JSON.parse(metaJson);
   const binaryFilename: string = buildMeta.binary_name ?? buildMeta.filename ?? binary_name;
-  const binaryPath = path.join(buildDir, binaryFilename);
 
-  if (!fs.existsSync(binaryPath)) {
+  const binaryBuffer = await blobRead(`builds/${test_uuid}/${binaryFilename}`);
+  if (!binaryBuffer) {
     throw new AppError(`Binary file not found: ${binaryFilename}`, 404);
   }
 
-  // Compute SHA256 and file size
-  const binaryBuffer = fs.readFileSync(binaryPath);
+  // Compute SHA256 and file size from buffer
   const binarySha256 = crypto.createHash('sha256').update(binaryBuffer).digest('hex');
-  const binarySize = fs.statSync(binaryPath).size;
+  const binarySize = binaryBuffer.length;
 
   // Build payload with metadata enrichment from test catalog
   let enrichedMetadata: TaskTestMetadata = metadata ?? {

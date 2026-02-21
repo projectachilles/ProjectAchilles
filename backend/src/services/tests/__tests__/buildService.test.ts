@@ -786,4 +786,124 @@ var data string
       expect(result.signed).toBe(false);
     });
   });
+
+  // ── Group 9: uploadBinary ────────────────────────────────
+
+  describe('uploadBinary', () => {
+    // Valid PE buffer: starts with "MZ" (0x4D 0x5A) magic bytes
+    const validPeBuffer = Buffer.concat([
+      Buffer.from([0x4D, 0x5A]),
+      Buffer.alloc(100, 0),
+    ]);
+
+    it('writes binary and metadata to build directory', () => {
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false; // ensureBuildDir creates it
+        return false;
+      });
+
+      const info = service.uploadBinary(VALID_UUID, validPeBuffer);
+
+      expect(info.exists).toBe(true);
+      expect(info.source).toBe('uploaded');
+      expect(info.signed).toBe(false);
+      expect(info.platform).toEqual({ os: 'windows', arch: 'amd64' });
+      expect(info.fileSize).toBe(validPeBuffer.length);
+
+      // Verify binary was written
+      const binaryWrite = mockWriteFileSync.mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].endsWith(`${VALID_UUID}.exe`),
+      );
+      expect(binaryWrite).toBeDefined();
+      expect(binaryWrite![1]).toBe(validPeBuffer);
+
+      // Verify metadata was written
+      const metaWrite = mockWriteFileSync.mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].endsWith('build-meta.json'),
+      );
+      expect(metaWrite).toBeDefined();
+      const meta = JSON.parse(metaWrite![1] as string);
+      expect(meta.source).toBe('uploaded');
+      expect(meta.signed).toBe(false);
+    });
+
+    it('rejects empty buffer', () => {
+      expect(() =>
+        service.uploadBinary(VALID_UUID, Buffer.alloc(0)),
+      ).toThrow('Empty file');
+    });
+
+    it('rejects non-PE buffer (missing MZ header)', () => {
+      const invalidBuffer = Buffer.from('not a PE file');
+      expect(() =>
+        service.uploadBinary(VALID_UUID, invalidBuffer),
+      ).toThrow('missing MZ header');
+    });
+
+    it('rejects invalid UUID format', () => {
+      expect(() =>
+        service.uploadBinary('not-a-uuid', validPeBuffer),
+      ).toThrow('Invalid UUID format');
+    });
+
+    it('uses platform settings for filename', () => {
+      // Linux platform — no .exe extension
+      const linuxService = createService({
+        getPlatformSettings: vi.fn().mockReturnValue({ os: 'linux', arch: 'amd64' }),
+      });
+
+      mockExistsSync.mockReturnValue(false);
+
+      const info = linuxService.uploadBinary(VALID_UUID, validPeBuffer);
+
+      expect(info.filename).toBe(VALID_UUID); // No .exe extension
+    });
+  });
+
+  // ── Group 10: source field passthrough ────────────────────
+
+  describe('getBuildInfo — source field', () => {
+    it('passes through source field from metadata', () => {
+      const meta = {
+        platform: { os: 'windows', arch: 'amd64' },
+        builtAt: '2026-01-01T00:00:00.000Z',
+        signed: false,
+        fileSize: 1024,
+        filename: `${VALID_UUID}.exe`,
+        source: 'uploaded',
+      };
+
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${BUILDS_DIR}/${VALID_UUID}/build-meta.json`) return true;
+        if (p === `${BUILDS_DIR}/${VALID_UUID}/${VALID_UUID}.exe`) return true;
+        return false;
+      });
+      mockReadFileSync.mockReturnValue(JSON.stringify(meta));
+
+      const info = service.getBuildInfo(VALID_UUID);
+
+      expect(info.source).toBe('uploaded');
+    });
+
+    it('returns undefined source for legacy metadata without source field', () => {
+      const meta = {
+        platform: { os: 'windows', arch: 'amd64' },
+        builtAt: '2026-01-01T00:00:00.000Z',
+        signed: true,
+        fileSize: 1024,
+        filename: `${VALID_UUID}.exe`,
+      };
+
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${BUILDS_DIR}/${VALID_UUID}/build-meta.json`) return true;
+        if (p === `${BUILDS_DIR}/${VALID_UUID}/${VALID_UUID}.exe`) return true;
+        return false;
+      });
+      mockReadFileSync.mockReturnValue(JSON.stringify(meta));
+
+      const info = service.getBuildInfo(VALID_UUID);
+
+      expect(info.source).toBeUndefined();
+    });
+  });
 });

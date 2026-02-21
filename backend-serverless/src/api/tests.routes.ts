@@ -3,7 +3,8 @@ import multer from 'multer';
 import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { TestsSettingsService } from '../services/tests/settings.js';
-import type { PlatformSettings } from '../types/tests.js';
+import type { PlatformSettings, BuildMetadata } from '../types/tests.js';
+import { blobReadText, blobWrite, blobExists, blobDelete, blobUrl, blobList } from '../services/storage.js';
 
 const VALID_OS = ['windows', 'linux', 'darwin'] as const;
 const VALID_ARCH = ['amd64', '386', 'arm64'] as const;
@@ -17,8 +18,7 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   const certUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
   const CERT_ID_REGEX = /^cert-\d+$/;
 
-  // Suppress unused variable warning — testsSourcePath reserved for future use
-  void options;
+  void options; // testsSourcePath not used in serverless build routes (Blob storage uses own key paths)
 
   // ── Platform Settings ──────────────────────────────────────
 
@@ -212,7 +212,9 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
     res.redirect(302, result.url);
   }));
 
-  // ── Build Routes (stubbed — not available on serverless) ───
+  // ── Build Routes ─────────────────────────────────────────
+
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
   function validateUuid(uuid: string): void {
     if (!UUID_REGEX.test(uuid)) {
@@ -220,40 +222,130 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
     }
   }
 
-  // GET /api/tests/builds/:uuid - Get build info
-  router.get('/builds/:uuid', requirePermission('tests:builds:read'), asyncHandler(async (req, _res) => {
+  // GET /api/tests/builds/:uuid - Get build info (from Blob)
+  router.get('/builds/:uuid', requirePermission('tests:builds:read'), asyncHandler(async (req, res) => {
     validateUuid(req.params.uuid);
-    throw new AppError('Build system not available on serverless', 503);
+    const metaJson = await blobReadText(`builds/${req.params.uuid}/build-meta.json`);
+    if (!metaJson) {
+      res.json({ success: true, data: { exists: false } });
+      return;
+    }
+    try {
+      const meta: BuildMetadata = JSON.parse(metaJson);
+      const binaryExists = await blobExists(`builds/${req.params.uuid}/${meta.filename}`);
+      if (!binaryExists) {
+        res.json({ success: true, data: { exists: false } });
+        return;
+      }
+      res.json({
+        success: true,
+        data: {
+          exists: true,
+          platform: meta.platform,
+          signed: meta.signed,
+          fileSize: meta.fileSize,
+          builtAt: meta.builtAt,
+          filename: meta.filename,
+          source: meta.source,
+        },
+      });
+    } catch {
+      res.json({ success: true, data: { exists: false } });
+    }
   }));
 
-  // POST /api/tests/builds/:uuid - Build & sign
+  // POST /api/tests/builds/:uuid - Build & sign (not available on serverless)
   router.post('/builds/:uuid', requirePermission('tests:builds:create'), asyncHandler(async (req, _res) => {
     validateUuid(req.params.uuid);
-    throw new AppError('Build system not available on serverless', 503);
+    throw new AppError('Go compilation not available on serverless — use Upload Binary instead', 503);
   }));
 
-  // DELETE /api/tests/builds/:uuid - Delete build
-  router.delete('/builds/:uuid', requirePermission('tests:builds:delete'), asyncHandler(async (req, _res) => {
+  // DELETE /api/tests/builds/:uuid - Delete build (from Blob)
+  router.delete('/builds/:uuid', requirePermission('tests:builds:delete'), asyncHandler(async (req, res) => {
     validateUuid(req.params.uuid);
-    throw new AppError('Build system not available on serverless', 503);
+    // Delete all blobs under builds/<uuid>/
+    const blobs = await blobList(`builds/${req.params.uuid}/`);
+    for (const blob of blobs) {
+      await blobDelete(blob.key);
+    }
+    res.json({ success: true });
   }));
 
-  // GET /api/tests/builds/:uuid/download - Download binary
-  router.get('/builds/:uuid/download', requirePermission('tests:builds:create'), asyncHandler(async (req, _res) => {
+  // GET /api/tests/builds/:uuid/download - Download binary (redirect to Blob URL)
+  router.get('/builds/:uuid/download', requirePermission('tests:builds:create'), asyncHandler(async (req, res) => {
     validateUuid(req.params.uuid);
-    throw new AppError('Build system not available on serverless', 503);
+    const metaJson = await blobReadText(`builds/${req.params.uuid}/build-meta.json`);
+    if (!metaJson) {
+      throw new AppError('Build not found', 404);
+    }
+    const meta: BuildMetadata = JSON.parse(metaJson);
+    const url = await blobUrl(`builds/${req.params.uuid}/${meta.filename}`);
+    if (!url) {
+      throw new AppError('Binary not found', 404);
+    }
+    res.redirect(302, url);
   }));
 
-  // GET /api/tests/builds/:uuid/dependencies - Get embed dependencies
+  // GET /api/tests/builds/:uuid/dependencies - Not available on serverless (no Go source analysis)
   router.get('/builds/:uuid/dependencies', requirePermission('tests:builds:create'), asyncHandler(async (req, _res) => {
     validateUuid(req.params.uuid);
-    throw new AppError('Build system not available on serverless', 503);
+    throw new AppError('Embed dependency analysis not available on serverless', 503);
   }));
 
-  // POST /api/tests/builds/:uuid/upload - Upload embed dependency file
+  // POST /api/tests/builds/:uuid/upload - Embed dependency upload (not available on serverless)
   router.post('/builds/:uuid/upload', requirePermission('tests:builds:create'), asyncHandler(async (req, _res) => {
     validateUuid(req.params.uuid);
-    throw new AppError('Build system not available on serverless', 503);
+    throw new AppError('Embed dependency upload not available on serverless', 503);
+  }));
+
+  // POST /api/tests/builds/:uuid/upload-binary - Upload pre-built test binary (to Blob)
+  router.post('/builds/:uuid/upload-binary', requirePermission('tests:builds:create'), upload.single('file'), asyncHandler(async (req, res) => {
+    validateUuid(req.params.uuid);
+
+    if (!req.file) {
+      throw new AppError('No file uploaded', 400);
+    }
+
+    const buffer = req.file.buffer;
+    if (buffer.length === 0) {
+      throw new AppError('Empty file', 400);
+    }
+
+    // Windows PE header check: first two bytes must be "MZ" (0x4D 0x5A)
+    if (buffer.length < 2 || buffer[0] !== 0x4D || buffer[1] !== 0x5A) {
+      throw new AppError('File does not appear to be a valid Windows executable (missing MZ header)', 400);
+    }
+
+    const platform = await testsSettings.getPlatformSettings();
+    const filename = platform.os === 'windows'
+      ? `${req.params.uuid}.exe`
+      : req.params.uuid;
+
+    // Write binary and metadata to Blob
+    await blobWrite(`builds/${req.params.uuid}/${filename}`, buffer);
+
+    const meta: BuildMetadata = {
+      platform: { os: platform.os, arch: platform.arch },
+      builtAt: new Date().toISOString(),
+      signed: false,
+      fileSize: buffer.length,
+      filename,
+      source: 'uploaded',
+    };
+    await blobWrite(`builds/${req.params.uuid}/build-meta.json`, JSON.stringify(meta, null, 2));
+
+    res.json({
+      success: true,
+      data: {
+        exists: true,
+        platform: meta.platform,
+        signed: meta.signed,
+        fileSize: meta.fileSize,
+        builtAt: meta.builtAt,
+        filename: meta.filename,
+        source: 'uploaded',
+      },
+    });
   }));
 
   return router;

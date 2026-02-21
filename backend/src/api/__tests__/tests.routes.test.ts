@@ -39,6 +39,8 @@ vi.mock('../../services/tests/settings.js', () => ({
 }));
 
 // Mock BuildService
+const mockUploadBinary = vi.fn();
+
 vi.mock('../../services/tests/buildService.js', () => ({
   BuildService: class MockBuildService {
     getBuildInfo = vi.fn();
@@ -47,6 +49,7 @@ vi.mock('../../services/tests/buildService.js', () => ({
     getBinaryPath = vi.fn();
     getEmbedDependencies = vi.fn();
     saveUploadedFile = vi.fn();
+    uploadBinary = mockUploadBinary;
   },
   BuildError: class BuildError extends Error {},
 }));
@@ -163,6 +166,65 @@ describe('tests routes', () => {
 
       expect(res.status).toBe(400);
       expect(res.body.error).toContain('Invalid certificate ID');
+    });
+  });
+
+  describe('POST /api/tests/builds/:uuid/upload-binary', () => {
+    const VALID_UUID = '12345678-1234-1234-1234-123456789abc';
+
+    it('returns 400 for invalid UUID', async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post('/api/tests/builds/not-a-uuid/upload-binary')
+        .attach('file', Buffer.from([0x4D, 0x5A, 0x00]), 'test.exe');
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Invalid UUID');
+    });
+
+    it('returns 400 when no file is uploaded', async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post(`/api/tests/builds/${VALID_UUID}/upload-binary`);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('No file uploaded');
+    });
+
+    it('calls uploadBinary on success', async () => {
+      mockUploadBinary.mockReturnValue({
+        exists: true,
+        platform: { os: 'windows', arch: 'amd64' },
+        signed: false,
+        fileSize: 3,
+        builtAt: '2026-01-01T00:00:00.000Z',
+        filename: `${VALID_UUID}.exe`,
+        source: 'uploaded',
+      });
+
+      const app = createApp();
+      const res = await request(app)
+        .post(`/api/tests/builds/${VALID_UUID}/upload-binary`)
+        .attach('file', Buffer.from([0x4D, 0x5A, 0x00]), 'test.exe');
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.source).toBe('uploaded');
+      expect(mockUploadBinary).toHaveBeenCalled();
+    });
+
+    it('returns 400 when uploadBinary throws', async () => {
+      mockUploadBinary.mockImplementation(() => {
+        throw new Error('missing MZ header');
+      });
+
+      const app = createApp();
+      const res = await request(app)
+        .post(`/api/tests/builds/${VALID_UUID}/upload-binary`)
+        .attach('file', Buffer.from('not-pe'), 'test.exe');
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('missing MZ header');
     });
   });
 });

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { testsApi } from '@/services/api/tests';
+import { useCapabilities } from '@/hooks/useCapabilities';
 import type { BuildInfo, EmbedDependency } from '@/types/test';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
@@ -28,18 +29,26 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
   const [deps, setDeps] = useState<EmbedDependency[]>([]);
   const [loading, setLoading] = useState(true);
   const [building, setBuilding] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadingFile, setUploadingFile] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const binaryInputRef = useRef<HTMLInputElement>(null);
   const pendingUploadFilename = useRef<string | null>(null);
+
+  const capabilities = useCapabilities();
 
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const [info, embedDeps] = await Promise.all([
+      const promises: [Promise<BuildInfo>, Promise<EmbedDependency[]>] = [
         testsApi.getBuildInfo(uuid),
-        testsApi.getEmbedDependencies(uuid),
-      ]);
+        // Only fetch deps if build system is available (needs Go source analysis)
+        capabilities.build
+          ? testsApi.getEmbedDependencies(uuid)
+          : Promise.resolve([]),
+      ];
+      const [info, embedDeps] = await Promise.all(promises);
       setBuildInfo(info);
       setDeps(embedDeps);
     } catch {
@@ -47,7 +56,7 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
     } finally {
       setLoading(false);
     }
-  }, [uuid]);
+  }, [uuid, capabilities.build]);
 
   useEffect(() => {
     fetchData();
@@ -61,7 +70,6 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
       setBuildInfo(info);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Build failed';
-      // Try to extract server error message
       const axiosErr = err as { response?: { data?: { error?: string } } };
       setError(axiosErr?.response?.data?.error || msg);
     } finally {
@@ -99,7 +107,6 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
     setUploadingFile(filename);
     try {
       await testsApi.uploadEmbedFile(uuid, filename, file);
-      // Refresh dependencies
       const embedDeps = await testsApi.getEmbedDependencies(uuid);
       setDeps(embedDeps);
     } catch {
@@ -107,13 +114,37 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
     } finally {
       setUploadingFile(null);
       pendingUploadFilename.current = null;
-      // Reset input so same file can be re-selected
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  function handleUploadBinaryClick() {
+    binaryInputRef.current?.click();
+  }
+
+  async function handleBinarySelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setError(null);
+    try {
+      const info = await testsApi.uploadBinary(uuid, file);
+      setBuildInfo(info);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Upload failed';
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      setError(axiosErr?.response?.data?.error || msg);
+    } finally {
+      setUploading(false);
+      if (binaryInputRef.current) binaryInputRef.current.value = '';
     }
   }
 
   const missingExternalDeps = deps.filter(d => !d.exists && !d.sourceBuilt);
   const hasMissingDeps = missingExternalDeps.length > 0;
+  const canBuild = capabilities.build;
+  const canUpload = capabilities.buildUpload;
 
   if (loading) {
     return (
@@ -137,15 +168,22 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
         Build
       </h3>
 
-      {/* Hidden file input for uploads */}
+      {/* Hidden file inputs */}
       <input
         ref={fileInputRef}
         type="file"
         className="hidden"
         onChange={handleFileSelected}
       />
+      <input
+        ref={binaryInputRef}
+        type="file"
+        accept=".exe"
+        className="hidden"
+        onChange={handleBinarySelected}
+      />
 
-      {/* Embed dependencies */}
+      {/* Embed dependencies (only shown when build system is available) */}
       {deps.length > 0 && (
         <div className="mb-2 space-y-1">
           {deps.map(dep => (
@@ -182,39 +220,62 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
         </div>
       )}
 
-      {/* Building state */}
-      {building && (
+      {/* Building/Uploading state */}
+      {(building || uploading) && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
           <Loader2 className="w-4 h-4 animate-spin" />
-          Building...
+          {building ? 'Building...' : 'Uploading...'}
         </div>
       )}
 
       {/* Error state */}
-      {error && !building && (
+      {error && !building && !uploading && (
         <div className="space-y-2">
           <p className="text-xs text-red-500 line-clamp-3">{error}</p>
-          <Button variant="outline" size="sm" onClick={handleBuild} className="w-full">
-            Retry
-          </Button>
+          {canBuild && (
+            <Button variant="outline" size="sm" onClick={handleBuild} className="w-full">
+              Retry Build
+            </Button>
+          )}
+          {canUpload && (
+            <Button variant="outline" size="sm" onClick={handleUploadBinaryClick} className="w-full">
+              <Upload className="w-3 h-3" />
+              Upload Binary
+            </Button>
+          )}
         </div>
       )}
 
-      {/* No build exists */}
-      {!building && !error && (!buildInfo || !buildInfo.exists) && (
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={handleBuild}
-          disabled={hasMissingDeps}
-          className="w-full"
-        >
-          Build & Sign
-        </Button>
+      {/* No build exists — show action buttons */}
+      {!building && !uploading && !error && (!buildInfo || !buildInfo.exists) && (
+        <div className="space-y-1.5">
+          {canBuild && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleBuild}
+              disabled={hasMissingDeps}
+              className="w-full"
+            >
+              Build & Sign
+            </Button>
+          )}
+          {canUpload && (
+            <Button
+              variant={canBuild ? 'outline' : 'primary'}
+              size="sm"
+              onClick={handleUploadBinaryClick}
+              className="w-full"
+            >
+              <Upload className="w-3 h-3" />
+              Upload Binary
+            </Button>
+          )}
+        </div>
       )}
 
       {/* Build exists */}
-      {!building && !error && buildInfo?.exists && (
+      {!building && !uploading && !error && buildInfo?.exists && (
         <div className="space-y-2">
           {/* Filename — clickable for download */}
           <button
@@ -236,6 +297,9 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
             ) : (
               <Badge variant="warning">Unsigned</Badge>
             )}
+            {buildInfo.source === 'uploaded' && (
+              <Badge variant="default">Uploaded</Badge>
+            )}
           </div>
 
           {/* Size & date */}
@@ -250,9 +314,11 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
               <Download className="w-3 h-3" />
               Download
             </Button>
-            <Button variant="ghost" size="icon" onClick={handleBuild} title="Rebuild" className="h-8 w-8">
-              <RotateCw className="w-3 h-3" />
-            </Button>
+            {canBuild && (
+              <Button variant="ghost" size="icon" onClick={handleBuild} title="Rebuild" className="h-8 w-8">
+                <RotateCw className="w-3 h-3" />
+              </Button>
+            )}
             <Button variant="ghost" size="icon" onClick={handleDelete} title="Delete build" className="h-8 w-8">
               <Trash2 className="w-3 h-3" />
             </Button>

@@ -173,4 +173,13 @@ export const testsApi = {
     });
     return response.data;
   },
+
+  async uploadBinary(uuid: string, file: File): Promise<BuildInfo> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await apiClient.post(`/tests/builds/${uuid}/upload-binary`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data.data;
+  },
 };

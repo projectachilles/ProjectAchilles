@@ -18,36 +18,14 @@ vi.mock('../test-catalog.service.js', () => ({
   getTestMetadata: (...args: unknown[]) => mockGetTestMetadata(...args),
 }));
 
-// Mock fs and os for createTasks (reads build metadata from disk)
-// The source does `import fs from 'fs'` which becomes `fs.default` in ESM.
-// vi.mock provides both named exports and default to cover all access patterns.
-const mockExistsSync = vi.fn().mockReturnValue(true);
-const mockReadFileSync = vi.fn();
-const mockStatSync = vi.fn().mockReturnValue({ size: 1024 });
+// Mock Blob storage for createTasks (reads build metadata and binary from Blob)
+const mockBlobReadText = vi.fn();
+const mockBlobRead = vi.fn();
 
-vi.mock('fs', async () => {
-  const actual = await vi.importActual<typeof import('fs')>('fs');
-  const overrides = {
-    existsSync: mockExistsSync,
-    readFileSync: mockReadFileSync,
-    statSync: mockStatSync,
-  };
-  return {
-    ...actual,
-    ...overrides,
-    default: { ...actual, ...overrides },
-  };
-});
-
-vi.mock('os', async () => {
-  const actual = await vi.importActual<typeof import('os')>('os');
-  const overrides = { homedir: () => '/mock-home' };
-  return {
-    ...actual,
-    ...overrides,
-    default: { ...actual, ...overrides },
-  };
-});
+vi.mock('../../storage.js', () => ({
+  blobReadText: (...args: unknown[]) => mockBlobReadText(...args),
+  blobRead: (...args: unknown[]) => mockBlobRead(...args),
+}));
 
 const {
   createTasks,
@@ -346,19 +324,15 @@ describe('tasks.service', () => {
   });
 
   describe('createTasks', () => {
-    function setupFsMocks() {
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockImplementation((p: string) => {
-        if (typeof p === 'string' && p.endsWith('build-meta.json')) {
-          return JSON.stringify({ binary_name: 'test-binary.exe', filename: 'test-binary.exe' });
-        }
-        return Buffer.from('fake-binary-content');
-      });
-      mockStatSync.mockReturnValue({ size: 2048 });
+    function setupBlobMocks() {
+      mockBlobReadText.mockResolvedValue(
+        JSON.stringify({ binary_name: 'test-binary.exe', filename: 'test-binary.exe' }),
+      );
+      mockBlobRead.mockResolvedValue(Buffer.from('fake-binary-content'));
     }
 
     beforeEach(() => {
-      setupFsMocks();
+      setupBlobMocks();
       mockGetTestMetadata.mockReturnValue(null);
     });
 
@@ -382,7 +356,7 @@ describe('tasks.service', () => {
       const payload = JSON.parse(row.payload);
       expect(payload.test_uuid).toBe('test-uuid-001');
       expect(payload.binary_sha256).toBeDefined();
-      expect(payload.binary_size).toBe(2048);
+      expect(payload.binary_size).toBe(Buffer.from('fake-binary-content').length);
     });
 
     it('creates tasks for multiple agents', async () => {
@@ -426,11 +400,8 @@ describe('tasks.service', () => {
       ).rejects.toThrow('test_uuid, test_name, and binary_name are required');
     });
 
-    it('throws 404 when build-meta.json is missing', async () => {
-      mockExistsSync.mockImplementation((p: string) => {
-        if (typeof p === 'string' && p.endsWith('build-meta.json')) return false;
-        return true;
-      });
+    it('throws 404 when build-meta.json is missing from Blob', async () => {
+      mockBlobReadText.mockResolvedValue(null);
 
       await expect(
         createTasks({
@@ -442,14 +413,11 @@ describe('tasks.service', () => {
       ).rejects.toThrow('Build metadata not found');
     });
 
-    it('throws 404 when binary file is missing', async () => {
-      let callCount = 0;
-      mockExistsSync.mockImplementation(() => {
-        callCount++;
-        // First call is for build-meta.json → exists
-        // Second call is for binary file → doesn't exist
-        return callCount === 1;
-      });
+    it('throws 404 when binary file is missing from Blob', async () => {
+      mockBlobReadText.mockResolvedValue(
+        JSON.stringify({ filename: 'bin.exe' }),
+      );
+      mockBlobRead.mockResolvedValue(null);
 
       await expect(
         createTasks({
@@ -666,19 +634,15 @@ describe('tasks.service', () => {
   });
 
   describe('batch_id assignment', () => {
-    function setupFsMocks() {
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockImplementation((p: string) => {
-        if (typeof p === 'string' && p.endsWith('build-meta.json')) {
-          return JSON.stringify({ binary_name: 'test-binary.exe', filename: 'test-binary.exe' });
-        }
-        return Buffer.from('fake-binary-content');
-      });
-      mockStatSync.mockReturnValue({ size: 2048 });
+    function setupBlobMocksForBatch() {
+      mockBlobReadText.mockResolvedValue(
+        JSON.stringify({ binary_name: 'test-binary.exe', filename: 'test-binary.exe' }),
+      );
+      mockBlobRead.mockResolvedValue(Buffer.from('fake-binary-content'));
     }
 
     beforeEach(() => {
-      setupFsMocks();
+      setupBlobMocksForBatch();
       mockGetTestMetadata.mockReturnValue(null);
     });
 

@@ -147,6 +147,7 @@ export class BuildService {
         fileSize: meta.fileSize,
         builtAt: meta.builtAt,
         filename: meta.filename,
+        source: meta.source,
       };
     } catch {
       return { exists: false };
@@ -228,6 +229,50 @@ export class BuildService {
     }
 
     fs.writeFileSync(path.join(testDir, baseName), buffer);
+  }
+
+  uploadBinary(uuid: string, buffer: Buffer): BuildInfo {
+    if (!UUID_REGEX.test(uuid)) {
+      throw new Error('Invalid UUID format');
+    }
+
+    if (!buffer || buffer.length === 0) {
+      throw new Error('Empty file');
+    }
+
+    // Windows PE header check: first two bytes must be "MZ" (0x4D 0x5A)
+    if (buffer.length < 2 || buffer[0] !== 0x4D || buffer[1] !== 0x5A) {
+      throw new Error('File does not appear to be a valid Windows executable (missing MZ header)');
+    }
+
+    const platform = this.settingsService.getPlatformSettings();
+    const filename = platform.os === 'windows'
+      ? `${uuid}.exe`
+      : uuid;
+    const buildDir = this.ensureBuildDir(uuid);
+    const outputPath = path.join(buildDir, filename);
+
+    fs.writeFileSync(outputPath, buffer);
+
+    const meta: BuildMetadata = {
+      platform: { os: platform.os, arch: platform.arch },
+      builtAt: new Date().toISOString(),
+      signed: false,
+      fileSize: buffer.length,
+      filename,
+      source: 'uploaded',
+    };
+    fs.writeFileSync(this.metaPath(uuid), JSON.stringify(meta, null, 2));
+
+    return {
+      exists: true,
+      platform: meta.platform,
+      signed: meta.signed,
+      fileSize: meta.fileSize,
+      builtAt: meta.builtAt,
+      filename: meta.filename,
+      source: 'uploaded',
+    };
   }
 
   async buildAndSign(uuid: string): Promise<BuildInfo> {
@@ -409,6 +454,7 @@ export class BuildService {
       signed,
       fileSize: stats.size,
       filename,
+      source: 'built',
     };
     fs.writeFileSync(this.metaPath(uuid), JSON.stringify(meta, null, 2));
 
@@ -419,6 +465,7 @@ export class BuildService {
       fileSize: meta.fileSize,
       builtAt: meta.builtAt,
       filename: meta.filename,
+      source: 'built',
     };
   }
 }

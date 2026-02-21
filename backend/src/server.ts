@@ -191,6 +191,19 @@ async function startServer() {
     });
   });
 
+  // Capabilities endpoint — tells frontend what features are available
+  app.get('/api/capabilities', (_req, res) => {
+    res.json({
+      build: true,
+      buildUpload: true,
+      certGenerate: true,
+      certUpload: true,
+      gitSync: true,
+      agentBuild: true,
+      platform: 'docker',
+    });
+  });
+
   // Browser module - with Git sync integration
   const browserRouter = createBrowserRouter({
     testsSourcePath,

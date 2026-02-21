@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
-import { getBinaryInfo, streamBinary } from '../../services/agent/binary.service.js';
+import { getBinaryInfo, redirectToBinary } from '../../services/agent/binary.service.js';
 
 // ============================================================================
 // Agent-facing binary download router
@@ -30,7 +30,7 @@ router.get(
 
     const info = await getBinaryInfo(testUuid, binaryName);
 
-    streamBinary(info.path, info.name, res);
+    redirectToBinary(info.url, info.name, res);
   })
 );
 

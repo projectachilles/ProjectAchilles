@@ -45,6 +45,7 @@ export interface BuildInfo {
   fileSize?: number;
   builtAt?: string;
   filename?: string;
+  source?: 'built' | 'uploaded';
 }
 
 export interface BuildMetadata {
@@ -53,6 +54,7 @@ export interface BuildMetadata {
   signed: boolean;
   fileSize: number;
   filename: string;
+  source?: 'built' | 'uploaded';
 }
 
 export interface EmbedDependency {

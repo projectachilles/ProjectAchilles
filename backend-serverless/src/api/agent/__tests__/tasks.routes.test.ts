@@ -15,26 +15,14 @@ vi.mock('../../../services/agent/database.js', async (importOriginal) => {
   };
 });
 
-// Mock fs and os for createTasks dependency (reads build metadata from disk)
-const mockExistsSync = vi.fn().mockReturnValue(true);
-const mockReadFileSync = vi.fn();
-const mockStatSync = vi.fn().mockReturnValue({ size: 1024 });
+// Mock Blob storage for createTasks dependency (reads build metadata from Blob)
+const mockBlobReadText = vi.fn();
+const mockBlobRead = vi.fn();
 
-vi.mock('fs', async () => {
-  const actual = await vi.importActual<typeof import('fs')>('fs');
-  const overrides = {
-    existsSync: mockExistsSync,
-    readFileSync: mockReadFileSync,
-    statSync: mockStatSync,
-  };
-  return { ...actual, ...overrides, default: { ...actual, ...overrides } };
-});
-
-vi.mock('os', async () => {
-  const actual = await vi.importActual<typeof import('os')>('os');
-  const overrides = { homedir: () => '/mock-home' };
-  return { ...actual, ...overrides, default: { ...actual, ...overrides } };
-});
+vi.mock('../../../services/storage.js', () => ({
+  blobReadText: (...args: unknown[]) => mockBlobReadText(...args),
+  blobRead: (...args: unknown[]) => mockBlobRead(...args),
+}));
 
 vi.mock('../../../services/agent/test-catalog.service.js', () => ({
   getTestMetadata: () => null,
@@ -77,22 +65,21 @@ function createApp() {
   return app;
 }
 
-function setupFsMocks() {
-  mockExistsSync.mockReturnValue(true);
-  mockReadFileSync.mockImplementation((p: string) => {
-    if (typeof p === 'string' && p.endsWith('build-meta.json')) {
-      return JSON.stringify({ binary_name: 'test-binary.exe', filename: 'test-binary.exe' });
+function setupBlobMocks() {
+  mockBlobReadText.mockImplementation((key: string) => {
+    if (key.endsWith('build-meta.json')) {
+      return Promise.resolve(JSON.stringify({ binary_name: 'test-binary.exe', filename: 'test-binary.exe' }));
     }
-    return Buffer.from('fake-binary-content');
+    return Promise.resolve(null);
   });
-  mockStatSync.mockReturnValue({ size: 2048 });
+  mockBlobRead.mockResolvedValue(Buffer.from('fake-binary-content'));
 }
 
 describe('tasks routes', () => {
   beforeEach(async () => {
     testDb = await createTestDatabase();
     await insertTestAgent(testDb, { id: 'agent-001' });
-    setupFsMocks();
+    setupBlobMocks();
   });
 
   // ==========================================================================

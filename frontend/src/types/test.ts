@@ -90,6 +90,7 @@ export interface BuildInfo {
   fileSize?: number;
   builtAt?: string;
   filename?: string;
+  source?: 'built' | 'uploaded';
 }
 
 export interface EmbedDependency {
