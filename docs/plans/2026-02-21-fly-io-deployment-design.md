@@ -7,14 +7,14 @@
 
 ProjectAchilles deploys on Docker Compose (local), Railway, Render, and Vercel. This adds Fly.io as a fifth deployment target. Fly.io runs Docker containers natively, so we use the same `backend/` and `frontend/` directories as Railway and Render — no changes to `backend-serverless/`.
 
-The deployment will use the existing Vercel Clerk production app (already configured for `rga.projectachilles.io` with GitHub + Google OAuth credentials). DNS records will be re-pointed from Vercel to Fly.io.
+The deployment will use the existing Vercel Clerk production app (already configured for `<your-frontend-domain>` with GitHub + Google OAuth credentials). DNS records will be re-pointed from Vercel to Fly.io.
 
 ## Architecture
 
 | Service | Fly App | Docker Image | Custom Domain |
 |---------|---------|-------------|---------------|
-| Backend | `achilles-backend` | `backend/Dockerfile` | `rga.agent.projectachilles.io` |
-| Frontend | `achilles-frontend` | `frontend/Dockerfile` | `rga.projectachilles.io` |
+| Backend | `achilles-backend` | `backend/Dockerfile` | `<your-backend-domain>` |
+| Frontend | `achilles-frontend` | `frontend/Dockerfile` | `<your-frontend-domain>` |
 
 Both services run as always-on Fly Machines (no auto-stop). The backend has a 1 GB persistent volume at `/root/.projectachilles` for SQLite, certificates, Go build cache, and agent binaries.
 
@@ -30,7 +30,7 @@ Agents send heartbeats every 60s. Auto-stop would add cold-start latency that co
 Frontend calls backend via public URL (`VITE_API_URL`), same pattern as Render Starter. Fly.io does support private networking (`.internal` DNS), but direct CORS is simpler and consistent with existing deployments.
 
 ### 4. Clerk app re-assignment
-The Vercel Clerk app already has production keys for `rga.projectachilles.io` with `clerk.rga.projectachilles.io` DNS and configured GitHub + Google OAuth. We keep the same Clerk keys and OAuth credentials — only DNS targets change from Vercel to Fly.io.
+The Vercel Clerk app already has production keys for `<your-frontend-domain>` with `clerk.<your-frontend-domain>` DNS and configured GitHub + Google OAuth. We keep the same Clerk keys and OAuth credentials — only DNS targets change from Vercel to Fly.io.
 
 ### 5. Persistent volume
 Fly volumes are tied to a single Machine in a single region. This is fine because SQLite doesn't support multi-machine concurrency. The volume stores the same data as Render's persistent disk.
@@ -65,7 +65,7 @@ Fly volumes are tied to a single Machine in a single region. This is fine becaus
 2. Create Fly.io apps via dashboard (Playwright)
 3. Create persistent volume for backend
 4. Set environment variables
-5. Update DNS (re-point `rga.*` from Vercel to Fly.io)
+5. Update DNS (re-point custom domains from previous host to Fly.io)
 6. Verify Clerk configuration still works
 7. Deploy both services
 8. Verify health + login end-to-end

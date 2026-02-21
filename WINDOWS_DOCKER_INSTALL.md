@@ -120,7 +120,7 @@ Open PowerShell or Git Bash and run:
 
 ```powershell
 cd $HOME
-git clone https://github.com/projectachilles/ProjectAchilles.git
+git clone https://github.com/your-org/ProjectAchilles.git
 cd ProjectAchilles
 ```
 
@@ -277,7 +277,7 @@ Replace both `REPLACE_ME` values with the generated strings.
 If you have access to a private test library repository, also set:
 
 ```env
-TESTS_REPO_URL=https://github.com/ubercylon8/f0_library.git
+TESTS_REPO_URL=https://github.com/your-org/f0_library.git
 GITHUB_TOKEN=ghp_YOUR_PERSONAL_ACCESS_TOKEN
 ```
 

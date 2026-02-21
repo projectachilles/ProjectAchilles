@@ -4,7 +4,7 @@
 
 **Goal:** Deploy ProjectAchilles (backend + frontend) on Fly.io with custom domains, persistent storage, and Clerk auth.
 
-**Architecture:** Two Fly.io apps running the existing Docker images. Backend has a 1 GB persistent volume for SQLite + certs + Go cache. Frontend serves static assets via nginx. Direct CORS between frontend and backend (no internal proxy). Re-uses the existing Vercel Clerk production app on `rga.projectachilles.io`.
+**Architecture:** Two Fly.io apps running the existing Docker images. Backend has a 1 GB persistent volume for SQLite + certs + Go cache. Frontend serves static assets via nginx. Direct CORS between frontend and backend (no internal proxy). Re-uses the existing Vercel Clerk production app on `<your-frontend-domain>`.
 
 **Tech Stack:** Fly.io Machines, Docker, fly.toml config, Playwright for dashboard operations
 
@@ -166,7 +166,7 @@ Fly.io uses `flyctl secrets set` for sensitive env vars. These are encrypted at 
 **Step 1: Set backend secrets**
 
 The values come from the existing Vercel Clerk app and Elastic Cloud. Retrieve them from:
-- Clerk Dashboard: `pk_live_*` and `sk_live_*` for the `rga.projectachilles.io` app
+- Clerk Dashboard: `pk_live_*` and `sk_live_*` for the `<your-frontend-domain>` app
 - Elastic Cloud console: Cloud ID and API key
 - Existing GitHub token (same as other deployments)
 
@@ -176,11 +176,11 @@ flyctl secrets set \
   CLERK_SECRET_KEY="sk_live_..." \
   SESSION_SECRET="$(openssl rand -base64 32)" \
   ENCRYPTION_SECRET="$(openssl rand -base64 32)" \
-  CORS_ORIGIN="https://rga.projectachilles.io" \
-  AGENT_SERVER_URL="https://rga.agent.projectachilles.io" \
-  TESTS_REPO_URL="https://github.com/projectachilles/f0_library.git" \
+  CORS_ORIGIN="https://<your-frontend-domain>" \
+  AGENT_SERVER_URL="https://<your-backend-domain>" \
+  TESTS_REPO_URL="https://github.com/your-org/f0_library.git" \
   TESTS_REPO_BRANCH="main" \
-  AGENT_REPO_URL="https://github.com/projectachilles/ProjectAchilles.git" \
+  AGENT_REPO_URL="https://github.com/your-org/ProjectAchilles.git" \
   AGENT_REPO_BRANCH="main" \
   GITHUB_TOKEN="ghp_..." \
   ELASTICSEARCH_CLOUD_ID="..." \
@@ -210,7 +210,7 @@ Should show all variable names (values are hidden).
 ```bash
 flyctl secrets set \
   CLERK_PUBLISHABLE_KEY="pk_live_..." \
-  VITE_API_URL="https://rga.agent.projectachilles.io" \
+  VITE_API_URL="https://<your-backend-domain>" \
   --app achilles-frontend
 ```
 
@@ -259,7 +259,7 @@ Open `https://achilles-frontend.fly.dev` in Playwright. Should show the Clerk lo
 **Step 1: Add backend custom domain**
 
 ```bash
-flyctl certs create rga.agent.projectachilles.io --app achilles-backend
+flyctl certs create <your-backend-domain> --app achilles-backend
 ```
 
 Fly.io will show the required DNS records (typically a CNAME to `achilles-backend.fly.dev` or an A/AAAA record).
@@ -267,14 +267,14 @@ Fly.io will show the required DNS records (typically a CNAME to `achilles-backen
 **Step 2: Add frontend custom domain**
 
 ```bash
-flyctl certs create rga.projectachilles.io --app achilles-frontend
+flyctl certs create <your-frontend-domain> --app achilles-frontend
 ```
 
 **Step 3: Note the DNS targets**
 
 ```bash
-flyctl certs show rga.agent.projectachilles.io --app achilles-backend
-flyctl certs show rga.projectachilles.io --app achilles-frontend
+flyctl certs show <your-backend-domain> --app achilles-backend
+flyctl certs show <your-frontend-domain> --app achilles-frontend
 ```
 
 Record the CNAME/A/AAAA targets for DNS update in next task.
@@ -283,7 +283,7 @@ Record the CNAME/A/AAAA targets for DNS update in next task.
 
 ### Task 8: Update DNS records
 
-The domains `rga.projectachilles.io` and `rga.agent.projectachilles.io` currently point to Vercel. Update them to point to Fly.io.
+The domains `<your-frontend-domain>` and `<your-backend-domain>` currently point to Vercel. Update them to point to Fly.io.
 
 **Step 1: Navigate to DNS provider via Playwright**
 
@@ -293,16 +293,16 @@ Open the DNS management page for `projectachilles.io`. The provider may be Cloud
 
 | Record | Type | Old Target (Vercel) | New Target (Fly.io) |
 |--------|------|-------------------|-------------------|
-| `rga` | CNAME | `cname.vercel-dns.com` | Value from Task 7 Step 3 |
-| `rga.agent` | CNAME | `cname.vercel-dns.com` | Value from Task 7 Step 3 |
+| `<frontend-subdomain>` | CNAME | `cname.vercel-dns.com` | Value from Task 7 Step 3 |
+| `<backend-subdomain>` | CNAME | `cname.vercel-dns.com` | Value from Task 7 Step 3 |
 
-Keep the `clerk.rga` CNAME unchanged — it still points to `frontend-api.clerk.services` for Clerk's sign-in pages.
+Keep the `clerk.<frontend-subdomain>` CNAME unchanged — it still points to `frontend-api.clerk.services` for Clerk's sign-in pages.
 
 **Step 3: Wait for DNS propagation**
 
 ```bash
-dig rga.projectachilles.io CNAME +short
-dig rga.agent.projectachilles.io CNAME +short
+dig <your-frontend-domain> CNAME +short
+dig <your-backend-domain> CNAME +short
 ```
 
 Verify they resolve to Fly.io targets.
@@ -310,8 +310,8 @@ Verify they resolve to Fly.io targets.
 **Step 4: Verify TLS certificates**
 
 ```bash
-flyctl certs check rga.agent.projectachilles.io --app achilles-backend
-flyctl certs check rga.projectachilles.io --app achilles-frontend
+flyctl certs check <your-backend-domain> --app achilles-backend
+flyctl certs check <your-frontend-domain> --app achilles-frontend
 ```
 
 Fly auto-provisions Let's Encrypt certs once DNS propagates.
@@ -320,19 +320,19 @@ Fly auto-provisions Let's Encrypt certs once DNS propagates.
 
 ### Task 9: Verify Clerk configuration
 
-The Clerk app was previously configured for Vercel. Since we're keeping the same domains (`rga.projectachilles.io`), the Clerk config should work unchanged.
+The Clerk app was previously configured for Vercel. Since we're keeping the same domains (`<your-frontend-domain>`), the Clerk config should work unchanged.
 
 **Step 1: Navigate to Clerk dashboard via Playwright**
 
-Open `https://dashboard.clerk.com`. Navigate to the app configured for `rga.projectachilles.io`.
+Open `https://dashboard.clerk.com`. Navigate to the app configured for `<your-frontend-domain>`.
 
 **Step 2: Verify allowed origins**
 
-Check that `https://rga.projectachilles.io` is listed as an allowed origin.
+Check that `https://<your-frontend-domain>` is listed as an allowed origin.
 
 **Step 3: Verify OAuth callback URL**
 
-Confirm the GitHub and Google OAuth apps still use `https://clerk.rga.projectachilles.io/v1/oauth_callback` — this hasn't changed since the Clerk CNAME is unchanged.
+Confirm the GitHub and Google OAuth apps still use `https://clerk.<your-frontend-domain>/v1/oauth_callback` — this hasn't changed since the Clerk CNAME is unchanged.
 
 **Step 4: Retrieve Clerk keys**
 
@@ -345,23 +345,23 @@ Copy `pk_live_*` and `sk_live_*` for use in Tasks 4-5 if not already set.
 **Step 1: Backend health check on custom domain**
 
 ```bash
-curl https://rga.agent.projectachilles.io/api/health
+curl https://<your-backend-domain>/api/health
 ```
 
 Expected: `{"status":"ok"}`
 
 **Step 2: Frontend loads on custom domain**
 
-Navigate to `https://rga.projectachilles.io` via Playwright. Should show the landing page.
+Navigate to `https://<your-frontend-domain>` via Playwright. Should show the landing page.
 
 **Step 3: Clerk login works**
 
-Click "Sign in" and verify the Clerk sign-in page loads (hosted at `clerk.rga.projectachilles.io`). Try GitHub OAuth — should redirect to GitHub with a valid `client_id`.
+Click "Sign in" and verify the Clerk sign-in page loads (hosted at `clerk.<your-frontend-domain>`). Try GitHub OAuth — should redirect to GitHub with a valid `client_id`.
 
 **Step 4: Agent device endpoint**
 
 ```bash
-curl https://rga.agent.projectachilles.io/api/agent/enroll
+curl https://<your-backend-domain>/api/agent/enroll
 ```
 
 Expected: 401 Unauthorized (no API key provided) — confirms the endpoint is reachable.

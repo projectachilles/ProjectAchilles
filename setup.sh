@@ -343,7 +343,7 @@ step_test_repo() {
         if show_yesno "Test Repository" \
             "GitHub token already configured.\n\nKeep existing settings?"; then
             GITHUB_TOKEN="$existing_token"
-            TESTS_REPO_URL="${existing_url:-https://github.com/projectachilles/f0_library.git}"
+            TESTS_REPO_URL="${existing_url:-https://github.com/your-org/f0_library.git}"
             return
         fi
     fi
@@ -353,7 +353,7 @@ step_test_repo() {
 
     TESTS_REPO_URL=$(show_inputbox "Test Repository" \
         "Repository URL" \
-        "${existing_url:-https://github.com/projectachilles/f0_library.git}")
+        "${existing_url:-https://github.com/your-org/f0_library.git}")
 }
 
 step_generate_secrets() {

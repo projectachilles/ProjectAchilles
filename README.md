@@ -74,7 +74,7 @@ docker compose --profile elasticsearch up -d
 ### Path C — Windows (PowerShell)
 
 ```powershell
-git clone https://github.com/ubercylon8/ProjectAchilles.git
+git clone https://github.com/your-org/ProjectAchilles.git
 cd ProjectAchilles
 .\Install-ProjectAchilles.ps1
 ```

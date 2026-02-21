@@ -55,7 +55,7 @@ $ErrorActionPreference = 'Stop'
 # -----------------------------------------------------------------------------
 
 $TOTAL_STEPS = 10
-$REPO_URL    = 'https://github.com/ubercylon8/ProjectAchilles.git'
+$REPO_URL    = 'https://github.com/your-org/ProjectAchilles.git'
 
 # -----------------------------------------------------------------------------
 # Helper Functions
@@ -691,7 +691,7 @@ function Invoke-PhaseConfiguration {
     $script:TestsRepoUrl = ''
     if (-not $Quick) {
         $defaultToken = if ($defaults.ContainsKey('GITHUB_TOKEN') -and $defaults['GITHUB_TOKEN'] -ne 'ghp_xxxxx') { $defaults['GITHUB_TOKEN'] } else { '' }
-        $defaultRepo  = if ($defaults.ContainsKey('TESTS_REPO_URL')) { $defaults['TESTS_REPO_URL'] } else { 'https://github.com/ubercylon8/f0_library.git' }
+        $defaultRepo  = if ($defaults.ContainsKey('TESTS_REPO_URL')) { $defaults['TESTS_REPO_URL'] } else { 'https://github.com/your-org/f0_library.git' }
 
         Write-Host ""
         $hasRepo = Read-Host "  Do you have a private test library? [y/N]"
