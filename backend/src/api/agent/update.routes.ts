@@ -187,18 +187,6 @@ export function createAdminUpdateRouter(buildService: AgentBuildService | null):
   );
 
   /**
-   * GET /admin/versions/build
-   * Check whether build-from-source is available on this backend.
-   */
-  router.get(
-    '/versions/build',
-    requirePermission('endpoints:versions:read'),
-    asyncHandler(async (_req, res) => {
-      res.json({ success: true, data: { available: !!buildService } });
-    })
-  );
-
-  /**
    * POST /admin/versions/build
    * Build agent binary from source for a given platform.
    * Body: { version, os, arch }
