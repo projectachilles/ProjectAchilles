@@ -37,15 +37,9 @@ services:
       - key: ENCRYPTION_SECRET
         generateValue: true
       - key: CORS_ORIGIN
-        fromService:
-          name: achilles-frontend
-          type: web
-          property: host  # resolves to https://<frontend>.onrender.com
+        sync: false  # https://<your-frontend>.onrender.com (full URL with scheme)
       - key: AGENT_SERVER_URL
-        fromService:
-          name: achilles-backend
-          type: web
-          property: host  # resolves to https://<backend>.onrender.com
+        sync: false  # https://<your-backend>.onrender.com (full URL with scheme)
       - key: TESTS_REPO_URL
         sync: false
       - key: TESTS_REPO_BRANCH
@@ -77,7 +71,5 @@ services:
     envVars:
       - key: CLERK_PUBLISHABLE_KEY
         sync: false  # same publishable key as backend — set manually
-      - key: BACKEND_HOST
-        value: achilles-backend  # Render private network hostname (same as service name)
-      - key: BACKEND_PORT
-        value: "3000"
+      - key: VITE_API_URL
+        sync: false  # https://<your-backend>.onrender.com (direct CORS, no nginx proxy)

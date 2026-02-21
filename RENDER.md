@@ -11,7 +11,9 @@ Render runs two web services from this monorepo:
 | **achilles-backend** | `backend/` | `backend/Dockerfile` | Yes (agents connect here) |
 | **achilles-frontend** | `frontend/` | `frontend/Dockerfile` | Yes (users visit this) |
 
-Services communicate over Render's [private network](https://render.com/docs/private-network) using the service name as hostname. Elasticsearch is handled externally by Elastic Cloud.
+The frontend calls the backend directly via CORS (using `VITE_API_URL`). Elasticsearch is handled externally by Elastic Cloud.
+
+> **Note:** Render's [private network](https://render.com/docs/private-network) DNS is only available on Standard plan and above. On **Starter plan**, services cannot resolve each other by name, so nginx proxy mode (`BACKEND_HOST`) does not work. The frontend uses `VITE_API_URL` to call the backend's public URL directly instead.
 
 ## Prerequisites
 
@@ -34,6 +36,8 @@ The fastest path — Render reads `render.yaml` and creates both services automa
    ```
    CLERK_PUBLISHABLE_KEY=pk_live_...
    CLERK_SECRET_KEY=sk_live_...
+   CORS_ORIGIN=https://<your-frontend>.onrender.com
+   AGENT_SERVER_URL=https://<your-backend>.onrender.com
    TESTS_REPO_URL=https://github.com/your-org/f0_library.git
    GITHUB_TOKEN=ghp_...
    ELASTICSEARCH_CLOUD_ID=<from Elastic Cloud console>
@@ -43,7 +47,10 @@ The fastest path — Render reads `render.yaml` and creates both services automa
    **Frontend** (`achilles-frontend`):
    ```
    CLERK_PUBLISHABLE_KEY=pk_live_...
+   VITE_API_URL=https://<your-backend>.onrender.com
    ```
+
+   > **Important:** `CORS_ORIGIN` and `AGENT_SERVER_URL` must be full URLs with the `https://` scheme. `VITE_API_URL` tells the frontend where to send API calls (bypassing nginx proxy, which requires private network DNS not available on Starter plan).
 
 5. Trigger a manual deploy on both services (or push a commit)
 
@@ -100,8 +107,7 @@ The fastest path — Render reads `render.yaml` and creates both services automa
    | Variable | Value | Notes |
    |----------|-------|-------|
    | `CLERK_PUBLISHABLE_KEY` | `pk_live_...` | Same publishable key as backend |
-   | `BACKEND_HOST` | `achilles-backend` | Backend's service name (private network) |
-   | `BACKEND_PORT` | `3000` | |
+   | `VITE_API_URL` | `https://achilles-backend.onrender.com` | Backend's public URL (direct CORS) |
 
 ### Step 3: Verify
 
@@ -112,12 +118,14 @@ The fastest path — Render reads `render.yaml` and creates both services automa
 
 ## Inter-Service Networking
 
-The frontend's nginx proxy routes `/api/*` requests to the backend. The `docker-entrypoint.sh` script rewrites nginx config at container start based on `BACKEND_HOST`:
+On **Starter plan**, the frontend calls the backend directly via CORS using the `VITE_API_URL` environment variable (set to the backend's public `https://*.onrender.com` URL). The `docker-entrypoint.sh` script injects this as `window.__env__.VITE_API_URL` at container start, and the axios client reads it at runtime.
 
-- **Docker Compose** (default): proxies to `http://backend:3000`
-- **Render**: `BACKEND_HOST=achilles-backend` → proxies to `http://achilles-backend:3000` over the private network
+On **Standard plan and above**, you can optionally use Render's [private network](https://render.com/docs/private-network) for nginx proxy mode instead. Set `BACKEND_HOST` to the backend's service name and omit `VITE_API_URL` — nginx will proxy `/api/*` requests over the private network. This avoids exposing the backend publicly, but requires the higher-tier plan.
 
-This uses nginx variable-based `proxy_pass` with dynamic DNS resolution, so backend IP changes after redeployment are picked up automatically.
+| Plan | Frontend → Backend | Env Var | Backend Exposure |
+|------|-------------------|---------|-----------------|
+| Starter | Direct CORS | `VITE_API_URL=https://<backend>.onrender.com` | Public |
+| Standard+ | nginx proxy (private network) | `BACKEND_HOST=<backend-service-name>` | Can be private |
 
 ## Persistent Disk
 
@@ -179,12 +187,19 @@ For comparison, Railway runs the same stack for ~$10-13/mo (usage-based pricing)
 ## Troubleshooting
 
 ### Frontend shows "502 Bad Gateway"
-The nginx proxy can't reach the backend. Verify:
-- `BACKEND_HOST` is set to `achilles-backend` on the frontend service
-- The backend service is running and healthy
-- Both services are in the same Render region
+On **Starter plan**, this means nginx can't resolve the backend hostname (private network DNS is not available). Fix:
+- Set `VITE_API_URL` to the backend's public URL (e.g., `https://achilles-backend.onrender.com`) on the frontend service
+- Remove `BACKEND_HOST` and `BACKEND_PORT` if set — they require Standard plan or above
 
-The entrypoint configures nginx with dynamic DNS resolution (`resolver` + variable-based `proxy_pass`) so that backend IP changes after redeployment are picked up automatically. If you see 502s immediately after a backend redeploy, the frontend should self-heal within a few seconds.
+On **Standard plan and above** with nginx proxy mode:
+- Verify `BACKEND_HOST` is set to the backend's service name
+- Both services must be in the same Render region
+- The backend service must be running and healthy
+
+### Frontend shows CORS errors
+The backend's `CORS_ORIGIN` doesn't match the frontend's origin. Verify:
+- `CORS_ORIGIN` is set to the frontend's **full URL** with scheme (e.g., `https://achilles-frontend.onrender.com`)
+- Do not use just the hostname — the `https://` prefix is required
 
 ### Encrypted settings lost after redeploy
 `ENCRYPTION_SECRET` is not set. Without it, the backend derives a key from the container's hostname, which changes on every deploy. Set a stable `ENCRYPTION_SECRET` in the Render environment variables.
