@@ -22,7 +22,7 @@ npx vitest src/services/agent/__tests__/enrollment.service.test.ts  # Single fil
 | Scheduling | `setInterval` in process | Vercel Crons → `cron.routes.ts` |
 | Test library | Runtime git sync | Build-time clone (`vercel-build` script) |
 | Build system | Go cross-compilation | Stubbed (returns 503) |
-| Cert generation | OpenSSL | Stubbed (returns 503) |
+| Cert generation | OpenSSL CLI | `node-forge` (pure JS, no native deps) |
 
 These are **independent codebases**. Changes to `backend/` do not propagate here. If a change affects shared logic (types, API contracts, ES mappings), update both.
 

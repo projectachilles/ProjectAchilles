@@ -33,7 +33,7 @@ cd backend && npm run build      # tsc → dist/
 # All tests
 cd backend && npm test           # 672 tests across 27 files (~10s)
 cd frontend && npm test          # 119 tests across 7 files (~2s)
-cd backend-serverless && npm test  # 552 tests across 23 files (~11s)
+cd backend-serverless && npm test  # 580 tests across 24 files (~11s)
 
 # Single file
 cd backend && npx vitest src/services/agent/__tests__/enrollment.service.test.ts
@@ -285,7 +285,7 @@ A separate directory — **not** a build target of `backend/`. Key differences f
 | Scheduling | `setInterval` in process | Vercel Crons → `cron.routes.ts` |
 | Test library | Runtime git sync | Build-time clone (`vercel-build` script) |
 | Build system | Go cross-compilation | Stubbed (returns 503) |
-| Cert generation | OpenSSL | Stubbed (returns 503) |
+| Cert generation | OpenSSL CLI | `node-forge` (pure JS, no native deps) |
 
 When modifying `backend/`, changes do **not** propagate to `backend-serverless/` — they are independent codebases. If a change affects shared logic (types, API contracts, ES mappings), update both.
 
