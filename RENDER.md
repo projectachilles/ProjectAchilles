@@ -134,14 +134,20 @@ On **Standard plan and above**, you can optionally use Render's [private network
 
 The backend uses a 1 GB persistent disk at `/root/.projectachilles`:
 
-| File | Purpose |
+| Path | Purpose |
 |------|---------|
 | `agents.db` | SQLite database (agents, tokens, tasks, schedules) |
 | `analytics.json` | Encrypted Elasticsearch connection settings |
 | `tests.json` | Test repository configuration |
-| `certs/` | Code signing certificates |
+| `certs/` | Code signing certificates (max 5, subdirectory per cert) |
+| `binaries/` | Built agent binaries organized by `<os>-<arch>/` |
+| `go-cache/mod/` | Go module cache (persisted across redeploys) |
+| `go-cache/build/` | Go build cache (persisted across redeploys) |
+| `agent-source/` | Sparse-checkout clone of the agent Go source |
 
 > **Note:** Persistent disks disable Render's zero-downtime deploys. During a deploy, there will be brief downtime while the new container starts. This differs from Railway, which supports zero-downtime deploys with volumes.
+
+> **Go cache persistence:** The Go module and build caches (`go-cache/`) are stored on the persistent disk so that `go mod download` and compilation results survive container redeploys. Without this, every agent build would re-download all Go dependencies and recompile from scratch, adding 1-2 minutes per build.
 
 ## Auto-Deploy
 
@@ -154,21 +160,96 @@ A commit touching only `frontend/src/` will **not** trigger a backend redeploy.
 
 ## Custom Domains
 
-1. In the service's **Settings** tab, go to **Custom Domains**
-2. Add your domain (e.g., `achilles.example.com`)
-3. Add a CNAME DNS record pointing to your `.onrender.com` hostname
-4. Render automatically provisions a Let's Encrypt TLS certificate
-5. Update `CORS_ORIGIN` on the backend to match the frontend's custom domain
-6. Update your Clerk application's allowed origins to include the new domain
+Three domains are needed for a production deployment: frontend, backend, and Clerk.
+
+### Step 1: Add Domains on Render
+
+In each service's **Settings** → **Custom Domains**, add:
+
+| Service | Custom Domain | Example |
+|---------|--------------|---------|
+| Frontend | `<prefix>.yourdomain.com` | `tpsgl.projectachilles.io` |
+| Backend | `<prefix>.agent.yourdomain.com` | `tpsgl.agent.projectachilles.io` |
+
+### Step 2: DNS Records
+
+Add CNAME records in your DNS provider:
+
+| Record | Type | Target |
+|--------|------|--------|
+| `<prefix>.yourdomain.com` | CNAME | `<your-frontend>.onrender.com` |
+| `<prefix>.agent.yourdomain.com` | CNAME | `<your-backend>.onrender.com` |
+| `clerk.<prefix>.yourdomain.com` | CNAME | `frontend-api.clerk.services` |
+
+> The Clerk CNAME is configured in Clerk Dashboard → **Domains** when adding a production instance (see Clerk Setup below). Clerk provides the exact CNAME target.
+
+### Step 3: Update Environment Variables
+
+After DNS propagates and Render provisions TLS certificates:
+
+| Variable | Service | New Value |
+|----------|---------|-----------|
+| `CORS_ORIGIN` | Backend | `https://<prefix>.yourdomain.com` |
+| `AGENT_SERVER_URL` | Backend | `https://<prefix>.agent.yourdomain.com` |
+| `VITE_API_URL` | Frontend | `https://<prefix>.agent.yourdomain.com` |
+
+### Step 4: Update Clerk
+
+In your Clerk application's **Domains** settings:
+- Add the frontend custom domain as an allowed origin
+- If using a production instance, the Clerk-hosted sign-in pages will use `clerk.<prefix>.yourdomain.com` automatically
 
 ## Clerk Setup
 
-Create a **separate Clerk application** for your Render deployment:
+Create a **separate Clerk application** for your Render deployment. Clerk development and production instances behave differently — production requires additional OAuth configuration.
+
+### Step 1: Create Application
 
 1. In [dashboard.clerk.com](https://dashboard.clerk.com), create a new application
-2. Under **Domains → Allowed Origins**, add your Render frontend URL (e.g., `https://achilles-frontend.onrender.com`)
-3. If using a custom domain, add that too
-4. Copy the publishable key and secret key to both services' environment variables
+2. Enable desired social providers (GitHub, Google, etc.)
+3. Copy the publishable key (`pk_test_...`) and secret key (`sk_test_...`) to both services' environment variables
+
+### Step 2: Add Production Instance (for custom domains)
+
+When you're ready to use custom domains instead of `*.onrender.com`:
+
+1. In Clerk Dashboard, go to **Configure** → **Production**
+2. Add your custom domain — Clerk will provide DNS records to add (a CNAME for `clerk.<your-domain>`)
+3. After DNS verification, Clerk generates **production keys** (`pk_live_...` / `sk_live_...`)
+4. Update `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` on **both** Render services with the production keys
+
+> **Important:** Development keys (`pk_test_`) and production keys (`pk_live_`) are not interchangeable. After switching to production, the development keys stop working for that instance.
+
+### Step 3: Configure OAuth Credentials (Production Only)
+
+**This step is critical.** Clerk development instances use Clerk's shared OAuth credentials for social providers (GitHub, Google, etc.) — login works out of the box. **Production instances require your own OAuth credentials.** Without them, social login buttons will redirect to the provider with an empty `client_id`, resulting in a 404 error.
+
+#### GitHub OAuth
+
+1. Go to [github.com/settings/developers](https://github.com/settings/developers) → **OAuth Apps** → **New OAuth App**
+2. Configure:
+
+   | Field | Value |
+   |-------|-------|
+   | Application name | `ProjectAchilles - Render` (or your preferred name) |
+   | Homepage URL | `https://<your-frontend-domain>` |
+   | Authorization callback URL | `https://clerk.<your-domain>/v1/oauth_callback` |
+
+3. After creation, generate a **Client Secret**
+4. In Clerk Dashboard → **Configure** → **SSO Connections** → **GitHub**:
+   - Enter the **Client ID** and **Client Secret**
+   - Save
+
+#### Google OAuth
+
+1. Go to [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials)
+2. Create an **OAuth 2.0 Client ID** (Web application type)
+3. Add authorized redirect URI: `https://clerk.<your-domain>/v1/oauth_callback`
+4. In Clerk Dashboard → **Configure** → **SSO Connections** → **Google**:
+   - Enter the **Client ID** and **Client Secret**
+   - Save
+
+> **OAuth callback URL pattern:** All social providers use `https://clerk.<your-domain>/v1/oauth_callback` as the redirect URI. Replace `<your-domain>` with your frontend's custom domain (e.g., `clerk.tpsgl.projectachilles.io`).
 
 ## Agent Build from Source
 
@@ -221,5 +302,24 @@ Set `AGENT_SERVER_URL` to the backend's public Render domain (with `https://`), 
 ### Analytics shows "not configured"
 The Elastic Cloud connection is stored in the encrypted `analytics.json` file. If `ENCRYPTION_SECRET` changed, the file becomes unreadable. Reconfigure via Analytics → Setup, or set `ELASTICSEARCH_CLOUD_ID` and `ELASTICSEARCH_API_KEY` as env vars (env vars take priority over the file).
 
+### GitHub/Google login returns 404 or fails
+
+**Symptom:** Clicking "Sign in with GitHub" redirects to GitHub with `client_id=` (empty), and GitHub returns a 404 page. Google login may fail similarly.
+
+**Cause:** You are using a Clerk **production instance** but haven't configured custom OAuth credentials. Production instances require your own GitHub/Google OAuth app credentials — unlike development instances, which use Clerk's shared credentials automatically.
+
+**Fix:** Follow the "Configure OAuth Credentials" steps in the Clerk Setup section above. Every social provider enabled in Clerk needs its own Client ID and Client Secret when running in production mode.
+
+### Agent builds fail with "Agent source not found"
+
+The `AGENT_REPO_URL` environment variable is not set, or the Git clone failed at startup. Check:
+- `AGENT_REPO_URL` is set to the full HTTPS URL of your ProjectAchilles repo
+- `GITHUB_TOKEN` is set if the repo is private (the token is injected into the clone URL)
+- The container logs for git clone errors (e.g., authentication failures, branch not found)
+
+The agent source is cloned once at startup via sparse checkout (only the `agent/` subdirectory). If the clone fails, the build feature is disabled and the Agent tab shows "Agent build from source is not available."
+
 ### Build times are slow
 Render caches Docker layers between builds. The first build takes 3-5 minutes; subsequent builds with only source code changes take ~1-2 minutes. If builds are consistently slow, check that `buildFilter.paths` is configured correctly so unrelated changes don't trigger rebuilds.
+
+Go agent builds also benefit from persistent caches — the first agent build downloads all Go modules (~30s), but subsequent builds reuse the cached modules from the persistent disk.
