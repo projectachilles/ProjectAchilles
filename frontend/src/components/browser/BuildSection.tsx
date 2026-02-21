@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { put } from '@vercel/blob/client';
 import { testsApi } from '@/services/api/tests';
 import { useCapabilities } from '@/hooks/useCapabilities';
 import type { BuildInfo, EmbedDependency } from '@/types/test';
@@ -129,8 +130,28 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
     setUploading(true);
     setError(null);
     try {
-      const info = await testsApi.uploadBinary(uuid, file);
-      setBuildInfo(info);
+      // Client-side MZ header validation (instant feedback, no network round-trip)
+      const header = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+      if (header[0] !== 0x4D || header[1] !== 0x5A) {
+        throw new Error('File does not appear to be a valid Windows executable (missing MZ header)');
+      }
+
+      if (capabilities.platform === 'vercel') {
+        // Client-side Blob upload — bypasses 4.5 MB serverless function body limit
+        const filename = `${uuid}.exe`;
+        const { token, pathname } = await testsApi.getUploadToken(uuid, filename);
+        await put(pathname, file, {
+          access: 'public',
+          token,
+          multipart: true,
+        });
+        const info = await testsApi.completeUpload(uuid, filename);
+        setBuildInfo(info);
+      } else {
+        // Server-side upload (Docker/Railway/Render — no body size limit)
+        const info = await testsApi.uploadBinary(uuid, file);
+        setBuildInfo(info);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Upload failed';
       const axiosErr = err as { response?: { data?: { error?: string } } };

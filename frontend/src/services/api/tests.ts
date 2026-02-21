@@ -182,4 +182,16 @@ export const testsApi = {
     });
     return response.data.data;
   },
+
+  // ── Client-side Blob Upload (Vercel) ────────────────────
+
+  async getUploadToken(uuid: string, filename: string): Promise<{ token: string; pathname: string }> {
+    const response = await apiClient.post(`/tests/builds/${uuid}/upload-token`, { filename });
+    return response.data.data;
+  },
+
+  async completeUpload(uuid: string, filename: string): Promise<BuildInfo> {
+    const response = await apiClient.post(`/tests/builds/${uuid}/upload-complete`, { filename });
+    return response.data.data;
+  },
 };

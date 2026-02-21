@@ -20,19 +20,29 @@ vi.mock('../../middleware/clerk.middleware.js', () => ({
 
 // Mock Blob storage
 const mockBlobReadText = vi.fn().mockResolvedValue(null);
+const mockBlobRead = vi.fn().mockResolvedValue(null);
 const mockBlobWrite = vi.fn().mockResolvedValue('https://blob.test/key');
 const mockBlobExists = vi.fn().mockResolvedValue(false);
 const mockBlobDelete = vi.fn().mockResolvedValue(undefined);
+const mockBlobHead = vi.fn().mockResolvedValue(null);
 const mockBlobUrl = vi.fn().mockResolvedValue(null);
 const mockBlobList = vi.fn().mockResolvedValue([]);
 
 vi.mock('../../services/storage.js', () => ({
   blobReadText: (...args: unknown[]) => mockBlobReadText(...args),
+  blobRead: (...args: unknown[]) => mockBlobRead(...args),
   blobWrite: (...args: unknown[]) => mockBlobWrite(...args),
   blobExists: (...args: unknown[]) => mockBlobExists(...args),
   blobDelete: (...args: unknown[]) => mockBlobDelete(...args),
+  blobHead: (...args: unknown[]) => mockBlobHead(...args),
   blobUrl: (...args: unknown[]) => mockBlobUrl(...args),
   blobList: (...args: unknown[]) => mockBlobList(...args),
+}));
+
+// Mock @vercel/blob/client (server-side token generation)
+const mockGenerateClientToken = vi.fn().mockResolvedValue('mock-client-token-abc123');
+vi.mock('@vercel/blob/client', () => ({
+  generateClientTokenFromReadWriteToken: (...args: unknown[]) => mockGenerateClientToken(...args),
 }));
 
 // Mock TestsSettingsService
@@ -345,6 +355,142 @@ describe('tests routes', () => {
       const writeKeys = mockBlobWrite.mock.calls.map((c: unknown[]) => c[0]);
       expect(writeKeys).toContain(`builds/${VALID_UUID}/${VALID_UUID}.exe`);
       expect(writeKeys).toContain(`builds/${VALID_UUID}/build-meta.json`);
+    });
+  });
+
+  describe('POST /api/tests/builds/:uuid/upload-token', () => {
+    const VALID_UUID = '12345678-1234-1234-1234-123456789abc';
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it('returns 400 for invalid UUID', async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post('/api/tests/builds/not-a-uuid/upload-token')
+        .send({ filename: 'test.exe' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Invalid UUID');
+    });
+
+    it('returns 400 when filename is missing', async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post(`/api/tests/builds/${VALID_UUID}/upload-token`)
+        .send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('filename is required');
+    });
+
+    it('returns 400 when filename is not a string', async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post(`/api/tests/builds/${VALID_UUID}/upload-token`)
+        .send({ filename: 123 });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('filename is required');
+    });
+
+    it('returns token and pathname on success', async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post(`/api/tests/builds/${VALID_UUID}/upload-token`)
+        .send({ filename: `${VALID_UUID}.exe` });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.token).toBe('mock-client-token-abc123');
+      expect(res.body.data.pathname).toBe(`builds/${VALID_UUID}/${VALID_UUID}.exe`);
+      expect(mockGenerateClientToken).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pathname: `builds/${VALID_UUID}/${VALID_UUID}.exe`,
+          addRandomSuffix: false,
+        }),
+      );
+    });
+  });
+
+  describe('POST /api/tests/builds/:uuid/upload-complete', () => {
+    const VALID_UUID = '12345678-1234-1234-1234-123456789abc';
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      mockGetPlatform.mockResolvedValue({ os: 'windows', arch: 'amd64' });
+    });
+
+    it('returns 400 for invalid UUID', async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post('/api/tests/builds/not-a-uuid/upload-complete')
+        .send({ filename: 'test.exe' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Invalid UUID');
+    });
+
+    it('returns 400 when filename is missing', async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post(`/api/tests/builds/${VALID_UUID}/upload-complete`)
+        .send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('filename is required');
+    });
+
+    it('returns 404 when blob does not exist', async () => {
+      mockBlobHead.mockResolvedValue(null);
+
+      const app = createApp();
+      const res = await request(app)
+        .post(`/api/tests/builds/${VALID_UUID}/upload-complete`)
+        .send({ filename: `${VALID_UUID}.exe` });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain('Binary not found');
+    });
+
+    it('returns 400 and deletes blob when MZ header is invalid', async () => {
+      mockBlobHead.mockResolvedValue({ size: 1024, url: 'https://blob.test/key' });
+      mockBlobRead.mockResolvedValue(Buffer.from('not a PE file'));
+
+      const app = createApp();
+      const res = await request(app)
+        .post(`/api/tests/builds/${VALID_UUID}/upload-complete`)
+        .send({ filename: `${VALID_UUID}.exe` });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('missing MZ header');
+      expect(mockBlobDelete).toHaveBeenCalledWith(`builds/${VALID_UUID}/${VALID_UUID}.exe`);
+    });
+
+    it('returns 200 with BuildInfo on success', async () => {
+      const peBuffer = Buffer.concat([Buffer.from([0x4D, 0x5A]), Buffer.alloc(100, 0)]);
+      mockBlobHead.mockResolvedValue({ size: peBuffer.length, url: 'https://blob.test/key' });
+      mockBlobRead.mockResolvedValue(peBuffer);
+
+      const app = createApp();
+      const res = await request(app)
+        .post(`/api/tests/builds/${VALID_UUID}/upload-complete`)
+        .send({ filename: `${VALID_UUID}.exe` });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.exists).toBe(true);
+      expect(res.body.data.source).toBe('uploaded');
+      expect(res.body.data.signed).toBe(false);
+      expect(res.body.data.platform).toEqual({ os: 'windows', arch: 'amd64' });
+      expect(res.body.data.fileSize).toBe(peBuffer.length);
+
+      // Verify build-meta.json was written
+      expect(mockBlobWrite).toHaveBeenCalledWith(
+        `builds/${VALID_UUID}/build-meta.json`,
+        expect.stringContaining('"source": "uploaded"'),
+      );
     });
   });
 

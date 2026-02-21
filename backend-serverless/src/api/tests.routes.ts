@@ -4,7 +4,8 @@ import { requireClerkAuth, requirePermission } from '../middleware/clerk.middlew
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { TestsSettingsService } from '../services/tests/settings.js';
 import type { PlatformSettings, BuildMetadata } from '../types/tests.js';
-import { blobReadText, blobWrite, blobExists, blobDelete, blobUrl, blobList } from '../services/storage.js';
+import { blobReadText, blobRead, blobWrite, blobExists, blobDelete, blobHead, blobUrl, blobList } from '../services/storage.js';
+import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client';
 
 const VALID_OS = ['windows', 'linux', 'darwin'] as const;
 const VALID_ARCH = ['amd64', '386', 'arm64'] as const;
@@ -296,6 +297,75 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   router.post('/builds/:uuid/upload', requirePermission('tests:builds:create'), asyncHandler(async (req, _res) => {
     validateUuid(req.params.uuid);
     throw new AppError('Embed dependency upload not available on serverless', 503);
+  }));
+
+  // POST /api/tests/builds/:uuid/upload-token - Generate client token for direct Blob upload
+  router.post('/builds/:uuid/upload-token', requirePermission('tests:builds:create'), asyncHandler(async (req, res) => {
+    validateUuid(req.params.uuid);
+    const { filename } = req.body;
+    if (!filename || typeof filename !== 'string') {
+      throw new AppError('filename is required', 400);
+    }
+
+    const pathname = `builds/${req.params.uuid}/${filename}`;
+    const clientToken = await generateClientTokenFromReadWriteToken({
+      pathname,
+      token: process.env.BLOB_READ_WRITE_TOKEN!,
+      maximumSizeInBytes: 100 * 1024 * 1024, // 100 MB
+      allowedContentTypes: ['application/octet-stream', 'application/x-msdownload'],
+      validUntil: Date.now() + 30 * 60 * 1000, // 30 min
+      addRandomSuffix: false,
+    });
+
+    res.json({ success: true, data: { token: clientToken, pathname } });
+  }));
+
+  // POST /api/tests/builds/:uuid/upload-complete - Finalize after client-side Blob upload
+  router.post('/builds/:uuid/upload-complete', requirePermission('tests:builds:create'), asyncHandler(async (req, res) => {
+    validateUuid(req.params.uuid);
+    const { filename } = req.body;
+    if (!filename || typeof filename !== 'string') {
+      throw new AppError('filename is required', 400);
+    }
+
+    const blobKey = `builds/${req.params.uuid}/${filename}`;
+
+    // Verify the blob actually exists
+    const blobMeta = await blobHead(blobKey);
+    if (!blobMeta) {
+      throw new AppError('Binary not found in Blob storage', 404);
+    }
+
+    // Read first bytes to validate MZ header (defense-in-depth)
+    const headBuffer = await blobRead(blobKey);
+    if (!headBuffer || headBuffer.length < 2 || headBuffer[0] !== 0x4D || headBuffer[1] !== 0x5A) {
+      await blobDelete(blobKey);
+      throw new AppError('File does not appear to be a valid Windows executable (missing MZ header)', 400);
+    }
+
+    const platform = await testsSettings.getPlatformSettings();
+    const meta: BuildMetadata = {
+      platform: { os: platform.os, arch: platform.arch },
+      builtAt: new Date().toISOString(),
+      signed: false,
+      fileSize: blobMeta.size,
+      filename,
+      source: 'uploaded',
+    };
+    await blobWrite(`builds/${req.params.uuid}/build-meta.json`, JSON.stringify(meta, null, 2));
+
+    res.json({
+      success: true,
+      data: {
+        exists: true,
+        platform: meta.platform,
+        signed: false,
+        fileSize: meta.fileSize,
+        builtAt: meta.builtAt,
+        filename: meta.filename,
+        source: 'uploaded',
+      },
+    });
   }));
 
   // POST /api/tests/builds/:uuid/upload-binary - Upload pre-built test binary (to Blob)
