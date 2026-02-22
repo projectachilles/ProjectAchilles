@@ -530,11 +530,20 @@ describe('TestsSettingsService', () => {
       );
       expect(metaWriteCall).toBeDefined();
 
-      const chmodCall = mockChmodSync.mock.calls.find(
-        (call) => typeof call[0] === 'string' && call[0].endsWith('key.pem'),
+      // cert.cer.b64 should be written
+      const b64WriteCall = mockWriteFileSync.mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].endsWith('cert.cer.b64'),
       );
-      expect(chmodCall).toBeDefined();
-      expect(chmodCall![1]).toBe(0o600);
+      expect(b64WriteCall).toBeDefined();
+
+      // Intermediate files (key.pem, cert.crt) should be deleted
+      const unlinkCalls = mockUnlinkSync.mock.calls.map((c) => c[0] as string);
+      expect(unlinkCalls).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('key.pem'),
+          expect.stringContaining('cert.crt'),
+        ]),
+      );
     });
 
     it('validates subject characters — rejects shell injection in commonName', async () => {
@@ -850,6 +859,7 @@ describe('TestsSettingsService', () => {
           expect.stringContaining('cert.crt'),
           expect.stringContaining('cert.pfx'),
           expect.stringContaining('cert.cer'),
+          expect.stringContaining('cert.cer.b64'),
           expect.stringContaining('cert-meta.json'),
         ]),
       );
@@ -875,6 +885,7 @@ describe('TestsSettingsService', () => {
         if (p === `${CERTS_DIR}/cert.crt`) return true;
         if (p === `${CERTS_DIR}/cert.pfx`) return true;
         if (p === `${CERTS_DIR}/cert.cer`) return true;
+        if (p === `${CERTS_DIR}/cert.cer.b64`) return true;
         if (typeof p === 'string' && p.includes(`cert-${now}`) && p.endsWith('cert-meta.json')) return true;
         if (p === ACTIVE_CERT_FILE) return false;
         return false;

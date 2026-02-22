@@ -181,7 +181,7 @@ export class TestsSettingsService {
     const targetDir = path.join(CERTS_DIR, dirName);
     this.ensureDir(targetDir);
 
-    const legacyFiles = ['key.pem', 'cert.crt', 'cert.pfx', 'cert.cer', 'cert-meta.json'];
+    const legacyFiles = ['key.pem', 'cert.crt', 'cert.pfx', 'cert.cer', 'cert.cer.b64', 'cert-meta.json'];
     for (const file of legacyFiles) {
       const src = path.join(CERTS_DIR, file);
       if (fs.existsSync(src)) {
@@ -416,10 +416,16 @@ export class TestsSettingsService {
       const expiryStr = expiryRaw.trim().split('=')[1] || expiryRaw.trim();
       const expiresAt = new Date(expiryStr).toISOString();
 
-      // 7. Set key.pem to mode 0600
-      fs.chmodSync(keyPath, 0o600);
+      // 7. Create base64-encoded DER certificate
+      const cerB64Path = path.join(certDir, 'cert.cer.b64');
+      const cerDer = fs.readFileSync(cerPath);
+      fs.writeFileSync(cerB64Path, cerDer.toString('base64'));
 
-      // 8. Write metadata with encrypted password
+      // 8. Clean up intermediate files (key + PEM cert) — only PFX, DER, and b64 are kept
+      fs.unlinkSync(keyPath);
+      fs.unlinkSync(certPath);
+
+      // 9. Write metadata with encrypted password
       const meta: CertificateMetadata = {
         id: dirName,
         label,
@@ -432,7 +438,7 @@ export class TestsSettingsService {
       };
       fs.writeFileSync(path.join(certDir, 'cert-meta.json'), JSON.stringify(meta, null, 2));
 
-      // 9. Auto-set as active if no active cert
+      // 10. Auto-set as active if no active cert
       if (!this.getActiveCertificateId()) {
         fs.writeFileSync(ACTIVE_CERT_FILE, dirName);
       }
@@ -597,7 +603,7 @@ export class TestsSettingsService {
       }
     } else {
       // Legacy: delete all cert files at root (backward compat)
-      const files = ['key.pem', 'cert.crt', 'cert.pfx', 'cert.cer', 'cert-meta.json'];
+      const files = ['key.pem', 'cert.crt', 'cert.pfx', 'cert.cer', 'cert.cer.b64', 'cert-meta.json'];
       for (const file of files) {
         const filePath = path.join(CERTS_DIR, file);
         if (fs.existsSync(filePath)) {
