@@ -358,7 +358,7 @@ export class TestsSettingsService {
     const subjectStr = `/CN=${subject.commonName}/O=${subject.organization}/C=${subject.country}`;
 
     try {
-      // 1. Generate self-signed certificate + key
+      // 1. Generate self-signed code-signing certificate + key
       await execFileAsync('openssl', [
         'req', '-x509', '-newkey', 'rsa:4096',
         '-keyout', keyPath,
@@ -366,6 +366,8 @@ export class TestsSettingsService {
         '-days', '1825',
         '-nodes',
         '-subj', subjectStr,
+        '-addext', 'extendedKeyUsage=codeSigning',
+        '-addext', 'keyUsage=digitalSignature',
       ]);
 
       // 2. Use provided password or generate a random one
