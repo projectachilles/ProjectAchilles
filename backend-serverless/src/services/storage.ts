@@ -16,7 +16,7 @@ import { put, del, head, list } from '@vercel/blob';
  */
 
 export async function blobWrite(key: string, data: Buffer | string): Promise<string> {
-  const blob = await put(key, data, { access: 'public', addRandomSuffix: false });
+  const blob = await put(key, data, { access: 'public', addRandomSuffix: false, allowOverwrite: true });
   return blob.url;
 }
 
