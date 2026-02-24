@@ -39,6 +39,7 @@ const {
   cancelTask,
   deleteTask,
   expireOldTasks,
+  expireStaleTasks,
   updateTaskNotes,
 } = await import('../tasks.service.js');
 
@@ -291,6 +292,62 @@ describe('tasks.service', () => {
 
       const count = await expireOldTasks();
       expect(count).toBe(0);
+    });
+  });
+
+  describe('expireStaleTasks', () => {
+    it('fails executing tasks when agent is offline', async () => {
+      const staleHeartbeat = new Date(Date.now() - 600_000).toISOString();
+      await insertTestAgent(testDb, { id: 'offline-agent', last_heartbeat: staleHeartbeat });
+      await insertTestTask(testDb, { id: 't-stale', agent_id: 'offline-agent', status: 'executing' });
+
+      const count = await expireStaleTasks();
+      expect(count).toBe(1);
+
+      const row = await testDb.get('SELECT status, result FROM tasks WHERE id = ?', ['t-stale']) as unknown as any;
+      expect(row.status).toBe('failed');
+      expect(JSON.parse(row.result)).toEqual({ error: 'Agent went offline during execution' });
+    });
+
+    it('fails downloading tasks when agent is offline', async () => {
+      const staleHeartbeat = new Date(Date.now() - 600_000).toISOString();
+      await insertTestAgent(testDb, { id: 'offline-agent', last_heartbeat: staleHeartbeat });
+      await insertTestTask(testDb, { id: 't-dl', agent_id: 'offline-agent', status: 'downloading' });
+
+      const count = await expireStaleTasks();
+      expect(count).toBe(1);
+
+      const row = await testDb.get('SELECT status FROM tasks WHERE id = ?', ['t-dl']) as unknown as any;
+      expect(row.status).toBe('failed');
+    });
+
+    it('does not fail tasks when agent is still online', async () => {
+      await insertTestTask(testDb, { id: 't-active', agent_id: 'agent-001', status: 'executing' });
+
+      const count = await expireStaleTasks();
+      expect(count).toBe(0);
+
+      const row = await testDb.get('SELECT status FROM tasks WHERE id = ?', ['t-active']) as unknown as any;
+      expect(row.status).toBe('executing');
+    });
+
+    it('does not affect pending or assigned tasks', async () => {
+      const staleHeartbeat = new Date(Date.now() - 600_000).toISOString();
+      await insertTestAgent(testDb, { id: 'offline-agent', last_heartbeat: staleHeartbeat });
+      await insertTestTask(testDb, { id: 't-pending', agent_id: 'offline-agent', status: 'pending' });
+      await insertTestTask(testDb, { id: 't-assigned', agent_id: 'offline-agent', status: 'assigned' });
+
+      const count = await expireStaleTasks();
+      expect(count).toBe(0);
+    });
+
+    it('fails tasks when agent has null heartbeat', async () => {
+      await insertTestAgent(testDb, { id: 'no-hb-agent', last_heartbeat: '' });
+      await testDb.run("UPDATE agents SET last_heartbeat = NULL WHERE id = 'no-hb-agent'");
+      await insertTestTask(testDb, { id: 't-nohb', agent_id: 'no-hb-agent', status: 'executing' });
+
+      const count = await expireStaleTasks();
+      expect(count).toBe(1);
     });
   });
 

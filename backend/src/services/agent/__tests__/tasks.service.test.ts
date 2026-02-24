@@ -57,6 +57,7 @@ const {
   cancelTask,
   deleteTask,
   expireOldTasks,
+  expireStaleTasks,
   updateTaskNotes,
 } = await import('../tasks.service.js');
 
@@ -309,6 +310,66 @@ describe('tasks.service', () => {
 
       const count = expireOldTasks();
       expect(count).toBe(0);
+    });
+  });
+
+  describe('expireStaleTasks', () => {
+    it('fails executing tasks when agent is offline', () => {
+      // Agent with last heartbeat 10 minutes ago (well past 360s threshold)
+      const staleHeartbeat = new Date(Date.now() - 600_000).toISOString();
+      insertTestAgent(testDb, { id: 'offline-agent', last_heartbeat: staleHeartbeat });
+      insertTestTask(testDb, { id: 't-stale', agent_id: 'offline-agent', status: 'executing' });
+
+      const count = expireStaleTasks();
+      expect(count).toBe(1);
+
+      const row = testDb.prepare('SELECT status, result FROM tasks WHERE id = ?').get('t-stale') as any;
+      expect(row.status).toBe('failed');
+      expect(JSON.parse(row.result)).toEqual({ error: 'Agent went offline during execution' });
+    });
+
+    it('fails downloading tasks when agent is offline', () => {
+      const staleHeartbeat = new Date(Date.now() - 600_000).toISOString();
+      insertTestAgent(testDb, { id: 'offline-agent', last_heartbeat: staleHeartbeat });
+      insertTestTask(testDb, { id: 't-dl', agent_id: 'offline-agent', status: 'downloading' });
+
+      const count = expireStaleTasks();
+      expect(count).toBe(1);
+
+      const row = testDb.prepare('SELECT status FROM tasks WHERE id = ?').get('t-dl') as any;
+      expect(row.status).toBe('failed');
+    });
+
+    it('does not fail tasks when agent is still online', () => {
+      // Agent with recent heartbeat (default is now)
+      insertTestTask(testDb, { id: 't-active', agent_id: 'agent-001', status: 'executing' });
+
+      const count = expireStaleTasks();
+      expect(count).toBe(0);
+
+      const row = testDb.prepare('SELECT status FROM tasks WHERE id = ?').get('t-active') as any;
+      expect(row.status).toBe('executing');
+    });
+
+    it('does not affect pending or assigned tasks', () => {
+      const staleHeartbeat = new Date(Date.now() - 600_000).toISOString();
+      insertTestAgent(testDb, { id: 'offline-agent', last_heartbeat: staleHeartbeat });
+      insertTestTask(testDb, { id: 't-pending', agent_id: 'offline-agent', status: 'pending' });
+      insertTestTask(testDb, { id: 't-assigned', agent_id: 'offline-agent', status: 'assigned' });
+
+      const count = expireStaleTasks();
+      expect(count).toBe(0);
+    });
+
+    it('fails tasks when agent has null heartbeat', () => {
+      // Agent that never sent a heartbeat
+      insertTestAgent(testDb, { id: 'no-hb-agent', last_heartbeat: '' });
+      // SQLite stores empty string; update to NULL for this test
+      testDb.prepare("UPDATE agents SET last_heartbeat = NULL WHERE id = 'no-hb-agent'").run();
+      insertTestTask(testDb, { id: 't-nohb', agent_id: 'no-hb-agent', status: 'executing' });
+
+      const count = expireStaleTasks();
+      expect(count).toBe(1);
     });
   });
 
