@@ -331,8 +331,9 @@ export function createUpdateTasks(
 export function getNextTask(agentId: string): Task | null {
   const db = getDatabase();
 
-  // Expire old tasks first
+  // Expire old tasks and fail stale executing tasks first
   expireOldTasks();
+  expireStaleTasks();
 
   // Find and assign the next task atomically via transaction
   const result = db.transaction(() => {
@@ -676,6 +677,32 @@ export function expireOldTasks(): number {
     WHERE status IN ('pending', 'assigned')
       AND julianday('now') - julianday(created_at) > ttl / 86400.0
   `).run();
+
+  return result.changes;
+}
+
+/**
+ * Fail tasks stuck in 'executing' or 'downloading' whose owning agent has
+ * been offline for longer than STALE_TASK_THRESHOLD_SECONDS. This prevents
+ * tasks from being orphaned forever when an agent crashes or loses network.
+ */
+const STALE_TASK_THRESHOLD_SECONDS = 360; // 2× heartbeat timeout (180s)
+
+export function expireStaleTasks(): number {
+  const db = getDatabase();
+
+  const result = db.prepare(`
+    UPDATE tasks
+    SET status = 'failed',
+        completed_at = datetime('now'),
+        result = json('{"error":"Agent went offline during execution"}')
+    WHERE status IN ('executing', 'downloading')
+      AND agent_id IN (
+        SELECT id FROM agents
+        WHERE last_heartbeat IS NULL
+           OR (julianday('now') - julianday(last_heartbeat)) * 86400.0 > ?
+      )
+  `).run(STALE_TASK_THRESHOLD_SECONDS);
 
   return result.changes;
 }
