@@ -143,6 +143,7 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 
 	cmd := exec.CommandContext(execCtx, binaryPath, task.Payload.Arguments...)
 	cmd.Dir = tempDir
+	cmd.WaitDelay = 10 * time.Second // Force-close pipes if orphan children hold them open after process exit
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &limitedWriter{buf: &stdoutBuf, remaining: maxOutputBytes}
@@ -245,6 +246,7 @@ func ExecuteCommand(ctx context.Context, client *httpclient.Client, task Task, c
 	} else {
 		cmd.Dir = "/"
 	}
+	cmd.WaitDelay = 10 * time.Second // Force-close pipes if orphan children hold them open after process exit
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &limitedWriter{buf: &stdoutBuf, remaining: maxOutputBytes}
