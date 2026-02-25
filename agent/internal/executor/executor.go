@@ -9,12 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"time"
 
 	"github.com/f0rt1ka/achilles-agent/internal/config"
@@ -145,15 +145,17 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 	cmd := exec.CommandContext(execCtx, binaryPath, task.Payload.Arguments...)
 	cmd.Dir = tempDir
 	cmd.WaitDelay = 10 * time.Second
-	if runtime.GOOS == "windows" {
-		// On Windows, TerminateProcess only kills the direct child; orphaned
-		// grandchildren keep inherited pipe handles alive. WaitDelay closes Go's
-		// pipe read-end, but Windows' blocking ReadFile isn't reliably interrupted
-		// by CloseHandle from another thread. Kill the entire process tree instead
-		// so all pipe write-ends close and ReadFile returns immediately.
+
+	// Create a Job Object (Windows) to kill all child processes on timeout.
+	// On Linux/macOS this returns (nil, nil) — a no-op.
+	job, jobErr := newJobObject()
+	if jobErr != nil {
+		log.Printf("warning: job object creation failed: %v", jobErr)
+	}
+	if job != nil {
 		cmd.Cancel = func() error {
-			return exec.Command("taskkill", "/T", "/F", "/PID",
-				strconv.Itoa(cmd.Process.Pid)).Run()
+			job.close()
+			return nil
 		}
 	}
 
@@ -161,9 +163,23 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 	cmd.Stdout = &limitedWriter{buf: &stdoutBuf, remaining: maxOutputBytes}
 	cmd.Stderr = &limitedWriter{buf: &stderrBuf, remaining: maxOutputBytes}
 
-	// Step 8: Run and capture exit code.
+	// Step 8: Start process, assign to job, then wait.
 	startedAt := time.Now().UTC()
-	runErr := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		if job != nil {
+			job.close()
+		}
+		return nil, fmt.Errorf("start binary: %w", err)
+	}
+	if job != nil {
+		if err := job.assign(uint32(cmd.Process.Pid)); err != nil {
+			log.Printf("warning: job object assign failed: %v", err)
+		}
+	}
+	runErr := cmd.Wait()
+	if job != nil {
+		job.close()
+	}
 	completedAt := time.Now().UTC()
 
 	exitCode := 0
@@ -259,10 +275,16 @@ func ExecuteCommand(ctx context.Context, client *httpclient.Client, task Task, c
 		cmd.Dir = "/"
 	}
 	cmd.WaitDelay = 10 * time.Second
-	if runtime.GOOS == "windows" {
+
+	// Create a Job Object (Windows) to kill all child processes on timeout.
+	job, jobErr := newJobObject()
+	if jobErr != nil {
+		log.Printf("warning: job object creation failed: %v", jobErr)
+	}
+	if job != nil {
 		cmd.Cancel = func() error {
-			return exec.Command("taskkill", "/T", "/F", "/PID",
-				strconv.Itoa(cmd.Process.Pid)).Run()
+			job.close()
+			return nil
 		}
 	}
 
@@ -270,9 +292,23 @@ func ExecuteCommand(ctx context.Context, client *httpclient.Client, task Task, c
 	cmd.Stdout = &limitedWriter{buf: &stdoutBuf, remaining: maxOutputBytes}
 	cmd.Stderr = &limitedWriter{buf: &stderrBuf, remaining: maxOutputBytes}
 
-	// Step 3: Run and capture exit code.
+	// Step 3: Start process, assign to job, then wait.
 	startedAt := time.Now().UTC()
-	runErr := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		if job != nil {
+			job.close()
+		}
+		return nil, fmt.Errorf("start command: %w", err)
+	}
+	if job != nil {
+		if err := job.assign(uint32(cmd.Process.Pid)); err != nil {
+			log.Printf("warning: job object assign failed: %v", err)
+		}
+	}
+	runErr := cmd.Wait()
+	if job != nil {
+		job.close()
+	}
 	completedAt := time.Now().UTC()
 
 	exitCode := 0

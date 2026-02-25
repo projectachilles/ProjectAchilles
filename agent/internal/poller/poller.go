@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -122,6 +123,11 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 	log.Printf("Poller started (heartbeat=%s, poll=%s, update=%s)",
 		cfg.HeartbeatInterval, cfg.PollInterval, cfg.UpdateInterval)
 
+	// Async execution state: only one task runs at a time.
+	var taskBusy int32
+	updateAppliedCh := make(chan struct{}, 1)
+	taskDoneCh := make(chan struct{}, 1) // signals when a goroutine finishes
+
 	// Send an initial heartbeat immediately.
 	sendHeartbeat(ctx, client, cfg, st, version)
 
@@ -139,14 +145,34 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 	for {
 		select {
 		case <-ctx.Done():
+			// Wait for in-flight task to finish (up to 30 seconds).
+			if atomic.LoadInt32(&taskBusy) == 1 {
+				log.Println("waiting for in-flight task to finish...")
+				select {
+				case <-taskDoneCh:
+					log.Println("in-flight task finished")
+				case <-time.After(30 * time.Second):
+					log.Println("in-flight task did not finish within 30s, exiting anyway")
+				}
+			}
 			return ctx.Err()
 		case <-heartbeatTicker.C:
 			sendHeartbeat(ctx, client, cfg, st, version)
 		case <-pollTicker.C:
-			if pollTasks(ctx, client, st, cfg, version) {
-				log.Println("admin-triggered update applied, exiting for restart")
-				return ErrUpdateApplied
+			if atomic.LoadInt32(&taskBusy) == 1 {
+				continue // skip poll while executing
 			}
+			task := fetchTask(ctx, client)
+			if task == nil {
+				continue
+			}
+			if !atomic.CompareAndSwapInt32(&taskBusy, 0, 1) {
+				continue // race guard
+			}
+			go executeAndReport(ctx, client, st, cfg, version, task, &taskBusy, updateAppliedCh, taskDoneCh)
+		case <-updateAppliedCh:
+			log.Println("admin-triggered update applied, exiting for restart")
+			return ErrUpdateApplied
 		case <-updateC:
 			updated, err := updater.CheckAndUpdate(ctx, client, version, cfg)
 			if err != nil {
@@ -226,41 +252,61 @@ func sendHeartbeat(ctx context.Context, client *httpclient.Client, cfg *config.C
 	log.Println("heartbeat sent")
 }
 
-// pollTasks checks the server for pending tasks. If a task is received,
-// it executes the binary and reports the result.
-// Returns true if an update_agent task applied an update (caller should exit for restart).
-func pollTasks(ctx context.Context, client *httpclient.Client, st *store.Store, cfg *config.Config, version string) bool {
+// fetchTask polls the server for a pending task and returns it, or nil if none available.
+func fetchTask(ctx context.Context, client *httpclient.Client) *executor.Task {
 	log.Println("polling for tasks")
 
 	resp, err := client.Do(ctx, http.MethodGet, "/api/agent/tasks", nil)
 	if err != nil {
 		log.Printf("poll error: %v", err)
-		return false
+		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNoContent {
-		return false
+		return nil
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("unexpected poll response: %d", resp.StatusCode)
-		return false
+		return nil
 	}
 
 	var envelope serverTaskResponse
 	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
 		log.Printf("decode task error: %v", err)
-		return false
+		return nil
 	}
 
 	if !envelope.Success || envelope.Data.ID == "" {
 		log.Println("no valid task in response")
-		return false
+		return nil
 	}
 
 	task := envelope.Data
 	log.Printf("task received: %s (type=%s, test=%s)", task.ID, task.Type, task.Payload.TestName)
+	return &task
+}
+
+// executeAndReport runs a task in a goroutine, reports the result, and clears the busy flag.
+func executeAndReport(
+	ctx context.Context,
+	client *httpclient.Client,
+	st *store.Store,
+	cfg *config.Config,
+	version string,
+	task *executor.Task,
+	taskBusy *int32,
+	updateAppliedCh chan<- struct{},
+	taskDoneCh chan<- struct{},
+) {
+	defer atomic.StoreInt32(taskBusy, 0)
+	defer func() {
+		select {
+		case taskDoneCh <- struct{}{}:
+		default:
+		}
+	}()
 
 	// Track current task for heartbeat reporting.
 	taskID := task.ID
@@ -269,12 +315,13 @@ func pollTasks(ctx context.Context, client *httpclient.Client, st *store.Store, 
 
 	// Dispatch based on task type.
 	var result *executor.Result
+	var err error
 	var updateApplied bool
 	switch task.Type {
 	case "execute_test":
-		result, err = executor.Execute(ctx, client, task, cfg)
+		result, err = executor.Execute(ctx, client, *task, cfg)
 	case "execute_command":
-		result, err = executor.ExecuteCommand(ctx, client, task, cfg)
+		result, err = executor.ExecuteCommand(ctx, client, *task, cfg)
 	case "update_agent":
 		if patchErr := patchTaskStatus(ctx, client, task.ID, "executing"); patchErr != nil {
 			log.Printf("failed to mark task %s as executing: %v", task.ID, patchErr)
@@ -286,7 +333,7 @@ func pollTasks(ctx context.Context, client *httpclient.Client, st *store.Store, 
 				log.Printf("failed to mark task %s as failed: %v", task.ID, patchErr)
 			}
 			_ = st.Update(func(s *store.State) { s.LastTaskID = task.ID })
-			return false
+			return
 		}
 		updateApplied = updated
 		result = &executor.Result{ExitCode: 0}
@@ -297,7 +344,7 @@ func pollTasks(ctx context.Context, client *httpclient.Client, st *store.Store, 
 		}
 	default:
 		log.Printf("unsupported task type %q, skipping", task.Type)
-		return false
+		return
 	}
 
 	if err != nil {
@@ -308,7 +355,7 @@ func pollTasks(ctx context.Context, client *httpclient.Client, st *store.Store, 
 		_ = st.Update(func(s *store.State) {
 			s.LastTaskID = task.ID
 		})
-		return false
+		return
 	}
 
 	// Report the result.
@@ -322,7 +369,12 @@ func pollTasks(ctx context.Context, client *httpclient.Client, st *store.Store, 
 		s.LastTaskID = task.ID
 	})
 
-	return updateApplied
+	if updateApplied {
+		select {
+		case updateAppliedCh <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // patchTaskStatus sends a PATCH to update a task's status on the server.
