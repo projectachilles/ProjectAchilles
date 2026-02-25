@@ -646,7 +646,7 @@ export function cancelTask(taskId: string): Task {
 }
 
 /**
- * Delete a task. Only terminal statuses (completed, failed, expired) can be deleted.
+ * Delete a task in any status. Admin-only action behind Clerk auth.
  */
 export function deleteTask(taskId: string): void {
   const db = getDatabase();
@@ -655,11 +655,6 @@ export function deleteTask(taskId: string): void {
 
   if (!row) {
     throw new AppError('Task not found', 404);
-  }
-
-  const terminalStatuses = ['completed', 'failed', 'expired'];
-  if (!terminalStatuses.includes(row.status)) {
-    throw new AppError(`Cannot delete task in status: ${row.status}`, 400);
   }
 
   db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);

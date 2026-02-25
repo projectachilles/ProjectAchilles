@@ -64,8 +64,8 @@ function isCancellable(status: TaskStatus): boolean {
   return status === 'pending' || status === 'assigned';
 }
 
-function isDeletable(status: TaskStatus): boolean {
-  return status === 'completed' || status === 'failed' || status === 'expired';
+function isDeletable(_status: TaskStatus): boolean {
+  return true;
 }
 
 function isGroupCancellable(group: TaskGroup): boolean {

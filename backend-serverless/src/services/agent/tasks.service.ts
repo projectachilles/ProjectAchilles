@@ -640,7 +640,7 @@ export async function cancelTask(taskId: string): Promise<Task> {
 }
 
 /**
- * Delete a task. Only terminal statuses (completed, failed, expired) can be deleted.
+ * Delete a task in any status. Admin-only action behind Clerk auth.
  */
 export async function deleteTask(taskId: string): Promise<void> {
   const db = await getDb();
@@ -649,11 +649,6 @@ export async function deleteTask(taskId: string): Promise<void> {
 
   if (!row) {
     throw new AppError('Task not found', 404);
-  }
-
-  const terminalStatuses = ['completed', 'failed', 'expired'];
-  if (!terminalStatuses.includes(row.status)) {
-    throw new AppError(`Cannot delete task in status: ${row.status}`, 400);
   }
 
   await db.run('DELETE FROM tasks WHERE id = ?', [taskId]);

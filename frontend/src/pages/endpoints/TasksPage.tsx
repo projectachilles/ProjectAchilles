@@ -225,9 +225,7 @@ export default function TasksPage() {
   const canBulkCancel = selectedTaskObjects.length > 0 && selectedTaskObjects.every(
     (t) => t.status === 'pending' || t.status === 'assigned'
   );
-  const canBulkDelete = selectedTaskObjects.length > 0 && selectedTaskObjects.every(
-    (t) => t.status === 'completed' || t.status === 'failed' || t.status === 'expired'
-  );
+  const canBulkDelete = selectedTaskObjects.length > 0;
 
   // --- Schedules ---
 

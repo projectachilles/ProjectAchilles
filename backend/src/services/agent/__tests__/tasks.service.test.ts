@@ -592,22 +592,31 @@ describe('tasks.service', () => {
       expect(row).toBeUndefined();
     });
 
-    it('rejects deletion of pending task', () => {
+    it('deletes a pending task', () => {
       insertTestTask(testDb, { id: 't1', status: 'pending' });
 
-      expect(() => deleteTask('t1')).toThrow('Cannot delete task in status: pending');
+      deleteTask('t1');
+
+      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
+      expect(row).toBeUndefined();
     });
 
-    it('rejects deletion of assigned task', () => {
+    it('deletes an assigned task', () => {
       insertTestTask(testDb, { id: 't1', status: 'assigned' });
 
-      expect(() => deleteTask('t1')).toThrow('Cannot delete task in status: assigned');
+      deleteTask('t1');
+
+      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
+      expect(row).toBeUndefined();
     });
 
-    it('rejects deletion of executing task', () => {
+    it('deletes an executing task', () => {
       insertTestTask(testDb, { id: 't1', status: 'executing' });
 
-      expect(() => deleteTask('t1')).toThrow('Cannot delete task in status: executing');
+      deleteTask('t1');
+
+      const row = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
+      expect(row).toBeUndefined();
     });
 
     it('throws 404 for nonexistent task', () => {
