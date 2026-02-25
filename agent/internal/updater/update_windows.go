@@ -38,7 +38,7 @@ func applyUpdate(currentBin, newBin string) error {
 func secureBinaryPermissions(path string) {
 	cmd := exec.Command("icacls", path,
 		"/inheritance:r",
-		"/grant:r", "NT AUTHORITY\\SYSTEM:(RX)",
+		"/grant:r", "NT AUTHORITY\\SYSTEM:(F)",
 		"/grant:r", "BUILTIN\\Administrators:(F)",
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
