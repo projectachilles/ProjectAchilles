@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/f0rt1ka/achilles-agent/internal/config"
@@ -143,7 +144,18 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 
 	cmd := exec.CommandContext(execCtx, binaryPath, task.Payload.Arguments...)
 	cmd.Dir = tempDir
-	cmd.WaitDelay = 10 * time.Second // Force-close pipes if orphan children hold them open after process exit
+	cmd.WaitDelay = 10 * time.Second
+	if runtime.GOOS == "windows" {
+		// On Windows, TerminateProcess only kills the direct child; orphaned
+		// grandchildren keep inherited pipe handles alive. WaitDelay closes Go's
+		// pipe read-end, but Windows' blocking ReadFile isn't reliably interrupted
+		// by CloseHandle from another thread. Kill the entire process tree instead
+		// so all pipe write-ends close and ReadFile returns immediately.
+		cmd.Cancel = func() error {
+			return exec.Command("taskkill", "/T", "/F", "/PID",
+				strconv.Itoa(cmd.Process.Pid)).Run()
+		}
+	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &limitedWriter{buf: &stdoutBuf, remaining: maxOutputBytes}
@@ -246,7 +258,13 @@ func ExecuteCommand(ctx context.Context, client *httpclient.Client, task Task, c
 	} else {
 		cmd.Dir = "/"
 	}
-	cmd.WaitDelay = 10 * time.Second // Force-close pipes if orphan children hold them open after process exit
+	cmd.WaitDelay = 10 * time.Second
+	if runtime.GOOS == "windows" {
+		cmd.Cancel = func() error {
+			return exec.Command("taskkill", "/T", "/F", "/PID",
+				strconv.Itoa(cmd.Process.Pid)).Run()
+		}
+	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &limitedWriter{buf: &stdoutBuf, remaining: maxOutputBytes}

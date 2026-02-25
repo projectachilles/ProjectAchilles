@@ -103,13 +103,16 @@ func main() {
 	}
 
 	if *run {
-		// Wire up log file if configured, writing to both stderr and the file.
+		// Wire up log file if configured. When running as a Windows service,
+		// os.Stderr is typically a null handle — io.MultiWriter stops on the
+		// first writer error and never reaches the file. Put the file first
+		// so logs are always written, with stderr as a best-effort copy.
 		if cfg.LogFile != "" {
 			f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0640)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "warning: could not open log file %s: %v\n", cfg.LogFile, err)
 			} else {
-				log.SetOutput(io.MultiWriter(os.Stderr, f))
+				log.SetOutput(io.MultiWriter(f, os.Stderr))
 			}
 		}
 

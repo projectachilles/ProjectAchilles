@@ -29,7 +29,7 @@ func secureFilePermissions(path string) error {
 func SecureBinaryPermissions(path string) error {
 	cmd := exec.Command("icacls", path,
 		"/inheritance:r",
-		"/grant:r", "NT AUTHORITY\\SYSTEM:(RX)",
+		"/grant:r", "NT AUTHORITY\\SYSTEM:(F)",
 		"/grant:r", "BUILTIN\\Administrators:(F)",
 	)
 	out, err := cmd.CombinedOutput()
