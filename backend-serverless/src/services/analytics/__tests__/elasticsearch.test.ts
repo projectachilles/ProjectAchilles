@@ -913,7 +913,7 @@ describe('elasticsearch.ts', () => {
       expect(searchCall.aggs.display_groups.terms.script.lang).toBe('painless');
       // top_hits sub-agg for member docs
       expect(searchCall.aggs.display_groups.aggs.members.top_hits).toBeDefined();
-      expect(searchCall.aggs.display_groups.aggs.members.top_hits.size).toBe(200);
+      expect(searchCall.aggs.display_groups.aggs.members.top_hits.size).toBe(100);
       // sort_value sub-agg for group ordering
       expect(searchCall.aggs.display_groups.aggs.sort_value.max.field).toBe('routing.event_time');
       // cardinality agg with same script for total group count

@@ -1197,7 +1197,7 @@ export class ElasticsearchService {
           aggs: {
             members: {
               top_hits: {
-                size: 200,
+                size: 100,
                 sort: [{ [sortField]: sortOrder }],
                 _source: true,
               },
@@ -1225,8 +1225,8 @@ export class ElasticsearchService {
       const members: EnrichedTestExecution[] = memberHits.map((hit: any) => this.mapHitToExecution(hit));
       const representative = members[0] || this.mapHitToExecution({ _source: {} });
 
-      // Warn if top_hits were truncated (bundle exceeds 200 controls)
-      if (isBundle && memberHits.length >= 200) {
+      // Warn if top_hits were truncated (bundle exceeds 100 controls)
+      if (isBundle && memberHits.length >= 100) {
         console.warn(`Bundle group ${groupKey} has ${memberHits.length}+ members (top_hits may be truncated)`);
       }
 
