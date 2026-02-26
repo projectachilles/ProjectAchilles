@@ -605,4 +605,48 @@ router.post('/index/create', requirePermission('analytics:index:create'), asyncH
   res.json({ success: true, ...result });
 }));
 
+// ============================================
+// Archive Endpoints
+// ============================================
+
+// POST /api/analytics/executions/archive - Archive executions by group keys
+router.post('/executions/archive', requirePermission('analytics:executions:archive'), asyncHandler(async (req, res) => {
+  const { groupKeys } = req.body as { groupKeys?: string[] };
+
+  if (!Array.isArray(groupKeys) || groupKeys.length === 0) {
+    throw new AppError('groupKeys must be a non-empty array', 400);
+  }
+  if (groupKeys.length > 500) {
+    throw new AppError('Maximum 500 group keys per request', 400);
+  }
+  for (const key of groupKeys) {
+    if (typeof key !== 'string' || (!key.startsWith('bundle::') && !key.startsWith('standalone::'))) {
+      throw new AppError(`Invalid group key: "${key}". Must start with "bundle::" or "standalone::"`, 400);
+    }
+  }
+
+  const es = await getEsService();
+  const result = await es.archiveByGroupKeys(groupKeys);
+  res.json({ success: true, archived: result.archived, errors: result.errors });
+}));
+
+// POST /api/analytics/executions/archive-by-date - Archive executions before a date
+router.post('/executions/archive-by-date', requirePermission('analytics:executions:archive'), asyncHandler(async (req, res) => {
+  const { before } = req.body as { before?: string };
+
+  if (!before || typeof before !== 'string') {
+    throw new AppError('before must be a valid ISO date string', 400);
+  }
+
+  // Validate ISO date
+  const date = new Date(before);
+  if (isNaN(date.getTime())) {
+    throw new AppError('before must be a valid ISO date string', 400);
+  }
+
+  const es = await getEsService();
+  const result = await es.archiveByDateRange(before);
+  res.json({ success: true, archived: result.archived, errors: result.errors });
+}));
+
 export default router;

@@ -1940,4 +1940,158 @@ export class ElasticsearchService {
       totalTestActivity,
     };
   }
+
+  // ================================================================
+  // Archive operations
+  // ================================================================
+
+  /** Derive archive index name from the active index pattern. */
+  private getArchiveIndexName(): string {
+    // Strip trailing wildcard: "achilles-results-*" → "achilles-results-"
+    // Then remove any trailing dash/wildcard characters to get the base.
+    const base = (this.settings.indexPattern || 'achilles-results-*')
+      .replace(/[\-\*]+$/, '');
+    // Reversed prefix so it does NOT match "achilles-results-*"
+    return `archived-${base}`;
+  }
+
+  /** Ensure the archive index exists with the correct mapping. */
+  private async ensureArchiveIndex(): Promise<string> {
+    const archiveIndex = this.getArchiveIndexName();
+    const exists = await this.client.indices.exists({ index: archiveIndex });
+    if (!exists) {
+      const { RESULTS_INDEX_MAPPING } = await import('./index-management.service.js');
+      await this.client.indices.create({
+        index: archiveIndex,
+        ...RESULTS_INDEX_MAPPING,
+      });
+    }
+    return archiveIndex;
+  }
+
+  /**
+   * Archive executions by group keys.
+   * Group key format:
+   *   "bundle::<bundle_id>::<hostname>" — all docs in a bundle execution
+   *   "standalone::<test_uuid>::<hostname>" — a single standalone test execution
+   */
+  async archiveByGroupKeys(
+    groupKeys: string[],
+  ): Promise<{ archived: number; errors: string[] }> {
+    const errors: string[] = [];
+    const shouldClauses: any[] = [];
+
+    for (const key of groupKeys) {
+      if (key.startsWith('bundle::')) {
+        const parts = key.split('::');
+        if (parts.length < 3) {
+          errors.push(`Invalid bundle group key: ${key}`);
+          continue;
+        }
+        const bundleId = parts[1];
+        const hostname = parts.slice(2).join('::');
+        shouldClauses.push({
+          bool: {
+            filter: [
+              { term: { 'f0rtika.bundle_id': bundleId } },
+              { term: { 'routing.hostname': hostname } },
+            ],
+          },
+        });
+      } else if (key.startsWith('standalone::')) {
+        const parts = key.split('::');
+        if (parts.length < 3) {
+          errors.push(`Invalid standalone group key: ${key}`);
+          continue;
+        }
+        const testUuid = parts[1];
+        const hostname = parts.slice(2).join('::');
+        shouldClauses.push({
+          bool: {
+            filter: [
+              { term: { 'f0rtika.test_uuid': testUuid } },
+              { term: { 'routing.hostname': hostname } },
+              { bool: { must_not: [{ term: { 'f0rtika.is_bundle_control': true } }] } },
+            ],
+          },
+        });
+      } else {
+        errors.push(`Unknown group key prefix: ${key}`);
+      }
+    }
+
+    if (shouldClauses.length === 0) {
+      return { archived: 0, errors };
+    }
+
+    const query = {
+      bool: {
+        filter: [this.buildTestDataFilter()],
+        should: shouldClauses,
+        minimum_should_match: 1,
+      },
+    };
+
+    const archiveIndex = await this.ensureArchiveIndex();
+
+    // Step 1: Reindex to archive
+    const reindexResult = await this.client.reindex({
+      source: { index: this.settings.indexPattern, query },
+      dest: { index: archiveIndex },
+      refresh: true,
+    });
+
+    const archived = (reindexResult as any).total || 0;
+
+    if (archived === 0) {
+      return { archived: 0, errors };
+    }
+
+    // Step 2: Delete from source
+    await this.client.deleteByQuery({
+      index: this.settings.indexPattern,
+      query,
+      refresh: true,
+    });
+
+    return { archived, errors };
+  }
+
+  /** Archive all executions before a given date. */
+  async archiveByDateRange(
+    before: string,
+  ): Promise<{ archived: number; errors: string[] }> {
+    const errors: string[] = [];
+
+    const query = {
+      bool: {
+        filter: [
+          this.buildTestDataFilter(),
+          { range: { 'routing.event_time': { lt: before } } },
+        ],
+      },
+    };
+
+    const archiveIndex = await this.ensureArchiveIndex();
+
+    const reindexResult = await this.client.reindex({
+      source: { index: this.settings.indexPattern, query },
+      dest: { index: archiveIndex },
+      refresh: true,
+    });
+
+    const archived = (reindexResult as any).total || 0;
+
+    if (archived === 0) {
+      return { archived: 0, errors };
+    }
+
+    await this.client.deleteByQuery({
+      index: this.settings.indexPattern,
+      query,
+      refresh: true,
+    });
+
+    return { archived, errors };
+  }
 }

@@ -31,9 +31,13 @@ vi.mock('../../services/analytics/settings.js', () => ({
 
 // Mock the ES service
 const mockTestConnection = vi.fn();
+const mockArchiveByGroupKeys = vi.fn();
+const mockArchiveByDateRange = vi.fn();
 vi.mock('../../services/analytics/elasticsearch.js', () => ({
   ElasticsearchService: class MockElasticsearchService {
     testConnection = mockTestConnection;
+    archiveByGroupKeys = mockArchiveByGroupKeys;
+    archiveByDateRange = mockArchiveByDateRange;
   },
 }));
 
@@ -164,6 +168,98 @@ describe('analytics routes', () => {
 
       expect(res.status).toBe(400);
       expect(res.body.error).toContain('Invalid index name');
+    });
+  });
+
+  describe('POST /api/analytics/executions/archive', () => {
+    it('returns 400 when groupKeys is empty', async () => {
+      mockGetSettings.mockReturnValue({ configured: true, connectionType: 'direct', node: 'http://localhost:9200' });
+
+      const app = createApp();
+      const res = await request(app)
+        .post('/api/analytics/executions/archive')
+        .send({ groupKeys: [] });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('non-empty array');
+    });
+
+    it('returns 400 when groupKeys is not an array', async () => {
+      mockGetSettings.mockReturnValue({ configured: true, connectionType: 'direct', node: 'http://localhost:9200' });
+
+      const app = createApp();
+      const res = await request(app)
+        .post('/api/analytics/executions/archive')
+        .send({ groupKeys: 'not-an-array' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when a group key has invalid prefix', async () => {
+      mockGetSettings.mockReturnValue({ configured: true, connectionType: 'direct', node: 'http://localhost:9200' });
+
+      const app = createApp();
+      const res = await request(app)
+        .post('/api/analytics/executions/archive')
+        .send({ groupKeys: ['invalid::foo::bar'] });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Invalid group key');
+    });
+
+    it('calls service on valid input', async () => {
+      mockGetSettings.mockReturnValue({ configured: true, connectionType: 'direct', node: 'http://localhost:9200' });
+      mockArchiveByGroupKeys.mockResolvedValue({ archived: 3, errors: [] });
+
+      const app = createApp();
+      const res = await request(app)
+        .post('/api/analytics/executions/archive')
+        .send({ groupKeys: ['standalone::uuid-001::host-a', 'bundle::b1::host-b'] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.archived).toBe(3);
+      expect(mockArchiveByGroupKeys).toHaveBeenCalledWith(['standalone::uuid-001::host-a', 'bundle::b1::host-b']);
+    });
+  });
+
+  describe('POST /api/analytics/executions/archive-by-date', () => {
+    it('returns 400 when before is missing', async () => {
+      mockGetSettings.mockReturnValue({ configured: true, connectionType: 'direct', node: 'http://localhost:9200' });
+
+      const app = createApp();
+      const res = await request(app)
+        .post('/api/analytics/executions/archive-by-date')
+        .send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('valid ISO date');
+    });
+
+    it('returns 400 when before is not a valid date', async () => {
+      mockGetSettings.mockReturnValue({ configured: true, connectionType: 'direct', node: 'http://localhost:9200' });
+
+      const app = createApp();
+      const res = await request(app)
+        .post('/api/analytics/executions/archive-by-date')
+        .send({ before: 'not-a-date' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('calls service on valid date', async () => {
+      mockGetSettings.mockReturnValue({ configured: true, connectionType: 'direct', node: 'http://localhost:9200' });
+      mockArchiveByDateRange.mockResolvedValue({ archived: 15, errors: [] });
+
+      const app = createApp();
+      const res = await request(app)
+        .post('/api/analytics/executions/archive-by-date')
+        .send({ before: '2025-01-01T00:00:00Z' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.archived).toBe(15);
+      expect(mockArchiveByDateRange).toHaveBeenCalledWith('2025-01-01T00:00:00Z');
     });
   });
 });

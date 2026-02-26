@@ -5,12 +5,22 @@ import type { AnalyticsSettings, AnalyticsQueryParams, PaginatedExecutionsParams
 const mockSearch = vi.fn();
 const mockCount = vi.fn();
 const mockInfo = vi.fn();
+const mockReindex = vi.fn();
+const mockDeleteByQuery = vi.fn();
+const mockIndicesExists = vi.fn();
+const mockIndicesCreate = vi.fn();
 
 vi.mock('@elastic/elasticsearch', () => ({
   Client: vi.fn().mockImplementation(function (this: any) {
     this.search = mockSearch;
     this.count = mockCount;
     this.info = mockInfo;
+    this.reindex = mockReindex;
+    this.deleteByQuery = mockDeleteByQuery;
+    this.indices = {
+      exists: mockIndicesExists,
+      create: mockIndicesCreate,
+    };
   }),
 }));
 
@@ -93,6 +103,10 @@ describe('elasticsearch.ts', () => {
     mockSearch.mockReset();
     mockCount.mockReset();
     mockInfo.mockReset();
+    mockReindex.mockReset();
+    mockDeleteByQuery.mockReset();
+    mockIndicesExists.mockReset();
+    mockIndicesCreate.mockReset();
   });
 
   // ================================================================
@@ -1511,6 +1525,149 @@ describe('elasticsearch.ts', () => {
       const result = await svc.getDefenseScoreByCategory(makeParams());
       expect(result[0].category).toBe('intel-driven');
       expect(result[0].score).toBe(90);
+    });
+  });
+
+  // ================================================================
+  // Archive operations
+  // ================================================================
+  describe('archiveByGroupKeys', () => {
+    it('archives standalone group — reindex + delete called', async () => {
+      mockIndicesExists.mockResolvedValue(true);
+      mockReindex.mockResolvedValue({ total: 1 });
+      mockDeleteByQuery.mockResolvedValue({ deleted: 1 });
+
+      const svc = createService({ indexPattern: 'achilles-results-*' });
+      const result = await svc.archiveByGroupKeys(['standalone::uuid-001::host-a']);
+
+      expect(result.archived).toBe(1);
+      expect(result.errors).toHaveLength(0);
+      expect(mockReindex).toHaveBeenCalledOnce();
+      expect(mockDeleteByQuery).toHaveBeenCalledOnce();
+
+      // Verify reindex dest is the archive index
+      const reindexCall = mockReindex.mock.calls[0][0];
+      expect(reindexCall.dest.index).toBe('archived-achilles-results');
+      expect(reindexCall.source.index).toBe('achilles-results-*');
+    });
+
+    it('archives bundle group — uses bundle_id + hostname', async () => {
+      mockIndicesExists.mockResolvedValue(true);
+      mockReindex.mockResolvedValue({ total: 5 });
+      mockDeleteByQuery.mockResolvedValue({ deleted: 5 });
+
+      const svc = createService({ indexPattern: 'achilles-results-*' });
+      const result = await svc.archiveByGroupKeys(['bundle::bundle-001::host-a']);
+
+      expect(result.archived).toBe(5);
+      expect(mockReindex).toHaveBeenCalledOnce();
+
+      // Check the query includes bundle_id filter
+      const query = mockReindex.mock.calls[0][0].source.query;
+      const shouldClause = query.bool.should[0];
+      expect(shouldClause.bool.filter).toEqual(
+        expect.arrayContaining([
+          { term: { 'f0rtika.bundle_id': 'bundle-001' } },
+          { term: { 'routing.hostname': 'host-a' } },
+        ])
+      );
+    });
+
+    it('creates archive index when missing', async () => {
+      mockIndicesExists.mockResolvedValue(false);
+      mockIndicesCreate.mockResolvedValue({});
+      mockReindex.mockResolvedValue({ total: 1 });
+      mockDeleteByQuery.mockResolvedValue({ deleted: 1 });
+
+      const svc = createService({ indexPattern: 'achilles-results-*' });
+      await svc.archiveByGroupKeys(['standalone::uuid-001::host-a']);
+
+      expect(mockIndicesCreate).toHaveBeenCalledOnce();
+      expect(mockIndicesCreate.mock.calls[0][0].index).toBe('archived-achilles-results');
+    });
+
+    it('skips delete when reindex returns 0', async () => {
+      mockIndicesExists.mockResolvedValue(true);
+      mockReindex.mockResolvedValue({ total: 0 });
+
+      const svc = createService({ indexPattern: 'achilles-results-*' });
+      const result = await svc.archiveByGroupKeys(['standalone::uuid-001::host-a']);
+
+      expect(result.archived).toBe(0);
+      expect(mockDeleteByQuery).not.toHaveBeenCalled();
+    });
+
+    it('handles mixed group key types', async () => {
+      mockIndicesExists.mockResolvedValue(true);
+      mockReindex.mockResolvedValue({ total: 6 });
+      mockDeleteByQuery.mockResolvedValue({ deleted: 6 });
+
+      const svc = createService({ indexPattern: 'achilles-results-*' });
+      const result = await svc.archiveByGroupKeys([
+        'bundle::b1::host-a',
+        'standalone::uuid-001::host-b',
+      ]);
+
+      expect(result.archived).toBe(6);
+      const query = mockReindex.mock.calls[0][0].source.query;
+      expect(query.bool.should).toHaveLength(2);
+    });
+
+    it('reports errors for invalid group keys', async () => {
+      mockIndicesExists.mockResolvedValue(true);
+      mockReindex.mockResolvedValue({ total: 1 });
+      mockDeleteByQuery.mockResolvedValue({ deleted: 1 });
+
+      const svc = createService({ indexPattern: 'achilles-results-*' });
+      const result = await svc.archiveByGroupKeys([
+        'unknown::foo',
+        'standalone::uuid-001::host-a',
+      ]);
+
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toContain('Unknown group key prefix');
+      expect(result.archived).toBe(1);
+    });
+
+    it('returns 0 archived when all keys are invalid', async () => {
+      const svc = createService({ indexPattern: 'achilles-results-*' });
+      const result = await svc.archiveByGroupKeys(['bad-key']);
+
+      expect(result.archived).toBe(0);
+      expect(result.errors).toHaveLength(1);
+      expect(mockReindex).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('archiveByDateRange', () => {
+    it('archives executions before a date', async () => {
+      mockIndicesExists.mockResolvedValue(true);
+      mockReindex.mockResolvedValue({ total: 10 });
+      mockDeleteByQuery.mockResolvedValue({ deleted: 10 });
+
+      const svc = createService({ indexPattern: 'achilles-results-*' });
+      const result = await svc.archiveByDateRange('2025-01-01T00:00:00Z');
+
+      expect(result.archived).toBe(10);
+      expect(result.errors).toHaveLength(0);
+
+      const query = mockReindex.mock.calls[0][0].source.query;
+      expect(query.bool.filter).toEqual(
+        expect.arrayContaining([
+          { range: { 'routing.event_time': { lt: '2025-01-01T00:00:00Z' } } },
+        ])
+      );
+    });
+
+    it('skips delete when reindex returns 0', async () => {
+      mockIndicesExists.mockResolvedValue(true);
+      mockReindex.mockResolvedValue({ total: 0 });
+
+      const svc = createService({ indexPattern: 'achilles-results-*' });
+      const result = await svc.archiveByDateRange('2020-01-01T00:00:00Z');
+
+      expect(result.archived).toBe(0);
+      expect(mockDeleteByQuery).not.toHaveBeenCalled();
     });
   });
 });

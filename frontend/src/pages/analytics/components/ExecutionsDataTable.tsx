@@ -1,4 +1,4 @@
-import { useState, useMemo, Fragment } from 'react';
+import { useState, useMemo, useEffect, Fragment } from 'react';
 import {
   Loader2,
   ShieldCheck,
@@ -15,6 +15,9 @@ import {
   Check,
   Package,
   SkipForward,
+  Archive,
+  Calendar,
+  X,
 } from 'lucide-react';
 import { formatDistanceToNow, isValid, format } from 'date-fns';
 import type { EnrichedTestExecution, SeverityLevel, CategoryType, GroupedPaginatedResponse, ExecutionGroup } from '@/services/api/analytics';
@@ -28,6 +31,7 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/shared/ui/Checkbox';
 
 // Parse timestamp - handles both epoch ms strings and ISO strings
 function parseTimestamp(timestamp: string): Date {
@@ -180,6 +184,9 @@ interface ExecutionsDataTableProps {
   onSort: (field: string, order: 'asc' | 'desc') => void;
   sortField?: string;
   sortOrder?: 'asc' | 'desc';
+  onArchive?: (groupKeys: string[]) => Promise<void>;
+  onArchiveByDate?: (before: string) => Promise<void>;
+  archiving?: boolean;
 }
 
 export default function ExecutionsDataTable({
@@ -190,6 +197,9 @@ export default function ExecutionsDataTable({
   onSort,
   sortField,
   sortOrder = 'desc',
+  onArchive,
+  onArchiveByDate,
+  archiving,
 }: ExecutionsDataTableProps) {
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
     new Set(COLUMNS.filter(c => c.defaultVisible).map(c => c.key))
@@ -198,14 +208,70 @@ export default function ExecutionsDataTable({
   const [expandedDetail, setExpandedDetail] = useState<string | null>(null);
   const [showColumnMenu, setShowColumnMenu] = useState(false);
 
+  // Selection state
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+
+  // Dialog state
+  const [confirmArchiveKeys, setConfirmArchiveKeys] = useState<string[] | null>(null);
+  const [showDatePurge, setShowDatePurge] = useState(false);
+  const [purgeDate, setPurgeDate] = useState('');
+
   const groups = data?.groups || [];
   const pagination = data?.pagination;
+
+  // Clear selection when data changes (page, sort, filter)
+  useEffect(() => {
+    setSelectedKeys(new Set());
+  }, [data]);
 
   // Flatten all group members for export
   const allExecutions = useMemo(() => groups.flatMap(g => g.members), [groups]);
 
   // Map server-provided groups to DisplayRows for rendering
   const displayRows = useMemo(() => mapGroupsToDisplayRows(groups), [groups]);
+
+  // All group keys on current page
+  const allGroupKeys = useMemo(() => displayRows.map(r => r.key), [displayRows]);
+
+  // Selection helpers
+  const toggleSelect = (key: string) => {
+    setSelectedKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedKeys.size === allGroupKeys.length) {
+      setSelectedKeys(new Set());
+    } else {
+      setSelectedKeys(new Set(allGroupKeys));
+    }
+  };
+
+  const isAllSelected = allGroupKeys.length > 0 && selectedKeys.size === allGroupKeys.length;
+  const isIndeterminate = selectedKeys.size > 0 && selectedKeys.size < allGroupKeys.length;
+
+  // Archive enabled
+  const archiveEnabled = !!onArchive;
+
+  // Handle archive confirmation
+  const handleArchiveConfirm = async () => {
+    if (!confirmArchiveKeys || !onArchive) return;
+    await onArchive(confirmArchiveKeys);
+    setConfirmArchiveKeys(null);
+    setSelectedKeys(new Set());
+  };
+
+  // Handle date purge confirmation
+  const handleDatePurgeConfirm = async () => {
+    if (!purgeDate || !onArchiveByDate) return;
+    await onArchiveByDate(purgeDate);
+    setShowDatePurge(false);
+    setPurgeDate('');
+  };
 
   // Toggle column visibility
   const toggleColumn = (key: string) => {
@@ -615,6 +681,9 @@ export default function ExecutionsDataTable({
     [visibleColumns]
   );
 
+  // Total columns including checkbox and actions
+  const totalColSpan = visibleColumnsList.length + (archiveEnabled ? 2 : 0);
+
   // Toggle bundle expand/collapse
   const toggleBundle = (key: string) => {
     setExpandedBundles(prev => {
@@ -648,6 +717,29 @@ export default function ExecutionsDataTable({
 
   return (
     <Card className="overflow-hidden">
+      {/* Bulk Actions Bar */}
+      {archiveEnabled && selectedKeys.size > 0 && (
+        <div className="flex items-center gap-3 px-4 py-2 bg-primary/5 border-b border-primary/20">
+          <span className="text-sm font-medium text-foreground">
+            {selectedKeys.size} selected
+          </span>
+          <button
+            onClick={() => setConfirmArchiveKeys([...selectedKeys])}
+            disabled={archiving}
+            className="flex items-center gap-1.5 px-3 py-1 bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30 rounded-lg text-sm hover:bg-red-500/20 transition-colors disabled:opacity-50"
+          >
+            {archiving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}
+            Archive Selected
+          </button>
+          <button
+            onClick={() => setSelectedKeys(new Set())}
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* Table Header */}
       <CardHeader className="flex flex-row items-center justify-between py-3 border-b">
         <div className="text-sm text-muted-foreground">
@@ -664,6 +756,17 @@ export default function ExecutionsDataTable({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Archive by Date */}
+          {onArchiveByDate && (
+            <button
+              onClick={() => setShowDatePurge(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm hover:bg-accent transition-colors"
+            >
+              <Calendar className="w-4 h-4" />
+              Archive by Date
+            </button>
+          )}
+
           {/* Column Visibility Toggle */}
           <div className="relative">
             <button
@@ -736,6 +839,18 @@ export default function ExecutionsDataTable({
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50">
+              {/* Checkbox column header */}
+              {archiveEnabled && (
+                <TableHead className="w-10">
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <Checkbox
+                      checked={isAllSelected}
+                      indeterminate={isIndeterminate}
+                      onChange={toggleSelectAll}
+                    />
+                  </div>
+                </TableHead>
+              )}
               {visibleColumnsList.map(col => (
                 <TableHead
                   key={col.key}
@@ -756,18 +871,20 @@ export default function ExecutionsDataTable({
                   </div>
                 </TableHead>
               ))}
+              {/* Actions column header */}
+              {archiveEnabled && <TableHead className="w-10" />}
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading && groups.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={visibleColumnsList.length} className="py-12 text-center">
+                <TableCell colSpan={totalColSpan} className="py-12 text-center">
                   <Loader2 className="w-6 h-6 animate-spin text-muted-foreground mx-auto" />
                 </TableCell>
               </TableRow>
             ) : groups.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={visibleColumnsList.length} className="py-12 text-center text-muted-foreground">
+                <TableCell colSpan={totalColSpan} className="py-12 text-center text-muted-foreground">
                   No executions found
                 </TableCell>
               </TableRow>
@@ -782,16 +899,37 @@ export default function ExecutionsDataTable({
                         className={`cursor-pointer ${expandedDetail === detailKey ? 'bg-accent/30' : ''}`}
                         onClick={() => toggleDetail(detailKey)}
                       >
+                        {/* Checkbox */}
+                        {archiveEnabled && (
+                          <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
+                            <Checkbox
+                              checked={selectedKeys.has(detailKey)}
+                              onChange={() => toggleSelect(detailKey)}
+                            />
+                          </TableCell>
+                        )}
                         {visibleColumnsList.map(col => (
                           <TableCell key={col.key}>
                             {renderCell(exec, col.key)}
                           </TableCell>
                         ))}
+                        {/* Archive button */}
+                        {archiveEnabled && (
+                          <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => setConfirmArchiveKeys([detailKey])}
+                              className="p-1.5 rounded opacity-0 group-hover/row:opacity-100 hover:!opacity-100 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-all"
+                              title="Archive"
+                            >
+                              <Archive className="w-4 h-4" />
+                            </button>
+                          </TableCell>
+                        )}
                       </TableRow>
 
                       {expandedDetail === detailKey && (
                         <TableRow className="bg-accent/20">
-                          <TableCell colSpan={visibleColumnsList.length} className="py-4 px-6">
+                          <TableCell colSpan={totalColSpan} className="py-4 px-6">
                             {renderDetailPanel(exec)}
                           </TableCell>
                         </TableRow>
@@ -811,11 +949,32 @@ export default function ExecutionsDataTable({
                       className={`cursor-pointer bg-muted/30 hover:bg-muted/50 ${isExpanded ? 'border-b-0' : ''}`}
                       onClick={() => toggleBundle(group.key)}
                     >
+                      {/* Checkbox */}
+                      {archiveEnabled && (
+                        <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            checked={selectedKeys.has(group.key)}
+                            onChange={() => toggleSelect(group.key)}
+                          />
+                        </TableCell>
+                      )}
                       {visibleColumnsList.map(col => (
                         <TableCell key={col.key}>
                           {renderBundleCell(group, col.key, isExpanded)}
                         </TableCell>
                       ))}
+                      {/* Archive button */}
+                      {archiveEnabled && (
+                        <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => setConfirmArchiveKeys([group.key])}
+                            className="p-1.5 rounded opacity-0 group-hover/row:opacity-100 hover:!opacity-100 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-all"
+                            title="Archive"
+                          >
+                            <Archive className="w-4 h-4" />
+                          </button>
+                        </TableCell>
+                      )}
                     </TableRow>
 
                     {/* Expanded control sub-rows */}
@@ -830,16 +989,20 @@ export default function ExecutionsDataTable({
                               toggleDetail(ctrlDetailKey);
                             }}
                           >
+                            {/* Empty checkbox space for sub-rows */}
+                            {archiveEnabled && <TableCell className="w-10" />}
                             {visibleColumnsList.map(col => (
                               <TableCell key={col.key}>
                                 {renderCell(ctrl, col.key, col.key === 'test_name')}
                               </TableCell>
                             ))}
+                            {/* Empty actions space for sub-rows */}
+                            {archiveEnabled && <TableCell className="w-10" />}
                           </TableRow>
 
                           {expandedDetail === ctrlDetailKey && (
                             <TableRow className="bg-accent/20 border-l-2 border-l-blue-500/30">
-                              <TableCell colSpan={visibleColumnsList.length} className="py-4 px-6">
+                              <TableCell colSpan={totalColSpan} className="py-4 px-6">
                                 {renderDetailPanel(ctrl)}
                               </TableCell>
                             </TableRow>
@@ -908,6 +1071,82 @@ export default function ExecutionsDataTable({
             </button>
           </div>
         </CardFooter>
+      )}
+
+      {/* Confirmation Dialog (individual + bulk archive) */}
+      {confirmArchiveKeys && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => !archiving && setConfirmArchiveKeys(null)}>
+          <div className="bg-card border border-border rounded-xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-foreground">Archive Executions</h3>
+              <button onClick={() => !archiving && setConfirmArchiveKeys(null)} className="text-muted-foreground hover:text-foreground">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-6">
+              This will move <span className="font-medium text-foreground">{confirmArchiveKeys.length}</span> execution group{confirmArchiveKeys.length !== 1 ? 's' : ''} to the archive. This is reversible.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmArchiveKeys(null)}
+                disabled={archiving}
+                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleArchiveConfirm}
+                disabled={archiving}
+                className="flex items-center gap-2 px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {archiving && <Loader2 className="w-4 h-4 animate-spin" />}
+                Archive
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Date Purge Dialog */}
+      {showDatePurge && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => !archiving && setShowDatePurge(false)}>
+          <div className="bg-card border border-border rounded-xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-foreground">Archive by Date</h3>
+              <button onClick={() => !archiving && setShowDatePurge(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Archive all executions before:
+              </label>
+              <input
+                type="date"
+                value={purgeDate}
+                onChange={(e) => setPurgeDate(e.target.value)}
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground"
+              />
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => { setShowDatePurge(false); setPurgeDate(''); }}
+                disabled={archiving}
+                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDatePurgeConfirm}
+                disabled={!purgeDate || archiving}
+                className="flex items-center gap-2 px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {archiving && <Loader2 className="w-4 h-4 animate-spin" />}
+                Archive
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </Card>
   );

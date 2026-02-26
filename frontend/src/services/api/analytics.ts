@@ -272,6 +272,12 @@ export interface IndexInfo {
   status: string;
 }
 
+export interface ArchiveResult {
+  success: boolean;
+  archived: number;
+  errors: string[];
+}
+
 export const analyticsApi = {
   // Settings
   async getSettings(): Promise<AnalyticsSettings> {
@@ -536,6 +542,17 @@ export const analyticsApi = {
 
   async createIndex(indexName: string): Promise<{ created: boolean; message: string }> {
     const response = await apiClient.post('/analytics/index/create', { index_name: indexName });
+    return response.data;
+  },
+
+  // Archive operations
+  async archiveExecutions(groupKeys: string[]): Promise<ArchiveResult> {
+    const response = await apiClient.post('/analytics/executions/archive', { groupKeys });
+    return response.data;
+  },
+
+  async archiveExecutionsByDate(before: string): Promise<ArchiveResult> {
+    const response = await apiClient.post('/analytics/executions/archive-by-date', { before });
     return response.data;
   },
 };

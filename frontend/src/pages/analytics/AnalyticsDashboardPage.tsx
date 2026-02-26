@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown } from 'lucide-react';
 import SharedLayout from '../../components/shared/Layout';
@@ -113,6 +113,11 @@ export default function AnalyticsDashboardPage() {
   const [executionsPageSize, setExecutionsPageSize] = useState(25);
   const [executionsSortField, setExecutionsSortField] = useState<string>('routing.event_time');
   const [executionsSortOrder, setExecutionsSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // Archive state
+  const [archiving, setArchiving] = useState(false);
+  // Ref to latest loadExecutionsData so archive handlers always call the current version
+  const loadExecutionsDataRef = useRef<() => Promise<void>>(undefined);
 
   // Loading States
   const [loadingFilters, setLoadingFilters] = useState(true);
@@ -269,6 +274,34 @@ export default function AnalyticsDashboardPage() {
       setLoadingExecutions(false);
     }
   }, [filterState, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder]);
+
+  // Keep ref in sync with latest loadExecutionsData
+  loadExecutionsDataRef.current = loadExecutionsData;
+
+  // Archive handlers
+  const handleArchive = useCallback(async (groupKeys: string[]) => {
+    setArchiving(true);
+    try {
+      await analyticsApi.archiveExecutions(groupKeys);
+      await loadExecutionsDataRef.current?.();
+    } catch (error) {
+      console.error('Failed to archive executions:', error);
+    } finally {
+      setArchiving(false);
+    }
+  }, []);
+
+  const handleArchiveByDate = useCallback(async (before: string) => {
+    setArchiving(true);
+    try {
+      await analyticsApi.archiveExecutionsByDate(before);
+      await loadExecutionsDataRef.current?.();
+    } catch (error) {
+      console.error('Failed to archive executions by date:', error);
+    } finally {
+      setArchiving(false);
+    }
+  }, []);
 
   // Refresh handler
   async function handleRefresh() {
@@ -477,6 +510,9 @@ export default function AnalyticsDashboardPage() {
             onSort={handleSort}
             sortField={executionsSortField}
             sortOrder={executionsSortOrder}
+            onArchive={handleArchive}
+            onArchiveByDate={handleArchiveByDate}
+            archiving={archiving}
           />
         )}
       </div>

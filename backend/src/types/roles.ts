@@ -20,6 +20,7 @@ export type Permission =
   | 'analytics:settings:read'
   | 'analytics:settings:write'
   | 'analytics:index:create'
+  | 'analytics:executions:archive'
   // Endpoints module
   | 'endpoints:agents:read'
   | 'endpoints:agents:write'
@@ -58,6 +59,7 @@ const ALL_PERMISSIONS: readonly Permission[] = [
   'analytics:settings:read',
   'analytics:settings:write',
   'analytics:index:create',
+  'analytics:executions:archive',
   'endpoints:agents:read',
   'endpoints:agents:write',
   'endpoints:agents:delete',
