@@ -1139,8 +1139,9 @@ export class ElasticsearchService {
     };
   }
 
-  // Get paginated executions collapsed by display group (bundle or standalone)
-  // Each collapsed group counts as 1 "row" for pagination, so "25 per page" = ~25 visible rows
+  // Get paginated executions collapsed by display group (bundle or standalone).
+  // Each collapsed group counts as 1 "row" for pagination, so "25 per page" = ~25 visible rows.
+  // Uses terms aggregation with a Painless script (collapse doesn't support scripted/runtime fields).
   async getGroupedPaginatedExecutions(params: PaginatedExecutionsParams): Promise<GroupedPaginatedResponse> {
     const filters = this.buildExtendedFilters(params);
     const page = params.page || 1;
@@ -1149,49 +1150,61 @@ export class ElasticsearchService {
     const sortField = params.sortField || 'routing.event_time';
     const sortOrder = params.sortOrder || 'desc';
 
+    // Painless script that computes a display group key per document:
+    //   bundle controls → "bundle::<bundle_id>::<hostname>"
+    //   standalone tests → "standalone::<test_uuid>::<hostname>"
+    const groupKeyScript = {
+      source: `
+        if (doc.containsKey('f0rtika.is_bundle_control')
+            && doc['f0rtika.is_bundle_control'].size() > 0
+            && doc['f0rtika.is_bundle_control'].value == true) {
+          return 'bundle::' + doc['f0rtika.bundle_id'].value + '::' + doc['routing.hostname'].value;
+        } else {
+          return 'standalone::' + doc['f0rtika.test_uuid'].value + '::' + doc['routing.hostname'].value;
+        }
+      `,
+      lang: 'painless',
+    };
+
     // Total document count (for badge/info display)
     const countResponse = await this.client.count({
       index: this.settings.indexPattern,
       query: { bool: { filter: filters } },
     });
 
-    // Collapsed search: runtime field computes a group key, collapse deduplicates,
-    // inner_hits returns all members per group, cardinality agg gives total group count.
+    // Single search with size:0 (results come from agg buckets, not top-level hits):
+    //   - terms agg with Painless script for grouping, ordered by most recent event
+    //   - top_hits sub-agg returns member docs per group
+    //   - cardinality agg with same script gives total distinct group count
+    // Pagination: over-fetch page*pageSize buckets and slice client-side for the requested page.
     const response = await this.client.search({
       index: this.settings.indexPattern,
-      size: pageSize,
-      from,
+      size: 0,
       query: { bool: { filter: filters } },
-      sort: [{ [sortField]: sortOrder }],
-      runtime_mappings: {
-        display_group: {
-          type: 'keyword' as const,
-          script: {
-            source: `
-              if (doc.containsKey('f0rtika.is_bundle_control')
-                  && doc['f0rtika.is_bundle_control'].size() > 0
-                  && doc['f0rtika.is_bundle_control'].value == true) {
-                emit('bundle::' + doc['f0rtika.bundle_id'].value + '::' + doc['routing.hostname'].value);
-              } else {
-                emit('standalone::' + doc['f0rtika.test_uuid'].value + '::' + doc['routing.hostname'].value);
-              }
-            `,
-          },
-        },
-      },
-      collapse: {
-        field: 'display_group',
-        inner_hits: {
-          name: 'group_members',
-          size: 200,
-          sort: [{ [sortField]: sortOrder }],
-        },
-      },
       aggs: {
         total_groups: {
           cardinality: {
-            field: 'display_group',
+            script: groupKeyScript,
             precision_threshold: 10000,
+          },
+        },
+        display_groups: {
+          terms: {
+            script: groupKeyScript,
+            size: page * pageSize,
+            order: { sort_value: sortOrder },
+          },
+          aggs: {
+            members: {
+              top_hits: {
+                size: 200,
+                sort: [{ [sortField]: sortOrder }],
+                _source: true,
+              },
+            },
+            sort_value: {
+              max: { field: 'routing.event_time' },
+            },
           },
         },
       },
@@ -1201,16 +1214,20 @@ export class ElasticsearchService {
     const totalGroups = (response.aggregations?.total_groups as any)?.value ?? 0;
     const totalPages = Math.ceil(totalGroups / pageSize);
 
-    const groups: ExecutionGroup[] = response.hits.hits.map((hit: any) => {
-      const representative = this.mapHitToExecution(hit);
-      const innerHits = hit.inner_hits?.group_members?.hits?.hits || [];
-      const members: EnrichedTestExecution[] = innerHits.map((ih: any) => this.mapHitToExecution(ih));
-      const groupKey: string = hit.fields?.display_group?.[0] || '';
-      const isBundle = groupKey.startsWith('bundle::');
+    // Slice the over-fetched buckets to the requested page window
+    const allBuckets = (response.aggregations?.display_groups as any)?.buckets || [];
+    const pageBuckets = allBuckets.slice(from, from + pageSize);
 
-      // Warn if inner_hits were truncated (bundle exceeds 200 controls)
-      if (isBundle && innerHits.length >= 200) {
-        console.warn(`Bundle group ${groupKey} has ${innerHits.length}+ members (inner_hits may be truncated)`);
+    const groups: ExecutionGroup[] = pageBuckets.map((bucket: any) => {
+      const groupKey: string = bucket.key;
+      const isBundle = groupKey.startsWith('bundle::');
+      const memberHits = bucket.members?.hits?.hits || [];
+      const members: EnrichedTestExecution[] = memberHits.map((hit: any) => this.mapHitToExecution(hit));
+      const representative = members[0] || this.mapHitToExecution({ _source: {} });
+
+      // Warn if top_hits were truncated (bundle exceeds 200 controls)
+      if (isBundle && memberHits.length >= 200) {
+        console.warn(`Bundle group ${groupKey} has ${memberHits.length}+ members (top_hits may be truncated)`);
       }
 
       let protectedCount = 0;

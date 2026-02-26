@@ -863,7 +863,7 @@ describe('elasticsearch.ts', () => {
     });
   });
 
-  // ── Grouped paginated executions (collapse + inner_hits) ──
+  // ── Grouped paginated executions (terms agg + top_hits) ──
   describe('getGroupedPaginatedExecutions', () => {
     function makePaginatedParams(overrides?: Partial<PaginatedExecutionsParams>): PaginatedExecutionsParams {
       return {
@@ -875,26 +875,30 @@ describe('elasticsearch.ts', () => {
       };
     }
 
-    function makeGroupedSearchResponse(hits: any[], totalGroups: number) {
+    function makeGroupedSearchResponse(buckets: any[], totalGroups: number) {
       return {
-        hits: { total: { value: hits.length, relation: 'eq' }, hits },
-        aggregations: { total_groups: { value: totalGroups } },
-      };
-    }
-
-    function makeCollapsedHit(source: Record<string, unknown>, groupKey: string, innerHits: any[] = []) {
-      return {
-        _source: source,
-        fields: { display_group: [groupKey] },
-        inner_hits: {
-          group_members: {
-            hits: { hits: innerHits.map(ih => ({ _source: ih })) },
-          },
+        hits: { total: { value: 0, relation: 'eq' }, hits: [] },
+        aggregations: {
+          total_groups: { value: totalGroups },
+          display_groups: { buckets },
         },
       };
     }
 
-    it('builds collapsed query with runtime_mappings, collapse, and cardinality agg', async () => {
+    function makeGroupBucket(groupKey: string, memberSources: Record<string, unknown>[] = []) {
+      return {
+        key: groupKey,
+        doc_count: memberSources.length,
+        members: {
+          hits: {
+            hits: memberSources.map(src => ({ _source: src })),
+          },
+        },
+        sort_value: { value: 1706745600000 },
+      };
+    }
+
+    it('builds terms agg query with script, top_hits, and cardinality', async () => {
       mockCount.mockResolvedValue(esCountResponse(50));
       mockSearch.mockResolvedValue(makeGroupedSearchResponse([], 0));
 
@@ -902,19 +906,27 @@ describe('elasticsearch.ts', () => {
       await svc.getGroupedPaginatedExecutions(makePaginatedParams());
 
       const searchCall = mockSearch.mock.calls[0][0];
-      expect(searchCall.runtime_mappings).toBeDefined();
-      expect(searchCall.runtime_mappings.display_group).toBeDefined();
-      expect(searchCall.runtime_mappings.display_group.type).toBe('keyword');
-      expect(searchCall.collapse).toBeDefined();
-      expect(searchCall.collapse.field).toBe('display_group');
-      expect(searchCall.collapse.inner_hits).toBeDefined();
-      expect(searchCall.aggs.total_groups).toBeDefined();
-      expect(searchCall.aggs.total_groups.cardinality.field).toBe('display_group');
+      // size:0 — results come from agg buckets, not top-level hits
+      expect(searchCall.size).toBe(0);
+      // terms agg with Painless script
+      expect(searchCall.aggs.display_groups.terms.script).toBeDefined();
+      expect(searchCall.aggs.display_groups.terms.script.lang).toBe('painless');
+      // top_hits sub-agg for member docs
+      expect(searchCall.aggs.display_groups.aggs.members.top_hits).toBeDefined();
+      expect(searchCall.aggs.display_groups.aggs.members.top_hits.size).toBe(200);
+      // sort_value sub-agg for group ordering
+      expect(searchCall.aggs.display_groups.aggs.sort_value.max.field).toBe('routing.event_time');
+      // cardinality agg with same script for total group count
+      expect(searchCall.aggs.total_groups.cardinality.script).toBeDefined();
     });
 
     it('returns correct pagination metadata', async () => {
+      // 45 groups across 150 docs; page 2 of 25 per page = 2 total pages
+      const buckets = Array.from({ length: 45 }, (_, i) =>
+        makeGroupBucket(`standalone::uuid-${i}::host-a`, [makeHitSource()])
+      );
       mockCount.mockResolvedValue(esCountResponse(150));
-      mockSearch.mockResolvedValue(makeGroupedSearchResponse([], 45));
+      mockSearch.mockResolvedValue(makeGroupedSearchResponse(buckets, 45));
 
       const svc = createService();
       const result = await svc.getGroupedPaginatedExecutions(makePaginatedParams({ page: 2, pageSize: 25 }));
@@ -926,14 +938,16 @@ describe('elasticsearch.ts', () => {
       expect(result.pagination.totalPages).toBe(2); // ceil(45/25)
       expect(result.pagination.hasNext).toBe(false);
       expect(result.pagination.hasPrevious).toBe(true);
+      // Page 2 should return remaining 20 groups (sliced from index 25)
+      expect(result.groups).toHaveLength(20);
     });
 
     it('maps standalone groups correctly', async () => {
       const source = makeHitSource();
-      const hit = makeCollapsedHit(source, 'standalone::uuid-001::host-a', [source]);
+      const bucket = makeGroupBucket('standalone::uuid-001::host-a', [source]);
 
       mockCount.mockResolvedValue(esCountResponse(1));
-      mockSearch.mockResolvedValue(makeGroupedSearchResponse([hit], 1));
+      mockSearch.mockResolvedValue(makeGroupedSearchResponse([bucket], 1));
 
       const svc = createService();
       const result = await svc.getGroupedPaginatedExecutions(makePaginatedParams());
@@ -965,10 +979,10 @@ describe('elasticsearch.ts', () => {
         'event.ERROR': 105, // protected
       });
 
-      const hit = makeCollapsedHit(ctrl1, 'bundle::bundle-001::host-a', [ctrl1, ctrl2, ctrl3]);
+      const bucket = makeGroupBucket('bundle::bundle-001::host-a', [ctrl1, ctrl2, ctrl3]);
 
       mockCount.mockResolvedValue(esCountResponse(3));
-      mockSearch.mockResolvedValue(makeGroupedSearchResponse([hit], 1));
+      mockSearch.mockResolvedValue(makeGroupedSearchResponse([bucket], 1));
 
       const svc = createService();
       const result = await svc.getGroupedPaginatedExecutions(makePaginatedParams());
@@ -981,7 +995,7 @@ describe('elasticsearch.ts', () => {
       expect(result.groups[0].members).toHaveLength(3);
     });
 
-    it('caps pageSize at 100', async () => {
+    it('caps pageSize at 100 and reflects in terms agg size', async () => {
       mockCount.mockResolvedValue(esCountResponse(0));
       mockSearch.mockResolvedValue(makeGroupedSearchResponse([], 0));
 
@@ -989,10 +1003,11 @@ describe('elasticsearch.ts', () => {
       await svc.getGroupedPaginatedExecutions(makePaginatedParams({ pageSize: 500 }));
 
       const searchCall = mockSearch.mock.calls[0][0];
-      expect(searchCall.size).toBe(100);
+      // page=1, capped pageSize=100 → terms.size = 1*100 = 100
+      expect(searchCall.aggs.display_groups.terms.size).toBe(100);
     });
 
-    it('computes correct from offset', async () => {
+    it('over-fetches correct number of buckets for later pages', async () => {
       mockCount.mockResolvedValue(esCountResponse(0));
       mockSearch.mockResolvedValue(makeGroupedSearchResponse([], 0));
 
@@ -1000,7 +1015,8 @@ describe('elasticsearch.ts', () => {
       await svc.getGroupedPaginatedExecutions(makePaginatedParams({ page: 3, pageSize: 20 }));
 
       const searchCall = mockSearch.mock.calls[0][0];
-      expect(searchCall.from).toBe(40); // (3-1) * 20
+      // page=3, pageSize=20 → terms.size = 3*20 = 60 (over-fetch to reach page 3)
+      expect(searchCall.aggs.display_groups.terms.size).toBe(60);
     });
 
     it('returns empty groups for zero results', async () => {
