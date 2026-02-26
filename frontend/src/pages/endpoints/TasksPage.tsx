@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Plus, RefreshCw, Search, X, Trash2, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react';
+import { Plus, RefreshCw, Search, X, Trash2, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, ChevronDown } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
 import type { AgentTask, TaskGroup, TaskStatus, Schedule } from '@/types/agent';
 import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
@@ -26,6 +26,7 @@ export default function TasksPage() {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [schedulesCollapsed, setSchedulesCollapsed] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [searchTerm, setSearchTerm] = useState('');
@@ -271,17 +272,24 @@ export default function TasksPage() {
           ) : undefined}
         />
 
-        {/* Schedules section */}
+        {/* Schedules section (collapsible) */}
         {schedules.length > 0 && (
           <div className="mb-6">
-            <h2 className="text-sm font-medium text-muted-foreground mb-2">
+            <button
+              type="button"
+              onClick={() => setSchedulesCollapsed(prev => !prev)}
+              className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground mb-2 hover:text-foreground transition-colors"
+            >
+              <ChevronDown className={`w-4 h-4 transition-transform ${schedulesCollapsed ? '-rotate-90' : ''}`} />
               Scheduled Tasks ({schedules.length})
-            </h2>
-            <ScheduleList
-              schedules={schedules}
-              onTogglePause={canWriteSchedule ? handleTogglePause : undefined}
-              onDelete={canDeleteSchedule ? handleDeleteSchedule : undefined}
-            />
+            </button>
+            {!schedulesCollapsed && (
+              <ScheduleList
+                schedules={schedules}
+                onTogglePause={canWriteSchedule ? handleTogglePause : undefined}
+                onDelete={canDeleteSchedule ? handleDeleteSchedule : undefined}
+              />
+            )}
           </div>
         )}
 
