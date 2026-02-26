@@ -174,6 +174,9 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 			log.Println("admin-triggered update applied, exiting for restart")
 			return ErrUpdateApplied
 		case <-updateC:
+			if atomic.LoadInt32(&taskBusy) == 1 {
+				continue // skip periodic update check while a task is executing
+			}
 			updated, err := updater.CheckAndUpdate(ctx, client, version, cfg)
 			if err != nil {
 				log.Printf("update check error: %v", err)
