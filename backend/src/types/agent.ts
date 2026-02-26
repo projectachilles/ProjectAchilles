@@ -7,7 +7,7 @@
 // AGENT ENTITY
 // ============================================================================
 
-export type AgentStatus = 'active' | 'disabled' | 'decommissioned';
+export type AgentStatus = 'active' | 'disabled' | 'decommissioned' | 'uninstalled';
 
 export type AgentOS = 'windows' | 'linux' | 'darwin';
 

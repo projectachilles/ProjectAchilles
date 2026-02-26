@@ -30,6 +30,7 @@ vi.mock('../../storage.js', () => ({
 const {
   createTasks,
   createCommandTasks,
+  createUninstallTasks,
   getNextTask,
   updateTaskStatus,
   submitResult,
@@ -885,6 +886,115 @@ describe('tasks.service', () => {
 
       expect(result.groups[0].batch_id).toBe('batch-new');
       expect(result.groups[1].batch_id).toBe('batch-old');
+    });
+  });
+
+  describe('createUninstallTasks', () => {
+    it('creates uninstall tasks for eligible agents', async () => {
+      await insertTestAgent(testDb, { id: 'agent-002' });
+
+      const taskIds = await createUninstallTasks(['agent-001', 'agent-002'], 'org-001', 'user-001');
+
+      expect(taskIds).toHaveLength(2);
+      const task = await getTask(taskIds[0]);
+      expect(task.type).toBe('uninstall');
+      expect(task.priority).toBe(10);
+      expect(task.status).toBe('pending');
+      expect(task.payload.command).toBe('');
+    });
+
+    it('stores cleanup flag in payload.command', async () => {
+      const taskIds = await createUninstallTasks(['agent-001'], 'org-001', 'user-001', true);
+
+      const task = await getTask(taskIds[0]);
+      expect(task.payload.command).toBe('cleanup');
+    });
+
+    it('rejects already-uninstalled agents', async () => {
+      await insertTestAgent(testDb, { id: 'agent-uninstalled', status: 'uninstalled' });
+
+      await expect(
+        createUninstallTasks(['agent-uninstalled'], 'org-001', 'user-001')
+      ).rejects.toThrow('Agents not eligible for uninstall');
+    });
+
+    it('rejects decommissioned agents', async () => {
+      await insertTestAgent(testDb, { id: 'agent-decom', status: 'decommissioned' });
+
+      await expect(
+        createUninstallTasks(['agent-decom'], 'org-001', 'user-001')
+      ).rejects.toThrow('Agents not eligible for uninstall');
+    });
+
+    it('rejects empty agent list', async () => {
+      await expect(
+        createUninstallTasks([], 'org-001', 'user-001')
+      ).rejects.toThrow('At least one agent_id is required');
+    });
+
+    it('uses 24h TTL', async () => {
+      const taskIds = await createUninstallTasks(['agent-001'], 'org-001', 'user-001');
+
+      const rows = await testDb.all('SELECT ttl FROM tasks WHERE id = ?', [taskIds[0]]);
+      expect((rows[0] as { ttl: number }).ttl).toBe(86400);
+    });
+  });
+
+  describe('submitResult — uninstall hook', () => {
+    it('marks agent as uninstalled when uninstall task completes', async () => {
+      await insertTestTask(testDb, {
+        id: 'uninstall-task-1',
+        agent_id: 'agent-001',
+        status: 'executing',
+        type: 'uninstall',
+      });
+
+      const result = {
+        task_id: 'uninstall-task-1',
+        test_uuid: '',
+        exit_code: 0,
+        stdout: 'uninstall initiated',
+        stderr: '',
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        execution_duration_ms: 100,
+        binary_sha256: '',
+        hostname: 'test-host',
+        os: 'linux' as const,
+        arch: 'amd64' as const,
+      };
+
+      await submitResult('uninstall-task-1', 'agent-001', result);
+
+      const rows = await testDb.all('SELECT status FROM agents WHERE id = ?', ['agent-001']);
+      expect((rows[0] as { status: string }).status).toBe('uninstalled');
+    });
+
+    it('does not change agent status for non-uninstall tasks', async () => {
+      await insertTestTask(testDb, {
+        id: 'test-task-1',
+        agent_id: 'agent-001',
+        status: 'executing',
+        type: 'execute_test',
+      });
+
+      await submitResult('test-task-1', 'agent-001', {
+        task_id: 'test-task-1',
+        test_uuid: 'test-uuid-001',
+        exit_code: 0,
+        stdout: 'ok',
+        stderr: '',
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        execution_duration_ms: 100,
+        binary_sha256: 'abc',
+        hostname: 'test-host',
+        os: 'linux' as const,
+        arch: 'amd64' as const,
+      });
+
+      const rows = await testDb.all('SELECT status FROM agents WHERE id = ?', ['agent-001']);
+      expect((rows[0] as { status: string }).status).toBe('active');
     });
   });
 });

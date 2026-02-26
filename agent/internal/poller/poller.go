@@ -22,6 +22,7 @@ import (
 	"github.com/f0rt1ka/achilles-agent/internal/reporter"
 	"github.com/f0rt1ka/achilles-agent/internal/store"
 	"github.com/f0rt1ka/achilles-agent/internal/sysinfo"
+	"github.com/f0rt1ka/achilles-agent/internal/uninstaller"
 	"github.com/f0rt1ka/achilles-agent/internal/updater"
 )
 
@@ -65,6 +66,10 @@ type serverTaskResponse struct {
 // ErrUpdateApplied is returned from Run when a self-update has been applied
 // and the agent should exit so the service manager (systemd/SCM) can restart it.
 var ErrUpdateApplied = errors.New("update applied, restart required")
+
+// ErrUninstallInitiated is returned from Run when a remote uninstall has been
+// initiated. The agent should exit and not restart.
+var ErrUninstallInitiated = errors.New("uninstall initiated, agent exiting")
 
 var (
 	currentTaskMu sync.Mutex
@@ -126,6 +131,7 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 	// Async execution state: only one task runs at a time.
 	var taskBusy int32
 	updateAppliedCh := make(chan struct{}, 1)
+	uninstallCh := make(chan struct{}, 1)
 	taskDoneCh := make(chan struct{}, 1) // signals when a goroutine finishes
 
 	// Send an initial heartbeat immediately.
@@ -169,10 +175,13 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 			if !atomic.CompareAndSwapInt32(&taskBusy, 0, 1) {
 				continue // race guard
 			}
-			go executeAndReport(ctx, client, st, cfg, version, task, &taskBusy, updateAppliedCh, taskDoneCh)
+			go executeAndReport(ctx, client, st, cfg, version, task, &taskBusy, updateAppliedCh, uninstallCh, taskDoneCh)
 		case <-updateAppliedCh:
 			log.Println("admin-triggered update applied, exiting for restart")
 			return ErrUpdateApplied
+		case <-uninstallCh:
+			log.Println("remote uninstall initiated, exiting")
+			return ErrUninstallInitiated
 		case <-updateC:
 			if atomic.LoadInt32(&taskBusy) == 1 {
 				continue // skip periodic update check while a task is executing
@@ -301,6 +310,7 @@ func executeAndReport(
 	task *executor.Task,
 	taskBusy *int32,
 	updateAppliedCh chan<- struct{},
+	uninstallCh chan<- struct{},
 	taskDoneCh chan<- struct{},
 ) {
 	defer atomic.StoreInt32(taskBusy, 0)
@@ -345,6 +355,28 @@ func executeAndReport(
 		} else {
 			result.Stdout = "already up to date"
 		}
+	case "uninstall":
+		if patchErr := patchTaskStatus(ctx, client, task.ID, "executing"); patchErr != nil {
+			log.Printf("failed to mark task %s as executing: %v", task.ID, patchErr)
+		}
+		uninstallErr := uninstaller.Execute(ctx, client, *task, cfg)
+		_ = st.Update(func(s *store.State) { s.LastTaskID = task.ID })
+		if errors.Is(uninstallErr, uninstaller.ErrUninstallInitiated) {
+			// Uninstall succeeded — signal the main loop to exit (not restart).
+			// The result was already reported inside Execute (Phase 1).
+			select {
+			case uninstallCh <- struct{}{}:
+			default:
+			}
+			return
+		}
+		if uninstallErr != nil {
+			log.Printf("uninstall failed: %v", uninstallErr)
+			if patchErr := patchTaskFailed(ctx, client, task.ID); patchErr != nil {
+				log.Printf("failed to mark task %s as failed: %v", task.ID, patchErr)
+			}
+		}
+		return
 	default:
 		log.Printf("unsupported task type %q, skipping", task.Type)
 		return

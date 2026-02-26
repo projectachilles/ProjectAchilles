@@ -69,6 +69,7 @@ export default function AgentFilters({
             <option value="active">Active</option>
             <option value="disabled">Disabled</option>
             <option value="decommissioned">Decommissioned</option>
+            <option value="uninstalled">Uninstalled</option>
           </select>
         </div>
 

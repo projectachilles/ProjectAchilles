@@ -133,7 +133,7 @@ export async function getAgentMetrics(orgId?: string): Promise<AgentMetrics> {
 
   // Total agents (excluding decommissioned)
   const totalRow = await db.get(
-    `SELECT COUNT(*) as count FROM agents WHERE status != 'decommissioned'${orgCondition}`,
+    `SELECT COUNT(*) as count FROM agents WHERE status NOT IN ('decommissioned', 'uninstalled')${orgCondition}`,
     [...orgParams]
   ) as unknown as { count: number };
 
@@ -145,7 +145,7 @@ export async function getAgentMetrics(orgId?: string): Promise<AgentMetrics> {
 
   // By OS
   const osRows = await db.all(
-    `SELECT os, COUNT(*) as count FROM agents WHERE status != 'decommissioned'${orgCondition} GROUP BY os`,
+    `SELECT os, COUNT(*) as count FROM agents WHERE status NOT IN ('decommissioned', 'uninstalled')${orgCondition} GROUP BY os`,
     [...orgParams]
   ) as unknown as { os: string; count: number }[];
 
@@ -194,7 +194,7 @@ export async function getAgentMetrics(orgId?: string): Promise<AgentMetrics> {
 
   // Agent version distribution (non-decommissioned)
   const versionRows = await db.all(
-    `SELECT agent_version, COUNT(*) as count FROM agents WHERE status != 'decommissioned'${orgCondition} GROUP BY agent_version`,
+    `SELECT agent_version, COUNT(*) as count FROM agents WHERE status NOT IN ('decommissioned', 'uninstalled')${orgCondition} GROUP BY agent_version`,
     [...orgParams]
   ) as unknown as { agent_version: string; count: number }[];
 
@@ -245,8 +245,8 @@ export async function listAgents(filters: ListAgentsRequest): Promise<ListAgents
     conditions.push('status = ?');
     params.push(filters.status);
   } else {
-    // By default, exclude decommissioned agents (matches getAgentMetrics behavior)
-    conditions.push("status != 'decommissioned'");
+    // By default, exclude decommissioned/uninstalled agents (matches getAgentMetrics behavior)
+    conditions.push("status NOT IN ('decommissioned', 'uninstalled')");
   }
 
   if (filters.os) {

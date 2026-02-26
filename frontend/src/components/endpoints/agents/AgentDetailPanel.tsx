@@ -18,7 +18,7 @@ function formatDate(dateStr: string | null): string {
   return new Date(dateStr).toLocaleString();
 }
 
-function getStatusVariant(status: Agent['status']): 'success' | 'warning' | 'destructive' {
+function getStatusVariant(status: Agent['status']): 'success' | 'warning' | 'destructive' | 'default' {
   switch (status) {
     case 'active':
       return 'success';
@@ -26,6 +26,8 @@ function getStatusVariant(status: Agent['status']): 'success' | 'warning' | 'des
       return 'warning';
     case 'decommissioned':
       return 'destructive';
+    case 'uninstalled':
+      return 'default';
   }
 }
 

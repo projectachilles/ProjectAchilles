@@ -5,6 +5,7 @@ import {
   createTasks,
   createCommandTasks,
   createUpdateTasks,
+  createUninstallTasks,
   getNextTask,
   updateTaskStatus,
   submitResult,
@@ -208,6 +209,36 @@ adminTasksRouter.post(
     }
 
     const taskIds = await createUpdateTasks(agent_ids, org_id, userId);
+
+    res.status(201).json({ success: true, data: { task_ids: taskIds } });
+  })
+);
+
+/**
+ * POST /admin/tasks/uninstall
+ * Create uninstall tasks for one or more agents.
+ * Body: { org_id: string, agent_ids: string[], cleanup?: boolean }
+ */
+adminTasksRouter.post(
+  '/tasks/uninstall',
+  requirePermission('endpoints:agents:delete'),
+  asyncHandler(async (req, res) => {
+    const userId = getUserId(req.auth);
+    if (!userId) {
+      throw new AppError('Unable to determine user identity', 401);
+    }
+
+    const { org_id, agent_ids, cleanup } = req.body as { org_id: string; agent_ids: string[]; cleanup?: boolean };
+
+    if (!org_id) {
+      throw new AppError('Missing required field: org_id', 400);
+    }
+
+    if (!agent_ids || agent_ids.length === 0) {
+      throw new AppError('Missing required field: agent_ids', 400);
+    }
+
+    const taskIds = await createUninstallTasks(agent_ids, org_id, userId, cleanup ?? false);
 
     res.status(201).json({ success: true, data: { task_ids: taskIds } });
   })

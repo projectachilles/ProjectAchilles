@@ -66,6 +66,12 @@ func (s *achillesSvc) Execute(_ []string, r <-chan svc.ChangeRequest, status cha
 			}
 		case err := <-errCh:
 			if err != nil {
+				if errors.Is(err, poller.ErrUninstallInitiated) {
+					// Uninstall: exit cleanly without triggering recovery.
+					// The service has already been deleted by the uninstaller.
+					log.Println("uninstall complete, exiting service")
+					return false, 0
+				}
 				if errors.Is(err, poller.ErrUpdateApplied) {
 					// Ensure SCM recovery actions are configured before
 					// exiting — the initial sc failure during install may

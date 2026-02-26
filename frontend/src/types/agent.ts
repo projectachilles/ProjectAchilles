@@ -1,6 +1,6 @@
 // Agent module types
 
-export type AgentStatus = 'active' | 'disabled' | 'decommissioned';
+export type AgentStatus = 'active' | 'disabled' | 'decommissioned' | 'uninstalled';
 export type AgentOS = 'windows' | 'linux';
 export type AgentArch = 'amd64' | 'arm64';
 export type AgentRuntimeStatus = 'idle' | 'executing' | 'updating' | 'error' | 'offline';

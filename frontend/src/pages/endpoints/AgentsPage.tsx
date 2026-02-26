@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { UserPlus, ChevronDown, ChevronUp, Download } from 'lucide-react';
+import { UserPlus, ChevronDown, ChevronUp, Download, Unplug } from 'lucide-react';
 import { useHasPermission } from '@/hooks/useAppRole';
 import { useAppDispatch, useAppSelector } from '../../store';
 import {
@@ -21,6 +21,7 @@ import AgentFilters from '../../components/endpoints/agents/AgentFilters';
 import AgentList from '../../components/endpoints/agents/AgentList';
 import AgentDetailPanel from '../../components/endpoints/agents/AgentDetailPanel';
 import RotateKeyDialog from '../../components/endpoints/agents/RotateKeyDialog';
+import UninstallDialog from '../../components/endpoints/agents/UninstallDialog';
 import TagManager from '../../components/endpoints/sensors/TagManager';
 import EnrollmentSection from '@/components/endpoints/enrollment/EnrollmentSection';
 import AvailableBinaries from '@/components/endpoints/agents/AvailableBinaries';
@@ -41,6 +42,7 @@ export default function AgentsPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [detailAgent, setDetailAgent] = useState<Agent | null>(null);
   const [rotateKeyAgentId, setRotateKeyAgentId] = useState<string | null>(null);
+  const [uninstallAgents, setUninstallAgents] = useState<AgentSummary[]>([]);
   const [showEnrollment, setShowEnrollment] = useState(false);
   const [latestVersions, setLatestVersions] = useState<Map<string, string>>(new Map());
   const isInitialMount = useRef(true);
@@ -125,6 +127,11 @@ export default function AgentsPage() {
     }
     if (action === 'update') {
       await handleTriggerUpdate([agentId]);
+      return;
+    }
+    if (action === 'uninstall') {
+      const agent = agents.find((a) => a.id === agentId);
+      if (agent) setUninstallAgents([agent]);
       return;
     }
     if (action === 'enable') {
@@ -245,6 +252,19 @@ export default function AgentsPage() {
                   <Download className="w-4 h-4 mr-1" />
                   Update Selected ({selectedAgents.length})
                 </Button>
+                {canDeleteAgent && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => {
+                      const selected = agents.filter((a) => selectedAgents.includes(a.id));
+                      setUninstallAgents(selected);
+                    }}
+                  >
+                    <Unplug className="w-4 h-4 mr-1" />
+                    Uninstall Selected ({selectedAgents.length})
+                  </Button>
+                )}
               </div>
             )}
           </>
@@ -270,6 +290,20 @@ export default function AgentsPage() {
           latestVersion={detailAgent ? latestVersions.get(`${detailAgent.os}-${detailAgent.arch}`) : undefined}
           onClose={() => setDetailAgent(null)}
         />
+
+        {uninstallAgents.length > 0 && (
+          <UninstallDialog
+            open={uninstallAgents.length > 0}
+            onClose={() => setUninstallAgents([])}
+            agents={uninstallAgents}
+            onUninstalled={() => {
+              showSuccess(`Uninstall queued for ${uninstallAgents.length} agent(s)`);
+              setUninstallAgents([]);
+              setSelectedAgents([]);
+              dispatch(fetchAgents(filters));
+            }}
+          />
+        )}
 
         {rotateKeyAgentId && (
           <RotateKeyDialog

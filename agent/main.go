@@ -58,6 +58,15 @@ func main() {
 			fmt.Fprintf(os.Stderr, "uninstall error: %v\n", err)
 			os.Exit(1)
 		}
+		// Also remove the work directory for consistency with remote uninstall.
+		workDir := config.DefaultConfig().WorkDir
+		// WorkDir points to .../tasks; remove the parent (/opt/f0 or C:\F0).
+		baseDir := filepath.Dir(workDir)
+		if err := os.RemoveAll(baseDir); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not remove %s: %v\n", baseDir, err)
+		} else {
+			fmt.Printf("Removed %s\n", baseDir)
+		}
 		os.Exit(0)
 	}
 

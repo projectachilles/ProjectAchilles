@@ -44,6 +44,10 @@ func runForeground(ctx context.Context, cfg *config.Config, st *store.Store, ver
 			log.Println("update applied, exiting for restart")
 			return poller.ErrUpdateApplied
 		}
+		if err == poller.ErrUninstallInitiated {
+			log.Println("uninstall initiated, exiting")
+			return poller.ErrUninstallInitiated
+		}
 		if err != context.Canceled {
 			return fmt.Errorf("agent error: %w", err)
 		}

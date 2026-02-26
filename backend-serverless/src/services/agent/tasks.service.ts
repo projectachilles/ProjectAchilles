@@ -310,6 +310,77 @@ export async function createUpdateTasks(
 }
 
 /**
+ * Create uninstall tasks for one or more agents. Validates that each agent
+ * is eligible (not already uninstalled/decommissioned). The cleanup flag
+ * controls whether the agent deletes its files after stopping the service.
+ */
+export async function createUninstallTasks(
+  agentIds: string[],
+  orgId: string,
+  createdBy: string,
+  cleanup = false
+): Promise<string[]> {
+  const db = await getDb();
+
+  if (!agentIds || agentIds.length === 0) {
+    throw new AppError('At least one agent_id is required', 400);
+  }
+
+  // Pre-validate: reject agents that are already uninstalled or decommissioned
+  const placeholders = agentIds.map(() => '?').join(', ');
+  const ineligible = await db.all(
+    `SELECT id, status FROM agents WHERE id IN (${placeholders}) AND status IN ('uninstalled', 'decommissioned')`,
+    [...agentIds]
+  ) as unknown as { id: string; status: string }[];
+
+  if (ineligible.length > 0) {
+    const ids = ineligible.map((a) => `${a.id} (${a.status})`).join(', ');
+    throw new AppError(`Agents not eligible for uninstall: ${ids}`, 400);
+  }
+
+  const payload: TaskPayload = {
+    test_uuid: '',
+    test_name: '',
+    binary_name: '',
+    binary_sha256: '',
+    binary_size: 0,
+    execution_timeout: 300,
+    arguments: [],
+    metadata: {
+      category: '',
+      subcategory: '',
+      severity: '',
+      techniques: [],
+      tactics: [],
+      threat_actor: '',
+      target: [],
+      complexity: '',
+      tags: [],
+      score: null,
+    },
+    command: cleanup ? 'cleanup' : '',
+  };
+
+  const payloadJson = JSON.stringify(payload);
+  const batchId = crypto.randomUUID();
+  const taskIds: string[] = [];
+
+  await db.transaction(async (tx) => {
+    for (const agentId of agentIds) {
+      const taskId = crypto.randomUUID();
+      await tx.execute({
+        sql: `INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_at, ttl, created_by, batch_id)
+              VALUES (?, ?, ?, 'uninstall', 10, 'pending', ?, datetime('now'), 86400, ?, ?)`,
+        args: [taskId, agentId, orgId, payloadJson, createdBy, batchId],
+      });
+      taskIds.push(taskId);
+    }
+  });
+
+  return taskIds;
+}
+
+/**
  * Fetch the next pending task for a given agent. Expires old tasks first,
  * then atomically assigns the highest-priority oldest pending task.
  */
@@ -424,6 +495,12 @@ export async function submitResult(
      WHERE id = ?`,
     [JSON.stringify(result), taskId]
   );
+
+  // Post-completion hook: mark agent as uninstalled when an uninstall task completes
+  if (row.type === 'uninstall') {
+    await db.run(`UPDATE agents SET status = 'uninstalled', updated_at = datetime('now') WHERE id = ?`, [row.agent_id]);
+    console.log(`[tasks] Agent ${row.agent_id} marked as uninstalled (task ${taskId})`);
+  }
 
   const updated = await db.get('SELECT * FROM tasks WHERE id = ?', [taskId]) as unknown as TaskRow;
   return parseTaskRow(updated);

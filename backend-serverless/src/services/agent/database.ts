@@ -85,7 +85,7 @@ async function initializeTables(c: Client): Promise<void> {
       arch TEXT NOT NULL CHECK(arch IN ('amd64', 'arm64')),
       agent_version TEXT NOT NULL,
       api_key_hash TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'disabled', 'decommissioned')),
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'disabled', 'decommissioned', 'uninstalled')),
       last_heartbeat TEXT,
       last_heartbeat_data TEXT,
       enrolled_at TEXT NOT NULL,

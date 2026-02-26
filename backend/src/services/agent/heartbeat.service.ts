@@ -133,7 +133,7 @@ export function getAgentMetrics(orgId?: string): AgentMetrics {
 
   // Total agents (excluding decommissioned)
   const totalRow = db.prepare(
-    `SELECT COUNT(*) as count FROM agents WHERE status != 'decommissioned'${orgCondition}`
+    `SELECT COUNT(*) as count FROM agents WHERE status NOT IN ('decommissioned', 'uninstalled')${orgCondition}`
   ).get(...orgParams) as { count: number };
 
   // Online agents
@@ -143,7 +143,7 @@ export function getAgentMetrics(orgId?: string): AgentMetrics {
 
   // By OS
   const osRows = db.prepare(
-    `SELECT os, COUNT(*) as count FROM agents WHERE status != 'decommissioned'${orgCondition} GROUP BY os`
+    `SELECT os, COUNT(*) as count FROM agents WHERE status NOT IN ('decommissioned', 'uninstalled')${orgCondition} GROUP BY os`
   ).all(...orgParams) as { os: string; count: number }[];
 
   const by_os: Record<string, number> = {};
@@ -186,7 +186,7 @@ export function getAgentMetrics(orgId?: string): AgentMetrics {
 
   // Agent version distribution (non-decommissioned)
   const versionRows = db.prepare(
-    `SELECT agent_version, COUNT(*) as count FROM agents WHERE status != 'decommissioned'${orgCondition} GROUP BY agent_version`
+    `SELECT agent_version, COUNT(*) as count FROM agents WHERE status NOT IN ('decommissioned', 'uninstalled')${orgCondition} GROUP BY agent_version`
   ).all(...orgParams) as { agent_version: string; count: number }[];
 
   const by_version: Record<string, number> = {};
@@ -236,8 +236,8 @@ export function listAgents(filters: ListAgentsRequest): ListAgentsResult {
     conditions.push('status = ?');
     params.push(filters.status);
   } else {
-    // By default, exclude decommissioned agents (matches getAgentMetrics behavior)
-    conditions.push("status != 'decommissioned'");
+    // By default, exclude decommissioned/uninstalled agents (matches getAgentMetrics behavior)
+    conditions.push("status NOT IN ('decommissioned', 'uninstalled')");
   }
 
   if (filters.os) {

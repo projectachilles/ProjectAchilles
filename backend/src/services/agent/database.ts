@@ -32,7 +32,7 @@ function initializeTables(database: Database.Database): void {
       arch TEXT NOT NULL CHECK(arch IN ('amd64', 'arm64')),
       agent_version TEXT NOT NULL,
       api_key_hash TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'disabled', 'decommissioned')),
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'disabled', 'decommissioned', 'uninstalled')),
       last_heartbeat TEXT,
       last_heartbeat_data TEXT,
       enrolled_at TEXT NOT NULL,
@@ -176,6 +176,9 @@ function initializeTables(database: Database.Database): void {
 
   // Migration: expand tasks.type CHECK constraint to include 'execute_command'.
   migrateExecuteCommandType(database);
+
+  // Migration: expand agents.status CHECK constraint to include 'uninstalled'.
+  migrateUninstalledStatus(database);
 }
 
 function migrateDarwinConstraint(database: Database.Database): void {
@@ -220,7 +223,7 @@ function migrateDarwinConstraint(database: Database.Database): void {
         arch TEXT NOT NULL CHECK(arch IN ('amd64', 'arm64')),
         agent_version TEXT NOT NULL,
         api_key_hash TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'disabled', 'decommissioned')),
+        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'disabled', 'decommissioned', 'uninstalled')),
         last_heartbeat TEXT,
         last_heartbeat_data TEXT,
         enrolled_at TEXT NOT NULL,
@@ -343,6 +346,78 @@ function migrateExecuteCommandType(database: Database.Database): void {
   `);
 
   database.pragma('foreign_keys = ON');
+}
+
+function migrateUninstalledStatus(database: Database.Database): void {
+  // Probe: check if agents table already accepts 'uninstalled'
+  let needsMigration = false;
+  try {
+    database.exec(`SAVEPOINT uninstall_check`);
+    database.exec(`INSERT INTO agents (id, org_id, hostname, os, arch, agent_version, api_key_hash, status, enrolled_at)
+                    VALUES ('__uninstall_check__', '__test__', '__test__', 'linux', 'amd64', '0', '__test__', 'uninstalled', datetime('now'))`);
+    database.exec(`DELETE FROM agents WHERE id = '__uninstall_check__'`);
+    database.exec(`RELEASE uninstall_check`);
+  } catch {
+    database.exec(`ROLLBACK TO uninstall_check`);
+    database.exec(`RELEASE uninstall_check`);
+    needsMigration = true;
+  }
+
+  if (!needsMigration) return;
+
+  // Backup the database before destructive migration
+  try {
+    const backupPath = DB_PATH + '.bak';
+    fs.copyFileSync(DB_PATH, backupPath);
+    console.log(`[db] Database backed up to ${backupPath}`);
+  } catch (backupErr) {
+    console.warn(`[db] Warning: could not back up database: ${backupErr}`);
+  }
+
+  database.pragma('foreign_keys = OFF');
+
+  const cols = database.prepare(`PRAGMA table_info(agents)`).all() as { name: string }[];
+  const selectCols = cols.map((c) => c.name).join(', ');
+  const colSet = new Set(cols.map((c) => c.name));
+
+  // Build optional columns that may have been added by earlier migrations
+  const optionalCols = [
+    colSet.has('api_key_rotated_at') ? 'api_key_rotated_at TEXT DEFAULT NULL' : null,
+    colSet.has('pending_api_key_hash') ? 'pending_api_key_hash TEXT DEFAULT NULL' : null,
+    colSet.has('pending_api_key_encrypted') ? 'pending_api_key_encrypted TEXT DEFAULT NULL' : null,
+    colSet.has('key_rotation_initiated_at') ? 'key_rotation_initiated_at TEXT DEFAULT NULL' : null,
+  ].filter(Boolean);
+
+  database.exec(`DROP TABLE IF EXISTS agents_new`);
+  database.exec(`
+    CREATE TABLE agents_new (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      hostname TEXT NOT NULL,
+      os TEXT NOT NULL CHECK(os IN ('windows', 'linux', 'darwin')),
+      arch TEXT NOT NULL CHECK(arch IN ('amd64', 'arm64')),
+      agent_version TEXT NOT NULL,
+      api_key_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'disabled', 'decommissioned', 'uninstalled')),
+      last_heartbeat TEXT,
+      last_heartbeat_data TEXT,
+      enrolled_at TEXT NOT NULL,
+      enrolled_by TEXT,
+      tags TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      ${optionalCols.length > 0 ? ', ' + optionalCols.join(', ') : ''}
+    );
+    INSERT INTO agents_new (${selectCols}) SELECT ${selectCols} FROM agents;
+    DROP TABLE agents;
+    ALTER TABLE agents_new RENAME TO agents;
+    CREATE INDEX IF NOT EXISTS idx_agents_org ON agents(org_id);
+    CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
+  `);
+
+  database.pragma('foreign_keys = ON');
+
+  console.log(`[db] Migration complete: added 'uninstalled' status. Backup at ${DB_PATH}.bak`);
 }
 
 export function closeDatabase(): void {
