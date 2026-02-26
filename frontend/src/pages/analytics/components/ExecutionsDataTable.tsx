@@ -661,35 +661,35 @@ export default function ExecutionsDataTable({
 
     return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+      {!isLoadingDesc && hasDocumentation && (
+        <div className="col-span-full">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              const uuid = isBundleCtrl ? exec.bundle_id! : exec.test_uuid;
+              setInfoModal({
+                open: true,
+                testUuid: uuid,
+                testName: exec.test_name || exec.bundle_name || 'Test Details',
+                hasInfoCard: descData!.hasInfoCard,
+                hasReadme: descData!.hasReadme,
+                scrollToValidator: isBundleCtrl ? exec.control_validator : undefined,
+              });
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary border border-primary/30 bg-primary/5 hover:bg-primary/10 rounded-md transition-colors"
+          >
+            <Info className="w-3.5 h-3.5" />
+            View Details
+          </button>
+        </div>
+      )}
       {(isLoadingDesc || descData?.description) && (
-        <div className="col-span-full flex items-start gap-2">
-          <div className="flex-1">
-            <span className="text-muted-foreground">Description:</span>
-            {isLoadingDesc ? (
-              <div className="h-4 w-64 bg-muted animate-pulse rounded mt-1" />
-            ) : (
-              <p className="mt-1 text-foreground">{descData?.description}</p>
-            )}
-          </div>
-          {!isLoadingDesc && hasDocumentation && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                const uuid = isBundleCtrl ? exec.bundle_id! : exec.test_uuid;
-                setInfoModal({
-                  open: true,
-                  testUuid: uuid,
-                  testName: exec.test_name || exec.bundle_name || 'Test Details',
-                  hasInfoCard: descData!.hasInfoCard,
-                  hasReadme: descData!.hasReadme,
-                  scrollToValidator: isBundleCtrl ? exec.control_validator : undefined,
-                });
-              }}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-primary hover:text-primary/80 hover:bg-accent rounded transition-colors shrink-0 mt-0.5"
-            >
-              <Info className="w-3.5 h-3.5" />
-              View Details
-            </button>
+        <div className="col-span-full">
+          <span className="text-muted-foreground">Description</span>
+          {isLoadingDesc ? (
+            <div className="h-4 w-64 bg-muted animate-pulse rounded mt-1" />
+          ) : (
+            <p className="mt-1 text-foreground">{descData?.description?.replace(/:$/, '')}</p>
           )}
         </div>
       )}
