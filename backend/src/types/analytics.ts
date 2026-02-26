@@ -166,7 +166,34 @@ export interface ExtendedAnalyticsQueryParams extends AnalyticsQueryParams {
 }
 
 // Combined query params for paginated executions
-export interface PaginatedExecutionsParams extends ExtendedAnalyticsQueryParams, PaginationParams {}
+export interface PaginatedExecutionsParams extends ExtendedAnalyticsQueryParams, PaginationParams {
+  grouped?: boolean;
+}
+
+// Grouped execution result (one per collapsed display row)
+export interface ExecutionGroup {
+  groupKey: string;
+  type: 'bundle' | 'standalone';
+  representative: EnrichedTestExecution;
+  members: EnrichedTestExecution[];
+  protectedCount: number;
+  unprotectedCount: number;
+  totalCount: number;
+}
+
+// Response shape for grouped/collapsed pagination
+export interface GroupedPaginatedResponse {
+  groups: ExecutionGroup[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalGroups: number;
+    totalDocuments: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrevious: boolean;
+  };
+}
 
 // Filter option with count
 export interface FilterOption {

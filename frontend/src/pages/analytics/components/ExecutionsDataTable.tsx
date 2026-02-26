@@ -18,7 +18,7 @@ import {
   SkipForward,
 } from 'lucide-react';
 import { formatDistanceToNow, isValid, format } from 'date-fns';
-import type { EnrichedTestExecution, PaginatedResponse, SeverityLevel, CategoryType } from '@/services/api/analytics';
+import type { EnrichedTestExecution, SeverityLevel, CategoryType, GroupedPaginatedResponse, ExecutionGroup } from '@/services/api/analytics';
 import {
   Table,
   TableBody,
@@ -118,55 +118,31 @@ interface StandaloneRow {
 
 type DisplayRow = BundleGroup | StandaloneRow;
 
-/** Group consecutive bundle controls by bundle_id + hostname. */
-function groupExecutions(executions: EnrichedTestExecution[]): DisplayRow[] {
-  const rows: DisplayRow[] = [];
-  const bundleMap = new Map<string, BundleGroup>();
-  // Track insertion order so bundles appear at the position of their first control
-  const insertionOrder: string[] = [];
-
-  for (let i = 0; i < executions.length; i++) {
-    const exec = executions[i];
-
-    if (exec.is_bundle_control && exec.bundle_id) {
-      const groupKey = `${exec.bundle_id}::${exec.hostname}`;
-
-      if (!bundleMap.has(groupKey)) {
-        const group: BundleGroup = {
-          type: 'bundle',
-          key: groupKey,
-          bundle_id: exec.bundle_id,
-          bundle_name: exec.bundle_name || 'Bundle',
-          hostname: exec.hostname,
-          timestamp: exec.timestamp,
-          controls: [],
-          protectedCount: 0,
-          unprotectedCount: 0,
-          totalCount: 0,
-          category: exec.category,
-        };
-        bundleMap.set(groupKey, group);
-        insertionOrder.push(groupKey);
-        // Insert a placeholder — we'll fill it in the final pass
-        rows.push(group);
-      }
-
-      const group = bundleMap.get(groupKey)!;
-      group.controls.push(exec);
-      group.totalCount++;
-      const result = getResultFromErrorCode(exec.error_code);
-      if (result === 'protected') group.protectedCount++;
-      if (result === 'unprotected') group.unprotectedCount++;
-    } else {
-      rows.push({
-        type: 'standalone',
-        key: `standalone-${exec.test_uuid}-${exec.timestamp}-${i}`,
-        execution: exec,
-      });
+/** Map server-provided ExecutionGroups to DisplayRows for rendering. */
+function mapGroupsToDisplayRows(groups: ExecutionGroup[]): DisplayRow[] {
+  return groups.map((group) => {
+    if (group.type === 'bundle') {
+      const rep = group.representative;
+      return {
+        type: 'bundle' as const,
+        key: group.groupKey,
+        bundle_id: rep.bundle_id || '',
+        bundle_name: rep.bundle_name || 'Bundle',
+        hostname: rep.hostname,
+        timestamp: rep.timestamp,
+        controls: group.members,
+        protectedCount: group.protectedCount,
+        unprotectedCount: group.unprotectedCount,
+        totalCount: group.totalCount,
+        category: rep.category,
+      };
     }
-  }
-
-  return rows;
+    return {
+      type: 'standalone' as const,
+      key: group.groupKey,
+      execution: group.representative,
+    };
+  });
 }
 
 // Column definitions
@@ -198,7 +174,7 @@ const COLUMNS: ColumnDef[] = [
 ];
 
 interface ExecutionsDataTableProps {
-  data: PaginatedResponse<EnrichedTestExecution> | null;
+  data: GroupedPaginatedResponse | null;
   loading?: boolean;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
@@ -229,11 +205,14 @@ export default function ExecutionsDataTable({
   const [expandedDetail, setExpandedDetail] = useState<string | null>(null);
   const [showColumnMenu, setShowColumnMenu] = useState(false);
 
-  const executions = data?.data || [];
+  const groups = data?.groups || [];
   const pagination = data?.pagination;
 
-  // Group executions into bundle groups and standalone rows
-  const displayRows = useMemo(() => groupExecutions(executions), [executions]);
+  // Flatten all group members for export
+  const allExecutions = useMemo(() => groups.flatMap(g => g.members), [groups]);
+
+  // Map server-provided groups to DisplayRows for rendering
+  const displayRows = useMemo(() => mapGroupsToDisplayRows(groups), [groups]);
 
   // Toggle column visibility
   const toggleColumn = (key: string) => {
@@ -262,10 +241,10 @@ export default function ExecutionsDataTable({
 
   // Export to CSV
   const exportToCsv = () => {
-    if (!executions.length) return;
+    if (!allExecutions.length) return;
     const visibleColumnsList = COLUMNS.filter(c => visibleColumns.has(c.key));
     const headers = visibleColumnsList.map(c => c.label);
-    const rows = executions.map(exec => {
+    const rows = allExecutions.map(exec => {
       return visibleColumnsList.map(col => {
         const value = getCellValue(exec, col.key);
         const strValue = String(value ?? '');
@@ -281,8 +260,8 @@ export default function ExecutionsDataTable({
 
   // Export to JSON
   const exportToJson = () => {
-    if (!executions.length) return;
-    const json = JSON.stringify(executions, null, 2);
+    if (!allExecutions.length) return;
+    const json = JSON.stringify(allExecutions, null, 2);
     downloadFile(json, 'executions.json', 'application/json');
   };
 
@@ -682,8 +661,9 @@ export default function ExecutionsDataTable({
           {pagination ? (
             <>
               Showing {((pagination.page - 1) * pagination.pageSize) + 1}–
-              {Math.min(pagination.page * pagination.pageSize, pagination.totalItems)} of{' '}
-              {pagination.totalItems.toLocaleString()} results
+              {Math.min(pagination.page * pagination.pageSize, pagination.totalGroups)} of{' '}
+              {pagination.totalGroups.toLocaleString()} groups
+              {' '}({pagination.totalDocuments.toLocaleString()} documents)
             </>
           ) : (
             'Loading...'
@@ -814,13 +794,13 @@ export default function ExecutionsDataTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading && executions.length === 0 ? (
+            {loading && groups.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={visibleColumnsList.length} className="py-12 text-center">
                   <Loader2 className="w-6 h-6 animate-spin text-muted-foreground mx-auto" />
                 </TableCell>
               </TableRow>
-            ) : executions.length === 0 ? (
+            ) : groups.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={visibleColumnsList.length} className="py-12 text-center text-muted-foreground">
                   No executions found

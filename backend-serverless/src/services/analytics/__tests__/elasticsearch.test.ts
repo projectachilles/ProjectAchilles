@@ -863,6 +863,162 @@ describe('elasticsearch.ts', () => {
     });
   });
 
+  // ── Grouped paginated executions (collapse + inner_hits) ──
+  describe('getGroupedPaginatedExecutions', () => {
+    function makePaginatedParams(overrides?: Partial<PaginatedExecutionsParams>): PaginatedExecutionsParams {
+      return {
+        from: '2025-01-01T00:00:00Z',
+        to: '2025-01-31T23:59:59Z',
+        page: 1,
+        pageSize: 25,
+        ...overrides,
+      };
+    }
+
+    function makeGroupedSearchResponse(hits: any[], totalGroups: number) {
+      return {
+        hits: { total: { value: hits.length, relation: 'eq' }, hits },
+        aggregations: { total_groups: { value: totalGroups } },
+      };
+    }
+
+    function makeCollapsedHit(source: Record<string, unknown>, groupKey: string, innerHits: any[] = []) {
+      return {
+        _source: source,
+        fields: { display_group: [groupKey] },
+        inner_hits: {
+          group_members: {
+            hits: { hits: innerHits.map(ih => ({ _source: ih })) },
+          },
+        },
+      };
+    }
+
+    it('builds collapsed query with runtime_mappings, collapse, and cardinality agg', async () => {
+      mockCount.mockResolvedValue(esCountResponse(50));
+      mockSearch.mockResolvedValue(makeGroupedSearchResponse([], 0));
+
+      const svc = createService();
+      await svc.getGroupedPaginatedExecutions(makePaginatedParams());
+
+      const searchCall = mockSearch.mock.calls[0][0];
+      expect(searchCall.runtime_mappings).toBeDefined();
+      expect(searchCall.runtime_mappings.display_group).toBeDefined();
+      expect(searchCall.runtime_mappings.display_group.type).toBe('keyword');
+      expect(searchCall.collapse).toBeDefined();
+      expect(searchCall.collapse.field).toBe('display_group');
+      expect(searchCall.collapse.inner_hits).toBeDefined();
+      expect(searchCall.aggs.total_groups).toBeDefined();
+      expect(searchCall.aggs.total_groups.cardinality.field).toBe('display_group');
+    });
+
+    it('returns correct pagination metadata', async () => {
+      mockCount.mockResolvedValue(esCountResponse(150));
+      mockSearch.mockResolvedValue(makeGroupedSearchResponse([], 45));
+
+      const svc = createService();
+      const result = await svc.getGroupedPaginatedExecutions(makePaginatedParams({ page: 2, pageSize: 25 }));
+
+      expect(result.pagination.page).toBe(2);
+      expect(result.pagination.pageSize).toBe(25);
+      expect(result.pagination.totalGroups).toBe(45);
+      expect(result.pagination.totalDocuments).toBe(150);
+      expect(result.pagination.totalPages).toBe(2); // ceil(45/25)
+      expect(result.pagination.hasNext).toBe(false);
+      expect(result.pagination.hasPrevious).toBe(true);
+    });
+
+    it('maps standalone groups correctly', async () => {
+      const source = makeHitSource();
+      const hit = makeCollapsedHit(source, 'standalone::uuid-001::host-a', [source]);
+
+      mockCount.mockResolvedValue(esCountResponse(1));
+      mockSearch.mockResolvedValue(makeGroupedSearchResponse([hit], 1));
+
+      const svc = createService();
+      const result = await svc.getGroupedPaginatedExecutions(makePaginatedParams());
+
+      expect(result.groups).toHaveLength(1);
+      expect(result.groups[0].type).toBe('standalone');
+      expect(result.groups[0].groupKey).toBe('standalone::uuid-001::host-a');
+      expect(result.groups[0].members).toHaveLength(1);
+      expect(result.groups[0].representative.test_uuid).toBe('uuid-001');
+    });
+
+    it('maps bundle groups with correct protected/unprotected counts', async () => {
+      const ctrl1 = makeHitSource({
+        'f0rtika.is_bundle_control': true,
+        'f0rtika.bundle_id': 'bundle-001',
+        'f0rtika.bundle_name': 'Cyber-Hygiene Bundle',
+        'event.ERROR': 126, // protected
+      });
+      const ctrl2 = makeHitSource({
+        'f0rtika.is_bundle_control': true,
+        'f0rtika.bundle_id': 'bundle-001',
+        'f0rtika.bundle_name': 'Cyber-Hygiene Bundle',
+        'event.ERROR': 101, // unprotected
+      });
+      const ctrl3 = makeHitSource({
+        'f0rtika.is_bundle_control': true,
+        'f0rtika.bundle_id': 'bundle-001',
+        'f0rtika.bundle_name': 'Cyber-Hygiene Bundle',
+        'event.ERROR': 105, // protected
+      });
+
+      const hit = makeCollapsedHit(ctrl1, 'bundle::bundle-001::host-a', [ctrl1, ctrl2, ctrl3]);
+
+      mockCount.mockResolvedValue(esCountResponse(3));
+      mockSearch.mockResolvedValue(makeGroupedSearchResponse([hit], 1));
+
+      const svc = createService();
+      const result = await svc.getGroupedPaginatedExecutions(makePaginatedParams());
+
+      expect(result.groups).toHaveLength(1);
+      expect(result.groups[0].type).toBe('bundle');
+      expect(result.groups[0].protectedCount).toBe(2);
+      expect(result.groups[0].unprotectedCount).toBe(1);
+      expect(result.groups[0].totalCount).toBe(3);
+      expect(result.groups[0].members).toHaveLength(3);
+    });
+
+    it('caps pageSize at 100', async () => {
+      mockCount.mockResolvedValue(esCountResponse(0));
+      mockSearch.mockResolvedValue(makeGroupedSearchResponse([], 0));
+
+      const svc = createService();
+      await svc.getGroupedPaginatedExecutions(makePaginatedParams({ pageSize: 500 }));
+
+      const searchCall = mockSearch.mock.calls[0][0];
+      expect(searchCall.size).toBe(100);
+    });
+
+    it('computes correct from offset', async () => {
+      mockCount.mockResolvedValue(esCountResponse(0));
+      mockSearch.mockResolvedValue(makeGroupedSearchResponse([], 0));
+
+      const svc = createService();
+      await svc.getGroupedPaginatedExecutions(makePaginatedParams({ page: 3, pageSize: 20 }));
+
+      const searchCall = mockSearch.mock.calls[0][0];
+      expect(searchCall.from).toBe(40); // (3-1) * 20
+    });
+
+    it('returns empty groups for zero results', async () => {
+      mockCount.mockResolvedValue(esCountResponse(0));
+      mockSearch.mockResolvedValue(makeGroupedSearchResponse([], 0));
+
+      const svc = createService();
+      const result = await svc.getGroupedPaginatedExecutions(makePaginatedParams());
+
+      expect(result.groups).toEqual([]);
+      expect(result.pagination.totalGroups).toBe(0);
+      expect(result.pagination.totalDocuments).toBe(0);
+      expect(result.pagination.totalPages).toBe(0);
+      expect(result.pagination.hasNext).toBe(false);
+      expect(result.pagination.hasPrevious).toBe(false);
+    });
+  });
+
   // ── Extended filter building (via getPaginatedExecutions) ──
   describe('buildExtendedFilters (via getPaginatedExecutions)', () => {
     beforeEach(() => {

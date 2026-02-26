@@ -237,6 +237,32 @@ export interface PaginatedExecutionsParams extends ExtendedFilterParams {
   pageSize?: number;
   sortField?: string;
   sortOrder?: 'asc' | 'desc';
+  grouped?: boolean;
+}
+
+// Grouped execution result (one per collapsed display row)
+export interface ExecutionGroup {
+  groupKey: string;
+  type: 'bundle' | 'standalone';
+  representative: EnrichedTestExecution;
+  members: EnrichedTestExecution[];
+  protectedCount: number;
+  unprotectedCount: number;
+  totalCount: number;
+}
+
+// Response shape for grouped/collapsed pagination
+export interface GroupedPaginatedResponse {
+  groups: ExecutionGroup[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalGroups: number;
+    totalDocuments: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrevious: boolean;
+  };
 }
 
 export interface IndexInfo {
@@ -409,6 +435,13 @@ export const analyticsApi = {
 
   async getPaginatedExecutions(params: PaginatedExecutionsParams): Promise<PaginatedResponse<EnrichedTestExecution>> {
     const response = await apiClient.get('/analytics/executions/paginated', { params });
+    return response.data;
+  },
+
+  async getGroupedPaginatedExecutions(params: PaginatedExecutionsParams): Promise<GroupedPaginatedResponse> {
+    const response = await apiClient.get('/analytics/executions/paginated', {
+      params: { ...params, grouped: true },
+    });
     return response.data;
   },
 

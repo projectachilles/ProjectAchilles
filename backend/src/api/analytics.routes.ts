@@ -322,7 +322,7 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
     org, from, to, tests, techniques,
     hostnames, categories, severities, threatActors, tags,
     errorNames, errorCodes, result,
-    page, pageSize, sortField, sortOrder
+    page, pageSize, sortField, sortOrder, grouped
   } = req.query;
 
   const params: PaginatedExecutionsParams = {
@@ -343,10 +343,16 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
     pageSize: pageSize ? parseInt(pageSize as string) : 25,
     sortField: sortField as string,
     sortOrder: sortOrder as 'asc' | 'desc',
+    grouped: grouped === 'true',
   };
 
-  const data = await es.getPaginatedExecutions(params);
-  res.json(data);
+  if (params.grouped) {
+    const data = await es.getGroupedPaginatedExecutions(params);
+    res.json(data);
+  } else {
+    const data = await es.getPaginatedExecutions(params);
+    res.json(data);
+  }
 }));
 
 // GET /api/analytics/available-hostnames - List available hostnames with counts
