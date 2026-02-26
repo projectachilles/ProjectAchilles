@@ -29,6 +29,8 @@ import type {
   ErrorRateTrendDataPoint,
   SeverityLevel,
   CategoryType,
+  ExecutionGroup,
+  GroupedPaginatedResponse,
 } from '../../types/analytics.js';
 
 // Canonical error code → name mapping
@@ -53,6 +55,25 @@ export function resolveErrorName(errorCode: number | undefined, storedName?: str
   if (storedName) return storedName;
   return `Unknown (${errorCode ?? '?'})`;
 }
+
+/** Get field value from ES _source — handles both flattened (dot-key) and nested formats */
+function getField(source: any, path: string): any {
+  if (source[path] !== undefined) return source[path];
+  const parts = path.split('.');
+  let value = source;
+  for (const part of parts) {
+    if (value === undefined || value === null) return undefined;
+    value = value[part];
+  }
+  return value;
+}
+
+// Organization UUID → short-name mapping
+const ORG_NAMES: Record<string, string> = {
+  '09b59276-9efb-4d3d-bbdd-4b4663ef0c42': 'SB',
+  'b2f8dccb-6d23-492e-aa87-a0a8a6103189': 'TPSGL',
+  '9634119d-fa6b-42b8-9b9b-90ad8f22e482': 'RGA',
+};
 
 export class ElasticsearchService {
   private client: Client;
@@ -485,29 +506,6 @@ export class ElasticsearchService {
       sort: [{ 'routing.event_time': 'desc' }],
     });
 
-    // Known organization mapping
-    const orgNames: Record<string, string> = {
-      '09b59276-9efb-4d3d-bbdd-4b4663ef0c42': 'SB',
-      'b2f8dccb-6d23-492e-aa87-a0a8a6103189': 'TPSGL',
-      '9634119d-fa6b-42b8-9b9b-90ad8f22e482': 'RGA',
-    };
-
-    // Helper to get field value - handles both nested and flattened field names
-    function getField(source: any, path: string): any {
-      // First try flattened format (e.g., "f0rtika.test_name" as a key)
-      if (source[path] !== undefined) {
-        return source[path];
-      }
-      // Then try nested format (e.g., source.f0rtika.test_name)
-      const parts = path.split('.');
-      let value = source;
-      for (const part of parts) {
-        if (value === undefined || value === null) return undefined;
-        value = value[part];
-      }
-      return value;
-    }
-
     return response.hits.hits.map((hit: any) => {
       const source = hit._source;
       const orgUuid = getField(source, 'routing.oid') || '';
@@ -517,7 +515,7 @@ export class ElasticsearchService {
         test_name: getField(source, 'f0rtika.test_name') || 'Unknown Test',
         hostname: getField(source, 'routing.hostname') || 'Unknown',
         is_protected: getField(source, 'f0rtika.is_protected') || false,
-        org: orgNames[orgUuid] || (orgUuid ? orgUuid.substring(0, 8) : ''),
+        org: ORG_NAMES[orgUuid] || (orgUuid ? orgUuid.substring(0, 8) : ''),
         timestamp: getField(source, 'routing.event_time') || '',
         error_code: getField(source, 'event.ERROR'),
         error_name: resolveErrorName(getField(source, 'event.ERROR'), getField(source, 'f0rtika.error_name')),
@@ -897,13 +895,6 @@ export class ElasticsearchService {
 
     const buckets = (response.aggregations?.by_org as any)?.buckets || [];
 
-    // Known organization mapping
-    const orgNames: Record<string, string> = {
-      '09b59276-9efb-4d3d-bbdd-4b4663ef0c42': 'SB',
-      'b2f8dccb-6d23-492e-aa87-a0a8a6103189': 'TPSGL',
-      '9634119d-fa6b-42b8-9b9b-90ad8f22e482': 'RGA',
-    };
-
     return buckets
       .map((bucket: any) => {
         const total = bucket.doc_count;
@@ -912,7 +903,7 @@ export class ElasticsearchService {
 
         return {
           org: bucket.key,
-          orgName: orgNames[bucket.key] || bucket.key.substring(0, 8),
+          orgName: ORG_NAMES[bucket.key] || bucket.key.substring(0, 8),
           score: Math.round(score * 100) / 100,
           count: total,
           protected: protectedCount,
@@ -1129,56 +1120,9 @@ export class ElasticsearchService {
       sort,
     });
 
-    // Known organization mapping
-    const orgNames: Record<string, string> = {
-      '09b59276-9efb-4d3d-bbdd-4b4663ef0c42': 'SB',
-      'b2f8dccb-6d23-492e-aa87-a0a8a6103189': 'TPSGL',
-      '9634119d-fa6b-42b8-9b9b-90ad8f22e482': 'RGA',
-    };
-
-    // Helper to get field value
-    function getField(source: any, path: string): any {
-      if (source[path] !== undefined) return source[path];
-      const parts = path.split('.');
-      let value = source;
-      for (const part of parts) {
-        if (value === undefined || value === null) return undefined;
-        value = value[part];
-      }
-      return value;
-    }
-
-    const data: EnrichedTestExecution[] = response.hits.hits.map((hit: any) => {
-      const source = hit._source;
-      const orgUuid = getField(source, 'routing.oid') || '';
-
-      return {
-        test_uuid: getField(source, 'f0rtika.test_uuid') || '',
-        test_name: getField(source, 'f0rtika.test_name') || 'Unknown Test',
-        hostname: getField(source, 'routing.hostname') || 'Unknown',
-        is_protected: getField(source, 'f0rtika.is_protected') || false,
-        org: orgNames[orgUuid] || (orgUuid ? orgUuid.substring(0, 8) : ''),
-        timestamp: getField(source, 'routing.event_time') || '',
-        error_code: getField(source, 'event.ERROR'),
-        error_name: resolveErrorName(getField(source, 'event.ERROR'), getField(source, 'f0rtika.error_name')),
-        // Enriched fields
-        category: getField(source, 'f0rtika.category') as CategoryType | undefined,
-        subcategory: getField(source, 'f0rtika.subcategory'),
-        severity: getField(source, 'f0rtika.severity') as SeverityLevel | undefined,
-        tactics: getField(source, 'f0rtika.tactics'),
-        target: getField(source, 'f0rtika.target'),
-        complexity: getField(source, 'f0rtika.complexity'),
-        threat_actor: getField(source, 'f0rtika.threat_actor'),
-        tags: getField(source, 'f0rtika.tags'),
-        score: getField(source, 'f0rtika.score'),
-        // Bundle control fields
-        bundle_id: getField(source, 'f0rtika.bundle_id'),
-        bundle_name: getField(source, 'f0rtika.bundle_name'),
-        control_id: getField(source, 'f0rtika.control_id'),
-        control_validator: getField(source, 'f0rtika.control_validator'),
-        is_bundle_control: getField(source, 'f0rtika.is_bundle_control') ?? false,
-      };
-    });
+    const data: EnrichedTestExecution[] = response.hits.hits.map(
+      (hit: any) => this.mapHitToExecution(hit)
+    );
 
     const totalPages = Math.ceil(totalItems / pageSize);
 
@@ -1192,6 +1136,143 @@ export class ElasticsearchService {
         hasNext: page < totalPages,
         hasPrevious: page > 1,
       },
+    };
+  }
+
+  // Get paginated executions collapsed by display group (bundle or standalone)
+  // Each collapsed group counts as 1 "row" for pagination, so "25 per page" = ~25 visible rows
+  async getGroupedPaginatedExecutions(params: PaginatedExecutionsParams): Promise<GroupedPaginatedResponse> {
+    const filters = this.buildExtendedFilters(params);
+    const page = params.page || 1;
+    const pageSize = Math.min(params.pageSize || 25, 100);
+    const from = (page - 1) * pageSize;
+    const sortField = params.sortField || 'routing.event_time';
+    const sortOrder = params.sortOrder || 'desc';
+
+    // Total document count (for badge/info display)
+    const countResponse = await this.client.count({
+      index: this.settings.indexPattern,
+      query: { bool: { filter: filters } },
+    });
+
+    // Collapsed search: runtime field computes a group key, collapse deduplicates,
+    // inner_hits returns all members per group, cardinality agg gives total group count.
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: pageSize,
+      from,
+      query: { bool: { filter: filters } },
+      sort: [{ [sortField]: sortOrder }],
+      runtime_mappings: {
+        display_group: {
+          type: 'keyword' as const,
+          script: {
+            source: `
+              if (doc.containsKey('f0rtika.is_bundle_control')
+                  && doc['f0rtika.is_bundle_control'].size() > 0
+                  && doc['f0rtika.is_bundle_control'].value == true) {
+                emit('bundle::' + doc['f0rtika.bundle_id'].value + '::' + doc['routing.hostname'].value);
+              } else {
+                emit('standalone::' + doc['f0rtika.test_uuid'].value + '::' + doc['routing.hostname'].value);
+              }
+            `,
+          },
+        },
+      },
+      collapse: {
+        field: 'display_group',
+        inner_hits: {
+          name: 'group_members',
+          size: 200,
+          sort: [{ [sortField]: sortOrder }],
+        },
+      },
+      aggs: {
+        total_groups: {
+          cardinality: {
+            field: 'display_group',
+            precision_threshold: 10000,
+          },
+        },
+      },
+    });
+
+    const totalDocuments = countResponse.count;
+    const totalGroups = (response.aggregations?.total_groups as any)?.value ?? 0;
+    const totalPages = Math.ceil(totalGroups / pageSize);
+
+    const groups: ExecutionGroup[] = response.hits.hits.map((hit: any) => {
+      const representative = this.mapHitToExecution(hit);
+      const innerHits = hit.inner_hits?.group_members?.hits?.hits || [];
+      const members: EnrichedTestExecution[] = innerHits.map((ih: any) => this.mapHitToExecution(ih));
+      const groupKey: string = hit.fields?.display_group?.[0] || '';
+      const isBundle = groupKey.startsWith('bundle::');
+
+      // Warn if inner_hits were truncated (bundle exceeds 200 controls)
+      if (isBundle && innerHits.length >= 200) {
+        console.warn(`Bundle group ${groupKey} has ${innerHits.length}+ members (inner_hits may be truncated)`);
+      }
+
+      let protectedCount = 0;
+      let unprotectedCount = 0;
+      for (const m of members) {
+        if (m.error_code === 105 || m.error_code === 126 || m.error_code === 127) protectedCount++;
+        else if (m.error_code === 101) unprotectedCount++;
+      }
+
+      return {
+        groupKey,
+        type: isBundle ? 'bundle' as const : 'standalone' as const,
+        representative,
+        members,
+        protectedCount,
+        unprotectedCount,
+        totalCount: members.length,
+      };
+    });
+
+    return {
+      groups,
+      pagination: {
+        page,
+        pageSize,
+        totalGroups,
+        totalDocuments,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrevious: page > 1,
+      },
+    };
+  }
+
+  // Map a single ES hit (from search or inner_hits) to EnrichedTestExecution
+  private mapHitToExecution(hit: any): EnrichedTestExecution {
+    const source = hit._source;
+    const orgUuid = getField(source, 'routing.oid') || '';
+
+    return {
+      test_uuid: getField(source, 'f0rtika.test_uuid') || '',
+      test_name: getField(source, 'f0rtika.test_name') || 'Unknown Test',
+      hostname: getField(source, 'routing.hostname') || 'Unknown',
+      is_protected: getField(source, 'f0rtika.is_protected') || false,
+      org: ORG_NAMES[orgUuid] || (orgUuid ? orgUuid.substring(0, 8) : ''),
+      timestamp: getField(source, 'routing.event_time') || '',
+      error_code: getField(source, 'event.ERROR'),
+      error_name: resolveErrorName(getField(source, 'event.ERROR'), getField(source, 'f0rtika.error_name')),
+      category: getField(source, 'f0rtika.category') as CategoryType | undefined,
+      subcategory: getField(source, 'f0rtika.subcategory'),
+      severity: getField(source, 'f0rtika.severity') as SeverityLevel | undefined,
+      tactics: getField(source, 'f0rtika.tactics'),
+      target: getField(source, 'f0rtika.target'),
+      complexity: getField(source, 'f0rtika.complexity'),
+      threat_actor: getField(source, 'f0rtika.threat_actor'),
+      tags: getField(source, 'f0rtika.tags'),
+      score: getField(source, 'f0rtika.score'),
+      bundle_id: getField(source, 'f0rtika.bundle_id'),
+      bundle_name: getField(source, 'f0rtika.bundle_name'),
+      control_id: getField(source, 'f0rtika.control_id'),
+      control_validator: getField(source, 'f0rtika.control_validator'),
+      is_bundle_control: getField(source, 'f0rtika.is_bundle_control') ?? false,
     };
   }
 

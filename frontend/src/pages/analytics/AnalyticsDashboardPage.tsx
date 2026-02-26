@@ -25,10 +25,10 @@ import type {
   HostTestMatrixCell,
   FilterOption,
   CategorySubcategoryBreakdownItem,
-  PaginatedResponse,
   EnrichedTestExecution,
   DefenseScoreByHostItem,
   ErrorRateTrendDataPoint,
+  GroupedPaginatedResponse,
 } from '../../services/api/analytics';
 
 type TabType = 'dashboard' | 'executions';
@@ -108,7 +108,7 @@ export default function AnalyticsDashboardPage() {
   const [canonicalTestCount30d, setCanonicalTestCount30d] = useState<number>(0);
 
   // Executions tab data
-  const [executionsData, setExecutionsData] = useState<PaginatedResponse<EnrichedTestExecution> | null>(null);
+  const [executionsData, setExecutionsData] = useState<GroupedPaginatedResponse | null>(null);
   const [executionsPage, setExecutionsPage] = useState(1);
   const [executionsPageSize, setExecutionsPageSize] = useState(25);
   const [executionsSortField, setExecutionsSortField] = useState<string>('routing.event_time');
@@ -255,7 +255,7 @@ export default function AnalyticsDashboardPage() {
     const params = filterState.getApiParams();
 
     try {
-      const data = await analyticsApi.getPaginatedExecutions({
+      const data = await analyticsApi.getGroupedPaginatedExecutions({
         ...params,
         page: executionsPage,
         pageSize: executionsPageSize,
@@ -332,7 +332,7 @@ export default function AnalyticsDashboardPage() {
             All Executions
             {executionsData?.pagination && (
               <span className="ml-1 px-1.5 py-0.5 text-xs bg-secondary rounded">
-                {executionsData.pagination.totalItems.toLocaleString()}
+                {executionsData.pagination.totalDocuments.toLocaleString()}
               </span>
             )}
           </button>
