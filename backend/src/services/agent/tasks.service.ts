@@ -397,6 +397,10 @@ export function updateTaskStatus(
     updates.push(`completed_at = datetime('now')`);
   }
 
+  if (newStatus === 'failed') {
+    console.warn(`[tasks] Task ${taskId} (type=${row.type}) marked failed by agent ${agentId} (was ${row.status})`);
+  }
+
   db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`).run(taskId);
 
   const updated = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as TaskRow;
@@ -698,6 +702,10 @@ export function expireStaleTasks(): number {
            OR (julianday('now') - julianday(last_heartbeat)) * 86400.0 > ?
       )
   `).run(STALE_TASK_THRESHOLD_SECONDS);
+
+  if (result.changes > 0) {
+    console.warn(`[tasks] Expired ${result.changes} stale task(s) (agent offline >${STALE_TASK_THRESHOLD_SECONDS}s while executing)`);
+  }
 
   return result.changes;
 }

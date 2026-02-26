@@ -52,6 +52,7 @@ agentUpdateRouter.get(
       return;
     }
 
+    console.warn(`[update] Serving version ${latest.version} to agent ${agent.id} (${agent.hostname}, ${agent.os}/${agent.arch}), current=${currentVersion ?? 'unknown'}`);
     res.json({ success: true, data: latest });
   })
 );
@@ -78,6 +79,7 @@ agentUpdateRouter.get(
       throw new AppError('Invalid arch parameter', 400);
     }
 
+    console.warn(`[update] Streaming binary to agent ${req.agent?.id ?? 'unknown'} (${os}/${arch})`);
     streamUpdate(os, arch, res);
   })
 );

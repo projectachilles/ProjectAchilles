@@ -97,11 +97,17 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
 
       // Uniform rejection: agent not found, wrong key, or inactive — same 401 message
       if (!row || !match) {
+        if (!row) {
+          console.warn(`[agentAuth] REJECTED agent_id=${agentId} reason=not_found`);
+        } else {
+          console.warn(`[agentAuth] REJECTED agent_id=${row.id} hostname=${row.hostname} reason=key_mismatch`);
+        }
         res.status(401).json({ success: false, error: 'Invalid agent credentials' });
         return;
       }
 
       if (row.status !== 'active') {
+        console.warn(`[agentAuth] REJECTED agent_id=${row.id} hostname=${row.hostname} reason=inactive status=${row.status}`);
         res.status(401).json({ success: false, error: 'Invalid agent credentials' });
         return;
       }
@@ -140,7 +146,8 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
       req.agent = agent;
       next();
     })
-    .catch(() => {
+    .catch((err) => {
+      console.warn(`[agentAuth] REJECTED agent_id=${agentId} reason=internal_error error=${err instanceof Error ? err.message : String(err)}`);
       res.status(401).json({ success: false, error: 'Invalid agent credentials' });
     });
 }
