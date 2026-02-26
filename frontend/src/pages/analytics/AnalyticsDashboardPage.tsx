@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { LayoutDashboard, Table } from 'lucide-react';
+import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown } from 'lucide-react';
 import SharedLayout from '../../components/shared/Layout';
 import SettingsModal from './components/SettingsModal';
 import FilterBar from './components/FilterBar';
@@ -336,10 +336,51 @@ export default function AnalyticsDashboardPage() {
               </span>
             )}
           </button>
-          <div className="ml-auto pb-2">
+          <div className="ml-auto flex items-center gap-2 pb-2">
+            <button
+              onClick={filterState.toggleExpanded}
+              className={`
+                flex items-center gap-1.5 px-3 py-1.5
+                border rounded-lg text-sm transition-colors
+                ${filterState.isExpanded || filterState.activeFilterCount > 0
+                  ? 'bg-primary/10 border-primary text-primary'
+                  : 'bg-secondary border-border text-foreground hover:bg-accent'
+                }
+              `}
+            >
+              <Filter className="w-4 h-4" />
+              Filters
+              {filterState.activeFilterCount > 0 && (
+                <span className="px-1.5 py-0.5 bg-primary text-primary-foreground text-xs rounded-full">
+                  {filterState.activeFilterCount}
+                </span>
+              )}
+              {filterState.isExpanded ? (
+                <ChevronUp className="w-3 h-3" />
+              ) : (
+                <ChevronDown className="w-3 h-3" />
+              )}
+            </button>
             <DateRangePicker value={filterState.filters.dateRange} onChange={filterState.setDateRange} />
           </div>
         </div>
+
+        {/* Shared Filters (visible on both tabs) */}
+        {filterState.isExpanded && (
+          <FilterBar
+            filterState={filterState}
+            availableHostnames={availableHostnames}
+            availableTests={availableTests}
+            availableTechniques={availableTechniques}
+            availableCategories={availableCategories}
+            availableSeverities={availableSeverities}
+            availableThreatActors={availableThreatActors}
+            availableTags={availableTags}
+            availableErrorNames={availableErrorNames}
+            availableErrorCodes={availableErrorCodes}
+            loading={loadingFilters}
+          />
+        )}
 
         {/* Tab Content */}
         {activeTab === 'dashboard' ? (
@@ -428,35 +469,15 @@ export default function AnalyticsDashboardPage() {
           </div>
         ) : (
           /* All Executions Tab */
-          <>
-            {filterState.isExpanded && (
-              <FilterBar
-                filterState={filterState}
-                availableHostnames={availableHostnames}
-                availableTests={availableTests}
-                availableTechniques={availableTechniques}
-                availableCategories={availableCategories}
-                availableSeverities={availableSeverities}
-                availableThreatActors={availableThreatActors}
-                availableTags={availableTags}
-                availableErrorNames={availableErrorNames}
-                availableErrorCodes={availableErrorCodes}
-                loading={loadingFilters}
-              />
-            )}
-            <ExecutionsDataTable
-              data={executionsData}
-              loading={loadingExecutions}
-              onPageChange={handlePageChange}
-              onPageSizeChange={handlePageSizeChange}
-              onSort={handleSort}
-              sortField={executionsSortField}
-              sortOrder={executionsSortOrder}
-              filtersExpanded={filterState.isExpanded}
-              onToggleFilters={filterState.toggleExpanded}
-              activeFilterCount={filterState.activeFilterCount}
-            />
-          </>
+          <ExecutionsDataTable
+            data={executionsData}
+            loading={loadingExecutions}
+            onPageChange={handlePageChange}
+            onPageSizeChange={handlePageSizeChange}
+            onSort={handleSort}
+            sortField={executionsSortField}
+            sortOrder={executionsSortOrder}
+          />
         )}
       </div>
 
