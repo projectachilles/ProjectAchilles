@@ -277,7 +277,7 @@ export function createBrowserRouter(options: {
       description = test.description ?? null;
     }
 
-    res.json({ success: true, data: { description } });
+    res.json({ success: true, data: { description, hasInfoCard: test.hasInfoCard, hasReadme: test.hasReadme } });
   }));
 
   /**

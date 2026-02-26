@@ -18,6 +18,7 @@ import {
   Archive,
   Calendar,
   X,
+  Info,
 } from 'lucide-react';
 import { formatDistanceToNow, isValid, format } from 'date-fns';
 import type { EnrichedTestExecution, SeverityLevel, CategoryType, GroupedPaginatedResponse, ExecutionGroup } from '@/services/api/analytics';
@@ -33,6 +34,7 @@ import { Card, CardContent, CardHeader, CardFooter } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/shared/ui/Checkbox';
 import { browserApi } from '@/services/api/browser';
+import TestInfoModal from './TestInfoModal';
 
 // Parse timestamp - handles both epoch ms strings and ISO strings
 function parseTimestamp(timestamp: string): Date {
@@ -217,10 +219,21 @@ export default function ExecutionsDataTable({
   const [showDatePurge, setShowDatePurge] = useState(false);
   const [purgeDate, setPurgeDate] = useState('');
 
-  // Description cache: cacheKey → description (null = no description available)
-  const descriptionCache = useRef<Map<string, string | null>>(new Map());
+  // Description cache: cacheKey → { description, hasInfoCard, hasReadme }
+  interface DescriptionData { description: string | null; hasInfoCard: boolean; hasReadme: boolean }
+  const descriptionCache = useRef<Map<string, DescriptionData | null>>(new Map());
   const [descriptionLoading, setDescriptionLoading] = useState<string | null>(null);
-  const [descriptionMap, setDescriptionMap] = useState<Map<string, string | null>>(new Map());
+  const [descriptionMap, setDescriptionMap] = useState<Map<string, DescriptionData | null>>(new Map());
+
+  // Info modal state
+  const [infoModal, setInfoModal] = useState<{
+    open: boolean;
+    testUuid: string;
+    testName: string;
+    hasInfoCard: boolean;
+    hasReadme: boolean;
+    scrollToValidator?: string;
+  } | null>(null);
 
   const fetchDescription = useCallback(async (exec: EnrichedTestExecution) => {
     const isBundleCtrl = exec.is_bundle_control && exec.bundle_id;
@@ -236,9 +249,9 @@ export default function ExecutionsDataTable({
     try {
       const uuid = isBundleCtrl ? exec.bundle_id! : exec.test_uuid;
       const validator = isBundleCtrl ? exec.control_validator : undefined;
-      const description = await browserApi.getTestDescription(uuid, validator);
-      descriptionCache.current.set(cacheKey, description);
-      setDescriptionMap(prev => new Map(prev).set(cacheKey, description));
+      const result = await browserApi.getTestDescription(uuid, validator);
+      descriptionCache.current.set(cacheKey, result);
+      setDescriptionMap(prev => new Map(prev).set(cacheKey, result));
     } catch {
       descriptionCache.current.set(cacheKey, null);
       setDescriptionMap(prev => new Map(prev).set(cacheKey, null));
@@ -642,18 +655,41 @@ export default function ExecutionsDataTable({
     const descKey = isBundleCtrl
       ? `${exec.bundle_id}::${exec.control_validator ?? ''}`
       : exec.test_uuid;
-    const description = descriptionMap.get(descKey);
+    const descData = descriptionMap.get(descKey);
     const isLoadingDesc = descriptionLoading === descKey;
+    const hasDocumentation = descData && (descData.hasInfoCard || descData.hasReadme);
 
     return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-      {(isLoadingDesc || description) && (
-        <div className="col-span-full">
-          <span className="text-muted-foreground">Description:</span>
-          {isLoadingDesc ? (
-            <div className="h-4 w-64 bg-muted animate-pulse rounded mt-1" />
-          ) : (
-            <p className="mt-1 text-foreground">{description}</p>
+      {(isLoadingDesc || descData?.description) && (
+        <div className="col-span-full flex items-start gap-2">
+          <div className="flex-1">
+            <span className="text-muted-foreground">Description:</span>
+            {isLoadingDesc ? (
+              <div className="h-4 w-64 bg-muted animate-pulse rounded mt-1" />
+            ) : (
+              <p className="mt-1 text-foreground">{descData?.description}</p>
+            )}
+          </div>
+          {!isLoadingDesc && hasDocumentation && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const uuid = isBundleCtrl ? exec.bundle_id! : exec.test_uuid;
+                setInfoModal({
+                  open: true,
+                  testUuid: uuid,
+                  testName: exec.test_name || exec.bundle_name || 'Test Details',
+                  hasInfoCard: descData!.hasInfoCard,
+                  hasReadme: descData!.hasReadme,
+                  scrollToValidator: isBundleCtrl ? exec.control_validator : undefined,
+                });
+              }}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-primary hover:text-primary/80 hover:bg-accent rounded transition-colors shrink-0 mt-0.5"
+            >
+              <Info className="w-3.5 h-3.5" />
+              View Details
+            </button>
           )}
         </div>
       )}
@@ -1201,6 +1237,18 @@ export default function ExecutionsDataTable({
             </div>
           </div>
         </div>
+      )}
+      {/* Test Info Modal */}
+      {infoModal && (
+        <TestInfoModal
+          open={infoModal.open}
+          onClose={() => setInfoModal(null)}
+          testUuid={infoModal.testUuid}
+          testName={infoModal.testName}
+          hasInfoCard={infoModal.hasInfoCard}
+          hasReadme={infoModal.hasReadme}
+          scrollToValidator={infoModal.scrollToValidator}
+        />
       )}
     </Card>
   );
