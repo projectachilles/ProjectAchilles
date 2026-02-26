@@ -20,6 +20,7 @@ export interface TestMetadata {
   isMultiStage: boolean;
   stages: StageInfo[];
   description?: string;
+  validatorDescriptions?: Record<string, string>;  // validator name → description (bundle tests)
   tags?: string[];             // Additional tags for filtering
   lastModifiedDate?: string;   // ISO 8601 date from Git history
   lastCommitMessage?: string;  // First line of last commit touching this test

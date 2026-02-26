@@ -181,6 +181,39 @@ export function createBrowserRouter(options: {
   }));
 
   /**
+   * GET /api/browser/tests/:uuid/description
+   * Get test description (standalone) or validator description (bundle control).
+   * Query param ?validator=<name> for bundle control lookups.
+   */
+  router.get('/tests/:uuid/description', asyncHandler(async (req: Request, res: Response) => {
+    if (!testIndexer) {
+      throw new AppError('Test indexer not initialized', 503);
+    }
+
+    const { uuid } = req.params;
+    const validator = req.query.validator as string | undefined;
+
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid)) {
+      throw new AppError('Invalid UUID format', 400);
+    }
+
+    const test = testIndexer.getTest(uuid);
+    if (!test) {
+      res.json({ success: true, data: { description: null } });
+      return;
+    }
+
+    let description: string | null = null;
+    if (validator) {
+      description = test.validatorDescriptions?.[validator] ?? null;
+    } else {
+      description = test.description ?? null;
+    }
+
+    res.json({ success: true, data: { description } });
+  }));
+
+  /**
    * GET /api/browser/tests/:uuid/files
    * Get list of files in a test directory
    */

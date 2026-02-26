@@ -71,6 +71,13 @@ export const browserApi = {
     return response.data.html;
   },
 
+  // Get test description (standalone or bundle validator)
+  async getTestDescription(uuid: string, validator?: string): Promise<string | null> {
+    const params = validator ? { validator } : undefined;
+    const response = await apiClient.get(`/browser/tests/${uuid}/description`, { params });
+    return response.data?.data?.description ?? null;
+  },
+
   // Get build info for a test
   async getBuildInfo(uuid: string): Promise<BuildInfo> {
     const response = await apiClient.get(`/tests/builds/${uuid}`);

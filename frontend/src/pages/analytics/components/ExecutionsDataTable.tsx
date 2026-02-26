@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, Fragment } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from 'react';
 import {
   Loader2,
   ShieldCheck,
@@ -32,6 +32,7 @@ import {
 import { Card, CardContent, CardHeader, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/shared/ui/Checkbox';
+import { browserApi } from '@/services/api/browser';
 
 // Parse timestamp - handles both epoch ms strings and ISO strings
 function parseTimestamp(timestamp: string): Date {
@@ -215,6 +216,36 @@ export default function ExecutionsDataTable({
   const [confirmArchiveKeys, setConfirmArchiveKeys] = useState<string[] | null>(null);
   const [showDatePurge, setShowDatePurge] = useState(false);
   const [purgeDate, setPurgeDate] = useState('');
+
+  // Description cache: cacheKey → description (null = no description available)
+  const descriptionCache = useRef<Map<string, string | null>>(new Map());
+  const [descriptionLoading, setDescriptionLoading] = useState<string | null>(null);
+  const [descriptionMap, setDescriptionMap] = useState<Map<string, string | null>>(new Map());
+
+  const fetchDescription = useCallback(async (exec: EnrichedTestExecution) => {
+    const isBundleCtrl = exec.is_bundle_control && exec.bundle_id;
+    const cacheKey = isBundleCtrl
+      ? `${exec.bundle_id}::${exec.control_validator ?? ''}`
+      : exec.test_uuid;
+
+    if (descriptionCache.current.has(cacheKey)) {
+      return;
+    }
+
+    setDescriptionLoading(cacheKey);
+    try {
+      const uuid = isBundleCtrl ? exec.bundle_id! : exec.test_uuid;
+      const validator = isBundleCtrl ? exec.control_validator : undefined;
+      const description = await browserApi.getTestDescription(uuid, validator);
+      descriptionCache.current.set(cacheKey, description);
+      setDescriptionMap(prev => new Map(prev).set(cacheKey, description));
+    } catch {
+      descriptionCache.current.set(cacheKey, null);
+      setDescriptionMap(prev => new Map(prev).set(cacheKey, null));
+    } finally {
+      setDescriptionLoading(null);
+    }
+  }, []);
 
   const groups = data?.groups || [];
   const pagination = data?.pagination;
@@ -606,8 +637,26 @@ export default function ExecutionsDataTable({
   };
 
   // Render the detail panel for a single execution
-  const renderDetailPanel = (exec: EnrichedTestExecution) => (
+  const renderDetailPanel = (exec: EnrichedTestExecution) => {
+    const isBundleCtrl = exec.is_bundle_control && exec.bundle_id;
+    const descKey = isBundleCtrl
+      ? `${exec.bundle_id}::${exec.control_validator ?? ''}`
+      : exec.test_uuid;
+    const description = descriptionMap.get(descKey);
+    const isLoadingDesc = descriptionLoading === descKey;
+
+    return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+      {(isLoadingDesc || description) && (
+        <div className="col-span-full">
+          <span className="text-muted-foreground">Description:</span>
+          {isLoadingDesc ? (
+            <div className="h-4 w-64 bg-muted animate-pulse rounded mt-1" />
+          ) : (
+            <p className="mt-1 text-foreground">{description}</p>
+          )}
+        </div>
+      )}
       <div>
         <span className="text-muted-foreground">Test UUID:</span>
         <p className="font-mono text-xs mt-1 text-foreground">{exec.test_uuid}</p>
@@ -673,7 +722,8 @@ export default function ExecutionsDataTable({
         <p className="mt-1 text-foreground">{formatTimestamp(exec.timestamp, false)}</p>
       </div>
     </div>
-  );
+    );
+  };
 
   // Visible columns for rendering
   const visibleColumnsList = useMemo(
@@ -702,9 +752,13 @@ export default function ExecutionsDataTable({
     });
   };
 
-  // Toggle detail panel for a specific row
-  const toggleDetail = (key: string) => {
-    setExpandedDetail(prev => prev === key ? null : key);
+  // Toggle detail panel for a specific row, triggering description fetch
+  const toggleDetail = (key: string, exec?: EnrichedTestExecution) => {
+    setExpandedDetail(prev => {
+      if (prev === key) return null;
+      if (exec) fetchDescription(exec);
+      return key;
+    });
   };
 
   if (loading && !data) {
@@ -897,7 +951,7 @@ export default function ExecutionsDataTable({
                     <Fragment key={detailKey}>
                       <TableRow
                         className={`cursor-pointer ${expandedDetail === detailKey ? 'bg-accent/30' : ''}`}
-                        onClick={() => toggleDetail(detailKey)}
+                        onClick={() => toggleDetail(detailKey, exec)}
                       >
                         {/* Checkbox */}
                         {archiveEnabled && (
@@ -986,7 +1040,7 @@ export default function ExecutionsDataTable({
                             className={`cursor-pointer bg-card/50 border-l-2 border-l-blue-500/30 ${expandedDetail === ctrlDetailKey ? 'bg-accent/30' : 'hover:bg-accent/10'}`}
                             onClick={(e) => {
                               e.stopPropagation();
-                              toggleDetail(ctrlDetailKey);
+                              toggleDetail(ctrlDetailKey, ctrl);
                             }}
                           >
                             {/* Empty checkbox space for sub-rows */}

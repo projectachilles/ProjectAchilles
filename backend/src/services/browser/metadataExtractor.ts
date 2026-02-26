@@ -233,6 +233,36 @@ export class MetadataExtractor {
   }
 
   /**
+   * Extract validator descriptions from _info.md "Bundled Validators" section.
+   * Parses "### N. Validator Name" headings and takes the first line after as description.
+   */
+  static extractValidatorDescriptions(filePath: string): Record<string, string> {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const descriptions: Record<string, string> = {};
+
+    // Find the "Bundled Validators" section
+    const sectionMatch = content.match(/##\s*Bundled Validators\s*\n([\s\S]*?)(?=\n##[^#]|$)/i);
+    if (!sectionMatch) return descriptions;
+
+    const section = sectionMatch[1];
+
+    // Match each "### N. Validator Name" heading followed by content
+    const validatorPattern = /###\s*\d+\.\s*(.+)\n([\s\S]*?)(?=\n###\s*\d+\.|$)/g;
+    let match;
+    while ((match = validatorPattern.exec(section)) !== null) {
+      const name = match[1].trim();
+      const body = match[2].trim();
+      // First non-empty line is the description
+      const firstLine = body.split('\n').find(l => l.trim().length > 0);
+      if (firstLine) {
+        descriptions[name] = firstLine.trim();
+      }
+    }
+
+    return descriptions;
+  }
+
+  /**
    * Detect multi-stage architecture and extract stage information
    */
   static extractStageInfo(testDir: string): StageInfo[] {
@@ -328,6 +358,14 @@ export class MetadataExtractor {
       // Assign other fields
       const { techniques, ...otherInfoData } = infoData;
       Object.assign(metadata, otherInfoData);
+    }
+
+    // Extract validator descriptions from _info.md (for bundle tests)
+    if (fs.existsSync(infoCardPath)) {
+      const validatorDescs = this.extractValidatorDescriptions(infoCardPath);
+      if (Object.keys(validatorDescs).length > 0) {
+        metadata.validatorDescriptions = validatorDescs;
+      }
     }
 
     // Extract stage information
