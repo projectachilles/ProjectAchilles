@@ -138,7 +138,7 @@ func platformServiceStatus() Status {
 	var s Status
 
 	// Run "sc query AchillesAgent" and parse the output.
-	out, err := exec.Command("sc", "query", serviceName).CombinedOutput()
+	out, err := exec.Command("sc", "queryex", serviceName).CombinedOutput()
 	if err != nil {
 		// sc query returns non-zero if the service doesn't exist.
 		return s
