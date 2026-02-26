@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/sys/windows/svc"
@@ -130,6 +132,38 @@ func scheduleFallbackRestart() {
 	} else {
 		log.Printf("fallback restart scheduled via Task Scheduler at %s", when.Format("15:04"))
 	}
+}
+
+func platformServiceStatus() Status {
+	var s Status
+
+	// Run "sc query AchillesAgent" and parse the output.
+	out, err := exec.Command("sc", "query", serviceName).CombinedOutput()
+	if err != nil {
+		// sc query returns non-zero if the service doesn't exist.
+		return s
+	}
+
+	s.Installed = true
+
+	// Parse STATE line, e.g. "        STATE              : 4  RUNNING"
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "STATE") {
+			s.Running = strings.Contains(line, "RUNNING")
+		}
+		if strings.HasPrefix(line, "PID") {
+			// "        PID                : 12345"
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				if pid, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil && pid > 0 {
+					s.PID = pid
+				}
+			}
+		}
+	}
+
+	return s
 }
 
 func platformInstall(configPath string) error {

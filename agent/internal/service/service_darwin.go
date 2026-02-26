@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/f0rt1ka/achilles-agent/internal/config"
@@ -44,6 +46,37 @@ const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 </dict>
 </plist>
 `
+
+func platformServiceStatus() Status {
+	var s Status
+
+	// Check if installed by looking for the plist file.
+	if _, err := os.Stat(plistPath); err == nil {
+		s.Installed = true
+	}
+
+	// "launchctl list <label>" exits 0 if the service is loaded.
+	// Output format (tab-separated): PID\tStatus\tLabel
+	// PID is "-" if not running, or a number if running.
+	out, err := exec.Command("launchctl", "list", plistLabel).Output()
+	if err != nil {
+		return s
+	}
+
+	// Parse first line: "12345\t0\tcom.f0rtika.achilles-agent" or
+	// "-\t0\tcom.f0rtika.achilles-agent"
+	line := strings.TrimSpace(string(out))
+	if fields := strings.SplitN(line, "\t", 3); len(fields) >= 1 {
+		// The service is loaded (launchctl list succeeded).
+		s.Installed = true
+		if pid, err := strconv.Atoi(fields[0]); err == nil && pid > 0 {
+			s.Running = true
+			s.PID = pid
+		}
+	}
+
+	return s
+}
 
 func platformInstall(configPath string) error {
 	execPath, err := os.Executable()

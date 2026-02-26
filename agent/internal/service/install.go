@@ -10,6 +10,13 @@ import (
 	"github.com/f0rt1ka/achilles-agent/internal/store"
 )
 
+// Status describes the current state of the agent system service.
+type Status struct {
+	Installed bool
+	Running   bool
+	PID       int // 0 if unknown or not running
+}
+
 // Install registers the agent as a system service on the current platform.
 func Install(configPath string) error {
 	return platformInstall(configPath)
@@ -18,6 +25,11 @@ func Install(configPath string) error {
 // Uninstall removes the agent system service from the current platform.
 func Uninstall() error {
 	return platformUninstall()
+}
+
+// ServiceStatus queries the platform service manager for the agent's current state.
+func ServiceStatus() Status {
+	return platformServiceStatus()
 }
 
 // RunService starts the agent as a system service (Windows) or directly (Linux).

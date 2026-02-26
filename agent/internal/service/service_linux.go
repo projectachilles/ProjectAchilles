@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/f0rt1ka/achilles-agent/internal/config"
@@ -35,6 +37,35 @@ WorkingDirectory=%s
 [Install]
 WantedBy=multi-user.target
 `
+
+func platformServiceStatus() Status {
+	var s Status
+
+	// Check if installed by looking for the unit file.
+	if _, err := os.Stat(unitPath); err == nil {
+		s.Installed = true
+	}
+
+	// Check if active via systemctl.
+	out, err := exec.Command("systemctl", "is-active", unitName).Output()
+	if err == nil && strings.TrimSpace(string(out)) == "active" {
+		s.Running = true
+	}
+
+	// Get MainPID from systemctl show.
+	out, err = exec.Command("systemctl", "show", "--property=MainPID", unitName).Output()
+	if err == nil {
+		// Output is "MainPID=12345\n"
+		line := strings.TrimSpace(string(out))
+		if after, ok := strings.CutPrefix(line, "MainPID="); ok {
+			if pid, err := strconv.Atoi(after); err == nil && pid > 0 {
+				s.PID = pid
+			}
+		}
+	}
+
+	return s
+}
 
 func platformInstall(configPath string) error {
 	execPath, err := os.Executable()

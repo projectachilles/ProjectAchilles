@@ -11,6 +11,7 @@ import (
 	"github.com/f0rt1ka/achilles-agent/internal/config"
 	"github.com/f0rt1ka/achilles-agent/internal/enrollment"
 	"github.com/f0rt1ka/achilles-agent/internal/service"
+	"github.com/f0rt1ka/achilles-agent/internal/status"
 	"github.com/f0rt1ka/achilles-agent/internal/store"
 )
 
@@ -21,7 +22,7 @@ func main() {
 	server := flag.String("server", "", "Server URL (required with --enroll)")
 	install := flag.Bool("install", false, "Install as system service after enrollment")
 	uninstall := flag.Bool("uninstall", false, "Uninstall the agent service")
-	status := flag.Bool("status", false, "Show agent status")
+	showStatus := flag.Bool("status", false, "Show agent status")
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	configPath := flag.String("config", config.DefaultConfigPath(), "Path to config file")
 	run := flag.Bool("run", false, "Run agent in foreground")
@@ -60,15 +61,8 @@ func main() {
 		os.Exit(0)
 	}
 
-	if *status {
-		cfg, err := config.Load(*configPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "not enrolled (no config at %s)\n", *configPath)
-			os.Exit(1)
-		}
-		fmt.Printf("Agent ID: %s\n", cfg.AgentID)
-		fmt.Printf("Server:   %s\n", cfg.ServerURL)
-		fmt.Printf("Version:  %s\n", version)
+	if *showStatus {
+		status.PrintStatus(*configPath, version)
 		os.Exit(0)
 	}
 
