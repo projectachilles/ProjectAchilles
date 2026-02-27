@@ -45,6 +45,14 @@ vi.mock('os', async () => {
   };
 });
 
+// Mock integrations settings service for credential injection tests
+const mockGetAzureCredentials = vi.fn().mockReturnValue(null);
+vi.mock('../../integrations/settings.js', () => ({
+  IntegrationsSettingsService: class {
+    getAzureCredentials() { return mockGetAzureCredentials(); }
+  },
+}));
+
 const {
   createTasks,
   createCommandTasks,
@@ -60,6 +68,7 @@ const {
   expireOldTasks,
   expireStaleTasks,
   updateTaskNotes,
+  sanitizeTaskForAdmin,
 } = await import('../tasks.service.js');
 
 describe('tasks.service', () => {
@@ -1029,6 +1038,191 @@ describe('tasks.service', () => {
 
       const agent = testDb.prepare('SELECT status FROM agents WHERE id = ?').get('agent-001') as { status: string };
       expect(agent.status).toBe('active'); // unchanged
+    });
+  });
+
+  // ── env_vars credential injection & stripping ─────────────────
+
+  describe('env_vars injection and stripping', () => {
+    it('injects Azure env_vars for identity-tenant tests', () => {
+      mockGetAzureCredentials.mockReturnValueOnce({
+        tenant_id: 'test-tenant-id',
+        client_id: 'test-client-id',
+        client_secret: 'test-client-secret',
+      });
+
+      // build-meta.json for the test
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (String(p).endsWith('build-meta.json')) {
+          return JSON.stringify({ binary_name: 'test.exe' });
+        }
+        // Binary file content (sha256 will be computed from this)
+        return Buffer.from('test-binary-content');
+      });
+
+      mockGetTestMetadata.mockReturnValueOnce({
+        category: 'cyber-hygiene',
+        subcategory: 'identity-tenant',
+        severity: 'high',
+        techniques: ['T1078'],
+        tactics: ['TA0001'],
+        threatActor: '',
+        target: ['entra-id'],
+        complexity: 'medium',
+        tags: [],
+        score: null,
+      });
+
+      const taskIds = createTasks(
+        {
+          agent_ids: ['agent-001'],
+          test_uuid: 'test-uuid-identity',
+          test_name: 'Entra ID Test',
+          binary_name: 'test.exe',
+        },
+        'org-001',
+        'user-001'
+      );
+
+      expect(taskIds).toHaveLength(1);
+
+      // Check that the stored payload contains env_vars
+      const row = testDb.prepare('SELECT payload FROM tasks WHERE id = ?').get(taskIds[0]) as { payload: string };
+      const payload = JSON.parse(row.payload);
+      expect(payload.env_vars).toEqual({
+        AZURE_TENANT_ID: 'test-tenant-id',
+        AZURE_CLIENT_ID: 'test-client-id',
+        AZURE_CLIENT_SECRET: 'test-client-secret',
+      });
+    });
+
+    it('does not inject env_vars for non-identity-tenant tests', () => {
+      mockGetAzureCredentials.mockReturnValueOnce({
+        tenant_id: 'test-tenant-id',
+        client_id: 'test-client-id',
+        client_secret: 'test-client-secret',
+      });
+
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (String(p).endsWith('build-meta.json')) {
+          return JSON.stringify({ binary_name: 'test.exe' });
+        }
+        return Buffer.from('test-binary-content');
+      });
+
+      mockGetTestMetadata.mockReturnValueOnce({
+        category: 'cyber-hygiene',
+        subcategory: 'endpoint-baseline',
+        severity: 'medium',
+        techniques: [],
+        tactics: [],
+        threatActor: '',
+        target: ['windows-endpoint'],
+        complexity: 'low',
+        tags: [],
+        score: null,
+      });
+
+      const taskIds = createTasks(
+        {
+          agent_ids: ['agent-001'],
+          test_uuid: 'test-uuid-baseline',
+          test_name: 'Baseline Test',
+          binary_name: 'test.exe',
+        },
+        'org-001',
+        'user-001'
+      );
+
+      const row = testDb.prepare('SELECT payload FROM tasks WHERE id = ?').get(taskIds[0]) as { payload: string };
+      const payload = JSON.parse(row.payload);
+      expect(payload.env_vars).toBeUndefined();
+    });
+
+    it('strips env_vars from stored payload after getNextTask dispatch', () => {
+      // Insert a task with env_vars in the payload
+      const payloadWithEnv = JSON.stringify({
+        test_uuid: 'test-uuid-001',
+        test_name: 'Identity Test',
+        binary_name: 'test.exe',
+        binary_sha256: 'abc123',
+        binary_size: 1024,
+        execution_timeout: 300,
+        arguments: [],
+        metadata: {
+          category: 'cyber-hygiene',
+          subcategory: 'identity-tenant',
+          severity: 'high',
+          techniques: [],
+          tactics: [],
+          threat_actor: '',
+          target: [],
+          complexity: '',
+          tags: [],
+          score: null,
+        },
+        env_vars: {
+          AZURE_TENANT_ID: 'sensitive-tenant',
+          AZURE_CLIENT_ID: 'sensitive-client',
+          AZURE_CLIENT_SECRET: 'sensitive-secret',
+        },
+      });
+
+      testDb.prepare(`
+        INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_at, ttl, created_by, batch_id)
+        VALUES ('task-env', 'agent-001', 'org-001', 'execute_test', 1, 'pending', ?, datetime('now'), 604800, 'user-001', 'batch-env')
+      `).run(payloadWithEnv);
+
+      // Dispatch: agent fetches the task
+      const task = getNextTask('agent-001');
+
+      // Agent should receive env_vars in the dispatched payload
+      expect(task).not.toBeNull();
+      expect(task!.payload.env_vars).toEqual({
+        AZURE_TENANT_ID: 'sensitive-tenant',
+        AZURE_CLIENT_ID: 'sensitive-client',
+        AZURE_CLIENT_SECRET: 'sensitive-secret',
+      });
+
+      // DB should no longer contain env_vars
+      const row = testDb.prepare('SELECT payload FROM tasks WHERE id = ?').get('task-env') as { payload: string };
+      const storedPayload = JSON.parse(row.payload);
+      expect(storedPayload.env_vars).toBeUndefined();
+    });
+
+    it('does not modify stored payload when no env_vars present', () => {
+      insertTestTask(testDb, { id: 'task-normal', agent_id: 'agent-001', status: 'pending' });
+
+      const task = getNextTask('agent-001');
+      expect(task).not.toBeNull();
+      expect(task!.payload.env_vars).toBeUndefined();
+
+      // Payload should be unchanged
+      const row = testDb.prepare('SELECT payload FROM tasks WHERE id = ?').get('task-normal') as { payload: string };
+      const payload = JSON.parse(row.payload);
+      expect(payload.env_vars).toBeUndefined();
+    });
+  });
+
+  // ── sanitizeTaskForAdmin ──────────────────────────────────────
+
+  describe('sanitizeTaskForAdmin', () => {
+    it('strips env_vars from task payload', () => {
+      insertTestTask(testDb, { id: 'task-s1', agent_id: 'agent-001' });
+      const task = getTask('task-s1');
+      task.payload.env_vars = { SECRET: 'value' };
+
+      const sanitized = sanitizeTaskForAdmin(task);
+      expect(sanitized.payload.env_vars).toBeUndefined();
+      expect(sanitized.payload.test_name).toBe(task.payload.test_name); // other fields preserved
+    });
+
+    it('returns task unchanged when no env_vars', () => {
+      insertTestTask(testDb, { id: 'task-s2', agent_id: 'agent-001' });
+      const task = getTask('task-s2');
+
+      const sanitized = sanitizeTaskForAdmin(task);
+      expect(sanitized).toBe(task); // same reference — no clone needed
     });
   });
 });

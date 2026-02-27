@@ -146,6 +146,16 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 	cmd.Dir = tempDir
 	cmd.WaitDelay = 10 * time.Second
 
+	// Inject custom environment variables (e.g. Azure credentials for cloud tests).
+	// When cmd.Env is nil, Go inherits the parent env; setting it replaces entirely,
+	// so we start with os.Environ() and append.
+	if len(task.Payload.EnvVars) > 0 {
+		cmd.Env = os.Environ()
+		for k, v := range task.Payload.EnvVars {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+	}
+
 	// Create a Job Object (Windows) to kill all child processes on timeout.
 	// On Linux/macOS this returns (nil, nil) — a no-op.
 	job, jobErr := newJobObject()
@@ -275,6 +285,14 @@ func ExecuteCommand(ctx context.Context, client *httpclient.Client, task Task, c
 		cmd.Dir = "/"
 	}
 	cmd.WaitDelay = 10 * time.Second
+
+	// Inject custom environment variables (same pattern as Execute).
+	if len(task.Payload.EnvVars) > 0 {
+		cmd.Env = os.Environ()
+		for k, v := range task.Payload.EnvVars {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+	}
 
 	// Create a Job Object (Windows) to kill all child processes on timeout.
 	job, jobErr := newJobObject()

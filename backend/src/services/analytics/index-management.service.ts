@@ -42,6 +42,7 @@ export const RESULTS_INDEX_MAPPING = {
           control_id: { type: 'keyword' as const },
           control_validator: { type: 'keyword' as const },
           is_bundle_control: { type: 'boolean' as const },
+          tenant_label: { type: 'keyword' as const },
         },
       },
       event: {

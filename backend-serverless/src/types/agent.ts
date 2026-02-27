@@ -140,6 +140,7 @@ export interface TaskPayload {
   arguments: string[];
   metadata: TaskTestMetadata;
   command?: string;
+  env_vars?: Record<string, string>;
 }
 
 export interface TaskTestMetadata {

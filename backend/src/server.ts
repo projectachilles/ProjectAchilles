@@ -17,6 +17,7 @@ import { GitSyncService } from './services/browser/gitSyncService.js';
 import { GitHubMetadataService } from './services/browser/githubMetadataService.js';
 import { createAgentRouter } from './api/agent/index.js';
 import usersRoutes from './api/users.routes.js';
+import integrationsRoutes from './api/integrations.routes.js';
 import { processSchedules } from './services/agent/schedules.service.js';
 import { processAutoRotation } from './services/agent/autoRotation.service.js';
 import { initCatalog } from './services/agent/test-catalog.service.js';
@@ -224,6 +225,9 @@ async function startServer() {
 
   // User management - RBAC role assignment (admin-only)
   app.use('/api/users', usersRoutes);
+
+  // Integrations - external service credentials (Azure, etc.)
+  app.use('/api/integrations', integrationsRoutes);
 
   // ============ ERROR HANDLING ============
   app.use(notFoundHandler);

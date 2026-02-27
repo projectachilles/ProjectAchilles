@@ -15,6 +15,7 @@ import {
   cancelTask,
   deleteTask,
   updateTaskNotes,
+  sanitizeTaskForAdmin,
 } from '../../services/agent/tasks.service.js';
 import { ingestResult } from '../../services/agent/results.service.js';
 import type {
@@ -265,6 +266,9 @@ adminTasksRouter.get(
 
     const result = listTasks(filters);
 
+    // Strip env_vars from admin responses
+    result.tasks = result.tasks.map(sanitizeTaskForAdmin);
+
     res.json({ success: true, data: result });
   })
 );
@@ -288,6 +292,13 @@ adminTasksRouter.get(
     };
 
     const result = listTasksGrouped(filters);
+
+    // Strip env_vars from admin responses
+    for (const group of result.groups) {
+      group.tasks = group.tasks.map(sanitizeTaskForAdmin);
+      group.payload = { ...group.payload, env_vars: undefined };
+    }
+
     res.json({ success: true, data: result });
   })
 );
@@ -300,7 +311,7 @@ adminTasksRouter.get(
   '/tasks/:id',
   requirePermission('endpoints:tasks:read'),
   asyncHandler(async (req, res) => {
-    const task = getTask(req.params.id);
+    const task = sanitizeTaskForAdmin(getTask(req.params.id));
 
     res.json({ success: true, data: task });
   })

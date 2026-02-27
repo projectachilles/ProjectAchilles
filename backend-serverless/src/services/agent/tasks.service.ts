@@ -15,6 +15,7 @@ import type {
   ListTasksRequest,
 } from '../../types/agent.js';
 import { getTestMetadata } from './test-catalog.service.js';
+import { IntegrationsSettingsService } from '../integrations/settings.js';
 
 // ============================================================================
 // HELPERS
@@ -61,6 +62,39 @@ const VALID_TRANSITIONS: Record<string, TaskStatus[]> = {
   downloading: ['executing', 'failed', 'expired'],
   executing: ['completed', 'failed'],
 };
+
+/**
+ * Resolve integration environment variables for cloud-targeted tests.
+ * Currently supports Azure/Entra ID via the identity-tenant subcategory.
+ */
+async function resolveIntegrationEnvVars(metadata: TaskTestMetadata): Promise<Record<string, string> | undefined> {
+  if (metadata.subcategory === 'identity-tenant') {
+    const service = new IntegrationsSettingsService();
+    const creds = await service.getAzureCredentials();
+    if (!creds) return undefined;
+    return {
+      AZURE_TENANT_ID: creds.tenant_id,
+      AZURE_CLIENT_ID: creds.client_id,
+      AZURE_CLIENT_SECRET: creds.client_secret,
+    };
+  }
+  return undefined;
+}
+
+/**
+ * Strip env_vars from a parsed task before returning to admin endpoints.
+ * Prevents credential leakage through the admin API even if strip-after-dispatch
+ * hasn't run yet (e.g. the agent hasn't fetched the task).
+ */
+export function sanitizeTaskForAdmin(task: Task): Task {
+  if (task.payload.env_vars) {
+    return {
+      ...task,
+      payload: { ...task.payload, env_vars: undefined },
+    };
+  }
+  return task;
+}
 
 // ============================================================================
 // SERVICE METHODS
@@ -158,6 +192,12 @@ export async function createTasks(
     arguments: args,
     metadata: enrichedMetadata,
   };
+
+  // Inject integration credentials as env_vars for cloud-targeted tests
+  const envVars = await resolveIntegrationEnvVars(enrichedMetadata);
+  if (envVars) {
+    payload.env_vars = envVars;
+  }
 
   const payloadJson = JSON.stringify(payload);
 
@@ -415,7 +455,18 @@ export async function getNextTask(agentId: string): Promise<Task | null> {
 
   if (!result) return null;
 
-  return parseTaskRow(result);
+  const task = parseTaskRow(result);
+
+  // Strip env_vars from stored payload after dispatching to agent.
+  // The agent receives the full payload (with credentials) from the row
+  // we just read; after this point, credentials are no longer in the DB.
+  if (task.payload.env_vars) {
+    const storedPayload = JSON.parse(result.payload as string) as TaskPayload;
+    delete storedPayload.env_vars;
+    await db.run('UPDATE tasks SET payload = ? WHERE id = ?', [JSON.stringify(storedPayload), result.id]);
+  }
+
+  return task;
 }
 
 /**

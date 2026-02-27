@@ -6,6 +6,7 @@ import type { Task, TaskResult } from '../../types/agent.js';
 import { ERROR_CODE_MAP } from '../analytics/elasticsearch.js';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
+import { IntegrationsSettingsService } from '../integrations/settings.js';
 
 // Protected exit codes: file quarantined, execution prevented, quarantined on execution
 const PROTECTED_CODES = new Set([105, 126, 127]);
@@ -104,6 +105,14 @@ async function ingestBundleControls(
 ): Promise<void> {
   const bundle = result.bundle_results!;
 
+  // Resolve tenant label for identity-tenant bundles
+  let tenantLabel: string | undefined;
+  if (bundle.bundle_subcategory === 'identity-tenant' || task.payload.metadata?.subcategory === 'identity-tenant') {
+    const intService = new IntegrationsSettingsService();
+    const azureSettings = await intService.getAzureSettings();
+    tenantLabel = azureSettings?.label || 'Azure Tenant';
+  }
+
   const operations = bundle.controls.flatMap((control) => [
     { index: { _index: index } },
     {
@@ -135,6 +144,7 @@ async function ingestBundleControls(
         control_id: control.control_id,
         control_validator: control.validator,
         is_bundle_control: true,
+        ...(tenantLabel ? { tenant_label: tenantLabel } : {}),
       },
     },
   ]);

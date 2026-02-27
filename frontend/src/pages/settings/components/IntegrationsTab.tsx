@@ -1,8 +1,10 @@
-import { useState, useCallback } from 'react';
-import { Database } from 'lucide-react';
+import { useState, useCallback, useEffect } from 'react';
+import { Database, Cloud } from 'lucide-react';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { IntegrationCard, type IntegrationStatus } from './IntegrationCard';
 import { AnalyticsConfig } from './AnalyticsConfig';
+import { AzureConfig } from './AzureConfig';
+import { integrationsApi } from '@/services/api/integrations';
 
 export function IntegrationsTab() {
   const { configured: analyticsConfigured } = useAnalyticsAuth();
@@ -11,9 +13,25 @@ export function IntegrationsTab() {
   const [analyticsStatus, setAnalyticsStatus] = useState<IntegrationStatus>(
     analyticsConfigured ? 'connected' : 'not-configured'
   );
+  const [azureStatus, setAzureStatus] = useState<IntegrationStatus>('not-configured');
+  const [azureLoaded, setAzureLoaded] = useState(false);
 
   const handleAnalyticsStatusChange = useCallback((configured: boolean) => {
     setAnalyticsStatus(configured ? 'connected' : 'not-configured');
+  }, []);
+
+  const handleAzureStatusChange = useCallback((configured: boolean) => {
+    setAzureStatus(configured ? 'connected' : 'not-configured');
+  }, []);
+
+  // Pre-fetch Azure status for the card badge
+  useEffect(() => {
+    integrationsApi.getAzureSettings().then((settings) => {
+      setAzureStatus(settings.configured ? 'connected' : 'not-configured');
+      setAzureLoaded(true);
+    }).catch(() => {
+      setAzureLoaded(true);
+    });
   }, []);
 
   return (
@@ -33,6 +51,16 @@ export function IntegrationsTab() {
         defaultExpanded={!analyticsConfigured}
       >
         <AnalyticsConfig onStatusChange={handleAnalyticsStatusChange} />
+      </IntegrationCard>
+
+      <IntegrationCard
+        icon={Cloud}
+        title="Azure / Entra ID"
+        description="Service principal for cloud identity tenant security assessments"
+        status={azureStatus}
+        defaultExpanded={azureLoaded && azureStatus === 'not-configured'}
+      >
+        <AzureConfig onStatusChange={handleAzureStatusChange} />
       </IntegrationCard>
     </div>
   );

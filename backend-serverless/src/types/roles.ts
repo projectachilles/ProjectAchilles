@@ -45,7 +45,10 @@ export type Permission =
   | 'settings:certificates:read'
   | 'settings:certificates:create'
   | 'settings:certificates:delete'
-  | 'settings:users:manage';
+  | 'settings:users:manage'
+  // Integrations module
+  | 'integrations:read'
+  | 'integrations:write';
 
 /** Full permission set — every Permission value. */
 const ALL_PERMISSIONS: readonly Permission[] = [
@@ -82,6 +85,8 @@ const ALL_PERMISSIONS: readonly Permission[] = [
   'settings:certificates:create',
   'settings:certificates:delete',
   'settings:users:manage',
+  'integrations:read',
+  'integrations:write',
 ] as const;
 
 /**
@@ -117,6 +122,8 @@ export const ROLE_PERMISSIONS: Record<AppRole, readonly Permission[]> = {
     'settings:platform:read',
     'settings:certificates:read',
     'settings:certificates:create',
+    // Integrations — read-only
+    'integrations:read',
   ],
 
   analyst: [

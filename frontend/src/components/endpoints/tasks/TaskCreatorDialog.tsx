@@ -4,10 +4,12 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/shared/ui
 import { Button } from '@/components/shared/ui/Button';
 import { Input } from '@/components/shared/ui/Input';
 import { Switch } from '@/components/shared/ui/Switch';
-import { Search, Tag, X, Play, Calendar, Terminal } from 'lucide-react';
+import { Alert } from '@/components/shared/ui/Alert';
+import { Search, Tag, X, Play, Calendar, Terminal, AlertTriangle } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
 import { browserApi } from '@/services/api/browser';
 import { analyticsApi, type IndexInfo } from '@/services/api/analytics';
+import { integrationsApi } from '@/services/api/integrations';
 import type { AgentSummary, TaskTestMetadata, ScheduleType, ScheduleConfig } from '@/types/agent';
 import type { TestMetadata, BuildInfo } from '@/types/test';
 
@@ -95,6 +97,9 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
   const [availableIndices, setAvailableIndices] = useState<IndexInfo[]>([]);
   const [indicesLoading, setIndicesLoading] = useState(false);
 
+  // Azure integration state (for identity-tenant tests)
+  const [azureConfigured, setAzureConfigured] = useState<boolean | null>(null);
+
   // Stabilize selectedAgents so a new [] default doesn't re-trigger effects every render
   const stableSelectedAgents = useMemo(
     () => selectedAgents,
@@ -137,7 +142,15 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
       .finally(() => setLoadingTests(false));
   }, [open]);
 
-  // Effect 3: fetch available ES indices
+  // Effect 3: check Azure integration status (for identity-tenant test warnings)
+  useEffect(() => {
+    if (!open) return;
+    integrationsApi.getAzureSettings()
+      .then((s) => setAzureConfigured(s.configured))
+      .catch(() => setAzureConfigured(false));
+  }, [open]);
+
+  // Effect 4: fetch available ES indices
   useEffect(() => {
     if (!open) return;
     setIndicesLoading(true);
@@ -340,7 +353,12 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
     return true;
   })();
 
-  const isFormValid = targetAgentIds.length > 0 && (
+  // Check if the selected test requires Azure credentials
+  const selectedTest = availableTests.find((t) => t.test.uuid === testUuid);
+  const isIdentityTenantTest = selectedTest?.test.subcategory === 'identity-tenant';
+  const needsAzureWarning = isIdentityTenantTest && azureConfigured === false;
+
+  const isFormValid = targetAgentIds.length > 0 && !needsAzureWarning && (
     taskMode === 'command'
       ? command.trim().length > 0
       : testUuid && testName && binaryName && isScheduleValid
@@ -591,6 +609,20 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                   <span className="font-mono text-xs break-all">{binaryName}</span>
                 </div>
               </div>
+            )}
+
+            {/* === Azure configuration warning for identity-tenant tests === */}
+            {needsAzureWarning && (
+              <Alert variant="destructive">
+                <AlertTriangle className="w-4 h-4" />
+                <div>
+                  <p className="font-medium">Azure credentials not configured</p>
+                  <p className="text-sm mt-1">
+                    This test requires Azure / Entra ID service principal credentials.
+                    Configure them in <strong>Settings &rarr; Integrations &rarr; Azure / Entra ID</strong> before executing.
+                  </p>
+                </div>
+              </Alert>
             )}
 
             {/* === Tabs: Run Now / Schedule === */}
