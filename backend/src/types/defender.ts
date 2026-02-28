@@ -15,7 +15,6 @@ export interface GraphSecureScore {
     controlName: string;
     controlCategory: string;
     score: number;
-    maxScore: number;
     description?: string;
   }>;
 }
@@ -67,7 +66,6 @@ export interface DefenderScoreDoc {
     name: string;
     category: string;
     score: number;
-    max_score: number;
   }>;
   average_comparative_score: number | null;
 }

@@ -24,7 +24,6 @@ export const DEFENDER_INDEX_MAPPING = {
           name: { type: 'keyword' as const },
           category: { type: 'keyword' as const },
           score: { type: 'float' as const },
-          max_score: { type: 'float' as const },
         },
       },
       average_comparative_score: { type: 'float' as const },

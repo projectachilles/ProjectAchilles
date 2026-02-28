@@ -53,6 +53,7 @@ describe('DefenderAnalyticsService', () => {
     });
 
     it('returns score with category breakdown', async () => {
+      // First call: secure score document
       mockSearch.mockResolvedValueOnce({
         hits: {
           hits: [{
@@ -62,13 +63,24 @@ describe('DefenderAnalyticsService', () => {
               score_percentage: 45,
               average_comparative_score: 52.3,
               control_scores: [
-                { category: 'Identity', score: 20, max_score: 40 },
-                { category: 'Identity', score: 5, max_score: 10 },
-                { category: 'Device', score: 10, max_score: 30 },
-                { category: 'Data', score: 10, max_score: 20 },
+                { name: 'AdminMFA', category: 'Identity', score: 20 },
+                { name: 'MFARegistration', category: 'Identity', score: 5 },
+                { name: 'IntuneCompliance', category: 'Device', score: 10 },
+                { name: 'DLPEnabled', category: 'Data', score: 10 },
               ],
             },
           }],
+        },
+      });
+      // Second call: control profiles (for maxScore lookup)
+      mockSearch.mockResolvedValueOnce({
+        hits: {
+          hits: [
+            { _source: { control_name: 'AdminMFA', max_score: 40 } },
+            { _source: { control_name: 'MFARegistration', max_score: 10 } },
+            { _source: { control_name: 'IntuneCompliance', max_score: 30 } },
+            { _source: { control_name: 'DLPEnabled', max_score: 20 } },
+          ],
         },
       });
 

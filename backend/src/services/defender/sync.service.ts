@@ -74,7 +74,6 @@ export class DefenderSyncService {
         name: cs.controlName,
         category: cs.controlCategory,
         score: cs.score ?? 0,
-        max_score: cs.maxScore ?? 0,
       })),
       average_comparative_score: avgComparative?.averageScore ?? null,
     };

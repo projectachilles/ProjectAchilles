@@ -147,12 +147,27 @@ export class DefenderAnalyticsService {
     const source = hit._source as Record<string, unknown>;
     const controlScores = source.control_scores as Array<Record<string, unknown>> ?? [];
 
+    // Build a maxScore lookup from control profiles (which have maxScore, unlike controlScore)
+    const profileResult = await client.search({
+      index: DEFENDER_INDEX,
+      size: 200,
+      query: { term: { doc_type: 'control_profile' } },
+      _source: ['control_name', 'max_score'],
+    });
+    const maxScoreLookup = new Map<string, number>();
+    for (const ph of profileResult.hits.hits) {
+      const ps = ph._source as Record<string, unknown>;
+      maxScoreLookup.set(String(ps.control_name ?? ''), Number(ps.max_score ?? 0));
+    }
+
+    // Aggregate by category, resolving maxScore from control profiles
     const categoryMap = new Map<string, { score: number; maxScore: number }>();
     for (const cs of controlScores) {
       const cat = String(cs.category ?? 'Unknown');
+      const controlName = String(cs.name ?? '');
       const existing = categoryMap.get(cat) ?? { score: 0, maxScore: 0 };
       existing.score += Number(cs.score ?? 0);
-      existing.maxScore += Number(cs.max_score ?? 0);
+      existing.maxScore += maxScoreLookup.get(controlName) ?? 0;
       categoryMap.set(cat, existing);
     }
 
