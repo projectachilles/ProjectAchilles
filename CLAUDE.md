@@ -114,6 +114,8 @@ SQLite has no `ALTER COLUMN`, so changing CHECK constraints requires recreating 
 |-------|------|---------|
 | `/api/browser/*` | Clerk | Security test browser |
 | `/api/analytics/*` | Clerk | Elasticsearch analytics |
+| `/api/analytics/defender/*` | Clerk | Defender Secure Score, alerts, controls, cross-correlation |
+| `/api/integrations/defender/*` | Clerk | Defender credentials, sync trigger |
 | `/api/agent/admin/*` | Clerk | Agent management (tokens, tasks, schedules) |
 | `/api/agent/*` | Agent key | Device endpoints (enroll, heartbeat, tasks) |
 | `/api/tests/*` | Clerk | Build system, certificates |
@@ -336,3 +338,16 @@ When writing custom `content` renderers for Recharts components (Treemap, etc.),
 4. **Fallback** — parse `build_all.sh` for literal `go build -o <filename>`
 
 Only external (non-source-built) missing deps block the Build button and show Upload. Source-built deps show a wrench icon + "Auto-built" label. `saveUploadedFile()` rejects uploads for source-built deps.
+
+### Microsoft Defender Integration
+Pulls Secure Score, alerts (v2), and control profiles from Microsoft Graph API. Conditionally shown in Analytics dashboard when configured.
+
+- **Configuration**: Settings → Integrations → Microsoft Defender card. Requires Azure AD App Registration with `SecurityEvents.Read.All` (Application type, admin consent)
+- **Credentials**: `DEFENDER_TENANT_ID`, `DEFENDER_CLIENT_ID`, `DEFENDER_CLIENT_SECRET` env vars or UI (AES-256-GCM encrypted in `~/.projectachilles/integrations.json`)
+- **Graph client**: Custom `fetch`-based (`services/defender/graph-client.ts`) — OAuth2 client_credentials, token caching, OData pagination, 429 retry
+- **ES storage**: Single index `achilles-defender` with `doc_type` discriminator (`secure_score`, `control_profile`, `alert`). Sparse fields across doc types
+- **Background sync**: Scores/controls every 6h, alerts every 5min (Docker: `setInterval`, Vercel: Cron at `/api/cron/defender-sync`)
+- **Analytics routes**: 9 endpoints under `/api/analytics/defender/` (secure-score, alerts, controls, cross-correlation)
+- **Cross-correlation**: Defense Score vs Secure Score over time, MITRE technique overlap between test results and Defender alerts
+- **Conditional UI**: All Defender dashboard elements hidden when not configured (`useDefenderConfig` hook)
+- **Serverless parity**: Full implementation in `backend-serverless/` with async blob storage and Vercel Cron

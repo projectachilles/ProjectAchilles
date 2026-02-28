@@ -1,0 +1,106 @@
+// Defender analytics routes — Vercel serverless version.
+// Secure Score, alerts, controls, and cross-correlation.
+
+import { Router } from 'express';
+import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
+import { asyncHandler, AppError } from '../middleware/error.middleware.js';
+import { IntegrationsSettingsService } from '../services/integrations/settings.js';
+import { DefenderAnalyticsService } from '../services/defender/analytics.service.js';
+
+const router = Router();
+
+router.use(requireClerkAuth());
+
+const settingsService = new IntegrationsSettingsService();
+const analyticsService = new DefenderAnalyticsService();
+
+/** Guard: return 400 if Defender is not configured. */
+function requireDefenderConfigured() {
+  return asyncHandler(async (_req: unknown, _res: unknown, next: (err?: unknown) => void) => {
+    const configured = await settingsService.isDefenderConfigured();
+    if (!configured) {
+      next(new AppError('Defender integration is not configured', 400));
+      return;
+    }
+    next();
+  });
+}
+
+router.use(requireDefenderConfigured());
+
+// ---------------------------------------------------------------------------
+// Secure Score
+// ---------------------------------------------------------------------------
+
+router.get('/secure-score', requirePermission('analytics:dashboards:read'), asyncHandler(async (_req, res) => {
+  const data = await analyticsService.getCurrentSecureScore();
+  res.json(data);
+}));
+
+router.get('/secure-score/trend', requirePermission('analytics:dashboards:read'), asyncHandler(async (req, res) => {
+  const days = parseInt(String(req.query.days ?? '90'), 10);
+  const data = await analyticsService.getSecureScoreTrend(days);
+  res.json(data);
+}));
+
+// ---------------------------------------------------------------------------
+// Alerts
+// ---------------------------------------------------------------------------
+
+router.get('/alerts/summary', requirePermission('analytics:dashboards:read'), asyncHandler(async (_req, res) => {
+  const data = await analyticsService.getAlertSummary();
+  res.json(data);
+}));
+
+router.get('/alerts', requirePermission('analytics:dashboards:read'), asyncHandler(async (req, res) => {
+  const data = await analyticsService.getAlerts({
+    page: req.query.page ? parseInt(String(req.query.page), 10) : undefined,
+    pageSize: req.query.pageSize ? parseInt(String(req.query.pageSize), 10) : undefined,
+    severity: req.query.severity ? String(req.query.severity) : undefined,
+    status: req.query.status ? String(req.query.status) : undefined,
+    search: req.query.search ? String(req.query.search) : undefined,
+    sortField: req.query.sortField ? String(req.query.sortField) : undefined,
+    sortOrder: req.query.sortOrder === 'asc' ? 'asc' : 'desc',
+  });
+  res.json(data);
+}));
+
+router.get('/alerts/trend', requirePermission('analytics:dashboards:read'), asyncHandler(async (req, res) => {
+  const days = parseInt(String(req.query.days ?? '30'), 10);
+  const data = await analyticsService.getAlertTrend(days);
+  res.json(data);
+}));
+
+// ---------------------------------------------------------------------------
+// Controls
+// ---------------------------------------------------------------------------
+
+router.get('/controls', requirePermission('analytics:dashboards:read'), asyncHandler(async (req, res) => {
+  const data = await analyticsService.getControlProfiles({
+    category: req.query.category ? String(req.query.category) : undefined,
+    deprecated: req.query.deprecated === 'true' ? true : req.query.deprecated === 'false' ? false : undefined,
+  });
+  res.json(data);
+}));
+
+router.get('/controls/by-category', requirePermission('analytics:dashboards:read'), asyncHandler(async (_req, res) => {
+  const data = await analyticsService.getControlsByCategory();
+  res.json(data);
+}));
+
+// ---------------------------------------------------------------------------
+// Cross-correlation
+// ---------------------------------------------------------------------------
+
+router.get('/correlation/scores', requirePermission('analytics:dashboards:read'), asyncHandler(async (req, res) => {
+  const days = parseInt(String(req.query.days ?? '90'), 10);
+  const data = await analyticsService.getDefenseVsSecureScore(days);
+  res.json(data);
+}));
+
+router.get('/correlation/techniques', requirePermission('analytics:dashboards:read'), asyncHandler(async (_req, res) => {
+  const data = await analyticsService.getTechniqueOverlap();
+  res.json(data);
+}));
+
+export default router;

@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import * as os from 'os';
-import type { AzureIntegrationSettings, IntegrationsSettings } from '../../types/integrations.js';
+import type { AzureIntegrationSettings, DefenderIntegrationSettings, IntegrationsSettings } from '../../types/integrations.js';
 
 const SETTINGS_DIR = path.join(os.homedir(), '.projectachilles');
 const SETTINGS_FILE = path.join(SETTINGS_DIR, 'integrations.json');
@@ -110,6 +110,19 @@ export class IntegrationsSettingsService {
         }
       }
 
+      // Decrypt sensitive Defender fields
+      if (settings.defender) {
+        if (settings.defender.tenant_id?.startsWith('enc:')) {
+          settings.defender.tenant_id = this.decrypt(settings.defender.tenant_id.slice(4));
+        }
+        if (settings.defender.client_id?.startsWith('enc:')) {
+          settings.defender.client_id = this.decrypt(settings.defender.client_id.slice(4));
+        }
+        if (settings.defender.client_secret?.startsWith('enc:')) {
+          settings.defender.client_secret = this.decrypt(settings.defender.client_secret.slice(4));
+        }
+      }
+
       return settings;
     } catch (error) {
       console.error('Error loading integrations settings:', error);
@@ -178,6 +191,97 @@ export class IntegrationsSettingsService {
   /** Returns raw decrypted credentials for injection into task payloads. */
   getAzureCredentials(): { tenant_id: string; client_id: string; client_secret: string } | null {
     const settings = this.getAzureSettings();
+    if (!settings?.configured) return null;
+    if (!settings.tenant_id || !settings.client_id || !settings.client_secret) return null;
+    return {
+      tenant_id: settings.tenant_id,
+      client_id: settings.client_id,
+      client_secret: settings.client_secret,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Microsoft Defender (Graph Security API)
+  // ---------------------------------------------------------------------------
+
+  private getEnvDefenderSettings(): DefenderIntegrationSettings | null {
+    const tenantId = process.env.DEFENDER_TENANT_ID;
+    const clientId = process.env.DEFENDER_CLIENT_ID;
+    const clientSecret = process.env.DEFENDER_CLIENT_SECRET;
+
+    if (!tenantId || !clientId || !clientSecret) return null;
+
+    return {
+      tenant_id: tenantId,
+      client_id: clientId,
+      client_secret: clientSecret,
+      configured: true,
+      label: process.env.DEFENDER_TENANT_LABEL || undefined,
+    };
+  }
+
+  /** Check if Defender credentials are provided via environment variables. */
+  isEnvDefenderConfigured(): boolean {
+    return this.getEnvDefenderSettings() !== null;
+  }
+
+  /** Returns decrypted Defender settings. File settings take priority over env vars. */
+  getDefenderSettings(): DefenderIntegrationSettings | null {
+    const fileSettings = this.getFileSettings();
+
+    if (fileSettings?.defender?.configured) {
+      return fileSettings.defender;
+    }
+
+    return this.getEnvDefenderSettings();
+  }
+
+  /** Save Defender credentials (encrypts sensitive fields). Supports partial update. */
+  saveDefenderSettings(settings: Partial<DefenderIntegrationSettings>): void {
+    this.ensureSettingsDir();
+
+    // Load existing to support partial update
+    const existing = this.getFileSettings() ?? {};
+    const current = existing.defender ?? {
+      tenant_id: '',
+      client_id: '',
+      client_secret: '',
+      configured: false,
+    };
+
+    // Merge: only overwrite non-empty fields
+    const merged: DefenderIntegrationSettings = {
+      tenant_id: settings.tenant_id || current.tenant_id,
+      client_id: settings.client_id || current.client_id,
+      client_secret: settings.client_secret || current.client_secret,
+      configured: true,
+      label: settings.label !== undefined ? settings.label : current.label,
+    };
+
+    // Encrypt sensitive fields
+    const toSave: IntegrationsSettings = {
+      ...existing,
+      defender: {
+        ...merged,
+        tenant_id: 'enc:' + this.encrypt(merged.tenant_id),
+        client_id: 'enc:' + this.encrypt(merged.client_id),
+        client_secret: 'enc:' + this.encrypt(merged.client_secret),
+      },
+    };
+
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(toSave, null, 2));
+  }
+
+  /** Check if Defender integration is configured (file or env). */
+  isDefenderConfigured(): boolean {
+    const settings = this.getDefenderSettings();
+    if (!settings?.configured) return false;
+    return !!(settings.tenant_id && settings.client_id && settings.client_secret);
+  }
+
+  /** Returns raw decrypted Defender credentials. */
+  getDefenderCredentials(): { tenant_id: string; client_id: string; client_secret: string } | null {
+    const settings = this.getDefenderSettings();
     if (!settings?.configured) return null;
     if (!settings.tenant_id || !settings.client_id || !settings.client_secret) return null;
     return {

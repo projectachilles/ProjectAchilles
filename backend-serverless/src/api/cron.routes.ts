@@ -45,4 +45,26 @@ router.get('/auto-rotation', async (req, res) => {
   }
 });
 
+/**
+ * Cron endpoint for Defender data sync.
+ * Called by Vercel Crons every 5 minutes for alerts, every 6 hours for scores/controls.
+ * A single endpoint runs syncAll() — Vercel Cron triggers at the desired interval.
+ */
+router.get('/defender-sync', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    res.status(401).json({ success: false, error: 'Unauthorized' });
+    return;
+  }
+
+  try {
+    const { defenderSyncService } = await import('./integrations.routes.js');
+    const result = await defenderSyncService.syncAll();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('[cron/defender-sync] Error:', error);
+    res.status(500).json({ success: false, error: 'Defender sync failed' });
+  }
+});
+
 export default router;

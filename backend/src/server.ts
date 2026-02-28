@@ -21,6 +21,9 @@ import integrationsRoutes from './api/integrations.routes.js';
 import { processSchedules } from './services/agent/schedules.service.js';
 import { processAutoRotation } from './services/agent/autoRotation.service.js';
 import { initCatalog } from './services/agent/test-catalog.service.js';
+import { IntegrationsSettingsService } from './services/integrations/settings.js';
+import { defenderSyncService } from './api/integrations.routes.js';
+import defenderRoutes from './api/defender.routes.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -229,6 +232,9 @@ async function startServer() {
   // Integrations - external service credentials (Azure, etc.)
   app.use('/api/integrations', integrationsRoutes);
 
+  // Defender analytics - Secure Score, alerts, controls
+  app.use('/api/analytics/defender', defenderRoutes);
+
   // ============ ERROR HANDLING ============
   app.use(notFoundHandler);
   app.use(errorHandler);
@@ -262,9 +268,30 @@ async function startServer() {
     // --- Auto key rotation: check every 60s ---
     const autoRotationInterval = setInterval(processAutoRotation, 60_000);
 
+    // --- Defender sync: scores every 6h, alerts every 5min ---
+    let defenderScoreInterval: ReturnType<typeof setInterval> | undefined;
+    let defenderAlertInterval: ReturnType<typeof setInterval> | undefined;
+
+    const integrationsSettings = new IntegrationsSettingsService();
+    if (integrationsSettings.isDefenderConfigured()) {
+      console.log('🛡  Defender integration configured — starting background sync');
+      defenderSyncService.syncAll().catch((err) => {
+        console.warn('⚠ Initial Defender sync failed:', err instanceof Error ? err.message : err);
+      });
+      defenderScoreInterval = setInterval(() => {
+        defenderSyncService.syncSecureScores().catch(() => {});
+        defenderSyncService.syncControlProfiles().catch(() => {});
+      }, 6 * 60 * 60 * 1000); // 6 hours
+      defenderAlertInterval = setInterval(() => {
+        defenderSyncService.syncAlerts().catch(() => {});
+      }, 5 * 60 * 1000); // 5 minutes
+    }
+
     const shutdown = () => {
       clearInterval(schedulerInterval);
       clearInterval(autoRotationInterval);
+      if (defenderScoreInterval) clearInterval(defenderScoreInterval);
+      if (defenderAlertInterval) clearInterval(defenderAlertInterval);
       httpServer.close();
     };
     process.on('SIGTERM', shutdown);
