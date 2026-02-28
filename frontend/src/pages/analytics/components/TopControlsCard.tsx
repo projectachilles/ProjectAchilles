@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { defenderApi, type ControlItem } from '@/services/api/defender';
 
-const TOP_N = 5;
+const TOP_N = 10;
 
 interface TopControlsCardProps {
   /** When true, stretches to fill parent height (for grid placement). */
@@ -38,7 +38,7 @@ export default function TopControlsCard({ compact }: TopControlsCardProps) {
           </CardDescription>
         )}
       </CardHeader>
-      <CardContent className={compact ? 'flex-1 min-h-0 overflow-hidden' : undefined}>
+      <CardContent className={compact ? 'flex-1 min-h-0 overflow-y-auto' : undefined}>
         {loading ? (
           <div className="flex justify-center py-8">
             <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
