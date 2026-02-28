@@ -566,7 +566,7 @@ export default function CoverageTreemap({
                 <ChevronLeft className="w-4 h-4" />
               </button>
             )}
-            <CardTitle className="text-lg font-semibold">
+            <CardTitle className="text-sm font-medium">
               {isInDrillDown
                 ? drillDownHost === '__others__'
                   ? `Other Hosts (${remainingHostnames.size})`

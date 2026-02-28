@@ -100,7 +100,7 @@ export default function DefenseScoreByHostChart({
   return (
     <Card className="h-full flex flex-col overflow-hidden">
       <CardHeader className="pb-2 flex-shrink-0">
-        <CardTitle className="text-lg font-semibold">{title}</CardTitle>
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
       </CardHeader>
       <CardContent className="flex-1 pb-4 overflow-hidden relative flex flex-col">
         {/* Scrollable chart area */}

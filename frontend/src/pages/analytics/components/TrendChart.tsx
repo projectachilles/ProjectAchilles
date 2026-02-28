@@ -72,7 +72,7 @@ export default function TrendChart({ data, errorRateData, errorRateOverall, secu
     return (
       <Card className="overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-base font-medium">{title}</CardTitle>
+          <CardTitle className="text-sm font-medium">{title}</CardTitle>
         </CardHeader>
         <CardContent className="h-[200px] flex items-center justify-center">
           {loading
@@ -88,7 +88,7 @@ export default function TrendChart({ data, errorRateData, errorRateOverall, secu
     return (
       <Card className="overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-base font-medium">{title}</CardTitle>
+          <CardTitle className="text-sm font-medium">{title}</CardTitle>
         </CardHeader>
         <CardContent className="h-[200px] flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -152,7 +152,7 @@ export default function TrendChart({ data, errorRateData, errorRateOverall, secu
   return (
     <Card className="h-full overflow-hidden flex flex-col">
       <CardHeader className="flex-shrink-0 pb-0">
-        <CardTitle className="text-base font-medium">{title}</CardTitle>
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
         <CardDescription className="flex items-center gap-2 text-sm flex-wrap">
           <span>Defense: {avgScore}%</span>
           {avgSecureScore !== null && (

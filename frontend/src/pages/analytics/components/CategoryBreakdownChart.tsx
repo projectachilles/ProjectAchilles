@@ -66,7 +66,7 @@ export default function CategoryBreakdownChart({
     return (
       <Card className="h-full flex flex-col">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+          <CardTitle className="text-sm font-medium">{title}</CardTitle>
         </CardHeader>
         <CardContent className="flex-1 flex items-center justify-center">
           <p className="text-muted-foreground text-sm">No category data available</p>
@@ -161,7 +161,7 @@ export default function CategoryBreakdownChart({
   return (
     <Card className="h-full flex flex-col overflow-hidden">
       <CardHeader className="pb-0">
-        <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
         <CardDescription className="text-xs">
           Outer: categories · Inner: subcategories · Sized by execution count
         </CardDescription>

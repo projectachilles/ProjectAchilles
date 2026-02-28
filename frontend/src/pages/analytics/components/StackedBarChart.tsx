@@ -119,7 +119,7 @@ export default function StackedBarChart({
     <Card className="h-full flex flex-col overflow-hidden">
       <CardHeader className="pb-2 flex-shrink-0">
         <div className="flex items-center gap-2">
-          <CardTitle className="text-lg font-semibold">{title}</CardTitle>
+          <CardTitle className="text-sm font-medium">{title}</CardTitle>
           {badge}
         </div>
       </CardHeader>

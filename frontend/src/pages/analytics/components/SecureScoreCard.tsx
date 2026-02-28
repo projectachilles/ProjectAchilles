@@ -24,9 +24,9 @@ export default function SecureScoreCard({ data, loading }: SecureScoreCardProps)
 
   return (
     <Card className="h-full flex flex-col items-center justify-center p-6">
-      <div className="flex items-center gap-2 mb-2">
-        <ShieldCheck className="w-5 h-5 text-primary" />
-        <span className="text-sm font-medium text-muted-foreground">Secure Score</span>
+      <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-3">
+        <ShieldCheck className="w-4 h-4 sm:w-5 md:w-6 sm:h-5 md:h-6 text-primary flex-shrink-0" />
+        <span className="text-xs sm:text-sm md:text-base font-medium text-muted-foreground whitespace-nowrap">Secure Score</span>
       </div>
       <div className={`text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight ${getScoreColor(data.percentage)}`}>
         {data.percentage.toFixed(1)}%

@@ -91,7 +91,7 @@ export default function TestActivityCard({
       <Card className="h-full flex flex-col">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+            <CardTitle className="text-sm font-medium">{title}</CardTitle>
             <Clock className="w-4 h-4 text-muted-foreground" />
           </div>
         </CardHeader>
@@ -106,7 +106,7 @@ export default function TestActivityCard({
     <Card className="h-full flex flex-col overflow-hidden">
       <CardHeader className="pb-2 flex-shrink-0">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+          <CardTitle className="text-sm font-medium">{title}</CardTitle>
           <Clock className="w-4 h-4 text-muted-foreground" />
         </div>
       </CardHeader>

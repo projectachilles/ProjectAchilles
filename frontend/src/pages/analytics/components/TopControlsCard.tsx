@@ -31,12 +31,14 @@ export default function TopControlsCard({ compact }: TopControlsCardProps) {
   return (
     <Card className={compact ? 'h-full flex flex-col' : undefined}>
       <CardHeader>
-        <CardTitle className={compact ? 'text-sm' : undefined}>Top Remediation Controls</CardTitle>
-        <CardDescription>
-          Highest impact actions to improve your Secure Score
-        </CardDescription>
+        <CardTitle className="text-sm font-medium">Top Remediation Controls</CardTitle>
+        {!compact && (
+          <CardDescription>
+            Highest impact actions to improve your Secure Score
+          </CardDescription>
+        )}
       </CardHeader>
-      <CardContent className={compact ? 'flex-1 min-h-0' : undefined}>
+      <CardContent className={compact ? 'flex-1 min-h-0 overflow-hidden' : undefined}>
         {loading ? (
           <div className="flex justify-center py-8">
             <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
