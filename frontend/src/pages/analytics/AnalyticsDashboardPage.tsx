@@ -21,7 +21,7 @@ import { useAnalyticsFilters, getWindowDaysForDateRange } from '@/hooks/useAnaly
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { useDefenderConfig } from '@/hooks/useDefenderConfig';
 import { analyticsApi } from '../../services/api/analytics';
-import { defenderApi, type SecureScoreSummary, type AlertSummary } from '../../services/api/defender';
+import { defenderApi, type SecureScoreSummary, type AlertSummary, type SecureScoreTrendPoint } from '../../services/api/defender';
 import type {
   TrendDataPoint,
   ErrorTypeBreakdown,
@@ -65,6 +65,7 @@ export default function AnalyticsDashboardPage() {
   const [secureScore, setSecureScore] = useState<SecureScoreSummary | null>(null);
   const [alertSummary, setAlertSummary] = useState<AlertSummary | null>(null);
   const [defenderTechniqueCount, setDefenderTechniqueCount] = useState<number>(0);
+  const [secureScoreTrendData, setSecureScoreTrendData] = useState<SecureScoreTrendPoint[]>([]);
 
   // Sync tab state with URL changes
   useEffect(() => {
@@ -160,12 +161,12 @@ export default function AnalyticsDashboardPage() {
     }
   }
 
-  // Load dashboard data when filters or settings change
+  // Load dashboard data when filters, settings, or defender config change
   useEffect(() => {
     if (activeTab === 'dashboard') {
       loadDashboardData();
     }
-  }, [filterState.filters, activeTab, settingsVersion]);
+  }, [filterState.filters, activeTab, settingsVersion, defenderConfigured]);
 
   // Load executions data when tab/filters/pagination/settings change
   useEffect(() => {
@@ -266,18 +267,27 @@ export default function AnalyticsDashboardPage() {
 
       // Conditionally load Defender summary for dashboard cards
       if (defenderConfigured) {
+        // Derive total days from date range preset for the trend API
+        const presetDaysMap: Record<string, number> = { '7d': 7, '14d': 14, '30d': 30, '90d': 90, 'all': 90 };
+        const trendDays = presetDaysMap[filterState.filters.dateRange.preset] ?? 90;
+
         try {
-          const [defScore, defAlerts, defTechniques] = await Promise.all([
+          const [defScore, defAlerts, defTechniques, defTrend] = await Promise.all([
             defenderApi.getSecureScore(),
             defenderApi.getAlertSummary(),
             defenderApi.getTechniqueOverlap(),
+            defenderApi.getSecureScoreTrend(trendDays),
           ]);
           setSecureScore(defScore);
           setAlertSummary(defAlerts);
           setDefenderTechniqueCount(defTechniques.length);
+          setSecureScoreTrendData(defTrend);
         } catch {
           // Defender data is supplementary — don't fail the whole dashboard
+          setSecureScoreTrendData([]);
         }
+      } else {
+        setSecureScoreTrendData([]);
       }
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
@@ -482,6 +492,7 @@ export default function AnalyticsDashboardPage() {
                 data={trendData}
                 errorRateData={errorRateTrendData}
                 errorRateOverall={errorRate}
+                secureScoreTrendData={secureScoreTrendData}
                 loading={loadingDashboard}
                 title="Trend Overview"
                 windowDays={getWindowDaysForDateRange(filterState.filters.dateRange)}
