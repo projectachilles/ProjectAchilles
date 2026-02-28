@@ -532,10 +532,17 @@ export class DefenderAnalyticsService {
     const settings = await settingsService.getSettings();
 
     // Query 1: Test executions by technique with hourly buckets
+    // Exclude cyber-hygiene controls — they are config checks, not attack simulations,
+    // so absence of a Defender alert should not count as a detection miss.
     const testResult = await client.search({
       index: settings.indexPattern,
       size: 0,
-      query: { range: { 'routing.event_time': { gte: `now-${days}d/d` } } },
+      query: {
+        bool: {
+          must: [{ range: { 'routing.event_time': { gte: `now-${days}d/d` } } }],
+          must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }],
+        },
+      },
       aggs: {
         techniques: {
           terms: { field: 'f0rtika.techniques', size: 100 },

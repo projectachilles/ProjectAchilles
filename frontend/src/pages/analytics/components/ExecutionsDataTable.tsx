@@ -690,7 +690,7 @@ export default function ExecutionsDataTable({
     const hasDocumentation = descData && (descData.hasInfoCard || descData.hasReadme);
 
     return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm max-w-[calc(100vw-5rem)] overflow-hidden">
       {!isLoadingDesc && hasDocumentation && (
         <div className="col-span-full">
           <button
@@ -719,7 +719,7 @@ export default function ExecutionsDataTable({
           {isLoadingDesc ? (
             <div className="h-4 w-64 bg-muted animate-pulse rounded mt-1" />
           ) : (
-            <p className="mt-1 text-foreground">{descData?.description?.replace(/:$/, '')}</p>
+            <p className="mt-1 text-foreground break-words">{descData?.description?.replace(/:$/, '')}</p>
           )}
         </div>
       )}

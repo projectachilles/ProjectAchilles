@@ -121,6 +121,24 @@ describe('DefenderAnalyticsService (serverless)', () => {
       expect(result.byTechnique).toEqual([]);
     });
 
+    it('excludes cyber-hygiene controls from test query', async () => {
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 0 }, hits: [] },
+        aggregations: { techniques: { buckets: [] } },
+      });
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 0 }, hits: [] },
+        aggregations: { techniques: { buckets: [] } },
+      });
+
+      await service.getDetectionRate(30, 60);
+
+      // First call is the test results query — should exclude cyber-hygiene
+      const testQuery = mockSearch.mock.calls[0][0] as Record<string, unknown>;
+      const bool = (testQuery.query as Record<string, unknown>).bool as Record<string, unknown>;
+      expect(bool.must_not).toEqual([{ term: { 'f0rtika.category': 'cyber-hygiene' } }]);
+    });
+
     it('sorts detected techniques before undetected', async () => {
       const baseTime = new Date('2026-02-25T10:00:00Z').getTime();
 
