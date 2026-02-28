@@ -58,7 +58,7 @@ export default function AgentList({
     agents.length > 0 && agents.every((a) => selectedAgents.includes(a.id));
 
   return (
-    <div className="border border-border rounded-lg overflow-hidden">
+    <div className="border-theme border-border rounded-base shadow-theme overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
@@ -152,7 +152,7 @@ export default function AgentList({
                       <MoreHorizontal className="w-4 h-4" />
                     </Button>
                     {openMenu === agent.id && (
-                      <div className="absolute right-0 top-8 z-50 w-40 rounded-lg border border-border bg-card shadow-lg py-1">
+                      <div className="absolute right-0 top-8 z-50 w-40 rounded-base border-theme border-border bg-card shadow-theme py-1">
                         {agent.status === 'active' ? (
                           <button
                             className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2"

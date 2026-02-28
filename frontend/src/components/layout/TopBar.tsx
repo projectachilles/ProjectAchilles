@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Settings,
   ChevronRight,
+  Palette,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,7 +32,7 @@ export function TopBar({
   isRefreshing,
 }: TopBarProps) {
   const location = useLocation();
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, themeStyle, toggleThemeStyle } = useTheme();
   const { user, isLoaded } = useUser();
   const role = useAppRole();
 
@@ -55,7 +56,7 @@ export function TopBar({
   const breadcrumb = getBreadcrumb();
 
   return (
-    <header className="h-14 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex items-center px-4 gap-4">
+    <header className="h-14 border-b-[length:var(--theme-border-width)] border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex items-center px-4 gap-4">
       {/* Menu Button */}
       <Button
         variant="ghost"
@@ -123,6 +124,17 @@ export function TopBar({
         <Button variant="ghost" size="icon">
           <Bell className="h-4 w-4" />
           <span className="sr-only">Notifications</span>
+        </Button>
+
+        {/* Theme Style Toggle */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleThemeStyle}
+          title={themeStyle === 'default' ? 'Switch to neobrutalism' : 'Switch to default style'}
+        >
+          <Palette className={cn('h-4 w-4', themeStyle === 'neobrutalism' && 'text-primary')} />
+          <span className="sr-only">Toggle visual style</span>
         </Button>
 
         {/* Theme Toggle */}

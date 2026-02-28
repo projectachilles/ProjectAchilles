@@ -6,6 +6,11 @@
    ═══════════════════════════════════════════════════════════════ */
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
+/* ═══════════════════════════════════════════════════════════════
+   NEOBRUTALISM FONT - DM Sans
+   ═══════════════════════════════════════════════════════════════ */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+
 @custom-variant dark (&:is(.dark *));
 
 @theme {
@@ -28,7 +33,9 @@
   --color-success-foreground: oklch(98% 0.01 265);
 }
 
-/* Light mode base values (default) */
+/* ═══════════════════════════════════════════════════════════════
+   DEFAULT THEME - Light mode base values
+   ═══════════════════════════════════════════════════════════════ */
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
@@ -66,9 +73,21 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* ── Structural theme tokens (default) ── */
+  --theme-border-width: 1px;
+  --theme-border-radius: 0.625rem;
+  --theme-shadow: none;
+  --theme-hover-translate: 0px;
+  --theme-hover-shadow: none;
+  --theme-font-body: system-ui, -apple-system, sans-serif;
+  --theme-font-weight-base: 400;
+  --theme-font-weight-heading: 600;
 }
 
-/* Dark mode overrides - placed AFTER :root so .dark wins by cascade */
+/* ═══════════════════════════════════════════════════════════════
+   DEFAULT THEME - Dark mode overrides
+   ═══════════════════════════════════════════════════════════════ */
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
@@ -107,6 +126,95 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   NEOBRUTALISM THEME - Structural + color overrides (light)
+   ═══════════════════════════════════════════════════════════════ */
+.neobrutalism {
+  /* Structural overrides */
+  --theme-border-width: 2px;
+  --theme-border-radius: 5px;
+  --theme-shadow: 4px 4px 0px 0px var(--border);
+  --theme-hover-translate: 4px;
+  --theme-hover-shadow: none;
+  --theme-font-body: 'DM Sans', sans-serif;
+  --theme-font-weight-base: 500;
+  --theme-font-weight-heading: 700;
+
+  /* Color overrides — neobrutalism light */
+  --background: oklch(0.9346 0.0304 254.32);
+  --foreground: oklch(0 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0 0 0);
+  --primary: oklch(0.6747 0.1725 259.61);
+  --primary-foreground: oklch(0 0 0);
+  --secondary: oklch(1 0 0);
+  --secondary-foreground: oklch(0 0 0);
+  --muted: oklch(0.9346 0.0304 254.32);
+  --muted-foreground: oklch(0.4 0 0);
+  --accent: oklch(0.6747 0.1725 259.61);
+  --accent-foreground: oklch(0 0 0);
+  --destructive: oklch(0.6728 0.2147 24.22);
+  --border: oklch(0 0 0);
+  --input: oklch(1 0 0);
+  --ring: oklch(0 0 0);
+
+  /* Sidebar - neobrutalism light */
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0 0 0);
+  --sidebar-primary: oklch(0.6747 0.1725 259.61);
+  --sidebar-primary-foreground: oklch(0 0 0);
+  --sidebar-accent: oklch(0.9346 0.0304 254.32);
+  --sidebar-accent-foreground: oklch(0 0 0);
+  --sidebar-border: oklch(0 0 0);
+  --sidebar-ring: oklch(0 0 0);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   NEOBRUTALISM THEME - Dark mode
+   ═══════════════════════════════════════════════════════════════ */
+.dark.neobrutalism {
+  --background: oklch(0.2912 0.0633 270.86);
+  --foreground: oklch(0.9249 0 0);
+  --card: oklch(0.2393 0 0);
+  --card-foreground: oklch(0.9249 0 0);
+  --popover: oklch(0.2393 0 0);
+  --popover-foreground: oklch(0.9249 0 0);
+  --primary: oklch(0.6747 0.1725 259.61);
+  --primary-foreground: oklch(0 0 0);
+  --secondary: oklch(0.2393 0 0);
+  --secondary-foreground: oklch(0.9249 0 0);
+  --muted: oklch(0.2912 0.0633 270.86);
+  --muted-foreground: oklch(0.6 0 0);
+  --accent: oklch(0.6747 0.1725 259.61);
+  --accent-foreground: oklch(0 0 0);
+  --destructive: oklch(0.7049 0.1869 22.23);
+  --border: oklch(0 0 0);
+  --input: oklch(0.2393 0 0);
+  --ring: oklch(1 0 0);
+
+  /* Sidebar - neobrutalism dark */
+  --sidebar: oklch(0.2393 0 0);
+  --sidebar-foreground: oklch(0.9249 0 0);
+  --sidebar-primary: oklch(0.6747 0.1725 259.61);
+  --sidebar-primary-foreground: oklch(0 0 0);
+  --sidebar-accent: oklch(0.2912 0.0633 270.86);
+  --sidebar-accent-foreground: oklch(0.9249 0 0);
+  --sidebar-border: oklch(0 0 0);
+  --sidebar-ring: oklch(1 0 0);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CUSTOM UTILITIES
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Tailwind v4 doesn't support variable border-width via @theme,
+   so we need a custom utility */
+@utility border-theme {
+  border-width: var(--theme-border-width);
+}
+
 /* Base styles */
 * {
   border-color: var(--color-border);
@@ -115,7 +223,13 @@
 body {
   background-color: var(--color-background);
   color: var(--color-foreground);
+  font-family: var(--theme-font-body);
+  font-weight: var(--theme-font-weight-base);
   font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: var(--theme-font-weight-heading);
 }
 
 /* Custom scrollbar */
@@ -158,6 +272,11 @@ code {
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+
+  /* Theme-aware structural utilities */
+  --radius-base: var(--theme-border-radius);
+  --shadow-theme: var(--theme-shadow);
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);

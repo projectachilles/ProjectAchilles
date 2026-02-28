@@ -32,7 +32,7 @@ interface ExecutionsTableProps {
 export default function ExecutionsTable({ data, loading }: ExecutionsTableProps) {
   if (loading) {
     return (
-      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[300px] flex items-center justify-center">
+      <div className="h-full bg-secondary/50 border-theme border-border rounded-base shadow-theme p-6 min-h-[300px] flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
       </div>
     );
@@ -40,20 +40,20 @@ export default function ExecutionsTable({ data, loading }: ExecutionsTableProps)
 
   if (data.length === 0) {
     return (
-      <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 min-h-[300px] flex items-center justify-center">
+      <div className="h-full bg-secondary/50 border-theme border-border rounded-base shadow-theme p-6 min-h-[300px] flex items-center justify-center">
         <p className="text-muted-foreground">No recent executions</p>
       </div>
     );
   }
 
   return (
-    <div className="h-full bg-secondary/50 border border-border rounded-xl p-6 flex flex-col">
+    <div className="h-full bg-secondary/50 border-theme border-border rounded-base shadow-theme p-6 flex flex-col">
       <h3 className="font-semibold text-lg mb-4">Recent Test Executions</h3>
 
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
-            <tr className="border-b border-border">
+            <tr className="border-b-[length:var(--theme-border-width)] border-border">
               <th className="text-left py-2 px-3 text-sm font-medium text-muted-foreground">Test Name</th>
               <th className="text-left py-2 px-3 text-sm font-medium text-muted-foreground">Host</th>
               <th className="text-left py-2 px-3 text-sm font-medium text-muted-foreground">Result</th>

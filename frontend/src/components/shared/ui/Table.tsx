@@ -64,7 +64,7 @@ export const TableRow = forwardRef<HTMLTableRowElement, TableRowProps>(
     return (
       <tr
         ref={ref}
-        className={`border-b border-border transition-colors hover:bg-muted/50 ${className}`}
+        className={`border-b-[length:var(--theme-border-width)] border-border transition-colors hover:bg-muted/50 ${className}`}
         {...props}
       >
         {children}

@@ -24,7 +24,7 @@ export default function TestCard({ test, onClick, isFavorite, onToggleFavorite }
   return (
     <div
       onClick={onClick}
-      className="group cursor-pointer rounded-lg border border-border bg-card text-card-foreground p-4 hover:shadow-lg transition-all hover:border-primary/50"
+      className="group cursor-pointer rounded-base border-theme border-border bg-card text-card-foreground shadow-theme p-4 hover:translate-x-[var(--theme-hover-translate)] hover:translate-y-[var(--theme-hover-translate)] hover:shadow-[var(--theme-hover-shadow)] transition-all hover:border-primary/50"
     >
       {/* Header */}
       <div className="mb-3">
@@ -105,7 +105,7 @@ export default function TestCard({ test, onClick, isFavorite, onToggleFavorite }
       </div>
 
       {/* Footer */}
-      <div className="flex items-center gap-3 text-xs text-muted-foreground pt-3 border-t border-border">
+      <div className="flex items-center gap-3 text-xs text-muted-foreground pt-3 border-t-[length:var(--theme-border-width)] border-border">
         <div className="flex items-center gap-1">
           <FileCode2 className="w-3 h-3" />
           <span className="font-mono">{test.uuid.slice(0, 8)}...</span>

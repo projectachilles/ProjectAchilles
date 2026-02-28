@@ -191,7 +191,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
     <div className="container mx-auto h-full px-4 py-6 flex flex-col">
       {/* Sync Status Bar — only in browse mode */}
       {mode === 'browse' && syncStatus && (
-        <div className="mb-4 flex items-center justify-between p-3 rounded-lg bg-card text-card-foreground border border-border">
+        <div className="mb-4 flex items-center justify-between p-3 rounded-base bg-card text-card-foreground border-theme border-border shadow-theme">
           <div className="flex items-center gap-4 text-sm">
             {/* Sync Status */}
             <div className="flex items-center gap-2">
@@ -257,7 +257,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="px-3 py-1.5 rounded-lg border border-border bg-background text-foreground text-sm"
+              className="px-3 py-1.5 rounded-base border-theme border-border bg-background text-foreground text-sm"
             >
               {categories.map(cat => (
                 <option key={cat} value={cat}>
@@ -273,7 +273,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
             <select
               value={selectedSeverity}
               onChange={(e) => setSelectedSeverity(e.target.value)}
-              className="px-3 py-1.5 rounded-lg border border-border bg-background text-foreground text-sm"
+              className="px-3 py-1.5 rounded-base border-theme border-border bg-background text-foreground text-sm"
             >
               {severities.map(sev => (
                 <option key={sev} value={sev}>

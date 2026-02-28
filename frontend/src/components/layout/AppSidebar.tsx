@@ -157,7 +157,7 @@ export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
       <Link
         to={item.path}
         className={cn(
-          'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
+          'flex items-center gap-3 px-3 py-2.5 rounded-base text-sm font-medium transition-all',
           'hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
           active && 'bg-sidebar-primary text-sidebar-primary-foreground',
           !active && 'text-sidebar-foreground/70',
@@ -193,21 +193,21 @@ export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
     <TooltipProvider>
       <aside
         className={cn(
-          'flex flex-col h-screen bg-sidebar border-r border-sidebar-border transition-all duration-200',
+          'flex flex-col h-screen bg-sidebar border-r-[length:var(--theme-border-width)] border-sidebar-border transition-all duration-200',
           collapsed ? 'w-16' : 'w-60'
         )}
       >
         {/* Header */}
         <div
           className={cn(
-            'relative flex items-center h-14 px-3 border-b border-sidebar-border overflow-hidden',
+            'relative flex items-center h-14 px-3 border-b-[length:var(--theme-border-width)] border-sidebar-border overflow-hidden',
             collapsed ? 'justify-center' : 'justify-start'
           )}
         >
           {/* Shield icon - visible when collapsed */}
           <div
             className={cn(
-              'absolute flex items-center justify-center w-8 h-8 rounded-lg bg-sidebar-foreground shrink-0 transition-all duration-300',
+              'absolute flex items-center justify-center w-8 h-8 rounded-base bg-sidebar-foreground shrink-0 transition-all duration-300',
               collapsed ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
             )}
           >
@@ -261,7 +261,7 @@ export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
         </ScrollArea>
 
         {/* Footer */}
-        <div className="border-t border-sidebar-border p-2">
+        <div className="border-t-[length:var(--theme-border-width)] border-sidebar-border p-2">
           {canAccessSettings && (
             <NavItemComponent
               item={{ label: 'Settings', icon: Settings, path: '/settings' }}

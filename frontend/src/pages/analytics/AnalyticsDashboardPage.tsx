@@ -380,7 +380,7 @@ export default function AnalyticsDashboardPage() {
     >
       <div className="container mx-auto px-4 py-6">
         {/* Tab Navigation + Date Range Picker */}
-        <div className="flex items-center gap-1 mb-6 border-b border-border">
+        <div className="flex items-center gap-1 mb-6 border-b-[length:var(--theme-border-width)] border-border">
           <button
             onClick={() => handleTabChange('dashboard')}
             className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
@@ -426,7 +426,7 @@ export default function AnalyticsDashboardPage() {
               onClick={filterState.toggleExpanded}
               className={`
                 flex items-center gap-1.5 px-3 py-1.5
-                border rounded-lg text-sm transition-colors
+                border-theme border-border rounded-base text-sm transition-colors
                 ${filterState.isExpanded || filterState.activeFilterCount > 0
                   ? 'bg-primary/10 border-primary text-primary'
                   : 'bg-secondary border-border text-foreground hover:bg-accent'

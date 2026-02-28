@@ -10,7 +10,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
     return (
       <div
         ref={ref}
-        className={`rounded-lg border border-border bg-card text-card-foreground p-4 ${className}`}
+        className={`rounded-base border-theme border-border bg-card text-card-foreground shadow-theme p-4 ${className}`}
         {...props}
       >
         {children}
@@ -86,7 +86,7 @@ export const CardFooter = forwardRef<HTMLDivElement, CardFooterProps>(
     return (
       <div
         ref={ref}
-        className={`mt-4 pt-4 border-t border-border ${className}`}
+        className={`mt-4 pt-4 border-t-[length:var(--theme-border-width)] border-border ${className}`}
         {...props}
       >
         {children}

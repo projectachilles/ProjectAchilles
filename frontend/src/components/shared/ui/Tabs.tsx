@@ -37,7 +37,7 @@ interface TabsListProps {
 
 export function TabsList({ children, className = '' }: TabsListProps) {
   return (
-    <div className={`flex border-b border-border ${className}`}>
+    <div className={`flex border-b-[length:var(--theme-border-width)] border-border ${className}`}>
       {children}
     </div>
   );

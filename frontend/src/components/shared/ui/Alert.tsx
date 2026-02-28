@@ -38,7 +38,7 @@ export function Alert({ variant = 'default', title, children, onClose, className
   const { container, icon } = variantStyles[variant];
 
   return (
-    <div className={`relative flex gap-3 rounded-lg border p-4 ${container} ${className}`}>
+    <div className={`relative flex gap-3 rounded-base border-theme p-4 shadow-theme ${container} ${className}`}>
       <div className="flex-shrink-0">{icon}</div>
       <div className="flex-1">
         {title && <h5 className="font-medium mb-1">{title}</h5>}
@@ -68,7 +68,7 @@ export function Toast({ variant = 'default', message, onClose, className = '' }:
   const { container, icon } = variantStyles[variant];
 
   return (
-    <div className={`flex items-center gap-3 rounded-lg border p-4 shadow-lg ${container} ${className}`}>
+    <div className={`flex items-center gap-3 rounded-base border-theme p-4 shadow-theme ${container} ${className}`}>
       <div className="flex-shrink-0">{icon}</div>
       <span className="text-sm font-medium">{message}</span>
       {onClose && (

@@ -6,7 +6,7 @@ import { useAppRole, useCanAccessModule } from '../../hooks/useAppRole';
 import { ROLE_LABELS, ROLE_COLORS } from '../../types/roles';
 import {
   Moon, Sun, Shield, Target, Cpu, Lock, Home,
-  RefreshCw, Settings
+  RefreshCw, Settings, Palette
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from './ui/Button';
@@ -56,7 +56,7 @@ export default function UnifiedHeader({
   isRefreshing,
 }: UnifiedHeaderProps) {
   const location = useLocation();
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, themeStyle, toggleThemeStyle } = useTheme();
   const { user, isLoaded } = useUser();
   const role = useAppRole();
   const canAccessEndpoints = useCanAccessModule('endpoints');
@@ -113,11 +113,11 @@ export default function UnifiedHeader({
   return (
     <div>
       {/* Primary Header Bar */}
-      <header className="h-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header className="h-20 border-b-[length:var(--theme-border-width)] border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto h-full px-4 flex items-center justify-between">
           {/* Logo and Title */}
           <Link to={currentModule.homePath} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-            <div className="flex items-center justify-center w-16 h-16 rounded-lg bg-primary/10">
+            <div className="flex items-center justify-center w-16 h-16 rounded-base bg-primary/10">
               <ModuleIcon className="w-12 h-12 text-primary" />
             </div>
             <div>
@@ -133,7 +133,7 @@ export default function UnifiedHeader({
                 key={tab.id}
                 to={tab.path}
                 className={`
-                  flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
+                  flex items-center gap-2 px-4 py-2 rounded-base text-sm font-medium
                   transition-colors
                   ${currentModule.id === tab.id
                     ? 'bg-primary/10 text-primary'
@@ -176,6 +176,17 @@ export default function UnifiedHeader({
                 <Settings className="w-5 h-5" />
               </Button>
             )}
+
+            {/* Theme Style Toggle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleThemeStyle}
+              aria-label="Toggle visual style"
+              title={themeStyle === 'default' ? 'Switch to neobrutalism' : 'Switch to default style'}
+            >
+              <Palette className={`w-5 h-5 ${themeStyle === 'neobrutalism' ? 'text-primary' : ''}`} />
+            </Button>
 
             {/* Theme Toggle */}
             <Button
@@ -220,11 +231,11 @@ export default function UnifiedHeader({
 
       {/* Secondary Navigation Bar (Endpoints only) */}
       {currentModule.showSecondaryNav && (
-        <nav className="h-14 border-b border-border bg-background">
+        <nav className="h-14 border-b-[length:var(--theme-border-width)] border-border bg-background">
           <div className="container mx-auto h-full px-4 flex items-center gap-2">
             <Link
               to="/"
-              className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-base text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             >
               <Home className="w-4 h-4" />
               Main App
@@ -235,7 +246,7 @@ export default function UnifiedHeader({
                 key={item.path}
                 to={item.path}
                 className={`
-                  px-3 py-1.5 rounded-md text-sm font-medium transition-colors
+                  px-3 py-1.5 rounded-base text-sm font-medium transition-colors
                   ${location.pathname === item.path
                     ? 'bg-accent text-foreground'
                     : 'text-muted-foreground hover:text-foreground hover:bg-accent'

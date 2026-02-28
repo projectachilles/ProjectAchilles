@@ -49,7 +49,7 @@ export function Dialog({ open, onClose, children, className = '' }: DialogProps)
       {/* Dialog content */}
       <div
         ref={dialogRef}
-        className={`relative z-50 w-full max-w-lg max-h-[90vh] overflow-auto rounded-lg border border-border bg-card p-6 shadow-lg ${className}`}
+        className={`relative z-50 w-full max-w-lg max-h-[90vh] overflow-auto rounded-base border-theme border-border bg-card p-6 shadow-theme ${className}`}
       >
         {children}
       </div>

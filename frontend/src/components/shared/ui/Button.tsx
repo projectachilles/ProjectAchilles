@@ -10,11 +10,11 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantStyles: Record<ButtonVariant, string> = {
-  primary: 'bg-primary text-primary-foreground hover:opacity-90',
-  secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
+  primary: 'bg-primary text-primary-foreground border-theme border-border shadow-theme hover:translate-x-[var(--theme-hover-translate)] hover:translate-y-[var(--theme-hover-translate)] hover:shadow-[var(--theme-hover-shadow)]',
+  secondary: 'bg-secondary text-secondary-foreground border-theme border-border shadow-theme hover:bg-secondary/80 hover:translate-x-[var(--theme-hover-translate)] hover:translate-y-[var(--theme-hover-translate)] hover:shadow-[var(--theme-hover-shadow)]',
   ghost: 'text-foreground hover:bg-accent hover:text-accent-foreground',
-  destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
-  outline: 'border border-border bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground',
+  destructive: 'bg-destructive text-destructive-foreground border-theme border-border shadow-theme hover:translate-x-[var(--theme-hover-translate)] hover:translate-y-[var(--theme-hover-translate)] hover:shadow-[var(--theme-hover-shadow)]',
+  outline: 'border-theme border-border bg-transparent text-foreground shadow-theme hover:bg-accent hover:text-accent-foreground hover:translate-x-[var(--theme-hover-translate)] hover:translate-y-[var(--theme-hover-translate)] hover:shadow-[var(--theme-hover-shadow)]',
 };
 
 const sizeStyles: Record<ButtonSize, string> = {
@@ -30,8 +30,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         className={`
-          inline-flex items-center justify-center gap-2 rounded-lg font-medium
-          transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50
+          inline-flex items-center justify-center gap-2 rounded-base font-medium
+          transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
           disabled:pointer-events-none disabled:opacity-50
           ${variantStyles[variant]}
           ${sizeStyles[size]}

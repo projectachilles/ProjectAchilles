@@ -61,7 +61,7 @@ export function IntegrationCard({
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
-    <div className="rounded-lg border border-border bg-card text-card-foreground overflow-hidden">
+    <div className="rounded-base border-theme border-border bg-card text-card-foreground shadow-theme overflow-hidden">
       {/* Header - always visible */}
       <button
         type="button"
@@ -70,7 +70,7 @@ export function IntegrationCard({
       >
         <div
           className={cn(
-            'flex items-center justify-center w-10 h-10 rounded-lg shrink-0',
+            'flex items-center justify-center w-10 h-10 rounded-base shrink-0',
             status === 'connected' && 'bg-primary/10',
             status === 'not-configured' && 'bg-muted',
             status === 'error' && 'bg-destructive/10'
@@ -105,7 +105,7 @@ export function IntegrationCard({
           expanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'
         )}
       >
-        <div className="border-t border-border p-4">{children}</div>
+        <div className="border-t-[length:var(--theme-border-width)] border-border p-4">{children}</div>
       </div>
     </div>
   );

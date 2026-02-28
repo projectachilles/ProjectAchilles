@@ -29,7 +29,7 @@ export default function TestListItem({ test, onClick, isFavorite, onToggleFavori
   return (
     <button
       onClick={onClick}
-      className="w-full text-left px-6 py-4 border-b border-border hover:bg-accent/50 transition-colors"
+      className="w-full text-left px-6 py-4 border-b-[length:var(--theme-border-width)] border-border hover:bg-accent/50 transition-colors"
     >
       <div className="flex items-start gap-6">
         {/* Name and UUID */}

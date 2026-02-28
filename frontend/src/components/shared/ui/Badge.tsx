@@ -24,7 +24,7 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
       <span
         ref={ref}
         className={`
-          inline-flex items-center rounded-md px-2 py-1 text-xs font-medium
+          inline-flex items-center rounded-base border-theme border-border px-2 py-1 text-xs font-medium
           ${variantStyles[variant]}
           ${className}
         `}
@@ -54,7 +54,7 @@ export function PlatformBadge({ platform }: PlatformBadgeProps) {
   const color = platformColors[platform.toLowerCase()] || 'bg-muted text-muted-foreground';
 
   return (
-    <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ${color}`}>
+    <span className={`inline-flex items-center rounded-base border-theme border-border px-2 py-1 text-xs font-medium ${color}`}>
       {platform}
     </span>
   );
