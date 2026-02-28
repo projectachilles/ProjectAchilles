@@ -22,6 +22,30 @@ export interface TestAzureResult {
   error?: string;
 }
 
+// --- Defender (Graph Security API) ---
+
+export interface DefenderSettingsMasked {
+  configured: boolean;
+  tenant_id?: string;
+  client_id?: string;
+  client_secret_set?: boolean;
+  label?: string;
+  env_configured?: boolean;
+}
+
+export interface SaveDefenderSettingsRequest {
+  tenant_id?: string;
+  client_id?: string;
+  client_secret?: string;
+  label?: string;
+}
+
+export interface TestDefenderResult {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
 export const integrationsApi = {
   async getAzureSettings(): Promise<AzureSettingsMasked> {
     try {
@@ -39,6 +63,27 @@ export const integrationsApi = {
 
   async testAzureConnection(settings: SaveAzureSettingsRequest): Promise<TestAzureResult> {
     const response = await apiClient.post('/integrations/azure/test', settings);
+    return response.data;
+  },
+
+  // --- Defender ---
+
+  async getDefenderSettings(): Promise<DefenderSettingsMasked> {
+    try {
+      const response = await apiClient.get('/integrations/defender');
+      return response.data;
+    } catch {
+      return { configured: false };
+    }
+  },
+
+  async saveDefenderSettings(settings: SaveDefenderSettingsRequest): Promise<{ success: boolean }> {
+    const response = await apiClient.post('/integrations/defender', settings);
+    return response.data;
+  },
+
+  async testDefenderConnection(settings: SaveDefenderSettingsRequest): Promise<TestDefenderResult> {
+    const response = await apiClient.post('/integrations/defender/test', settings);
     return response.data;
   },
 };

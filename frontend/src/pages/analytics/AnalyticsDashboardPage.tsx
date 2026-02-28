@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown } from 'lucide-react';
+import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown, ShieldCheck } from 'lucide-react';
 import SharedLayout from '../../components/shared/Layout';
 import SettingsModal from './components/SettingsModal';
 import FilterBar from './components/FilterBar';
@@ -14,9 +14,14 @@ import DefenseScoreByHostChart from './components/DefenseScoreByHostChart';
 import CategoryBreakdownChart from './components/CategoryBreakdownChart';
 import TestActivityCard from './components/TestActivityCard';
 import ExecutionsDataTable from './components/ExecutionsDataTable';
+import DefenderTab from './components/DefenderTab';
+import SecureScoreCard from './components/SecureScoreCard';
+import AlertsSummaryCard from './components/AlertsSummaryCard';
 import { useAnalyticsFilters, getWindowDaysForDateRange } from '@/hooks/useAnalyticsFilters';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
+import { useDefenderConfig } from '@/hooks/useDefenderConfig';
 import { analyticsApi } from '../../services/api/analytics';
+import { defenderApi, type SecureScoreSummary, type AlertSummary } from '../../services/api/defender';
 import type {
   TrendDataPoint,
   ErrorTypeBreakdown,
@@ -31,7 +36,7 @@ import type {
   GroupedPaginatedResponse,
 } from '../../services/api/analytics';
 
-type TabType = 'dashboard' | 'executions';
+type TabType = 'dashboard' | 'executions' | 'defender';
 
 interface DefenseScoreData {
   overall: number;
@@ -45,28 +50,39 @@ export default function AnalyticsDashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab') as TabType | null;
 
+  // Defender integration status (Approach A: hidden when not configured)
+  const { configured: defenderConfigured } = useDefenderConfig();
+
   // UI State
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl === 'executions' ? 'executions' : 'dashboard');
+  const validTabs: TabType[] = ['dashboard', 'executions', ...(defenderConfigured ? ['defender' as const] : [])];
+  const [activeTab, setActiveTab] = useState<TabType>(
+    tabFromUrl && validTabs.includes(tabFromUrl) ? tabFromUrl : 'dashboard'
+  );
+
+  // Defender dashboard data (loaded alongside main dashboard when configured)
+  const [secureScore, setSecureScore] = useState<SecureScoreSummary | null>(null);
+  const [alertSummary, setAlertSummary] = useState<AlertSummary | null>(null);
+  const [defenderTechniqueCount, setDefenderTechniqueCount] = useState<number>(0);
 
   // Sync tab state with URL changes
   useEffect(() => {
     const urlTab = searchParams.get('tab') as TabType | null;
-    const newTab = urlTab === 'executions' ? 'executions' : 'dashboard';
-    if (newTab !== activeTab) {
-      setActiveTab(newTab);
+    const resolved = urlTab && validTabs.includes(urlTab) ? urlTab : 'dashboard';
+    if (resolved !== activeTab) {
+      setActiveTab(resolved);
     }
-  }, [searchParams]);
+  }, [searchParams, defenderConfigured]);
 
   // Handle tab change with URL sync
   const handleTabChange = useCallback((tab: TabType) => {
     setActiveTab(tab);
     const newParams = new URLSearchParams(searchParams);
-    if (tab === 'executions') {
-      newParams.set('tab', 'executions');
-    } else {
+    if (tab === 'dashboard') {
       newParams.delete('tab');
+    } else {
+      newParams.set('tab', tab);
     }
     setSearchParams(newParams, { replace: true });
   }, [searchParams, setSearchParams]);
@@ -247,12 +263,28 @@ export default function AnalyticsDashboardPage() {
       setDefenseScoreByHost(hostScores);
       setErrorRate(errorRateData.errorRate);
       setErrorRateTrendData(errorRateTrend);
+
+      // Conditionally load Defender summary for dashboard cards
+      if (defenderConfigured) {
+        try {
+          const [defScore, defAlerts, defTechniques] = await Promise.all([
+            defenderApi.getSecureScore(),
+            defenderApi.getAlertSummary(),
+            defenderApi.getTechniqueOverlap(),
+          ]);
+          setSecureScore(defScore);
+          setAlertSummary(defAlerts);
+          setDefenderTechniqueCount(defTechniques.length);
+        } catch {
+          // Defender data is supplementary — don't fail the whole dashboard
+        }
+      }
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
     } finally {
       setLoadingDashboard(false);
     }
-  }, [filterState]);
+  }, [filterState, defenderConfigured]);
 
   // Load executions data
   const loadExecutionsData = useCallback(async () => {
@@ -369,6 +401,19 @@ export default function AnalyticsDashboardPage() {
               </span>
             )}
           </button>
+          {defenderConfigured && (
+            <button
+              onClick={() => handleTabChange('defender')}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                activeTab === 'defender'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4" />
+              Defender
+            </button>
+          )}
           <div className="ml-auto flex items-center gap-2 pb-2">
             <button
               onClick={filterState.toggleExpanded}
@@ -416,7 +461,10 @@ export default function AnalyticsDashboardPage() {
         )}
 
         {/* Tab Content */}
-        {activeTab === 'dashboard' ? (
+        {activeTab === 'defender' ? (
+          /* Defender Tab (full-page view) */
+          <DefenderTab />
+        ) : activeTab === 'dashboard' ? (
           /* Dashboard Tab */
           <div className="grid grid-cols-12 auto-rows-[140px] gap-4">
             {/* Row 1-2: Hero Metrics (1/3) + Trend Overview (2/3) */}
@@ -440,7 +488,19 @@ export default function AnalyticsDashboardPage() {
               />
             </div>
 
-            {/* Row 3-4: Category breakdown + Test Activity */}
+            {/* Row 3-4 (conditional): Secure Score + Alert Summary */}
+            {defenderConfigured && secureScore && (
+              <div className="col-span-12 md:col-span-4 row-span-2">
+                <SecureScoreCard data={secureScore} loading={loadingDashboard} />
+              </div>
+            )}
+            {defenderConfigured && alertSummary && (
+              <div className="col-span-12 md:col-span-8 row-span-2">
+                <AlertsSummaryCard data={alertSummary} loading={loadingDashboard} />
+              </div>
+            )}
+
+            {/* Category breakdown + Test Activity */}
             <div className="col-span-12 md:col-span-6 row-span-2">
               <CategoryBreakdownChart
                 data={categoryBreakdown}
@@ -470,6 +530,11 @@ export default function AnalyticsDashboardPage() {
                 data={techniqueDistData}
                 loading={loadingDashboard}
                 title="ATT&CK Technique Distribution"
+                badge={defenderTechniqueCount > 0 ? (
+                  <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-500/10 text-amber-500">
+                    {defenderTechniqueCount} with Defender alerts
+                  </span>
+                ) : undefined}
               />
             </div>
 

@@ -1,7 +1,7 @@
 // Settings service for external integration credentials — Vercel Blob storage version
 
 import * as crypto from 'crypto';
-import type { AzureIntegrationSettings, IntegrationsSettings } from '../../types/integrations.js';
+import type { AzureIntegrationSettings, DefenderIntegrationSettings, IntegrationsSettings } from '../../types/integrations.js';
 import { blobReadText, blobWrite } from '../storage.js';
 
 const SETTINGS_KEY = 'settings/integrations.json';
@@ -74,6 +74,17 @@ export class IntegrationsSettingsService {
           settings.azure.client_secret = this.decrypt(settings.azure.client_secret.slice(4));
         }
       }
+      if (settings.defender) {
+        if (settings.defender.tenant_id?.startsWith('enc:')) {
+          settings.defender.tenant_id = this.decrypt(settings.defender.tenant_id.slice(4));
+        }
+        if (settings.defender.client_id?.startsWith('enc:')) {
+          settings.defender.client_id = this.decrypt(settings.defender.client_id.slice(4));
+        }
+        if (settings.defender.client_secret?.startsWith('enc:')) {
+          settings.defender.client_secret = this.decrypt(settings.defender.client_secret.slice(4));
+        }
+      }
       return settings;
     } catch (error) {
       console.error('Error loading integrations settings:', error);
@@ -124,6 +135,78 @@ export class IntegrationsSettingsService {
 
   async getAzureCredentials(): Promise<{ tenant_id: string; client_id: string; client_secret: string } | null> {
     const settings = await this.getAzureSettings();
+    if (!settings?.configured) return null;
+    if (!settings.tenant_id || !settings.client_id || !settings.client_secret) return null;
+    return {
+      tenant_id: settings.tenant_id,
+      client_id: settings.client_id,
+      client_secret: settings.client_secret,
+    };
+  }
+
+  // ── Defender (Microsoft Graph Security) ──────────────────────────────
+
+  private getEnvDefenderSettings(): DefenderIntegrationSettings | null {
+    const tenantId = process.env.DEFENDER_TENANT_ID;
+    const clientId = process.env.DEFENDER_CLIENT_ID;
+    const clientSecret = process.env.DEFENDER_CLIENT_SECRET;
+    if (!tenantId || !clientId || !clientSecret) return null;
+    return {
+      tenant_id: tenantId,
+      client_id: clientId,
+      client_secret: clientSecret,
+      configured: true,
+      label: process.env.DEFENDER_TENANT_LABEL || undefined,
+    };
+  }
+
+  isEnvDefenderConfigured(): boolean {
+    return this.getEnvDefenderSettings() !== null;
+  }
+
+  async getDefenderSettings(): Promise<DefenderIntegrationSettings | null> {
+    const fileSettings = await this.getFileSettings();
+    if (fileSettings?.defender?.configured) {
+      return fileSettings.defender;
+    }
+    return this.getEnvDefenderSettings();
+  }
+
+  async saveDefenderSettings(settings: Partial<DefenderIntegrationSettings>): Promise<void> {
+    const existing = await this.getFileSettings() ?? {};
+    const current = existing.defender ?? {
+      tenant_id: '',
+      client_id: '',
+      client_secret: '',
+      configured: false,
+    };
+    const merged: DefenderIntegrationSettings = {
+      tenant_id: settings.tenant_id || current.tenant_id,
+      client_id: settings.client_id || current.client_id,
+      client_secret: settings.client_secret || current.client_secret,
+      configured: true,
+      label: settings.label !== undefined ? settings.label : current.label,
+    };
+    const toSave: IntegrationsSettings = {
+      ...existing,
+      defender: {
+        ...merged,
+        tenant_id: 'enc:' + this.encrypt(merged.tenant_id),
+        client_id: 'enc:' + this.encrypt(merged.client_id),
+        client_secret: 'enc:' + this.encrypt(merged.client_secret),
+      },
+    };
+    await blobWrite(SETTINGS_KEY, JSON.stringify(toSave, null, 2));
+  }
+
+  async isDefenderConfigured(): Promise<boolean> {
+    const settings = await this.getDefenderSettings();
+    if (!settings?.configured) return false;
+    return !!(settings.tenant_id && settings.client_id && settings.client_secret);
+  }
+
+  async getDefenderCredentials(): Promise<{ tenant_id: string; client_id: string; client_secret: string } | null> {
+    const settings = await this.getDefenderSettings();
     if (!settings?.configured) return null;
     if (!settings.tenant_id || !settings.client_id || !settings.client_secret) return null;
     return {

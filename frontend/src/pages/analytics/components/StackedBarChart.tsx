@@ -11,6 +11,7 @@ interface StackedBarChartProps {
   }>;
   loading?: boolean;
   title?: string;
+  badge?: React.ReactNode; // Optional badge rendered next to the title
   maxVisibleItems?: number; // Items shown before scrolling (default: 8)
 }
 
@@ -48,6 +49,7 @@ export default function StackedBarChart({
   data,
   loading,
   title = 'Coverage',
+  badge,
   maxVisibleItems = 8
 }: StackedBarChartProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
@@ -116,7 +118,10 @@ export default function StackedBarChart({
   return (
     <Card className="h-full flex flex-col overflow-hidden">
       <CardHeader className="pb-2 flex-shrink-0">
-        <CardTitle className="text-lg font-semibold">{title}</CardTitle>
+        <div className="flex items-center gap-2">
+          <CardTitle className="text-lg font-semibold">{title}</CardTitle>
+          {badge}
+        </div>
       </CardHeader>
       <CardContent className="flex-1 pb-4 overflow-hidden relative flex flex-col">
         {/* Scrollable chart area */}

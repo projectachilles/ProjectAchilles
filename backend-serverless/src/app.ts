@@ -14,6 +14,7 @@ import { errorHandler, notFoundHandler } from './middleware/error.middleware.js'
 import { createAgentRouter } from './api/agent/index.js';
 import usersRoutes from './api/users.routes.js';
 import integrationsRoutes from './api/integrations.routes.js';
+import defenderRoutes from './api/defender.routes.js';
 import cronRoutes from './api/cron.routes.js';
 import { initCatalog } from './services/agent/test-catalog.service.js';
 
@@ -145,8 +146,11 @@ app.use('/api/agent', createAgentRouter({ testsSourcePath }));
 // User management
 app.use('/api/users', usersRoutes);
 
-// Integrations (Azure / Entra ID)
+// Integrations (Azure / Entra ID + Microsoft Defender)
 app.use('/api/integrations', integrationsRoutes);
+
+// Defender analytics (Secure Score, alerts, controls, cross-correlation)
+app.use('/api/analytics/defender', defenderRoutes);
 
 // ============ ERROR HANDLING ============
 app.use(notFoundHandler);
