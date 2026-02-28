@@ -128,3 +128,42 @@ export interface DefenderSyncStatus {
   lastAlertSync: string | null;
   lastSyncResult: DefenderSyncResult | null;
 }
+
+// ---------------------------------------------------------------------------
+// Detection correlation types
+// ---------------------------------------------------------------------------
+
+export interface DetectionRateTechniqueItem {
+  technique: string;
+  testExecutions: number;
+  correlatedAlerts: number;
+  detected: boolean;
+}
+
+export interface DetectionRateResponse {
+  overall: {
+    testedTechniques: number;
+    detectedTechniques: number;
+    detectionRate: number;
+  };
+  byTechnique: DetectionRateTechniqueItem[];
+}
+
+export interface RelatedAlertsResponse {
+  alerts: Array<{
+    alert_id: string;
+    alert_title: string;
+    description: string;
+    severity: string;
+    status: string;
+    category: string;
+    service_source: string;
+    mitre_techniques: string[];
+    created_at: string;
+    updated_at: string;
+    resolved_at: string | null;
+    recommended_actions: string;
+  }>;
+  matchedTechniques: string[];
+  total: number;
+}

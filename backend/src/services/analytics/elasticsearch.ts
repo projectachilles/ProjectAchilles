@@ -1279,6 +1279,7 @@ export class ElasticsearchService {
       category: getField(source, 'f0rtika.category') as CategoryType | undefined,
       subcategory: getField(source, 'f0rtika.subcategory'),
       severity: getField(source, 'f0rtika.severity') as SeverityLevel | undefined,
+      techniques: getField(source, 'f0rtika.techniques'),
       tactics: getField(source, 'f0rtika.tactics'),
       target: getField(source, 'f0rtika.target'),
       complexity: getField(source, 'f0rtika.complexity'),

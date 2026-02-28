@@ -103,4 +103,30 @@ router.get('/correlation/techniques', requirePermission('analytics:dashboards:re
   res.json(data);
 }));
 
+/** GET /api/analytics/defender/correlation/detection-rate — Per-technique detection rates */
+router.get('/correlation/detection-rate', requirePermission('analytics:dashboards:read'), asyncHandler(async (req, res) => {
+  const days = parseInt(String(req.query.days ?? '30'), 10);
+  const windowMinutes = parseInt(String(req.query.windowMinutes ?? '60'), 10);
+  const data = await analyticsService.getDetectionRate(days, windowMinutes);
+  res.json(data);
+}));
+
+/** GET /api/analytics/defender/correlation/alerts-for-test — Alerts correlated to a specific test execution */
+router.get('/correlation/alerts-for-test', requirePermission('analytics:dashboards:read'), asyncHandler(async (req, res) => {
+  const techniques = String(req.query.techniques ?? '');
+  const timestamp = String(req.query.timestamp ?? '');
+  const windowMinutes = parseInt(String(req.query.windowMinutes ?? '60'), 10);
+
+  if (!techniques || !timestamp) {
+    throw new AppError('techniques and timestamp are required', 400);
+  }
+
+  const data = await analyticsService.getAlertsForTest(
+    techniques.split(',').map((t) => t.trim()).filter(Boolean),
+    timestamp,
+    windowMinutes,
+  );
+  res.json(data);
+}));
+
 export default router;

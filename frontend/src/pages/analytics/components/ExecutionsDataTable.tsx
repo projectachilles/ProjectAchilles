@@ -34,6 +34,8 @@ import { Card, CardContent, CardHeader, CardFooter } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/shared/ui/Checkbox';
 import { browserApi } from '@/services/api/browser';
+import { defenderApi, type RelatedAlertsResponse } from '@/services/api/defender';
+import { useDefenderConfig } from '@/hooks/useDefenderConfig';
 import TestInfoModal from './TestInfoModal';
 
 // Parse timestamp - handles both epoch ms strings and ISO strings
@@ -204,6 +206,8 @@ export default function ExecutionsDataTable({
   onArchiveByDate,
   archiving,
 }: ExecutionsDataTableProps) {
+  const { configured: defenderConfigured } = useDefenderConfig();
+
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
     new Set(COLUMNS.filter(c => c.defaultVisible).map(c => c.key))
   );
@@ -259,6 +263,32 @@ export default function ExecutionsDataTable({
       setDescriptionLoading(null);
     }
   }, []);
+
+  // Related Defender alerts cache (mirrors descriptionCache pattern)
+  const alertsCache = useRef<Map<string, RelatedAlertsResponse | null>>(new Map());
+  const [alertsLoading, setAlertsLoading] = useState<string | null>(null);
+  const [alertsMap, setAlertsMap] = useState<Map<string, RelatedAlertsResponse | null>>(new Map());
+
+  const fetchRelatedAlerts = useCallback(async (exec: EnrichedTestExecution) => {
+    if (!defenderConfigured) return;
+    const techniques = exec.techniques;
+    if (!techniques || techniques.length === 0) return;
+
+    const cacheKey = exec.test_uuid + '::alerts';
+    if (alertsCache.current.has(cacheKey)) return;
+
+    setAlertsLoading(cacheKey);
+    try {
+      const result = await defenderApi.getAlertsForTest(techniques, exec.timestamp);
+      alertsCache.current.set(cacheKey, result);
+      setAlertsMap(prev => new Map(prev).set(cacheKey, result));
+    } catch {
+      alertsCache.current.set(cacheKey, null);
+      setAlertsMap(prev => new Map(prev).set(cacheKey, null));
+    } finally {
+      setAlertsLoading(null);
+    }
+  }, [defenderConfigured]);
 
   const groups = data?.groups || [];
   const pagination = data?.pagination;
@@ -757,6 +787,57 @@ export default function ExecutionsDataTable({
         <span className="text-muted-foreground">Full Timestamp:</span>
         <p className="mt-1 text-foreground">{formatTimestamp(exec.timestamp, false)}</p>
       </div>
+      {/* Related Defender Alerts */}
+      {defenderConfigured && exec.techniques && exec.techniques.length > 0 && (() => {
+        const alertKey = exec.test_uuid + '::alerts';
+        const alertData = alertsMap.get(alertKey);
+        const isLoadingAlerts = alertsLoading === alertKey;
+
+        return (
+          <div className="col-span-full border-t border-border pt-3 mt-1">
+            <span className="text-muted-foreground font-medium text-xs uppercase tracking-wide">Defender Alerts</span>
+            {isLoadingAlerts ? (
+              <div className="flex items-center gap-2 mt-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Checking for related alerts...</span>
+              </div>
+            ) : alertData && alertData.alerts.length > 0 ? (
+              <div className="mt-2 space-y-2">
+                {alertData.alerts.map((alert) => {
+                  const testTime = parseTimestamp(exec.timestamp).getTime();
+                  const alertTime = new Date(alert.created_at).getTime();
+                  const deltaMin = Math.round(Math.abs(alertTime - testTime) / 60000);
+                  const deltaLabel = deltaMin < 60
+                    ? `${deltaMin}m ${alertTime > testTime ? 'after' : 'before'}`
+                    : `${Math.round(deltaMin / 60)}h ${alertTime > testTime ? 'after' : 'before'}`;
+
+                  const severityClass: Record<string, string> = {
+                    high: 'bg-red-500/10 text-red-500 border-red-500/30',
+                    medium: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30',
+                    low: 'bg-green-500/10 text-green-500 border-green-500/30',
+                    informational: 'bg-blue-500/10 text-blue-500 border-blue-500/30',
+                  };
+
+                  return (
+                    <div key={alert.alert_id} className="flex items-center gap-2 text-xs">
+                      <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${severityClass[alert.severity] ?? ''}`}>
+                        {alert.severity}
+                      </Badge>
+                      <span className="text-foreground truncate flex-1">{alert.alert_title}</span>
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                        {alert.status}
+                      </Badge>
+                      <span className="text-muted-foreground whitespace-nowrap">{deltaLabel}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-muted-foreground">No related Defender alerts within the time window</p>
+            )}
+          </div>
+        );
+      })()}
     </div>
     );
   };
@@ -788,11 +869,14 @@ export default function ExecutionsDataTable({
     });
   };
 
-  // Toggle detail panel for a specific row, triggering description fetch
+  // Toggle detail panel for a specific row, triggering description + alerts fetch
   const toggleDetail = (key: string, exec?: EnrichedTestExecution) => {
     setExpandedDetail(prev => {
       if (prev === key) return null;
-      if (exec) fetchDescription(exec);
+      if (exec) {
+        fetchDescription(exec);
+        fetchRelatedAlerts(exec);
+      }
       return key;
     });
   };

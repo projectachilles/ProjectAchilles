@@ -6,8 +6,8 @@ import SecureScoreCard from './SecureScoreCard';
 import AlertsSummaryCard from './AlertsSummaryCard';
 import DefenderAlertsTable from './DefenderAlertsTable';
 import DefenderControlsTable from './DefenderControlsTable';
-import ScoreCorrelationChart from './ScoreCorrelationChart';
 import TechniqueOverlapChart from './TechniqueOverlapChart';
+import DetectionAnalysisCard from './DetectionAnalysisCard';
 
 export default function DefenderTab() {
   const [loading, setLoading] = useState(true);
@@ -110,15 +110,11 @@ export default function DefenderTab() {
         </div>
       </div>
 
-      {/* Correlation charts */}
-      <div className="grid grid-cols-12 gap-4" style={{ minHeight: '250px' }}>
-        <div className="col-span-12 md:col-span-6">
-          <ScoreCorrelationChart />
-        </div>
-        <div className="col-span-12 md:col-span-6">
-          <TechniqueOverlapChart />
-        </div>
-      </div>
+      {/* Detection analysis */}
+      <DetectionAnalysisCard />
+
+      {/* Technique overlap */}
+      <TechniqueOverlapChart />
 
       {/* Alerts table */}
       <DefenderAlertsTable />

@@ -6,6 +6,7 @@ import { createEsClient } from '../analytics/client.js';
 import { DEFENDER_INDEX } from './index-management.js';
 import type { Client } from '@elastic/elasticsearch';
 import type { QueryDslQueryContainer } from '@elastic/elasticsearch/lib/api/types.js';
+import type { DetectionRateResponse, RelatedAlertsResponse } from '../../types/defender.js';
 
 // ---------------------------------------------------------------------------
 // Response types
@@ -507,5 +508,189 @@ export class DefenderAnalyticsService {
       }))
       .filter((item) => item.testResults > 0 && item.defenderAlerts > 0)
       .sort((a, b) => (b.testResults + b.defenderAlerts) - (a.testResults + a.defenderAlerts));
+  }
+
+  // ── Detection correlation ───────────────────────────────────
+
+  async getDetectionRate(days: number, windowMinutes: number): Promise<DetectionRateResponse> {
+    const client = this.getEsClient();
+    const settingsService = new SettingsService();
+    const settings = settingsService.getSettings();
+
+    // Query 1: Test executions by technique with hourly buckets
+    const testResult = await client.search({
+      index: settings.indexPattern,
+      size: 0,
+      query: { range: { 'routing.event_time': { gte: `now-${days}d/d` } } },
+      aggs: {
+        techniques: {
+          terms: { field: 'f0rtika.techniques', size: 100 },
+          aggs: {
+            by_hour: {
+              date_histogram: { field: 'routing.event_time', fixed_interval: '1h' },
+            },
+          },
+        },
+      },
+    });
+
+    // Query 2: Defender alerts by technique with hourly buckets
+    const alertResult = await client.search({
+      index: DEFENDER_INDEX,
+      size: 0,
+      query: {
+        bool: {
+          must: [
+            { term: { doc_type: 'alert' } },
+            { range: { created_at: { gte: `now-${days}d/d` } } },
+          ],
+        },
+      },
+      aggs: {
+        techniques: {
+          terms: { field: 'mitre_techniques', size: 100 },
+          aggs: {
+            by_hour: {
+              date_histogram: { field: 'created_at', fixed_interval: '1h' },
+            },
+          },
+        },
+      },
+    });
+
+    type HourBucket = { key: number; doc_count: number };
+    type TechniqueBucket = { key: string; doc_count: number; by_hour: { buckets: HourBucket[] } };
+
+    const testAggs = testResult.aggregations as Record<string, unknown>;
+    const testTechniques = ((testAggs?.techniques as Record<string, unknown>)?.buckets as TechniqueBucket[]) ?? [];
+
+    const alertAggs = alertResult.aggregations as Record<string, unknown>;
+    const alertTechniques = ((alertAggs?.techniques as Record<string, unknown>)?.buckets as TechniqueBucket[]) ?? [];
+
+    // Build alert lookup: technique → set of hour keys (epoch ms)
+    const alertHoursByTechnique = new Map<string, Set<number>>();
+    for (const bucket of alertTechniques) {
+      const hours = new Set<number>();
+      for (const h of bucket.by_hour.buckets) {
+        if (h.doc_count > 0) hours.add(h.key);
+      }
+      alertHoursByTechnique.set(bucket.key, hours);
+    }
+
+    const windowMs = windowMinutes * 60 * 1000;
+
+    // For each tested technique, check temporal proximity with alerts
+    const byTechnique = testTechniques.map((testBucket) => {
+      const technique = testBucket.key;
+      const alertHours = alertHoursByTechnique.get(technique);
+      let correlatedAlerts = 0;
+
+      if (alertHours && alertHours.size > 0) {
+        const alertTimestamps = Array.from(alertHours).sort((a, b) => a - b);
+        for (const testHour of testBucket.by_hour.buckets) {
+          if (testHour.doc_count === 0) continue;
+          // Check if any alert bucket falls within ±windowMinutes
+          for (const alertTs of alertTimestamps) {
+            if (Math.abs(testHour.key - alertTs) <= windowMs) {
+              correlatedAlerts++;
+              break;
+            }
+          }
+        }
+      }
+
+      return {
+        technique,
+        testExecutions: testBucket.doc_count,
+        correlatedAlerts,
+        detected: correlatedAlerts > 0,
+      };
+    });
+
+    // Sort: detected first, then by test execution count desc
+    byTechnique.sort((a, b) => {
+      if (a.detected !== b.detected) return a.detected ? -1 : 1;
+      return b.testExecutions - a.testExecutions;
+    });
+
+    const testedTechniques = byTechnique.length;
+    const detectedTechniques = byTechnique.filter((t) => t.detected).length;
+    const detectionRate = testedTechniques > 0
+      ? Math.round((detectedTechniques / testedTechniques) * 1000) / 10
+      : 0;
+
+    return {
+      overall: { testedTechniques, detectedTechniques, detectionRate },
+      byTechnique,
+    };
+  }
+
+  async getAlertsForTest(
+    techniques: string[],
+    timestamp: string,
+    windowMinutes: number,
+  ): Promise<RelatedAlertsResponse> {
+    const client = this.getEsClient();
+
+    const testTime = new Date(timestamp).getTime();
+    const windowMs = windowMinutes * 60 * 1000;
+    const from = new Date(testTime - windowMs).toISOString();
+    const to = new Date(testTime + windowMs).toISOString();
+
+    const result = await client.search({
+      index: DEFENDER_INDEX,
+      size: 50,
+      query: {
+        bool: {
+          must: [
+            { term: { doc_type: 'alert' } },
+            { terms: { mitre_techniques: techniques } },
+            { range: { created_at: { gte: from, lte: to } } },
+          ],
+        },
+      },
+      sort: [{ created_at: { order: 'asc' } }],
+    });
+
+    const total = typeof result.hits.total === 'number'
+      ? result.hits.total
+      : (result.hits.total as { value: number })?.value ?? 0;
+
+    const matchedTechniqueSet = new Set<string>();
+
+    const alerts = result.hits.hits.map((hit) => {
+      const s = hit._source as Record<string, unknown>;
+      const alertTechniques = (s.mitre_techniques as string[]) ?? [];
+      for (const t of alertTechniques) {
+        if (techniques.includes(t)) matchedTechniqueSet.add(t);
+      }
+      return {
+        alert_id: String(s.alert_id ?? ''),
+        alert_title: String(s.alert_title ?? ''),
+        description: String(s.description ?? ''),
+        severity: String(s.severity ?? ''),
+        status: String(s.status ?? ''),
+        category: String(s.category ?? ''),
+        service_source: String(s.service_source ?? ''),
+        mitre_techniques: alertTechniques,
+        created_at: String(s.created_at ?? ''),
+        updated_at: String(s.updated_at ?? ''),
+        resolved_at: s.resolved_at ? String(s.resolved_at) : null,
+        recommended_actions: String(s.recommended_actions ?? ''),
+      };
+    });
+
+    // Sort by proximity to the test execution timestamp
+    alerts.sort((a, b) => {
+      const aDiff = Math.abs(new Date(a.created_at).getTime() - testTime);
+      const bDiff = Math.abs(new Date(b.created_at).getTime() - testTime);
+      return aDiff - bDiff;
+    });
+
+    return {
+      alerts,
+      matchedTechniques: Array.from(matchedTechniqueSet),
+      total,
+    };
   }
 }

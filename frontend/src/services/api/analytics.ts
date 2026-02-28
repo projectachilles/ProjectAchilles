@@ -114,6 +114,7 @@ export interface EnrichedTestExecution extends TestExecution {
   category?: CategoryType;
   subcategory?: string;
   severity?: SeverityLevel;
+  techniques?: string[];
   tactics?: string[];
   target?: string;
   complexity?: 'low' | 'medium' | 'high';

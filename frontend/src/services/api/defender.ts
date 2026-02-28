@@ -96,6 +96,28 @@ export interface TechniqueOverlapItem {
   defenderAlerts: number;
 }
 
+export interface DetectionRateTechniqueItem {
+  technique: string;
+  testExecutions: number;
+  correlatedAlerts: number;
+  detected: boolean;
+}
+
+export interface DetectionRateResponse {
+  overall: {
+    testedTechniques: number;
+    detectedTechniques: number;
+    detectionRate: number;
+  };
+  byTechnique: DetectionRateTechniqueItem[];
+}
+
+export interface RelatedAlertsResponse {
+  alerts: DefenderAlertItem[];
+  matchedTechniques: string[];
+  total: number;
+}
+
 // ---------------------------------------------------------------------------
 // API client
 // ---------------------------------------------------------------------------
@@ -158,6 +180,25 @@ export const defenderApi = {
 
   async getTechniqueOverlap(): Promise<TechniqueOverlapItem[]> {
     const res = await apiClient.get('/analytics/defender/correlation/techniques');
+    return res.data;
+  },
+
+  // Detection correlation
+  async getDetectionRate(days = 30, windowMinutes = 60): Promise<DetectionRateResponse> {
+    const res = await apiClient.get('/analytics/defender/correlation/detection-rate', {
+      params: { days, windowMinutes },
+    });
+    return res.data;
+  },
+
+  async getAlertsForTest(
+    techniques: string[],
+    timestamp: string,
+    windowMinutes = 60,
+  ): Promise<RelatedAlertsResponse> {
+    const res = await apiClient.get('/analytics/defender/correlation/alerts-for-test', {
+      params: { techniques: techniques.join(','), timestamp, windowMinutes },
+    });
     return res.data;
   },
 };
