@@ -72,14 +72,14 @@ describe('DefenderAnalyticsService', () => {
           }],
         },
       });
-      // Second call: control profiles (for maxScore lookup)
+      // Second call: control profiles aggregated by category (for maxScore)
       mockSearch.mockResolvedValueOnce({
         hits: {
           hits: [
-            { _source: { control_name: 'AdminMFA', max_score: 40 } },
-            { _source: { control_name: 'MFARegistration', max_score: 10 } },
-            { _source: { control_name: 'IntuneCompliance', max_score: 30 } },
-            { _source: { control_name: 'DLPEnabled', max_score: 20 } },
+            { _source: { control_category: 'Identity', max_score: 40 } },
+            { _source: { control_category: 'Identity', max_score: 10 } },
+            { _source: { control_category: 'Device', max_score: 30 } },
+            { _source: { control_category: 'Data', max_score: 20 } },
           ],
         },
       });
