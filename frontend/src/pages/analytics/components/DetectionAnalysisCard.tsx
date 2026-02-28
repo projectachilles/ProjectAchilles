@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, ShieldCheck, ShieldX } from 'lucide-react';
+import { ShieldCheck, ShieldX } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { defenderApi, type DetectionRateResponse } from '@/services/api/defender';
 
@@ -20,22 +20,8 @@ export default function DetectionAnalysisCard() {
       .finally(() => setLoading(false));
   }, [days, windowMinutes]);
 
-  if (loading) {
-    return (
-      <Card className="flex items-center justify-center" style={{ minHeight: 200 }}>
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-      </Card>
-    );
-  }
-
-  if (!data || data.byTechnique.length === 0) {
-    return (
-      <Card className="flex items-center justify-center" style={{ minHeight: 200 }}>
-        <span className="text-sm text-muted-foreground">
-          No test executions with MITRE techniques found
-        </span>
-      </Card>
-    );
+  if (loading || !data || data.byTechnique.length === 0) {
+    return null;
   }
 
   const maxTests = Math.max(...data.byTechnique.map((t) => t.testExecutions));

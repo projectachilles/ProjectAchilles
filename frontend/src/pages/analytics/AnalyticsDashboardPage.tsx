@@ -16,12 +16,12 @@ import TestActivityCard from './components/TestActivityCard';
 import ExecutionsDataTable from './components/ExecutionsDataTable';
 import DefenderTab from './components/DefenderTab';
 import SecureScoreCard from './components/SecureScoreCard';
-import AlertsSummaryCard from './components/AlertsSummaryCard';
+import TopControlsCard from './components/TopControlsCard';
 import { useAnalyticsFilters, getWindowDaysForDateRange } from '@/hooks/useAnalyticsFilters';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { useDefenderConfig } from '@/hooks/useDefenderConfig';
 import { analyticsApi } from '../../services/api/analytics';
-import { defenderApi, type SecureScoreSummary, type AlertSummary, type SecureScoreTrendPoint } from '../../services/api/defender';
+import { defenderApi, type SecureScoreSummary, type SecureScoreTrendPoint } from '../../services/api/defender';
 import type {
   TrendDataPoint,
   ErrorTypeBreakdown,
@@ -63,7 +63,6 @@ export default function AnalyticsDashboardPage() {
 
   // Defender dashboard data (loaded alongside main dashboard when configured)
   const [secureScore, setSecureScore] = useState<SecureScoreSummary | null>(null);
-  const [alertSummary, setAlertSummary] = useState<AlertSummary | null>(null);
   const [defenderTechniqueCount, setDefenderTechniqueCount] = useState<number>(0);
   const [secureScoreTrendData, setSecureScoreTrendData] = useState<SecureScoreTrendPoint[]>([]);
 
@@ -272,14 +271,12 @@ export default function AnalyticsDashboardPage() {
         const trendDays = presetDaysMap[filterState.filters.dateRange.preset] ?? 90;
 
         try {
-          const [defScore, defAlerts, defTechniques, defTrend] = await Promise.all([
+          const [defScore, defTechniques, defTrend] = await Promise.all([
             defenderApi.getSecureScore(),
-            defenderApi.getAlertSummary(),
             defenderApi.getTechniqueOverlap(),
             defenderApi.getSecureScoreTrend(trendDays),
           ]);
           setSecureScore(defScore);
-          setAlertSummary(defAlerts);
           setDefenderTechniqueCount(defTechniques.length);
           setSecureScoreTrendData(defTrend);
         } catch {
@@ -505,9 +502,9 @@ export default function AnalyticsDashboardPage() {
                 <SecureScoreCard data={secureScore} loading={loadingDashboard} />
               </div>
             )}
-            {defenderConfigured && alertSummary && (
+            {defenderConfigured && (
               <div className="col-span-12 md:col-span-8 row-span-2">
-                <AlertsSummaryCard data={alertSummary} loading={loadingDashboard} />
+                <TopControlsCard compact />
               </div>
             )}
 

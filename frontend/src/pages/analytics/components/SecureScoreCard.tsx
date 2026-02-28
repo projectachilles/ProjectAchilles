@@ -28,7 +28,7 @@ export default function SecureScoreCard({ data, loading }: SecureScoreCardProps)
         <ShieldCheck className="w-5 h-5 text-primary" />
         <span className="text-sm font-medium text-muted-foreground">Secure Score</span>
       </div>
-      <div className={`text-5xl sm:text-6xl font-bold tracking-tight ${getScoreColor(data.percentage)}`}>
+      <div className={`text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight ${getScoreColor(data.percentage)}`}>
         {data.percentage.toFixed(1)}%
       </div>
       <div className="text-sm text-muted-foreground mt-2">
