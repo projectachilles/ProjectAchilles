@@ -159,7 +159,14 @@ export class DefenderAnalyticsService {
     const profileResult = await client.search({
       index: DEFENDER_INDEX,
       size: 200,
-      query: { term: { doc_type: 'control_profile' } },
+      query: {
+        bool: {
+          must: [
+            { term: { doc_type: 'control_profile' } },
+            { term: { deprecated: false } },
+          ],
+        },
+      },
       _source: ['control_category', 'max_score'],
     });
     const categoryMaxMap = new Map<string, number>();
