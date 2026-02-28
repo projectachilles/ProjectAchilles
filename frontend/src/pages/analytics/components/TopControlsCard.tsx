@@ -6,7 +6,12 @@ import { defenderApi, type ControlItem } from '@/services/api/defender';
 
 const TOP_N = 5;
 
-export default function TopControlsCard() {
+interface TopControlsCardProps {
+  /** When true, stretches to fill parent height (for grid placement). */
+  compact?: boolean;
+}
+
+export default function TopControlsCard({ compact }: TopControlsCardProps) {
   const [controls, setControls] = useState<ControlItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -24,14 +29,14 @@ export default function TopControlsCard() {
   }, []);
 
   return (
-    <Card>
+    <Card className={compact ? 'h-full flex flex-col' : undefined}>
       <CardHeader>
-        <CardTitle>Top Remediation Controls</CardTitle>
+        <CardTitle className={compact ? 'text-sm' : undefined}>Top Remediation Controls</CardTitle>
         <CardDescription>
           Highest impact actions to improve your Secure Score
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className={compact ? 'flex-1 min-h-0' : undefined}>
         {loading ? (
           <div className="flex justify-center py-8">
             <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />

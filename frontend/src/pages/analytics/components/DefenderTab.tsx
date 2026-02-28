@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/shared/ui/Button';
-import { defenderApi, type SecureScoreSummary, type AlertSummary } from '@/services/api/defender';
+import { defenderApi, type SecureScoreSummary } from '@/services/api/defender';
 import SecureScoreCard from './SecureScoreCard';
-import AlertsSummaryCard from './AlertsSummaryCard';
 import TechniqueOverlapChart from './TechniqueOverlapChart';
 import DetectionAnalysisCard from './DetectionAnalysisCard';
 import TopControlsCard from './TopControlsCard';
@@ -12,7 +11,6 @@ export default function DefenderTab() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [secureScore, setSecureScore] = useState<SecureScoreSummary | null>(null);
-  const [alertSummary, setAlertSummary] = useState<AlertSummary | null>(null);
   const [lastSync, setLastSync] = useState<string | null>(null);
 
   useEffect(() => {
@@ -23,12 +21,8 @@ export default function DefenderTab() {
   async function loadData() {
     setLoading(true);
     try {
-      const [score, alerts] = await Promise.all([
-        defenderApi.getSecureScore(),
-        defenderApi.getAlertSummary(),
-      ]);
+      const score = await defenderApi.getSecureScore();
       setSecureScore(score);
-      setAlertSummary(alerts);
     } catch (err) {
       console.error('Failed to load Defender data:', err);
     } finally {
@@ -99,13 +93,13 @@ export default function DefenderTab() {
         </Button>
       </div>
 
-      {/* Summary row: Secure Score + Alert Summary */}
+      {/* Summary row: Secure Score + Top Remediation Controls */}
       <div className="grid grid-cols-12 gap-4" style={{ minHeight: '280px' }}>
         <div className="col-span-12 md:col-span-4">
           <SecureScoreCard data={secureScore} loading={loading} />
         </div>
         <div className="col-span-12 md:col-span-8">
-          <AlertsSummaryCard data={alertSummary} loading={loading} />
+          <TopControlsCard compact />
         </div>
       </div>
 
@@ -114,9 +108,6 @@ export default function DefenderTab() {
 
       {/* Technique overlap */}
       <TechniqueOverlapChart />
-
-      {/* Top remediation controls */}
-      <TopControlsCard />
     </div>
   );
 }
