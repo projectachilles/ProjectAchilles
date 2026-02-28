@@ -185,7 +185,7 @@ export class DefenderAnalyticsService {
         category,
         score,
         maxScore,
-        percentage: maxScore > 0 ? (score / maxScore) * 100 : 0,
+        percentage: maxScore > 0 ? Math.min((score / maxScore) * 100, 100) : 0,
       };
     });
 
