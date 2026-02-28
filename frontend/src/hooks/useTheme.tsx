@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react';
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 
 type Theme = 'light' | 'dark';
-type ThemeStyle = 'default' | 'neobrutalism';
+type ThemeStyle = 'default' | 'neobrutalism' | 'hackerterminal';
+
+const THEME_STYLES: ThemeStyle[] = ['default', 'neobrutalism', 'hackerterminal'];
 
 interface ThemeContextType {
   theme: Theme;
@@ -43,46 +45,78 @@ export function ThemeProvider({
   const [themeStyle, setThemeStyleState] = useState<ThemeStyle>(() => {
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem(styleStorageKey);
-      if (stored === 'default' || stored === 'neobrutalism') {
-        return stored;
+      if (THEME_STYLES.includes(stored as ThemeStyle)) {
+        return stored as ThemeStyle;
       }
     }
     return defaultThemeStyle;
   });
 
-  // Manage .dark class
-  useEffect(() => {
-    const root = window.document.documentElement;
-    root.classList.remove('light', 'dark');
-    root.classList.add(theme);
-    localStorage.setItem(storageKey, theme);
-  }, [theme, storageKey]);
+  // Track the user's preferred theme before hackerterminal forced dark mode
+  const preferredThemeRef = useRef<Theme>(theme);
 
-  // Manage .neobrutalism class (independent of light/dark)
+  // Manage .dark class — hackerterminal forces dark mode
   useEffect(() => {
     const root = window.document.documentElement;
-    if (themeStyle === 'neobrutalism') {
-      root.classList.add('neobrutalism');
-    } else {
-      root.classList.remove('neobrutalism');
+    const effectiveTheme = themeStyle === 'hackerterminal' ? 'dark' : theme;
+    root.classList.remove('light', 'dark');
+    root.classList.add(effectiveTheme);
+    // Only persist the user's actual preference, not the forced dark
+    if (themeStyle !== 'hackerterminal') {
+      localStorage.setItem(storageKey, theme);
+    }
+  }, [theme, themeStyle, storageKey]);
+
+  // Manage style classes (.neobrutalism / .hackerterminal)
+  useEffect(() => {
+    const root = window.document.documentElement;
+    // Remove all style classes, then add the active one
+    root.classList.remove('neobrutalism', 'hackerterminal');
+    if (themeStyle !== 'default') {
+      root.classList.add(themeStyle);
     }
     localStorage.setItem(styleStorageKey, themeStyle);
   }, [themeStyle, styleStorageKey]);
 
   const setTheme = (newTheme: Theme) => {
+    preferredThemeRef.current = newTheme;
     setThemeState(newTheme);
   };
 
   const toggleTheme = () => {
-    setThemeState(prev => prev === 'dark' ? 'light' : 'dark');
+    setThemeState(prev => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      preferredThemeRef.current = next;
+      return next;
+    });
   };
 
   const setThemeStyle = (style: ThemeStyle) => {
+    // When leaving hackerterminal, restore the user's preferred theme
+    if (themeStyle === 'hackerterminal' && style !== 'hackerterminal') {
+      setThemeState(preferredThemeRef.current);
+    }
+    // When entering hackerterminal, save current preference
+    if (style === 'hackerterminal' && themeStyle !== 'hackerterminal') {
+      preferredThemeRef.current = theme;
+    }
     setThemeStyleState(style);
   };
 
   const toggleThemeStyle = () => {
-    setThemeStyleState(prev => prev === 'default' ? 'neobrutalism' : 'default');
+    setThemeStyleState(prev => {
+      const currentIndex = THEME_STYLES.indexOf(prev);
+      const next = THEME_STYLES[(currentIndex + 1) % THEME_STYLES.length];
+      // When leaving hackerterminal, restore preferred theme
+      if (prev === 'hackerterminal' && next !== 'hackerterminal') {
+        setThemeState(preferredThemeRef.current);
+      }
+      // When entering hackerterminal, save current preference
+      if (next === 'hackerterminal' && prev !== 'hackerterminal') {
+        preferredThemeRef.current = theme;
+      }
+      return next;
+    });
   };
 
   return (

@@ -13,6 +13,7 @@ import {
   Settings,
   ChevronRight,
   Palette,
+  Terminal,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -126,14 +127,22 @@ export function TopBar({
           <span className="sr-only">Notifications</span>
         </Button>
 
-        {/* Theme Style Toggle */}
+        {/* Theme Style Toggle (cycles: default → neobrutalism → hacker terminal) */}
         <Button
           variant="ghost"
           size="icon"
           onClick={toggleThemeStyle}
-          title={themeStyle === 'default' ? 'Switch to neobrutalism' : 'Switch to default style'}
+          title={
+            themeStyle === 'default' ? 'Switch to neobrutalism' :
+            themeStyle === 'neobrutalism' ? 'Switch to hacker terminal' :
+            'Switch to default style'
+          }
         >
-          <Palette className={cn('h-4 w-4', themeStyle === 'neobrutalism' && 'text-primary')} />
+          {themeStyle === 'hackerterminal' ? (
+            <Terminal className="h-4 w-4 text-green-400" />
+          ) : (
+            <Palette className={cn('h-4 w-4', themeStyle === 'neobrutalism' && 'text-primary')} />
+          )}
           <span className="sr-only">Toggle visual style</span>
         </Button>
 

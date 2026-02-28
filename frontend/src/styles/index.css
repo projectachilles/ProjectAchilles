@@ -206,6 +206,56 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   HACKER TERMINAL THEME - Green phosphor CRT (dark only)
+   ═══════════════════════════════════════════════════════════════ */
+.hackerterminal {
+  /* Structural overrides */
+  --theme-border-width: 1px;
+  --theme-border-radius: 2px;
+  --theme-shadow: 0 0 8px oklch(0.75 0.27 142 / 25%);
+  --theme-hover-translate: 0px;
+  --theme-hover-shadow: 0 0 12px oklch(0.75 0.27 142 / 40%);
+  --theme-font-body: 'JetBrains Mono', ui-monospace, monospace;
+  --theme-font-weight-base: 400;
+  --theme-font-weight-heading: 500;
+
+  /* Color overrides — green phosphor on deep black */
+  --background: oklch(0.10 0.02 145);
+  --foreground: oklch(0.85 0.25 142);
+  --card: oklch(0.14 0.03 145);
+  --card-foreground: oklch(0.85 0.25 142);
+  --popover: oklch(0.14 0.03 145);
+  --popover-foreground: oklch(0.85 0.25 142);
+  --primary: oklch(0.75 0.27 142);
+  --primary-foreground: oklch(0.10 0.02 145);
+  --secondary: oklch(0.18 0.04 145);
+  --secondary-foreground: oklch(0.85 0.25 142);
+  --muted: oklch(0.16 0.03 145);
+  --muted-foreground: oklch(0.50 0.12 145);
+  --accent: oklch(0.75 0.27 142);
+  --accent-foreground: oklch(0.10 0.02 145);
+  --destructive: oklch(0.65 0.22 25);
+  --border: oklch(0.35 0.10 142);
+  --input: oklch(0.08 0.02 145);
+  --ring: oklch(0.75 0.27 142);
+
+  /* Sidebar - hacker terminal */
+  --sidebar: oklch(0.08 0.02 145);
+  --sidebar-foreground: oklch(0.85 0.25 142);
+  --sidebar-primary: oklch(0.75 0.27 142);
+  --sidebar-primary-foreground: oklch(0.10 0.02 145);
+  --sidebar-accent: oklch(0.18 0.04 145);
+  --sidebar-accent-foreground: oklch(0.85 0.25 142);
+  --sidebar-border: oklch(0.35 0.10 142);
+  --sidebar-ring: oklch(0.75 0.27 142);
+}
+
+/* Phosphor text glow — applied globally when hacker terminal is active */
+.hackerterminal body {
+  text-shadow: 0 0 3px oklch(0.75 0.27 142 / 40%);
+}
+
+/* ═══════════════════════════════════════════════════════════════
    CUSTOM UTILITIES
    ═══════════════════════════════════════════════════════════════ */
 

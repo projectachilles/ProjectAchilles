@@ -6,7 +6,7 @@ import { useAppRole, useCanAccessModule } from '../../hooks/useAppRole';
 import { ROLE_LABELS, ROLE_COLORS } from '../../types/roles';
 import {
   Moon, Sun, Shield, Target, Cpu, Lock, Home,
-  RefreshCw, Settings, Palette
+  RefreshCw, Settings, Palette, Terminal
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from './ui/Button';
@@ -177,15 +177,23 @@ export default function UnifiedHeader({
               </Button>
             )}
 
-            {/* Theme Style Toggle */}
+            {/* Theme Style Toggle (cycles: default → neobrutalism → hacker terminal) */}
             <Button
               variant="ghost"
               size="icon"
               onClick={toggleThemeStyle}
               aria-label="Toggle visual style"
-              title={themeStyle === 'default' ? 'Switch to neobrutalism' : 'Switch to default style'}
+              title={
+                themeStyle === 'default' ? 'Switch to neobrutalism' :
+                themeStyle === 'neobrutalism' ? 'Switch to hacker terminal' :
+                'Switch to default style'
+              }
             >
-              <Palette className={`w-5 h-5 ${themeStyle === 'neobrutalism' ? 'text-primary' : ''}`} />
+              {themeStyle === 'hackerterminal' ? (
+                <Terminal className="w-5 h-5 text-green-400" />
+              ) : (
+                <Palette className={`w-5 h-5 ${themeStyle === 'neobrutalism' ? 'text-primary' : ''}`} />
+              )}
             </Button>
 
             {/* Theme Toggle */}
