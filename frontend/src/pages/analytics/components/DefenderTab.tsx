@@ -4,10 +4,9 @@ import { Button } from '@/components/shared/ui/Button';
 import { defenderApi, type SecureScoreSummary, type AlertSummary } from '@/services/api/defender';
 import SecureScoreCard from './SecureScoreCard';
 import AlertsSummaryCard from './AlertsSummaryCard';
-import DefenderAlertsTable from './DefenderAlertsTable';
-import DefenderControlsTable from './DefenderControlsTable';
 import TechniqueOverlapChart from './TechniqueOverlapChart';
 import DetectionAnalysisCard from './DetectionAnalysisCard';
+import TopControlsCard from './TopControlsCard';
 
 export default function DefenderTab() {
   const [loading, setLoading] = useState(true);
@@ -116,11 +115,8 @@ export default function DefenderTab() {
       {/* Technique overlap */}
       <TechniqueOverlapChart />
 
-      {/* Alerts table */}
-      <DefenderAlertsTable />
-
-      {/* Controls table */}
-      <DefenderControlsTable />
+      {/* Top remediation controls */}
+      <TopControlsCard />
     </div>
   );
 }
