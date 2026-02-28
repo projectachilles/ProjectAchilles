@@ -7,7 +7,8 @@ import TestListItem from '@/components/browser/TestListItem';
 import SearchBar from '@/components/browser/SearchBar';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
 import { useHasPermission } from '@/hooks/useAppRole';
-import { Loader2, LayoutGrid, List, RefreshCw, GitBranch, Clock, AlertCircle, Heart, History } from 'lucide-react';
+import { Loader2, LayoutGrid, List, RefreshCw, GitBranch, Clock, AlertCircle, Heart, History, CheckSquare, Play } from 'lucide-react';
+import { ExecutionDrawer } from '@/components/browser/execution';
 
 type ViewMode = 'grid' | 'list';
 type BrowseMode = 'browse' | 'favorites' | 'recent';
@@ -28,9 +29,14 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerTests, setDrawerTests] = useState<TestMetadata[]>([]);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedTestUuids, setSelectedTestUuids] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
   const { favorites, recentTests, isFavorite, toggleFavorite } = useTestPreferences();
   const canSync = useHasPermission('tests:sync:execute');
+  const canCreateTasks = useHasPermission('endpoints:tasks:create');
 
   useEffect(() => {
     loadTests();
@@ -154,6 +160,41 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
     return `${diffDays}d ago`;
+  }
+
+  function handleExecuteTest(test: TestMetadata, e: React.MouseEvent) {
+    e.stopPropagation();
+    setDrawerTests([test]);
+    setDrawerOpen(true);
+  }
+
+  function handleRunSelected() {
+    const selected = filteredTests.filter((t) => selectedTestUuids.has(t.uuid));
+    if (selected.length === 0) return;
+    setDrawerTests(selected);
+    setDrawerOpen(true);
+  }
+
+  function handleToggleTestSelection(uuid: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    setSelectedTestUuids((prev) => {
+      const next = new Set(prev);
+      if (next.has(uuid)) next.delete(uuid);
+      else next.add(uuid);
+      return next;
+    });
+  }
+
+  function handleToggleSelectMode() {
+    setSelectMode((prev) => {
+      if (prev) setSelectedTestUuids(new Set());
+      return !prev;
+    });
+  }
+
+  function handleDrawerClose() {
+    setDrawerOpen(false);
+    setDrawerTests([]);
   }
 
   // Get unique categories and severities from the mode-filtered set
@@ -284,6 +325,32 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
           </div>
 
           <div className="ml-auto flex items-center gap-4">
+            {/* Select Mode + Run Selected */}
+            {canCreateTasks && (
+              <>
+                {selectMode && selectedTestUuids.size > 0 && (
+                  <button
+                    onClick={handleRunSelected}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90"
+                  >
+                    <Play className="w-4 h-4" />
+                    Run {selectedTestUuids.size} Selected
+                  </button>
+                )}
+                <button
+                  onClick={handleToggleSelectMode}
+                  className={`p-1.5 rounded transition-colors ${
+                    selectMode
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-foreground hover:bg-accent'
+                  }`}
+                  title={selectMode ? 'Exit select mode' : 'Select tests for batch execution'}
+                >
+                  <CheckSquare className="w-4 h-4" />
+                </button>
+              </>
+            )}
+
             {/* View Toggle */}
             <div className="flex items-center gap-1 border border-border rounded-lg p-1 bg-background">
               <button
@@ -345,6 +412,10 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
                 onClick={() => navigate(`/browser/test/${test.uuid}`)}
                 isFavorite={isFavorite(test.uuid)}
                 onToggleFavorite={(e) => { e.stopPropagation(); toggleFavorite(test.uuid); }}
+                onExecute={canCreateTasks ? (e) => handleExecuteTest(test, e) : undefined}
+                selectMode={selectMode}
+                selected={selectedTestUuids.has(test.uuid)}
+                onToggleSelect={(e) => handleToggleTestSelection(test.uuid, e)}
               />
             ))}
           </div>
@@ -357,11 +428,21 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
                 onClick={() => navigate(`/browser/test/${test.uuid}`)}
                 isFavorite={isFavorite(test.uuid)}
                 onToggleFavorite={(e) => { e.stopPropagation(); toggleFavorite(test.uuid); }}
+                onExecute={canCreateTasks ? (e) => handleExecuteTest(test, e) : undefined}
+                selectMode={selectMode}
+                selected={selectedTestUuids.has(test.uuid)}
+                onToggleSelect={(e) => handleToggleTestSelection(test.uuid, e)}
               />
             ))}
           </div>
         )}
       </div>
+
+      <ExecutionDrawer
+        open={drawerOpen}
+        onClose={handleDrawerClose}
+        tests={drawerTests}
+      />
     </div>
   );
 }

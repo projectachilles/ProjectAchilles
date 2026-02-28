@@ -1,6 +1,6 @@
 import type { TestMetadata } from '@/types/test';
 import TechniqueBadge from './TechniqueBadge';
-import { Calendar, Layers, Star, Shield, Workflow, Heart, User, Clock } from 'lucide-react';
+import { Calendar, Layers, Star, Shield, Workflow, Heart, User, Clock, Play } from 'lucide-react';
 import { formatRelativeDate, formatFullDate } from '@/utils/dateFormatters';
 
 interface TestListItemProps {
@@ -8,9 +8,13 @@ interface TestListItemProps {
   onClick: () => void;
   isFavorite?: boolean;
   onToggleFavorite?: (e: React.MouseEvent) => void;
+  onExecute?: (e: React.MouseEvent) => void;
+  selectMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (e: React.MouseEvent) => void;
 }
 
-export default function TestListItem({ test, onClick, isFavorite, onToggleFavorite }: TestListItemProps) {
+export default function TestListItem({ test, onClick, isFavorite, onToggleFavorite, onExecute, selectMode, selected, onToggleSelect }: TestListItemProps) {
   const getSeverityColor = (severity?: string) => {
     switch (severity?.toLowerCase()) {
       case 'critical':
@@ -28,10 +32,22 @@ export default function TestListItem({ test, onClick, isFavorite, onToggleFavori
 
   return (
     <button
-      onClick={onClick}
-      className="w-full text-left px-6 py-4 border-b-[length:var(--theme-border-width)] border-border hover:bg-accent/50 transition-colors"
+      onClick={selectMode ? onToggleSelect : onClick}
+      className={`w-full text-left px-6 py-4 border-b-[length:var(--theme-border-width)] border-border hover:bg-accent/50 transition-colors ${selected ? 'bg-primary/5' : ''}`}
     >
       <div className="flex items-start gap-6">
+        {/* Select mode checkbox */}
+        {selectMode && (
+          <div className="flex items-center pt-1 shrink-0">
+            <input
+              type="checkbox"
+              className="h-4 w-4 appearance-auto accent-primary cursor-pointer"
+              checked={selected}
+              onChange={() => {}}
+              onClick={onToggleSelect}
+            />
+          </div>
+        )}
         {/* Name and UUID */}
         <div className="flex-1 min-w-0">
           <h3 className="text-lg font-semibold mb-1 truncate">{test.name}</h3>
@@ -128,6 +144,17 @@ export default function TestListItem({ test, onClick, isFavorite, onToggleFavori
               title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
             >
               <Heart className={`w-4 h-4 transition-colors ${isFavorite ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
+            </button>
+          )}
+
+          {/* Execute Button */}
+          {onExecute && !selectMode && (
+            <button
+              onClick={onExecute}
+              className="p-1 rounded-md hover:bg-accent transition-colors"
+              title="Execute test"
+            >
+              <Play className="w-4 h-4 text-primary" />
             </button>
           )}
         </div>
