@@ -11,12 +11,6 @@ export interface SecureScoreSummary {
   maxScore: number;
   percentage: number;
   averageComparative: number | null;
-  categories: Array<{
-    category: string;
-    score: number;
-    maxScore: number;
-    percentage: number;
-  }>;
 }
 
 export interface SecureScoreTrendPoint {

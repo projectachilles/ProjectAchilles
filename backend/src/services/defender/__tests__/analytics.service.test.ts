@@ -49,11 +49,9 @@ describe('DefenderAnalyticsService', () => {
       expect(result.maxScore).toBe(0);
       expect(result.percentage).toBe(0);
       expect(result.averageComparative).toBeNull();
-      expect(result.categories).toEqual([]);
     });
 
-    it('returns score with category breakdown', async () => {
-      // First call: secure score document
+    it('returns score from latest secure_score document', async () => {
       mockSearch.mockResolvedValueOnce({
         hits: {
           hits: [{
@@ -62,25 +60,8 @@ describe('DefenderAnalyticsService', () => {
               max_score: 100,
               score_percentage: 45,
               average_comparative_score: 52.3,
-              control_scores: [
-                { name: 'AdminMFA', category: 'Identity', score: 20 },
-                { name: 'MFARegistration', category: 'Identity', score: 5 },
-                { name: 'IntuneCompliance', category: 'Device', score: 10 },
-                { name: 'DLPEnabled', category: 'Data', score: 10 },
-              ],
             },
           }],
-        },
-      });
-      // Second call: control profiles aggregated by category (for maxScore)
-      mockSearch.mockResolvedValueOnce({
-        hits: {
-          hits: [
-            { _source: { control_category: 'Identity', max_score: 40 } },
-            { _source: { control_category: 'Identity', max_score: 10 } },
-            { _source: { control_category: 'Device', max_score: 30 } },
-            { _source: { control_category: 'Data', max_score: 20 } },
-          ],
         },
       });
 
@@ -90,13 +71,6 @@ describe('DefenderAnalyticsService', () => {
       expect(result.maxScore).toBe(100);
       expect(result.percentage).toBe(45);
       expect(result.averageComparative).toBe(52.3);
-      expect(result.categories).toHaveLength(3);
-
-      const identity = result.categories.find((c) => c.category === 'Identity');
-      expect(identity).toBeDefined();
-      expect(identity!.score).toBe(25); // 20 + 5
-      expect(identity!.maxScore).toBe(50); // 40 + 10
-      expect(identity!.percentage).toBe(50);
     });
   });
 

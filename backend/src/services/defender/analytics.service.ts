@@ -16,12 +16,6 @@ export interface SecureScoreSummary {
   maxScore: number;
   percentage: number;
   averageComparative: number | null;
-  categories: Array<{
-    category: string;
-    score: number;
-    maxScore: number;
-    percentage: number;
-  }>;
 }
 
 export interface SecureScoreTrendPoint {
@@ -140,54 +134,10 @@ export class DefenderAnalyticsService {
         maxScore: 0,
         percentage: 0,
         averageComparative: null,
-        categories: [],
       };
     }
 
     const source = hit._source as Record<string, unknown>;
-    const controlScores = source.control_scores as Array<Record<string, unknown>> ?? [];
-
-    // Aggregate achieved score by category from control_scores
-    const categoryScoreMap = new Map<string, number>();
-    for (const cs of controlScores) {
-      const cat = String(cs.category ?? 'Unknown');
-      categoryScoreMap.set(cat, (categoryScoreMap.get(cat) ?? 0) + Number(cs.score ?? 0));
-    }
-
-    // Aggregate maxScore by category directly from control profiles
-    // (controlScore has no maxScore — it lives on secureScoreControlProfile)
-    const profileResult = await client.search({
-      index: DEFENDER_INDEX,
-      size: 200,
-      query: {
-        bool: {
-          must: [
-            { term: { doc_type: 'control_profile' } },
-            { term: { deprecated: false } },
-          ],
-        },
-      },
-      _source: ['control_category', 'max_score'],
-    });
-    const categoryMaxMap = new Map<string, number>();
-    for (const ph of profileResult.hits.hits) {
-      const ps = ph._source as Record<string, unknown>;
-      const cat = String(ps.control_category ?? 'Unknown');
-      categoryMaxMap.set(cat, (categoryMaxMap.get(cat) ?? 0) + Number(ps.max_score ?? 0));
-    }
-
-    // Merge: use all categories from either source
-    const allCategories = new Set([...categoryScoreMap.keys(), ...categoryMaxMap.keys()]);
-    const categories = Array.from(allCategories).map((category) => {
-      const score = categoryScoreMap.get(category) ?? 0;
-      const maxScore = categoryMaxMap.get(category) ?? 0;
-      return {
-        category,
-        score,
-        maxScore,
-        percentage: maxScore > 0 ? Math.min((score / maxScore) * 100, 100) : 0,
-      };
-    });
 
     return {
       currentScore: Number(source.current_score ?? 0),
@@ -196,7 +146,6 @@ export class DefenderAnalyticsService {
       averageComparative: source.average_comparative_score != null
         ? Number(source.average_comparative_score)
         : null,
-      categories,
     };
   }
 
