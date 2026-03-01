@@ -1,16 +1,18 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { browserApi } from '@/services/api/browser';
 import type { TestMetadata, SyncStatus } from '@/types/test';
 import TestCard from '@/components/browser/TestCard';
-import TestListItem from '@/components/browser/TestListItem';
+import TestLibraryOverview from '@/components/browser/TestLibraryOverview';
 import SearchBar from '@/components/browser/SearchBar';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
 import { useHasPermission } from '@/hooks/useAppRole';
-import { Loader2, LayoutGrid, List, RefreshCw, GitBranch, Clock, AlertCircle, Heart, History, CheckSquare, Play } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/shared/ui/Tabs';
+import { Badge } from '@/components/shared/ui/Badge';
+import { Loader2, LayoutDashboard, Grid3X3, LayoutGrid, RefreshCw, GitBranch, Clock, AlertCircle, Heart, History, CheckSquare, Play } from 'lucide-react';
 import { ExecutionDrawer } from '@/components/browser/execution';
 
-type ViewMode = 'grid' | 'list';
+type BrowserTab = 'overview' | 'matrix' | 'browse';
 type BrowseMode = 'browse' | 'favorites' | 'recent';
 
 interface BrowserHomePageProps {
@@ -25,7 +27,6 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -34,9 +35,24 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
   const [selectMode, setSelectMode] = useState(false);
   const [selectedTestUuids, setSelectedTestUuids] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { favorites, recentTests, isFavorite, toggleFavorite } = useTestPreferences();
   const canSync = useHasPermission('tests:sync:execute');
   const canCreateTasks = useHasPermission('endpoints:tasks:create');
+
+  // Tab state — URL-synced, only for browse mode
+  const activeTab: BrowserTab = mode === 'browse'
+    ? (searchParams.get('tab') as BrowserTab) || 'overview'
+    : 'browse';
+
+  function setActiveTab(tab: BrowserTab) {
+    if (tab === 'overview') {
+      searchParams.delete('tab');
+    } else {
+      searchParams.set('tab', tab);
+    }
+    setSearchParams(searchParams, { replace: true });
+  }
 
   useEffect(() => {
     loadTests();
@@ -61,7 +77,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
 
   const filterTests = useCallback(() => {
     try {
-      let filtered = [...modeFilteredTests]; // Create a copy to avoid mutations
+      let filtered = [...modeFilteredTests];
 
       // Search filter with defensive checks
       if (searchQuery && searchQuery.trim()) {
@@ -135,7 +151,6 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
       setSyncError(null);
       const result = await browserApi.syncTests();
       setSyncStatus(result.syncStatus);
-      // Reload tests after successful sync
       await loadTests();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Sync failed';
@@ -197,6 +212,32 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
     setDrawerTests([]);
   }
 
+  // Drill-down handlers — switch to Browse tab with pre-set filters
+  function handleDrillToSeverity(severity: string) {
+    setSelectedSeverity(severity);
+    setSelectedCategory('all');
+    setSearchQuery('');
+    setActiveTab('browse');
+  }
+
+  function handleDrillToCategory(category: string) {
+    setSelectedCategory(category);
+    setSelectedSeverity('all');
+    setSearchQuery('');
+    setActiveTab('browse');
+  }
+
+  function handleDrillToTechnique(technique: string) {
+    setSearchQuery(technique);
+    setSelectedCategory('all');
+    setSelectedSeverity('all');
+    setActiveTab('browse');
+  }
+
+  function handleNavigateToTest(uuid: string) {
+    navigate(`/browser/test/${uuid}`);
+  }
+
   // Get unique categories and severities from the mode-filtered set
   const categories = ['all', ...new Set(modeFilteredTests.map(t => t.category).filter(Boolean))];
   const severities = ['all', ...new Set(modeFilteredTests.map(t => t.severity).filter(Boolean))];
@@ -228,61 +269,9 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
     );
   }
 
-  return (
-    <div className="container mx-auto h-full px-4 py-6 flex flex-col">
-      {/* Sync Status Bar — only in browse mode */}
-      {mode === 'browse' && syncStatus && (
-        <div className="mb-4 flex items-center justify-between p-3 rounded-base bg-card text-card-foreground border-theme border-border shadow-theme">
-          <div className="flex items-center gap-4 text-sm">
-            {/* Sync Status */}
-            <div className="flex items-center gap-2">
-              {syncStatus.status === 'syncing' ? (
-                <Loader2 className="w-4 h-4 animate-spin text-primary" />
-              ) : syncStatus.status === 'synced' ? (
-                <GitBranch className="w-4 h-4 text-green-500" />
-              ) : syncStatus.status === 'error' ? (
-                <AlertCircle className="w-4 h-4 text-red-500" />
-              ) : (
-                <GitBranch className="w-4 h-4 text-muted-foreground" />
-              )}
-              <span className="text-muted-foreground">
-                {syncStatus.branch}
-                {syncStatus.commitHash && (
-                  <span className="ml-1 font-mono text-xs">
-                    ({syncStatus.commitHash.substring(0, 7)})
-                  </span>
-                )}
-              </span>
-            </div>
-
-            {/* Last Sync Time */}
-            {syncStatus.lastSyncTime && (
-              <div className="flex items-center gap-1 text-muted-foreground">
-                <Clock className="w-3.5 h-3.5" />
-                <span>{formatRelativeTime(syncStatus.lastSyncTime)}</span>
-              </div>
-            )}
-
-            {/* Sync Error */}
-            {syncError && (
-              <span className="text-red-500 text-xs">{syncError}</span>
-            )}
-          </div>
-
-          {/* Sync Button */}
-          {canSync && (
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? 'Syncing...' : 'Sync'}
-            </button>
-          )}
-        </div>
-      )}
-
+  // Shared card grid + controls (used in Browse tab and non-browse modes)
+  const browseContent = (
+    <>
       {/* Search and Filters */}
       <div className="mb-6 space-y-4">
         <SearchBar
@@ -352,32 +341,6 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
               </>
             )}
 
-            {/* View Toggle */}
-            <div className="flex items-center gap-1 border border-border rounded-lg p-1 bg-background">
-              <button
-                onClick={() => setViewMode('grid')}
-                className={`p-1.5 rounded transition-colors ${
-                  viewMode === 'grid'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-foreground hover:bg-accent'
-                }`}
-                title="Grid view"
-              >
-                <LayoutGrid className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setViewMode('list')}
-                className={`p-1.5 rounded transition-colors ${
-                  viewMode === 'list'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-foreground hover:bg-accent'
-                }`}
-                title="List view"
-              >
-                <List className="w-4 h-4" />
-              </button>
-            </div>
-
             <div className="text-sm text-muted-foreground">
               Showing {filteredTests.length} of {modeFilteredTests.length}{' '}
               {mode === 'favorites' ? 'favorites' : mode === 'recent' ? 'recent' : 'tests'}
@@ -386,7 +349,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
         </div>
       </div>
 
-      {/* Test Grid/List */}
+      {/* Test Grid */}
       <div className="flex-1 overflow-y-auto">
         {filteredTests.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
@@ -404,7 +367,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
               <p>No tests found matching your criteria</p>
             )}
           </div>
-        ) : viewMode === 'grid' ? (
+        ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-6">
             {filteredTests.map(test => (
               <TestCard
@@ -420,30 +383,116 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
               />
             ))}
           </div>
-        ) : (
-          <div className="border border-border rounded-lg overflow-hidden bg-card text-card-foreground">
-            {filteredTests.map(test => (
-              <TestListItem
-                key={test.uuid}
-                test={test}
-                onClick={() => navigate(`/browser/test/${test.uuid}`)}
-                isFavorite={isFavorite(test.uuid)}
-                onToggleFavorite={(e) => { e.stopPropagation(); toggleFavorite(test.uuid); }}
-                onExecute={canCreateTasks ? (e) => handleExecuteTest(test, e) : undefined}
-                selectMode={selectMode}
-                selected={selectedTestUuids.has(test.uuid)}
-                onToggleSelect={(e) => handleToggleTestSelection(test.uuid, e)}
-              />
-            ))}
+        )}
+      </div>
+    </>
+  );
+
+  // Sync status bar (shared above tabs and in non-tab modes)
+  const syncStatusBar = mode === 'browse' && syncStatus && (
+    <div className="mb-4 flex items-center justify-between p-3 rounded-base bg-card text-card-foreground border-theme border-border shadow-theme">
+      <div className="flex items-center gap-4 text-sm">
+        <div className="flex items-center gap-2">
+          {syncStatus.status === 'syncing' ? (
+            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+          ) : syncStatus.status === 'synced' ? (
+            <GitBranch className="w-4 h-4 text-green-500" />
+          ) : syncStatus.status === 'error' ? (
+            <AlertCircle className="w-4 h-4 text-red-500" />
+          ) : (
+            <GitBranch className="w-4 h-4 text-muted-foreground" />
+          )}
+          <span className="text-muted-foreground">
+            {syncStatus.branch}
+            {syncStatus.commitHash && (
+              <span className="ml-1 font-mono text-xs">
+                ({syncStatus.commitHash.substring(0, 7)})
+              </span>
+            )}
+          </span>
+        </div>
+
+        {syncStatus.lastSyncTime && (
+          <div className="flex items-center gap-1 text-muted-foreground">
+            <Clock className="w-3.5 h-3.5" />
+            <span>{formatRelativeTime(syncStatus.lastSyncTime)}</span>
           </div>
+        )}
+
+        {syncError && (
+          <span className="text-red-500 text-xs">{syncError}</span>
         )}
       </div>
 
-      <ExecutionDrawer
-        open={drawerOpen}
-        onClose={handleDrawerClose}
-        tests={drawerTests}
-      />
+      {canSync && (
+        <button
+          onClick={handleSync}
+          disabled={syncing}
+          className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+          {syncing ? 'Syncing...' : 'Sync'}
+        </button>
+      )}
+    </div>
+  );
+
+  // Favorites/Recent mode: no tabs, just card grid directly
+  if (mode !== 'browse') {
+    return (
+      <div className="container mx-auto h-full px-4 py-6 flex flex-col">
+        {browseContent}
+        <ExecutionDrawer open={drawerOpen} onClose={handleDrawerClose} tests={drawerTests} />
+      </div>
+    );
+  }
+
+  // Browse mode: 3-tab layout
+  return (
+    <div className="container mx-auto h-full px-4 py-6 flex flex-col">
+      {syncStatusBar}
+
+      <Tabs value={activeTab} defaultValue="overview" onValueChange={(v) => setActiveTab(v as BrowserTab)}>
+        <TabsList>
+          <TabsTrigger value="overview">
+            <LayoutDashboard className="w-4 h-4" />
+            Overview
+          </TabsTrigger>
+          <TabsTrigger value="matrix" disabled>
+            <Grid3X3 className="w-4 h-4" />
+            Matrix
+            <Badge variant="default" className="text-[10px] px-1.5 py-0">Soon</Badge>
+          </TabsTrigger>
+          <TabsTrigger value="browse">
+            <LayoutGrid className="w-4 h-4" />
+            Browse
+            <Badge variant="default" className="text-[10px] px-1.5 py-0">{tests.length}</Badge>
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview">
+          <TestLibraryOverview
+            tests={tests}
+            onDrillToSeverity={handleDrillToSeverity}
+            onDrillToCategory={handleDrillToCategory}
+            onDrillToTechnique={handleDrillToTechnique}
+            onNavigateToTest={handleNavigateToTest}
+          />
+        </TabsContent>
+
+        <TabsContent value="matrix">
+          <div className="flex flex-col items-center justify-center h-64 text-muted-foreground gap-3">
+            <Grid3X3 className="w-10 h-10 opacity-30" />
+            <p>MITRE ATT&CK Matrix view coming soon.</p>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="browse">
+          {browseContent}
+        </TabsContent>
+      </Tabs>
+
+      <ExecutionDrawer open={drawerOpen} onClose={handleDrawerClose} tests={drawerTests} />
     </div>
   );
 }
