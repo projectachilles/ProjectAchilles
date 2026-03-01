@@ -51,6 +51,7 @@ export default function MitreAttackMatrix({ tests, onDrillToTechnique }: MitreAt
   const { theme, themeStyle } = useTheme();
   const isDark = theme === 'dark' || themeStyle === 'hackerterminal';
   const isHacker = themeStyle === 'hackerterminal';
+  const isNeobrut = themeStyle === 'neobrutalism';
 
   // Build tactic → technique[] map from test data
   const { tacticMap, maxCount, stats } = useMemo(() => {
@@ -123,11 +124,26 @@ export default function MitreAttackMatrix({ tests, onDrillToTechnique }: MitreAt
     const intensity = maxCount > 0 ? count / maxCount : 0;
 
     if (isHacker) {
-      // Green phosphor shades
+      // Green phosphor shades (hue 142)
       if (intensity > 0.75) return 'oklch(0.70 0.22 142)';
       if (intensity > 0.5)  return 'oklch(0.58 0.18 142)';
       if (intensity > 0.25) return 'oklch(0.45 0.14 142)';
       return 'oklch(0.35 0.10 142)';
+    }
+
+    if (isNeobrut) {
+      // Hot pink/magenta shades (hue 340, matching --primary)
+      if (isDark) {
+        if (intensity > 0.75) return 'oklch(0.62 0.24 340)';
+        if (intensity > 0.5)  return 'oklch(0.50 0.20 340)';
+        if (intensity > 0.25) return 'oklch(0.40 0.16 340)';
+        return 'oklch(0.32 0.12 340)';
+      }
+      // Neobrutalism light
+      if (intensity > 0.75) return 'oklch(0.58 0.22 340)';
+      if (intensity > 0.5)  return 'oklch(0.68 0.18 340)';
+      if (intensity > 0.25) return 'oklch(0.78 0.14 340)';
+      return 'oklch(0.88 0.10 340)';
     }
 
     if (isDark) {
@@ -137,7 +153,7 @@ export default function MitreAttackMatrix({ tests, onDrillToTechnique }: MitreAt
       return 'oklch(0.32 0.10 145)';
     }
 
-    // Light mode
+    // Default light mode — green
     if (intensity > 0.75) return 'oklch(0.55 0.18 145)';
     if (intensity > 0.5)  return 'oklch(0.65 0.15 145)';
     if (intensity > 0.25) return 'oklch(0.75 0.12 145)';
@@ -149,6 +165,10 @@ export default function MitreAttackMatrix({ tests, onDrillToTechnique }: MitreAt
     const intensity = maxCount > 0 ? count / maxCount : 0;
 
     if (isHacker) return 'oklch(0.15 0.02 142)';
+    if (isNeobrut) {
+      if (isDark) return intensity > 0.5 ? 'oklch(0.98 0 0)' : 'oklch(0.92 0.01 340)';
+      return intensity > 0.5 ? 'oklch(0.98 0 0)' : 'oklch(0.20 0.02 340)';
+    }
     if (isDark) return intensity > 0.5 ? 'oklch(0.98 0 0)' : 'oklch(0.90 0 0)';
     return intensity > 0.5 ? 'oklch(0.98 0 0)' : 'oklch(0.20 0.02 145)';
   }
