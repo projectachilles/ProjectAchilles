@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import * as os from 'os';
-import type { AzureIntegrationSettings, DefenderIntegrationSettings, IntegrationsSettings } from '../../types/integrations.js';
+import type { AzureIntegrationSettings, DefenderIntegrationSettings, AlertSettings, IntegrationsSettings } from '../../types/integrations.js';
 
 const SETTINGS_DIR = path.join(os.homedir(), '.projectachilles');
 const SETTINGS_FILE = path.join(SETTINGS_DIR, 'integrations.json');
@@ -120,6 +120,19 @@ export class IntegrationsSettingsService {
         }
         if (settings.defender.client_secret?.startsWith('enc:')) {
           settings.defender.client_secret = this.decrypt(settings.defender.client_secret.slice(4));
+        }
+      }
+
+      // Decrypt sensitive Alert channel fields
+      if (settings.alerts) {
+        if (settings.alerts.slack?.webhook_url?.startsWith('enc:')) {
+          settings.alerts.slack.webhook_url = this.decrypt(settings.alerts.slack.webhook_url.slice(4));
+        }
+        if (settings.alerts.email?.smtp_user?.startsWith('enc:')) {
+          settings.alerts.email.smtp_user = this.decrypt(settings.alerts.email.smtp_user.slice(4));
+        }
+        if (settings.alerts.email?.smtp_pass?.startsWith('enc:')) {
+          settings.alerts.email.smtp_pass = this.decrypt(settings.alerts.email.smtp_pass.slice(4));
         }
       }
 
@@ -289,5 +302,114 @@ export class IntegrationsSettingsService {
       client_id: settings.client_id,
       client_secret: settings.client_secret,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Trend Alerting
+  // ---------------------------------------------------------------------------
+
+  /** Returns decrypted alert settings, or null if no alerts section exists. */
+  getAlertSettings(): AlertSettings | null {
+    const fileSettings = this.getFileSettings();
+    if (!fileSettings?.alerts) return null;
+    return fileSettings.alerts;
+  }
+
+  /** Save alert settings (encrypts sensitive channel fields). Supports partial update. */
+  saveAlertSettings(settings: Partial<AlertSettings>): void {
+    this.ensureSettingsDir();
+
+    // Load existing to support partial update
+    const existing = this.getFileSettings() ?? {};
+    const current: AlertSettings = existing.alerts ?? {
+      thresholds: { enabled: false },
+      cooldown_minutes: 15,
+    };
+
+    // Deep merge
+    const merged: AlertSettings = {
+      thresholds: settings.thresholds
+        ? { ...current.thresholds, ...settings.thresholds }
+        : current.thresholds,
+      cooldown_minutes: settings.cooldown_minutes ?? current.cooldown_minutes,
+      last_alert_at: settings.last_alert_at !== undefined
+        ? settings.last_alert_at
+        : current.last_alert_at,
+    };
+
+    // Merge Slack channel
+    if (settings.slack || current.slack) {
+      const currentSlack = current.slack;
+      const newSlack = settings.slack;
+      merged.slack = {
+        webhook_url: newSlack?.webhook_url || currentSlack?.webhook_url || '',
+        configured: newSlack?.configured ?? currentSlack?.configured ?? false,
+        enabled: newSlack?.enabled ?? currentSlack?.enabled ?? false,
+      };
+    }
+
+    // Merge Email channel
+    if (settings.email || current.email) {
+      const currentEmail = current.email;
+      const newEmail = settings.email;
+      merged.email = {
+        smtp_host: newEmail?.smtp_host || currentEmail?.smtp_host || '',
+        smtp_port: newEmail?.smtp_port ?? currentEmail?.smtp_port ?? 587,
+        smtp_secure: newEmail?.smtp_secure ?? currentEmail?.smtp_secure ?? false,
+        smtp_user: newEmail?.smtp_user || currentEmail?.smtp_user || '',
+        smtp_pass: newEmail?.smtp_pass || currentEmail?.smtp_pass || '',
+        from_address: newEmail?.from_address || currentEmail?.from_address || '',
+        recipients: newEmail?.recipients ?? currentEmail?.recipients ?? [],
+        configured: newEmail?.configured ?? currentEmail?.configured ?? false,
+        enabled: newEmail?.enabled ?? currentEmail?.enabled ?? false,
+      };
+    }
+
+    // Encrypt sensitive channel fields
+    const alertsToSave: AlertSettings = { ...merged };
+
+    if (alertsToSave.slack) {
+      alertsToSave.slack = {
+        ...alertsToSave.slack,
+        webhook_url: alertsToSave.slack.webhook_url
+          ? 'enc:' + this.encrypt(alertsToSave.slack.webhook_url)
+          : '',
+      };
+    }
+
+    if (alertsToSave.email) {
+      alertsToSave.email = {
+        ...alertsToSave.email,
+        smtp_user: alertsToSave.email.smtp_user
+          ? 'enc:' + this.encrypt(alertsToSave.email.smtp_user)
+          : '',
+        smtp_pass: alertsToSave.email.smtp_pass
+          ? 'enc:' + this.encrypt(alertsToSave.email.smtp_pass)
+          : '',
+      };
+    }
+
+    const toSave: IntegrationsSettings = {
+      ...existing,
+      alerts: alertsToSave,
+    };
+
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(toSave, null, 2));
+  }
+
+  /** Check if alerting is configured: thresholds enabled + at least one channel configured & enabled. */
+  isAlertingConfigured(): boolean {
+    const settings = this.getAlertSettings();
+    if (!settings?.thresholds?.enabled) return false;
+
+    const slackReady = !!(settings.slack?.configured && settings.slack?.enabled);
+    const emailReady = !!(settings.email?.configured && settings.email?.enabled);
+
+    return slackReady || emailReady;
+  }
+
+  /** Convenience: update the last_alert_at timestamp. */
+  updateLastAlertTimestamp(timestamp: string): void {
+    this.saveAlertSettings({ last_alert_at: timestamp });
   }
 }
