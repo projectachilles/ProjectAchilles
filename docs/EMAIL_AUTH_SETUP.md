@@ -105,7 +105,7 @@ By default, Clerk uses their built-in email service. For production, you may wan
 
 1. **Start Development Server**
    ```bash
-   ./start.sh
+   ./scripts/start.sh
    ```
 
 2. **Open Application**
@@ -523,7 +523,7 @@ Before considering complete:
 
 Update these files for production deployment:
 
-1. **PRODUCTION_DEPLOYMENT.md**
+1. **deployment/PRODUCTION_DEPLOYMENT.md**
    - Add email authentication to testing section
    - Update OAuth configuration notes
 

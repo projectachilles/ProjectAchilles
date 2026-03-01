@@ -31,10 +31,10 @@
     Don't open the browser when setup completes.
 
 .EXAMPLE
-    .\Install-ProjectAchilles.ps1
+    .\scripts\Install-ProjectAchilles.ps1
 
 .EXAMPLE
-    .\Install-ProjectAchilles.ps1 -Quick -ClerkPublishableKey pk_test_xxx -ClerkSecretKey sk_test_xxx
+    .\scripts\Install-ProjectAchilles.ps1 -Quick -ClerkPublishableKey pk_test_xxx -ClerkSecretKey sk_test_xxx
 #>
 
 [CmdletBinding()]

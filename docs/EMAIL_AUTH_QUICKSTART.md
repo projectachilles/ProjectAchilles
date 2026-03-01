@@ -81,7 +81,7 @@ Click [Save] or [Apply changes] button
 ### 1. Start Dev Server
 
 ```bash
-./start.sh
+./scripts/start.sh
 ```
 
 ### 2. Visit App

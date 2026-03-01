@@ -16,7 +16,7 @@
 
 Execute security tests on endpoints, measure detection coverage, and close defensive gaps — all from one unified interface.
 
-[Quick Start](#quick-start) · [Features](#features) · [Architecture](#architecture) · [Documentation](#documentation) · [Roadmap](ROADMAP.md) · [Contributing](#contributing)
+[Quick Start](#quick-start) · [Features](#features) · [Architecture](#architecture) · [Documentation](#documentation) · [Roadmap](docs/ROADMAP.md) · [Contributing](#contributing)
 
 </div>
 
@@ -51,7 +51,7 @@ git clone https://github.com/projectachilles/ProjectAchilles.git
 cd ProjectAchilles
 
 # Start the full stack (installs deps, finds available ports)
-./start.sh -k --daemon
+./scripts/start.sh -k --daemon
 ```
 
 Configure Clerk authentication (see [Configuration](#configuration)), then open http://localhost:5173.
@@ -62,7 +62,7 @@ Configure Clerk authentication (see [Configuration](#configuration)), then open 
 # Clone and run the setup wizard
 git clone https://github.com/projectachilles/ProjectAchilles.git
 cd ProjectAchilles
-./setup.sh
+./scripts/setup.sh
 
 # Start services
 docker compose up -d
@@ -76,10 +76,10 @@ docker compose --profile elasticsearch up -d
 ```powershell
 git clone https://github.com/your-org/ProjectAchilles.git
 cd ProjectAchilles
-.\Install-ProjectAchilles.ps1
+.\scripts\Install-ProjectAchilles.ps1
 ```
 
-The PowerShell script checks prerequisites, fixes line endings, configures `backend/.env` interactively, builds Docker images, and opens the dashboard. See [Windows Docker Installation](WINDOWS_DOCKER_INSTALL.md) for the full manual guide.
+The PowerShell script checks prerequisites, fixes line endings, configures `backend/.env` interactively, builds Docker images, and opens the dashboard. See [Windows Docker Installation](docs/deployment/WINDOWS_DOCKER_INSTALL.md) for the full manual guide.
 
 ## Features
 
@@ -227,10 +227,14 @@ ProjectAchilles/
 ├── agent/                     # Go agent source
 │   ├── main.go                # CLI entry point (--enroll, --run, --install)
 │   └── internal/              # Agent modules (poller, executor, updater, sysinfo)
+├── scripts/                   # Shell scripts and PowerShell bootstrap
+│   ├── start.sh               # Development startup script
+│   ├── setup.sh               # Interactive setup wizard (Linux/macOS)
+│   └── Install-ProjectAchilles.ps1 # Bootstrap script (Windows)
+├── docs/                      # Documentation
+│   ├── deployment/            # Deployment guides (Fly, Railway, Render, Vercel)
+│   └── security/              # Security audit and remediation docs
 ├── docker-compose.yml         # Multi-service deployment
-├── setup.sh                   # Interactive setup wizard (Linux/macOS)
-├── Install-ProjectAchilles.ps1 # Bootstrap script (Windows PowerShell)
-├── start.sh                   # Development startup script
 └── CLAUDE.md                  # AI assistant development guidance
 ```
 
@@ -349,13 +353,13 @@ CLERK_SECRET_KEY=sk_test_...
 ## Documentation
 
 ### Getting Started
-- [Windows Docker Installation](WINDOWS_DOCKER_INSTALL.md) — Complete guide for Windows with Docker Desktop
-- [Quick Start Deployment](QUICK_START_DEPLOYMENT.md) — 50-minute production deployment
+- [Windows Docker Installation](docs/deployment/WINDOWS_DOCKER_INSTALL.md) — Complete guide for Windows with Docker Desktop
+- [Quick Start Deployment](docs/deployment/QUICK_START_DEPLOYMENT.md) — 50-minute production deployment
 - [Docker Compose guide](docker-compose.yml) — Local deployment with optional Elasticsearch
 
 ### Deployment
-- [Production Deployment Guide](PRODUCTION_DEPLOYMENT.md) — Comprehensive Railway deployment
-- [Deployment Checklist](DEPLOYMENT_CHECKLIST.md) — Interactive pre-flight checklist
+- [Production Deployment Guide](docs/deployment/PRODUCTION_DEPLOYMENT.md) — Comprehensive Railway deployment
+- [Deployment Checklist](docs/deployment/DEPLOYMENT_CHECKLIST.md) — Interactive pre-flight checklist
 
 ### Development
 - [CLAUDE.md](CLAUDE.md) — AI-assisted development guidance
@@ -366,7 +370,7 @@ CLERK_SECRET_KEY=sk_test_...
 - [Security Policy](SECURITY.md) — Vulnerability reporting and security model
 - [Agent Security Findings](docs/agent-security-findings.md) — Internal audit: 9 findings, 8 fixed
 - [Code of Conduct](CODE_OF_CONDUCT.md) — Community guidelines
-- [Roadmap](ROADMAP.md) — Planned features and direction
+- [Roadmap](docs/ROADMAP.md) — Planned features and direction
 
 ## Contributing
 

@@ -54,7 +54,7 @@ backend/data/
 semgrep-results-*/
 
 # Personal scripts
-tunnel.sh
+scripts/tunnel.sh
 
 # Presentation
 presentation-abstract.md

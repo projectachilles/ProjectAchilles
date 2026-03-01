@@ -15,8 +15,8 @@ ProjectAchilles is a purple team platform for continuous security validation. It
 
 ```bash
 # Full stack (auto port detection, installs deps)
-./start.sh -k --daemon           # Kill existing processes and start fresh
-./start.sh --stop                # Stop daemon processes
+./scripts/start.sh -k --daemon   # Kill existing processes and start fresh
+./scripts/start.sh --stop        # Stop daemon processes
 
 # Individual services
 cd frontend && npm run dev       # Vite dev server (port 5173)
@@ -237,10 +237,10 @@ Five deployment targets are supported. The original `backend/` and `frontend/` a
 | Target | Backend | DB | File Storage | Builds (Go) | Guide |
 |--------|---------|-----|-------------|-------------|-------|
 | **Docker Compose** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Below |
-| **Railway** | `backend/` | SQLite (volume) | Filesystem (volume) | Partial | `RAILWAY.md` |
-| **Render** | `backend/` | SQLite (persistent disk) | Filesystem (disk) | Partial | `RENDER.md` |
-| **Fly.io** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | `FLY.md` |
-| **Vercel** | `backend-serverless/` | Turso (@libsql) | Vercel Blob | No | `VERCEL.md` |
+| **Railway** | `backend/` | SQLite (volume) | Filesystem (volume) | Partial | `docs/deployment/RAILWAY.md` |
+| **Render** | `backend/` | SQLite (persistent disk) | Filesystem (disk) | Partial | `docs/deployment/RENDER.md` |
+| **Fly.io** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | `docs/deployment/FLY.md` |
+| **Vercel** | `backend-serverless/` | Turso (@libsql) | Vercel Blob | No | `docs/deployment/VERCEL.md` |
 
 ### Docker Compose
 
@@ -253,7 +253,7 @@ The `elasticsearch` profile starts ES 8.17 (single-node, security disabled) and 
 
 ### Render
 
-Uses the existing Dockerfiles with Render's persistent disk for SQLite and settings. Deploy via Blueprint (`render.yaml`) or manual setup. See `RENDER.md` for full walkthrough.
+Uses the existing Dockerfiles with Render's persistent disk for SQLite and settings. Deploy via Blueprint (`render.yaml`) or manual setup. See `docs/deployment/RENDER.md` for full walkthrough.
 
 ```bash
 # Blueprint deploy: push render.yaml then connect repo at render.com/deploy
@@ -264,7 +264,7 @@ Uses the existing Dockerfiles with Render's persistent disk for SQLite and setti
 
 ### Fly.io
 
-Uses the existing Dockerfiles with Fly.io Machines and a persistent volume for SQLite and settings. Deploy via `flyctl` CLI. See `FLY.md` for full walkthrough.
+Uses the existing Dockerfiles with Fly.io Machines and a persistent volume for SQLite and settings. Deploy via `flyctl` CLI. See `docs/deployment/FLY.md` for full walkthrough.
 
 ```bash
 # Create apps + volume, set secrets, deploy
@@ -276,7 +276,7 @@ Uses the existing Dockerfiles with Fly.io Machines and a persistent volume for S
 
 ### Vercel (Serverless)
 
-Uses `backend-serverless/` — a fork of the backend adapted for serverless. Replaces SQLite with Turso, filesystem with Vercel Blob, and signing keys with env vars. Features not available on serverless (Go builds, cert generation, git sync) return 503. See `VERCEL.md` for full walkthrough.
+Uses `backend-serverless/` — a fork of the backend adapted for serverless. Replaces SQLite with Turso, filesystem with Vercel Blob, and signing keys with env vars. Features not available on serverless (Go builds, cert generation, git sync) return 503. See `docs/deployment/VERCEL.md` for full walkthrough.
 
 ```bash
 # Two Vercel projects: backend (backend-serverless/), frontend (frontend/)
@@ -309,7 +309,7 @@ When modifying `backend/`, changes do **not** propagate to `backend-serverless/`
 Two browser tools are available for visual verification. **Prefer the Claude Code Chrome Extension** (uses real browser with auth sessions); fall back to **Playwright** (`mcp__plugin_playwright_playwright__*`) for headless screenshots, drag-and-drop, file uploads, `browser_wait_for`, or programmatic JS execution.
 
 ### Workflow
-1. Start dev server: `./start.sh -k --daemon`
+1. Start dev server: `./scripts/start.sh -k --daemon`
 2. Navigate to `http://localhost:5173`
 3. When encountering Clerk login, ask the user for credentials — never guess
 4. For Analytics setup, read Elasticsearch credentials from `backend/.env`

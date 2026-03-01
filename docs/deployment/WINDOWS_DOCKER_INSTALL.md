@@ -174,7 +174,7 @@ ProjectAchilles uses [Clerk](https://clerk.com) for authentication. You need a f
 The all-in-one PowerShell script handles configuration **and** building/launching in a single step:
 
 ```powershell
-.\Install-ProjectAchilles.ps1
+.\scripts\Install-ProjectAchilles.ps1
 ```
 
 The script will:
@@ -191,13 +191,13 @@ The script will:
 **Quick mode** (minimal prompts — just provide Clerk keys):
 
 ```powershell
-.\Install-ProjectAchilles.ps1 -Quick -ClerkPublishableKey pk_test_YOUR_KEY -ClerkSecretKey sk_test_YOUR_KEY
+.\scripts\Install-ProjectAchilles.ps1 -Quick -ClerkPublishableKey pk_test_YOUR_KEY -ClerkSecretKey sk_test_YOUR_KEY
 ```
 
 **With local Elasticsearch** (skips the ES prompt):
 
 ```powershell
-.\Install-ProjectAchilles.ps1 -WithElasticsearch
+.\scripts\Install-ProjectAchilles.ps1 -WithElasticsearch
 ```
 
 > If you use the bootstrap script, skip to [Section 8: Verify Installation](#8-verify-installation) — the script handles Sections 6 and 7 automatically.
@@ -210,7 +210,7 @@ The interactive setup wizard configures `backend/.env` (but does not build or la
 
 ```bash
 cd ~/ProjectAchilles
-bash setup.sh
+bash scripts/setup.sh
 ```
 
 The wizard will:

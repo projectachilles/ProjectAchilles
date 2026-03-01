@@ -41,7 +41,7 @@
 
 ### Manual Testing Performed
 
-- [ ] Tested locally with `./start.sh`
+- [ ] Tested locally with `./scripts/start.sh`
 - [ ] Verified changes work as expected
 - [ ] Checked for regressions in related features
 

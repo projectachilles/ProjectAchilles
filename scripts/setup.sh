@@ -5,16 +5,17 @@
 # Configures backend/.env for Docker or local development.
 # Uses whiptail/dialog for TUI, falls back to plain text prompts.
 #
-# Usage:
-#   ./setup.sh              # Interactive TUI
-#   ./setup.sh --non-interactive  # Use existing .env, generate missing secrets
+# Usage (from project root):
+#   ./scripts/setup.sh              # Interactive TUI
+#   ./scripts/setup.sh --non-interactive  # Use existing .env, generate missing secrets
 # =============================================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="$SCRIPT_DIR/backend/.env"
-ENV_EXAMPLE="$SCRIPT_DIR/backend/.env.example"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENV_FILE="$PROJECT_ROOT/backend/.env"
+ENV_EXAMPLE="$PROJECT_ROOT/backend/.env.example"
 BACKTITLE="Project Achilles Setup"
 
 # =============================================================================
@@ -458,7 +459,7 @@ show_summary() {
         summary+="Dashboard: http://localhost\n"
     else
         summary+="To start:\n"
-        summary+="  ./start.sh\n\n"
+        summary+="  ./scripts/start.sh\n\n"
         summary+="Dashboard: http://localhost:5173\n"
     fi
 
@@ -469,9 +470,9 @@ show_summary() {
         fi
     fi
 
-    summary+="\n--- Tunnel (./start.sh only) ---"
+    summary+="\n--- Tunnel (./scripts/start.sh only) ---"
     summary+="\nngrok domains are pre-configured in backend/.env for external access."
-    summary+="\nThis does NOT apply to Docker Compose — only to: ./start.sh --tunnel"
+    summary+="\nThis does NOT apply to Docker Compose — only to: ./scripts/start.sh --tunnel"
     summary+="\nDefaults:"
     summary+="\n  NGROK_FRONTEND_DOMAIN=projectachilles.ngrok.app"
     summary+="\n  NGROK_BACKEND_DOMAIN=achilles-agent.ngrok.app"

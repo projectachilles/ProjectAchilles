@@ -44,7 +44,7 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 
 4. **Install dependencies and start development**
    ```bash
-   ./start.sh -k --daemon
+   ./scripts/start.sh -k --daemon
    ```
 
 ### Project Structure
@@ -54,9 +54,9 @@ ProjectAchilles/
 ├── frontend/          # React 19 + TypeScript + Vite
 ├── backend/           # Express + TypeScript (ES modules)
 ├── agent/             # Go agent source (cross-platform)
+├── scripts/           # Shell scripts (start.sh, setup.sh, etc.)
+├── docs/              # Documentation (deployment, security, etc.)
 ├── docker-compose.yml # Multi-service deployment
-├── setup.sh           # Interactive setup wizard
-├── start.sh           # Development startup script
 └── CLAUDE.md          # Development guidance
 ```
 
@@ -93,7 +93,7 @@ git checkout -b feature/your-feature-name
    ```
 
 2. **Ensure your changes work**
-   - Test locally with `./start.sh -k --daemon`
+   - Test locally with `./scripts/start.sh -k --daemon`
    - Verify no TypeScript errors: `cd frontend && npm run build` and `cd backend && npm run build`
    - If modifying Go agent: `cd agent && go build ./...`
    - If modifying Docker: `docker compose build`
@@ -266,7 +266,7 @@ docs(readme): update architecture diagram
 
 Before submitting a PR, verify:
 
-- [ ] Application starts without errors (`./start.sh -k --daemon`)
+- [ ] Application starts without errors (`./scripts/start.sh -k --daemon`)
 - [ ] New features work as expected
 - [ ] Existing features still work (no regressions)
 - [ ] UI is responsive and accessible
@@ -316,7 +316,7 @@ docker compose ps
 - `CONTRIBUTING.md` - This file
 - `SECURITY.md` - Security policy and architecture
 - `CHANGELOG.md` - Version history
-- `ROADMAP.md` - Planned features and direction
+- `docs/ROADMAP.md` - Planned features and direction
 
 ## Questions?
 

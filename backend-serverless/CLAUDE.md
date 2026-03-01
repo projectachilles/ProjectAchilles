@@ -1,6 +1,6 @@
 # backend-serverless/CLAUDE.md
 
-Serverless fork of `backend/` for Vercel deployment. See root `CLAUDE.md` for the full project overview and `VERCEL.md` for deployment instructions.
+Serverless fork of `backend/` for Vercel deployment. See root `CLAUDE.md` for the full project overview and `docs/deployment/VERCEL.md` for deployment instructions.
 
 ## Quick Reference
 
@@ -70,7 +70,7 @@ The frontend reads `VITE_CLERK_PUBLISHABLE_KEY` (with `VITE_` prefix). Vite only
 
 ## Environment Variables
 
-Backend env vars are set in the Vercel Dashboard or via `vercel env add`. See `VERCEL.md` § Step 4 for the full table.
+Backend env vars are set in the Vercel Dashboard or via `vercel env add`. See `docs/deployment/VERCEL.md` § Step 4 for the full table.
 
 Critical variables:
 - `ENCRYPTION_SECRET` — **required**, no fallback on Vercel (Docker backend derives one from machine ID)

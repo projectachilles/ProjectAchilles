@@ -6,7 +6,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
 
 # Default ports
 BACKEND_PORT=3000
@@ -77,16 +78,16 @@ echo "╚═══════════════════════�
 echo ""
 
 # PID file for daemon mode
-PID_FILE="$SCRIPT_DIR/.achilles.pid"
+PID_FILE="$PROJECT_ROOT/.achilles.pid"
 
 # ngrok tunnel configuration (can be overridden via environment or .env file)
 NGROK_CONFIG_MAIN="$HOME/.config/ngrok/ngrok.yml"
 NGROK_CONFIG_TUNNELS="${NGROK_CONFIG_TUNNELS:-$HOME/.config/ngrok/achilles-tunnels.yml}"
 
 # Load .env if present (for NGROK_*_DOMAIN overrides)
-if [ -f "$SCRIPT_DIR/backend/.env" ]; then
+if [ -f "$PROJECT_ROOT/backend/.env" ]; then
     # Only load NGROK_ variables to avoid polluting environment
-    eval "$(grep -E '^NGROK_' "$SCRIPT_DIR/backend/.env" 2>/dev/null | sed 's/^/export /')"
+    eval "$(grep -E '^NGROK_' "$PROJECT_ROOT/backend/.env" 2>/dev/null | sed 's/^/export /')"
 fi
 
 # Tunnel domains - users should set these in backend/.env or environment
@@ -292,7 +293,7 @@ if [ "$DAEMON_MODE" = true ]; then
         echo "  Building backend..."
         npm run build > /dev/null 2>&1
     fi
-    nohup env PORT=$BACKEND_PORT npm run start > "$SCRIPT_DIR/.backend.log" 2>&1 &
+    nohup env PORT=$BACKEND_PORT npm run start > "$PROJECT_ROOT/.backend.log" 2>&1 &
 else
     PORT=$BACKEND_PORT npm run dev &
 fi
@@ -308,7 +309,7 @@ echo "  (proxying /api to backend on port $BACKEND_PORT)"
 cd frontend
 if [ "$DAEMON_MODE" = true ]; then
     # Run vite directly for daemon mode (npm exits in non-interactive shells)
-    nohup env VITE_BACKEND_PORT=$BACKEND_PORT node node_modules/vite/bin/vite.js --port $FRONTEND_PORT > "$SCRIPT_DIR/.frontend.log" 2>&1 &
+    nohup env VITE_BACKEND_PORT=$BACKEND_PORT node node_modules/vite/bin/vite.js --port $FRONTEND_PORT > "$PROJECT_ROOT/.frontend.log" 2>&1 &
 else
     VITE_BACKEND_PORT=$BACKEND_PORT npm run dev -- --port $FRONTEND_PORT &
 fi
