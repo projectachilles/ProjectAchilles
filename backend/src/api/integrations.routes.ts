@@ -3,6 +3,9 @@ import { requireClerkAuth, requirePermission } from '../middleware/clerk.middlew
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { IntegrationsSettingsService } from '../services/integrations/settings.js';
 import { DefenderSyncService } from '../services/defender/sync.service.js';
+import { AlertsService } from '../services/alerts/alerts.service.js';
+import { testSlackWebhook } from '../services/alerts/slack.service.js';
+import { testEmailConnection } from '../services/alerts/email.service.js';
 
 const router = Router();
 
@@ -10,6 +13,10 @@ const router = Router();
 router.use(requireClerkAuth());
 
 const settingsService = new IntegrationsSettingsService();
+const alertsService = new AlertsService();
+
+// Make alertsService accessible for the result ingestion hook
+export { alertsService };
 
 // ---------------------------------------------------------------------------
 // Azure / Entra ID
@@ -234,5 +241,79 @@ router.get('/defender/sync/status', requirePermission('integrations:read'), (_re
 
 /** Expose the singleton for background sync from server.ts */
 export { defenderSyncService };
+
+// ---------------------------------------------------------------------------
+// Trend Alerting
+// ---------------------------------------------------------------------------
+
+/** GET /api/integrations/alerts — Returns masked alert settings */
+router.get('/alerts', requirePermission('integrations:read'), (_req, res) => {
+  const settings = settingsService.getAlertSettings();
+
+  if (!settings) {
+    res.json({ configured: false });
+    return;
+  }
+
+  const mask = (val: string) =>
+    val.length > 4 ? '****' + val.slice(-4) : '****';
+
+  res.json({
+    configured: settingsService.isAlertingConfigured(),
+    thresholds: settings.thresholds,
+    cooldown_minutes: settings.cooldown_minutes,
+    last_alert_at: settings.last_alert_at,
+    slack: settings.slack ? {
+      configured: settings.slack.configured,
+      enabled: settings.slack.enabled,
+      webhook_url_set: !!settings.slack.webhook_url,
+    } : undefined,
+    email: settings.email ? {
+      configured: settings.email.configured,
+      enabled: settings.email.enabled,
+      smtp_host: settings.email.smtp_host,
+      smtp_port: settings.email.smtp_port,
+      smtp_secure: settings.email.smtp_secure,
+      smtp_user: settings.email.smtp_user ? mask(settings.email.smtp_user) : undefined,
+      from_address: settings.email.from_address,
+      recipients: settings.email.recipients,
+    } : undefined,
+  });
+});
+
+/** POST /api/integrations/alerts — Save alert settings (partial update) */
+router.post('/alerts', requirePermission('integrations:write'),
+  asyncHandler(async (req, res) => {
+    settingsService.saveAlertSettings(req.body);
+    res.json({ success: true });
+  })
+);
+
+/** POST /api/integrations/alerts/test — Send test notification */
+router.post('/alerts/test', requirePermission('integrations:write'),
+  asyncHandler(async (req, res) => {
+    const settings = settingsService.getAlertSettings();
+    const results: { slack?: { success: boolean; message: string }; email?: { success: boolean; message: string } } = {};
+
+    // Test Slack — use webhook from request body or existing settings
+    const slackUrl = req.body.slack_webhook_url || settings?.slack?.webhook_url;
+    if (slackUrl) {
+      results.slack = await testSlackWebhook(slackUrl);
+    }
+
+    // Test Email — use settings from request body or existing settings
+    const emailSettings = req.body.email || settings?.email;
+    if (emailSettings?.smtp_host) {
+      results.email = await testEmailConnection(emailSettings);
+    }
+
+    res.json({ success: true, data: results });
+  })
+);
+
+/** GET /api/integrations/alerts/history — Recent alert events */
+router.get('/alerts/history', requirePermission('integrations:read'), (_req, res) => {
+  res.json({ success: true, data: alertsService.getAlertHistory() });
+});
 
 export default router;

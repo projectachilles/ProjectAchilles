@@ -18,6 +18,7 @@ import {
   sanitizeTaskForAdmin,
 } from '../../services/agent/tasks.service.js';
 import { ingestResult } from '../../services/agent/results.service.js';
+import { alertsService } from '../integrations.routes.js';
 import type {
   CreateTaskRequest,
   CreateCommandTaskRequest,
@@ -103,7 +104,16 @@ agentTasksRouter.post(
 
     // Only ingest security test results into ES (not command results)
     if (task.type === 'execute_test') {
-      ingestResult(task, result).catch((err) => {
+      ingestResult(task, result).then(() => {
+        // Evaluate alert thresholds after successful ingestion
+        alertsService.evaluateAndNotify(
+          task.payload.test_name,
+          result.hostname ?? 'unknown',
+        ).catch((err) => {
+          console.error('[Alerts] Evaluation failed for task %s:', task.id,
+            err instanceof Error ? err.message : err);
+        });
+      }).catch((err) => {
         console.error('[ES Ingestion] Failed for task %s:', task.id,
           err instanceof Error ? err.message : err);
       });
