@@ -60,7 +60,7 @@ export default function MetricCard({
       </CardHeader>
       <CardContent>
         <div className="flex flex-col">
-          <div className={`text-4xl font-bold ${getScoreColor(value)}`}>
+          <div className={`text-5xl font-bold ${getScoreColor(value)}`}>
             {formattedValue}
           </div>
 
