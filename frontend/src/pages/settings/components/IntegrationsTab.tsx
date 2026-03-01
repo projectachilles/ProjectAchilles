@@ -1,11 +1,13 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Database, Cloud, ShieldCheck } from 'lucide-react';
+import { Database, Cloud, ShieldCheck, Bell } from 'lucide-react';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { IntegrationCard, type IntegrationStatus } from './IntegrationCard';
 import { AnalyticsConfig } from './AnalyticsConfig';
 import { AzureConfig } from './AzureConfig';
 import { DefenderConfig } from './DefenderConfig';
+import { AlertsConfig } from './AlertsConfig';
 import { integrationsApi } from '@/services/api/integrations';
+import { alertsApi } from '@/services/api/alerts';
 
 export function IntegrationsTab() {
   const { configured: analyticsConfigured } = useAnalyticsAuth();
@@ -18,6 +20,8 @@ export function IntegrationsTab() {
   const [azureLoaded, setAzureLoaded] = useState(false);
   const [defenderStatus, setDefenderStatus] = useState<IntegrationStatus>('not-configured');
   const [defenderLoaded, setDefenderLoaded] = useState(false);
+  const [alertsStatus, setAlertsStatus] = useState<IntegrationStatus>('not-configured');
+  const [alertsLoaded, setAlertsLoaded] = useState(false);
 
   const handleAnalyticsStatusChange = useCallback((configured: boolean) => {
     setAnalyticsStatus(configured ? 'connected' : 'not-configured');
@@ -29,6 +33,10 @@ export function IntegrationsTab() {
 
   const handleDefenderStatusChange = useCallback((configured: boolean) => {
     setDefenderStatus(configured ? 'connected' : 'not-configured');
+  }, []);
+
+  const handleAlertsStatusChange = useCallback((configured: boolean) => {
+    setAlertsStatus(configured ? 'connected' : 'not-configured');
   }, []);
 
   // Pre-fetch Azure + Defender status for the card badges
@@ -45,6 +53,13 @@ export function IntegrationsTab() {
       setDefenderLoaded(true);
     }).catch(() => {
       setDefenderLoaded(true);
+    });
+
+    alertsApi.getAlertSettings().then((settings) => {
+      setAlertsStatus(settings.configured ? 'connected' : 'not-configured');
+      setAlertsLoaded(true);
+    }).catch(() => {
+      setAlertsLoaded(true);
     });
   }, []);
 
@@ -85,6 +100,16 @@ export function IntegrationsTab() {
         defaultExpanded={defenderLoaded && defenderStatus === 'not-configured'}
       >
         <DefenderConfig onStatusChange={handleDefenderStatusChange} />
+      </IntegrationCard>
+
+      <IntegrationCard
+        icon={Bell}
+        title="Alerts & Notifications"
+        description="Threshold-based alerting via Slack and email on score changes"
+        status={alertsStatus}
+        defaultExpanded={alertsLoaded && alertsStatus === 'not-configured'}
+      >
+        <AlertsConfig onStatusChange={handleAlertsStatusChange} />
       </IntegrationCard>
     </div>
   );
