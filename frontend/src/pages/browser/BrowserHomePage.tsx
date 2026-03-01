@@ -339,14 +339,15 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
                 )}
                 <button
                   onClick={handleToggleSelectMode}
-                  className={`p-1.5 rounded transition-colors ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
                     selectMode
                       ? 'bg-primary text-primary-foreground'
-                      : 'text-foreground hover:bg-accent'
+                      : 'border border-border text-foreground hover:bg-accent'
                   }`}
                   title={selectMode ? 'Exit select mode' : 'Select tests for batch execution'}
                 >
                   <CheckSquare className="w-4 h-4" />
+                  {selectMode ? 'Cancel' : 'Select'}
                 </button>
               </>
             )}

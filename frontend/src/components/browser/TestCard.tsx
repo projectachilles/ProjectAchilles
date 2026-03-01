@@ -61,7 +61,7 @@ export default function TestCard({ test, onClick, isFavorite, onToggleFavorite, 
             {onExecute && !selectMode && (
               <button
                 onClick={onExecute}
-                className="p-1 rounded-md hover:bg-accent transition-colors opacity-0 group-hover:opacity-100"
+                className="p-1 rounded-md hover:bg-accent transition-colors"
                 title="Execute test"
               >
                 <Play className="w-4 h-4 text-primary" />
