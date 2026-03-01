@@ -1122,6 +1122,8 @@ export default function ExecutionsDataTable({
                   </div>
                 </TableHead>
               )}
+              {/* Actions column header (after checkbox, before data columns) */}
+              {actionsEnabled && <TableHead className="w-10" />}
               {visibleColumnsList.map(col => (
                 <TableHead
                   key={col.key}
@@ -1142,8 +1144,6 @@ export default function ExecutionsDataTable({
                   </div>
                 </TableHead>
               ))}
-              {/* Actions column header */}
-              {actionsEnabled && <TableHead className="w-10" />}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1179,12 +1179,7 @@ export default function ExecutionsDataTable({
                             />
                           </TableCell>
                         )}
-                        {visibleColumnsList.map(col => (
-                          <TableCell key={col.key}>
-                            {renderCell(exec, col.key)}
-                          </TableCell>
-                        ))}
-                        {/* Action buttons */}
+                        {/* Action buttons (after checkbox, before data columns) */}
                         {actionsEnabled && (
                           <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center gap-1">
@@ -1223,6 +1218,11 @@ export default function ExecutionsDataTable({
                             </div>
                           </TableCell>
                         )}
+                        {visibleColumnsList.map(col => (
+                          <TableCell key={col.key}>
+                            {renderCell(exec, col.key)}
+                          </TableCell>
+                        ))}
                       </TableRow>
 
                       {expandedDetail === detailKey && (
@@ -1256,12 +1256,7 @@ export default function ExecutionsDataTable({
                           />
                         </TableCell>
                       )}
-                      {visibleColumnsList.map(col => (
-                        <TableCell key={col.key}>
-                          {renderBundleCell(group, col.key, isExpanded)}
-                        </TableCell>
-                      ))}
-                      {/* Action buttons */}
+                      {/* Action buttons (after checkbox, before data columns) */}
                       {actionsEnabled && (
                         <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-1">
@@ -1277,6 +1272,11 @@ export default function ExecutionsDataTable({
                           </div>
                         </TableCell>
                       )}
+                      {visibleColumnsList.map(col => (
+                        <TableCell key={col.key}>
+                          {renderBundleCell(group, col.key, isExpanded)}
+                        </TableCell>
+                      ))}
                     </TableRow>
 
                     {/* Expanded control sub-rows */}
@@ -1293,12 +1293,7 @@ export default function ExecutionsDataTable({
                           >
                             {/* Empty checkbox space for sub-rows */}
                             {actionsEnabled && <TableCell className="w-10" />}
-                            {visibleColumnsList.map(col => (
-                              <TableCell key={col.key}>
-                                {renderCell(ctrl, col.key, col.key === 'test_name')}
-                              </TableCell>
-                            ))}
-                            {/* Risk accept/revoke for sub-controls */}
+                            {/* Risk accept/revoke for sub-controls (after checkbox, before data columns) */}
                             {actionsEnabled && (
                               <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
                                 {riskEnabled && (() => {
@@ -1326,6 +1321,11 @@ export default function ExecutionsDataTable({
                                 })()}
                               </TableCell>
                             )}
+                            {visibleColumnsList.map(col => (
+                              <TableCell key={col.key}>
+                                {renderCell(ctrl, col.key, col.key === 'test_name')}
+                              </TableCell>
+                            ))}
                           </TableRow>
 
                           {expandedDetail === ctrlDetailKey && (
