@@ -7,7 +7,6 @@ import {
   Menu,
   Moon,
   Sun,
-  Bell,
   Search,
   RefreshCw,
   Settings,
@@ -16,6 +15,7 @@ import {
   Terminal,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { NotificationBell } from '@/components/layout/NotificationBell';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
@@ -122,10 +122,7 @@ export function TopBar({
         )}
 
         {/* Notifications */}
-        <Button variant="ghost" size="icon">
-          <Bell className="h-4 w-4" />
-          <span className="sr-only">Notifications</span>
-        </Button>
+        <NotificationBell />
 
         {/* Theme Style Toggle (cycles: default → neobrutalism → hacker terminal) */}
         <Button
