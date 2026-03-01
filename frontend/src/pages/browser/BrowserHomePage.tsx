@@ -4,6 +4,7 @@ import { browserApi } from '@/services/api/browser';
 import type { TestMetadata, SyncStatus } from '@/types/test';
 import TestCard from '@/components/browser/TestCard';
 import TestLibraryOverview from '@/components/browser/TestLibraryOverview';
+import MitreAttackMatrix from '@/components/browser/MitreAttackMatrix';
 import SearchBar from '@/components/browser/SearchBar';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
 import { useHasPermission } from '@/hooks/useAppRole';
@@ -458,10 +459,9 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
             <LayoutDashboard className="w-4 h-4" />
             Overview
           </TabsTrigger>
-          <TabsTrigger value="matrix" disabled>
+          <TabsTrigger value="matrix">
             <Grid3X3 className="w-4 h-4" />
             Matrix
-            <Badge variant="default" className="text-[10px] px-1.5 py-0">Soon</Badge>
           </TabsTrigger>
           <TabsTrigger value="browse">
             <LayoutGrid className="w-4 h-4" />
@@ -481,10 +481,10 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
         </TabsContent>
 
         <TabsContent value="matrix">
-          <div className="flex flex-col items-center justify-center h-64 text-muted-foreground gap-3">
-            <Grid3X3 className="w-10 h-10 opacity-30" />
-            <p>MITRE ATT&CK Matrix view coming soon.</p>
-          </div>
+          <MitreAttackMatrix
+            tests={tests}
+            onDrillToTechnique={handleDrillToTechnique}
+          />
         </TabsContent>
 
         <TabsContent value="browse">
