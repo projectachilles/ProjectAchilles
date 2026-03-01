@@ -21,6 +21,8 @@ export type Permission =
   | 'analytics:settings:write'
   | 'analytics:index:create'
   | 'analytics:executions:archive'
+  | 'analytics:risk:read'
+  | 'analytics:risk:write'
   // Endpoints module
   | 'endpoints:agents:read'
   | 'endpoints:agents:write'
@@ -63,6 +65,8 @@ const ALL_PERMISSIONS: readonly Permission[] = [
   'analytics:settings:write',
   'analytics:index:create',
   'analytics:executions:archive',
+  'analytics:risk:read',
+  'analytics:risk:write',
   'endpoints:agents:read',
   'endpoints:agents:write',
   'endpoints:agents:delete',
@@ -104,9 +108,11 @@ export const ROLE_PERMISSIONS: Record<AppRole, readonly Permission[]> = {
     'tests:builds:read',
     'tests:builds:create',
     'tests:sync:execute',
-    // Analytics — full read + settings read (no settings write, no index create)
+    // Analytics — full read + settings read + risk acceptance (no settings write, no index create)
     'analytics:dashboards:read',
     'analytics:settings:read',
+    'analytics:risk:read',
+    'analytics:risk:write',
     // Endpoints — full read/write/create, cancel tasks (no deletes, no command tasks)
     'endpoints:agents:read',
     'endpoints:agents:write',
@@ -131,9 +137,10 @@ export const ROLE_PERMISSIONS: Record<AppRole, readonly Permission[]> = {
   analyst: [
     // Tests — read-only
     'tests:library:read',
-    // Analytics — full read
+    // Analytics — full read + risk acceptance read
     'analytics:dashboards:read',
     'analytics:settings:read',
+    'analytics:risk:read',
     // Endpoints — tasks read-only + notes
     'endpoints:tasks:read',
     'endpoints:tasks:notes',

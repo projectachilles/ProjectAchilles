@@ -19,9 +19,11 @@ import {
   Calendar,
   X,
   Info,
+  ShieldOff,
+  ShieldAlert,
 } from 'lucide-react';
 import { formatDistanceToNow, isValid, format } from 'date-fns';
-import type { EnrichedTestExecution, SeverityLevel, CategoryType, GroupedPaginatedResponse, ExecutionGroup } from '@/services/api/analytics';
+import type { EnrichedTestExecution, SeverityLevel, CategoryType, GroupedPaginatedResponse, ExecutionGroup, RiskAcceptance } from '@/services/api/analytics';
 import {
   Table,
   TableBody,
@@ -181,6 +183,12 @@ const COLUMNS: ColumnDef[] = [
   { key: 'timestamp', label: 'Time', sortable: true, defaultVisible: true, sortField: 'routing.event_time' },
 ];
 
+interface AcceptRiskItem {
+  test_name: string;
+  control_id?: string;
+  hostname?: string;
+}
+
 interface ExecutionsDataTableProps {
   data: GroupedPaginatedResponse | null;
   loading?: boolean;
@@ -192,6 +200,10 @@ interface ExecutionsDataTableProps {
   onArchive?: (groupKeys: string[]) => Promise<void>;
   onArchiveByDate?: (before: string) => Promise<void>;
   archiving?: boolean;
+  onAcceptRisk?: (items: AcceptRiskItem[], justification: string) => Promise<void>;
+  onRevokeRisk?: (acceptanceId: string, reason: string) => Promise<void>;
+  riskAcceptances?: Map<string, RiskAcceptance[]>;
+  acceptingRisk?: boolean;
 }
 
 export default function ExecutionsDataTable({
@@ -205,6 +217,10 @@ export default function ExecutionsDataTable({
   onArchive,
   onArchiveByDate,
   archiving,
+  onAcceptRisk,
+  onRevokeRisk,
+  riskAcceptances,
+  acceptingRisk,
 }: ExecutionsDataTableProps) {
   const { configured: defenderConfigured } = useDefenderConfig();
 
@@ -347,6 +363,41 @@ export default function ExecutionsDataTable({
     setPurgeDate('');
   };
 
+  // ── Risk Acceptance state ────────────────────────────────────────
+  const [riskAcceptItems, setRiskAcceptItems] = useState<AcceptRiskItem[] | null>(null);
+  const [riskJustification, setRiskJustification] = useState('');
+  const [revokeTarget, setRevokeTarget] = useState<{ id: string; testName: string } | null>(null);
+  const [revokeReason, setRevokeReason] = useState('');
+
+  const riskEnabled = !!onAcceptRisk;
+
+  /** Look up active risk acceptance for a given execution. */
+  const getAcceptanceForExec = useCallback((exec: EnrichedTestExecution): RiskAcceptance | undefined => {
+    if (!riskAcceptances) return undefined;
+    const key = exec.control_id ? `${exec.test_name}::${exec.control_id}` : exec.test_name;
+    const matches = riskAcceptances.get(key);
+    if (!matches || matches.length === 0) return undefined;
+    // If there's a host-specific acceptance for this hostname, prefer it
+    const hostMatch = matches.find(a => a.hostname === exec.hostname);
+    if (hostMatch) return hostMatch;
+    // Otherwise return a global acceptance
+    return matches.find(a => !a.hostname);
+  }, [riskAcceptances]);
+
+  const handleAcceptRiskConfirm = async () => {
+    if (!riskAcceptItems || !onAcceptRisk || riskJustification.trim().length < 10) return;
+    await onAcceptRisk(riskAcceptItems, riskJustification.trim());
+    setRiskAcceptItems(null);
+    setRiskJustification('');
+  };
+
+  const handleRevokeConfirm = async () => {
+    if (!revokeTarget || !onRevokeRisk || revokeReason.trim().length < 10) return;
+    await onRevokeRisk(revokeTarget.id, revokeReason.trim());
+    setRevokeTarget(null);
+    setRevokeReason('');
+  };
+
   // Toggle column visibility
   const toggleColumn = (key: string) => {
     setVisibleColumns(prev => {
@@ -473,28 +524,46 @@ export default function ExecutionsDataTable({
           );
         }
         const result = getResultFromErrorCode(exec.error_code);
+        const acceptance = getAcceptanceForExec(exec);
+        let resultElement: React.ReactNode;
         if (result === 'protected') {
-          return (
+          resultElement = (
             <span className="inline-flex items-center gap-1.5 text-green-600 dark:text-green-400">
               <ShieldCheck className="w-4 h-4" />
               <span className="text-sm font-medium">Protected</span>
             </span>
           );
-        }
-        if (result === 'unprotected') {
-          return (
+        } else if (result === 'unprotected') {
+          resultElement = (
             <span className="inline-flex items-center gap-1.5 text-red-600 dark:text-red-400">
               <ShieldX className="w-4 h-4" />
               <span className="text-sm font-medium">Unprotected</span>
             </span>
           );
+        } else {
+          resultElement = (
+            <span className="inline-flex items-center gap-1.5 text-yellow-600 dark:text-yellow-400">
+              <ShieldQuestion className="w-4 h-4" />
+              <span className="text-sm font-medium">Inconclusive</span>
+            </span>
+          );
         }
-        return (
-          <span className="inline-flex items-center gap-1.5 text-yellow-600 dark:text-yellow-400">
-            <ShieldQuestion className="w-4 h-4" />
-            <span className="text-sm font-medium">Inconclusive</span>
-          </span>
-        );
+
+        if (acceptance) {
+          return (
+            <div className="flex items-center gap-2">
+              {resultElement}
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30"
+                title={`Risk Accepted — ${acceptance.justification.substring(0, 100)} — by ${acceptance.accepted_by_name} on ${formatTimestamp(acceptance.accepted_at, false)}`}
+              >
+                <ShieldOff className="w-3 h-3" />
+                Accepted
+              </span>
+            </div>
+          );
+        }
+        return resultElement;
       }
 
       case 'severity':
@@ -849,7 +918,8 @@ export default function ExecutionsDataTable({
   );
 
   // Total columns including checkbox and actions
-  const totalColSpan = visibleColumnsList.length + (archiveEnabled ? 2 : 0);
+  const actionsEnabled = archiveEnabled || riskEnabled;
+  const totalColSpan = visibleColumnsList.length + (actionsEnabled ? 2 : 0);
 
   // Toggle bundle expand/collapse
   const toggleBundle = (key: string) => {
@@ -892,19 +962,46 @@ export default function ExecutionsDataTable({
   return (
     <Card className="overflow-hidden">
       {/* Bulk Actions Bar */}
-      {archiveEnabled && selectedKeys.size > 0 && (
+      {actionsEnabled && selectedKeys.size > 0 && (
         <div className="flex items-center gap-3 px-4 py-2 bg-primary/5 border-b border-primary/20">
           <span className="text-sm font-medium text-foreground">
             {selectedKeys.size} selected
           </span>
-          <button
-            onClick={() => setConfirmArchiveKeys([...selectedKeys])}
-            disabled={archiving}
-            className="flex items-center gap-1.5 px-3 py-1 bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30 rounded-lg text-sm hover:bg-red-500/20 transition-colors disabled:opacity-50"
-          >
-            {archiving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}
-            Archive Selected
-          </button>
+          {archiveEnabled && (
+            <button
+              onClick={() => setConfirmArchiveKeys([...selectedKeys])}
+              disabled={archiving}
+              className="flex items-center gap-1.5 px-3 py-1 bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30 rounded-lg text-sm hover:bg-red-500/20 transition-colors disabled:opacity-50"
+            >
+              {archiving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}
+              Archive Selected
+            </button>
+          )}
+          {riskEnabled && (
+            <button
+              onClick={() => {
+                // Collect AcceptRiskItems from selected groups
+                const items: AcceptRiskItem[] = [];
+                for (const key of selectedKeys) {
+                  const row = displayRows.find(r => r.key === key);
+                  if (!row) continue;
+                  if (row.type === 'standalone') {
+                    items.push({ test_name: row.execution.test_name, hostname: row.execution.hostname });
+                  } else {
+                    for (const ctrl of row.controls) {
+                      items.push({ test_name: ctrl.test_name, control_id: ctrl.control_id, hostname: ctrl.hostname });
+                    }
+                  }
+                }
+                if (items.length > 0) setRiskAcceptItems(items);
+              }}
+              disabled={acceptingRisk}
+              className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 rounded-lg text-sm hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+            >
+              {acceptingRisk ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldOff className="w-3.5 h-3.5" />}
+              Accept Risk
+            </button>
+          )}
           <button
             onClick={() => setSelectedKeys(new Set())}
             className="text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -1014,7 +1111,7 @@ export default function ExecutionsDataTable({
           <TableHeader>
             <TableRow className="bg-muted/50">
               {/* Checkbox column header */}
-              {archiveEnabled && (
+              {actionsEnabled && (
                 <TableHead className="w-10">
                   <div onClick={(e) => e.stopPropagation()}>
                     <Checkbox
@@ -1046,7 +1143,7 @@ export default function ExecutionsDataTable({
                 </TableHead>
               ))}
               {/* Actions column header */}
-              {archiveEnabled && <TableHead className="w-10" />}
+              {actionsEnabled && <TableHead className="w-10" />}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1074,7 +1171,7 @@ export default function ExecutionsDataTable({
                         onClick={() => toggleDetail(detailKey, exec)}
                       >
                         {/* Checkbox */}
-                        {archiveEnabled && (
+                        {actionsEnabled && (
                           <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
                             <Checkbox
                               checked={selectedKeys.has(detailKey)}
@@ -1087,16 +1184,43 @@ export default function ExecutionsDataTable({
                             {renderCell(exec, col.key)}
                           </TableCell>
                         ))}
-                        {/* Archive button */}
-                        {archiveEnabled && (
+                        {/* Action buttons */}
+                        {actionsEnabled && (
                           <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
-                            <button
-                              onClick={() => setConfirmArchiveKeys([detailKey])}
-                              className="p-1.5 rounded opacity-0 group-hover/row:opacity-100 hover:!opacity-100 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-all"
-                              title="Archive"
-                            >
-                              <Archive className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center gap-1">
+                              {riskEnabled && (() => {
+                                const acc = getAcceptanceForExec(exec);
+                                if (acc) {
+                                  return (
+                                    <button
+                                      onClick={() => setRevokeTarget({ id: acc.acceptance_id, testName: exec.test_name })}
+                                      className="p-1.5 rounded opacity-0 group-hover/row:opacity-100 hover:!opacity-100 text-amber-500 hover:bg-amber-500/10 transition-all"
+                                      title="Revoke Risk Acceptance"
+                                    >
+                                      <ShieldAlert className="w-4 h-4" />
+                                    </button>
+                                  );
+                                }
+                                return (
+                                  <button
+                                    onClick={() => setRiskAcceptItems([{ test_name: exec.test_name, hostname: exec.hostname }])}
+                                    className="p-1.5 rounded opacity-0 group-hover/row:opacity-100 hover:!opacity-100 text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 transition-all"
+                                    title="Accept Risk"
+                                  >
+                                    <ShieldOff className="w-4 h-4" />
+                                  </button>
+                                );
+                              })()}
+                              {archiveEnabled && (
+                                <button
+                                  onClick={() => setConfirmArchiveKeys([detailKey])}
+                                  className="p-1.5 rounded opacity-0 group-hover/row:opacity-100 hover:!opacity-100 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-all"
+                                  title="Archive"
+                                >
+                                  <Archive className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
                           </TableCell>
                         )}
                       </TableRow>
@@ -1124,7 +1248,7 @@ export default function ExecutionsDataTable({
                       onClick={() => toggleBundle(group.key)}
                     >
                       {/* Checkbox */}
-                      {archiveEnabled && (
+                      {actionsEnabled && (
                         <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
                           <Checkbox
                             checked={selectedKeys.has(group.key)}
@@ -1137,16 +1261,20 @@ export default function ExecutionsDataTable({
                           {renderBundleCell(group, col.key, isExpanded)}
                         </TableCell>
                       ))}
-                      {/* Archive button */}
-                      {archiveEnabled && (
+                      {/* Action buttons */}
+                      {actionsEnabled && (
                         <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => setConfirmArchiveKeys([group.key])}
-                            className="p-1.5 rounded opacity-0 group-hover/row:opacity-100 hover:!opacity-100 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-all"
-                            title="Archive"
-                          >
-                            <Archive className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            {archiveEnabled && (
+                              <button
+                                onClick={() => setConfirmArchiveKeys([group.key])}
+                                className="p-1.5 rounded opacity-0 group-hover/row:opacity-100 hover:!opacity-100 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-all"
+                                title="Archive"
+                              >
+                                <Archive className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
                         </TableCell>
                       )}
                     </TableRow>
@@ -1164,14 +1292,40 @@ export default function ExecutionsDataTable({
                             }}
                           >
                             {/* Empty checkbox space for sub-rows */}
-                            {archiveEnabled && <TableCell className="w-10" />}
+                            {actionsEnabled && <TableCell className="w-10" />}
                             {visibleColumnsList.map(col => (
                               <TableCell key={col.key}>
                                 {renderCell(ctrl, col.key, col.key === 'test_name')}
                               </TableCell>
                             ))}
-                            {/* Empty actions space for sub-rows */}
-                            {archiveEnabled && <TableCell className="w-10" />}
+                            {/* Risk accept/revoke for sub-controls */}
+                            {actionsEnabled && (
+                              <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
+                                {riskEnabled && (() => {
+                                  const acc = getAcceptanceForExec(ctrl);
+                                  if (acc) {
+                                    return (
+                                      <button
+                                        onClick={() => setRevokeTarget({ id: acc.acceptance_id, testName: ctrl.test_name })}
+                                        className="p-1.5 rounded opacity-0 group-hover/row:opacity-100 hover:!opacity-100 text-amber-500 hover:bg-amber-500/10 transition-all"
+                                        title="Revoke Risk Acceptance"
+                                      >
+                                        <ShieldAlert className="w-4 h-4" />
+                                      </button>
+                                    );
+                                  }
+                                  return (
+                                    <button
+                                      onClick={() => setRiskAcceptItems([{ test_name: ctrl.test_name, control_id: ctrl.control_id, hostname: ctrl.hostname }])}
+                                      className="p-1.5 rounded opacity-0 group-hover/row:opacity-100 hover:!opacity-100 text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 transition-all"
+                                      title="Accept Risk"
+                                    >
+                                      <ShieldOff className="w-4 h-4" />
+                                    </button>
+                                  );
+                                })()}
+                              </TableCell>
+                            )}
                           </TableRow>
 
                           {expandedDetail === ctrlDetailKey && (
@@ -1322,6 +1476,122 @@ export default function ExecutionsDataTable({
           </div>
         </div>
       )}
+      {/* Risk Acceptance Dialog */}
+      {riskAcceptItems && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => !acceptingRisk && setRiskAcceptItems(null)}>
+          <div className="bg-card border border-border rounded-xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <ShieldOff className="w-5 h-5 text-amber-500" />
+                Accept Risk
+              </h3>
+              <button onClick={() => !acceptingRisk && setRiskAcceptItems(null)} className="text-muted-foreground hover:text-foreground">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-3">
+              Accepting risk for <span className="font-medium text-foreground">{riskAcceptItems.length}</span> control{riskAcceptItems.length !== 1 ? 's' : ''}.
+              Accepted controls will be excluded from the Defense Score.
+            </p>
+            <div className="mb-4 max-h-32 overflow-y-auto text-xs font-mono bg-muted/30 rounded-lg p-2 border border-border">
+              {riskAcceptItems.slice(0, 10).map((item, i) => (
+                <div key={i} className="text-muted-foreground truncate">
+                  {item.test_name}{item.control_id ? `::${item.control_id}` : ''}
+                </div>
+              ))}
+              {riskAcceptItems.length > 10 && (
+                <div className="text-muted-foreground">...and {riskAcceptItems.length - 10} more</div>
+              )}
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-foreground mb-1.5">
+                Justification <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={riskJustification}
+                onChange={(e) => setRiskJustification(e.target.value)}
+                placeholder="Describe why this risk is being accepted (min 10 characters)..."
+                rows={3}
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground resize-none placeholder:text-muted-foreground"
+              />
+              {riskJustification.length > 0 && riskJustification.trim().length < 10 && (
+                <p className="text-xs text-red-500 mt-1">Minimum 10 characters required</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => { setRiskAcceptItems(null); setRiskJustification(''); }}
+                disabled={acceptingRisk}
+                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAcceptRiskConfirm}
+                disabled={acceptingRisk || riskJustification.trim().length < 10}
+                className="flex items-center gap-2 px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50"
+              >
+                {acceptingRisk && <Loader2 className="w-4 h-4 animate-spin" />}
+                Accept Risk
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Revoke Risk Acceptance Dialog */}
+      {revokeTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => !acceptingRisk && setRevokeTarget(null)}>
+          <div className="bg-card border border-border rounded-xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5 text-amber-500" />
+                Revoke Risk Acceptance
+              </h3>
+              <button onClick={() => !acceptingRisk && setRevokeTarget(null)} className="text-muted-foreground hover:text-foreground">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-3">
+              Revoking acceptance for <span className="font-medium text-foreground">{revokeTarget.testName}</span>.
+              This control will be included in the Defense Score again.
+            </p>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-foreground mb-1.5">
+                Reason <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={revokeReason}
+                onChange={(e) => setRevokeReason(e.target.value)}
+                placeholder="Describe why this acceptance is being revoked (min 10 characters)..."
+                rows={3}
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground resize-none placeholder:text-muted-foreground"
+              />
+              {revokeReason.length > 0 && revokeReason.trim().length < 10 && (
+                <p className="text-xs text-red-500 mt-1">Minimum 10 characters required</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => { setRevokeTarget(null); setRevokeReason(''); }}
+                disabled={acceptingRisk}
+                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRevokeConfirm}
+                disabled={acceptingRisk || revokeReason.trim().length < 10}
+                className="flex items-center gap-2 px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50"
+              >
+                {acceptingRisk && <Loader2 className="w-4 h-4 animate-spin" />}
+                Revoke Acceptance
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Test Info Modal */}
       {infoModal && (
         <TestInfoModal

@@ -279,6 +279,33 @@ export interface ArchiveResult {
   errors: string[];
 }
 
+// ============================================
+// Risk Acceptance Types
+// ============================================
+
+export interface RiskAcceptance {
+  acceptance_id: string;
+  test_name: string;
+  control_id?: string;
+  hostname?: string;
+  justification: string;
+  accepted_by: string;
+  accepted_by_name: string;
+  accepted_at: string;
+  status: 'active' | 'revoked';
+  revoked_at?: string;
+  revoked_by?: string;
+  revoked_by_name?: string;
+  revocation_reason?: string;
+}
+
+export interface AcceptRiskRequest {
+  test_name: string;
+  control_id?: string;
+  hostname?: string;
+  justification: string;
+}
+
 export const analyticsApi = {
   // Settings
   async getSettings(): Promise<AnalyticsSettings> {
@@ -555,5 +582,26 @@ export const analyticsApi = {
   async archiveExecutionsByDate(before: string): Promise<ArchiveResult> {
     const response = await apiClient.post('/analytics/executions/archive-by-date', { before });
     return response.data;
+  },
+
+  // Risk acceptance operations
+  async acceptRisk(request: AcceptRiskRequest): Promise<RiskAcceptance> {
+    const response = await apiClient.post('/risk-acceptances', request);
+    return response.data.data;
+  },
+
+  async revokeRisk(id: string, reason: string): Promise<RiskAcceptance> {
+    const response = await apiClient.post(`/risk-acceptances/${id}/revoke`, { reason });
+    return response.data.data;
+  },
+
+  async listAcceptances(filters?: { status?: 'active' | 'revoked'; test_name?: string }): Promise<RiskAcceptance[]> {
+    const response = await apiClient.get('/risk-acceptances', { params: filters });
+    return response.data.data;
+  },
+
+  async lookupAcceptances(testNames: string[]): Promise<Record<string, RiskAcceptance[]>> {
+    const response = await apiClient.post('/risk-acceptances/lookup', { test_names: testNames });
+    return response.data.data;
   },
 };

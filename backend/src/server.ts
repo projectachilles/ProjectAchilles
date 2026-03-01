@@ -24,6 +24,7 @@ import { initCatalog } from './services/agent/test-catalog.service.js';
 import { IntegrationsSettingsService } from './services/integrations/settings.js';
 import { defenderSyncService } from './api/integrations.routes.js';
 import defenderRoutes from './api/defender.routes.js';
+import riskAcceptanceRoutes from './api/risk-acceptance.routes.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -234,6 +235,9 @@ async function startServer() {
 
   // Defender analytics - Secure Score, alerts, controls
   app.use('/api/analytics/defender', defenderRoutes);
+
+  // Risk acceptance - formal risk acceptance for security controls
+  app.use('/api/risk-acceptances', riskAcceptanceRoutes);
 
   // ============ ERROR HANDLING ============
   app.use(notFoundHandler);

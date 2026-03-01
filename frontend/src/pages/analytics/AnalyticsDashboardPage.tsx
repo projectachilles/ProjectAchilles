@@ -14,6 +14,7 @@ import DefenseScoreByHostChart from './components/DefenseScoreByHostChart';
 import CategoryBreakdownChart from './components/CategoryBreakdownChart';
 import TestActivityCard from './components/TestActivityCard';
 import ExecutionsDataTable from './components/ExecutionsDataTable';
+import RiskAcceptanceSummaryCard from './components/RiskAcceptanceSummaryCard';
 import DefenderTab from './components/DefenderTab';
 import SecureScoreCard from './components/SecureScoreCard';
 import TopControlsCard from './components/TopControlsCard';
@@ -34,6 +35,7 @@ import type {
   DefenseScoreByHostItem,
   ErrorRateTrendDataPoint,
   GroupedPaginatedResponse,
+  RiskAcceptance,
 } from '../../services/api/analytics';
 
 type TabType = 'dashboard' | 'executions' | 'defender';
@@ -134,6 +136,10 @@ export default function AnalyticsDashboardPage() {
   const [archiving, setArchiving] = useState(false);
   // Ref to latest loadExecutionsData so archive handlers always call the current version
   const loadExecutionsDataRef = useRef<() => Promise<void>>(undefined);
+
+  // Risk acceptance state
+  const [acceptingRisk, setAcceptingRisk] = useState(false);
+  const [riskAcceptances, setRiskAcceptances] = useState<Map<string, RiskAcceptance[]>>(new Map());
 
   // Loading States
   const [loadingFilters, setLoadingFilters] = useState(true);
@@ -342,6 +348,64 @@ export default function AnalyticsDashboardPage() {
     }
   }, []);
 
+  // Risk acceptance handlers
+  const loadRiskAcceptances = useCallback(async (groups: GroupedPaginatedResponse | null) => {
+    if (!groups || groups.groups.length === 0) return;
+
+    // Collect unique test_names from current page
+    const testNames = new Set<string>();
+    for (const g of groups.groups) {
+      for (const m of g.members) {
+        testNames.add(m.test_name);
+      }
+    }
+
+    try {
+      const result = await analyticsApi.lookupAcceptances([...testNames]);
+      setRiskAcceptances(new Map(Object.entries(result)));
+    } catch (error) {
+      console.error('Failed to load risk acceptances:', error);
+    }
+  }, []);
+
+  const handleAcceptRisk = useCallback(async (items: { test_name: string; control_id?: string; hostname?: string }[], justification: string) => {
+    setAcceptingRisk(true);
+    try {
+      // Accept risk for each item
+      for (const item of items) {
+        await analyticsApi.acceptRisk({ ...item, justification });
+      }
+      // Reload both executions (for badge updates) and dashboard (Defense Score changes)
+      await loadExecutionsDataRef.current?.();
+      if (executionsData) await loadRiskAcceptances(executionsData);
+    } catch (error) {
+      console.error('Failed to accept risk:', error);
+    } finally {
+      setAcceptingRisk(false);
+    }
+  }, [executionsData, loadRiskAcceptances]);
+
+  const handleRevokeRisk = useCallback(async (acceptanceId: string, reason: string) => {
+    setAcceptingRisk(true);
+    try {
+      await analyticsApi.revokeRisk(acceptanceId, reason);
+      // Reload both executions (for badge updates) and dashboard (Defense Score changes)
+      await loadExecutionsDataRef.current?.();
+      if (executionsData) await loadRiskAcceptances(executionsData);
+    } catch (error) {
+      console.error('Failed to revoke risk acceptance:', error);
+    } finally {
+      setAcceptingRisk(false);
+    }
+  }, [executionsData, loadRiskAcceptances]);
+
+  // Load risk acceptances when executions data changes
+  useEffect(() => {
+    if (executionsData) {
+      loadRiskAcceptances(executionsData);
+    }
+  }, [executionsData, loadRiskAcceptances]);
+
   // Refresh handler
   async function handleRefresh() {
     setIsRefreshing(true);
@@ -508,6 +572,16 @@ export default function AnalyticsDashboardPage() {
               </div>
             )}
 
+            {/* Risk Acceptance Summary (shown when acceptances exist) */}
+            {riskAcceptances.size > 0 && (
+              <div className="col-span-12 md:col-span-4 row-span-1">
+                <RiskAcceptanceSummaryCard
+                  riskAcceptances={riskAcceptances}
+                  onViewAll={() => handleTabChange('executions')}
+                />
+              </div>
+            )}
+
             {/* Category breakdown + Test Activity */}
             <div className="col-span-12 md:col-span-6 row-span-2">
               <CategoryBreakdownChart
@@ -586,6 +660,10 @@ export default function AnalyticsDashboardPage() {
             onArchive={handleArchive}
             onArchiveByDate={handleArchiveByDate}
             archiving={archiving}
+            onAcceptRisk={handleAcceptRisk}
+            onRevokeRisk={handleRevokeRisk}
+            riskAcceptances={riskAcceptances}
+            acceptingRisk={acceptingRisk}
           />
         )}
       </div>

@@ -24,6 +24,15 @@ vi.mock('@elastic/elasticsearch', () => ({
   }),
 }));
 
+// Mock the risk-acceptance service so buildDefenseScoreFilters doesn't
+// trigger a real ES search for active acceptances. Returns no exclusions.
+vi.mock('../../risk-acceptance/risk-acceptance.service.js', () => ({
+  RiskAcceptanceService: vi.fn().mockImplementation(function (this: any) {
+    this.buildExclusionFilter = vi.fn().mockResolvedValue(null);
+    this.invalidateCache = vi.fn();
+  }),
+}));
+
 const { ElasticsearchService, resolveErrorName, ERROR_CODE_MAP } =
   await import('../elasticsearch.js');
 
