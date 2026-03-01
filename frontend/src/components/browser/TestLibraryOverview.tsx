@@ -106,6 +106,13 @@ export default function TestLibraryOverview({
       if (t.target) t.target.forEach(p => platformSet.add(p));
     }
 
+    // Tactic count
+    const allTactics = tests.flatMap(t => t.tactics || []);
+    const uniqueTactics = new Set(allTactics);
+
+    // Severity summary for subtitle
+    const critHighCount = (severityCounts['critical'] || 0) + (severityCounts['high'] || 0);
+
     // Feature counts
     const multiStageCount = tests.filter(t => t.isMultiStage).length;
     const withDetection = tests.filter(t => t.hasDetectionFiles).length;
@@ -115,7 +122,10 @@ export default function TestLibraryOverview({
     return {
       totalTests: tests.length,
       uniqueTechniqueCount: uniqueTechniques.size,
+      uniqueTacticCount: uniqueTactics.size,
       categoryCount: categories.size,
+      categoryNames: [...categories] as string[],
+      critHighCount,
       avgScore,
       severityData,
       categoryData,
@@ -158,13 +168,28 @@ export default function TestLibraryOverview({
     <div className="grid grid-cols-12 gap-4">
       {/* Row 1: Metric cards */}
       <div className="col-span-3">
-        <MetricCard title="Total Tests" value={stats.totalTests} icon={Shield} />
+        <MetricCard
+          title="Total Tests"
+          value={stats.totalTests}
+          icon={Shield}
+          subtitle={stats.critHighCount > 0 ? `${stats.critHighCount} critical/high severity` : undefined}
+        />
       </div>
       <div className="col-span-3">
-        <MetricCard title="MITRE Techniques" value={stats.uniqueTechniqueCount} icon={Crosshair} />
+        <MetricCard
+          title="MITRE Techniques"
+          value={stats.uniqueTechniqueCount}
+          icon={Crosshair}
+          subtitle={`across ${stats.uniqueTacticCount} tactics`}
+        />
       </div>
       <div className="col-span-3">
-        <MetricCard title="Categories" value={stats.categoryCount} icon={FolderTree} />
+        <MetricCard
+          title="Categories"
+          value={stats.categoryCount}
+          icon={FolderTree}
+          subtitle={stats.categoryNames.join(', ')}
+        />
       </div>
       <div className="col-span-3">
         <MetricCard
@@ -210,7 +235,7 @@ export default function TestLibraryOverview({
             <CardTitle className="text-sm font-medium text-muted-foreground">Category Breakdown</CardTitle>
           </CardHeader>
           <CardContent>
-            <ChartContainer config={categoryChartConfig} className="w-full" style={{ height: 220 }}>
+            <ChartContainer config={categoryChartConfig} className="w-full" style={{ height: 190 }}>
               <PieChart>
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <Pie
@@ -229,6 +254,18 @@ export default function TestLibraryOverview({
                 </Pie>
               </PieChart>
             </ChartContainer>
+            <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-2">
+              {stats.categoryData.map((entry) => (
+                <button
+                  key={entry.name}
+                  onClick={() => onDrillToCategory(entry.name)}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <span className="inline-block w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: entry.fill }} />
+                  {entry.name} ({entry.count})
+                </button>
+              ))}
+            </div>
           </CardContent>
         </Card>
       </div>
