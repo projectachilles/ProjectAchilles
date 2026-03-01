@@ -52,6 +52,10 @@ const chartConfig = {
     label: 'Defense Score',
     color: 'var(--chart-protected)',
   },
+  realScore: {
+    label: 'Actual Score',
+    color: 'var(--chart-real-score)',
+  },
   errorRate: {
     label: 'Error Rate',
     color: 'var(--chart-bypassed)',
@@ -65,7 +69,8 @@ const chartConfig = {
 export default function TrendChart({ data, errorRateData, errorRateOverall, secureScoreTrendData, loading, title = 'Trend Overview', windowDays }: TrendChartProps) {
   const hasErrorRate = errorRateData && errorRateData.length > 0;
   const hasSecureScore = secureScoreTrendData && secureScoreTrendData.length > 0;
-  const hasExtraData = hasErrorRate || hasSecureScore;
+  const hasRealScore = data.some(d => d.realScore !== undefined && d.realScore !== d.score);
+  const hasExtraData = hasErrorRate || hasSecureScore || hasRealScore;
 
   // Return early if no data to prevent rendering issues
   if (!data || data.length === 0) {
@@ -121,6 +126,9 @@ export default function TrendChart({ data, errorRateData, errorRateOverall, secu
     const ssPoint = secureScoreByDate.get(dateKey);
     return {
       ...point,
+      realScore: point.realScore ?? null,
+      realTotal: point.realTotal ?? 0,
+      realProtected: point.realProtected ?? 0,
       errorRate: errPoint?.errorRate ?? null,
       errorCount: errPoint?.errorCount ?? 0,
       errorTotal: errPoint?.total ?? 0,
@@ -136,6 +144,10 @@ export default function TrendChart({ data, errorRateData, errorRateOverall, secu
   const avgScore = chartData.length > 0
     ? (chartData.reduce((sum, d) => sum + d.score, 0) / chartData.length).toFixed(1)
     : '0';
+
+  const avgRealScore = hasRealScore
+    ? (chartData.filter(d => d.realScore != null).reduce((sum, d) => sum + (d.realScore ?? 0), 0) / chartData.filter(d => d.realScore != null).length).toFixed(1)
+    : null;
 
   const avgErrorRate = hasErrorRate && errorRateOverall != null
     ? errorRateOverall.toFixed(1)
@@ -155,6 +167,12 @@ export default function TrendChart({ data, errorRateData, errorRateOverall, secu
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
         <CardDescription className="flex items-center gap-2 text-sm flex-wrap">
           <span>Defense: {avgScore}%</span>
+          {avgRealScore !== null && (
+            <>
+              <span className="text-muted-foreground">|</span>
+              <span>Actual: {avgRealScore}%</span>
+            </>
+          )}
           {avgSecureScore !== null && (
             <>
               <span className="text-muted-foreground">|</span>
@@ -220,6 +238,18 @@ export default function TrendChart({ data, errorRateData, errorRateOverall, secu
                   stopOpacity={0.1}
                 />
               </linearGradient>
+              <linearGradient id="fillRealScore" x1="0" y1="0" x2="0" y2="1">
+                <stop
+                  offset="5%"
+                  stopColor="var(--color-realScore)"
+                  stopOpacity={0.3}
+                />
+                <stop
+                  offset="95%"
+                  stopColor="var(--color-realScore)"
+                  stopOpacity={0.05}
+                />
+              </linearGradient>
             </defs>
             <CartesianGrid vertical={false} />
             <XAxis
@@ -274,6 +304,11 @@ export default function TrendChart({ data, errorRateData, errorRateOverall, secu
                             {payload.errorCount}/{payload.errorTotal} errors
                           </span>
                         )}
+                        {name === 'realScore' && payload.realTotal > 0 && (
+                          <span className="text-xs text-muted-foreground ml-[18px]">
+                            {payload.realProtected}/{payload.realTotal} protected
+                          </span>
+                        )}
                         {name === 'secureScore' && payload.secureScoreMax > 0 && (
                           <span className="text-xs text-muted-foreground ml-[18px]">
                             {payload.secureScorePoints}/{payload.secureScoreMax} pts
@@ -292,6 +327,17 @@ export default function TrendChart({ data, errorRateData, errorRateOverall, secu
               strokeWidth={2}
               fill="url(#fillScore)"
             />
+            {hasRealScore && (
+              <Area
+                type="monotone"
+                dataKey="realScore"
+                stroke="var(--color-realScore)"
+                strokeWidth={2}
+                strokeDasharray="6 3"
+                fill="url(#fillRealScore)"
+                connectNulls
+              />
+            )}
             {hasSecureScore && (
               <Area
                 type="monotone"
@@ -318,7 +364,7 @@ export default function TrendChart({ data, errorRateData, errorRateOverall, secu
         {hasExtraData && (
           <div className="flex items-center justify-center gap-4 pt-2 flex-shrink-0">
             {Object.entries(chartConfig)
-              .filter(([key]) => key === 'score' || (key === 'errorRate' && hasErrorRate) || (key === 'secureScore' && hasSecureScore))
+              .filter(([key]) => key === 'score' || (key === 'realScore' && hasRealScore) || (key === 'errorRate' && hasErrorRate) || (key === 'secureScore' && hasSecureScore))
               .map(([key, cfg]) => (
               <div key={key} className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <div

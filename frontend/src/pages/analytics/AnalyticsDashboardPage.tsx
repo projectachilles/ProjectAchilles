@@ -45,6 +45,8 @@ interface DefenseScoreData {
   delta: number | null;
   total: number;
   protected: number;
+  realScore?: number;
+  riskAcceptedCount?: number;
 }
 
 export default function AnalyticsDashboardPage() {
@@ -255,7 +257,9 @@ export default function AnalyticsDashboardPage() {
         overall: score.score,
         delta: null,
         total: score.totalExecutions,
-        protected: score.protectedCount
+        protected: score.protectedCount,
+        realScore: score.realScore,
+        riskAcceptedCount: score.riskAcceptedCount,
       });
       setUniqueHostnames(hostnameCount);
       setUniqueTestCount(testCount);
@@ -545,6 +549,8 @@ export default function AnalyticsDashboardPage() {
                 uniqueEndpoints={uniqueHostnames}
                 executedTests={uniqueTestCount}
                 errorRate={errorRate}
+                realScore={defenseScore?.realScore ?? null}
+                riskAcceptedCount={defenseScore?.riskAcceptedCount}
                 loading={loadingDashboard}
               />
             </div>

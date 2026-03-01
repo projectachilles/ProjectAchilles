@@ -45,18 +45,25 @@ export function applyForwardFill(data: TrendDataPoint[]): ForwardFilledTrendData
   );
 
   let lastKnownScore: number | null = null;
+  let lastKnownRealScore: number | undefined = undefined;
 
   return data.map((point): ForwardFilledTrendDataPoint => {
     const hasMeaningfulData = point.total >= minThreshold;
 
     if (hasMeaningfulData) {
       lastKnownScore = point.score;
+      if (point.realScore !== undefined) lastKnownRealScore = point.realScore;
       return { ...point, isCarriedForward: false };
     }
 
-    // Insufficient data on this day - carry forward previous score if available
+    // Insufficient data on this day - carry forward previous scores if available
     if (lastKnownScore !== null) {
-      return { ...point, score: lastKnownScore, isCarriedForward: true };
+      return {
+        ...point,
+        score: lastKnownScore,
+        ...(lastKnownRealScore !== undefined ? { realScore: lastKnownRealScore } : {}),
+        isCarriedForward: true,
+      };
     }
 
     // No prior data to carry forward - leave as-is (will show 0%)

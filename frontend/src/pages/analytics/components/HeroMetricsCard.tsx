@@ -6,6 +6,8 @@ interface HeroMetricsCardProps {
   uniqueEndpoints: number;
   executedTests: number;
   errorRate?: number | null;
+  realScore?: number | null;
+  riskAcceptedCount?: number;
   loading?: boolean;
 }
 
@@ -19,6 +21,8 @@ export default function HeroMetricsCard({
   uniqueEndpoints,
   executedTests,
   errorRate,
+  realScore,
+  riskAcceptedCount,
   loading,
 }: HeroMetricsCardProps) {
   // Score-based color: green (≥80%), yellow (≥60%), red (<60%)
@@ -55,6 +59,16 @@ export default function HeroMetricsCard({
         <div className={`text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight ${getScoreColor(defenseScore)}`}>
           {formatScore(defenseScore)}
         </div>
+        {riskAcceptedCount != null && riskAcceptedCount > 0 && realScore != null && (
+          <div className="flex flex-col items-center gap-0.5 mt-1">
+            <span className={`text-sm sm:text-base font-medium ${getScoreColor(realScore)}`}>
+              actual: {realScore.toFixed(1)}%
+            </span>
+            <span className="text-xs text-amber-500">
+              {riskAcceptedCount} risk-accepted excluded
+            </span>
+          </div>
+        )}
         {errorRate !== null && errorRate !== undefined && errorRate > 0 && (
           <div className="flex items-center gap-1 mt-1 sm:mt-2">
             <AlertTriangle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-500 flex-shrink-0" />

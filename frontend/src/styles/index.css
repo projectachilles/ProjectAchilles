@@ -65,6 +65,7 @@
   --chart-protected: oklch(0.6 0.2 145);
   --chart-bypassed: oklch(0.55 0.22 25);
   --chart-primary-line: oklch(0.55 0.22 265);
+  --chart-real-score: oklch(0.5 0.12 145);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.145 0 0);
@@ -116,6 +117,7 @@
   --chart-protected: oklch(0.65 0.22 145);
   --chart-bypassed: oklch(0.6 0.22 25);
   --chart-primary-line: oklch(0.65 0.22 265);
+  --chart-real-score: oklch(0.55 0.12 145);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.95 0 0);
@@ -353,6 +355,7 @@ code {
   --color-chart-protected: var(--chart-protected);
   --color-chart-bypassed: var(--chart-bypassed);
   --color-chart-primary-line: var(--chart-primary-line);
+  --color-chart-real-score: var(--chart-real-score);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);

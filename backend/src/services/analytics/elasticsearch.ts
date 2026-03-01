@@ -200,52 +200,97 @@ export class ElasticsearchService {
     this.riskAcceptanceService?.invalidateCache();
   }
 
-  // Get overall defense score
-  async getDefenseScore(params: AnalyticsQueryParams): Promise<DefenseScoreResponse> {
-    const filters = await this.buildDefenseScoreFilters(params);
+  /**
+   * Build Defense Score filters WITHOUT risk acceptance exclusion.
+   * Synchronous — used as the "real score" baseline for dual-query comparison.
+   */
+  buildDefenseScoreFiltersWithoutExclusion(params: AnalyticsQueryParams): any[] {
+    const filters: any[] = [
+      this.buildTestDataFilter(),
+      this.buildDateFilter(params.from, params.to),
+      this.buildConclusiveResultsFilter(),
+    ];
+    const orgFilter = this.buildOrgFilter(params.org);
+    if (orgFilter) filters.push(orgFilter);
+    return filters;
+  }
 
-    const response = await this.client.search({
+  /** Run a size:0 defense score aggregation and extract totals. */
+  private parseScoreResponse(response: any): { total: number; protectedCount: number } {
+    const total =
+      typeof response.hits.total === 'number'
+        ? response.hits.total
+        : response.hits.total?.value || 0;
+    const protectedCount = (response.aggregations?.protected as any)?.doc_count || 0;
+    return { total, protectedCount };
+  }
+
+  /** Build and execute a size:0 defense score query. */
+  private async runScoreQuery(filters: any[]): Promise<any> {
+    return this.client.search({
       index: this.settings.indexPattern,
       size: 0,
-      query: {
-        bool: { filter: filters },
-      },
+      query: { bool: { filter: filters } },
       aggs: {
         protected: {
           filter: { term: { 'f0rtika.is_protected': true } },
         },
       },
     });
+  }
 
-    const total =
-      typeof response.hits.total === 'number'
-        ? response.hits.total
-        : response.hits.total?.value || 0;
+  // Get overall defense score
+  async getDefenseScore(params: AnalyticsQueryParams): Promise<DefenseScoreResponse> {
+    const rawFilters = this.buildDefenseScoreFiltersWithoutExclusion(params);
+    const adjustedFilters = await this.buildDefenseScoreFilters(params);
+    const hasExclusion = adjustedFilters.length > rawFilters.length;
 
-    const protectedCount = (response.aggregations?.protected as any)?.doc_count || 0;
-    const overall = total > 0 ? (protectedCount / total) * 100 : 0;
-    const unprotectedCount = total - protectedCount;
+    if (!hasExclusion) {
+      // No risk acceptances — single query, real === adjusted
+      const response = await this.runScoreQuery(adjustedFilters);
+      const { total, protectedCount } = this.parseScoreResponse(response);
+      const overall = total > 0 ? (protectedCount / total) * 100 : 0;
+      return {
+        score: Math.round(overall * 100) / 100,
+        protectedCount,
+        unprotectedCount: total - protectedCount,
+        totalExecutions: total,
+        riskAcceptedCount: 0,
+      };
+    }
+
+    // Dual query: adjusted (with exclusion) + raw (without exclusion)
+    const [adjustedResponse, rawResponse] = await Promise.all([
+      this.runScoreQuery(adjustedFilters),
+      this.runScoreQuery(rawFilters),
+    ]);
+
+    const adjusted = this.parseScoreResponse(adjustedResponse);
+    const raw = this.parseScoreResponse(rawResponse);
+
+    const adjustedScore = adjusted.total > 0 ? (adjusted.protectedCount / adjusted.total) * 100 : 0;
+    const rawScore = raw.total > 0 ? (raw.protectedCount / raw.total) * 100 : 0;
+    const riskAcceptedCount = raw.total - adjusted.total;
 
     return {
-      score: Math.round(overall * 100) / 100,
-      protectedCount,
-      unprotectedCount,
-      totalExecutions: total,
+      score: Math.round(adjustedScore * 100) / 100,
+      protectedCount: adjusted.protectedCount,
+      unprotectedCount: adjusted.total - adjusted.protectedCount,
+      totalExecutions: adjusted.total,
+      realScore: Math.round(rawScore * 100) / 100,
+      realProtectedCount: raw.protectedCount,
+      realUnprotectedCount: raw.total - raw.protectedCount,
+      realTotalExecutions: raw.total,
+      riskAcceptedCount: Math.max(0, riskAcceptedCount),
     };
   }
 
-  // Get defense score trend over time
-  async getDefenseScoreTrend(params: AnalyticsQueryParams): Promise<TrendDataPoint[]> {
-    const filters = await this.buildDefenseScoreFilters(params);
-
-    const interval = params.interval || 'day';
-
-    const response = await this.client.search({
+  /** Run a date histogram trend query and return raw ES response. */
+  private async runTrendQuery(filters: any[], interval: string): Promise<any> {
+    return this.client.search({
       index: this.settings.indexPattern,
       size: 0,
-      query: {
-        bool: { filter: filters },
-      },
+      query: { bool: { filter: filters } },
       aggs: {
         over_time: {
           date_histogram: {
@@ -261,19 +306,68 @@ export class ElasticsearchService {
         },
       },
     });
+  }
 
-    const buckets = (response.aggregations?.over_time as any)?.buckets || [];
+  // Get defense score trend over time
+  async getDefenseScoreTrend(params: AnalyticsQueryParams): Promise<TrendDataPoint[]> {
+    const rawFilters = this.buildDefenseScoreFiltersWithoutExclusion(params);
+    const adjustedFilters = await this.buildDefenseScoreFilters(params);
+    const hasExclusion = adjustedFilters.length > rawFilters.length;
+    const interval = params.interval || 'day';
 
-    return buckets.map((bucket: any) => {
+    if (!hasExclusion) {
+      // No risk acceptances — single query
+      const response = await this.runTrendQuery(adjustedFilters, interval);
+      const buckets = (response.aggregations?.over_time as any)?.buckets || [];
+      return buckets.map((bucket: any) => {
+        const total = bucket.doc_count;
+        const protectedCount = bucket.protected?.doc_count || 0;
+        const score = total > 0 ? (protectedCount / total) * 100 : 0;
+        return {
+          timestamp: bucket.key_as_string,
+          score: Math.round(score * 100) / 100,
+          total,
+          protected: protectedCount,
+        };
+      });
+    }
+
+    // Dual query: adjusted + raw
+    const [adjustedResponse, rawResponse] = await Promise.all([
+      this.runTrendQuery(adjustedFilters, interval),
+      this.runTrendQuery(rawFilters, interval),
+    ]);
+
+    const adjustedBuckets = (adjustedResponse.aggregations?.over_time as any)?.buckets || [];
+    const rawBuckets = (rawResponse.aggregations?.over_time as any)?.buckets || [];
+
+    // Build raw data lookup by timestamp key
+    const rawByKey = new Map<string, { total: number; protected: number }>();
+    for (const bucket of rawBuckets) {
+      rawByKey.set(bucket.key_as_string, {
+        total: bucket.doc_count,
+        protected: bucket.protected?.doc_count || 0,
+      });
+    }
+
+    return adjustedBuckets.map((bucket: any) => {
       const total = bucket.doc_count;
       const protectedCount = bucket.protected?.doc_count || 0;
       const score = total > 0 ? (protectedCount / total) * 100 : 0;
+
+      const raw = rawByKey.get(bucket.key_as_string);
+      const rawTotal = raw?.total ?? total;
+      const rawProtected = raw?.protected ?? protectedCount;
+      const rawScore = rawTotal > 0 ? (rawProtected / rawTotal) * 100 : 0;
 
       return {
         timestamp: bucket.key_as_string,
         score: Math.round(score * 100) / 100,
         total,
         protected: protectedCount,
+        realScore: Math.round(rawScore * 100) / 100,
+        realTotal: rawTotal,
+        realProtected: rawProtected,
       };
     });
   }
@@ -342,50 +436,65 @@ export class ElasticsearchService {
   async getDefenseScoreTrendRolling(params: AnalyticsQueryParams): Promise<TrendDataPoint[]> {
     const windowDays = params.windowDays || 7;
     const displayFrom = params.from;
+    const interval = params.interval || 'day';
 
     // Extend date range to include lookback period
     const extendedFrom = this.extendDateRange(params.from, windowDays);
+    const extendedParams = { ...params, from: extendedFrom };
 
-    const filters = await this.buildDefenseScoreFilters({
-      ...params,
-      from: extendedFrom,
+    const rawFilters = this.buildDefenseScoreFiltersWithoutExclusion(extendedParams);
+    const adjustedFilters = await this.buildDefenseScoreFilters(extendedParams);
+    const hasExclusion = adjustedFilters.length > rawFilters.length;
+
+    if (!hasExclusion) {
+      // No risk acceptances — single query
+      const response = await this.runTrendQuery(adjustedFilters, interval);
+      const buckets = (response.aggregations?.over_time as any)?.buckets || [];
+      return this.computeRollingWindow(buckets, windowDays, displayFrom);
+    }
+
+    // Dual query: adjusted + raw (both with extended date range)
+    const [adjustedResponse, rawResponse] = await Promise.all([
+      this.runTrendQuery(adjustedFilters, interval),
+      this.runTrendQuery(rawFilters, interval),
+    ]);
+
+    const adjustedBuckets = (adjustedResponse.aggregations?.over_time as any)?.buckets || [];
+    const rawBuckets = (rawResponse.aggregations?.over_time as any)?.buckets || [];
+
+    // Compute rolling windows for both datasets
+    const adjustedResults = this.computeRollingWindow(adjustedBuckets, windowDays, displayFrom);
+    const rawResults = this.computeRollingWindow(rawBuckets, windowDays, displayFrom);
+
+    // Merge raw data into adjusted results by timestamp
+    const rawByTimestamp = new Map<string, TrendDataPoint>();
+    for (const point of rawResults) {
+      rawByTimestamp.set(point.timestamp, point);
+    }
+
+    return adjustedResults.map(point => {
+      const raw = rawByTimestamp.get(point.timestamp);
+      return {
+        ...point,
+        realScore: raw?.score ?? point.score,
+        realTotal: raw?.total ?? point.total,
+        realProtected: raw?.protected ?? point.protected,
+      };
     });
+  }
 
-    const interval = params.interval || 'day';
-
-    // Query ES with extended range
-    const response = await this.client.search({
-      index: this.settings.indexPattern,
-      size: 0,
-      query: {
-        bool: { filter: filters },
-      },
-      aggs: {
-        over_time: {
-          date_histogram: {
-            field: 'routing.event_time',
-            calendar_interval: interval as 'day' | 'week' | 'month' | 'hour',
-            min_doc_count: 0,
-          },
-          aggs: {
-            protected: {
-              filter: { term: { 'f0rtika.is_protected': true } },
-            },
-          },
-        },
-      },
-    });
-
-    const buckets = (response.aggregations?.over_time as any)?.buckets || [];
-
-    // Compute rolling sums
-    const rollingResults: TrendDataPoint[] = [];
+  /** Compute rolling window sums from date histogram buckets. */
+  private computeRollingWindow(
+    buckets: any[],
+    windowDays: number,
+    displayFrom: string | undefined,
+  ): TrendDataPoint[] {
+    const results: TrendDataPoint[] = [];
 
     for (let i = 0; i < buckets.length; i++) {
       const currentBucket = buckets[i];
       const timestamp = currentBucket.key_as_string;
 
-      // Sum over the window (current day + previous windowDays-1 days)
       let windowTotal = 0;
       let windowProtected = 0;
 
@@ -395,14 +504,13 @@ export class ElasticsearchService {
         windowProtected += buckets[j].protected?.doc_count || 0;
       }
 
-      // Skip points that are in the lookback-only period
       if (!this.isWithinDisplayRange(currentBucket.key.toString(), displayFrom)) {
         continue;
       }
 
       const score = windowTotal > 0 ? (windowProtected / windowTotal) * 100 : 0;
 
-      rollingResults.push({
+      results.push({
         timestamp,
         score: Math.round(score * 100) / 100,
         total: windowTotal,
@@ -410,7 +518,7 @@ export class ElasticsearchService {
       });
     }
 
-    return rollingResults;
+    return results;
   }
 
   // Get defense score by test

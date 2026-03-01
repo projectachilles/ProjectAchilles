@@ -13,6 +13,11 @@ export interface DefenseScore {
   protectedCount: number;
   unprotectedCount: number;
   totalExecutions: number;
+  realScore?: number;
+  realProtectedCount?: number;
+  realUnprotectedCount?: number;
+  realTotalExecutions?: number;
+  riskAcceptedCount?: number;
 }
 
 export interface TrendDataPoint {
@@ -20,6 +25,9 @@ export interface TrendDataPoint {
   score: number;
   total: number;
   protected: number;
+  realScore?: number;
+  realTotal?: number;
+  realProtected?: number;
 }
 
 export interface TestBreakdown {

@@ -262,6 +262,46 @@ describe('elasticsearch.ts', () => {
       const filters = callArg.query.bool.filter;
       expect(filters).toContainEqual({ range: { 'routing.event_time': { gte: 'now-7d' } } });
     });
+
+    it('returns riskAcceptedCount=0 when no exclusions active', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse({
+        total: 100,
+        aggs: { protected: { doc_count: 70 } },
+      }));
+      const svc = createService();
+      const result = await svc.getDefenseScore(makeParams());
+      expect(result.riskAcceptedCount).toBe(0);
+      // realScore should NOT be set when no exclusion
+      expect(result.realScore).toBeUndefined();
+    });
+
+    it('returns both adjusted and real scores when risk exclusions active', async () => {
+      // Override the mock to return an exclusion filter
+      const svc = createService();
+      const riskSvc = (svc as any).getRiskAcceptanceService();
+      riskSvc.buildExclusionFilter.mockResolvedValue({
+        bool: { must_not: [{ term: { 'f0rtika.test_name': 'Excluded Test' } }] },
+      });
+
+      // First call: adjusted (with exclusion) → 80/90 protected
+      // Second call: raw (without exclusion) → 80/100 protected
+      mockSearch
+        .mockResolvedValueOnce(esSearchResponse({ total: 90, aggs: { protected: { doc_count: 80 } } }))
+        .mockResolvedValueOnce(esSearchResponse({ total: 100, aggs: { protected: { doc_count: 80 } } }));
+
+      const result = await svc.getDefenseScore(makeParams());
+
+      // Adjusted score: 80/90 = 88.89%
+      expect(result.score).toBe(88.89);
+      expect(result.protectedCount).toBe(80);
+      expect(result.totalExecutions).toBe(90);
+
+      // Real score: 80/100 = 80%
+      expect(result.realScore).toBe(80);
+      expect(result.realProtectedCount).toBe(80);
+      expect(result.realTotalExecutions).toBe(100);
+      expect(result.riskAcceptedCount).toBe(10);
+    });
   });
 
   // ================================================================
@@ -321,6 +361,33 @@ describe('elasticsearch.ts', () => {
 
       const callArg = mockSearch.mock.calls[0][0];
       expect(callArg.aggs.over_time.date_histogram.calendar_interval).toBe('day');
+    });
+
+    it('includes realScore fields when risk exclusions active', async () => {
+      const svc = createService();
+      const riskSvc = (svc as any).getRiskAcceptanceService();
+      riskSvc.buildExclusionFilter.mockResolvedValue({
+        bool: { must_not: [{ term: { 'f0rtika.test_name': 'Excluded' } }] },
+      });
+
+      const adjustedBuckets = makeDateBuckets([
+        { key: 1704067200000, key_as_string: '2024-01-01', total: 9, protected: 7 },
+      ]);
+      const rawBuckets = makeDateBuckets([
+        { key: 1704067200000, key_as_string: '2024-01-01', total: 10, protected: 7 },
+      ]);
+
+      // First call: adjusted, Second call: raw
+      mockSearch
+        .mockResolvedValueOnce(esSearchResponse({ aggs: { over_time: { buckets: adjustedBuckets } } }))
+        .mockResolvedValueOnce(esSearchResponse({ aggs: { over_time: { buckets: rawBuckets } } }));
+
+      const result = await svc.getDefenseScoreTrend(makeParams());
+      expect(result).toHaveLength(1);
+      expect(result[0].score).toBe(77.78); // 7/9
+      expect(result[0].realScore).toBe(70); // 7/10
+      expect(result[0].realTotal).toBe(10);
+      expect(result[0].realProtected).toBe(7);
     });
   });
 
