@@ -208,53 +208,63 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   HACKER TERMINAL THEME - Green phosphor CRT (dark only)
+   HACKER TERMINAL THEME - Phosphor CRT (dark only)
+   Green phosphor (P1) by default, amber (P3) via .phosphor-amber
    ═══════════════════════════════════════════════════════════════ */
 .hackerterminal {
+  /* Phosphor hue — green P1 default, overridden by .phosphor-amber */
+  --phosphor-hue: 142;
+
   /* Structural overrides */
   --theme-border-width: 1px;
   --theme-border-radius: 2px;
-  --theme-shadow: 0 0 8px oklch(0.75 0.27 142 / 25%);
+  --theme-shadow: 0 0 8px oklch(0.75 0.27 var(--phosphor-hue) / 25%);
   --theme-hover-translate: 0px;
-  --theme-hover-shadow: 0 0 12px oklch(0.75 0.27 142 / 40%);
+  --theme-hover-shadow: 0 0 12px oklch(0.75 0.27 var(--phosphor-hue) / 40%);
   --theme-font-body: 'JetBrains Mono', ui-monospace, monospace;
   --theme-font-weight-base: 400;
   --theme-font-weight-heading: 500;
 
-  /* Color overrides — green phosphor on deep black */
-  --background: oklch(0.10 0.02 145);
-  --foreground: oklch(0.85 0.25 142);
-  --card: oklch(0.14 0.03 145);
-  --card-foreground: oklch(0.85 0.25 142);
-  --popover: oklch(0.14 0.03 145);
-  --popover-foreground: oklch(0.85 0.25 142);
-  --primary: oklch(0.75 0.27 142);
-  --primary-foreground: oklch(0.10 0.02 145);
-  --secondary: oklch(0.18 0.04 145);
-  --secondary-foreground: oklch(0.85 0.25 142);
-  --muted: oklch(0.16 0.03 145);
-  --muted-foreground: oklch(0.50 0.12 145);
-  --accent: oklch(0.75 0.27 142);
-  --accent-foreground: oklch(0.10 0.02 145);
+  /* Color overrides — phosphor on deep black */
+  --background: oklch(0.10 0.02 var(--phosphor-hue));
+  --foreground: oklch(0.85 0.25 var(--phosphor-hue));
+  --card: oklch(0.14 0.03 var(--phosphor-hue));
+  --card-foreground: oklch(0.85 0.25 var(--phosphor-hue));
+  --popover: oklch(0.14 0.03 var(--phosphor-hue));
+  --popover-foreground: oklch(0.85 0.25 var(--phosphor-hue));
+  --primary: oklch(0.75 0.27 var(--phosphor-hue));
+  --primary-foreground: oklch(0.10 0.02 var(--phosphor-hue));
+  --secondary: oklch(0.18 0.04 var(--phosphor-hue));
+  --secondary-foreground: oklch(0.85 0.25 var(--phosphor-hue));
+  --muted: oklch(0.16 0.03 var(--phosphor-hue));
+  --muted-foreground: oklch(0.50 0.12 var(--phosphor-hue));
+  --accent: oklch(0.75 0.27 var(--phosphor-hue));
+  --accent-foreground: oklch(0.10 0.02 var(--phosphor-hue));
   --destructive: oklch(0.65 0.22 25);
-  --border: oklch(0.35 0.10 142);
-  --input: oklch(0.08 0.02 145);
-  --ring: oklch(0.75 0.27 142);
+  --border: oklch(0.35 0.10 var(--phosphor-hue));
+  --input: oklch(0.08 0.02 var(--phosphor-hue));
+  --ring: oklch(0.75 0.27 var(--phosphor-hue));
 
   /* Sidebar - hacker terminal */
-  --sidebar: oklch(0.08 0.02 145);
-  --sidebar-foreground: oklch(0.85 0.25 142);
-  --sidebar-primary: oklch(0.75 0.27 142);
-  --sidebar-primary-foreground: oklch(0.10 0.02 145);
-  --sidebar-accent: oklch(0.18 0.04 145);
-  --sidebar-accent-foreground: oklch(0.85 0.25 142);
-  --sidebar-border: oklch(0.35 0.10 142);
-  --sidebar-ring: oklch(0.75 0.27 142);
+  --sidebar: oklch(0.08 0.02 var(--phosphor-hue));
+  --sidebar-foreground: oklch(0.85 0.25 var(--phosphor-hue));
+  --sidebar-primary: oklch(0.75 0.27 var(--phosphor-hue));
+  --sidebar-primary-foreground: oklch(0.10 0.02 var(--phosphor-hue));
+  --sidebar-accent: oklch(0.18 0.04 var(--phosphor-hue));
+  --sidebar-accent-foreground: oklch(0.85 0.25 var(--phosphor-hue));
+  --sidebar-border: oklch(0.35 0.10 var(--phosphor-hue));
+  --sidebar-ring: oklch(0.75 0.27 var(--phosphor-hue));
+}
+
+/* Amber phosphor variant (warm amber, ~P3 / Wyse / IBM terminals) */
+/* Alt: --phosphor-hue: 90 for golden-yellow — try both in browser */
+.hackerterminal.phosphor-amber {
+  --phosphor-hue: 85;
 }
 
 /* Phosphor text glow — applied globally when hacker terminal is active */
 .hackerterminal body {
-  text-shadow: 0 0 3px oklch(0.75 0.27 142 / 40%);
+  text-shadow: 0 0 3px oklch(0.75 0.27 var(--phosphor-hue) / 40%);
 }
 
 /* ═══════════════════════════════════════════════════════════════

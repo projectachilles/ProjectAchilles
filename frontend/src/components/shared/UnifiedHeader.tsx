@@ -56,7 +56,7 @@ export default function UnifiedHeader({
   isRefreshing,
 }: UnifiedHeaderProps) {
   const location = useLocation();
-  const { theme, toggleTheme, themeStyle, toggleThemeStyle } = useTheme();
+  const { theme, toggleTheme, themeStyle, toggleThemeStyle, phosphorVariant, togglePhosphorVariant } = useTheme();
   const { user, isLoaded } = useUser();
   const role = useAppRole();
   const canAccessEndpoints = useCanAccessModule('endpoints');
@@ -190,25 +190,37 @@ export default function UnifiedHeader({
               }
             >
               {themeStyle === 'hackerterminal' ? (
-                <Terminal className="w-5 h-5 text-green-400" />
+                <Terminal className={`w-5 h-5 ${phosphorVariant === 'green' ? 'text-green-400' : 'text-amber-400'}`} />
               ) : (
                 <Palette className={`w-5 h-5 ${themeStyle === 'neobrutalism' ? 'text-primary' : ''}`} />
               )}
             </Button>
 
-            {/* Theme Toggle */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleTheme}
-              aria-label="Toggle theme"
-            >
-              {theme === 'dark' ? (
-                <Sun className="w-5 h-5" />
-              ) : (
-                <Moon className="w-5 h-5" />
-              )}
-            </Button>
+            {/* Theme Toggle / Phosphor Variant Toggle */}
+            {themeStyle === 'hackerterminal' ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={togglePhosphorVariant}
+                aria-label="Toggle phosphor variant"
+                title={phosphorVariant === 'green' ? 'Switch to amber phosphor' : 'Switch to green phosphor'}
+              >
+                <Sun className={`w-5 h-5 ${phosphorVariant === 'green' ? 'text-green-400' : 'text-amber-400'}`} />
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleTheme}
+                aria-label="Toggle theme"
+              >
+                {theme === 'dark' ? (
+                  <Sun className="w-5 h-5" />
+                ) : (
+                  <Moon className="w-5 h-5" />
+                )}
+              </Button>
+            )}
 
             {/* Clerk User Button (Global Auth) */}
             {isLoaded && user && (

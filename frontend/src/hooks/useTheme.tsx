@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 
 type Theme = 'light' | 'dark';
 type ThemeStyle = 'default' | 'neobrutalism' | 'hackerterminal';
+type PhosphorVariant = 'green' | 'amber';
 
 const THEME_STYLES: ThemeStyle[] = ['default', 'neobrutalism', 'hackerterminal'];
 
@@ -13,6 +14,9 @@ interface ThemeContextType {
   themeStyle: ThemeStyle;
   setThemeStyle: (style: ThemeStyle) => void;
   toggleThemeStyle: () => void;
+  phosphorVariant: PhosphorVariant;
+  setPhosphorVariant: (variant: PhosphorVariant) => void;
+  togglePhosphorVariant: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -23,6 +27,7 @@ interface ThemeProviderProps {
   defaultThemeStyle?: ThemeStyle;
   storageKey?: string;
   styleStorageKey?: string;
+  phosphorStorageKey?: string;
 }
 
 export function ThemeProvider({
@@ -31,6 +36,7 @@ export function ThemeProvider({
   defaultThemeStyle = 'default',
   storageKey = 'project-achilles-theme',
   styleStorageKey = 'project-achilles-theme-style',
+  phosphorStorageKey = 'project-achilles-phosphor-variant',
 }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(() => {
     if (typeof window !== 'undefined') {
@@ -50,6 +56,16 @@ export function ThemeProvider({
       }
     }
     return defaultThemeStyle;
+  });
+
+  const [phosphorVariant, setPhosphorVariantState] = useState<PhosphorVariant>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem(phosphorStorageKey);
+      if (stored === 'green' || stored === 'amber') {
+        return stored;
+      }
+    }
+    return 'green';
   });
 
   // Track the user's preferred theme before hackerterminal forced dark mode
@@ -77,6 +93,17 @@ export function ThemeProvider({
     }
     localStorage.setItem(styleStorageKey, themeStyle);
   }, [themeStyle, styleStorageKey]);
+
+  // Manage phosphor variant class (.phosphor-amber)
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (themeStyle === 'hackerterminal' && phosphorVariant === 'amber') {
+      root.classList.add('phosphor-amber');
+    } else {
+      root.classList.remove('phosphor-amber');
+    }
+    localStorage.setItem(phosphorStorageKey, phosphorVariant);
+  }, [themeStyle, phosphorVariant, phosphorStorageKey]);
 
   const setTheme = (newTheme: Theme) => {
     preferredThemeRef.current = newTheme;
@@ -119,8 +146,20 @@ export function ThemeProvider({
     });
   };
 
+  const setPhosphorVariant = (variant: PhosphorVariant) => {
+    setPhosphorVariantState(variant);
+  };
+
+  const togglePhosphorVariant = () => {
+    setPhosphorVariantState(prev => prev === 'green' ? 'amber' : 'green');
+  };
+
   return (
-    <ThemeContext.Provider value={{ theme, setTheme, toggleTheme, themeStyle, setThemeStyle, toggleThemeStyle }}>
+    <ThemeContext.Provider value={{
+      theme, setTheme, toggleTheme,
+      themeStyle, setThemeStyle, toggleThemeStyle,
+      phosphorVariant, setPhosphorVariant, togglePhosphorVariant,
+    }}>
       {children}
     </ThemeContext.Provider>
   );
