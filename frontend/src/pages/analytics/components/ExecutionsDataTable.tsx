@@ -1167,7 +1167,7 @@ export default function ExecutionsDataTable({
                   return (
                     <Fragment key={detailKey}>
                       <TableRow
-                        className={`cursor-pointer ${expandedDetail === detailKey ? 'bg-accent/30' : ''}`}
+                        className={`cursor-pointer group/row ${expandedDetail === detailKey ? 'bg-accent/30' : ''}`}
                         onClick={() => toggleDetail(detailKey, exec)}
                       >
                         {/* Checkbox */}
@@ -1244,7 +1244,7 @@ export default function ExecutionsDataTable({
                   <Fragment key={group.key}>
                     {/* Bundle parent row */}
                     <TableRow
-                      className={`cursor-pointer bg-muted/30 hover:bg-muted/50 ${isExpanded ? 'border-b-0' : ''}`}
+                      className={`cursor-pointer group/row bg-muted/30 hover:bg-muted/50 ${isExpanded ? 'border-b-0' : ''}`}
                       onClick={() => toggleBundle(group.key)}
                     >
                       {/* Checkbox */}
@@ -1285,7 +1285,7 @@ export default function ExecutionsDataTable({
                       return (
                         <Fragment key={ctrlDetailKey}>
                           <TableRow
-                            className={`cursor-pointer bg-card/50 border-l-2 border-l-blue-500/30 ${expandedDetail === ctrlDetailKey ? 'bg-accent/30' : 'hover:bg-accent/10'}`}
+                            className={`cursor-pointer group/row bg-card/50 border-l-2 border-l-blue-500/30 ${expandedDetail === ctrlDetailKey ? 'bg-accent/30' : 'hover:bg-accent/10'}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               toggleDetail(ctrlDetailKey, ctrl);
