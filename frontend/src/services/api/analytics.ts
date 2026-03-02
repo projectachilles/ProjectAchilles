@@ -471,6 +471,11 @@ export const analyticsApi = {
     return response.data;
   },
 
+  async getExecutedTestUuids(): Promise<string[]> {
+    const response = await apiClient.get('/analytics/executed-test-uuids');
+    return response.data.uuids;
+  },
+
   // ============================================
   // New Endpoints for Enhanced Analytics
   // ============================================

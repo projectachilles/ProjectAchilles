@@ -962,6 +962,25 @@ export class ElasticsearchService {
     return buckets.map((bucket: any) => bucket.key);
   }
 
+  // Get list of test UUIDs that have been executed (for NRY filter)
+  async getExecutedTestUuids(): Promise<string[]> {
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: {
+        bool: { filter: [this.buildTestDataFilter()] }
+      },
+      aggs: {
+        uuids: {
+          terms: { field: 'f0rtika.test_uuid', size: 10000 },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.uuids as any)?.buckets || [];
+    return buckets.map((bucket: any) => bucket.key);
+  }
+
   // Get list of available techniques (for filter dropdown)
   async getAvailableTechniques(): Promise<string[]> {
     const response = await this.client.search({

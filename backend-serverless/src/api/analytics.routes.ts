@@ -291,6 +291,13 @@ router.get('/available-tests', asyncHandler(async (_req, res) => {
   res.json(tests);
 }));
 
+// GET /api/analytics/executed-test-uuids - List all test UUIDs that have been executed
+router.get('/executed-test-uuids', asyncHandler(async (_req, res) => {
+  const es = await getEsService();
+  const uuids = await es.getExecutedTestUuids();
+  res.json({ success: true, uuids });
+}));
+
 // GET /api/analytics/available-techniques - List all available techniques
 router.get('/available-techniques', asyncHandler(async (_req, res) => {
   const es = await getEsService();

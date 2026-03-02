@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { browserApi } from '@/services/api/browser';
+import { analyticsApi } from '@/services/api/analytics';
 import type { TestMetadata, SyncStatus } from '@/types/test';
 import TestCard from '@/components/browser/TestCard';
 import TestLibraryOverview from '@/components/browser/TestLibraryOverview';
@@ -8,13 +9,37 @@ import MitreAttackMatrix from '@/components/browser/MitreAttackMatrix';
 import SearchBar from '@/components/browser/SearchBar';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
 import { useHasPermission } from '@/hooks/useAppRole';
+import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/shared/ui/Tabs';
 import { Badge } from '@/components/shared/ui/Badge';
-import { Loader2, LayoutDashboard, Grid3X3, LayoutGrid, RefreshCw, GitBranch, Clock, AlertCircle, Heart, History, CheckSquare, Play } from 'lucide-react';
+import { Switch } from '@/components/shared/ui/Switch';
+import { Loader2, LayoutDashboard, Grid3X3, LayoutGrid, RefreshCw, GitBranch, Clock, AlertCircle, Heart, History, CheckSquare, Play, ArrowUpNarrowWide, ArrowDownNarrowWide } from 'lucide-react';
 import { ExecutionDrawer } from '@/components/browser/execution';
 
 type BrowserTab = 'overview' | 'matrix' | 'browse';
 type BrowseMode = 'browse' | 'favorites' | 'recent';
+type SortField = 'name' | 'createdDate' | 'score' | 'severity' | 'lastModifiedDate';
+type SortDirection = 'asc' | 'desc';
+
+const SEVERITY_ORDER: Record<string, number> = {
+  critical: 5, high: 4, medium: 3, low: 2, informational: 1,
+};
+
+const TARGET_LABELS: Record<string, string> = {
+  'windows-endpoint': 'Windows',
+  'linux-server': 'Linux',
+  'entra-id': 'Entra ID',
+  'azure-ad': 'Azure AD',
+  'macos-endpoint': 'macOS',
+  'm365': 'M365',
+  'exchange-online': 'Exchange Online',
+  'sharepoint-online': 'SharePoint Online',
+  'network': 'Network',
+};
+
+function targetLabel(raw: string): string {
+  return TARGET_LABELS[raw] || raw.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
 
 interface BrowserHomePageProps {
   mode?: BrowseMode;
@@ -35,11 +60,19 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
   const [drawerTests, setDrawerTests] = useState<TestMetadata[]>([]);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedTestUuids, setSelectedTestUuids] = useState<Set<string>>(new Set());
+  const [selectedTarget, setSelectedTarget] = useState<string>('all');
+  const [nryFilter, setNryFilter] = useState(false);
+  const [executedUuids, setExecutedUuids] = useState<Set<string> | null>(null);
+  const [executedUuidsLoading, setExecutedUuidsLoading] = useState(false);
+  const [sortField, setSortField] = useState<SortField>('name');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { favorites, recentTests, isFavorite, toggleFavorite } = useTestPreferences();
   const canSync = useHasPermission('tests:sync:execute');
   const canCreateTasks = useHasPermission('endpoints:tasks:create');
+  const { configured: esConfigured } = useAnalyticsAuth();
+  const executedUuidsFetched = useRef(false);
 
   // Tab state — URL-synced, only for browse mode
   const activeTab: BrowserTab = mode === 'browse'
@@ -59,6 +92,25 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
     loadTests();
     if (mode === 'browse') loadSyncStatus();
   }, [mode]);
+
+  // Fetch executed test UUIDs from ES (for NRY filter)
+  useEffect(() => {
+    if (!esConfigured || executedUuidsFetched.current) return;
+    executedUuidsFetched.current = true;
+    setExecutedUuidsLoading(true);
+    analyticsApi.getExecutedTestUuids()
+      .then(uuids => {
+        // Extract base UUIDs from composite keys (uuid::control-id)
+        const baseUuids = new Set<string>();
+        for (const id of uuids) {
+          const sep = id.indexOf('::');
+          baseUuids.add(sep >= 0 ? id.substring(0, sep) : id);
+        }
+        setExecutedUuids(baseUuids);
+      })
+      .catch(() => setExecutedUuids(null))
+      .finally(() => setExecutedUuidsLoading(false));
+  }, [esConfigured]);
 
   // Apply mode-based pre-filtering before search/category/severity filters
   const modeFilteredTests = useMemo(() => {
@@ -110,12 +162,47 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
         filtered = filtered.filter(test => test.severity === selectedSeverity);
       }
 
+      // Target/platform filter
+      if (selectedTarget !== 'all') {
+        filtered = filtered.filter(test =>
+          Array.isArray(test.target) && test.target.includes(selectedTarget)
+        );
+      }
+
+      // NRY (Not Run Yet) filter
+      if (nryFilter && executedUuids) {
+        filtered = filtered.filter(test => !executedUuids.has(test.uuid));
+      }
+
+      // Sorting
+      filtered.sort((a, b) => {
+        let cmp = 0;
+        switch (sortField) {
+          case 'name':
+            cmp = (a.name || '').localeCompare(b.name || '');
+            break;
+          case 'createdDate':
+            cmp = (a.createdDate || '').localeCompare(b.createdDate || '');
+            break;
+          case 'lastModifiedDate':
+            cmp = (a.lastModifiedDate || '').localeCompare(b.lastModifiedDate || '');
+            break;
+          case 'score':
+            cmp = (a.score ?? 0) - (b.score ?? 0);
+            break;
+          case 'severity':
+            cmp = (SEVERITY_ORDER[a.severity || ''] ?? 0) - (SEVERITY_ORDER[b.severity || ''] ?? 0);
+            break;
+        }
+        return sortDirection === 'asc' ? cmp : -cmp;
+      });
+
       setFilteredTests(filtered);
     } catch (err) {
       console.error('Error in filterTests:', err);
       setFilteredTests(modeFilteredTests);
     }
-  }, [modeFilteredTests, searchQuery, selectedCategory, selectedSeverity]);
+  }, [modeFilteredTests, searchQuery, selectedCategory, selectedSeverity, selectedTarget, nryFilter, executedUuids, sortField, sortDirection]);
 
   useEffect(() => {
     filterTests();
@@ -217,6 +304,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
   function handleDrillToSeverity(severity: string) {
     setSelectedSeverity(severity);
     setSelectedCategory('all');
+    setSelectedTarget('all');
     setSearchQuery('');
     setActiveTab('browse');
   }
@@ -224,6 +312,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
   function handleDrillToCategory(category: string) {
     setSelectedCategory(category);
     setSelectedSeverity('all');
+    setSelectedTarget('all');
     setSearchQuery('');
     setActiveTab('browse');
   }
@@ -232,6 +321,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
     setSearchQuery(technique);
     setSelectedCategory('all');
     setSelectedSeverity('all');
+    setSelectedTarget('all');
     setActiveTab('browse');
   }
 
@@ -239,9 +329,16 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
     navigate(`/browser/test/${uuid}`);
   }
 
-  // Get unique categories and severities from the mode-filtered set
+  // Get unique categories, severities, and targets from the mode-filtered set
   const categories = ['all', ...new Set(modeFilteredTests.map(t => t.category).filter(Boolean))];
   const severities = ['all', ...new Set(modeFilteredTests.map(t => t.severity).filter(Boolean))];
+  const targets = useMemo(() => {
+    const unique = new Set<string>();
+    for (const t of modeFilteredTests) {
+      if (Array.isArray(t.target)) t.target.forEach(v => unique.add(v));
+    }
+    return ['all', ...Array.from(unique).sort()];
+  }, [modeFilteredTests]);
 
   if (loading) {
     return (
@@ -314,7 +411,69 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
             </select>
           </div>
 
+          {/* Platform/Target Filter */}
+          {targets.length > 1 && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-foreground">Platform:</label>
+              <select
+                value={selectedTarget}
+                onChange={(e) => setSelectedTarget(e.target.value)}
+                className="px-3 py-1.5 rounded-base border-theme border-border bg-background text-foreground text-sm"
+              >
+                {targets.map(t => (
+                  <option key={t} value={t}>
+                    {t === 'all' ? 'All Platforms' : targetLabel(t)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* NRY (Not Run Yet) Toggle */}
+          {esConfigured && executedUuids && (
+            <Switch
+              label="Not run yet"
+              checked={nryFilter}
+              disabled={executedUuidsLoading}
+              onChange={(e) => setNryFilter(e.target.checked)}
+            />
+          )}
+
           <div className="ml-auto flex items-center gap-4">
+            {/* Sort Controls */}
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-foreground">Sort:</label>
+              <select
+                value={sortField}
+                onChange={(e) => {
+                  const field = e.target.value as SortField;
+                  setSortField(field);
+                  // Auto-set natural direction
+                  setSortDirection(
+                    field === 'severity' || field === 'score' || field === 'createdDate' || field === 'lastModifiedDate'
+                      ? 'desc' : 'asc'
+                  );
+                }}
+                className="px-3 py-1.5 rounded-base border-theme border-border bg-background text-foreground text-sm"
+              >
+                <option value="name">Name</option>
+                <option value="severity">Severity</option>
+                <option value="score">Score</option>
+                <option value="createdDate">Created</option>
+                <option value="lastModifiedDate">Modified</option>
+              </select>
+              <button
+                onClick={() => setSortDirection(d => d === 'asc' ? 'desc' : 'asc')}
+                className="p-1.5 rounded-base border border-border hover:bg-accent text-foreground"
+                title={sortDirection === 'asc' ? 'Ascending' : 'Descending'}
+              >
+                {sortDirection === 'asc'
+                  ? <ArrowUpNarrowWide className="w-4 h-4" />
+                  : <ArrowDownNarrowWide className="w-4 h-4" />
+                }
+              </button>
+            </div>
+
             {/* Select Mode + Run Selected */}
             {canCreateTasks && (
               <>

@@ -1433,6 +1433,26 @@ describe('elasticsearch.ts', () => {
       expect(result).toEqual(['Test A', 'Test B']);
     });
 
+    it('getExecutedTestUuids — returns unique test UUIDs', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse({
+        aggs: { uuids: { buckets: [
+          { key: 'uuid-1', doc_count: 5 },
+          { key: 'uuid-2', doc_count: 3 },
+          { key: 'uuid-3::CH-DEF-001', doc_count: 1 },
+        ] } },
+      }));
+      const svc = createService();
+      const result = await svc.getExecutedTestUuids();
+      expect(result).toEqual(['uuid-1', 'uuid-2', 'uuid-3::CH-DEF-001']);
+    });
+
+    it('getExecutedTestUuids — returns empty array when no buckets', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse({ aggs: {} }));
+      const svc = createService();
+      const result = await svc.getExecutedTestUuids();
+      expect(result).toEqual([]);
+    });
+
     it('getDefenseScoreByOrg — org UUID → name mapping', async () => {
       mockSearch.mockResolvedValue(esSearchResponse({
         aggs: {
