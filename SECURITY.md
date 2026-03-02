@@ -73,6 +73,11 @@ ProjectAchilles uses a multi-layer authentication model:
 3. **Enrollment Tokens** — One-time or limited-use tokens for agent registration
    - Configurable TTL (time-to-live) and maximum usage count
    - Revocable through the admin interface
+4. **Integration Credentials** — Third-party service credentials stored encrypted
+   - Microsoft Defender: `DEFENDER_TENANT_ID`, `DEFENDER_CLIENT_ID`, `DEFENDER_CLIENT_SECRET`
+   - Slack webhook URL for alerting
+   - SMTP credentials for email alerting
+   - All encrypted at rest with AES-256-GCM in `~/.projectachilles/integrations.json`
 
 ### Agent Security
 
@@ -183,7 +188,8 @@ AGENT_SERVER_URL=https://your-agent-endpoint.com
 | Enrollment Tokens | TTL + max-use limits, revocable, timing-oracle-resistant |
 | File Permission Hardening | Binary `0700`, config `0600`, Windows ACLs via icacls |
 | Dependabot | Automated dependency vulnerability monitoring |
-| Semgrep SAST | 11 community rulesets + 5 custom rules in CI |
+| Semgrep SAST | 11 community rulesets + 5 custom rules in CI; Claude security review on PRs |
+| Integration Credential Encryption | Defender, Slack, SMTP credentials AES-256-GCM encrypted at rest |
 
 ## Vulnerability Disclosure Policy
 

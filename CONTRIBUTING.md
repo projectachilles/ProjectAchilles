@@ -21,8 +21,8 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 
 ### Prerequisites
 
-- **Node.js** 18.x or higher
-- **npm** 9.x or higher
+- **Node.js** 22.x or higher
+- **npm** 10.x or higher
 - **Git**
 - **Go** 1.24+ (optional — only needed for agent development)
 - **Docker** and Docker Compose (optional — for containerized development)
@@ -51,13 +51,14 @@ This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md). By participatin
 
 ```
 ProjectAchilles/
-├── frontend/          # React 19 + TypeScript + Vite
-├── backend/           # Express + TypeScript (ES modules)
-├── agent/             # Go agent source (cross-platform)
-├── scripts/           # Shell scripts (start.sh, setup.sh, etc.)
-├── docs/              # Documentation (deployment, security, etc.)
-├── docker-compose.yml # Multi-service deployment
-└── CLAUDE.md          # Development guidance
+├── frontend/              # React 19 + TypeScript + Vite
+├── backend/               # Express + TypeScript (ES modules)
+├── backend-serverless/    # Vercel serverless fork (Turso + Vercel Blob)
+├── agent/                 # Go agent source (cross-platform)
+├── scripts/               # Shell scripts (start.sh, setup.sh, etc.)
+├── docs/                  # Documentation (deployment, security, plans)
+├── docker-compose.yml     # Multi-service deployment
+└── CLAUDE.md              # Development guidance
 ```
 
 ## Development Workflow
@@ -248,7 +249,7 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ### Scopes
 
-Common scopes: `frontend`, `backend`, `agent`, `analytics`, `browser`, `docker`, `settings`, `certs`, `deps`
+Common scopes: `frontend`, `backend`, `backend-serverless`, `agent`, `analytics`, `browser`, `docker`, `settings`, `certs`, `deps`
 
 ### Examples
 
@@ -261,6 +262,30 @@ docs(readme): update architecture diagram
 ```
 
 ## Testing
+
+### Automated Tests (Vitest)
+
+```bash
+# Backend (912 tests across 40 files)
+cd backend && npm test
+
+# Frontend (127 tests across 8 files)
+cd frontend && npm test
+
+# Backend Serverless (626 tests across 25 files)
+cd backend-serverless && npm test
+
+# Single test file
+cd backend && npx vitest src/services/agent/__tests__/enrollment.service.test.ts
+
+# Filter by test name
+cd backend && npx vitest -t "creates a token"
+
+# Watch mode
+cd backend && npm run test:watch
+```
+
+Test file pattern: `src/**/__tests__/**/*.test.{ts,tsx}`
 
 ### Manual Testing Checklist
 

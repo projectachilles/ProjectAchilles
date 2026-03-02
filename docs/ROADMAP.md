@@ -8,7 +8,7 @@ Want to influence the roadmap? Open a [GitHub Discussion](https://github.com/pro
 
 ---
 
-## Completed (Jan–Feb 2026)
+## Completed (Jan–Mar 2026)
 
 These features shipped since the v1.0.0 release:
 
@@ -24,14 +24,25 @@ These features shipped since the v1.0.0 release:
 - &check; **Favorites & Recent Views** — Browser module localStorage persistence
 - &check; **ngrok Tunnel Support** — Configurable domains for remote agent communication
 - &check; **LimaCharlie Removal** — Replaced with custom agent system
+- &check; **macOS Agent Support** — darwin/amd64 + darwin/arm64 with launchd and rcodesign
+- &check; **Microsoft Defender Integration** — Secure Score, alerts, control profiles, cross-correlation
+- &check; **Trend Alerting** — Slack + email notifications with threshold configuration
+- &check; **Notification Bell** — In-app alert dropdown in top bar
+- &check; **MITRE ATT&CK Coverage Matrix** — Visual technique heatmap on browse page
+- &check; **Visual Themes** — Neobrutalism + Hacker Terminal with phosphor variants
+- &check; **Browse Overview Dashboard** — 3-tab layout with category metrics
+- &check; **Remote Agent Uninstall** — Two-phase cleanup from admin UI
+- &check; **Risk Acceptance** — Accept risk on individual security controls
+- &check; **5 Deployment Targets** — Docker Compose, Railway, Render, Fly.io, Vercel
+- &check; **Execution Drawer** — Run tests directly from browse page
+- &check; **Bundle Results Fan-out** — Per-control ES documents for cyber-hygiene and intel-driven tests
 
 ---
 
-## Near-Term (Q1–Q2 2026)
+## Near-Term (Q2 2026)
 
 ### Agent Enhancements
 - &empty; Agent groups with bulk command execution
-- &empty; macOS agent support (darwin/amd64, darwin/arm64)
 - &empty; Agent health alerting (offline threshold notifications)
 - &empty; Agent configuration profiles (poll interval, update policy per group)
 
@@ -39,7 +50,6 @@ These features shipped since the v1.0.0 release:
 - &empty; Custom analytics dashboards with saved queries
 - &empty; CSV/JSON export for all visualizations
 - &empty; Blue team response metrics (Time to Detect, Time to Respond)
-- &empty; MITRE ATT&CK coverage report generation
 - &empty; Scheduled report delivery (email/webhook)
 
 ### Test Management
@@ -59,7 +69,7 @@ These features shipped since the v1.0.0 release:
 
 ### Integrations
 - &empty; SIEM connectors (Splunk, Microsoft Sentinel)
-- &empty; Notification channels (Slack, Teams, email)
+- &empty; Microsoft Teams webhook notifications
 - &empty; Ticketing system integration (Jira, ServiceNow)
 
 ---

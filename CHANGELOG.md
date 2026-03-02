@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-platform support: Windows/Linux × amd64/arm64
 - Agent API key authentication middleware (separate from Clerk)
 - Public binary download endpoint with rate limiting (10 req/15min)
+- macOS support (darwin/amd64, darwin/arm64) with launchd service and ad-hoc code signing via rcodesign
+- Remote uninstall with two-phase cleanup (stop service + remove files)
+- Enhanced `--status` diagnostics: service state, connection health, config validation
+- Async task execution with Windows Job Objects for orphan process cleanup
+- Azure/Entra ID credential flow for identity-tenant tests
+- Bundle results fan-out for cyber-hygiene and intel-driven multi-stage controls
 
 #### Build System
 - On-demand Go cross-compilation from the UI
@@ -69,6 +75,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - User-configured settings take priority over environment variables
 - Auto-test connection on save for immediate UX feedback
 - Fire-and-forget result ingestion — agent results auto-ingest to ES asynchronously
+- Microsoft Defender integration — Secure Score, Alerts v2, Control Profiles via Graph API
+- 9 Defender analytics endpoints (secure-score, alerts, controls, cross-correlation)
+- Test-alert detection correlation between F0RTIKA results and Defender alerts
+- Dual Defense Score display with real score trend line overlay
+- Risk acceptance for individual security controls
+- Archive executions feature
+- Shared FilterBar across Analytics Dashboard tabs
+
+#### Alerting & Notifications
+- Threshold-based trend alerting with configurable score drop/absolute thresholds
+- Slack alerting via Block Kit formatted messages
+- Email alerting via Nodemailer with HTML templates
+- Alert settings UI with Slack webhook and SMTP configuration
+- NotificationBell component with alert dropdown in top bar
+- Alert dispatch hooked into result ingestion pipeline
 
 #### Browser
 - Git-synced test library with automatic repository sync
@@ -77,6 +98,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Copy-to-clipboard for detection rules and test artifacts
 - Build, sign, and download test binaries from test detail pages
 - Searchable test selector in task creation dialog
+- MITRE ATT&CK coverage matrix with visual technique heatmap
+- Browse overview dashboard with 3-tab layout (overview, matrix, list)
+- Execution drawer for running tests directly from browse page
+- Category legend and metric card subtitles on overview
 
 #### Docker & Deployment
 - Docker Compose support with multi-service configuration (frontend, backend)
@@ -88,11 +113,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ENCRYPTION_SECRET for stable encryption across container restarts
 - Health checks for backend and Elasticsearch services
 - Go toolchain and osslsigncode in Docker image for builds
+- Fly.io deployment with custom domains, volumes, and documentation
+- Render.com deployment with Blueprint and persistent disk
+- Railway deployment with private networking and AGENT_REPO_URL git sync
+- Vercel serverless deployment with Turso, Vercel Blob, and Crons
+- Backend-serverless (`backend-serverless/`) — independent fork for Vercel
+- Pure-JS certificate generation via node-forge for serverless environments
+- Client-side Blob upload for large binaries on Vercel
+- Upload pre-built binary support for all deployment targets
 
 #### Frontend
 - Collapsible sidebar layout
 - Dark/light theme improvements with consistent text colors
 - Responsive design updates across all modules
+- Endpoints dashboard redesign with donut charts, task activity, and version metrics
+- Fullscreen expand dialog for task output
+- Collapsible Scheduled Tasks section on Tasks page
+- Rich test info modal in Executions detail panel
+
+#### Visual Themes
+- Neobrutalism visual theme with hot pink/magenta accent
+- Hacker Terminal visual theme with phosphor scanline effects
+- Green/amber phosphor variant toggle for Hacker Terminal
+- Theme selector in settings
 
 #### Authentication
 - Clerk authentication with social login (Google, Microsoft, GitHub)
@@ -135,6 +178,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agent version reporting
 - Task creator dialog effect stabilization and checkbox visibility
 - Tag API route alignment between frontend and backend
+- Stale task detection — tasks auto-fail when agent goes offline during execution
+- Group-aware pagination for Executions table (replace ES collapse with terms agg)
+- Exclude cyber-hygiene from detection rate calculation
+- Cap Secure Score category percentages at 100%
+- Exclude deprecated controls from Secure Score category maxScore
+- Async task execution with Windows Job Objects for orphan process cleanup
+- Action buttons column moved to left side of table for discoverability
+- Agent update tasks patched to executing status before running
+- nginx host-not-found crash on PaaS without Docker Compose DNS
 
 ### Security
 - Upgraded React to 19.2.3 (CVE-2025-55182 patch)
@@ -145,6 +197,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SHA256 binary verification in agent executor
 - Resolved all Dependabot security vulnerabilities
 - Added Dependabot configuration for automated dependency updates
+- Semgrep SAST in CI with 11 community rulesets + 5 custom rules
+- Microsoft Defender integration credentials encrypted at rest (AES-256-GCM)
+- Alert service credentials (Slack webhook, SMTP password) encrypted at rest
 
 ## [1.0.0] - 2024-12-10
 

@@ -31,9 +31,9 @@ cd backend && npm run build      # tsc → dist/
 
 ```bash
 # All tests
-cd backend && npm test           # 672 tests across 27 files (~10s)
-cd frontend && npm test          # 119 tests across 7 files (~2s)
-cd backend-serverless && npm test  # 580 tests across 24 files (~11s)
+cd backend && npm test           # 912 tests across 40 files (~12s)
+cd frontend && npm test          # 127 tests across 8 files (~2s)
+cd backend-serverless && npm test  # 626 tests across 25 files (~11s)
 
 # Single file
 cd backend && npx vitest src/services/agent/__tests__/enrollment.service.test.ts
@@ -119,6 +119,7 @@ SQLite has no `ALTER COLUMN`, so changing CHECK constraints requires recreating 
 | `/api/agent/admin/*` | Clerk | Agent management (tokens, tasks, schedules) |
 | `/api/agent/*` | Agent key | Device endpoints (enroll, heartbeat, tasks) |
 | `/api/tests/*` | Clerk | Build system, certificates |
+| `/api/integrations/alerts/*` | Clerk | Alert thresholds, Slack/email config |
 
 ## Code Patterns
 
@@ -351,3 +352,16 @@ Pulls Secure Score, alerts (v2), and control profiles from Microsoft Graph API. 
 - **Cross-correlation**: Defense Score vs Secure Score over time, MITRE technique overlap between test results and Defender alerts
 - **Conditional UI**: All Defender dashboard elements hidden when not configured (`useDefenderConfig` hook)
 - **Serverless parity**: Full implementation in `backend-serverless/` with async blob storage and Vercel Cron
+
+### Alerting Service
+Threshold-based alerting dispatched when test results cross configured score thresholds. Hooked into the result ingestion pipeline.
+
+- **Channels**: Slack (Block Kit via webhook URL), Email (Nodemailer with SMTP)
+- **Thresholds**: Score drop % (relative) and absolute score floor, configurable per metric
+- **Settings**: Stored in `~/.projectachilles/integrations.json` (AES-256-GCM encrypted)
+- **Backend service**: `services/alerting/` — `alerting.service.ts` (threshold evaluation), `slack.service.ts`, `email.service.ts`
+- **Frontend**: `AlertsConfig` settings component, `NotificationBell` in TopBar
+- **Dispatch trigger**: Called from `results.service.ts` after successful ES ingestion
+
+### Visual Themes
+Three selectable themes: Default (light/dark), Neobrutalism (hot pink accent, bold borders), Hacker Terminal (phosphor green/amber scanlines). Theme selector in settings. CSS variables drive all theme-specific styling via Tailwind CSS v4 `@theme` blocks.

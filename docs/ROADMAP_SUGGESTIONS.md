@@ -74,6 +74,8 @@ The schedule service (`schedules.service.ts`) already handles the heavy lifting.
 
 ## 3. Trend Alerting
 
+> **Status: SHIPPED** — Trend alerting with Slack and email was implemented in Feb 2026. Dashboard banner alerts (Phase 1), score thresholds (Phase 2), and Slack/email dispatch (Phase 3) are all live. See the Alerting Service section in CLAUDE.md.
+
 **Priority: Medium** — Valuable for continuous validation posture, but the analytics dashboard already surfaces trends visually.
 
 ### Current State

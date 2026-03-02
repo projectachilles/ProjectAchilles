@@ -39,7 +39,14 @@ The platform replaces the need for commercial endpoint management tools with a p
 - **Docker Compose Deployment** — One-command deployment with optional local Elasticsearch
 - **Git-Synced Test Library** — Tests pulled from a Git repository with automatic sync
 - **Multi-Index Management** — Per-task Elasticsearch index targeting for isolated result sets
-- **Dark/Light Themes** — Full theme support across all modules
+- **Microsoft Defender Integration** — Sync Secure Score, alerts, and control profiles from Microsoft 365 Defender with MITRE cross-correlation
+- **Trend Alerting** — Threshold-based Slack and email notifications with in-app notification bell
+- **MITRE ATT&CK Coverage Matrix** — Visual technique coverage heatmap on the browse page
+- **3 Visual Themes** — Default, Neobrutalism, and Hacker Terminal (with green/amber phosphor variants)
+- **5 Deployment Targets** — Docker Compose, Railway, Render, Fly.io, and Vercel (serverless)
+- **Remote Agent Uninstall** — Two-phase uninstall with service removal and cleanup verification
+- **Risk Acceptance** — Accept risk for individual security controls with tracking
+- **macOS Agent Support** — Native launchd service with ad-hoc code signing via rcodesign
 
 ## Quick Start
 
@@ -81,6 +88,16 @@ cd ProjectAchilles
 
 The PowerShell script checks prerequisites, fixes line endings, configures `backend/.env` interactively, builds Docker images, and opens the dashboard. See [Windows Docker Installation](docs/deployment/WINDOWS_DOCKER_INSTALL.md) for the full manual guide.
 
+### Deployment Targets
+
+| Target | Backend | Database | Agent Builds | Guide |
+|--------|---------|----------|-------------|-------|
+| **Docker Compose** | `backend/` | SQLite (volume) | Yes | [docker-compose.yml](docker-compose.yml) |
+| **Railway** | `backend/` | SQLite (volume) | Partial | [Railway Guide](docs/deployment/RAILWAY.md) |
+| **Render** | `backend/` | SQLite (persistent disk) | Partial | [Render Guide](docs/deployment/RENDER.md) |
+| **Fly.io** | `backend/` | SQLite (volume) | Yes | [Fly.io Guide](docs/deployment/FLY.md) |
+| **Vercel** | `backend-serverless/` | Turso (libSQL) | No | [Vercel Guide](docs/deployment/VERCEL.md) |
+
 ## Features
 
 ### Test Browser
@@ -92,6 +109,9 @@ Browse a git-synced library of security tests with rich metadata. Each test incl
 - View version history, author info, and Git modification dates
 - Copy-to-clipboard for detection rules and test artifacts
 - Build, sign, and download test binaries directly from test detail pages
+- MITRE ATT&CK coverage matrix with visual technique heatmap
+- Overview dashboard with 3-tab layout (overview, matrix, list) and category legend
+- Execution drawer — run tests directly from the browse page
 
 ### Analytics Dashboard
 
@@ -103,6 +123,13 @@ Measure your defensive posture with 30+ query endpoints powered by Elasticsearch
 - **Treemaps** — Hierarchical category/subcategory coverage visualization
 - **Execution Table** — Paginated results with advanced filtering (technique, hostname, threat actor, tags, error codes)
 - **Multi-Index Management** — Switch between Elasticsearch indices, create new ones, view index metadata
+- **Microsoft Defender Integration** — Sync Secure Score, alerts, and control profiles with cross-correlation analytics
+- **Dual Defense Score** — Real score and trend line overlay for tracking trajectory
+- **Risk Acceptance** — Accept risk on individual controls with audit tracking
+- **Trend Alerting** — Threshold-based Slack (Block Kit) and email (Nodemailer) notifications
+- **Notification Bell** — In-app alert dropdown showing recent threshold breaches
+- **Archive Executions** — Archive old execution results to declutter active views
+- **Shared FilterBar** — Unified filter bar across Analytics dashboard tabs
 
 ### Agent System
 
@@ -117,6 +144,11 @@ Deploy a custom Go agent to endpoints for remote test execution with full lifecy
 - **Tagging** — Organize agents with custom tags for filtering and bulk operations
 - **Cross-Platform** — Windows, Linux, and macOS support (amd64 + arm64)
 - **Bundle Results** — Reads per-control results from cyber-hygiene bundles and fans out to individual ES documents for granular compliance tracking
+- **Remote Uninstall** — Two-phase agent removal (stop service + cleanup) initiated from admin UI
+- **Agent Diagnostics** — Enhanced `--status` flag showing service state, connection health, and config validation
+- **macOS Support** — Native launchd plist at `/Library/LaunchDaemons/`, sysinfo via sysctl/vm_stat, ad-hoc code signing via rcodesign
+- **Stale Task Detection** — Tasks auto-fail when agent goes offline during execution
+- **Windows Job Objects** — Orphan process cleanup for async task execution
 
 ### Build System
 
@@ -174,18 +206,21 @@ The agent-server communication channel has been hardened through an internal sec
 │  │ (Tests)  │  │search     │  │ (Agents, │  │ + osslsigncode  │  │
 │  └──────────┘  └───────────┘  │  Tasks)  │  └─────────────────┘  │
 │                               └──────────┘                        │
-└───────────────────────────────────────────────────────────────────┘
-                               │ Agent API
-                    ┌──────────┴──────────┐
-                    │   Achilles Agent    │
-                    │   (Go binary)       │
-                    │   ┌──────────────┐  │
-                    │   │ Heartbeat    │  │
-                    │   │ Task Poller  │  │
-                    │   │ Executor     │  │
-                    │   │ Self-Updater │  │
-                    │   └──────────────┘  │
-                    └─────────────────────┘
+│  ┌────────────────────────┐  ┌───────────────────────────────┐    │
+│  │ Alerting Service       │  │ Defender Service              │    │
+│  │ (Slack + Email)        │  │ (Graph API client)            │    │
+│  └────────────────────────┘  └──────────┬────────────────────┘    │
+└──────────────────────────────────────────┼────────────────────────┘
+                               │           │
+                    ┌──────────┴──────┐  ┌─┴──────────────────┐
+                    │  Achilles Agent │  │ Microsoft Graph API │
+                    │  (Go binary)   │  │ (Secure Score,      │
+                    │  ┌───────────┐ │  │  Alerts, Controls)  │
+                    │  │ Heartbeat │ │  └─────────────────────┘
+                    │  │ Executor  │ │
+                    │  │ Updater   │ │
+                    │  └───────────┘ │
+                    └────────────────┘
                          Endpoints
 ```
 
@@ -350,14 +385,41 @@ CLERK_SECRET_KEY=sk_test_...
 | `POST` | `/api/tests/certificates/upload` | Upload PFX/P12 certificate |
 | `POST` | `/api/tests/certificates/generate` | Generate self-signed certificate |
 
+### Defender Integration
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/analytics/defender/secure-score` | Current Secure Score with category breakdown |
+| `GET` | `/api/analytics/defender/secure-score/trend` | Secure Score trend over time |
+| `GET` | `/api/analytics/defender/alerts` | Defender alerts with filtering |
+| `GET` | `/api/analytics/defender/controls` | Control profiles with compliance status |
+| `GET` | `/api/analytics/defender/cross-correlation` | Defense Score vs Secure Score correlation |
+| `GET` | `/api/integrations/defender/config` | Defender configuration status |
+| `POST` | `/api/integrations/defender/config` | Save Defender credentials |
+| `POST` | `/api/integrations/defender/sync` | Trigger manual data sync |
+
+### Alerting
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/integrations/alerts/config` | Get alert threshold configuration |
+| `POST` | `/api/integrations/alerts/config` | Save alert thresholds and notification channels |
+
 ## Documentation
 
 ### Getting Started
-- [Windows Docker Installation](docs/deployment/WINDOWS_DOCKER_INSTALL.md) — Complete guide for Windows with Docker Desktop
 - [Quick Start Deployment](docs/deployment/QUICK_START_DEPLOYMENT.md) — 50-minute production deployment
+- [Windows Docker Installation](docs/deployment/WINDOWS_DOCKER_INSTALL.md) — Complete guide for Windows with Docker Desktop
 - [Docker Compose guide](docker-compose.yml) — Local deployment with optional Elasticsearch
 
 ### Deployment
+- [Docker Compose guide](docker-compose.yml) — Local deployment with optional Elasticsearch
+- [Quick Start Deployment](docs/deployment/QUICK_START_DEPLOYMENT.md) — 50-minute production deployment
+- [Railway Deployment](docs/deployment/RAILWAY.md) — Railway with private networking
+- [Render Deployment](docs/deployment/RENDER.md) — Render with persistent disk and Blueprint
+- [Fly.io Deployment](docs/deployment/FLY.md) — Fly.io with custom domains and volumes
+- [Vercel Deployment](docs/deployment/VERCEL.md) — Serverless with Turso and Vercel Blob
+- [Windows Docker Installation](docs/deployment/WINDOWS_DOCKER_INSTALL.md) — Complete guide for Windows with Docker Desktop
 - [Production Deployment Guide](docs/deployment/PRODUCTION_DEPLOYMENT.md) — Comprehensive Railway deployment
 - [Deployment Checklist](docs/deployment/DEPLOYMENT_CHECKLIST.md) — Interactive pre-flight checklist
 
