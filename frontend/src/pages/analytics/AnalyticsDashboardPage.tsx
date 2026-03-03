@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown, ShieldCheck, ShieldOff } from 'lucide-react';
 import SharedLayout from '../../components/shared/Layout';
 import SettingsModal from './components/SettingsModal';
 import FilterBar from './components/FilterBar';
@@ -15,6 +15,7 @@ import CategoryBreakdownChart from './components/CategoryBreakdownChart';
 import TestActivityCard from './components/TestActivityCard';
 import ExecutionsDataTable from './components/ExecutionsDataTable';
 import RiskAcceptanceSummaryCard from './components/RiskAcceptanceSummaryCard';
+import RiskAcceptancesTab from './components/RiskAcceptancesTab';
 import DefenderTab from './components/DefenderTab';
 import SecureScoreCard from './components/SecureScoreCard';
 import TopControlsCard from './components/TopControlsCard';
@@ -38,7 +39,7 @@ import type {
   RiskAcceptance,
 } from '../../services/api/analytics';
 
-type TabType = 'dashboard' | 'executions' | 'defender';
+type TabType = 'dashboard' | 'executions' | 'risk-acceptances' | 'defender';
 
 interface DefenseScoreData {
   overall: number;
@@ -60,7 +61,7 @@ export default function AnalyticsDashboardPage() {
   // UI State
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const validTabs: TabType[] = ['dashboard', 'executions', ...(defenderConfigured ? ['defender' as const] : [])];
+  const validTabs: TabType[] = ['dashboard', 'executions', 'risk-acceptances', ...(defenderConfigured ? ['defender' as const] : [])];
   const [activeTab, setActiveTab] = useState<TabType>(
     tabFromUrl && validTabs.includes(tabFromUrl) ? tabFromUrl : 'dashboard'
   );
@@ -69,6 +70,9 @@ export default function AnalyticsDashboardPage() {
   const [secureScore, setSecureScore] = useState<SecureScoreSummary | null>(null);
   const [defenderTechniqueCount, setDefenderTechniqueCount] = useState<number>(0);
   const [secureScoreTrendData, setSecureScoreTrendData] = useState<SecureScoreTrendPoint[]>([]);
+
+  // Risk acceptances tab badge count
+  const [activeRiskCount, setActiveRiskCount] = useState(0);
 
   // Sync tab state with URL changes
   useEffect(() => {
@@ -96,6 +100,13 @@ export default function AnalyticsDashboardPage() {
 
   // Watch for settings changes (e.g., index pattern change)
   const { settingsVersion } = useAnalyticsAuth();
+
+  // Load active risk count on mount for tab badge
+  useEffect(() => {
+    analyticsApi.listAcceptances({ status: 'active', page: 1, pageSize: 1 })
+      .then((result) => setActiveRiskCount(result.total))
+      .catch(() => {});
+  }, [settingsVersion]);
 
   // Filter options data
   const [availableHostnames, setAvailableHostnames] = useState<FilterOption[]>([]);
@@ -476,6 +487,22 @@ export default function AnalyticsDashboardPage() {
               </span>
             )}
           </button>
+          <button
+            onClick={() => handleTabChange('risk-acceptances')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              activeTab === 'risk-acceptances'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <ShieldOff className="w-4 h-4" />
+            Risk Acceptances
+            {activeRiskCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded">
+                {activeRiskCount}
+              </span>
+            )}
+          </button>
           {defenderConfigured && (
             <button
               onClick={() => handleTabChange('defender')}
@@ -539,6 +566,9 @@ export default function AnalyticsDashboardPage() {
         {activeTab === 'defender' ? (
           /* Defender Tab (full-page view) */
           <DefenderTab />
+        ) : activeTab === 'risk-acceptances' ? (
+          /* Risk Acceptances Tab */
+          <RiskAcceptancesTab onActiveCountChange={setActiveRiskCount} />
         ) : activeTab === 'dashboard' ? (
           /* Dashboard Tab */
           <div className="grid grid-cols-12 auto-rows-[140px] gap-4">
@@ -583,7 +613,7 @@ export default function AnalyticsDashboardPage() {
               <div className="col-span-12 md:col-span-4 row-span-1">
                 <RiskAcceptanceSummaryCard
                   riskAcceptances={riskAcceptances}
-                  onViewAll={() => handleTabChange('executions')}
+                  onViewAll={() => handleTabChange('risk-acceptances')}
                 />
               </div>
             )}

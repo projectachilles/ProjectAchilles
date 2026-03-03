@@ -608,9 +608,14 @@ export const analyticsApi = {
     return response.data.data;
   },
 
-  async listAcceptances(filters?: { status?: 'active' | 'revoked'; test_name?: string }): Promise<RiskAcceptance[]> {
+  async listAcceptances(filters?: {
+    status?: 'active' | 'revoked';
+    test_name?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{ data: RiskAcceptance[]; total: number }> {
     const response = await apiClient.get('/risk-acceptances', { params: filters });
-    return response.data.data;
+    return { data: response.data.data, total: response.data.total };
   },
 
   async lookupAcceptances(testNames: string[]): Promise<Record<string, RiskAcceptance[]>> {

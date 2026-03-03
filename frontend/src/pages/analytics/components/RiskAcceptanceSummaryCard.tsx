@@ -61,7 +61,7 @@ export default function RiskAcceptanceSummaryCard({
             onClick={onViewAll}
             className="flex items-center gap-1 text-sm text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 transition-colors"
           >
-            View in Executions
+            View All
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
         )}

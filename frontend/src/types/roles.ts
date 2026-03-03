@@ -38,11 +38,14 @@ export type Permission =
   | 'settings:certificates:read'
   | 'settings:certificates:create'
   | 'settings:certificates:delete'
+  | 'analytics:risk:read'
+  | 'analytics:risk:write'
   | 'settings:users:manage';
 
 const ALL_PERMISSIONS: readonly Permission[] = [
   'tests:library:read', 'tests:builds:read', 'tests:builds:create', 'tests:builds:delete', 'tests:sync:execute',
   'analytics:dashboards:read', 'analytics:settings:read', 'analytics:settings:write', 'analytics:index:create',
+  'analytics:risk:read', 'analytics:risk:write',
   'endpoints:agents:read', 'endpoints:agents:write', 'endpoints:agents:delete',
   'endpoints:tokens:create', 'endpoints:tokens:delete',
   'endpoints:tasks:read', 'endpoints:tasks:create', 'endpoints:tasks:cancel', 'endpoints:tasks:delete', 'endpoints:tasks:notes', 'endpoints:tasks:command',
@@ -57,7 +60,7 @@ export const ROLE_PERMISSIONS: Record<AppRole, readonly Permission[]> = {
   admin: ALL_PERMISSIONS,
   operator: [
     'tests:library:read', 'tests:builds:read', 'tests:builds:create', 'tests:sync:execute',
-    'analytics:dashboards:read', 'analytics:settings:read',
+    'analytics:dashboards:read', 'analytics:settings:read', 'analytics:risk:read', 'analytics:risk:write',
     'endpoints:agents:read', 'endpoints:agents:write',
     'endpoints:tokens:create',
     'endpoints:tasks:read', 'endpoints:tasks:create', 'endpoints:tasks:cancel', 'endpoints:tasks:notes',
@@ -68,7 +71,7 @@ export const ROLE_PERMISSIONS: Record<AppRole, readonly Permission[]> = {
   ],
   analyst: [
     'tests:library:read',
-    'analytics:dashboards:read', 'analytics:settings:read',
+    'analytics:dashboards:read', 'analytics:settings:read', 'analytics:risk:read',
     'endpoints:tasks:read', 'endpoints:tasks:notes',
     'settings:platform:read',
   ],
@@ -149,6 +152,8 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
       { key: 'analytics:settings:read', label: 'View ES settings' },
       { key: 'analytics:settings:write', label: 'Modify ES settings' },
       { key: 'analytics:index:create', label: 'Create indices' },
+      { key: 'analytics:risk:read', label: 'View risk acceptances' },
+      { key: 'analytics:risk:write', label: 'Manage risk acceptances' },
     ],
   },
   {
