@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Monitor, Wifi, WifiOff, ClipboardList, CheckCircle, XCircle, Activity, ArrowRight } from 'lucide-react';
+import { Monitor, Wifi, WifiOff, ClipboardList, CheckCircle, XCircle, Activity, ArrowRight, Signal, Timer, AlertTriangle } from 'lucide-react';
 import { PieChart, Pie, Cell } from 'recharts';
 import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/shared/ui/Card';
@@ -27,12 +27,12 @@ import {
   type ChartConfig,
 } from '@/components/ui/chart';
 import { agentApi } from '@/services/api/agent';
-import type { AgentMetrics, AgentTask, TaskStatus, TaskType } from '@/types/agent';
+import type { AgentMetrics, AgentTask, TaskStatus, TaskType, FleetHealthMetrics } from '@/types/agent';
 
 interface MetricCardProps {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
-  value: number;
+  value: number | string;
   color: string;
 }
 
@@ -340,6 +340,7 @@ export default function AgentDashboardPage() {
   const navigate = useNavigate();
   const [metrics, setMetrics] = useState<AgentMetrics | null>(null);
   const [recentTasks, setRecentTasks] = useState<AgentTask[]>([]);
+  const [fleetHealth, setFleetHealth] = useState<FleetHealthMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -349,13 +350,15 @@ export default function AgentDashboardPage() {
       setError(null);
 
       try {
-        const [metricsData, tasksResult] = await Promise.all([
+        const [metricsData, tasksResult, healthData] = await Promise.all([
           agentApi.getMetrics(),
           agentApi.listTasks({ limit: 10 }),
+          agentApi.getFleetHealthMetrics().catch(() => null),
         ]);
 
         setMetrics(metricsData);
         setRecentTasks(tasksResult.tasks);
+        setFleetHealth(healthData);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to load dashboard data';
         setError(message);
@@ -432,7 +435,65 @@ export default function AgentDashboardPage() {
           />
         </div>
 
-        {/* Row 2: Task Activity + Version Distribution */}
+        {/* Row 2: Fleet Health KPIs */}
+        {fleetHealth && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <MetricCard
+              icon={Signal}
+              label="Fleet Uptime (30d)"
+              value={`${fleetHealth.fleet_uptime_percent_30d.toFixed(1)}%`}
+              color="text-emerald-500"
+            />
+            <MetricCard
+              icon={CheckCircle}
+              label="Task Success Rate (7d)"
+              value={`${fleetHealth.task_success_rate_7d.toFixed(1)}%`}
+              color="text-blue-500"
+            />
+            <MetricCard
+              icon={Timer}
+              label="MTBF"
+              value={fleetHealth.mtbf_hours != null ? `${fleetHealth.mtbf_hours.toFixed(1)}h` : 'N/A'}
+              color="text-purple-500"
+            />
+            <MetricCard
+              icon={AlertTriangle}
+              label="Stale Agents"
+              value={fleetHealth.stale_agent_count}
+              color={fleetHealth.stale_agent_count > 0 ? 'text-amber-500' : 'text-green-500'}
+            />
+          </div>
+        )}
+
+        {/* Stale Agent Warning */}
+        {fleetHealth && fleetHealth.stale_agent_count > 0 && (
+          <Card className="border-amber-500/30 bg-amber-500/5 mb-6">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-500" />
+                  <div>
+                    <p className="font-medium text-amber-700 dark:text-amber-400">
+                      {fleetHealth.stale_agent_count} stale agent{fleetHealth.stale_agent_count !== 1 ? 's' : ''} detected
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Online agents with no completed tasks in the last 7 days
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/endpoints/agents?stale=true')}
+                >
+                  View <ArrowRight className="w-3 h-3 ml-1" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Task Activity + Version Distribution */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <TaskActivityCard
             activity={metrics?.task_activity_24h ?? { completed: 0, failed: 0, total: 0, success_rate: 0, in_progress: 0 }}
@@ -444,7 +505,7 @@ export default function AgentDashboardPage() {
           />
         </div>
 
-        {/* Row 3: OS + Status Distribution */}
+        {/* OS + Status Distribution */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <DistributionBar
             data={metrics?.by_os ?? {}}
@@ -458,7 +519,7 @@ export default function AgentDashboardPage() {
           />
         </div>
 
-        {/* Row 4: Recent Tasks Table */}
+        {/* Recent Tasks Table */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">Recent Tasks</CardTitle>

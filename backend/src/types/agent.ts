@@ -44,6 +44,7 @@ export interface AgentSummary {
   last_heartbeat: string;
   tags: string[];
   is_online: boolean;
+  is_stale?: boolean;
   rotation_pending?: boolean;
 }
 
@@ -300,6 +301,7 @@ export interface ListAgentsRequest {
   hostname?: string;
   tag?: string;
   online_only?: boolean;
+  stale_only?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -378,6 +380,45 @@ export interface UpdateScheduleRequest {
   status?: 'active' | 'paused';
   priority?: number;
   execution_timeout?: number;
+}
+
+// ============================================================================
+// AGENT EVENTS & HEARTBEAT HISTORY
+// ============================================================================
+
+export type AgentEventType =
+  | 'enrolled'
+  | 'went_offline'
+  | 'came_online'
+  | 'task_failed'
+  | 'task_completed'
+  | 'version_updated'
+  | 'key_rotated'
+  | 'status_changed'
+  | 'decommissioned';
+
+export interface AgentEvent {
+  id: number;
+  agent_id: string;
+  event_type: AgentEventType;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface HeartbeatHistoryPoint {
+  timestamp: string;
+  cpu_percent: number | null;
+  memory_mb: number | null;
+  disk_free_mb: number | null;
+  uptime_seconds: number | null;
+}
+
+export interface FleetHealthMetrics {
+  fleet_uptime_percent_30d: number;
+  task_success_rate_7d: number;
+  mtbf_hours: number | null;
+  stale_agent_count: number;
+  stale_agent_ids: string[];
 }
 
 // ============================================================================

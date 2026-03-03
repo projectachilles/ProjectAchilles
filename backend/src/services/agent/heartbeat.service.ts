@@ -1,5 +1,6 @@
 import { getDatabase } from './database.js';
 import { decryptPendingKey, promotePendingKey, ROTATION_GRACE_PERIOD_SECONDS } from './enrollment.service.js';
+import { recordEvent } from './events.service.js';
 import type {
   HeartbeatPayload,
   AgentSummary,
@@ -9,6 +10,8 @@ import type {
   AgentOS,
   AgentArch,
   ListAgentsRequest,
+  HeartbeatHistoryPoint,
+  FleetHealthMetrics,
 } from '../../types/agent.js';
 
 const HEARTBEAT_TIMEOUT_SECONDS = 180; // 3x the 60s heartbeat interval
@@ -21,6 +24,11 @@ export function processHeartbeat(agentId: string, payload: HeartbeatPayload): vo
   const db = getDatabase();
   const now = new Date().toISOString();
 
+  // Read current state before updating to detect transitions
+  const current = db.prepare(
+    'SELECT agent_version, last_heartbeat FROM agents WHERE id = ?'
+  ).get(agentId) as { agent_version: string; last_heartbeat: string | null } | undefined;
+
   const stmt = db.prepare(`
     UPDATE agents
     SET last_heartbeat = ?,
@@ -31,6 +39,24 @@ export function processHeartbeat(agentId: string, payload: HeartbeatPayload): vo
   `);
 
   stmt.run(now, JSON.stringify(payload), payload.agent_version, now, agentId);
+
+  // Detect came_online: agent was offline (gap > 180s or no previous heartbeat)
+  if (current) {
+    if (!current.last_heartbeat || !isAgentOnline(current.last_heartbeat)) {
+      recordEvent(agentId, 'came_online');
+    }
+
+    // Detect version change
+    if (current.agent_version !== payload.agent_version) {
+      recordEvent(agentId, 'version_updated', {
+        from: current.agent_version,
+        to: payload.agent_version,
+      });
+    }
+  }
+
+  // Record heartbeat history
+  recordHeartbeatHistory(agentId, payload);
 }
 
 // ============================================================================
@@ -261,6 +287,12 @@ export function listAgents(filters: ListAgentsRequest): ListAgentsResult {
     params.push(cutoff);
   }
 
+  if (filters.stale_only) {
+    conditions.push(`status = 'active' AND last_heartbeat IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM tasks t WHERE t.agent_id = agents.id AND t.status = 'completed' AND t.completed_at > datetime('now', '-7 days')
+    )`);
+  }
+
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const limit = filters.limit ?? 50;
   const offset = filters.offset ?? 0;
@@ -289,6 +321,9 @@ export function listAgents(filters: ListAgentsRequest): ListAgentsResult {
     key_rotation_initiated_at: string | null;
   }[];
 
+  // Compute stale set for enrichment
+  const staleIds = getStaleAgentIds(filters.org_id);
+
   const agents: AgentSummary[] = rows.map((row) => ({
     id: row.id,
     hostname: row.hostname,
@@ -300,6 +335,7 @@ export function listAgents(filters: ListAgentsRequest): ListAgentsResult {
     last_heartbeat: row.last_heartbeat ?? '',
     tags: parseTags(row.tags),
     is_online: isAgentOnline(row.last_heartbeat),
+    is_stale: staleIds.has(row.id),
     rotation_pending: row.key_rotation_initiated_at != null,
   }));
 
@@ -351,6 +387,13 @@ export function updateAgent(
   const db = getDatabase();
   const now = new Date().toISOString();
 
+  // Read current status for change detection
+  let previousStatus: string | undefined;
+  if (updates.status !== undefined) {
+    const current = db.prepare('SELECT status FROM agents WHERE id = ?').get(agentId) as { status: string } | undefined;
+    previousStatus = current?.status;
+  }
+
   const fields: string[] = ['updated_at = ?'];
   const params: (string)[] = [now];
 
@@ -369,6 +412,11 @@ export function updateAgent(
   db.prepare(
     `UPDATE agents SET ${fields.join(', ')} WHERE id = ?`
   ).run(...params);
+
+  // Record status change event
+  if (updates.status !== undefined && previousStatus !== undefined && updates.status !== previousStatus) {
+    recordEvent(agentId, 'status_changed', { from: previousStatus, to: updates.status });
+  }
 }
 
 export function deleteAgent(agentId: string): void {
@@ -378,6 +426,8 @@ export function deleteAgent(agentId: string): void {
   db.prepare(
     `UPDATE agents SET status = 'decommissioned', updated_at = ? WHERE id = ?`
   ).run(now, agentId);
+
+  recordEvent(agentId, 'decommissioned');
 }
 
 // ============================================================================
@@ -441,4 +491,199 @@ function parseTags(raw: string | null | undefined): string[] {
   } catch {
     return [];
   }
+}
+
+// ============================================================================
+// HEARTBEAT HISTORY
+// ============================================================================
+
+/**
+ * Record a heartbeat data point in the append-only history table.
+ */
+export function recordHeartbeatHistory(agentId: string, payload: HeartbeatPayload): void {
+  const db = getDatabase();
+  db.prepare(`
+    INSERT INTO heartbeat_history (agent_id, cpu_percent, memory_mb, disk_free_mb, uptime_seconds)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(
+    agentId,
+    payload.system.cpu_percent ?? null,
+    payload.system.memory_mb ?? null,
+    payload.system.disk_free_mb ?? null,
+    payload.system.uptime_seconds ?? null
+  );
+}
+
+/**
+ * Get heartbeat history for an agent over N days.
+ */
+export function getHeartbeatHistory(agentId: string, days: number = 7): HeartbeatHistoryPoint[] {
+  const db = getDatabase();
+  const rows = db.prepare(`
+    SELECT timestamp, cpu_percent, memory_mb, disk_free_mb, uptime_seconds
+    FROM heartbeat_history
+    WHERE agent_id = ? AND timestamp > datetime('now', ?)
+    ORDER BY timestamp ASC
+  `).all(agentId, `-${days} days`) as HeartbeatHistoryPoint[];
+
+  return rows;
+}
+
+/**
+ * Delete heartbeat history rows older than 30 days.
+ * Designed to run hourly as a background job.
+ */
+export function pruneHeartbeatHistory(): number {
+  const db = getDatabase();
+  const result = db.prepare(`
+    DELETE FROM heartbeat_history WHERE timestamp < datetime('now', '-30 days')
+  `).run();
+  if (result.changes > 0) {
+    console.log(`[heartbeat] Pruned ${result.changes} heartbeat history row(s) older than 30 days`);
+  }
+  return result.changes;
+}
+
+/**
+ * Detect agents that have gone offline (last heartbeat > 180s ago)
+ * and record went_offline events if not already recorded recently.
+ * Designed to run every 60s as a background job.
+ */
+export function detectOfflineAgents(): number {
+  const db = getDatabase();
+  const cutoff = new Date(Date.now() - HEARTBEAT_TIMEOUT_SECONDS * 1000).toISOString();
+
+  // Find agents that are active, were online (have a heartbeat), but now exceed timeout.
+  // Use datetime() to normalize timestamp formats (ISO 8601 T-separator vs SQLite space-separator).
+  const offlineAgents = db.prepare(`
+    SELECT a.id FROM agents a
+    WHERE a.status = 'active'
+      AND a.last_heartbeat IS NOT NULL
+      AND datetime(a.last_heartbeat) < datetime(?)
+      AND NOT EXISTS (
+        SELECT 1 FROM agent_events e
+        WHERE e.agent_id = a.id
+          AND e.event_type = 'went_offline'
+          AND datetime(e.created_at) > datetime(a.last_heartbeat)
+      )
+  `).all(cutoff) as { id: string }[];
+
+  for (const agent of offlineAgents) {
+    recordEvent(agent.id, 'went_offline');
+  }
+
+  return offlineAgents.length;
+}
+
+// ============================================================================
+// FLEET HEALTH METRICS
+// ============================================================================
+
+/**
+ * Compute fleet-wide health metrics from heartbeat history and task data.
+ */
+export function getFleetHealthMetrics(orgId?: string): FleetHealthMetrics {
+  const db = getDatabase();
+  const orgCondition = orgId ? " AND a.org_id = ?" : '';
+  const orgParams = orgId ? [orgId] : [];
+
+  // Active agent count
+  const agentCountRow = db.prepare(
+    `SELECT COUNT(*) as count FROM agents a WHERE a.status = 'active'${orgCondition}`
+  ).get(...orgParams) as { count: number };
+  const agentCount = agentCountRow.count;
+
+  // Fleet uptime % (30d): ratio of actual heartbeats to expected heartbeats.
+  // Each heartbeat is ~60s apart, so expected = agent_count * 30 * 24 * 60.
+  let fleetUptime = 0;
+  if (agentCount > 0) {
+    const hbCountRow = db.prepare(`
+      SELECT COUNT(*) as count FROM heartbeat_history h
+      INNER JOIN agents a ON h.agent_id = a.id
+      WHERE h.timestamp > datetime('now', '-30 days') AND a.status = 'active'${orgCondition.replace('a.org_id', 'a.org_id')}
+    `).get(...orgParams) as { count: number };
+
+    const expectedHeartbeats = agentCount * 30 * 24 * 60; // one per minute over 30 days
+    fleetUptime = Math.min(100, (hbCountRow.count / expectedHeartbeats) * 100);
+  }
+
+  // Task success rate (7d)
+  const taskOrgCondition = orgId ? " AND t.org_id = ?" : '';
+  const completedRow = db.prepare(
+    `SELECT COUNT(*) as count FROM tasks t WHERE t.status = 'completed' AND t.completed_at > datetime('now', '-7 days')${taskOrgCondition}`
+  ).get(...orgParams) as { count: number };
+
+  const failedRow = db.prepare(
+    `SELECT COUNT(*) as count FROM tasks t WHERE t.status = 'failed' AND t.completed_at > datetime('now', '-7 days')${taskOrgCondition}`
+  ).get(...orgParams) as { count: number };
+
+  const finished7d = completedRow.count + failedRow.count;
+  const taskSuccessRate = finished7d > 0 ? Math.round((completedRow.count / finished7d) * 100 * 10) / 10 : 100;
+
+  // MTBF: mean time between task failures
+  const failureTimestamps = db.prepare(`
+    SELECT created_at FROM agent_events
+    WHERE event_type = 'task_failed'
+      AND created_at > datetime('now', '-30 days')
+    ORDER BY created_at ASC
+  `).all() as { created_at: string }[];
+
+  let mtbfHours: number | null = null;
+  if (failureTimestamps.length >= 2) {
+    let totalGapMs = 0;
+    for (let i = 1; i < failureTimestamps.length; i++) {
+      const prev = new Date(failureTimestamps[i - 1].created_at + 'Z').getTime();
+      const curr = new Date(failureTimestamps[i].created_at + 'Z').getTime();
+      totalGapMs += curr - prev;
+    }
+    mtbfHours = Math.round((totalGapMs / (failureTimestamps.length - 1) / (1000 * 60 * 60)) * 10) / 10;
+  }
+
+  // Stale agents: active, online-capable, but 0 completed tasks in 7d
+  const staleRows = db.prepare(`
+    SELECT a.id FROM agents a
+    WHERE a.status = 'active'
+      AND a.last_heartbeat IS NOT NULL${orgCondition}
+      AND NOT EXISTS (
+        SELECT 1 FROM tasks t
+        WHERE t.agent_id = a.id
+          AND t.status = 'completed'
+          AND t.completed_at > datetime('now', '-7 days')
+      )
+  `).all(...orgParams) as { id: string }[];
+
+  return {
+    fleet_uptime_percent_30d: Math.round(fleetUptime * 10) / 10,
+    task_success_rate_7d: taskSuccessRate,
+    mtbf_hours: mtbfHours,
+    stale_agent_count: staleRows.length,
+    stale_agent_ids: staleRows.map(r => r.id),
+  };
+}
+
+// ============================================================================
+// STALE AGENT DETECTION (for list enrichment)
+// ============================================================================
+
+/**
+ * Get the set of agent IDs considered "stale" (active but no completed tasks in 7d).
+ */
+export function getStaleAgentIds(orgId?: string): Set<string> {
+  const db = getDatabase();
+  const orgCondition = orgId ? " AND a.org_id = ?" : '';
+  const orgParams = orgId ? [orgId] : [];
+
+  const rows = db.prepare(`
+    SELECT a.id FROM agents a
+    WHERE a.status = 'active'
+      AND a.last_heartbeat IS NOT NULL${orgCondition}
+      AND NOT EXISTS (
+        SELECT 1 FROM tasks t
+        WHERE t.agent_id = a.id
+          AND t.status = 'completed'
+          AND t.completed_at > datetime('now', '-7 days')
+      )
+  `).all(...orgParams) as { id: string }[];
+
+  return new Set(rows.map(r => r.id));
 }

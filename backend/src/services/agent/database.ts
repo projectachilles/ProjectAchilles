@@ -115,6 +115,33 @@ function initializeTables(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
     CREATE INDEX IF NOT EXISTS idx_tasks_org ON tasks(org_id);
     CREATE INDEX IF NOT EXISTS idx_enrollment_tokens_org ON enrollment_tokens(org_id);
+
+    CREATE TABLE IF NOT EXISTS heartbeat_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id TEXT NOT NULL,
+      timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+      cpu_percent REAL,
+      memory_mb REAL,
+      disk_free_mb REAL,
+      uptime_seconds INTEGER,
+      FOREIGN KEY (agent_id) REFERENCES agents(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_hb_hist_agent_ts ON heartbeat_history(agent_id, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_hb_hist_ts ON heartbeat_history(timestamp);
+
+    CREATE TABLE IF NOT EXISTS agent_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id TEXT NOT NULL,
+      event_type TEXT NOT NULL CHECK(event_type IN (
+        'enrolled','went_offline','came_online','task_failed',
+        'task_completed','version_updated','key_rotated',
+        'status_changed','decommissioned'
+      )),
+      details TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (agent_id) REFERENCES agents(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_events_agent_ts ON agent_events(agent_id, created_at);
   `);
 
   // Migration: add notes columns to tasks table

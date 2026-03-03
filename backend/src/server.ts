@@ -20,6 +20,7 @@ import usersRoutes from './api/users.routes.js';
 import integrationsRoutes from './api/integrations.routes.js';
 import { processSchedules } from './services/agent/schedules.service.js';
 import { processAutoRotation } from './services/agent/autoRotation.service.js';
+import { pruneHeartbeatHistory, detectOfflineAgents } from './services/agent/heartbeat.service.js';
 import { initCatalog } from './services/agent/test-catalog.service.js';
 import { IntegrationsSettingsService } from './services/integrations/settings.js';
 import { defenderSyncService } from './api/integrations.routes.js';
@@ -272,6 +273,12 @@ async function startServer() {
     // --- Auto key rotation: check every 60s ---
     const autoRotationInterval = setInterval(processAutoRotation, 60_000);
 
+    // --- Heartbeat history pruning: every hour ---
+    const heartbeatPruneInterval = setInterval(pruneHeartbeatHistory, 60 * 60 * 1000);
+
+    // --- Offline agent detection: every 60s ---
+    const offlineDetectionInterval = setInterval(detectOfflineAgents, 60_000);
+
     // --- Defender sync: scores every 6h, alerts every 5min ---
     let defenderScoreInterval: ReturnType<typeof setInterval> | undefined;
     let defenderAlertInterval: ReturnType<typeof setInterval> | undefined;
@@ -294,6 +301,8 @@ async function startServer() {
     const shutdown = () => {
       clearInterval(schedulerInterval);
       clearInterval(autoRotationInterval);
+      clearInterval(heartbeatPruneInterval);
+      clearInterval(offlineDetectionInterval);
       if (defenderScoreInterval) clearInterval(defenderScoreInterval);
       if (defenderAlertInterval) clearInterval(defenderAlertInterval);
       httpServer.close();

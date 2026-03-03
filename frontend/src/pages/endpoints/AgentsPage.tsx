@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { UserPlus, ChevronDown, ChevronUp, Download, Unplug } from 'lucide-react';
 import { useHasPermission } from '@/hooks/useAppRole';
 import { useAppDispatch, useAppSelector } from '../../store';
@@ -35,6 +36,7 @@ import type { AgentSummary, ListAgentsRequest, Agent } from '@/types/agent';
 
 export default function AgentsPage() {
   const dispatch = useAppDispatch();
+  const [searchParams] = useSearchParams();
   const { agents, filters, loading, error } = useAppSelector(
     (state) => state.agent
   );
@@ -49,6 +51,14 @@ export default function AgentsPage() {
   const canEnroll = useHasPermission('endpoints:tokens:create');
   const canWriteAgent = useHasPermission('endpoints:agents:write');
   const canDeleteAgent = useHasPermission('endpoints:agents:delete');
+
+  // Handle ?stale=true query param from dashboard link
+  useEffect(() => {
+    if (searchParams.get('stale') === 'true') {
+      dispatch(setFilters({ ...filters, stale_only: true }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (isInitialMount.current) {

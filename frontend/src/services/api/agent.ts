@@ -17,6 +17,10 @@ import type {
   ScheduleStatus,
   CreateScheduleRequest,
   UpdateScheduleRequest,
+  HeartbeatHistoryPoint,
+  AgentEvent,
+  AgentEventType,
+  FleetHealthMetrics,
 } from '@/types/agent';
 
 export const agentApi = {
@@ -189,6 +193,23 @@ export const agentApi = {
     await apiClient.delete(`/agent/admin/schedules/${id}`);
   },
 
+  // --- Heartbeat History & Events & Fleet Health ---
+
+  async getHeartbeatHistory(agentId: string, days: number = 7): Promise<HeartbeatHistoryPoint[]> {
+    const response = await apiClient.get(`/agent/admin/agents/${agentId}/heartbeats`, { params: { days } });
+    return response.data.data;
+  },
+
+  async getAgentEvents(agentId: string, params?: { limit?: number; offset?: number; event_type?: AgentEventType }): Promise<{ events: AgentEvent[]; total: number }> {
+    const response = await apiClient.get(`/agent/admin/agents/${agentId}/events`, { params });
+    return response.data.data;
+  },
+
+  async getFleetHealthMetrics(): Promise<FleetHealthMetrics> {
+    const response = await apiClient.get('/agent/admin/metrics/fleet-health');
+    return response.data.data;
+  },
+
   // --- Auto-Rotation Settings ---
 
   async getAutoRotationSettings(): Promise<{ enabled: boolean; intervalDays: number }> {
@@ -220,4 +241,8 @@ export type {
   ScheduleStatus,
   CreateScheduleRequest,
   UpdateScheduleRequest,
+  HeartbeatHistoryPoint,
+  AgentEvent,
+  AgentEventType,
+  FleetHealthMetrics,
 };

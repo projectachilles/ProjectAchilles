@@ -18,6 +18,7 @@ import type {
 } from '../../types/agent.js';
 import { getTestMetadata } from './test-catalog.service.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
+import { recordEvent } from './events.service.js';
 
 // ============================================================================
 // HELPERS
@@ -529,6 +530,11 @@ export function updateTaskStatus(
 
   db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`).run(taskId);
 
+  // Record lifecycle events
+  if (newStatus === 'failed') {
+    recordEvent(agentId, 'task_failed', { task_id: taskId, task_type: row.type });
+  }
+
   const updated = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as TaskRow;
   return parseTaskRow(updated);
 }
@@ -565,6 +571,8 @@ export function submitResult(
     SET result = ?, status = 'completed', completed_at = datetime('now')
     WHERE id = ?
   `).run(JSON.stringify(result), taskId);
+
+  recordEvent(agentId, 'task_completed', { task_id: taskId, task_type: row.type });
 
   // Post-completion hook: mark agent as uninstalled when an uninstall task completes
   if (row.type === 'uninstall') {

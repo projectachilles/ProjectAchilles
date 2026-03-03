@@ -13,13 +13,16 @@ import {
   deleteAgent,
   addTag,
   removeTag,
+  getHeartbeatHistory,
+  getFleetHealthMetrics,
 } from '../../services/agent/heartbeat.service.js';
+import { listAgentEvents } from '../../services/agent/events.service.js';
 import { rotateAgentKey } from '../../services/agent/enrollment.service.js';
 import {
   getAutoRotationSettings,
   saveAutoRotationSettings,
 } from '../../services/agent/autoRotation.service.js';
-import type { HeartbeatPayload, ListAgentsRequest } from '../../types/agent.js';
+import type { HeartbeatPayload, ListAgentsRequest, AgentEventType } from '../../types/agent.js';
 
 // ============================================================================
 // AGENT HEARTBEAT ROUTES (agent auth applied at mount time)
@@ -103,6 +106,7 @@ adminAgentRouter.get(
       hostname: req.query.hostname as string | undefined,
       tag: req.query.tag as string | undefined,
       online_only: req.query.online_only === 'true',
+      stale_only: req.query.stale_only === 'true',
       limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
       offset: req.query.offset ? parseInt(req.query.offset as string, 10) : undefined,
     };
@@ -253,6 +257,60 @@ adminAgentRouter.delete(
     const tags = removeTag(req.params.id, tag);
 
     res.json({ success: true, data: { id: req.params.id, tags } });
+  })
+);
+
+// ============================================================================
+// HEARTBEAT HISTORY & EVENTS & FLEET HEALTH
+// ============================================================================
+
+/**
+ * GET /admin/agents/:id/heartbeats?days=7
+ * Get heartbeat history for sparkline chart.
+ */
+adminAgentRouter.get(
+  '/agents/:id/heartbeats',
+  requirePermission('endpoints:agents:read'),
+  requireAgentOrgAccess,
+  asyncHandler(async (req: Request, res: Response) => {
+    const days = req.query.days ? parseInt(req.query.days as string, 10) : 7;
+    if (days < 1 || days > 30) {
+      throw new AppError('days must be between 1 and 30', 400);
+    }
+    const history = getHeartbeatHistory(req.params.id, days);
+    res.json({ success: true, data: history });
+  })
+);
+
+/**
+ * GET /admin/agents/:id/events?limit=50&offset=0&event_type=
+ * Get agent event log.
+ */
+adminAgentRouter.get(
+  '/agents/:id/events',
+  requirePermission('endpoints:agents:read'),
+  requireAgentOrgAccess,
+  asyncHandler(async (req: Request, res: Response) => {
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
+    const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : 0;
+    const event_type = req.query.event_type as AgentEventType | undefined;
+
+    const result = listAgentEvents(req.params.id, { limit, offset, event_type });
+    res.json({ success: true, data: result });
+  })
+);
+
+/**
+ * GET /admin/metrics/fleet-health
+ * Get fleet-wide health KPIs.
+ */
+adminAgentRouter.get(
+  '/metrics/fleet-health',
+  requirePermission('endpoints:agents:read'),
+  asyncHandler(async (req: Request, res: Response) => {
+    const orgId = req.query.org_id as string | undefined;
+    const metrics = getFleetHealthMetrics(orgId);
+    res.json({ success: true, data: metrics });
   })
 );
 

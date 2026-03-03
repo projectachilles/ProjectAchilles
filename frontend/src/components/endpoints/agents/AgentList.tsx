@@ -2,8 +2,9 @@
  * Agent List Component - Table view of agents
  */
 
-import { MoreHorizontal, Power, PowerOff, Trash2, KeyRound, Download, Unplug } from 'lucide-react';
+import { MoreHorizontal, Power, PowerOff, Trash2, KeyRound, Download, Unplug, Eye } from 'lucide-react';
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Table,
   TableHeader,
@@ -53,6 +54,7 @@ export default function AgentList({
   onAction,
   onSelectAgent,
 }: AgentListProps) {
+  const navigate = useNavigate();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const allSelected =
     agents.length > 0 && agents.every((a) => selectedAgents.includes(a.id));
@@ -102,7 +104,7 @@ export default function AgentList({
                 <TableCell>
                   <button
                     className="text-left hover:text-primary transition-colors font-medium"
-                    onClick={() => onSelectAgent(agent)}
+                    onClick={() => navigate(`/endpoints/agents/${agent.id}`)}
                   >
                     {agent.hostname}
                   </button>
@@ -119,6 +121,9 @@ export default function AgentList({
                       <Badge variant="warning" className="text-xs ml-1">outdated</Badge>
                     ) : null;
                   })()}
+                  {agent.is_stale && (
+                    <Badge variant="warning" className="text-xs ml-1">stale</Badge>
+                  )}
                   {agent.rotation_pending && (
                     <Badge variant="warning" className="text-xs ml-1">key rotating</Badge>
                   )}
@@ -153,6 +158,12 @@ export default function AgentList({
                     </Button>
                     {openMenu === agent.id && (
                       <div className="absolute right-0 top-8 z-50 w-40 rounded-base border-theme border-border bg-card shadow-theme py-1">
+                        <button
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2"
+                          onClick={() => { onSelectAgent(agent); setOpenMenu(null); }}
+                        >
+                          <Eye className="w-4 h-4" /> Quick View
+                        </button>
                         {agent.status === 'active' ? (
                           <button
                             className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2"

@@ -9,6 +9,7 @@ import type {
   CreateTokenResponse,
 } from '../../types/agent.js';
 import { getPublicKeyBase64, ensureSigningKeyPair } from './signing.service.js';
+import { recordEvent } from './events.service.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -134,6 +135,13 @@ export async function enrollAgent(request: EnrollmentRequest): Promise<Enrollmen
   });
 
   transaction();
+
+  recordEvent(agentId, 'enrolled', {
+    hostname: request.hostname,
+    os: request.os,
+    arch: request.arch,
+    agent_version: request.agent_version,
+  });
 
   const serverUrl = process.env.AGENT_SERVER_URL || `http://localhost:${process.env.PORT || '3000'}`;
 
@@ -282,6 +290,8 @@ export async function rotateAgentKey(agentId: string): Promise<{ agent_key: stri
         updated_at = ?
     WHERE id = ?
   `).run(apiKeyHash, encryptedKey, now, now, agentId);
+
+  recordEvent(agentId, 'key_rotated');
 
   return {
     agent_key: plainApiKey,

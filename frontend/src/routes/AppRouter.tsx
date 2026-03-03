@@ -28,6 +28,7 @@ import SettingsPage from '../pages/settings/SettingsPage';
 // Endpoints Module Pages (Achilles Agent)
 import AgentDashboardPage from '../pages/endpoints/AgentDashboardPage';
 import AgentsPage from '../pages/endpoints/AgentsPage';
+import AgentDetailPage from '../pages/endpoints/AgentDetailPage';
 import TasksPage from '../pages/endpoints/TasksPage';
 
 // Protected Route wrapper for Analytics
@@ -118,6 +119,7 @@ export default function AppRouter() {
         <Route index element={<Navigate to="/endpoints/dashboard" replace />} />
         <Route path="dashboard" element={<AgentDashboardPage />} />
         <Route path="agents" element={<AgentsPage />} />
+        <Route path="agents/:agentId" element={<AgentDetailPage />} />
         <Route path="tasks" element={<TasksPage />} />
       </Route>
     </Routes>
