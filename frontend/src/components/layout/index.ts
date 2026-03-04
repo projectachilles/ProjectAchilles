@@ -1,4 +1,4 @@
 export { AppSidebar } from './AppSidebar';
 export { TopBar } from './TopBar';
-export { SidebarLayout } from './SidebarLayout';
+export { SidebarLayout, useLayoutActions } from './SidebarLayout';
 export { default } from './SidebarLayout';
