@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAnalyticsAuth } from "@/hooks/useAnalyticsAuth";
 import { useCanAccessModule, useHasPermission } from "@/hooks/useAppRole";
@@ -53,6 +54,27 @@ export function AppSidebar({ collapsed }: AppSidebarProps) {
   const [expandedModules, setExpandedModules] = useState<Set<string>>(
     () => new Set(["/dashboard", "/analytics", "/endpoints"]),
   );
+
+  // Flyout panel for collapsed sidebar
+  const [flyoutModule, setFlyoutModule] = useState<ModuleWithItems | null>(null);
+  const [flyoutY, setFlyoutY] = useState(0);
+  const flyoutTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const openFlyout = (module: ModuleWithItems, e: React.MouseEvent) => {
+    if (module.locked) return;
+    if (flyoutTimeout.current) clearTimeout(flyoutTimeout.current);
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setFlyoutY(rect.top);
+    setFlyoutModule(module);
+  };
+
+  const closeFlyout = () => {
+    flyoutTimeout.current = setTimeout(() => setFlyoutModule(null), 120);
+  };
+
+  const keepFlyout = () => {
+    if (flyoutTimeout.current) clearTimeout(flyoutTimeout.current);
+  };
 
   const modules: ModuleWithItems[] = [
     {
@@ -204,44 +226,40 @@ export function AppSidebar({ collapsed }: AppSidebarProps) {
               const Icon = module.icon;
 
               if (collapsed) {
-                const iconEl = (
+                // Locked modules: simple tooltip. Unlocked: flyout with sub-items.
+                if (module.locked) {
+                  return (
+                    <Tooltip key={module.path} delayDuration={300}>
+                      <TooltipTrigger asChild>
+                        <div
+                          className="flex items-center justify-center px-2 py-2.5 rounded-base cursor-default opacity-50 text-sidebar-foreground/70"
+                        >
+                          <Icon className="h-5 w-5 shrink-0" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-[180px] text-center">
+                        Requires configuration — go to Settings to unlock
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                }
+
+                return (
                   <div
+                    key={module.path}
                     className={cn(
-                      "flex items-center justify-center px-2 py-2.5 rounded-base text-sm font-medium transition-all",
-                      module.locked
-                        ? "cursor-default opacity-50 text-sidebar-foreground/70"
-                        : "cursor-pointer hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                      !module.locked && active
+                      "flex items-center justify-center px-2 py-2.5 rounded-base text-sm font-medium transition-all cursor-pointer",
+                      "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                      active
                         ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                        : !module.locked
-                          ? "text-sidebar-foreground/70"
-                          : "",
+                        : "text-sidebar-foreground/70",
                     )}
-                    onClick={() => {
-                      if (!module.locked) navigate(module.path);
-                    }}
+                    onClick={() => navigate(module.path)}
+                    onMouseEnter={(e) => openFlyout(module, e)}
+                    onMouseLeave={closeFlyout}
                   >
                     <Icon className="h-5 w-5 shrink-0" />
                   </div>
-                );
-
-                return (
-                  <Tooltip
-                    key={module.path}
-                    delayDuration={module.locked ? 300 : 0}
-                  >
-                    <TooltipTrigger asChild>
-                      <div>{iconEl}</div>
-                    </TooltipTrigger>
-                    <TooltipContent
-                      side="right"
-                      className="max-w-45 text-center"
-                    >
-                      {module.locked
-                        ? "Requires configuration — go to Settings to unlock"
-                        : module.label}
-                    </TooltipContent>
-                  </Tooltip>
                 );
               }
 
@@ -381,6 +399,42 @@ export function AppSidebar({ collapsed }: AppSidebarProps) {
             ))}
         </div>
       </aside>
+
+      {/* Collapsed flyout panel — rendered in a portal to escape sidebar overflow */}
+      {collapsed && flyoutModule && createPortal(
+        <div
+          style={{ top: flyoutY, left: 64 }}
+          className="fixed z-50 min-w-[160px] bg-sidebar border border-sidebar-border rounded-base shadow-lg py-1"
+          onMouseEnter={keepFlyout}
+          onMouseLeave={closeFlyout}
+        >
+          <p className="px-3 py-1.5 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
+            {flyoutModule.label}
+          </p>
+          {flyoutModule.subItems.map((item) => {
+            const ItemIcon = item.icon;
+            const itemActive = isItemActive(item.path);
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                onClick={() => setFlyoutModule(null)}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2 text-sm transition-all",
+                  "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  itemActive
+                    ? "font-semibold text-sidebar-foreground"
+                    : "font-medium text-sidebar-foreground/70",
+                )}
+              >
+                <ItemIcon className="h-4 w-4 shrink-0" />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>,
+        document.body,
+      )}
     </TooltipProvider>
   );
 }
