@@ -196,7 +196,7 @@ export default function AnalyticsDashboardPage() {
   }, [filterState.filters, activeTab, executionsPage, executionsPageSize, executionsSortField, executionsSortOrder, settingsVersion]);
 
   // Load filter dropdown options
-  const loadFilterOptions = useCallback(async () => {
+  async function loadFilterOptions() {
     setLoadingFilters(true);
     try {
       const [tests, techniques, hostnames, categories, severities, threatActors, tags, errorNames, errorCodes] = await Promise.all([
@@ -225,7 +225,7 @@ export default function AnalyticsDashboardPage() {
     } finally {
       setLoadingFilters(false);
     }
-  }, []);
+  }
 
   // Load dashboard data
   const loadDashboardData = useCallback(async () => {
@@ -424,7 +424,7 @@ export default function AnalyticsDashboardPage() {
   }, [executionsData, loadRiskAcceptances]);
 
   // Refresh handler
-  const handleRefresh = useCallback(async () => {
+  async function handleRefresh() {
     setIsRefreshing(true);
     await loadFilterOptions();
     if (activeTab === 'dashboard') {
@@ -433,7 +433,7 @@ export default function AnalyticsDashboardPage() {
       await loadExecutionsData();
     }
     setIsRefreshing(false);
-  }, [activeTab, loadFilterOptions, loadDashboardData, loadExecutionsData]);
+  }
 
   // Register TopBar actions for this page
   useEffect(() => {
@@ -442,13 +442,8 @@ export default function AnalyticsDashboardPage() {
       onRefreshClick: handleRefresh,
       isRefreshing,
     });
-  }, [setTopBarActions, handleRefresh, isRefreshing]);
-
-  // Clean up TopBar actions on unmount only
-  useEffect(() => {
     return () => setTopBarActions({});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [setTopBarActions, handleRefresh, isRefreshing]);
 
   // Handle sort change
   const handleSort = (field: string, order: 'asc' | 'desc') => {
