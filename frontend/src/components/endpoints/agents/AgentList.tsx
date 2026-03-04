@@ -97,8 +97,11 @@ export default function AgentList({
                   />
                 </TableCell>
                 <TableCell>
-                  <div className="flex items-center" title={agent.is_online ? 'Online' : 'Offline'}>
+                  <div className="flex items-center gap-1.5" title={agent.is_online ? 'Online' : 'Offline'}>
                     <StatusDot status={agent.is_online ? 'online' : 'offline'} />
+                    {agent.status === 'uninstalled' && <Badge variant="default" className="text-xs">Uninstalled</Badge>}
+                    {agent.status === 'decommissioned' && <Badge variant="destructive" className="text-xs">Decommissioned</Badge>}
+                    {agent.status === 'disabled' && <Badge variant="warning" className="text-xs">Disabled</Badge>}
                   </div>
                 </TableCell>
                 <TableCell>
