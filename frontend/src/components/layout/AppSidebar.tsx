@@ -1,6 +1,7 @@
-import { Link, useLocation } from 'react-router-dom';
-import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
-import { useCanAccessModule, useHasPermission } from '@/hooks/useAppRole';
+import { useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useAnalyticsAuth } from "@/hooks/useAnalyticsAuth";
+import { useCanAccessModule, useHasPermission } from "@/hooks/useAppRole";
 import {
   Shield,
   BarChart3,
@@ -9,27 +10,25 @@ import {
   Bookmark,
   Clock,
   Settings,
-  ChevronLeft,
+  ChevronDown,
+  ChevronUp,
   LayoutDashboard,
   Cpu,
   Package,
   Activity,
   Lock,
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
-import { ScrollArea } from '@/components/ui/scroll-area';
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
   TooltipProvider,
-} from '@/components/ui/tooltip';
+} from "@/components/ui/tooltip";
 
 interface AppSidebarProps {
   collapsed: boolean;
-  onCollapse: (collapsed: boolean) => void;
 }
 
 interface NavItem {
@@ -39,186 +38,147 @@ interface NavItem {
   locked?: boolean;
 }
 
-interface NavSection {
-  title: string;
-  items: NavItem[];
+interface ModuleWithItems extends NavItem {
+  subItems: NavItem[];
 }
 
-export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
+export function AppSidebar({ collapsed }: AppSidebarProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { configured: analyticsConfigured } = useAnalyticsAuth();
-  const canAccessEndpoints = useCanAccessModule('endpoints');
-  const canAccessSettings = useCanAccessModule('settings');
-  const canAccessAgents = useHasPermission('endpoints:agents:read');
+  const canAccessEndpoints = useCanAccessModule("endpoints");
+  const canAccessSettings = useCanAccessModule("settings");
+  const canAccessAgents = useHasPermission("endpoints:agents:read");
 
-  // Determine current module
-  const getCurrentModule = () => {
-    if (location.pathname.startsWith('/analytics')) return 'analytics';
-    if (location.pathname.startsWith('/endpoints')) return 'endpoints';
-    return 'tests';
-  };
+  const [expandedModules, setExpandedModules] = useState<Set<string>>(
+    () => new Set(["/dashboard", "/analytics", "/endpoints"]),
+  );
 
-  const currentModule = getCurrentModule();
-
-  // Module navigation — filtered by role
-  const moduleNav: NavItem[] = [
-    { label: 'Tests', icon: Shield, path: '/dashboard' },
+  const modules: ModuleWithItems[] = [
     {
-      label: 'Analytics',
+      label: "Tests",
+      icon: Shield,
+      path: "/dashboard",
+      subItems: [
+        { label: "Browse All", icon: Home, path: "/dashboard" },
+        { label: "Favorites", icon: Bookmark, path: "/favorites" },
+        { label: "Recent", icon: Clock, path: "/recent" },
+      ],
+    },
+    {
+      label: "Analytics",
       icon: BarChart3,
-      path: '/analytics',
+      path: "/analytics",
       locked: !analyticsConfigured,
+      subItems: [
+        { label: "Dashboard", icon: LayoutDashboard, path: "/analytics" },
+        {
+          label: "Executions",
+          icon: Activity,
+          path: "/analytics?tab=executions",
+        },
+      ],
     },
     ...(canAccessEndpoints
-      ? [{ label: 'Endpoints', icon: Monitor, path: '/endpoints' }]
+      ? [
+          {
+            label: "Endpoints",
+            icon: Monitor,
+            path: "/endpoints",
+            subItems: [
+              ...(canAccessAgents
+                ? [
+                    {
+                      label: "Dashboard",
+                      icon: LayoutDashboard,
+                      path: "/endpoints/dashboard",
+                    },
+                    { label: "Agents", icon: Cpu, path: "/endpoints/agents" },
+                  ]
+                : []),
+              { label: "Tasks", icon: Package, path: "/endpoints/tasks" },
+            ],
+          },
+        ]
       : []),
   ];
 
-  // Module-specific navigation sections
-  const getModuleNavSections = (): NavSection[] => {
-    switch (currentModule) {
-      case 'tests':
-        return [
-          {
-            title: 'Tests',
-            items: [
-              { label: 'Browse All', icon: Home, path: '/dashboard' },
-              { label: 'Favorites', icon: Bookmark, path: '/favorites' },
-              { label: 'Recent', icon: Clock, path: '/recent' },
-            ],
-          },
-        ];
-      case 'analytics':
-        return [
-          {
-            title: 'Analytics',
-            items: [
-              { label: 'Dashboard', icon: LayoutDashboard, path: '/analytics' },
-              { label: 'Executions', icon: Activity, path: '/analytics?tab=executions' },
-            ],
-          },
-        ];
-      case 'endpoints':
-        return [
-          {
-            title: 'Endpoints',
-            items: [
-              ...(canAccessAgents ? [
-                { label: 'Dashboard', icon: LayoutDashboard, path: '/endpoints/dashboard' },
-                { label: 'Agents', icon: Cpu, path: '/endpoints/agents' },
-              ] : []),
-              { label: 'Tasks', icon: Package, path: '/endpoints/tasks' },
-            ],
-          },
-        ];
-      default:
-        return [];
-    }
+  const toggleModule = (path: string) => {
+    setExpandedModules((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
   };
 
-  const moduleNavSections = getModuleNavSections();
+  const isModuleActive = (module: ModuleWithItems) => {
+    if (module.path === "/dashboard") {
+      return ["/dashboard", "/favorites", "/recent"].includes(
+        location.pathname,
+      );
+    }
+    return location.pathname.startsWith(module.path);
+  };
 
-  const isActive = (path: string) => {
-    // Handle paths with query params
-    const [basePath, queryString] = path.split('?');
+  const isItemActive = (path: string) => {
+    const [basePath, queryString] = path.split("?");
     const currentSearch = new URLSearchParams(location.search);
 
-    if (basePath === '/dashboard') {
-      return location.pathname === '/dashboard';
-    }
-
-    // Exact match for favorites and recent
-    if (basePath === '/favorites' || basePath === '/recent') {
+    if (basePath === "/dashboard") return location.pathname === "/dashboard";
+    if (basePath === "/favorites" || basePath === "/recent")
       return location.pathname === basePath;
-    }
 
-    // For paths with query params (e.g., /analytics?tab=executions)
     if (queryString) {
       const pathParams = new URLSearchParams(queryString);
-      const pathTab = pathParams.get('tab');
-      const currentTab = currentSearch.get('tab');
+      const pathTab = pathParams.get("tab");
+      const currentTab = currentSearch.get("tab");
       return location.pathname === basePath && currentTab === pathTab;
     }
 
-    // For /analytics without tab param, only match when no tab is set or tab=dashboard
-    if (basePath === '/analytics') {
-      const currentTab = currentSearch.get('tab');
-      return location.pathname === '/analytics' && (!currentTab || currentTab === 'dashboard');
-    }
-
-    return location.pathname === path || location.pathname.startsWith(path + '/');
-  };
-
-  const NavItemComponent = ({ item }: { item: NavItem }) => {
-    const active = isActive(item.path);
-    const Icon = item.icon;
-
-    const linkContent = (
-      <Link
-        to={item.path}
-        className={cn(
-          'flex items-center gap-3 px-3 py-2.5 rounded-base text-sm font-medium transition-all',
-          'hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-          active && 'bg-sidebar-primary text-sidebar-primary-foreground',
-          !active && 'text-sidebar-foreground/70',
-          collapsed && 'justify-center px-2'
-        )}
-      >
-        <Icon className={cn('h-5 w-5 shrink-0', active && 'text-sidebar-primary-foreground')} />
-        {!collapsed && (
-          <>
-            <span className="flex-1">{item.label}</span>
-            {item.locked && <Lock className="h-3.5 w-3.5 opacity-60" />}
-          </>
-        )}
-      </Link>
-    );
-
-    if (collapsed) {
+    if (basePath === "/analytics") {
+      const currentTab = currentSearch.get("tab");
       return (
-        <Tooltip delayDuration={0}>
-          <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
-          <TooltipContent side="right" className="flex items-center gap-2">
-            {item.label}
-            {item.locked && <Lock className="h-3 w-3 opacity-60" />}
-          </TooltipContent>
-        </Tooltip>
+        location.pathname === "/analytics" &&
+        (!currentTab || currentTab === "dashboard")
       );
     }
 
-    return linkContent;
+    return (
+      location.pathname === path || location.pathname.startsWith(path + "/")
+    );
   };
 
   return (
     <TooltipProvider>
       <aside
         className={cn(
-          'flex flex-col h-screen bg-sidebar border-r-[length:var(--theme-border-width)] border-sidebar-border transition-all duration-200',
-          collapsed ? 'w-16' : 'w-60'
+          "flex flex-col h-screen bg-sidebar border-r-[length:var(--theme-border-width)] border-sidebar-border transition-all duration-200",
+          collapsed ? "w-16" : "w-60",
         )}
       >
         {/* Header */}
         <div
           className={cn(
-            'relative flex items-center h-14 px-3 border-b-[length:var(--theme-border-width)] border-sidebar-border overflow-hidden',
-            collapsed ? 'justify-center' : 'justify-start'
+            "relative flex items-center h-14 px-3 border-b-[length:var(--theme-border-width)] border-sidebar-border overflow-hidden",
+            collapsed ? "justify-center" : "justify-start",
           )}
         >
-          {/* Shield icon - visible when collapsed */}
           <div
             className={cn(
-              'absolute flex items-center justify-center w-8 h-8 rounded-base bg-sidebar-foreground shrink-0 transition-all duration-300',
-              collapsed ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
+              "absolute flex items-center justify-center w-8 h-8 rounded-base bg-sidebar-foreground shrink-0 transition-all duration-300",
+              collapsed ? "opacity-100 scale-100" : "opacity-0 scale-75",
             )}
           >
             <Shield className="h-5 w-5 text-sidebar" />
           </div>
-
-          {/* Full logo - visible when expanded */}
           <div
             className={cn(
-              'flex items-center h-8 transition-all duration-300',
-              collapsed ? 'opacity-0 scale-95' : 'opacity-100 scale-100'
+              "flex items-center h-8 transition-all duration-300",
+              collapsed ? "opacity-0 scale-95" : "opacity-100 scale-100",
             )}
           >
             <img
@@ -231,61 +191,194 @@ export function AppSidebar({ collapsed, onCollapse }: AppSidebarProps) {
 
         {/* Navigation */}
         <ScrollArea className="flex-1 px-2 py-4">
-          {/* Module Navigation */}
-          <div className="space-y-1">
-            {!collapsed && (
-              <p className="px-3 py-1.5 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
-                Modules
-              </p>
-            )}
-            {moduleNav.map((item) => (
-              <NavItemComponent key={item.path} item={item} />
-            ))}
+          {!collapsed && (
+            <p className="px-3 py-1.5 mb-1 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
+              Modules
+            </p>
+          )}
+
+          <div className="flex flex-col gap-2">
+            {modules.map((module) => {
+              const active = isModuleActive(module);
+              const expanded = expandedModules.has(module.path);
+              const Icon = module.icon;
+
+              if (collapsed) {
+                const iconEl = (
+                  <div
+                    className={cn(
+                      "flex items-center justify-center px-2 py-2.5 rounded-base text-sm font-medium transition-all",
+                      module.locked
+                        ? "cursor-default opacity-50 text-sidebar-foreground/70"
+                        : "cursor-pointer hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                      !module.locked && active
+                        ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                        : !module.locked
+                          ? "text-sidebar-foreground/70"
+                          : "",
+                    )}
+                    onClick={() => {
+                      if (!module.locked) navigate(module.path);
+                    }}
+                  >
+                    <Icon className="h-5 w-5 shrink-0" />
+                  </div>
+                );
+
+                return (
+                  <Tooltip
+                    key={module.path}
+                    delayDuration={module.locked ? 300 : 0}
+                  >
+                    <TooltipTrigger asChild>
+                      <div>{iconEl}</div>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="right"
+                      className="max-w-45 text-center"
+                    >
+                      {module.locked
+                        ? "Requires configuration — go to Settings to unlock"
+                        : module.label}
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              }
+
+              const moduleRow = (
+                <div
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-base text-sm font-medium transition-all select-none ",
+                    module.locked
+                      ? "cursor-default opacity-50 text-sidebar-foreground/70 border-transparent"
+                      : "cursor-pointer hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                    !module.locked && active
+                      ? "bg-sidebar-accent text-sidebar-foreground border-sidebar-border"
+                      : !module.locked
+                        ? "text-sidebar-foreground/70 border-transparent"
+                        : "",
+                  )}
+                  onClick={() => {
+                    if (!module.locked) navigate(module.path);
+                  }}
+                >
+                  <Icon className="h-5 w-5 shrink-0" />
+                  <span className="flex-1">{module.label}</span>
+                  {module.locked ? (
+                    <Lock className="h-3.5 w-3.5 opacity-60" />
+                  ) : (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleModule(module.path);
+                      }}
+                      className="p-0.5 rounded hover:bg-sidebar-border/20 cursor-pointer"
+                    >
+                      {expanded ? (
+                        <ChevronUp className="h-4 w-4 opacity-60" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 opacity-60" />
+                      )}
+                    </button>
+                  )}
+                </div>
+              );
+
+              return (
+                <div key={module.path} className="mb-1">
+                  {/* Module row — wrapped in tooltip when locked */}
+                  {module.locked ? (
+                    <Tooltip delayDuration={300}>
+                      <TooltipTrigger asChild>
+                        <div>{moduleRow}</div>
+                      </TooltipTrigger>
+                      <TooltipContent
+                        side="right"
+                        className="max-w-45 text-center"
+                      >
+                        Requires configuration — go to Settings to unlock
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    moduleRow
+                  )}
+
+                  {/* Sub-items — grid trick for smooth height transition */}
+                  {!module.locked && (
+                    <div
+                      className={cn(
+                        "grid transition-[grid-template-rows] duration-200 ease-in-out",
+                        expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+                      )}
+                    >
+                      <div className="overflow-hidden">
+                        <div className="ml-3 border-l border-sidebar-border pl-1 mt-0.5 space-y-0.5">
+                      {module.subItems.map((item) => {
+                        const itemActive = isItemActive(item.path);
+                        const ItemIcon = item.icon;
+                        return (
+                          <Link
+                            key={item.path}
+                            to={item.path}
+                            className={cn(
+                              "flex items-center gap-3 px-3 py-2 rounded-base text-sm transition-all",
+                              "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                              itemActive
+                                ? "font-semibold text-sidebar-foreground"
+                                : "font-medium text-sidebar-foreground/70",
+                            )}
+                          >
+                            <ItemIcon className="h-4 w-4 shrink-0" />
+                            <span>{item.label}</span>
+                          </Link>
+                        );
+                      })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-
-          <Separator className="my-4 bg-sidebar-border" />
-
-          {/* Module-specific sections */}
-          {moduleNavSections.map((section) => (
-            <div key={section.title} className="space-y-1">
-              {!collapsed && (
-                <p className="px-3 py-1.5 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
-                  {section.title}
-                </p>
-              )}
-              {section.items.map((item) => (
-                <NavItemComponent key={item.path} item={item} />
-              ))}
-            </div>
-          ))}
         </ScrollArea>
 
         {/* Footer */}
         <div className="border-t-[length:var(--theme-border-width)] border-sidebar-border p-2">
-          {canAccessSettings && (
-            <NavItemComponent
-              item={{ label: 'Settings', icon: Settings, path: '/settings' }}
-            />
-          )}
-
-          {/* Collapse Button */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onCollapse(!collapsed)}
-            className={cn(
-              'w-full mt-2 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent',
-              collapsed && 'px-2'
-            )}
-          >
-            <ChevronLeft
-              className={cn(
-                'h-4 w-4 transition-transform',
-                collapsed && 'rotate-180'
-              )}
-            />
-            {!collapsed && <span className="ml-2">Collapse</span>}
-          </Button>
+          {canAccessSettings &&
+            (collapsed ? (
+              <Tooltip delayDuration={0}>
+                <TooltipTrigger asChild>
+                  <Link
+                    to="/settings"
+                    className={cn(
+                      "flex items-center justify-center px-2 py-2.5 rounded-base text-sm font-medium transition-all",
+                      "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                      location.pathname === "/settings"
+                        ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                        : "text-sidebar-foreground/70",
+                    )}
+                  >
+                    <Settings className="h-5 w-5 shrink-0" />
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="right">Settings</TooltipContent>
+              </Tooltip>
+            ) : (
+              <Link
+                to="/settings"
+                className={cn(
+                  "flex gap-3 px-3 py-2.5 rounded-base text-sm font-medium transition-all",
+                  "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  location.pathname === "/settings"
+                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                    : "text-sidebar-foreground/70",
+                )}
+              >
+                <Settings className="h-5 w-5 shrink-0" />
+                <span>Settings</span>
+              </Link>
+            ))}
         </div>
       </aside>
     </TooltipProvider>
