@@ -3,8 +3,24 @@ import { SidebarLayout } from '@/components/layout';
 
 interface LayoutProps {
   children: ReactNode;
+  onSettingsClick?: () => void;
+  onRefreshClick?: () => void;
+  isRefreshing?: boolean;
 }
 
-export default function Layout({ children }: LayoutProps) {
-  return <SidebarLayout>{children}</SidebarLayout>;
+export default function Layout({
+  children,
+  onSettingsClick,
+  onRefreshClick,
+  isRefreshing
+}: LayoutProps) {
+  return (
+    <SidebarLayout
+      onSettingsClick={onSettingsClick}
+      onRefreshClick={onRefreshClick}
+      isRefreshing={isRefreshing}
+    >
+      {children}
+    </SidebarLayout>
+  );
 }

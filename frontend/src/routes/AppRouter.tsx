@@ -15,7 +15,7 @@ import SignInPage from '../pages/auth/SignInPage';
 import SignUpPage from '../pages/auth/SignUpPage';
 import UserProfilePage from '../pages/auth/UserProfilePage';
 
-// Browser Module Pages
+// Browser Module Pages (lazy loaded later, using placeholders for now)
 import BrowserHomePage from '../pages/browser/BrowserHomePage';
 import TestDetailPage from '../pages/browser/TestDetailPage';
 
@@ -25,22 +25,24 @@ import AnalyticsDashboardPage from '../pages/analytics/AnalyticsDashboardPage';
 // Settings Page
 import SettingsPage from '../pages/settings/SettingsPage';
 
-// Endpoints Module Pages
+// Endpoints Module Pages (Achilles Agent)
 import AgentDashboardPage from '../pages/endpoints/AgentDashboardPage';
 import AgentsPage from '../pages/endpoints/AgentsPage';
 import AgentDetailPage from '../pages/endpoints/AgentDetailPage';
 import TasksPage from '../pages/endpoints/TasksPage';
 
-// Analytics route guard — renders children directly (layout provided by AppLayout above)
+// Protected Route wrapper for Analytics
 function AnalyticsProtectedRoute({ children }: { children: React.ReactNode }) {
   const { configured, loading } = useAnalyticsAuth();
   const canAccessSettings = useCanAccessModule('settings');
 
   if (loading) {
     return (
-      <div className="min-h-[400px] flex items-center justify-center">
-        <Loading message="Checking configuration..." />
-      </div>
+      <Layout>
+        <div className="min-h-[400px] flex items-center justify-center">
+          <Loading message="Checking configuration..." />
+        </div>
+      </Layout>
     );
   }
 
@@ -49,18 +51,20 @@ function AnalyticsProtectedRoute({ children }: { children: React.ReactNode }) {
       return <Navigate to="/settings" replace />;
     }
     return (
-      <div className="min-h-[400px] flex items-center justify-center">
-        <Alert variant="destructive">
-          Analytics is not configured. Ask an Administrator to configure Elasticsearch in Settings.
-        </Alert>
-      </div>
+      <Layout>
+        <div className="min-h-[400px] flex items-center justify-center">
+          <Alert variant="destructive">
+            Analytics is not configured. Ask an Administrator to configure Elasticsearch in Settings.
+          </Alert>
+        </div>
+      </Layout>
     );
   }
 
   return <>{children}</>;
 }
 
-// Single persistent layout for all authenticated routes
+// Main Layout wrapper
 function AppLayout() {
   return (
     <Layout>
@@ -75,14 +79,14 @@ export default function AppRouter() {
       {/* Public landing page */}
       <Route path="/" element={<HeroPage />} />
 
-      {/* Auth routes */}
+      {/* Auth routes (public) — wildcard needed for Clerk sub-routes like /sign-up/continue */}
       <Route path="/sign-in/*" element={<SignInPage />} />
       <Route path="/sign-up/*" element={<SignUpPage />} />
       <Route path="/user-profile" element={<UserProfilePage />} />
 
-      {/* All authenticated routes share a single persistent AppLayout */}
+      {/* Main Layout with Header - NOW PROTECTED */}
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
-        {/* Browser Module */}
+        {/* Browser Module - NOW REQUIRES AUTH */}
         <Route path="dashboard" element={<BrowserHomePage />} />
         <Route path="favorites" element={<BrowserHomePage mode="favorites" />} />
         <Route path="recent" element={<BrowserHomePage mode="recent" />} />
@@ -91,30 +95,32 @@ export default function AppRouter() {
           <Route path="test/:uuid" element={<TestDetailPage />} />
         </Route>
 
-        {/* Analytics Module */}
-        <Route path="analytics">
-          <Route path="setup" element={<Navigate to="/settings" replace />} />
-          <Route index element={
-            <AnalyticsProtectedRoute>
-              <AnalyticsDashboardPage />
-            </AnalyticsProtectedRoute>
-          } />
-        </Route>
-
-        {/* Endpoints Module */}
-        <Route path="endpoints" element={<RequireModule module="endpoints"><Outlet /></RequireModule>}>
-          <Route index element={<Navigate to="/endpoints/dashboard" replace />} />
-          <Route path="dashboard" element={<AgentDashboardPage />} />
-          <Route path="agents" element={<AgentsPage />} />
-          <Route path="agents/:agentId" element={<AgentDetailPage />} />
-          <Route path="tasks" element={<TasksPage />} />
-        </Route>
-
-        {/* Settings */}
+        {/* Settings Page */}
         <Route path="settings" element={<RequireModule module="settings"><SettingsPage /></RequireModule>} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Route>
+
+      {/* Analytics Module - has its own Layout, must be outside AppLayout */}
+      <Route path="analytics">
+        <Route path="setup" element={<Navigate to="/settings" replace />} />
+        <Route index element={
+          <RequireAuth>
+            <AnalyticsProtectedRoute>
+              <AnalyticsDashboardPage />
+            </AnalyticsProtectedRoute>
+          </RequireAuth>
+        } />
+      </Route>
+
+      {/* Endpoints Module - ACHILLES AGENT (Clerk auth + RBAC) */}
+      <Route path="endpoints" element={<RequireAuth><RequireModule module="endpoints"><AppLayout /></RequireModule></RequireAuth>}>
+        <Route index element={<Navigate to="/endpoints/dashboard" replace />} />
+        <Route path="dashboard" element={<AgentDashboardPage />} />
+        <Route path="agents" element={<AgentsPage />} />
+        <Route path="agents/:agentId" element={<AgentDetailPage />} />
+        <Route path="tasks" element={<TasksPage />} />
       </Route>
     </Routes>
   );
