@@ -56,6 +56,8 @@ export default function AgentsPage() {
   useEffect(() => {
     if (searchParams.get('stale') === 'true') {
       dispatch(setFilters({ ...filters, stale_only: true }));
+    } else if (filters.stale_only) {
+      dispatch(setFilters({ ...filters, stale_only: undefined }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
