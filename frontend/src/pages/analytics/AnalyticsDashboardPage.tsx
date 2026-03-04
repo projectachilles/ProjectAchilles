@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown, ShieldCheck, ShieldOff } from 'lucide-react';
-import SharedLayout from '../../components/shared/Layout';
+import { useLayoutActions } from '@/components/layout';
 import SettingsModal from './components/SettingsModal';
 import FilterBar from './components/FilterBar';
 import DateRangePicker from './components/DateRangePicker';
@@ -51,6 +51,8 @@ interface DefenseScoreData {
 }
 
 export default function AnalyticsDashboardPage() {
+  const { setTopBarActions } = useLayoutActions();
+
   // URL state for tab
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab') as TabType | null;
@@ -433,6 +435,16 @@ export default function AnalyticsDashboardPage() {
     setIsRefreshing(false);
   }
 
+  // Register TopBar actions for this page
+  useEffect(() => {
+    setTopBarActions({
+      onSettingsClick: () => setSettingsOpen(true),
+      onRefreshClick: handleRefresh,
+      isRefreshing,
+    });
+    return () => setTopBarActions({});
+  }, [setTopBarActions, handleRefresh, isRefreshing]);
+
   // Handle sort change
   const handleSort = (field: string, order: 'asc' | 'desc') => {
     setExecutionsSortField(field);
@@ -452,11 +464,7 @@ export default function AnalyticsDashboardPage() {
   };
 
   return (
-    <SharedLayout
-      onSettingsClick={() => setSettingsOpen(true)}
-      onRefreshClick={handleRefresh}
-      isRefreshing={isRefreshing}
-    >
+    <>
       <div className="container mx-auto px-4 py-6">
         {/* Tab Navigation + Date Range Picker */}
         <div className="flex items-center gap-1 mb-6 border-b-[length:var(--theme-border-width)] border-border">
@@ -710,6 +718,6 @@ export default function AnalyticsDashboardPage() {
         onClose={() => setSettingsOpen(false)}
         onSave={handleRefresh}
       />
-    </SharedLayout>
+    </>
   );
 }
