@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, createContext, useContext, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useMemo, createContext, useContext, type ReactNode } from 'react';
 import { AppSidebar } from './AppSidebar';
 import { TopBar } from './TopBar';
 import { cn } from '@/lib/utils';
@@ -44,8 +44,10 @@ export function SidebarLayout({ children }: SidebarLayoutProps) {
     setTopBarActionsState(actions);
   }, []);
 
+  const contextValue = useMemo(() => ({ setTopBarActions }), [setTopBarActions]);
+
   return (
-    <LayoutContext.Provider value={{ setTopBarActions }}>
+    <LayoutContext.Provider value={contextValue}>
       <div className="flex h-screen overflow-hidden bg-background">
         {/* Sidebar */}
         <AppSidebar collapsed={collapsed} />
