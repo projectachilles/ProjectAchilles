@@ -424,7 +424,7 @@ export default function AnalyticsDashboardPage() {
   }, [executionsData, loadRiskAcceptances]);
 
   // Refresh handler
-  async function handleRefresh() {
+  const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     await loadFilterOptions();
     if (activeTab === 'dashboard') {
@@ -433,7 +433,7 @@ export default function AnalyticsDashboardPage() {
       await loadExecutionsData();
     }
     setIsRefreshing(false);
-  }
+  }, [activeTab, loadDashboardData, loadExecutionsData]);
 
   // Register TopBar actions for this page
   useEffect(() => {
