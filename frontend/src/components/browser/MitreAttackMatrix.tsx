@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { TestMetadata } from '@/types/test';
 import { useTheme } from '@/hooks/useTheme';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/shared/ui/Badge';
+import { Switch } from '@/components/shared/ui/Switch';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { Grid3X3 } from 'lucide-react';
+import { Grid3X3, ChevronDown } from 'lucide-react';
 
 // ── MITRE ATT&CK Enterprise Tactics (kill-chain order) ──────────────
 
@@ -45,6 +46,8 @@ interface MitreAttackMatrixProps {
   onDrillToTechnique: (technique: string) => void;
 }
 
+const COLLAPSED_LIMIT = 8;
+
 // ── Component ────────────────────────────────────────────────────────
 
 export default function MitreAttackMatrix({ tests, onDrillToTechnique }: MitreAttackMatrixProps) {
@@ -52,6 +55,9 @@ export default function MitreAttackMatrix({ tests, onDrillToTechnique }: MitreAt
   const isDark = theme === 'dark' || themeStyle === 'hackerterminal';
   const isHacker = themeStyle === 'hackerterminal';
   const isNeobrut = themeStyle === 'neobrutalism';
+
+  const [showEmpty, setShowEmpty] = useState(false);
+  const [expandedTactics, setExpandedTactics] = useState<Set<string>>(new Set());
 
   // Build tactic → technique[] map from test data
   const { tacticMap, maxCount, stats } = useMemo(() => {
@@ -173,6 +179,24 @@ export default function MitreAttackMatrix({ tests, onDrillToTechnique }: MitreAt
     return intensity > 0.5 ? 'oklch(0.98 0 0)' : 'oklch(0.20 0.02 145)';
   }
 
+  /** Get the max intensity color for a tactic's techniques (used for card left border) */
+  function getTacticBorderColor(cells: TechniqueCell[]): string {
+    if (cells.length === 0) return 'var(--color-border)';
+    const maxTechCount = Math.max(...cells.map(c => c.count));
+    return getIntensityColor(maxTechCount);
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────
+
+  function toggleExpanded(slug: string) {
+    setExpandedTactics(prev => {
+      const next = new Set(prev);
+      if (next.has(slug)) next.delete(slug);
+      else next.add(slug);
+      return next;
+    });
+  }
+
   // ── Empty state ────────────────────────────────────────────────────
 
   if (stats.testCount === 0) {
@@ -195,6 +219,12 @@ export default function MitreAttackMatrix({ tests, onDrillToTechnique }: MitreAt
     color: getIntensityColor(Math.max(1, Math.ceil(maxCount * frac))),
   }));
 
+  // ── Filter tactics ────────────────────────────────────────────────
+
+  const visibleTactics = ENTERPRISE_TACTICS.filter(
+    t => showEmpty || (tacticMap.get(t.slug)?.length ?? 0) > 0
+  );
+
   // ── Render ─────────────────────────────────────────────────────────
 
   return (
@@ -207,93 +237,121 @@ export default function MitreAttackMatrix({ tests, onDrillToTechnique }: MitreAt
             <Badge variant="primary">{stats.tacticCount}/14 tactics</Badge>
             <Badge variant="default">{stats.testCount} tests mapped</Badge>
           </div>
+          <div className="ml-auto">
+            <Switch
+              label="Show uncovered tactics"
+              checked={showEmpty}
+              onChange={(e) => setShowEmpty(e.target.checked)}
+            />
+          </div>
         </CardTitle>
       </CardHeader>
 
       <CardContent>
-        {/* Scrollable matrix */}
-        <div className="overflow-x-auto pb-2">
-          <div className="inline-flex gap-1" style={{ minWidth: 1400 }}>
-            {ENTERPRISE_TACTICS.map(tactic => {
-              const cells = tacticMap.get(tactic.slug) ?? [];
-              const isEmpty = cells.length === 0;
+        {/* Card grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          {visibleTactics.map(tactic => {
+            const cells = tacticMap.get(tactic.slug) ?? [];
+            const isEmpty = cells.length === 0;
+            const isExpanded = expandedTactics.has(tactic.slug);
+            const visibleCells = isExpanded ? cells : cells.slice(0, COLLAPSED_LIMIT);
+            const hiddenCount = cells.length - COLLAPSED_LIMIT;
 
-              return (
-                <div
-                  key={tactic.slug}
-                  className="flex flex-col flex-1 min-w-[95px]"
-                >
-                  {/* Column header */}
-                  <div
-                    className={`sticky top-0 z-10 px-1.5 py-2 text-center border-b border-border bg-card ${
-                      isEmpty ? 'opacity-40' : ''
-                    }`}
-                  >
-                    <div className="text-[11px] font-semibold leading-tight truncate" title={tactic.name}>
-                      {tactic.shortName}
+            return (
+              <div
+                key={tactic.slug}
+                className={`rounded-lg border border-border bg-card shadow-sm overflow-hidden ${
+                  isEmpty ? 'opacity-50' : ''
+                }`}
+                style={{ borderLeftWidth: 3, borderLeftColor: getTacticBorderColor(cells) }}
+              >
+                {/* Card header */}
+                <div className="px-3 py-2.5 border-b border-border/50">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold leading-tight truncate" title={tactic.name}>
+                        {tactic.name}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                        {tactic.id}
+                      </div>
                     </div>
-                    <div className="text-[10px] text-muted-foreground font-mono">{tactic.id}</div>
                     {!isEmpty && (
-                      <div className="mt-1">
-                        <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
-                          {cells.length}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Technique cells */}
-                  <div className="flex flex-col gap-0.5 pt-1">
-                    {isEmpty ? (
-                      <div className="px-1 py-3 text-center text-[10px] text-muted-foreground opacity-40 italic">
-                        No coverage
-                      </div>
-                    ) : (
-                      cells.map(cell => (
-                        <Tooltip key={cell.techniqueId}>
-                          <TooltipTrigger asChild>
-                            <button
-                              onClick={() => onDrillToTechnique(cell.techniqueId)}
-                              className="w-full px-1.5 py-1 rounded-sm text-left transition-opacity hover:opacity-80 active:opacity-60 cursor-pointer"
-                              style={{
-                                backgroundColor: getIntensityColor(cell.count),
-                                color: getTextColor(cell.count),
-                              }}
-                            >
-                              <div className="flex items-center justify-between gap-1">
-                                <span className="font-mono text-[10px] leading-tight truncate">
-                                  {cell.techniqueId}
-                                </span>
-                                <span className="text-[10px] font-semibold shrink-0">
-                                  {cell.count}
-                                </span>
-                              </div>
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="right" sideOffset={4}>
-                            <div className="space-y-1 max-w-[220px]">
-                              <div className="font-mono font-semibold">{cell.techniqueId}</div>
-                              <div className="text-[11px] opacity-80">
-                                {cell.count} {cell.count === 1 ? 'test' : 'tests'}
-                              </div>
-                              <div className="text-[10px] opacity-60 space-y-0.5">
-                                {cell.testNames.map((name, i) => (
-                                  <div key={i} className="truncate">{name}</div>
-                                ))}
-                                {cell.count > 5 && (
-                                  <div className="italic">+{cell.count - 5} more</div>
-                                )}
-                              </div>
-                            </div>
-                          </TooltipContent>
-                        </Tooltip>
-                      ))
+                      <span className="shrink-0 text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+                        {cells.length}
+                      </span>
                     )}
                   </div>
                 </div>
-              );
-            })}
-          </div>
+
+                {/* Card body — technique rows */}
+                <div className="px-2 py-1.5">
+                  {isEmpty ? (
+                    <div className="px-1 py-4 text-center text-xs text-muted-foreground italic">
+                      No coverage
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex flex-col gap-0.5">
+                        {visibleCells.map(cell => (
+                          <Tooltip key={cell.techniqueId}>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => onDrillToTechnique(cell.techniqueId)}
+                                className="w-full px-2 py-1 rounded-sm text-left transition-opacity hover:opacity-80 active:opacity-60 cursor-pointer"
+                                style={{
+                                  backgroundColor: getIntensityColor(cell.count),
+                                  color: getTextColor(cell.count),
+                                }}
+                              >
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="font-mono text-[11px] leading-tight truncate">
+                                    {cell.techniqueId}
+                                  </span>
+                                  <span className="text-[11px] font-semibold shrink-0">
+                                    {cell.count}
+                                  </span>
+                                </div>
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" sideOffset={4}>
+                              <div className="space-y-1 max-w-[220px]">
+                                <div className="font-mono font-semibold">{cell.techniqueId}</div>
+                                <div className="text-[11px] opacity-80">
+                                  {cell.count} {cell.count === 1 ? 'test' : 'tests'}
+                                </div>
+                                <div className="text-[10px] opacity-60 space-y-0.5">
+                                  {cell.testNames.map((name, i) => (
+                                    <div key={i} className="truncate">{name}</div>
+                                  ))}
+                                  {cell.count > 5 && (
+                                    <div className="italic">+{cell.count - 5} more</div>
+                                  )}
+                                </div>
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        ))}
+                      </div>
+
+                      {/* Expand/collapse toggle */}
+                      {hiddenCount > 0 && (
+                        <button
+                          onClick={() => toggleExpanded(tactic.slug)}
+                          className="w-full mt-1 px-2 py-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <ChevronDown
+                            className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                          />
+                          {isExpanded ? 'Show less' : `Show ${hiddenCount} more`}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {/* Legend */}
