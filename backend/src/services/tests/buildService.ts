@@ -310,28 +310,53 @@ export class BuildService {
 
     if (hasBuildScript) {
       // Determine if the test is in a categorized subdirectory (tests_source/<category>/<uuid>/).
-      // Some build_all.sh scripts hardcode TEST_DIR="tests_source/<uuid>" assuming cwd=repo-root
-      // and a flat layout. For these, we run from the repo root and create a temporary flat
-      // symlink so the hardcoded path resolves correctly.
+      // Some build_all.sh scripts hardcode TEST_DIR="tests_source/<uuid>" (flat layout) and use
+      // ../../ to navigate back to repo root. For categorized tests (3 levels deep instead of 2),
+      // we patch the script to fix paths before executing from the repo root.
       const repoRoot = path.dirname(this.testsSourcePath);
       const relFromTestsSource = path.relative(this.testsSourcePath, testDir);
       const pathParts = relFromTestsSource.split(path.sep);
       const isCategorized = pathParts.length === 2; // e.g., "intel-driven/<uuid>"
 
-      let flatSymlink: string | null = null;
+      let patchedScript: string | null = null;
       let buildCwd: string;
       let buildArgs: string[];
 
       if (isCategorized) {
-        // Create flat symlink: tests_source/<uuid> → tests_source/<category>/<uuid>
-        // so scripts that `cd "tests_source/<uuid>"` find the right directory.
-        const flatPath = path.join(this.testsSourcePath, uuid);
-        if (!fs.existsSync(flatPath)) {
-          fs.symlinkSync(testDir, flatPath);
-          flatSymlink = flatPath;
+        const category = pathParts[0];
+        const scriptContent = fs.readFileSync(buildAllPath, 'utf-8');
+        const needsPatching = scriptContent.includes(`TEST_DIR="tests_source/\${TEST_UUID}"`)
+          || scriptContent.includes(`TEST_DIR="tests_source/$TEST_UUID"`);
+
+        if (needsPatching) {
+          // Patch the script: fix TEST_DIR and adjust relative paths for 3-level depth
+          let patched = scriptContent;
+          // 1. Insert category into TEST_DIR
+          patched = patched.replace(
+            /TEST_DIR="tests_source\//g,
+            `TEST_DIR="tests_source/${category}/`,
+          );
+          // 2. Fix ../../ path references (2-level → 3-level back-navigation)
+          //    Negative lookbehind: don't expand paths that are already ../../../
+          patched = patched.replace(
+            /(?<!\.\.\/)\.\.\/\.\.\//g,
+            '../../../',
+          );
+          // 3. Fix standalone `cd ../..` (no trailing slash) at end of line
+          patched = patched.replace(
+            /cd \.\.\/\.\.$/gm,
+            'cd ../../..',
+          );
+
+          patchedScript = path.join(buildDir, '.build-patched.sh');
+          fs.writeFileSync(patchedScript, patched, { mode: 0o755 });
+          buildCwd = repoRoot;
+          buildArgs = [patchedScript];
+        } else {
+          // Script uses SCRIPT_DIR pattern (self-contained paths) — run from repo root as-is
+          buildCwd = repoRoot;
+          buildArgs = [path.relative(repoRoot, buildAllPath)];
         }
-        buildCwd = repoRoot;
-        buildArgs = [path.relative(repoRoot, buildAllPath)];
       } else {
         buildCwd = testDir;
         buildArgs = ['build_all.sh'];
@@ -357,9 +382,9 @@ export class BuildService {
           timeout: BUILD_TIMEOUT,
         });
       } finally {
-        // Clean up flat symlink
-        if (flatSymlink) {
-          try { fs.unlinkSync(flatSymlink); } catch { /* ignore */ }
+        // Clean up patched build script
+        if (patchedScript && fs.existsSync(patchedScript)) {
+          try { fs.unlinkSync(patchedScript); } catch { /* ignore */ }
         }
         // Clean up inner cert password file
         if (innerPassFile && fs.existsSync(innerPassFile)) {

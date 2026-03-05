@@ -628,16 +628,13 @@ var data string
   describe('buildAndSign — build_all.sh mode', () => {
     const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
 
-    it('executes bash build_all.sh when script exists', async () => {
-      // For categorized tests (tests_source/<category>/<uuid>), the build runs
-      // from the repo root with a flat symlink, not from testDir directly.
+    it('executes bash build_all.sh when script exists (SCRIPT_DIR pattern)', async () => {
+      // For categorized tests with SCRIPT_DIR pattern, runs from repo root as-is
       const repoRoot = '/';
-      const flatPath = `${TESTS_SOURCE}/${VALID_UUID}`;
 
       mockExistsSync.mockImplementation((p: string) => {
         if (p === testDir) return true;
         if (p === `${testDir}/build_all.sh`) return true;
-        if (p === flatPath) return false; // triggers symlink creation
         // Candidate output at repo root build dir
         if (p === `${repoRoot}build/${VALID_UUID}/${VALID_UUID}.exe`) return true;
         if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
@@ -647,27 +644,63 @@ var data string
         if (p === testDir) return { isDirectory: () => true };
         return { size: 4096 };
       });
+      // Script uses SCRIPT_DIR (no flat TEST_DIR pattern) — no patching needed
+      mockReadFileSync.mockReturnValue('SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"');
 
       await service.buildAndSign(VALID_UUID);
 
-      // Categorized test: runs from repo root with relative path to build_all.sh
+      // Categorized + SCRIPT_DIR: runs from repo root with relative path
       expect(mockExecFileAsync).toHaveBeenCalledWith(
         'bash',
         [`mock-tests/cyber-hygiene/${VALID_UUID}/build_all.sh`],
         expect.objectContaining({ cwd: repoRoot }),
       );
-      expect(mockSymlinkSync).toHaveBeenCalledWith(testDir, flatPath);
       expect(mockCopyFileSync).toHaveBeenCalled();
     });
 
-    it('searches candidate output paths for binary', async () => {
+    it('patches build_all.sh for categorized tests with flat TEST_DIR', async () => {
       const repoRoot = '/';
-      const flatPath = `${TESTS_SOURCE}/${VALID_UUID}`;
+      const patchedPath = `${BUILDS_DIR}/${VALID_UUID}/.build-patched.sh`;
 
       mockExistsSync.mockImplementation((p: string) => {
         if (p === testDir) return true;
         if (p === `${testDir}/build_all.sh`) return true;
-        if (p === flatPath) return false; // triggers symlink creation
+        if (p === patchedPath) return true; // cleanup check
+        // Candidate output at repo root build dir
+        if (p === `${repoRoot}build/${VALID_UUID}/${VALID_UUID}.exe`) return true;
+        if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
+        return false;
+      });
+      mockStatSync.mockImplementation((p: string) => {
+        if (p === testDir) return { isDirectory: () => true };
+        return { size: 4096 };
+      });
+      // Script has flat TEST_DIR pattern — triggers patching
+      mockReadFileSync.mockReturnValue(
+        'TEST_UUID="test-id"\nTEST_DIR="tests_source/${TEST_UUID}"\ncd ../..  \n-o ../../build/',
+      );
+
+      await service.buildAndSign(VALID_UUID);
+
+      // Should write patched script and execute it
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        patchedPath,
+        expect.stringContaining('tests_source/cyber-hygiene/'),
+        expect.objectContaining({ mode: 0o755 }),
+      );
+      expect(mockExecFileAsync).toHaveBeenCalledWith(
+        'bash',
+        [patchedPath],
+        expect.objectContaining({ cwd: repoRoot }),
+      );
+    });
+
+    it('searches candidate output paths for binary', async () => {
+      const repoRoot = '/';
+
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === testDir) return true;
+        if (p === `${testDir}/build_all.sh`) return true;
         // First candidates don't exist
         if (p === `${repoRoot}build/${VALID_UUID}/${VALID_UUID}.exe`) return false;
         if (p === `${testDir}/build/${VALID_UUID}/${VALID_UUID}.exe`) return false;
@@ -680,6 +713,8 @@ var data string
         if (p === testDir) return { isDirectory: () => true };
         return { size: 2048 };
       });
+      // SCRIPT_DIR pattern — no patching
+      mockReadFileSync.mockReturnValue('SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"');
 
       await service.buildAndSign(VALID_UUID);
 
