@@ -1106,7 +1106,7 @@ export default function ExecutionsDataTable({
       </CardHeader>
 
       {/* Table */}
-      <CardContent className="p-0">
+      <CardContent className="p-0 overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50">
@@ -1227,7 +1227,7 @@ export default function ExecutionsDataTable({
 
                       {expandedDetail === detailKey && (
                         <TableRow className="bg-accent/20">
-                          <TableCell colSpan={totalColSpan} className="py-4 px-6">
+                          <TableCell colSpan={totalColSpan} className="py-4 px-6 whitespace-normal">
                             {renderDetailPanel(exec)}
                           </TableCell>
                         </TableRow>
@@ -1330,7 +1330,7 @@ export default function ExecutionsDataTable({
 
                           {expandedDetail === ctrlDetailKey && (
                             <TableRow className="bg-accent/20 border-l-2 border-l-blue-500/30">
-                              <TableCell colSpan={totalColSpan} className="py-4 px-6">
+                              <TableCell colSpan={totalColSpan} className="py-4 px-6 whitespace-normal">
                                 {renderDetailPanel(ctrl)}
                               </TableCell>
                             </TableRow>
