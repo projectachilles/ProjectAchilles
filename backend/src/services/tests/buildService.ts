@@ -328,40 +328,44 @@ export class BuildService {
 
       const repoRoot = path.dirname(this.testsSourcePath);
 
-      // Some build_all.sh scripts use hardcoded relative paths:
-      //   TEST_DIR="tests_source/<uuid>"  then  cd "${TEST_DIR}"
-      // These expect to run from the repo root with a flat tests_source/<uuid>
-      // layout, but tests actually live under tests_source/<category>/<uuid>.
+      // build_all.sh scripts come in two flavors:
       //
-      // We can't use symlinks because Go resolves go.mod replace directives
-      // via the physical path, breaking ../../../ references.
+      // 1. SCRIPT_DIR-based (robust): Use BASH_SOURCE[0] to compute absolute
+      //    paths. These work from any cwd.
       //
-      // Fix: run a thin wrapper that overrides TEST_DIR and BUILD_DIR so the
-      // script's own `cd "${TEST_DIR}"` becomes `cd .` (a no-op) and build
-      // output goes to an absolute path. For scripts using SCRIPT_DIR-based
-      // absolute paths, these overrides are harmless (the scripts set their
-      // own TEST_DIR after).
-      const wrapperPath = path.join(buildDir, '.build-wrapper.sh');
-      const wrapperContent = [
-        '#!/bin/bash',
-        '# Auto-generated wrapper — overrides relative paths for categorized layout',
-        `export TEST_DIR="."`,
-        `export BUILD_DIR="${path.join(testDir, 'build', uuid)}"`,
-        `mkdir -p "\${BUILD_DIR}"`,
-        `source "${path.join(testDir, 'build_all.sh')}"`,
-      ].join('\n');
-      fs.writeFileSync(wrapperPath, wrapperContent, { mode: 0o755 });
+      // 2. Hardcoded-relative: Set TEST_DIR="tests_source/<uuid>" and expect
+      //    cwd to be the repo root with a flat tests_source/<uuid> layout.
+      //    But tests now live under tests_source/<category>/<uuid>.
+      //
+      // Fix for type 2: run from repo root and create a temporary symlink at
+      // the flat path (tests_source/<uuid> → tests_source/<category>/<uuid>).
+      // Go resolves go.mod replace directives via realpath(), so from the
+      // real path (3 levels deep), ../../../ references resolve correctly.
+      // The symlink only satisfies the shell's `cd "tests_source/<uuid>"`.
+      const flatPath = path.join(this.testsSourcePath, uuid);
+      const needsSymlink = testDir !== flatPath && !fs.existsSync(flatPath);
+      if (needsSymlink) {
+        try {
+          fs.symlinkSync(testDir, flatPath);
+        } catch {
+          // Symlink creation may fail (e.g., permissions); build may still
+          // work if the script uses SCRIPT_DIR-based paths
+        }
+      }
 
       try {
-        await runBuildCommand('bash', [wrapperPath], {
-          cwd: testDir,
+        await runBuildCommand('bash', [buildAllPath], {
+          cwd: repoRoot,
           env,
           timeout: BUILD_TIMEOUT,
         });
       } finally {
-        // Clean up wrapper
-        if (fs.existsSync(wrapperPath)) {
-          try { fs.unlinkSync(wrapperPath); } catch { /* best-effort */ }
+        // Clean up compatibility symlink
+        if (needsSymlink && fs.existsSync(flatPath)) {
+          try {
+            const stat = fs.lstatSync(flatPath);
+            if (stat.isSymbolicLink()) fs.unlinkSync(flatPath);
+          } catch { /* best-effort cleanup */ }
         }
         // Clean up inner cert password file
         if (innerPassFile && fs.existsSync(innerPassFile)) {

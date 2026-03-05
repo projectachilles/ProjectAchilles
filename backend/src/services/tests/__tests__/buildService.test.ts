@@ -1,3 +1,4 @@
+import path from 'path';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { promisify } from 'util';
 
@@ -630,41 +631,38 @@ var data string
   describe('buildAndSign — build_all.sh mode', () => {
     const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
 
-    it('executes bash build_all.sh via wrapper script', async () => {
-      const wrapperPath = `${BUILDS_DIR}/${VALID_UUID}/.build-wrapper.sh`;
+    it('executes bash build_all.sh from repo root with symlink', async () => {
+      const flatPath = `${TESTS_SOURCE}/${VALID_UUID}`;
       mockExistsSync.mockImplementation((p: string) => {
         if (p === testDir) return true;
         if (p === `${testDir}/build_all.sh`) return true;
         // Candidate output: testDir/build/uuid/filename
         if (p === `${testDir}/build/${VALID_UUID}/${VALID_UUID}.exe`) return true;
         if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
-        // Wrapper cleanup check
-        if (p === wrapperPath) return true;
+        // Flat symlink path — doesn't exist yet, so symlink will be created
+        if (p === flatPath) return false;
         return false;
       });
       mockStatSync.mockImplementation((p: string) => {
         if (p === testDir) return { isDirectory: () => true };
         return { size: 4096 };
       });
+      mockLstatSync.mockReturnValue({ isSymbolicLink: () => true });
 
       await service.buildAndSign(VALID_UUID);
 
-      // Should write the wrapper script and execute it from testDir
-      expect(mockWriteFileSync).toHaveBeenCalledWith(
-        wrapperPath,
-        expect.stringContaining('source'),
-        expect.objectContaining({ mode: 0o755 }),
-      );
+      // Should create symlink and run from repo root
+      expect(mockSymlinkSync).toHaveBeenCalledWith(testDir, flatPath);
       expect(mockExecFileAsync).toHaveBeenCalledWith(
         'bash',
-        [wrapperPath],
-        expect.objectContaining({ cwd: testDir }),
+        [`${testDir}/build_all.sh`],
+        expect.objectContaining({ cwd: path.dirname(TESTS_SOURCE) }),
       );
       expect(mockCopyFileSync).toHaveBeenCalled();
     });
 
     it('searches candidate output paths for binary', async () => {
-      const wrapperPath = `${BUILDS_DIR}/${VALID_UUID}/.build-wrapper.sh`;
+      const flatPath = `${TESTS_SOURCE}/${VALID_UUID}`;
       mockExistsSync.mockImplementation((p: string) => {
         if (p === testDir) return true;
         if (p === `${testDir}/build_all.sh`) return true;
@@ -672,13 +670,14 @@ var data string
         if (p === `${testDir}/build/${VALID_UUID}/${VALID_UUID}.exe`) return false;
         if (p === `${testDir}/${VALID_UUID}.exe`) return true;
         if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
-        if (p === wrapperPath) return true;
+        if (p === flatPath) return false;
         return false;
       });
       mockStatSync.mockImplementation((p: string) => {
         if (p === testDir) return { isDirectory: () => true };
         return { size: 2048 };
       });
+      mockLstatSync.mockReturnValue({ isSymbolicLink: () => true });
 
       await service.buildAndSign(VALID_UUID);
 
