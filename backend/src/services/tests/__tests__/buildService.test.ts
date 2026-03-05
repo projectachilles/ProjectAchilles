@@ -10,9 +10,11 @@ const mockMkdirSync = vi.fn();
 const mockReaddirSync = vi.fn();
 const mockRmSync = vi.fn();
 const mockStatSync = vi.fn();
+const mockLstatSync = vi.fn();
 const mockUnlinkSync = vi.fn();
 const mockCopyFileSync = vi.fn();
 const mockRenameSync = vi.fn();
+const mockSymlinkSync = vi.fn();
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
@@ -24,9 +26,11 @@ vi.mock('fs', async () => {
     readdirSync: mockReaddirSync,
     rmSync: mockRmSync,
     statSync: mockStatSync,
+    lstatSync: mockLstatSync,
     unlinkSync: mockUnlinkSync,
     copyFileSync: mockCopyFileSync,
     renameSync: mockRenameSync,
+    symlinkSync: mockSymlinkSync,
   };
   return { ...actual, ...overrides, default: { ...actual, ...overrides } };
 });
@@ -627,12 +631,15 @@ var data string
     const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
 
     it('executes bash build_all.sh when script exists', async () => {
+      const flatPath = `${TESTS_SOURCE}/${VALID_UUID}`;
       mockExistsSync.mockImplementation((p: string) => {
         if (p === testDir) return true;
         if (p === `${testDir}/build_all.sh`) return true;
         // Candidate output: testDir/build/uuid/filename
         if (p === `${testDir}/build/${VALID_UUID}/${VALID_UUID}.exe`) return true;
         if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
+        // Flat symlink path — doesn't exist, so symlink will be created
+        if (p === flatPath) return false;
         return false;
       });
       mockStatSync.mockImplementation((p: string) => {
@@ -644,13 +651,14 @@ var data string
 
       expect(mockExecFileAsync).toHaveBeenCalledWith(
         'bash',
-        ['build_all.sh'],
-        expect.objectContaining({ cwd: testDir }),
+        [`${testDir}/build_all.sh`],
+        expect.objectContaining({ cwd: '/' }),
       );
       expect(mockCopyFileSync).toHaveBeenCalled();
     });
 
     it('searches candidate output paths for binary', async () => {
+      const flatPath = `${TESTS_SOURCE}/${VALID_UUID}`;
       mockExistsSync.mockImplementation((p: string) => {
         if (p === testDir) return true;
         if (p === `${testDir}/build_all.sh`) return true;
@@ -658,6 +666,7 @@ var data string
         if (p === `${testDir}/build/${VALID_UUID}/${VALID_UUID}.exe`) return false;
         if (p === `${testDir}/${VALID_UUID}.exe`) return true;
         if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
+        if (p === flatPath) return false;
         return false;
       });
       mockStatSync.mockImplementation((p: string) => {
