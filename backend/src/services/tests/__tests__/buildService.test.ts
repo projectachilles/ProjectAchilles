@@ -630,16 +630,16 @@ var data string
   describe('buildAndSign — build_all.sh mode', () => {
     const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
 
-    it('executes bash build_all.sh when script exists', async () => {
-      const flatPath = `${TESTS_SOURCE}/${VALID_UUID}`;
+    it('executes bash build_all.sh via wrapper script', async () => {
+      const wrapperPath = `${BUILDS_DIR}/${VALID_UUID}/.build-wrapper.sh`;
       mockExistsSync.mockImplementation((p: string) => {
         if (p === testDir) return true;
         if (p === `${testDir}/build_all.sh`) return true;
         // Candidate output: testDir/build/uuid/filename
         if (p === `${testDir}/build/${VALID_UUID}/${VALID_UUID}.exe`) return true;
         if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
-        // Flat symlink path — doesn't exist, so symlink will be created
-        if (p === flatPath) return false;
+        // Wrapper cleanup check
+        if (p === wrapperPath) return true;
         return false;
       });
       mockStatSync.mockImplementation((p: string) => {
@@ -649,16 +649,22 @@ var data string
 
       await service.buildAndSign(VALID_UUID);
 
+      // Should write the wrapper script and execute it from testDir
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        wrapperPath,
+        expect.stringContaining('source'),
+        expect.objectContaining({ mode: 0o755 }),
+      );
       expect(mockExecFileAsync).toHaveBeenCalledWith(
         'bash',
-        [`${testDir}/build_all.sh`],
-        expect.objectContaining({ cwd: '/' }),
+        [wrapperPath],
+        expect.objectContaining({ cwd: testDir }),
       );
       expect(mockCopyFileSync).toHaveBeenCalled();
     });
 
     it('searches candidate output paths for binary', async () => {
-      const flatPath = `${TESTS_SOURCE}/${VALID_UUID}`;
+      const wrapperPath = `${BUILDS_DIR}/${VALID_UUID}/.build-wrapper.sh`;
       mockExistsSync.mockImplementation((p: string) => {
         if (p === testDir) return true;
         if (p === `${testDir}/build_all.sh`) return true;
@@ -666,7 +672,7 @@ var data string
         if (p === `${testDir}/build/${VALID_UUID}/${VALID_UUID}.exe`) return false;
         if (p === `${testDir}/${VALID_UUID}.exe`) return true;
         if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
-        if (p === flatPath) return false;
+        if (p === wrapperPath) return true;
         return false;
       });
       mockStatSync.mockImplementation((p: string) => {

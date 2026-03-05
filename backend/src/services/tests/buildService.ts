@@ -326,40 +326,42 @@ export class BuildService {
       env.F0_TEST_DIR = testDir;
       env.F0_BUILD_DIR = buildDir;
 
-      // Run build_all.sh from the repo root (parent of tests_source/).
-      // Some scripts use relative paths like `cd "tests_source/<uuid>"` expecting
-      // to be run from the repo root. Scripts using SCRIPT_DIR/BASH_SOURCE for
-      // absolute paths are unaffected by cwd.
       const repoRoot = path.dirname(this.testsSourcePath);
 
-      // Some scripts use flat `tests_source/<uuid>` paths, but tests live under
-      // `tests_source/<category>/<uuid>`. Create a temporary symlink so both
-      // layouts resolve. Only needed when testDir is inside a category subdir.
-      const flatPath = path.join(this.testsSourcePath, uuid);
-      const needsSymlink = testDir !== flatPath && !fs.existsSync(flatPath);
-      if (needsSymlink) {
-        try {
-          fs.symlinkSync(testDir, flatPath);
-        } catch {
-          // Symlink creation may fail (e.g., permissions); build may still work
-          // if the script uses SCRIPT_DIR-based paths
-        }
-      }
+      // Some build_all.sh scripts use hardcoded relative paths:
+      //   TEST_DIR="tests_source/<uuid>"  then  cd "${TEST_DIR}"
+      // These expect to run from the repo root with a flat tests_source/<uuid>
+      // layout, but tests actually live under tests_source/<category>/<uuid>.
+      //
+      // We can't use symlinks because Go resolves go.mod replace directives
+      // via the physical path, breaking ../../../ references.
+      //
+      // Fix: run a thin wrapper that overrides TEST_DIR and BUILD_DIR so the
+      // script's own `cd "${TEST_DIR}"` becomes `cd .` (a no-op) and build
+      // output goes to an absolute path. For scripts using SCRIPT_DIR-based
+      // absolute paths, these overrides are harmless (the scripts set their
+      // own TEST_DIR after).
+      const wrapperPath = path.join(buildDir, '.build-wrapper.sh');
+      const wrapperContent = [
+        '#!/bin/bash',
+        '# Auto-generated wrapper — overrides relative paths for categorized layout',
+        `export TEST_DIR="."`,
+        `export BUILD_DIR="${path.join(testDir, 'build', uuid)}"`,
+        `mkdir -p "\${BUILD_DIR}"`,
+        `source "${path.join(testDir, 'build_all.sh')}"`,
+      ].join('\n');
+      fs.writeFileSync(wrapperPath, wrapperContent, { mode: 0o755 });
 
       try {
-        // Execute build_all.sh from the repo root
-        await runBuildCommand('bash', [path.join(testDir, 'build_all.sh')], {
-          cwd: repoRoot,
+        await runBuildCommand('bash', [wrapperPath], {
+          cwd: testDir,
           env,
           timeout: BUILD_TIMEOUT,
         });
       } finally {
-        // Clean up compatibility symlink
-        if (needsSymlink && fs.existsSync(flatPath)) {
-          try {
-            const stat = fs.lstatSync(flatPath);
-            if (stat.isSymbolicLink()) fs.unlinkSync(flatPath);
-          } catch { /* best-effort cleanup */ }
+        // Clean up wrapper
+        if (fs.existsSync(wrapperPath)) {
+          try { fs.unlinkSync(wrapperPath); } catch { /* best-effort */ }
         }
         // Clean up inner cert password file
         if (innerPassFile && fs.existsSync(innerPassFile)) {
