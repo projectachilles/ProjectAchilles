@@ -24,7 +24,7 @@ import (
 const (
 	serviceName    = "AchillesAgent"
 	serviceDisplay = "Achilles Agent"
-	serviceDesc    = "F0RT1KA Achilles security testing agent"
+	serviceDesc    = "ProjectAchilles security testing agent"
 )
 
 // achillesSvc implements svc.Handler for the Windows Service Control Manager.
