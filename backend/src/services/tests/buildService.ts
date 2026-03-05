@@ -322,65 +322,24 @@ export class BuildService {
         }
       }
 
-      // Pass absolute paths so build scripts can use them regardless of cwd
-      env.F0_TEST_DIR = testDir;
-      env.F0_BUILD_DIR = buildDir;
-
-      const repoRoot = path.dirname(this.testsSourcePath);
-
-      // build_all.sh scripts come in two flavors:
-      //
-      // 1. SCRIPT_DIR-based (robust): Use BASH_SOURCE[0] to compute absolute
-      //    paths. These work from any cwd.
-      //
-      // 2. Hardcoded-relative: Set TEST_DIR="tests_source/<uuid>" and expect
-      //    cwd to be the repo root with a flat tests_source/<uuid> layout.
-      //    But tests now live under tests_source/<category>/<uuid>.
-      //
-      // Fix for type 2: run from repo root and create a temporary symlink at
-      // the flat path (tests_source/<uuid> → tests_source/<category>/<uuid>).
-      // Go resolves go.mod replace directives via realpath(), so from the
-      // real path (3 levels deep), ../../../ references resolve correctly.
-      // The symlink only satisfies the shell's `cd "tests_source/<uuid>"`.
-      const flatPath = path.join(this.testsSourcePath, uuid);
-      const needsSymlink = testDir !== flatPath && !fs.existsSync(flatPath);
-      if (needsSymlink) {
-        try {
-          fs.symlinkSync(testDir, flatPath);
-        } catch {
-          // Symlink creation may fail (e.g., permissions); build may still
-          // work if the script uses SCRIPT_DIR-based paths
-        }
-      }
-
       try {
-        await runBuildCommand('bash', [buildAllPath], {
-          cwd: repoRoot,
+        // Execute build_all.sh — uses execFile with array args (no shell injection)
+        await runBuildCommand('bash', ['build_all.sh'], {
+          cwd: testDir,
           env,
           timeout: BUILD_TIMEOUT,
         });
       } finally {
-        // Clean up compatibility symlink
-        if (needsSymlink && fs.existsSync(flatPath)) {
-          try {
-            const stat = fs.lstatSync(flatPath);
-            if (stat.isSymbolicLink()) fs.unlinkSync(flatPath);
-          } catch { /* best-effort cleanup */ }
-        }
         // Clean up inner cert password file
         if (innerPassFile && fs.existsSync(innerPassFile)) {
           fs.unlinkSync(innerPassFile);
         }
       }
 
-      // Locate output binary — scripts may output to different locations:
-      //   - testDir/build/<uuid>/<file>  (SCRIPT_DIR-based scripts)
-      //   - testDir/<file>               (simple scripts)
-      //   - repoRoot/build/<uuid>/<file> (repo-root-relative scripts)
+      // Locate output binary
       const candidates = [
         path.join(testDir, 'build', uuid, filename),
         path.join(testDir, filename),
-        path.join(repoRoot, 'build', uuid, filename),
       ];
       let found = false;
       for (const candidate of candidates) {
@@ -391,16 +350,13 @@ export class BuildService {
         }
       }
       if (!found) {
-        // Try to find any file in build/<uuid>/ under testDir or repoRoot
-        for (const base of [testDir, repoRoot]) {
-          const buildSubdir = path.join(base, 'build', uuid);
-          if (fs.existsSync(buildSubdir)) {
-            const files = fs.readdirSync(buildSubdir).filter(f => !f.startsWith('.'));
-            if (files.length > 0) {
-              fs.copyFileSync(path.join(buildSubdir, files[0]), outputPath);
-              found = true;
-              break;
-            }
+        // Try to find any file in build/<uuid>/
+        const buildSubdir = path.join(testDir, 'build', uuid);
+        if (fs.existsSync(buildSubdir)) {
+          const files = fs.readdirSync(buildSubdir);
+          if (files.length > 0) {
+            fs.copyFileSync(path.join(buildSubdir, files[0]), outputPath);
+            found = true;
           }
         }
       }
