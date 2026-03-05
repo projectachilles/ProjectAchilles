@@ -13,6 +13,7 @@ const mockStatSync = vi.fn();
 const mockUnlinkSync = vi.fn();
 const mockCopyFileSync = vi.fn();
 const mockRenameSync = vi.fn();
+const mockSymlinkSync = vi.fn();
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
@@ -27,6 +28,7 @@ vi.mock('fs', async () => {
     unlinkSync: mockUnlinkSync,
     copyFileSync: mockCopyFileSync,
     renameSync: mockRenameSync,
+    symlinkSync: mockSymlinkSync,
   };
   return { ...actual, ...overrides, default: { ...actual, ...overrides } };
 });
@@ -627,11 +629,17 @@ var data string
     const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
 
     it('executes bash build_all.sh when script exists', async () => {
+      // For categorized tests (tests_source/<category>/<uuid>), the build runs
+      // from the repo root with a flat symlink, not from testDir directly.
+      const repoRoot = '/';
+      const flatPath = `${TESTS_SOURCE}/${VALID_UUID}`;
+
       mockExistsSync.mockImplementation((p: string) => {
         if (p === testDir) return true;
         if (p === `${testDir}/build_all.sh`) return true;
-        // Candidate output: testDir/build/uuid/filename
-        if (p === `${testDir}/build/${VALID_UUID}/${VALID_UUID}.exe`) return true;
+        if (p === flatPath) return false; // triggers symlink creation
+        // Candidate output at repo root build dir
+        if (p === `${repoRoot}build/${VALID_UUID}/${VALID_UUID}.exe`) return true;
         if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
         return false;
       });
@@ -642,20 +650,28 @@ var data string
 
       await service.buildAndSign(VALID_UUID);
 
+      // Categorized test: runs from repo root with relative path to build_all.sh
       expect(mockExecFileAsync).toHaveBeenCalledWith(
         'bash',
-        ['build_all.sh'],
-        expect.objectContaining({ cwd: testDir }),
+        [`mock-tests/cyber-hygiene/${VALID_UUID}/build_all.sh`],
+        expect.objectContaining({ cwd: repoRoot }),
       );
+      expect(mockSymlinkSync).toHaveBeenCalledWith(testDir, flatPath);
       expect(mockCopyFileSync).toHaveBeenCalled();
     });
 
     it('searches candidate output paths for binary', async () => {
+      const repoRoot = '/';
+      const flatPath = `${TESTS_SOURCE}/${VALID_UUID}`;
+
       mockExistsSync.mockImplementation((p: string) => {
         if (p === testDir) return true;
         if (p === `${testDir}/build_all.sh`) return true;
-        // First candidate doesn't exist, second does
+        if (p === flatPath) return false; // triggers symlink creation
+        // First candidates don't exist
+        if (p === `${repoRoot}build/${VALID_UUID}/${VALID_UUID}.exe`) return false;
         if (p === `${testDir}/build/${VALID_UUID}/${VALID_UUID}.exe`) return false;
+        // Third candidate exists
         if (p === `${testDir}/${VALID_UUID}.exe`) return true;
         if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
         return false;
@@ -667,7 +683,7 @@ var data string
 
       await service.buildAndSign(VALID_UUID);
 
-      // Should copy from the second candidate
+      // Should copy from the third candidate (testDir/<uuid>.exe)
       expect(mockCopyFileSync).toHaveBeenCalledWith(
         `${testDir}/${VALID_UUID}.exe`,
         expect.stringContaining(VALID_UUID),

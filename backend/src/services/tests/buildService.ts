@@ -309,6 +309,34 @@ export class BuildService {
     const hasBuildScript = fs.existsSync(buildAllPath);
 
     if (hasBuildScript) {
+      // Determine if the test is in a categorized subdirectory (tests_source/<category>/<uuid>/).
+      // Some build_all.sh scripts hardcode TEST_DIR="tests_source/<uuid>" assuming cwd=repo-root
+      // and a flat layout. For these, we run from the repo root and create a temporary flat
+      // symlink so the hardcoded path resolves correctly.
+      const repoRoot = path.dirname(this.testsSourcePath);
+      const relFromTestsSource = path.relative(this.testsSourcePath, testDir);
+      const pathParts = relFromTestsSource.split(path.sep);
+      const isCategorized = pathParts.length === 2; // e.g., "intel-driven/<uuid>"
+
+      let flatSymlink: string | null = null;
+      let buildCwd: string;
+      let buildArgs: string[];
+
+      if (isCategorized) {
+        // Create flat symlink: tests_source/<uuid> → tests_source/<category>/<uuid>
+        // so scripts that `cd "tests_source/<uuid>"` find the right directory.
+        const flatPath = path.join(this.testsSourcePath, uuid);
+        if (!fs.existsSync(flatPath)) {
+          fs.symlinkSync(testDir, flatPath);
+          flatSymlink = flatPath;
+        }
+        buildCwd = repoRoot;
+        buildArgs = [path.relative(repoRoot, buildAllPath)];
+      } else {
+        buildCwd = testDir;
+        buildArgs = ['build_all.sh'];
+      }
+
       // Pass active signing cert to build_all.sh so it can sign inner binaries
       // (e.g., multi-binary bundles sign validators before embedding)
       let innerPassFile: string | null = null;
@@ -323,21 +351,25 @@ export class BuildService {
       }
 
       try {
-        // Execute build_all.sh — uses execFile with array args (no shell injection)
-        await runBuildCommand('bash', ['build_all.sh'], {
-          cwd: testDir,
+        await runBuildCommand('bash', buildArgs, {
+          cwd: buildCwd,
           env,
           timeout: BUILD_TIMEOUT,
         });
       } finally {
+        // Clean up flat symlink
+        if (flatSymlink) {
+          try { fs.unlinkSync(flatSymlink); } catch { /* ignore */ }
+        }
         // Clean up inner cert password file
         if (innerPassFile && fs.existsSync(innerPassFile)) {
           fs.unlinkSync(innerPassFile);
         }
       }
 
-      // Locate output binary
+      // Locate output binary — check repo-root build dir (build_all.sh output location) too
       const candidates = [
+        path.join(repoRoot, 'build', uuid, filename),
         path.join(testDir, 'build', uuid, filename),
         path.join(testDir, filename),
       ];
@@ -350,13 +382,16 @@ export class BuildService {
         }
       }
       if (!found) {
-        // Try to find any file in build/<uuid>/
-        const buildSubdir = path.join(testDir, 'build', uuid);
-        if (fs.existsSync(buildSubdir)) {
-          const files = fs.readdirSync(buildSubdir);
-          if (files.length > 0) {
-            fs.copyFileSync(path.join(buildSubdir, files[0]), outputPath);
-            found = true;
+        // Try to find any file in build/<uuid>/ under repo root or testDir
+        for (const base of [repoRoot, testDir]) {
+          const buildSubdir = path.join(base, 'build', uuid);
+          if (fs.existsSync(buildSubdir)) {
+            const files = fs.readdirSync(buildSubdir);
+            if (files.length > 0) {
+              fs.copyFileSync(path.join(buildSubdir, files[0]), outputPath);
+              found = true;
+              break;
+            }
           }
         }
       }
