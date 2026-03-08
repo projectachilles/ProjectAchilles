@@ -10,9 +10,10 @@ import { useTheme } from '@/hooks/useTheme';
 import BuildSection from '@/components/browser/BuildSection';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
 import { useHasPermission } from '@/hooks/useAppRole';
-import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2, Heart, Tag, User, Clock, Monitor, Crosshair } from 'lucide-react';
+import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2, Heart, Tag, User, Clock, Monitor, Crosshair, Play } from 'lucide-react';
 import { formatRelativeDate, formatFullDate } from '@/utils/dateFormatters';
 import { targetLabel } from '@/utils/platformLabels';
+import { ExecutionDrawer } from '@/components/browser/execution';
 
 export default function TestDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
@@ -30,6 +31,8 @@ export default function TestDetailPage() {
   const [hasUserInteracted, setHasUserInteracted] = useState(false); // Track if user clicked something
   const { isFavorite, toggleFavorite, trackView } = useTestPreferences();
   const canBuild = useHasPermission('tests:builds:create');
+  const canCreateTasks = useHasPermission('endpoints:tasks:create');
+  const [executionDrawerOpen, setExecutionDrawerOpen] = useState(false);
 
   // Sync theme to attack flow iframe via postMessage
   const syncThemeToIframe = useCallback(() => {
@@ -217,6 +220,15 @@ export default function TestDetailPage() {
               >
                 <Heart className={`w-4 h-4 transition-colors ${isFavorite(test.uuid) ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
               </button>
+              {canCreateTasks && (
+                <button
+                  onClick={() => setExecutionDrawerOpen(true)}
+                  className="p-1.5 rounded-md hover:bg-accent transition-colors"
+                  title="Execute test"
+                >
+                  <Play className="w-4 h-4 text-primary" />
+                </button>
+              )}
               {test.score && (
                 <div className="flex items-center gap-1 text-amber-500">
                   <Star className="w-4 h-4 fill-current" />
@@ -314,6 +326,15 @@ export default function TestDetailPage() {
                 >
                   <Heart className={`w-5 h-5 transition-colors ${isFavorite(test.uuid) ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
                 </button>
+                {canCreateTasks && (
+                  <button
+                    onClick={() => setExecutionDrawerOpen(true)}
+                    className="p-2 rounded-lg hover:bg-accent transition-colors"
+                    title="Execute test"
+                  >
+                    <Play className="w-5 h-5 text-primary" />
+                  </button>
+                )}
                 {test.score && (
                   <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
                     <Star className="w-5 h-5 text-amber-500 fill-current" />
@@ -541,6 +562,14 @@ export default function TestDetailPage() {
           </div>
         </div>
       </div>
+
+      {test && (
+        <ExecutionDrawer
+          open={executionDrawerOpen}
+          onClose={() => setExecutionDrawerOpen(false)}
+          tests={[test]}
+        />
+      )}
     </div>
   );
 }
