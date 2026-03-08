@@ -10,6 +10,7 @@ import SearchBar from '@/components/browser/SearchBar';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
 import { useHasPermission } from '@/hooks/useAppRole';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
+import { targetLabel } from '@/utils/platformLabels';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/shared/ui/Tabs';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Switch } from '@/components/shared/ui/Switch';
@@ -24,22 +25,6 @@ type SortDirection = 'asc' | 'desc';
 const SEVERITY_ORDER: Record<string, number> = {
   critical: 5, high: 4, medium: 3, low: 2, informational: 1,
 };
-
-const TARGET_LABELS: Record<string, string> = {
-  'windows-endpoint': 'Windows',
-  'linux-server': 'Linux',
-  'entra-id': 'Entra ID',
-  'azure-ad': 'Azure AD',
-  'macos-endpoint': 'macOS',
-  'm365': 'M365',
-  'exchange-online': 'Exchange Online',
-  'sharepoint-online': 'SharePoint Online',
-  'network': 'Network',
-};
-
-function targetLabel(raw: string): string {
-  return TARGET_LABELS[raw] || raw.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-}
 
 interface BrowserHomePageProps {
   mode?: BrowseMode;

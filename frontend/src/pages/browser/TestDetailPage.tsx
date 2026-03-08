@@ -10,8 +10,9 @@ import { useTheme } from '@/hooks/useTheme';
 import BuildSection from '@/components/browser/BuildSection';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
 import { useHasPermission } from '@/hooks/useAppRole';
-import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2, Heart, Tag, User, Clock } from 'lucide-react';
+import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2, Heart, Tag, User, Clock, Monitor } from 'lucide-react';
 import { formatRelativeDate, formatFullDate } from '@/utils/dateFormatters';
+import { targetLabel } from '@/utils/platformLabels';
 
 export default function TestDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
@@ -287,6 +288,12 @@ export default function TestDetailPage() {
                     >
                       <Clock className="w-4 h-4" />
                       <span>Modified {formatRelativeDate(test.lastModifiedDate)}</span>
+                    </div>
+                  )}
+                  {test.target && test.target.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      <Monitor className="w-4 h-4" />
+                      <span>{test.target.map(t => targetLabel(t)).join(', ')}</span>
                     </div>
                   )}
                   <span className="font-mono text-xs">{test.uuid}</span>

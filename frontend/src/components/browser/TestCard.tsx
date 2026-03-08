@@ -1,6 +1,7 @@
 import type { TestMetadata } from '@/types/test';
 import { FileCode2, Calendar, Layers, Star, Shield, Workflow, ShieldCheck, Heart, User, Clock, Play } from 'lucide-react';
 import TechniqueBadge from './TechniqueBadge';
+import TargetBadge from './TargetBadge';
 import { formatRelativeDate, formatFullDate } from '@/utils/dateFormatters';
 
 interface TestCardProps {
@@ -120,7 +121,7 @@ export default function TestCard({ test, onClick, isFavorite, onToggleFavorite, 
       {/* Techniques */}
       <div className="flex flex-wrap gap-1.5 mb-3">
         {test.techniques.slice(0, 4).map(technique => (
-          <TechniqueBadge key={technique} technique={technique} />
+          <TechniqueBadge key={technique} technique={technique} size="sm" />
         ))}
         {test.techniques.length > 4 && (
           <span className="text-xs text-muted-foreground px-2 py-1">
@@ -154,6 +155,18 @@ export default function TestCard({ test, onClick, isFavorite, onToggleFavorite, 
           <div className="flex items-center gap-1 text-green-500" title="Defense guidance available">
             <ShieldCheck className="w-3 h-3" />
             <span className="text-[10px] font-medium">Defense</span>
+          </div>
+        )}
+
+        {/* Platform targets — right-aligned */}
+        {test.target && test.target.length > 0 && (
+          <div className="flex items-center gap-2 ml-auto">
+            {test.target.slice(0, 3).map(t => (
+              <TargetBadge key={t} target={t} />
+            ))}
+            {test.target.length > 3 && (
+              <span className="text-[10px] text-muted-foreground">+{test.target.length - 3}</span>
+            )}
           </div>
         )}
       </div>
