@@ -379,73 +379,61 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
           placeholder="Search by name, UUID, technique, or description..."
         />
 
-        <div className="flex gap-4 flex-wrap items-center">
+        <div className="flex gap-2 items-center">
           {/* Category Filter */}
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-foreground">Category:</label>
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="px-3 py-1.5 rounded-base border-theme border-border bg-background text-foreground text-sm"
-            >
-              {categories.map(cat => (
-                <option key={cat} value={cat}>
-                  {cat === 'all' ? 'All Categories' : cat}
-                </option>
-              ))}
-            </select>
-          </div>
+          <select
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            className="px-2 py-1.5 rounded-base border-theme border-border bg-background text-foreground text-sm"
+          >
+            {categories.map(cat => (
+              <option key={cat} value={cat}>
+                {cat === 'all' ? 'All Categories' : cat}
+              </option>
+            ))}
+          </select>
 
           {/* Severity Filter */}
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-foreground">Severity:</label>
-            <select
-              value={selectedSeverity}
-              onChange={(e) => setSelectedSeverity(e.target.value)}
-              className="px-3 py-1.5 rounded-base border-theme border-border bg-background text-foreground text-sm"
-            >
-              {severities.map(sev => (
-                <option key={sev} value={sev}>
-                  {sev === 'all' ? 'All Severities' : sev}
-                </option>
-              ))}
-            </select>
-          </div>
+          <select
+            value={selectedSeverity}
+            onChange={(e) => setSelectedSeverity(e.target.value)}
+            className="px-2 py-1.5 rounded-base border-theme border-border bg-background text-foreground text-sm"
+          >
+            {severities.map(sev => (
+              <option key={sev} value={sev}>
+                {sev === 'all' ? 'All Severities' : sev}
+              </option>
+            ))}
+          </select>
 
           {/* Platform/Target Filter */}
           {targets.length > 1 && (
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-foreground">Platform:</label>
-              <select
-                value={selectedTarget}
-                onChange={(e) => setSelectedTarget(e.target.value)}
-                className="px-3 py-1.5 rounded-base border-theme border-border bg-background text-foreground text-sm"
-              >
-                {targets.map(t => (
-                  <option key={t} value={t}>
-                    {t === 'all' ? 'All Platforms' : targetLabel(t)}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <select
+              value={selectedTarget}
+              onChange={(e) => setSelectedTarget(e.target.value)}
+              className="px-2 py-1.5 rounded-base border-theme border-border bg-background text-foreground text-sm"
+            >
+              {targets.map(t => (
+                <option key={t} value={t}>
+                  {t === 'all' ? 'All Platforms' : targetLabel(t)}
+                </option>
+              ))}
+            </select>
           )}
 
           {/* Threat Actor Filter */}
           {threatActors.length > 1 && (
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-foreground">Actor:</label>
-              <select
-                value={selectedThreatActor}
-                onChange={(e) => setSelectedThreatActor(e.target.value)}
-                className="px-3 py-1.5 rounded-base border-theme border-border bg-background text-foreground text-sm"
-              >
-                {threatActors.map(a => (
-                  <option key={a} value={a}>
-                    {a === 'all' ? 'All Actors' : a}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <select
+              value={selectedThreatActor}
+              onChange={(e) => setSelectedThreatActor(e.target.value)}
+              className="px-2 py-1.5 rounded-base border-theme border-border bg-background text-foreground text-sm"
+            >
+              {threatActors.map(a => (
+                <option key={a} value={a}>
+                  {a === 'all' ? 'All Actors' : a}
+                </option>
+              ))}
+            </select>
           )}
 
           {/* NRY (Not Run Yet) Toggle */}
@@ -458,72 +446,69 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
             />
           )}
 
-          <div className="ml-auto flex items-center gap-4">
-            {/* Sort Controls */}
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-foreground">Sort:</label>
-              <select
-                value={sortField}
-                onChange={(e) => {
-                  const field = e.target.value as SortField;
-                  setSortField(field);
-                  // Auto-set natural direction
-                  setSortDirection(
-                    field === 'severity' || field === 'score' || field === 'createdDate' || field === 'lastModifiedDate'
-                      ? 'desc' : 'asc'
-                  );
-                }}
-                className="px-3 py-1.5 rounded-base border-theme border-border bg-background text-foreground text-sm"
-              >
-                <option value="name">Name</option>
-                <option value="severity">Severity</option>
-                <option value="score">Score</option>
-                <option value="createdDate">Created</option>
-                <option value="lastModifiedDate">Modified</option>
-              </select>
-              <button
-                onClick={() => setSortDirection(d => d === 'asc' ? 'desc' : 'asc')}
-                className="p-1.5 rounded-base border border-border hover:bg-accent text-foreground"
-                title={sortDirection === 'asc' ? 'Ascending' : 'Descending'}
-              >
-                {sortDirection === 'asc'
-                  ? <ArrowUpNarrowWide className="w-4 h-4" />
-                  : <ArrowDownNarrowWide className="w-4 h-4" />
-                }
-              </button>
-            </div>
+          {/* Separator */}
+          <div className="h-5 w-px bg-border mx-1" />
 
-            {/* Select Mode + Run Selected */}
-            {canCreateTasks && (
-              <>
-                {selectMode && selectedTestUuids.size > 0 && (
-                  <button
-                    onClick={handleRunSelected}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90"
-                  >
-                    <Play className="w-4 h-4" />
-                    Run {selectedTestUuids.size} Selected
-                  </button>
-                )}
+          {/* Sort Controls */}
+          <select
+            value={sortField}
+            onChange={(e) => {
+              const field = e.target.value as SortField;
+              setSortField(field);
+              setSortDirection(
+                field === 'severity' || field === 'score' || field === 'createdDate' || field === 'lastModifiedDate'
+                  ? 'desc' : 'asc'
+              );
+            }}
+            className="px-2 py-1.5 rounded-base border-theme border-border bg-background text-foreground text-sm"
+          >
+            <option value="name">Name</option>
+            <option value="severity">Severity</option>
+            <option value="score">Score</option>
+            <option value="createdDate">Created</option>
+            <option value="lastModifiedDate">Modified</option>
+          </select>
+          <button
+            onClick={() => setSortDirection(d => d === 'asc' ? 'desc' : 'asc')}
+            className="p-1.5 rounded-base border border-border hover:bg-accent text-foreground"
+            title={sortDirection === 'asc' ? 'Ascending' : 'Descending'}
+          >
+            {sortDirection === 'asc'
+              ? <ArrowUpNarrowWide className="w-4 h-4" />
+              : <ArrowDownNarrowWide className="w-4 h-4" />
+            }
+          </button>
+
+          {/* Select Mode + Run Selected */}
+          {canCreateTasks && (
+            <>
+              {selectMode && selectedTestUuids.size > 0 && (
                 <button
-                  onClick={handleToggleSelectMode}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                    selectMode
-                      ? 'bg-primary text-primary-foreground'
-                      : 'border border-border text-foreground hover:bg-accent'
-                  }`}
-                  title={selectMode ? 'Exit select mode' : 'Select tests for batch execution'}
+                  onClick={handleRunSelected}
+                  className="flex items-center gap-1.5 px-2 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90"
                 >
-                  <CheckSquare className="w-4 h-4" />
-                  {selectMode ? 'Cancel' : 'Select'}
+                  <Play className="w-4 h-4" />
+                  Run {selectedTestUuids.size}
                 </button>
-              </>
-            )}
+              )}
+              <button
+                onClick={handleToggleSelectMode}
+                className={`flex items-center gap-1.5 px-2 py-1.5 text-sm rounded-lg transition-colors ${
+                  selectMode
+                    ? 'bg-primary text-primary-foreground'
+                    : 'border border-border text-foreground hover:bg-accent'
+                }`}
+                title={selectMode ? 'Exit select mode' : 'Select tests for batch execution'}
+              >
+                <CheckSquare className="w-4 h-4" />
+                {selectMode ? 'Cancel' : 'Select'}
+              </button>
+            </>
+          )}
 
-            <div className="text-sm text-muted-foreground">
-              Showing {filteredTests.length} of {modeFilteredTests.length}{' '}
-              {mode === 'favorites' ? 'favorites' : mode === 'recent' ? 'recent' : 'tests'}
-            </div>
+          <div className="ml-auto text-sm text-muted-foreground whitespace-nowrap">
+            {filteredTests.length}/{modeFilteredTests.length}{' '}
+            {mode === 'favorites' ? 'favorites' : mode === 'recent' ? 'recent' : 'tests'}
           </div>
         </div>
       </div>
