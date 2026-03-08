@@ -46,6 +46,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
   const [selectMode, setSelectMode] = useState(false);
   const [selectedTestUuids, setSelectedTestUuids] = useState<Set<string>>(new Set());
   const [selectedTarget, setSelectedTarget] = useState<string>('all');
+  const [selectedThreatActor, setSelectedThreatActor] = useState<string>('all');
   const [nryFilter, setNryFilter] = useState(false);
   const [executedUuids, setExecutedUuids] = useState<Set<string> | null>(null);
   const [executedUuidsLoading, setExecutedUuidsLoading] = useState(false);
@@ -154,6 +155,11 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
         );
       }
 
+      // Threat actor filter
+      if (selectedThreatActor !== 'all') {
+        filtered = filtered.filter(test => test.threatActor === selectedThreatActor);
+      }
+
       // NRY (Not Run Yet) filter
       if (nryFilter && executedUuids) {
         filtered = filtered.filter(test => !executedUuids.has(test.uuid));
@@ -187,7 +193,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
       console.error('Error in filterTests:', err);
       setFilteredTests(modeFilteredTests);
     }
-  }, [modeFilteredTests, searchQuery, selectedCategory, selectedSeverity, selectedTarget, nryFilter, executedUuids, sortField, sortDirection]);
+  }, [modeFilteredTests, searchQuery, selectedCategory, selectedSeverity, selectedTarget, selectedThreatActor, nryFilter, executedUuids, sortField, sortDirection]);
 
   useEffect(() => {
     filterTests();
@@ -290,6 +296,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
     setSelectedSeverity(severity);
     setSelectedCategory('all');
     setSelectedTarget('all');
+    setSelectedThreatActor('all');
     setSearchQuery('');
     setActiveTab('browse');
   }
@@ -298,6 +305,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
     setSelectedCategory(category);
     setSelectedSeverity('all');
     setSelectedTarget('all');
+    setSelectedThreatActor('all');
     setSearchQuery('');
     setActiveTab('browse');
   }
@@ -307,6 +315,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
     setSelectedCategory('all');
     setSelectedSeverity('all');
     setSelectedTarget('all');
+    setSelectedThreatActor('all');
     setActiveTab('browse');
   }
 
@@ -321,6 +330,13 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
     const unique = new Set<string>();
     for (const t of modeFilteredTests) {
       if (Array.isArray(t.target)) t.target.forEach(v => unique.add(v));
+    }
+    return ['all', ...Array.from(unique).sort()];
+  }, [modeFilteredTests]);
+  const threatActors = useMemo(() => {
+    const unique = new Set<string>();
+    for (const t of modeFilteredTests) {
+      if (t.threatActor) unique.add(t.threatActor);
     }
     return ['all', ...Array.from(unique).sort()];
   }, [modeFilteredTests]);
@@ -408,6 +424,24 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
                 {targets.map(t => (
                   <option key={t} value={t}>
                     {t === 'all' ? 'All Platforms' : targetLabel(t)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Threat Actor Filter */}
+          {threatActors.length > 1 && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-foreground">Actor:</label>
+              <select
+                value={selectedThreatActor}
+                onChange={(e) => setSelectedThreatActor(e.target.value)}
+                className="px-3 py-1.5 rounded-base border-theme border-border bg-background text-foreground text-sm"
+              >
+                {threatActors.map(a => (
+                  <option key={a} value={a}>
+                    {a === 'all' ? 'All Actors' : a}
                   </option>
                 ))}
               </select>
