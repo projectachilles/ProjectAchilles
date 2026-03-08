@@ -1,63 +1,72 @@
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useMemo, createContext, useContext, type ReactNode } from 'react';
 import { AppSidebar } from './AppSidebar';
 import { TopBar } from './TopBar';
 import { cn } from '@/lib/utils';
 
-interface SidebarLayoutProps {
-  children: ReactNode;
-  onSettingsClick?: () => void;
-  onRefreshClick?: () => void;
+const SIDEBAR_COLLAPSED_KEY = 'achilles-sidebar-collapsed';
+
+// ── Layout context ────────────────────────────────────────────────────────────
+// Pages can register dynamic TopBar actions (refresh, settings) via this context.
+interface TopBarActions {
+  onSettingsClick?: (() => void) | null;
+  onRefreshClick?: (() => void) | null;
   isRefreshing?: boolean;
 }
 
-const SIDEBAR_COLLAPSED_KEY = 'achilles-sidebar-collapsed';
+interface LayoutContextValue {
+  setTopBarActions: (actions: TopBarActions) => void;
+}
 
-export function SidebarLayout({
-  children,
-  onSettingsClick,
-  onRefreshClick,
-  isRefreshing,
-}: SidebarLayoutProps) {
-  // Persist sidebar state
+const LayoutContext = createContext<LayoutContextValue>({ setTopBarActions: () => {} });
+
+export function useLayoutActions() {
+  return useContext(LayoutContext);
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface SidebarLayoutProps {
+  children: ReactNode;
+}
+
+export function SidebarLayout({ children }: SidebarLayoutProps) {
   const [collapsed, setCollapsed] = useState(() => {
     const saved = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
     return saved === 'true';
   });
 
+  const [topBarActions, setTopBarActionsState] = useState<TopBarActions>({});
+
   useEffect(() => {
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
   }, [collapsed]);
 
-  const handleMenuClick = () => {
-    setCollapsed(!collapsed);
-  };
+  const setTopBarActions = useCallback((actions: TopBarActions) => {
+    setTopBarActionsState(actions);
+  }, []);
+
+  const contextValue = useMemo(() => ({ setTopBarActions }), [setTopBarActions]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      {/* Sidebar */}
-      <AppSidebar collapsed={collapsed} onCollapse={setCollapsed} />
+    <LayoutContext.Provider value={contextValue}>
+      <div className="flex h-screen overflow-hidden bg-background">
+        {/* Sidebar */}
+        <AppSidebar collapsed={collapsed} />
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Bar */}
-        <TopBar
-          onMenuClick={handleMenuClick}
-          onSettingsClick={onSettingsClick}
-          onRefreshClick={onRefreshClick}
-          isRefreshing={isRefreshing}
-        />
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <TopBar
+            onMenuClick={() => setCollapsed((prev) => !prev)}
+            onSettingsClick={topBarActions.onSettingsClick ?? undefined}
+            onRefreshClick={topBarActions.onRefreshClick ?? undefined}
+            isRefreshing={topBarActions.isRefreshing}
+          />
 
-        {/* Page Content */}
-        <main
-          className={cn(
-            'flex-1 overflow-y-auto',
-            'bg-background'
-          )}
-        >
-          {children}
-        </main>
+          <main className={cn('flex-1 overflow-y-auto', 'bg-background')}>
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </LayoutContext.Provider>
   );
 }
 
