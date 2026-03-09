@@ -13,7 +13,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@clerk/backend": "^2.33.0",
+    "@clerk/backend": "^3.0.2",
     "@clerk/express": "^1.7.76",
     "@elastic/elasticsearch": "^8.19.1",
     "axios": "^1.13.6",
