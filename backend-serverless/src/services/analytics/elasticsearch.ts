@@ -17,6 +17,7 @@ import type {
   HostTestMatrixCell,
   EnrichedTestExecution,
   PaginatedResponse,
+  ExtendedAnalyticsQueryParams,
   PaginatedExecutionsParams,
   FilterOption,
   SeverityBreakdownItem,
@@ -179,7 +180,7 @@ export class ElasticsearchService {
    * Includes: test data filter, date filter, conclusive results filter,
    * optional org filter, and risk acceptance exclusion filter.
    */
-  async buildDefenseScoreFilters(params: AnalyticsQueryParams): Promise<any[]> {
+  async buildDefenseScoreFilters(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<any[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
       this.buildDateFilter(params.from, params.to),
@@ -188,6 +189,8 @@ export class ElasticsearchService {
 
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
+
+    filters.push(...this.buildFilterBarClauses(params));
 
     const exclusionFilter = await this.getRiskAcceptanceService().buildExclusionFilter();
     if (exclusionFilter) filters.push(exclusionFilter);
@@ -204,7 +207,7 @@ export class ElasticsearchService {
    * Build Defense Score filters WITHOUT risk acceptance exclusion.
    * Synchronous — used as the "real score" baseline for dual-query comparison.
    */
-  buildDefenseScoreFiltersWithoutExclusion(params: AnalyticsQueryParams): any[] {
+  buildDefenseScoreFiltersWithoutExclusion(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): any[] {
     const filters: any[] = [
       this.buildTestDataFilter(),
       this.buildDateFilter(params.from, params.to),
@@ -212,6 +215,7 @@ export class ElasticsearchService {
     ];
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
+    filters.push(...this.buildFilterBarClauses(params));
     return filters;
   }
 
@@ -240,7 +244,7 @@ export class ElasticsearchService {
   }
 
   // Get overall defense score
-  async getDefenseScore(params: AnalyticsQueryParams): Promise<DefenseScoreResponse> {
+  async getDefenseScore(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<DefenseScoreResponse> {
     const rawFilters = this.buildDefenseScoreFiltersWithoutExclusion(params);
     const adjustedFilters = await this.buildDefenseScoreFilters(params);
     const hasExclusion = adjustedFilters.length > rawFilters.length;
@@ -309,7 +313,7 @@ export class ElasticsearchService {
   }
 
   // Get defense score trend over time
-  async getDefenseScoreTrend(params: AnalyticsQueryParams): Promise<TrendDataPoint[]> {
+  async getDefenseScoreTrend(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<TrendDataPoint[]> {
     const rawFilters = this.buildDefenseScoreFiltersWithoutExclusion(params);
     const adjustedFilters = await this.buildDefenseScoreFilters(params);
     const hasExclusion = adjustedFilters.length > rawFilters.length;
@@ -433,7 +437,7 @@ export class ElasticsearchService {
   }
 
   // Get defense score trend with rolling window aggregation
-  async getDefenseScoreTrendRolling(params: AnalyticsQueryParams): Promise<TrendDataPoint[]> {
+  async getDefenseScoreTrendRolling(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<TrendDataPoint[]> {
     const windowDays = params.windowDays || 7;
     const displayFrom = params.from;
     const interval = params.interval || 'day';
@@ -522,7 +526,7 @@ export class ElasticsearchService {
   }
 
   // Get defense score by test
-  async getDefenseScoreByTest(params: AnalyticsQueryParams): Promise<BreakdownItem[]> {
+  async getDefenseScoreByTest(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<BreakdownItem[]> {
     const filters = await this.buildDefenseScoreFilters(params);
 
     const response = await this.client.search({
@@ -562,7 +566,7 @@ export class ElasticsearchService {
   }
 
   // Get defense score by technique
-  async getDefenseScoreByTechnique(params: AnalyticsQueryParams): Promise<BreakdownItem[]> {
+  async getDefenseScoreByTechnique(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<BreakdownItem[]> {
     const filters = await this.buildDefenseScoreFilters(params);
 
     const response = await this.client.search({
@@ -680,7 +684,7 @@ export class ElasticsearchService {
   }
 
   // Get unique hostname count
-  async getUniqueHostnames(params: AnalyticsQueryParams): Promise<number> {
+  async getUniqueHostnames(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<number> {
     const filters: any[] = [
       this.buildTestDataFilter(),
       this.buildDateFilter(params.from, params.to)
@@ -688,6 +692,8 @@ export class ElasticsearchService {
 
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
+
+    filters.push(...this.buildFilterBarClauses(params));
 
     const response = await this.client.search({
       index: this.settings.indexPattern,
@@ -706,7 +712,7 @@ export class ElasticsearchService {
   }
 
   // Get unique test count
-  async getUniqueTests(params: AnalyticsQueryParams): Promise<number> {
+  async getUniqueTests(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<number> {
     const filters: any[] = [
       this.buildTestDataFilter(),
       this.buildDateFilter(params.from, params.to)
@@ -714,6 +720,8 @@ export class ElasticsearchService {
 
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
+
+    filters.push(...this.buildFilterBarClauses(params));
 
     const response = await this.client.search({
       index: this.settings.indexPattern,
@@ -770,7 +778,7 @@ export class ElasticsearchService {
   }
 
   // Get results by error type (for pie chart)
-  async getResultsByErrorType(params: AnalyticsQueryParams): Promise<ErrorTypeBreakdown[]> {
+  async getResultsByErrorType(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<ErrorTypeBreakdown[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
       this.buildDateFilter(params.from, params.to)
@@ -779,11 +787,7 @@ export class ElasticsearchService {
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
 
-    const testsFilter = this.buildTestsFilter(params.tests);
-    if (testsFilter) filters.push(testsFilter);
-
-    const techniquesFilter = this.buildTechniquesFilter(params.techniques);
-    if (techniquesFilter) filters.push(techniquesFilter);
+    filters.push(...this.buildFilterBarClauses(params));
 
     const response = await this.client.search({
       index: this.settings.indexPattern,
@@ -808,7 +812,7 @@ export class ElasticsearchService {
   }
 
   // Get test coverage (protected vs unprotected counts per test)
-  async getTestCoverage(params: AnalyticsQueryParams): Promise<TestCoverageItem[]> {
+  async getTestCoverage(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<TestCoverageItem[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
       this.buildDateFilter(params.from, params.to)
@@ -817,11 +821,7 @@ export class ElasticsearchService {
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
 
-    const testsFilter = this.buildTestsFilter(params.tests);
-    if (testsFilter) filters.push(testsFilter);
-
-    const techniquesFilter = this.buildTechniquesFilter(params.techniques);
-    if (techniquesFilter) filters.push(techniquesFilter);
+    filters.push(...this.buildFilterBarClauses(params));
 
     const response = await this.client.search({
       index: this.settings.indexPattern,
@@ -854,7 +854,7 @@ export class ElasticsearchService {
   }
 
   // Get technique distribution (protected vs unprotected counts per technique)
-  async getTechniqueDistribution(params: AnalyticsQueryParams): Promise<TechniqueDistributionItem[]> {
+  async getTechniqueDistribution(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<TechniqueDistributionItem[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
       this.buildDateFilter(params.from, params.to)
@@ -863,11 +863,7 @@ export class ElasticsearchService {
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
 
-    const testsFilter = this.buildTestsFilter(params.tests);
-    if (testsFilter) filters.push(testsFilter);
-
-    const techniquesFilter = this.buildTechniquesFilter(params.techniques);
-    if (techniquesFilter) filters.push(techniquesFilter);
+    filters.push(...this.buildFilterBarClauses(params));
 
     const response = await this.client.search({
       index: this.settings.indexPattern,
@@ -900,7 +896,7 @@ export class ElasticsearchService {
   }
 
   // Get host-test matrix for heatmap
-  async getHostTestMatrix(params: AnalyticsQueryParams): Promise<HostTestMatrixCell[]> {
+  async getHostTestMatrix(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<HostTestMatrixCell[]> {
     const filters: any[] = [
       this.buildTestDataFilter(),
       this.buildDateFilter(params.from, params.to)
@@ -909,11 +905,7 @@ export class ElasticsearchService {
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
 
-    const testsFilter = this.buildTestsFilter(params.tests);
-    if (testsFilter) filters.push(testsFilter);
-
-    const techniquesFilter = this.buildTechniquesFilter(params.techniques);
-    if (techniquesFilter) filters.push(techniquesFilter);
+    filters.push(...this.buildFilterBarClauses(params));
 
     const response = await this.client.search({
       index: this.settings.indexPattern,
@@ -1001,7 +993,7 @@ export class ElasticsearchService {
   }
 
   // Get defense score by organization
-  async getDefenseScoreByOrg(params: AnalyticsQueryParams): Promise<OrgBreakdownItem[]> {
+  async getDefenseScoreByOrg(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<OrgBreakdownItem[]> {
     const filters = await this.buildDefenseScoreFilters(params);
 
     const response = await this.client.search({
@@ -1189,7 +1181,51 @@ export class ElasticsearchService {
     return { bool: { must_not: { terms: { 'event.ERROR': [101, 105, 126, 127] } } } };
   }
 
-  // Build all extended filters
+  /**
+   * Build filter clauses from extended (filter-bar) params.
+   * Returns only the clauses — caller is responsible for base filters (testData, date, org).
+   * Shared by both paginated-executions and dashboard endpoints.
+   */
+  private buildFilterBarClauses(params: Partial<ExtendedAnalyticsQueryParams>): any[] {
+    const clauses: any[] = [];
+
+    const testsFilter = this.buildTestsFilter(params.tests);
+    if (testsFilter) clauses.push(testsFilter);
+
+    const techniquesFilter = this.buildTechniquesFilter(params.techniques);
+    if (techniquesFilter) clauses.push(techniquesFilter);
+
+    const hostnamesFilter = this.buildHostnamesFilter(params.hostnames);
+    if (hostnamesFilter) clauses.push(hostnamesFilter);
+
+    const categoriesFilter = this.buildCategoriesFilter(params.categories);
+    if (categoriesFilter) clauses.push(categoriesFilter);
+
+    const severitiesFilter = this.buildSeveritiesFilter(params.severities);
+    if (severitiesFilter) clauses.push(severitiesFilter);
+
+    const threatActorsFilter = this.buildThreatActorsFilter(params.threatActors);
+    if (threatActorsFilter) clauses.push(threatActorsFilter);
+
+    const tagsFilter = this.buildTagsFilter(params.tags);
+    if (tagsFilter) clauses.push(tagsFilter);
+
+    const errorNamesFilter = this.buildErrorNamesFilter(params.errorNames);
+    if (errorNamesFilter) clauses.push(errorNamesFilter);
+
+    const errorCodesFilter = this.buildErrorCodesFilter(params.errorCodes);
+    if (errorCodesFilter) clauses.push(errorCodesFilter);
+
+    const bundleNamesFilter = this.buildBundleNamesFilter(params.bundleNames);
+    if (bundleNamesFilter) clauses.push(bundleNamesFilter);
+
+    const resultFilter = this.buildResultFilter(params.result);
+    if (resultFilter) clauses.push(resultFilter);
+
+    return clauses;
+  }
+
+  // Build all extended filters (base + filter-bar clauses)
   private buildExtendedFilters(params: PaginatedExecutionsParams): any[] {
     const filters: any[] = [
       this.buildTestDataFilter(),
@@ -1199,38 +1235,7 @@ export class ElasticsearchService {
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
 
-    const testsFilter = this.buildTestsFilter(params.tests);
-    if (testsFilter) filters.push(testsFilter);
-
-    const techniquesFilter = this.buildTechniquesFilter(params.techniques);
-    if (techniquesFilter) filters.push(techniquesFilter);
-
-    const hostnamesFilter = this.buildHostnamesFilter(params.hostnames);
-    if (hostnamesFilter) filters.push(hostnamesFilter);
-
-    const categoriesFilter = this.buildCategoriesFilter(params.categories);
-    if (categoriesFilter) filters.push(categoriesFilter);
-
-    const severitiesFilter = this.buildSeveritiesFilter(params.severities);
-    if (severitiesFilter) filters.push(severitiesFilter);
-
-    const threatActorsFilter = this.buildThreatActorsFilter(params.threatActors);
-    if (threatActorsFilter) filters.push(threatActorsFilter);
-
-    const tagsFilter = this.buildTagsFilter(params.tags);
-    if (tagsFilter) filters.push(tagsFilter);
-
-    const errorNamesFilter = this.buildErrorNamesFilter(params.errorNames);
-    if (errorNamesFilter) filters.push(errorNamesFilter);
-
-    const errorCodesFilter = this.buildErrorCodesFilter(params.errorCodes);
-    if (errorCodesFilter) filters.push(errorCodesFilter);
-
-    const bundleNamesFilter = this.buildBundleNamesFilter(params.bundleNames);
-    if (bundleNamesFilter) filters.push(bundleNamesFilter);
-
-    const resultFilter = this.buildResultFilter(params.result);
-    if (resultFilter) filters.push(resultFilter);
+    filters.push(...this.buildFilterBarClauses(params));
 
     return filters;
   }
@@ -1703,7 +1708,7 @@ export class ElasticsearchService {
   }
 
   // Get defense score by severity
-  async getDefenseScoreBySeverity(params: AnalyticsQueryParams): Promise<SeverityBreakdownItem[]> {
+  async getDefenseScoreBySeverity(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<SeverityBreakdownItem[]> {
     const filters = await this.buildDefenseScoreFilters(params);
 
     const response = await this.client.search({
@@ -1745,7 +1750,7 @@ export class ElasticsearchService {
   }
 
   // Get defense score by category
-  async getDefenseScoreByCategory(params: AnalyticsQueryParams): Promise<CategoryBreakdownItem[]> {
+  async getDefenseScoreByCategory(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<CategoryBreakdownItem[]> {
     const filters = await this.buildDefenseScoreFilters(params);
 
     const response = await this.client.search({
@@ -1784,7 +1789,7 @@ export class ElasticsearchService {
   }
 
   // Get defense score by category with nested subcategories
-  async getDefenseScoreByCategoryWithSubcategories(params: AnalyticsQueryParams): Promise<CategorySubcategoryBreakdownItem[]> {
+  async getDefenseScoreByCategoryWithSubcategories(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<CategorySubcategoryBreakdownItem[]> {
     const filters = await this.buildDefenseScoreFilters(params);
 
     const response = await this.client.search({
@@ -1848,7 +1853,7 @@ export class ElasticsearchService {
   }
 
   // Get defense score by hostname
-  async getDefenseScoreByHostname(params: AnalyticsQueryParams): Promise<DefenseScoreByHostItem[]> {
+  async getDefenseScoreByHostname(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<DefenseScoreByHostItem[]> {
     const filters = await this.buildDefenseScoreFilters(params);
 
     const response = await this.client.search({
@@ -1925,7 +1930,7 @@ export class ElasticsearchService {
   }
 
   // Get threat actor coverage
-  async getThreatActorCoverage(params: AnalyticsQueryParams): Promise<ThreatActorCoverageItem[]> {
+  async getThreatActorCoverage(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<ThreatActorCoverageItem[]> {
     const filters = await this.buildDefenseScoreFilters(params);
 
     const response = await this.client.search({
@@ -1968,7 +1973,7 @@ export class ElasticsearchService {
   }
 
   // Get error rate trend with rolling window aggregation
-  async getErrorRateTrendRolling(params: AnalyticsQueryParams): Promise<ErrorRateTrendDataPoint[]> {
+  async getErrorRateTrendRolling(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<ErrorRateTrendDataPoint[]> {
     const windowDays = params.windowDays || 7;
     const displayFrom = params.from;
 
@@ -1983,6 +1988,8 @@ export class ElasticsearchService {
 
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
+
+    filters.push(...this.buildFilterBarClauses(params));
 
     const interval = params.interval || 'day';
 
@@ -2052,7 +2059,7 @@ export class ElasticsearchService {
   }
 
   // Get error rate (proportion of non-conclusive test activity)
-  async getErrorRate(params: AnalyticsQueryParams): Promise<ErrorRateResponse> {
+  async getErrorRate(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<ErrorRateResponse> {
     const filters: any[] = [
       this.buildTestDataFilter(),
       this.buildDateFilter(params.from, params.to),
@@ -2061,6 +2068,8 @@ export class ElasticsearchService {
 
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
+
+    filters.push(...this.buildFilterBarClauses(params));
 
     const response = await this.client.search({
       index: this.settings.indexPattern,
