@@ -971,7 +971,172 @@ var data string
     });
   });
 
-  // ── Group 10: source field passthrough ────────────────────
+  // ── Group 10: buildAndSign — platform auto-detection ──────
+
+  describe('buildAndSign — platform auto-detection', () => {
+    const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
+
+    function setupBuildWithGoSource(mainContent: string, otherFiles: Record<string, string> = {}) {
+      const allGoFiles = [`${VALID_UUID}.go`, ...Object.keys(otherFiles)];
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === testDir) return true;
+        if (p === `${testDir}/${VALID_UUID}.go`) return true;
+        // Other .go files
+        for (const f of Object.keys(otherFiles)) {
+          if (p === `${testDir}/${f}`) return true;
+        }
+        if (p.endsWith('build_all.sh')) return false;
+        if (p.endsWith('go.mod')) return false;
+        if (p.endsWith('go.sum')) return false;
+        if (p === `${BUILDS_DIR}/${VALID_UUID}`) return false;
+        return false;
+      });
+      mockStatSync.mockImplementation((p: string) => {
+        if (p === testDir) return { isDirectory: () => true };
+        return { size: 2048 };
+      });
+      mockReaddirSync.mockReturnValue(allGoFiles);
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (typeof p === 'string' && p.endsWith(`${VALID_UUID}.go`)) return mainContent;
+        for (const [name, content] of Object.entries(otherFiles)) {
+          if (typeof p === 'string' && p.endsWith(`/${name}`)) return content;
+        }
+        return 'package main\n';
+      });
+    }
+
+    it('detects linux from //go:build linux tag on main file', async () => {
+      setupBuildWithGoSource('//go:build linux\npackage main\nfunc main() {}\n');
+
+      const result = await service.buildAndSign(VALID_UUID);
+
+      expect(result.platform).toEqual({ os: 'linux', arch: 'amd64' });
+      // No .exe extension for Linux
+      expect(result.filename).toBe(VALID_UUID);
+      // GOOS should be linux in the build env
+      const buildCall = mockExecFileAsync.mock.calls.find(
+        c => c[0] === 'go' && c[1].includes('build'),
+      );
+      expect(buildCall![2]).toEqual(expect.objectContaining({
+        env: expect.objectContaining({ GOOS: 'linux' }),
+      }));
+    });
+
+    it('detects darwin from //go:build darwin tag', async () => {
+      setupBuildWithGoSource('//go:build darwin\npackage main\nfunc main() {}\n');
+
+      const result = await service.buildAndSign(VALID_UUID);
+
+      expect(result.platform).toEqual({ os: 'darwin', arch: 'amd64' });
+      expect(result.filename).toBe(VALID_UUID);
+    });
+
+    it('detects windows from //go:build windows tag → builds with .exe', async () => {
+      setupBuildWithGoSource('//go:build windows\npackage main\nfunc main() {}\n');
+
+      const result = await service.buildAndSign(VALID_UUID);
+
+      expect(result.platform).toEqual({ os: 'windows', arch: 'amd64' });
+      expect(result.filename).toBe(`${VALID_UUID}.exe`);
+    });
+
+    it('falls back to global platform when no build tag present', async () => {
+      setupBuildWithGoSource('package main\nfunc main() {}\n');
+
+      const result = await service.buildAndSign(VALID_UUID);
+
+      // Global setting is windows/amd64 from createMockSettingsService
+      expect(result.platform).toEqual({ os: 'windows', arch: 'amd64' });
+    });
+
+    it('preserves arch from global settings (e.g., arm64)', async () => {
+      const svc = createService({
+        getPlatformSettings: vi.fn().mockReturnValue({ os: 'windows', arch: 'arm64' }),
+      });
+      setupBuildWithGoSource('//go:build linux\npackage main\nfunc main() {}\n');
+
+      const result = await svc.buildAndSign(VALID_UUID);
+
+      // OS from build tag, arch from global
+      expect(result.platform).toEqual({ os: 'linux', arch: 'arm64' });
+    });
+
+    it('detects OS from legacy // +build linux syntax', async () => {
+      setupBuildWithGoSource('// +build linux\n\npackage main\nfunc main() {}\n');
+
+      const result = await service.buildAndSign(VALID_UUID);
+
+      expect(result.platform).toEqual({ os: 'linux', arch: 'amd64' });
+    });
+
+    it('detects OS from secondary .go file when main has no tag', async () => {
+      setupBuildWithGoSource(
+        'package main\nfunc main() {}\n',
+        { 'helper_linux.go': '//go:build linux\npackage main\nfunc helper() {}\n' },
+      );
+
+      const result = await service.buildAndSign(VALID_UUID);
+
+      expect(result.platform).toEqual({ os: 'linux', arch: 'amd64' });
+    });
+
+    it('prefers main file tag over secondary file tag', async () => {
+      setupBuildWithGoSource(
+        '//go:build darwin\npackage main\nfunc main() {}\n',
+        { 'helper_linux.go': '//go:build linux\npackage main\nfunc helper() {}\n' },
+      );
+
+      const result = await service.buildAndSign(VALID_UUID);
+
+      expect(result.platform).toEqual({ os: 'darwin', arch: 'amd64' });
+    });
+  });
+
+  // ── Group 11: getDetectedPlatform ───────────────────────
+
+  describe('getDetectedPlatform', () => {
+    const testDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
+
+    it('returns detected platform from build tags', () => {
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === testDir) return true;
+        if (p === `${testDir}/${VALID_UUID}.go`) return true;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+      mockReaddirSync.mockReturnValue([`${VALID_UUID}.go`]);
+      mockReadFileSync.mockReturnValue('//go:build linux\npackage main\n');
+
+      const result = service.getDetectedPlatform(VALID_UUID);
+
+      expect(result).toEqual({ os: 'linux', arch: 'amd64' });
+    });
+
+    it('returns null when test directory not found', () => {
+      mockExistsSync.mockReturnValue(false);
+
+      const result = service.getDetectedPlatform(VALID_UUID);
+
+      expect(result).toBeNull();
+    });
+
+    it('falls back to global platform when no build tags', () => {
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === testDir) return true;
+        if (p === `${testDir}/${VALID_UUID}.go`) return true;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+      mockReaddirSync.mockReturnValue([`${VALID_UUID}.go`]);
+      mockReadFileSync.mockReturnValue('package main\nfunc main() {}\n');
+
+      const result = service.getDetectedPlatform(VALID_UUID);
+
+      expect(result).toEqual({ os: 'windows', arch: 'amd64' });
+    });
+  });
+
+  // ── Group 12: source field passthrough ────────────────────
 
   describe('getBuildInfo — source field', () => {
     it('passes through source field from metadata', () => {

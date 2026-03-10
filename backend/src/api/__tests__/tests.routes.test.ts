@@ -44,6 +44,7 @@ const mockUploadBinary = vi.fn();
 vi.mock('../../services/tests/buildService.js', () => ({
   BuildService: class MockBuildService {
     getBuildInfo = vi.fn();
+    getDetectedPlatform = vi.fn().mockReturnValue(null);
     buildAndSign = vi.fn();
     deleteBuild = vi.fn();
     getBinaryPath = vi.fn();

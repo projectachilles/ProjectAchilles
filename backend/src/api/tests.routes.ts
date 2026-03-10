@@ -210,7 +210,8 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   router.get('/builds/:uuid', requirePermission('tests:builds:read'), asyncHandler(async (req, res) => {
     validateUuid(req.params.uuid);
     const info = buildService.getBuildInfo(req.params.uuid);
-    res.json({ success: true, data: info });
+    const detectedPlatform = buildService.getDetectedPlatform(req.params.uuid);
+    res.json({ success: true, data: { ...info, detectedPlatform } });
   }));
 
   // POST /api/tests/builds/:uuid - Build & sign

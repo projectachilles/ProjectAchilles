@@ -41,6 +41,7 @@ export interface CertificateListResponse {
 export interface BuildInfo {
   exists: boolean;
   platform?: { os: string; arch: string };
+  detectedPlatform?: { os: string; arch: string };
   signed?: boolean;
   fileSize?: number;
   builtAt?: string;

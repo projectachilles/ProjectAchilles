@@ -5,7 +5,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import type { BuildInfo, BuildMetadata, EmbedDependency } from '../../types/tests.js';
+import type { BuildInfo, BuildMetadata, EmbedDependency, PlatformSettings } from '../../types/tests.js';
 import type { TestsSettingsService } from './settings.js';
 
 const execFileAsync = promisify(execFile);
@@ -130,6 +130,53 @@ export class BuildService {
     return path.join(BUILDS_DIR, uuid, 'build-meta.json');
   }
 
+  /** Extract GOOS from a //go:build or // +build directive in a Go file */
+  private detectBuildTagOS(filePath: string): PlatformSettings['os'] | null {
+    try {
+      const content = fs.readFileSync(filePath, 'utf8');
+      // Only scan the first ~20 lines (build tags must appear before package clause)
+      const lines = content.split('\n').slice(0, 20);
+      const validOS: PlatformSettings['os'][] = ['windows', 'linux', 'darwin'];
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        // New-style: //go:build linux
+        const newMatch = trimmed.match(/^\/\/go:build\s+(\w+)/);
+        if (newMatch && validOS.includes(newMatch[1] as PlatformSettings['os'])) {
+          return newMatch[1] as PlatformSettings['os'];
+        }
+        // Legacy-style: // +build linux
+        const legacyMatch = trimmed.match(/^\/\/\s*\+build\s+(\w+)/);
+        if (legacyMatch && validOS.includes(legacyMatch[1] as PlatformSettings['os'])) {
+          return legacyMatch[1] as PlatformSettings['os'];
+        }
+      }
+    } catch {
+      // File read error — fall through
+    }
+    return null;
+  }
+
+  /** Resolve the target OS for a test: build tags take precedence over global setting */
+  private resolveTargetOS(testDir: string, uuid: string): PlatformSettings['os'] {
+    // 1. Check the main <uuid>.go file first
+    const mainFile = path.join(testDir, `${uuid}.go`);
+    if (fs.existsSync(mainFile)) {
+      const os = this.detectBuildTagOS(mainFile);
+      if (os) return os;
+    }
+
+    // 2. Check other .go files in the test directory
+    const goFiles = fs.readdirSync(testDir).filter(f => f.endsWith('.go') && f !== `${uuid}.go`);
+    for (const goFile of goFiles) {
+      const os = this.detectBuildTagOS(path.join(testDir, goFile));
+      if (os) return os;
+    }
+
+    // 3. Fall back to global platform setting
+    return this.settingsService.getPlatformSettings().os;
+  }
+
   // ── Public API ────────────────────────────────────────────
 
   getBuildInfo(uuid: string): BuildInfo {
@@ -155,6 +202,16 @@ export class BuildService {
     } catch {
       return { exists: false };
     }
+  }
+
+  getDetectedPlatform(uuid: string): PlatformSettings | null {
+    const testDir = this.findTestDir(uuid);
+    if (!testDir) return null;
+    const globalPlatform = this.settingsService.getPlatformSettings();
+    return {
+      os: this.resolveTargetOS(testDir, uuid),
+      arch: globalPlatform.arch,
+    };
   }
 
   getBinaryPath(uuid: string): string | null {
@@ -283,14 +340,18 @@ export class BuildService {
       throw new Error('Invalid UUID format');
     }
 
-    // 1. Get platform settings
-    const platform = this.settingsService.getPlatformSettings();
-
-    // 2. Find test directory
+    // 1. Find test directory
     const testDir = this.findTestDir(uuid);
     if (!testDir) {
       throw new Error('Test directory not found');
     }
+
+    // 2. Resolve platform: auto-detect OS from build tags, arch from global setting
+    const globalPlatform = this.settingsService.getPlatformSettings();
+    const platform: PlatformSettings = {
+      os: this.resolveTargetOS(testDir, uuid),
+      arch: globalPlatform.arch,
+    };
 
     // 3. Determine output filename
     const filename = platform.os === 'windows' ? `${uuid}.exe` : uuid;

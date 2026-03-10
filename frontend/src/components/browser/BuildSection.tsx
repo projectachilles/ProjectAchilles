@@ -252,6 +252,14 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
       {/* Error state */}
       {error && !building && !uploading && (
         <div className="space-y-2">
+          {buildInfo?.detectedPlatform && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1.5">
+              <span>Target:</span>
+              <Badge variant="default">
+                {buildInfo.detectedPlatform.os}/{buildInfo.detectedPlatform.arch}
+              </Badge>
+            </div>
+          )}
           <p className="text-xs text-red-500 line-clamp-3">{error}</p>
           {canBuild && (
             <Button variant="outline" size="sm" onClick={handleBuild} className="w-full">
@@ -270,6 +278,14 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
       {/* No build exists — show action buttons */}
       {!building && !uploading && !error && (!buildInfo || !buildInfo.exists) && (
         <div className="space-y-1.5">
+          {buildInfo?.detectedPlatform && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1.5">
+              <span>Target:</span>
+              <Badge variant="default">
+                {buildInfo.detectedPlatform.os}/{buildInfo.detectedPlatform.arch}
+              </Badge>
+            </div>
+          )}
           {canBuild && (
             <Button
               variant="primary"
