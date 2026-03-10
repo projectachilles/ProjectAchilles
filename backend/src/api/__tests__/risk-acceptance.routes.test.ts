@@ -6,6 +6,15 @@ import request from 'supertest';
 vi.mock('@clerk/express', () => ({
   clerkMiddleware: () => (_req: any, _res: any, next: any) => next(),
   requireAuth: () => (_req: any, _res: any, next: any) => next(),
+  clerkClient: {
+    users: {
+      getUser: vi.fn().mockResolvedValue({
+        firstName: 'Test',
+        lastName: 'User',
+        emailAddresses: [{ emailAddress: 'test@example.com' }],
+      }),
+    },
+  },
 }));
 
 vi.mock('../../middleware/clerk.middleware.js', () => ({

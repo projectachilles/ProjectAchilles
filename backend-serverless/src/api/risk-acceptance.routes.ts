@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { clerkClient } from '@clerk/express';
 import { requireClerkAuth, requirePermission, getUserId } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { SettingsService } from '../services/analytics/settings.js';
@@ -45,10 +46,10 @@ router.post('/', requirePermission('analytics:risk:write'), asyncHandler(async (
   const userId = getUserId(req.auth);
   if (!userId) throw new AppError('Authentication required', 401);
 
-  // Get display name from Clerk session claims
-  const sessionClaims = (req.auth as any)?.sessionClaims as Record<string, unknown> | undefined;
-  const displayName = (sessionClaims?.name as string)
-    || (sessionClaims?.email as string)
+  // Resolve display name from Clerk user profile
+  const user = await clerkClient.users.getUser(userId);
+  const displayName = [user.firstName, user.lastName].filter(Boolean).join(' ')
+    || user.emailAddresses[0]?.emailAddress
     || userId;
 
   const svc = await getRiskService();
@@ -76,9 +77,10 @@ router.post('/:id/revoke', requirePermission('analytics:risk:write'), asyncHandl
   const userId = getUserId(req.auth);
   if (!userId) throw new AppError('Authentication required', 401);
 
-  const sessionClaims = (req.auth as any)?.sessionClaims as Record<string, unknown> | undefined;
-  const displayName = (sessionClaims?.name as string)
-    || (sessionClaims?.email as string)
+  // Resolve display name from Clerk user profile
+  const user = await clerkClient.users.getUser(userId);
+  const displayName = [user.firstName, user.lastName].filter(Boolean).join(' ')
+    || user.emailAddresses[0]?.emailAddress
     || userId;
 
   const svc = await getRiskService();
