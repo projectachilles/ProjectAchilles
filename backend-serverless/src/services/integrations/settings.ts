@@ -205,6 +205,31 @@ export class IntegrationsSettingsService {
     return !!(settings.tenant_id && settings.client_id && settings.client_secret);
   }
 
+  /** Read raw (still-encrypted) JSON from blob without decrypting any fields. */
+  private async getRawFileSettings(): Promise<IntegrationsSettings | null> {
+    try {
+      const data = await blobReadText(SETTINGS_KEY);
+      if (!data) return null;
+      return JSON.parse(data);
+    } catch { return null; }
+  }
+
+  /** Remove Defender integration credentials from blob settings. */
+  async deleteDefenderSettings(): Promise<void> {
+    const raw = await this.getRawFileSettings();
+    if (!raw || !raw.defender) return;
+    delete raw.defender;
+    await blobWrite(SETTINGS_KEY, JSON.stringify(raw, null, 2));
+  }
+
+  /** Remove Azure integration credentials from blob settings. */
+  async deleteAzureSettings(): Promise<void> {
+    const raw = await this.getRawFileSettings();
+    if (!raw || !raw.azure) return;
+    delete raw.azure;
+    await blobWrite(SETTINGS_KEY, JSON.stringify(raw, null, 2));
+  }
+
   async getDefenderCredentials(): Promise<{ tenant_id: string; client_id: string; client_secret: string } | null> {
     const settings = await this.getDefenderSettings();
     if (!settings?.configured) return null;

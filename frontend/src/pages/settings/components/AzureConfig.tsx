@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle, Info, ExternalLink } from 'lucide-react';
+import { CheckCircle, Info, ExternalLink, Unlink } from 'lucide-react';
 import { integrationsApi } from '@/services/api/integrations';
 import { Input } from '@/components/shared/ui/Input';
 import { Button } from '@/components/shared/ui/Button';
@@ -24,6 +24,8 @@ export function AzureConfig({ onStatusChange }: AzureConfigProps) {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [envConfigured, setEnvConfigured] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
 
   useEffect(() => {
     loadExistingSettings();
@@ -122,6 +124,27 @@ export function AzureConfig({ onStatusChange }: AzureConfigProps) {
       setError(err instanceof Error ? err.message : 'Failed to save settings');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    try {
+      setDisconnecting(true);
+      setError(null);
+      await integrationsApi.deleteAzureSettings();
+      setEditMode(false);
+      setTenantId('');
+      setClientId('');
+      setClientSecret('');
+      setLabel('');
+      setTestResult(null);
+      setSuccessMessage(null);
+      setShowDisconnectConfirm(false);
+      onStatusChange?.(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to disconnect');
+    } finally {
+      setDisconnecting(false);
     }
   };
 
@@ -266,6 +289,41 @@ export function AzureConfig({ onStatusChange }: AzureConfigProps) {
           )}
         </Button>
       </div>
+
+      {/* Disconnect */}
+      {editMode && !envConfigured && (
+        <div className="border-t border-border pt-4 mt-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-destructive">Disconnect Integration</p>
+              <p className="text-xs text-muted-foreground">
+                Remove stored credentials. Azure data will be preserved.
+              </p>
+            </div>
+            {!showDisconnectConfirm ? (
+              <Button variant="outline" size="sm"
+                className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                onClick={() => setShowDisconnectConfirm(true)}>
+                <Unlink className="w-4 h-4" />
+                Disconnect
+              </Button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm"
+                  onClick={() => setShowDisconnectConfirm(false)}
+                  disabled={disconnecting}>
+                  Cancel
+                </Button>
+                <Button variant="destructive" size="sm"
+                  onClick={handleDisconnect}
+                  disabled={disconnecting}>
+                  {disconnecting ? <><Spinner size="sm" /> Disconnecting...</> : 'Confirm Disconnect'}
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

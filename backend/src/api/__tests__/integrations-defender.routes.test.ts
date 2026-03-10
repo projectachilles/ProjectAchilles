@@ -21,6 +21,7 @@ vi.mock('../../middleware/clerk.middleware.js', () => ({
 // Mock the settings service
 const mockGetDefenderSettings = vi.fn();
 const mockSaveDefenderSettings = vi.fn();
+const mockDeleteDefenderSettings = vi.fn();
 const mockIsDefenderConfigured = vi.fn();
 const mockGetDefenderCredentials = vi.fn();
 const mockIsEnvDefenderConfigured = vi.fn();
@@ -34,6 +35,8 @@ vi.mock('../../services/integrations/settings.js', () => ({
     isEnvConfigured = vi.fn().mockReturnValue(false);
     getDefenderSettings = mockGetDefenderSettings;
     saveDefenderSettings = mockSaveDefenderSettings;
+    deleteDefenderSettings = mockDeleteDefenderSettings;
+    deleteAzureSettings = vi.fn();
     isDefenderConfigured = mockIsDefenderConfigured;
     getDefenderCredentials = mockGetDefenderCredentials;
     isEnvDefenderConfigured = mockIsEnvDefenderConfigured;
@@ -271,6 +274,30 @@ describe('Defender integration routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
       expect(res.body.error).toMatch(/fetch failed/);
+    });
+  });
+
+  // ── DELETE /api/integrations/defender ──────────────────────────
+
+  describe('DELETE /api/integrations/defender', () => {
+    it('deletes settings successfully', async () => {
+      const app = createApp();
+      const res = await request(app).delete('/api/integrations/defender');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true });
+      expect(mockDeleteDefenderSettings).toHaveBeenCalled();
+    });
+
+    it('returns 400 when env vars configured', async () => {
+      mockIsEnvDefenderConfigured.mockReturnValue(true);
+
+      const app = createApp();
+      const res = await request(app).delete('/api/integrations/defender');
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/environment variables/);
+      expect(mockDeleteDefenderSettings).not.toHaveBeenCalled();
     });
   });
 });

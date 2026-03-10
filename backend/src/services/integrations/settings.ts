@@ -292,6 +292,32 @@ export class IntegrationsSettingsService {
     return !!(settings.tenant_id && settings.client_id && settings.client_secret);
   }
 
+  /** Read raw (still-encrypted) JSON without decrypting any fields. */
+  private getRawFileSettings(): IntegrationsSettings | null {
+    if (!fs.existsSync(SETTINGS_FILE)) return null;
+    try {
+      return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+    } catch { return null; }
+  }
+
+  /** Remove Defender integration credentials from settings file. */
+  deleteDefenderSettings(): void {
+    const raw = this.getRawFileSettings();
+    if (!raw || !raw.defender) return;
+    delete raw.defender;
+    this.ensureSettingsDir();
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(raw, null, 2));
+  }
+
+  /** Remove Azure integration credentials from settings file. */
+  deleteAzureSettings(): void {
+    const raw = this.getRawFileSettings();
+    if (!raw || !raw.azure) return;
+    delete raw.azure;
+    this.ensureSettingsDir();
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(raw, null, 2));
+  }
+
   /** Returns raw decrypted Defender credentials. */
   getDefenderCredentials(): { tenant_id: string; client_id: string; client_secret: string } | null {
     const settings = this.getDefenderSettings();

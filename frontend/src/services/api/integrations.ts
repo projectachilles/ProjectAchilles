@@ -66,6 +66,11 @@ export const integrationsApi = {
     return response.data;
   },
 
+  async deleteAzureSettings(): Promise<{ success: boolean }> {
+    const response = await apiClient.delete('/integrations/azure');
+    return response.data;
+  },
+
   // --- Defender ---
 
   async getDefenderSettings(): Promise<DefenderSettingsMasked> {
@@ -84,6 +89,11 @@ export const integrationsApi = {
 
   async testDefenderConnection(settings: SaveDefenderSettingsRequest): Promise<TestDefenderResult> {
     const response = await apiClient.post('/integrations/defender/test', settings);
+    return response.data;
+  },
+
+  async deleteDefenderSettings(): Promise<{ success: boolean }> {
+    const response = await apiClient.delete('/integrations/defender');
     return response.data;
   },
 };

@@ -47,6 +47,17 @@ router.post('/azure', requirePermission('integrations:write'), asyncHandler(asyn
   res.json({ success: true });
 }));
 
+router.delete('/azure', requirePermission('integrations:write'), asyncHandler(async (_req, res) => {
+  if (settingsService.isEnvConfigured()) {
+    throw new AppError(
+      'Cannot disconnect: Azure credentials are set via environment variables (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET). Remove these env vars to disconnect.',
+      400
+    );
+  }
+  await settingsService.deleteAzureSettings();
+  res.json({ success: true });
+}));
+
 router.post('/azure/test', requirePermission('integrations:write'), asyncHandler(async (req, res) => {
   const { tenant_id, client_id, client_secret } = req.body;
 
@@ -121,6 +132,17 @@ router.post('/defender', requirePermission('integrations:write'), asyncHandler(a
 
   await settingsService.saveDefenderSettings({ tenant_id, client_id, client_secret, label });
 
+  res.json({ success: true });
+}));
+
+router.delete('/defender', requirePermission('integrations:write'), asyncHandler(async (_req, res) => {
+  if (settingsService.isEnvDefenderConfigured()) {
+    throw new AppError(
+      'Cannot disconnect: Defender credentials are set via environment variables (DEFENDER_TENANT_ID, DEFENDER_CLIENT_ID, DEFENDER_CLIENT_SECRET). Remove these env vars to disconnect.',
+      400
+    );
+  }
+  await settingsService.deleteDefenderSettings();
   res.json({ success: true });
 }));
 
