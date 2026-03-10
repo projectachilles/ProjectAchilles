@@ -280,7 +280,6 @@
 /* Base styles */
 * {
   border-color: var(--color-border);
-  scrollbar-width: none;
 }
 
 body {
