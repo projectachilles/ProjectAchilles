@@ -1125,6 +1125,22 @@ export class ElasticsearchService {
     };
   }
 
+  // Build bundle names filter (OR logic)
+  private buildBundleNamesFilter(bundleNames?: string): any | null {
+    if (!bundleNames) return null;
+    const nameList = bundleNames.split(',').map(n => n.trim()).filter(Boolean);
+    if (nameList.length === 0) return null;
+    if (nameList.length === 1) {
+      return { term: { 'f0rtika.bundle_name': nameList[0] } };
+    }
+    return {
+      bool: {
+        should: nameList.map(n => ({ term: { 'f0rtika.bundle_name': n } })),
+        minimum_should_match: 1,
+      },
+    };
+  }
+
   // Build error names filter (OR logic) — resolves canonical names to error codes
   private buildErrorNamesFilter(errorNames?: string): any | null {
     if (!errorNames) return null;
@@ -1209,6 +1225,9 @@ export class ElasticsearchService {
 
     const errorCodesFilter = this.buildErrorCodesFilter(params.errorCodes);
     if (errorCodesFilter) filters.push(errorCodesFilter);
+
+    const bundleNamesFilter = this.buildBundleNamesFilter(params.bundleNames);
+    if (bundleNamesFilter) filters.push(bundleNamesFilter);
 
     const resultFilter = this.buildResultFilter(params.result);
     if (resultFilter) filters.push(resultFilter);
@@ -1646,6 +1665,38 @@ export class ElasticsearchService {
       .map((bucket: any) => ({
         value: String(bucket.key),
         label: `${bucket.key} (${resolveErrorName(bucket.key)})`,
+        count: bucket.doc_count,
+      }))
+      .sort((a: FilterOption, b: FilterOption) => b.count - a.count);
+  }
+
+  // Get available bundle names with counts
+  async getAvailableBundleNames(params?: AnalyticsQueryParams): Promise<FilterOption[]> {
+    const filters: any[] = [this.buildTestDataFilter()];
+    if (params) {
+      if (params.from || params.to) {
+        filters.push(this.buildDateFilter(params.from, params.to));
+      }
+      const orgFilter = this.buildOrgFilter(params.org);
+      if (orgFilter) filters.push(orgFilter);
+    }
+
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: { bool: { filter: filters } },
+      aggs: {
+        bundle_names: {
+          terms: { field: 'f0rtika.bundle_name', size: 50 },
+        },
+      },
+    });
+
+    const buckets = (response.aggregations?.bundle_names as any)?.buckets || [];
+    return buckets
+      .map((bucket: any) => ({
+        value: bucket.key,
+        label: bucket.key,
         count: bucket.doc_count,
       }))
       .sort((a: FilterOption, b: FilterOption) => b.count - a.count);

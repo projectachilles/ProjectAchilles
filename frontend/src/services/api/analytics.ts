@@ -238,6 +238,7 @@ export interface ExtendedFilterParams {
   tags?: string;
   errorNames?: string;
   errorCodes?: string;
+  bundleNames?: string;
   result?: 'all' | 'protected' | 'unprotected' | 'inconclusive';
 }
 
@@ -524,6 +525,11 @@ export const analyticsApi = {
 
   async getAvailableErrorCodes(params?: { org?: string; from?: string; to?: string }): Promise<FilterOption[]> {
     const response = await apiClient.get('/analytics/available-error-codes', { params });
+    return response.data;
+  },
+
+  async getAvailableBundleNames(params?: { org?: string; from?: string; to?: string }): Promise<FilterOption[]> {
+    const response = await apiClient.get('/analytics/available-bundle-names', { params });
     return response.data;
   },
 

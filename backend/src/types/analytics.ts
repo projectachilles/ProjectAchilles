@@ -171,6 +171,7 @@ export interface ExtendedAnalyticsQueryParams extends AnalyticsQueryParams {
   tags?: string;           // comma-separated tags
   errorNames?: string;     // comma-separated error names
   errorCodes?: string;     // comma-separated numeric error codes
+  bundleNames?: string;    // comma-separated bundle names
   result?: 'all' | 'protected' | 'unprotected' | 'inconclusive';
 }
 

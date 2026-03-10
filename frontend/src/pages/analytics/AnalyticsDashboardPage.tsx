@@ -119,6 +119,7 @@ export default function AnalyticsDashboardPage() {
   const [availableTags, setAvailableTags] = useState<FilterOption[]>([]);
   const [availableErrorNames, setAvailableErrorNames] = useState<FilterOption[]>([]);
   const [availableErrorCodes, setAvailableErrorCodes] = useState<FilterOption[]>([]);
+  const [availableBundleNames, setAvailableBundleNames] = useState<FilterOption[]>([]);
 
   // Dashboard Data State
   const [defenseScore, setDefenseScore] = useState<DefenseScoreData | null>(null);
@@ -198,7 +199,7 @@ export default function AnalyticsDashboardPage() {
   async function loadFilterOptions() {
     setLoadingFilters(true);
     try {
-      const [tests, techniques, hostnames, categories, severities, threatActors, tags, errorNames, errorCodes] = await Promise.all([
+      const [tests, techniques, hostnames, categories, severities, threatActors, tags, errorNames, errorCodes, bundleNames] = await Promise.all([
         analyticsApi.getAvailableTests(),
         analyticsApi.getAvailableTechniques(),
         analyticsApi.getAvailableHostnames(),
@@ -208,6 +209,7 @@ export default function AnalyticsDashboardPage() {
         analyticsApi.getAvailableTags(),
         analyticsApi.getAvailableErrorNames(),
         analyticsApi.getAvailableErrorCodes(),
+        analyticsApi.getAvailableBundleNames(),
       ]);
 
       setAvailableTests(tests);
@@ -219,6 +221,7 @@ export default function AnalyticsDashboardPage() {
       setAvailableTags(tags);
       setAvailableErrorNames(errorNames);
       setAvailableErrorCodes(errorCodes);
+      setAvailableBundleNames(bundleNames);
     } catch (error) {
       console.error('Failed to load filter options:', error);
     } finally {
@@ -565,6 +568,7 @@ export default function AnalyticsDashboardPage() {
             availableTags={availableTags}
             availableErrorNames={availableErrorNames}
             availableErrorCodes={availableErrorCodes}
+            availableBundleNames={availableBundleNames}
             loading={loadingFilters}
           />
         )}

@@ -128,6 +128,19 @@ describe('useAnalyticsFilters', () => {
       expect(result.current.filters.techniques).toEqual(['T1059']);
     });
 
+    it('has default bundleNames as empty array', () => {
+      const { result } = renderHook(() => useAnalyticsFilters(), { wrapper });
+      expect(result.current.filters.bundleNames).toEqual([]);
+    });
+
+    it('initializes bundleNames from URL', () => {
+      const { result } = renderHook(
+        () => useAnalyticsFilters(),
+        { wrapper: wrapperWithParams('bundleNames=Cyber-Hygiene+Baseline+Bundle,Entra+ID+Bundle') },
+      );
+      expect(result.current.filters.bundleNames).toEqual(['Cyber-Hygiene Baseline Bundle', 'Entra ID Bundle']);
+    });
+
     it('initializes custom date range from URL', () => {
       const { result } = renderHook(
         () => useAnalyticsFilters(),
@@ -182,6 +195,14 @@ describe('useAnalyticsFilters', () => {
 
       expect(result.current.filters.techniques).toEqual(['T1059']);
     });
+
+    it('setBundleNames updates filters.bundleNames', () => {
+      const { result } = renderHook(() => useAnalyticsFilters(), { wrapper });
+
+      act(() => result.current.setBundleNames(['Cyber-Hygiene Baseline Bundle']));
+
+      expect(result.current.filters.bundleNames).toEqual(['Cyber-Hygiene Baseline Bundle']);
+    });
   });
 
   describe('active filter counting', () => {
@@ -213,6 +234,15 @@ describe('useAnalyticsFilters', () => {
       // result + hostnames + techniques = 3
       expect(result.current.activeFilterCount).toBe(3);
     });
+
+    it('bundleNames increments active filter count', () => {
+      const { result } = renderHook(() => useAnalyticsFilters(), { wrapper });
+
+      act(() => result.current.setBundleNames(['Cyber-Hygiene Baseline Bundle']));
+
+      expect(result.current.activeFilterCount).toBe(1);
+      expect(result.current.hasActiveFilters).toBe(true);
+    });
   });
 
   describe('getApiParams', () => {
@@ -236,6 +266,15 @@ describe('useAnalyticsFilters', () => {
       const params = result.current.getApiParams();
       expect(params.result).toBe('protected');
       expect(params.hostnames).toBe('h1,h2');
+    });
+
+    it('includes bundleNames as comma-separated string', () => {
+      const { result } = renderHook(() => useAnalyticsFilters(), { wrapper });
+
+      act(() => result.current.setBundleNames(['Bundle A', 'Bundle B']));
+
+      const params = result.current.getApiParams();
+      expect(params.bundleNames).toBe('Bundle A,Bundle B');
     });
 
     it('omits result field when set to all', () => {
@@ -290,6 +329,7 @@ describe('useAnalyticsFilters', () => {
         result.current.setResult('protected');
         result.current.setHostnames(['h1']);
         result.current.setTechniques(['T1059']);
+        result.current.setBundleNames(['Bundle A']);
       });
 
       act(() => result.current.clearAdvancedFilters());
@@ -302,6 +342,7 @@ describe('useAnalyticsFilters', () => {
       expect(result.current.filters.result).toBe('all');
       expect(result.current.filters.hostnames).toEqual([]);
       expect(result.current.filters.techniques).toEqual([]);
+      expect(result.current.filters.bundleNames).toEqual([]);
     });
   });
 

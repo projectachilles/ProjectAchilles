@@ -328,7 +328,7 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
   const {
     org, from, to, tests, techniques,
     hostnames, categories, severities, threatActors, tags,
-    errorNames, errorCodes, result,
+    errorNames, errorCodes, bundleNames, result,
     page, pageSize, sortField, sortOrder, grouped
   } = req.query;
 
@@ -345,6 +345,7 @@ router.get('/executions/paginated', asyncHandler(async (req, res) => {
     tags: tags as string,
     errorNames: errorNames as string,
     errorCodes: errorCodes as string,
+    bundleNames: bundleNames as string,
     result: result as 'all' | 'protected' | 'unprotected' | 'inconclusive',
     page: page ? parseInt(page as string) : 1,
     pageSize: pageSize ? parseInt(pageSize as string) : 25,
@@ -458,6 +459,20 @@ router.get('/available-error-codes', asyncHandler(async (req, res) => {
   });
 
   res.json(errorCodes);
+}));
+
+// GET /api/analytics/available-bundle-names - List available bundle names with counts
+router.get('/available-bundle-names', asyncHandler(async (req, res) => {
+  const es = await getEsService();
+  const { org, from, to } = req.query;
+
+  const bundleNames = await es.getAvailableBundleNames({
+    org: org as string,
+    from: from as string,
+    to: to as string,
+  });
+
+  res.json(bundleNames);
 }));
 
 // GET /api/analytics/defense-score/by-severity - Score breakdown by severity

@@ -78,6 +78,7 @@ export interface AnalyticsFilterState {
   tags: string[];
   errorNames: string[];
   errorCodes: string[];
+  bundleNames: string[];
 }
 
 export interface UseAnalyticsFiltersReturn {
@@ -100,6 +101,7 @@ export interface UseAnalyticsFiltersReturn {
   setTags: (tags: string[]) => void;
   setErrorNames: (errorNames: string[]) => void;
   setErrorCodes: (errorCodes: string[]) => void;
+  setBundleNames: (bundleNames: string[]) => void;
   toggleExpanded: () => void;
   clearAllFilters: () => void;
   clearAdvancedFilters: () => void;
@@ -121,6 +123,7 @@ const defaultFilters: AnalyticsFilterState = {
   tags: [],
   errorNames: [],
   errorCodes: [],
+  bundleNames: [],
 };
 
 // Parse URL params into filter state
@@ -171,6 +174,9 @@ function parseUrlParams(searchParams: URLSearchParams): Partial<AnalyticsFilterS
   const errorCodes = searchParams.get('errorCodes');
   if (errorCodes) result.errorCodes = errorCodes.split(',');
 
+  const bundleNames = searchParams.get('bundleNames');
+  if (bundleNames) result.bundleNames = bundleNames.split(',');
+
   return result;
 }
 
@@ -197,6 +203,7 @@ function serializeToUrlParams(filters: AnalyticsFilterState): Record<string, str
   if (filters.tags.length > 0) params.tags = filters.tags.join(',');
   if (filters.errorNames.length > 0) params.errorNames = filters.errorNames.join(',');
   if (filters.errorCodes.length > 0) params.errorCodes = filters.errorCodes.join(',');
+  if (filters.bundleNames.length > 0) params.bundleNames = filters.bundleNames.join(',');
 
   return params;
 }
@@ -222,7 +229,7 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
         // Start with existing params to preserve non-filter params like 'tab'
         const newParams = new URLSearchParams(prev);
         // Clear all filter-related params first
-        const filterKeys = ['org', 'date', 'from', 'to', 'result', 'hostnames', 'tests', 'techniques', 'categories', 'severities', 'threatActors', 'tags', 'errorNames', 'errorCodes'];
+        const filterKeys = ['org', 'date', 'from', 'to', 'result', 'hostnames', 'tests', 'techniques', 'categories', 'severities', 'threatActors', 'tags', 'errorNames', 'errorCodes', 'bundleNames'];
         filterKeys.forEach(key => newParams.delete(key));
         // Add back the current filter params
         Object.entries(filterParams).forEach(([key, value]) => {
@@ -246,6 +253,7 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     if (filters.tags.length > 0) count++;
     if (filters.errorNames.length > 0) count++;
     if (filters.errorCodes.length > 0) count++;
+    if (filters.bundleNames.length > 0) count++;
     return count;
   }, [filters]);
 
@@ -302,6 +310,10 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     setFilters(prev => ({ ...prev, errorCodes }));
   }, []);
 
+  const setBundleNames = useCallback((bundleNames: string[]) => {
+    setFilters(prev => ({ ...prev, bundleNames }));
+  }, []);
+
   const toggleExpanded = useCallback(() => {
     setIsExpanded(prev => !prev);
   }, []);
@@ -323,6 +335,7 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
       tags: [],
       errorNames: [],
       errorCodes: [],
+      bundleNames: [],
     }));
   }, []);
 
@@ -363,6 +376,9 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     if (filters.errorCodes.length > 0) {
       params.errorCodes = filters.errorCodes.join(',');
     }
+    if (filters.bundleNames.length > 0) {
+      params.bundleNames = filters.bundleNames.join(',');
+    }
 
     return params;
   }, [filters]);
@@ -384,6 +400,7 @@ export function useAnalyticsFilters(syncWithUrl = true): UseAnalyticsFiltersRetu
     setTags,
     setErrorNames,
     setErrorCodes,
+    setBundleNames,
     toggleExpanded,
     clearAllFilters,
     clearAdvancedFilters,

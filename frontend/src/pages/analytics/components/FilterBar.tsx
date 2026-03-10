@@ -15,6 +15,7 @@ interface FilterBarProps {
   availableTags: FilterOption[];
   availableErrorNames: FilterOption[];
   availableErrorCodes: FilterOption[];
+  availableBundleNames: FilterOption[];
   loading?: boolean;
 }
 
@@ -29,6 +30,7 @@ export default function FilterBar({
   availableTags,
   availableErrorNames,
   availableErrorCodes,
+  availableBundleNames,
   loading = false,
 }: FilterBarProps) {
   const {
@@ -44,6 +46,7 @@ export default function FilterBar({
     setTags,
     setErrorNames,
     setErrorCodes,
+    setBundleNames,
     clearAdvancedFilters,
   } = filterState;
 
@@ -108,6 +111,12 @@ export default function FilterBar({
     activeFilterTags.push({
       label: `Error Code: ${filters.errorCodes.length > 2 ? `${filters.errorCodes.length} selected` : filters.errorCodes.join(', ')}`,
       onClear: () => setErrorCodes([]),
+    });
+  }
+  if (filters.bundleNames.length > 0) {
+    activeFilterTags.push({
+      label: `Bundle: ${filters.bundleNames.length > 2 ? `${filters.bundleNames.length} selected` : filters.bundleNames.join(', ')}`,
+      onClear: () => setBundleNames([]),
     });
   }
 
@@ -195,6 +204,16 @@ export default function FilterBar({
           onChange={setErrorCodes}
           loading={loading}
           placeholder="All Error Codes"
+        />
+
+        {/* Bundle Filter */}
+        <MultiSelectFilter
+          label="Bundle"
+          options={availableBundleNames.map(b => b.value)}
+          selected={filters.bundleNames}
+          onChange={setBundleNames}
+          loading={loading}
+          placeholder="All Bundles"
         />
 
         {/* Test Filter */}
