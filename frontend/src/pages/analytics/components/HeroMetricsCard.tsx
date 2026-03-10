@@ -49,7 +49,7 @@ export default function HeroMetricsCard({
   return (
     <Card className="h-full flex flex-col p-0 overflow-hidden">
       {/* Top Section: Defense Score (prominent) - ~60% height */}
-      <div className="flex-[3] flex flex-col justify-center items-center px-2 sm:px-4 py-2 sm:py-4 min-w-0">
+      <div className="flex-[3] flex flex-col justify-center items-center px-2 sm:px-4 py-2 sm:py-4 min-w-0 min-h-0">
         <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-3">
           <Shield className="w-4 h-4 sm:w-5 md:w-6 sm:h-5 md:h-6 text-primary flex-shrink-0" />
           <span className="text-xs sm:text-sm md:text-base font-medium text-muted-foreground whitespace-nowrap">
@@ -83,7 +83,7 @@ export default function HeroMetricsCard({
       <div className="border-t-[length:var(--theme-border-width)] border-border mx-2 sm:mx-4" />
 
       {/* Bottom Section: Two compact metrics side-by-side - ~40% height */}
-      <div className="flex-[2] flex divide-x divide-border min-w-0">
+      <div className="flex-[2] flex divide-x divide-border min-w-0 min-h-0">
         {/* Unique Endpoints */}
         <div className="flex-1 flex flex-col justify-center items-center px-1 sm:px-2 py-2 sm:py-3 min-w-0">
           <div className="flex items-center gap-1 sm:gap-1.5 mb-0.5 sm:mb-1">

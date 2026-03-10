@@ -14,7 +14,6 @@ import DefenseScoreByHostChart from './components/DefenseScoreByHostChart';
 import CategoryBreakdownChart from './components/CategoryBreakdownChart';
 import TestActivityCard from './components/TestActivityCard';
 import ExecutionsDataTable from './components/ExecutionsDataTable';
-import RiskAcceptanceSummaryCard from './components/RiskAcceptanceSummaryCard';
 import RiskAcceptancesTab from './components/RiskAcceptancesTab';
 import DefenderTab from './components/DefenderTab';
 import SecureScoreCard from './components/SecureScoreCard';
@@ -613,16 +612,6 @@ export default function AnalyticsDashboardPage() {
             {defenderConfigured && (
               <div className="col-span-12 md:col-span-8 row-span-2">
                 <TopControlsCard compact />
-              </div>
-            )}
-
-            {/* Risk Acceptance Summary (shown when acceptances exist) */}
-            {riskAcceptances.size > 0 && (
-              <div className="col-span-12 md:col-span-4 row-span-1">
-                <RiskAcceptanceSummaryCard
-                  riskAcceptances={riskAcceptances}
-                  onViewAll={() => handleTabChange('risk-acceptances')}
-                />
               </div>
             )}
 
