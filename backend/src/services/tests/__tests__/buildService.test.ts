@@ -426,6 +426,66 @@ var data string
       });
     });
 
+    it('detects source-built via UUID-prefix stage with .exe.gz compound extension', () => {
+      const orchestratorGo = `//go:embed ${VALID_UUID}-T1566.001.exe.gz\nvar bin []byte\n//go:embed cleanup_utility.exe.gz\nvar cu []byte\n`;
+      const buildScript = '#!/bin/bash\ngo build -o "${UUID}-${technique}.exe" stage-${technique}.go';
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`) return true;
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}/build_all.sh`) return true;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+      mockReaddirSync.mockReturnValue(['orchestrator.go', 'stage-T1566.001.go', 'cleanup_utility.go']);
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (typeof p === 'string' && p.endsWith('/build_all.sh')) return buildScript;
+        if (typeof p === 'string' && p.endsWith('/orchestrator.go')) return orchestratorGo;
+        return 'package main\n';
+      });
+
+      const deps = service.getEmbedDependencies(VALID_UUID);
+
+      expect(deps).toHaveLength(2);
+      expect(deps[0]).toEqual({
+        filename: `${VALID_UUID}-T1566.001.exe.gz`,
+        sourceFile: 'orchestrator.go',
+        exists: false,
+        sourceBuilt: true,
+      });
+      expect(deps[1]).toEqual({
+        filename: 'cleanup_utility.exe.gz',
+        sourceFile: 'orchestrator.go',
+        exists: false,
+        sourceBuilt: true,
+      });
+    });
+
+    it('detects source-built via UUID-prefix stage without extension (Linux binaries)', () => {
+      const orchestratorGo = `//go:embed ${VALID_UUID}-T1553.001\nvar bin []byte\n`;
+      const buildScript = '#!/bin/bash\ngo build -o "${UUID}-${technique}" stage-${technique}.go';
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`) return true;
+        if (p === `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}/build_all.sh`) return true;
+        return false;
+      });
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+      mockReaddirSync.mockReturnValue(['orchestrator.go', 'stage-T1553.001.go']);
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (typeof p === 'string' && p.endsWith('/build_all.sh')) return buildScript;
+        if (typeof p === 'string' && p.endsWith('/orchestrator.go')) return orchestratorGo;
+        return 'package main\n';
+      });
+
+      const deps = service.getEmbedDependencies(VALID_UUID);
+
+      expect(deps).toHaveLength(1);
+      expect(deps[0]).toEqual({
+        filename: `${VALID_UUID}-T1553.001`,
+        sourceFile: 'orchestrator.go',
+        exists: false,
+        sourceBuilt: true,
+      });
+    });
+
     it('detects source-built via direct match (cleanup_utility pattern)', () => {
       const orchestratorGo = '//go:embed cleanup_utility.exe\nvar bin []byte\n';
       const buildScript = '#!/bin/bash\ngo build -o "${cleanup}" cleanup_utility.go';

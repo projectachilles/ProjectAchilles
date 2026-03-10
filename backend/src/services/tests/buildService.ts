@@ -45,7 +45,7 @@ const KNOWN_CATEGORIES = ['cyber-hygiene', 'intel-driven', 'mitre-top10', 'phase
  * Uses four heuristics in order:
  *  1. Direct match — foo.exe → foo.go
  *  2. Hyphen-to-underscore — validator-defender.exe → validator_defender.go
- *  3. UUID-prefix stage — <uuid>-T1486.exe → stage-T1486.go  (or prefix match)
+ *  3. UUID-prefix stage — <uuid>-T1486.exe(.gz) → stage-T1486.go  (or prefix match)
  *  4. Fallback — parse build_all.sh for literal `go build -o <filename>`
  */
 function isSourceBuiltBinary(
@@ -56,7 +56,10 @@ function isSourceBuiltBinary(
 ): boolean {
   if (!buildScript) return false;
 
-  const base = filename.replace(/\.[^.]+$/, ''); // strip extension
+  // Strip known binary + compression extensions (handles compound like .exe.gz)
+  const base = filename
+    .replace(/\.(gz|xz|bz2|zip)$/i, '')    // compression suffix first
+    .replace(/\.(exe|dll|bin|so|dylib)$/i, ''); // then binary extension
 
   // 1. Direct match: foo.exe → foo.go
   if (goFileSet.has(`${base}.go`)) return true;
