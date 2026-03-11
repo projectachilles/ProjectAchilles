@@ -29,6 +29,7 @@ const {
   getFleetHealthMetrics,
   getStaleAgentIds,
   processHeartbeat,
+  resetHeartbeatCounters,
 } = await import('../heartbeat.service.js');
 
 function makeHeartbeatPayload(overrides: Partial<HeartbeatPayload> = {}): HeartbeatPayload {
@@ -56,6 +57,7 @@ describe('heartbeat history', () => {
     testDb = createTestDatabase();
     insertTestAgent(testDb, { id: 'agent-001' });
     insertTestAgent(testDb, { id: 'agent-002', hostname: 'host-2' });
+    resetHeartbeatCounters();
   });
 
   describe('recordHeartbeatHistory', () => {
@@ -231,12 +233,14 @@ describe('heartbeat history', () => {
       expect(events).toHaveLength(0);
     });
 
-    it('records heartbeat history on every processHeartbeat call', () => {
-      processHeartbeat('agent-001', makeHeartbeatPayload());
-      processHeartbeat('agent-001', makeHeartbeatPayload());
+    it('records heartbeat history every 5th processHeartbeat call (sampled)', () => {
+      // Sampling: record every 5th heartbeat per agent to reduce write volume
+      for (let i = 0; i < 5; i++) {
+        processHeartbeat('agent-001', makeHeartbeatPayload());
+      }
 
       const count = testDb.prepare('SELECT COUNT(*) as c FROM heartbeat_history WHERE agent_id = ?').get('agent-001') as { c: number };
-      expect(count.c).toBe(2);
+      expect(count.c).toBe(1);
     });
   });
 

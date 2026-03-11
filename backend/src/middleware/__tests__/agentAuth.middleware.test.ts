@@ -10,6 +10,14 @@ vi.mock('../../services/agent/database.js', () => ({
   getDatabase: () => testDb,
 }));
 
+// Disable agent auth cache in tests — each test creates a fresh DB,
+// so stale cache entries would cause false positives.
+vi.mock('../../services/agent/agentAuthCache.js', () => ({
+  getCachedAgent: () => null,
+  setCachedAgent: () => {},
+  invalidateAgentCache: () => {},
+}));
+
 // Mock the enrollment service exports used by the auth middleware.
 // promotePendingKey needs to operate on the real test database.
 vi.mock('../../services/agent/enrollment.service.js', () => ({

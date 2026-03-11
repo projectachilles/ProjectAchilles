@@ -8,6 +8,10 @@ export function createTestDatabase(): Database.Database {
   const db = new Database(':memory:');
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  db.pragma('busy_timeout = 5000');
+  db.pragma('synchronous = NORMAL');
+  db.pragma('cache_size = -20000');
+  db.pragma('temp_store = MEMORY');
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS agents (

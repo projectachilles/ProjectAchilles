@@ -2,21 +2,13 @@ import type { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { getDatabase } from '../services/agent/database.js';
 import { promotePendingKey, ROTATION_GRACE_PERIOD_SECONDS } from '../services/agent/enrollment.service.js';
-import type { AuthenticatedAgent, AgentStatus, AgentOS, AgentArch } from '../types/agent.js';
+import { getCachedAgent, setCachedAgent, invalidateAgentCache } from '../services/agent/agentAuthCache.js';
+import type { CachedAgentRow } from '../services/agent/agentAuthCache.js';
+import type { AuthenticatedAgent } from '../types/agent.js';
 
 const MAX_TIMESTAMP_SKEW_SECONDS = 300; // 5 minutes
 
-interface AgentRow {
-  id: string;
-  org_id: string;
-  hostname: string;
-  os: AgentOS;
-  arch: AgentArch;
-  status: AgentStatus;
-  api_key_hash: string;
-  pending_api_key_hash: string | null;
-  key_rotation_initiated_at: string | null;
-}
+type AgentRow = CachedAgentRow;
 
 // M2: Pre-computed dummy hash so bcrypt.compare always runs, eliminating timing oracle
 const DUMMY_HASH = bcrypt.hashSync('dummy-value-for-timing', 12);
@@ -56,11 +48,15 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
 
   const token = parts[1];
 
-  // Look up agent in database (include pending rotation columns)
-  const db = getDatabase();
-  const row = db.prepare(
-    'SELECT id, org_id, hostname, os, arch, status, api_key_hash, pending_api_key_hash, key_rotation_initiated_at FROM agents WHERE id = ?'
-  ).get(agentId) as AgentRow | undefined;
+  // Try in-memory cache first, fall back to DB on miss
+  let row: AgentRow | undefined = getCachedAgent(agentId) ?? undefined;
+  if (!row) {
+    const db = getDatabase();
+    row = db.prepare(
+      'SELECT id, org_id, hostname, os, arch, status, api_key_hash, pending_api_key_hash, key_rotation_initiated_at FROM agents WHERE id = ?'
+    ).get(agentId) as AgentRow | undefined;
+    if (row) setCachedAgent(agentId, row);
+  }
 
   // If grace period has expired, promote pending → primary before auth check
   if (row?.pending_api_key_hash && row.key_rotation_initiated_at) {
@@ -68,14 +64,15 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
     const elapsed = (Date.now() - initiatedAt) / 1000;
     if (elapsed > ROTATION_GRACE_PERIOD_SECONDS) {
       promotePendingKey(row.id);
+      invalidateAgentCache(row.id);
       // Re-read the row to get the promoted hash
+      const db = getDatabase();
       const updatedRow = db.prepare(
-        'SELECT api_key_hash, pending_api_key_hash, key_rotation_initiated_at FROM agents WHERE id = ?'
-      ).get(agentId) as Pick<AgentRow, 'api_key_hash' | 'pending_api_key_hash' | 'key_rotation_initiated_at'> | undefined;
+        'SELECT id, org_id, hostname, os, arch, status, api_key_hash, pending_api_key_hash, key_rotation_initiated_at FROM agents WHERE id = ?'
+      ).get(agentId) as AgentRow | undefined;
       if (updatedRow) {
-        row.api_key_hash = updatedRow.api_key_hash;
-        row.pending_api_key_hash = updatedRow.pending_api_key_hash;
-        row.key_rotation_initiated_at = updatedRow.key_rotation_initiated_at;
+        row = updatedRow;
+        setCachedAgent(agentId, row);
       }
     }
   }
@@ -91,6 +88,7 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
         if (pendingMatch) {
           // Agent is using the new key — promote it
           promotePendingKey(row.id);
+          invalidateAgentCache(row.id);
           match = true;
         }
       }

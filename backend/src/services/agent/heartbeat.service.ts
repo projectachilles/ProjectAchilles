@@ -1,6 +1,7 @@
 import { getDatabase } from './database.js';
 import { decryptPendingKey, promotePendingKey, ROTATION_GRACE_PERIOD_SECONDS } from './enrollment.service.js';
 import { recordEvent } from './events.service.js';
+import { invalidateAgentCache } from './agentAuthCache.js';
 import type {
   HeartbeatPayload,
   AgentSummary,
@@ -9,12 +10,30 @@ import type {
   AgentStatus,
   AgentOS,
   AgentArch,
+  AgentEventType,
   ListAgentsRequest,
   HeartbeatHistoryPoint,
   FleetHealthMetrics,
 } from '../../types/agent.js';
 
 const HEARTBEAT_TIMEOUT_SECONDS = 180; // 3x the 60s heartbeat interval
+
+// ============================================================================
+// HEARTBEAT SAMPLING — record history every 5th heartbeat per agent
+// ============================================================================
+
+const heartbeatCounters = new Map<string, number>();
+
+function shouldRecordHistory(agentId: string): boolean {
+  const count = (heartbeatCounters.get(agentId) ?? 0) + 1;
+  heartbeatCounters.set(agentId, count);
+  return count % 5 === 0;
+}
+
+/** Reset heartbeat counters (for tests). */
+export function resetHeartbeatCounters(): void {
+  heartbeatCounters.clear();
+}
 
 // ============================================================================
 // HEARTBEAT PROCESSING
@@ -24,39 +43,58 @@ export function processHeartbeat(agentId: string, payload: HeartbeatPayload): vo
   const db = getDatabase();
   const now = new Date().toISOString();
 
-  // Read current state before updating to detect transitions
-  const current = db.prepare(
-    'SELECT agent_version, last_heartbeat FROM agents WHERE id = ?'
-  ).get(agentId) as { agent_version: string; last_heartbeat: string | null } | undefined;
+  // Wrap all reads and writes in a single transaction to reduce lock
+  // acquisitions from 3-4 per heartbeat to 1.
+  db.transaction(() => {
+    // Read current state before updating to detect transitions
+    const current = db.prepare(
+      'SELECT agent_version, last_heartbeat FROM agents WHERE id = ?'
+    ).get(agentId) as { agent_version: string; last_heartbeat: string | null } | undefined;
 
-  const stmt = db.prepare(`
-    UPDATE agents
-    SET last_heartbeat = ?,
-        last_heartbeat_data = ?,
-        agent_version = ?,
-        updated_at = ?
-    WHERE id = ?
-  `);
+    db.prepare(`
+      UPDATE agents
+      SET last_heartbeat = ?,
+          last_heartbeat_data = ?,
+          agent_version = ?,
+          updated_at = ?
+      WHERE id = ?
+    `).run(now, JSON.stringify(payload), payload.agent_version, now, agentId);
 
-  stmt.run(now, JSON.stringify(payload), payload.agent_version, now, agentId);
+    // Detect came_online: agent was offline (gap > 180s or no previous heartbeat)
+    if (current) {
+      if (!current.last_heartbeat || !isAgentOnline(current.last_heartbeat)) {
+        // Inline recordEvent to stay within this transaction
+        db.prepare(
+          `INSERT INTO agent_events (agent_id, event_type, details) VALUES (?, ?, ?)`
+        ).run(agentId, 'came_online' satisfies AgentEventType, '{}');
+      }
 
-  // Detect came_online: agent was offline (gap > 180s or no previous heartbeat)
-  if (current) {
-    if (!current.last_heartbeat || !isAgentOnline(current.last_heartbeat)) {
-      recordEvent(agentId, 'came_online');
+      // Detect version change
+      if (current.agent_version !== payload.agent_version) {
+        db.prepare(
+          `INSERT INTO agent_events (agent_id, event_type, details) VALUES (?, ?, ?)`
+        ).run(
+          agentId,
+          'version_updated' satisfies AgentEventType,
+          JSON.stringify({ from: current.agent_version, to: payload.agent_version })
+        );
+      }
     }
 
-    // Detect version change
-    if (current.agent_version !== payload.agent_version) {
-      recordEvent(agentId, 'version_updated', {
-        from: current.agent_version,
-        to: payload.agent_version,
-      });
+    // Record heartbeat history (sampled: every 5th heartbeat per agent)
+    if (shouldRecordHistory(agentId)) {
+      db.prepare(`
+        INSERT INTO heartbeat_history (agent_id, cpu_percent, memory_mb, disk_free_mb, uptime_seconds)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(
+        agentId,
+        payload.system.cpu_percent ?? null,
+        payload.system.memory_mb ?? null,
+        payload.system.disk_free_mb ?? null,
+        payload.system.uptime_seconds ?? null
+      );
     }
-  }
-
-  // Record heartbeat history
-  recordHeartbeatHistory(agentId, payload);
+  })();
 }
 
 // ============================================================================
@@ -417,6 +455,9 @@ export function updateAgent(
   if (updates.status !== undefined && previousStatus !== undefined && updates.status !== previousStatus) {
     recordEvent(agentId, 'status_changed', { from: previousStatus, to: updates.status });
   }
+
+  // Invalidate auth cache so status/tag changes propagate immediately
+  invalidateAgentCache(agentId);
 }
 
 export function deleteAgent(agentId: string): void {
@@ -428,6 +469,7 @@ export function deleteAgent(agentId: string): void {
   ).run(now, agentId);
 
   recordEvent(agentId, 'decommissioned');
+  invalidateAgentCache(agentId);
 }
 
 // ============================================================================
@@ -531,17 +573,27 @@ export function getHeartbeatHistory(agentId: string, days: number = 7): Heartbea
 
 /**
  * Delete heartbeat history rows older than 30 days.
+ * Uses batched deletes (1000 rows per iteration) to avoid holding the
+ * write lock for seconds when the table has accumulated many rows.
  * Designed to run hourly as a background job.
  */
 export function pruneHeartbeatHistory(): number {
   const db = getDatabase();
-  const result = db.prepare(`
-    DELETE FROM heartbeat_history WHERE timestamp < datetime('now', '-30 days')
-  `).run();
-  if (result.changes > 0) {
-    console.log(`[heartbeat] Pruned ${result.changes} heartbeat history row(s) older than 30 days`);
+  let totalPruned = 0;
+  const BATCH_SIZE = 1000;
+  while (true) {
+    const result = db.prepare(`
+      DELETE FROM heartbeat_history WHERE id IN (
+        SELECT id FROM heartbeat_history WHERE timestamp < datetime('now', '-30 days') LIMIT ?
+      )
+    `).run(BATCH_SIZE);
+    totalPruned += result.changes;
+    if (result.changes < BATCH_SIZE) break;
   }
-  return result.changes;
+  if (totalPruned > 0) {
+    console.log(`[heartbeat] Pruned ${totalPruned} heartbeat history row(s) older than 30 days`);
+  }
+  return totalPruned;
 }
 
 /**
@@ -568,8 +620,14 @@ export function detectOfflineAgents(): number {
       )
   `).all(cutoff) as { id: string }[];
 
-  for (const agent of offlineAgents) {
-    recordEvent(agent.id, 'went_offline');
+  // Batch all event inserts in a single transaction to reduce lock acquisitions
+  if (offlineAgents.length > 0) {
+    const stmt = db.prepare(
+      `INSERT INTO agent_events (agent_id, event_type, details) VALUES (?, 'went_offline', '{}')`
+    );
+    db.transaction(() => {
+      for (const agent of offlineAgents) stmt.run(agent.id);
+    })();
   }
 
   return offlineAgents.length;

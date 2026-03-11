@@ -10,6 +10,7 @@ import type {
 } from '../../types/agent.js';
 import { getPublicKeyBase64, ensureSigningKeyPair } from './signing.service.js';
 import { recordEvent } from './events.service.js';
+import { invalidateAgentCache } from './agentAuthCache.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -261,6 +262,7 @@ export function promotePendingKey(agentId: string): void {
         updated_at = ?
     WHERE id = ?
   `).run(now, now, agentId);
+  invalidateAgentCache(agentId);
 }
 
 /**

@@ -100,6 +100,18 @@ export function sanitizeTaskForAdmin(task: Task): Task {
 }
 
 // ============================================================================
+// EXPIRE THROTTLE
+// ============================================================================
+
+let lastExpireRun = 0;
+const EXPIRE_THROTTLE_MS = 60_000;
+
+/** Reset the expire throttle (for tests). */
+export function resetExpireThrottle(): void {
+  lastExpireRun = 0;
+}
+
+// ============================================================================
 // SERVICE METHODS
 // ============================================================================
 
@@ -446,9 +458,14 @@ export function createUninstallTasks(
 export function getNextTask(agentId: string): Task | null {
   const db = getDatabase();
 
-  // Expire old tasks and fail stale executing tasks first
-  expireOldTasks();
-  expireStaleTasks();
+  // Throttle expire checks to once per 60s — TTL has 7-day granularity,
+  // so a 60s delay is invisible. Eliminates ~80 write UPDATEs/minute.
+  const now = Date.now();
+  if (now - lastExpireRun > EXPIRE_THROTTLE_MS) {
+    expireOldTasks();
+    expireStaleTasks();
+    lastExpireRun = now;
+  }
 
   // Find and assign the next task atomically via transaction
   const result = db.transaction(() => {
