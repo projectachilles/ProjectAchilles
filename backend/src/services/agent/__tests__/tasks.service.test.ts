@@ -640,7 +640,7 @@ describe('tasks.service', () => {
         test_uuid: 'uuid-1', test_name: 'Mimikatz Credential Dump',
         binary_name: 'mimi.exe', binary_sha256: 'abc', binary_size: 100,
         execution_timeout: 300, arguments: [],
-        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: [], complexity: '', tags: [], score: null },
+        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: [], complexity: '', tags: [], score: null, integrations: [] },
       });
       insertTestTask(testDb, { id: 't-match', payload });
       insertTestTask(testDb, { id: 't-other' }); // default payload with "Test Name"
@@ -654,7 +654,7 @@ describe('tasks.service', () => {
       const payload = JSON.stringify({
         test_uuid: '', test_name: '', binary_name: '', binary_sha256: '', binary_size: 0,
         execution_timeout: 300, arguments: [],
-        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: [], complexity: '', tags: [], score: null },
+        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: [], complexity: '', tags: [], score: null, integrations: [] },
         command: 'whoami /priv',
       });
       insertTestTask(testDb, { id: 't-cmd', payload, type: 'execute_command' });
@@ -680,7 +680,7 @@ describe('tasks.service', () => {
         test_uuid: 'uuid', test_name: name,
         binary_name: 'b.exe', binary_sha256: 'abc', binary_size: 100,
         execution_timeout: 300, arguments: [],
-        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: [], complexity: '', tags: [], score: null },
+        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: [], complexity: '', tags: [], score: null, integrations: [] },
       });
       insertTestTask(testDb, { id: 't1', payload: makePayload('LaZagne Extract') });
       insertTestTask(testDb, { id: 't2', payload: makePayload('LaZagne Dump') });
@@ -696,7 +696,7 @@ describe('tasks.service', () => {
         test_uuid: 'uuid', test_name: 'Rubeus Kerberoast',
         binary_name: 'r.exe', binary_sha256: 'abc', binary_size: 100,
         execution_timeout: 300, arguments: [],
-        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: [], complexity: '', tags: [], score: null },
+        metadata: { category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '', target: [], complexity: '', tags: [], score: null, integrations: [] },
       });
       insertTestTask(testDb, { id: 't-pending', payload, status: 'pending' });
       insertTestTask(testDb, { id: 't-completed', payload, status: 'completed' });
@@ -1071,6 +1071,7 @@ describe('tasks.service', () => {
         complexity: 'medium',
         tags: [],
         score: null,
+        integrations: ['azure'],
       });
 
       const taskIds = createTasks(
@@ -1094,6 +1095,55 @@ describe('tasks.service', () => {
         AZURE_CLIENT_ID: 'test-client-id',
         AZURE_CLIENT_SECRET: 'test-client-secret',
       });
+    });
+
+    it('injects Azure env_vars when integrations includes azure (non-identity-tenant subcategory)', () => {
+      mockGetAzureCredentials.mockReturnValueOnce({
+        tenant_id: 'azure-tid',
+        client_id: 'azure-cid',
+        client_secret: 'azure-cs',
+      });
+
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (String(p).endsWith('build-meta.json')) {
+          return JSON.stringify({ binary_name: 'cis.exe' });
+        }
+        return Buffer.from('binary');
+      });
+
+      mockGetTestMetadata.mockReturnValueOnce({
+        category: 'cyber-hygiene',
+        subcategory: 'cis-identity-ad-l1',
+        severity: 'critical',
+        techniques: ['T1078.002'],
+        tactics: ['credential-access'],
+        threatActor: '',
+        target: ['windows-endpoint'],
+        complexity: 'medium',
+        tags: [],
+        score: null,
+        integrations: ['azure'],
+      });
+
+      const taskIds = createTasks(
+        {
+          agent_ids: ['agent-001'],
+          test_uuid: 'test-uuid-cis',
+          test_name: 'CIS Identity AD L1',
+          binary_name: 'cis.exe',
+        },
+        'org-001',
+        'user-001'
+      );
+
+      const row = testDb.prepare('SELECT payload FROM tasks WHERE id = ?').get(taskIds[0]) as { payload: string };
+      const payload = JSON.parse(row.payload);
+      expect(payload.env_vars).toEqual({
+        AZURE_TENANT_ID: 'azure-tid',
+        AZURE_CLIENT_ID: 'azure-cid',
+        AZURE_CLIENT_SECRET: 'azure-cs',
+      });
+      expect(payload.metadata.integrations).toEqual(['azure']);
     });
 
     it('does not inject env_vars for non-identity-tenant tests', () => {
@@ -1121,6 +1171,7 @@ describe('tasks.service', () => {
         complexity: 'low',
         tags: [],
         score: null,
+        integrations: [],
       });
 
       const taskIds = createTasks(
@@ -1160,6 +1211,7 @@ describe('tasks.service', () => {
           complexity: '',
           tags: [],
           score: null,
+          integrations: [],
         },
         env_vars: {
           AZURE_TENANT_ID: 'sensitive-tenant',

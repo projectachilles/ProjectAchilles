@@ -232,6 +232,7 @@ export function insertTestTask(
       complexity: '',
       tags: [],
       score: null,
+      integrations: [],
     },
   });
 

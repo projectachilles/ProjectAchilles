@@ -124,6 +124,7 @@ export function createBrowserRouter(options: {
         hasSafetyDoc: test.hasSafetyDoc,
         hasDetectionFiles: test.hasDetectionFiles,
         hasDefenseGuidance: test.hasDefenseGuidance,
+        integrations: test.integrations,
       };
     });
 

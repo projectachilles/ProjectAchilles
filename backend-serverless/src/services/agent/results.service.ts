@@ -105,9 +105,12 @@ async function ingestBundleControls(
 ): Promise<void> {
   const bundle = result.bundle_results!;
 
-  // Resolve tenant label for identity-tenant bundles
+  // Resolve tenant label for Azure integration bundles
   let tenantLabel: string | undefined;
-  if (bundle.bundle_subcategory === 'identity-tenant' || task.payload.metadata?.subcategory === 'identity-tenant') {
+  const needsAzureLabel = task.payload.metadata?.integrations?.includes('azure')
+    || bundle.bundle_subcategory === 'identity-tenant'
+    || task.payload.metadata?.subcategory === 'identity-tenant';
+  if (needsAzureLabel) {
     const intService = new IntegrationsSettingsService();
     const azureSettings = await intService.getAzureSettings();
     tenantLabel = azureSettings?.label || 'Azure Tenant';

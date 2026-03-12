@@ -67,6 +67,7 @@ export interface TaskTestMetadata {
   complexity: string;
   tags: string[];
   score: number | null;
+  integrations: string[];
 }
 
 export interface TaskResult {

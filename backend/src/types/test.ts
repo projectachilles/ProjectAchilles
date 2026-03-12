@@ -22,6 +22,7 @@ export interface TestMetadata {
   description?: string;
   validatorDescriptions?: Record<string, string>;  // validator name → description (bundle tests)
   tags?: string[];             // Additional tags for filtering
+  integrations?: string[];     // Required integrations (e.g. 'azure')
   lastModifiedDate?: string;   // ISO 8601 date from Git history
   lastCommitMessage?: string;  // First line of last commit touching this test
 }

@@ -185,6 +185,7 @@ export function createBrowserRouter(options: {
         hasSafetyDoc: test.hasSafetyDoc,
         hasDetectionFiles: test.hasDetectionFiles,
         hasDefenseGuidance: test.hasDefenseGuidance,
+        integrations: test.integrations,
         lastModifiedDate: gitInfo?.lastModifiedDate,
         lastCommitMessage: gitInfo?.lastCommitMessage,
       };

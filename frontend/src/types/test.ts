@@ -21,6 +21,7 @@ export interface TestMetadata {
   stages: StageInfo[];
   description?: string;
   tags?: string[];             // Additional tags for filtering
+  integrations?: string[];     // Required integrations (e.g. 'azure')
   lastModifiedDate?: string;   // ISO 8601 date from Git history
   lastCommitMessage?: string;  // First line of last commit touching this test
   // Computed properties from API

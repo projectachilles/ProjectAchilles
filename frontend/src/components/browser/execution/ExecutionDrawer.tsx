@@ -30,6 +30,7 @@ const EMPTY_METADATA: TaskTestMetadata = {
   complexity: '',
   tags: [],
   score: null,
+  integrations: [],
 };
 
 export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }: ExecutionDrawerProps) {
@@ -131,9 +132,11 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
   // All tests must have builds to proceed
   const allBuilt = tests.every((t) => builds.get(t.uuid)?.exists);
 
-  // Check for identity-tenant tests needing Azure
-  const hasIdentityTenantTest = tests.some((t) => t.subcategory === 'identity-tenant');
-  const needsAzureWarning = hasIdentityTenantTest && azureConfigured === false;
+  // Check for tests needing Azure credentials
+  const hasAzureIntegrationTest = tests.some(
+    (t) => t.integrations?.includes('azure') || t.subcategory === 'identity-tenant'
+  );
+  const needsAzureWarning = hasAzureIntegrationTest && azureConfigured === false;
 
   const isScheduleValid = (() => {
     if (config.activeTab !== 'schedule') return true;

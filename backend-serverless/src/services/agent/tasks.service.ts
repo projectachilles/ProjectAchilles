@@ -68,7 +68,10 @@ const VALID_TRANSITIONS: Record<string, TaskStatus[]> = {
  * Currently supports Azure/Entra ID via the identity-tenant subcategory.
  */
 async function resolveIntegrationEnvVars(metadata: TaskTestMetadata): Promise<Record<string, string> | undefined> {
-  if (metadata.subcategory === 'identity-tenant') {
+  const needsAzure = metadata.integrations?.includes('azure')
+    || metadata.subcategory === 'identity-tenant';  // backward compat
+
+  if (needsAzure) {
     const service = new IntegrationsSettingsService();
     const creds = await service.getAzureCredentials();
     if (!creds) return undefined;
@@ -161,6 +164,7 @@ export async function createTasks(
     complexity: '',
     tags: [],
     score: null,
+    integrations: [],
   };
 
   // If metadata is empty (no category, no techniques), enrich from the test catalog
@@ -178,6 +182,7 @@ export async function createTasks(
         complexity: entry.complexity ?? '',
         tags: entry.tags ?? [],
         score: entry.score ?? null,
+        integrations: entry.integrations ?? [],
       };
     }
   }
@@ -269,6 +274,7 @@ export async function createCommandTasks(
       complexity: '',
       tags: [],
       score: null,
+      integrations: [],
     },
     command,
   };
@@ -327,6 +333,7 @@ export async function createUpdateTasks(
       complexity: '',
       tags: [],
       score: null,
+      integrations: [],
     },
   };
 
@@ -397,6 +404,7 @@ export async function createUninstallTasks(
       complexity: '',
       tags: [],
       score: null,
+      integrations: [],
     },
     command: cleanup ? 'cleanup' : '',
   };

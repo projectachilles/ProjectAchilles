@@ -204,6 +204,39 @@ describe('MetadataExtractor', () => {
 
       expect(result.tactics).toEqual(['TA0005']);
     });
+
+    it('parses INTEGRATIONS: Azure, Defender → lowercase array', () => {
+      const filePath = writeGoFile('integ-multi', `
+  ID: integ-multi
+  INTEGRATIONS: Azure, Defender
+`);
+
+      const result = MetadataExtractor.extractFromGoFile(filePath);
+
+      expect(result.integrations).toEqual(['azure', 'defender']);
+    });
+
+    it('INTEGRATIONS: none → empty array', () => {
+      const filePath = writeGoFile('integ-none', `
+  ID: integ-none
+  INTEGRATIONS: none
+`);
+
+      const result = MetadataExtractor.extractFromGoFile(filePath);
+
+      expect(result.integrations).toEqual([]);
+    });
+
+    it('missing INTEGRATIONS → empty array', () => {
+      const filePath = writeGoFile('integ-missing', `
+  ID: integ-missing
+  NAME: No Integrations
+`);
+
+      const result = MetadataExtractor.extractFromGoFile(filePath);
+
+      expect(result.integrations).toEqual([]);
+    });
   });
 
   // ── Group 2: extractFromReadme ─────────────────────────────

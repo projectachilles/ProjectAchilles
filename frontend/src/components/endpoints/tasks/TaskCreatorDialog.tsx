@@ -36,6 +36,7 @@ const EMPTY_METADATA: TaskTestMetadata = {
   complexity: '',
   tags: [],
   score: null,
+  integrations: [],
 };
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -355,8 +356,9 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
 
   // Check if the selected test requires Azure credentials
   const selectedTest = availableTests.find((t) => t.test.uuid === testUuid);
-  const isIdentityTenantTest = selectedTest?.test.subcategory === 'identity-tenant';
-  const needsAzureWarning = isIdentityTenantTest && azureConfigured === false;
+  const isAzureIntegrationTest = selectedTest?.test.integrations?.includes('azure')
+    || selectedTest?.test.subcategory === 'identity-tenant';
+  const needsAzureWarning = isAzureIntegrationTest && azureConfigured === false;
 
   const isFormValid = targetAgentIds.length > 0 && !needsAzureWarning && (
     taskMode === 'command'

@@ -95,6 +95,7 @@ export async function insertTestTask(
       complexity: '',
       tags: [],
       score: null,
+      integrations: [],
     },
   });
 

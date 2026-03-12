@@ -15,6 +15,7 @@ export class MetadataExtractor {
       techniques: [],
       tactics: [],
       tags: [],
+      integrations: [],
       stages: [],
       isMultiStage: false,
     };
@@ -84,6 +85,15 @@ export class MetadataExtractor {
       const subcategoryMatch = header.match(/SUBCATEGORY:\s*(.+)/i);
       if (subcategoryMatch) {
         metadata.subcategory = subcategoryMatch[1].trim();
+      }
+
+      // Extract INTEGRATIONS (comma-separated)
+      const integrationsMatch = header.match(/INTEGRATIONS:\s*(.+)/i);
+      if (integrationsMatch) {
+        metadata.integrations = integrationsMatch[1]
+          .split(',')
+          .map(t => t.trim().toLowerCase())
+          .filter(t => t && t !== 'none');
       }
 
       // Extract TAGS (comma-separated)
@@ -318,6 +328,7 @@ export class MetadataExtractor {
       techniques: [],
       tactics: [],
       tags: [],
+      integrations: [],
       stages: [],
       isMultiStage: false,
     };
