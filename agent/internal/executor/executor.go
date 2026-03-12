@@ -223,7 +223,13 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 	}
 
 	// Step 9b: Check for bundle_results.json (cyber-hygiene bundles write per-control results).
-	bundlePath := filepath.Join(filepath.Dir(cfg.WorkDir), "bundle_results.json")
+	// Test binaries use LOG_DIR which differs from the agent WorkDir on non-Windows:
+	//   Windows: C:\F0   Linux/macOS: /tmp/F0
+	bundleDir := "/tmp/F0"
+	if runtime.GOOS == "windows" {
+		bundleDir = `C:\F0`
+	}
+	bundlePath := filepath.Join(bundleDir, "bundle_results.json")
 	if data, err := os.ReadFile(bundlePath); err == nil {
 		var bundle BundleResults
 		if json.Unmarshal(data, &bundle) == nil && bundle.BundleID == task.Payload.TestUUID {
