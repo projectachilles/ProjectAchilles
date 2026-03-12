@@ -197,6 +197,8 @@ export class TestIndexer {
       const hasSafetyDoc = files.some(f => f.name === 'SAFETY.md');
       const attackFlowFile = files.find(f => f.name.endsWith('_attack_flow.html') || f.name.includes('attack_flow'));
       const hasAttackFlow = !!attackFlowFile;
+      const killChainFile = files.find(f => f.name === 'kill_chain.html');
+      const hasKillChain = !!killChainFile;
       const hasDetectionFiles = files.some(f => f.category === 'detection');
       const hasDefenseGuidance = files.some(f => f.category === 'defense');
 
@@ -205,6 +207,8 @@ export class TestIndexer {
         files,
         hasAttackFlow,
         attackFlowPath: attackFlowFile?.path,
+        hasKillChain,
+        killChainPath: killChainFile?.path,
         hasReadme,
         hasInfoCard,
         hasSafetyDoc,

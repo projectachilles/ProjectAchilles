@@ -117,6 +117,7 @@ export default function TestLibraryOverview({
     const multiStageCount = tests.filter(t => t.isMultiStage).length;
     const withDetection = tests.filter(t => t.hasDetectionFiles).length;
     const withAttackFlow = tests.filter(t => t.hasAttackFlow).length;
+    const withKillChain = tests.filter(t => t.hasKillChain).length;
     const withDefenseGuidance = tests.filter(t => t.hasDefenseGuidance).length;
 
     return {
@@ -136,6 +137,7 @@ export default function TestLibraryOverview({
       multiStageCount,
       withDetection,
       withAttackFlow,
+      withKillChain,
       withDefenseGuidance,
     };
   }, [tests]);
@@ -410,6 +412,12 @@ export default function TestLibraryOverview({
                 <Badge variant="primary">
                   <Workflow className="w-3 h-3 mr-1" />
                   {stats.withAttackFlow} attack flows
+                </Badge>
+              )}
+              {stats.withKillChain > 0 && (
+                <Badge variant="primary">
+                  <Workflow className="w-3 h-3 mr-1" />
+                  {stats.withKillChain} kill chains
                 </Badge>
               )}
               {stats.withDefenseGuidance > 0 && (

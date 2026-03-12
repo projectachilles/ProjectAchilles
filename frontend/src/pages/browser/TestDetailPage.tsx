@@ -20,34 +20,37 @@ export default function TestDetailPage() {
   const navigate = useNavigate();
   const { theme } = useTheme();
   const attackFlowIframeRef = useRef<HTMLIFrameElement>(null);
+  const killChainIframeRef = useRef<HTMLIFrameElement>(null);
   const [test, setTest] = useState<TestDetails | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<FileContent | null>(null);
   const [attackFlowHtml, setAttackFlowHtml] = useState<string | null>(null);
+  const [killChainHtml, setKillChainHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [fileLoading, setFileLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<'file' | 'attack-flow'>('file');
+  const [activeView, setActiveView] = useState<'file' | 'attack-flow' | 'kill-chain'>('file');
   const [hasUserInteracted, setHasUserInteracted] = useState(false); // Track if user clicked something
   const { isFavorite, toggleFavorite, trackView } = useTestPreferences();
   const canBuild = useHasPermission('tests:builds:create');
   const canCreateTasks = useHasPermission('endpoints:tasks:create');
   const [executionDrawerOpen, setExecutionDrawerOpen] = useState(false);
 
-  // Sync theme to attack flow iframe via postMessage
+  // Sync theme to visualization iframes via postMessage
   const syncThemeToIframe = useCallback(() => {
+    const message = { type: 'theme-change', theme };
     if (attackFlowIframeRef.current?.contentWindow) {
-      attackFlowIframeRef.current.contentWindow.postMessage(
-        { type: 'theme-change', theme },
-        window.location.origin
-      );
+      attackFlowIframeRef.current.contentWindow.postMessage(message, window.location.origin);
+    }
+    if (killChainIframeRef.current?.contentWindow) {
+      killChainIframeRef.current.contentWindow.postMessage(message, window.location.origin);
     }
   }, [theme]);
 
   // Sync theme when it changes or when iframe loads
   useEffect(() => {
     syncThemeToIframe();
-  }, [theme, attackFlowHtml, syncThemeToIframe]);
+  }, [theme, attackFlowHtml, killChainHtml, syncThemeToIframe]);
 
   useEffect(() => {
     if (uuid) {
@@ -121,6 +124,26 @@ export default function TestDetailPage() {
     }
   }
 
+  async function loadKillChain() {
+    if (!uuid || !test?.hasKillChain) return;
+
+    try {
+      setFileLoading(true);
+      const html = await browserApi.getKillChain(uuid);
+      const sanitized = DOMPurify.sanitize(html, {
+        ADD_TAGS: ['style'],
+        ADD_ATTR: ['class', 'style', 'viewBox', 'xmlns', 'fill', 'stroke', 'd', 'transform'],
+        WHOLE_DOCUMENT: true,
+      });
+      setKillChainHtml(sanitized);
+      setActiveView('kill-chain');
+    } catch (err) {
+      console.error('Failed to load kill chain:', err);
+    } finally {
+      setFileLoading(false);
+    }
+  }
+
   function handleFileSelect(filename: string) {
     setSelectedFile(filename);
     setActiveView('file');
@@ -133,6 +156,15 @@ export default function TestDetailPage() {
       loadAttackFlow();
     } else {
       setActiveView('attack-flow');
+    }
+  }
+
+  function handleKillChainClick() {
+    setHasUserInteracted(true);
+    if (!killChainHtml) {
+      loadKillChain();
+    } else {
+      setActiveView('kill-chain');
     }
   }
 
@@ -393,23 +425,39 @@ export default function TestDetailPage() {
               </div>
             )}
 
-            {/* Attack Flow */}
-            {test.hasAttackFlow && (
+            {/* Visualizations */}
+            {(test.hasAttackFlow || test.hasKillChain) && (
               <div>
                 <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
                   <Workflow className="w-3 h-3" />
                   Visualization
                 </h3>
-                <button
-                  onClick={handleAttackFlowClick}
-                  className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                    activeView === 'attack-flow'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-foreground hover:bg-accent'
-                  }`}
-                >
-                  Attack Flow Diagram
-                </button>
+                <div className="space-y-1">
+                  {test.hasAttackFlow && (
+                    <button
+                      onClick={handleAttackFlowClick}
+                      className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                        activeView === 'attack-flow'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'text-foreground hover:bg-accent'
+                      }`}
+                    >
+                      Attack Flow Diagram
+                    </button>
+                  )}
+                  {test.hasKillChain && (
+                    <button
+                      onClick={handleKillChainClick}
+                      className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                        activeView === 'kill-chain'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'text-foreground hover:bg-accent'
+                      }`}
+                    >
+                      Kill Chain Diagram
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
@@ -549,6 +597,15 @@ export default function TestDetailPage() {
                 srcDoc={attackFlowHtml}
                 className="w-full h-full border-0"
                 title="Attack Flow Diagram"
+                sandbox=""
+                onLoad={syncThemeToIframe}
+              />
+            ) : activeView === 'kill-chain' && killChainHtml ? (
+              <iframe
+                ref={killChainIframeRef}
+                srcDoc={killChainHtml}
+                className="w-full h-full border-0"
+                title="Kill Chain Diagram"
                 sandbox=""
                 onLoad={syncThemeToIframe}
               />

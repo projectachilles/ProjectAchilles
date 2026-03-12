@@ -26,6 +26,7 @@ export interface TestMetadata {
   // Computed properties from API
   stageCount?: number;
   hasAttackFlow?: boolean;
+  hasKillChain?: boolean;
   hasReadme?: boolean;
   hasInfoCard?: boolean;
   hasSafetyDoc?: boolean;
@@ -69,6 +70,8 @@ export interface TestDetails extends TestMetadata {
   files: TestFile[];
   hasAttackFlow: boolean;
   attackFlowPath?: string;
+  hasKillChain: boolean;
+  killChainPath?: string;
   hasReadme: boolean;
   hasInfoCard: boolean;
   hasSafetyDoc: boolean;

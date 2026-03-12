@@ -562,12 +562,13 @@ describe('TestIndexer', () => {
   // ── Group 9: scanTestDirectory details ────────────────────
 
   describe('scanTestDirectory details', () => {
-    it('detects hasAttackFlow, hasReadme, hasInfoCard, hasSafetyDoc from files', () => {
+    it('detects hasAttackFlow, hasKillChain, hasReadme, hasInfoCard, hasSafetyDoc from files', () => {
       const files = [
         'README.md',
         `${UUID1}_info.md`,
         'SAFETY.md',
         `${UUID1}_attack_flow.html`,
+        'kill_chain.html',
         'rules.kql',
         'T1059_DEFENSE_GUIDANCE.md',
       ];
@@ -596,6 +597,7 @@ describe('TestIndexer', () => {
       expect(test.hasInfoCard).toBe(true);
       expect(test.hasSafetyDoc).toBe(true);
       expect(test.hasAttackFlow).toBe(true);
+      expect(test.hasKillChain).toBe(true);
       expect(test.hasDetectionFiles).toBe(true);
       expect(test.hasDefenseGuidance).toBe(true);
     });

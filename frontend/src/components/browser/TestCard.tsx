@@ -151,6 +151,13 @@ export default function TestCard({ test, onClick, isFavorite, onToggleFavorite, 
           </div>
         )}
 
+        {test.hasKillChain && (
+          <div className="flex items-center gap-1 text-orange-500" title="Kill chain diagram available">
+            <Workflow className="w-3 h-3" />
+            <span className="text-[10px] font-medium">Kill Chain</span>
+          </div>
+        )}
+
         {test.hasDefenseGuidance && (
           <div className="flex items-center gap-1 text-green-500" title="Defense guidance available">
             <ShieldCheck className="w-3 h-3" />

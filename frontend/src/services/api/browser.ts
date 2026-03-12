@@ -71,6 +71,12 @@ export const browserApi = {
     return response.data.html;
   },
 
+  // Get kill chain diagram HTML
+  async getKillChain(uuid: string): Promise<string> {
+    const response = await apiClient.get(`/browser/tests/${uuid}/kill-chain`);
+    return response.data.html;
+  },
+
   // Get test description (standalone or bundle validator)
   async getTestDescription(uuid: string, validator?: string): Promise<{
     description: string | null;

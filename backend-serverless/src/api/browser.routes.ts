@@ -118,6 +118,7 @@ export function createBrowserRouter(options: {
         stageCount: test.stages.length,
         description: test.description,
         hasAttackFlow: test.hasAttackFlow,
+        hasKillChain: test.hasKillChain,
         hasReadme: test.hasReadme,
         hasInfoCard: test.hasInfoCard,
         hasSafetyDoc: test.hasSafetyDoc,
@@ -319,6 +320,41 @@ export function createBrowserRouter(options: {
 
     // Read HTML file
     const fileContent = FileService.readFileContent(test.attackFlowPath);
+
+    res.json({
+      success: true,
+      html: fileContent.content,
+    });
+  }));
+
+  /**
+   * GET /api/browser/tests/:uuid/kill-chain
+   * Get kill chain diagram HTML
+   */
+  router.get('/tests/:uuid/kill-chain', asyncHandler(async (req: Request, res: Response) => {
+    if (!testIndexer) {
+      throw new AppError('Test indexer not initialized', 503);
+    }
+
+    const { uuid } = req.params;
+
+    // Validate UUID format to prevent path traversal
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid)) {
+      throw new AppError('Invalid UUID format', 400);
+    }
+
+    const test = testIndexer.getTest(uuid);
+
+    if (!test) {
+      throw new AppError('Test not found', 404);
+    }
+
+    if (!test.hasKillChain || !test.killChainPath) {
+      throw new AppError('Kill chain diagram not available for this test', 404);
+    }
+
+    // Read HTML file
+    const fileContent = FileService.readFileContent(test.killChainPath);
 
     res.json({
       success: true,

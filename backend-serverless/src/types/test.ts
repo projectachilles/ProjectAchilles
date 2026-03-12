@@ -62,6 +62,8 @@ export interface TestDetails extends TestMetadata {
   files: TestFile[];
   hasAttackFlow: boolean;
   attackFlowPath?: string;
+  hasKillChain: boolean;
+  killChainPath?: string;
   hasReadme: boolean;
   hasInfoCard: boolean;
   hasSafetyDoc: boolean;
