@@ -1,21 +1,17 @@
 import { useLocation } from 'react-router-dom';
 import { UserButton, useUser } from '@clerk/clerk-react';
-import { useTheme } from '@/hooks/useTheme';
 import { useAppRole } from '@/hooks/useAppRole';
 import { ROLE_LABELS, ROLE_COLORS } from '@/types/roles';
 import {
   Menu,
-  Moon,
-  Sun,
   Search,
   RefreshCw,
   Settings,
   ChevronRight,
-  Palette,
-  Terminal,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { NotificationBell } from '@/components/layout/NotificationBell';
+import { ThemeSelector } from '@/components/layout/ThemeSelector';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
@@ -33,7 +29,6 @@ export function TopBar({
   isRefreshing,
 }: TopBarProps) {
   const location = useLocation();
-  const { theme, toggleTheme, themeStyle, toggleThemeStyle, phosphorVariant, togglePhosphorVariant } = useTheme();
   const { user, isLoaded } = useUser();
   const role = useAppRole();
 
@@ -124,46 +119,8 @@ export function TopBar({
         {/* Notifications */}
         <NotificationBell />
 
-        {/* Theme Style Toggle (cycles: default → neobrutalism → hacker terminal) */}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleThemeStyle}
-          title={
-            themeStyle === 'default' ? 'Switch to neobrutalism' :
-            themeStyle === 'neobrutalism' ? 'Switch to hacker terminal' :
-            'Switch to default style'
-          }
-        >
-          {themeStyle === 'hackerterminal' ? (
-            <Terminal className={cn('h-4 w-4', phosphorVariant === 'green' ? 'text-green-400' : 'text-amber-400')} />
-          ) : (
-            <Palette className={cn('h-4 w-4', themeStyle === 'neobrutalism' && 'text-primary')} />
-          )}
-          <span className="sr-only">Toggle visual style</span>
-        </Button>
-
-        {/* Theme Toggle / Phosphor Variant Toggle */}
-        {themeStyle === 'hackerterminal' ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={togglePhosphorVariant}
-            title={phosphorVariant === 'green' ? 'Switch to amber phosphor' : 'Switch to green phosphor'}
-          >
-            <Sun className={cn('h-4 w-4', phosphorVariant === 'green' ? 'text-green-400' : 'text-amber-400')} />
-            <span className="sr-only">Toggle phosphor variant</span>
-          </Button>
-        ) : (
-          <Button variant="ghost" size="icon" onClick={toggleTheme}>
-            {theme === 'dark' ? (
-              <Sun className="h-4 w-4" />
-            ) : (
-              <Moon className="h-4 w-4" />
-            )}
-            <span className="sr-only">Toggle theme</span>
-          </Button>
-        )}
+        {/* Theme Selector */}
+        <ThemeSelector />
 
         {/* User - Last item */}
         {isLoaded && user && (
