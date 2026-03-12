@@ -606,7 +606,7 @@ export default function TestDetailPage() {
                 srcDoc={killChainHtml}
                 className="w-full h-full border-0"
                 title="Kill Chain Diagram"
-                sandbox=""
+                sandbox="allow-scripts"
                 onLoad={syncThemeToIframe}
               />
             ) : fileContent ? (
