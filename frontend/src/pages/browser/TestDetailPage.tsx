@@ -130,12 +130,11 @@ export default function TestDetailPage() {
     try {
       setFileLoading(true);
       const html = await browserApi.getKillChain(uuid);
-      const sanitized = DOMPurify.sanitize(html, {
-        ADD_TAGS: ['style'],
-        ADD_ATTR: ['class', 'style', 'viewBox', 'xmlns', 'fill', 'stroke', 'd', 'transform'],
-        WHOLE_DOCUMENT: true,
-      });
-      setKillChainHtml(sanitized);
+      // Kill chain diagrams use Cytoscape.js (loaded from CDN) which requires
+      // <script> tags. DOMPurify strips all scripts by default, so we skip it
+      // and rely on the iframe sandbox="allow-scripts" (no allow-same-origin)
+      // to isolate the content from the parent page.
+      setKillChainHtml(html);
       setActiveView('kill-chain');
     } catch (err) {
       console.error('Failed to load kill chain:', err);
