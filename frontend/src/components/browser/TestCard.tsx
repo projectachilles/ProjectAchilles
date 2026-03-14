@@ -1,8 +1,8 @@
 import type { TestMetadata } from '@/types/test';
-import { FileCode2, Calendar, Layers, Star, Shield, Workflow, ShieldCheck, Heart, User, Clock, Play } from 'lucide-react';
+import { Layers, Shield, Workflow, ShieldCheck, Heart, Play } from 'lucide-react';
 import TechniqueBadge from './TechniqueBadge';
 import TargetBadge from './TargetBadge';
-import { formatRelativeDate, formatFullDate } from '@/utils/dateFormatters';
+import { formatRelativeDate } from '@/utils/dateFormatters';
 
 interface TestCardProps {
   test: TestMetadata;
@@ -16,19 +16,25 @@ interface TestCardProps {
 }
 
 export default function TestCard({ test, onClick, isFavorite, onToggleFavorite, onExecute, selectMode, selected, onToggleSelect }: TestCardProps) {
-  const severityColors: Record<string, string> = {
-    'critical': 'text-red-500',
-    'high': 'text-orange-500',
-    'medium': 'text-yellow-500',
-    'low': 'text-blue-500',
-    'informational': 'text-gray-500',
+  const severityBadgeColors: Record<string, string> = {
+    'critical': 'bg-red-500 text-white',
+    'high': 'bg-orange-500 text-white',
+    'medium': 'bg-yellow-500 text-black',
+    'low': 'bg-blue-500 text-white',
+    'informational': 'bg-gray-500 text-white',
   };
 
-  const severityColor = test.severity ? severityColors[test.severity.toLowerCase()] || 'text-gray-500' : 'text-gray-500';
+  const tooltipParts = [
+    test.author && `Author: ${test.author}`,
+    test.createdDate && `Created: ${test.createdDate}`,
+    test.lastModifiedDate && `Modified: ${formatRelativeDate(test.lastModifiedDate)}`,
+    `UUID: ${test.uuid}`,
+  ].filter(Boolean).join('\n');
 
   return (
     <div
       onClick={selectMode ? onToggleSelect : onClick}
+      title={tooltipParts}
       className={`group cursor-pointer rounded-base border-theme border-border bg-card text-card-foreground shadow-theme p-4 hover:translate-x-[var(--theme-hover-translate)] hover:translate-y-[var(--theme-hover-translate)] hover:shadow-[var(--theme-hover-shadow)] transition-all hover:border-primary/50 relative ${selectMode ? 'pl-10' : ''} ${selected ? 'ring-2 ring-primary' : ''}`}
     >
       {/* Select mode checkbox */}
@@ -43,44 +49,41 @@ export default function TestCard({ test, onClick, isFavorite, onToggleFavorite, 
           />
         </div>
       )}
+
       {/* Header */}
       <div className="mb-3">
         <div className="flex items-start justify-between gap-2 mb-2">
           <h3 className="font-semibold text-lg leading-tight group-hover:text-primary transition-colors">
             {test.name}
           </h3>
-          <div className="flex items-center gap-2 shrink-0">
-            {onToggleFavorite && (
-              <button
-                onClick={onToggleFavorite}
-                className="p-1 rounded-md hover:bg-accent transition-colors"
-                title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-              >
-                <Heart className={`w-4 h-4 transition-colors ${isFavorite ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
-              </button>
-            )}
-            {onExecute && !selectMode && (
-              <button
-                onClick={onExecute}
-                className="p-1 rounded-md hover:bg-accent transition-colors"
-                title="Execute test"
-              >
-                <Play className="w-4 h-4 text-primary" />
-              </button>
-            )}
+          <div className="flex flex-col items-end gap-1.5 shrink-0">
+            {/* Action buttons row */}
+            <div className="flex items-center gap-1">
+              {onToggleFavorite && (
+                <button onClick={onToggleFavorite} className="p-1 rounded-md hover:bg-accent transition-colors"
+                  title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}>
+                  <Heart className={`w-4 h-4 transition-colors ${isFavorite ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
+                </button>
+              )}
+              {onExecute && !selectMode && (
+                <button onClick={onExecute} className="p-1 rounded-md hover:bg-accent transition-colors" title="Execute test">
+                  <Play className="w-4 h-4 text-primary" />
+                </button>
+              )}
+            </div>
+            {/* Score badge */}
             {test.score && (
-              <div className="flex items-center gap-1 text-sm font-medium text-amber-500">
-                <Star className="w-4 h-4 fill-current" />
-                <span>{test.score.toFixed(1)}</span>
+              <div className="w-11 h-11 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
+                <span className="text-lg font-extrabold text-black">{test.score.toFixed(1)}</span>
               </div>
             )}
           </div>
         </div>
 
-        {/* Metadata Row */}
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        {/* Metadata Row — Tier 2 */}
+        <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
           {test.severity && (
-            <span className={`font-medium uppercase ${severityColor}`}>
+            <span className={`font-bold uppercase text-[10px] px-2 py-0.5 rounded ${severityBadgeColors[test.severity.toLowerCase()] || 'bg-gray-500 text-white'}`}>
               {test.severity}
             </span>
           )}
@@ -90,22 +93,14 @@ export default function TestCard({ test, onClick, isFavorite, onToggleFavorite, 
               <span>{test.stageCount || test.techniques.length} stages</span>
             </div>
           )}
-          {test.createdDate && (
-            <div className="flex items-center gap-1">
-              <Calendar className="w-3 h-3" />
-              <span>{test.createdDate}</span>
-            </div>
-          )}
-          {test.author && (
-            <div className="flex items-center gap-1">
-              <User className="w-3 h-3" />
-              <span>{test.author}</span>
-            </div>
-          )}
-          {test.lastModifiedDate && (
-            <div className="flex items-center gap-1" title={formatFullDate(test.lastModifiedDate)}>
-              <Clock className="w-3 h-3" />
-              <span>{formatRelativeDate(test.lastModifiedDate)}</span>
+          {test.target && test.target.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              {test.target.slice(0, 3).map(t => (
+                <TargetBadge key={t} target={t} />
+              ))}
+              {test.target.length > 3 && (
+                <span className="text-[10px] text-muted-foreground">+{test.target.length - 3}</span>
+              )}
             </div>
           )}
         </div>
@@ -113,18 +108,18 @@ export default function TestCard({ test, onClick, isFavorite, onToggleFavorite, 
 
       {/* Description */}
       {test.description && (
-        <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
+        <p className="text-sm text-muted-foreground mb-3 line-clamp-1">
           {test.description}
         </p>
       )}
 
       {/* Techniques */}
-      <div className="flex flex-wrap gap-1.5 mb-3">
+      <div className="flex flex-wrap gap-1.5 mb-3 opacity-70">
         {test.techniques.slice(0, 4).map(technique => (
-          <TechniqueBadge key={technique} technique={technique} size="sm" />
+          <TechniqueBadge key={technique} technique={technique} size="xs" />
         ))}
         {test.techniques.length > 4 && (
-          <span className="text-xs text-muted-foreground px-2 py-1">
+          <span className="text-[9px] text-muted-foreground px-1 py-0.5">
             +{test.techniques.length - 4} more
           </span>
         )}
@@ -132,48 +127,28 @@ export default function TestCard({ test, onClick, isFavorite, onToggleFavorite, 
 
       {/* Footer */}
       <div className="flex items-center gap-3 text-xs text-muted-foreground pt-3 border-t-[length:var(--theme-border-width)] border-border">
-        <div className="flex items-center gap-1">
-          <FileCode2 className="w-3 h-3" />
-          <span className="font-mono">{test.uuid.slice(0, 8)}...</span>
-        </div>
-
         {test.hasDetectionFiles && (
           <div className="flex items-center gap-1 text-blue-500" title="Detection rules included">
             <Shield className="w-3 h-3" />
             <span className="text-[10px] font-medium">Rules</span>
           </div>
         )}
-
         {test.hasAttackFlow && (
           <div className="flex items-center gap-1 text-purple-500" title="Attack flow diagram available">
             <Workflow className="w-3 h-3" />
             <span className="text-[10px] font-medium">Flow</span>
           </div>
         )}
-
         {test.hasKillChain && (
           <div className="flex items-center gap-1 text-orange-500" title="Kill chain diagram available">
             <Workflow className="w-3 h-3" />
             <span className="text-[10px] font-medium">Kill Chain</span>
           </div>
         )}
-
         {test.hasDefenseGuidance && (
           <div className="flex items-center gap-1 text-green-500" title="Defense guidance available">
             <ShieldCheck className="w-3 h-3" />
             <span className="text-[10px] font-medium">Defense</span>
-          </div>
-        )}
-
-        {/* Platform targets — right-aligned */}
-        {test.target && test.target.length > 0 && (
-          <div className="flex items-center gap-2 ml-auto">
-            {test.target.slice(0, 3).map(t => (
-              <TargetBadge key={t} target={t} />
-            ))}
-            {test.target.length > 3 && (
-              <span className="text-[10px] text-muted-foreground">+{test.target.length - 3}</span>
-            )}
           </div>
         )}
       </div>
