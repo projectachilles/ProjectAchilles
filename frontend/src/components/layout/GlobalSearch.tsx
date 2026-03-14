@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -275,9 +276,9 @@ export function GlobalSearch() {
         </kbd>
       </button>
 
-      {/* Overlay */}
-      {open && (
-        <div className="fixed inset-0 z-[100]" onKeyDown={handleKeyDown}>
+      {/* Overlay — portaled to body to escape stacking contexts */}
+      {open && createPortal(
+        <div className="fixed inset-0 z-[9999]" onKeyDown={handleKeyDown}>
           {/* Backdrop */}
           <div
             className="absolute inset-0 bg-background/80 backdrop-blur-sm"
@@ -391,7 +392,8 @@ export function GlobalSearch() {
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
