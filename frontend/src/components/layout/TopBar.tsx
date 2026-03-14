@@ -4,7 +4,6 @@ import { useAppRole } from '@/hooks/useAppRole';
 import { ROLE_LABELS, ROLE_COLORS } from '@/types/roles';
 import {
   Menu,
-  Search,
   RefreshCw,
   Settings,
   ChevronRight,
@@ -12,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { NotificationBell } from '@/components/layout/NotificationBell';
 import { ThemeSelector } from '@/components/layout/ThemeSelector';
-import { Input } from '@/components/ui/input';
+import { GlobalSearch } from '@/components/layout/GlobalSearch';
 import { cn } from '@/lib/utils';
 
 interface TopBarProps {
@@ -80,16 +79,8 @@ export function TopBar({
         ))}
       </nav>
 
-      {/* Search */}
-      <div className="flex-1 max-w-md mx-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search tests, techniques, descriptions..."
-            className="pl-9 bg-muted/50 border-0 focus-visible:ring-1"
-          />
-        </div>
-      </div>
+      {/* Global Search */}
+      <GlobalSearch />
 
       {/* Right side actions - pushed to far right */}
       <div className="flex items-center gap-1 ml-auto">
