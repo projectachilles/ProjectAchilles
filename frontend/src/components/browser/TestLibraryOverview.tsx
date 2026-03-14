@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import type { ChartConfig } from '@/components/ui/chart';
 import MetricCard from '@/pages/analytics/components/MetricCard';
+import MitreAttackMatrix from '@/components/browser/MitreAttackMatrix';
 import { Badge } from '@/components/shared/ui/Badge';
 import { formatRelativeDate } from '@/utils/dateFormatters';
 
@@ -90,16 +91,6 @@ export default function TestLibraryOverview({
       .sort((a, b) => new Date(b.lastModifiedDate!).getTime() - new Date(a.lastModifiedDate!).getTime())
       .slice(0, 5);
 
-    // Top 15 techniques
-    const techCounts: Record<string, number> = {};
-    for (const tech of allTechniques) {
-      techCounts[tech] = (techCounts[tech] || 0) + 1;
-    }
-    const topTechniques = Object.entries(techCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 15)
-      .map(([name, count]) => ({ name, count, fill: 'oklch(0.62 0.19 250)' }));
-
     // Platform distribution
     const platformSet = new Set<string>();
     for (const t of tests) {
@@ -132,7 +123,6 @@ export default function TestLibraryOverview({
       categoryData,
       topRated,
       recentlyModified,
-      topTechniques,
       platforms: [...platformSet],
       multiStageCount,
       withDetection,
@@ -161,10 +151,6 @@ export default function TestLibraryOverview({
   for (const d of stats.categoryData) {
     categoryChartConfig[d.name] = { label: d.name, color: d.fill };
   }
-
-  const techniqueChartConfig: ChartConfig = {
-    count: { label: 'Tests', color: 'oklch(0.62 0.19 250)' },
-  };
 
   return (
     <div className="grid grid-cols-12 gap-4">
@@ -349,37 +335,9 @@ export default function TestLibraryOverview({
         </Card>
       </div>
 
-      {/* Row 6-7: Technique Coverage */}
+      {/* Row 6-7: ATT&CK Coverage Matrix */}
       <div className="col-span-12 row-span-2">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Crosshair className="w-4 h-4 text-primary" />
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Technique Coverage (Top 15)
-              </CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <ChartContainer config={techniqueChartConfig} className="w-full" style={{ height: 320 }}>
-              <BarChart data={stats.topTechniques} layout="vertical" margin={{ left: 20, right: 20 }}>
-                <XAxis type="number" allowDecimals={false} />
-                <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 11 }} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar
-                  dataKey="count"
-                  radius={[0, 4, 4, 0]}
-                  cursor="pointer"
-                  onClick={(data) => { if (data?.name) onDrillToTechnique(data.name); }}
-                >
-                  {stats.topTechniques.map((entry) => (
-                    <Cell key={entry.name} fill={entry.fill} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ChartContainer>
-          </CardContent>
-        </Card>
+        <MitreAttackMatrix tests={tests} onDrillToTechnique={onDrillToTechnique} />
       </div>
 
       {/* Row 8: Summary badges */}

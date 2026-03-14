@@ -6,7 +6,6 @@ import type { TestMetadata, SyncStatus } from '@/types/test';
 import TestCard from '@/components/browser/TestCard';
 import TestListRow from '@/components/browser/TestListRow';
 import TestLibraryOverview from '@/components/browser/TestLibraryOverview';
-import MitreAttackMatrix from '@/components/browser/MitreAttackMatrix';
 import SearchBar from '@/components/browser/SearchBar';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
 import { useHasPermission } from '@/hooks/useAppRole';
@@ -15,10 +14,10 @@ import { targetLabel } from '@/utils/platformLabels';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/shared/ui/Tabs';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Switch } from '@/components/shared/ui/Switch';
-import { Loader2, LayoutDashboard, Grid3X3, LayoutGrid, List, RefreshCw, GitBranch, Clock, AlertCircle, Heart, History, CheckSquare, Play, ArrowUpNarrowWide, ArrowDownNarrowWide } from 'lucide-react';
+import { Loader2, LayoutDashboard, LayoutGrid, List, RefreshCw, GitBranch, Clock, AlertCircle, Heart, History, CheckSquare, Play, ArrowUpNarrowWide, ArrowDownNarrowWide } from 'lucide-react';
 import { ExecutionDrawer } from '@/components/browser/execution';
 
-type BrowserTab = 'overview' | 'matrix' | 'browse';
+type BrowserTab = 'overview' | 'browse';
 type BrowseMode = 'browse' | 'favorites' | 'recent';
 type SortField = 'name' | 'createdDate' | 'score' | 'severity' | 'lastModifiedDate';
 type SortDirection = 'asc' | 'desc';
@@ -669,10 +668,6 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
             <LayoutDashboard className="w-4 h-4" />
             Overview
           </TabsTrigger>
-          <TabsTrigger value="matrix">
-            <Grid3X3 className="w-4 h-4" />
-            Matrix
-          </TabsTrigger>
           <TabsTrigger value="browse">
             <LayoutGrid className="w-4 h-4" />
             Browse
@@ -687,13 +682,6 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
             onDrillToCategory={handleDrillToCategory}
             onDrillToTechnique={handleDrillToTechnique}
             onNavigateToTest={handleNavigateToTest}
-          />
-        </TabsContent>
-
-        <TabsContent value="matrix">
-          <MitreAttackMatrix
-            tests={tests}
-            onDrillToTechnique={handleDrillToTechnique}
           />
         </TabsContent>
 
