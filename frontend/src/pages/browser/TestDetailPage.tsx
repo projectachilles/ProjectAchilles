@@ -7,9 +7,10 @@ import TechniqueBadge from '@/components/browser/TechniqueBadge';
 import FileViewer from '@/components/browser/FileViewer';
 import { useTheme } from '@/hooks/useTheme';
 import BuildSection from '@/components/browser/BuildSection';
+import CollapsibleSection from '@/components/browser/CollapsibleSection';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
 import { useHasPermission } from '@/hooks/useAppRole';
-import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2, Heart, Tag, User, Clock, Monitor, Crosshair, Play } from 'lucide-react';
+import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2, Heart, Tag, User, Clock, Monitor, Crosshair, Play, Hammer } from 'lucide-react';
 import { formatRelativeDate, formatFullDate } from '@/utils/dateFormatters';
 import { targetLabel } from '@/utils/platformLabels';
 import { ExecutionDrawer } from '@/components/browser/execution';
@@ -216,6 +217,14 @@ export default function TestDetailPage() {
   const detectionFiles = test.files.filter(f => f.category === 'detection');
   const configFiles = test.files.filter(f => f.category === 'config');
 
+  // Sidebar section active state for auto-expand
+  const isDocActive = activeView === 'file' && selectedFile !== null && documentationFiles.some(f => f.name === selectedFile);
+  const isVisualsActive = activeView === 'attack-flow' || activeView === 'kill-chain';
+  const isDefenseActive = activeView === 'file' && selectedFile !== null && defenseFiles.some(f => f.name === selectedFile);
+  const isSourceActive = activeView === 'file' && selectedFile !== null && sourceFiles.some(f => f.name === selectedFile);
+  const isRulesActive = activeView === 'file' && selectedFile !== null && detectionFiles.some(f => f.name === selectedFile);
+  const isConfigActive = activeView === 'file' && selectedFile !== null && configFiles.some(f => f.name === selectedFile);
+
   // Determine if we should use compact header
   // Show compact header after user clicks any file/view (not on initial load)
   const isCompactMode = hasUserInteracted;
@@ -401,86 +410,71 @@ export default function TestDetailPage() {
         {/* Left Sidebar - File Browser */}
         <div className="w-80 border-r border-border bg-muted/30 overflow-y-auto">
           <div className="p-4 space-y-4">
-            {/* Documentation Files */}
+            {/* Documentation */}
             {documentationFiles.length > 0 && (
-              <div>
-                <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
-                  <FileText className="w-3 h-3" />
-                  Documentation
-                </h3>
+              <CollapsibleSection icon={FileText} label="Documentation" sectionKey="docs"
+                itemCount={documentationFiles.length} defaultOpen isActive={isDocActive}>
                 <div className="space-y-1">
                   {documentationFiles.map(file => (
-                    <button
-                      key={file.name}
-                      onClick={() => handleFileSelect(file.name)}
+                    <button key={file.name} onClick={() => handleFileSelect(file.name)}
                       className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
                           : 'text-foreground hover:bg-accent'
-                      }`}
-                    >
+                      }`}>
                       {file.name === 'SAFETY.md' && <AlertTriangle className="w-3 h-3 inline mr-2 text-orange-500" />}
                       {file.name}
                     </button>
                   ))}
                 </div>
-              </div>
+              </CollapsibleSection>
             )}
 
-            {/* Visualizations */}
+            {/* Build */}
+            {canBuild && sourceFiles.length > 0 && uuid && (
+              <CollapsibleSection icon={Hammer} label="Build" sectionKey="build" defaultOpen>
+                <BuildSection uuid={uuid} />
+              </CollapsibleSection>
+            )}
+
+            {/* Visualization */}
             {(test.hasAttackFlow || test.hasKillChain) && (
-              <div>
-                <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
-                  <Workflow className="w-3 h-3" />
-                  Visualization
-                </h3>
+              <CollapsibleSection icon={Workflow} label="Visualization" sectionKey="visuals"
+                itemCount={(test.hasAttackFlow ? 1 : 0) + (test.hasKillChain ? 1 : 0)}
+                isActive={isVisualsActive}>
                 <div className="space-y-1">
                   {test.hasAttackFlow && (
-                    <button
-                      onClick={handleAttackFlowClick}
+                    <button onClick={handleAttackFlowClick}
                       className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                        activeView === 'attack-flow'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-foreground hover:bg-accent'
-                      }`}
-                    >
+                        activeView === 'attack-flow' ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent'
+                      }`}>
                       Attack Flow Diagram
                     </button>
                   )}
                   {test.hasKillChain && (
-                    <button
-                      onClick={handleKillChainClick}
+                    <button onClick={handleKillChainClick}
                       className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                        activeView === 'kill-chain'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-foreground hover:bg-accent'
-                      }`}
-                    >
+                        activeView === 'kill-chain' ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent'
+                      }`}>
                       Kill Chain Diagram
                     </button>
                   )}
                 </div>
-              </div>
+              </CollapsibleSection>
             )}
 
             {/* Defense Guidance */}
             {defenseFiles.length > 0 && (
-              <div>
-                <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
-                  <ShieldCheck className="w-3 h-3" />
-                  Defense Guidance
-                </h3>
+              <CollapsibleSection icon={ShieldCheck} label="Defense Guidance" sectionKey="defense"
+                itemCount={defenseFiles.length} isActive={isDefenseActive}>
                 <div className="space-y-1">
                   {defenseFiles.map(file => (
-                    <button
-                      key={file.name}
-                      onClick={() => handleFileSelect(file.name)}
+                    <button key={file.name} onClick={() => handleFileSelect(file.name)}
                       className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center gap-2 ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
                           : 'text-foreground hover:bg-accent'
-                      }`}
-                    >
+                      }`}>
                       {file.name.includes('DEFENSE_GUIDANCE') && <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />}
                       {file.name.includes('_dr_rules') && <span className="w-2 h-2 rounded-full bg-cyan-500 flex-shrink-0" />}
                       {file.name.includes('_hardening') && <span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />}
@@ -488,57 +482,40 @@ export default function TestDetailPage() {
                     </button>
                   ))}
                 </div>
-              </div>
+              </CollapsibleSection>
             )}
 
-            {/* Source Files */}
+            {/* Source Code */}
             {sourceFiles.length > 0 && (
-              <div>
-                <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
-                  <Code className="w-3 h-3" />
-                  Source Code
-                </h3>
+              <CollapsibleSection icon={Code} label="Source Code" sectionKey="source"
+                itemCount={sourceFiles.length} isActive={isSourceActive}>
                 <div className="space-y-1">
                   {sourceFiles.map(file => (
-                    <button
-                      key={file.name}
-                      onClick={() => handleFileSelect(file.name)}
+                    <button key={file.name} onClick={() => handleFileSelect(file.name)}
                       className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
                           : 'text-foreground hover:bg-accent'
-                      }`}
-                    >
+                      }`}>
                       {file.name}
                     </button>
                   ))}
                 </div>
-              </div>
-            )}
-
-            {/* Build */}
-            {canBuild && sourceFiles.length > 0 && uuid && (
-              <BuildSection uuid={uuid} />
+              </CollapsibleSection>
             )}
 
             {/* Detection Rules */}
             {detectionFiles.length > 0 && (
-              <div>
-                <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
-                  <Shield className="w-3 h-3" />
-                  Detection Rules
-                </h3>
+              <CollapsibleSection icon={Shield} label="Detection Rules" sectionKey="rules"
+                itemCount={detectionFiles.length} isActive={isRulesActive}>
                 <div className="space-y-1">
                   {detectionFiles.map(file => (
-                    <button
-                      key={file.name}
-                      onClick={() => handleFileSelect(file.name)}
+                    <button key={file.name} onClick={() => handleFileSelect(file.name)}
                       className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
                           : 'text-foreground hover:bg-accent'
-                      }`}
-                    >
+                      }`}>
                       {file.type === 'kql' && <span className="text-xs text-blue-500 mr-2">KQL</span>}
                       {file.type === 'yara' && <span className="text-xs text-purple-500 mr-2">YARA</span>}
                       {file.type === 'sigma' && <span className="text-xs text-yellow-500 mr-2">SIGMA</span>}
@@ -547,32 +524,26 @@ export default function TestDetailPage() {
                     </button>
                   ))}
                 </div>
-              </div>
+              </CollapsibleSection>
             )}
 
-            {/* Config Files */}
+            {/* Configuration */}
             {configFiles.length > 0 && (
-              <div>
-                <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
-                  <Shield className="w-3 h-3" />
-                  Configuration
-                </h3>
+              <CollapsibleSection icon={Shield} label="Configuration" sectionKey="config"
+                itemCount={configFiles.length} isActive={isConfigActive}>
                 <div className="space-y-1">
                   {configFiles.map(file => (
-                    <button
-                      key={file.name}
-                      onClick={() => handleFileSelect(file.name)}
+                    <button key={file.name} onClick={() => handleFileSelect(file.name)}
                       className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
                           : 'text-foreground hover:bg-accent'
-                      }`}
-                    >
+                      }`}>
                       {file.name}
                     </button>
                   ))}
                 </div>
-              </div>
+              </CollapsibleSection>
             )}
           </div>
         </div>
