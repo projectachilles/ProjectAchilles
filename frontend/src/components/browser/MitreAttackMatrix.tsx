@@ -287,7 +287,9 @@ export default function MitreAttackMatrix({ tests, onDrillToTechnique }: MitreAt
             const techCount = cells.length;
             const totalTests = cells.reduce((sum, c) => sum + c.count, 0);
             const isEmpty = techCount === 0;
-            const barHeight = isEmpty ? 4 : Math.max(12, (techCount / maxTechniqueCount) * 100);
+            // Use pixel heights — percentage heights don't resolve in flex children
+            const maxBarPx = 176; // 192px container - 16px label area
+            const barHeightPx = isEmpty ? 4 : Math.max(12, Math.round((techCount / maxTechniqueCount) * maxBarPx));
             const isSelected = selectedTactic === tactic.slug;
 
             return (
@@ -296,8 +298,7 @@ export default function MitreAttackMatrix({ tests, onDrillToTechnique }: MitreAt
                   onClick={() => setSelectedTactic(prev => prev === tactic.slug ? null : tactic.slug)}
                   className="w-full transition-all cursor-pointer hover:opacity-80 rounded-t-sm"
                   style={{
-                    height: `${barHeight}%`,
-                    minHeight: isEmpty ? 4 : 12,
+                    height: barHeightPx,
                     backgroundColor: isEmpty ? 'transparent' : getBarColor(totalTests),
                     border: isEmpty
                       ? '1px dashed var(--color-destructive, #ef4444)'
