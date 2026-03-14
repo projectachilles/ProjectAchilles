@@ -243,7 +243,7 @@ export default function TestDetailPage() {
           <div className="container mx-auto px-4 py-2 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
-                onClick={() => navigate('/browser')}
+                onClick={() => navigate('/dashboard?tab=browse')}
                 className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
               >
                 <ArrowLeft className="w-4 h-4" />
@@ -294,7 +294,7 @@ export default function TestDetailPage() {
         <div className="border-b border-border bg-background/95 backdrop-blur">
           <div className="container mx-auto px-4 py-4">
             <button
-              onClick={() => navigate('/browser')}
+              onClick={() => navigate('/dashboard?tab=browse')}
               className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-3"
             >
               <ArrowLeft className="w-4 h-4" />

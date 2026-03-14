@@ -24,7 +24,7 @@ const apiBaseUrl = window.__env__?.VITE_API_URL || import.meta.env.VITE_API_URL 
 
 export default function AvailableBinaries() {
   const [versions, setVersions] = useState<AgentVersion[]>([]);
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {

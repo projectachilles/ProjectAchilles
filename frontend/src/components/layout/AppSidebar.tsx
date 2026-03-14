@@ -9,7 +9,6 @@ import {
   Monitor,
   Home,
   Bookmark,
-  Clock,
   Settings,
   ChevronDown,
   ChevronUp,
@@ -82,9 +81,9 @@ export function AppSidebar({ collapsed }: AppSidebarProps) {
       icon: Shield,
       path: "/dashboard",
       subItems: [
-        { label: "Browse All", icon: Home, path: "/dashboard" },
+        { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
+        { label: "Browse All", icon: Home, path: "/dashboard?tab=browse" },
         { label: "Favorites", icon: Bookmark, path: "/favorites" },
-        { label: "Recent", icon: Clock, path: "/recent" },
       ],
     },
     {
@@ -139,7 +138,7 @@ export function AppSidebar({ collapsed }: AppSidebarProps) {
 
   const isModuleActive = (module: ModuleWithItems) => {
     if (module.path === "/dashboard") {
-      return ["/dashboard", "/favorites", "/recent"].includes(
+      return ["/dashboard", "/favorites"].includes(
         location.pathname,
       );
     }
@@ -150,8 +149,11 @@ export function AppSidebar({ collapsed }: AppSidebarProps) {
     const [basePath, queryString] = path.split("?");
     const currentSearch = new URLSearchParams(location.search);
 
-    if (basePath === "/dashboard") return location.pathname === "/dashboard";
-    if (basePath === "/favorites" || basePath === "/recent")
+    if (basePath === "/dashboard" && !queryString) {
+      const currentTab = currentSearch.get("tab");
+      return location.pathname === "/dashboard" && (!currentTab || currentTab === "dashboard");
+    }
+    if (basePath === "/favorites")
       return location.pathname === basePath;
 
     if (queryString) {
