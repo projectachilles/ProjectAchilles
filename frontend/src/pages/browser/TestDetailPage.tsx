@@ -5,7 +5,6 @@ import { browserApi } from '@/services/api/browser';
 import type { TestDetails, FileContent } from '@/types/test';
 import TechniqueBadge from '@/components/browser/TechniqueBadge';
 import FileViewer from '@/components/browser/FileViewer';
-import DefenseDashboard from '@/components/browser/DefenseDashboard';
 import { useTheme } from '@/hooks/useTheme';
 import BuildSection from '@/components/browser/BuildSection';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
@@ -580,13 +579,6 @@ export default function TestDetailPage() {
 
         {/* Right Panel - Content Viewer */}
         <div className="flex-1 overflow-hidden flex flex-col">
-          {/* Defense Dashboard (hidden in compact mode for attack flow) */}
-          {test.hasDefenseGuidance && !isCompactMode && (
-            <div className="p-4 pb-0">
-              <DefenseDashboard test={test} />
-            </div>
-          )}
-
           {/* Main Content Area */}
           <div className="flex-1 overflow-hidden">
             {fileLoading ? (
