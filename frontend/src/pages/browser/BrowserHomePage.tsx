@@ -4,6 +4,7 @@ import { browserApi } from '@/services/api/browser';
 import { analyticsApi } from '@/services/api/analytics';
 import type { TestMetadata, SyncStatus } from '@/types/test';
 import TestCard from '@/components/browser/TestCard';
+import TestListRow from '@/components/browser/TestListRow';
 import TestLibraryOverview from '@/components/browser/TestLibraryOverview';
 import MitreAttackMatrix from '@/components/browser/MitreAttackMatrix';
 import SearchBar from '@/components/browser/SearchBar';
@@ -14,13 +15,14 @@ import { targetLabel } from '@/utils/platformLabels';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/shared/ui/Tabs';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Switch } from '@/components/shared/ui/Switch';
-import { Loader2, LayoutDashboard, Grid3X3, LayoutGrid, RefreshCw, GitBranch, Clock, AlertCircle, Heart, History, CheckSquare, Play, ArrowUpNarrowWide, ArrowDownNarrowWide } from 'lucide-react';
+import { Loader2, LayoutDashboard, Grid3X3, LayoutGrid, List, RefreshCw, GitBranch, Clock, AlertCircle, Heart, History, CheckSquare, Play, ArrowUpNarrowWide, ArrowDownNarrowWide } from 'lucide-react';
 import { ExecutionDrawer } from '@/components/browser/execution';
 
 type BrowserTab = 'overview' | 'matrix' | 'browse';
 type BrowseMode = 'browse' | 'favorites' | 'recent';
 type SortField = 'name' | 'createdDate' | 'score' | 'severity' | 'lastModifiedDate';
 type SortDirection = 'asc' | 'desc';
+type ViewMode = 'grid' | 'list';
 
 const SEVERITY_ORDER: Record<string, number> = {
   critical: 5, high: 4, medium: 3, low: 2, informational: 1,
@@ -52,6 +54,14 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
   const [executedUuidsLoading, setExecutedUuidsLoading] = useState(false);
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    return (localStorage.getItem('achilles-browse-view-mode') as ViewMode) || 'grid';
+  });
+
+  const handleViewModeChange = (mode: ViewMode) => {
+    setViewMode(mode);
+    localStorage.setItem('achilles-browse-view-mode', mode);
+  };
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { favorites, recentTests, isFavorite, toggleFavorite } = useTestPreferences();
@@ -479,6 +489,27 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
             }
           </button>
 
+          {/* Separator */}
+          <div className="h-5 w-px bg-border mx-1" />
+
+          {/* View Mode Toggle */}
+          <div className="flex items-center border border-border rounded-base overflow-hidden">
+            <button
+              onClick={() => handleViewModeChange('grid')}
+              className={`p-1.5 transition-colors ${viewMode === 'grid' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50'}`}
+              title="Grid view"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => handleViewModeChange('list')}
+              className={`p-1.5 transition-colors ${viewMode === 'list' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50'}`}
+              title="List view"
+            >
+              <List className="w-4 h-4" />
+            </button>
+          </div>
+
           {/* Select Mode + Run Selected */}
           {canCreateTasks && (
             <>
@@ -531,10 +562,26 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
               <p>No tests found matching your criteria</p>
             )}
           </div>
-        ) : (
+        ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-6">
             {filteredTests.map(test => (
               <TestCard
+                key={test.uuid}
+                test={test}
+                onClick={() => navigate(`/browser/test/${test.uuid}`)}
+                isFavorite={isFavorite(test.uuid)}
+                onToggleFavorite={(e) => { e.stopPropagation(); toggleFavorite(test.uuid); }}
+                onExecute={canCreateTasks ? (e) => handleExecuteTest(test, e) : undefined}
+                selectMode={selectMode}
+                selected={selectedTestUuids.has(test.uuid)}
+                onToggleSelect={(e) => handleToggleTestSelection(test.uuid, e)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-base border-theme border-border bg-card shadow-theme overflow-hidden mb-6">
+            {filteredTests.map(test => (
+              <TestListRow
                 key={test.uuid}
                 test={test}
                 onClick={() => navigate(`/browser/test/${test.uuid}`)}
