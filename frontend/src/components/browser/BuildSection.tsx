@@ -5,7 +5,7 @@ import { useCapabilities } from '@/hooks/useCapabilities';
 import type { BuildInfo, EmbedDependency } from '@/types/test';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
-import { Hammer, Loader2, Download, RotateCw, Trash2, Upload, Check, X, Wrench } from 'lucide-react';
+import { Loader2, Download, RotateCw, Trash2, Upload, Check, X, Wrench } from 'lucide-react';
 
 interface BuildSectionProps {
   uuid: string;
@@ -169,26 +169,15 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
 
   if (loading) {
     return (
-      <div>
-        <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
-          <Hammer className="w-3 h-3" />
-          Build
-        </h3>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="w-3 h-3 animate-spin" />
-          Loading...
-        </div>
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        Loading...
       </div>
     );
   }
 
   return (
     <div>
-      <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center gap-2">
-        <Hammer className="w-3 h-3" />
-        Build
-      </h3>
-
       {/* Hidden file inputs */}
       <input
         ref={fileInputRef}
