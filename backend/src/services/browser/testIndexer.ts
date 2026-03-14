@@ -52,7 +52,10 @@ export class TestIndexer {
     if (fileName.endsWith('.go') || fileName.endsWith('.ps1')) {
       return 'source';
     }
-    if (fileName.endsWith('.kql') || fileName.endsWith('.yara') || fileName.endsWith('.yar')) {
+    if (fileName.includes('_sigma_rules') || fileName.includes('_elastic_rules')) {
+      return 'detection';
+    }
+    if (fileName.endsWith('.kql') || fileName.endsWith('.yara') || fileName.endsWith('.yar') || fileName.endsWith('.ndjson')) {
       return 'detection';
     }
     if (fileName.endsWith('.sh') || fileName === 'go.mod' || fileName === 'go.sum') {
@@ -65,6 +68,10 @@ export class TestIndexer {
    * Get file type from extension
    */
   private getFileType(fileName: string): TestFile['type'] {
+    // Filename-pattern detection (must precede extension-based fallback)
+    if (fileName.includes('_sigma_rules')) return 'sigma';
+    if (fileName.includes('_elastic_rules')) return 'ndjson';
+
     const ext = path.extname(fileName).toLowerCase();
     switch (ext) {
       case '.go':
@@ -82,6 +89,8 @@ export class TestIndexer {
       case '.yara':
       case '.yar':
         return 'yara';
+      case '.ndjson':
+        return 'ndjson';
       case '.yaml':
       case '.yml':
         return 'yaml';

@@ -54,7 +54,7 @@ export interface StageInfo {
 export interface TestFile {
   name: string;
   path: string;
-  type: 'go' | 'powershell' | 'markdown' | 'html' | 'bash' | 'kql' | 'yara' | 'yaml' | 'other';
+  type: 'go' | 'powershell' | 'markdown' | 'html' | 'bash' | 'kql' | 'yara' | 'sigma' | 'ndjson' | 'yaml' | 'other';
   size: number;
   category: 'source' | 'documentation' | 'diagram' | 'config' | 'detection' | 'defense' | 'other';
 }

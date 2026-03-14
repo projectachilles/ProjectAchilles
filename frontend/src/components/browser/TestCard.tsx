@@ -138,9 +138,9 @@ export default function TestCard({ test, onClick, isFavorite, onToggleFavorite, 
         </div>
 
         {test.hasDetectionFiles && (
-          <div className="flex items-center gap-1 text-blue-500" title="Detection rules included (KQL/YARA)">
+          <div className="flex items-center gap-1 text-blue-500" title="Detection rules included">
             <Shield className="w-3 h-3" />
-            <span className="text-[10px] font-medium">KQL</span>
+            <span className="text-[10px] font-medium">Rules</span>
           </div>
         )}
 

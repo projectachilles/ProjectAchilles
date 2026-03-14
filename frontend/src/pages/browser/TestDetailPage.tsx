@@ -171,7 +171,11 @@ export default function TestDetailPage() {
   function getDefenseFileDisplayName(filename: string): string {
     if (filename.includes('DEFENSE_GUIDANCE')) return 'Defense Guide';
     if (filename.includes('_dr_rules')) return 'D&R Rules';
-    if (filename.includes('_hardening')) return 'Hardening Script';
+    if (filename.includes('_hardening')) {
+      if (filename.includes('_hardening_linux')) return 'Hardening (Linux)';
+      if (filename.includes('_hardening_macos')) return 'Hardening (macOS)';
+      return 'Hardening (Windows)';
+    }
     if (filename.includes('_detections.kql')) return 'KQL Detections';
     if (filename.includes('_rules.yar')) return 'YARA Rules';
     // Fallback: get extension
@@ -538,6 +542,8 @@ export default function TestDetailPage() {
                     >
                       {file.type === 'kql' && <span className="text-xs text-blue-500 mr-2">KQL</span>}
                       {file.type === 'yara' && <span className="text-xs text-purple-500 mr-2">YARA</span>}
+                      {file.type === 'sigma' && <span className="text-xs text-yellow-500 mr-2">SIGMA</span>}
+                      {file.type === 'ndjson' && <span className="text-xs text-green-500 mr-2">ELASTIC</span>}
                       {file.name}
                     </button>
                   ))}
