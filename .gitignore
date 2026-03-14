@@ -32,6 +32,7 @@ npm-debug.log*
 
 # Claude Code
 .claude/
+.superpowers/
 
 # Playwright MCP
 .playwright-mcp/
