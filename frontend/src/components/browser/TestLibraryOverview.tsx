@@ -189,7 +189,12 @@ export default function TestLibraryOverview({
         />
       </div>
 
-      {/* Row 2-3: Severity bar chart + Category donut */}
+      {/* Row 2-3: ATT&CK Coverage Matrix */}
+      <div className="col-span-12 row-span-2">
+        <MitreAttackMatrix tests={tests} onDrillToTechnique={onDrillToTechnique} />
+      </div>
+
+      {/* Row 4-5: Severity bar chart + Category donut */}
       <div className="col-span-6 row-span-2">
         <Card className="h-full">
           <CardHeader>
@@ -335,12 +340,7 @@ export default function TestLibraryOverview({
         </Card>
       </div>
 
-      {/* Row 6-7: ATT&CK Coverage Matrix */}
-      <div className="col-span-12 row-span-2">
-        <MitreAttackMatrix tests={tests} onDrillToTechnique={onDrillToTechnique} />
-      </div>
-
-      {/* Row 8: Summary badges */}
+      {/* Summary badges */}
       <div className="col-span-12">
         <Card>
           <CardContent className="pt-0">
