@@ -43,6 +43,10 @@ export class TestIndexer {
         fileName.includes('_hardening')) {
       return 'defense';
     }
+    // References files - check BEFORE general .md check
+    if (fileName.includes('_references')) {
+      return 'references';
+    }
     if (fileName.endsWith('.md')) {
       return 'documentation';
     }
@@ -135,10 +139,11 @@ export class TestIndexer {
       'documentation': 1,
       'diagram': 2,
       'defense': 3,
-      'source': 4,
-      'detection': 5,
-      'config': 6,
-      'other': 7,
+      'references': 4,
+      'source': 5,
+      'detection': 6,
+      'config': 7,
+      'other': 8,
     };
 
     files.sort((a, b) => {
@@ -210,6 +215,7 @@ export class TestIndexer {
       const hasKillChain = !!killChainFile;
       const hasDetectionFiles = files.some(f => f.category === 'detection');
       const hasDefenseGuidance = files.some(f => f.category === 'defense');
+      const hasReferences = files.some(f => f.category === 'references');
 
       const testDetails: TestDetails = {
         ...metadata,
@@ -223,6 +229,7 @@ export class TestIndexer {
         hasSafetyDoc,
         hasDetectionFiles,
         hasDefenseGuidance,
+        hasReferences,
       };
 
       return testDetails;
