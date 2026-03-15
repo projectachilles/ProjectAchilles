@@ -56,26 +56,22 @@ export default function TestCard({ test, onClick, isFavorite, onToggleFavorite, 
           <h3 className="font-semibold text-lg leading-tight group-hover:text-primary transition-colors">
             {test.name}
           </h3>
-          <div className="flex flex-col items-end gap-1.5 shrink-0">
-            {/* Action buttons row */}
-            <div className="flex items-center gap-1">
-              {onToggleFavorite && (
-                <button onClick={onToggleFavorite} className="p-1 rounded-md hover:bg-accent transition-colors"
-                  title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}>
-                  <Heart className={`w-4 h-4 transition-colors ${isFavorite ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
-                </button>
-              )}
-              {onExecute && !selectMode && (
-                <button onClick={onExecute} className="p-1 rounded-md hover:bg-accent transition-colors" title="Execute test">
-                  <Play className="w-4 h-4 text-primary" />
-                </button>
-              )}
-            </div>
-            {/* Score badge */}
+          <div className="flex items-center gap-1 shrink-0">
+            {onToggleFavorite && (
+              <button onClick={onToggleFavorite} className="p-1 rounded-md hover:bg-accent transition-colors"
+                title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}>
+                <Heart className={`w-4 h-4 transition-colors ${isFavorite ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
+              </button>
+            )}
+            {onExecute && !selectMode && (
+              <button onClick={onExecute} className="p-1 rounded-md hover:bg-accent transition-colors" title="Execute test">
+                <Play className="w-4 h-4 text-primary" />
+              </button>
+            )}
             {test.score && (
-              <div className="w-11 h-11 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
-                <span className="text-lg font-extrabold text-black">{test.score.toFixed(1)}</span>
-              </div>
+              <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-500 text-sm font-bold">
+                {test.score.toFixed(1)}
+              </span>
             )}
           </div>
         </div>
