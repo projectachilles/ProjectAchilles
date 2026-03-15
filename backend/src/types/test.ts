@@ -56,7 +56,7 @@ export interface TestFile {
   path: string;
   type: 'go' | 'powershell' | 'markdown' | 'html' | 'bash' | 'kql' | 'yara' | 'sigma' | 'ndjson' | 'yaml' | 'other';
   size: number;
-  category: 'source' | 'documentation' | 'diagram' | 'config' | 'detection' | 'defense' | 'other';
+  category: 'source' | 'documentation' | 'diagram' | 'config' | 'detection' | 'defense' | 'references' | 'other';
 }
 
 export interface TestDetails extends TestMetadata {
@@ -70,6 +70,7 @@ export interface TestDetails extends TestMetadata {
   hasSafetyDoc: boolean;
   hasDetectionFiles: boolean;
   hasDefenseGuidance: boolean;
+  hasReferences: boolean;
 }
 
 export interface FileContent {
