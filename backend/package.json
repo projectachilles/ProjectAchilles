@@ -33,7 +33,8 @@
     "zod": "^3.22.4"
   },
   "overrides": {
-    "qs": "6.14.2"
+    "qs": "6.14.2",
+    "undici@<6.24.0": "6.24.1"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
