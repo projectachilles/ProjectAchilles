@@ -8,7 +8,7 @@
     "dev": "tsx watch src/app.ts",
     "build": "tsc",
     "start": "node dist/app.js",
-    "vercel-build": "if [ -n \"$TESTS_REPO_URL\" ]; then rm -rf data/f0_library && git clone --depth 1 \"https://x-access-token:${GITHUB_TOKEN}@${TESTS_REPO_URL#https://}\" data/f0_library; fi && npm run build",
+    "vercel-build": "REPO_URL=\"${TESTS_REPO_URL:-https://github.com/ubercylon8/f0_library.git}\"; if [ -n \"$REPO_URL\" ]; then rm -rf data/f0_library && if [ -n \"$GITHUB_TOKEN\" ]; then CLONE_URL=\"https://x-access-token:${GITHUB_TOKEN}@${REPO_URL#https://}\"; else CLONE_URL=\"$REPO_URL\"; fi && git clone --depth 1 \"$CLONE_URL\" data/f0_library; fi && npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

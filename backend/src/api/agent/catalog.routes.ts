@@ -2,8 +2,9 @@ import { Router } from 'express';
 import { asyncHandler } from '../../middleware/error.middleware.js';
 import { requirePermission } from '../../middleware/clerk.middleware.js';
 import { initCatalog, getCatalogSize } from '../../services/agent/test-catalog.service.js';
+import type { TestSource } from '../../types/test.js';
 
-export function createAdminCatalogRouter(testsSourcePath: string): Router {
+export function createAdminCatalogRouter(testSources: TestSource[] | string): Router {
   const router = Router();
 
   /**
@@ -14,7 +15,7 @@ export function createAdminCatalogRouter(testsSourcePath: string): Router {
     '/catalog/reload',
     requirePermission('tests:sync:execute'),
     asyncHandler(async (_req, res) => {
-      initCatalog(testsSourcePath);
+      initCatalog(testSources);
       res.json({ success: true, catalogSize: getCatalogSize() });
     }),
   );

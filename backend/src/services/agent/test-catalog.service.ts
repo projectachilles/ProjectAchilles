@@ -5,21 +5,19 @@
 import fs from 'fs';
 import path from 'path';
 import { MetadataExtractor } from '../browser/metadataExtractor.js';
-import type { TestMetadata } from '../../types/test.js';
+import type { TestMetadata, TestSource } from '../../types/test.js';
 
 const CATEGORY_DIRS = ['cyber-hygiene', 'intel-driven', 'mitre-top10', 'phase-aligned'];
 
 let catalog: Map<string, TestMetadata> = new Map();
 
 /**
- * Scan the test library and build an in-memory UUID → TestMetadata map.
- * Safe to call multiple times (replaces the previous catalog).
+ * Scan one source path and add entries to the catalog map.
+ * Skips UUIDs already present (first source wins).
  */
-export function initCatalog(testsSourcePath: string): void {
-  const next = new Map<string, TestMetadata>();
-
+function scanSourcePath(sourcePath: string, provenance: TestSource['provenance'], next: Map<string, TestMetadata>): void {
   for (const category of CATEGORY_DIRS) {
-    const categoryDir = path.join(testsSourcePath, category);
+    const categoryDir = path.join(sourcePath, category);
 
     if (!fs.existsSync(categoryDir)) continue;
 
@@ -34,16 +32,37 @@ export function initCatalog(testsSourcePath: string): void {
       if (!entry.isDirectory()) continue;
 
       const uuid = entry.name;
+      // First source wins — skip if already indexed
+      if (next.has(uuid)) continue;
+
       const testDir = path.join(categoryDir, uuid);
 
       try {
         const metadata = MetadataExtractor.extractTestMetadata(testDir, uuid, category);
+        metadata.source = provenance;
         next.set(uuid, metadata);
       } catch (err) {
         console.warn(`[TestCatalog] Failed to extract metadata for ${uuid}:`,
           err instanceof Error ? err.message : err);
       }
     }
+  }
+}
+
+/**
+ * Scan the test library and build an in-memory UUID → TestMetadata map.
+ * Accepts a single path (backward compat) or TestSource[] for multi-source.
+ * Safe to call multiple times (replaces the previous catalog).
+ */
+export function initCatalog(sources: TestSource[] | string): void {
+  const normalized: TestSource[] = typeof sources === 'string'
+    ? [{ path: sources, provenance: 'upstream' }]
+    : sources;
+
+  const next = new Map<string, TestMetadata>();
+
+  for (const source of normalized) {
+    scanSourcePath(source.path, source.provenance, next);
   }
 
   catalog = next;

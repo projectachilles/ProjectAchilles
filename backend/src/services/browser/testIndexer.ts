@@ -2,30 +2,39 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { TestDetails, TestFile } from '../../types/test.js';
+import type { TestDetails, TestFile, TestSource, TestSourceProvenance } from '../../types/test.js';
 import { MetadataExtractor } from './metadataExtractor.js';
 
 // Known category folders in the new structure
 const KNOWN_CATEGORIES = ['cyber-hygiene', 'intel-driven', 'mitre-top10', 'phase-aligned'];
 
+interface UuidCategoryEntry {
+  category: string;
+  sourcePath: string;
+}
+
 export class TestIndexer {
-  private testsSourcePath: string;
+  private sources: TestSource[];
   private testCache: Map<string, TestDetails> = new Map();
-  // Maps UUID -> category for efficient lookup
-  private uuidToCategory: Map<string, string> = new Map();
+  // Maps UUID -> { category, sourcePath } for efficient lookup on cache miss
+  private uuidToCategory: Map<string, UuidCategoryEntry> = new Map();
   private static readonly UUID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
-  constructor(testsSourcePath: string) {
-    this.testsSourcePath = path.resolve(testsSourcePath);
+  constructor(sources: TestSource[] | string) {
+    if (typeof sources === 'string') {
+      this.sources = [{ path: path.resolve(sources), provenance: 'upstream' }];
+    } else {
+      this.sources = sources.map(s => ({ ...s, path: path.resolve(s.path) }));
+    }
   }
 
   /**
-   * Detect if the tests_source uses categorical structure (new) or flat structure (legacy)
+   * Detect if a source directory uses categorical structure (new) or flat structure (legacy)
    */
-  private detectStructure(): 'categorical' | 'flat' {
+  private detectStructure(basePath: string): 'categorical' | 'flat' {
     // Check if any known category folders exist
     for (const category of KNOWN_CATEGORIES) {
-      const categoryPath = path.join(this.testsSourcePath, category);
+      const categoryPath = path.join(basePath, category);
       if (fs.existsSync(categoryPath) && fs.statSync(categoryPath).isDirectory()) {
         return 'categorical';
       }
@@ -168,27 +177,43 @@ export class TestIndexer {
    * @param uuid - The test UUID
    * @param testDir - Full path to the test directory (optional, will be resolved if not provided)
    * @param category - The category folder name (optional, for categorical structure)
+   * @param provenance - Source provenance to stamp on the result
    */
-  private scanTestDirectory(uuid: string, testDir?: string, category?: string): TestDetails | null {
+  private scanTestDirectory(uuid: string, testDir?: string, category?: string, provenance?: TestSourceProvenance): TestDetails | null {
     // Resolve test directory path if not provided
     if (!testDir) {
       // Check if we have a cached category mapping
-      const cachedCategory = this.uuidToCategory.get(uuid);
-      if (cachedCategory) {
-        testDir = path.join(this.testsSourcePath, cachedCategory, uuid);
+      const cached = this.uuidToCategory.get(uuid);
+      if (cached) {
+        testDir = path.join(cached.sourcePath, cached.category, uuid);
+        provenance = this.getProvenanceForPath(cached.sourcePath);
       } else {
-        // Try categorical structure first
-        for (const cat of KNOWN_CATEGORIES) {
-          const catPath = path.join(this.testsSourcePath, cat, uuid);
-          if (fs.existsSync(catPath)) {
-            testDir = catPath;
-            category = cat;
+        // Search all sources for this UUID
+        for (const source of this.sources) {
+          // Try categorical structure first
+          for (const cat of KNOWN_CATEGORIES) {
+            const catPath = path.join(source.path, cat, uuid);
+            if (fs.existsSync(catPath)) {
+              testDir = catPath;
+              category = cat;
+              provenance = source.provenance;
+              break;
+            }
+          }
+          if (testDir) break;
+
+          // Try flat structure
+          const flatPath = path.join(source.path, uuid);
+          if (fs.existsSync(flatPath)) {
+            testDir = flatPath;
+            provenance = source.provenance;
             break;
           }
         }
-        // Fall back to flat structure
+        // Last resort: first source path + uuid
         if (!testDir) {
-          testDir = path.join(this.testsSourcePath, uuid);
+          testDir = path.join(this.sources[0].path, uuid);
+          provenance = this.sources[0].provenance;
         }
       }
     }
@@ -219,6 +244,7 @@ export class TestIndexer {
 
       const testDetails: TestDetails = {
         ...metadata,
+        source: provenance,
         files,
         hasAttackFlow,
         attackFlowPath: attackFlowFile?.path,
@@ -239,41 +265,39 @@ export class TestIndexer {
     }
   }
 
-  /**
-   * Scan all tests in the tests_source directory
-   * Supports both categorical (new) and flat (legacy) structures
-   */
-  public scanAllTests(): TestDetails[] {
-    if (!fs.existsSync(this.testsSourcePath)) {
-      throw new Error(`Tests source path not found: ${this.testsSourcePath}`);
+  /** Resolve provenance for a given source path */
+  private getProvenanceForPath(sourcePath: string): TestSourceProvenance {
+    for (const s of this.sources) {
+      if (s.path === sourcePath) return s.provenance;
     }
+    return 'upstream';
+  }
 
-    const tests: TestDetails[] = [];
-    const structure = this.detectStructure();
+  /**
+   * Scan a single source directory for tests
+   */
+  private scanSource(source: TestSource, tests: TestDetails[]): void {
+    if (!fs.existsSync(source.path)) return;
 
-    // Clear the UUID-to-category map on full scan
-    this.uuidToCategory.clear();
+    const structure = this.detectStructure(source.path);
 
     if (structure === 'categorical') {
-      console.log('Detected categorical test structure');
-      // Scan each category folder
       for (const category of KNOWN_CATEGORIES) {
-        const categoryPath = path.join(this.testsSourcePath, category);
-        if (!fs.existsSync(categoryPath)) {
-          continue;
-        }
+        const categoryPath = path.join(source.path, category);
+        if (!fs.existsSync(categoryPath)) continue;
 
         const entries = fs.readdirSync(categoryPath);
         for (const entry of entries) {
+          // Skip if UUID already indexed (first source wins)
+          if (this.testCache.has(entry)) continue;
+
           const fullPath = path.join(categoryPath, entry);
           const stat = fs.statSync(fullPath);
 
-          // Only process directories with valid UUID names
           if (stat.isDirectory() && this.isValidTestDirectory(entry)) {
-            // Store the UUID -> category mapping
-            this.uuidToCategory.set(entry, category);
+            this.uuidToCategory.set(entry, { category, sourcePath: source.path });
 
-            const testDetails = this.scanTestDirectory(entry, fullPath, category);
+            const testDetails = this.scanTestDirectory(entry, fullPath, category, source.provenance);
             if (testDetails) {
               tests.push(testDetails);
               this.testCache.set(entry, testDetails);
@@ -282,23 +306,38 @@ export class TestIndexer {
         }
       }
     } else {
-      console.log('Detected flat test structure (legacy)');
-      // Flat structure: tests_source/{uuid}/
-      const entries = fs.readdirSync(this.testsSourcePath);
+      const entries = fs.readdirSync(source.path);
 
       for (const entry of entries) {
-        const fullPath = path.join(this.testsSourcePath, entry);
+        // Skip if UUID already indexed (first source wins)
+        if (this.testCache.has(entry)) continue;
+
+        const fullPath = path.join(source.path, entry);
         const stat = fs.statSync(fullPath);
 
-        // Only process directories with valid UUID names
         if (stat.isDirectory() && this.isValidTestDirectory(entry)) {
-          const testDetails = this.scanTestDirectory(entry, fullPath);
+          const testDetails = this.scanTestDirectory(entry, fullPath, undefined, source.provenance);
           if (testDetails) {
             tests.push(testDetails);
             this.testCache.set(entry, testDetails);
           }
         }
       }
+    }
+  }
+
+  /**
+   * Scan all tests across all source directories
+   * Sources are scanned in order — first source wins on UUID collisions
+   */
+  public scanAllTests(): TestDetails[] {
+    this.testCache.clear();
+    this.uuidToCategory.clear();
+
+    const tests: TestDetails[] = [];
+
+    for (const source of this.sources) {
+      this.scanSource(source, tests);
     }
 
     console.log(`Indexed ${tests.length} security tests`);

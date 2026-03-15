@@ -6,6 +6,8 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import http from 'http';
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 
 import { clerkAuth } from './middleware/clerk.middleware.js';
@@ -22,6 +24,7 @@ import { processSchedules } from './services/agent/schedules.service.js';
 import { processAutoRotation } from './services/agent/autoRotation.service.js';
 import { pruneHeartbeatHistory, detectOfflineAgents } from './services/agent/heartbeat.service.js';
 import { initCatalog } from './services/agent/test-catalog.service.js';
+import type { TestSource } from './types/test.js';
 import { IntegrationsSettingsService } from './services/integrations/settings.js';
 import { defenderSyncService } from './api/integrations.routes.js';
 import defenderRoutes from './api/defender.routes.js';
@@ -106,8 +109,9 @@ async function startServer() {
   let gitSyncService: GitSyncService | undefined;
   let testsSourcePath: string;
 
-  // Check if Git sync is configured
-  const repoUrl = process.env.TESTS_REPO_URL;
+  // Check if Git sync is configured (defaults to f0_library — zero-config once public)
+  const DEFAULT_TESTS_REPO_URL = 'https://github.com/ubercylon8/f0_library.git';
+  const repoUrl = process.env.TESTS_REPO_URL ?? DEFAULT_TESTS_REPO_URL;
   if (repoUrl) {
     console.log('');
     console.log('📦 Initializing test repository sync...');
@@ -136,8 +140,23 @@ async function startServer() {
     console.log(`📁 Using local tests source: ${testsSourcePath}`);
   }
 
+  // ============ MULTI-SOURCE TEST LIBRARY ============
+  const customTestsPath = process.env.CUSTOM_TESTS_PATH
+    || path.join(os.homedir(), '.projectachilles', 'custom-tests');
+
+  // Create custom tests dir on first run (follows ~/.projectachilles pattern)
+  if (!fs.existsSync(customTestsPath)) {
+    fs.mkdirSync(customTestsPath, { recursive: true });
+  }
+
+  // Custom source listed first → custom tests win UUID collisions
+  const testSources: TestSource[] = [
+    { path: customTestsPath, provenance: 'custom' },
+    { path: testsSourcePath, provenance: 'upstream' },
+  ];
+
   // ============ TEST CATALOG ============
-  initCatalog(testsSourcePath);
+  initCatalog(testSources);
 
   // ============ GITHUB METADATA SERVICE ============
   let githubMetadata: GitHubMetadataService | undefined;
@@ -212,7 +231,8 @@ async function startServer() {
 
   // Browser module - with Git sync integration
   const browserRouter = createBrowserRouter({
-    testsSourcePath,
+    testSources,
+    testsSourcePath,         // git sync scope (upstream path only)
     gitSync: gitSyncService,
     githubMetadata,
   });
@@ -222,11 +242,14 @@ async function startServer() {
   app.use('/api/analytics', analyticsRoutes);
 
   // Tests module - Platform, certificate & build settings
-  const testsRouter = createTestsRouter({ testsSourcePath });
+  const testsRouter = createTestsRouter({
+    testSourcePaths: testSources.map(s => s.path),
+    testsSourcePath,
+  });
   app.use('/api/tests', testsRouter);
 
   // Agent module - Achilles Agent management
-  app.use('/api/agent', createAgentRouter({ testsSourcePath, agentSourcePath }));
+  app.use('/api/agent', createAgentRouter({ testSources, testsSourcePath, agentSourcePath }));
 
   // User management - RBAC role assignment (admin-only)
   app.use('/api/users', usersRoutes);

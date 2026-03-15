@@ -24,6 +24,7 @@ export interface TestMetadata {
   integrations?: string[];     // Required integrations (e.g. 'azure')
   lastModifiedDate?: string;   // ISO 8601 date from Git history
   lastCommitMessage?: string;  // First line of last commit touching this test
+  source?: 'upstream' | 'custom'; // 'upstream' (f0_library) or 'custom' (user-created)
   // Computed properties from API
   stageCount?: number;
   hasAttackFlow?: boolean;

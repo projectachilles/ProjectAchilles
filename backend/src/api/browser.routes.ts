@@ -10,6 +10,7 @@ import { FileService } from '../services/browser/fileService.js';
 import { GitSyncService, SyncStatus } from '../services/browser/gitSyncService.js';
 import { GitHubMetadataService } from '../services/browser/githubMetadataService.js';
 import { initCatalog } from '../services/agent/test-catalog.service.js';
+import type { TestSource } from '../types/test.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -26,7 +27,8 @@ let githubMetadataService: GitHubMetadataService | null = null;
  * @returns Configured Express router
  */
 export function createBrowserRouter(options: {
-  testsSourcePath: string;
+  testSources: TestSource[];
+  testsSourcePath: string;     // scopes git sync operations (upstream path only)
   gitSync?: GitSyncService;
   githubMetadata?: GitHubMetadataService;
 }): Router {
@@ -36,13 +38,13 @@ export function createBrowserRouter(options: {
   router.use(requireClerkAuth());
   router.use(requirePermission('tests:library:read'));
 
-  // Initialize the test indexer
-  testIndexer = new TestIndexer(options.testsSourcePath);
+  // Initialize the test indexer with multi-source support
+  testIndexer = new TestIndexer(options.testSources);
   gitSyncService = options.gitSync || null;
   githubMetadataService = options.githubMetadata || null;
 
   // Initial scan on startup (if tests directory exists)
-  console.log(`Scanning tests from: ${options.testsSourcePath}`);
+  console.log(`Scanning tests from ${options.testSources.length} source(s)`);
   try {
     testIndexer.scanAllTests();
     console.log('✓ Tests scanned successfully');
@@ -84,7 +86,7 @@ export function createBrowserRouter(options: {
       const tests = testIndexer?.refresh() || [];
 
       // Reload agent test catalog so new tests are available for enrichment
-      initCatalog(options.testsSourcePath);
+      initCatalog(options.testSources);
 
       // Re-fetch GitHub metadata in background
       if (githubMetadataService && tests.length > 0) {
@@ -186,6 +188,7 @@ export function createBrowserRouter(options: {
         hasDetectionFiles: test.hasDetectionFiles,
         hasDefenseGuidance: test.hasDefenseGuidance,
         integrations: test.integrations,
+        source: test.source,
         lastModifiedDate: gitInfo?.lastModifiedDate,
         lastCommitMessage: gitInfo?.lastCommitMessage,
       };
@@ -454,6 +457,9 @@ export function createBrowserRouter(options: {
 
 // Default export for backwards compatibility (creates router with env-based config)
 const defaultTestsSourcePath = process.env.TESTS_SOURCE_PATH || path.resolve(__dirname, '../../../tests_source');
-const defaultRouter = createBrowserRouter({ testsSourcePath: defaultTestsSourcePath });
+const defaultRouter = createBrowserRouter({
+  testSources: [{ path: defaultTestsSourcePath, provenance: 'upstream' }],
+  testsSourcePath: defaultTestsSourcePath,
+});
 
 export default defaultRouter;

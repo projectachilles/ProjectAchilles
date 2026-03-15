@@ -94,26 +94,30 @@ const BUILD_TIMEOUT = 300_000; // 5 minutes
 
 export class BuildService {
   private settingsService: TestsSettingsService;
-  private testsSourcePath: string;
+  private testSourcePaths: string[];
 
-  constructor(settingsService: TestsSettingsService, testsSourcePath: string) {
+  constructor(settingsService: TestsSettingsService, testSourcePaths: string[] | string) {
     this.settingsService = settingsService;
-    this.testsSourcePath = testsSourcePath;
+    this.testSourcePaths = typeof testSourcePaths === 'string'
+      ? [testSourcePaths]
+      : testSourcePaths;
   }
 
-  /** Locate the test directory for a UUID within the tests source tree */
+  /** Locate the test directory for a UUID across all source paths */
   private findTestDir(uuid: string): string | null {
-    // Try category/<uuid> first
-    for (const cat of KNOWN_CATEGORIES) {
-      const dir = path.join(this.testsSourcePath, cat, uuid);
-      if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
-        return dir;
+    for (const basePath of this.testSourcePaths) {
+      // Try category/<uuid> first
+      for (const cat of KNOWN_CATEGORIES) {
+        const dir = path.join(basePath, cat, uuid);
+        if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
+          return dir;
+        }
       }
-    }
-    // Try flat <uuid>
-    const flat = path.join(this.testsSourcePath, uuid);
-    if (fs.existsSync(flat) && fs.statSync(flat).isDirectory()) {
-      return flat;
+      // Try flat <uuid>
+      const flat = path.join(basePath, uuid);
+      if (fs.existsSync(flat) && fs.statSync(flat).isDirectory()) {
+        return flat;
+      }
     }
     return null;
   }
@@ -377,8 +381,9 @@ export class BuildService {
       // Some build_all.sh scripts hardcode TEST_DIR="tests_source/<uuid>" (flat layout) and use
       // ../../ to navigate back to repo root. For categorized tests (3 levels deep instead of 2),
       // we patch the script to fix paths before executing from the repo root.
-      const repoRoot = path.dirname(this.testsSourcePath);
-      const relFromTestsSource = path.relative(this.testsSourcePath, testDir);
+      const containingSource = this.testSourcePaths.find(sp => testDir.startsWith(sp + path.sep)) || this.testSourcePaths[0];
+      const repoRoot = path.dirname(containingSource);
+      const relFromTestsSource = path.relative(containingSource, testDir);
       const pathParts = relFromTestsSource.split(path.sep);
       const isCategorized = pathParts.length === 2; // e.g., "intel-driven/<uuid>"
 

@@ -61,7 +61,7 @@ const { errorHandler } = await import('../../middleware/error.middleware.js');
 function createApp() {
   const app = express();
   app.use(express.json());
-  app.use('/api/tests', createTestsRouter({ testsSourcePath: '/tmp/tests' }));
+  app.use('/api/tests', createTestsRouter({ testSourcePaths: ['/tmp/tests'], testsSourcePath: '/tmp/tests' }));
   app.use(errorHandler);
   return app;
 }

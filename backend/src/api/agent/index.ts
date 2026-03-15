@@ -13,8 +13,9 @@ import { createAdminCatalogRouter } from './catalog.routes.js';
 import binaryRouter from './binary.routes.js';
 import { TestsSettingsService } from '../../services/tests/settings.js';
 import { AgentBuildService } from '../../services/agent/agentBuild.service.js';
+import type { TestSource } from '../../types/test.js';
 
-export function createAgentRouter(options: { testsSourcePath: string; agentSourcePath: string }): Router {
+export function createAgentRouter(options: { testSources: TestSource[]; testsSourcePath: string; agentSourcePath: string }): Router {
   const router = Router();
 
   // Instantiate build service if agent source is available
@@ -32,7 +33,7 @@ export function createAgentRouter(options: { testsSourcePath: string; agentSourc
   router.use('/admin', requireClerkAuth(), requireOrgAccess, adminTasksRouter);
   router.use('/admin', requireClerkAuth(), requireOrgAccess, createAdminUpdateRouter(buildService));
   router.use('/admin', requireClerkAuth(), requireOrgAccess, adminSchedulesRouter);
-  router.use('/admin', requireClerkAuth(), requireOrgAccess, createAdminCatalogRouter(options.testsSourcePath));
+  router.use('/admin', requireClerkAuth(), requireOrgAccess, createAdminCatalogRouter(options.testSources));
 
   // Public agent endpoint (no auth required for enrollment — has its own stricter limiter)
   router.use(agentEnrollmentRouter);

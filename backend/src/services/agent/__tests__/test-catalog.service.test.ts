@@ -197,4 +197,63 @@ describe('test-catalog.service', () => {
       expect(getCatalogSize()).toBe(0);
     });
   });
+
+  // ── Multi-source initCatalog ──────────────────────────────
+
+  describe('multi-source initCatalog', () => {
+    const CUSTOM_PATH = '/home/user/.projectachilles/custom-tests';
+
+    it('accepts TestSource[] and scans all sources with provenance', () => {
+      mockExistsSync.mockImplementation((p: string) =>
+        p === `${CUSTOM_PATH}/cyber-hygiene` || p === `${TESTS_PATH}/intel-driven`,
+      );
+      mockReaddirSync.mockImplementation((p: string) => {
+        if (typeof p === 'string' && p.endsWith('cyber-hygiene')) return [makeDirent(UUID1, true)];
+        if (typeof p === 'string' && p.endsWith('intel-driven')) return [makeDirent(UUID2, true)];
+        return [];
+      });
+      mockExtractTestMetadata.mockImplementation((_dir: string, uuid: string, category: string) =>
+        makeMetadata(uuid, category),
+      );
+
+      initCatalog([
+        { path: CUSTOM_PATH, provenance: 'custom' },
+        { path: TESTS_PATH, provenance: 'upstream' },
+      ]);
+
+      expect(getCatalogSize()).toBe(2);
+      expect(getTestMetadata(UUID1)!.source).toBe('custom');
+      expect(getTestMetadata(UUID2)!.source).toBe('upstream');
+    });
+
+    it('custom source wins UUID collision', () => {
+      mockExistsSync.mockImplementation((p: string) =>
+        p === `${CUSTOM_PATH}/cyber-hygiene` || p === `${TESTS_PATH}/cyber-hygiene`,
+      );
+      // Both sources have UUID1 in cyber-hygiene
+      mockReaddirSync.mockReturnValue([makeDirent(UUID1, true)]);
+      mockExtractTestMetadata.mockReturnValue(makeMetadata(UUID1, 'cyber-hygiene'));
+
+      initCatalog([
+        { path: CUSTOM_PATH, provenance: 'custom' },
+        { path: TESTS_PATH, provenance: 'upstream' },
+      ]);
+
+      expect(getCatalogSize()).toBe(1);
+      expect(getTestMetadata(UUID1)!.source).toBe('custom');
+    });
+
+    it('string backward compatibility still works', () => {
+      mockExistsSync.mockImplementation((p: string) =>
+        p === `${TESTS_PATH}/cyber-hygiene`,
+      );
+      mockReaddirSync.mockReturnValue([makeDirent(UUID1, true)]);
+      mockExtractTestMetadata.mockReturnValue(makeMetadata(UUID1, 'cyber-hygiene'));
+
+      initCatalog(TESTS_PATH);
+
+      expect(getCatalogSize()).toBe(1);
+      expect(getTestMetadata(UUID1)!.source).toBe('upstream');
+    });
+  });
 });

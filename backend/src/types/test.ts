@@ -1,5 +1,12 @@
 // Type definitions for F0RT1KA security tests
 
+export type TestSourceProvenance = 'upstream' | 'custom';
+
+export interface TestSource {
+  path: string;
+  provenance: TestSourceProvenance;
+}
+
 export interface TestMetadata {
   uuid: string;
   name: string;
@@ -25,6 +32,7 @@ export interface TestMetadata {
   integrations?: string[];     // Required integrations (e.g. 'azure')
   lastModifiedDate?: string;   // ISO 8601 date from Git history
   lastCommitMessage?: string;  // First line of last commit touching this test
+  source?: TestSourceProvenance; // 'upstream' (f0_library) or 'custom' (user-created)
 }
 
 export interface SyncStatus {

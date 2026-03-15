@@ -43,6 +43,11 @@ export default function TestListRow({ test, onClick, isFavorite, onToggleFavorit
 
       {/* Primary row: Severity + Title + Actions + Score */}
       <div className="flex items-center gap-3">
+        {test.source === 'custom' && (
+          <span className="font-bold text-[10px] px-2 py-0.5 rounded border border-emerald-500/30 text-emerald-500 shrink-0">
+            CUSTOM
+          </span>
+        )}
         {test.severity && (
           <span className={`font-bold text-[10px] px-2 py-0.5 rounded min-w-[52px] text-center shrink-0 ${severityBadgeColors[test.severity.toLowerCase()] || 'bg-gray-500 text-white'}`}>
             {test.severity.toUpperCase()}

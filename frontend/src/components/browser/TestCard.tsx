@@ -78,6 +78,11 @@ export default function TestCard({ test, onClick, isFavorite, onToggleFavorite, 
 
         {/* Metadata Row — Tier 2 */}
         <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+          {test.source === 'custom' && (
+            <span className="font-bold uppercase text-[10px] px-2 py-0.5 rounded border border-emerald-500/30 text-emerald-500">
+              Custom
+            </span>
+          )}
           {test.severity && (
             <span className={`font-bold uppercase text-[10px] px-2 py-0.5 rounded ${severityBadgeColors[test.severity.toLowerCase()] || 'bg-gray-500 text-white'}`}>
               {test.severity}

@@ -10,12 +10,12 @@ const VALID_OS = ['windows', 'linux', 'darwin'] as const;
 const VALID_ARCH = ['amd64', '386', 'arm64'] as const;
 const UUID_REGEX = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
-export function createTestsRouter(options: { testsSourcePath: string }): Router {
+export function createTestsRouter(options: { testSourcePaths: string[]; testsSourcePath: string }): Router {
   const router = Router();
   router.use(requireClerkAuth());
 
   const testsSettings = new TestsSettingsService();
-  const buildService = new BuildService(testsSettings, options.testsSourcePath);
+  const buildService = new BuildService(testsSettings, options.testSourcePaths);
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
   const certUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
   const CERT_ID_REGEX = /^cert-\d+$/;

@@ -292,9 +292,10 @@ describe('TestIndexer', () => {
   // ── Group 5: scanAllTests ─────────────────────────────────
 
   describe('scanAllTests', () => {
-    it('throws when testsSourcePath does not exist', () => {
+    it('returns empty when all source paths do not exist', () => {
       mockExistsSync.mockReturnValue(false);
-      expect(() => indexer.scanAllTests()).toThrow('Tests source path not found');
+      const tests = indexer.scanAllTests();
+      expect(tests).toEqual([]);
     });
 
     it('scans categorical structure: iterates category folders for UUID dirs', () => {
@@ -649,6 +650,156 @@ describe('TestIndexer', () => {
 
       expect(indexer.filterBySeverity('Critical')).toHaveLength(1);
       expect(indexer.filterBySeverity('high')).toHaveLength(0);
+    });
+  });
+
+  // ── Group 11: Multi-source scanning ──────────────────────
+
+  describe('multi-source scanning', () => {
+    const CUSTOM_PATH = '/home/user/.projectachilles/custom-tests';
+    const UPSTREAM_PATH = '/repo/tests_source';
+
+    it('scans multiple sources with correct provenance stamping', () => {
+      const multiIndexer = new TestIndexer([
+        { path: CUSTOM_PATH, provenance: 'custom' },
+        { path: UPSTREAM_PATH, provenance: 'upstream' },
+      ]);
+
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === CUSTOM_PATH) return true;
+        if (p === `${CUSTOM_PATH}/cyber-hygiene`) return true;
+        if (p === `${CUSTOM_PATH}/cyber-hygiene/${UUID1}`) return true;
+        if (p === UPSTREAM_PATH) return true;
+        if (p === `${UPSTREAM_PATH}/cyber-hygiene`) return true;
+        if (p === `${UPSTREAM_PATH}/cyber-hygiene/${UUID2}`) return true;
+        return false;
+      });
+      mockStatSync.mockImplementation(() => fileStat(true));
+      mockReaddirSync.mockImplementation((p: string) => {
+        if (p === `${CUSTOM_PATH}/cyber-hygiene`) return [UUID1];
+        if (p === `${CUSTOM_PATH}/cyber-hygiene/${UUID1}`) return [];
+        if (p === `${UPSTREAM_PATH}/cyber-hygiene`) return [UUID2];
+        if (p === `${UPSTREAM_PATH}/cyber-hygiene/${UUID2}`) return [];
+        return [];
+      });
+      mockExtractTestMetadata.mockImplementation((_dir: string, uuid: string) =>
+        makeMetadata(uuid, { category: 'cyber-hygiene' }),
+      );
+
+      const tests = multiIndexer.scanAllTests();
+
+      expect(tests).toHaveLength(2);
+      const customTest = tests.find(t => t.uuid === UUID1);
+      const upstreamTest = tests.find(t => t.uuid === UUID2);
+      expect(customTest!.source).toBe('custom');
+      expect(upstreamTest!.source).toBe('upstream');
+    });
+
+    it('custom source wins UUID collision (first source wins)', () => {
+      const multiIndexer = new TestIndexer([
+        { path: CUSTOM_PATH, provenance: 'custom' },
+        { path: UPSTREAM_PATH, provenance: 'upstream' },
+      ]);
+
+      // Same UUID exists in both sources
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === CUSTOM_PATH) return true;
+        if (p === `${CUSTOM_PATH}/cyber-hygiene`) return true;
+        if (p === `${CUSTOM_PATH}/cyber-hygiene/${UUID1}`) return true;
+        if (p === UPSTREAM_PATH) return true;
+        if (p === `${UPSTREAM_PATH}/cyber-hygiene`) return true;
+        if (p === `${UPSTREAM_PATH}/cyber-hygiene/${UUID1}`) return true;
+        return false;
+      });
+      mockStatSync.mockImplementation(() => fileStat(true));
+      mockReaddirSync.mockImplementation((p: string) => {
+        if (p === `${CUSTOM_PATH}/cyber-hygiene`) return [UUID1];
+        if (p === `${CUSTOM_PATH}/cyber-hygiene/${UUID1}`) return [];
+        if (p === `${UPSTREAM_PATH}/cyber-hygiene`) return [UUID1];
+        if (p === `${UPSTREAM_PATH}/cyber-hygiene/${UUID1}`) return [];
+        return [];
+      });
+      mockExtractTestMetadata.mockImplementation((_dir: string, uuid: string) =>
+        makeMetadata(uuid, { category: 'cyber-hygiene' }),
+      );
+
+      const tests = multiIndexer.scanAllTests();
+
+      // Only one result — the custom one wins
+      expect(tests).toHaveLength(1);
+      expect(tests[0].source).toBe('custom');
+    });
+
+    it('gracefully skips missing source path', () => {
+      const multiIndexer = new TestIndexer([
+        { path: '/nonexistent/path', provenance: 'custom' },
+        { path: UPSTREAM_PATH, provenance: 'upstream' },
+      ]);
+
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === '/nonexistent/path') return false;
+        if (p === UPSTREAM_PATH) return true;
+        if (p === `${UPSTREAM_PATH}/cyber-hygiene`) return true;
+        if (p === `${UPSTREAM_PATH}/cyber-hygiene/${UUID1}`) return true;
+        return false;
+      });
+      mockStatSync.mockImplementation(() => fileStat(true));
+      mockReaddirSync.mockImplementation((p: string) => {
+        if (p === `${UPSTREAM_PATH}/cyber-hygiene`) return [UUID1];
+        if (p === `${UPSTREAM_PATH}/cyber-hygiene/${UUID1}`) return [];
+        return [];
+      });
+      mockExtractTestMetadata.mockReturnValue(makeMetadata(UUID1, { category: 'cyber-hygiene' }));
+
+      const tests = multiIndexer.scanAllTests();
+
+      expect(tests).toHaveLength(1);
+      expect(tests[0].source).toBe('upstream');
+    });
+
+    it('string constructor defaults to upstream provenance', () => {
+      const stringIndexer = new TestIndexer(UPSTREAM_PATH);
+
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === UPSTREAM_PATH) return true;
+        if (p === `${UPSTREAM_PATH}/cyber-hygiene`) return true;
+        if (p === `${UPSTREAM_PATH}/cyber-hygiene/${UUID1}`) return true;
+        return false;
+      });
+      mockStatSync.mockImplementation(() => fileStat(true));
+      mockReaddirSync.mockImplementation((p: string) => {
+        if (p === `${UPSTREAM_PATH}/cyber-hygiene`) return [UUID1];
+        if (p === `${UPSTREAM_PATH}/cyber-hygiene/${UUID1}`) return [];
+        return [];
+      });
+      mockExtractTestMetadata.mockReturnValue(makeMetadata(UUID1, { category: 'cyber-hygiene' }));
+
+      const tests = stringIndexer.scanAllTests();
+
+      expect(tests).toHaveLength(1);
+      expect(tests[0].source).toBe('upstream');
+    });
+
+    it('source field is present on all returned TestDetails', () => {
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === TESTS_PATH) return true;
+        if (p === `${TESTS_PATH}/cyber-hygiene`) return true;
+        if (p === `${TESTS_PATH}/cyber-hygiene/${UUID1}`) return true;
+        return false;
+      });
+      mockStatSync.mockImplementation(() => fileStat(true));
+      mockReaddirSync.mockImplementation((p: string) => {
+        if (p === `${TESTS_PATH}/cyber-hygiene`) return [UUID1];
+        if (p === `${TESTS_PATH}/cyber-hygiene/${UUID1}`) return [];
+        return [];
+      });
+      mockExtractTestMetadata.mockReturnValue(makeMetadata(UUID1, { category: 'cyber-hygiene' }));
+
+      const tests = indexer.scanAllTests();
+
+      expect(tests).toHaveLength(1);
+      expect(tests[0]).toHaveProperty('source');
+      expect(tests[0].source).toBe('upstream');
     });
   });
 });
