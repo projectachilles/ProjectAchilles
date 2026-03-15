@@ -10,7 +10,7 @@ import BuildSection from '@/components/browser/BuildSection';
 import CollapsibleSection from '@/components/browser/CollapsibleSection';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
 import { useHasPermission } from '@/hooks/useAppRole';
-import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2, Heart, Tag, User, Clock, Monitor, Crosshair, Play, Hammer } from 'lucide-react';
+import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, AlertTriangle, Workflow, ShieldCheck, Minimize2, Heart, Tag, User, Clock, Monitor, Crosshair, Play, Hammer, BookOpen } from 'lucide-react';
 import { formatRelativeDate, formatFullDate } from '@/utils/dateFormatters';
 import { targetLabel } from '@/utils/platformLabels';
 import { ExecutionDrawer } from '@/components/browser/execution';
@@ -216,6 +216,7 @@ export default function TestDetailPage() {
   const sourceFiles = test.files.filter(f => f.category === 'source');
   const detectionFiles = test.files.filter(f => f.category === 'detection');
   const configFiles = test.files.filter(f => f.category === 'config');
+  const referenceFiles = test.files.filter(f => f.category === 'references');
 
   // Sidebar section active state for auto-expand
   const isDocActive = activeView === 'file' && selectedFile !== null && documentationFiles.some(f => f.name === selectedFile);
@@ -224,6 +225,7 @@ export default function TestDetailPage() {
   const isSourceActive = activeView === 'file' && selectedFile !== null && sourceFiles.some(f => f.name === selectedFile);
   const isRulesActive = activeView === 'file' && selectedFile !== null && detectionFiles.some(f => f.name === selectedFile);
   const isConfigActive = activeView === 'file' && selectedFile !== null && configFiles.some(f => f.name === selectedFile);
+  const isReferencesActive = referenceFiles.some(f => f.name === selectedFile) && activeView === 'file';
 
   // Determine if we should use compact header
   // Show compact header after user clicks any file/view (not on initial load)
@@ -479,6 +481,26 @@ export default function TestDetailPage() {
                       {file.name.includes('_dr_rules') && <span className="w-2 h-2 rounded-full bg-cyan-500 flex-shrink-0" />}
                       {file.name.includes('_hardening') && <span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />}
                       {getDefenseFileDisplayName(file.name)}
+                    </button>
+                  ))}
+                </div>
+              </CollapsibleSection>
+            )}
+
+
+            {/* References & Sources */}
+            {referenceFiles.length > 0 && (
+              <CollapsibleSection icon={BookOpen} label="References" sectionKey="references"
+                itemCount={referenceFiles.length} isActive={isReferencesActive}>
+                <div className="space-y-1">
+                  {referenceFiles.map(file => (
+                    <button key={file.name} onClick={() => handleFileSelect(file.name)}
+                      className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                        selectedFile === file.name && activeView === 'file'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'text-foreground hover:bg-accent'
+                      }`}>
+                      {file.name}
                     </button>
                   ))}
                 </div>
