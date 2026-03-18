@@ -60,3 +60,8 @@ scripts/tunnel.sh
 # Presentation
 presentation-abstract.md
 presentation/
+
+# Wiki (Docusaurus)
+wiki/.docusaurus/
+wiki/build/
+wiki/node_modules/
