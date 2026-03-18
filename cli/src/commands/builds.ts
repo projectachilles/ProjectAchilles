@@ -56,9 +56,9 @@ registerCommand({
         ctx.output.table(
           deps as unknown as Record<string, unknown>[],
           [
-            { key: 'name', label: 'Name', width: 25 },
+            { key: 'filename', label: 'Name', width: 25 },
             { key: 'required', label: 'Required', width: 9, transform: (v) => v ? colors.yellow('yes') : 'no' },
-            { key: 'present', label: 'Present', width: 8, transform: (v) => v ? colors.green('yes') : colors.red('no') },
+            { key: 'exists', label: 'Present', width: 8, transform: (v) => v ? colors.green('yes') : colors.red('no') },
             { key: 'sourceBuilt', label: 'Source', width: 8, transform: (v) => v ? colors.cyan('auto') : 'upload' },
             { key: 'size', label: 'Size', width: 10, align: 'right', transform: (v) => v ? formatBytes(Number(v)) : colors.dim('—') },
           ],

@@ -90,7 +90,15 @@ export function progressBar(value: number, max: number, width = 20): string {
 
 /** Format relative time (e.g., "2min ago", "3h ago") */
 export function timeAgo(isoDate: string): string {
-  const diff = Date.now() - new Date(isoDate).getTime();
+  // Handle SQLite datetime format "YYYY-MM-DD HH:MM:SS" (no T/Z) — treat as UTC
+  let dateStr = isoDate;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dateStr)) {
+    dateStr = dateStr.replace(' ', 'T') + 'Z';
+  }
+  const parsed = new Date(dateStr).getTime();
+  if (isNaN(parsed)) return colors.dim('—');
+  const diff = Date.now() - parsed;
+  if (diff < 0) return 'just now';
   const seconds = Math.floor(diff / 1000);
   if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.floor(seconds / 60);

@@ -27,12 +27,21 @@ registerCommand({
       flags: filterFlags,
       handler: async (ctx) => {
         const score = await api.getDefenseScore(extractFilters(ctx.flags));
-        ctx.output.score(score.score);
-        ctx.output.detail({
-          protected: score.protectedCount,
-          unprotected: score.unprotectedCount,
-          total_executions: score.totalExecutions,
-        });
+        if (ctx.output.isJson) {
+          ctx.output.detail({
+            score: score.score,
+            protected: score.protectedCount,
+            unprotected: score.unprotectedCount,
+            total_executions: score.totalExecutions,
+          });
+        } else {
+          ctx.output.score(score.score);
+          ctx.output.detail({
+            protected: score.protectedCount,
+            unprotected: score.unprotectedCount,
+            total_executions: score.totalExecutions,
+          });
+        }
       },
     },
     trend: {
@@ -67,10 +76,10 @@ registerCommand({
         ctx.output.table(
           data as unknown as Record<string, unknown>[],
           [
-            { key: 'testName', label: 'Test', width: 30 },
+            { key: 'name', label: 'Test', width: 30 },
             { key: 'score', label: 'Score', width: 8, align: 'right', transform: (v) => scoreColor(Number(v)) },
-            { key: 'protectedCount', label: 'Protected', width: 10, align: 'right' },
-            { key: 'unprotectedCount', label: 'Unprotected', width: 12, align: 'right' },
+            { key: 'protected', label: 'Protected', width: 10, align: 'right' },
+            { key: 'count', label: 'Total', width: 8, align: 'right' },
           ],
         );
       },
@@ -83,10 +92,10 @@ registerCommand({
         ctx.output.table(
           data as unknown as Record<string, unknown>[],
           [
-            { key: 'technique', label: 'Technique', width: 14 },
+            { key: 'name', label: 'Technique', width: 14 },
             { key: 'score', label: 'Score', width: 8, align: 'right', transform: (v) => scoreColor(Number(v)) },
-            { key: 'protectedCount', label: 'Protected', width: 10, align: 'right' },
-            { key: 'unprotectedCount', label: 'Unprotected', width: 12, align: 'right' },
+            { key: 'protected', label: 'Protected', width: 10, align: 'right' },
+            { key: 'count', label: 'Total', width: 8, align: 'right' },
           ],
         );
       },
@@ -136,33 +145,74 @@ registerCommand({
         grouped: { type: 'boolean' as const, description: 'Group by batch' },
       },
       handler: async (ctx) => {
-        const data = await api.getExecutionsPaginated({
-          ...extractFilters(ctx.flags),
-          page: ctx.flags.page as number,
-          pageSize: ctx.flags.size as number,
-          grouped: ctx.flags.grouped as boolean | undefined,
-        });
-        ctx.output.table(
-          data.data as unknown as Record<string, unknown>[],
-          [
-            { key: 'timestamp', label: 'Time', width: 20 },
-            { key: 'testName', label: 'Test', width: 25 },
-            { key: 'hostname', label: 'Host', width: 16 },
-            { key: 'outcome', label: 'Outcome', width: 14,
-              transform: (v) => {
-                const s = String(v);
-                if (s === 'protected') return colors.brightGreen('PROTECTED');
-                if (s === 'unprotected') return colors.brightRed('UNPROTECTED');
-                return colors.yellow('ERROR');
+        const isGrouped = ctx.flags.grouped as boolean | undefined;
+
+        if (isGrouped) {
+          // Grouped mode returns { groups: ExecutionGroup[], pagination: {...} }
+          // Each group has: representative (EnrichedTestExecution), protectedCount, unprotectedCount, totalCount
+          const raw = await api.getExecutionsPaginated({
+            ...extractFilters(ctx.flags),
+            page: ctx.flags.page as number,
+            pageSize: ctx.flags.size as number,
+            grouped: true,
+          }) as unknown as {
+            groups: Array<{
+              representative: Record<string, unknown>;
+              protectedCount: number;
+              unprotectedCount: number;
+              totalCount: number;
+              type: string;
+            }>;
+            pagination: { totalGroups: number; page: number; pageSize: number };
+          };
+          const groups = raw.groups ?? [];
+          ctx.output.table(
+            groups.map(g => ({
+              test_name: g.representative?.bundle_name ?? g.representative?.test_name ?? '—',
+              hostname: g.representative?.hostname,
+              protected: g.protectedCount,
+              unprotected: g.unprotectedCount,
+              total: g.totalCount,
+              timestamp: g.representative?.timestamp,
+            })) as Record<string, unknown>[],
+            [
+              { key: 'test_name', label: 'Test', width: 25 },
+              { key: 'hostname', label: 'Host', width: 16 },
+              { key: 'protected', label: 'Protected', width: 10, align: 'right' },
+              { key: 'unprotected', label: 'Unprotected', width: 12, align: 'right' },
+              { key: 'total', label: 'Total', width: 8, align: 'right' },
+              { key: 'timestamp', label: 'Last Run', width: 20 },
+            ],
+            { total: raw.pagination?.totalGroups },
+          );
+        } else {
+          // Flat mode returns { data: [...], pagination: {...} }
+          const data = await api.getExecutionsPaginated({
+            ...extractFilters(ctx.flags),
+            page: ctx.flags.page as number,
+            pageSize: ctx.flags.size as number,
+          });
+          ctx.output.table(
+            data.data as unknown as Record<string, unknown>[],
+            [
+              { key: 'timestamp', label: 'Time', width: 20 },
+              { key: 'test_name', label: 'Test', width: 25 },
+              { key: 'hostname', label: 'Host', width: 16 },
+              { key: 'is_protected', label: 'Outcome', width: 14,
+                transform: (v) => {
+                  if (v === true) return colors.brightGreen('PROTECTED');
+                  if (v === false) return colors.brightRed('UNPROTECTED');
+                  return colors.yellow('ERROR');
+                },
               },
+            ],
+            {
+              total: data.pagination.total,
+              limit: data.pagination.pageSize,
+              offset: (data.pagination.page - 1) * data.pagination.pageSize,
             },
-          ],
-          {
-            total: data.pagination.total,
-            limit: data.pagination.pageSize,
-            offset: (data.pagination.page - 1) * data.pagination.pageSize,
-          },
-        );
+          );
+        }
       },
     },
     coverage: {

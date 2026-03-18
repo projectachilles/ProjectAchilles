@@ -76,7 +76,9 @@ export async function main(argv: string[]): Promise<void> {
       if (isJson) {
         console.error(JSON.stringify({ error: err.message, code: 'API_ERROR', status: err.statusCode }));
       } else {
-        console.error(`\n  ${colors.brightRed('✗')} API Error (${err.statusCode}): ${err.message}\n`);
+        // Don't show "(200)" for app-level errors (success: false with HTTP 200)
+        const statusLabel = err.statusCode >= 400 ? ` (${err.statusCode})` : '';
+        console.error(`\n  ${colors.brightRed('✗')} API Error${statusLabel}: ${err.message}\n`);
       }
       process.exit(1);
     }

@@ -21,7 +21,12 @@ registerCommand({
               transform: (v) => v ? String(v) : colors.dim('admin*'),
             },
             { key: 'lastActiveAt', label: 'Last Active', width: 14,
-              transform: (v) => v ? timeAgo(String(v)) : colors.dim('never'),
+              transform: (v) => {
+                if (!v) return colors.dim('never');
+                // Clerk returns epoch ms (number), not ISO string
+                const ts = typeof v === 'number' ? new Date(v).toISOString() : String(v);
+                return timeAgo(ts);
+              },
             },
           ],
         );

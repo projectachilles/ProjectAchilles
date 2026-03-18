@@ -15,6 +15,11 @@ export class Formatter {
     private commandPath: string = '',
   ) {}
 
+  /** Whether output is in JSON mode */
+  get isJson(): boolean {
+    return this.mode === 'json';
+  }
+
   /** Print a table of records */
   table<T extends Record<string, unknown>>(
     rows: T[],

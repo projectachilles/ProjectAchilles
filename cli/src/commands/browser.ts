@@ -61,7 +61,9 @@ registerCommand({
       description: 'Show test details',
       args: [{ name: 'uuid', required: true }],
       handler: async (ctx) => {
-        const test = await api.getTest(ctx.args.uuid);
+        const result = await api.getTest(ctx.args.uuid);
+        // Backend wraps response as { success, test: {...} }
+        const test = (result as unknown as { test?: Record<string, unknown> }).test ?? result;
         ctx.output.detail(test as unknown as Record<string, unknown>, [
           'uuid', 'name', 'category', 'subcategory', 'severity',
           'techniques', 'tactics', 'threat_actor', 'target',
