@@ -55,11 +55,23 @@
 
 /* Spacing between logo/title and nav links */
 .navbar__brand {
-  margin-right: 2rem;
+  margin-right: 3rem !important;
 }
 
-.navbar__items > .navbar__item {
-  margin-left: 0.5rem;
+.navbar__items--left > a.navbar__item,
+.navbar__items--left > div.navbar__item {
+  margin-left: 0.75rem !important;
+}
+
+/* Add a subtle separator between brand and nav */
+.navbar__brand::after {
+  content: '';
+  display: inline-block;
+  width: 1px;
+  height: 1.25rem;
+  background: var(--ifm-color-emphasis-300);
+  margin-left: 1.5rem;
+  vertical-align: middle;
 }
 
 .hero--achilles .hero__title {
