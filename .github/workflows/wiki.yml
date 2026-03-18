@@ -8,14 +8,11 @@ on:
     branches: [main]
     paths: ['wiki/**']
 
-# Allow only one concurrent deployment
-concurrency:
-  group: pages
-  cancel-in-progress: false
-
 jobs:
   build-wiki:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: wiki
@@ -28,23 +25,3 @@ jobs:
           cache-dependency-path: wiki/package-lock.json
       - run: npm ci
       - run: npm run build
-      - name: Upload artifact
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: wiki/build
-
-  deploy-wiki:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: build-wiki
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4

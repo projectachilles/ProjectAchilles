@@ -16,8 +16,6 @@ const config: Config = {
 
   organizationName: 'projectachilles',
   projectName: 'ProjectAchilles',
-  trailingSlash: false,
-
   onBrokenLinks: 'throw',
 
   i18n: {
@@ -53,7 +51,7 @@ const config: Config = {
           sidebarPath: './sidebars.ts',
           editUrl:
             'https://github.com/projectachilles/ProjectAchilles/tree/main/wiki/',
-          showLastUpdateTime: true,
+          showLastUpdateTime: false,
         },
         blog: false,
         theme: {
