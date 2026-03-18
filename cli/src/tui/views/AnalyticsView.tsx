@@ -54,14 +54,16 @@ export function AnalyticsView({ height }: AnalyticsViewProps) {
           <text fg="#e94560">Score by Test</text>
           {byTest.data ? (
             <box flexDirection="column" marginTop={1}>
-              {byTest.data.slice(0, Math.floor((height - 8) / 1)).map((item) => {
-                const barLen = Math.round((item.score / 100) * 15);
+              {byTest.data.slice(0, Math.floor((height - 8) / 1)).map((item, idx) => {
+                const testName = String((item as Record<string, unknown>).testName ?? (item as Record<string, unknown>).test_name ?? `#${idx}`);
+                const score = Number((item as Record<string, unknown>).score ?? 0);
+                const barLen = Math.round((score / 100) * 15);
                 const bar = '█'.repeat(barLen) + '░'.repeat(15 - barLen);
-                const color = item.score >= 80 ? '#16c79a' : item.score >= 60 ? '#f5c518' : '#e94560';
+                const color = score >= 80 ? '#16c79a' : score >= 60 ? '#f5c518' : '#e94560';
                 return (
-                  <box key={item.testName} flexDirection="row" height={1}>
-                    <text fg="#a0a0b8">{`${item.testName.padEnd(18).slice(0, 18)} `}</text>
-                    <text fg={color}>{`${String(Math.round(item.score)).padStart(3)}% ${bar}`}</text>
+                  <box key={testName} flexDirection="row" height={1}>
+                    <text fg="#a0a0b8">{`${testName.padEnd(18).slice(0, 18)} `}</text>
+                    <text fg={color}>{`${String(Math.round(score)).padStart(3)}% ${bar}`}</text>
                   </box>
                 );
               })}
@@ -76,14 +78,16 @@ export function AnalyticsView({ height }: AnalyticsViewProps) {
           <text fg="#e94560">Score by Technique</text>
           {byTechnique.data ? (
             <box flexDirection="column" marginTop={1}>
-              {byTechnique.data.slice(0, Math.floor((height - 8) / 1)).map((item) => {
-                const barLen = Math.round((item.score / 100) * 15);
+              {byTechnique.data.slice(0, Math.floor((height - 8) / 1)).map((item, idx) => {
+                const technique = String((item as Record<string, unknown>).technique ?? (item as Record<string, unknown>).key ?? `#${idx}`);
+                const score = Number((item as Record<string, unknown>).score ?? 0);
+                const barLen = Math.round((score / 100) * 15);
                 const bar = '█'.repeat(barLen) + '░'.repeat(15 - barLen);
-                const color = item.score >= 80 ? '#16c79a' : item.score >= 60 ? '#f5c518' : '#e94560';
+                const color = score >= 80 ? '#16c79a' : score >= 60 ? '#f5c518' : '#e94560';
                 return (
-                  <box key={item.technique} flexDirection="row" height={1}>
-                    <text fg="#a0a0b8">{`${item.technique.padEnd(12).slice(0, 12)} `}</text>
-                    <text fg={color}>{`${String(Math.round(item.score)).padStart(3)}% ${bar}`}</text>
+                  <box key={technique} flexDirection="row" height={1}>
+                    <text fg="#a0a0b8">{`${technique.padEnd(12).slice(0, 12)} `}</text>
+                    <text fg={color}>{`${String(Math.round(score)).padStart(3)}% ${bar}`}</text>
                   </box>
                 );
               })}
