@@ -210,6 +210,38 @@ function initializeTables(database: Database.Database): void {
 
   // Migration: expand agents.status CHECK constraint to include 'uninstalled'.
   migrateUninstalledStatus(database);
+
+  // CLI auth tables — device authorization flow for headless CLI login
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS cli_auth_codes (
+      device_code_hash TEXT PRIMARY KEY,
+      user_code TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      verified_at TEXT,
+      user_id TEXT,
+      org_id TEXT,
+      role TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_cli_auth_codes_user_code ON cli_auth_codes(user_code);
+    CREATE INDEX IF NOT EXISTS idx_cli_auth_codes_expires ON cli_auth_codes(expires_at);
+
+    CREATE TABLE IF NOT EXISTS cli_refresh_tokens (
+      token_hash TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      org_id TEXT NOT NULL,
+      role TEXT,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_cli_refresh_expires ON cli_refresh_tokens(expires_at);
+  `);
+
+  // Periodic cleanup of expired CLI auth codes and refresh tokens
+  database.exec(`
+    DELETE FROM cli_auth_codes WHERE expires_at < datetime('now', '-1 hour');
+    DELETE FROM cli_refresh_tokens WHERE expires_at < datetime('now');
+  `);
 }
 
 function migrateDarwinConstraint(database: Database.Database): void {
