@@ -5,7 +5,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: 'ProjectAchilles',
   tagline: 'The Open-Source Purple Team Platform for Continuous Security Validation',
-  favicon: 'img/logo-achilles.png',
+  favicon: 'img/favicon.ico',
 
   future: {
     v4: true,

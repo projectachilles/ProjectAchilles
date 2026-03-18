@@ -54,11 +54,6 @@ function HomepageHeader(): ReactNode {
   return (
     <header className="hero hero--achilles">
       <div className="container">
-        <img
-          src="/img/logo-achilles.png"
-          alt="ProjectAchilles"
-          style={{width: 80, height: 80, marginBottom: '1rem'}}
-        />
         <Heading as="h1" className="hero__title">
           {siteConfig.title}
         </Heading>
