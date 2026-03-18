@@ -30,6 +30,7 @@ import { defenderSyncService } from './api/integrations.routes.js';
 import defenderRoutes from './api/defender.routes.js';
 import riskAcceptanceRoutes from './api/risk-acceptance.routes.js';
 import cliAuthRoutes from './api/cli-auth.routes.js';
+import { acceptCliAuth } from './middleware/cliAuth.middleware.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -86,8 +87,12 @@ app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Clerk authentication middleware
+// Clerk authentication middleware (parses JWT, populates req.auth — does NOT reject)
 app.use(clerkAuth);
+
+// CLI token auth — if a valid CLI JWT is present and Clerk didn't parse anything,
+// inject a Clerk-compatible req.auth so downstream requireClerkAuth() works.
+app.use(acceptCliAuth());
 
 // Global API rate limiter (dashboard/UI traffic only)
 const apiLimiter = rateLimit({

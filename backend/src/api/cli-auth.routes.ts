@@ -116,13 +116,21 @@ router.post('/verify', requireClerkAuth(), asyncHandler(async (req, res) => {
   if (!userId) throw new AppError('Could not extract user ID from session', 401);
 
   const db = getDatabase();
+
+  // First check if this code exists and hasn't expired
   const code = db.prepare(`
     SELECT * FROM cli_auth_codes
-    WHERE user_code = ? AND verified_at IS NULL AND expires_at > datetime('now')
-  `).get(user_code) as { device_code_hash: string; user_code: string; expires_at: string } | undefined;
+    WHERE user_code = ? AND expires_at > datetime('now')
+  `).get(user_code) as { device_code_hash: string; user_code: string; expires_at: string; verified_at: string | null; user_id: string | null } | undefined;
 
   if (!code) {
     throw new AppError('Invalid or expired code', 400);
+  }
+
+  // Idempotent: if already verified by this user, return success
+  if (code.verified_at && code.user_id) {
+    res.json({ success: true, data: { message: 'Code already verified. CLI will be authenticated shortly.' } });
+    return;
   }
 
   // Mark as verified with user info
