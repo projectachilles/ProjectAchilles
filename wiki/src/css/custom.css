@@ -53,6 +53,15 @@
   filter: invert(1);
 }
 
+/* Spacing between logo/title and nav links */
+.navbar__brand {
+  margin-right: 2rem;
+}
+
+.navbar__items > .navbar__item {
+  margin-left: 0.5rem;
+}
+
 .hero--achilles .hero__title {
   font-size: 3rem;
   font-weight: 800;
