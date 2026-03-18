@@ -131,7 +131,7 @@ export default function CliAuthPage() {
 
               <p className="text-xs text-center text-muted-foreground">
                 This grants the CLI access to your ProjectAchilles account.
-                The session expires in 30 days.
+                The session expires in 7 days.
               </p>
             </div>
           )}

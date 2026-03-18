@@ -42,7 +42,7 @@ const pollLimiter = rateLimit({
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const DEVICE_CODE_TTL_SECONDS = 600; // 10 minutes
-const CLI_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
+const CLI_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
 function getCliSecret(): string {
   const secret = process.env.CLI_AUTH_SECRET || process.env.ENCRYPTION_SECRET;
