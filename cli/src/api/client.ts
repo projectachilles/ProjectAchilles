@@ -10,7 +10,7 @@
  * - AbortController support
  */
 
-import { loadConfig } from '../config/store.js';
+import { getServerUrl } from '../config/store.js';
 import { getAccessToken, loadTokens, saveTokens, isTokenExpired } from '../auth/token-store.js';
 import { USER_AGENT } from '../config/constants.js';
 
@@ -57,7 +57,7 @@ type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 class HttpClient {
   private get baseUrl(): string {
-    return loadConfig().server_url;
+    return getServerUrl();
   }
 
   private buildUrl(path: string, params?: Record<string, string | number | boolean | undefined>): string {

@@ -1,5 +1,5 @@
 import { registerCommand } from './registry.js';
-import { loadConfig } from '../config/store.js';
+import { loadConfig, getActiveProfile } from '../config/store.js';
 import { getUserInfo } from '../auth/token-store.js';
 import { colors, scoreColor, progressBar } from '../output/colors.js';
 import * as agentsApi from '../api/agents.js';
@@ -12,14 +12,15 @@ registerCommand({
   description: 'Health check — backend connectivity, auth, and fleet summary',
   aliases: ['st'],
   handler: async (ctx) => {
-    const config = loadConfig();
+    const profile = getActiveProfile();
     const user = getUserInfo();
 
     if (ctx.output['mode' as keyof typeof ctx.output] === 'json') {
       // Structured output for LLMs
       const result: Record<string, unknown> = {
         cli_version: VERSION,
-        server_url: config.server_url,
+        profile: profile.name,
+        server_url: profile.server_url,
         authenticated: !!user,
       };
       if (user) {
@@ -48,10 +49,12 @@ registerCommand({
 
     // Pretty output
     console.log(`\n  ${colors.bold('ProjectAchilles CLI')} ${colors.dim(`v${VERSION}`)}\n`);
-    console.log(`  ${colors.dim('Server:')}    ${config.server_url}`);
+    const profileLabel = profile.name !== 'default' ? ` ${colors.dim(`(${profile.name})`)}` : '';
+    console.log(`  ${colors.dim('Server:')}    ${profile.server_url}${profileLabel}`);
 
     if (user) {
-      console.log(`  ${colors.dim('User:')}      ${user.userId}`);
+      const userLabel = user.displayName || user.email || user.userId;
+      console.log(`  ${colors.dim('User:')}      ${userLabel}`);
       console.log(`  ${colors.dim('Org:')}       ${user.orgId}`);
       if (user.role) console.log(`  ${colors.dim('Role:')}      ${user.role}`);
     } else {
@@ -69,7 +72,7 @@ registerCommand({
       }
     } catch (err) {
       if (err instanceof NetworkError) {
-        console.log(`  ${colors.brightRed('●')} Backend unreachable at ${config.server_url}`);
+        console.log(`  ${colors.brightRed('●')} Backend unreachable at ${profile.server_url}`);
       } else if (err instanceof AuthError) {
         console.log(`  ${colors.yellow('●')} Backend reachable but auth failed`);
       } else {
