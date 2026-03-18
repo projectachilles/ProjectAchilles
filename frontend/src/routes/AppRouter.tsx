@@ -14,6 +14,7 @@ import HeroPage from '../pages/HeroPage';
 import SignInPage from '../pages/auth/SignInPage';
 import SignUpPage from '../pages/auth/SignUpPage';
 import UserProfilePage from '../pages/auth/UserProfilePage';
+import CliAuthPage from '../pages/auth/CliAuthPage';
 
 // Browser Module Pages
 import BrowserHomePage from '../pages/browser/BrowserHomePage';
@@ -79,6 +80,9 @@ export default function AppRouter() {
       <Route path="/sign-in/*" element={<SignInPage />} />
       <Route path="/sign-up/*" element={<SignUpPage />} />
       <Route path="/user-profile" element={<UserProfilePage />} />
+
+      {/* CLI device flow authorization — authenticated but no app layout */}
+      <Route path="/cli-auth" element={<RequireAuth><CliAuthPage /></RequireAuth>} />
 
       {/* All authenticated routes share a single persistent AppLayout */}
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
