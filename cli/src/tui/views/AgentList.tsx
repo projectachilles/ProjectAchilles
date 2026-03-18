@@ -39,7 +39,7 @@ export function AgentList({ height }: AgentListProps) {
   }
 
   if (agents.error) {
-    return <text fg="#e94560">Error: {agents.error}</text>;
+    return <text fg="#e94560">{`Error: ${agents.error}`}</text>;
   }
 
   const data = (agents.data?.agents ?? []) as unknown as Record<string, unknown>[];
@@ -63,8 +63,8 @@ export function AgentList({ height }: AgentListProps) {
   return (
     <box flexDirection="column" padding={1} height={height}>
       <box flexDirection="row" height={1}>
-        <text fg="#e94560">Agents </text>
-        <text fg="#6c6c8a">({data.length} total) — Enter: detail, r: refresh</text>
+        <text fg="#e94560">{`Agents `}</text>
+        <text fg="#6c6c8a">{`(${String(data.length)} total) — Enter: detail, r: refresh`}</text>
       </box>
       <DataTable
         data={data}

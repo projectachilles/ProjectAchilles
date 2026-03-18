@@ -43,9 +43,7 @@ export function AnalyticsView({ height }: AnalyticsViewProps) {
       {score.data && (
         <box flexDirection="column" border={true} borderStyle="single" borderColor="#16213e" padding={1} height={4}>
           <ScoreBadge score={score.data.score} width={40} />
-          <text fg="#6c6c8a">
-            {score.data.protectedCount} protected / {score.data.unprotectedCount} unprotected / {score.data.totalExecutions} total
-          </text>
+          <text fg="#6c6c8a">{`${String(score.data.protectedCount)} protected / ${String(score.data.unprotectedCount)} unprotected / ${String(score.data.totalExecutions)} total`}</text>
         </box>
       )}
 
@@ -62,8 +60,8 @@ export function AnalyticsView({ height }: AnalyticsViewProps) {
                 const color = item.score >= 80 ? '#16c79a' : item.score >= 60 ? '#f5c518' : '#e94560';
                 return (
                   <box key={item.testName} flexDirection="row" height={1}>
-                    <text fg="#a0a0b8">{item.testName.padEnd(18).slice(0, 18)} </text>
-                    <text fg={color}>{String(Math.round(item.score)).padStart(3)}% {bar}</text>
+                    <text fg="#a0a0b8">{`${item.testName.padEnd(18).slice(0, 18)} `}</text>
+                    <text fg={color}>{`${String(Math.round(item.score)).padStart(3)}% ${bar}`}</text>
                   </box>
                 );
               })}
@@ -84,8 +82,8 @@ export function AnalyticsView({ height }: AnalyticsViewProps) {
                 const color = item.score >= 80 ? '#16c79a' : item.score >= 60 ? '#f5c518' : '#e94560';
                 return (
                   <box key={item.technique} flexDirection="row" height={1}>
-                    <text fg="#a0a0b8">{item.technique.padEnd(12).slice(0, 12)} </text>
-                    <text fg={color}>{String(Math.round(item.score)).padStart(3)}% {bar}</text>
+                    <text fg="#a0a0b8">{`${item.technique.padEnd(12).slice(0, 12)} `}</text>
+                    <text fg={color}>{`${String(Math.round(item.score)).padStart(3)}% ${bar}`}</text>
                   </box>
                 );
               })}

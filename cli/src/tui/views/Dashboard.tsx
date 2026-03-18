@@ -33,16 +33,16 @@ export function Dashboard({ height }: DashboardProps) {
       <box flexDirection="row" height={5} gap={2}>
         {/* Fleet card */}
         <box flexDirection="column" border={true} borderStyle="single" borderColor="#16213e" padding={1} width="50%">
-          <text fg="#e94560">Fleet Overview</text>
+          <text fg="#e94560">{'Fleet Overview'}</text>
           {metrics.loading && !metrics.data ? (
             <Spinner message="Loading fleet..." />
           ) : metrics.error ? (
-            <text fg="#e94560">Error: {metrics.error}</text>
+            <text fg="#e94560">{`Error: ${metrics.error}`}</text>
           ) : metrics.data ? (
             <box flexDirection="column">
-              <text fg="#16c79a">● {metrics.data.online} online  </text>
-              <text fg="#e94560">● {metrics.data.offline} offline  </text>
-              <text fg="#6c6c8a">{metrics.data.total} total agents</text>
+              <text fg="#16c79a">{`● ${String(metrics.data.online)} online`}</text>
+              <text fg="#e94560">{`● ${String(metrics.data.offline)} offline`}</text>
+              <text fg="#6c6c8a">{`${String(metrics.data.total)} total agents`}</text>
             </box>
           ) : null}
         </box>
@@ -52,12 +52,12 @@ export function Dashboard({ height }: DashboardProps) {
           {score.loading && !score.data ? (
             <Spinner message="Loading score..." />
           ) : score.error ? (
-            <text fg="#6c6c8a">Analytics not configured</text>
+            <text fg="#6c6c8a">{'Analytics not configured'}</text>
           ) : score.data ? (
             <box flexDirection="column">
               <ScoreBadge score={score.data.score} />
               <text fg="#6c6c8a">
-                {score.data.protectedCount} protected / {score.data.unprotectedCount} unprotected
+                {`${String(score.data.protectedCount)} protected / ${String(score.data.unprotectedCount)} unprotected`}
               </text>
             </box>
           ) : null}
@@ -66,11 +66,11 @@ export function Dashboard({ height }: DashboardProps) {
 
       {/* Recent Tasks */}
       <box flexDirection="column" border={true} borderStyle="single" borderColor="#16213e" padding={1} flexGrow={1} marginTop={1}>
-        <text fg="#e94560">Recent Tasks</text>
+        <text fg="#e94560">{'Recent Tasks'}</text>
         {recentTasks.loading && !recentTasks.data ? (
           <Spinner message="Loading tasks..." />
         ) : recentTasks.error ? (
-          <text fg="#e94560">Error: {recentTasks.error}</text>
+          <text fg="#e94560">{`Error: ${recentTasks.error}`}</text>
         ) : recentTasks.data?.tasks && recentTasks.data.tasks.length > 0 ? (
           <box flexDirection="column" marginTop={1}>
             {recentTasks.data.tasks.map((task) => {
@@ -88,16 +88,16 @@ export function Dashboard({ height }: DashboardProps) {
 
               return (
                 <box key={task.id} flexDirection="row" height={1}>
-                  <text fg={statusColor}>{statusIcon} </text>
-                  <text fg="#a0a0b8">{testName.padEnd(25).slice(0, 25)} </text>
-                  <text fg="#6c6c8a">{host.padEnd(16).slice(0, 16)} </text>
+                  <text fg={statusColor}>{`${statusIcon} `}</text>
+                  <text fg="#a0a0b8">{`${testName.padEnd(25).slice(0, 25)} `}</text>
+                  <text fg="#6c6c8a">{`${host.padEnd(16).slice(0, 16)} `}</text>
                   <text fg="#6c6c8a">{ago}</text>
                 </box>
               );
             })}
           </box>
         ) : (
-          <text fg="#6c6c8a">No recent tasks</text>
+          <text fg="#6c6c8a">{'No recent tasks'}</text>
         )}
       </box>
     </box>

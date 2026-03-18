@@ -52,7 +52,7 @@ export function TaskList({ height }: TaskListProps) {
   }
 
   if (tasks.error) {
-    return <text fg="#e94560">Error: {tasks.error}</text>;
+    return <text fg="#e94560">{`Error: ${tasks.error}`}</text>;
   }
 
   const data = (tasks.data?.tasks ?? []) as unknown as Record<string, unknown>[];
@@ -76,8 +76,8 @@ export function TaskList({ height }: TaskListProps) {
   return (
     <box flexDirection="column" padding={1} height={height}>
       <box flexDirection="row" height={1}>
-        <text fg="#e94560">Tasks </text>
-        <text fg="#6c6c8a">({data.length} total) — Enter: detail, r: refresh</text>
+        <text fg="#e94560">{`Tasks `}</text>
+        <text fg="#6c6c8a">{`(${String(data.length)} total) — Enter: detail, r: refresh`}</text>
       </box>
       <DataTable
         data={data}

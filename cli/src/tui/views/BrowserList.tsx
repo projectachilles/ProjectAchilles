@@ -35,7 +35,7 @@ export function BrowserList({ height }: BrowserListProps) {
   }
 
   if (tests.error) {
-    return <text fg="#e94560">Error: {tests.error}</text>;
+    return <text fg="#e94560">{`Error: ${tests.error}`}</text>;
   }
 
   const data = (tests.data?.tests ?? []) as unknown as Record<string, unknown>[];
@@ -48,14 +48,12 @@ export function BrowserList({ height }: BrowserListProps) {
           {['uuid', 'name', 'category', 'subcategory', 'severity', 'techniques', 'tactics', 'threat_actor', 'target', 'complexity', 'tags', 'binary_name', 'description'].map(key => (
             <box key={key} flexDirection="row" height={1}>
               <text fg="#6c6c8a">{key.padEnd(16)}</text>
-              <text fg="#a0a0b8">
-                {(() => {
+              <text fg="#a0a0b8">{(() => {
                   const val = (selectedTest as Record<string, unknown>)[key];
                   if (Array.isArray(val)) return val.join(', ');
                   if (typeof val === 'string' && val.length > 60) return val.slice(0, 60) + '…';
                   return String(val ?? '—');
-                })()}
-              </text>
+                })()}</text>
             </box>
           ))}
         </box>
@@ -66,8 +64,8 @@ export function BrowserList({ height }: BrowserListProps) {
   return (
     <box flexDirection="column" padding={1} height={height}>
       <box flexDirection="row" height={1}>
-        <text fg="#e94560">Test Library </text>
-        <text fg="#6c6c8a">({data.length} tests) — Enter: detail, r: refresh</text>
+        <text fg="#e94560">{`Test Library `}</text>
+        <text fg="#6c6c8a">{`(${String(data.length)} tests) — Enter: detail, r: refresh`}</text>
       </box>
       <DataTable
         data={data}

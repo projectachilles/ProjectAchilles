@@ -87,7 +87,7 @@ export function DataTable({ data, columns, height, focused = true, onSelect }: D
                 return (
                   <box key={col.key} width={col.width ?? 12}>
                     <text fg={isSelected ? '#ffffff' : '#a0a0b8'}>
-                      {isSelected ? '▸ ' : '  '}{display}
+                      {`${isSelected ? '▸ ' : '  '}${display}`}
                     </text>
                   </box>
                 );
@@ -101,7 +101,7 @@ export function DataTable({ data, columns, height, focused = true, onSelect }: D
       {data.length > visibleRows && (
         <box height={1}>
           <text fg="#6c6c8a">
-            {'  '}Showing {scrollOffset + 1}-{Math.min(scrollOffset + visibleRows, data.length)} of {data.length}
+            {`  Showing ${scrollOffset + 1}-${Math.min(scrollOffset + visibleRows, data.length)} of ${data.length}`}
           </text>
         </box>
       )}

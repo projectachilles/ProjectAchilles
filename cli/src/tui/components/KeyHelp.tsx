@@ -20,14 +20,12 @@ export function KeyHelp({ show }: KeyHelpProps) {
     <box flexDirection="row" width="100%" height={1} backgroundColor="#0f3460">
       {shortcuts.map(({ key, action }) => (
         <text key={key} fg="#6c6c8a">
-          {'  '}<text fg="#e94560">{key}</text>:{action}
+          {'  '}<span fg="#e94560">{key}</span>:{action}
         </text>
       ))}
       <box flexGrow={1} />
       {show && (
-        <text fg="#16c79a">
-          {' '}[HELP ON]{' '}
-        </text>
+        <text fg="#16c79a">{' [HELP ON] '}</text>
       )}
     </box>
   );

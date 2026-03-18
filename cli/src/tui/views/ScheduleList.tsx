@@ -44,7 +44,7 @@ export function ScheduleList({ height }: ScheduleListProps) {
   }
 
   if (schedules.error) {
-    return <text fg="#e94560">Error: {schedules.error}</text>;
+    return <text fg="#e94560">{`Error: ${schedules.error}`}</text>;
   }
 
   const data = (schedules.data ?? []) as unknown as Record<string, unknown>[];
@@ -57,13 +57,11 @@ export function ScheduleList({ height }: ScheduleListProps) {
           {['id', 'name', 'test_name', 'schedule_type', 'schedule_config', 'timezone', 'status', 'next_run_at', 'last_run_at', 'agent_ids', 'created_by'].map(key => (
             <box key={key} flexDirection="row" height={1}>
               <text fg="#6c6c8a">{key.padEnd(18)}</text>
-              <text fg="#a0a0b8">
-                {(() => {
+              <text fg="#a0a0b8">{(() => {
                   const val = (selectedSchedule as Record<string, unknown>)[key];
                   if (typeof val === 'object') return JSON.stringify(val);
                   return String(val ?? '—');
-                })()}
-              </text>
+                })()}</text>
             </box>
           ))}
         </box>
@@ -74,8 +72,8 @@ export function ScheduleList({ height }: ScheduleListProps) {
   return (
     <box flexDirection="column" padding={1} height={height}>
       <box flexDirection="row" height={1}>
-        <text fg="#e94560">Schedules </text>
-        <text fg="#6c6c8a">({data.length} total) — Enter: detail, r: refresh</text>
+        <text fg="#e94560">{`Schedules `}</text>
+        <text fg="#6c6c8a">{`(${String(data.length)} total) — Enter: detail, r: refresh`}</text>
       </box>
       <DataTable
         data={data}
