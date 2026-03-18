@@ -1,0 +1,30 @@
+{
+  "name": "@projectachilles/cli",
+  "version": "0.1.0",
+  "description": "ProjectAchilles CLI — purple team platform management",
+  "type": "module",
+  "bin": {
+    "achilles": "./bin/achilles.ts"
+  },
+  "scripts": {
+    "dev": "bun run bin/achilles.ts",
+    "build": "bun build bin/achilles.ts --outdir dist --target bun",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.1.88",
+    "@opentui/react": "^0.1.88",
+    "react": "^19.0.0",
+    "ai": "^6.0.0",
+    "@ai-sdk/anthropic": "^3.0.0",
+    "@ai-sdk/openai": "^3.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
