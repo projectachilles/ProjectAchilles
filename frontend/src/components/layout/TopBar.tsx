@@ -7,6 +7,7 @@ import {
   RefreshCw,
   Settings,
   ChevronRight,
+  BookOpen,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { NotificationBell } from '@/components/layout/NotificationBell';
@@ -106,6 +107,19 @@ export function TopBar({
             <span className="sr-only">Settings</span>
           </Button>
         )}
+
+        {/* Docs */}
+        <Button
+          variant="ghost"
+          size="icon"
+          asChild
+          title="Documentation"
+        >
+          <a href="/docs" target="_blank" rel="noopener noreferrer">
+            <BookOpen className="h-4 w-4" />
+            <span className="sr-only">Documentation</span>
+          </a>
+        </Button>
 
         {/* Notifications */}
         <NotificationBell />
