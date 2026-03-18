@@ -1,19 +1,63 @@
 /**
  * Chat launcher — starts the AI conversational agent.
  *
- * Uses a simple readline REPL that streams responses to stdout.
- * The TUI chat view (view.tsx) is available when running inside
- * the full-screen dashboard.
+ * Two modes:
+ * 1. Interactive (TTY): Ink-based TUI with markdown rendering, spinner, styled input
+ * 2. Piped (non-TTY): Simple readline REPL for scripting / CI
  */
 
+import React from 'react';
+import { render } from 'ink';
+import { ChatApp } from './view.js';
 import * as readline from 'readline';
 import type { ChatMessage } from './agent.js';
 import { streamChatResponse } from './agent.js';
 import { colors } from '../output/colors.js';
-import { loadConfig, getServerUrl, getActiveProfile } from '../config/store.js';
+import { loadConfig, getActiveProfile } from '../config/store.js';
 import { getUserInfo } from '../auth/token-store.js';
+import { Marked } from 'marked';
+import { markedTerminal } from 'marked-terminal';
 
 export async function launchChat(): Promise<void> {
+  // Ink needs a real TTY with raw mode support
+  const canUseInk = process.stdin.isTTY && typeof process.stdin.setRawMode === 'function';
+
+  if (canUseInk) {
+    // Interactive mode — full Ink TUI
+    launchInkChat();
+  } else {
+    // Piped / non-TTY mode — readline with markdown rendering
+    await launchReadlineChat();
+  }
+}
+
+// ─── Ink TUI mode ────────────────────────────────────────────────────────────
+
+function launchInkChat(): void {
+  render(React.createElement(ChatApp), { exitOnCtrlC: true });
+}
+
+// ─── Readline fallback (piped stdin) ─────────────────────────────────────────
+
+const marked = new Marked(
+  markedTerminal({
+    width: 80,
+    reflowText: true,
+    showSectionPrefix: false,
+    tab: 2,
+  }) as any,
+);
+
+function renderMd(text: string): string {
+  try {
+    const rendered = marked.parse(text);
+    return typeof rendered === 'string' ? rendered.replace(/\n+$/, '') : text;
+  } catch {
+    return text;
+  }
+}
+
+async function launchReadlineChat(): Promise<void> {
   const config = loadConfig();
   const user = getUserInfo();
   const profile = getActiveProfile();
@@ -23,19 +67,12 @@ export async function launchChat(): Promise<void> {
   ${colors.dim('AI-powered security fleet management')}
   ${colors.dim(`Server: ${profile.server_url}`)}${profile.name !== 'default' ? colors.dim(` (${profile.name})`) : ''}
   ${user ? colors.dim(`User: ${user.userId}`) : colors.yellow('Not authenticated — run: achilles login')}
-
-  ${colors.dim('Type your message and press Enter. Ctrl+C to quit.')}
-  ${colors.dim('Examples:')}
-    ${colors.gray('"Show me all online agents"')}
-    ${colors.gray('"What\'s our defense score?"')}
-    ${colors.gray('"Which techniques have the worst coverage?"')}
 `);
 
   if (!config.ai?.api_key && !process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY) {
     console.log(`  ${colors.yellow('⚠')} No AI provider configured.`);
     console.log(`    Set one with: ${colors.cyan('achilles config set ai.provider anthropic')}`);
-    console.log(`    And:          ${colors.cyan('achilles config set ai.api_key sk-ant-...')}`);
-    console.log(`    Or set env:   ${colors.cyan('ANTHROPIC_API_KEY=sk-ant-...')}\n`);
+    console.log(`    And:          ${colors.cyan('achilles config set ai.api_key sk-ant-...')}\n`);
   }
 
   const messages: ChatMessage[] = [];
@@ -57,70 +94,35 @@ export async function launchChat(): Promise<void> {
 
   rl.on('line', async (line) => {
     const text = line.trim();
-    if (!text) {
-      rl.prompt();
-      return;
-    }
-
-    if (text === '/quit' || text === '/exit' || text === '/q') {
-      rl.close();
-      return;
-    }
-
-    if (text === '/clear') {
-      messages.length = 0;
-      console.log(`  ${colors.dim('Conversation cleared.')}\n`);
-      rl.prompt();
-      return;
-    }
-
-    if (text === '/help') {
-      console.log(`
-  ${colors.bold('Chat Commands:')}
-    ${colors.cyan('/clear')}    Clear conversation history
-    ${colors.cyan('/quit')}     Exit chat
-    ${colors.cyan('/help')}     Show this help
-`);
-      rl.prompt();
-      return;
-    }
+    if (!text) { rl.prompt(); return; }
+    if (text === '/quit' || text === '/exit' || text === '/q') { rl.close(); return; }
 
     messages.push({ role: 'user', content: text });
-
     process.stdout.write(`\n  ${colors.brightRed('◆')} `);
 
     responding = true;
     try {
       let fullResponse = '';
       for await (const chunk of streamChatResponse(messages)) {
-        process.stdout.write(chunk);
         fullResponse += chunk;
       }
-      process.stdout.write('\n\n');
+      // Render markdown for the complete response
+      console.log(renderMd(fullResponse));
+      console.log();
       messages.push({ role: 'assistant', content: fullResponse });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.log(`\n  ${colors.brightRed('✗')} ${errMsg}\n`);
-      // Don't add error to context — let user retry
-      messages.pop(); // Remove the user message that caused the error
+      messages.pop();
     }
     responding = false;
 
-    // If stdin closed while we were streaming (piped input), exit now
-    if (closePending) {
-      exitChat();
-      return;
-    }
-
+    if (closePending) { exitChat(); return; }
     rl.prompt();
   });
 
   rl.on('close', () => {
-    if (responding) {
-      // Defer exit until response stream finishes
-      closePending = true;
-      return;
-    }
+    if (responding) { closePending = true; return; }
     exitChat();
   });
 }
