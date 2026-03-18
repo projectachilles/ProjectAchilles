@@ -109,8 +109,10 @@ registerCommand({
       },
       handler: async (ctx) => {
         const result = await api.getHeartbeats(ctx.args.id, ctx.flags.days as number);
+        // API may return { heartbeats: [...] } or [...] directly depending on backend version
+        const heartbeats = Array.isArray(result) ? result : (result.heartbeats ?? []);
         ctx.output.table(
-          result.heartbeats as unknown as Record<string, unknown>[],
+          heartbeats as unknown as Record<string, unknown>[],
           [
             { key: 'timestamp', label: 'Time', width: 20 },
             { key: 'cpu_percent', label: 'CPU %', width: 7, align: 'right' },
@@ -132,14 +134,16 @@ registerCommand({
           event_type: ctx.flags.type as string | undefined,
           limit: ctx.flags.limit as number,
         });
+        const events = Array.isArray(result) ? result : (result.events ?? []);
+        const total = Array.isArray(result) ? result.length : (result.total ?? events.length);
         ctx.output.table(
-          result.events as unknown as Record<string, unknown>[],
+          events as unknown as Record<string, unknown>[],
           [
             { key: 'event_type', label: 'Event', width: 20 },
             { key: 'created_at', label: 'Time', width: 20, transform: (v) => timeAgo(String(v)) },
             { key: 'details', label: 'Details', transform: (v) => typeof v === 'object' ? JSON.stringify(v) : String(v ?? '') },
           ],
-          { total: result.total },
+          { total },
         );
       },
     },
