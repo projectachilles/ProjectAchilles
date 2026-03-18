@@ -41,7 +41,8 @@ export default function CliAuthPage() {
         setErrorMessage('Not authenticated. Please sign in first.');
         return;
       }
-      const response = await fetch('/api/cli/auth/verify', {
+      const apiBase = window.__env__?.VITE_API_URL || import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${apiBase}/api/cli/auth/verify`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
