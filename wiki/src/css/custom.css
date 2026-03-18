@@ -32,13 +32,25 @@
 
 /* Hero section styles */
 .hero--achilles {
-  background: linear-gradient(135deg, #4C1D95 0%, #7C3AED 50%, #6D28D9 100%);
+  background: linear-gradient(135deg, #1e293b 0%, #334155 50%, #1e293b 100%);
   padding: 4rem 0;
   color: #fff;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
 }
 
 [data-theme='dark'] .hero--achilles {
-  background: linear-gradient(135deg, #1a0533 0%, #2d1065 50%, #1e0a3e 100%);
+  background: linear-gradient(135deg, #0c0c0c 0%, #18181b 50%, #0c0c0c 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Navbar logo — remove white background, invert in dark mode */
+.navbar__logo img {
+  border-radius: 0;
+  background: transparent;
+}
+
+[data-theme='dark'] .navbar__logo img {
+  filter: invert(1);
 }
 
 .hero--achilles .hero__title {
