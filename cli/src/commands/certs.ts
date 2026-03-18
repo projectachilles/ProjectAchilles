@@ -10,16 +10,40 @@ registerCommand({
     list: {
       description: 'List certificates',
       handler: async (ctx) => {
-        const data = await api.listCertificates();
+        const raw = await api.listCertificates();
+        // API may return { certificates: [...], activeCertId } or [...] directly
+        const certs = Array.isArray(raw) ? raw : (raw.certificates ?? []);
+        const activeCertId = Array.isArray(raw) ? null : raw.activeCertId;
         ctx.output.table(
-          data.certificates as unknown as Record<string, unknown>[],
+          certs as unknown as Record<string, unknown>[],
           [
             { key: 'id', label: 'ID', width: 16 },
             { key: 'label', label: 'Label', width: 16 },
-            { key: 'commonName', label: 'CN', width: 20 },
-            { key: 'organization', label: 'Org', width: 16 },
-            { key: 'isActive', label: 'Active', width: 7, transform: (v) => v ? colors.brightGreen('★') : colors.dim('—') },
-            { key: 'validTo', label: 'Valid Until', width: 12 },
+            {
+              key: 'subject', label: 'CN', width: 20,
+              transform: (v) => {
+                if (typeof v === 'object' && v !== null) return String((v as Record<string, unknown>).commonName ?? '—');
+                return String(v ?? '—');
+              },
+            },
+            {
+              key: 'subject', label: 'Org', width: 16,
+              transform: (v) => {
+                if (typeof v === 'object' && v !== null) return String((v as Record<string, unknown>).organization ?? '—');
+                return '—';
+              },
+            },
+            {
+              key: 'id', label: 'Active', width: 7,
+              transform: (v, row) => {
+                const isActive = activeCertId ? String(v) === activeCertId : (row as Record<string, unknown>).isActive;
+                return isActive ? colors.brightGreen('★') : colors.dim('—');
+              },
+            },
+            {
+              key: 'expiry', label: 'Valid Until', width: 12,
+              transform: (v) => v ? new Date(String(v)).toLocaleDateString() : colors.dim('—'),
+            },
           ],
         );
       },
