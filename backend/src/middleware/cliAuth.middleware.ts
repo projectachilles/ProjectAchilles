@@ -50,16 +50,32 @@ export function validateCliToken(req: Request): CliTokenPayload | null {
  */
 export function acceptCliAuth() {
   return (req: Request, _res: Response, next: NextFunction) => {
+    // Only inject CLI auth if Clerk didn't already authenticate.
+    // Clerk's new API uses req.auth() as a function — check if it returns a userId.
+    const existingAuth = typeof (req as any).auth === 'function'
+      ? (req as any).auth()
+      : (req as any).auth;
+    if (existingAuth?.userId) {
+      return next();
+    }
+
     const cliPayload = validateCliToken(req);
     if (cliPayload) {
-      // Inject Clerk-compatible auth object so existing permission middleware works
-      (req as unknown as Record<string, unknown>).auth = {
+      // Clerk's @clerk/express now uses req.auth() as a function (not a property).
+      // We must match that interface so requireClerkAuth() works with CLI tokens.
+      const authData = {
         userId: cliPayload.sub,
+        orgId: cliPayload.org_id,
         sessionClaims: {
           org_id: cliPayload.org_id,
           metadata: { role: cliPayload.role },
         },
       };
+      // Make req.auth a function that returns the auth data (matching Clerk's new API)
+      // while also keeping it callable as a property for any legacy code.
+      const authFn = () => authData;
+      Object.assign(authFn, authData);
+      (req as unknown as Record<string, unknown>).auth = authFn;
     }
     next();
   };

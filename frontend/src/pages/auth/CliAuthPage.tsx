@@ -6,7 +6,7 @@
  * backend to link the CLI session to their identity.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
 
@@ -16,14 +16,17 @@ export default function CliAuthPage() {
   const [code, setCode] = useState(codeFromUrl);
   const [status, setStatus] = useState<'idle' | 'verifying' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
-  const { getToken } = useAuth();
+  const { getToken, isLoaded } = useAuth();
+  const autoVerifyAttempted = useRef(false);
 
-  // Auto-verify if code came from URL
+  // Auto-verify once Clerk is loaded and code is present from URL
+  // useRef guard prevents React Strict Mode double-fire
   useEffect(() => {
-    if (codeFromUrl && status === 'idle') {
+    if (codeFromUrl && isLoaded && !autoVerifyAttempted.current) {
+      autoVerifyAttempted.current = true;
       verify(codeFromUrl);
     }
-  }, [codeFromUrl]);
+  }, [codeFromUrl, isLoaded]);
 
   async function verify(userCode: string) {
     if (!userCode.trim()) return;
@@ -33,6 +36,11 @@ export default function CliAuthPage() {
 
     try {
       const token = await getToken();
+      if (!token) {
+        setStatus('error');
+        setErrorMessage('Not authenticated. Please sign in first.');
+        return;
+      }
       const response = await fetch('/api/cli/auth/verify', {
         method: 'POST',
         headers: {
