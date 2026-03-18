@@ -1,16 +1,14 @@
 /**
  * Main router: determines execution mode and dispatches accordingly.
  *
- * Three modes:
- * 1. No args → Full-screen TUI dashboard (Phase 6)
- * 2. achilles <command> [args] → Standalone command
- * 3. achilles chat → AI conversational agent (Phase 7)
+ * Two modes:
+ * 1. achilles <command> [args] → Standalone command (rich output or --json)
+ * 2. achilles chat → AI conversational agent
  */
 
 import { parseArgs, dispatch, printGlobalHelp } from './commands/registry.js';
 import { ApiError, AuthError, NetworkError } from './api/client.js';
 import { colors } from './output/colors.js';
-import { launchTUI } from './tui/app.js';
 import { launchChat } from './chat/launch.js';
 
 // ─── Register all commands ──────────────────────────────────────────────────
@@ -37,21 +35,15 @@ import './commands/help.js';
 export async function main(argv: string[]): Promise<void> {
   const parsed = parseArgs(argv);
 
-  // No command and no flags → Full-screen TUI dashboard
+  // No command and no flags → show help
   if (!parsed.command && !parsed.globalFlags.help && !parsed.globalFlags.version) {
-    await launchTUI();
+    printGlobalHelp('pretty');
     return;
   }
 
   // Chat mode — AI conversational agent
   if (parsed.command === 'chat') {
     await launchChat();
-    return;
-  }
-
-  // Dashboard alias
-  if (parsed.command === 'dashboard') {
-    await launchTUI();
     return;
   }
 

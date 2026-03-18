@@ -233,7 +233,7 @@ export function printGlobalHelp(mode: OutputMode): void {
 
   ${colors.bold('Usage:')}
     ${CLI_NAME} <command> [subcommand] [flags]
-    ${CLI_NAME}                           ${colors.dim('# Full-screen TUI dashboard')}
+    ${CLI_NAME}                           ${colors.dim('# Show help')}
     ${CLI_NAME} chat                      ${colors.dim('# AI conversational agent')}
 
   ${colors.bold('Commands:')}`);
