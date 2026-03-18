@@ -16,6 +16,7 @@ const config: Config = {
 
   organizationName: 'projectachilles',
   projectName: 'ProjectAchilles',
+  trailingSlash: false,
 
   onBrokenLinks: 'throw',
 

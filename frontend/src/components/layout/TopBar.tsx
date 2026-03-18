@@ -115,7 +115,7 @@ export function TopBar({
           asChild
           title="Documentation"
         >
-          <a href="/docs" target="_blank" rel="noopener noreferrer">
+          <a href="https://docs.projectachilles.io" target="_blank" rel="noopener noreferrer">
             <BookOpen className="h-4 w-4" />
             <span className="sr-only">Documentation</span>
           </a>
