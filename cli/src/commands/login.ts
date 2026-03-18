@@ -1,5 +1,5 @@
 import { registerCommand } from './registry.js';
-import { loadConfig } from '../config/store.js';
+import { getServerUrl, getActiveProfile } from '../config/store.js';
 import { saveTokens, clearTokens, loadTokens } from '../auth/token-store.js';
 import { colors } from '../output/colors.js';
 import { DEVICE_POLL_INTERVAL_MS } from '../config/constants.js';
@@ -9,16 +9,20 @@ registerCommand({
   name: 'login',
   description: 'Authenticate with the ProjectAchilles backend',
   handler: async (ctx) => {
-    const config = loadConfig();
+    const serverUrl = getServerUrl();
+    const profile = getActiveProfile();
 
     // Check if already logged in
     const existing = loadTokens();
     if (existing && new Date(existing.expires_at) > new Date()) {
-      ctx.output.warn(`Already logged in as ${existing.user_id}. Use ${colors.cyan('achilles logout')} to sign out first.`);
+      const who = existing.display_name || existing.email || existing.user_id;
+      ctx.output.warn(`Already logged in as ${who}. Use ${colors.cyan('achilles logout')} to sign out first.`);
       return;
     }
 
-    ctx.output.raw(`\n  ${colors.bold('Authenticating with')} ${config.server_url}\n`);
+    ctx.output.raw(`\n  ${colors.bold('Authenticating with')} ${serverUrl}`);
+    if (profile.name !== 'default') ctx.output.raw(` ${colors.dim(`(profile: ${profile.name})`)}`);
+    ctx.output.raw('\n');
 
     // Step 1: Request device code
     let deviceCode: string;
@@ -27,7 +31,7 @@ registerCommand({
     let expiresAt: string;
 
     try {
-      const response = await fetch(`${config.server_url}/api/cli/auth/device-code`, {
+      const response = await fetch(`${serverUrl}/api/cli/auth/device-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -45,7 +49,7 @@ registerCommand({
       expiresAt = data.data.expires_at;
     } catch (err) {
       if (err instanceof TypeError && err.message.includes('fetch')) {
-        ctx.output.error(`Cannot connect to ${config.server_url}. Is the backend running?`);
+        ctx.output.error(`Cannot connect to ${serverUrl}. Is the backend running?`);
       } else {
         ctx.output.error(`Failed to start auth: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -68,7 +72,7 @@ registerCommand({
       await new Promise(resolve => setTimeout(resolve, DEVICE_POLL_INTERVAL_MS));
 
       try {
-        const response = await fetch(`${config.server_url}/api/cli/auth/poll`, {
+        const response = await fetch(`${serverUrl}/api/cli/auth/poll`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ device_code: deviceCode }),
@@ -90,6 +94,8 @@ registerCommand({
               user_id: string;
               org_id: string;
               role?: string;
+              email?: string;
+              display_name?: string;
             };
           };
           if (data.success) {
@@ -100,6 +106,8 @@ registerCommand({
               user_id: data.data.user_id,
               org_id: data.data.org_id,
               role: data.data.role,
+              email: data.data.email,
+              display_name: data.data.display_name,
               issued_at: new Date().toISOString(),
             });
             authorized = true;

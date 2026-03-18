@@ -15,6 +15,7 @@ import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import { requireClerkAuth } from '../middleware/clerk.middleware.js';
 import { getUserId, getUserRole } from '../middleware/clerk.middleware.js';
+import { clerkClient } from '@clerk/express';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { getDatabase } from '../services/agent/database.js';
 
@@ -185,7 +186,18 @@ router.post('/poll', pollLimiter, asyncHandler(async (req, res) => {
     return res.status(202).json({ success: false, error: 'authorization_pending' });
   }
 
-  // Verified — issue CLI token
+  // Verified — fetch user details from Clerk for display name
+  let email: string | undefined;
+  let displayName: string | undefined;
+  try {
+    const user = await clerkClient.users.getUser(code.user_id!);
+    email = user.emailAddresses?.[0]?.emailAddress;
+    displayName = [user.firstName, user.lastName].filter(Boolean).join(' ') || undefined;
+  } catch {
+    // Non-fatal — user info is cosmetic
+  }
+
+  // Issue CLI token
   const secret = getCliSecret();
   const accessToken = jwt.sign(
     {
@@ -225,6 +237,8 @@ router.post('/poll', pollLimiter, asyncHandler(async (req, res) => {
       user_id: code.user_id,
       org_id: code.org_id,
       role: code.role,
+      email,
+      display_name: displayName,
     },
   });
 }));
