@@ -9,7 +9,7 @@ import { streamText, stepCountIs } from 'ai';
 import { allTools } from './tools.js';
 import { buildSystemPrompt } from './system-prompt.js';
 import { getConfiguredModel } from './provider.js';
-import { loadConfig } from '../config/store.js';
+import { getServerUrl } from '../config/store.js';
 import { getUserInfo } from '../auth/token-store.js';
 
 export interface ChatMessage {
@@ -20,11 +20,10 @@ export interface ChatMessage {
 export async function* streamChatResponse(
   messages: ChatMessage[],
 ): AsyncGenerator<string, void, unknown> {
-  const config = loadConfig();
   const user = getUserInfo();
 
   const systemPrompt = buildSystemPrompt({
-    serverUrl: config.server_url,
+    serverUrl: getServerUrl(),
     userId: user?.userId,
     orgId: user?.orgId,
     role: user?.role,
@@ -33,7 +32,7 @@ export async function* streamChatResponse(
   const model = getConfiguredModel();
 
   const result = streamText({
-    model: model as any,
+    model,
     system: systemPrompt,
     messages: messages.map(m => ({ role: m.role, content: m.content })),
     tools: allTools,

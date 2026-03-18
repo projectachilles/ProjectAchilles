@@ -10,17 +10,18 @@ import * as readline from 'readline';
 import type { ChatMessage } from './agent.js';
 import { streamChatResponse } from './agent.js';
 import { colors } from '../output/colors.js';
-import { loadConfig } from '../config/store.js';
+import { loadConfig, getServerUrl, getActiveProfile } from '../config/store.js';
 import { getUserInfo } from '../auth/token-store.js';
 
 export async function launchChat(): Promise<void> {
   const config = loadConfig();
   const user = getUserInfo();
+  const profile = getActiveProfile();
 
   console.log(`
   ${colors.bold(colors.brightRed('◆ Achilles Chat'))}
   ${colors.dim('AI-powered security fleet management')}
-  ${colors.dim(`Server: ${config.server_url}`)}
+  ${colors.dim(`Server: ${profile.server_url}`)}${profile.name !== 'default' ? colors.dim(` (${profile.name})`) : ''}
   ${user ? colors.dim(`User: ${user.userId}`) : colors.yellow('Not authenticated — run: achilles login')}
 
   ${colors.dim('Type your message and press Enter. Ctrl+C to quit.')}
@@ -38,12 +39,19 @@ export async function launchChat(): Promise<void> {
   }
 
   const messages: ChatMessage[] = [];
+  let responding = false;
+  let closePending = false;
 
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
     prompt: `${colors.brightGreen('▸')} `,
   });
+
+  function exitChat(): void {
+    console.log(`\n  ${colors.dim('Goodbye!')}\n`);
+    process.exit(0);
+  }
 
   rl.prompt();
 
@@ -81,6 +89,7 @@ export async function launchChat(): Promise<void> {
 
     process.stdout.write(`\n  ${colors.brightRed('◆')} `);
 
+    responding = true;
     try {
       let fullResponse = '';
       for await (const chunk of streamChatResponse(messages)) {
@@ -95,12 +104,23 @@ export async function launchChat(): Promise<void> {
       // Don't add error to context — let user retry
       messages.pop(); // Remove the user message that caused the error
     }
+    responding = false;
+
+    // If stdin closed while we were streaming (piped input), exit now
+    if (closePending) {
+      exitChat();
+      return;
+    }
 
     rl.prompt();
   });
 
   rl.on('close', () => {
-    console.log(`\n  ${colors.dim('Goodbye!')}\n`);
-    process.exit(0);
+    if (responding) {
+      // Defer exit until response stream finishes
+      closePending = true;
+      return;
+    }
+    exitChat();
   });
 }

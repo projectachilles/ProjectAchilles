@@ -2,53 +2,45 @@
  * AI model provider factory.
  *
  * Supports Anthropic, OpenAI, and Ollama (via OpenAI-compatible API).
- * Reads configuration from ~/.achilles/config.json.
+ * Creates proper provider instances with API keys — plain model strings
+ * only work with the AI Gateway (OIDC), not direct provider usage.
  */
 
+import { createAnthropic } from '@ai-sdk/anthropic';
+import { createOpenAI } from '@ai-sdk/openai';
 import { loadConfig } from '../config/store.js';
+import type { LanguageModelV1 } from 'ai';
 
-export function getConfiguredModel(): string {
+const DEFAULT_MODEL: Record<string, string> = {
+  anthropic: 'claude-sonnet-4-6',
+  openai: 'gpt-4o',
+  ollama: 'llama3',
+};
+
+export function getConfiguredModel(): LanguageModelV1 {
   const config = loadConfig();
   const ai = config.ai;
 
-  if (!ai) {
-    // Default to Anthropic
-    return 'anthropic:claude-sonnet-4-6';
+  const provider = ai?.provider ?? 'anthropic';
+  const modelId = ai?.model || DEFAULT_MODEL[provider] || 'claude-sonnet-4-6';
+  const apiKey = ai?.api_key ?? process.env.ANTHROPIC_API_KEY ?? process.env.OPENAI_API_KEY;
+
+  if (provider === 'anthropic') {
+    const anthropic = createAnthropic({
+      apiKey: apiKey ?? '',
+    });
+    return anthropic(modelId);
   }
 
-  if (ai.provider === 'ollama') {
-    // Ollama uses OpenAI-compatible API
-    return `openai:${ai.model}`;
+  if (provider === 'openai' || provider === 'ollama') {
+    const openai = createOpenAI({
+      apiKey: apiKey ?? '',
+      ...(ai?.base_url ? { baseURL: ai.base_url } : {}),
+    });
+    return openai(modelId);
   }
 
-  return `${ai.provider}:${ai.model}`;
-}
-
-export function getProviderConfig(): Record<string, unknown> {
-  const config = loadConfig();
-  const ai = config.ai;
-
-  if (!ai) return {};
-
-  const providerConfig: Record<string, unknown> = {};
-
-  if (ai.api_key) {
-    if (ai.provider === 'anthropic') {
-      providerConfig.anthropic = { apiKey: ai.api_key };
-    } else if (ai.provider === 'openai' || ai.provider === 'ollama') {
-      providerConfig.openai = {
-        apiKey: ai.api_key,
-        ...(ai.base_url ? { baseURL: ai.base_url } : {}),
-      };
-    }
-  }
-
-  if (ai.provider === 'ollama' && ai.base_url) {
-    providerConfig.openai = {
-      ...(providerConfig.openai as Record<string, unknown> ?? {}),
-      baseURL: ai.base_url,
-    };
-  }
-
-  return providerConfig;
+  // Fallback: try Anthropic
+  const anthropic = createAnthropic({ apiKey: apiKey ?? '' });
+  return anthropic(modelId);
 }
