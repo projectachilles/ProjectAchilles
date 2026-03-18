@@ -15,7 +15,7 @@
   "dependencies": {
     "@clerk/backend": "^2.33.0",
     "@clerk/express": "^1.7.76",
-    "@elastic/elasticsearch": "^8.19.1",
+    "@elastic/elasticsearch": "^9.3.4",
     "@types/jsonwebtoken": "^9.0.10",
     "axios": "^1.13.6",
     "bcryptjs": "^3.0.3",
