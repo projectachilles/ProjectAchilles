@@ -1,0 +1,27 @@
+name: Wiki
+
+on:
+  push:
+    branches: [main]
+    paths: ['wiki/**']
+  pull_request:
+    branches: [main]
+    paths: ['wiki/**']
+
+jobs:
+  build-wiki:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: wiki
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: wiki/package-lock.json
+      - run: npm ci
+      - run: npm run build

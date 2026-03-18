@@ -39,6 +39,12 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  wiki:
+    build: ./wiki
+    ports:
+      - "3001:80"
+    restart: unless-stopped
+
   # ---------------------------------------------------------------------------
   # Optional: Local Elasticsearch for analytics
   # Activate with: docker compose --profile elasticsearch up -d
