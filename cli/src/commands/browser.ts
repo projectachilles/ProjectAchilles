@@ -78,7 +78,9 @@ registerCommand({
         { name: 'path', required: true, description: 'File path within the test' },
       ],
       handler: async (ctx) => {
-        const file = await api.getTestFile(ctx.args.uuid, ctx.args.path);
+        const result = await api.getTestFile(ctx.args.uuid, ctx.args.path);
+        // Backend wraps response as { success, file: {...} }
+        const file = (result as unknown as { file?: { content: string } }).file ?? result;
         ctx.output.raw(file.content);
       },
     },
