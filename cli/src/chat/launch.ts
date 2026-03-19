@@ -48,12 +48,21 @@ const marked = new Marked(
   }) as any,
 );
 
+/** Post-process to fix inline formatting that marked-terminal misses in lists */
+function fixRemainingMarkdown(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, '\x1b[1m$1\x1b[22m')
+    .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '\x1b[3m$1\x1b[23m')
+    .replace(/`([^`]+)`/g, '\x1b[36m$1\x1b[39m');
+}
+
 function renderMd(text: string): string {
   try {
     const rendered = marked.parse(text);
-    return typeof rendered === 'string' ? rendered.replace(/\n+$/, '') : text;
+    const cleaned = typeof rendered === 'string' ? rendered.replace(/\n+$/, '') : text;
+    return fixRemainingMarkdown(cleaned);
   } catch {
-    return text;
+    return fixRemainingMarkdown(text);
   }
 }
 

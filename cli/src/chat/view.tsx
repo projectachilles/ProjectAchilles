@@ -30,15 +30,26 @@ const marked = new Marked(
   }) as any,
 );
 
+/** Post-process to fix inline formatting that marked-terminal misses in lists */
+function fixRemainingMarkdown(text: string): string {
+  return text
+    // Bold: **text** → ANSI bold
+    .replace(/\*\*([^*]+)\*\*/g, '\x1b[1m$1\x1b[22m')
+    // Italic: *text* → ANSI italic (only single *, not inside **)
+    .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '\x1b[3m$1\x1b[23m')
+    // Inline code: `text` → ANSI dim
+    .replace(/`([^`]+)`/g, '\x1b[36m$1\x1b[39m');
+}
+
 function renderMarkdown(text: string): string {
   try {
     const rendered = marked.parse(text);
     if (typeof rendered === 'string') {
-      return rendered.replace(/\n+$/, '');
+      return fixRemainingMarkdown(rendered.replace(/\n+$/, ''));
     }
-    return text;
+    return fixRemainingMarkdown(text);
   } catch {
-    return text;
+    return fixRemainingMarkdown(text);
   }
 }
 
