@@ -83,13 +83,18 @@ function Message({ message, isStreaming }: MessageProps) {
 // ─── ASCII title ────────────────────────────────────────────────────────────
 
 const TITLE_LINES = [
-  '█▀█ █▀█ █▀█ ░▀░ █▀▀ █▀▀ ▀█▀   █▀█ █▀▀ █░█ ▀█▀ █░░ █░░ █▀▀ █▀',
-  '█▀▀ █▀▄ █▄█ ░█░ ██▄ █▄▄ ░█░   █▀█ █▄▄ █▀█ ░█░ █▄▄ █▄▄ ██▄ ▄█',
+  '██▀▀█ █▀▀█ █▀▀█   ▀  █▀▀ █▀▀ ▀▀█▀▀',
+  '██▄▄█ █▄▄▀ █  █   █  █▀▀ █    ░█░ ',
+  '█     ▀  ▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀ ▀▀▀  ░▀░ ',
+  '',
+  ' █▀▀█ █▀▀ █  █  ▀  █   █   █▀▀ █▀▀',
+  ' █▄▄█ █   █▀▀█  █  █   █   █▀▀ ▀▀█',
+  ' █  █ ▀▀▀ ▀  ▀ ▀▀▀ ▀▀▀ ▀▀▀ ▀▀▀ ▀▀▀',
 ];
 
-function AsciiTitle({ width }: { width: number }) {
+function AsciiTitle() {
   return (
-    <Box flexDirection="column" alignItems="center" marginTop={1} marginBottom={1}>
+    <Box flexDirection="column" alignItems="center" marginTop={2} marginBottom={1}>
       {TITLE_LINES.map((line, i) => (
         <Text key={`title-${i}`} color="red">{line}</Text>
       ))}
@@ -100,20 +105,9 @@ function AsciiTitle({ width }: { width: number }) {
 // ─── Welcome screen ─────────────────────────────────────────────────────────
 
 function WelcomeMessage() {
-  const profile = getActiveProfile();
-  const { stdout } = useStdout();
-  const termWidth = stdout?.columns ?? 80;
-
   return (
     <Box flexDirection="column" alignItems="center">
-      <AsciiTitle width={termWidth} />
-      <Box marginBottom={1}>
-        <Text dimColor>
-          {profile.server_url}
-          {profile.name !== 'default' ? ` (${profile.name})` : ''}
-          {'  ·  Claude Sonnet 4.6'}
-        </Text>
-      </Box>
+      <AsciiTitle />
     </Box>
   );
 }
@@ -239,7 +233,7 @@ export function ChatApp() {
         </Box>
       )}
 
-      {/* Input area — styled like opencode with left accent border */}
+      {/* Input area */}
       <Box borderStyle="single" borderColor={streaming ? 'gray' : 'red'} paddingX={1} flexDirection="column">
         <Box>
           <Text color="green" bold>▸ </Text>
@@ -247,12 +241,16 @@ export function ChatApp() {
             value={input}
             onChange={setInput}
             onSubmit={handleSubmit}
-            placeholder={streaming ? 'Waiting for response...' : 'Ask anything... "Show me all online agents"'}
+            placeholder={streaming ? 'Waiting for response...' : 'Ask anything... "What\'s our defense score?"'}
           />
         </Box>
+        <Text> </Text>
         <Box>
-          <Text color="red" bold>Server </Text>
+          <Text color="red" bold>Server  </Text>
           <Text dimColor>{getActiveProfile().server_url}</Text>
+          <Text dimColor>{'  ·  '}</Text>
+          <Text color="red" bold>Model  </Text>
+          <Text dimColor>Claude Sonnet 4.6</Text>
         </Box>
       </Box>
 
