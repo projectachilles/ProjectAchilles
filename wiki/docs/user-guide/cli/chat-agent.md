@@ -1,7 +1,7 @@
 ---
 sidebar_position: 7
 title: "AI Chat Agent"
-description: "Dual-mode AI chat interface with tool calling and approval system."
+description: "Dual-mode AI chat interface with tool calling, markdown rendering, and multi-provider support."
 ---
 
 # AI Chat Agent
@@ -26,29 +26,36 @@ graph TD
     E --> G[streamChatResponse]
     F --> G
 
-    G --> H[AI Agent]
+    G --> H[AI SDK streamText]
     H --> I[System Prompt]
-    H --> J[Tool Registry]
+    H --> J[Tool Registry - 60 tools]
+    H --> K[Provider Factory]
 
-    J --> K[Read Tools - no approval]
-    J --> L[Write Tools - brief confirmation]
-    J --> M[Destructive Tools - explicit confirmation]
+    K --> L[Anthropic]
+    K --> M[OpenAI]
+    K --> N[Ollama / Local]
+
+    J --> O[Read Tools - 36]
+    J --> P[Write Tools - 13]
+    J --> Q[Destructive Tools - 11]
 ```
 
 ## Two Interface Modes
 
 The chat agent automatically detects your terminal environment and picks the best interface:
 
-### Interactive Mode (TUI)
+### Interactive Mode (Ink TUI)
 
-When running in a real terminal with TTY support, you get a full-screen interface built with [Ink](https://github.com/vadimdemedes/ink):
+When running in a real terminal with TTY support, you get a full-screen interface built with [Ink](https://github.com/vadimdemedes/ink) (React for the terminal):
 
-- ASCII art welcome banner
-- Scrollable message history
-- Real-time streaming responses with a spinner
-- Markdown rendering (bold, headers, tables, code blocks)
-- Persistent input field at the bottom
-- Status bar showing server URL and AI model
+- **ANSI Shadow ASCII art banner** — large block-character "PROJECT ACHILLES" title in green
+- **Green terminal theme** — all UI elements use a hacker-green aesthetic (borders, labels, spinner, headers)
+- **Scrollable message history** — user and assistant messages with role labels
+- **Markdown rendering** — responses rendered with `marked-terminal` for proper box-drawn tables, styled headers, horizontal rules, and reflowed text. A post-processor handles bold/italic/code inside list items that `marked-terminal` misses
+- **Streaming spinner** — animated dots while waiting for the first AI token
+- **Bordered input area** — text input with placeholder text, green border (gray when streaming)
+- **Dynamic status bar** — shows the active server URL and configured AI model (reads from config, not hardcoded)
+- **Keyboard hints** — `/clear reset` and `ctrl+c quit` displayed below the input
 
 **Chat commands:**
 
@@ -61,26 +68,85 @@ When running in a real terminal with TTY support, you get a full-screen interfac
 
 ### Piped Mode (Readline)
 
-When stdin is not a TTY (piped input, CI environments), the chat falls back to a simple readline REPL with markdown-to-ANSI rendering:
+When stdin is not a TTY (piped input, CI environments), the chat falls back to a readline REPL with full markdown-to-ANSI rendering via `marked-terminal`:
 
 ```bash
 # Piped mode — send a single query
 echo "What's our current defense score?" | achilles chat
 
-# Interactive readline mode in non-TTY environments
-achilles chat
-▸ Show me offline agents
-◆ I found 3 agents with stale heartbeats:
-  - prod-web-01 (last seen 2 hours ago)
-  - dev-db-03 (last seen 4 hours ago)
-  - staging-api-02 (last seen 6 hours ago)
+# The response includes rendered markdown:
+# ┌─────────────────────┬───────┐
+# │ Metric              │ Value │
+# ├─────────────────────┼───────┤
+# │ 🟢 Protected        │ 263   │
+# │ 🔴 Unprotected      │ 313   │
+# │ 📊 Total Executions │ 576   │
+# └─────────────────────┴───────┘
+```
+
+:::info Piped stdin handling
+When input is piped (`echo "..." | achilles chat`), the readline `close` event fires immediately after the line is read. The chat defers `process.exit()` until the streaming AI response completes, preventing truncated output.
+:::
+
+## AI Provider Configuration
+
+The chat agent supports three AI providers. Configure via `achilles config set`:
+
+### Anthropic (Default)
+
+```bash
+achilles config set ai.provider anthropic
+achilles config set ai.model claude-sonnet-4-6
+achilles config set ai.api_key sk-ant-...
+```
+
+### OpenAI
+
+```bash
+achilles config set ai.provider openai
+achilles config set ai.model gpt-4o
+achilles config set ai.api_key sk-...
+```
+
+### Ollama (Local Models)
+
+Run any model locally without API costs:
+
+```bash
+# 1. Start Ollama with your model
+ollama run llama3
+
+# 2. Configure the CLI
+achilles config set ai.provider ollama
+achilles config set ai.model llama3
+achilles config set ai.base_url http://localhost:11434/v1
+achilles config set ai.api_key ollama   # Required by SDK but ignored by Ollama
+```
+
+Works with any Ollama model: `llama3`, `qwen3`, `mistral`, `codellama`, etc.
+
+:::tip LM Studio and other local servers
+Any OpenAI-compatible local server works — just set `ai.provider ollama` and point `ai.base_url` to your server (e.g., `http://localhost:1234/v1` for LM Studio).
+:::
+
+:::note Technical detail
+The provider factory uses `openai.chat(modelId)` (Chat Completions API) instead of the default `openai(modelId)` (Responses API) because Ollama and local servers don't support OpenAI's newer Responses API (`/v1/responses`) which uses `item_reference` message types.
+:::
+
+### Environment Variables
+
+As an alternative to config, you can set environment variables:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-...  achilles chat
+OPENAI_API_KEY=sk-...         achilles chat
 ```
 
 ## Available Tools
 
-The AI agent has access to **33 tools** organized into three approval tiers:
+The AI agent has access to **60 tools** organized into three approval tiers:
 
-### Read Tools (No Confirmation Required)
+### Read Tools (36 — No Confirmation Required)
 
 These tools only query data and are executed immediately:
 
@@ -123,13 +189,9 @@ These tools only query data and are executed immediately:
 | `list_users` | Team members |
 | `list_invitations` | Pending invitations |
 
-### Write Tools (Brief Confirmation)
+### Write Tools (13 — Brief Confirmation)
 
-These tools modify data. The agent will describe the action and ask for quick confirmation:
-
-```
-→ Create test task for 5 agents [Y/n]:
-```
+These tools modify data. The agent will describe the action before executing:
 
 | Tool | Description |
 |------|-------------|
@@ -146,14 +208,9 @@ These tools modify data. The agent will describe the action and ask for quick co
 | `accept_risk` | Create a risk acceptance |
 | `invite_user` | Invite a team member |
 
-### Destructive Tools (Explicit Confirmation)
+### Destructive Tools (11 — Explicit Confirmation)
 
-These tools perform irreversible operations. The agent requires you to type "yes" to confirm:
-
-```
-⚠️  Decommission agent prod-web-01
-   Type "yes" to confirm:
-```
+These tools perform irreversible operations:
 
 | Tool | Description |
 |------|-------------|
@@ -168,6 +225,47 @@ These tools perform irreversible operations. The agent requires you to type "yes
 | `delete_certificate` | Delete a signing certificate |
 | `revoke_risk_acceptance` | Revoke a risk acceptance |
 | `delete_user` | Remove a team member |
+
+## Visual Style
+
+### Ink TUI Welcome Screen
+
+The interactive mode opens with a styled welcome screen:
+
+```
+          ██████╗ ██████╗  ██████╗      ██╗███████╗ ██████╗████████╗
+          ██╔══██╗██╔══██╗██╔═══██╗     ██║██╔════╝██╔════╝╚══██╔══╝
+          ██████╔╝██████╔╝██║   ██║     ██║█████╗  ██║        ██║
+          ██╔═══╝ ██╔══██╗██║   ██║██   ██║██╔══╝  ██║        ██║
+          ██║     ██║  ██║╚██████╔╝╚█████╔╝███████╗╚██████╗   ██║
+          ╚═╝     ╚═╝  ╚═╝ ╚═════╝  ╚════╝ ╚══════╝ ╚═════╝   ╚═╝
+
+           █████╗  ██████╗██╗  ██╗██╗██╗     ██╗     ███████╗███████╗
+          ██╔══██╗██╔════╝██║  ██║██║██║     ██║     ██╔════╝██╔════╝
+          ███████║██║     ███████║██║██║     ██║     █████╗  ███████╗
+          ██╔══██║██║     ██╔══██║██║██║     ██║     ██╔══╝  ╚════██║
+          ██║  ██║╚██████╗██║  ██║██║███████╗███████╗███████╗███████║
+          ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝╚══════╝
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ ▸ Ask anything... "What's our defense score?"                            │
+│                                                                          │
+│ Server  https://tpsgl.agent.projectachilles.io  ·  Model  qwen3 (ollama) │
+└──────────────────────────────────────────────────────────────────────────┘
+                           /clear reset  ctrl+c quit
+```
+
+### Markdown Rendering Pipeline
+
+AI responses go through a rendering pipeline for terminal display:
+
+1. **`marked` + `marked-terminal`** — Converts markdown to ANSI escape codes (box-drawn tables, colored headers, horizontal rules, reflowed text)
+2. **`fixRemainingMarkdown()`** — Post-processor that handles inline formatting `marked-terminal` misses inside list items:
+   - `**bold**` → ANSI bold (`\e[1m...\e[22m`)
+   - `*italic*` → ANSI italic (`\e[3m...\e[23m`)
+   - `` `code` `` → ANSI cyan (`\e[36m...\e[39m`)
+
+This pipeline is used in both Ink TUI mode and readline fallback mode.
 
 ## Usage Examples
 
@@ -227,6 +325,25 @@ The agent enforces a **10-step limit** per response to prevent infinite tool-cal
 | Tool execution failure | Detailed error with context |
 | AI provider unavailable | Fallback suggestions and config help |
 
-## AI Provider Configuration
+## Technical Implementation
 
-See the [Configuration & Profiles](./configuration.md) page for details on setting up your AI provider (Anthropic, OpenAI, or Ollama).
+| Component | Technology | Purpose |
+|-----------|-----------|---------|
+| TUI Framework | [Ink](https://github.com/vadimdemedes/ink) v6 | React for the terminal |
+| Text Input | `ink-text-input` | Controlled text input component |
+| Spinner | `ink-spinner` | Animated loading indicator |
+| Markdown | `marked` + `marked-terminal` | ANSI terminal markdown rendering |
+| AI SDK | `ai` v6 + `@ai-sdk/anthropic` / `@ai-sdk/openai` | Streaming text, tool calling |
+| Tool Schemas | `zod` + `inputSchema` (MCP-aligned) | Type-safe tool parameter validation |
+| Provider Factory | `provider.ts` | Creates proper model instances with API keys |
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `cli/src/chat/launch.ts` | Entry point — TTY detection, mode selection |
+| `cli/src/chat/view.tsx` | Ink TUI components (ChatApp, Message, AsciiTitle) |
+| `cli/src/chat/agent.ts` | AI SDK `streamText` with tool calling |
+| `cli/src/chat/provider.ts` | Provider factory (Anthropic, OpenAI, Ollama) |
+| `cli/src/chat/tools.ts` | 60 tool definitions (read/write/destructive) |
+| `cli/src/chat/system-prompt.ts` | Domain-specific system prompt builder |
