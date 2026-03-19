@@ -65,9 +65,9 @@ function Message({ message, isStreaming }: MessageProps) {
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Text color={isUser ? 'green' : 'red'} bold>
+      <Text color="green" bold>
         {isUser ? '▸ You' : '◆ Achilles'}
-        {isStreaming ? <Text color="yellow"> (streaming...)</Text> : ''}
+        {isStreaming ? <Text color="greenBright"> streaming...</Text> : ''}
       </Text>
       <Box marginLeft={2}>
         {isUser ? (
@@ -83,20 +83,19 @@ function Message({ message, isStreaming }: MessageProps) {
 // ─── ASCII title ────────────────────────────────────────────────────────────
 
 const TITLE_LINES = [
-  '██▀▀█ █▀▀█ █▀▀█   ▀  █▀▀ █▀▀ ▀▀█▀▀',
-  '██▄▄█ █▄▄▀ █  █   █  █▀▀ █    ░█░ ',
-  '█     ▀  ▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀ ▀▀▀  ░▀░ ',
-  '',
-  ' █▀▀█ █▀▀ █  █  ▀  █   █   █▀▀ █▀▀',
-  ' █▄▄█ █   █▀▀█  █  █   █   █▀▀ ▀▀█',
-  ' █  █ ▀▀▀ ▀  ▀ ▀▀▀ ▀▀▀ ▀▀▀ ▀▀▀ ▀▀▀',
+  '╔═╗┬─┐┌─┐ ┬┌─┐┌─┐┌┬┐',
+  '╠═╝├┬┘│ │ │├┤ │   │ ',
+  '╩  ┴└─└─┘└┘└─┘└─┘ ┴ ',
+  '╔═╗┌─┐┬ ┬┬┬  ┬  ┌─┐┌─┐',
+  '╠═╣│  ├─┤││  │  ├┤ └─┐',
+  '╩ ╩└─┘┴ ┴┴┴─┘┴─┘└─┘└─┘',
 ];
 
 function AsciiTitle() {
   return (
     <Box flexDirection="column" alignItems="center" marginTop={2} marginBottom={1}>
       {TITLE_LINES.map((line, i) => (
-        <Text key={`title-${i}`} color="red">{line}</Text>
+        <Text key={`title-${i}`} color="green">{line}</Text>
       ))}
     </Box>
   );
@@ -219,10 +218,10 @@ export function ChatApp() {
       {/* Spinner when waiting for first token */}
       {streaming && !streamBuffer && (
         <Box marginLeft={3} marginBottom={1}>
-          <Text color="yellow">
+          <Text color="green">
             <Spinner type="dots" />
           </Text>
-          <Text color="yellow"> Thinking...</Text>
+          <Text color="green"> Thinking...</Text>
         </Box>
       )}
 
@@ -234,7 +233,7 @@ export function ChatApp() {
       )}
 
       {/* Input area */}
-      <Box borderStyle="single" borderColor={streaming ? 'gray' : 'red'} paddingX={1} flexDirection="column">
+      <Box borderStyle="single" borderColor={streaming ? 'gray' : 'green'} paddingX={1} flexDirection="column">
         <Box>
           <Text color="green" bold>▸ </Text>
           <TextInput
@@ -246,10 +245,10 @@ export function ChatApp() {
         </Box>
         <Text> </Text>
         <Box>
-          <Text color="red" bold>Server  </Text>
+          <Text color="green" bold>Server  </Text>
           <Text dimColor>{getActiveProfile().server_url}</Text>
           <Text dimColor>{'  ·  '}</Text>
-          <Text color="red" bold>Model  </Text>
+          <Text color="green" bold>Model  </Text>
           <Text dimColor>Claude Sonnet 4.6</Text>
         </Box>
       </Box>
