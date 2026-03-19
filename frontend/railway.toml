@@ -1,7 +1,7 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
-watchPatterns = ["src/**", "package.json", "package-lock.json", "tsconfig.json", "Dockerfile", "nginx.conf", "docker-entrypoint.sh"]
+watchPatterns = ["src/**", "public/**", "package.json", "package-lock.json", "tsconfig.json", "Dockerfile", "nginx.conf", "docker-entrypoint.sh"]
 
 [deploy]
 restartPolicyType = "ON_FAILURE"
