@@ -1,0 +1,4 @@
+backend/data/f0_library/
+backend-serverless/data/f0_library/
+scripts/venv/
+wiki/node_modules/
