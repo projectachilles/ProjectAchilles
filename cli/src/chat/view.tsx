@@ -80,25 +80,54 @@ function Message({ message, isStreaming }: MessageProps) {
   );
 }
 
+// ─── ASCII title ────────────────────────────────────────────────────────────
+
+const TITLE_LINES = [
+  '█▀█ █▀█ █▀█ ░▀░ █▀▀ █▀▀ ▀█▀   █▀█ █▀▀ █░█ ▀█▀ █░░ █░░ █▀▀ █▀',
+  '█▀▀ █▀▄ █▄█ ░█░ ██▄ █▄▄ ░█░   █▀█ █▄▄ █▀█ ░█░ █▄▄ █▄▄ ██▄ ▄█',
+];
+
+function AsciiTitle({ width }: { width: number }) {
+  return (
+    <Box flexDirection="column" alignItems="center" marginTop={1} marginBottom={1}>
+      {TITLE_LINES.map((line, i) => (
+        <Text key={`title-${i}`} color="red">{line}</Text>
+      ))}
+    </Box>
+  );
+}
+
 // ─── Welcome screen ─────────────────────────────────────────────────────────
 
 function WelcomeMessage() {
   const profile = getActiveProfile();
-  const user = getUserInfo();
+  const { stdout } = useStdout();
+  const termWidth = stdout?.columns ?? 80;
 
   return (
-    <Box flexDirection="column" marginBottom={1} paddingX={1}>
-      <Text color="red" bold>◆ Achilles Chat</Text>
-      <Text dimColor>AI-powered security fleet management</Text>
-      <Text dimColor>Server: {profile.server_url}{profile.name !== 'default' ? ` (${profile.name})` : ''}</Text>
-      {user && <Text dimColor>User: {user.userId}</Text>}
-      <Text> </Text>
-      <Text dimColor>Ask me anything about your security fleet:</Text>
-      <Text color="gray">  "Show me all online agents"</Text>
-      <Text color="gray">  "What's our defense score?"</Text>
-      <Text color="gray">  "Which techniques have the worst coverage?"</Text>
-      <Text> </Text>
-      <Text dimColor>Ctrl+C to quit · /clear to reset · /help for commands</Text>
+    <Box flexDirection="column" alignItems="center">
+      <AsciiTitle width={termWidth} />
+      <Box marginBottom={1}>
+        <Text dimColor>
+          {profile.server_url}
+          {profile.name !== 'default' ? ` (${profile.name})` : ''}
+          {'  ·  Claude Sonnet 4.6'}
+        </Text>
+      </Box>
+    </Box>
+  );
+}
+
+// ─── Keyboard hints ─────────────────────────────────────────────────────────
+
+function KeyboardHints({ streaming }: { streaming: boolean }) {
+  return (
+    <Box justifyContent="center" marginTop={0}>
+      <Text dimColor>
+        {streaming ? '' : '/clear reset  '}
+        <Text bold dimColor>ctrl+c</Text>
+        {' quit'}
+      </Text>
     </Box>
   );
 }
@@ -173,12 +202,15 @@ export function ChatApp() {
   // Show only recent messages that fit
   const visible = displayMessages.slice(-maxVisibleMessages);
 
+  const showWelcome = messages.length === 0 && !streaming;
+
   return (
     <Box flexDirection="column">
+      {/* Welcome title — only when no messages */}
+      {showWelcome && <WelcomeMessage />}
+
       {/* Messages area */}
-      {messages.length === 0 && !streaming ? (
-        <WelcomeMessage />
-      ) : (
+      {!showWelcome && (
         <Box flexDirection="column" paddingX={1}>
           {visible.map((msg, i) => (
             <Message
@@ -207,16 +239,25 @@ export function ChatApp() {
         </Box>
       )}
 
-      {/* Input area */}
-      <Box borderStyle="single" borderColor={streaming ? 'gray' : 'green'} paddingX={1}>
-        <Text color="green" bold>▸ </Text>
-        <TextInput
-          value={input}
-          onChange={setInput}
-          onSubmit={handleSubmit}
-          placeholder={streaming ? 'Waiting for response...' : 'Ask me anything...'}
-        />
+      {/* Input area — styled like opencode with left accent border */}
+      <Box borderStyle="single" borderColor={streaming ? 'gray' : 'red'} paddingX={1} flexDirection="column">
+        <Box>
+          <Text color="green" bold>▸ </Text>
+          <TextInput
+            value={input}
+            onChange={setInput}
+            onSubmit={handleSubmit}
+            placeholder={streaming ? 'Waiting for response...' : 'Ask anything... "Show me all online agents"'}
+          />
+        </Box>
+        <Box>
+          <Text color="red" bold>Server </Text>
+          <Text dimColor>{getActiveProfile().server_url}</Text>
+        </Box>
       </Box>
+
+      {/* Keyboard hints below input */}
+      <KeyboardHints streaming={streaming} />
     </Box>
   );
 }
