@@ -18,6 +18,7 @@ import type { ChatMessage } from './agent.js';
 import { streamChatResponse } from './agent.js';
 import { getActiveProfile } from '../config/store.js';
 import { getUserInfo } from '../auth/token-store.js';
+import { getModelDisplayName } from './provider.js';
 
 // ─── Markdown renderer ──────────────────────────────────────────────────────
 
@@ -256,7 +257,7 @@ export function ChatApp() {
           <Text dimColor>{getActiveProfile().server_url}</Text>
           <Text dimColor>{'  ·  '}</Text>
           <Text color="green" bold>Model  </Text>
-          <Text dimColor>Claude Sonnet 4.6</Text>
+          <Text dimColor>{getModelDisplayName()}</Text>
         </Box>
       </Box>
 

@@ -36,6 +36,9 @@ export function getConfiguredModel(): LanguageModelV1 {
     const openai = createOpenAI({
       apiKey: apiKey ?? '',
       ...(ai?.base_url ? { baseURL: ai.base_url } : {}),
+      // Ollama and other local servers only support Chat Completions API,
+      // not the newer OpenAI Responses API (which uses item_reference types)
+      compatibility: 'compatible',
     });
     return openai(modelId);
   }
@@ -43,4 +46,13 @@ export function getConfiguredModel(): LanguageModelV1 {
   // Fallback: try Anthropic
   const anthropic = createAnthropic({ apiKey: apiKey ?? '' });
   return anthropic(modelId);
+}
+
+/** Get a display-friendly label for the configured model */
+export function getModelDisplayName(): string {
+  const config = loadConfig();
+  const ai = config.ai;
+  const provider = ai?.provider ?? 'anthropic';
+  const modelId = ai?.model || DEFAULT_MODEL[provider] || 'claude-sonnet-4-6';
+  return `${modelId} (${provider})`;
 }
