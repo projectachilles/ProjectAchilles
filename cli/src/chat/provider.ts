@@ -36,11 +36,12 @@ export function getConfiguredModel(): LanguageModelV1 {
     const openai = createOpenAI({
       apiKey: apiKey ?? '',
       ...(ai?.base_url ? { baseURL: ai.base_url } : {}),
-      // Ollama and other local servers only support Chat Completions API,
-      // not the newer OpenAI Responses API (which uses item_reference types)
       compatibility: 'compatible',
     });
-    return openai(modelId);
+    // Use .chat() explicitly — the default openai(modelId) uses the Responses API
+    // (/v1/responses) which Ollama and local servers don't support.
+    // .chat() uses the Chat Completions API (/v1/chat/completions).
+    return openai.chat(modelId);
   }
 
   // Fallback: try Anthropic
