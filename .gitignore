@@ -65,3 +65,4 @@ presentation/
 wiki/.docusaurus/
 wiki/build/
 wiki/node_modules/
+.gitnexus/

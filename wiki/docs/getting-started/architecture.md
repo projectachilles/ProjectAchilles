@@ -174,3 +174,108 @@ ProjectAchilles supports five deployment targets, each with different trade-offs
 | **Vercel** | `backend-serverless/` | Turso (libSQL) | Vercel Blob | No | ~$20/mo |
 
 The Vercel target uses a purpose-built serverless fork (`backend-serverless/`) that replaces SQLite with Turso, filesystem with Vercel Blob, and process-based scheduling with Vercel Cron jobs. See [Deployment Overview](../deployment/overview) for detailed comparisons.
+
+## End-to-End Data Flow
+
+The following diagram shows the complete journey of data through the platform — from test discovery to defense metrics:
+
+```mermaid
+graph LR
+    subgraph "1. Test Discovery"
+        GIT[(Git Repo<br/>f0_library)] -->|Sync| BROWSER[Browser Service]
+        BROWSER -->|Index| CATALOG[Test Catalog]
+    end
+
+    subgraph "2. Build & Sign"
+        CATALOG -->|Select test| BUILD[Build Service]
+        BUILD -->|Go compile| BIN[Signed Binary]
+        CERT[(Certificate Store)] -->|Active cert| BUILD
+    end
+
+    subgraph "3. Task Distribution"
+        BIN -->|Create task| TASKS[(SQLite<br/>tasks table)]
+        TASKS -->|Agent polls| AGENT[Go Agent]
+    end
+
+    subgraph "4. Execution"
+        AGENT -->|Download binary| BIN
+        AGENT -->|Verify signature| AGENT
+        AGENT -->|Execute| RESULT[Exit Code + Output]
+    end
+
+    subgraph "5. Ingestion"
+        RESULT -->|POST /result| INGEST[Result Service]
+        INGEST -->|Index document| ES[(Elasticsearch)]
+        INGEST -->|Check thresholds| ALERT[Alerting Service]
+    end
+
+    subgraph "6. Analytics"
+        ES -->|Aggregate| DEFENSE[Defense Score]
+        ES -->|Aggregate| HEATMAP[MITRE Heatmap]
+        ES -->|Aggregate| TRENDS[Trend Charts]
+        ES -->|Correlate| DEFENDER[Defender Cross-Correlation]
+    end
+```
+
+### Detailed Execution Sequence
+
+```mermaid
+sequenceDiagram
+    participant User as Admin UI
+    participant API as Backend API
+    participant DB as SQLite
+    participant Agent as Go Agent
+    participant ES as Elasticsearch
+    participant Alert as Alerting Service
+    participant Slack as Slack/Email
+
+    User->>API: Create task (test UUID, target agents)
+    API->>DB: INSERT task (status: pending)
+
+    loop Heartbeat polling (default: 30s)
+        Agent->>API: POST /heartbeat (system info)
+        API->>DB: Update agent last_seen
+        API-->>Agent: Pending task list
+    end
+
+    Agent->>API: GET /download?task_id=...
+    API-->>Agent: Signed binary (SHA256 + Ed25519)
+    Agent->>Agent: Verify SHA256 hash
+    Agent->>Agent: Verify Ed25519 signature
+    Agent->>Agent: Execute binary (30s timeout)
+    Agent->>API: POST /result (exit_code, stdout, stderr, bundle_results)
+
+    API->>DB: UPDATE task status → completed
+    API->>ES: Index result document(s)
+
+    Note over API,ES: Bundle tests fan out to multiple ES documents
+
+    API->>Alert: evaluateAndNotify(testName, agentId)
+    Alert->>ES: Query current Defense Score
+    alt Threshold breached
+        Alert->>Slack: Dispatch notification
+    end
+
+    User->>API: GET /api/analytics/defense-score
+    API->>ES: Aggregate results
+    API-->>User: Defense Score + breakdown
+```
+
+### Integration Data Flows
+
+Beyond the core test execution pipeline, several integration-specific flows run in parallel:
+
+**Microsoft Defender Sync** (background, every 5 min / 6 hours):
+```
+Microsoft Graph API → Graph Client → Sync Service → achilles-defender index
+```
+
+**Alert Evaluation** (triggered per result ingestion):
+```
+Result Ingestion → Defense Score Query → Threshold Check → Slack/Email Dispatch
+```
+
+**Risk Acceptance** (user-initiated):
+```
+Accept Risk → achilles-risk-acceptances index → Exclusion Filter Cache → Defense Score recalculation
+```
