@@ -27,6 +27,8 @@ export async function* streamChatResponse(
     userId: user?.userId,
     orgId: user?.orgId,
     role: user?.role,
+    displayName: user?.displayName,
+    email: user?.email,
   });
 
   const model = getConfiguredModel();

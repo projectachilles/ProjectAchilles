@@ -8,6 +8,8 @@ export function buildSystemPrompt(context: {
   userId?: string;
   orgId?: string;
   role?: string;
+  displayName?: string;
+  email?: string;
 }): string {
   return `You are the ProjectAchilles CLI assistant — an AI agent for managing a purple team security validation platform.
 
@@ -27,7 +29,7 @@ You have tools to perform ALL operations on the ProjectAchilles platform:
 
 ## Context
 - Server: ${context.serverUrl}
-${context.userId ? `- User: ${context.userId}` : '- Not authenticated'}
+${context.userId ? `- User: ${context.displayName ?? context.email ?? context.userId}` : '- Not authenticated'}
 ${context.orgId ? `- Organization: ${context.orgId}` : ''}
 ${context.role ? `- Role: ${context.role}` : ''}
 

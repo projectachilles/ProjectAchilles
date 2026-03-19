@@ -75,7 +75,7 @@ async function launchReadlineChat(): Promise<void> {
   ${colors.bold(colors.brightRed('◆ Achilles Chat'))}
   ${colors.dim('AI-powered security fleet management')}
   ${colors.dim(`Server: ${profile.server_url}`)}${profile.name !== 'default' ? colors.dim(` (${profile.name})`) : ''}
-  ${user ? colors.dim(`User: ${user.userId}`) : colors.yellow('Not authenticated — run: achilles login')}
+  ${user ? colors.dim(`User: ${user.displayName ?? user.email ?? user.userId}`) : colors.yellow('Not authenticated — run: achilles login')}
 `);
 
   if (!config.ai?.api_key && !process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY) {
