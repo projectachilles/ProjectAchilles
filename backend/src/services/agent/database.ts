@@ -148,6 +148,16 @@ function initializeTables(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_events_agent_ts ON agent_events(agent_id, created_at);
   `);
 
+  // Migration: add process metrics columns to heartbeat_history
+  const hbCols = database.prepare(`PRAGMA table_info(heartbeat_history)`).all() as { name: string }[];
+  const hbColNames = new Set(hbCols.map((c) => c.name));
+  if (!hbColNames.has('process_cpu_percent')) {
+    database.exec('ALTER TABLE heartbeat_history ADD COLUMN process_cpu_percent REAL');
+  }
+  if (!hbColNames.has('process_memory_mb')) {
+    database.exec('ALTER TABLE heartbeat_history ADD COLUMN process_memory_mb REAL');
+  }
+
   // Migration: add notes columns to tasks table
   const columns = database.prepare(`PRAGMA table_info(tasks)`).all() as { name: string }[];
   const colNames = new Set(columns.map((c) => c.name));

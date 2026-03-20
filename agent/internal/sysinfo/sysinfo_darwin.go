@@ -4,6 +4,8 @@ package sysinfo
 
 import (
 	"encoding/binary"
+	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -21,7 +23,36 @@ func Collect() Info {
 	info.UptimeSeconds = getUptime()
 
 	// CPU usage: approximate from load average scaled by CPU count.
+	// Process CPU: sample getrusage before and after for delta.
+	var ru0 syscall.Rusage
+	syscall.Getrusage(syscall.RUSAGE_SELF, &ru0)
+	wallStart := time.Now()
+
 	info.CPUPercent = getCPUPercent()
+
+	var ru1 syscall.Rusage
+	syscall.Getrusage(syscall.RUSAGE_SELF, &ru1)
+	wallElapsed := time.Since(wallStart)
+
+	// Process CPU: delta (user+system) time as percentage of wall-clock.
+	utime0 := ru0.Utime.Sec*1e6 + int64(ru0.Utime.Usec)
+	stime0 := ru0.Stime.Sec*1e6 + int64(ru0.Stime.Usec)
+	utime1 := ru1.Utime.Sec*1e6 + int64(ru1.Utime.Usec)
+	stime1 := ru1.Stime.Sec*1e6 + int64(ru1.Stime.Usec)
+	pDeltaUs := (utime1 + stime1) - (utime0 + stime0)
+	wallUs := wallElapsed.Microseconds()
+	if wallUs > 0 {
+		info.ProcessCPUPercent = int((pDeltaUs * 100) / wallUs)
+		if info.ProcessCPUPercent < 0 {
+			info.ProcessCPUPercent = 0
+		}
+		if info.ProcessCPUPercent > 100 {
+			info.ProcessCPUPercent = 100
+		}
+	}
+
+	// Process memory via ps.
+	info.ProcessMemoryMB = getProcessMemoryMB()
 
 	// Memory: hw.memsize for total, vm_stat for usage.
 	info.MemoryMB = getMemoryMB()
@@ -128,6 +159,19 @@ func getMemoryMB() int {
 	}
 	usedBytes := totalBytes - freeBytes
 	return int(usedBytes / (1024 * 1024))
+}
+
+// getProcessMemoryMB returns the agent process RSS in MB via ps.
+func getProcessMemoryMB() int {
+	out, err := exec.Command("ps", "-o", "rss=", "-p", fmt.Sprintf("%d", os.Getpid())).Output()
+	if err != nil {
+		return 0
+	}
+	kb, err := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return int(kb / 1024)
 }
 
 // parseVmStatValue extracts the numeric page count from a vm_stat line like

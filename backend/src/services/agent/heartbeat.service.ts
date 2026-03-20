@@ -84,14 +84,16 @@ export function processHeartbeat(agentId: string, payload: HeartbeatPayload): vo
     // Record heartbeat history (sampled: every 5th heartbeat per agent)
     if (shouldRecordHistory(agentId)) {
       db.prepare(`
-        INSERT INTO heartbeat_history (agent_id, cpu_percent, memory_mb, disk_free_mb, uptime_seconds)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO heartbeat_history (agent_id, cpu_percent, memory_mb, disk_free_mb, uptime_seconds, process_cpu_percent, process_memory_mb)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
         agentId,
         payload.system.cpu_percent ?? null,
         payload.system.memory_mb ?? null,
         payload.system.disk_free_mb ?? null,
-        payload.system.uptime_seconds ?? null
+        payload.system.uptime_seconds ?? null,
+        payload.system.process_cpu_percent ?? null,
+        payload.system.process_memory_mb ?? null
       );
     }
   })();
@@ -545,14 +547,16 @@ function parseTags(raw: string | null | undefined): string[] {
 export function recordHeartbeatHistory(agentId: string, payload: HeartbeatPayload): void {
   const db = getDatabase();
   db.prepare(`
-    INSERT INTO heartbeat_history (agent_id, cpu_percent, memory_mb, disk_free_mb, uptime_seconds)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO heartbeat_history (agent_id, cpu_percent, memory_mb, disk_free_mb, uptime_seconds, process_cpu_percent, process_memory_mb)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(
     agentId,
     payload.system.cpu_percent ?? null,
     payload.system.memory_mb ?? null,
     payload.system.disk_free_mb ?? null,
-    payload.system.uptime_seconds ?? null
+    payload.system.uptime_seconds ?? null,
+    payload.system.process_cpu_percent ?? null,
+    payload.system.process_memory_mb ?? null
   );
 }
 
@@ -562,7 +566,7 @@ export function recordHeartbeatHistory(agentId: string, payload: HeartbeatPayloa
 export function getHeartbeatHistory(agentId: string, days: number = 7): HeartbeatHistoryPoint[] {
   const db = getDatabase();
   const rows = db.prepare(`
-    SELECT timestamp, cpu_percent, memory_mb, disk_free_mb, uptime_seconds
+    SELECT timestamp, cpu_percent, memory_mb, disk_free_mb, uptime_seconds, process_cpu_percent, process_memory_mb
     FROM heartbeat_history
     WHERE agent_id = ? AND timestamp > datetime('now', ?)
     ORDER BY timestamp ASC
