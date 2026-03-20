@@ -206,7 +206,7 @@ export function AppSidebar({ collapsed }: AppSidebarProps) {
             )}
           >
             <img
-              src="/assets/logo-achilles.png"
+              src="/assets/logo-achilles.png?v=2"
               alt="ACHILLES"
               className="h-6 w-auto dark:invert"
             />
