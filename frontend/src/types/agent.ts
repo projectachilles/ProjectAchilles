@@ -299,6 +299,8 @@ export interface HeartbeatHistoryPoint {
   memory_mb: number | null;
   disk_free_mb: number | null;
   uptime_seconds: number | null;
+  process_cpu_percent: number | null;
+  process_memory_mb: number | null;
 }
 
 export interface FleetHealthMetrics {

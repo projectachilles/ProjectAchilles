@@ -1,9 +1,10 @@
 /**
  * Agent Heartbeat Tab - Sparkline charts for CPU, memory, and disk over time.
+ * Supports dual Y-axis overlay for agent process metrics alongside host metrics.
  */
 
 import { useEffect, useState } from 'react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/shared/ui/Card';
 import { Button } from '@/components/shared/ui/Button';
 import { Loading } from '@/components/shared/ui/Spinner';
@@ -19,6 +20,13 @@ function formatTimestamp(ts: string): string {
   const d = new Date(normalized);
   return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
 }
+
+// Colors
+const HOST_CPU_COLOR = 'oklch(0.60 0.18 145)';
+const AGENT_CPU_COLOR = 'oklch(0.75 0.16 145)';
+const HOST_MEM_COLOR = 'oklch(0.55 0.20 290)';
+const AGENT_MEM_COLOR = 'oklch(0.70 0.16 290)';
+const DISK_COLOR = 'oklch(0.65 0.18 85)';
 
 export default function AgentHeartbeatTab({ agentId }: AgentHeartbeatTabProps) {
   const [history, setHistory] = useState<HeartbeatHistoryPoint[]>([]);
@@ -51,7 +59,14 @@ export default function AgentHeartbeatTab({ agentId }: AgentHeartbeatTabProps) {
     cpu: point.cpu_percent ?? 0,
     memory: point.memory_mb ?? 0,
     disk: point.disk_free_mb ? point.disk_free_mb / 1024 : 0,
+    agentCpu: point.process_cpu_percent ?? undefined,
+    agentMemory: point.process_memory_mb ?? undefined,
   }));
+
+  // Detect if any data point has process metrics (agent may not have upgraded yet)
+  const hasProcessMetrics = history.some(
+    (p) => p.process_cpu_percent != null || p.process_memory_mb != null
+  );
 
   // Downsample if > 500 points for chart readability
   const maxPoints = 500;
@@ -90,16 +105,42 @@ export default function AgentHeartbeatTab({ agentId }: AgentHeartbeatTabProps) {
           {/* CPU Chart */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">CPU Usage (%)</CardTitle>
+              <CardTitle className="text-sm">
+                {hasProcessMetrics ? 'CPU Usage — Host & Agent (%)' : 'CPU Usage (%)'}
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={200}>
                 <AreaChart data={sampled}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                   <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+                  <YAxis yAxisId="left" domain={[0, 100]} tick={{ fontSize: 10 }} />
+                  {hasProcessMetrics && (
+                    <YAxis yAxisId="right" orientation="right" domain={[0, 'auto']} tick={{ fontSize: 10 }} />
+                  )}
                   <Tooltip />
-                  <Area type="monotone" dataKey="cpu" stroke="oklch(0.60 0.18 145)" fill="oklch(0.60 0.18 145 / 0.2)" />
+                  {hasProcessMetrics && <Legend />}
+                  <Area
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="cpu"
+                    name="Host CPU"
+                    stroke={HOST_CPU_COLOR}
+                    fill={`${HOST_CPU_COLOR} / 0.2)`}
+                    fillOpacity={0.2}
+                  />
+                  {hasProcessMetrics && (
+                    <Area
+                      yAxisId="right"
+                      type="monotone"
+                      dataKey="agentCpu"
+                      name="Agent CPU"
+                      stroke={AGENT_CPU_COLOR}
+                      fill="none"
+                      strokeDasharray="6 3"
+                      connectNulls
+                    />
+                  )}
                 </AreaChart>
               </ResponsiveContainer>
             </CardContent>
@@ -108,16 +149,42 @@ export default function AgentHeartbeatTab({ agentId }: AgentHeartbeatTabProps) {
           {/* Memory Chart */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Memory Usage (MB)</CardTitle>
+              <CardTitle className="text-sm">
+                {hasProcessMetrics ? 'Memory Usage — Host & Agent (MB)' : 'Memory Usage (MB)'}
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={200}>
                 <AreaChart data={sampled}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                   <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                  <YAxis tick={{ fontSize: 10 }} />
+                  <YAxis yAxisId="left" tick={{ fontSize: 10 }} />
+                  {hasProcessMetrics && (
+                    <YAxis yAxisId="right" orientation="right" domain={[0, 'auto']} tick={{ fontSize: 10 }} />
+                  )}
                   <Tooltip />
-                  <Area type="monotone" dataKey="memory" stroke="oklch(0.55 0.20 290)" fill="oklch(0.55 0.20 290 / 0.2)" />
+                  {hasProcessMetrics && <Legend />}
+                  <Area
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="memory"
+                    name="Host Memory"
+                    stroke={HOST_MEM_COLOR}
+                    fill={`${HOST_MEM_COLOR} / 0.2)`}
+                    fillOpacity={0.2}
+                  />
+                  {hasProcessMetrics && (
+                    <Area
+                      yAxisId="right"
+                      type="monotone"
+                      dataKey="agentMemory"
+                      name="Agent Memory"
+                      stroke={AGENT_MEM_COLOR}
+                      fill="none"
+                      strokeDasharray="6 3"
+                      connectNulls
+                    />
+                  )}
                 </AreaChart>
               </ResponsiveContainer>
             </CardContent>
@@ -135,7 +202,7 @@ export default function AgentHeartbeatTab({ agentId }: AgentHeartbeatTabProps) {
                   <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 10 }} />
                   <Tooltip />
-                  <Area type="monotone" dataKey="disk" stroke="oklch(0.65 0.18 85)" fill="oklch(0.65 0.18 85 / 0.2)" />
+                  <Area type="monotone" dataKey="disk" stroke={DISK_COLOR} fill={`${DISK_COLOR} / 0.2)`} fillOpacity={0.2} />
                 </AreaChart>
               </ResponsiveContainer>
             </CardContent>

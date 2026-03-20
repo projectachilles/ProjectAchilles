@@ -28,13 +28,15 @@ import (
 
 // systemInfo holds basic host information sent with heartbeats.
 type systemInfo struct {
-	Hostname      string `json:"hostname"`
-	OS            string `json:"os"`
-	Arch          string `json:"arch"`
-	UptimeSeconds int64  `json:"uptime_seconds"`
-	CPUPercent    int    `json:"cpu_percent"`
-	MemoryMB      int    `json:"memory_mb"`
-	DiskFreeMB    int    `json:"disk_free_mb"`
+	Hostname          string `json:"hostname"`
+	OS                string `json:"os"`
+	Arch              string `json:"arch"`
+	UptimeSeconds     int64  `json:"uptime_seconds"`
+	CPUPercent        int    `json:"cpu_percent"`
+	MemoryMB          int    `json:"memory_mb"`
+	DiskFreeMB        int    `json:"disk_free_mb"`
+	ProcessCPUPercent int    `json:"process_cpu_percent"`
+	ProcessMemoryMB   int    `json:"process_memory_mb"`
 }
 
 // heartbeatPayload is the JSON body sent on each heartbeat.
@@ -223,13 +225,15 @@ func sendHeartbeat(ctx context.Context, client *httpclient.Client, cfg *config.C
 		Status:      status,
 		CurrentTask: curTask,
 		System: systemInfo{
-			Hostname:      hostname,
-			OS:            runtime.GOOS,
-			Arch:          runtime.GOARCH,
-			UptimeSeconds: info.UptimeSeconds,
-			CPUPercent:    info.CPUPercent,
-			MemoryMB:      info.MemoryMB,
-			DiskFreeMB:    info.DiskFreeMB,
+			Hostname:          hostname,
+			OS:                runtime.GOOS,
+			Arch:              runtime.GOARCH,
+			UptimeSeconds:     info.UptimeSeconds,
+			CPUPercent:        info.CPUPercent,
+			MemoryMB:          info.MemoryMB,
+			DiskFreeMB:        info.DiskFreeMB,
+			ProcessCPUPercent: info.ProcessCPUPercent,
+			ProcessMemoryMB:   info.ProcessMemoryMB,
 		},
 		AgentVersion:      version,
 		LastTaskCompleted: lastTask,

@@ -3,10 +3,12 @@ package sysinfo
 
 // Info holds system metrics collected from the host.
 type Info struct {
-	UptimeSeconds int64
-	CPUPercent    int
-	MemoryMB      int
-	DiskFreeMB    int
+	UptimeSeconds     int64
+	CPUPercent        int
+	MemoryMB          int
+	DiskFreeMB        int
+	ProcessCPUPercent int // agent process CPU usage (0-100)
+	ProcessMemoryMB   int // agent process RSS in MB
 }
 
 // Collect gathers system metrics. Implemented per-platform.

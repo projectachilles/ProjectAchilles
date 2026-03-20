@@ -110,6 +110,8 @@ export interface HeartbeatPayload {
     cpu_percent: number;
     memory_mb: number;
     disk_free_mb: number;
+    process_cpu_percent?: number;
+    process_memory_mb?: number;
   };
   agent_version: string;
   last_task_completed: string | null;
