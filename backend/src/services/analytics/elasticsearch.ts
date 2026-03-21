@@ -243,16 +243,163 @@ export class ElasticsearchService {
     });
   }
 
+  // ============================================================================
+  // ANY-STAGE SCORING — treats each non-CH bundle as a single scoring unit
+  // ============================================================================
+
+  /** Filter matching standalone tests + cyber-hygiene bundle controls (scored per-document). */
+  private readonly PER_DOC_FILTER = {
+    bool: {
+      should: [
+        { bool: { must_not: [{ term: { 'f0rtika.is_bundle_control': true } }] } },
+        { term: { 'f0rtika.category': 'cyber-hygiene' } },
+      ],
+      minimum_should_match: 1,
+    },
+  };
+
+  /** Filter matching non-cyber-hygiene bundle controls (scored per-bundle-group). */
+  private readonly PER_BUNDLE_FILTER = {
+    bool: {
+      must: [
+        { term: { 'f0rtika.is_bundle_control': true } },
+        { bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] } },
+      ],
+    },
+  };
+
+  /** Painless script that groups non-CH bundle controls by bundle_id + hostname. */
+  private readonly BUNDLE_GROUP_SCRIPT = {
+    source: "doc['f0rtika.bundle_id'].value + '::' + doc['routing.hostname'].value",
+    lang: 'painless',
+  };
+
+  /**
+   * Run an "any-stage" defense score query.
+   * Splits into per-doc scoring (standalone + CH) and per-bundle scoring (non-CH bundles).
+   * A bundle counts as 1 protected if ANY member has is_protected:true.
+   */
+  private async runAnyStageScoreQuery(filters: any[]): Promise<{ total: number; protectedCount: number }> {
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: { bool: { filter: filters } },
+      aggs: {
+        per_doc: {
+          filter: this.PER_DOC_FILTER,
+          aggs: {
+            protected: { filter: { term: { 'f0rtika.is_protected': true } } },
+          },
+        },
+        per_bundle: {
+          filter: this.PER_BUNDLE_FILTER,
+          aggs: {
+            bundles: {
+              terms: { script: this.BUNDLE_GROUP_SCRIPT, size: 10000 },
+              aggs: {
+                has_protected: { filter: { term: { 'f0rtika.is_protected': true } } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return this.parseAnyStageResponse(response);
+  }
+
+  /** Extract combined totals from a split per-doc + per-bundle aggregation response. */
+  private parseAnyStageResponse(response: any): { total: number; protectedCount: number } {
+    const perDoc = response.aggregations?.per_doc as any;
+    const perDocTotal = perDoc?.doc_count || 0;
+    const perDocProtected = perDoc?.protected?.doc_count || 0;
+
+    const perBundle = response.aggregations?.per_bundle as any;
+    const bundleBuckets: any[] = perBundle?.bundles?.buckets || [];
+    const bundleTotal = bundleBuckets.length;
+    const bundleProtected = bundleBuckets.filter(
+      (b: any) => (b.has_protected?.doc_count || 0) > 0
+    ).length;
+
+    return {
+      total: perDocTotal + bundleTotal,
+      protectedCount: perDocProtected + bundleProtected,
+    };
+  }
+
+  /** Build any-stage aggregations for use inside a date_histogram or terms bucket. */
+  private buildAnyStageSubAggs(): Record<string, any> {
+    return {
+      per_doc: {
+        filter: this.PER_DOC_FILTER,
+        aggs: {
+          protected: { filter: { term: { 'f0rtika.is_protected': true } } },
+        },
+      },
+      per_bundle: {
+        filter: this.PER_BUNDLE_FILTER,
+        aggs: {
+          bundles: {
+            terms: { script: this.BUNDLE_GROUP_SCRIPT, size: 10000 },
+            aggs: {
+              has_protected: { filter: { term: { 'f0rtika.is_protected': true } } },
+            },
+          },
+        },
+      },
+    };
+  }
+
+  /** Parse any-stage totals from a sub-bucket (date_histogram bucket or terms bucket). */
+  private parseAnyStageSubBucket(bucket: any): { total: number; protectedCount: number } {
+    const perDocTotal = bucket.per_doc?.doc_count || 0;
+    const perDocProtected = bucket.per_doc?.protected?.doc_count || 0;
+
+    const bundleBuckets: any[] = bucket.per_bundle?.bundles?.buckets || [];
+    const bundleTotal = bundleBuckets.length;
+    const bundleProtected = bundleBuckets.filter(
+      (b: any) => (b.has_protected?.doc_count || 0) > 0
+    ).length;
+
+    return {
+      total: perDocTotal + bundleTotal,
+      protectedCount: perDocProtected + bundleProtected,
+    };
+  }
+
+  /** Run an any-stage trend query (date_histogram with split sub-aggs). */
+  private async runAnyStageTrendQuery(filters: any[], interval: string): Promise<any> {
+    return this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: { bool: { filter: filters } },
+      aggs: {
+        over_time: {
+          date_histogram: {
+            field: 'routing.event_time',
+            calendar_interval: interval as 'day' | 'week' | 'month' | 'hour',
+            min_doc_count: 0,
+          },
+          aggs: this.buildAnyStageSubAggs(),
+        },
+      },
+    });
+  }
+
   // Get overall defense score
   async getDefenseScore(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<DefenseScoreResponse> {
+    const isAnyStage = params.scoringMode === 'any-stage';
     const rawFilters = this.buildDefenseScoreFiltersWithoutExclusion(params);
     const adjustedFilters = await this.buildDefenseScoreFilters(params);
     const hasExclusion = adjustedFilters.length > rawFilters.length;
 
+    const runQuery = isAnyStage
+      ? (f: any[]) => this.runAnyStageScoreQuery(f)
+      : async (f: any[]) => this.parseScoreResponse(await this.runScoreQuery(f));
+
     if (!hasExclusion) {
       // No risk acceptances — single query, real === adjusted
-      const response = await this.runScoreQuery(adjustedFilters);
-      const { total, protectedCount } = this.parseScoreResponse(response);
+      const { total, protectedCount } = await runQuery(adjustedFilters);
       const overall = total > 0 ? (protectedCount / total) * 100 : 0;
       return {
         score: Math.round(overall * 100) / 100,
@@ -264,13 +411,10 @@ export class ElasticsearchService {
     }
 
     // Dual query: adjusted (with exclusion) + raw (without exclusion)
-    const [adjustedResponse, rawResponse] = await Promise.all([
-      this.runScoreQuery(adjustedFilters),
-      this.runScoreQuery(rawFilters),
+    const [adjusted, raw] = await Promise.all([
+      runQuery(adjustedFilters),
+      runQuery(rawFilters),
     ]);
-
-    const adjusted = this.parseScoreResponse(adjustedResponse);
-    const raw = this.parseScoreResponse(rawResponse);
 
     const adjustedScore = adjusted.total > 0 ? (adjusted.protectedCount / adjusted.total) * 100 : 0;
     const rawScore = raw.total > 0 ? (raw.protectedCount / raw.total) * 100 : 0;
@@ -314,18 +458,25 @@ export class ElasticsearchService {
 
   // Get defense score trend over time
   async getDefenseScoreTrend(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<TrendDataPoint[]> {
+    const isAnyStage = params.scoringMode === 'any-stage';
     const rawFilters = this.buildDefenseScoreFiltersWithoutExclusion(params);
     const adjustedFilters = await this.buildDefenseScoreFilters(params);
     const hasExclusion = adjustedFilters.length > rawFilters.length;
     const interval = params.interval || 'day';
 
+    const runTrend = isAnyStage
+      ? (f: any[]) => this.runAnyStageTrendQuery(f, interval)
+      : (f: any[]) => this.runTrendQuery(f, interval);
+
+    const parseBucket = isAnyStage
+      ? (b: any) => this.parseAnyStageSubBucket(b)
+      : (b: any) => ({ total: b.doc_count, protectedCount: b.protected?.doc_count || 0 });
+
     if (!hasExclusion) {
-      // No risk acceptances — single query
-      const response = await this.runTrendQuery(adjustedFilters, interval);
+      const response = await runTrend(adjustedFilters);
       const buckets = (response.aggregations?.over_time as any)?.buckets || [];
       return buckets.map((bucket: any) => {
-        const total = bucket.doc_count;
-        const protectedCount = bucket.protected?.doc_count || 0;
+        const { total, protectedCount } = parseBucket(bucket);
         const score = total > 0 ? (protectedCount / total) * 100 : 0;
         return {
           timestamp: bucket.key_as_string,
@@ -338,25 +489,21 @@ export class ElasticsearchService {
 
     // Dual query: adjusted + raw
     const [adjustedResponse, rawResponse] = await Promise.all([
-      this.runTrendQuery(adjustedFilters, interval),
-      this.runTrendQuery(rawFilters, interval),
+      runTrend(adjustedFilters),
+      runTrend(rawFilters),
     ]);
 
     const adjustedBuckets = (adjustedResponse.aggregations?.over_time as any)?.buckets || [];
     const rawBuckets = (rawResponse.aggregations?.over_time as any)?.buckets || [];
 
-    // Build raw data lookup by timestamp key
     const rawByKey = new Map<string, { total: number; protected: number }>();
     for (const bucket of rawBuckets) {
-      rawByKey.set(bucket.key_as_string, {
-        total: bucket.doc_count,
-        protected: bucket.protected?.doc_count || 0,
-      });
+      const parsed = parseBucket(bucket);
+      rawByKey.set(bucket.key_as_string, { total: parsed.total, protected: parsed.protectedCount });
     }
 
     return adjustedBuckets.map((bucket: any) => {
-      const total = bucket.doc_count;
-      const protectedCount = bucket.protected?.doc_count || 0;
+      const { total, protectedCount } = parseBucket(bucket);
       const score = total > 0 ? (protectedCount / total) * 100 : 0;
 
       const raw = rawByKey.get(bucket.key_as_string);
@@ -438,6 +585,7 @@ export class ElasticsearchService {
 
   // Get defense score trend with rolling window aggregation
   async getDefenseScoreTrendRolling(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<TrendDataPoint[]> {
+    const isAnyStage = params.scoringMode === 'any-stage';
     const windowDays = params.windowDays || 7;
     const displayFrom = params.from;
     const interval = params.interval || 'day';
@@ -450,27 +598,35 @@ export class ElasticsearchService {
     const adjustedFilters = await this.buildDefenseScoreFilters(extendedParams);
     const hasExclusion = adjustedFilters.length > rawFilters.length;
 
+    const runTrend = isAnyStage
+      ? (f: any[]) => this.runAnyStageTrendQuery(f, interval)
+      : (f: any[]) => this.runTrendQuery(f, interval);
+
+    const normalizeBuckets = isAnyStage
+      ? (buckets: any[]) => buckets.map((b: any) => {
+          const parsed = this.parseAnyStageSubBucket(b);
+          return { ...b, doc_count: parsed.total, protected: { doc_count: parsed.protectedCount } };
+        })
+      : (buckets: any[]) => buckets;
+
     if (!hasExclusion) {
-      // No risk acceptances — single query
-      const response = await this.runTrendQuery(adjustedFilters, interval);
-      const buckets = (response.aggregations?.over_time as any)?.buckets || [];
+      const response = await runTrend(adjustedFilters);
+      const buckets = normalizeBuckets((response.aggregations?.over_time as any)?.buckets || []);
       return this.computeRollingWindow(buckets, windowDays, displayFrom);
     }
 
     // Dual query: adjusted + raw (both with extended date range)
     const [adjustedResponse, rawResponse] = await Promise.all([
-      this.runTrendQuery(adjustedFilters, interval),
-      this.runTrendQuery(rawFilters, interval),
+      runTrend(adjustedFilters),
+      runTrend(rawFilters),
     ]);
 
-    const adjustedBuckets = (adjustedResponse.aggregations?.over_time as any)?.buckets || [];
-    const rawBuckets = (rawResponse.aggregations?.over_time as any)?.buckets || [];
+    const adjustedBuckets = normalizeBuckets((adjustedResponse.aggregations?.over_time as any)?.buckets || []);
+    const rawBuckets = normalizeBuckets((rawResponse.aggregations?.over_time as any)?.buckets || []);
 
-    // Compute rolling windows for both datasets
     const adjustedResults = this.computeRollingWindow(adjustedBuckets, windowDays, displayFrom);
     const rawResults = this.computeRollingWindow(rawBuckets, windowDays, displayFrom);
 
-    // Merge raw data into adjusted results by timestamp
     const rawByTimestamp = new Map<string, TrendDataPoint>();
     for (const point of rawResults) {
       rawByTimestamp.set(point.timestamp, point);
@@ -525,84 +681,70 @@ export class ElasticsearchService {
     return results;
   }
 
-  // Get defense score by test
-  async getDefenseScoreByTest(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<BreakdownItem[]> {
-    const filters = await this.buildDefenseScoreFilters(params);
+  /**
+   * Run a breakdown query with optional any-stage scoring.
+   * When isAnyStage is true, non-CH bundles inside each breakdown bucket are
+   * grouped and scored per-bundle rather than per-document.
+   */
+  private async runBreakdownQuery(
+    filters: any[],
+    aggName: string,
+    fieldOrScript: string | { script: any },
+    size: number,
+    isAnyStage: boolean,
+  ): Promise<{ key: string; total: number; protectedCount: number }[]> {
+    const termsConfig = typeof fieldOrScript === 'string'
+      ? { field: fieldOrScript, size }
+      : { ...fieldOrScript, size };
+
+    const subAggs = isAnyStage
+      ? this.buildAnyStageSubAggs()
+      : { protected: { filter: { term: { 'f0rtika.is_protected': true } } } };
 
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
-      query: {
-        bool: { filter: filters },
-      },
-      aggs: {
-        by_test: {
-          terms: { field: 'f0rtika.test_name', size: params.limit || 50 },
-          aggs: {
-            protected: {
-              filter: { term: { 'f0rtika.is_protected': true } },
-            },
-          },
-        },
-      },
+      query: { bool: { filter: filters } },
+      aggs: { [aggName]: { terms: termsConfig, aggs: subAggs } },
     });
 
-    const buckets = (response.aggregations?.by_test as any)?.buckets || [];
+    const buckets = (response.aggregations?.[aggName] as any)?.buckets || [];
 
-    return buckets
-      .map((bucket: any) => {
-        const total = bucket.doc_count;
-        const protectedCount = bucket.protected?.doc_count || 0;
+    return buckets.map((bucket: any) => {
+      if (isAnyStage) {
+        const parsed = this.parseAnyStageSubBucket(bucket);
+        return { key: bucket.key, total: parsed.total, protectedCount: parsed.protectedCount };
+      }
+      return { key: bucket.key, total: bucket.doc_count, protectedCount: bucket.protected?.doc_count || 0 };
+    });
+  }
+
+  // Get defense score by test
+  async getDefenseScoreByTest(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<BreakdownItem[]> {
+    const isAnyStage = params.scoringMode === 'any-stage';
+    const filters = await this.buildDefenseScoreFilters(params);
+    const results = await this.runBreakdownQuery(filters, 'by_test', 'f0rtika.test_name', params.limit || 50, isAnyStage);
+
+    return results
+      .map(({ key, total, protectedCount }) => {
         const score = total > 0 ? (protectedCount / total) * 100 : 0;
-
-        return {
-          name: bucket.key,
-          score: Math.round(score * 100) / 100,
-          count: total,
-          protected: protectedCount,
-        };
+        return { name: key, score: Math.round(score * 100) / 100, count: total, protected: protectedCount };
       })
-      .sort((a: BreakdownItem, b: BreakdownItem) => b.score - a.score);
+      .sort((a, b) => b.score - a.score);
   }
 
   // Get defense score by technique
   async getDefenseScoreByTechnique(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<BreakdownItem[]> {
+    const isAnyStage = params.scoringMode === 'any-stage';
     const filters = await this.buildDefenseScoreFilters(params);
+    const results = await this.runBreakdownQuery(filters, 'by_technique', 'f0rtika.techniques', 50, isAnyStage);
 
-    const response = await this.client.search({
-      index: this.settings.indexPattern,
-      size: 0,
-      query: {
-        bool: { filter: filters },
-      },
-      aggs: {
-        by_technique: {
-          terms: { field: 'f0rtika.techniques', size: 50 },
-          aggs: {
-            protected: {
-              filter: { term: { 'f0rtika.is_protected': true } },
-            },
-          },
-        },
-      },
-    });
-
-    const buckets = (response.aggregations?.by_technique as any)?.buckets || [];
-
-    return buckets
-      .map((bucket: any) => {
-        const total = bucket.doc_count;
-        const protectedCount = bucket.protected?.doc_count || 0;
+    return results
+      .map(({ key, total, protectedCount }) => {
         const score = total > 0 ? (protectedCount / total) * 100 : 0;
-
-        return {
-          name: bucket.key,
-          score: Math.round(score * 100) / 100,
-          count: total,
-          protected: protectedCount,
-        };
+        return { name: key, score: Math.round(score * 100) / 100, count: total, protected: protectedCount };
       })
-      .sort((a: BreakdownItem, b: BreakdownItem) => b.score - a.score);
+      .sort((a, b) => b.score - a.score);
   }
 
   // Get recent test executions
@@ -1709,133 +1851,83 @@ export class ElasticsearchService {
 
   // Get defense score by severity
   async getDefenseScoreBySeverity(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<SeverityBreakdownItem[]> {
+    const isAnyStage = params.scoringMode === 'any-stage';
     const filters = await this.buildDefenseScoreFilters(params);
-
-    const response = await this.client.search({
-      index: this.settings.indexPattern,
-      size: 0,
-      query: { bool: { filter: filters } },
-      aggs: {
-        by_severity: {
-          terms: { field: 'f0rtika.severity', size: 10 },
-          aggs: {
-            protected: {
-              filter: { term: { 'f0rtika.is_protected': true } },
-            },
-          },
-        },
-      },
-    });
-
-    const buckets = (response.aggregations?.by_severity as any)?.buckets || [];
+    const results = await this.runBreakdownQuery(filters, 'by_severity', 'f0rtika.severity', 10, isAnyStage);
     const severityOrder = ['critical', 'high', 'medium', 'low', 'info'];
 
-    return buckets
-      .map((bucket: any) => {
-        const total = bucket.doc_count;
-        const protectedCount = bucket.protected?.doc_count || 0;
+    return results
+      .map(({ key, total, protectedCount }) => {
         const score = total > 0 ? (protectedCount / total) * 100 : 0;
-
         return {
-          severity: bucket.key as SeverityLevel,
+          severity: key as SeverityLevel,
           score: Math.round(score * 100) / 100,
           count: total,
           protected: protectedCount,
           unprotected: total - protectedCount,
         };
       })
-      .sort((a: SeverityBreakdownItem, b: SeverityBreakdownItem) =>
-        severityOrder.indexOf(a.severity) - severityOrder.indexOf(b.severity)
-      );
+      .sort((a, b) => severityOrder.indexOf(a.severity) - severityOrder.indexOf(b.severity));
   }
 
   // Get defense score by category
   async getDefenseScoreByCategory(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<CategoryBreakdownItem[]> {
+    const isAnyStage = params.scoringMode === 'any-stage';
     const filters = await this.buildDefenseScoreFilters(params);
+    const results = await this.runBreakdownQuery(filters, 'by_category', 'f0rtika.category', 20, isAnyStage);
 
-    const response = await this.client.search({
-      index: this.settings.indexPattern,
-      size: 0,
-      query: { bool: { filter: filters } },
-      aggs: {
-        by_category: {
-          terms: { field: 'f0rtika.category', size: 20 },
-          aggs: {
-            protected: {
-              filter: { term: { 'f0rtika.is_protected': true } },
-            },
-          },
-        },
-      },
-    });
-
-    const buckets = (response.aggregations?.by_category as any)?.buckets || [];
-
-    return buckets
-      .map((bucket: any) => {
-        const total = bucket.doc_count;
-        const protectedCount = bucket.protected?.doc_count || 0;
+    return results
+      .map(({ key, total, protectedCount }) => {
         const score = total > 0 ? (protectedCount / total) * 100 : 0;
-
         return {
-          category: bucket.key as CategoryType,
+          category: key as CategoryType,
           score: Math.round(score * 100) / 100,
           count: total,
           protected: protectedCount,
           unprotected: total - protectedCount,
         };
       })
-      .sort((a: CategoryBreakdownItem, b: CategoryBreakdownItem) => b.score - a.score);
+      .sort((a, b) => b.score - a.score);
   }
 
   // Get defense score by category with nested subcategories
   async getDefenseScoreByCategoryWithSubcategories(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<CategorySubcategoryBreakdownItem[]> {
+    const isAnyStage = params.scoringMode === 'any-stage';
     const filters = await this.buildDefenseScoreFilters(params);
+
+    const subAggs: Record<string, any> = isAnyStage
+      ? { ...this.buildAnyStageSubAggs(), by_subcategory: { terms: { field: 'f0rtika.subcategory', size: 50 }, aggs: this.buildAnyStageSubAggs() } }
+      : { protected: { filter: { term: { 'f0rtika.is_protected': true } } }, by_subcategory: { terms: { field: 'f0rtika.subcategory', size: 50 }, aggs: { protected: { filter: { term: { 'f0rtika.is_protected': true } } } } } };
 
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
       query: { bool: { filter: filters } },
-      aggs: {
-        by_category: {
-          terms: { field: 'f0rtika.category', size: 20 },
-          aggs: {
-            protected: {
-              filter: { term: { 'f0rtika.is_protected': true } },
-            },
-            by_subcategory: {
-              terms: { field: 'f0rtika.subcategory', size: 50 },
-              aggs: {
-                protected: {
-                  filter: { term: { 'f0rtika.is_protected': true } },
-                },
-              },
-            },
-          },
-        },
-      },
+      aggs: { by_category: { terms: { field: 'f0rtika.category', size: 20 }, aggs: subAggs } },
     });
 
     const buckets = (response.aggregations?.by_category as any)?.buckets || [];
 
     return buckets
       .map((bucket: any) => {
-        const total = bucket.doc_count;
-        const protectedCount = bucket.protected?.doc_count || 0;
+        const { total, protectedCount } = isAnyStage
+          ? this.parseAnyStageSubBucket(bucket)
+          : { total: bucket.doc_count, protectedCount: bucket.protected?.doc_count || 0 };
         const score = total > 0 ? (protectedCount / total) * 100 : 0;
 
         const subBuckets = bucket.by_subcategory?.buckets || [];
         const subcategories: SubcategoryBreakdownItem[] = subBuckets
           .map((sub: any) => {
-            const subTotal = sub.doc_count;
-            const subProtected = sub.protected?.doc_count || 0;
-            const subScore = subTotal > 0 ? (subProtected / subTotal) * 100 : 0;
+            const subParsed = isAnyStage
+              ? this.parseAnyStageSubBucket(sub)
+              : { total: sub.doc_count, protectedCount: sub.protected?.doc_count || 0 };
+            const subScore = subParsed.total > 0 ? (subParsed.protectedCount / subParsed.total) * 100 : 0;
             return {
               subcategory: sub.key,
               score: Math.round(subScore * 100) / 100,
-              count: subTotal,
-              protected: subProtected,
-              unprotected: subTotal - subProtected,
+              count: subParsed.total,
+              protected: subParsed.protectedCount,
+              unprotected: subParsed.total - subParsed.protectedCount,
             };
           })
           .sort((a: SubcategoryBreakdownItem, b: SubcategoryBreakdownItem) => b.count - a.count);
@@ -1854,44 +1946,22 @@ export class ElasticsearchService {
 
   // Get defense score by hostname
   async getDefenseScoreByHostname(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<DefenseScoreByHostItem[]> {
+    const isAnyStage = params.scoringMode === 'any-stage';
     const filters = await this.buildDefenseScoreFilters(params);
+    const results = await this.runBreakdownQuery(filters, 'by_hostname', 'routing.hostname', params.limit || 50, isAnyStage);
 
-    const response = await this.client.search({
-      index: this.settings.indexPattern,
-      size: 0,
-      query: {
-        bool: { filter: filters },
-      },
-      aggs: {
-        by_hostname: {
-          terms: { field: 'routing.hostname', size: params.limit || 50 },
-          aggs: {
-            protected: {
-              filter: { term: { 'f0rtika.is_protected': true } },
-            },
-          },
-        },
-      },
-    });
-
-    const buckets = (response.aggregations?.by_hostname as any)?.buckets || [];
-
-    return buckets
-      .map((bucket: any) => {
-        const total = bucket.doc_count;
-        const protectedCount = bucket.protected?.doc_count || 0;
-        const unprotectedCount = total - protectedCount;
+    return results
+      .map(({ key, total, protectedCount }) => {
         const score = total > 0 ? (protectedCount / total) * 100 : 0;
-
         return {
-          hostname: bucket.key,
+          hostname: key,
           score: Math.round(score * 100) / 100,
           protected: protectedCount,
-          unprotected: unprotectedCount,
+          unprotected: total - protectedCount,
           total,
         };
       })
-      .sort((a: DefenseScoreByHostItem, b: DefenseScoreByHostItem) => b.total - a.total);
+      .sort((a, b) => b.total - a.total);
   }
 
   // Get canonical test count (stable denominator for coverage calculations)

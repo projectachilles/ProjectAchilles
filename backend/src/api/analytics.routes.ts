@@ -27,6 +27,7 @@ function extractFilterParams(query: Record<string, any>): AnalyticsQueryParams &
     errorCodes: query.errorCodes as string,
     bundleNames: query.bundleNames as string,
     result: query.result as 'all' | 'protected' | 'unprotected' | 'inconclusive',
+    scoringMode: query.scoringMode as 'all-stages' | 'any-stage' | undefined,
   };
 }
 

@@ -240,6 +240,7 @@ export interface ExtendedFilterParams {
   errorCodes?: string;
   bundleNames?: string;
   result?: 'all' | 'protected' | 'unprotected' | 'inconclusive';
+  scoringMode?: 'all-stages' | 'any-stage';
 }
 
 export interface PaginatedExecutionsParams extends ExtendedFilterParams {

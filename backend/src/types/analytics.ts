@@ -173,6 +173,7 @@ export interface ExtendedAnalyticsQueryParams extends AnalyticsQueryParams {
   errorCodes?: string;     // comma-separated numeric error codes
   bundleNames?: string;    // comma-separated bundle names
   result?: 'all' | 'protected' | 'unprotected' | 'inconclusive';
+  scoringMode?: 'all-stages' | 'any-stage'; // multi-stage bundle scoring strategy
 }
 
 // Combined query params for paginated executions

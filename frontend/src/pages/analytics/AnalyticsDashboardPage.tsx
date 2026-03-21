@@ -21,6 +21,7 @@ import TopControlsCard from './components/TopControlsCard';
 import { useAnalyticsFilters, getWindowDaysForDateRange } from '@/hooks/useAnalyticsFilters';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { useDefenderConfig } from '@/hooks/useDefenderConfig';
+import { useScoringMode } from '@/hooks/useScoringMode';
 import { analyticsApi } from '../../services/api/analytics';
 import { defenderApi, type SecureScoreSummary, type SecureScoreTrendPoint } from '../../services/api/defender';
 import type {
@@ -58,6 +59,7 @@ export default function AnalyticsDashboardPage() {
 
   // Defender integration status (Approach A: hidden when not configured)
   const { configured: defenderConfigured } = useDefenderConfig();
+  const { scoringMode, setScoringMode } = useScoringMode();
 
   // UI State
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -181,12 +183,12 @@ export default function AnalyticsDashboardPage() {
     }
   }
 
-  // Load dashboard data when filters, settings, or defender config change
+  // Load dashboard data when filters, settings, defender config, or scoring mode change
   useEffect(() => {
     if (activeTab === 'dashboard') {
       loadDashboardData();
     }
-  }, [filterState.filters, activeTab, settingsVersion, defenderConfigured]);
+  }, [filterState.filters, activeTab, settingsVersion, defenderConfigured, scoringMode]);
 
   // Load executions data when tab/filters/pagination/settings change
   useEffect(() => {
@@ -233,6 +235,7 @@ export default function AnalyticsDashboardPage() {
   const loadDashboardData = useCallback(async () => {
     setLoadingDashboard(true);
     const params = filterState.getApiParams();
+    const scoreParams = { ...params, scoringMode };
 
     // Calculate window size based on current date range filter
     const windowDays = getWindowDaysForDateRange(filterState.filters.dateRange);
@@ -253,17 +256,17 @@ export default function AnalyticsDashboardPage() {
         errorRateData,
         errorRateTrend,
       ] = await Promise.all([
-        analyticsApi.getDefenseScore(params),
+        analyticsApi.getDefenseScore(scoreParams),
         analyticsApi.getUniqueHostnames(params),
         analyticsApi.getUniqueTests(params),
-        analyticsApi.getDefenseScoreTrend({ ...params, interval: 'day', windowDays }),
+        analyticsApi.getDefenseScoreTrend({ ...scoreParams, interval: 'day', windowDays }),
         analyticsApi.getResultsByErrorType(params),
         analyticsApi.getTestCoverage(params),
         analyticsApi.getTechniqueDistribution(params),
         analyticsApi.getHostTestMatrix(params),
-        analyticsApi.getDefenseScoreByCategorySubcategory(params),
+        analyticsApi.getDefenseScoreByCategorySubcategory(scoreParams),
         analyticsApi.getPaginatedExecutions({ ...params, pageSize: 3, sortField: 'routing.event_time', sortOrder: 'desc' }),
-        analyticsApi.getDefenseScoreByHostname(params),
+        analyticsApi.getDefenseScoreByHostname(scoreParams),
         analyticsApi.getErrorRate(params),
         analyticsApi.getErrorRateTrend({ ...params, interval: 'day', windowDays }),
       ]);
@@ -316,7 +319,7 @@ export default function AnalyticsDashboardPage() {
     } finally {
       setLoadingDashboard(false);
     }
-  }, [filterState, defenderConfigured]);
+  }, [filterState, defenderConfigured, scoringMode]);
 
   // Load executions data
   const loadExecutionsData = useCallback(async () => {
@@ -701,6 +704,8 @@ export default function AnalyticsDashboardPage() {
             onRevokeRisk={handleRevokeRisk}
             riskAcceptances={riskAcceptances}
             acceptingRisk={acceptingRisk}
+            scoringMode={scoringMode}
+            onScoringModeChange={setScoringMode}
           />
         )}
       </div>

@@ -21,7 +21,9 @@ import {
   Info,
   ShieldOff,
   ShieldAlert,
+  Layers,
 } from 'lucide-react';
+import type { ScoringMode } from '@/hooks/useScoringMode';
 import { formatDistanceToNow, isValid, format } from 'date-fns';
 import type { EnrichedTestExecution, SeverityLevel, CategoryType, GroupedPaginatedResponse, ExecutionGroup, RiskAcceptance } from '@/services/api/analytics';
 import {
@@ -204,6 +206,8 @@ interface ExecutionsDataTableProps {
   onRevokeRisk?: (acceptanceId: string, reason: string) => Promise<void>;
   riskAcceptances?: Map<string, RiskAcceptance[]>;
   acceptingRisk?: boolean;
+  scoringMode?: ScoringMode;
+  onScoringModeChange?: (mode: ScoringMode) => void;
 }
 
 export default function ExecutionsDataTable({
@@ -221,6 +225,8 @@ export default function ExecutionsDataTable({
   onRevokeRisk,
   riskAcceptances,
   acceptingRisk,
+  scoringMode = 'all-stages',
+  onScoringModeChange,
 }: ExecutionsDataTableProps) {
   const { configured: defenderConfigured } = useDefenderConfig();
 
@@ -691,6 +697,19 @@ export default function ExecutionsDataTable({
         );
 
       case 'result': {
+        // "Any Stage" mode: non-CH bundles show binary Protected/Unprotected
+        if (scoringMode === 'any-stage' && group.category !== 'cyber-hygiene') {
+          const isProtected = group.protectedCount > 0;
+          return (
+            <span className={`inline-flex items-center gap-1.5 ${isProtected ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+              {isProtected ? <ShieldCheck className="w-4 h-4" /> : <ShieldX className="w-4 h-4" />}
+              <span className="text-sm font-medium">
+                {isProtected ? 'Protected' : 'Unprotected'}
+              </span>
+            </span>
+          );
+        }
+        // "All Stages" mode (default): ratio-based badge
         const ratio = group.totalCount > 0 ? group.protectedCount / group.totalCount : 0;
         const color = ratio >= 0.8 ? 'text-green-600 dark:text-green-400'
           : ratio >= 0.5 ? 'text-yellow-600 dark:text-yellow-400'
@@ -1027,6 +1046,36 @@ export default function ExecutionsDataTable({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Scoring Mode Toggle */}
+          {onScoringModeChange && (
+            <div className="flex items-center rounded-lg border border-border overflow-hidden">
+              <button
+                onClick={() => onScoringModeChange('all-stages')}
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                  scoringMode === 'all-stages'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-secondary text-muted-foreground hover:text-foreground hover:bg-accent'
+                }`}
+                title="Score each stage independently"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                All Stages
+              </button>
+              <button
+                onClick={() => onScoringModeChange('any-stage')}
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                  scoringMode === 'any-stage'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-secondary text-muted-foreground hover:text-foreground hover:bg-accent'
+                }`}
+                title="Protected if any stage is blocked (SOC mode)"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Any Stage
+              </button>
+            </div>
+          )}
+
           {/* Archive by Date */}
           {onArchiveByDate && (
             <button
