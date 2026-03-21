@@ -131,7 +131,7 @@ function useGlobalSearch(query: string, isOpen: boolean) {
           title: t.payload?.test_name || `Task ${t.id.slice(0, 8)}`,
           subtitle: `${t.agent_hostname || 'unassigned'} — ${t.status}`,
           category: 'task' as const,
-          path: '/endpoints/tasks',
+          path: `/endpoints/tasks?search=${encodeURIComponent(t.payload?.test_name || t.id)}`,
           icon: ListTodo,
           badges: [t.status, t.type].filter(Boolean),
         }));

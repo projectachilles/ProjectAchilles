@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCw, Search, X, Trash2, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, ChevronDown } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
 import type { AgentTask, TaskGroup, TaskStatus, Schedule } from '@/types/agent';
@@ -18,6 +19,17 @@ const PAGE_SIZE_OPTIONS = [25, 50, 100];
 const SEARCH_DEBOUNCE_MS = 300;
 
 export default function TasksPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialSearch = searchParams.get('search') || '';
+
+  // Clear ?search= from URL after consuming it (keeps address bar clean)
+  useEffect(() => {
+    if (initialSearch) {
+      setSearchParams({}, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [groups, setGroups] = useState<TaskGroup[]>([]);
   const [totalGroups, setTotalGroups] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -29,8 +41,8 @@ export default function TasksPage() {
   const [schedulesCollapsed, setSchedulesCollapsed] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialSearch);
+  const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
   const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const canCreateTask = useHasPermission('endpoints:tasks:create');
