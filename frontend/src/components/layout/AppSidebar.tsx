@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAnalyticsAuth } from "@/hooks/useAnalyticsAuth";
 import { useCanAccessModule, useHasPermission } from "@/hooks/useAppRole";
+import { useOutdatedAgentCount } from "@/hooks/useOutdatedAgentCount";
 import {
   Shield,
   BarChart3,
@@ -36,6 +37,7 @@ interface NavItem {
   icon: typeof Shield;
   path: string;
   locked?: boolean;
+  badge?: number;
 }
 
 interface ModuleWithItems extends NavItem {
@@ -49,6 +51,7 @@ export function AppSidebar({ collapsed }: AppSidebarProps) {
   const canAccessEndpoints = useCanAccessModule("endpoints");
   const canAccessSettings = useCanAccessModule("settings");
   const canAccessAgents = useHasPermission("endpoints:agents:read");
+  const { outdatedCount } = useOutdatedAgentCount();
 
   const [expandedModules, setExpandedModules] = useState<Set<string>>(
     () => new Set(["/dashboard", "/analytics", "/endpoints"]),
@@ -114,7 +117,7 @@ export function AppSidebar({ collapsed }: AppSidebarProps) {
                       icon: LayoutDashboard,
                       path: "/endpoints/dashboard",
                     },
-                    { label: "Agents", icon: Cpu, path: "/endpoints/agents" },
+                    { label: "Agents", icon: Cpu, path: "/endpoints/agents", badge: outdatedCount || undefined },
                   ]
                 : []),
               { label: "Tasks", icon: Package, path: "/endpoints/tasks" },
@@ -349,7 +352,12 @@ export function AppSidebar({ collapsed }: AppSidebarProps) {
                             )}
                           >
                             <ItemIcon className="h-4 w-4 shrink-0" />
-                            <span>{item.label}</span>
+                            <span className="flex-1">{item.label}</span>
+                            {item.badge != null && item.badge > 0 && (
+                              <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-bold text-destructive-foreground">
+                                {item.badge}
+                              </span>
+                            )}
                           </Link>
                         );
                       })}
@@ -430,7 +438,12 @@ export function AppSidebar({ collapsed }: AppSidebarProps) {
                 )}
               >
                 <ItemIcon className="h-4 w-4 shrink-0" />
-                <span>{item.label}</span>
+                <span className="flex-1">{item.label}</span>
+                {item.badge != null && item.badge > 0 && (
+                  <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-bold text-destructive-foreground">
+                    {item.badge}
+                  </span>
+                )}
               </Link>
             );
           })}

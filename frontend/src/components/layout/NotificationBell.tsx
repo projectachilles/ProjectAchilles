@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, AlertTriangle, ExternalLink, Loader2 } from 'lucide-react';
+import { Bell, AlertTriangle, ExternalLink, Loader2, Download } from 'lucide-react';
+import { getFlashNotifications, type FlashNotification } from '@/lib/flashNotifications';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -14,6 +15,7 @@ import { alertsApi } from '@/services/api/alerts';
 import type { AlertHistoryItem } from '@/services/api/alerts';
 
 const LAST_SEEN_KEY = 'achilles:lastSeenAlert';
+const LAST_SEEN_FLASH_KEY = 'achilles:lastSeenFlash';
 const MAX_DISPLAY = 5;
 
 function formatRelativeTime(iso: string): string {
@@ -33,6 +35,7 @@ export function NotificationBell() {
   const [alerts, setAlerts] = useState<AlertHistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasUnseen, setHasUnseen] = useState(false);
+  const [flashItems, setFlashItems] = useState<FlashNotification[]>([]);
 
   // On mount: check if alerting is configured + seed hasUnseen
   useEffect(() => {
@@ -47,12 +50,45 @@ export function NotificationBell() {
         }
       }
     });
+
+    // Seed flash notifications and check for unseen
+    const flash = getFlashNotifications();
+    setFlashItems(flash);
+    if (flash.length > 0) {
+      const lastSeenFlash = localStorage.getItem(LAST_SEEN_FLASH_KEY);
+      if (!lastSeenFlash || new Date(flash[0].timestamp) > new Date(lastSeenFlash)) {
+        setHasUnseen(true);
+      }
+    }
+
     return () => { cancelled = true; };
+  }, []);
+
+  // Listen for new flash notifications from same tab
+  useEffect(() => {
+    const handler = () => {
+      setFlashItems(getFlashNotifications());
+      setHasUnseen(true);
+    };
+    window.addEventListener('achilles:flash-notification', handler);
+    return () => window.removeEventListener('achilles:flash-notification', handler);
   }, []);
 
   // On dropdown open: fetch history, clear unseen
   const handleOpenChange = useCallback((open: boolean) => {
-    if (!open || !configured) return;
+    if (!open) return;
+
+    // Mark flash notifications as seen
+    const flash = getFlashNotifications();
+    setFlashItems(flash);
+    if (flash.length > 0) {
+      localStorage.setItem(LAST_SEEN_FLASH_KEY, flash[0].timestamp);
+    }
+
+    if (!configured) {
+      setHasUnseen(false);
+      return;
+    }
 
     setLoading(true);
     alertsApi.getAlertHistory().then((items) => {
@@ -114,10 +150,31 @@ export function NotificationBell() {
         )}
 
         {/* No alerts state */}
-        {configured && !loading && alerts.length === 0 && (
+        {configured && !loading && alerts.length === 0 && flashItems.length === 0 && (
           <div className="px-3 py-4 text-center">
             <p className="text-sm text-muted-foreground">No recent alerts — all clear</p>
           </div>
+        )}
+
+        {/* Flash notifications (version builds, uploads, etc.) */}
+        {flashItems.length > 0 && (
+          <>
+            {flashItems.slice(0, 3).map((flash) => (
+              <DropdownMenuItem key={flash.id} className="flex-col items-start gap-1 py-2 cursor-default">
+                <div className="flex items-center gap-1.5 text-sm font-medium text-blue-500">
+                  <Download className="h-3.5 w-3.5 shrink-0" />
+                  {flash.message}
+                </div>
+                {flash.detail && (
+                  <div className="text-xs text-muted-foreground ml-5">{flash.detail}</div>
+                )}
+                <div className="text-xs text-muted-foreground ml-5">
+                  {formatRelativeTime(flash.timestamp)}
+                </div>
+              </DropdownMenuItem>
+            ))}
+            {(configured && (alerts.length > 0 || loading)) && <DropdownMenuSeparator />}
+          </>
         )}
 
         {/* Alert items */}

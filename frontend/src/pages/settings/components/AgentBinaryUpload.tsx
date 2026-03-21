@@ -6,6 +6,7 @@ import { Select } from '@/components/shared/ui/Select';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Spinner } from '@/components/shared/ui/Spinner';
 import { agentApi } from '@/services/api/agent';
+import { pushFlashNotification } from '@/lib/flashNotifications';
 
 const OS_OPTIONS = [
   { value: 'linux', label: 'Linux' },
@@ -50,6 +51,10 @@ export function AgentBinaryUpload({ onUploaded }: AgentBinaryUploadProps) {
     try {
       await agentApi.uploadVersion(formData);
       setMessage({ type: 'success', text: `Version ${version} (${os}/${arch}) uploaded successfully` });
+      pushFlashNotification(
+        `Agent v${version} uploaded for ${os}/${arch}`,
+        { detail: 'Agents running older versions should be updated', type: 'success' },
+      );
       setVersion('');
       setReleaseNotes('');
       setMandatory(false);

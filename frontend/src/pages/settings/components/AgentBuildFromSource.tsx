@@ -6,6 +6,7 @@ import { Select } from '@/components/shared/ui/Select';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Spinner } from '@/components/shared/ui/Spinner';
 import { agentApi } from '@/services/api/agent';
+import { pushFlashNotification } from '@/lib/flashNotifications';
 import type { AgentVersion } from '@/types/agent';
 
 function getNextVersion(versions: AgentVersion[], os: string): string {
@@ -73,6 +74,10 @@ export function AgentBuildFromSource({ versions, onBuilt }: AgentBuildFromSource
         type: 'success',
         text: `Built ${result.version} for ${result.os}/${result.arch}${signedLabel} — ${formatSize(result.binary_size)}`,
       });
+      pushFlashNotification(
+        `Agent v${result.version} built for ${result.os}/${result.arch}`,
+        { detail: 'Agents running older versions should be updated', type: 'success' },
+      );
       // Bump to next patch version so the form is ready for another build
       const m = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
       setVersion(m ? `${m[1]}.${m[2]}.${+m[3] + 1}` : '');
