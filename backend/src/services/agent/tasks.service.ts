@@ -43,6 +43,9 @@ interface TaskRow {
   created_by: string;
   target_index: string | null;
   batch_id: string;
+  retry_count: number;
+  max_retries: number;
+  original_task_id: string | null;
 }
 
 function parseTaskRow(row: TaskRow): Task {
@@ -139,6 +142,7 @@ export function createTasks(
     priority = 1,
     metadata,
     target_index,
+    max_retries = 2,
   } = request;
 
   if (!agent_ids || agent_ids.length === 0) {
@@ -227,8 +231,8 @@ export function createTasks(
   // Insert tasks inside a transaction
   const batchId = crypto.randomUUID();
   const insertStmt = db.prepare(`
-    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_at, ttl, created_by, target_index, batch_id)
-    VALUES (?, ?, ?, 'execute_test', ?, 'pending', ?, datetime('now'), 604800, ?, ?, ?)
+    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_at, ttl, created_by, target_index, batch_id, max_retries)
+    VALUES (?, ?, ?, 'execute_test', ?, 'pending', ?, datetime('now'), 604800, ?, ?, ?, ?)
   `);
 
   const taskIds: string[] = [];
@@ -236,7 +240,7 @@ export function createTasks(
   const insertAll = db.transaction(() => {
     for (const agentId of agent_ids) {
       const taskId = crypto.randomUUID();
-      insertStmt.run(taskId, agentId, orgId, priority, payloadJson, createdBy, target_index ?? null, batchId);
+      insertStmt.run(taskId, agentId, orgId, priority, payloadJson, createdBy, target_index ?? null, batchId, max_retries);
       taskIds.push(taskId);
     }
   });
@@ -849,30 +853,78 @@ export function expireOldTasks(): number {
  * Fail tasks stuck in 'executing' or 'downloading' whose owning agent has
  * been offline for longer than STALE_TASK_THRESHOLD_SECONDS. This prevents
  * tasks from being orphaned forever when an agent crashes or loses network.
+ *
+ * If a failed task has retries remaining (retry_count < max_retries) and is
+ * of type 'execute_test', a new pending task is created automatically for
+ * the same agent with incremented retry_count.
  */
 const STALE_TASK_THRESHOLD_SECONDS = 360; // 2× heartbeat timeout (180s)
 
 export function expireStaleTasks(): number {
   const db = getDatabase();
 
-  const result = db.prepare(`
-    UPDATE tasks
-    SET status = 'failed',
-        completed_at = datetime('now'),
-        result = json('{"error":"Agent went offline during execution"}')
+  // Select stale tasks (need individual rows for retry logic)
+  const staleTasks = db.prepare(`
+    SELECT * FROM tasks
     WHERE status IN ('executing', 'downloading')
       AND agent_id IN (
         SELECT id FROM agents
         WHERE last_heartbeat IS NULL
            OR (julianday('now') - julianday(last_heartbeat)) * 86400.0 > ?
       )
-  `).run(STALE_TASK_THRESHOLD_SECONDS);
+  `).all(STALE_TASK_THRESHOLD_SECONDS) as TaskRow[];
 
-  if (result.changes > 0) {
-    console.warn(`[tasks] Expired ${result.changes} stale task(s) (agent offline >${STALE_TASK_THRESHOLD_SECONDS}s while executing)`);
-  }
+  if (staleTasks.length === 0) return 0;
 
-  return result.changes;
+  const failStmt = db.prepare(`
+    UPDATE tasks
+    SET status = 'failed',
+        completed_at = datetime('now'),
+        result = json('{"error":"Agent went offline during execution"}')
+    WHERE id = ?
+  `);
+
+  const insertRetry = db.prepare(`
+    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload,
+      created_at, ttl, created_by, target_index, batch_id,
+      retry_count, max_retries, original_task_id, notes, notes_history)
+    VALUES (?, ?, ?, ?, ?, 'pending', ?, datetime('now'), ?, ?, ?, ?,
+      ?, ?, ?, NULL, '[]')
+  `);
+
+  db.transaction(() => {
+    for (const task of staleTasks) {
+      failStmt.run(task.id);
+
+      const retryCount = task.retry_count ?? 0;
+      const maxRetries = task.max_retries ?? 2;
+      const canRetry = retryCount < maxRetries && task.type === 'execute_test';
+
+      // Record task_failed event with retry context
+      recordEvent(task.agent_id, 'task_failed', {
+        task_id: task.id,
+        task_type: task.type,
+        reason: 'agent_offline',
+        retry_created: canRetry,
+        retry_count: retryCount,
+      });
+
+      if (canRetry) {
+        const retryId = crypto.randomUUID();
+        const originalId = task.original_task_id || task.id;
+        insertRetry.run(
+          retryId, task.agent_id, task.org_id, task.type,
+          task.priority, task.payload, task.ttl, task.created_by,
+          task.target_index, task.batch_id,
+          retryCount + 1, maxRetries, originalId,
+        );
+        console.log(`[tasks] Created retry ${retryCount + 1}/${maxRetries} for task ${task.id} → ${retryId}`);
+      }
+    }
+  })();
+
+  console.warn(`[tasks] Expired ${staleTasks.length} stale task(s) (agent offline >${STALE_TASK_THRESHOLD_SECONDS}s while executing)`);
+  return staleTasks.length;
 }
 
 /**

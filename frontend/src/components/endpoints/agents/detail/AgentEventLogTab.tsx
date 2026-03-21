@@ -3,6 +3,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
+import { RefreshCw, Wifi, Power, Download, HelpCircle } from 'lucide-react';
 import { Card, CardContent } from '@/components/shared/ui/Card';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
@@ -50,6 +51,22 @@ function formatEventDate(dateStr: string): string {
   return new Date(normalized).toLocaleString();
 }
 
+const RECONNECT_REASON_LABELS: Record<string, string> = {
+  service_restart: 'Service Restart',
+  network_recovery: 'Network Recovery',
+  machine_reboot: 'Machine Reboot',
+  update_restart: 'Update Restart',
+  unknown: 'Unknown',
+};
+
+const RECONNECT_REASON_ICONS: Record<string, typeof RefreshCw> = {
+  service_restart: RefreshCw,
+  network_recovery: Wifi,
+  machine_reboot: Power,
+  update_restart: Download,
+  unknown: HelpCircle,
+};
+
 function formatDetails(event: AgentEvent): string | null {
   const d = event.details;
   if (!d || Object.keys(d).length === 0) return null;
@@ -64,6 +81,8 @@ function formatDetails(event: AgentEvent): string | null {
       return `Task: ${d.task_id ?? ''}`;
     case 'enrolled':
       return `${d.hostname ?? ''} (${d.os}/${d.arch})`;
+    case 'came_online':
+      return null;
     default:
       return JSON.stringify(d);
   }
@@ -143,6 +162,11 @@ export default function AgentEventLogTab({ agentId }: AgentEventLogTabProps) {
         <div className="space-y-2">
           {events.map((event) => {
             const details = formatDetails(event);
+            const reconnectReason = event.event_type === 'came_online'
+              ? (event.details?.reconnect_reason as string | undefined)
+              : undefined;
+            const ReasonIcon = reconnectReason ? RECONNECT_REASON_ICONS[reconnectReason] ?? HelpCircle : null;
+            const reasonLabel = reconnectReason ? RECONNECT_REASON_LABELS[reconnectReason] ?? reconnectReason : null;
             return (
               <div
                 key={event.id}
@@ -152,6 +176,12 @@ export default function AgentEventLogTab({ agentId }: AgentEventLogTabProps) {
                   {EVENT_TYPE_LABELS[event.event_type]}
                 </Badge>
                 <div className="flex-1 min-w-0">
+                  {ReasonIcon && reasonLabel && (
+                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      <ReasonIcon className="w-3 h-3" />
+                      {reasonLabel}
+                    </span>
+                  )}
                   {details && (
                     <span className="text-sm truncate">{details}</span>
                   )}

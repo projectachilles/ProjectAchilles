@@ -2,6 +2,7 @@ import { getDatabase } from './database.js';
 import { decryptPendingKey, promotePendingKey, ROTATION_GRACE_PERIOD_SECONDS } from './enrollment.service.js';
 import { recordEvent } from './events.service.js';
 import { invalidateAgentCache } from './agentAuthCache.js';
+import { computeAgentHealthScore, computeAgentHealthScores } from './health.service.js';
 import type {
   HeartbeatPayload,
   AgentSummary,
@@ -64,9 +65,13 @@ export function processHeartbeat(agentId: string, payload: HeartbeatPayload): vo
     if (current) {
       if (!current.last_heartbeat || !isAgentOnline(current.last_heartbeat)) {
         // Inline recordEvent to stay within this transaction
+        const cameOnlineDetails = JSON.stringify({
+          reconnect_reason: payload.reconnect_reason ?? 'unknown',
+          ...(payload.process_start_time ? { process_start_time: payload.process_start_time } : {}),
+        });
         db.prepare(
           `INSERT INTO agent_events (agent_id, event_type, details) VALUES (?, ?, ?)`
-        ).run(agentId, 'came_online' satisfies AgentEventType, '{}');
+        ).run(agentId, 'came_online' satisfies AgentEventType, cameOnlineDetails);
       }
 
       // Detect version change
@@ -361,8 +366,10 @@ export function listAgents(filters: ListAgentsRequest): ListAgentsResult {
     key_rotation_initiated_at: string | null;
   }[];
 
-  // Compute stale set for enrichment
+  // Compute stale set and health scores for enrichment
   const staleIds = getStaleAgentIds(filters.org_id);
+  const agentIds = rows.map(r => r.id);
+  const healthScores = computeAgentHealthScores(agentIds);
 
   const agents: AgentSummary[] = rows.map((row) => ({
     id: row.id,
@@ -377,6 +384,7 @@ export function listAgents(filters: ListAgentsRequest): ListAgentsResult {
     is_online: isAgentOnline(row.last_heartbeat),
     is_stale: staleIds.has(row.id),
     rotation_pending: row.key_rotation_initiated_at != null,
+    health_score: healthScores.get(row.id) ?? 0,
   }));
 
   return { agents, total: countRow.count };
@@ -413,6 +421,7 @@ export function getAgent(agentId: string): Agent | null {
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
     rotation_pending: (row.key_rotation_initiated_at as string | null) != null,
+    health_score: computeAgentHealthScore(agentId),
   };
 }
 
@@ -714,12 +723,23 @@ export function getFleetHealthMetrics(orgId?: string): FleetHealthMetrics {
       )
   `).all(...orgParams) as { id: string }[];
 
+  // Average health score across active agents
+  const activeAgentIds = db.prepare(
+    `SELECT id FROM agents WHERE status = 'active'${orgCondition}`
+  ).all(...orgParams) as { id: string }[];
+  const healthScores = computeAgentHealthScores(activeAgentIds.map(a => a.id));
+  const healthValues = [...healthScores.values()];
+  const avgHealth = healthValues.length > 0
+    ? Math.round(healthValues.reduce((sum, v) => sum + v, 0) / healthValues.length)
+    : 0;
+
   return {
     fleet_uptime_percent_30d: Math.round(fleetUptime * 10) / 10,
     task_success_rate_7d: taskSuccessRate,
     mtbf_hours: mtbfHours,
     stale_agent_count: staleRows.length,
     stale_agent_ids: staleRows.map(r => r.id),
+    avg_health_score: avgHealth,
   };
 }
 

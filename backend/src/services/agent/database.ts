@@ -252,6 +252,19 @@ function initializeTables(database: Database.Database): void {
     DELETE FROM cli_auth_codes WHERE expires_at < datetime('now', '-1 hour');
     DELETE FROM cli_refresh_tokens WHERE expires_at < datetime('now');
   `);
+
+  // Migration: add retry columns to tasks table for automatic task retry on agent offline
+  const taskRetryCheck = database.prepare(`PRAGMA table_info(tasks)`).all() as { name: string }[];
+  const taskRetryColNames = new Set(taskRetryCheck.map((c) => c.name));
+  if (!taskRetryColNames.has('retry_count')) {
+    database.exec(`ALTER TABLE tasks ADD COLUMN retry_count INTEGER DEFAULT 0`);
+  }
+  if (!taskRetryColNames.has('max_retries')) {
+    database.exec(`ALTER TABLE tasks ADD COLUMN max_retries INTEGER DEFAULT 2`);
+  }
+  if (!taskRetryColNames.has('original_task_id')) {
+    database.exec(`ALTER TABLE tasks ADD COLUMN original_task_id TEXT DEFAULT NULL`);
+  }
 }
 
 function migrateDarwinConstraint(database: Database.Database): void {

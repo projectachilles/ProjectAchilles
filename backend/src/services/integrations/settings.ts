@@ -391,6 +391,20 @@ export class IntegrationsSettingsService {
       };
     }
 
+    // Merge Agent Alerts
+    if (settings.agent_alerts || current.agent_alerts) {
+      const currentAgent = current.agent_alerts;
+      const newAgent = settings.agent_alerts;
+      merged.agent_alerts = {
+        enabled: newAgent?.enabled ?? currentAgent?.enabled ?? false,
+        offline_hours_threshold: newAgent?.offline_hours_threshold ?? currentAgent?.offline_hours_threshold,
+        flapping_threshold: newAgent?.flapping_threshold ?? currentAgent?.flapping_threshold,
+        fleet_online_percent_min: newAgent?.fleet_online_percent_min ?? currentAgent?.fleet_online_percent_min,
+        cooldown_minutes: newAgent?.cooldown_minutes ?? currentAgent?.cooldown_minutes,
+        last_alert_at: newAgent?.last_alert_at !== undefined ? newAgent.last_alert_at : currentAgent?.last_alert_at,
+      };
+    }
+
     // Encrypt sensitive channel fields
     const alertsToSave: AlertSettings = { ...merged };
 

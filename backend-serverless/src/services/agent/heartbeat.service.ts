@@ -21,6 +21,12 @@ export async function processHeartbeat(agentId: string, payload: HeartbeatPayloa
   const db = await getDb();
   const now = new Date().toISOString();
 
+  // Read current state before updating to detect transitions
+  const current = await db.get(
+    'SELECT agent_version, last_heartbeat FROM agents WHERE id = ?',
+    [agentId]
+  ) as unknown as { agent_version: string; last_heartbeat: string | null } | undefined;
+
   await db.run(
     `UPDATE agents
      SET last_heartbeat = ?,
@@ -30,6 +36,20 @@ export async function processHeartbeat(agentId: string, payload: HeartbeatPayloa
      WHERE id = ?`,
     [now, JSON.stringify(payload), payload.agent_version, now, agentId]
   );
+
+  // Detect came_online: agent was offline (gap > 180s or no previous heartbeat)
+  if (current) {
+    if (!current.last_heartbeat || !isAgentOnline(current.last_heartbeat)) {
+      const cameOnlineDetails = JSON.stringify({
+        reconnect_reason: payload.reconnect_reason ?? 'unknown',
+        ...(payload.process_start_time ? { process_start_time: payload.process_start_time } : {}),
+      });
+      await db.run(
+        `INSERT INTO agent_events (agent_id, event_type, details) VALUES (?, ?, ?)`,
+        [agentId, 'came_online', cameOnlineDetails]
+      );
+    }
+  }
 }
 
 // ============================================================================

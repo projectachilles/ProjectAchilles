@@ -73,6 +73,7 @@ export default function AgentList({
             <TableHead>Arch</TableHead>
             <TableHead>Version</TableHead>
             <TableHead>Last Seen</TableHead>
+            <TableHead>Health</TableHead>
             <TableHead>Tags</TableHead>
             <TableHead className="w-16">Actions</TableHead>
           </TableRow>
@@ -80,7 +81,7 @@ export default function AgentList({
         <TableBody>
           {agents.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={9} className="text-center py-8">
+              <TableCell colSpan={10} className="text-center py-8">
                 <p className="text-muted-foreground">No agents found</p>
               </TableCell>
             </TableRow>
@@ -135,6 +136,21 @@ export default function AgentList({
                   <span className="text-xs text-muted-foreground">
                     {timeAgo(agent.last_heartbeat)}
                   </span>
+                </TableCell>
+                <TableCell>
+                  {agent.health_score != null ? (
+                    <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                      agent.health_score >= 80
+                        ? 'bg-emerald-500/20 text-emerald-400'
+                        : agent.health_score >= 50
+                          ? 'bg-amber-500/20 text-amber-400'
+                          : 'bg-red-500/20 text-red-400'
+                    }`}>
+                      {agent.health_score}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">-</span>
+                  )}
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1">

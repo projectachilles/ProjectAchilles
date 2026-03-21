@@ -34,6 +34,13 @@ export function AlertsConfig({ onStatusChange }: AlertsConfigProps) {
   const [fromAddress, setFromAddress] = useState('');
   const [recipients, setRecipients] = useState('');
 
+  // Agent Alerts
+  const [agentAlertsEnabled, setAgentAlertsEnabled] = useState(false);
+  const [offlineHoursThreshold, setOfflineHoursThreshold] = useState('');
+  const [flappingThreshold, setFlappingThreshold] = useState('');
+  const [fleetOnlinePercentMin, setFleetOnlinePercentMin] = useState('');
+  const [agentAlertsCooldown, setAgentAlertsCooldown] = useState('');
+
   // UI state
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
@@ -77,6 +84,12 @@ export function AlertsConfig({ onStatusChange }: AlertsConfigProps) {
         if (settings.email?.from_address) setFromAddress(settings.email.from_address);
         if (settings.email?.recipients) setRecipients(settings.email.recipients.join(', '));
 
+        setAgentAlertsEnabled(settings.agent_alerts?.enabled ?? false);
+        if (settings.agent_alerts?.offline_hours_threshold != null) setOfflineHoursThreshold(String(settings.agent_alerts.offline_hours_threshold));
+        if (settings.agent_alerts?.flapping_threshold != null) setFlappingThreshold(String(settings.agent_alerts.flapping_threshold));
+        if (settings.agent_alerts?.fleet_online_percent_min != null) setFleetOnlinePercentMin(String(settings.agent_alerts.fleet_online_percent_min));
+        if (settings.agent_alerts?.cooldown_minutes != null) setAgentAlertsCooldown(String(settings.agent_alerts.cooldown_minutes));
+
         onStatusChange?.(true);
       }
     } catch {
@@ -109,6 +122,13 @@ export function AlertsConfig({ onStatusChange }: AlertsConfigProps) {
       smtp_pass: smtpPass || undefined,
       from_address: fromAddress || undefined,
       recipients: recipients ? recipients.split(',').map((r) => r.trim()).filter(Boolean) : undefined,
+    },
+    agent_alerts: {
+      enabled: agentAlertsEnabled,
+      offline_hours_threshold: numOrUndefined(offlineHoursThreshold),
+      flapping_threshold: numOrUndefined(flappingThreshold),
+      fleet_online_percent_min: numOrUndefined(fleetOnlinePercentMin),
+      cooldown_minutes: numOrUndefined(agentAlertsCooldown),
     },
   });
 
@@ -348,6 +368,59 @@ export function AlertsConfig({ onStatusChange }: AlertsConfigProps) {
           value={recipients}
           onChange={(e) => setRecipients(e.target.value)}
           helperText="Comma-separated list of email addresses"
+        />
+      </div>
+
+      {/* --- Agent Alerts Section --- */}
+      <div className="space-y-4">
+        <h4 className="text-sm font-medium text-card-foreground border-b border-border pb-2">
+          Agent Alerts
+        </h4>
+
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={agentAlertsEnabled}
+            onChange={(e) => setAgentAlertsEnabled(e.target.checked)}
+            className="rounded border-border"
+          />
+          Enable agent alerts
+        </label>
+
+        <Input
+          label="Offline Threshold (hours)"
+          type="number"
+          placeholder="4"
+          value={offlineHoursThreshold}
+          onChange={(e) => setOfflineHoursThreshold(e.target.value)}
+          helperText="Alert when any agent is offline longer than this"
+        />
+
+        <Input
+          label="Flapping Threshold (reconnects/24h)"
+          type="number"
+          placeholder="5"
+          value={flappingThreshold}
+          onChange={(e) => setFlappingThreshold(e.target.value)}
+          helperText="Alert when an agent reconnects more than this many times in 24 hours"
+        />
+
+        <Input
+          label="Fleet Online Minimum (%)"
+          type="number"
+          placeholder="80"
+          value={fleetOnlinePercentMin}
+          onChange={(e) => setFleetOnlinePercentMin(e.target.value)}
+          helperText="Alert when fleet online percentage drops below this value"
+        />
+
+        <Input
+          label="Cooldown (minutes)"
+          type="number"
+          placeholder="30"
+          value={agentAlertsCooldown}
+          onChange={(e) => setAgentAlertsCooldown(e.target.value)}
+          helperText="Minimum time between consecutive agent alerts"
         />
       </div>
 

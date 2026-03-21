@@ -11,10 +11,11 @@ import (
 
 // State represents the persisted agent state.
 type State struct {
-	AgentID       string     `json:"agent_id"`
-	LastTaskID    string     `json:"last_task_id,omitempty"`
-	LastHeartbeat *time.Time `json:"last_heartbeat,omitempty"`
-	Version       string     `json:"version"`
+	AgentID                string     `json:"agent_id"`
+	LastTaskID             string     `json:"last_task_id,omitempty"`
+	LastHeartbeat          *time.Time `json:"last_heartbeat,omitempty"`
+	Version                string     `json:"version"`
+	LastSuccessfulHeartbeat *time.Time `json:"last_successful_heartbeat,omitempty"`
 }
 
 // Store manages reading and writing agent state to disk.

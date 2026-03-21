@@ -31,6 +31,7 @@ export interface Agent {
   created_at: string;
   updated_at: string;
   rotation_pending?: boolean;
+  health_score?: number;
 }
 
 export interface AgentSummary {
@@ -46,6 +47,7 @@ export interface AgentSummary {
   is_online: boolean;
   is_stale?: boolean;
   rotation_pending?: boolean;
+  health_score?: number;
 }
 
 // ============================================================================
@@ -99,6 +101,8 @@ export interface CreateTokenResponse {
 // HEARTBEAT
 // ============================================================================
 
+export type ReconnectReason = 'service_restart' | 'network_recovery' | 'machine_reboot' | 'update_restart' | 'unknown';
+
 export interface HeartbeatPayload {
   timestamp: string;
   status: AgentRuntimeStatus;
@@ -116,6 +120,8 @@ export interface HeartbeatPayload {
   };
   agent_version: string;
   last_task_completed: string | null;
+  reconnect_reason?: ReconnectReason;
+  process_start_time?: string;
 }
 
 // ============================================================================
@@ -185,6 +191,9 @@ export interface Task {
   created_by: string;
   target_index: string | null;
   batch_id: string;
+  retry_count: number;
+  max_retries: number;
+  original_task_id: string | null;
 }
 
 export interface TaskGroup {
@@ -258,6 +267,7 @@ export interface CreateTaskRequest {
   priority?: number;
   metadata?: TaskTestMetadata;
   target_index?: string;
+  max_retries?: number;
 }
 
 export interface CreateCommandTaskRequest {
@@ -424,6 +434,7 @@ export interface FleetHealthMetrics {
   mtbf_hours: number | null;
   stale_agent_count: number;
   stale_agent_ids: string[];
+  avg_health_score: number;
 }
 
 // ============================================================================

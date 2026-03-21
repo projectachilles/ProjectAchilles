@@ -38,6 +38,7 @@ export interface AgentSummary {
   is_online: boolean;
   is_stale?: boolean;
   rotation_pending?: boolean;
+  health_score?: number;
 }
 
 export interface Agent {
@@ -54,6 +55,7 @@ export interface Agent {
   enrolled_by: string | null;
   tags: string[];
   rotation_pending?: boolean;
+  health_score?: number;
 }
 
 export interface TaskTestMetadata {
@@ -107,6 +109,9 @@ export interface AgentTask {
   assigned_at: string | null;
   completed_at: string | null;
   batch_id: string;
+  retry_count?: number;
+  max_retries?: number;
+  original_task_id?: string | null;
 }
 
 export interface TaskGroup {
@@ -309,4 +314,5 @@ export interface FleetHealthMetrics {
   mtbf_hours: number | null;
   stale_agent_count: number;
   stale_agent_ids: string[];
+  avg_health_score?: number;
 }

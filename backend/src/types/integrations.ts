@@ -45,12 +45,22 @@ export interface EmailAlertSettings {
   enabled: boolean;
 }
 
+export interface AgentAlertSettings {
+  enabled: boolean;
+  offline_hours_threshold?: number;      // Alert if any agent offline > X hours
+  flapping_threshold?: number;           // Alert if agent reconnects > N times in 24h
+  fleet_online_percent_min?: number;     // Alert if fleet online % drops below
+  cooldown_minutes?: number;             // Separate cooldown (default 30)
+  last_alert_at?: string;               // Separate from test-result alert cooldown
+}
+
 export interface AlertSettings {
   thresholds: AlertThresholds;
   slack?: SlackAlertSettings;
   email?: EmailAlertSettings;
   cooldown_minutes: number;      // Default 15
   last_alert_at?: string;        // ISO timestamp of last sent alert (persisted)
+  agent_alerts?: AgentAlertSettings;
 }
 
 export interface IntegrationsSettings {

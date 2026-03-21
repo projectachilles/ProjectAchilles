@@ -302,6 +302,13 @@ router.get('/alerts', requirePermission('integrations:read'), (_req, res) => {
       from_address: settings.email.from_address,
       recipients: settings.email.recipients,
     } : undefined,
+    agent_alerts: settings.agent_alerts ? {
+      enabled: settings.agent_alerts.enabled,
+      offline_hours_threshold: settings.agent_alerts.offline_hours_threshold,
+      flapping_threshold: settings.agent_alerts.flapping_threshold,
+      fleet_online_percent_min: settings.agent_alerts.fleet_online_percent_min,
+      cooldown_minutes: settings.agent_alerts.cooldown_minutes,
+    } : undefined,
   });
 });
 

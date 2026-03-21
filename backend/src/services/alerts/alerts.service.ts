@@ -196,6 +196,166 @@ export class AlertsService {
     }
   }
 
+  // ── Agent Alerts ──────────────────────────────────────────────
+
+  /**
+   * Evaluate agent-specific alert thresholds: offline duration, flapping,
+   * and fleet online percentage. Called from the detectOfflineAgents
+   * background loop (every 60s). Uses a separate cooldown from test alerts.
+   */
+  async evaluateAgentAlerts(): Promise<void> {
+    const integrationsSettings = new IntegrationsSettingsService();
+    if (!integrationsSettings.isAlertingConfigured()) return;
+
+    const alertSettings = integrationsSettings.getAlertSettings();
+    const agentAlerts = alertSettings?.agent_alerts;
+    if (!agentAlerts?.enabled) return;
+
+    // Separate cooldown for agent alerts
+    const cooldown = agentAlerts.cooldown_minutes ?? 30;
+    if (agentAlerts.last_alert_at) {
+      const elapsed = Date.now() - new Date(agentAlerts.last_alert_at).getTime();
+      if (elapsed < cooldown * 60_000) return;
+    }
+
+    // Lazy import to avoid circular dependency at module level
+    const { getDatabase } = await import('../agent/database.js');
+    const db = getDatabase();
+
+    const breaches: MetricStatus[] = [];
+
+    // 1. Check offline duration per agent
+    if (agentAlerts.offline_hours_threshold) {
+      const thresholdSeconds = agentAlerts.offline_hours_threshold * 3600;
+      const offlineAgents = db.prepare(`
+        SELECT a.hostname FROM agents a
+        WHERE a.status = 'active'
+          AND a.last_heartbeat IS NOT NULL
+          AND (julianday('now') - julianday(a.last_heartbeat)) * 86400.0 > ?
+      `).all(thresholdSeconds) as { hostname: string }[];
+
+      if (offlineAgents.length > 0) {
+        const names = offlineAgents.slice(0, 5).map(a => a.hostname).join(', ');
+        breaches.push({
+          metric: `Agent Offline >${agentAlerts.offline_hours_threshold}h`,
+          current: offlineAgents.length,
+          threshold: 0,
+          unit: ` agent(s): ${names}${offlineAgents.length > 5 ? '...' : ''}`,
+          direction: 'above',
+        });
+      }
+    }
+
+    // 2. Check flapping (reconnect frequency)
+    if (agentAlerts.flapping_threshold) {
+      const flapping = db.prepare(`
+        SELECT a.hostname, COUNT(*) as reconnects
+        FROM agent_events e
+        INNER JOIN agents a ON e.agent_id = a.id
+        WHERE e.event_type = 'came_online'
+          AND e.created_at > datetime('now', '-1 day')
+          AND a.status = 'active'
+        GROUP BY e.agent_id
+        HAVING COUNT(*) > ?
+      `).all(agentAlerts.flapping_threshold) as { hostname: string; reconnects: number }[];
+
+      if (flapping.length > 0) {
+        const names = flapping.slice(0, 5).map(f => `${f.hostname}(${f.reconnects}x)`).join(', ');
+        breaches.push({
+          metric: 'Agent Flapping',
+          current: flapping.length,
+          threshold: agentAlerts.flapping_threshold,
+          unit: ` agent(s): ${names}${flapping.length > 5 ? '...' : ''}`,
+          direction: 'above',
+        });
+      }
+    }
+
+    // 3. Check fleet online percentage
+    if (agentAlerts.fleet_online_percent_min != null) {
+      const totalRow = db.prepare(
+        `SELECT COUNT(*) as count FROM agents WHERE status = 'active'`
+      ).get() as { count: number };
+
+      const cutoff = new Date(Date.now() - 180_000).toISOString(); // 180s = heartbeat timeout
+      const onlineRow = db.prepare(
+        `SELECT COUNT(*) as count FROM agents WHERE status = 'active' AND last_heartbeat > ?`
+      ).get(cutoff) as { count: number };
+
+      const onlinePercent = totalRow.count > 0
+        ? Math.round((onlineRow.count / totalRow.count) * 100) : 100;
+
+      if (onlinePercent < agentAlerts.fleet_online_percent_min) {
+        breaches.push({
+          metric: 'Fleet Online',
+          current: onlinePercent,
+          threshold: agentAlerts.fleet_online_percent_min,
+          unit: '%',
+          direction: 'below',
+        });
+      }
+    }
+
+    if (breaches.length === 0) return;
+
+    // Dispatch to channels
+    const dashboardUrl =
+      (process.env.CORS_ORIGIN || 'http://localhost:5173') + '/endpoints/agents';
+
+    const alertData = {
+      breaches,
+      passing: [] as MetricStatus[],
+      triggerTest: 'agent-monitor',
+      triggerAgent: 'system',
+      dashboardUrl,
+    };
+
+    let slackSent = false;
+    let emailSent = false;
+
+    if (alertSettings?.slack?.configured && alertSettings.slack.enabled) {
+      try {
+        await sendSlackAlert(alertSettings.slack.webhook_url, alertData);
+        slackSent = true;
+      } catch (err) {
+        console.error('[Agent Alerts] Slack dispatch failed:', err);
+      }
+    }
+
+    if (alertSettings?.email?.configured && alertSettings.email.enabled) {
+      try {
+        const subject = `[ProjectAchilles] Agent Alert: ${breaches.map(b => b.metric).join(', ')}`;
+        const html = buildAlertEmailHtml(alertData);
+        await sendEmailAlert(alertSettings.email, { subject, html });
+        emailSent = true;
+      } catch (err) {
+        console.error('[Agent Alerts] Email dispatch failed:', err);
+      }
+    }
+
+    // Update agent-specific cooldown timestamp
+    integrationsSettings.saveAlertSettings({
+      agent_alerts: {
+        ...agentAlerts,
+        last_alert_at: new Date().toISOString(),
+      },
+    });
+
+    // Record in history
+    this.history.unshift({
+      timestamp: new Date().toISOString(),
+      breaches,
+      channels: { slack: slackSent, email: emailSent },
+      triggerTest: 'agent-monitor',
+      triggerAgent: 'system',
+    });
+    if (this.history.length > MAX_HISTORY) {
+      this.history.length = MAX_HISTORY;
+    }
+
+    console.log(`[Agent Alerts] ${breaches.length} breach(es) dispatched`);
+  }
+
   /** Return the in-memory alert history (most recent first). */
   getAlertHistory(): AlertHistoryEntry[] {
     return this.history;

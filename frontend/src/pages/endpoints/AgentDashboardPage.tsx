@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Monitor, Wifi, WifiOff, ClipboardList, CheckCircle, XCircle, Activity, ArrowRight, Signal, Timer, AlertTriangle } from 'lucide-react';
+import { Monitor, Wifi, WifiOff, ClipboardList, CheckCircle, XCircle, Activity, ArrowRight, Signal, Timer, AlertTriangle, Heart } from 'lucide-react';
 import { PieChart, Pie, Cell } from 'recharts';
 import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/shared/ui/Card';
@@ -437,7 +437,7 @@ export default function AgentDashboardPage() {
 
         {/* Row 2: Fleet Health KPIs */}
         {fleetHealth && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
             <MetricCard
               icon={Signal}
               label="Fleet Uptime (30d)"
@@ -461,6 +461,20 @@ export default function AgentDashboardPage() {
               label="Stale Agents"
               value={fleetHealth.stale_agent_count}
               color={fleetHealth.stale_agent_count > 0 ? 'text-amber-500' : 'text-green-500'}
+            />
+            <MetricCard
+              icon={Heart}
+              label="Avg Health"
+              value={fleetHealth.avg_health_score != null ? Math.round(fleetHealth.avg_health_score) : 'N/A'}
+              color={
+                fleetHealth.avg_health_score == null
+                  ? 'text-muted-foreground'
+                  : fleetHealth.avg_health_score >= 80
+                    ? 'text-emerald-500'
+                    : fleetHealth.avg_health_score >= 50
+                      ? 'text-amber-500'
+                      : 'text-red-500'
+              }
             />
           </div>
         )}

@@ -2,6 +2,14 @@ import { apiClient } from '@/hooks/useAuthenticatedApi';
 
 // --- Response types ---
 
+export interface AgentAlertSettingsMasked {
+  enabled: boolean;
+  offline_hours_threshold?: number;
+  flapping_threshold?: number;
+  fleet_online_percent_min?: number;
+  cooldown_minutes?: number;
+}
+
 export interface AlertSettingsMasked {
   configured: boolean;
   thresholds?: {
@@ -23,10 +31,11 @@ export interface AlertSettingsMasked {
     smtp_host?: string;
     smtp_port?: number;
     smtp_secure?: boolean;
-    smtp_user?: string;       // masked (****xxxx)
+    smtp_user?: string;
     from_address?: string;
     recipients?: string[];
   };
+  agent_alerts?: AgentAlertSettingsMasked;
 }
 
 export interface SaveAlertSettingsRequest {
@@ -52,6 +61,13 @@ export interface SaveAlertSettingsRequest {
     recipients?: string[];
     configured?: boolean;
     enabled?: boolean;
+  };
+  agent_alerts?: {
+    enabled?: boolean;
+    offline_hours_threshold?: number;
+    flapping_threshold?: number;
+    fleet_online_percent_min?: number;
+    cooldown_minutes?: number;
   };
 }
 

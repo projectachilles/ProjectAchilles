@@ -3,7 +3,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Monitor, Clock, Tag, Cpu, HardDrive, MemoryStick } from 'lucide-react';
+import { Monitor, Clock, Tag, Cpu, HardDrive, MemoryStick, Heart } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/shared/ui/Card';
 import { Badge } from '@/components/shared/ui/Badge';
 import { agentApi } from '@/services/api/agent';
@@ -122,6 +122,22 @@ export default function AgentOverviewTab({ agent }: AgentOverviewTabProps) {
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Key Rotation</dt>
                 <dd><Badge variant="warning">Pending</Badge></dd>
+              </div>
+            )}
+            {agent.health_score != null && (
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground flex items-center gap-1"><Heart className="w-3 h-3" /> Health Score</dt>
+                <dd>
+                  <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                    agent.health_score >= 80
+                      ? 'bg-emerald-500/20 text-emerald-400'
+                      : agent.health_score >= 50
+                        ? 'bg-amber-500/20 text-amber-400'
+                        : 'bg-red-500/20 text-red-400'
+                  }`}>
+                    {agent.health_score}
+                  </span>
+                </dd>
               </div>
             )}
           </dl>

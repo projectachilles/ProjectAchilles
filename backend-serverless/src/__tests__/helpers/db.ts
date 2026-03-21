@@ -73,6 +73,9 @@ export async function insertTestTask(
     ttl: number;
     batch_id: string;
     created_at: string;
+    retry_count: number;
+    max_retries: number;
+    original_task_id: string | null;
   }> = {}
 ): Promise<string> {
   const id = overrides.id ?? 'task-001';
@@ -100,8 +103,8 @@ export async function insertTestTask(
   });
 
   await db.run(`
-    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_by, ttl, batch_id, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_by, ttl, batch_id, created_at, retry_count, max_retries, original_task_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     id,
     overrides.agent_id ?? 'agent-001',
@@ -114,6 +117,9 @@ export async function insertTestTask(
     overrides.ttl ?? 604800,
     overrides.batch_id ?? id,
     overrides.created_at ?? new Date().toISOString().replace('T', ' ').slice(0, 19),
+    overrides.retry_count ?? 0,
+    overrides.max_retries ?? 2,
+    overrides.original_task_id ?? null,
   ]);
 
   return id;

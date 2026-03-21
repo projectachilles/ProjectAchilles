@@ -19,7 +19,7 @@ import { GitSyncService } from './services/browser/gitSyncService.js';
 import { GitHubMetadataService } from './services/browser/githubMetadataService.js';
 import { createAgentRouter } from './api/agent/index.js';
 import usersRoutes from './api/users.routes.js';
-import integrationsRoutes from './api/integrations.routes.js';
+import integrationsRoutes, { alertsService } from './api/integrations.routes.js';
 import { processSchedules } from './services/agent/schedules.service.js';
 import { processAutoRotation } from './services/agent/autoRotation.service.js';
 import { pruneHeartbeatHistory, detectOfflineAgents } from './services/agent/heartbeat.service.js';
@@ -308,8 +308,13 @@ async function startServer() {
     // --- Heartbeat history pruning: every hour ---
     const heartbeatPruneInterval = setInterval(pruneHeartbeatHistory, 60 * 60 * 1000);
 
-    // --- Offline agent detection: every 60s ---
-    const offlineDetectionInterval = setInterval(detectOfflineAgents, 60_000);
+    // --- Offline agent detection + agent alerts: every 60s ---
+    const offlineDetectionInterval = setInterval(() => {
+      detectOfflineAgents();
+      alertsService.evaluateAgentAlerts().catch((err: unknown) => {
+        console.error('[Agent Alerts] Evaluation failed:', err);
+      });
+    }, 60_000);
 
     // --- Defender sync: scores every 6h, alerts every 5min ---
     let defenderScoreInterval: ReturnType<typeof setInterval> | undefined;

@@ -127,6 +127,9 @@ async function initializeTables(c: Client): Promise<void> {
       notes_history TEXT DEFAULT '[]',
       target_index TEXT DEFAULT NULL,
       batch_id TEXT,
+      retry_count INTEGER DEFAULT 0,
+      max_retries INTEGER DEFAULT 2,
+      original_task_id TEXT DEFAULT NULL,
       FOREIGN KEY (agent_id) REFERENCES agents(id)
     )`,
     `CREATE TABLE IF NOT EXISTS agent_versions (
@@ -165,6 +168,30 @@ async function initializeTables(c: Client): Promise<void> {
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       target_index TEXT DEFAULT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS heartbeat_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id TEXT NOT NULL,
+      timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+      cpu_percent REAL,
+      memory_mb REAL,
+      disk_free_mb REAL,
+      uptime_seconds INTEGER,
+      process_cpu_percent REAL,
+      process_memory_mb REAL,
+      FOREIGN KEY (agent_id) REFERENCES agents(id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS agent_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id TEXT NOT NULL,
+      event_type TEXT NOT NULL CHECK(event_type IN (
+        'enrolled','went_offline','came_online','task_failed',
+        'task_completed','version_updated','key_rotated',
+        'status_changed','decommissioned'
+      )),
+      details TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (agent_id) REFERENCES agents(id)
+    )`,
     // Indexes
     `CREATE INDEX IF NOT EXISTS idx_schedules_status_next_run ON schedules(status, next_run_at)`,
     `CREATE INDEX IF NOT EXISTS idx_schedules_org ON schedules(org_id)`,
@@ -175,6 +202,9 @@ async function initializeTables(c: Client): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_tasks_org ON tasks(org_id)`,
     `CREATE INDEX IF NOT EXISTS idx_enrollment_tokens_org ON enrollment_tokens(org_id)`,
     `CREATE INDEX IF NOT EXISTS idx_tasks_batch ON tasks(batch_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_hb_hist_agent_ts ON heartbeat_history(agent_id, timestamp)`,
+    `CREATE INDEX IF NOT EXISTS idx_hb_hist_ts ON heartbeat_history(timestamp)`,
+    `CREATE INDEX IF NOT EXISTS idx_agent_events_agent_ts ON agent_events(agent_id, created_at)`,
   ]);
 }
 

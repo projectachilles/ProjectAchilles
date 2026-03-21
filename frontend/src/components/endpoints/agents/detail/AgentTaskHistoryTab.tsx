@@ -106,9 +106,21 @@ export default function AgentTaskHistoryTab({ agentId }: AgentTaskHistoryTabProp
               tasks.map((task) => (
                 <TableRow key={task.id}>
                   <TableCell>
-                    <Badge variant={taskStatusVariant(task.status)} className="text-xs">
-                      {task.status}
-                    </Badge>
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant={taskStatusVariant(task.status)} className="text-xs">
+                        {task.status}
+                      </Badge>
+                      {(task.retry_count ?? 0) > 0 && (
+                        <Badge variant="warning" className="text-xs">
+                          Retry {task.retry_count}/{task.max_retries}
+                        </Badge>
+                      )}
+                      {task.original_task_id && (
+                        <span className="text-[10px] text-muted-foreground font-mono" title={`Retry of ${task.original_task_id}`}>
+                          retried
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">{task.type}</TableCell>
                   <TableCell className="max-w-[300px] truncate">

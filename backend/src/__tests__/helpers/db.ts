@@ -66,6 +66,9 @@ export function createTestDatabase(): Database.Database {
       completed_at TEXT,
       ttl INTEGER NOT NULL DEFAULT 604800,
       created_by TEXT,
+      retry_count INTEGER DEFAULT 0,
+      max_retries INTEGER DEFAULT 2,
+      original_task_id TEXT DEFAULT NULL,
       FOREIGN KEY (agent_id) REFERENCES agents(id)
     );
 

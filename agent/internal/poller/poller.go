@@ -19,6 +19,7 @@ import (
 	"github.com/f0rt1ka/achilles-agent/internal/config"
 	"github.com/f0rt1ka/achilles-agent/internal/executor"
 	"github.com/f0rt1ka/achilles-agent/internal/httpclient"
+	"github.com/f0rt1ka/achilles-agent/internal/queue"
 	"github.com/f0rt1ka/achilles-agent/internal/reporter"
 	"github.com/f0rt1ka/achilles-agent/internal/store"
 	"github.com/f0rt1ka/achilles-agent/internal/sysinfo"
@@ -47,6 +48,8 @@ type heartbeatPayload struct {
 	System            systemInfo  `json:"system"`
 	AgentVersion      string      `json:"agent_version"`
 	LastTaskCompleted *string     `json:"last_task_completed"`
+	ReconnectReason   string      `json:"reconnect_reason,omitempty"`
+	ProcessStartTime  string      `json:"process_start_time,omitempty"`
 }
 
 // heartbeatResponse wraps the server's JSON envelope for heartbeat acknowledgement.
@@ -90,7 +93,79 @@ func getCurrentTask() *string {
 	return currentTaskID
 }
 
-// Run starts the agent's main loop with heartbeat and task polling tickers.
+// ── Adaptive Backoff ────────────────────────────────────────────────────────
+
+// backoffState tracks consecutive heartbeat failures for adaptive interval control.
+type backoffState struct {
+	consecutiveFailures int
+}
+
+// interval returns the adaptive heartbeat/poll interval based on failure count.
+// Normal for ≤5 failures, then gradually increases to reduce noise during outages.
+func (b *backoffState) interval(base time.Duration) time.Duration {
+	switch {
+	case b.consecutiveFailures <= 5:
+		return base
+	case b.consecutiveFailures <= 10:
+		return 5 * time.Minute
+	case b.consecutiveFailures <= 20:
+		return 15 * time.Minute
+	default:
+		return 30 * time.Minute
+	}
+}
+
+// ── Reconnect Reason Detection ──────────────────────────────────────────────
+
+// processStartTime records when this process started (set once at package init).
+var processStartTime = time.Now()
+
+// reconnectState tracks whether we've already sent the reconnect reason after
+// a connectivity gap. The reason is computed once and sent in one heartbeat.
+type reconnectState struct {
+	sent bool
+}
+
+// computeReconnectReason determines why the agent was offline based on
+// process start time, OS uptime, stored version, and offline duration.
+func computeReconnectReason(st *store.Store, version string, cfg *config.Config) string {
+	state := st.Get()
+
+	// First-ever heartbeat — not a reconnection.
+	if state.LastSuccessfulHeartbeat == nil {
+		return ""
+	}
+
+	offlineDuration := time.Since(*state.LastSuccessfulHeartbeat)
+
+	// No significant gap — normal operation.
+	if offlineDuration < 2*cfg.HeartbeatInterval {
+		return ""
+	}
+
+	// Did the process restart during the gap?
+	processRestarted := processStartTime.After(*state.LastSuccessfulHeartbeat)
+	if processRestarted {
+		// Version changed → update restart.
+		if state.Version != "" && state.Version != version {
+			return "update_restart"
+		}
+		// OS uptime shorter than offline duration → machine rebooted.
+		info := sysinfo.Collect()
+		if info.UptimeSeconds > 0 && info.UptimeSeconds < int64(offlineDuration.Seconds()) {
+			return "machine_reboot"
+		}
+		// Process restarted but machine didn't → service manager restarted it.
+		return "service_restart"
+	}
+
+	// Process was running the whole time → network issue.
+	return "network_recovery"
+}
+
+// ── Main Loop ───────────────────────────────────────────────────────────────
+
+// Run starts the agent's main loop with heartbeat and task polling timers.
 // It blocks until the context is cancelled or a SIGINT/SIGTERM is received.
 func Run(ctx context.Context, cfg *config.Config, st *store.Store, version string) error {
 	ctx, cancel := context.WithCancel(ctx)
@@ -110,14 +185,29 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 
 	client := httpclient.NewClient(cfg, version)
 
-	heartbeatInterval := addJitter(cfg.HeartbeatInterval)
-	pollInterval := addJitter(cfg.PollInterval)
+	// Initialize the local result queue for resilient reporting.
+	resultQueue, err := queue.New(cfg.WorkDir)
+	if err != nil {
+		log.Printf("warning: failed to create result queue: %v (results will not be queued)", err)
+	}
+	if resultQueue != nil {
+		if qs := resultQueue.Size(); qs > 0 {
+			log.Printf("[queue] %d queued result(s) from previous session", qs)
+		}
+	}
 
-	heartbeatTicker := time.NewTicker(heartbeatInterval)
-	defer heartbeatTicker.Stop()
+	// Adaptive timers replace fixed tickers — intervals grow during outages
+	// and snap back to normal on recovery.
+	var hbBackoff backoffState
+	var reconnect reconnectState
 
-	pollTicker := time.NewTicker(pollInterval)
-	defer pollTicker.Stop()
+	// Timer(0) fires immediately on the first select iteration, providing
+	// the initial heartbeat without a separate call.
+	heartbeatTimer := time.NewTimer(0)
+	defer heartbeatTimer.Stop()
+
+	pollTimer := time.NewTimer(addJitter(cfg.PollInterval))
+	defer pollTimer.Stop()
 
 	// Update ticker: only created when UpdateInterval > 0 (zero = disabled).
 	var updateC <-chan time.Time
@@ -136,19 +226,8 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 	uninstallCh := make(chan struct{}, 1)
 	taskDoneCh := make(chan struct{}, 1) // signals when a goroutine finishes
 
-	// Send an initial heartbeat immediately.
-	sendHeartbeat(ctx, client, cfg, st, version)
-
-	// Run an initial update check immediately (don't wait for the first tick).
-	if updateC != nil {
-		updated, err := updater.CheckAndUpdate(ctx, client, version, cfg)
-		if err != nil {
-			log.Printf("initial update check error: %v", err)
-		} else if updated {
-			log.Println("update applied on startup, exiting for restart")
-			return ErrUpdateApplied
-		}
-	}
+	// Track whether initial update check has run (deferred until after first heartbeat).
+	initialUpdateDone := false
 
 	for {
 		select {
@@ -164,20 +243,66 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 				}
 			}
 			return ctx.Err()
-		case <-heartbeatTicker.C:
-			sendHeartbeat(ctx, client, cfg, st, version)
-		case <-pollTicker.C:
+
+		case <-heartbeatTimer.C:
+			success := sendHeartbeat(ctx, client, cfg, st, version, &reconnect)
+			if success {
+				if hbBackoff.consecutiveFailures > 5 {
+					log.Printf("connectivity recovered after %d consecutive failures, resetting intervals",
+						hbBackoff.consecutiveFailures)
+				}
+				hbBackoff.consecutiveFailures = 0
+
+				// Drain any queued results now that the server is reachable.
+				if resultQueue != nil {
+					if drained := resultQueue.Drain(ctx, reporter.Report, client); drained > 0 {
+						log.Printf("drained %d queued result(s)", drained)
+					}
+				}
+
+				// Run initial update check after the first successful heartbeat.
+				if !initialUpdateDone && updateC != nil {
+					initialUpdateDone = true
+					updated, err := updater.CheckAndUpdate(ctx, client, version, cfg)
+					if err != nil {
+						log.Printf("initial update check error: %v", err)
+					} else if updated {
+						log.Println("update applied on startup, exiting for restart")
+						return ErrUpdateApplied
+					}
+				}
+			} else {
+				hbBackoff.consecutiveFailures++
+				if hbBackoff.consecutiveFailures == 6 {
+					log.Printf("heartbeat backoff: increasing to 5m intervals after %d consecutive failures",
+						hbBackoff.consecutiveFailures)
+				}
+			}
+			heartbeatTimer.Reset(addJitter(hbBackoff.interval(cfg.HeartbeatInterval)))
+
+		case <-pollTimer.C:
+			// Skip polling during backoff — server is unreachable.
+			if hbBackoff.consecutiveFailures > 5 {
+				pollTimer.Reset(addJitter(hbBackoff.interval(cfg.PollInterval)))
+				continue
+			}
 			if atomic.LoadInt32(&taskBusy) == 1 {
+				pollTimer.Reset(addJitter(cfg.PollInterval))
 				continue // skip poll while executing
 			}
 			task := fetchTask(ctx, client)
 			if task == nil {
+				pollTimer.Reset(addJitter(cfg.PollInterval))
 				continue
 			}
 			if !atomic.CompareAndSwapInt32(&taskBusy, 0, 1) {
+				pollTimer.Reset(addJitter(cfg.PollInterval))
 				continue // race guard
 			}
-			go executeAndReport(ctx, client, st, cfg, version, task, &taskBusy, updateAppliedCh, uninstallCh, taskDoneCh)
+			go executeAndReport(ctx, client, st, cfg, version, task, &taskBusy,
+				updateAppliedCh, uninstallCh, taskDoneCh, resultQueue)
+			pollTimer.Reset(addJitter(cfg.PollInterval))
+
 		case <-updateAppliedCh:
 			log.Println("admin-triggered update applied, exiting for restart")
 			return ErrUpdateApplied
@@ -200,9 +325,9 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 }
 
 // sendHeartbeat posts agent status to the server and processes the response.
-// If the server includes a new_api_key field (key rotation), the agent updates
-// its config in memory and persists to disk automatically.
-func sendHeartbeat(ctx context.Context, client *httpclient.Client, cfg *config.Config, st *store.Store, version string) {
+// Returns true on success, false on error. On success it updates the store's
+// LastSuccessfulHeartbeat and handles key rotation and reconnect reason reporting.
+func sendHeartbeat(ctx context.Context, client *httpclient.Client, cfg *config.Config, st *store.Store, version string, reconnect *reconnectState) bool {
 	hostname, _ := os.Hostname()
 
 	state := st.Get()
@@ -239,10 +364,20 @@ func sendHeartbeat(ctx context.Context, client *httpclient.Client, cfg *config.C
 		LastTaskCompleted: lastTask,
 	}
 
+	// Include reconnect reason on the first heartbeat after a gap.
+	if !reconnect.sent {
+		reason := computeReconnectReason(st, version, cfg)
+		if reason != "" {
+			payload.ReconnectReason = reason
+			payload.ProcessStartTime = processStartTime.UTC().Format(time.RFC3339)
+			log.Printf("reconnect reason: %s", reason)
+		}
+	}
+
 	resp, err := client.Do(ctx, http.MethodPost, "/api/agent/heartbeat", payload)
 	if err != nil {
 		log.Printf("heartbeat error: %v", err)
-		return
+		return false
 	}
 	defer resp.Body.Close()
 
@@ -260,12 +395,17 @@ func sendHeartbeat(ctx context.Context, client *httpclient.Client, cfg *config.C
 		}
 	}
 
+	// Mark heartbeat as successful — update both timestamps and mark
+	// reconnect reason as sent so it's not included in subsequent heartbeats.
 	now := time.Now()
 	_ = st.Update(func(s *store.State) {
 		s.LastHeartbeat = &now
+		s.LastSuccessfulHeartbeat = &now
 	})
+	reconnect.sent = true
 
 	log.Println("heartbeat sent")
+	return true
 }
 
 // fetchTask polls the server for a pending task and returns it, or nil if none available.
@@ -305,6 +445,7 @@ func fetchTask(ctx context.Context, client *httpclient.Client) *executor.Task {
 }
 
 // executeAndReport runs a task in a goroutine, reports the result, and clears the busy flag.
+// If result reporting fails completely, the result is enqueued locally for later delivery.
 func executeAndReport(
 	ctx context.Context,
 	client *httpclient.Client,
@@ -316,6 +457,7 @@ func executeAndReport(
 	updateAppliedCh chan<- struct{},
 	uninstallCh chan<- struct{},
 	taskDoneCh chan<- struct{},
+	resultQueue *queue.Queue,
 ) {
 	defer atomic.StoreInt32(taskBusy, 0)
 	defer func() {
@@ -397,9 +539,14 @@ func executeAndReport(
 		return
 	}
 
-	// Report the result.
+	// Report the result. If all retries fail, enqueue locally for later delivery.
 	if err := reporter.Report(ctx, client, task.ID, result); err != nil {
 		log.Printf("report error for task %s: %v", task.ID, err)
+		if resultQueue != nil {
+			if qErr := resultQueue.Enqueue(task.ID, result); qErr != nil {
+				log.Printf("queue error for task %s: %v (result lost)", task.ID, qErr)
+			}
+		}
 	} else {
 		log.Printf("task %s completed (exit_code=%d, duration=%dms)", task.ID, result.ExitCode, result.ExecutionDurationMs)
 	}
@@ -444,5 +591,3 @@ func addJitter(interval time.Duration) time.Duration {
 	}
 	return result
 }
-
-
