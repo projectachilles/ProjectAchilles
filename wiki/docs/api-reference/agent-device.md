@@ -55,7 +55,56 @@ POST /api/agent/heartbeat
 
 **Auth:** Agent key
 
-Reports system metrics and receives commands (key rotation, uninstall).
+Reports system metrics and agent status. The backend uses heartbeats to determine online/offline state and detect reconnection events.
+
+**Body:**
+```json
+{
+  "timestamp": "2026-03-21T14:30:00Z",
+  "status": "idle",
+  "current_task": null,
+  "system": {
+    "hostname": "WORKSTATION-01",
+    "os": "windows",
+    "arch": "amd64",
+    "uptime_seconds": 86400,
+    "cpu_percent": 15,
+    "memory_mb": 4096,
+    "disk_free_mb": 50000,
+    "process_cpu_percent": 2,
+    "process_memory_mb": 25
+  },
+  "agent_version": "0.5.11",
+  "last_task_completed": "task-uuid-or-null",
+  "reconnect_reason": "service_restart",
+  "process_start_time": "2026-03-21T14:29:55Z"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `timestamp` | string | ISO 8601 UTC timestamp |
+| `status` | string | `idle` or `executing` |
+| `current_task` | string\|null | UUID of currently executing task |
+| `system` | object | Host and process metrics |
+| `agent_version` | string | Current agent binary version |
+| `last_task_completed` | string\|null | UUID of last completed task |
+| `reconnect_reason` | string\|undefined | Why the agent was offline (only sent on first heartbeat after a gap): `service_restart`, `network_recovery`, `machine_reboot`, `update_restart` |
+| `process_start_time` | string\|undefined | ISO 8601 timestamp of when the agent process started (sent with reconnect_reason) |
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "acknowledged": true,
+    "server_time": "2026-03-21T14:30:01Z",
+    "new_api_key": "optional-rotated-key"
+  }
+}
+```
+
+The `new_api_key` field is only present when the server has initiated an API key rotation for this agent.
 
 ### Poll Tasks
 

@@ -47,19 +47,22 @@ The alerting service is hooked into the result ingestion pipeline — every time
 
 ```mermaid
 graph TB
-    subgraph "Trigger"
+    subgraph "Triggers"
         RI[Result Ingestion<br/>results.service.ts]
+        OD[Offline Detection<br/>Background Job · 60s]
     end
 
     subgraph "Alerting Service"
         AS[AlertsService<br/>alerting.service.ts]
         CD[Cooldown Check<br/>In-memory timer]
         ME[Metric Evaluation<br/>Defense Score, Error Rate, Secure Score]
+        AAE[Agent Alert Evaluation<br/>Offline Duration, Flapping, Fleet %]
     end
 
     subgraph "Data Sources"
         ES[(Elasticsearch<br/>Defense Score)]
         DEF[Defender Analytics<br/>Secure Score]
+        DB[(SQLite<br/>Agent Status)]
     end
 
     subgraph "Dispatch"
@@ -77,15 +80,20 @@ graph TB
     end
 
     RI -->|evaluateAndNotify| AS
+    OD -->|evaluateAgentAlerts| AAE
     AS --> CD
     CD -->|Not in cooldown| ME
     ME --> ES
     ME --> DEF
     ME -->|Threshold breached| SS
     ME -->|Threshold breached| EMS
+    AAE --> DB
+    AAE -->|Threshold breached| SS
+    AAE -->|Threshold breached| EMS
     SS --> SLACK
     EMS --> SMTP
     AS --> BELL
+    AAE --> BELL
 ```
 
 ### Dispatch Pipeline
@@ -143,6 +151,20 @@ The Secure Score threshold is only evaluated when the Microsoft Defender integra
 **Cooldown mechanism:** After an alert is dispatched, a configurable cooldown period (default: 15 minutes) prevents duplicate alerts from firing on subsequent result ingestions. The cooldown timer is stored in memory and resets after the period elapses.
 
 **Alert history:** A fixed-size in-memory ring buffer stores recent alerts for display in the Notification Bell component. This history is not persisted — it resets on server restart.
+
+## Agent Alerts
+
+In addition to test result thresholds, the alerting service monitors **agent health** and dispatches notifications when fleet conditions degrade. Agent alerts are evaluated every 60 seconds alongside the offline detection background job.
+
+| Threshold | Description | Example |
+|-----------|-------------|---------|
+| **Offline Duration** | Alert when any agent has been offline longer than X hours | `offline_hours_threshold: 24` — alert if any agent offline >24h |
+| **Flapping** | Alert when an agent reconnects more than N times in 24 hours | `flapping_threshold: 5` — alert if agent reconnects >5x/day |
+| **Fleet Online %** | Alert when the percentage of online agents drops below X% | `fleet_online_percent_min: 80` — alert if fewer than 80% of fleet is online |
+
+Agent alerts use a **separate cooldown** from test result alerts (default: 30 minutes). This prevents the two alert types from suppressing each other.
+
+Configure agent alerts in **Settings** → **Integrations** → **Alerting** → **Agent Alerts**.
 
 ### Slack Block Kit Format
 
@@ -210,6 +232,13 @@ Alert configuration is stored in `~/.projectachilles/integrations.json` (Docker)
       "recipients": ["admin@company.com"],
       "configured": true,
       "enabled": true
+    },
+    "agent_alerts": {
+      "enabled": true,
+      "offline_hours_threshold": 24,
+      "flapping_threshold": 5,
+      "fleet_online_percent_min": 80,
+      "cooldown_minutes": 30
     }
   }
 }

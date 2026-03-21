@@ -60,6 +60,12 @@ Deploy a custom Go agent to endpoints for remote test execution with full lifecy
 - **Remote Uninstall** — Two-phase agent removal (stop service + cleanup) initiated from admin UI
 - **Agent Diagnostics** — Enhanced `--status` flag showing service state, connection health, and config validation
 - **Stale Task Detection** — Tasks auto-fail when agent goes offline during execution
+- **Disconnect Reason Reporting** — Agents report why they went offline (service restart, machine reboot, network recovery, update restart) on reconnection
+- **Automatic Task Retry** — Tasks that fail due to agent offline are automatically retried (up to 2x) when the agent reconnects
+- **Agent Health Score** — Per-agent reliability score (0–100) based on heartbeat consistency, task success rate, and connection stability
+- **Offline Alerting** — Configurable alerts for agent offline duration, connection flapping, and fleet online percentage via Slack/email
+- **Local Result Queue** — Test results are persisted locally and delivered later if the server is unreachable during reporting
+- **Adaptive Heartbeat Backoff** — Heartbeat frequency automatically reduces during extended outages and snaps back on recovery
 
 ### Platform Support
 

@@ -30,6 +30,37 @@ pending → assigned → downloading → executing → reporting → completed/f
 5. **Reporting** — Agent sending results back
 6. **Completed/Failed** — Final state with exit code and output
 
+### Automatic Task Retry
+
+When a task fails because its agent went offline during execution, the system automatically creates a **retry task**:
+
+- Retries target the **same agent** (it picks up the task when it reconnects)
+- Default maximum retries: **2** (configurable per task via `max_retries`)
+- Only `execute_test` tasks are retried (not update, uninstall, or command tasks)
+- Each retry preserves the original task's payload, priority, and batch grouping
+
+Retry tasks appear in the task list with a **"Retry 1/2"** badge. The `original_task_id` field links back to the root task for audit tracing.
+
+:::info
+Retries are created automatically by the `expireStaleTasks` background job. No manual intervention is needed. If you need to stop retries for a specific task, cancel the pending retry task.
+:::
+
+### Local Result Queue
+
+If the agent completes a task but cannot report the result (server unreachable, all retry attempts exhausted), the result is **persisted locally** as a JSON file in the agent's work directory:
+
+```
+{work_dir}/queue/{task_id}.json
+```
+
+The queue is drained automatically on the next successful heartbeat. Key details:
+- Maximum queue size: **100 results** (oldest preserved, newest dropped if full)
+- Queue files are written with restricted permissions (`0600`)
+- Results are delivered in FIFO order and deleted after successful delivery
+- If the drain encounters a delivery failure, it stops (server still unreachable) and retries on the next heartbeat
+
+This ensures no test results are lost during extended server outages.
+
 ## Task Results
 
 Results include:

@@ -16,27 +16,33 @@ The following diagram shows how the major agent subsystems relate at runtime:
 
 ```mermaid
 graph TD
-    A[Poller.Run] --> B[Heartbeat Ticker]
-    A --> C[Poll Ticker]
+    A[Poller.Run] --> B[Heartbeat Timer]
+    A --> C[Poll Timer]
     A --> D[Update Ticker]
     A --> E[Signal Handler]
 
     B --> F[Send Heartbeat]
     F --> G[Collect System Info]
     F --> H[Report Agent Status]
+    F --> I[Reconnect Reason Detection]
 
-    C --> I[Fetch Task]
-    I --> J[Execute Async]
-    J --> K[Report Result]
+    B -->|Success| J[Drain Result Queue]
+    B -->|Failure| K[Backoff State]
+    K -->|Increase Interval| B
 
-    D --> L[Check Updates]
-    L --> M[Apply & Exit]
+    C --> L[Fetch Task]
+    L --> M[Execute Async]
+    M --> N[Report Result]
+    N -->|Failure| O[Enqueue Locally]
 
-    E --> N[Graceful Shutdown]
-    N --> O[Wait for Tasks]
+    D --> P[Check Updates]
+    P --> Q[Apply & Exit]
+
+    E --> R[Graceful Shutdown]
+    R --> S[Wait for Tasks]
 ```
 
-The **Poller** is the central event loop. It drives three independent ticker-based cycles (heartbeat, task polling, update checking) and listens for OS signals to coordinate graceful shutdown.
+The **Poller** is the central event loop. It drives three independent cycles (heartbeat, task polling, update checking) and listens for OS signals to coordinate graceful shutdown.
 
 ## CLI Entry Points
 
@@ -64,6 +70,7 @@ achilles-agent --enroll TOKEN --server https://server.com --install
 | `executor` | Test binary download, verify, execute |
 | `httpclient` | HTTP client with auth headers and TLS |
 | `poller` | Heartbeat and task polling loop |
+| `queue` | File-backed result queue for resilient reporting |
 | `reporter` | Result reporting to backend |
 | `service` | OS service management |
 | `store` | Encrypted credential storage (AES-256-GCM) |
@@ -78,10 +85,10 @@ Handles one-time agent registration. Collects system information (hostname, OS, 
 
 ### Poller (`internal/poller`)
 
-The main runtime event loop. Manages three concurrent tickers:
+The main runtime event loop. Manages three concurrent cycles:
 
-- **Heartbeat ticker** -- sends system metrics (CPU, memory, disk, uptime) to the backend at the configured heartbeat interval.
-- **Poll ticker** -- fetches pending tasks and dispatches them for async execution.
+- **Heartbeat timer** -- sends system metrics (CPU, memory, disk, uptime) to the backend at the configured heartbeat interval. Uses `time.Timer` (not `time.Ticker`) for adaptive interval control — intervals increase during extended server outages via backoff state and snap back to normal on first successful heartbeat. After each successful heartbeat, the local result queue is drained.
+- **Poll timer** -- fetches pending tasks and dispatches them for async execution. Also uses `time.Timer` with adaptive intervals that follow the same backoff progression as heartbeat.
 - **Update ticker** -- checks the server for new agent versions and applies them atomically.
 
 **Concurrency model:** single-threaded main loop with an atomic busy flag ensuring only one task executes at a time. Tasks run in goroutines. Graceful shutdown waits up to 30 seconds for in-flight tasks before exiting.
@@ -132,10 +139,11 @@ Persistent agent state stored as JSON in `state.json` within the work directory:
 
 ```go
 type State struct {
-    AgentID       string     `json:"agent_id"`
-    LastTaskID    string     `json:"last_task_id,omitempty"`
-    LastHeartbeat *time.Time `json:"last_heartbeat,omitempty"`
-    Version       string     `json:"version"`
+    AgentID                 string     `json:"agent_id"`
+    LastTaskID              string     `json:"last_task_id,omitempty"`
+    LastHeartbeat           *time.Time `json:"last_heartbeat,omitempty"`
+    LastSuccessfulHeartbeat *time.Time `json:"last_successful_heartbeat,omitempty"`
+    Version                 string     `json:"version"`
 }
 ```
 
@@ -249,6 +257,25 @@ Machine ID binding means an encrypted config file is not portable between hosts.
 ### Binary Integrity
 - Downloaded test binaries are verified against SHA256 hash + expected file size before execution
 - Agent updates are verified with Ed25519 cryptographic signatures over the SHA256 hash
+
+## Resilience Features
+
+### Adaptive Backoff
+
+The heartbeat and poll timers use adaptive intervals that increase during extended server outages (60s → 5min → 15min → 30min cap). On first successful heartbeat, intervals snap back to normal. This reduces wasted network requests while maintaining fast recovery.
+
+### Local Result Queue
+
+When result reporting fails after all retries, the result is persisted as a JSON file in `{WorkDir}/queue/`. The queue drains automatically after each successful heartbeat. Maximum 100 files, FIFO order, restricted permissions (0600).
+
+### Disconnect Reason Detection
+
+On the first heartbeat after a connectivity gap, the agent computes a `reconnect_reason` by comparing:
+- Process start time vs. last successful heartbeat (was the process restarted?)
+- Stored version vs. current version (was an update applied?)
+- OS uptime vs. offline duration (was the machine rebooted?)
+
+Possible reasons: `service_restart`, `machine_reboot`, `network_recovery`, `update_restart`.
 
 ## Execution Model
 
