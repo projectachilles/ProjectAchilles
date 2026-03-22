@@ -19,11 +19,17 @@ type Status struct {
 
 // Install registers the agent as a system service on the current platform.
 func Install(configPath string) error {
+	if !isElevated() {
+		return fmt.Errorf("install requires administrator/root privileges")
+	}
 	return platformInstall(configPath)
 }
 
 // Uninstall removes the agent system service from the current platform.
 func Uninstall() error {
+	if !isElevated() {
+		return fmt.Errorf("uninstall requires administrator/root privileges")
+	}
 	return platformUninstall()
 }
 
