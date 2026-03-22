@@ -23,7 +23,7 @@ func CheckNetworkState() string {
 	buf := make([]byte, size)
 	addr := (*windows.IpAdapterAddresses)(unsafe.Pointer(&buf[0]))
 	ret = windows.GetAdaptersAddresses(windows.AF_UNSPEC, 0, 0, addr, &size)
-	if ret != 0 {
+	if ret != nil {
 		return "check_failed"
 	}
 
