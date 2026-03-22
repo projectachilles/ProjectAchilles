@@ -5,7 +5,8 @@ package sysinfo
 type Info struct {
 	UptimeSeconds     int64
 	CPUPercent        int
-	MemoryMB          int
+	MemoryMB          int // used memory in MB
+	TotalMemoryMB     int // total physical memory in MB
 	DiskFreeMB        int
 	ProcessCPUPercent int // agent process CPU usage (0-100)
 	ProcessMemoryMB   int // agent process RSS in MB

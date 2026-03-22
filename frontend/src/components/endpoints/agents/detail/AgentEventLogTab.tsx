@@ -3,7 +3,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, Wifi, Power, Download, HelpCircle } from 'lucide-react';
+import { RefreshCw, Wifi, WifiOff, Power, Download, HelpCircle, Server, Clock, ShieldAlert, HardDrive, MemoryStick, Plug } from 'lucide-react';
 import { Card, CardContent } from '@/components/shared/ui/Card';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
@@ -56,6 +56,15 @@ const RECONNECT_REASON_LABELS: Record<string, string> = {
   network_recovery: 'Network Recovery',
   machine_reboot: 'Machine Reboot',
   update_restart: 'Update Restart',
+  network_adapter_disabled: 'Network Adapter Disabled',
+  dns_failure: 'DNS Failure',
+  server_unreachable: 'Server Unreachable',
+  network_unreachable: 'Network Unreachable',
+  connection_timeout: 'Connection Timeout',
+  connection_reset: 'Connection Reset',
+  tls_error: 'TLS/Certificate Error',
+  disk_pressure_crash: 'Disk Pressure (Crash)',
+  memory_pressure_crash: 'Memory Pressure (Crash)',
   unknown: 'Unknown',
 };
 
@@ -64,8 +73,25 @@ const RECONNECT_REASON_ICONS: Record<string, typeof RefreshCw> = {
   network_recovery: Wifi,
   machine_reboot: Power,
   update_restart: Download,
+  network_adapter_disabled: WifiOff,
+  dns_failure: Server,
+  server_unreachable: Server,
+  network_unreachable: WifiOff,
+  connection_timeout: Clock,
+  connection_reset: Plug,
+  tls_error: ShieldAlert,
+  disk_pressure_crash: HardDrive,
+  memory_pressure_crash: MemoryStick,
   unknown: HelpCircle,
 };
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  const hours = Math.floor(seconds / 3600);
+  const mins = Math.round((seconds % 3600) / 60);
+  return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+}
 
 function formatDetails(event: AgentEvent): string | null {
   const d = event.details;
@@ -81,8 +107,34 @@ function formatDetails(event: AgentEvent): string | null {
       return `Task: ${d.task_id ?? ''}`;
     case 'enrolled':
       return `${d.hostname ?? ''} (${d.os}/${d.arch})`;
-    case 'came_online':
-      return null;
+    case 'came_online': {
+      const parts: string[] = [];
+      const offlineDur = d.offline_duration_seconds as number | undefined;
+      if (offlineDur) {
+        parts.push(`Offline for ${formatDuration(offlineDur)}`);
+      }
+      const failureCount = d.failure_count as number | undefined;
+      if (failureCount && failureCount > 0) {
+        parts.push(`${failureCount} failed heartbeat${failureCount > 1 ? 's' : ''}`);
+      }
+      const probableCause = d.probable_cause as string | undefined;
+      if (probableCause) {
+        parts.push(`Probable: ${probableCause.replace(/_/g, ' ')}`);
+      }
+      return parts.length > 0 ? parts.join(' \u00b7 ') : null;
+    }
+    case 'went_offline': {
+      const parts: string[] = [];
+      const cause = d.probable_cause as string | undefined;
+      if (cause) {
+        parts.push(`Probable: ${cause.replace(/_/g, ' ')}`);
+      }
+      const mem = d.last_memory_mb as number | undefined;
+      const disk = d.last_disk_free_mb as number | undefined;
+      if (mem) parts.push(`Mem: ${mem} MB`);
+      if (disk !== undefined && disk < 500) parts.push(`Disk: ${disk} MB free`);
+      return parts.length > 0 ? parts.join(' \u00b7 ') : null;
+    }
     default:
       return JSON.stringify(d);
   }

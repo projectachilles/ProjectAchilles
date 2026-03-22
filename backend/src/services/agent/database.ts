@@ -157,6 +157,9 @@ function initializeTables(database: Database.Database): void {
   if (!hbColNames.has('process_memory_mb')) {
     database.exec('ALTER TABLE heartbeat_history ADD COLUMN process_memory_mb REAL');
   }
+  if (!hbColNames.has('total_memory_mb')) {
+    database.exec('ALTER TABLE heartbeat_history ADD COLUMN total_memory_mb REAL');
+  }
 
   // Migration: add notes columns to tasks table
   const columns = database.prepare(`PRAGMA table_info(tasks)`).all() as { name: string }[];

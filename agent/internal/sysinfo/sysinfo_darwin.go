@@ -55,7 +55,7 @@ func Collect() Info {
 	info.ProcessMemoryMB = getProcessMemoryMB()
 
 	// Memory: hw.memsize for total, vm_stat for usage.
-	info.MemoryMB = getMemoryMB()
+	info.TotalMemoryMB, info.MemoryMB = getMemoryStats()
 
 	// Disk free on /.
 	var stat syscall.Statfs_t
@@ -114,22 +114,23 @@ func getCPUPercent() int {
 	return pct
 }
 
-// getMemoryMB computes used memory in MB from hw.memsize and vm_stat output.
-func getMemoryMB() int {
+// getMemoryStats returns (totalMB, usedMB) from hw.memsize and vm_stat output.
+func getMemoryStats() (int, int) {
 	// Total physical memory via sysctl.
 	out, err := exec.Command("sysctl", "-n", "hw.memsize").Output()
 	if err != nil {
-		return 0
+		return 0, 0
 	}
 	totalBytes, err := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
 	if err != nil {
-		return 0
+		return 0, 0
 	}
+	totalMB := int(totalBytes / (1024 * 1024))
 
 	// Parse vm_stat for free + inactive pages.
 	vmOut, err := exec.Command("vm_stat").Output()
 	if err != nil {
-		return int(totalBytes / (1024 * 1024)) // fallback: report total
+		return totalMB, totalMB // fallback: report total as used
 	}
 
 	pageSize := uint64(4096) // default macOS page size
@@ -155,10 +156,10 @@ func getMemoryMB() int {
 
 	freeBytes := (free + inactive) * pageSize
 	if freeBytes > totalBytes {
-		return 0
+		return totalMB, 0
 	}
 	usedBytes := totalBytes - freeBytes
-	return int(usedBytes / (1024 * 1024))
+	return totalMB, int(usedBytes / (1024 * 1024))
 }
 
 // getProcessMemoryMB returns the agent process RSS in MB via ps.

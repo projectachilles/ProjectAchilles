@@ -18,6 +18,7 @@ func Collect() Info {
 	var si syscall.Sysinfo_t
 	if err := syscall.Sysinfo(&si); err == nil {
 		info.UptimeSeconds = si.Uptime
+		info.TotalMemoryMB = int(si.Totalram * uint64(si.Unit) / (1024 * 1024))
 		usedBytes := si.Totalram - si.Freeram - si.Bufferram
 		info.MemoryMB = int(usedBytes * uint64(si.Unit) / (1024 * 1024))
 	}

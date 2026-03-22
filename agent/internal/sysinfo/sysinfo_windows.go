@@ -97,6 +97,7 @@ func Collect() Info {
 	mem.Length = uint32(unsafe.Sizeof(mem))
 	ret, _, _ = procGlobalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&mem)))
 	if ret != 0 {
+		info.TotalMemoryMB = int(mem.TotalPhys / (1024 * 1024))
 		usedBytes := mem.TotalPhys - mem.AvailPhys
 		info.MemoryMB = int(usedBytes / (1024 * 1024))
 	}

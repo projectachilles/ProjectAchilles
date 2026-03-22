@@ -64,14 +64,40 @@ export function processHeartbeat(agentId: string, payload: HeartbeatPayload): vo
     // Detect came_online: agent was offline (gap > 180s or no previous heartbeat)
     if (current) {
       if (!current.last_heartbeat || !isAgentOnline(current.last_heartbeat)) {
-        // Inline recordEvent to stay within this transaction
-        const cameOnlineDetails = JSON.stringify({
-          reconnect_reason: payload.reconnect_reason ?? 'unknown',
-          ...(payload.process_start_time ? { process_start_time: payload.process_start_time } : {}),
-        });
+        let cameOnlineDetails: Record<string, unknown>;
+
+        if (payload.reconnect_context) {
+          // New agent with rich context
+          cameOnlineDetails = { ...payload.reconnect_context };
+          // Rename 'reason' to 'reconnect_reason' for consistency with event detail naming
+          cameOnlineDetails.reconnect_reason = payload.reconnect_context.reason;
+          delete cameOnlineDetails.reason;
+        } else {
+          // Old agent — backward compat
+          cameOnlineDetails = {
+            reconnect_reason: payload.reconnect_reason ?? 'unknown',
+            ...(payload.process_start_time ? { process_start_time: payload.process_start_time } : {}),
+          };
+        }
+
+        // If reason is service_restart, check went_offline event for probable_cause
+        if (cameOnlineDetails.reconnect_reason === 'service_restart') {
+          const lastOffline = db.prepare(
+            `SELECT details FROM agent_events WHERE agent_id = ? AND event_type = 'went_offline' ORDER BY created_at DESC LIMIT 1`
+          ).get(agentId) as { details: string } | undefined;
+          if (lastOffline) {
+            try {
+              const offlineDetails = JSON.parse(lastOffline.details);
+              if (offlineDetails.probable_cause) {
+                cameOnlineDetails.probable_cause = offlineDetails.probable_cause;
+              }
+            } catch { /* ignore parse errors */ }
+          }
+        }
+
         db.prepare(
           `INSERT INTO agent_events (agent_id, event_type, details) VALUES (?, ?, ?)`
-        ).run(agentId, 'came_online' satisfies AgentEventType, cameOnlineDetails);
+        ).run(agentId, 'came_online' satisfies AgentEventType, JSON.stringify(cameOnlineDetails));
       }
 
       // Detect version change
@@ -89,8 +115,8 @@ export function processHeartbeat(agentId: string, payload: HeartbeatPayload): vo
     // Record heartbeat history (sampled: every 5th heartbeat per agent)
     if (shouldRecordHistory(agentId)) {
       db.prepare(`
-        INSERT INTO heartbeat_history (agent_id, cpu_percent, memory_mb, disk_free_mb, uptime_seconds, process_cpu_percent, process_memory_mb)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO heartbeat_history (agent_id, cpu_percent, memory_mb, disk_free_mb, uptime_seconds, process_cpu_percent, process_memory_mb, total_memory_mb)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         agentId,
         payload.system.cpu_percent ?? null,
@@ -98,7 +124,8 @@ export function processHeartbeat(agentId: string, payload: HeartbeatPayload): vo
         payload.system.disk_free_mb ?? null,
         payload.system.uptime_seconds ?? null,
         payload.system.process_cpu_percent ?? null,
-        payload.system.process_memory_mb ?? null
+        payload.system.process_memory_mb ?? null,
+        payload.system.total_memory_mb ?? null
       );
     }
   })();
@@ -556,8 +583,8 @@ function parseTags(raw: string | null | undefined): string[] {
 export function recordHeartbeatHistory(agentId: string, payload: HeartbeatPayload): void {
   const db = getDatabase();
   db.prepare(`
-    INSERT INTO heartbeat_history (agent_id, cpu_percent, memory_mb, disk_free_mb, uptime_seconds, process_cpu_percent, process_memory_mb)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO heartbeat_history (agent_id, cpu_percent, memory_mb, disk_free_mb, uptime_seconds, process_cpu_percent, process_memory_mb, total_memory_mb)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     agentId,
     payload.system.cpu_percent ?? null,
@@ -565,7 +592,8 @@ export function recordHeartbeatHistory(agentId: string, payload: HeartbeatPayloa
     payload.system.disk_free_mb ?? null,
     payload.system.uptime_seconds ?? null,
     payload.system.process_cpu_percent ?? null,
-    payload.system.process_memory_mb ?? null
+    payload.system.process_memory_mb ?? null,
+    payload.system.total_memory_mb ?? null
   );
 }
 
@@ -621,7 +649,7 @@ export function detectOfflineAgents(): number {
   // Find agents that are active, were online (have a heartbeat), but now exceed timeout.
   // Use datetime() to normalize timestamp formats (ISO 8601 T-separator vs SQLite space-separator).
   const offlineAgents = db.prepare(`
-    SELECT a.id FROM agents a
+    SELECT a.id, a.last_heartbeat_data FROM agents a
     WHERE a.status = 'active'
       AND a.last_heartbeat IS NOT NULL
       AND datetime(a.last_heartbeat) < datetime(?)
@@ -631,19 +659,54 @@ export function detectOfflineAgents(): number {
           AND e.event_type = 'went_offline'
           AND datetime(e.created_at) > datetime(a.last_heartbeat)
       )
-  `).all(cutoff) as { id: string }[];
+  `).all(cutoff) as { id: string; last_heartbeat_data: string | null }[];
 
   // Batch all event inserts in a single transaction to reduce lock acquisitions
   if (offlineAgents.length > 0) {
     const stmt = db.prepare(
-      `INSERT INTO agent_events (agent_id, event_type, details) VALUES (?, 'went_offline', '{}')`
+      `INSERT INTO agent_events (agent_id, event_type, details) VALUES (?, 'went_offline', ?)`
     );
     db.transaction(() => {
-      for (const agent of offlineAgents) stmt.run(agent.id);
+      for (const agent of offlineAgents) {
+        const details = computeOfflineDetails(agent.last_heartbeat_data);
+        stmt.run(agent.id, JSON.stringify(details));
+      }
     })();
   }
 
   return offlineAgents.length;
+}
+
+function computeOfflineDetails(lastHeartbeatData: string | null): Record<string, unknown> {
+  if (!lastHeartbeatData) return {};
+
+  try {
+    const data = JSON.parse(lastHeartbeatData) as HeartbeatPayload;
+    const metrics: Record<string, unknown> = {
+      last_cpu_percent: data.system.cpu_percent,
+      last_memory_mb: data.system.memory_mb,
+      last_disk_free_mb: data.system.disk_free_mb,
+    };
+
+    if (data.system.total_memory_mb) {
+      metrics.last_total_memory_mb = data.system.total_memory_mb;
+    }
+
+    if (data.system.disk_free_mb < 100) {
+      metrics.probable_cause = 'disk_pressure';
+    } else if (data.system.total_memory_mb && data.system.total_memory_mb > 0) {
+      const memPct = (data.system.memory_mb / data.system.total_memory_mb) * 100;
+      if (memPct > 90) {
+        metrics.probable_cause = 'memory_pressure';
+      }
+    } else if (data.system.cpu_percent > 95) {
+      metrics.probable_cause = 'cpu_saturation';
+    }
+
+    return metrics;
+  } catch {
+    return {};
+  }
 }
 
 // ============================================================================

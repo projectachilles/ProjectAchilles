@@ -100,7 +100,21 @@ export interface CreateTokenResponse {
 // HEARTBEAT
 // ============================================================================
 
-export type ReconnectReason = 'service_restart' | 'network_recovery' | 'machine_reboot' | 'update_restart' | 'unknown';
+export type ReconnectReason =
+  | 'service_restart'
+  | 'network_recovery'
+  | 'machine_reboot'
+  | 'update_restart'
+  | 'network_adapter_disabled'
+  | 'dns_failure'
+  | 'server_unreachable'
+  | 'network_unreachable'
+  | 'connection_timeout'
+  | 'connection_reset'
+  | 'tls_error'
+  | 'disk_pressure_crash'
+  | 'memory_pressure_crash'
+  | 'unknown';
 
 export interface HeartbeatPayload {
   timestamp: string;
@@ -114,12 +128,30 @@ export interface HeartbeatPayload {
     cpu_percent: number;
     memory_mb: number;
     disk_free_mb: number;
+    total_memory_mb?: number;
     process_cpu_percent?: number;
     process_memory_mb?: number;
   };
   agent_version: string;
   last_task_completed: string | null;
   reconnect_reason?: ReconnectReason;
+  process_start_time?: string;
+  reconnect_context?: ReconnectContext;
+}
+
+export interface ReconnectContext {
+  reason: ReconnectReason;
+  detail?: string;
+  first_failure_at?: string;
+  offline_duration_seconds: number;
+  failure_count: number;
+  network_state?: string;
+  system_at_failure?: {
+    disk_free_mb: number;
+    memory_mb: number;
+    total_memory_mb: number;
+    cpu_percent: number;
+  };
   process_start_time?: string;
 }
 

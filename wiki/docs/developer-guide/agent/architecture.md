@@ -270,12 +270,18 @@ When result reporting fails after all retries, the result is persisted as a JSON
 
 ### Disconnect Reason Detection
 
-On the first heartbeat after a connectivity gap, the agent computes a `reconnect_reason` by comparing:
-- Process start time vs. last successful heartbeat (was the process restarted?)
-- Stored version vs. current version (was an update applied?)
-- OS uptime vs. offline duration (was the machine rebooted?)
+When a heartbeat fails, the agent records a real-time **disconnect context**:
+- HTTP error classification (DNS failure, connection refused, timeout, TLS error, etc.)
+- Network adapter state check (per-platform: sysfs on Linux, GetAdaptersAddresses on Windows, ifconfig on macOS)
+- System metrics snapshot (disk free, memory, CPU at time of failure)
 
-Possible reasons: `service_restart`, `machine_reboot`, `network_recovery`, `update_restart`.
+On reconnection, the agent derives a specific reason from this context and sends a `reconnect_context` object:
+- If the process restarted: checks for version change (update), OS uptime (reboot), or resource pressure (OOM/disk)
+- If the process was running: uses the network adapter state and HTTP error type
+
+The backend enriches `went_offline` events with last-known heartbeat metrics (`probable_cause`) and merges agent context + backend inference into the final `came_online` event details.
+
+Possible reasons: `service_restart`, `machine_reboot`, `update_restart`, `network_adapter_disabled`, `server_unreachable`, `dns_failure`, `network_unreachable`, `connection_timeout`, `tls_error`, `disk_pressure_crash`, `memory_pressure_crash`, `network_recovery`.
 
 ## Execution Model
 

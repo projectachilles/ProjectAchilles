@@ -128,6 +128,7 @@ export function createTestDatabase(): Database.Database {
       uptime_seconds INTEGER,
       process_cpu_percent REAL,
       process_memory_mb REAL,
+      total_memory_mb REAL,
       FOREIGN KEY (agent_id) REFERENCES agents(id)
     );
     CREATE INDEX IF NOT EXISTS idx_hb_hist_agent_ts ON heartbeat_history(agent_id, timestamp);

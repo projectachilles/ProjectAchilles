@@ -40,13 +40,25 @@ export async function processHeartbeat(agentId: string, payload: HeartbeatPayloa
   // Detect came_online: agent was offline (gap > 180s or no previous heartbeat)
   if (current) {
     if (!current.last_heartbeat || !isAgentOnline(current.last_heartbeat)) {
-      const cameOnlineDetails = JSON.stringify({
-        reconnect_reason: payload.reconnect_reason ?? 'unknown',
-        ...(payload.process_start_time ? { process_start_time: payload.process_start_time } : {}),
-      });
+      let cameOnlineDetails: Record<string, unknown>;
+
+      if (payload.reconnect_context) {
+        // New agent with rich context
+        cameOnlineDetails = { ...payload.reconnect_context };
+        // Rename 'reason' to 'reconnect_reason' for consistency with event detail naming
+        cameOnlineDetails.reconnect_reason = payload.reconnect_context.reason;
+        delete cameOnlineDetails.reason;
+      } else {
+        // Old agent — backward compat
+        cameOnlineDetails = {
+          reconnect_reason: payload.reconnect_reason ?? 'unknown',
+          ...(payload.process_start_time ? { process_start_time: payload.process_start_time } : {}),
+        };
+      }
+
       await db.run(
         `INSERT INTO agent_events (agent_id, event_type, details) VALUES (?, ?, ?)`,
-        [agentId, 'came_online', cameOnlineDetails]
+        [agentId, 'came_online', JSON.stringify(cameOnlineDetails)]
       );
     }
   }

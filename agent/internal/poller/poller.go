@@ -2,15 +2,19 @@ package poller
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -35,6 +39,7 @@ type systemInfo struct {
 	UptimeSeconds     int64  `json:"uptime_seconds"`
 	CPUPercent        int    `json:"cpu_percent"`
 	MemoryMB          int    `json:"memory_mb"`
+	TotalMemoryMB     int    `json:"total_memory_mb"`
 	DiskFreeMB        int    `json:"disk_free_mb"`
 	ProcessCPUPercent int    `json:"process_cpu_percent"`
 	ProcessMemoryMB   int    `json:"process_memory_mb"`
@@ -42,14 +47,35 @@ type systemInfo struct {
 
 // heartbeatPayload is the JSON body sent on each heartbeat.
 type heartbeatPayload struct {
-	Timestamp         time.Time   `json:"timestamp"`
-	Status            string      `json:"status"`
-	CurrentTask       *string     `json:"current_task"`
-	System            systemInfo  `json:"system"`
-	AgentVersion      string      `json:"agent_version"`
-	LastTaskCompleted *string     `json:"last_task_completed"`
-	ReconnectReason   string      `json:"reconnect_reason,omitempty"`
-	ProcessStartTime  string      `json:"process_start_time,omitempty"`
+	Timestamp         time.Time          `json:"timestamp"`
+	Status            string             `json:"status"`
+	CurrentTask       *string            `json:"current_task"`
+	System            systemInfo         `json:"system"`
+	AgentVersion      string             `json:"agent_version"`
+	LastTaskCompleted *string            `json:"last_task_completed"`
+	ReconnectReason   string             `json:"reconnect_reason,omitempty"`
+	ProcessStartTime  string             `json:"process_start_time,omitempty"`
+	ReconnectContext  *reconnectContext  `json:"reconnect_context,omitempty"`
+}
+
+// reconnectContext is the rich reconnection info sent after a connectivity gap.
+type reconnectContext struct {
+	Reason           string          `json:"reason"`
+	Detail           string          `json:"detail,omitempty"`
+	FirstFailureAt   string          `json:"first_failure_at,omitempty"`
+	OfflineDuration  int             `json:"offline_duration_seconds"`
+	FailureCount     int             `json:"failure_count"`
+	NetworkState     string          `json:"network_state,omitempty"`
+	SystemAtFailure  *systemSnapshot `json:"system_at_failure,omitempty"`
+	ProcessStartTime string          `json:"process_start_time,omitempty"`
+}
+
+// systemSnapshot captures resource metrics at the moment of first failure.
+type systemSnapshot struct {
+	DiskFreeMB    int `json:"disk_free_mb"`
+	MemoryMB      int `json:"memory_mb"`
+	TotalMemoryMB int `json:"total_memory_mb"`
+	CPUPercent    int `json:"cpu_percent"`
 }
 
 // heartbeatResponse wraps the server's JSON envelope for heartbeat acknowledgement.
@@ -115,58 +141,147 @@ func (b *backoffState) interval(base time.Duration) time.Duration {
 	}
 }
 
-// ── Reconnect Reason Detection ──────────────────────────────────────────────
+// ── Disconnect Context Tracking ─────────────────────────────────────────────
 
 // processStartTime records when this process started (set once at package init).
 var processStartTime = time.Now()
 
-// reconnectState tracks whether we've already sent the reconnect reason after
-// a connectivity gap. The reason is computed once and sent in one heartbeat.
-type reconnectState struct {
-	sent bool
+// disconnectContext tracks failure state in real-time during connectivity gaps.
+// On each heartbeat failure, it records the error type, network adapter state,
+// and system metrics. On reconnection, this context is used to derive the
+// disconnect reason and sent to the backend as a reconnectContext.
+type disconnectContext struct {
+	inGap          bool
+	firstFailureAt time.Time
+	failureCount   int
+	firstError     string          // classified HTTP error
+	firstErrorMsg  string          // raw error message for detail
+	networkState   string          // adapter state at first failure
+	systemSnapshot *systemSnapshot // metrics at first failure
 }
 
-// computeReconnectReason determines why the agent was offline based on
-// process start time, OS uptime, stored version, and offline duration.
-func computeReconnectReason(st *store.Store, version string, cfg *config.Config) string {
+func (dc *disconnectContext) reset() {
+	dc.inGap = false
+	dc.firstFailureAt = time.Time{}
+	dc.failureCount = 0
+	dc.firstError = ""
+	dc.firstErrorMsg = ""
+	dc.networkState = ""
+	dc.systemSnapshot = nil
+}
+
+// classifyHeartbeatError inspects the underlying error from an HTTP request
+// and returns a classified error type string.
+func classifyHeartbeatError(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return "dns_failure"
+	}
+
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		if opErr.Op == "dial" {
+			errMsg := opErr.Err.Error()
+			if strings.Contains(errMsg, "connection refused") {
+				return "connection_refused"
+			}
+			if strings.Contains(errMsg, "network is unreachable") || strings.Contains(errMsg, "no route to host") {
+				return "network_unreachable"
+			}
+			return "connection_failed"
+		}
+		if opErr.Op == "read" {
+			return "connection_reset"
+		}
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
+		return "timeout"
+	}
+
+	// TLS errors
+	var recordErr *tls.RecordHeaderError
+	if errors.As(err, &recordErr) {
+		return "tls_error"
+	}
+	var x509Err *x509.UnknownAuthorityError
+	if errors.As(err, &x509Err) {
+		return "tls_error"
+	}
+	var certErr *x509.CertificateInvalidError
+	if errors.As(err, &certErr) {
+		return "tls_error"
+	}
+
+	return "unknown_error"
+}
+
+// deriveDisconnectReason computes the disconnect reason from the failure context,
+// process restart detection, and system state analysis.
+func deriveDisconnectReason(dc *disconnectContext, st *store.Store, version string) string {
 	state := st.Get()
 
-	// If LastSuccessfulHeartbeat was never set (agent upgraded from a version
-	// that didn't track it), fall back to LastHeartbeat. If neither exists,
-	// this is a genuine first-ever heartbeat — not a reconnection.
 	lastHB := state.LastSuccessfulHeartbeat
 	if lastHB == nil {
 		lastHB = state.LastHeartbeat
 	}
-	if lastHB == nil {
-		return ""
-	}
 
-	offlineDuration := time.Since(*lastHB)
+	// Check if the process restarted during the gap.
+	processRestarted := lastHB != nil && processStartTime.After(*lastHB)
 
-	// No significant gap — normal operation.
-	if offlineDuration < 2*cfg.HeartbeatInterval {
-		return ""
-	}
-
-	// Did the process restart during the gap?
-	processRestarted := processStartTime.After(*lastHB)
 	if processRestarted {
 		// Version changed → update restart.
 		if state.Version != "" && state.Version != version {
 			return "update_restart"
 		}
 		// OS uptime shorter than offline duration → machine rebooted.
-		info := sysinfo.Collect()
-		if info.UptimeSeconds > 0 && info.UptimeSeconds < int64(offlineDuration.Seconds()) {
-			return "machine_reboot"
+		if lastHB != nil {
+			info := sysinfo.Collect()
+			offlineDuration := time.Since(*lastHB)
+			if info.UptimeSeconds > 0 && info.UptimeSeconds < int64(offlineDuration.Seconds()) {
+				return "machine_reboot"
+			}
 		}
-		// Process restarted but machine didn't → service manager restarted it.
+		// Check system snapshot for resource pressure at time of crash.
+		if dc.systemSnapshot != nil {
+			if dc.systemSnapshot.DiskFreeMB < 100 {
+				return "disk_pressure_crash"
+			}
+			if dc.systemSnapshot.TotalMemoryMB > 0 {
+				usedPct := float64(dc.systemSnapshot.MemoryMB) / float64(dc.systemSnapshot.TotalMemoryMB) * 100
+				if usedPct > 90 {
+					return "memory_pressure_crash"
+				}
+			}
+		}
 		return "service_restart"
 	}
 
-	// Process was running the whole time → network issue.
-	return "network_recovery"
+	// Process was running the whole time — use network/error context.
+	if dc.networkState == "all_adapters_down" {
+		return "network_adapter_disabled"
+	}
+
+	switch dc.firstError {
+	case "dns_failure":
+		return "dns_failure"
+	case "connection_refused":
+		return "server_unreachable"
+	case "network_unreachable":
+		return "network_unreachable"
+	case "timeout":
+		return "connection_timeout"
+	case "tls_error":
+		return "tls_error"
+	case "connection_reset":
+		return "connection_reset"
+	default:
+		return "network_recovery"
+	}
 }
 
 // ── Main Loop ───────────────────────────────────────────────────────────────
@@ -205,7 +320,7 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 	// Adaptive timers replace fixed tickers — intervals grow during outages
 	// and snap back to normal on recovery.
 	var hbBackoff backoffState
-	var reconnect reconnectState
+	var dc disconnectContext
 
 	// Timer(0) fires immediately on the first select iteration, providing
 	// the initial heartbeat without a separate call.
@@ -251,7 +366,7 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 			return ctx.Err()
 
 		case <-heartbeatTimer.C:
-			success := sendHeartbeat(ctx, client, cfg, st, version, &reconnect)
+			success, hbErr := sendHeartbeat(ctx, client, cfg, st, version, &dc)
 			if success {
 				if hbBackoff.consecutiveFailures > 5 {
 					log.Printf("connectivity recovered after %d consecutive failures, resetting intervals",
@@ -279,6 +394,28 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 				}
 			} else {
 				hbBackoff.consecutiveFailures++
+
+				// Track disconnect context on first failure in a gap.
+				if !dc.inGap {
+					dc.inGap = true
+					dc.firstFailureAt = time.Now()
+					dc.firstError = classifyHeartbeatError(hbErr)
+					if hbErr != nil {
+						dc.firstErrorMsg = hbErr.Error()
+					}
+					dc.networkState = sysinfo.CheckNetworkState()
+					info := sysinfo.Collect()
+					dc.systemSnapshot = &systemSnapshot{
+						DiskFreeMB:    info.DiskFreeMB,
+						MemoryMB:      info.MemoryMB,
+						TotalMemoryMB: info.TotalMemoryMB,
+						CPUPercent:    info.CPUPercent,
+					}
+					log.Printf("connectivity gap started (error: %s, network: %s)",
+						dc.firstError, dc.networkState)
+				}
+				dc.failureCount++
+
 				if hbBackoff.consecutiveFailures == 6 {
 					log.Printf("heartbeat backoff: increasing to 5m intervals after %d consecutive failures",
 						hbBackoff.consecutiveFailures)
@@ -331,9 +468,10 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 }
 
 // sendHeartbeat posts agent status to the server and processes the response.
-// Returns true on success, false on error. On success it updates the store's
-// LastSuccessfulHeartbeat and handles key rotation and reconnect reason reporting.
-func sendHeartbeat(ctx context.Context, client *httpclient.Client, cfg *config.Config, st *store.Store, version string, reconnect *reconnectState) bool {
+// Returns (true, nil) on success, (false, error) on failure. On success it
+// updates the store's LastSuccessfulHeartbeat, handles key rotation, and
+// resets the disconnect context after sending reconnection info.
+func sendHeartbeat(ctx context.Context, client *httpclient.Client, cfg *config.Config, st *store.Store, version string, dc *disconnectContext) (bool, error) {
 	hostname, _ := os.Hostname()
 
 	state := st.Get()
@@ -362,6 +500,7 @@ func sendHeartbeat(ctx context.Context, client *httpclient.Client, cfg *config.C
 			UptimeSeconds:     info.UptimeSeconds,
 			CPUPercent:        info.CPUPercent,
 			MemoryMB:          info.MemoryMB,
+			TotalMemoryMB:     info.TotalMemoryMB,
 			DiskFreeMB:        info.DiskFreeMB,
 			ProcessCPUPercent: info.ProcessCPUPercent,
 			ProcessMemoryMB:   info.ProcessMemoryMB,
@@ -370,20 +509,37 @@ func sendHeartbeat(ctx context.Context, client *httpclient.Client, cfg *config.C
 		LastTaskCompleted: lastTask,
 	}
 
-	// Include reconnect reason on the first heartbeat after a gap.
-	if !reconnect.sent {
-		reason := computeReconnectReason(st, version, cfg)
-		if reason != "" {
-			payload.ReconnectReason = reason
-			payload.ProcessStartTime = processStartTime.UTC().Format(time.RFC3339)
-			log.Printf("reconnect reason: %s", reason)
+	// Build reconnection context if we're recovering from a gap.
+	if dc.inGap && dc.failureCount > 0 {
+		reason := deriveDisconnectReason(dc, st, version)
+		offlineDur := 0
+		if !dc.firstFailureAt.IsZero() {
+			offlineDur = int(time.Since(dc.firstFailureAt).Seconds())
 		}
+
+		payload.ReconnectContext = &reconnectContext{
+			Reason:           reason,
+			Detail:           dc.firstErrorMsg,
+			FirstFailureAt:   dc.firstFailureAt.UTC().Format(time.RFC3339),
+			OfflineDuration:  offlineDur,
+			FailureCount:     dc.failureCount,
+			NetworkState:     dc.networkState,
+			SystemAtFailure:  dc.systemSnapshot,
+			ProcessStartTime: processStartTime.UTC().Format(time.RFC3339),
+		}
+
+		// Backward compatibility: also set flat fields for older backends.
+		payload.ReconnectReason = reason
+		payload.ProcessStartTime = processStartTime.UTC().Format(time.RFC3339)
+
+		log.Printf("reconnect reason: %s (offline %ds, %d failures, error: %s, network: %s)",
+			reason, offlineDur, dc.failureCount, dc.firstError, dc.networkState)
 	}
 
 	resp, err := client.Do(ctx, http.MethodPost, "/api/agent/heartbeat", payload)
 	if err != nil {
 		log.Printf("heartbeat error: %v", err)
-		return false
+		return false, err
 	}
 	defer resp.Body.Close()
 
@@ -401,17 +557,16 @@ func sendHeartbeat(ctx context.Context, client *httpclient.Client, cfg *config.C
 		}
 	}
 
-	// Mark heartbeat as successful — update both timestamps and mark
-	// reconnect reason as sent so it's not included in subsequent heartbeats.
+	// Mark heartbeat as successful and reset disconnect tracking.
 	now := time.Now()
 	_ = st.Update(func(s *store.State) {
 		s.LastHeartbeat = &now
 		s.LastSuccessfulHeartbeat = &now
 	})
-	reconnect.sent = true
+	dc.reset()
 
 	log.Println("heartbeat sent")
-	return true
+	return true, nil
 }
 
 // fetchTask polls the server for a pending task and returns it, or nil if none available.
@@ -514,8 +669,6 @@ func executeAndReport(
 		uninstallErr := uninstaller.Execute(ctx, client, *task, cfg)
 		_ = st.Update(func(s *store.State) { s.LastTaskID = task.ID })
 		if errors.Is(uninstallErr, uninstaller.ErrUninstallInitiated) {
-			// Uninstall succeeded — signal the main loop to exit (not restart).
-			// The result was already reported inside Execute (Phase 1).
 			select {
 			case uninstallCh <- struct{}{}:
 			default:

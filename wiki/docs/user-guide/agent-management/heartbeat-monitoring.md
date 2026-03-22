@@ -42,13 +42,21 @@ When an agent reconnects after being offline, it reports **why** it was disconne
 
 | Reason | Icon | Meaning |
 |--------|------|---------|
-| **Service Restart** | ↻ | Agent process crashed and the OS service manager (SCM/systemd/launchd) restarted it |
+| **Service Restart** | ↻ | Agent process crashed and the OS service manager restarted it |
 | **Machine Reboot** | ⏻ | The host machine was rebooted |
-| **Network Recovery** | 📶 | Agent process was running but couldn't reach the server (network outage, VPN disconnect) |
+| **Network Adapter Disabled** | 📵 | Network interface was disabled or disconnected |
+| **Server Unreachable** | 🖥 | Agent could reach the network but the server refused connection |
+| **DNS Failure** | 🔍 | DNS resolution failed — server hostname could not be resolved |
+| **Network Unreachable** | 📵 | No network route to the server |
+| **Connection Timeout** | ⏱ | Server did not respond within the timeout period |
+| **TLS/Certificate Error** | 🔒 | TLS handshake failed (expired certificate, untrusted CA) |
+| **Disk Pressure (Crash)** | 💾 | Agent crashed with critically low disk space (< 100 MB free) |
+| **Memory Pressure (Crash)** | 🧠 | Agent crashed with critically high memory usage (> 90% of total) |
+| **Network Recovery** | 📶 | Generic network issue resolved (none of the above specific causes matched) |
 | **Update Restart** | ⬇ | Agent was restarted after applying a self-update |
 | **Unknown** | ? | Reason could not be determined (typically agents running an older version) |
 
-The reason is computed by comparing process start time, OS uptime, and the last successful heartbeat timestamp. Agents running versions prior to 0.5.11 will show "Unknown" since they don't send the `reconnect_reason` field.
+Reasons are detected via a dual-layer system: **agent-side** error classification (HTTP error type, network adapter state checks per platform) and **backend-side** last-known metrics correlation. Process restarts with high memory or low disk at the time of the last heartbeat are correlated with the last-known metrics to infer crash causes (e.g., a `service_restart` following a heartbeat with > 90% memory usage is tagged as `memory_pressure_crash`).
 
 ## Adaptive Heartbeat Backoff
 
