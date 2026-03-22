@@ -537,12 +537,18 @@ func sendHeartbeat(ctx context.Context, client *httpclient.Client, cfg *config.C
 		if prevHB == nil {
 			prevHB = prevState.LastHeartbeat
 		}
-		if prevHB != nil && time.Since(*prevHB) > 2*cfg.HeartbeatInterval {
-			dc.inGap = true
-			dc.firstFailureAt = *prevHB
-			dc.failureCount = 1
-			dc.firstError = "process_suspended"
-			dc.networkState = "adapters_ok"
+		if prevHB != nil {
+			gap := time.Since(*prevHB)
+			threshold := 2 * cfg.HeartbeatInterval
+			if gap > threshold {
+				dc.inGap = true
+				dc.firstFailureAt = *prevHB
+				dc.failureCount = 1
+				dc.firstError = "process_suspended"
+				dc.networkState = "adapters_ok"
+				log.Printf("suspension gap detected: lastHB=%s, gap=%s, threshold=%s",
+					prevHB.Format(time.RFC3339), gap.Round(time.Second), threshold)
+			}
 		}
 	}
 
