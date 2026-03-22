@@ -129,17 +129,18 @@ function formatDetails(event: AgentEvent): string | null {
       if (cause) {
         parts.push(`Probable: ${cause.replace(/_/g, ' ')}`);
       }
+      const cpu = d.last_cpu_percent as number | undefined;
       const mem = d.last_memory_mb as number | undefined;
       const totalMem = d.last_total_memory_mb as number | undefined;
       const disk = d.last_disk_free_mb as number | undefined;
+      if (cpu !== undefined) parts.push(`CPU: ${cpu}%`);
       if (mem && totalMem) {
-        const pct = Math.round((mem / totalMem) * 100);
-        parts.push(`Mem: ${pct}%`);
+        parts.push(`Mem: ${Math.round((mem / totalMem) * 100)}%`);
       } else if (mem) {
         parts.push(`Mem: ${mem} MB`);
       }
-      if (disk !== undefined && disk < 1000) parts.push(`Disk: ${disk} MB free`);
-      return parts.length > 0 ? parts.join(' \u00b7 ') : null;
+      if (disk !== undefined) parts.push(`Disk: ${Math.round(disk / 1024)} GB free`);
+      return parts.length > 0 ? parts.join(' · ') : null;
     }
     default:
       return JSON.stringify(d);
@@ -234,15 +235,15 @@ export default function AgentEventLogTab({ agentId }: AgentEventLogTabProps) {
                 <Badge variant={EVENT_TYPE_VARIANT[event.event_type]} className="text-xs shrink-0">
                   {EVENT_TYPE_LABELS[event.event_type]}
                 </Badge>
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 flex items-center gap-2">
                   {ReasonIcon && reasonLabel && (
-                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground shrink-0">
                       <ReasonIcon className="w-3 h-3" />
                       {reasonLabel}
                     </span>
                   )}
                   {details && (
-                    <span className="text-sm truncate">{details}</span>
+                    <span className="text-xs text-muted-foreground truncate">{details}</span>
                   )}
                 </div>
                 <span className="text-xs text-muted-foreground shrink-0">
