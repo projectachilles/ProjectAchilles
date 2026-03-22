@@ -404,6 +404,9 @@ function migrateExecuteCommandType(database: Database.Database): void {
     colSet.has('notes_history') ? "notes_history TEXT DEFAULT '[]'" : null,
     colSet.has('target_index') ? 'target_index TEXT DEFAULT NULL' : null,
     colSet.has('batch_id') ? 'batch_id TEXT' : null,
+    colSet.has('retry_count') ? 'retry_count INTEGER DEFAULT 0' : null,
+    colSet.has('max_retries') ? 'max_retries INTEGER DEFAULT 2' : null,
+    colSet.has('original_task_id') ? 'original_task_id TEXT DEFAULT NULL' : null,
   ].filter(Boolean);
 
   database.exec(`DROP TABLE IF EXISTS tasks_new`);
