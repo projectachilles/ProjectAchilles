@@ -322,6 +322,25 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 	var hbBackoff backoffState
 	var dc disconnectContext
 
+	// Pre-populate disconnect context if this is a process restart with a gap.
+	// Without this, process restarts (service_restart, machine_reboot, update_restart)
+	// would show "Unknown" because dc.inGap is never set — heartbeats don't fail
+	// when the agent was down (the server was reachable, the agent just wasn't running).
+	state := st.Get()
+	lastHB := state.LastSuccessfulHeartbeat
+	if lastHB == nil {
+		lastHB = state.LastHeartbeat
+	}
+	if lastHB != nil && time.Since(*lastHB) > 2*cfg.HeartbeatInterval {
+		dc.inGap = true
+		dc.firstFailureAt = *lastHB
+		dc.failureCount = 1
+		dc.firstError = "process_not_running"
+		dc.networkState = "adapters_ok"
+		log.Printf("startup gap detected: last heartbeat %s ago, will report reconnect reason",
+			time.Since(*lastHB).Round(time.Second))
+	}
+
 	// Timer(0) fires immediately on the first select iteration, providing
 	// the initial heartbeat without a separate call.
 	heartbeatTimer := time.NewTimer(0)
