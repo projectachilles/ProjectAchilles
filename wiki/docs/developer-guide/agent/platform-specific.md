@@ -286,6 +286,17 @@ On Windows, the detached cleanup process runs outside the agent's control. If th
 - Runs `launchctl unload` before plist deletion
 - Cleans up `/var/log/achilles-agent.{log,err}` and work directory
 
+## Privilege Requirements
+
+The `--install` and `--uninstall` CLI commands check for elevated privileges before attempting any operations:
+
+| Platform | Check | Error Message |
+|----------|-------|---------------|
+| Linux/macOS | `os.Geteuid() == 0` | "install/uninstall requires administrator/root privileges" |
+| Windows | `windows.GetCurrentProcessToken().IsElevated()` | "install/uninstall requires administrator/root privileges" |
+
+Non-privileged users receive an explicit error instead of silent OS-level failures. The check is in `internal/service/elevate_unix.go` and `internal/service/elevate_windows.go`.
+
 ## Privilege Hardening
 
 All platforms apply permission hardening during installation and after updates:

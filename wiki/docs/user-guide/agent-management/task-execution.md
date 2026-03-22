@@ -61,6 +61,16 @@ The queue is drained automatically on the next successful heartbeat. Key details
 
 This ensures no test results are lost during extended server outages.
 
+### Failure Reason Display
+
+When a task fails, the failure reason is displayed in the Tasks page:
+
+- **Expanded view** — A red error banner shows the specific failure reason (e.g., "SHA256 mismatch: expected abc, got def", "download binary: connection timeout", "Agent went offline during execution")
+- **Collapsed view** — A truncated failure reason appears below the task name in the task list row
+- **Exit code** — Failed tasks show exit code `-1` for pre-execution failures (download errors, verification failures) and `259` for execution timeouts
+
+The agent sends failure context for all error types: binary download failures, SHA256/size mismatches, execution errors, update failures, and uninstall failures. For tasks that fail because the agent went offline, the backend generates a structured error result automatically.
+
 ## Task Results
 
 Results include:
