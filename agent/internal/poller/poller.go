@@ -528,6 +528,24 @@ func sendHeartbeat(ctx context.Context, client *httpclient.Client, cfg *config.C
 		LastTaskCompleted: lastTask,
 	}
 
+	// Detect gaps caused by process suspension (macOS sleep, VM pause) where
+	// no heartbeats failed because the process was frozen. The timer didn't fire
+	// so dc.inGap was never set, but LastSuccessfulHeartbeat shows a real gap.
+	if !dc.inGap {
+		prevState := st.Get()
+		prevHB := prevState.LastSuccessfulHeartbeat
+		if prevHB == nil {
+			prevHB = prevState.LastHeartbeat
+		}
+		if prevHB != nil && time.Since(*prevHB) > 2*cfg.HeartbeatInterval {
+			dc.inGap = true
+			dc.firstFailureAt = *prevHB
+			dc.failureCount = 1
+			dc.firstError = "process_suspended"
+			dc.networkState = "adapters_ok"
+		}
+	}
+
 	// Build reconnection context if we're recovering from a gap.
 	if dc.inGap && dc.failureCount > 0 {
 		reason := deriveDisconnectReason(dc, st, version)
