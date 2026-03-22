@@ -131,12 +131,18 @@ type reconnectState struct {
 func computeReconnectReason(st *store.Store, version string, cfg *config.Config) string {
 	state := st.Get()
 
-	// First-ever heartbeat — not a reconnection.
-	if state.LastSuccessfulHeartbeat == nil {
+	// If LastSuccessfulHeartbeat was never set (agent upgraded from a version
+	// that didn't track it), fall back to LastHeartbeat. If neither exists,
+	// this is a genuine first-ever heartbeat — not a reconnection.
+	lastHB := state.LastSuccessfulHeartbeat
+	if lastHB == nil {
+		lastHB = state.LastHeartbeat
+	}
+	if lastHB == nil {
 		return ""
 	}
 
-	offlineDuration := time.Since(*state.LastSuccessfulHeartbeat)
+	offlineDuration := time.Since(*lastHB)
 
 	// No significant gap — normal operation.
 	if offlineDuration < 2*cfg.HeartbeatInterval {
@@ -144,7 +150,7 @@ func computeReconnectReason(st *store.Store, version string, cfg *config.Config)
 	}
 
 	// Did the process restart during the gap?
-	processRestarted := processStartTime.After(*state.LastSuccessfulHeartbeat)
+	processRestarted := processStartTime.After(*lastHB)
 	if processRestarted {
 		// Version changed → update restart.
 		if state.Version != "" && state.Version != version {
