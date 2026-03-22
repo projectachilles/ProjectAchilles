@@ -335,7 +335,7 @@ describe('tasks.service', () => {
 
       const row = testDb.prepare('SELECT status, result FROM tasks WHERE id = ?').get('t-stale') as any;
       expect(row.status).toBe('failed');
-      expect(JSON.parse(row.result)).toEqual({ error: 'Agent went offline during execution' });
+      expect(JSON.parse(row.result)).toEqual({ error: 'Agent went offline during execution', exit_code: -1, stdout: '', stderr: 'Agent went offline during execution', execution_duration_ms: 0 });
     });
 
     it('fails downloading tasks when agent is offline', () => {

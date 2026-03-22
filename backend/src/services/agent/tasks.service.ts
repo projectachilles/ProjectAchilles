@@ -522,7 +522,8 @@ export function getNextTask(agentId: string): Task | null {
 export function updateTaskStatus(
   taskId: string,
   agentId: string,
-  newStatus: TaskStatus
+  newStatus: TaskStatus,
+  errorMsg?: string
 ): Task {
   const db = getDatabase();
 
@@ -558,6 +559,20 @@ export function updateTaskStatus(
   }
 
   db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`).run(taskId);
+
+  // Store structured error result so the frontend can display the failure reason
+  if (newStatus === 'failed' && errorMsg && !row.result) {
+    db.prepare('UPDATE tasks SET result = ? WHERE id = ?').run(
+      JSON.stringify({
+        error: errorMsg,
+        exit_code: -1,
+        stdout: '',
+        stderr: errorMsg,
+        execution_duration_ms: 0,
+      }),
+      taskId
+    );
+  }
 
   // Record lifecycle events
   if (newStatus === 'failed') {
@@ -880,7 +895,7 @@ export function expireStaleTasks(): number {
     UPDATE tasks
     SET status = 'failed',
         completed_at = datetime('now'),
-        result = json('{"error":"Agent went offline during execution"}')
+        result = json('{"error":"Agent went offline during execution","exit_code":-1,"stdout":"","stderr":"Agent went offline during execution","execution_duration_ms":0}')
     WHERE id = ?
   `);
 

@@ -240,6 +240,7 @@ export interface TaskGroup {
 }
 
 export interface TaskResult {
+  error?: string;
   task_id: string;
   test_uuid: string;
   exit_code: number;

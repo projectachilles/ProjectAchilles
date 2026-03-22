@@ -1,5 +1,5 @@
 import { useState, Fragment } from 'react';
-import { ChevronDown, ChevronRight, Copy, Check, Maximize, StickyNote, X, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, Check, Maximize, StickyNote, X, Trash2, AlertTriangle } from 'lucide-react';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/shared/ui/Table';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
@@ -115,6 +115,12 @@ function TaskDetailRow({ task, colSpan }: { task: AgentTask; colSpan: number }):
     <TableRow>
       <TableCell colSpan={colSpan}>
         <div className="bg-muted/50 rounded-lg p-4 space-y-3 text-sm">
+          {task.result?.error && (
+            <div className="flex items-center gap-2 p-2 rounded bg-destructive/10 text-destructive text-sm">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{task.result.error}</span>
+            </div>
+          )}
           <div>
             <div className="flex items-center gap-1">
               <span className="font-medium">Stdout:</span>
@@ -244,6 +250,11 @@ export default function TaskList({
           </TableCell>
           <TableCell className="font-medium">
             <TaskName task={task} />
+            {task.status === 'failed' && task.result?.error && (
+              <span className="text-xs text-muted-foreground truncate block mt-0.5">
+                {task.result.error}
+              </span>
+            )}
           </TableCell>
           <TableCell className="text-sm text-muted-foreground" title={task.agent_id}>
             {task.agent_hostname ?? <span className="font-mono text-xs">{task.agent_id.slice(0, 8)}...</span>}
@@ -252,7 +263,9 @@ export default function TaskList({
             {timeAgo(task.created_at)}
           </TableCell>
           <TableCell className="text-sm">
-            {task.result ? `${task.result.execution_duration_ms}ms` : '-'}
+            {task.result?.execution_duration_ms != null && task.result.execution_duration_ms > 0
+              ? `${task.result.execution_duration_ms}ms`
+              : '—'}
           </TableCell>
           <TableCell>
             {task.result ? (
@@ -396,6 +409,11 @@ export default function TaskList({
                             </TableCell>
                             <TableCell className="text-sm text-muted-foreground" title={task.agent_id}>
                               {task.agent_hostname ?? <span className="font-mono text-xs">{task.agent_id.slice(0, 8)}...</span>}
+                              {task.status === 'failed' && task.result?.error && (
+                                <span className="text-xs text-muted-foreground truncate block mt-0.5">
+                                  {task.result.error}
+                                </span>
+                              )}
                             </TableCell>
                             <TableCell>
                               <Badge variant={statusVariants[task.status]}>
@@ -403,7 +421,9 @@ export default function TaskList({
                               </Badge>
                             </TableCell>
                             <TableCell className="text-sm">
-                              {task.result ? `${task.result.execution_duration_ms}ms` : '-'}
+                              {task.result?.execution_duration_ms != null && task.result.execution_duration_ms > 0
+                                ? `${task.result.execution_duration_ms}ms`
+                                : '—'}
                             </TableCell>
                             <TableCell>
                               {task.result ? (

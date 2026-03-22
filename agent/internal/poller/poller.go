@@ -649,7 +649,7 @@ func executeAndReport(
 		updated, updateErr := updater.CheckAndUpdate(ctx, client, version, cfg)
 		if updateErr != nil {
 			log.Printf("admin-triggered update failed: %v", updateErr)
-			if patchErr := patchTaskFailed(ctx, client, task.ID); patchErr != nil {
+			if patchErr := patchTaskFailed(ctx, client, task.ID, updateErr.Error()); patchErr != nil {
 				log.Printf("failed to mark task %s as failed: %v", task.ID, patchErr)
 			}
 			_ = st.Update(func(s *store.State) { s.LastTaskID = task.ID })
@@ -677,7 +677,7 @@ func executeAndReport(
 		}
 		if uninstallErr != nil {
 			log.Printf("uninstall failed: %v", uninstallErr)
-			if patchErr := patchTaskFailed(ctx, client, task.ID); patchErr != nil {
+			if patchErr := patchTaskFailed(ctx, client, task.ID, uninstallErr.Error()); patchErr != nil {
 				log.Printf("failed to mark task %s as failed: %v", task.ID, patchErr)
 			}
 		}
@@ -689,7 +689,7 @@ func executeAndReport(
 
 	if err != nil {
 		log.Printf("execution error for task %s: %v", task.ID, err)
-		if patchErr := patchTaskFailed(ctx, client, task.ID); patchErr != nil {
+		if patchErr := patchTaskFailed(ctx, client, task.ID, err.Error()); patchErr != nil {
 			log.Printf("failed to mark task %s as failed: %v", task.ID, patchErr)
 		}
 		_ = st.Update(func(s *store.State) {
@@ -735,10 +735,22 @@ func patchTaskStatus(ctx context.Context, client *httpclient.Client, taskID, sta
 	return nil
 }
 
-// patchTaskFailed sends a PATCH to mark a task as failed when execution errors occur
-// before the executor has had a chance to set a status.
-func patchTaskFailed(ctx context.Context, client *httpclient.Client, taskID string) error {
-	return patchTaskStatus(ctx, client, taskID, "failed")
+// patchTaskFailed sends a PATCH to mark a task as failed with an error reason.
+// The reason is sent to the server so admins can see why the task failed in the UI.
+func patchTaskFailed(ctx context.Context, client *httpclient.Client, taskID, reason string) error {
+	body := map[string]string{"status": "failed"}
+	if reason != "" {
+		body["error"] = reason
+	}
+	resp, err := client.Do(ctx, http.MethodPatch,
+		fmt.Sprintf("/api/agent/tasks/%s/status", taskID),
+		body,
+	)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
 }
 
 // addJitter adds a random offset of +/-5 seconds to the given interval.

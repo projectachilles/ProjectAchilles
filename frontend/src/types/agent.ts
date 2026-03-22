@@ -80,6 +80,7 @@ export interface TaskResult {
   completed_at: string;
   execution_duration_ms: number;
   hostname: string;
+  error?: string;
 }
 
 export interface TaskNoteEntry {

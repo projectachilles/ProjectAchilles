@@ -71,12 +71,12 @@ agentTasksRouter.patch(
       throw new AppError('Agent authentication required', 401);
     }
 
-    const { status } = req.body as { status: TaskStatus };
+    const { status, error: errorMsg } = req.body as { status: TaskStatus; error?: string };
     if (!status) {
       throw new AppError('Missing required field: status', 400);
     }
 
-    const task = updateTaskStatus(req.params.id, agent.id, status);
+    const task = updateTaskStatus(req.params.id, agent.id, status, errorMsg);
 
     res.json({ success: true, data: task });
   })
