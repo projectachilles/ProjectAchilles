@@ -242,6 +242,9 @@ export default function AgentEventLogTab({ agentId }: AgentEventLogTabProps) {
                       {reasonLabel}
                     </span>
                   )}
+                  {ReasonIcon && reasonLabel && details && (
+                    <span className="text-xs text-muted-foreground/50">|</span>
+                  )}
                   {details && (
                     <span className="text-xs text-muted-foreground truncate">{details}</span>
                   )}
