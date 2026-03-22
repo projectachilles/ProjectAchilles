@@ -130,9 +130,15 @@ function formatDetails(event: AgentEvent): string | null {
         parts.push(`Probable: ${cause.replace(/_/g, ' ')}`);
       }
       const mem = d.last_memory_mb as number | undefined;
+      const totalMem = d.last_total_memory_mb as number | undefined;
       const disk = d.last_disk_free_mb as number | undefined;
-      if (mem) parts.push(`Mem: ${mem} MB`);
-      if (disk !== undefined && disk < 500) parts.push(`Disk: ${disk} MB free`);
+      if (mem && totalMem) {
+        const pct = Math.round((mem / totalMem) * 100);
+        parts.push(`Mem: ${pct}%`);
+      } else if (mem) {
+        parts.push(`Mem: ${mem} MB`);
+      }
+      if (disk !== undefined && disk < 1000) parts.push(`Disk: ${disk} MB free`);
       return parts.length > 0 ? parts.join(' \u00b7 ') : null;
     }
     default:
@@ -214,11 +220,12 @@ export default function AgentEventLogTab({ agentId }: AgentEventLogTabProps) {
         <div className="space-y-2">
           {events.map((event) => {
             const details = formatDetails(event);
-            const reconnectReason = event.event_type === 'came_online'
+            const rawReason = event.event_type === 'came_online'
               ? (event.details?.reconnect_reason as string | undefined)
               : undefined;
+            const reconnectReason = rawReason?.trim();
             const ReasonIcon = reconnectReason ? RECONNECT_REASON_ICONS[reconnectReason] ?? HelpCircle : null;
-            const reasonLabel = reconnectReason ? RECONNECT_REASON_LABELS[reconnectReason] ?? reconnectReason : null;
+            const reasonLabel = reconnectReason ? RECONNECT_REASON_LABELS[reconnectReason] ?? reconnectReason.replace(/_/g, ' ') : null;
             return (
               <div
                 key={event.id}
