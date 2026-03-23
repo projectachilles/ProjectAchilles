@@ -32,7 +32,7 @@
     "react-dom": "^19.2.4",
     "react-markdown": "^9.0.1",
     "react-redux": "^9.2.0",
-    "react-router-dom": "^7.13.1",
+    "react-router-dom": "^7.13.2",
     "react-syntax-highlighter": "^16.1.1",
     "recharts": "^2.15.4",
     "remark-gfm": "^4.0.1",
@@ -44,7 +44,7 @@
     "undici@>=7.0.0 <7.24.0": "7.24.3"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.2.1",
+    "@tailwindcss/postcss": "^4.2.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
@@ -54,7 +54,7 @@
     "@types/react-dom": "^19.2.2",
     "@types/react-syntax-highlighter": "^15.5.11",
     "@vitejs/plugin-react": "^5.1.4",
-    "@vitest/coverage-v8": "^4.1.0",
+    "@vitest/coverage-v8": "^4.1.1",
     "autoprefixer": "^10.4.27",
     "jsdom": "^28.1.0",
     "postcss": "^8.5.8",
