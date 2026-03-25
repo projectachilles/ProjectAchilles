@@ -33,6 +33,6 @@ primary_region = 'cdg'
   destination = '/root/.projectachilles'
 
 [[vm]]
-  memory = '1024mb'
-  cpu_kind = 'shared'
-  cpus = 2
+  memory = '2048mb'
+  cpu_kind = 'performance'
+  cpus = 1
