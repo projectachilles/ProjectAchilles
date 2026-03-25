@@ -84,16 +84,18 @@ export class AgentBuildService {
     // Use a temp path during build to avoid partial files
     const tmpPath = outputPath + '.tmp';
 
-    // 5. Build environment — persist Go caches on the data disk so module
-    //    downloads and compiled packages survive container redeploys.
-    const cacheDir = path.join(os.homedir(), '.projectachilles', 'go-cache');
+    // 5. Build environment — persist Go module cache on the data disk so
+    //    module downloads survive container redeploys. Build cache (compiled
+    //    objects) goes to /tmp to avoid filling the persistent volume — it
+    //    can grow to 600 MB+ across cross-compilation targets.
+    const modCacheDir = path.join(os.homedir(), '.projectachilles', 'go-cache', 'mod');
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       GOOS: targetOs,
       GOARCH: arch,
       CGO_ENABLED: '0',
-      GOMODCACHE: path.join(cacheDir, 'mod'),
-      GOCACHE: path.join(cacheDir, 'build'),
+      GOMODCACHE: modCacheDir,
+      GOCACHE: '/tmp/go-build-cache',
     };
 
     try {

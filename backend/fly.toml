@@ -23,7 +23,7 @@ primary_region = 'cdg'
     port = 3000
     type = 'http'
     interval = '30s'
-    timeout = '5s'
+    timeout = '10s'
     grace_period = '30s'
     method = 'GET'
     path = '/api/health'
@@ -33,6 +33,6 @@ primary_region = 'cdg'
   destination = '/root/.projectachilles'
 
 [[vm]]
-  memory = '512mb'
+  memory = '1024mb'
   cpu_kind = 'shared'
   cpus = 2

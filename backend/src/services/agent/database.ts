@@ -8,6 +8,8 @@ const DB_PATH = path.join(DATA_DIR, 'agents.db');
 
 let db: Database.Database | null = null;
 
+let walCheckpointTimer: ReturnType<typeof setInterval> | null = null;
+
 export function getDatabase(): Database.Database {
   if (db) return db;
 
@@ -22,6 +24,21 @@ export function getDatabase(): Database.Database {
   db.pragma('temp_store = MEMORY');
 
   initializeTables(db);
+
+  // Periodically checkpoint the WAL to prevent unbounded growth.
+  // Under sustained load (agent heartbeats + task polling), overlapping
+  // read transactions can prevent automatic checkpointing, causing the
+  // WAL to grow and degrade read performance.
+  if (!walCheckpointTimer) {
+    walCheckpointTimer = setInterval(() => {
+      try {
+        db?.pragma('wal_checkpoint(TRUNCATE)');
+      } catch {
+        // Non-fatal — checkpoint may fail if readers are active
+      }
+    }, 5 * 60 * 1000); // every 5 minutes
+    walCheckpointTimer.unref(); // don't keep the process alive
+  }
 
   return db;
 }
@@ -513,7 +530,12 @@ function migrateUninstalledStatus(database: Database.Database): void {
 }
 
 export function closeDatabase(): void {
+  if (walCheckpointTimer) {
+    clearInterval(walCheckpointTimer);
+    walCheckpointTimer = null;
+  }
   if (db) {
+    db.pragma('wal_checkpoint(TRUNCATE)');
     db.close();
     db = null;
   }
