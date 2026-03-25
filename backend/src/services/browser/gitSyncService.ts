@@ -82,7 +82,7 @@ export class GitSyncService {
    * Clone the repository using sparse checkout (tests_source + shared libraries)
    */
   public async clone(): Promise<void> {
-    const sparsePaths = this.config.sparseCheckoutPaths || ['tests_source', 'preludeorg-libraries'];
+    const sparsePaths = this.config.sparseCheckoutPaths || ['tests_source', 'preludeorg-libraries', 'utils'];
     console.log(`Cloning repository from ${this.config.repoUrl} (sparse: ${sparsePaths.join(', ')})...`);
     this.syncStatus.status = 'syncing';
 

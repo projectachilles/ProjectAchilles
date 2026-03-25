@@ -124,13 +124,13 @@ describe('GitSyncService', () => {
       );
     });
 
-    it('configures sparse-checkout for tests_source and preludeorg-libraries', async () => {
+    it('configures sparse-checkout for tests_source, preludeorg-libraries, and utils', async () => {
       mockExistsSync.mockReturnValue(false);
 
       await service.clone();
 
       expect(mockGitInstance.raw).toHaveBeenCalledWith([
-        'sparse-checkout', 'set', 'tests_source', 'preludeorg-libraries',
+        'sparse-checkout', 'set', 'tests_source', 'preludeorg-libraries', 'utils',
       ]);
     });
 
