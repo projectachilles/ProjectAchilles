@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![ProjectAchilles](https://img.shields.io/badge/ProjectAchilles-Purple%20Team%20Platform-7C3AED?style=for-the-badge)
+![ProjectAchilles](https://img.shields.io/badge/ProjectAchilles-Continuous%20Security%20Validation-7C3AED?style=for-the-badge)
 
 [![CI](https://github.com/projectachilles/ProjectAchilles/actions/workflows/ci.yml/badge.svg)](https://github.com/projectachilles/ProjectAchilles/actions/workflows/ci.yml)
 [![Security Review](https://github.com/projectachilles/ProjectAchilles/actions/workflows/security-review.yml/badge.svg?event=pull_request)](https://github.com/projectachilles/ProjectAchilles/actions/workflows/security-review.yml)
@@ -12,9 +12,9 @@
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev/)
 [![Go](https://img.shields.io/badge/Go-1.24-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
-**The Open-Source Purple Team Platform for Continuous Security Validation**
+**Continuous Security Validation — From Threat Intelligence to Defense Readiness**
 
-Execute security tests on endpoints, measure detection coverage, and close defensive gaps — all from one unified interface.
+Know what's protected. Know what's not. Know where to invest next.
 
 [Quick Start](#quick-start) · [Features](#features) · [Architecture](#architecture) · [Documentation](#documentation) · [Roadmap](docs/ROADMAP.md) · [Contributing](#contributing)
 
@@ -22,31 +22,42 @@ Execute security tests on endpoints, measure detection coverage, and close defen
 
 ---
 
+## Why ProjectAchilles
+
+Most organizations invest heavily in security tools but struggle to answer a simple question: *are our defenses actually working?*
+
+Threat intelligence reports pile up unread. Compliance checklists are checked once and forgotten. Security teams deploy EDR, SIEM, and endpoint hardening — then hope for the best. When a breach happens, the post-mortem reveals gaps that were always there but never measured.
+
+**ProjectAchilles exists to close this loop.**
+
+The platform turns threat intelligence into executable security tests, deploys them to your endpoints through a lightweight agent framework, and measures whether your defenses detect, prevent, or miss each technique. The result is not an opinion — it's a score backed by evidence, broken down by technique, host, and control, tracked over time.
+
+You don't need a red team certification to use it. You don't need to write exploit code. You need to know what threats matter to your organization, and whether you're defended against them.
+
+### What It Measures
+
+- **Defense Readiness** — For each threat technique, did your endpoint defenses detect it, block it, or miss it entirely?
+- **Controls Compliance** — Are your security configurations (endpoint hardening, identity policies, cloud settings) actually in place?
+- **Security ROI** — Which investments are driving measurable protection, and where are the gaps that still need funding?
+
+### Two Modes of Operation
+
+| Mode | Purpose | Input | Output |
+|------|---------|-------|--------|
+| **Threat-Informed Validation** | Test defenses against real-world attack techniques | Threat intel mapped to MITRE ATT&CK | Per-technique defense score with detection/prevention evidence |
+| **Controls Compliance** | Verify security baselines across your fleet | Standards-based control frameworks | Per-control compliance status with remediation guidance |
+
 ## Overview
 
-ProjectAchilles is a purple team platform that bridges the gap between offensive testing and defensive measurement. Red teams deploy a lightweight Go agent to endpoints and execute security tests on demand or on schedule. Blue teams track detection coverage through an analytics dashboard backed by Elasticsearch, identifying which techniques are detected, which are missed, and where to focus hardening efforts.
+ProjectAchilles is a continuous security validation platform with three core components:
 
-The platform replaces the need for commercial endpoint management tools with a purpose-built, open-source agent system — complete with cross-compilation, code signing, task scheduling, and result ingestion.
+1. **AI-Powered Test Development** — An agentic pipeline that transforms threat intelligence articles into complete, deployable security test packages — source code, detection rules, hardening scripts, and documentation — without manual test development.
 
-## Key Highlights
+2. **Execution Framework** — A lightweight Go agent deployed to endpoints (Windows, Linux, macOS) that executes security tests on demand or on schedule, reports results with cryptographic integrity, and self-updates without downtime.
 
-- **Custom Go Agent** — Lightweight agent with enrollment, heartbeat monitoring, task execution, and self-updating
-- **Build From Source** — Cross-compile test binaries for Windows/Linux (amd64/arm64) directly from the UI
-- **Code Signing** — Sign Windows binaries with Authenticode via multi-certificate management (up to 5 certs)
-- **30+ Analytics Endpoints** — Defense scores, heatmaps, treemaps, error rate trends, and coverage breakdowns
-- **MITRE ATT&CK Mapping** — Filter tests and results by technique, tactic, and threat actor
-- **Task Scheduling** — Recurring execution (daily/weekly/monthly) with randomized timing
-- **Docker Compose Deployment** — One-command deployment with optional local Elasticsearch
-- **Git-Synced Test Library** — Tests pulled from a Git repository with automatic sync
-- **Multi-Index Management** — Per-task Elasticsearch index targeting for isolated result sets
-- **Microsoft Defender Integration** — Sync Secure Score, alerts, and control profiles from Microsoft 365 Defender with MITRE cross-correlation
-- **Trend Alerting** — Threshold-based Slack and email notifications with in-app notification bell
-- **MITRE ATT&CK Coverage Matrix** — Visual technique coverage heatmap on the browse page
-- **3 Visual Themes** — Default, Neobrutalism, and Hacker Terminal (with green/amber phosphor variants)
-- **5 Deployment Targets** — Docker Compose, Railway, Render, Fly.io, and Vercel (serverless)
-- **Remote Agent Uninstall** — Two-phase uninstall with service removal and cleanup verification
-- **Risk Acceptance** — Accept risk for individual security controls with tracking
-- **macOS Agent Support** — Native launchd service with ad-hoc code signing via rcodesign
+3. **Analytics & Measurement** — An Elasticsearch-backed dashboard that quantifies defense readiness with scores, heatmaps, trend analysis, and MITRE ATT&CK coverage matrices — turning raw test results into actionable intelligence for security teams and leadership.
+
+The platform is open-source, deploys in minutes via Docker Compose, and integrates with Microsoft Defender for cross-correlation between your internal validation results and your EDR's own security posture data.
 
 ## Quick Start
 
@@ -100,64 +111,89 @@ The PowerShell script checks prerequisites, fixes line endings, configures `back
 
 ## Features
 
+### AI-Powered Test Development
+
+Security tests are built by a multi-agent AI pipeline that converts threat intelligence into complete test packages. Each test includes ~19 artifacts generated autonomously.
+
+**How it works:**
+
+```
+Threat Intelligence Article
+    ↓ Phase 1: Analysis & Implementation
+    Extracts TTPs → generates Go source → compiles & signs binary
+    ↓ Phase 2: Parallel Artifact Generation
+    Detection Rules (5 formats) │ Defense Guidance │ Documentation │ Kill Chain Diagrams
+    ↓ Phase 3: Validation & Deployment
+    Verifies all artifacts → syncs catalog → deploys to endpoints
+```
+
+**What each test package contains:**
+
+| Artifact | Formats | Purpose |
+|----------|---------|---------|
+| Test binary | Go (Windows, Linux, macOS) | Executes the simulated technique on the endpoint |
+| Detection rules | KQL, YARA, Sigma, Elastic EQL, LimaCharlie | Import directly into your SIEM/EDR |
+| Hardening scripts | PowerShell, Bash (Linux + macOS) | Remediate gaps found by the test |
+| Documentation | Markdown (README + info card) | MITRE mapping, severity, threat actor context |
+| Kill chain diagram | Interactive HTML | Visualizes multi-stage attack flow |
+
+**Test categories:**
+
+| Category | Description | Example |
+|----------|-------------|---------|
+| **Intel-Driven** | Real-world attack techniques from APT reports and ransomware analysis | Lazarus group TTPs, Emotet delivery chains |
+| **MITRE Top 10** | Most common ransomware techniques from MITRE ATT&CK | Process injection, defense evasion, lateral movement |
+| **Cyber-Hygiene** | Configuration validation for endpoint, identity, and cloud security | Defender settings, ASR rules, LSASS protection, MFA |
+
+> The test development pipeline lives in a companion repository. Tests are synced to ProjectAchilles via Git for browsing, building, and execution.
+
 ### Test Browser
 
-Browse a git-synced library of security tests with rich metadata. Each test includes source code, documentation, detection rules (KQL/YARA), and attack flow diagrams.
+Browse the full test library with rich metadata and execute tests directly from the UI.
 
 - Filter by MITRE ATT&CK technique, platform, category, and severity
-- Favorite tests and track recent views
-- View version history, author info, and Git modification dates
-- Copy-to-clipboard for detection rules and test artifacts
+- View source code, detection rules, hardening scripts, and attack flow diagrams
 - Build, sign, and download test binaries directly from test detail pages
 - MITRE ATT&CK coverage matrix with visual technique heatmap
-- Overview dashboard with 3-tab layout (overview, matrix, list) and category legend
-- Execution drawer — run tests directly from the browse page
+- Execution drawer — assign and run tests directly from the browse page
+- Favorite tests, track recent views, view version history and Git modification dates
 
-### Analytics Dashboard
+### Execution Framework
 
-Measure your defensive posture with 30+ query endpoints powered by Elasticsearch.
-
-- **Defense Score** — Aggregate score with breakdowns by test, technique, category, hostname, and severity
-- **Trend Analysis** — Rolling-window defense score and error rate trends over time
-- **Heatmaps** — Host-test matrix showing protection status across your fleet
-- **Treemaps** — Hierarchical category/subcategory coverage visualization
-- **Execution Table** — Paginated results with advanced filtering (technique, hostname, threat actor, tags, error codes)
-- **Multi-Index Management** — Switch between Elasticsearch indices, create new ones, view index metadata
-- **Microsoft Defender Integration** — Sync Secure Score, alerts, and control profiles with cross-correlation analytics
-- **Dual Defense Score** — Real score and trend line overlay for tracking trajectory
-- **Risk Acceptance** — Accept risk on individual controls with audit tracking
-- **Trend Alerting** — Threshold-based Slack (Block Kit) and email (Nodemailer) notifications
-- **Notification Bell** — In-app alert dropdown showing recent threshold breaches
-- **Archive Executions** — Archive old execution results to declutter active views
-- **Shared FilterBar** — Unified filter bar across Analytics dashboard tabs
-
-### Agent System
-
-Deploy a custom Go agent to endpoints for remote test execution with full lifecycle management.
+Deploy a lightweight Go agent to endpoints for remote test execution with full lifecycle management.
 
 - **Enrollment** — Token-based registration with configurable TTL and max uses
 - **Heartbeat Monitoring** — Real-time online/offline status with CPU, memory, disk, and uptime metrics
-- **Task Execution** — Download, verify (SHA256 + Ed25519 signature), execute, and report results with stdout/stderr capture
+- **Secure Execution** — Download, verify (SHA256 + Ed25519 signature), execute, and report results
 - **Self-Updating** — Agents poll for new versions and auto-apply cryptographically signed updates
-- **Zero-Downtime Key Rotation** — Rotated API keys delivered automatically via heartbeat with 5-minute dual-key grace period
+- **Cross-Platform** — Windows, Linux, and macOS (amd64 + arm64) with native service integration
+- **Bundle Results** — Per-control results from compliance tests fan out to individual ES documents for granular tracking
+- **Zero-Downtime Key Rotation** — API keys rotated automatically via heartbeat with dual-key grace period
 - **Encrypted Config** — Agent credentials encrypted at rest with AES-256-GCM using machine-bound keys
-- **Tagging** — Organize agents with custom tags for filtering and bulk operations
-- **Cross-Platform** — Windows, Linux, and macOS support (amd64 + arm64)
-- **Bundle Results** — Reads per-control results from cyber-hygiene bundles and fans out to individual ES documents for granular compliance tracking
 - **Remote Uninstall** — Two-phase agent removal (stop service + cleanup) initiated from admin UI
-- **Agent Diagnostics** — Enhanced `--status` flag showing service state, connection health, and config validation
-- **macOS Support** — Native launchd plist at `/Library/LaunchDaemons/`, sysinfo via sysctl/vm_stat, ad-hoc code signing via rcodesign
-- **Stale Task Detection** — Tasks auto-fail when agent goes offline during execution
-- **Windows Job Objects** — Orphan process cleanup for async task execution
+
+### Analytics & Measurement
+
+Quantify your security posture with 30+ query endpoints powered by Elasticsearch.
+
+- **Defense Score** — Aggregate score with breakdowns by test, technique, category, hostname, and severity
+- **Trend Analysis** — Rolling-window defense score and error rate trends over time
+- **MITRE ATT&CK Heatmaps** — Host-test matrix showing protection status across your fleet
+- **Coverage Treemaps** — Hierarchical category/subcategory coverage visualization
+- **Execution Table** — Paginated results with advanced filtering (technique, hostname, threat actor, tags)
+- **Risk Acceptance** — Accept risk on individual controls with audit tracking
+- **Microsoft Defender Integration** — Sync Secure Score, alerts, and control profiles with cross-correlation analytics
+- **Trend Alerting** — Threshold-based Slack and email notifications with in-app notification bell
+- **Multi-Index Management** — Per-task index targeting for isolated result sets
 
 ### Build System
 
 Compile and sign test binaries on demand with Go cross-compilation.
 
-- **Cross-Compilation** — Build for Linux/Windows × amd64/arm64 from any host OS
-- **Code Signing** — Windows Authenticode signing via osslsigncode
+- **Cross-Compilation** — Build for Linux/Windows/macOS × amd64/arm64 from any host OS
+- **Code Signing** — Windows Authenticode (osslsigncode) and macOS ad-hoc signing (rcodesign)
 - **Multi-Certificate Management** — Upload PFX/P12 or generate self-signed certs (up to 5)
-- **Embed Dependencies** — Detects `//go:embed` directives and allows uploading required files
+- **Embed Dependencies** — Detects `//go:embed` directives and manages required files
 - **Build Caching** — Previously built binaries cached for instant download
 
 ### Task Scheduling
@@ -167,7 +203,6 @@ Automate test execution across agent pools with flexible scheduling.
 - **Schedule Types** — Once, daily, weekly (specific days), monthly (specific day)
 - **Randomized Timing** — Optional randomization within office hours for realistic simulation
 - **Per-Task ES Index** — Target specific Elasticsearch indices per task for result isolation
-- **Task Notes** — Editable, version-tracked notes on each task
 - **Priority Queue** — Higher-priority tasks assigned first
 
 ### Agent Communication Security
@@ -450,6 +485,6 @@ This project is licensed under the Apache License 2.0 — see the [LICENSE](LICE
 
 <div align="center">
 
-**Built for purple teams**
+**Measure your defenses. Close the gaps. Prove the investment.**
 
 </div>
