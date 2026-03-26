@@ -7,9 +7,13 @@ import { useAuthenticatedApi } from './hooks/useAuthenticatedApi';
 import { store } from './store';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import AppRouter from './routes/AppRouter';
+import { isMarketingMode } from './lib/siteMode';
 
 // Hero page styles
 import './styles/hero.css';
+
+// Marketing mode: static landing page — no Clerk, no Redux, no Router
+import HeroPage from './pages/HeroPage';
 
 function AppContent() {
   useAuthenticatedApi(); // Setup JWT interceptor
@@ -28,6 +32,10 @@ function AppContent() {
 }
 
 export default function App() {
+  if (isMarketingMode) {
+    return <HeroPage />;
+  }
+
   return (
     <ClerkProvider
       publishableKey={window.__env__?.VITE_CLERK_PUBLISHABLE_KEY || import.meta.env.VITE_CLERK_PUBLISHABLE_KEY}

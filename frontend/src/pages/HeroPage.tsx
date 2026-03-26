@@ -9,7 +9,9 @@ import {
   Cpu,
   Sparkles,
   BookOpen,
+  LogIn,
 } from "lucide-react";
+import { isAppMode } from "@/lib/siteMode";
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES & CONTENT
@@ -301,18 +303,31 @@ function HeroNav({
             <BookOpen className="w-4 h-4" strokeWidth={1.5} />
           </a>
 
-          {/* GitHub button */}
-          <a
-            href={GITHUB_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden sm:block rounded text-xs px-4 py-2 font-bold uppercase transition-all hero-heading text-sm"
-            style={{ background: "var(--hero-accent)", color: "#0A0E1A" }}
-            onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
-            onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-          >
-            GitHub
-          </a>
+          {/* App mode: Sign In button | Marketing mode: GitHub button */}
+          {isAppMode ? (
+            <a
+              href="/sign-in"
+              className="hidden sm:flex items-center gap-2 rounded text-xs px-4 py-2 font-bold uppercase transition-all hero-heading text-sm"
+              style={{ background: "var(--hero-accent)", color: "#0A0E1A" }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+            >
+              <LogIn className="w-4 h-4" strokeWidth={2} />
+              {tx({ en: "Sign In", es: "Iniciar Sesión" }, lang)}
+            </a>
+          ) : (
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden sm:block rounded text-xs px-4 py-2 font-bold uppercase transition-all hero-heading text-sm"
+              style={{ background: "var(--hero-accent)", color: "#0A0E1A" }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+            >
+              GitHub
+            </a>
+          )}
         </div>
       </div>
     </nav>
@@ -387,36 +402,60 @@ function HeroSection({ lang }: { lang: Lang }) {
 
         {/* CTAs */}
         <div className="hero-reveal hero-reveal-delay-3 flex flex-col sm:flex-row gap-4 justify-center items-center">
-          {/* Discord CTA — primary */}
-          <a href={DISCORD_URL} target="_blank" rel="noopener noreferrer">
-            <button
-              className="flex items-center gap-3 px-8 py-4 font-bold uppercase tracking-widest transition-all hero-heading text-sm cursor-pointer rounded"
-              style={{ background: "var(--hero-accent)", color: "#0A0E1A" }}
-              onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
-              onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                fill="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path d="M20.317 4.369a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.444.864-.608 1.249a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.249.077.077 0 0 0-.079-.037 19.736 19.736 0 0 0-4.885 1.515.07.07 0 0 0-.032.027C.533 9.046-.32 13.579.099 18.057a.082.082 0 0 0 .031.056 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.3 14.3 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.927 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.128 12.299 12.299 0 0 1-1.873.891.076.076 0 0 0-.04.107c.36.698.772 1.36 1.225 1.993a.076.076 0 0 0 .084.028 19.876 19.876 0 0 0 6.002-3.03.077.077 0 0 0 .031-.055c.5-5.177-.838-9.674-3.548-13.66a.061.061 0 0 0-.031-.03ZM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.418 0-1.333.955-2.418 2.157-2.418 1.211 0 2.166 1.095 2.157 2.418 0 1.333-.946 2.418-2.157 2.418Zm7.975 0c-1.183 0-2.157-1.085-2.157-2.418 0-1.333.955-2.418 2.157-2.418 1.211 0 2.166 1.095 2.157 2.418 0 1.333-.946 2.418-2.157 2.418Z" />
-              </svg>
-              {tx(
-                { en: "Join the Community", es: "Únete a la Comunidad" },
-                lang,
-              )}
-            </button>
-          </a>
-
-          {/* GitHub — secondary */}
-          <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer">
-            <button className="hero-btn-secondary px-8 py-4 font-bold uppercase tracking-widest hero-heading text-sm">
-              {tx({ en: "View on GitHub", es: "Ver en GitHub" }, lang)}
-            </button>
-          </a>
+          {isAppMode ? (
+            <>
+              {/* App mode: Get Started → sign-up */}
+              <a href="/sign-up">
+                <button
+                  className="flex items-center gap-3 px-8 py-4 font-bold uppercase tracking-widest transition-all hero-heading text-sm cursor-pointer rounded"
+                  style={{ background: "var(--hero-accent)", color: "#0A0E1A" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
+                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                >
+                  {tx(
+                    { en: "Get Started", es: "Comenzar" },
+                    lang,
+                  )}
+                </button>
+              </a>
+              <a href="/sign-in">
+                <button className="hero-btn-secondary px-8 py-4 font-bold uppercase tracking-widest hero-heading text-sm">
+                  {tx({ en: "Sign In", es: "Iniciar Sesión" }, lang)}
+                </button>
+              </a>
+            </>
+          ) : (
+            <>
+              {/* Marketing mode: Discord + GitHub */}
+              <a href={DISCORD_URL} target="_blank" rel="noopener noreferrer">
+                <button
+                  className="flex items-center gap-3 px-8 py-4 font-bold uppercase tracking-widest transition-all hero-heading text-sm cursor-pointer rounded"
+                  style={{ background: "var(--hero-accent)", color: "#0A0E1A" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
+                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="20"
+                    height="20"
+                    fill="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M20.317 4.369a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.444.864-.608 1.249a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.249.077.077 0 0 0-.079-.037 19.736 19.736 0 0 0-4.885 1.515.07.07 0 0 0-.032.027C.533 9.046-.32 13.579.099 18.057a.082.082 0 0 0 .031.056 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.3 14.3 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.927 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.128 12.299 12.299 0 0 1-1.873.891.076.076 0 0 0-.04.107c.36.698.772 1.36 1.225 1.993a.076.076 0 0 0 .084.028 19.876 19.876 0 0 0 6.002-3.03.077.077 0 0 0 .031-.055c.5-5.177-.838-9.674-3.548-13.66a.061.061 0 0 0-.031-.03ZM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.418 0-1.333.955-2.418 2.157-2.418 1.211 0 2.166 1.095 2.157 2.418 0 1.333-.946 2.418-2.157 2.418Zm7.975 0c-1.183 0-2.157-1.085-2.157-2.418 0-1.333.955-2.418 2.157-2.418 1.211 0 2.166 1.095 2.157 2.418 0 1.333-.946 2.418-2.157 2.418Z" />
+                  </svg>
+                  {tx(
+                    { en: "Join the Community", es: "Únete a la Comunidad" },
+                    lang,
+                  )}
+                </button>
+              </a>
+              <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer">
+                <button className="hero-btn-secondary px-8 py-4 font-bold uppercase tracking-widest hero-heading text-sm">
+                  {tx({ en: "View on GitHub", es: "Ver en GitHub" }, lang)}
+                </button>
+              </a>
+            </>
+          )}
         </div>
       </div>
     </section>
