@@ -65,7 +65,8 @@ const config: Config = {
     image: 'img/logo-achilles.png',
     colorMode: {
       defaultMode: 'dark',
-      respectPrefersColorScheme: true,
+      disableSwitch: true,
+      respectPrefersColorScheme: false,
     },
     navbar: {
       title: '',
@@ -128,7 +129,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright \u00a9 ${new Date().getFullYear()} ProjectAchilles Contributors. Licensed under Apache 2.0.`,
+      copyright: `Measure your defenses. Close the gaps. Prove the investment.<br/>Copyright \u00a9 ${new Date().getFullYear()} ProjectAchilles Contributors. Licensed under Apache 2.0.`,
     },
     prism: {
       theme: prismThemes.github,

@@ -66,8 +66,7 @@ function HomepageHeader(): ReactNode {
           </Link>
           <Link
             className="button button--outline button--lg"
-            to="/docs/deployment/overview"
-            style={{color: '#fff', borderColor: 'rgba(255,255,255,0.5)'}}>
+            to="/docs/deployment/overview">
             Deploy
           </Link>
         </div>

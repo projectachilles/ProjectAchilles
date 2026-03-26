@@ -1,154 +1,217 @@
 /**
- * ProjectAchilles purple theme for Docusaurus.
- * Overrides Infima CSS variables.
+ * ProjectAchilles brand theme for Docusaurus.
+ * Based on Brand Identity Manual v2.0 (2026)
+ *
+ * Colors: Deep Navy #0A0E1A, Achilles Green #06956b,
+ *         White #FFFFFF, Muted Gray #888891, Surface #1a2535
+ * Fonts: Orbitron (headings/nav), Inter (body), JetBrains Mono (code)
  */
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;500&family=Orbitron:wght@400;700;800&display=swap');
+
+/* ── Base: both modes use the same dark navy palette ── */
 :root {
-  --ifm-color-primary: #7C3AED;
-  --ifm-color-primary-dark: #6D28D9;
-  --ifm-color-primary-darker: #5B21B6;
-  --ifm-color-primary-darkest: #4C1D95;
-  --ifm-color-primary-light: #8B5CF6;
-  --ifm-color-primary-lighter: #A78BFA;
-  --ifm-color-primary-lightest: #C4B5FD;
-  --ifm-code-font-size: 95%;
-  --ifm-font-family-base: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --ifm-color-primary: #06956b;
+  --ifm-color-primary-dark: #057a58;
+  --ifm-color-primary-darker: #046a4c;
+  --ifm-color-primary-darkest: #034d37;
+  --ifm-color-primary-light: #07b07e;
+  --ifm-color-primary-lighter: #08c48d;
+  --ifm-color-primary-lightest: #0ae0a2;
+  --ifm-background-color: #0A0E1A;
+  --ifm-background-surface-color: #1a2535;
+  --ifm-font-family-base: 'Inter', system-ui, -apple-system, sans-serif;
+  --ifm-font-family-monospace: 'JetBrains Mono', monospace;
   --ifm-heading-font-weight: 700;
-  --docusaurus-highlighted-code-line-bg: rgba(124, 58, 237, 0.1);
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(6, 149, 107, 0.15);
 }
 
 [data-theme='dark'] {
-  --ifm-color-primary: #A78BFA;
-  --ifm-color-primary-dark: #8B5CF6;
-  --ifm-color-primary-darker: #7C3AED;
-  --ifm-color-primary-darkest: #6D28D9;
-  --ifm-color-primary-light: #C4B5FD;
-  --ifm-color-primary-lighter: #DDD6FE;
-  --ifm-color-primary-lightest: #EDE9FE;
-  --ifm-background-color: #0f0f0f;
-  --ifm-background-surface-color: #1a1a1a;
-  --docusaurus-highlighted-code-line-bg: rgba(167, 139, 250, 0.15);
+  --ifm-color-primary: #06956b;
+  --ifm-color-primary-dark: #057a58;
+  --ifm-color-primary-darker: #046a4c;
+  --ifm-color-primary-darkest: #034d37;
+  --ifm-color-primary-light: #07b07e;
+  --ifm-color-primary-lighter: #08c48d;
+  --ifm-color-primary-lightest: #0ae0a2;
+  --ifm-background-color: #0A0E1A;
+  --ifm-background-surface-color: #1a2535;
+  --docusaurus-highlighted-code-line-bg: rgba(6, 149, 107, 0.15);
 }
 
-/* Hero section styles */
-.hero--achilles {
-  background: linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(51, 65, 85, 0.7) 50%, rgba(30, 41, 59, 0.85) 100%),
-    url('/img/hero-background.jpeg') center / cover no-repeat;
-  padding: 4rem 0;
-  color: #fff;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+/* Force dark color scheme */
+html {
+  color-scheme: dark;
 }
 
-[data-theme='dark'] .hero--achilles {
-  background: linear-gradient(135deg, rgba(12, 12, 12, 0.7) 0%, rgba(24, 24, 27, 0.5) 50%, rgba(12, 12, 12, 0.7) 100%),
-    url('/img/hero-background.jpeg') center / cover no-repeat;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+/* ── Typography: Orbitron for headings ── */
+h1, h2, h3,
+.markdown h1, .markdown h2, .markdown h3 {
+  font-family: 'Orbitron', sans-serif !important;
+  letter-spacing: 0.02em;
 }
 
-/* Navbar logo — remove white background, invert in dark mode */
-.navbar__logo img {
-  border-radius: 0;
-  background: transparent;
+/* ── Navbar: solid navy, Orbitron nav labels ── */
+.navbar {
+  background: #0A0E1A;
+  border-bottom: 1px solid #1a2535;
+  backdrop-filter: none;
 }
 
-[data-theme='dark'] .navbar__logo img {
-  filter: invert(1);
+.navbar--fixed-top {
+  backdrop-filter: none;
 }
 
-/* Spacing between logo/title and nav links */
 .navbar__brand {
   margin-right: 3rem !important;
 }
 
-.navbar__items--left > a.navbar__item,
-.navbar__items--left > div.navbar__item {
-  margin-left: 0.75rem !important;
-}
-
-/* Add a subtle separator between brand and nav */
 .navbar__brand::after {
   content: '';
   display: inline-block;
   width: 1px;
   height: 1.25rem;
-  background: var(--ifm-color-emphasis-300);
+  background: #1a2535;
   margin-left: 1.5rem;
   vertical-align: middle;
 }
 
+.navbar__items--left > a.navbar__item,
+.navbar__items--left > div.navbar__item {
+  margin-left: 0.75rem !important;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.navbar__logo img {
+  border-radius: 0;
+  background: transparent;
+}
+
+/* Logo is designed for dark bg — no inversion needed with proper asset.
+   Keep invert for now until proper SVG logo is provided. */
+[data-theme='dark'] .navbar__logo img {
+  filter: invert(1);
+}
+
+/* ── Hero section: solid navy per brand — no gradients ── */
+.hero--achilles {
+  background: #0A0E1A;
+  padding: 5rem 0;
+  color: #fff;
+  border-bottom: 1px solid #1a2535;
+}
+
+[data-theme='dark'] .hero--achilles {
+  background: #0A0E1A;
+  border-bottom: 1px solid #1a2535;
+}
+
 .hero--achilles .hero__title {
-  font-size: 3rem;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 4rem;
   font-weight: 800;
+  color: #FFFFFF;
 }
 
 .hero--achilles .hero__subtitle {
   font-size: 1.3rem;
-  opacity: 0.9;
+  color: #06956b;
+  opacity: 1;
   max-width: 640px;
   margin: 0 auto;
 }
 
-/* Feature cards */
+/* CTA button: solid Achilles Green, no border-radius, Orbitron */
+.hero--achilles .button--secondary {
+  background: #06956b;
+  color: #0A0E1A;
+  border: none;
+  border-radius: 0;
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 700;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 0.75rem 2rem;
+}
+
+.hero--achilles .button--secondary:hover {
+  background: #07b07e;
+  color: #0A0E1A;
+}
+
+/* Secondary button: transparent, surface border, white text */
+.hero--achilles .button--outline {
+  background: transparent;
+  color: #fff;
+  border: 1px solid #1a2535;
+  border-radius: 0;
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 700;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 0.75rem 2rem;
+}
+
+.hero--achilles .button--outline:hover {
+  border-color: #06956b;
+  background: transparent;
+  color: #fff;
+}
+
+/* ── Feature cards: navy surface, green hover, sharp corners ── */
 .feature-card {
-  background: var(--ifm-background-surface-color);
-  border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 12px;
+  background: #1a2535;
+  border: 1px solid #1a2535;
+  border-radius: 0;
   padding: 1.5rem;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: border-color 0.2s;
 }
 
 .feature-card:hover {
-  border-color: var(--ifm-color-primary);
-  box-shadow: 0 4px 20px rgba(124, 58, 237, 0.15);
+  border-color: #06956b;
+  box-shadow: none;
 }
 
 .feature-card h3 {
+  font-family: 'Orbitron', sans-serif;
   margin-top: 0.5rem;
-  font-size: 1.2rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #FFFFFF;
 }
 
 .feature-card p {
-  color: var(--ifm-color-emphasis-700);
+  color: #888891;
   font-size: 0.95rem;
 }
 
-/* Badge styles for status indicators */
-.badge {
-  display: inline-block;
-  padding: 0.15rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-}
-
-.badge--purple {
-  background: var(--ifm-color-primary);
-  color: #fff;
-}
-
-.badge--green {
-  background: #059669;
-  color: #fff;
-}
-
-.badge--amber {
-  background: #D97706;
-  color: #fff;
-}
-
-/* Sidebar category adjustments */
+/* ── Sidebar ── */
 .theme-doc-sidebar-item-category > .menu__list-item-collapsible > .menu__link {
   font-weight: 600;
 }
 
-/* Admonition accent overrides for purple theme */
-.admonition-tip {
-  --ifm-color-info: #7C3AED;
+.menu {
+  background: #0A0E1A;
 }
 
-/* Table improvements */
+/* ── Admonitions: green-tinted per brand ── */
+.alert--warning,
+.admonition-warning {
+  border-left-color: #06956b;
+  background: rgba(6, 149, 107, 0.05);
+}
+
+.admonition-tip {
+  --ifm-color-info: #06956b;
+}
+
+/* ── Tables: green headers, Orbitron labels ── */
 table {
   display: table;
   width: 100%;
@@ -156,12 +219,62 @@ table {
 
 table th {
   white-space: nowrap;
+  color: #06956b;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
-/* Landing page responsive */
+/* ── Code blocks: JetBrains Mono ── */
+code {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ── Footer ── */
+.footer--dark {
+  background: #0A0E1A;
+  border-top: 1px solid #1a2535;
+}
+
+/* ── Badge styles ── */
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  font-family: 'Orbitron', sans-serif;
+}
+
+.badge--green {
+  background: #06956b;
+  color: #0A0E1A;
+}
+
+.badge--amber {
+  background: #D97706;
+  color: #0A0E1A;
+}
+
+/* ── Grid lines and dividers: subtle, structural ── */
+hr {
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+/* ── Search bar ── */
+.DocSearch-Button {
+  background: #1a2535 !important;
+  border: 1px solid #1a2535 !important;
+  border-radius: 0 !important;
+}
+
+/* ── Responsive ── */
 @media (max-width: 768px) {
   .hero--achilles .hero__title {
-    font-size: 2rem;
+    font-size: 2.5rem;
   }
 
   .hero--achilles .hero__subtitle {
