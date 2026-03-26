@@ -6,27 +6,27 @@
    CSS CUSTOM PROPERTIES
    ───────────────────────────────────────────────────────────────── */
 :root {
-  /* Hero accent colors - Electric Cyan/Teal */
-  --hero-accent: oklch(0.72 0.14 195);
-  --hero-accent-bright: oklch(0.82 0.16 195);
-  --hero-accent-dim: oklch(0.55 0.12 195);
-  --hero-accent-glow: oklch(0.72 0.14 195 / 40%);
-  --hero-accent-subtle: oklch(0.72 0.14 195 / 15%);
+  /* Hero accent colors - #06956b green (from ACHILLES_V3) */
+  --hero-accent: #06956b;
+  --hero-accent-bright: #06956b;
+  --hero-accent-dim: rgba(6, 149, 107, 0.6);
+  --hero-accent-glow: rgba(6, 149, 107, 0.4);
+  --hero-accent-subtle: rgba(6, 149, 107, 0.15);
 
-  /* Hero backgrounds */
-  --hero-bg-deep: oklch(0.08 0.015 260);
-  --hero-bg-surface: oklch(0.12 0.02 260);
-  --hero-bg-elevated: oklch(0.16 0.02 260);
+  /* Hero backgrounds - #0A0E1A dark navy (from ACHILLES_V3) */
+  --hero-bg-deep: #0A0E1A;
+  --hero-bg-surface: #0d1221;
+  --hero-bg-elevated: #111827;
 
   /* Grid and scan effects */
-  --hero-grid-line: oklch(0.25 0.03 260 / 20%);
-  --hero-grid-highlight: oklch(0.72 0.14 195 / 12%);
-  --hero-scan-line: oklch(0.72 0.14 195 / 8%);
+  --hero-grid-line: rgba(255, 255, 255, 0.05);
+  --hero-grid-highlight: rgba(6, 149, 107, 0.12);
+  --hero-scan-line: rgba(6, 149, 107, 0.08);
 
   /* Text hierarchy */
-  --hero-text-primary: oklch(0.98 0.01 260);
-  --hero-text-secondary: oklch(0.75 0.02 260);
-  --hero-text-muted: oklch(0.55 0.02 260);
+  --hero-text-primary: #ffffff;
+  --hero-text-secondary: rgba(255, 255, 255, 0.75);
+  --hero-text-muted: #888891;
 }
 
 /* ─────────────────────────────────────────────────────────────────
@@ -708,6 +708,82 @@
   10% { opacity: 1; }
   90% { opacity: 1; }
   100% { cx: 100; cy: 300; opacity: 0; }
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   SMOOTH SCROLL
+   ───────────────────────────────────────────────────────────────── */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   TYPEWRITER CURSOR
+   ───────────────────────────────────────────────────────────────── */
+@keyframes hero-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   GRADIENT TEXT
+   ───────────────────────────────────────────────────────────────── */
+.hero-gradient-text {
+  background: linear-gradient(90deg, var(--hero-accent) 0%, var(--hero-accent-bright) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
+  filter: drop-shadow(0 0 20px var(--hero-accent-subtle));
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   SCROLL REVEAL (IntersectionObserver-driven)
+   ───────────────────────────────────────────────────────────────── */
+.reveal-section {
+  opacity: 0;
+  transform: translateY(40px);
+  transition: opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1), transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.reveal-section.reveal-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   CYBER BORDER (hover effect on cards)
+   ───────────────────────────────────────────────────────────────── */
+.cyber-border-card {
+  border: 1px solid var(--hero-grid-line);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.cyber-border-card:hover {
+  border-color: var(--hero-accent-dim);
+  box-shadow: 0 0 15px var(--hero-accent-subtle);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   TERMINAL BLOCK
+   ───────────────────────────────────────────────────────────────── */
+.hero-terminal {
+  background: var(--hero-bg-deep);
+  border: 1px solid var(--hero-grid-line);
+  border-radius: 8px;
+  padding: 2rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.hero-terminal-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--hero-grid-line);
+  display: inline-block;
 }
 
 /* ─────────────────────────────────────────────────────────────────
