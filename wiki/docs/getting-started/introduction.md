@@ -1,52 +1,61 @@
 ---
 sidebar_position: 1
 title: Introduction
-description: ProjectAchilles is an open-source purple team platform for continuous security validation — deploy agents, execute tests, and measure detection coverage.
+description: ProjectAchilles is an open-source continuous security validation platform — turn threat intelligence into executable tests, deploy agents, and measure defense readiness.
 ---
 
 # Introduction
 
-**ProjectAchilles** is a purple team platform that bridges the gap between offensive testing and defensive measurement. Red teams deploy a lightweight Go agent to endpoints and execute security tests on demand or on schedule. Blue teams track detection coverage through an analytics dashboard backed by Elasticsearch, identifying which techniques are detected, which are missed, and where to focus hardening efforts.
+**ProjectAchilles** is a continuous security validation platform that turns threat intelligence into measurable defense readiness. Deploy lightweight agents to your endpoints, execute security tests on demand or on schedule, and quantify whether your defenses detect, prevent, or miss each technique — all from one unified interface.
 
-The platform replaces the need for commercial endpoint management tools with a purpose-built, open-source agent system — complete with cross-compilation, code signing, task scheduling, and result ingestion.
+You don't need a red team certification to use it. You don't need to write exploit code. You need to know what threats matter to your organization, and whether you're defended against them.
 
 ## Why ProjectAchilles?
 
-Most security teams struggle with a fundamental disconnect: red team tools are separate from blue team dashboards. Attack simulations happen in one tool, detection results are reviewed in another, and the gap between "did we test this technique?" and "did we detect it?" requires manual correlation.
+Most organizations invest heavily in security tools but struggle to answer a simple question: *are our defenses actually working?*
 
-ProjectAchilles unifies this workflow into a single platform:
+Threat intelligence reports pile up unread. Compliance checklists are checked once and forgotten. Security teams deploy EDR, SIEM, and endpoint hardening — then hope for the best. When a breach happens, the post-mortem reveals gaps that were always there but never measured.
 
-1. **Browse** security tests mapped to MITRE ATT&CK techniques
-2. **Build** test binaries for your target platforms directly from the UI
-3. **Deploy** lightweight agents to your endpoints
-4. **Execute** tests on demand or on a recurring schedule
-5. **Measure** detection coverage with defense scores, heatmaps, and trend analysis
-6. **Improve** by closing the gaps your analytics reveal
+**ProjectAchilles exists to close this loop.** The platform operationalizes threat intelligence through three core components:
 
-## Key Highlights
+1. **AI-Powered Test Development** — An agentic pipeline transforms threat intelligence articles into complete, deployable security test packages — source code, detection rules, hardening scripts, and documentation — without manual test development.
 
-- **Custom Go Agent** — Lightweight agent with enrollment, heartbeat monitoring, task execution, and self-updating across Windows, Linux, and macOS
-- **Build From Source** — Cross-compile test binaries for Windows/Linux/macOS (amd64/arm64) directly from the UI
-- **Code Signing** — Sign Windows binaries with Authenticode, macOS with ad-hoc signing, multi-certificate management (up to 5 certs)
-- **30+ Analytics Endpoints** — Defense scores, heatmaps, treemaps, error rate trends, and coverage breakdowns
-- **MITRE ATT&CK Mapping** — Filter tests and results by technique, tactic, and threat actor
-- **Task Scheduling** — Recurring execution (daily/weekly/monthly) with randomized timing
-- **Git-Synced Test Library** — Tests pulled from a Git repository with automatic sync
-- **Microsoft Defender Integration** — Sync Secure Score, alerts, and control profiles with MITRE cross-correlation
-- **Trend Alerting** — Threshold-based Slack and email notifications
-- **3 Visual Themes** — Default, Neobrutalism, and Hacker Terminal (with green/amber phosphor variants)
-- **5 Deployment Targets** — Docker Compose, Railway, Render, Fly.io, and Vercel (serverless)
-- **Risk Acceptance** — Accept risk for individual security controls with audit tracking
+2. **Execution Framework** — A lightweight Go agent deployed to endpoints (Windows, Linux, macOS) executes security tests on demand or on schedule, reports results with cryptographic integrity, and self-updates without downtime.
+
+3. **Analytics & Measurement** — An Elasticsearch-backed dashboard quantifies defense readiness with scores, heatmaps, trend analysis, and MITRE ATT&CK coverage matrices — turning raw test results into actionable intelligence for security teams and leadership.
+
+## What It Measures
+
+- **Defense Readiness** — For each threat technique, did your endpoint defenses detect it, block it, or miss it entirely?
+- **Controls Compliance** — Are your security configurations (endpoint hardening, identity policies, cloud settings) actually in place?
+- **Security ROI** — Which investments are driving measurable protection, and where are the gaps that still need funding?
+
+## Two Modes of Operation
+
+| Mode | Purpose | Input | Output |
+|------|---------|-------|--------|
+| **Threat-Informed Validation** | Test defenses against real-world attack techniques | Threat intel mapped to MITRE ATT&CK | Per-technique defense score with detection/prevention evidence |
+| **Controls Compliance** | Verify security baselines across your fleet | Standards-based control frameworks | Per-control compliance status with remediation guidance |
 
 ## Who Is This For?
 
 | Role | How You Use ProjectAchilles |
 |------|----------------------------|
-| **Red Team** | Build and deploy tests, schedule attack simulations, track which techniques bypass defenses |
-| **Blue Team** | Monitor defense scores, review detection gaps, measure improvement over time |
-| **Purple Team** | Run collaborative exercises with real-time coverage feedback |
-| **Security Engineers** | Integrate with Elasticsearch and Defender for unified security posture views |
-| **Security Managers** | Review trend analytics, risk acceptance decisions, and compliance-oriented metrics |
+| **Security Team Leads** | Schedule validation campaigns, track defense scores over time, identify where to focus hardening efforts |
+| **Security Engineers** | Browse and execute tests, review detection gaps, integrate with Elasticsearch and Defender |
+| **GRC / Compliance** | Verify controls compliance across the fleet, track risk acceptance decisions, generate evidence for audits |
+| **CISOs / Security Managers** | Review trend analytics, measure security ROI, make data-driven investment decisions |
+
+## Platform Highlights
+
+- **AI-Generated Test Packages** — ~19 artifacts per test including binaries, detection rules (KQL, YARA, Sigma, Elastic EQL, LimaCharlie), hardening scripts, and kill chain diagrams
+- **Cross-Platform Agent** — Lightweight Go agent with enrollment, heartbeat monitoring, self-updating, and encrypted credentials across Windows, Linux, and macOS
+- **30+ Analytics Endpoints** — Defense scores, heatmaps, treemaps, error rate trends, and MITRE ATT&CK coverage matrices
+- **Build & Sign From UI** — Cross-compile test binaries and sign with Authenticode (Windows) or ad-hoc signing (macOS)
+- **Microsoft Defender Integration** — Sync Secure Score, alerts, and control profiles with cross-correlation analytics
+- **Trend Alerting** — Threshold-based Slack and email notifications with in-app notification bell
+- **5 Deployment Targets** — Docker Compose, Railway, Render, Fly.io, and Vercel (serverless)
+- **Risk Acceptance** — Accept risk for individual controls with audit tracking
 
 ## What's Next?
 

@@ -1,52 +1,86 @@
 ---
 sidebar_position: 2
 title: Features Overview
-description: A comprehensive overview of all ProjectAchilles features — test browser, analytics dashboard, agent system, build system, scheduling, and integrations.
+description: A comprehensive overview of all ProjectAchilles features — AI-powered test development, test browser, execution framework, analytics & measurement, build system, scheduling, and integrations.
 ---
 
 # Features Overview
 
-ProjectAchilles consists of five core modules, each accessible from a unified web interface with Clerk authentication.
+ProjectAchilles is built around three pillars — **develop tests**, **execute them**, and **measure the results** — each accessible from a unified web interface with Clerk authentication.
+
+## AI-Powered Test Development
+
+Security tests are built by a multi-agent AI pipeline that converts threat intelligence into complete test packages. Each test includes ~19 artifacts generated autonomously.
+
+**Pipeline overview:**
+
+```
+Threat Intelligence Article
+    ↓ Phase 1: Analysis & Implementation
+    Extracts TTPs → generates Go source → compiles & signs binary
+    ↓ Phase 2: Parallel Artifact Generation
+    Detection Rules (5 formats) │ Defense Guidance │ Documentation │ Kill Chain Diagrams
+    ↓ Phase 3: Validation & Deployment
+    Verifies all artifacts → syncs catalog → deploys to endpoints
+```
+
+**What each test package contains:**
+
+| Artifact | Formats | Purpose |
+|----------|---------|---------|
+| Test binary | Go (Windows, Linux, macOS) | Executes the simulated technique on the endpoint |
+| Detection rules | KQL, YARA, Sigma, Elastic EQL, LimaCharlie | Import directly into your SIEM/EDR |
+| Hardening scripts | PowerShell, Bash (Linux + macOS) | Remediate gaps found by the test |
+| Documentation | Markdown (README + info card) | MITRE mapping, severity, threat actor context |
+| Kill chain diagram | Interactive HTML | Visualizes multi-stage attack flow |
+
+**Test categories:**
+
+| Category | Description | Example |
+|----------|-------------|---------|
+| **Intel-Driven** | Real-world attack techniques from APT reports and ransomware analysis | Lazarus group TTPs, Emotet delivery chains |
+| **MITRE Top 10** | Most common ransomware techniques from MITRE ATT&CK | Process injection, defense evasion, lateral movement |
+| **Cyber-Hygiene** | Configuration validation for endpoint, identity, and cloud security | Defender settings, ASR rules, LSASS protection, MFA |
+
+:::info Companion Repository
+The test development pipeline lives in a companion repository. Tests are synced to ProjectAchilles via Git for browsing, building, and execution.
+:::
 
 ## Test Browser
 
-Browse a git-synced library of security tests with rich metadata. Each test includes source code, documentation, detection rules (KQL/YARA), and attack flow diagrams.
+Browse the full test library with rich metadata and execute tests directly from the UI.
 
 - **Filter and search** by MITRE ATT&CK technique, platform, category, and severity
-- **Favorite tests** and track recent views
-- **View details** including version history, author info, and Git modification dates
-- **Copy-to-clipboard** for detection rules and test artifacts
+- **View details** including source code, detection rules, hardening scripts, and attack flow diagrams
 - **Build, sign, and download** test binaries directly from test detail pages
 - **MITRE ATT&CK coverage matrix** with visual technique heatmap
-- **Overview dashboard** with 3-tab layout (overview, matrix, list) and category legend
-- **Execution drawer** — run tests directly from the browse page
+- **Execution drawer** — assign and run tests directly from the browse page
+- **Favorite tests**, track recent views, view version history and Git modification dates
 
 :::tip Hybrid Test Library
 Tests can come from an upstream Git repository (auto-synced) or from custom local directories. Both sources are indexed with collision-free UUIDs. See [Custom Tests](../user-guide/test-browser/custom-tests) for details.
 :::
 
-## Analytics Dashboard
+## Analytics & Measurement
 
-Measure your defensive posture with 30+ query endpoints powered by Elasticsearch.
+Quantify your security posture with 30+ query endpoints powered by Elasticsearch.
 
 | Feature | Description |
 |---------|-------------|
 | **Defense Score** | Aggregate score with breakdowns by test, technique, category, hostname, and severity |
 | **Trend Analysis** | Rolling-window defense score and error rate trends over time |
-| **Heatmaps** | Host-test matrix showing protection status across your fleet |
-| **Treemaps** | Hierarchical category/subcategory coverage visualization |
-| **Execution Table** | Paginated results with advanced filtering (technique, hostname, threat actor, tags, error codes) |
+| **MITRE ATT&CK Heatmaps** | Host-test matrix showing protection status across your fleet |
+| **Coverage Treemaps** | Hierarchical category/subcategory coverage visualization |
+| **Execution Table** | Paginated results with advanced filtering (technique, hostname, threat actor, tags) |
 | **Multi-Index** | Switch between Elasticsearch indices, create new ones, view index metadata |
 | **Defender Integration** | Sync Secure Score, alerts, and control profiles with cross-correlation analytics |
-| **Dual Defense Score** | Real score and trend line overlay for tracking trajectory |
 | **Risk Acceptance** | Accept risk on individual controls with audit tracking |
-| **Trend Alerting** | Threshold-based Slack (Block Kit) and email (Nodemailer) notifications |
-| **Notification Bell** | In-app alert dropdown showing recent threshold breaches |
+| **Trend Alerting** | Threshold-based Slack and email notifications with in-app notification bell |
 | **Archive Executions** | Archive old execution results to declutter active views |
 
-## Agent System
+## Execution Framework
 
-Deploy a custom Go agent to endpoints for remote test execution with full lifecycle management.
+Deploy a lightweight Go agent to endpoints for remote test execution with full lifecycle management.
 
 - **Enrollment** — Token-based registration with configurable TTL and max uses
 - **Heartbeat Monitoring** — Real-time online/offline status with CPU, memory, disk, and uptime metrics

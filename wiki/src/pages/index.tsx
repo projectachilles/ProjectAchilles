@@ -6,32 +6,32 @@ import Heading from '@theme/Heading';
 
 const features = [
   {
+    title: 'AI-Powered Test Development',
+    icon: '\uD83E\uDDE0',
+    description:
+      'A multi-agent AI pipeline transforms threat intelligence into complete test packages — binaries, detection rules (5 formats), hardening scripts, and kill chain diagrams.',
+    link: '/docs/getting-started/features',
+  },
+  {
     title: 'Test Browser',
     icon: '\uD83D\uDD0D',
     description:
-      'Browse a git-synced library of security tests with MITRE ATT&CK mapping. Filter by technique, tactic, platform, and severity. Build, sign, and download binaries directly from the UI.',
+      'Browse the full test library with MITRE ATT&CK mapping. Filter by technique, platform, and severity. Build, sign, and execute tests directly from the UI.',
     link: '/docs/user-guide/test-browser/browsing-filtering',
   },
   {
-    title: 'Analytics Dashboard',
-    icon: '\uD83D\uDCCA',
-    description:
-      'Measure your defensive posture with 30+ Elasticsearch query endpoints. Defense scores, heatmaps, treemaps, trend analysis, and risk acceptance tracking.',
-    link: '/docs/user-guide/analytics/defense-score',
-  },
-  {
-    title: 'Agent System',
+    title: 'Execution Framework',
     icon: '\uD83D\uDEE1\uFE0F',
     description:
-      'Deploy a lightweight Go agent to Windows, Linux, and macOS endpoints. Token-based enrollment, heartbeat monitoring, task execution, and self-updating.',
+      'Deploy a lightweight Go agent to Windows, Linux, and macOS endpoints. Token-based enrollment, heartbeat monitoring, secure execution, and self-updating.',
     link: '/docs/user-guide/agent-management/enrollment',
   },
   {
-    title: 'Build & Sign',
-    icon: '\u2699\uFE0F',
+    title: 'Analytics & Measurement',
+    icon: '\uD83D\uDCCA',
     description:
-      'Cross-compile test binaries for any platform from the web UI. Authenticode signing for Windows, ad-hoc signing for macOS, and multi-certificate management.',
-    link: '/docs/user-guide/test-browser/building-signing',
+      'Quantify defense readiness with 30+ Elasticsearch query endpoints. Defense scores, heatmaps, treemaps, trend analysis, and risk acceptance tracking.',
+    link: '/docs/user-guide/analytics/defense-score',
   },
   {
     title: 'Integrations',
@@ -94,7 +94,7 @@ export default function Home(): ReactNode {
   return (
     <Layout
       title="Documentation"
-      description="ProjectAchilles — The Open-Source Purple Team Platform for Continuous Security Validation. Execute security tests, measure detection coverage, close defensive gaps.">
+      description="ProjectAchilles — Continuous Security Validation. Turn threat intelligence into executable tests, measure defense readiness, and close the gaps.">
       <HomepageHeader />
       <main>
         <section style={{padding: '3rem 0'}}>

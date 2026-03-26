@@ -6,7 +6,7 @@ description: "CLI tool overview, installation, and global flags."
 
 # Overview & Installation
 
-The ProjectAchilles CLI (`achilles`) is a terminal-based management tool for the purple team security validation platform. It provides full control over agents, tasks, schedules, analytics, builds, certificates, and integrations -- all from the command line.
+The ProjectAchilles CLI (`achilles`) is a terminal-based management tool for the continuous security validation platform. It provides full control over agents, tasks, schedules, analytics, builds, certificates, and integrations -- all from the command line.
 
 ## Dual-Mode Architecture
 
