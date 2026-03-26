@@ -1,3 +1,4 @@
+import cluster from 'node:cluster';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -298,61 +299,104 @@ async function startServer() {
     console.log('╚═══════════════════════════════════════════════════════════╝');
     console.log('');
 
-    // --- Task scheduler: process due schedules every 60s ---
-    processSchedules(); // Startup recovery: catch up on past-due schedules
-    const schedulerInterval = setInterval(processSchedules, 60_000);
-
-    // --- Auto key rotation: check every 60s ---
-    const autoRotationInterval = setInterval(processAutoRotation, 60_000);
-
-    // --- Heartbeat history pruning: every hour ---
-    const heartbeatPruneInterval = setInterval(pruneHeartbeatHistory, 60 * 60 * 1000);
-
-    // --- Offline agent detection + agent alerts: every 60s ---
-    const offlineDetectionInterval = setInterval(() => {
-      detectOfflineAgents();
-      alertsService.evaluateAgentAlerts().catch((err: unknown) => {
-        console.error('[Agent Alerts] Evaluation failed:', err);
-      });
-    }, 60_000);
-
-    // --- Defender sync: scores every 6h, alerts every 5min ---
-    let defenderScoreInterval: ReturnType<typeof setInterval> | undefined;
-    let defenderAlertInterval: ReturnType<typeof setInterval> | undefined;
-
-    const integrationsSettings = new IntegrationsSettingsService();
-    if (integrationsSettings.isDefenderConfigured()) {
-      console.log('🛡  Defender integration configured — starting background sync');
-      defenderSyncService.syncAll().catch((err) => {
-        console.warn('⚠ Initial Defender sync failed:', err instanceof Error ? err.message : err);
-      });
-      defenderScoreInterval = setInterval(() => {
-        defenderSyncService.syncSecureScores().catch(() => {});
-        defenderSyncService.syncControlProfiles().catch(() => {});
-      }, 6 * 60 * 60 * 1000); // 6 hours
-      defenderAlertInterval = setInterval(() => {
-        defenderSyncService.syncAlerts().catch(() => {});
-      }, 5 * 60 * 1000); // 5 minutes
+    // Background jobs only run in single-process mode (no clustering) or
+    // cluster primary. In cluster mode, workers skip these to avoid duplicates.
+    if (!cluster.isWorker) {
+      startBackgroundJobs(httpServer);
+    } else {
+      // Worker: just handle graceful shutdown for HTTP
+      const shutdown = () => { httpServer.close(); };
+      process.on('SIGTERM', shutdown);
+      process.on('SIGINT', shutdown);
     }
-
-    const shutdown = () => {
-      clearInterval(schedulerInterval);
-      clearInterval(autoRotationInterval);
-      clearInterval(heartbeatPruneInterval);
-      clearInterval(offlineDetectionInterval);
-      if (defenderScoreInterval) clearInterval(defenderScoreInterval);
-      if (defenderAlertInterval) clearInterval(defenderAlertInterval);
-      httpServer.close();
-    };
-    process.on('SIGTERM', shutdown);
-    process.on('SIGINT', shutdown);
   });
 }
 
-// Start the server
-startServer().catch(error => {
-  console.error('❌ Failed to start server:', error);
-  process.exit(1);
-});
+/**
+ * Start all periodic background jobs. Runs in a single process only:
+ * either the lone process (no clustering) or the cluster primary.
+ */
+function startBackgroundJobs(httpServer?: http.Server) {
+  // --- Task scheduler: process due schedules every 60s ---
+  processSchedules(); // Startup recovery: catch up on past-due schedules
+  const schedulerInterval = setInterval(processSchedules, 60_000);
+
+  // --- Auto key rotation: check every 60s ---
+  const autoRotationInterval = setInterval(processAutoRotation, 60_000);
+
+  // --- Heartbeat history pruning: every hour ---
+  const heartbeatPruneInterval = setInterval(pruneHeartbeatHistory, 60 * 60 * 1000);
+
+  // --- Offline agent detection + agent alerts: every 60s ---
+  const offlineDetectionInterval = setInterval(() => {
+    detectOfflineAgents();
+    alertsService.evaluateAgentAlerts().catch((err: unknown) => {
+      console.error('[Agent Alerts] Evaluation failed:', err);
+    });
+  }, 60_000);
+
+  // --- Defender sync: scores every 6h, alerts every 5min ---
+  let defenderScoreInterval: ReturnType<typeof setInterval> | undefined;
+  let defenderAlertInterval: ReturnType<typeof setInterval> | undefined;
+
+  const integrationsSettings = new IntegrationsSettingsService();
+  if (integrationsSettings.isDefenderConfigured()) {
+    console.log('🛡  Defender integration configured — starting background sync');
+    defenderSyncService.syncAll().catch((err) => {
+      console.warn('⚠ Initial Defender sync failed:', err instanceof Error ? err.message : err);
+    });
+    defenderScoreInterval = setInterval(() => {
+      defenderSyncService.syncSecureScores().catch(() => {});
+      defenderSyncService.syncControlProfiles().catch(() => {});
+    }, 6 * 60 * 60 * 1000); // 6 hours
+    defenderAlertInterval = setInterval(() => {
+      defenderSyncService.syncAlerts().catch(() => {});
+    }, 5 * 60 * 1000); // 5 minutes
+  }
+
+  const shutdown = () => {
+    clearInterval(schedulerInterval);
+    clearInterval(autoRotationInterval);
+    clearInterval(heartbeatPruneInterval);
+    clearInterval(offlineDetectionInterval);
+    if (defenderScoreInterval) clearInterval(defenderScoreInterval);
+    if (defenderAlertInterval) clearInterval(defenderAlertInterval);
+    if (httpServer) httpServer.close();
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+}
+
+// ============ CLUSTER MODE ============
+// CLUSTER_WORKERS env var controls parallelism:
+//   unset / 0 / 1 → single-process (current behavior, backward-compatible)
+//   2-8           → cluster mode (primary manages workers + background jobs)
+const CLUSTER_WORKERS = Math.max(0, parseInt(process.env.CLUSTER_WORKERS || '0', 10) || 0);
+
+if (cluster.isPrimary && CLUSTER_WORKERS > 1) {
+  dotenv.config(); // ensure env is loaded in primary
+
+  console.log(`[cluster] Primary ${process.pid} forking ${CLUSTER_WORKERS} workers`);
+  for (let i = 0; i < CLUSTER_WORKERS; i++) {
+    cluster.fork();
+  }
+
+  cluster.on('exit', (worker, code, signal) => {
+    if (!worker.exitedAfterDisconnect) {
+      console.warn(`[cluster] Worker ${worker.process.pid} died (${signal || code}), restarting`);
+      cluster.fork();
+    }
+  });
+
+  // Background jobs run in primary only — no HTTP server here
+  startBackgroundJobs();
+
+} else {
+  // Single-process mode OR cluster worker: run Express
+  startServer().catch(error => {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  });
+}
 
 export default app;
