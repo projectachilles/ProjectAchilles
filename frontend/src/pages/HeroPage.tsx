@@ -18,7 +18,7 @@ import {
 type Lang = "en" | "es";
 
 const GITHUB_URL = "https://github.com/projectachilles/ProjectAchilles";
-const DISCORD_URL = "https://discord.gg/srPuvzk3";
+const DISCORD_URL = "https://discord.gg/4qzwX9XA";
 
 function tx(obj: { en: string; es: string }, lang: Lang) {
   return obj[lang];
@@ -187,7 +187,7 @@ function HeroNav({
         {/* Logo */}
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-          className="text-xl font-bold tracking-widest hero-heading hover:text-[var(--hero-accent)] w-15  transition-colors"
+          className="text-xl font-bold tracking-widest hero-heading hover:text-[var(--hero-accent)] w-auto flex transition-colors items-center gap-1"
           style={{
             letterSpacing: "0.15em",
             background: "none",
@@ -196,7 +196,7 @@ function HeroNav({
           }}
         >
           <svg
-            width="100%"
+          className="h-10 w-10"
             viewBox="0 0 500 500"
             xmlns="http://www.w3.org/2000/svg"
             style={{ background: "#111111;" }}
@@ -220,6 +220,12 @@ function HeroNav({
   "
             />
           </svg>
+          <span
+            className="text-2xl font-bold tracking-widest logo-font"
+            style={{ letterSpacing: "0.15em;" }}
+          >
+            ACHILLES
+          </span>
         </button>
 
         {/* Center links */}
