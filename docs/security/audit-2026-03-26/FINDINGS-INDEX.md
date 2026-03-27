@@ -13,9 +13,9 @@
 |----------|-------|-------|------|
 | Critical | 3 | 2 + 1 mitigated | 0 |
 | High | 10 | 10 | 0 |
-| Medium | 24 | 14 | 10 |
+| Medium | 24 | 18 | 6 |
 | Low | 10 | 1 | 9 |
-| **Total** | **47** | **27** | **20** |
+| **Total** | **47** | **31** | **16** |
 
 ### Remediation Progress
 
@@ -26,6 +26,7 @@
 | `d551ac3` | P1 | PA-004, PA-020, PA-022 |
 | `db8e986` | P2 | PA-008, PA-009, PA-025, PA-026, PA-027, PA-038, PA-046, PA-047 |
 | `97c6029` | P2 | PA-010, PA-015, PA-024, PA-034, PA-035, PA-036, PA-037 |
+| (pending) | P2 | PA-019, PA-039, PA-040, PA-043 |
 
 **Deployment prerequisites for new code:**
 - `ENCRYPTION_SECRET` must be >= 32 characters (was 16). Regenerate with `openssl rand -base64 32` (44 chars).
@@ -73,7 +74,7 @@
 | PA-012 | CSP allows unsafe-inline for scripts and styles | 4.7 | CWE-79 | A03 | `server.ts:62-63` | Open |
 | PA-017 | Risk acceptance endpoint returns ALL records globally (no org filter) | 6.5 | CWE-639 | A01 | `risk-acceptance.routes.ts` | Open |
 | PA-018 | Integration settings (Azure/Defender) not org-scoped in multi-tenant | 5.5 | CWE-732 | A01 | `integrations.routes.ts` | Open |
-| PA-019 | Cron endpoint CRON_SECRET uses timing-vulnerable string comparison | 4.3 | CWE-208 | A07 | `cron.routes.ts:14,34,55` | Open |
+| PA-019 | Cron endpoint CRON_SECRET uses timing-vulnerable string comparison | 4.3 | CWE-208 | A07 | `cron.routes.ts:14,34,55` | **Fixed** (P2) |
 | PA-024 | Agent rate limiter keyed on client-supplied X-Agent-ID (bypass via fabrication) | 5.3 | CWE-770 | A04 | `agent/index.ts:51` | **Fixed** (P2) |
 | PA-025 | CLI JWT verify does not pin algorithm | 5.9 | CWE-327 | A02 | `cliAuth.middleware.ts:38` | **Fixed** (P2) |
 | PA-026 | Settings files with encrypted credentials written world-readable (0644) | 5.5 | CWE-732 | A01 | Multiple `settings.ts` files | **Fixed** (P2) |
@@ -86,10 +87,10 @@
 | PA-036 | ENCRYPTION_SECRET minimum 16 chars too short for AES-256 | 5.0 | CWE-326 | A02 | 3x `settings.ts` | **Fixed** (P2) |
 | PA-037 | Cross-deployment CLI token replay (shared secret, no iss/aud) | 5.9 | CWE-294 | A07 | `cli-auth.routes.ts:48` | **Fixed** (P2) |
 | PA-038 | .env.example insecure SESSION_SECRET default | 4.3 | CWE-1188 | A05 | `backend/.env.example` | **Fixed** (P2) |
-| PA-039 | ES security disabled in Docker Compose (xpack.security=false) | 4.7 | CWE-1188 | A05 | `docker-compose.yml:58` | Open |
-| PA-040 | Frontend Docker container receives all backend secrets via env_file | 4.0 | CWE-200 | A05 | `docker-compose.yml:34` | Open |
+| PA-039 | ES security disabled in Docker Compose (xpack.security=false) | 4.7 | CWE-1188 | A05 | `docker-compose.yml:58` | **Fixed** (P2, documented) |
+| PA-040 | Frontend Docker container receives all backend secrets via env_file | 4.0 | CWE-200 | A05 | `docker-compose.yml:34` | **Fixed** (P2) |
 | PA-042 | Docker base images use floating tags instead of SHA digest pins | 5.3 | CWE-829 | A08 | Both Dockerfiles | Open |
-| PA-043 | Backend/frontend ports bound to 0.0.0.0 in docker-compose | 4.7 | CWE-668 | A05 | `docker-compose.yml:5,44` | Open |
+| PA-043 | Backend/frontend ports bound to 0.0.0.0 in docker-compose | 4.7 | CWE-668 | A05 | `docker-compose.yml:5,44` | **Fixed** (P2) |
 | PA-044 | Unpinned pip install in es-seed container (supply chain) | 5.0 | CWE-829 | A08 | `docker-compose.yml:91` | Open |
 | PA-045 | GitHub Actions use mutable tag refs instead of SHA pins | 5.3 | CWE-829 | A08 | All `.github/workflows/*.yml` | Open |
 | PA-046 | .gitignore missing *.pfx, *.key, *.pem, *.db patterns | 4.7 | CWE-312 | A05 | `.gitignore` | **Fixed** (P2) |

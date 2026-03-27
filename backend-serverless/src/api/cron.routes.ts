@@ -1,8 +1,18 @@
 import { Router } from 'express';
+import { timingSafeEqual } from 'crypto';
 import { processSchedules } from '../services/agent/schedules.service.js';
 import { processAutoRotation } from '../services/agent/autoRotation.service.js';
 
 const router = Router();
+
+/** Timing-safe comparison to prevent secret leakage via response timing. */
+function verifyCronSecret(authHeader: string | undefined): boolean {
+  const expected = process.env.CRON_SECRET;
+  if (!expected || !authHeader) return false;
+  const actual = authHeader.replace('Bearer ', '');
+  if (actual.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
+}
 
 /**
  * Cron endpoint for schedule processing.
@@ -11,7 +21,7 @@ const router = Router();
  */
 router.get('/schedules', async (req, res) => {
   const authHeader = req.headers.authorization;
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!verifyCronSecret(authHeader)) {
     res.status(401).json({ success: false, error: 'Unauthorized' });
     return;
   }
@@ -31,7 +41,7 @@ router.get('/schedules', async (req, res) => {
  */
 router.get('/auto-rotation', async (req, res) => {
   const authHeader = req.headers.authorization;
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!verifyCronSecret(authHeader)) {
     res.status(401).json({ success: false, error: 'Unauthorized' });
     return;
   }
@@ -52,7 +62,7 @@ router.get('/auto-rotation', async (req, res) => {
  */
 router.get('/defender-sync', async (req, res) => {
   const authHeader = req.headers.authorization;
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!verifyCronSecret(authHeader)) {
     res.status(401).json({ success: false, error: 'Unauthorized' });
     return;
   }

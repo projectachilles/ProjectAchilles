@@ -2,7 +2,7 @@ services:
   backend:
     build: ./backend
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     env_file: ./backend/.env
     environment:
       - PORT=3000
@@ -31,9 +31,13 @@ services:
 
   frontend:
     build: ./frontend
-    env_file: ./backend/.env
+    # Only pass frontend-safe variables (not backend secrets like CLERK_SECRET_KEY)
+    environment:
+      - CLERK_PUBLISHABLE_KEY=${CLERK_PUBLISHABLE_KEY:-}
+      - VITE_CLERK_PUBLISHABLE_KEY=${VITE_CLERK_PUBLISHABLE_KEY:-}
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost}
     ports:
-      - "80:80"
+      - "127.0.0.1:80:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -42,7 +46,7 @@ services:
   wiki:
     build: ./wiki
     ports:
-      - "3001:80"
+      - "127.0.0.1:3001:80"
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -55,7 +59,7 @@ services:
     container_name: achilles-es
     environment:
       - discovery.type=single-node
-      - xpack.security.enabled=false
+      - xpack.security.enabled=false  # DEV ONLY — enable xpack.security for production Docker deployments
       - bootstrap.memory_lock=true
       - "ES_JAVA_OPTS=-Xms512m -Xmx1024m"
     ulimits:
