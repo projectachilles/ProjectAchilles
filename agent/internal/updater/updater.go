@@ -52,12 +52,13 @@ func CheckAndUpdate(ctx context.Context, client *httpclient.Client, currentVersi
 	// Clean up the temp file on any error after this point.
 	defer os.Remove(tmpPath)
 
-	// Ed25519 signature verification (M5)
+	// Ed25519 signature verification (M5) — mandatory when public key is configured
 	if cfg.UpdatePublicKey == "" {
-		log.Printf("WARNING: no update_public_key configured — skipping signature verification")
-	} else if info.Signature == "" {
-		log.Printf("WARNING: server did not provide a signature — skipping signature verification")
+		log.Printf("WARNING: no update_public_key configured — update accepted without signature verification. Configure update_public_key for production use.")
 	} else {
+		if info.Signature == "" {
+			return false, fmt.Errorf("server did not provide a signature for update %s — rejecting unsigned update", info.Version)
+		}
 		hashBytes, hexErr := hex.DecodeString(info.SHA256)
 		if hexErr != nil {
 			return false, fmt.Errorf("decode update SHA256: %w", hexErr)
@@ -106,6 +107,13 @@ func fetchVersionInfo(ctx context.Context, client *httpclient.Client, currentVer
 
 	info := envelope.Data
 	if info.Version == currentVersion {
+		return nil, nil
+	}
+
+	// Reject version downgrades unless the update is marked mandatory.
+	// This prevents an attacker from pushing an older vulnerable version.
+	if !info.Mandatory && isVersionDowngrade(currentVersion, info.Version) {
+		log.Printf("WARNING: rejecting downgrade from %s to %s (not mandatory)", currentVersion, info.Version)
 		return nil, nil
 	}
 
@@ -175,4 +183,63 @@ func downloadAndVerify(ctx context.Context, client *httpclient.Client, info *Ver
 
 	log.Printf("Update downloaded and verified: %d bytes, sha256=%s", written, actualHash)
 	return tmpPath, nil
+}
+
+// isVersionDowngrade returns true if newVersion is older than currentVersion.
+// Compares dot-separated numeric segments (e.g., "0.3.0" > "0.2.1").
+// Non-numeric segments are compared lexicographically. Returns false on parse
+// errors or when versions are equal (caller already checks equality).
+func isVersionDowngrade(currentVersion, newVersion string) bool {
+	cur := parseVersionParts(currentVersion)
+	new := parseVersionParts(newVersion)
+
+	n := len(cur)
+	if len(new) < n {
+		n = len(new)
+	}
+	for i := 0; i < n; i++ {
+		if new[i] < cur[i] {
+			return true
+		}
+		if new[i] > cur[i] {
+			return false
+		}
+	}
+	// If all compared segments are equal, shorter version is "older"
+	return len(new) < len(cur)
+}
+
+// parseVersionParts splits a version string like "v0.3.1" into integer segments [0, 3, 1].
+// Strips a leading "v" prefix. Non-numeric segments become 0.
+func parseVersionParts(version string) []int {
+	if len(version) > 0 && (version[0] == 'v' || version[0] == 'V') {
+		version = version[1:]
+	}
+	parts := splitDot(version)
+	nums := make([]int, len(parts))
+	for i, p := range parts {
+		n := 0
+		for _, c := range p {
+			if c >= '0' && c <= '9' {
+				n = n*10 + int(c-'0')
+			} else {
+				break // stop at first non-digit (e.g., "1-beta")
+			}
+		}
+		nums[i] = n
+	}
+	return nums
+}
+
+// splitDot splits a string by "." without importing strings.
+func splitDot(s string) []string {
+	var parts []string
+	start := 0
+	for i := 0; i <= len(s); i++ {
+		if i == len(s) || s[i] == '.' {
+			parts = append(parts, s[start:i])
+			start = i + 1
+		}
+	}
+	return parts
 }

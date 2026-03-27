@@ -32,6 +32,50 @@ const (
 	exitCodeUnexpected = 999
 )
 
+// allowedEnvPrefixes defines the permitted prefixes for environment variables
+// injected from task payloads. This prevents injection of dangerous variables
+// like LD_PRELOAD, PATH, DYLD_INSERT_LIBRARIES, HOME, etc.
+var allowedEnvPrefixes = []string{
+	"AZURE_",
+	"DEFENDER_",
+	"F0_",
+	"F0RT",
+	"ACHILLES_",
+	"TEST_",
+}
+
+// filterEnvVars returns only env vars whose keys start with an allowed prefix.
+// Rejected keys are logged as warnings.
+func filterEnvVars(envVars map[string]string) map[string]string {
+	filtered := make(map[string]string, len(envVars))
+	for k, v := range envVars {
+		allowed := false
+		for _, prefix := range allowedEnvPrefixes {
+			if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
+				allowed = true
+				break
+			}
+		}
+		if allowed {
+			filtered[k] = v
+		} else {
+			log.Printf("WARNING: rejected env var %q from task payload (not in allowlist)", k)
+		}
+	}
+	return filtered
+}
+
+// applyEnvVars sets filtered environment variables on a command.
+func applyEnvVars(cmd *exec.Cmd, envVars map[string]string) {
+	safe := filterEnvVars(envVars)
+	if len(safe) > 0 {
+		cmd.Env = os.Environ()
+		for k, v := range safe {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+	}
+}
+
 // patchStatus sends a PATCH to update the task status on the server.
 func patchStatus(ctx context.Context, client *httpclient.Client, taskID, status string) error {
 	resp, err := client.Do(ctx, http.MethodPatch,
@@ -146,14 +190,11 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 	cmd.Dir = tempDir
 	cmd.WaitDelay = 10 * time.Second
 
-	// Inject custom environment variables (e.g. Azure credentials for cloud tests).
-	// When cmd.Env is nil, Go inherits the parent env; setting it replaces entirely,
-	// so we start with os.Environ() and append.
+	// Inject filtered environment variables (e.g. Azure credentials for cloud tests).
+	// Only variables with allowed prefixes are injected; dangerous keys like
+	// LD_PRELOAD, PATH, DYLD_INSERT_LIBRARIES are rejected.
 	if len(task.Payload.EnvVars) > 0 {
-		cmd.Env = os.Environ()
-		for k, v := range task.Payload.EnvVars {
-			cmd.Env = append(cmd.Env, k+"="+v)
-		}
+		applyEnvVars(cmd, task.Payload.EnvVars)
 	}
 
 	// Create a Job Object (Windows) to kill all child processes on timeout.
@@ -292,12 +333,9 @@ func ExecuteCommand(ctx context.Context, client *httpclient.Client, task Task, c
 	}
 	cmd.WaitDelay = 10 * time.Second
 
-	// Inject custom environment variables (same pattern as Execute).
+	// Inject filtered environment variables (same pattern as Execute).
 	if len(task.Payload.EnvVars) > 0 {
-		cmd.Env = os.Environ()
-		for k, v := range task.Payload.EnvVars {
-			cmd.Env = append(cmd.Env, k+"="+v)
-		}
+		applyEnvVars(cmd, task.Payload.EnvVars)
 	}
 
 	// Create a Job Object (Windows) to kill all child processes on timeout.

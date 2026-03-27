@@ -33,13 +33,13 @@
 
 | ID | Title | CVSS | CWE | OWASP | Location | Status |
 |---|---|---|---|---|---|---|
-| PA-004 | Agent update signature verification skippable (both conditions) | 8.1 | CWE-354 | A08 | `updater.go:56-69` | Open |
+| PA-004 | Agent update signature verification skippable (both conditions) | 8.1 | CWE-354 | A08 | `updater.go:56-69` | **Fixed** (P1) |
 | PA-005 | Weak machine-derived encryption key fallback (hostname+username) | 7.5 | CWE-1188 | A02 | `settings.ts:36-48` | **Fixed** (P1) |
 | PA-006 | CLI JWT secret falls back to weak encryption key | 7.5 | CWE-321 | A02 | `cliAuth.middleware.ts:22` | **Fixed** (P1) |
 | PA-016 | Cross-org task/token creation via unvalidated org_id in request body | 7.2 | CWE-639 | A01 | `tasks.routes.ts:178`, `enrollment.routes.ts:119` | **Fixed** (e72c71d) |
-| PA-020 | No version downgrade protection in agent updater | 7.5 | CWE-757 | A08 | `updater.go:108-109` | Open |
+| PA-020 | No version downgrade protection in agent updater | 7.5 | CWE-757 | A08 | `updater.go:108-109` | **Fixed** (P1) |
 | PA-021 | No code signing verification on test binaries (only SHA256 from same server) | 7.5 | CWE-345 | A08 | `executor.go:115-117` | Open |
-| PA-022 | Server-controlled env var injection without filtering (LD_PRELOAD, PATH) | 7.8 | CWE-426 | A03 | `executor.go:152-157` | Open |
+| PA-022 | Server-controlled env var injection without filtering (LD_PRELOAD, PATH) | 7.8 | CWE-426 | A03 | `executor.go:152-157` | **Fixed** (P1) |
 | PA-023 | Test binaries can read agent config + machine-id to extract API key | 7.2 | CWE-732 | A01 | `executor.go:97-106` | Open |
 | PA-032 | SSRF via SMTP host in email alert test endpoint | 7.2 | CWE-918 | A10 | `integrations.routes.ts:324-343` | **Fixed** (P1) |
 | PA-033 | SSRF via Elasticsearch node URL in analytics settings | 7.2 | CWE-918 | A10 | `analytics.routes.ts:67-98` | **Fixed** (P1) |
