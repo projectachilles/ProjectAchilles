@@ -11,6 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev/)
 [![Go](https://img.shields.io/badge/Go-1.24-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![Bun](https://img.shields.io/badge/Bun-1.3-F9F1E1?logo=bun&logoColor=black)](https://bun.sh/)
 
 **Continuous Security Validation — From Threat Intelligence to Defense Readiness**
 
@@ -49,13 +50,15 @@ You don't need a red team certification to use it. You don't need to write explo
 
 ## Overview
 
-ProjectAchilles is a continuous security validation platform with three core components:
+ProjectAchilles is a continuous security validation platform with four core components:
 
 1. **AI-Powered Test Development** — An agentic pipeline that transforms threat intelligence articles into complete, deployable security test packages — source code, detection rules, hardening scripts, and documentation — without manual test development.
 
 2. **Execution Framework** — A lightweight Go agent deployed to endpoints (Windows, Linux, macOS) that executes security tests on demand or on schedule, reports results with cryptographic integrity, and self-updates without downtime.
 
 3. **Analytics & Measurement** — An Elasticsearch-backed dashboard that quantifies defense readiness with scores, heatmaps, trend analysis, and MITRE ATT&CK coverage matrices — turning raw test results into actionable intelligence for security teams and leadership.
+
+4. **CLI & AI Agent** — A Bun-powered command-line tool (`achilles`) with 17+ command modules for platform management and an AI conversational agent mode powered by Vercel AI SDK for natural-language fleet operations.
 
 The platform is open-source, deploys in minutes via Docker Compose, and integrates with Microsoft Defender for cross-correlation between your internal validation results and your EDR's own security posture data.
 
@@ -147,6 +150,37 @@ Threat Intelligence Article
 
 > The test development pipeline lives in a companion repository. Tests are synced to ProjectAchilles via Git for browsing, building, and execution.
 
+### CLI (`achilles`)
+
+A Bun-powered command-line interface for managing the entire platform from the terminal — or through an AI conversational agent.
+
+**Two modes of operation:**
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Commands** | `achilles <command> [args]` | Direct platform management with rich terminal output |
+| **AI Chat** | `achilles chat` | Conversational agent powered by AI SDK v6 with full tool access |
+
+**What it covers:**
+
+- **Agent fleet** — List, inspect, tag, and manage enrolled agents
+- **Enrollment tokens** — Create, revoke, and audit tokens
+- **Task management** — Create, assign, and monitor task execution
+- **Scheduling** — CRUD for recurring schedules
+- **Test browser** — Search, inspect, and build tests
+- **Analytics** — Query defense scores, trends, and execution history
+- **Defender** — Secure Score, alerts, controls, cross-correlation
+- **Build system** — Trigger cross-compilation, manage certificates
+- **Risk acceptance** — Accept/revoke risk on individual controls
+- **User management** — List and inspect Clerk users
+
+**Key features:**
+- `--json` flag on every command for structured output (scripts, LLM consumption)
+- Multi-profile server configuration (`achilles config profile`)
+- Clerk device-flow authentication (`achilles login`)
+- AI chat mode with Ink TUI (interactive) or readline fallback (piped)
+- AI agent has tool access to all platform APIs with approval tiers (read/write/destructive)
+
 ### Test Browser
 
 Browse the full test library with rich metadata and execute tests directly from the UI.
@@ -185,6 +219,7 @@ Quantify your security posture with 30+ query endpoints powered by Elasticsearch
 - **Microsoft Defender Integration** — Sync Secure Score, alerts, and control profiles with cross-correlation analytics
 - **Trend Alerting** — Threshold-based Slack and email notifications with in-app notification bell
 - **Multi-Index Management** — Per-task index targeting for isolated result sets
+- **Visual Themes** — Three selectable themes: Default (light/dark), Neobrutalism (hot pink accent, bold borders), Hacker Terminal (phosphor green/amber scanlines)
 
 ### Build System
 
@@ -228,6 +263,11 @@ The agent-server communication channel has been hardened through an internal sec
 │   Browser  │  Analytics  │  Agents  │  Settings  │  Scheduling     │
 └──────────────────────────────┬──────────────────────────────────────┘
                                │ REST API
+┌──────────────────────────────┤
+│        CLI (Bun + Ink)       │
+│   Commands  │  AI Chat Agent │
+└──────────────────────────────┤
+                               │
 ┌──────────────────────────────┴──────────────────────────────────────┐
 │                      Backend (Express + TS)                        │
 │                                                                    │
@@ -264,15 +304,18 @@ The agent-server communication channel has been hardened through an internal sec
 | Layer | Technology | Version |
 |-------|------------|---------|
 | Frontend | React | 19.2 |
-| Build Tool | Vite | 7.2 |
-| Styling | Tailwind CSS | 4.1 |
-| State Management | Redux Toolkit | 2.10 |
+| Build Tool | Vite | 8.0 |
+| Styling | Tailwind CSS | 4.2 |
+| State Management | Redux Toolkit | 2.11 |
 | Routing | React Router | 7.13 |
 | Authentication | Clerk | 5.x |
 | Backend | Express | 4.18 |
 | Language | TypeScript | 5.9 |
+| CLI Runtime | Bun | 1.3 |
+| CLI UI | Ink | 6.8 |
+| AI SDK | Vercel AI SDK | 6.0 |
 | Agent | Go | 1.24 |
-| Analytics Store | Elasticsearch | 8.17 |
+| Analytics Store | Elasticsearch | 8.x |
 | Agent Database | SQLite | 3.x |
 | Code Signing | osslsigncode | — |
 | Containerization | Docker Compose | — |
@@ -294,6 +337,14 @@ ProjectAchilles/
 │       ├── services/          # Business logic by module
 │       ├── middleware/         # Auth, error handling, rate limiting
 │       └── types/             # TypeScript definitions
+├── cli/                       # Bun + TypeScript CLI with AI chat agent
+│   └── src/
+│       ├── commands/          # Command modules (agents, tasks, browser, analytics, ...)
+│       ├── chat/              # AI chat agent (AI SDK v6, Ink TUI, tool definitions)
+│       ├── api/               # API client for backend communication
+│       ├── auth/              # Clerk device-flow token management
+│       ├── config/            # Multi-profile configuration store
+│       └── output/            # Formatters (table, JSON, colors)
 ├── agent/                     # Go agent source
 │   ├── main.go                # CLI entry point (--enroll, --run, --install)
 │   └── internal/              # Agent modules (poller, executor, updater, sysinfo)
@@ -465,13 +516,14 @@ CLERK_SECRET_KEY=sk_test_...
 
 ### Security & Community
 - [Security Policy](SECURITY.md) — Vulnerability reporting and security model
+- [Security Audit Report](docs/security/SECURITY-AUDIT.md) — Comprehensive audit: 47 findings
 - [Agent Security Findings](docs/agent-security-findings.md) — Internal audit: 9 findings, 8 fixed
 - [Code of Conduct](CODE_OF_CONDUCT.md) — Community guidelines
 - [Roadmap](docs/ROADMAP.md) — Planned features and direction
 
 ## Contributing
 
-We welcome contributions across all modules — frontend, backend, agent (Go), and documentation. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on setup, coding standards, and the PR process.
+We welcome contributions across all modules — frontend, backend, CLI (Bun), agent (Go), and documentation. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on setup, coding standards, and the PR process.
 
 ## Security
 
