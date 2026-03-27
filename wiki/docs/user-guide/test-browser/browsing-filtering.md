@@ -13,7 +13,7 @@ The Test Browser is the primary interface for discovering and managing security 
 The browser page opens with a 3-tab layout:
 
 1. **Overview** — Category legend and summary statistics
-2. **Matrix** — MITRE ATT&CK coverage heatmap
+2. **Overview** — MITRE ATT&CK coverage chart and summary statistics
 3. **List** — Filterable test grid/list
 
 ## Views
@@ -67,7 +67,7 @@ graph TD
     A --> D[Favorites Mode]
     A --> E[Recent Mode]
 
-    B --> F[MITRE ATT&CK Matrix]
+    B --> F[MITRE ATT&CK Coverage]
     B --> G[Statistics & Analytics]
 
     C --> H[Test Grid / List]
@@ -93,9 +93,9 @@ The browser home page has three top-level modes, selectable from the navigation:
 - **Favorites** -- Shows only tests you have starred
 - **Recent** -- Displays tests you have recently viewed, in chronological order
 
-## MITRE ATT&CK Matrix
+## MITRE ATT&CK Coverage
 
-The **Overview** tab features an interactive MITRE ATT&CK Enterprise matrix visualization:
+The **Overview** tab features an interactive MITRE ATT&CK Enterprise coverage chart:
 
 - **14 enterprise tactics** displayed in kill-chain order
 - Each tactic column contains a **bar chart** where bar height represents the number of tests mapped to each technique
@@ -104,10 +104,10 @@ The **Overview** tab features an interactive MITRE ATT&CK Enterprise matrix visu
 - From the detail panel, click a technique to filter the Browse tab to tests covering that technique
 - Use the **empty tactic toggle** to show or hide tactics that have no mapped tests
 
-The matrix adapts its color scheme to the active visual theme (Default, Neobrutalism, or Hacker Terminal).
+The chart adapts its color scheme to the active visual theme (Default, Neobrutalism, or Hacker Terminal).
 
 :::tip Drill-Down Navigation
-Click a technique in the MITRE matrix to jump directly to the Browse tab with that technique pre-filtered. This is the fastest way to find tests for a specific ATT&CK technique.
+Click a technique in the coverage chart to jump directly to the Browse tab with that technique pre-filtered. This is the fastest way to find tests for a specific ATT&CK technique.
 :::
 
 ## Advanced Filtering
