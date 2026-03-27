@@ -9,13 +9,30 @@
 
 ## Summary
 
-| Severity | Count |
-|----------|-------|
-| Critical | 3 |
-| High | 10 |
-| Medium | 24 |
-| Low | 10 |
-| **Total** | **47** |
+| Severity | Total | Fixed | Open |
+|----------|-------|-------|------|
+| Critical | 3 | 2 + 1 mitigated | 0 |
+| High | 10 | 10 | 0 |
+| Medium | 24 | 14 | 10 |
+| Low | 10 | 1 | 9 |
+| **Total** | **47** | **27** | **20** |
+
+### Remediation Progress
+
+| Commit | Priority | Findings Resolved |
+|---|---|---|
+| `e72c71d` | P0 | PA-001, PA-002, PA-003 (mitigated), PA-016 |
+| `f1f03e3` | P1 | PA-005, PA-006, PA-011, PA-032, PA-033 |
+| `d551ac3` | P1 | PA-004, PA-020, PA-022 |
+| `db8e986` | P2 | PA-008, PA-009, PA-025, PA-026, PA-027, PA-038, PA-046, PA-047 |
+| `97c6029` | P2 | PA-010, PA-015, PA-024, PA-034, PA-035, PA-036, PA-037 |
+
+**Deployment prerequisites for new code:**
+- `ENCRYPTION_SECRET` must be >= 32 characters (was 16). Regenerate with `openssl rand -base64 32` (44 chars).
+- `CLI_AUTH_SECRET` is now a separate mandatory env var for CLI auth features.
+- Clerk session token must include `{"metadata": "{{user.public_metadata}}"}` customization.
+- HKDF key derivation change requires re-entering encrypted credentials (ES, Azure, certs) via UI after upgrade.
+- Agent binary must be rebuilt to include PA-004/PA-020/PA-022 Go fixes.
 
 ---
 

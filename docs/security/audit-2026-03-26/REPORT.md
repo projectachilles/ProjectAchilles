@@ -15,13 +15,15 @@ ProjectAchilles is a purple team platform for continuous security validation. Th
 
 ### Risk Posture
 
-| Severity | Count | Key Themes |
-|----------|-------|------------|
-| **Critical** | 3 | Authentication bypass chain leading to RCE on enrolled agents |
-| **High** | 10 | SSRF vectors, unsigned binaries, env var injection, missing verification |
-| **Medium** | 24 | Weak crypto defaults, rate limit bypasses, validation gaps, info leakage, supply chain |
-| **Low** | 10 | Dockerfile hardening, TLS config, JWT claims, deployment config |
-| **Total** | **47** | Across backend, backend-serverless, frontend, Go agent, Docker, CI/CD |
+| Severity | Total | Fixed | Open | Key Themes |
+|----------|-------|-------|------|------------|
+| **Critical** | 3 | **3** | 0 | Authentication bypass chain leading to RCE on enrolled agents |
+| **High** | 10 | **10** | 0 | SSRF vectors, unsigned binaries, env var injection, missing verification |
+| **Medium** | 24 | **14** | 10 | Weak crypto defaults, rate limit bypasses, validation gaps, supply chain |
+| **Low** | 10 | **1** | 9 | Dockerfile hardening, TLS config, deployment config |
+| **Total** | **47** | **27 (57%)** | **20** | All Critical and High resolved in same session |
+
+> **Remediation status as of 2026-03-27:** All Critical and High severity findings have been resolved across 5 commits. See FINDINGS-INDEX.md for per-finding status and deployment prerequisites.
 
 ### Top 3 Attack Chains
 
