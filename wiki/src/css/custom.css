@@ -89,8 +89,8 @@ h1, h2, h3,
 .navbar__logo img {
   border-radius: 0;
   background: transparent;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
 }
 
 /* SVG logo already has correct green — no inversion needed */
@@ -145,11 +145,12 @@ h1, h2, h3,
 }
 
 .hero--achilles .hero__subtitle {
-  font-size: 1.3rem;
+  font-size: 1.6rem;
   color: #06956b;
   opacity: 1;
   max-width: 640px;
   margin: 0 auto;
+  line-height: 1.4;
 }
 
 .hero--achilles .hero__sub-tagline {

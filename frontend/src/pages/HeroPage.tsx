@@ -506,7 +506,7 @@ function HeroNav({
           className="flex items-center gap-2.5 hover:opacity-80 transition-opacity"
           style={{ background: "none", border: "none", cursor: "pointer" }}
         >
-          <svg className="h-8 w-8" viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
+          <svg className="h-10 w-10" viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
             <path
               fill="#00e68a"
               fillRule="evenodd"
@@ -514,7 +514,7 @@ function HeroNav({
             />
           </svg>
           <span
-            className="text-lg font-bold tracking-[0.2em] hero-heading"
+            className="text-xl font-bold tracking-[0.2em] hero-heading"
             style={{ color: "var(--hero-text-primary)" }}
           >
             ACHILLES

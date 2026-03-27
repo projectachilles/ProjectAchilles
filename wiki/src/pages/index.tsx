@@ -54,24 +54,9 @@ function HomepageHeader(): ReactNode {
   return (
     <header className="hero hero--achilles">
       <div className="container" style={{textAlign: 'center'}}>
-        {/* Logo + Title matching the main site */}
-        <div className="hero__logo-group">
-          <svg
-            className="hero__logo-svg"
-            viewBox="0 0 500 500"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              fill="#06956b"
-              fillRule="evenodd"
-              d="M 250,28 L 480,458 L 20,458 Z M 250,252 L 312,458 L 230,458 L 150,360 L 195,310 L 155,250 Z"
-            />
-          </svg>
-          <Heading as="h1" className="hero__title">
-            ACHILLES
-          </Heading>
-        </div>
-        <p className="hero__subtitle">{siteConfig.tagline}</p>
+        <Heading as="h1" className="hero__subtitle" style={{marginBottom: 0}}>
+          {siteConfig.tagline}
+        </Heading>
         <p className="hero__sub-tagline">
           Know what's protected. Know what's not. Know where to invest next.
         </p>
