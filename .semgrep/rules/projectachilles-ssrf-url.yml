@@ -1,0 +1,40 @@
+rules:
+  - id: projectachilles-ssrf-url
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      A user-supplied URL from the request body is passed to a network client
+      without validation against private IP ranges or an allowlist. This can
+      enable Server-Side Request Forgery (SSRF) to probe internal services.
+      Validate URLs against private IP ranges (10.x, 172.16-31.x, 192.168.x,
+      127.x, 169.254.x) before making requests.
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery"
+      owasp:
+        - A10:2021 Server-Side Request Forgery
+      references:
+        - https://owasp.org/Top10/A10_2021-Server-Side_Request_Forgery_%28SSRF%29/
+    pattern-either:
+      - pattern: |
+          fetch(req.body.$URL, ...)
+      - pattern: |
+          fetch($REQ.body.$URL, ...)
+      - pattern: |
+          axios.get(req.body.$URL, ...)
+      - pattern: |
+          axios.post(req.body.$URL, ...)
+      - pattern: |
+          axios($OBJ = {url: req.body.$URL, ...})
+      - pattern: |
+          nodemailer.createTransport({host: req.body.$HOST, ...})
+      - pattern: |
+          new $CLIENT({node: req.body.$URL, ...})
+      - pattern: |
+          const { $URL, ... } = req.body;
+          ...
+          fetch($URL, ...);
+      - pattern: |
+          const $URL = req.body.$FIELD;
+          ...
+          fetch($URL, ...);

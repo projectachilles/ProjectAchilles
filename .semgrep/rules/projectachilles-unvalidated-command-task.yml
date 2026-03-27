@@ -1,0 +1,29 @@
+rules:
+  - id: projectachilles-unvalidated-command-task
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Command task creation uses req.body.command without validation against
+      an allowlist. An attacker with access to the API could inject arbitrary
+      commands for agent execution. Validate the command field against a
+      strict allowlist before storing in the tasks table.
+    metadata:
+      cwe:
+        - "CWE-78: OS Command Injection"
+      owasp:
+        - A03:2021 Injection
+      references:
+        - https://owasp.org/Top10/A03_2021-Injection/
+    pattern-either:
+      - pattern: |
+          $DB.prepare(...).run(..., req.body.command, ...)
+      - pattern: |
+          $DB.prepare(...).run(..., $REQ.body.command, ...)
+      - pattern: |
+          const { command, ... } = req.body;
+          ...
+          $DB.prepare(...).run(..., command, ...);
+      - pattern: |
+          const $CMD = req.body.command;
+          ...
+          $DB.prepare(...).run(..., $CMD, ...);

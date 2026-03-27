@@ -1,0 +1,20 @@
+rules:
+  - id: projectachilles-jwt-no-algorithm
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      jwt.verify() is called without specifying the algorithms option.
+      Without pinning the algorithm, an attacker may exploit algorithm
+      confusion (e.g. switching RS256 to HS256 using the public key as
+      the HMAC secret). Always pass { algorithms: ['RS256'] } or the
+      expected algorithm explicitly.
+    metadata:
+      cwe:
+        - "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+      owasp:
+        - A02:2021 Cryptographic Failures
+      references:
+        - https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/
+    patterns:
+      - pattern: jwt.verify($TOKEN, $SECRET)
+      - pattern-not: "jwt.verify($TOKEN, $SECRET, { ..., algorithms: $ALGOS, ... })"

@@ -1,0 +1,24 @@
+rules:
+  - id: projectachilles-env-var-injection
+    languages: [go]
+    severity: WARNING
+    message: >-
+      Environment variables from a task or request payload are appended to
+      the process environment without filtering. An attacker could inject
+      LD_PRELOAD, PATH, or other dangerous variables. Filter environment
+      variables against a strict allowlist before passing to subprocesses.
+    metadata:
+      cwe:
+        - "CWE-426: Untrusted Search Path"
+      owasp:
+        - A03:2021 Injection
+      references:
+        - https://owasp.org/Top10/A03_2021-Injection/
+    patterns:
+      - pattern-either:
+          - pattern: $CMD.Env = append($CMD.Env, $VARS...)
+          - pattern: $CMD.Env = append($CMD.Env, $VAR)
+      - pattern-not-inside: |
+          for ..., $V := range $ALLOWED {
+            ...
+          }

@@ -1,0 +1,27 @@
+rules:
+  - id: projectachilles-settings-file-permissions
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      Settings or credentials file is written with writeFileSync without
+      specifying restrictive file permissions (mode 0o600). Files containing
+      secrets, tokens, or encrypted settings should not be world-readable.
+      Add { mode: 0o600 } to the options argument.
+    metadata:
+      cwe:
+        - "CWE-732: Incorrect Permission Assignment for Critical Resource"
+      owasp:
+        - A01:2021 Broken Access Control
+      references:
+        - https://owasp.org/Top10/A01_2021-Broken_Access_Control/
+    patterns:
+      - pattern-either:
+          - pattern: fs.writeFileSync($PATH, $DATA)
+          - pattern: writeFileSync($PATH, $DATA)
+          - pattern: fs.writeFileSync($PATH, $DATA, $ENCODING)
+          - pattern: writeFileSync($PATH, $DATA, $ENCODING)
+      - pattern-not: "fs.writeFileSync($PATH, $DATA, { ..., mode: $MODE, ... })"
+      - pattern-not: "writeFileSync($PATH, $DATA, { ..., mode: $MODE, ... })"
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: "(?i).*(settings|config|credential|secret|integrations|analytics|certs|token|password|key).*"

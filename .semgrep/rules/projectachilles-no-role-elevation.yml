@@ -1,0 +1,29 @@
+rules:
+  - id: projectachilles-no-role-elevation
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Undefined role should not grant all permissions. When the role parameter
+      is missing or undefined, the function returns the full permission set,
+      effectively granting admin-level access. Default to minimal (empty)
+      permissions instead.
+    metadata:
+      cwe:
+        - "CWE-269: Improper Privilege Management"
+      owasp:
+        - A01:2021 Broken Access Control
+      references:
+        - https://owasp.org/Top10/A01_2021-Broken_Access_Control/
+    patterns:
+      - pattern: |
+          function $FN(...) {
+            ...
+            if (!$ROLE) { return $ALL_PERMS; }
+            ...
+          }
+      - metavariable-regex:
+          metavariable: $ROLE
+          regex: "role"
+      - metavariable-regex:
+          metavariable: $ALL_PERMS
+          regex: ".*[Aa]ll.*|.*permissions.*|.*Object\\.values.*"
