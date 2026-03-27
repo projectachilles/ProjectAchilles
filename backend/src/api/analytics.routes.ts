@@ -6,6 +6,8 @@ import { SettingsService } from '../services/analytics/settings.js';
 import { ElasticsearchService } from '../services/analytics/elasticsearch.js';
 import { createResultsIndex, listResultsIndices } from '../services/analytics/index-management.service.js';
 import { resetClient as resetResultsClient } from '../services/agent/results.service.js';
+import { validate } from '../middleware/validation.js';
+import { AnalyticsSettingsSchema, AnalyticsTestSchema, CreateIndexSchema, ArchiveByGroupKeysSchema, ArchiveByDateSchema } from '../schemas/analytics.schemas.js';
 import type { AnalyticsQueryParams, ExtendedAnalyticsQueryParams, PaginatedExecutionsParams } from '../types/analytics.js';
 
 const router = Router();
@@ -65,12 +67,8 @@ router.get('/settings', requirePermission('analytics:settings:read'), (_req, res
 });
 
 // POST /api/analytics/settings - Save settings
-router.post('/settings', requirePermission('analytics:settings:write'), asyncHandler(async (req, res) => {
+router.post('/settings', requirePermission('analytics:settings:write'), validate(AnalyticsSettingsSchema), asyncHandler(async (req, res) => {
   const { connectionType, cloudId, apiKey, node, username, password, indexPattern } = req.body;
-
-  if (!connectionType) {
-    throw new AppError('Connection type is required', 400);
-  }
 
   // Load existing settings to merge with new values
   // This allows updating settings without providing all credentials
@@ -106,7 +104,7 @@ router.post('/settings', requirePermission('analytics:settings:write'), asyncHan
 }));
 
 // POST /api/analytics/settings/test - Test connection
-router.post('/settings/test', requirePermission('analytics:settings:read'), asyncHandler(async (req, res) => {
+router.post('/settings/test', requirePermission('analytics:settings:read'), validate(AnalyticsTestSchema), asyncHandler(async (req, res) => {
   const { connectionType, cloudId, apiKey, node, username, password } = req.body;
 
   // Merge with existing settings so edit-mode tests work with blank credentials
@@ -546,20 +544,8 @@ router.get('/indices', asyncHandler(async (req, res) => {
 }));
 
 // POST /api/analytics/index/create - Create an ES index with the results mapping
-router.post('/index/create', requirePermission('analytics:index:create'), asyncHandler(async (req, res) => {
-  const { index_name } = req.body as { index_name?: string };
-
-  if (!index_name || typeof index_name !== 'string') {
-    throw new AppError('Missing required field: index_name', 400);
-  }
-
-  // Validate index name: lowercase, alphanumeric + hyphens only
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(index_name)) {
-    throw new AppError(
-      'Invalid index name. Must be lowercase, start with a letter or digit, and contain only letters, digits, and hyphens.',
-      400,
-    );
-  }
+router.post('/index/create', requirePermission('analytics:index:create'), validate(CreateIndexSchema), asyncHandler(async (req, res) => {
+  const { index_name } = req.body as { index_name: string };
 
   const result = await createResultsIndex(index_name);
 
@@ -571,20 +557,8 @@ router.post('/index/create', requirePermission('analytics:index:create'), asyncH
 // ============================================
 
 // POST /api/analytics/executions/archive - Archive executions by group keys
-router.post('/executions/archive', requirePermission('analytics:executions:archive'), asyncHandler(async (req, res) => {
-  const { groupKeys } = req.body as { groupKeys?: string[] };
-
-  if (!Array.isArray(groupKeys) || groupKeys.length === 0) {
-    throw new AppError('groupKeys must be a non-empty array', 400);
-  }
-  if (groupKeys.length > 500) {
-    throw new AppError('Maximum 500 group keys per request', 400);
-  }
-  for (const key of groupKeys) {
-    if (typeof key !== 'string' || (!key.startsWith('bundle::') && !key.startsWith('standalone::'))) {
-      throw new AppError(`Invalid group key: "${key}". Must start with "bundle::" or "standalone::"`, 400);
-    }
-  }
+router.post('/executions/archive', requirePermission('analytics:executions:archive'), validate(ArchiveByGroupKeysSchema), asyncHandler(async (req, res) => {
+  const { groupKeys } = req.body as { groupKeys: string[] };
 
   const es = await getEsService();
   const result = await es.archiveByGroupKeys(groupKeys);
@@ -592,18 +566,8 @@ router.post('/executions/archive', requirePermission('analytics:executions:archi
 }));
 
 // POST /api/analytics/executions/archive-by-date - Archive executions before a date
-router.post('/executions/archive-by-date', requirePermission('analytics:executions:archive'), asyncHandler(async (req, res) => {
-  const { before } = req.body as { before?: string };
-
-  if (!before || typeof before !== 'string') {
-    throw new AppError('before must be a valid ISO date string', 400);
-  }
-
-  // Validate ISO date
-  const date = new Date(before);
-  if (isNaN(date.getTime())) {
-    throw new AppError('before must be a valid ISO date string', 400);
-  }
+router.post('/executions/archive-by-date', requirePermission('analytics:executions:archive'), validate(ArchiveByDateSchema), asyncHandler(async (req, res) => {
+  const { before } = req.body as { before: string };
 
   const es = await getEsService();
   const result = await es.archiveByDateRange(before);

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
+import { validate } from '../../middleware/validation.js';
 import { requirePermission } from '../../middleware/clerk.middleware.js';
 import {
   getLatestVersion,
@@ -10,6 +11,7 @@ import {
   registerVersionFromUpload,
   deleteVersion,
 } from '../../services/agent/update.service.js';
+import { RegisterVersionSchema, BuildVersionSchema } from '../../schemas/admin.schemas.js';
 import type { AgentOS, AgentArch } from '../../types/agent.js';
 
 const upload = multer({
@@ -98,6 +100,7 @@ export function createAdminUpdateRouter(_buildService: unknown): Router {
   router.post(
     '/versions',
     requirePermission('endpoints:versions:create'),
+    validate(RegisterVersionSchema),
     asyncHandler(async (req, res) => {
       const { version, os, arch, binary_path, release_notes, mandatory } = req.body as {
         version: string;
@@ -107,10 +110,6 @@ export function createAdminUpdateRouter(_buildService: unknown): Router {
         release_notes?: string;
         mandatory?: boolean;
       };
-
-      if (!version || !os || !arch || !binary_path) {
-        throw new AppError('Missing required fields: version, os, arch, binary_path', 400);
-      }
 
       const result = await registerVersion(
         version,
@@ -193,6 +192,7 @@ export function createAdminUpdateRouter(_buildService: unknown): Router {
   router.post(
     '/versions/build',
     requirePermission('endpoints:versions:create'),
+    validate(BuildVersionSchema),
     asyncHandler(async (req, res) => {
       if (!_buildService) {
         throw new AppError('Agent build from source is not available — agent source path not configured', 503);
@@ -203,18 +203,6 @@ export function createAdminUpdateRouter(_buildService: unknown): Router {
         os: string;
         arch: string;
       };
-
-      if (!version || !os || !arch) {
-        throw new AppError('Missing required fields: version, os, arch', 400);
-      }
-
-      if (!VALID_OS.includes(os as AgentOS)) {
-        throw new AppError('Invalid os parameter', 400);
-      }
-
-      if (!VALID_ARCH.includes(arch as AgentArch)) {
-        throw new AppError('Invalid arch parameter', 400);
-      }
 
       const result = await (_buildService as { buildAndSign: (v: string, o: AgentOS, a: AgentArch) => Promise<unknown> }).buildAndSign(version, os as AgentOS, arch as AgentArch);
       res.status(201).json({ success: true, data: result });

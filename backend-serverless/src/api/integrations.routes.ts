@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
+import { validate } from '../middleware/validation.js';
 import { IntegrationsSettingsService } from '../services/integrations/settings.js';
 import { DefenderSyncService } from '../services/defender/sync.service.js';
+import { AzureCredentialsSchema, AzureTestSchema, DefenderCredentialsSchema, DefenderTestSchema } from '../schemas/integrations.schemas.js';
 
 const router = Router();
 
@@ -31,7 +33,7 @@ router.get('/azure', requirePermission('integrations:read'), asyncHandler(async 
   });
 }));
 
-router.post('/azure', requirePermission('integrations:write'), asyncHandler(async (req, res) => {
+router.post('/azure', requirePermission('integrations:write'), validate(AzureCredentialsSchema), asyncHandler(async (req, res) => {
   const { tenant_id, client_id, client_secret, label } = req.body;
 
   const isEdit = await settingsService.isAzureConfigured();
@@ -58,7 +60,7 @@ router.delete('/azure', requirePermission('integrations:write'), asyncHandler(as
   res.json({ success: true });
 }));
 
-router.post('/azure/test', requirePermission('integrations:write'), asyncHandler(async (req, res) => {
+router.post('/azure/test', requirePermission('integrations:write'), validate(AzureTestSchema), asyncHandler(async (req, res) => {
   const { tenant_id, client_id, client_secret } = req.body;
 
   const stored = await settingsService.getAzureCredentials();
@@ -119,7 +121,7 @@ router.get('/defender', requirePermission('integrations:read'), asyncHandler(asy
   });
 }));
 
-router.post('/defender', requirePermission('integrations:write'), asyncHandler(async (req, res) => {
+router.post('/defender', requirePermission('integrations:write'), validate(DefenderCredentialsSchema), asyncHandler(async (req, res) => {
   const { tenant_id, client_id, client_secret, label } = req.body;
 
   const isEdit = await settingsService.isDefenderConfigured();
@@ -146,7 +148,7 @@ router.delete('/defender', requirePermission('integrations:write'), asyncHandler
   res.json({ success: true });
 }));
 
-router.post('/defender/test', requirePermission('integrations:write'), asyncHandler(async (req, res) => {
+router.post('/defender/test', requirePermission('integrations:write'), validate(DefenderTestSchema), asyncHandler(async (req, res) => {
   const { tenant_id, client_id, client_secret } = req.body;
 
   const stored = await settingsService.getDefenderCredentials();

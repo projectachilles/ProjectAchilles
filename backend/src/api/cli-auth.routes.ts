@@ -17,6 +17,8 @@ import { requireClerkAuth } from '../middleware/clerk.middleware.js';
 import { getUserId, getUserRole } from '../middleware/clerk.middleware.js';
 import { clerkClient } from '@clerk/express';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
+import { validate } from '../middleware/validation.js';
+import { VerifyCodeSchema, PollDeviceCodeSchema, RefreshTokenSchema } from '../schemas/cli.schemas.js';
 import { getDatabase } from '../services/agent/database.js';
 
 const router = Router();
@@ -111,11 +113,8 @@ router.post('/device-code', deviceCodeLimiter, asyncHandler(async (_req, res) =>
  * Called from the browser after user logs in via Clerk and enters the code.
  * Requires Clerk authentication.
  */
-router.post('/verify', requireClerkAuth(), asyncHandler(async (req, res) => {
+router.post('/verify', requireClerkAuth(), validate(VerifyCodeSchema), asyncHandler(async (req, res) => {
   const { user_code } = req.body;
-  if (!user_code || typeof user_code !== 'string') {
-    throw new AppError('user_code is required', 400);
-  }
 
   const auth = (req as any).auth;
   const userId = getUserId(auth);
@@ -157,11 +156,8 @@ router.post('/verify', requireClerkAuth(), asyncHandler(async (req, res) => {
  * CLI polls this endpoint with the device code until the user verifies.
  * Returns 202 (pending), 200 (verified + token), or 410 (expired).
  */
-router.post('/poll', pollLimiter, asyncHandler(async (req, res) => {
+router.post('/poll', pollLimiter, validate(PollDeviceCodeSchema), asyncHandler(async (req, res) => {
   const { device_code } = req.body;
-  if (!device_code || typeof device_code !== 'string') {
-    throw new AppError('device_code is required', 400);
-  }
 
   const deviceCodeHash = crypto.createHash('sha256').update(device_code).digest('hex');
   const db = getDatabase();
@@ -259,11 +255,8 @@ router.post('/poll', pollLimiter, asyncHandler(async (req, res) => {
  * POST /api/cli/auth/refresh
  * Refresh a CLI session token using a refresh token.
  */
-router.post('/refresh', refreshLimiter, asyncHandler(async (req, res) => {
+router.post('/refresh', refreshLimiter, validate(RefreshTokenSchema), asyncHandler(async (req, res) => {
   const { refresh_token } = req.body;
-  if (!refresh_token || typeof refresh_token !== 'string') {
-    throw new AppError('refresh_token is required', 400);
-  }
 
   const tokenHash = crypto.createHash('sha256').update(refresh_token).digest('hex');
   const db = getDatabase();

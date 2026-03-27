@@ -167,7 +167,7 @@ describe('analytics routes', () => {
         .send({ index_name: 'INVALID_Name!' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Invalid index name');
+      expect(res.body.error).toContain('Validation failed');
     });
   });
 
@@ -181,7 +181,7 @@ describe('analytics routes', () => {
         .send({ groupKeys: [] });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('non-empty array');
+      expect(res.body.error).toContain('Validation failed');
     });
 
     it('returns 400 when groupKeys is not an array', async () => {
@@ -204,7 +204,7 @@ describe('analytics routes', () => {
         .send({ groupKeys: ['invalid::foo::bar'] });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Invalid group key');
+      expect(res.body.error).toContain('Validation failed');
     });
 
     it('calls service on valid input', async () => {
@@ -233,7 +233,7 @@ describe('analytics routes', () => {
         .send({});
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('valid ISO date');
+      expect(res.body.error).toContain('Validation failed');
     });
 
     it('returns 400 when before is not a valid date', async () => {

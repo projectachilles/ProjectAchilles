@@ -360,7 +360,7 @@ describe('risk-acceptance routes', () => {
         .send({});
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('test_names');
+      expect(res.body.error).toContain('Validation failed');
     });
 
     it('returns 400 when test_names is empty array', async () => {
@@ -370,7 +370,7 @@ describe('risk-acceptance routes', () => {
         .send({ test_names: [] });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('non-empty array');
+      expect(res.body.error).toContain('Validation failed');
     });
 
     it('returns 400 when test_names is not an array', async () => {
@@ -380,7 +380,7 @@ describe('risk-acceptance routes', () => {
         .send({ test_names: 'not-an-array' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('non-empty array');
+      expect(res.body.error).toContain('Validation failed');
     });
 
     it('returns 400 when test_names exceeds 500', async () => {

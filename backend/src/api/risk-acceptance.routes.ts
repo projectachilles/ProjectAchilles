@@ -5,6 +5,8 @@ import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { SettingsService } from '../services/analytics/settings.js';
 import { createEsClient } from '../services/analytics/client.js';
 import { RiskAcceptanceService } from '../services/risk-acceptance/risk-acceptance.service.js';
+import { validate } from '../middleware/validation.js';
+import { AcceptRiskSchema, RevokeRiskSchema, LookupRiskSchema } from '../schemas/risk.schemas.js';
 
 const router = Router();
 
@@ -33,15 +35,8 @@ export function getRiskAcceptanceService(): RiskAcceptanceService | null {
 }
 
 // POST /api/risk-acceptances — Accept risk for a control
-router.post('/', requirePermission('analytics:risk:write'), asyncHandler(async (req, res) => {
+router.post('/', requirePermission('analytics:risk:write'), validate(AcceptRiskSchema), asyncHandler(async (req, res) => {
   const { test_name, control_id, hostname, justification } = req.body;
-
-  if (!test_name || typeof test_name !== 'string') {
-    throw new AppError('test_name is required', 400);
-  }
-  if (!justification || typeof justification !== 'string' || justification.trim().length < 10) {
-    throw new AppError('justification is required (minimum 10 characters)', 400);
-  }
 
   const userId = getUserId(req.auth);
   if (!userId) throw new AppError('Authentication required', 401);
@@ -69,13 +64,9 @@ router.post('/', requirePermission('analytics:risk:write'), asyncHandler(async (
 }));
 
 // POST /api/risk-acceptances/:id/revoke — Revoke a risk acceptance
-router.post('/:id/revoke', requirePermission('analytics:risk:write'), asyncHandler(async (req, res) => {
+router.post('/:id/revoke', requirePermission('analytics:risk:write'), validate(RevokeRiskSchema), asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { reason } = req.body;
-
-  if (!reason || typeof reason !== 'string' || reason.trim().length < 10) {
-    throw new AppError('reason is required (minimum 10 characters)', 400);
-  }
 
   const userId = getUserId(req.auth);
   if (!userId) throw new AppError('Authentication required', 401);
@@ -126,15 +117,8 @@ router.get('/:id', requirePermission('analytics:risk:read'), asyncHandler(async 
 }));
 
 // POST /api/risk-acceptances/lookup — Batch lookup for UI badges
-router.post('/lookup', requirePermission('analytics:risk:read'), asyncHandler(async (req, res) => {
+router.post('/lookup', requirePermission('analytics:risk:read'), validate(LookupRiskSchema), asyncHandler(async (req, res) => {
   const { test_names } = req.body;
-
-  if (!Array.isArray(test_names) || test_names.length === 0) {
-    throw new AppError('test_names must be a non-empty array', 400);
-  }
-  if (test_names.length > 500) {
-    throw new AppError('Maximum 500 test names per lookup', 400);
-  }
 
   const svc = getRiskService();
   const result = await svc.getAcceptancesForControls(test_names);

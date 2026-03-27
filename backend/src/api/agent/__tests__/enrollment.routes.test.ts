@@ -41,7 +41,7 @@ describe('enrollment routes', () => {
 
       expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
-      expect(res.body.error).toContain('Missing required fields');
+      expect(res.body.error).toContain('Validation failed');
     });
 
     it('returns 400 for invalid OS', async () => {
@@ -58,7 +58,7 @@ describe('enrollment routes', () => {
         });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Invalid os');
+      expect(res.body.error).toContain('Validation failed');
     });
 
     it('returns 400 for invalid arch', async () => {
@@ -75,7 +75,7 @@ describe('enrollment routes', () => {
         });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Invalid arch');
+      expect(res.body.error).toContain('Validation failed');
     });
 
     it('returns 201 for valid enrollment', async () => {

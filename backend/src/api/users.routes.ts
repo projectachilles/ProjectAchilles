@@ -2,8 +2,9 @@ import { Router } from 'express';
 import { clerkClient } from '@clerk/express';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { requireClerkAuth, requirePermission, getUserId } from '../middleware/clerk.middleware.js';
-import { VALID_ROLES } from '../types/roles.js';
 import type { AppRole } from '../types/roles.js';
+import { validate } from '../middleware/validation.js';
+import { InviteUserSchema, SetRoleSchema } from '../schemas/users.schemas.js';
 
 const router = Router();
 
@@ -35,15 +36,8 @@ router.get('/', asyncHandler(async (_req, res) => {
  * POST /api/users/invite
  * Send an invitation email and pre-assign a role.
  */
-router.post('/invite', asyncHandler(async (req, res) => {
+router.post('/invite', validate(InviteUserSchema), asyncHandler(async (req, res) => {
   const { email, role } = req.body as { email: string; role: string };
-
-  if (!email || typeof email !== 'string' || !email.includes('@')) {
-    throw new AppError('A valid email address is required', 400);
-  }
-  if (!role || !VALID_ROLES.includes(role as AppRole)) {
-    throw new AppError(`Invalid role. Must be one of: ${VALID_ROLES.join(', ')}`, 400);
-  }
 
   const redirectUrl = `${process.env.PUBLIC_APP_URL || process.env.CORS_ORIGIN || 'http://localhost:5173'}/sign-up`;
 
@@ -105,13 +99,9 @@ router.post('/invitations/:invitationId/revoke', asyncHandler(async (req, res) =
  * PUT /api/users/:userId/role
  * Set a user's role. Body: { role: AppRole }
  */
-router.put('/:userId/role', asyncHandler(async (req, res) => {
+router.put('/:userId/role', validate(SetRoleSchema), asyncHandler(async (req, res) => {
   const { userId } = req.params;
   const { role } = req.body as { role: string };
-
-  if (!role || !VALID_ROLES.includes(role as AppRole)) {
-    throw new AppError(`Invalid role. Must be one of: ${VALID_ROLES.join(', ')}`, 400);
-  }
 
   await clerkClient.users.updateUserMetadata(userId, {
     publicMetadata: { role },

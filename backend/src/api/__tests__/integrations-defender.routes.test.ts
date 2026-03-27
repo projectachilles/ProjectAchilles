@@ -15,7 +15,9 @@ vi.mock('../../middleware/clerk.middleware.js', () => ({
     next();
   },
   getUserId: (auth: any) => auth?.userId || 'test-user-001',
+  getUserOrgId: () => undefined,
   requirePermission: () => (_req: any, _res: any, next: any) => next(),
+  validateRequestOrgId: () => {},
 }));
 
 // Mock the settings service

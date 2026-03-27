@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
+import { validate } from '../middleware/validation.js';
 import { validateUrlForSSRF } from '../middleware/urlValidation.js';
 import { SettingsService } from '../services/analytics/settings.js';
 import { ElasticsearchService } from '../services/analytics/elasticsearch.js';
 import { createResultsIndex, listResultsIndices } from '../services/analytics/index-management.service.js';
 import { resetClient as resetResultsClient } from '../services/agent/results.service.js';
+import { AnalyticsSettingsSchema, AnalyticsTestSchema, CreateIndexSchema } from '../schemas/analytics.schemas.js';
 import type { AnalyticsQueryParams, ExtendedAnalyticsQueryParams, PaginatedExecutionsParams } from '../types/analytics.js';
 
 const router = Router();
@@ -64,12 +66,8 @@ router.get('/settings', requirePermission('analytics:settings:read'), asyncHandl
 }));
 
 // POST /api/analytics/settings - Save settings
-router.post('/settings', requirePermission('analytics:settings:write'), asyncHandler(async (req, res) => {
+router.post('/settings', requirePermission('analytics:settings:write'), validate(AnalyticsSettingsSchema), asyncHandler(async (req, res) => {
   const { connectionType, cloudId, apiKey, node, username, password, indexPattern } = req.body;
-
-  if (!connectionType) {
-    throw new AppError('Connection type is required', 400);
-  }
 
   // Load existing settings to merge with new values
   // This allows updating settings without providing all credentials
@@ -105,7 +103,7 @@ router.post('/settings', requirePermission('analytics:settings:write'), asyncHan
 }));
 
 // POST /api/analytics/settings/test - Test connection
-router.post('/settings/test', requirePermission('analytics:settings:read'), asyncHandler(async (req, res) => {
+router.post('/settings/test', requirePermission('analytics:settings:read'), validate(AnalyticsTestSchema), asyncHandler(async (req, res) => {
   const { connectionType, cloudId, apiKey, node, username, password } = req.body;
 
   // Merge with existing settings so edit-mode tests work with blank credentials
@@ -545,20 +543,8 @@ router.get('/indices', asyncHandler(async (req, res) => {
 }));
 
 // POST /api/analytics/index/create - Create an ES index with the results mapping
-router.post('/index/create', requirePermission('analytics:index:create'), asyncHandler(async (req, res) => {
-  const { index_name } = req.body as { index_name?: string };
-
-  if (!index_name || typeof index_name !== 'string') {
-    throw new AppError('Missing required field: index_name', 400);
-  }
-
-  // Validate index name: lowercase, alphanumeric + hyphens only
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(index_name)) {
-    throw new AppError(
-      'Invalid index name. Must be lowercase, start with a letter or digit, and contain only letters, digits, and hyphens.',
-      400,
-    );
-  }
+router.post('/index/create', requirePermission('analytics:index:create'), validate(CreateIndexSchema), asyncHandler(async (req, res) => {
+  const { index_name } = req.body as { index_name: string };
 
   const result = await createResultsIndex(index_name);
 

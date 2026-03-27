@@ -63,8 +63,22 @@ export interface AlertSettings {
   agent_alerts?: AgentAlertSettings;
 }
 
+/** Per-org integration settings (keyed by Clerk org_id). */
+export interface OrgIntegrationSettings {
+  azure?: AzureIntegrationSettings;
+  defender?: DefenderIntegrationSettings;
+  alerts?: AlertSettings;
+}
+
+/**
+ * Top-level settings file format. Supports both legacy (flat) and per-org modes.
+ * Legacy keys are kept for backward compat — they act as the fallback when no
+ * org-specific settings exist.
+ */
 export interface IntegrationsSettings {
   azure?: AzureIntegrationSettings;
   defender?: DefenderIntegrationSettings;
   alerts?: AlertSettings;
+  /** Per-org overrides. Key is the Clerk org_id. */
+  orgs?: Record<string, OrgIntegrationSettings>;
 }

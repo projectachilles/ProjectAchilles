@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
+import { validate } from '../../middleware/validation.js';
 import { requireAgentOrgAccess, requirePermission } from '../../middleware/clerk.middleware.js';
 import {
   processHeartbeat,
@@ -19,6 +20,8 @@ import {
   getAutoRotationSettings,
   saveAutoRotationSettings,
 } from '../../services/agent/autoRotation.service.js';
+import { HeartbeatSchema } from '../../schemas/agent.schemas.js';
+import { UpdateAgentSchema, AddTagSchema, AutoRotationSchema } from '../../schemas/admin.schemas.js';
 import type { HeartbeatPayload, ListAgentsRequest } from '../../types/agent.js';
 
 // ============================================================================
@@ -34,6 +37,7 @@ export const agentHeartbeatRouter = Router();
  */
 agentHeartbeatRouter.post(
   '/heartbeat',
+  validate(HeartbeatSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const agent = req.agent;
     if (!agent) {
@@ -41,10 +45,6 @@ agentHeartbeatRouter.post(
     }
 
     const payload = req.body as HeartbeatPayload;
-
-    if (!payload || !payload.timestamp || !payload.system) {
-      throw new AppError('Invalid heartbeat payload', 400);
-    }
 
     // Defense-in-depth: validate payload timestamp is within ±5 min of server time
     const payloadTime = new Date(payload.timestamp).getTime();
@@ -145,6 +145,7 @@ adminAgentRouter.patch(
   '/agents/:id',
   requirePermission('endpoints:agents:write'),
   requireAgentOrgAccess,
+  validate(UpdateAgentSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const existing = await getAgent(req.params.id);
     if (!existing) {
@@ -224,11 +225,9 @@ adminAgentRouter.post(
   '/agents/:id/tags',
   requirePermission('endpoints:agents:write'),
   requireAgentOrgAccess,
+  validate(AddTagSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const { tag } = req.body as { tag: string };
-    if (!tag || typeof tag !== 'string') {
-      throw new AppError('Tag is required and must be a string', 400);
-    }
 
     const tags = await addTag(req.params.id, tag);
 
@@ -280,15 +279,9 @@ adminAgentRouter.get(
 adminAgentRouter.put(
   '/settings/auto-rotation',
   requirePermission('endpoints:agents:write'),
+  validate(AutoRotationSchema),
   asyncHandler(async (req: Request, res: Response) => {
-    const { enabled, intervalDays } = req.body as { enabled?: boolean; intervalDays?: number };
-
-    if (typeof enabled !== 'boolean') {
-      throw new AppError('enabled is required and must be a boolean', 400);
-    }
-    if (typeof intervalDays !== 'number' || intervalDays < 30 || intervalDays > 365) {
-      throw new AppError('intervalDays must be a number between 30 and 365', 400);
-    }
+    const { enabled, intervalDays } = req.body as { enabled: boolean; intervalDays: number };
 
     await saveAutoRotationSettings({ enabled, intervalDays });
 

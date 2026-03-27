@@ -55,18 +55,25 @@ app.set('trust proxy', parseInt(process.env.TRUST_PROXY_HOPS || '1', 10));
 // ============ MIDDLEWARE ============
 
 // Security headers with Content Security Policy
+// PA-012: unsafe-inline required for scriptSrc (Clerk SDK v5 injects inline scripts
+// for session init/token refresh — no nonce support as of 2026-03). Mitigated by
+// restricting all other directives and adding form-action/frame-ancestors.
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],       // Clerk SDK needs inline scripts
-      styleSrc: ["'self'", "'unsafe-inline'"],         // Tailwind
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "https:", "blob:"],
       connectSrc: ["'self'", "https://*.clerk.com", "https://*.clerk.accounts.dev"],
       frameSrc: ["'self'", "blob:"],
       fontSrc: ["'self'", "data:"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'self'"],
+      workerSrc: ["'self'", "blob:"],
+      upgradeInsecureRequests: [],
     },
   },
   crossOriginEmbedderPolicy: false,

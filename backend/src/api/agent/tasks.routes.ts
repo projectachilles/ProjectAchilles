@@ -19,6 +19,15 @@ import {
 } from '../../services/agent/tasks.service.js';
 import { ingestResult } from '../../services/agent/results.service.js';
 import { alertsService } from '../integrations.routes.js';
+import { validate } from '../../middleware/validation.js';
+import { UpdateTaskStatusSchema, TaskResultSchema } from '../../schemas/agent.schemas.js';
+import {
+  CreateTaskSchema,
+  CreateCommandTaskSchema,
+  CreateUpdateTaskSchema,
+  CreateUninstallTaskSchema,
+  UpdateTaskNotesSchema,
+} from '../../schemas/admin.schemas.js';
 import type {
   CreateTaskRequest,
   CreateCommandTaskRequest,
@@ -65,6 +74,7 @@ agentTasksRouter.get(
  */
 agentTasksRouter.patch(
   '/tasks/:id/status',
+  validate(UpdateTaskStatusSchema),
   asyncHandler(async (req, res) => {
     const agent = req.agent;
     if (!agent) {
@@ -72,9 +82,6 @@ agentTasksRouter.patch(
     }
 
     const { status, error: errorMsg } = req.body as { status: TaskStatus; error?: string };
-    if (!status) {
-      throw new AppError('Missing required field: status', 400);
-    }
 
     const task = updateTaskStatus(req.params.id, agent.id, status, errorMsg);
 
@@ -89,6 +96,7 @@ agentTasksRouter.patch(
  */
 agentTasksRouter.post(
   '/tasks/:id/result',
+  validate(TaskResultSchema),
   asyncHandler(async (req, res) => {
     const agent = req.agent;
     if (!agent) {
@@ -96,9 +104,6 @@ agentTasksRouter.post(
     }
 
     const result = req.body as TaskResult;
-    if (!result || result.exit_code === undefined) {
-      throw new AppError('Invalid result payload', 400);
-    }
 
     const task = submitResult(req.params.id, agent.id, result);
 
@@ -139,6 +144,7 @@ export const adminTasksRouter = Router();
 adminTasksRouter.post(
   '/tasks',
   requirePermission('endpoints:tasks:create'),
+  validate(CreateTaskSchema),
   asyncHandler(async (req, res) => {
     const userId = getUserId(req.auth);
     if (!userId) {
@@ -146,15 +152,7 @@ adminTasksRouter.post(
     }
 
     const { org_id, ...taskRequest } = req.body as CreateTaskRequest & { org_id: string };
-
-    if (!org_id) {
-      throw new AppError('Missing required field: org_id', 400);
-    }
     validateRequestOrgId(org_id, req.auth);
-
-    if (!taskRequest.agent_ids || taskRequest.agent_ids.length === 0) {
-      throw new AppError('Missing required field: agent_ids', 400);
-    }
 
     const taskIds = createTasks(taskRequest, org_id, userId);
 
@@ -170,6 +168,7 @@ adminTasksRouter.post(
 adminTasksRouter.post(
   '/tasks/command',
   requirePermission('endpoints:tasks:command'),
+  validate(CreateCommandTaskSchema),
   asyncHandler(async (req, res) => {
     const userId = getUserId(req.auth);
     if (!userId) {
@@ -177,19 +176,7 @@ adminTasksRouter.post(
     }
 
     const { org_id, ...cmdRequest } = req.body as CreateCommandTaskRequest & { org_id: string };
-
-    if (!org_id) {
-      throw new AppError('Missing required field: org_id', 400);
-    }
     validateRequestOrgId(org_id, req.auth);
-
-    if (!cmdRequest.agent_ids || cmdRequest.agent_ids.length === 0) {
-      throw new AppError('Missing required field: agent_ids', 400);
-    }
-
-    if (!cmdRequest.command) {
-      throw new AppError('Missing required field: command', 400);
-    }
 
     const taskIds = createCommandTasks(cmdRequest, org_id, userId);
 
@@ -205,6 +192,7 @@ adminTasksRouter.post(
 adminTasksRouter.post(
   '/tasks/update',
   requirePermission('endpoints:tasks:create'),
+  validate(CreateUpdateTaskSchema),
   asyncHandler(async (req, res) => {
     const userId = getUserId(req.auth);
     if (!userId) {
@@ -212,14 +200,6 @@ adminTasksRouter.post(
     }
 
     const { org_id, agent_ids } = req.body as { org_id: string; agent_ids: string[] };
-
-    if (!org_id) {
-      throw new AppError('Missing required field: org_id', 400);
-    }
-
-    if (!agent_ids || agent_ids.length === 0) {
-      throw new AppError('Missing required field: agent_ids', 400);
-    }
 
     const taskIds = createUpdateTasks(agent_ids, org_id, userId);
 
@@ -235,6 +215,7 @@ adminTasksRouter.post(
 adminTasksRouter.post(
   '/tasks/uninstall',
   requirePermission('endpoints:agents:delete'),
+  validate(CreateUninstallTaskSchema),
   asyncHandler(async (req, res) => {
     const userId = getUserId(req.auth);
     if (!userId) {
@@ -242,14 +223,6 @@ adminTasksRouter.post(
     }
 
     const { org_id, agent_ids, cleanup } = req.body as { org_id: string; agent_ids: string[]; cleanup?: boolean };
-
-    if (!org_id) {
-      throw new AppError('Missing required field: org_id', 400);
-    }
-
-    if (!agent_ids || agent_ids.length === 0) {
-      throw new AppError('Missing required field: agent_ids', 400);
-    }
 
     const taskIds = createUninstallTasks(agent_ids, org_id, userId, cleanup ?? false);
 
@@ -364,6 +337,7 @@ adminTasksRouter.delete(
 adminTasksRouter.patch(
   '/tasks/:id/notes',
   requirePermission('endpoints:tasks:notes'),
+  validate(UpdateTaskNotesSchema),
   asyncHandler(async (req, res) => {
     const userId = getUserId(req.auth);
     if (!userId) {
@@ -371,9 +345,6 @@ adminTasksRouter.patch(
     }
 
     const { content } = req.body as { content: string };
-    if (typeof content !== 'string') {
-      throw new AppError('Missing required field: content', 400);
-    }
 
     const task = updateTaskNotes(req.params.id, content, userId);
 

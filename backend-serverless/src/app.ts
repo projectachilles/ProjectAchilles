@@ -35,7 +35,7 @@ app.set('trust proxy', 1);
 
 // ============ MIDDLEWARE ============
 
-// Security headers
+// Security headers — PA-012: unsafe-inline required by Clerk SDK v5 (no nonce support)
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -48,6 +48,10 @@ app.use(helmet({
       fontSrc: ["'self'", "data:"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'self'"],
+      workerSrc: ["'self'", "blob:"],
+      upgradeInsecureRequests: [],
     },
   },
   crossOriginEmbedderPolicy: false,

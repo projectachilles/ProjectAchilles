@@ -330,12 +330,18 @@ describe('tasks routes', () => {
       const res = await request(app)
         .post('/agent/tasks/t1/result')
         .send({
+          task_id: 't1',
+          test_uuid: '00000000-0000-0000-0000-000000000001',
           exit_code: 0,
           stdout: 'Success',
           stderr: '',
           started_at: new Date().toISOString(),
           completed_at: new Date().toISOString(),
           execution_duration_ms: 500,
+          binary_sha256: 'abc123',
+          hostname: 'test-host',
+          os: 'linux',
+          arch: 'amd64',
         });
 
       expect(res.status).toBe(200);

@@ -8,6 +8,8 @@ import {
   updateSchedule,
   deleteSchedule,
 } from '../../services/agent/schedules.service.js';
+import { validate } from '../../middleware/validation.js';
+import { CreateScheduleSchema, UpdateScheduleSchema } from '../../schemas/admin.schemas.js';
 import type {
   ScheduleStatus,
   CreateScheduleRequest,
@@ -23,6 +25,7 @@ export const adminSchedulesRouter = Router();
 adminSchedulesRouter.post(
   '/schedules',
   requirePermission('endpoints:schedules:create'),
+  validate(CreateScheduleSchema),
   asyncHandler(async (req, res) => {
     const userId = getUserId(req.auth);
     if (!userId) {
@@ -75,6 +78,7 @@ adminSchedulesRouter.get(
 adminSchedulesRouter.patch(
   '/schedules/:id',
   requirePermission('endpoints:schedules:write'),
+  validate(UpdateScheduleSchema),
   asyncHandler(async (req, res) => {
     const updates = req.body as UpdateScheduleRequest;
     const schedule = updateSchedule(req.params.id, updates);

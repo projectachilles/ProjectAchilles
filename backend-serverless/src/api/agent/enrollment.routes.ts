@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
+import { validate } from '../../middleware/validation.js';
 import { getUserId, requirePermission, validateRequestOrgId } from '../../middleware/clerk.middleware.js';
 import {
   createToken,
@@ -9,6 +10,7 @@ import {
   revokeToken,
 } from '../../services/agent/enrollment.service.js';
 import { streamUpdate } from '../../services/agent/update.service.js';
+import { EnrollRequestSchema, CreateTokenSchema } from '../../schemas/agent.schemas.js';
 import type { EnrollmentRequest, CreateTokenRequest, AgentOS, AgentArch } from '../../types/agent.js';
 
 // ============================================================================
@@ -32,20 +34,9 @@ const enrollmentLimiter = rateLimit({
 agentEnrollmentRouter.post(
   '/enroll',
   enrollmentLimiter,
+  validate(EnrollRequestSchema),
   asyncHandler(async (req, res) => {
     const { token, hostname, os, arch, agent_version } = req.body as EnrollmentRequest;
-
-    if (!token || !hostname || !os || !arch || !agent_version) {
-      throw new AppError('Missing required fields: token, hostname, os, arch, agent_version', 400);
-    }
-
-    if (!['windows', 'linux', 'darwin'].includes(os)) {
-      throw new AppError('Invalid os: must be "windows", "linux", or "darwin"', 400);
-    }
-
-    if (!['amd64', 'arm64'].includes(arch)) {
-      throw new AppError('Invalid arch: must be "amd64" or "arm64"', 400);
-    }
 
     const result = await enrollAgent({ token, hostname, os, arch, agent_version });
 
@@ -119,6 +110,7 @@ export const adminEnrollmentRouter = Router();
 adminEnrollmentRouter.post(
   '/tokens',
   requirePermission('endpoints:tokens:create'),
+  validate(CreateTokenSchema),
   asyncHandler(async (req, res) => {
     const userId = getUserId(req.auth);
     if (!userId) {
@@ -127,9 +119,6 @@ adminEnrollmentRouter.post(
 
     const { org_id, ttl_hours, max_uses, metadata } = req.body as CreateTokenRequest;
 
-    if (!org_id) {
-      throw new AppError('Missing required field: org_id', 400);
-    }
     validateRequestOrgId(org_id, req.auth);
 
     const result = await createToken(

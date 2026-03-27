@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
+import type { Request } from 'express';
+import { requireClerkAuth, requirePermission, getUserOrgId } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { validateUrlForSSRF, validateHostForSSRF } from '../middleware/urlValidation.js';
 import { IntegrationsSettingsService } from '../services/integrations/settings.js';
@@ -7,12 +8,28 @@ import { DefenderSyncService } from '../services/defender/sync.service.js';
 import { AlertsService } from '../services/alerts/alerts.service.js';
 import { testSlackWebhook } from '../services/alerts/slack.service.js';
 import { testEmailConnection } from '../services/alerts/email.service.js';
+import { validate } from '../middleware/validation.js';
+import {
+  AzureCredentialsSchema,
+  AzureTestSchema,
+  DefenderCredentialsSchema,
+  DefenderTestSchema,
+  AlertSettingsSchema,
+  AlertTestSchema,
+} from '../schemas/integrations.schemas.js';
 
 const router = Router();
 
 // All integration routes require Clerk auth
 router.use(requireClerkAuth());
 
+/** Create org-scoped settings service from the request's Clerk JWT (PA-018). */
+function getSettingsService(req: Request): IntegrationsSettingsService {
+  const orgId = getUserOrgId((req as any).auth);
+  return new IntegrationsSettingsService(orgId);
+}
+
+// Legacy singleton for backward-compatible call sites (alertsService, sync)
 const settingsService = new IntegrationsSettingsService();
 const alertsService = new AlertsService();
 
@@ -24,8 +41,8 @@ export { alertsService };
 // ---------------------------------------------------------------------------
 
 /** GET /api/integrations/azure — Returns masked settings */
-router.get('/azure', requirePermission('integrations:read'), (_req, res) => {
-  const settings = settingsService.getAzureSettings();
+router.get('/azure', requirePermission('integrations:read'), (req, res) => {
+  const settings = getSettingsService(req).getAzureSettings();
 
   if (!settings?.configured) {
     res.json({ configured: false });
@@ -47,11 +64,11 @@ router.get('/azure', requirePermission('integrations:read'), (_req, res) => {
 });
 
 /** POST /api/integrations/azure — Save credentials (partial update supported) */
-router.post('/azure', requirePermission('integrations:write'), asyncHandler(async (req, res) => {
+router.post('/azure', requirePermission('integrations:write'), validate(AzureCredentialsSchema), asyncHandler(async (req, res) => {
+  const svc = getSettingsService(req);
   const { tenant_id, client_id, client_secret, label } = req.body;
 
-  // On initial setup all three are required; on edit they are optional
-  const isEdit = settingsService.isAzureConfigured();
+  const isEdit = svc.isAzureConfigured();
 
   if (!isEdit) {
     if (!tenant_id || !client_id || !client_secret) {
@@ -59,29 +76,29 @@ router.post('/azure', requirePermission('integrations:write'), asyncHandler(asyn
     }
   }
 
-  settingsService.saveAzureSettings({ tenant_id, client_id, client_secret, label });
+  svc.saveAzureSettings({ tenant_id, client_id, client_secret, label });
 
   res.json({ success: true });
 }));
 
 /** DELETE /api/integrations/azure — Remove Azure credentials */
-router.delete('/azure', requirePermission('integrations:write'), asyncHandler(async (_req, res) => {
+router.delete('/azure', requirePermission('integrations:write'), asyncHandler(async (req, res) => {
   if (settingsService.isEnvConfigured()) {
     throw new AppError(
       'Cannot disconnect: Azure credentials are set via environment variables (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET). Remove these env vars to disconnect.',
       400
     );
   }
-  settingsService.deleteAzureSettings();
+  getSettingsService(req).deleteAzureSettings();
   res.json({ success: true });
 }));
 
 /** POST /api/integrations/azure/test — Validate that the credentials are non-empty */
-router.post('/azure/test', requirePermission('integrations:write'), asyncHandler(async (req, res) => {
+router.post('/azure/test', requirePermission('integrations:write'), validate(AzureTestSchema), asyncHandler(async (req, res) => {
   const { tenant_id, client_id, client_secret } = req.body;
 
   // Resolve: use provided values or fall back to stored
-  const stored = settingsService.getAzureCredentials();
+  const stored = getSettingsService(req).getAzureCredentials();
   const effectiveTenantId = tenant_id || stored?.tenant_id;
   const effectiveClientId = client_id || stored?.client_id;
   const effectiveClientSecret = client_secret || stored?.client_secret;
@@ -120,8 +137,8 @@ router.post('/azure/test', requirePermission('integrations:write'), asyncHandler
 // ---------------------------------------------------------------------------
 
 /** GET /api/integrations/defender — Returns masked settings */
-router.get('/defender', requirePermission('integrations:read'), (_req, res) => {
-  const settings = settingsService.getDefenderSettings();
+router.get('/defender', requirePermission('integrations:read'), (req, res) => {
+  const settings = getSettingsService(req).getDefenderSettings();
 
   if (!settings?.configured) {
     res.json({ configured: false });
@@ -142,10 +159,11 @@ router.get('/defender', requirePermission('integrations:read'), (_req, res) => {
 });
 
 /** POST /api/integrations/defender — Save credentials (partial update supported) */
-router.post('/defender', requirePermission('integrations:write'), asyncHandler(async (req, res) => {
+router.post('/defender', requirePermission('integrations:write'), validate(DefenderCredentialsSchema), asyncHandler(async (req, res) => {
+  const svc = getSettingsService(req);
   const { tenant_id, client_id, client_secret, label } = req.body;
 
-  const isEdit = settingsService.isDefenderConfigured();
+  const isEdit = svc.isDefenderConfigured();
 
   if (!isEdit) {
     if (!tenant_id || !client_id || !client_secret) {
@@ -153,29 +171,29 @@ router.post('/defender', requirePermission('integrations:write'), asyncHandler(a
     }
   }
 
-  settingsService.saveDefenderSettings({ tenant_id, client_id, client_secret, label });
+  svc.saveDefenderSettings({ tenant_id, client_id, client_secret, label });
 
   res.json({ success: true });
 }));
 
 /** DELETE /api/integrations/defender — Remove Defender credentials */
-router.delete('/defender', requirePermission('integrations:write'), asyncHandler(async (_req, res) => {
+router.delete('/defender', requirePermission('integrations:write'), asyncHandler(async (req, res) => {
   if (settingsService.isEnvDefenderConfigured()) {
     throw new AppError(
       'Cannot disconnect: Defender credentials are set via environment variables (DEFENDER_TENANT_ID, DEFENDER_CLIENT_ID, DEFENDER_CLIENT_SECRET). Remove these env vars to disconnect.',
       400
     );
   }
-  settingsService.deleteDefenderSettings();
+  getSettingsService(req).deleteDefenderSettings();
   res.json({ success: true });
 }));
 
 /** POST /api/integrations/defender/test — Real OAuth2 token acquisition against Microsoft */
-router.post('/defender/test', requirePermission('integrations:write'), asyncHandler(async (req, res) => {
+router.post('/defender/test', requirePermission('integrations:write'), validate(DefenderTestSchema), asyncHandler(async (req, res) => {
   const { tenant_id, client_id, client_secret } = req.body;
 
   // Resolve: use provided values or fall back to stored
-  const stored = settingsService.getDefenderCredentials();
+  const stored = getSettingsService(req).getDefenderCredentials();
   const effectiveTenantId = tenant_id || stored?.tenant_id;
   const effectiveClientId = client_id || stored?.client_id;
   const effectiveClientSecret = client_secret || stored?.client_secret;
@@ -272,8 +290,8 @@ export { defenderSyncService };
 // ---------------------------------------------------------------------------
 
 /** GET /api/integrations/alerts — Returns masked alert settings */
-router.get('/alerts', requirePermission('integrations:read'), (_req, res) => {
-  const settings = settingsService.getAlertSettings();
+router.get('/alerts', requirePermission('integrations:read'), (req, res) => {
+  const settings = getSettingsService(req).getAlertSettings();
 
   if (!settings) {
     res.json({ configured: false });
@@ -284,7 +302,7 @@ router.get('/alerts', requirePermission('integrations:read'), (_req, res) => {
     val.length > 4 ? '****' + val.slice(-4) : '****';
 
   res.json({
-    configured: settingsService.isAlertingConfigured(),
+    configured: getSettingsService(req).isAlertingConfigured(),
     thresholds: settings.thresholds,
     cooldown_minutes: settings.cooldown_minutes,
     last_alert_at: settings.last_alert_at,
@@ -314,17 +332,17 @@ router.get('/alerts', requirePermission('integrations:read'), (_req, res) => {
 });
 
 /** POST /api/integrations/alerts — Save alert settings (partial update) */
-router.post('/alerts', requirePermission('integrations:write'),
+router.post('/alerts', requirePermission('integrations:write'), validate(AlertSettingsSchema),
   asyncHandler(async (req, res) => {
-    settingsService.saveAlertSettings(req.body);
+    getSettingsService(req).saveAlertSettings(req.body);
     res.json({ success: true });
   })
 );
 
 /** POST /api/integrations/alerts/test — Send test notification */
-router.post('/alerts/test', requirePermission('integrations:write'),
+router.post('/alerts/test', requirePermission('integrations:write'), validate(AlertTestSchema),
   asyncHandler(async (req, res) => {
-    const settings = settingsService.getAlertSettings();
+    const settings = getSettingsService(req).getAlertSettings();
     const results: { slack?: { success: boolean; message: string }; email?: { success: boolean; message: string } } = {};
 
     // Test Slack — use webhook from request body or existing settings

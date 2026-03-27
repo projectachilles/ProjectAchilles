@@ -99,7 +99,7 @@ describe('tests routes', () => {
         .send({ os: 'freebsd', arch: 'amd64' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Invalid OS');
+      expect(res.body.error).toContain('Validation failed');
     });
 
     it('rejects invalid architecture', async () => {
@@ -110,7 +110,7 @@ describe('tests routes', () => {
         .send({ os: 'linux', arch: 'mips' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Invalid architecture');
+      expect(res.body.error).toContain('Validation failed');
     });
   });
 

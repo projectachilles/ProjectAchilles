@@ -112,7 +112,7 @@ describe('tests routes', () => {
         .send({ os: 'freebsd', arch: 'amd64' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Invalid OS');
+      expect(res.body.error).toContain('Validation failed');
     });
 
     it('rejects invalid architecture', async () => {
@@ -123,7 +123,7 @@ describe('tests routes', () => {
         .send({ os: 'linux', arch: 'mips' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Invalid architecture');
+      expect(res.body.error).toContain('Validation failed');
     });
   });
 
@@ -153,7 +153,7 @@ describe('tests routes', () => {
         .send({ organization: 'Org', country: 'US' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('commonName is required');
+      expect(res.body.error).toContain('Validation failed');
     });
 
     it('returns 400 when organization is missing', async () => {
@@ -164,7 +164,7 @@ describe('tests routes', () => {
         .send({ commonName: 'Test', country: 'US' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('organization is required');
+      expect(res.body.error).toContain('Validation failed');
     });
 
     it('returns 400 when country is missing', async () => {
@@ -175,7 +175,7 @@ describe('tests routes', () => {
         .send({ commonName: 'Test', organization: 'Org' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('country is required');
+      expect(res.body.error).toContain('Validation failed');
     });
   });
 

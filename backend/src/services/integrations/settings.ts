@@ -5,18 +5,38 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { encrypt as sharedEncrypt, decrypt as sharedDecrypt } from '../shared/encryption.js';
-import type { AzureIntegrationSettings, DefenderIntegrationSettings, AlertSettings, IntegrationsSettings } from '../../types/integrations.js';
+import type { AzureIntegrationSettings, DefenderIntegrationSettings, AlertSettings, IntegrationsSettings, OrgIntegrationSettings } from '../../types/integrations.js';
 
 const SETTINGS_DIR = path.join(os.homedir(), '.projectachilles');
 const SETTINGS_FILE = path.join(SETTINGS_DIR, 'integrations.json');
 
 export class IntegrationsSettingsService {
+  /**
+   * Optional Clerk org_id for per-org settings isolation (PA-018).
+   * When set, reads/writes under `orgs[orgId]` with fallback to legacy top-level.
+   * When unset, uses legacy top-level (backward compatible for single-org deploys).
+   */
+  private orgId?: string;
+
+  constructor(orgId?: string) {
+    this.orgId = orgId;
+  }
+
   // ---------------------------------------------------------------------------
   // Encryption (delegates to shared/encryption.ts)
   // ---------------------------------------------------------------------------
 
   private encrypt(text: string): string { return sharedEncrypt(text); }
   private decrypt(encryptedText: string): string { return sharedDecrypt(encryptedText); }
+
+  /**
+   * Returns org-specific settings section if orgId is set, otherwise null.
+   * Falls through to legacy top-level in callers.
+   */
+  private getOrgSection(settings: IntegrationsSettings | null): OrgIntegrationSettings | null {
+    if (!this.orgId || !settings?.orgs?.[this.orgId]) return null;
+    return settings.orgs[this.orgId];
+  }
 
   private ensureSettingsDir(): void {
     if (!fs.existsSync(SETTINGS_DIR)) {
@@ -112,10 +132,17 @@ export class IntegrationsSettingsService {
   // Public API
   // ---------------------------------------------------------------------------
 
-  /** Returns decrypted Azure settings. File settings take priority over env vars. */
+  /** Returns decrypted Azure settings. Org-specific > legacy file > env vars. */
   getAzureSettings(): AzureIntegrationSettings | null {
     const fileSettings = this.getFileSettings();
 
+    // PA-018: Check org-specific settings first
+    const orgSection = this.getOrgSection(fileSettings);
+    if (orgSection?.azure?.configured) {
+      return orgSection.azure;
+    }
+
+    // Fall back to legacy top-level
     if (fileSettings?.azure?.configured) {
       return fileSettings.azure;
     }
@@ -127,16 +154,18 @@ export class IntegrationsSettingsService {
   saveAzureSettings(settings: Partial<AzureIntegrationSettings>): void {
     this.ensureSettingsDir();
 
-    // Load existing to support partial update
-    const existing = this.getFileSettings() ?? {};
-    const current = existing.azure ?? {
+    const existing = this.getRawFileSettings() ?? {};
+
+    // Resolve current values (from org section or legacy)
+    const decrypted = this.getFileSettings() ?? {};
+    const orgSection = this.getOrgSection(decrypted);
+    const current = orgSection?.azure ?? decrypted.azure ?? {
       tenant_id: '',
       client_id: '',
       client_secret: '',
       configured: false,
     };
 
-    // Merge: only overwrite non-empty fields
     const merged: AzureIntegrationSettings = {
       tenant_id: settings.tenant_id || current.tenant_id,
       client_id: settings.client_id || current.client_id,
@@ -145,18 +174,23 @@ export class IntegrationsSettingsService {
       label: settings.label !== undefined ? settings.label : current.label,
     };
 
-    // Encrypt sensitive fields
-    const toSave: IntegrationsSettings = {
-      ...existing,
-      azure: {
-        ...merged,
-        tenant_id: 'enc:' + this.encrypt(merged.tenant_id),
-        client_id: 'enc:' + this.encrypt(merged.client_id),
-        client_secret: 'enc:' + this.encrypt(merged.client_secret),
-      },
+    const encrypted = {
+      ...merged,
+      tenant_id: 'enc:' + this.encrypt(merged.tenant_id),
+      client_id: 'enc:' + this.encrypt(merged.client_id),
+      client_secret: 'enc:' + this.encrypt(merged.client_secret),
     };
 
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(toSave, null, 2), { mode: 0o600 });
+    // PA-018: Write to org section when orgId is set
+    if (this.orgId) {
+      existing.orgs ??= {};
+      existing.orgs[this.orgId] ??= {};
+      existing.orgs[this.orgId].azure = encrypted;
+    } else {
+      existing.azure = encrypted;
+    }
+
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2), { mode: 0o600 });
   }
 
   /** Check if Azure integration is configured (file or env). */
@@ -203,9 +237,14 @@ export class IntegrationsSettingsService {
     return this.getEnvDefenderSettings() !== null;
   }
 
-  /** Returns decrypted Defender settings. File settings take priority over env vars. */
+  /** Returns decrypted Defender settings. Org-specific > legacy file > env vars. */
   getDefenderSettings(): DefenderIntegrationSettings | null {
     const fileSettings = this.getFileSettings();
+
+    const orgSection = this.getOrgSection(fileSettings);
+    if (orgSection?.defender?.configured) {
+      return orgSection.defender;
+    }
 
     if (fileSettings?.defender?.configured) {
       return fileSettings.defender;
@@ -218,16 +257,16 @@ export class IntegrationsSettingsService {
   saveDefenderSettings(settings: Partial<DefenderIntegrationSettings>): void {
     this.ensureSettingsDir();
 
-    // Load existing to support partial update
-    const existing = this.getFileSettings() ?? {};
-    const current = existing.defender ?? {
+    const existing = this.getRawFileSettings() ?? {};
+    const decrypted = this.getFileSettings() ?? {};
+    const orgSection = this.getOrgSection(decrypted);
+    const current = orgSection?.defender ?? decrypted.defender ?? {
       tenant_id: '',
       client_id: '',
       client_secret: '',
       configured: false,
     };
 
-    // Merge: only overwrite non-empty fields
     const merged: DefenderIntegrationSettings = {
       tenant_id: settings.tenant_id || current.tenant_id,
       client_id: settings.client_id || current.client_id,
@@ -236,18 +275,22 @@ export class IntegrationsSettingsService {
       label: settings.label !== undefined ? settings.label : current.label,
     };
 
-    // Encrypt sensitive fields
-    const toSave: IntegrationsSettings = {
-      ...existing,
-      defender: {
-        ...merged,
-        tenant_id: 'enc:' + this.encrypt(merged.tenant_id),
-        client_id: 'enc:' + this.encrypt(merged.client_id),
-        client_secret: 'enc:' + this.encrypt(merged.client_secret),
-      },
+    const encrypted = {
+      ...merged,
+      tenant_id: 'enc:' + this.encrypt(merged.tenant_id),
+      client_id: 'enc:' + this.encrypt(merged.client_id),
+      client_secret: 'enc:' + this.encrypt(merged.client_secret),
     };
 
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(toSave, null, 2), { mode: 0o600 });
+    if (this.orgId) {
+      existing.orgs ??= {};
+      existing.orgs[this.orgId] ??= {};
+      existing.orgs[this.orgId].defender = encrypted;
+    } else {
+      existing.defender = encrypted;
+    }
+
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2), { mode: 0o600 });
   }
 
   /** Check if Defender integration is configured (file or env). */
@@ -268,8 +311,14 @@ export class IntegrationsSettingsService {
   /** Remove Defender integration credentials from settings file. */
   deleteDefenderSettings(): void {
     const raw = this.getRawFileSettings();
-    if (!raw || !raw.defender) return;
-    delete raw.defender;
+    if (!raw) return;
+    if (this.orgId && raw.orgs?.[this.orgId]) {
+      delete raw.orgs[this.orgId].defender;
+    } else if (raw.defender) {
+      delete raw.defender;
+    } else {
+      return;
+    }
     this.ensureSettingsDir();
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(raw, null, 2), { mode: 0o600 });
   }
@@ -277,8 +326,14 @@ export class IntegrationsSettingsService {
   /** Remove Azure integration credentials from settings file. */
   deleteAzureSettings(): void {
     const raw = this.getRawFileSettings();
-    if (!raw || !raw.azure) return;
-    delete raw.azure;
+    if (!raw) return;
+    if (this.orgId && raw.orgs?.[this.orgId]) {
+      delete raw.orgs[this.orgId].azure;
+    } else if (raw.azure) {
+      delete raw.azure;
+    } else {
+      return;
+    }
     this.ensureSettingsDir();
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(raw, null, 2), { mode: 0o600 });
   }
@@ -299,9 +354,13 @@ export class IntegrationsSettingsService {
   // Trend Alerting
   // ---------------------------------------------------------------------------
 
-  /** Returns decrypted alert settings, or null if no alerts section exists. */
+  /** Returns decrypted alert settings. Org-specific > legacy. */
   getAlertSettings(): AlertSettings | null {
     const fileSettings = this.getFileSettings();
+
+    const orgSection = this.getOrgSection(fileSettings);
+    if (orgSection?.alerts) return orgSection.alerts;
+
     if (!fileSettings?.alerts) return null;
     return fileSettings.alerts;
   }
@@ -311,8 +370,9 @@ export class IntegrationsSettingsService {
     this.ensureSettingsDir();
 
     // Load existing to support partial update
-    const existing = this.getFileSettings() ?? {};
-    const current: AlertSettings = existing.alerts ?? {
+    const decrypted = this.getFileSettings() ?? {};
+    const orgSection = this.getOrgSection(decrypted);
+    const current: AlertSettings = orgSection?.alerts ?? decrypted.alerts ?? {
       thresholds: { enabled: false },
       cooldown_minutes: 15,
     };
@@ -394,12 +454,17 @@ export class IntegrationsSettingsService {
       };
     }
 
-    const toSave: IntegrationsSettings = {
-      ...existing,
-      alerts: alertsToSave,
-    };
+    // PA-018: Write to org section when orgId is set
+    const raw = this.getRawFileSettings() ?? {};
+    if (this.orgId) {
+      raw.orgs ??= {};
+      raw.orgs[this.orgId] ??= {};
+      raw.orgs[this.orgId].alerts = alertsToSave;
+    } else {
+      raw.alerts = alertsToSave;
+    }
 
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(toSave, null, 2), { mode: 0o600 });
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(raw, null, 2), { mode: 0o600 });
   }
 
   /** Check if alerting is configured: thresholds enabled + at least one channel configured & enabled. */

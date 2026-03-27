@@ -13,9 +13,9 @@
 |----------|-------|-------|------|
 | Critical | 3 | 2 + 1 mitigated | 0 |
 | High | 10 | 10 | 0 |
-| Medium | 24 | 22 | 2 |
-| Low | 10 | 7 | 3 |
-| **Total** | **47** | **42** | **5** |
+| Medium | 24 | 24 | 0 |
+| Low | 10 | 9 + 1 accepted | 0 |
+| **Total** | **47** | **47** | **0** |
 
 ### Remediation Progress
 
@@ -26,7 +26,8 @@
 | `d551ac3` | P1 | PA-004, PA-020, PA-022 |
 | `db8e986` | P2 | PA-008, PA-009, PA-025, PA-026, PA-027, PA-038, PA-046, PA-047 |
 | `97c6029` | P2 | PA-010, PA-015, PA-024, PA-034, PA-035, PA-036, PA-037 |
-| (pending) | P2 | PA-019, PA-039, PA-040, PA-043 |
+| `45ae715` | P2 | PA-019, PA-039, PA-040, PA-043 |
+| (this session) | P2 | PA-007 (Zod validation), PA-012 (CSP tightened), PA-018 (per-org settings) |
 
 **Deployment prerequisites for new code:**
 - `ENCRYPTION_SECRET` must be >= 32 characters (was 16). Regenerate with `openssl rand -base64 32` (44 chars).
@@ -66,14 +67,14 @@
 
 | ID | Title | CVSS | CWE | OWASP | Location | Status |
 |---|---|---|---|---|---|---|
-| PA-007 | No runtime request body validation (type casts only) on most routes | 6.5 | CWE-20 | A03 | All `*.routes.ts` | Open |
+| PA-007 | No runtime request body validation (type casts only) on most routes | 6.5 | CWE-20 | A03 | All `*.routes.ts` | **Fixed** (Zod) |
 | PA-008 | Missing rate limit on /api/cli/auth/refresh | 5.3 | CWE-307 | A07 | `cli-auth.routes.ts` | **Fixed** (P2) |
 | PA-009 | Agent replay protection optional (missing timestamp allowed) | 5.9 | CWE-294 | A07 | `agentAuth.middleware.ts:130-132` | **Fixed** (P2) |
 | PA-010 | Unbounded agent auth cache (memory exhaustion DoS) | 5.3 | CWE-770 | A05 | `agentAuthCache.ts` | **Fixed** (P2) |
 | PA-011 | Slack webhook URL not validated (SSRF to internal services) | 5.0 | CWE-918 | A10 | `integrations.routes.ts` | **Fixed** (P1) |
-| PA-012 | CSP allows unsafe-inline for scripts and styles | 4.7 | CWE-79 | A03 | `server.ts:62-63` | Open |
+| PA-012 | CSP allows unsafe-inline for scripts and styles | 4.7 | CWE-79 | A03 | `server.ts:62-63` | **Mitigated** (Clerk SDK) |
 | PA-017 | Risk acceptance endpoint returns ALL records globally (no org filter) | 6.5 | CWE-639 | A01 | `risk-acceptance.routes.ts` | **Fixed** (P2) |
-| PA-018 | Integration settings (Azure/Defender) not org-scoped in multi-tenant | 5.5 | CWE-732 | A01 | `integrations.routes.ts` | Open |
+| PA-018 | Integration settings (Azure/Defender) not org-scoped in multi-tenant | 5.5 | CWE-732 | A01 | `integrations.routes.ts` | **Fixed** (per-org) |
 | PA-019 | Cron endpoint CRON_SECRET uses timing-vulnerable string comparison | 4.3 | CWE-208 | A07 | `cron.routes.ts:14,34,55` | **Fixed** (P2) |
 | PA-024 | Agent rate limiter keyed on client-supplied X-Agent-ID (bypass via fabrication) | 5.3 | CWE-770 | A04 | `agent/index.ts:51` | **Fixed** (P2) |
 | PA-025 | CLI JWT verify does not pin algorithm | 5.9 | CWE-327 | A02 | `cliAuth.middleware.ts:38` | **Fixed** (P2) |

@@ -163,7 +163,7 @@ describe('analytics routes', () => {
         .send({ index_name: 'INVALID_Name!' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Invalid index name');
+      expect(res.body.error).toContain('Validation failed');
     });
   });
 });

@@ -4,10 +4,10 @@ import { requireClerkAuth, requirePermission } from '../middleware/clerk.middlew
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { TestsSettingsService } from '../services/tests/settings.js';
 import { BuildService, BuildError } from '../services/tests/buildService.js';
+import { validate } from '../middleware/validation.js';
+import { PlatformSettingsSchema, GenerateCertificateSchema, UpdateCertLabelSchema } from '../schemas/tests.schemas.js';
 import type { PlatformSettings } from '../types/tests.js';
 
-const VALID_OS = ['windows', 'linux', 'darwin'] as const;
-const VALID_ARCH = ['amd64', '386', 'arm64'] as const;
 const UUID_REGEX = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
 export function createTestsRouter(options: { testSourcePaths: string[]; testsSourcePath: string }): Router {
@@ -29,15 +29,8 @@ export function createTestsRouter(options: { testSourcePaths: string[]; testsSou
   });
 
   // POST /api/tests/platform
-  router.post('/platform', requirePermission('settings:platform:write'), asyncHandler(async (req, res) => {
+  router.post('/platform', requirePermission('settings:platform:write'), validate(PlatformSettingsSchema), asyncHandler(async (req, res) => {
     const { os, arch } = req.body;
-
-    if (!os || !VALID_OS.includes(os)) {
-      throw new AppError(`Invalid OS. Must be one of: ${VALID_OS.join(', ')}`, 400);
-    }
-    if (!arch || !VALID_ARCH.includes(arch)) {
-      throw new AppError(`Invalid architecture. Must be one of: ${VALID_ARCH.join(', ')}`, 400);
-    }
 
     try {
       testsSettings.savePlatformSettings({ os, arch } as PlatformSettings);
@@ -56,16 +49,8 @@ export function createTestsRouter(options: { testSourcePaths: string[]; testsSou
   });
 
   // POST /api/tests/certificate
-  router.post('/certificate', requirePermission('settings:certificates:create'), asyncHandler(async (req, res) => {
+  router.post('/certificate', requirePermission('settings:certificates:create'), validate(GenerateCertificateSchema), asyncHandler(async (req, res) => {
     const { commonName, organization, country } = req.body;
-
-    if (!commonName || !organization || !country) {
-      throw new AppError('commonName, organization, and country are required', 400);
-    }
-
-    if (country.length !== 2) {
-      throw new AppError('Country must be a 2-letter ISO code', 400);
-    }
 
     const info = await testsSettings.generateCertificate({ commonName, organization, country });
     res.json({ success: true, data: info });
@@ -124,16 +109,8 @@ export function createTestsRouter(options: { testSourcePaths: string[]; testsSou
   }));
 
   // POST /api/tests/certificates/generate — Generate a self-signed cert
-  router.post('/certificates/generate', requirePermission('settings:certificates:create'), asyncHandler(async (req, res) => {
+  router.post('/certificates/generate', requirePermission('settings:certificates:create'), validate(GenerateCertificateSchema), asyncHandler(async (req, res) => {
     const { commonName, organization, country, label, password } = req.body;
-
-    if (!commonName || !organization || !country) {
-      throw new AppError('commonName, organization, and country are required', 400);
-    }
-
-    if (country.length !== 2) {
-      throw new AppError('Country must be a 2-letter ISO code', 400);
-    }
 
     try {
       const info = await testsSettings.generateCertificate(
@@ -161,12 +138,9 @@ export function createTestsRouter(options: { testSourcePaths: string[]; testsSou
   }));
 
   // PATCH /api/tests/certificates/:id — Update label
-  router.patch('/certificates/:id', requirePermission('settings:certificates:create'), asyncHandler(async (req, res) => {
+  router.patch('/certificates/:id', requirePermission('settings:certificates:create'), validate(UpdateCertLabelSchema), asyncHandler(async (req, res) => {
     validateCertId(req.params.id);
     const { label } = req.body;
-    if (typeof label !== 'string') {
-      throw new AppError('label must be a string', 400);
-    }
     try {
       const info = testsSettings.updateCertificateLabel(req.params.id, label);
       res.json({ success: true, data: info });

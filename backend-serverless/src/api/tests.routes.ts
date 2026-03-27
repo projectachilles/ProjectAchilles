@@ -2,13 +2,12 @@ import { Router } from 'express';
 import multer from 'multer';
 import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
+import { validate } from '../middleware/validation.js';
 import { TestsSettingsService } from '../services/tests/settings.js';
+import { PlatformSettingsSchema, GenerateCertificateSchema, UpdateCertLabelSchema } from '../schemas/tests.schemas.js';
 import type { PlatformSettings, BuildMetadata } from '../types/tests.js';
 import { blobReadText, blobRead, blobWrite, blobExists, blobDelete, blobHead, blobUrl, blobList } from '../services/storage.js';
 import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client';
-
-const VALID_OS = ['windows', 'linux', 'darwin'] as const;
-const VALID_ARCH = ['amd64', '386', 'arm64'] as const;
 const UUID_REGEX = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
 export function createTestsRouter(options: { testsSourcePath: string }): Router {
@@ -30,15 +29,8 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   }));
 
   // POST /api/tests/platform
-  router.post('/platform', requirePermission('settings:platform:write'), asyncHandler(async (req, res) => {
+  router.post('/platform', requirePermission('settings:platform:write'), validate(PlatformSettingsSchema), asyncHandler(async (req, res) => {
     const { os, arch } = req.body;
-
-    if (!os || !VALID_OS.includes(os)) {
-      throw new AppError(`Invalid OS. Must be one of: ${VALID_OS.join(', ')}`, 400);
-    }
-    if (!arch || !VALID_ARCH.includes(arch)) {
-      throw new AppError(`Invalid architecture. Must be one of: ${VALID_ARCH.join(', ')}`, 400);
-    }
 
     try {
       await testsSettings.savePlatformSettings({ os, arch } as PlatformSettings);
@@ -57,17 +49,8 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   }));
 
   // POST /api/tests/certificate — generate a self-signed certificate
-  router.post('/certificate', requirePermission('settings:certificates:create'), asyncHandler(async (req, res) => {
+  router.post('/certificate', requirePermission('settings:certificates:create'), validate(GenerateCertificateSchema), asyncHandler(async (req, res) => {
     const { commonName, organization, country, label, password } = req.body;
-    if (typeof commonName !== 'string' || !commonName.trim()) {
-      throw new AppError('commonName is required', 400);
-    }
-    if (typeof organization !== 'string' || !organization.trim()) {
-      throw new AppError('organization is required', 400);
-    }
-    if (typeof country !== 'string' || !country.trim()) {
-      throw new AppError('country is required', 400);
-    }
 
     try {
       const info = await testsSettings.generateCertificate(
@@ -138,17 +121,8 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   }));
 
   // POST /api/tests/certificates/generate — generate a self-signed certificate
-  router.post('/certificates/generate', requirePermission('settings:certificates:create'), asyncHandler(async (req, res) => {
+  router.post('/certificates/generate', requirePermission('settings:certificates:create'), validate(GenerateCertificateSchema), asyncHandler(async (req, res) => {
     const { commonName, organization, country, label, password } = req.body;
-    if (typeof commonName !== 'string' || !commonName.trim()) {
-      throw new AppError('commonName is required', 400);
-    }
-    if (typeof organization !== 'string' || !organization.trim()) {
-      throw new AppError('organization is required', 400);
-    }
-    if (typeof country !== 'string' || !country.trim()) {
-      throw new AppError('country is required', 400);
-    }
 
     try {
       const info = await testsSettings.generateCertificate(
@@ -176,12 +150,9 @@ export function createTestsRouter(options: { testsSourcePath: string }): Router 
   }));
 
   // PATCH /api/tests/certificates/:id — Update label
-  router.patch('/certificates/:id', requirePermission('settings:certificates:create'), asyncHandler(async (req, res) => {
+  router.patch('/certificates/:id', requirePermission('settings:certificates:create'), validate(UpdateCertLabelSchema), asyncHandler(async (req, res) => {
     validateCertId(req.params.id);
     const { label } = req.body;
-    if (typeof label !== 'string') {
-      throw new AppError('label must be a string', 400);
-    }
     try {
       const info = await testsSettings.updateCertificateLabel(req.params.id, label);
       res.json({ success: true, data: info });
