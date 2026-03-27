@@ -2,8 +2,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as crypto from 'crypto';
 import * as os from 'os';
+import { encrypt as sharedEncrypt, decrypt as sharedDecrypt } from '../shared/encryption.js';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { PlatformSettings, CertificateSubject, CertificateInfo, CertificateMetadata, CertificateListResponse } from '../../types/tests.js';
@@ -31,44 +31,12 @@ const INVALID_COMBOS: Array<{ os: string; arch: string }> = [
 ];
 
 export class TestsSettingsService {
-  // Derive encryption key from ENCRYPTION_SECRET env var (mandatory)
-  private getEncryptionKey(): Buffer {
-    const secret = process.env.ENCRYPTION_SECRET;
-    if (!secret) {
-      throw new Error('ENCRYPTION_SECRET environment variable is required. Generate one with: openssl rand -base64 32');
-    }
-    if (secret.length < 32) {
-      throw new Error('ENCRYPTION_SECRET must be at least 32 characters. Generate one with: openssl rand -base64 32');
-    }
-    return Buffer.from(crypto.hkdfSync('sha256', secret, 'projectachilles-settings-v1', 'encryption', 32));
-  }
-
   private encrypt(text: string): string {
-    const key = this.getEncryptionKey();
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-
-    let encrypted = cipher.update(text, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-
-    const authTag = cipher.getAuthTag();
-    return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
+    return sharedEncrypt(text);
   }
 
   private decrypt(encryptedText: string): string {
-    const key = this.getEncryptionKey();
-    const [ivHex, authTagHex, encrypted] = encryptedText.split(':');
-
-    const iv = Buffer.from(ivHex, 'hex');
-    const authTag = Buffer.from(authTagHex, 'hex');
-
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
-    decipher.setAuthTag(authTag);
-
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-
-    return decrypted;
+    return sharedDecrypt(encryptedText);
   }
 
   private ensureDir(dir: string): void {

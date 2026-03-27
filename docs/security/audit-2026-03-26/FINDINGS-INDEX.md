@@ -100,8 +100,8 @@
 
 | ID | Title | CVSS | CWE | OWASP | Location | Status |
 |---|---|---|---|---|---|---|
-| PA-013 | Dockerfile: no multi-stage build, root user, Go without checksum | 3.7 | CWE-1104 | A06 | `Dockerfile` | Open |
-| PA-014 | Three duplicated AES-256-GCM implementations (fix must be tripled) | 3.0 | CWE-710 | A04 | 3x `settings.ts` | Open |
+| PA-013 | Dockerfile: no multi-stage build, root user, Go without checksum | 3.7 | CWE-1104 | A06 | `Dockerfile` | **Fixed** (P3) |
+| PA-014 | Three duplicated AES-256-GCM implementations (fix must be tripled) | 3.0 | CWE-710 | A04 | 3x `settings.ts` | **Fixed** (P3) |
 | PA-015 | CLI JWT missing aud/iss claims (cross-deployment replay) | 3.1 | CWE-345 | A07 | `cli-auth.routes.ts` | **Fixed** (P2) |
 | PA-031 | Agent TLS config missing explicit MinVersion (defaults to Go runtime) | 3.5 | CWE-326 | A02 | `httpclient/client.go:27` | **Fixed** (P3) |
 | PA-041 | CLI JWT 7-day lifetime with no revocation mechanism | 3.1 | CWE-613 | A07 | `cli-auth.routes.ts:45` | **Fixed** (P3, 1h) |
