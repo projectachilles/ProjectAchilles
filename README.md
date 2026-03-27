@@ -15,7 +15,7 @@
 
 **Continuous Security Validation — From Threat Intelligence to Defense Readiness**
 
-Know what's protected. Know what's not. Know where to invest next.
+Stop hoping your defenses work. Start proving it.
 
 [Quick Start](#quick-start) · [Features](#features) · [Architecture](#architecture) · [Documentation](#documentation) · [Roadmap](docs/ROADMAP.md) · [Contributing](#contributing)
 
@@ -537,6 +537,6 @@ This project is licensed under the Apache License 2.0 — see the [LICENSE](LICE
 
 <div align="center">
 
-**Measure your defenses. Close the gaps. Prove the investment.**
+**Stop hoping your defenses work. Start proving it.**
 
 </div>

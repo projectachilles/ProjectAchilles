@@ -506,7 +506,7 @@ function HeroNav({
           className="flex items-center gap-2.5 hover:opacity-80 transition-opacity"
           style={{ background: "none", border: "none", cursor: "pointer" }}
         >
-          <svg className="h-10 w-10" viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
+          <svg className="h-12 w-12" viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
             <path
               fill="#00e68a"
               fillRule="evenodd"
@@ -514,7 +514,7 @@ function HeroNav({
             />
           </svg>
           <span
-            className="text-xl font-bold tracking-[0.2em] hero-heading"
+            className="text-2xl font-bold tracking-[0.2em] hero-heading"
             style={{ color: "var(--hero-text-primary)" }}
           >
             ACHILLES
@@ -1545,8 +1545,8 @@ function HeroFooter({ lang }: { lang: Lang }) {
           <p>
             {tx(
               {
-                en: "Measure your defenses. Close the gaps. Prove the investment.",
-                es: "Mide tus defensas. Cierra las brechas. Demuestra la inversión.",
+                en: "Stop hoping your defenses work. Start proving it.",
+                es: "Deja de esperar que tus defensas funcionen. Empieza a demostrarlo.",
               },
               lang,
             )}

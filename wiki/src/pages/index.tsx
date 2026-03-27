@@ -58,7 +58,7 @@ function HomepageHeader(): ReactNode {
           {siteConfig.tagline}
         </Heading>
         <p className="hero__sub-tagline">
-          Know what's protected. Know what's not. Know where to invest next.
+          Stop hoping your defenses work. Start proving it.
         </p>
         <div style={{display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '2rem', flexWrap: 'wrap'}}>
           <Link

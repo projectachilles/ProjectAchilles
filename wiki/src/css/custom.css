@@ -89,8 +89,8 @@ h1, h2, h3,
 .navbar__logo img {
   border-radius: 0;
   background: transparent;
-  width: 32px;
-  height: 32px;
+  width: 38px;
+  height: 38px;
 }
 
 /* SVG logo already has correct green — no inversion needed */
@@ -102,7 +102,7 @@ h1, h2, h3,
 .navbar__title {
   font-family: 'Orbitron', sans-serif;
   font-weight: 700;
-  font-size: 1rem;
+  font-size: 1.2rem;
   letter-spacing: 0.15em;
   color: #FFFFFF;
 }
