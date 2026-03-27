@@ -89,12 +89,22 @@ h1, h2, h3,
 .navbar__logo img {
   border-radius: 0;
   background: transparent;
+  width: 28px;
+  height: 28px;
 }
 
-/* Logo is designed for dark bg — no inversion needed with proper asset.
-   Keep invert for now until proper SVG logo is provided. */
+/* SVG logo already has correct green — no inversion needed */
 [data-theme='dark'] .navbar__logo img {
-  filter: invert(1);
+  filter: none;
+}
+
+/* Navbar title: Orbitron, wide tracking, matches main site */
+.navbar__title {
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.15em;
+  color: #FFFFFF;
 }
 
 /* ── Hero section: solid navy per brand — no gradients ── */
@@ -110,11 +120,28 @@ h1, h2, h3,
   border-bottom: 1px solid #1a2535;
 }
 
+/* Logo + title group: SVG logo next to "ACHILLES" text */
+.hero__logo-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.hero__logo-svg {
+  width: 72px;
+  height: 72px;
+  filter: drop-shadow(0 0 20px rgba(6, 149, 107, 0.35));
+}
+
 .hero--achilles .hero__title {
   font-family: 'Orbitron', sans-serif;
   font-size: 4rem;
   font-weight: 800;
   color: #FFFFFF;
+  letter-spacing: 0.15em;
+  margin: 0;
 }
 
 .hero--achilles .hero__subtitle {
@@ -123,6 +150,14 @@ h1, h2, h3,
   opacity: 1;
   max-width: 640px;
   margin: 0 auto;
+}
+
+.hero--achilles .hero__sub-tagline {
+  font-size: 0.95rem;
+  color: #888891;
+  max-width: 500px;
+  margin: 0.75rem auto 0;
+  font-style: italic;
 }
 
 /* CTA button: solid Achilles Green, no border-radius, Orbitron */
@@ -273,11 +308,25 @@ hr {
 
 /* ── Responsive ── */
 @media (max-width: 768px) {
+  .hero__logo-group {
+    gap: 0.75rem;
+  }
+
+  .hero__logo-svg {
+    width: 48px;
+    height: 48px;
+  }
+
   .hero--achilles .hero__title {
-    font-size: 2.5rem;
+    font-size: 2.25rem;
+    letter-spacing: 0.1em;
   }
 
   .hero--achilles .hero__subtitle {
-    font-size: 1.1rem;
+    font-size: 1.05rem;
+  }
+
+  .hero--achilles .hero__sub-tagline {
+    font-size: 0.85rem;
   }
 }

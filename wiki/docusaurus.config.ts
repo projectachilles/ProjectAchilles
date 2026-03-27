@@ -69,10 +69,10 @@ const config: Config = {
       respectPrefersColorScheme: false,
     },
     navbar: {
-      title: '',
+      title: 'ACHILLES',
       logo: {
         alt: 'ProjectAchilles',
-        src: 'img/logo-achilles.png',
+        src: 'img/logo-achilles.svg',
       },
       items: [
         {
