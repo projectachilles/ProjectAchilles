@@ -18,5 +18,6 @@ export function mockClerkMiddleware() {
     },
     getUserId: (auth: any) => auth?.userId || auth?.sub || 'test-user-001',
     requirePermission: () => (_req: any, _res: any, next: any) => next(),
+    validateRequestOrgId: () => {},
   }));
 }

@@ -83,7 +83,7 @@ export const ROLE_PERMISSIONS: Record<AppRole, readonly Permission[]> = {
 };
 
 export function getPermissionsForRole(role: AppRole | undefined): ReadonlySet<Permission> {
-  if (!role) return new Set(ALL_PERMISSIONS);
+  if (!role) return new Set(ROLE_PERMISSIONS.explorer);
   return new Set(ROLE_PERMISSIONS[role]);
 }
 

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
-import { getUserId, requirePermission } from '../../middleware/clerk.middleware.js';
+import { getUserId, requirePermission, validateRequestOrgId } from '../../middleware/clerk.middleware.js';
 import {
   createToken,
   enrollAgent,
@@ -130,6 +130,7 @@ adminEnrollmentRouter.post(
     if (!org_id) {
       throw new AppError('Missing required field: org_id', 400);
     }
+    validateRequestOrgId(org_id, req.auth);
 
     const result = await createToken(
       org_id,

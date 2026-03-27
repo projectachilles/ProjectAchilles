@@ -157,13 +157,13 @@ export const ROLE_PERMISSIONS: Record<AppRole, readonly Permission[]> = {
   ],
 } as const;
 
-/** Returns the permission set for a role. If role is undefined, returns ALL permissions (migration safety). */
+/** Returns the permission set for a role. If role is undefined, defaults to explorer (read-only). */
 export function getPermissionsForRole(role: AppRole | undefined): ReadonlySet<Permission> {
-  if (!role) return new Set(ALL_PERMISSIONS);
+  if (!role) return new Set(ROLE_PERMISSIONS.explorer);
   return new Set(ROLE_PERMISSIONS[role]);
 }
 
-/** Checks whether a role (or undefined = full access) has ALL of the given permissions. */
+/** Checks whether a role (or undefined = explorer) has ALL of the given permissions. */
 export function hasPermissions(role: AppRole | undefined, ...permissions: Permission[]): boolean {
   const granted = getPermissionsForRole(role);
   return permissions.every(p => granted.has(p));

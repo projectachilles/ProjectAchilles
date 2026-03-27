@@ -5,7 +5,7 @@ import { getPermissionsForRole, canAccessModule } from '@/types/roles';
 
 /**
  * Returns the current user's role from Clerk publicMetadata.
- * Returns undefined if no role is set (= full access for migration safety).
+ * Returns undefined if no role is set (= explorer read-only access).
  */
 export function useAppRole(): AppRole | undefined {
   const { user } = useUser();

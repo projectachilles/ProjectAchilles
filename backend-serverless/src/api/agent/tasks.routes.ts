@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
-import { getUserId, requirePermission } from '../../middleware/clerk.middleware.js';
+import { getUserId, requirePermission, validateRequestOrgId } from '../../middleware/clerk.middleware.js';
 import {
   createTasks,
   createCommandTasks,
@@ -139,6 +139,7 @@ adminTasksRouter.post(
     if (!org_id) {
       throw new AppError('Missing required field: org_id', 400);
     }
+    validateRequestOrgId(org_id, req.auth);
 
     if (!taskRequest.agent_ids || taskRequest.agent_ids.length === 0) {
       throw new AppError('Missing required field: agent_ids', 400);
@@ -169,6 +170,7 @@ adminTasksRouter.post(
     if (!org_id) {
       throw new AppError('Missing required field: org_id', 400);
     }
+    validateRequestOrgId(org_id, req.auth);
 
     if (!cmdRequest.agent_ids || cmdRequest.agent_ids.length === 0) {
       throw new AppError('Missing required field: agent_ids', 400);

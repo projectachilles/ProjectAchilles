@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../services/agent/database.js';
 import type { AppRole, Permission } from '../types/roles.js';
 import { hasPermissions } from '../types/roles.js';
+import { AppError } from './error.middleware.js';
 
 /**
  * Clerk authentication middleware
@@ -56,9 +57,11 @@ export function requireOrgAccess(req: Request, res: Response, next: NextFunction
   const userOrgId = getUserOrgId(req.auth);
 
   if (!userOrgId) {
-    // If Clerk Organizations isn't configured, we can't enforce org access.
-    // Log a warning but allow through — the operator should enable Clerk Orgs.
-    console.warn('[requireOrgAccess] No org claim in JWT — org access check skipped. Enable Clerk Organizations for enforcement.');
+    if (process.env.REQUIRE_ORG_ISOLATION === 'true') {
+      res.status(403).json({ success: false, error: 'Organization isolation required. Configure Clerk Organizations.' });
+      return;
+    }
+    console.warn('[requireOrgAccess] No org claim in JWT — org access check skipped. Set REQUIRE_ORG_ISOLATION=true to enforce.');
     next();
     return;
   }
@@ -84,8 +87,11 @@ export function requireAgentOrgAccess(req: Request, res: Response, next: NextFun
 
   const userOrgId = getUserOrgId(req.auth);
   if (!userOrgId) {
-    // If Clerk Organizations isn't configured, skip enforcement
-    console.warn('[requireAgentOrgAccess] No org claim in JWT — org access check skipped.');
+    if (process.env.REQUIRE_ORG_ISOLATION === 'true') {
+      res.status(403).json({ success: false, error: 'Organization isolation required. Configure Clerk Organizations.' });
+      return;
+    }
+    console.warn('[requireAgentOrgAccess] No org claim in JWT — org access check skipped. Set REQUIRE_ORG_ISOLATION=true to enforce.');
     next();
     return;
   }
@@ -111,8 +117,20 @@ export function requireAgentOrgAccess(req: Request, res: Response, next: NextFun
 }
 
 /**
+ * Validate that org_id in request body matches the user's JWT org claim.
+ * Throws AppError(403) if they don't match. Skips check if user has no org claim
+ * (backward compat with deployments without Clerk Organizations).
+ */
+export function validateRequestOrgId(reqOrgId: string, auth: any): void {
+  const userOrgId = getUserOrgId(auth);
+  if (userOrgId && reqOrgId !== userOrgId) {
+    throw new AppError('org_id does not match your organization', 403);
+  }
+}
+
+/**
  * Extract the user's role from Clerk session claims.
- * Returns undefined when no role is assigned (= full access for migration safety).
+ * Returns undefined when no role is assigned (= explorer read-only access).
  */
 export function getUserRole(auth: any): AppRole | undefined {
   const role = auth?.sessionClaims?.metadata?.role;
