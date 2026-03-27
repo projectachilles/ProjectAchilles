@@ -127,8 +127,10 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
         return;
       }
     } else {
-      // Backwards compatibility: missing header → warn but allow
-      console.warn(`[agentAuth] Agent ${row.id} sent request without X-Request-Timestamp header`);
+      // Reject requests without timestamp header to prevent replay attacks
+      console.warn(`[agentAuth] Agent ${row.id} rejected: missing X-Request-Timestamp header`);
+      res.status(401).json({ success: false, error: 'Invalid agent credentials' });
+      return;
     }
 
     const agent: AuthenticatedAgent = {

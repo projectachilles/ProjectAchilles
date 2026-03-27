@@ -51,6 +51,17 @@ backend/data/
 .backend.log
 .frontend.log
 
+# Certificates and private keys
+*.pfx
+*.p12
+*.key
+*.pem
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
 # Semgrep local scan results
 semgrep-results-*/
 

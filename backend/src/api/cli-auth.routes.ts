@@ -39,6 +39,14 @@ const pollLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { success: false, error: 'Too many refresh requests. Try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const DEVICE_CODE_TTL_SECONDS = 600; // 10 minutes
@@ -247,7 +255,7 @@ router.post('/poll', pollLimiter, asyncHandler(async (req, res) => {
  * POST /api/cli/auth/refresh
  * Refresh a CLI session token using a refresh token.
  */
-router.post('/refresh', asyncHandler(async (req, res) => {
+router.post('/refresh', refreshLimiter, asyncHandler(async (req, res) => {
   const { refresh_token } = req.body;
   if (!refresh_token || typeof refresh_token !== 'string') {
     throw new AppError('refresh_token is required', 400);

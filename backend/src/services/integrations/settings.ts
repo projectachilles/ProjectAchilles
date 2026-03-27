@@ -186,7 +186,7 @@ export class IntegrationsSettingsService {
       },
     };
 
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(toSave, null, 2));
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(toSave, null, 2), { mode: 0o600 });
   }
 
   /** Check if Azure integration is configured (file or env). */
@@ -277,7 +277,7 @@ export class IntegrationsSettingsService {
       },
     };
 
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(toSave, null, 2));
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(toSave, null, 2), { mode: 0o600 });
   }
 
   /** Check if Defender integration is configured (file or env). */
@@ -301,7 +301,7 @@ export class IntegrationsSettingsService {
     if (!raw || !raw.defender) return;
     delete raw.defender;
     this.ensureSettingsDir();
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(raw, null, 2));
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(raw, null, 2), { mode: 0o600 });
   }
 
   /** Remove Azure integration credentials from settings file. */
@@ -310,7 +310,7 @@ export class IntegrationsSettingsService {
     if (!raw || !raw.azure) return;
     delete raw.azure;
     this.ensureSettingsDir();
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(raw, null, 2));
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(raw, null, 2), { mode: 0o600 });
   }
 
   /** Returns raw decrypted Defender credentials. */
@@ -429,7 +429,7 @@ export class IntegrationsSettingsService {
       alerts: alertsToSave,
     };
 
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(toSave, null, 2));
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(toSave, null, 2), { mode: 0o600 });
   }
 
   /** Check if alerting is configured: thresholds enabled + at least one channel configured & enabled. */

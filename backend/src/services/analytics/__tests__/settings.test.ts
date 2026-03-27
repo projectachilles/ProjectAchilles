@@ -348,6 +348,7 @@ describe('SettingsService (analytics)', () => {
       expect(mockWriteFileSync).toHaveBeenCalledWith(
         SETTINGS_FILE,
         expect.any(String),
+        { mode: 0o600 },
       );
     });
 

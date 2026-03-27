@@ -141,6 +141,7 @@ describe('requireAgentAuth', () => {
     const req = mockReq({
       authorization: `Bearer ${apiKeyPlain}`,
       'x-agent-id': 'agent-001',
+      'x-request-timestamp': new Date().toISOString(),
     }) as any;
     const res = mockRes();
     const next = vi.fn();
@@ -158,7 +159,7 @@ describe('requireAgentAuth', () => {
   });
 
   describe('timestamp validation', () => {
-    it('allows request with missing timestamp (backwards compat)', async () => {
+    it('rejects request with missing timestamp header', async () => {
       const req = mockReq({
         authorization: `Bearer ${apiKeyPlain}`,
         'x-agent-id': 'agent-001',
@@ -170,9 +171,10 @@ describe('requireAgentAuth', () => {
       requireAgentAuth(req, res, next);
 
       await vi.waitFor(() => {
-        expect(next).toHaveBeenCalled();
+        expect(res.status).toHaveBeenCalledWith(401);
       });
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('without X-Request-Timestamp'));
+      expect(next).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('missing X-Request-Timestamp'));
       warnSpy.mockRestore();
     });
 
@@ -276,6 +278,7 @@ describe('requireAgentAuth', () => {
       const req = mockReq({
         authorization: `Bearer ${apiKeyPlain}`,
         'x-agent-id': 'agent-001',
+        'x-request-timestamp': new Date().toISOString(),
       }) as any;
       const res = mockRes();
       const next = vi.fn();
@@ -298,6 +301,7 @@ describe('requireAgentAuth', () => {
       const req = mockReq({
         authorization: `Bearer ${apiKeyPlain}`,
         'x-agent-id': 'agent-001',
+        'x-request-timestamp': new Date().toISOString(),
       }) as any;
       const res = mockRes();
       const next = vi.fn();
@@ -320,6 +324,7 @@ describe('requireAgentAuth', () => {
       const req = mockReq({
         authorization: `Bearer ${pendingKeyPlain}`,
         'x-agent-id': 'agent-001',
+        'x-request-timestamp': new Date().toISOString(),
       }) as any;
       const res = mockRes();
       const next = vi.fn();
@@ -348,6 +353,7 @@ describe('requireAgentAuth', () => {
       const req = mockReq({
         authorization: `Bearer ${pendingKeyPlain}`,
         'x-agent-id': 'agent-001',
+        'x-request-timestamp': new Date().toISOString(),
       }) as any;
       const res = mockRes();
       const next = vi.fn();

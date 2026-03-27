@@ -35,7 +35,7 @@ export function validateCliToken(req: Request): CliTokenPayload | null {
   if (!secret) return null;
 
   try {
-    const decoded = jwt.verify(token, secret) as CliTokenPayload;
+    const decoded = jwt.verify(token, secret, { algorithms: ['HS256'] }) as CliTokenPayload;
     if (decoded.type !== 'cli') return null;
     return decoded;
   } catch {

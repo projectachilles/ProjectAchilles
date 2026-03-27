@@ -155,7 +155,7 @@ export class TestsSettingsService {
     }
 
     existing.platform = settings;
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2));
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2), { mode: 0o600 });
   }
 
   // ── Legacy Migration ────────────────────────────────────────

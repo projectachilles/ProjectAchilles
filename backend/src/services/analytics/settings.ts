@@ -162,7 +162,7 @@ export class SettingsService {
       settingsToSave.password = 'enc:' + this.encrypt(settingsToSave.password);
     }
 
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settingsToSave, null, 2));
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settingsToSave, null, 2), { mode: 0o600 });
   }
 
   // Check if settings are configured

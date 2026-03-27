@@ -169,6 +169,7 @@ describe('TestsSettingsService', () => {
       expect(mockWriteFileSync).toHaveBeenCalledWith(
         SETTINGS_FILE,
         expect.stringContaining('"custom"'),
+        { mode: 0o600 },
       );
       const written = JSON.parse(mockWriteFileSync.mock.calls[0][1] as string);
       expect(written.platform).toEqual({ os: 'linux', arch: 'amd64' });

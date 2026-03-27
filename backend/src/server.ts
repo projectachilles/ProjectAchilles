@@ -49,8 +49,8 @@ if (!process.env.CLERK_PUBLISHABLE_KEY || !process.env.CLERK_SECRET_KEY) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Trust proxy chain: client → ngrok → nginx → Express (2 hops)
-app.set('trust proxy', 2);
+// Trust proxy hops: configure per deployment topology (default 1 for PaaS)
+app.set('trust proxy', parseInt(process.env.TRUST_PROXY_HOPS || '1', 10));
 
 // ============ MIDDLEWARE ============
 
