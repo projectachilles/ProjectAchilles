@@ -39,16 +39,14 @@ export function createAgentRouter(options: { testSources: TestSource[]; testsSou
   router.use(agentEnrollmentRouter);
 
   // Agent device rate limiter (separate from global UI limiter).
-  // Key on X-Agent-ID header so each agent gets its own budget. This
-  // prevents agents behind a shared proxy (e.g. ngrok) from exhausting
-  // a single per-IP bucket with routine heartbeats and polls, starving
-  // low-frequency requests like version checks.
+  // Key on IP + Agent-ID composite to prevent bypass via fabricated headers
+  // while still allowing agents behind shared proxies their own budgets.
   const agentDeviceLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,   // 15 minutes
-    max: 100,                     // 100 requests per 15min per agent
+    max: 100,                     // 100 requests per 15min per agent+IP
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => (req.headers['x-agent-id'] as string) || req.ip || 'unknown',
+    keyGenerator: (req) => `${req.ip || 'unknown'}:${req.headers['x-agent-id'] || 'none'}`,
     message: { success: false, error: 'Too many agent requests, try again later' },
   });
   router.use(agentDeviceLimiter);

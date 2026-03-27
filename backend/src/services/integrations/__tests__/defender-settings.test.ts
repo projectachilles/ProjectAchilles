@@ -39,7 +39,7 @@ describe('IntegrationsSettingsService — Defender', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.ENCRYPTION_SECRET = 'test-encryption-secret-1234';
+    process.env.ENCRYPTION_SECRET = 'test-encryption-secret-that-is-at-least-32-chars-long';
     service = new IntegrationsSettingsService();
     mockExistsSync.mockReturnValue(false);
   });

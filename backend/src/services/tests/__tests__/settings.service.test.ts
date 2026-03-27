@@ -107,7 +107,7 @@ describe('TestsSettingsService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.ENCRYPTION_SECRET = 'test-encryption-secret-1234';
+    process.env.ENCRYPTION_SECRET = 'test-encryption-secret-that-is-at-least-32-chars-long';
     service = new TestsSettingsService();
     // Defaults: dirs don't exist, no files
     mockExistsSync.mockReturnValue(false);
@@ -210,7 +210,7 @@ describe('TestsSettingsService', () => {
 
       await expect(
         service.generateCertificate({ commonName: 'Test', organization: 'Org', country: 'US' }),
-      ).rejects.toThrow('ENCRYPTION_SECRET must be at least 16 characters');
+      ).rejects.toThrow('ENCRYPTION_SECRET must be at least 32 characters');
     });
 
     it('throws when ENCRYPTION_SECRET is not set', async () => {

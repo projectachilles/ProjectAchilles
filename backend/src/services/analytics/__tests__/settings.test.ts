@@ -47,7 +47,7 @@ describe('SettingsService (analytics)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.ENCRYPTION_SECRET = 'test-encryption-secret-1234';
+    process.env.ENCRYPTION_SECRET = 'test-encryption-secret-that-is-at-least-32-chars-long';
     service = new SettingsService();
     mockExistsSync.mockReturnValue(false);
   });
@@ -142,7 +142,7 @@ describe('SettingsService (analytics)', () => {
           indexPattern: 'achilles-results-*',
           configured: true,
         }),
-      ).toThrow('ENCRYPTION_SECRET must be at least 16 characters');
+      ).toThrow('ENCRYPTION_SECRET must be at least 32 characters');
     });
 
     it('throws when ENCRYPTION_SECRET is not set', () => {

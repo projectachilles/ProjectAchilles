@@ -51,23 +51,23 @@
 | PA-007 | No runtime request body validation (type casts only) on most routes | 6.5 | CWE-20 | A03 | All `*.routes.ts` | Open |
 | PA-008 | Missing rate limit on /api/cli/auth/refresh | 5.3 | CWE-307 | A07 | `cli-auth.routes.ts` | **Fixed** (P2) |
 | PA-009 | Agent replay protection optional (missing timestamp allowed) | 5.9 | CWE-294 | A07 | `agentAuth.middleware.ts:130-132` | **Fixed** (P2) |
-| PA-010 | Unbounded agent auth cache (memory exhaustion DoS) | 5.3 | CWE-770 | A05 | `agentAuthCache.ts` | Open |
+| PA-010 | Unbounded agent auth cache (memory exhaustion DoS) | 5.3 | CWE-770 | A05 | `agentAuthCache.ts` | **Fixed** (P2) |
 | PA-011 | Slack webhook URL not validated (SSRF to internal services) | 5.0 | CWE-918 | A10 | `integrations.routes.ts` | **Fixed** (P1) |
 | PA-012 | CSP allows unsafe-inline for scripts and styles | 4.7 | CWE-79 | A03 | `server.ts:62-63` | Open |
 | PA-017 | Risk acceptance endpoint returns ALL records globally (no org filter) | 6.5 | CWE-639 | A01 | `risk-acceptance.routes.ts` | Open |
 | PA-018 | Integration settings (Azure/Defender) not org-scoped in multi-tenant | 5.5 | CWE-732 | A01 | `integrations.routes.ts` | Open |
 | PA-019 | Cron endpoint CRON_SECRET uses timing-vulnerable string comparison | 4.3 | CWE-208 | A07 | `cron.routes.ts:14,34,55` | Open |
-| PA-024 | Agent rate limiter keyed on client-supplied X-Agent-ID (bypass via fabrication) | 5.3 | CWE-770 | A04 | `agent/index.ts:51` | Open |
+| PA-024 | Agent rate limiter keyed on client-supplied X-Agent-ID (bypass via fabrication) | 5.3 | CWE-770 | A04 | `agent/index.ts:51` | **Fixed** (P2) |
 | PA-025 | CLI JWT verify does not pin algorithm | 5.9 | CWE-327 | A02 | `cliAuth.middleware.ts:38` | **Fixed** (P2) |
 | PA-026 | Settings files with encrypted credentials written world-readable (0644) | 5.5 | CWE-732 | A01 | Multiple `settings.ts` files | **Fixed** (P2) |
 | PA-027 | Trust proxy hop count hardcoded | 5.3 | CWE-348 | A05 | `server.ts:53` | **Fixed** (P2) |
 | PA-028 | Bundle results read from shared /tmp/F0 path (TOCTOU race) | 5.0 | CWE-367 | A01 | `executor.go:228-239` | Open |
 | PA-029 | Plaintext API key fallback when machine-id unavailable (Docker/WSL) | 5.5 | CWE-312 | A02 | `config.go:112-129` | Open |
 | PA-030 | No update rollback mechanism on Linux/macOS (corrupt binary = bricked agent) | 4.5 | CWE-754 | A08 | `update_linux.go:12-22` | Open |
-| PA-034 | Unsanitized HTML in kill chain iframe (sandbox="allow-scripts") | 5.4 | CWE-79 | A03 | `TestDetailPage.tsx:593-600` | Open |
-| PA-035 | SHA256 used instead of HKDF for encryption key derivation | 5.3 | CWE-916 | A02 | 3x `settings.ts getEncryptionKey()` | Open |
-| PA-036 | ENCRYPTION_SECRET minimum 16 chars too short for AES-256 | 5.0 | CWE-326 | A02 | 3x `settings.ts` | Open |
-| PA-037 | Cross-deployment CLI token replay (shared secret, no iss/aud) | 5.9 | CWE-294 | A07 | `cli-auth.routes.ts:48` | Open |
+| PA-034 | Unsanitized HTML in kill chain iframe (sandbox="allow-scripts") | 5.4 | CWE-79 | A03 | `TestDetailPage.tsx:593-600` | **Fixed** (P2) |
+| PA-035 | SHA256 used instead of HKDF for encryption key derivation | 5.3 | CWE-916 | A02 | 3x `settings.ts getEncryptionKey()` | **Fixed** (P2) |
+| PA-036 | ENCRYPTION_SECRET minimum 16 chars too short for AES-256 | 5.0 | CWE-326 | A02 | 3x `settings.ts` | **Fixed** (P2) |
+| PA-037 | Cross-deployment CLI token replay (shared secret, no iss/aud) | 5.9 | CWE-294 | A07 | `cli-auth.routes.ts:48` | **Fixed** (P2) |
 | PA-038 | .env.example insecure SESSION_SECRET default | 4.3 | CWE-1188 | A05 | `backend/.env.example` | **Fixed** (P2) |
 | PA-039 | ES security disabled in Docker Compose (xpack.security=false) | 4.7 | CWE-1188 | A05 | `docker-compose.yml:58` | Open |
 | PA-040 | Frontend Docker container receives all backend secrets via env_file | 4.0 | CWE-200 | A05 | `docker-compose.yml:34` | Open |
@@ -84,7 +84,7 @@
 |---|---|---|---|---|---|---|
 | PA-013 | Dockerfile: no multi-stage build, root user, Go without checksum | 3.7 | CWE-1104 | A06 | `Dockerfile` | Open |
 | PA-014 | Three duplicated AES-256-GCM implementations (fix must be tripled) | 3.0 | CWE-710 | A04 | 3x `settings.ts` | Open |
-| PA-015 | CLI JWT missing aud/iss claims (cross-deployment replay) | 3.1 | CWE-345 | A07 | `cli-auth.routes.ts` | Open |
+| PA-015 | CLI JWT missing aud/iss claims (cross-deployment replay) | 3.1 | CWE-345 | A07 | `cli-auth.routes.ts` | **Fixed** (P2) |
 | PA-031 | Agent TLS config missing explicit MinVersion (defaults to Go runtime) | 3.5 | CWE-326 | A02 | `httpclient/client.go:27` | Open |
 | PA-041 | CLI JWT 7-day lifetime with no revocation mechanism | 3.1 | CWE-613 | A07 | `cli-auth.routes.ts:45` | Open |
 | PA-048 | nodemailer < 8.0.4 SMTP command injection vulnerability | 3.5 | CWE-93 | A06 | `backend/package.json` | Open |

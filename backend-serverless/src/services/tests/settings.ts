@@ -29,10 +29,10 @@ export class TestsSettingsService {
     if (!secret) {
       throw new Error('ENCRYPTION_SECRET environment variable is required for serverless deployment');
     }
-    if (secret.length < 16) {
-      throw new Error('ENCRYPTION_SECRET must be at least 16 characters');
+    if (secret.length < 32) {
+      throw new Error('ENCRYPTION_SECRET must be at least 32 characters. Generate one with: openssl rand -base64 32');
     }
-    return crypto.createHash('sha256').update(secret).digest();
+    return Buffer.from(crypto.hkdfSync('sha256', secret, 'projectachilles-settings-v1', 'encryption', 32));
   }
 
   private encrypt(text: string): string {

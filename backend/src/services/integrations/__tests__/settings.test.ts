@@ -39,7 +39,7 @@ describe('IntegrationsSettingsService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.ENCRYPTION_SECRET = 'test-encryption-secret-1234';
+    process.env.ENCRYPTION_SECRET = 'test-encryption-secret-that-is-at-least-32-chars-long';
     service = new IntegrationsSettingsService();
     mockExistsSync.mockReturnValue(false);
   });
@@ -94,7 +94,7 @@ describe('IntegrationsSettingsService', () => {
         tenant_id: 'x',
         client_id: 'y',
         client_secret: 'z',
-      })).toThrow('ENCRYPTION_SECRET must be at least 16 characters');
+      })).toThrow('ENCRYPTION_SECRET must be at least 32 characters');
     });
   });
 

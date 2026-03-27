@@ -215,7 +215,11 @@ router.post('/poll', pollLimiter, asyncHandler(async (req, res) => {
       type: 'cli',
     },
     secret,
-    { expiresIn: CLI_TOKEN_TTL_SECONDS },
+    {
+      expiresIn: CLI_TOKEN_TTL_SECONDS,
+      issuer: 'projectachilles',
+      audience: process.env.AGENT_SERVER_URL || 'http://localhost:3000',
+    },
   );
 
   const refreshToken = crypto.randomBytes(32).toString('hex');
@@ -289,7 +293,11 @@ router.post('/refresh', refreshLimiter, asyncHandler(async (req, res) => {
       type: 'cli',
     },
     secret,
-    { expiresIn: CLI_TOKEN_TTL_SECONDS },
+    {
+      expiresIn: CLI_TOKEN_TTL_SECONDS,
+      issuer: 'projectachilles',
+      audience: process.env.AGENT_SERVER_URL || 'http://localhost:3000',
+    },
   );
 
   // Rotate refresh token
