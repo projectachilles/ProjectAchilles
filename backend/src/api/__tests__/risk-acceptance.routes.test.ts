@@ -27,6 +27,7 @@ vi.mock('../../middleware/clerk.middleware.js', () => ({
     next();
   },
   getUserId: (auth: any) => auth?.userId || 'test-user-001',
+  getUserOrgId: (auth: any) => auth?.orgId || auth?.sessionClaims?.org_id || 'org-001',
   requirePermission: () => (_req: any, _res: any, next: any) => next(),
 }));
 

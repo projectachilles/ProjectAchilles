@@ -113,9 +113,14 @@ func Load(path string) (*Config, error) {
 		encrypted, err := encryptAgentKey(cfg.AgentKey)
 		if err != nil {
 			// Machine ID unavailable (e.g. Docker without /etc/machine-id) —
-			// continue with plaintext key but warn the operator
-			log.Printf("warning: could not encrypt agent key (machine ID unavailable): %v — key remains in plaintext", err)
-			return &cfg, nil
+			// refuse to run with a plaintext credential on disk.
+			return nil, fmt.Errorf(
+				"cannot encrypt agent key: %w — "+
+					"a stable machine ID is required to protect credentials on disk. "+
+					"Mount /etc/machine-id into the container, set the MACHINE_ID environment variable, "+
+					"or run `dbus-uuidgen --ensure=/etc/machine-id`",
+				err,
+			)
 		}
 		cfg.AgentKeyEncrypted = encrypted
 		plaintextKey := cfg.AgentKey
@@ -133,8 +138,8 @@ func Load(path string) (*Config, error) {
 
 // Save writes the Config as YAML to the given path, creating parent directories
 // with mode 0700 and the file with mode 0600. If the agent key is set in
-// plaintext, it is encrypted before writing so the file never contains a
-// plaintext key (unless machine ID is unavailable).
+// plaintext, it is encrypted before writing. Returns an error if the key
+// cannot be encrypted (machine ID unavailable) — never writes plaintext keys.
 func (c *Config) Save(path string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -147,11 +152,10 @@ func (c *Config) Save(path string) error {
 	if c.AgentKey != "" {
 		encrypted, err := encryptAgentKey(c.AgentKey)
 		if err != nil {
-			log.Printf("warning: could not encrypt agent key for save: %v — writing plaintext", err)
-		} else {
-			c.AgentKeyEncrypted = encrypted
-			c.AgentKey = ""
+			return fmt.Errorf("cannot save config: agent key encryption failed: %w", err)
 		}
+		c.AgentKeyEncrypted = encrypted
+		c.AgentKey = ""
 	}
 
 	data, err := yaml.Marshal(c)

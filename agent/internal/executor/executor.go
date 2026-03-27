@@ -190,12 +190,26 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 	cmd.Dir = tempDir
 	cmd.WaitDelay = 10 * time.Second
 
+	// Create a task-local bundle directory so test binaries write bundle_results.json
+	// to an isolated path (not the shared /tmp/F0 or C:\F0). The path is communicated
+	// via the F0_BUNDLE_DIR environment variable.
+	bundleDir := filepath.Join(tempDir, "F0")
+	if err := os.MkdirAll(bundleDir, 0700); err != nil {
+		return nil, fmt.Errorf("create bundle dir: %w", err)
+	}
+
 	// Inject filtered environment variables (e.g. Azure credentials for cloud tests).
 	// Only variables with allowed prefixes are injected; dangerous keys like
 	// LD_PRELOAD, PATH, DYLD_INSERT_LIBRARIES are rejected.
 	if len(task.Payload.EnvVars) > 0 {
 		applyEnvVars(cmd, task.Payload.EnvVars)
 	}
+
+	// Ensure F0_BUNDLE_DIR is always set, even when no task-level env vars are present.
+	if cmd.Env == nil {
+		cmd.Env = os.Environ()
+	}
+	cmd.Env = append(cmd.Env, "F0_BUNDLE_DIR="+bundleDir)
 
 	// Create a Job Object (Windows) to kill all child processes on timeout.
 	// On Linux/macOS this returns (nil, nil) — a no-op.
@@ -264,12 +278,7 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 	}
 
 	// Step 9b: Check for bundle_results.json (cyber-hygiene bundles write per-control results).
-	// Test binaries use LOG_DIR which differs from the agent WorkDir on non-Windows:
-	//   Windows: C:\F0   Linux/macOS: /tmp/F0
-	bundleDir := "/tmp/F0"
-	if runtime.GOOS == "windows" {
-		bundleDir = `C:\F0`
-	}
+	// The test binary writes to the task-local F0_BUNDLE_DIR (set in Step 7).
 	bundlePath := filepath.Join(bundleDir, "bundle_results.json")
 	if data, err := os.ReadFile(bundlePath); err == nil {
 		var bundle BundleResults

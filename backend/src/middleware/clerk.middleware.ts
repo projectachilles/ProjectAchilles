@@ -35,7 +35,7 @@ export function getUserId(auth: any): string | undefined {
  * Extract the user's organization ID from Clerk auth.
  * Checks: orgId (Clerk Organizations), sessionClaims.org_id (custom claim), sessionClaims.metadata.org_id.
  */
-function getUserOrgId(auth: any): string | undefined {
+export function getUserOrgId(auth: any): string | undefined {
   return auth?.orgId
     ?? auth?.sessionClaims?.org_id
     ?? auth?.sessionClaims?.metadata?.org_id

@@ -50,7 +50,7 @@ const refreshLimiter = rateLimit({
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const DEVICE_CODE_TTL_SECONDS = 600; // 10 minutes
-const CLI_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+const CLI_TOKEN_TTL_SECONDS = 60 * 60; // 1 hour (refresh token extends the session)
 
 function getCliSecret(): string {
   const secret = process.env.CLI_AUTH_SECRET;

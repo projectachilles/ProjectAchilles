@@ -10,6 +10,7 @@ import { RISK_ACCEPTANCE_INDEX, ensureRiskAcceptanceIndex } from './index-manage
 
 export interface RiskAcceptance {
   acceptance_id: string;
+  org_id?: string;
   test_name: string;
   control_id?: string;
   hostname?: string;
@@ -25,6 +26,7 @@ export interface RiskAcceptance {
 }
 
 export interface AcceptRiskParams {
+  org_id?: string;
   test_name: string;
   control_id?: string;
   hostname?: string;
@@ -40,6 +42,7 @@ export interface RevokeRiskParams {
 }
 
 export interface ListAcceptancesParams {
+  org_id?: string;
   status?: 'active' | 'revoked';
   test_name?: string;
   page?: number;
@@ -74,6 +77,7 @@ export class RiskAcceptanceService {
 
     const doc: RiskAcceptance = {
       acceptance_id: randomUUID(),
+      org_id: params.org_id || undefined,
       test_name: params.test_name,
       control_id: params.control_id || undefined,
       hostname: params.hostname || undefined,
@@ -148,6 +152,20 @@ export class RiskAcceptanceService {
     await this.ensureIndex();
 
     const filters: any[] = [];
+
+    // Org isolation: filter by org_id when provided (new records have org_id;
+    // legacy records without org_id are visible to all orgs for backward compat)
+    if (params?.org_id) {
+      filters.push({
+        bool: {
+          should: [
+            { term: { org_id: params.org_id } },
+            { bool: { must_not: { exists: { field: 'org_id' } } } },
+          ],
+          minimum_should_match: 1,
+        },
+      });
+    }
 
     if (params?.status) {
       filters.push({ term: { status: params.status } });

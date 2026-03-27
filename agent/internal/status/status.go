@@ -48,6 +48,7 @@ func CheckConnection(serverURL string, cfg *config.Config) ConnResult {
 	if parsed.Scheme == "https" {
 		tlsCfg := &tls.Config{
 			InsecureSkipVerify: cfg.SkipTLSVerify,
+			MinVersion:         tls.VersionTLS12,
 		}
 
 		// Load custom CA if configured.

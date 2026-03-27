@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { clerkClient } from '@clerk/express';
-import { requireClerkAuth, requirePermission, getUserId } from '../middleware/clerk.middleware.js';
+import { requireClerkAuth, requirePermission, getUserId, getUserOrgId } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { SettingsService } from '../services/analytics/settings.js';
 import { createEsClient } from '../services/analytics/client.js';
@@ -52,8 +52,11 @@ router.post('/', requirePermission('analytics:risk:write'), asyncHandler(async (
     || user.emailAddresses[0]?.emailAddress
     || userId;
 
+  const orgId = getUserOrgId(req.auth);
+
   const svc = getRiskService();
   const acceptance = await svc.acceptRisk({
+    org_id: orgId,
     test_name,
     control_id: control_id || undefined,
     hostname: hostname || undefined,
@@ -93,12 +96,14 @@ router.post('/:id/revoke', requirePermission('analytics:risk:write'), asyncHandl
   res.json({ success: true, data: acceptance });
 }));
 
-// GET /api/risk-acceptances — List acceptances
+// GET /api/risk-acceptances — List acceptances (org-scoped)
 router.get('/', requirePermission('analytics:risk:read'), asyncHandler(async (req, res) => {
   const { status, test_name, page, pageSize } = req.query;
+  const orgId = getUserOrgId(req.auth);
 
   const svc = getRiskService();
   const result = await svc.listAcceptances({
+    org_id: orgId,
     status: status as 'active' | 'revoked' | undefined,
     test_name: test_name as string | undefined,
     page: page ? parseInt(page as string, 10) : 1,

@@ -26,6 +26,7 @@ type Client struct {
 func NewClient(cfg *config.Config, version string) *Client {
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: cfg.SkipTLSVerify,
+		MinVersion:         tls.VersionTLS12,
 	}
 
 	if cfg.CACert != "" {
