@@ -145,22 +145,15 @@ describe('SettingsService (analytics)', () => {
       ).toThrow('ENCRYPTION_SECRET must be at least 16 characters');
     });
 
-    it('falls back to hostname+username hash when ENCRYPTION_SECRET not set', () => {
+    it('throws when ENCRYPTION_SECRET is not set', () => {
       delete process.env.ENCRYPTION_SECRET;
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-      // Should not throw — uses machine-derived key
-      service.saveSettings({
+      expect(() => service.saveSettings({
         connectionType: 'cloud',
         cloudId: 'test-cloud',
         indexPattern: 'achilles-results-*',
         configured: true,
-      });
-
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('ENCRYPTION_SECRET not set'),
-      );
-      warnSpy.mockRestore();
+      })).toThrow('ENCRYPTION_SECRET environment variable is required');
     });
   });
 

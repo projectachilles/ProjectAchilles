@@ -25,24 +25,24 @@
 
 | ID | Title | CVSS | CWE | OWASP | Location | Status |
 |---|---|---|---|---|---|---|
-| PA-001 | No-role users receive ALL 54 permissions (silent admin) | 9.8 | CWE-276 | A01 | `roles.ts:164` | Open |
-| PA-002 | Org access silently bypassed when Clerk Orgs not configured | 9.1 | CWE-862 | A01 | `clerk.middleware.ts:58-63` | Open |
-| PA-003 | RCE chain: no-role -> all perms -> command task -> sh -c on agents | 9.8 | CWE-78 | A03 | `tasks.routes.ts:170` -> `executor.go:283` | Open |
+| PA-001 | No-role users receive ALL 54 permissions (silent admin) | 9.8 | CWE-276 | A01 | `roles.ts:164` | **Fixed** (e72c71d) |
+| PA-002 | Org access silently bypassed when Clerk Orgs not configured | 9.1 | CWE-862 | A01 | `clerk.middleware.ts:58-63` | **Fixed** (e72c71d) |
+| PA-003 | RCE chain: no-role -> all perms -> command task -> sh -c on agents | 9.8 | CWE-78 | A03 | `tasks.routes.ts:170` -> `executor.go:283` | **Mitigated** (PA-001 fix breaks chain) |
 
 ### High
 
 | ID | Title | CVSS | CWE | OWASP | Location | Status |
 |---|---|---|---|---|---|---|
 | PA-004 | Agent update signature verification skippable (both conditions) | 8.1 | CWE-354 | A08 | `updater.go:56-69` | Open |
-| PA-005 | Weak machine-derived encryption key fallback (hostname+username) | 7.5 | CWE-1188 | A02 | `settings.ts:36-48` | Open |
-| PA-006 | CLI JWT secret falls back to weak encryption key | 7.5 | CWE-321 | A02 | `cliAuth.middleware.ts:22` | Open |
-| PA-016 | Cross-org task/token creation via unvalidated org_id in request body | 7.2 | CWE-639 | A01 | `tasks.routes.ts:178`, `enrollment.routes.ts:119` | Open |
+| PA-005 | Weak machine-derived encryption key fallback (hostname+username) | 7.5 | CWE-1188 | A02 | `settings.ts:36-48` | **Fixed** (P1) |
+| PA-006 | CLI JWT secret falls back to weak encryption key | 7.5 | CWE-321 | A02 | `cliAuth.middleware.ts:22` | **Fixed** (P1) |
+| PA-016 | Cross-org task/token creation via unvalidated org_id in request body | 7.2 | CWE-639 | A01 | `tasks.routes.ts:178`, `enrollment.routes.ts:119` | **Fixed** (e72c71d) |
 | PA-020 | No version downgrade protection in agent updater | 7.5 | CWE-757 | A08 | `updater.go:108-109` | Open |
 | PA-021 | No code signing verification on test binaries (only SHA256 from same server) | 7.5 | CWE-345 | A08 | `executor.go:115-117` | Open |
 | PA-022 | Server-controlled env var injection without filtering (LD_PRELOAD, PATH) | 7.8 | CWE-426 | A03 | `executor.go:152-157` | Open |
 | PA-023 | Test binaries can read agent config + machine-id to extract API key | 7.2 | CWE-732 | A01 | `executor.go:97-106` | Open |
-| PA-032 | SSRF via SMTP host in email alert test endpoint | 7.2 | CWE-918 | A10 | `integrations.routes.ts:324-343` | Open |
-| PA-033 | SSRF via Elasticsearch node URL in analytics settings | 7.2 | CWE-918 | A10 | `analytics.routes.ts:67-98` | Open |
+| PA-032 | SSRF via SMTP host in email alert test endpoint | 7.2 | CWE-918 | A10 | `integrations.routes.ts:324-343` | **Fixed** (P1) |
+| PA-033 | SSRF via Elasticsearch node URL in analytics settings | 7.2 | CWE-918 | A10 | `analytics.routes.ts:67-98` | **Fixed** (P1) |
 
 ### Medium
 
@@ -52,7 +52,7 @@
 | PA-008 | Missing rate limit on /api/cli/auth/refresh | 5.3 | CWE-307 | A07 | `cli-auth.routes.ts` | Open |
 | PA-009 | Agent replay protection optional (missing timestamp allowed) | 5.9 | CWE-294 | A07 | `agentAuth.middleware.ts:130-132` | Open |
 | PA-010 | Unbounded agent auth cache (memory exhaustion DoS) | 5.3 | CWE-770 | A05 | `agentAuthCache.ts` | Open |
-| PA-011 | Slack webhook URL not validated (SSRF to internal services) | 5.0 | CWE-918 | A10 | `integrations.routes.ts` | Open |
+| PA-011 | Slack webhook URL not validated (SSRF to internal services) | 5.0 | CWE-918 | A10 | `integrations.routes.ts` | **Fixed** (P1) |
 | PA-012 | CSP allows unsafe-inline for scripts and styles | 4.7 | CWE-79 | A03 | `server.ts:62-63` | Open |
 | PA-017 | Risk acceptance endpoint returns ALL records globally (no org filter) | 6.5 | CWE-639 | A01 | `risk-acceptance.routes.ts` | Open |
 | PA-018 | Integration settings (Azure/Defender) not org-scoped in multi-tenant | 5.5 | CWE-732 | A01 | `integrations.routes.ts` | Open |

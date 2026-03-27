@@ -19,7 +19,7 @@ interface CliTokenPayload {
 }
 
 function getCliSecret(): string | undefined {
-  return process.env.CLI_AUTH_SECRET || process.env.ENCRYPTION_SECRET;
+  return process.env.CLI_AUTH_SECRET;
 }
 
 /**

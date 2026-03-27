@@ -212,9 +212,8 @@ describe('TestsSettingsService', () => {
       ).rejects.toThrow('ENCRYPTION_SECRET must be at least 16 characters');
     });
 
-    it('falls back to hostname+username hash when env var unset', async () => {
+    it('throws when ENCRYPTION_SECRET is not set', async () => {
       delete process.env.ENCRYPTION_SECRET;
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       setupOpenSSLSuccess();
       mockExistsSync.mockImplementation((p: string) => {
@@ -226,16 +225,9 @@ describe('TestsSettingsService', () => {
       });
       mockReaddirSync.mockReturnValue([]);
 
-      // generateCertificate calls encrypt → getEncryptionKey internally.
-      // If it doesn't throw for missing ENCRYPTION_SECRET, the fallback worked.
-      await service.generateCertificate(
+      await expect(service.generateCertificate(
         { commonName: 'Test', organization: 'Org', country: 'US' },
-      );
-
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('ENCRYPTION_SECRET not set'),
-      );
-      warnSpy.mockRestore();
+      )).rejects.toThrow('ENCRYPTION_SECRET environment variable is required');
     });
 
     it('encrypt then decrypt round-trip returns original text', async () => {

@@ -18,12 +18,7 @@ export class IntegrationsSettingsService {
   private getEncryptionKey(): Buffer {
     const secret = process.env.ENCRYPTION_SECRET;
     if (!secret) {
-      console.warn('');
-      console.warn('WARNING: ENCRYPTION_SECRET not set — using weak machine-derived key.');
-      console.warn('  Set ENCRYPTION_SECRET in .env: openssl rand -base64 32');
-      console.warn('');
-      const machineId = os.hostname() + os.userInfo().username;
-      return crypto.createHash('sha256').update(machineId).digest();
+      throw new Error('ENCRYPTION_SECRET environment variable is required. Generate one with: openssl rand -base64 32');
     }
     if (secret.length < 16) {
       throw new Error('ENCRYPTION_SECRET must be at least 16 characters');

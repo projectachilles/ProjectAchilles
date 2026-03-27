@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
+import { validateUrlForSSRF, validateHostForSSRF } from '../middleware/urlValidation.js';
 import { IntegrationsSettingsService } from '../services/integrations/settings.js';
 import { DefenderSyncService } from '../services/defender/sync.service.js';
 import { AlertsService } from '../services/alerts/alerts.service.js';
@@ -329,13 +330,28 @@ router.post('/alerts/test', requirePermission('integrations:write'),
     // Test Slack — use webhook from request body or existing settings
     const slackUrl = req.body.slack_webhook_url || settings?.slack?.webhook_url;
     if (slackUrl) {
-      results.slack = await testSlackWebhook(slackUrl);
+      const SLACK_URL_PATTERN = /^https:\/\/hooks\.slack\.com\/(services|workflows)\//;
+      try {
+        await validateUrlForSSRF(slackUrl, [SLACK_URL_PATTERN]);
+      } catch {
+        results.slack = { success: false, message: 'Invalid Slack webhook URL. Must be https://hooks.slack.com/services/... or https://hooks.slack.com/workflows/...' };
+      }
+      if (!results.slack) {
+        results.slack = await testSlackWebhook(slackUrl);
+      }
     }
 
     // Test Email — use settings from request body or existing settings
     const emailSettings = req.body.email || settings?.email;
     if (emailSettings?.smtp_host) {
-      results.email = await testEmailConnection(emailSettings);
+      try {
+        await validateHostForSSRF(emailSettings.smtp_host);
+      } catch {
+        results.email = { success: false, message: 'SMTP host targets a private or reserved IP address' };
+      }
+      if (!results.email) {
+        results.email = await testEmailConnection(emailSettings);
+      }
     }
 
     res.json({ success: true, data: results });

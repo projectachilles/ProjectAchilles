@@ -45,8 +45,8 @@ const DEVICE_CODE_TTL_SECONDS = 600; // 10 minutes
 const CLI_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
 function getCliSecret(): string {
-  const secret = process.env.CLI_AUTH_SECRET || process.env.ENCRYPTION_SECRET;
-  if (!secret) throw new AppError('CLI_AUTH_SECRET or ENCRYPTION_SECRET must be set', 500);
+  const secret = process.env.CLI_AUTH_SECRET;
+  if (!secret) throw new AppError('CLI_AUTH_SECRET environment variable is required for CLI authentication. Generate one with: openssl rand -base64 32', 500);
   return secret;
 }
 

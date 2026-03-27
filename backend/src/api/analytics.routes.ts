@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
+import { validateUrlForSSRF } from '../middleware/urlValidation.js';
 import { SettingsService } from '../services/analytics/settings.js';
 import { ElasticsearchService } from '../services/analytics/elasticsearch.js';
 import { createResultsIndex, listResultsIndices } from '../services/analytics/index-management.service.js';
@@ -75,12 +76,18 @@ router.post('/settings', requirePermission('analytics:settings:write'), asyncHan
   // This allows updating settings without providing all credentials
   const existingSettings = settingsService.getSettings();
 
+  // Validate self-hosted ES node URL against SSRF before saving
+  const effectiveNode = node || existingSettings.node;
+  if (connectionType === 'self-hosted' && effectiveNode) {
+    await validateUrlForSSRF(effectiveNode);
+  }
+
   // Merge: use new values if provided, otherwise keep existing ones
   const settingsToSave = {
     connectionType,
     cloudId: cloudId || existingSettings.cloudId,
     apiKey: apiKey || existingSettings.apiKey,
-    node: node || existingSettings.node,
+    node: effectiveNode,
     username: username || existingSettings.username,
     password: password || existingSettings.password,
     indexPattern: indexPattern || existingSettings.indexPattern || 'achilles-results-*',
@@ -106,11 +113,18 @@ router.post('/settings/test', requirePermission('analytics:settings:read'), asyn
   const existingSettings = settingsService.getSettings();
 
   try {
+    // Validate self-hosted ES node URL against SSRF (cloud IDs are safe — they resolve to *.elastic-cloud.com)
+    const effectiveNode = node || existingSettings.node;
+    const effectiveType = connectionType || existingSettings.connectionType;
+    if (effectiveType === 'self-hosted' && effectiveNode) {
+      await validateUrlForSSRF(effectiveNode);
+    }
+
     const testService = new ElasticsearchService({
-      connectionType: connectionType || existingSettings.connectionType,
+      connectionType: effectiveType,
       cloudId: cloudId || existingSettings.cloudId,
       apiKey: apiKey || existingSettings.apiKey,
-      node: node || existingSettings.node,
+      node: effectiveNode,
       username: username || existingSettings.username,
       password: password || existingSettings.password,
       indexPattern: existingSettings.indexPattern || 'achilles-results-*',
