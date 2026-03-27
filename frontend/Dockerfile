@@ -16,9 +16,9 @@ RUN apk add --no-cache jq
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh && \
-    chown -R nginx:nginx /usr/share/nginx/html /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+# Note: nginx master process runs as root to bind port 80, worker processes
+# drop to the 'nginx' user. This is nginx's built-in privilege separation model.
 EXPOSE 80
-USER nginx
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]

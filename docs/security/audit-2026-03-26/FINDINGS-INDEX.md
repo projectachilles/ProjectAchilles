@@ -106,7 +106,7 @@
 | PA-031 | Agent TLS config missing explicit MinVersion (defaults to Go runtime) | 3.5 | CWE-326 | A02 | `httpclient/client.go:27` | **Fixed** (P3) |
 | PA-041 | CLI JWT 7-day lifetime with no revocation mechanism | 3.1 | CWE-613 | A07 | `cli-auth.routes.ts:45` | **Fixed** (P3, 1h) |
 | PA-048 | nodemailer < 8.0.4 SMTP command injection vulnerability | 3.5 | CWE-93 | A06 | `backend/package.json` | **Fixed** (P3) |
-| PA-049 | Frontend Dockerfile runs nginx as root (no USER directive) | 3.7 | CWE-250 | A05 | `frontend/Dockerfile` | **Fixed** (P3) |
+| PA-049 | Frontend Dockerfile runs nginx as root (no USER directive) | 3.7 | CWE-250 | A05 | `frontend/Dockerfile` | **Accepted** (nginx privilege separation) |
 
 ---
 
