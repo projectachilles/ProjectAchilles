@@ -47,7 +47,6 @@ const sidebars: SidebarsConfig = {
           items: [
             'user-guide/test-browser/browsing-filtering',
             'user-guide/test-browser/test-detail-pages',
-            'user-guide/test-browser/mitre-attack-matrix',
             'user-guide/test-browser/building-signing',
             'user-guide/test-browser/custom-tests',
           ],

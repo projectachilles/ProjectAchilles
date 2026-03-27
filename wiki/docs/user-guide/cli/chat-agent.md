@@ -250,7 +250,7 @@ The interactive mode opens with a styled welcome screen:
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ ▸ Ask anything... "What's our defense score?"                            │
 │                                                                          │
-│ Server  https://tpsgl.agent.projectachilles.io  ·  Model  qwen3 (ollama) │
+│ Server  https://acme.agent.projectachilles.io   ·  Model  qwen3 (ollama) │
 └──────────────────────────────────────────────────────────────────────────┘
                            /clear reset  ctrl+c quit
 ```

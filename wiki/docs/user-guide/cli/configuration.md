@@ -99,7 +99,7 @@ achilles config profiles
   ──  ──────────────  ────────────────────────────────────────    ──────────────
   ▸   default         http://localhost:3000                       Local
       railway         https://achilles-backend.up.railway.app     Railway
-      fly             https://rga.agent.projectachilles.io        Production
+      fly             https://prod.agent.projectachilles.io        Production
 ```
 
 The arrow (`▸`) indicates the active profile.
@@ -120,7 +120,7 @@ achilles config add-profile railway \
 
 # Add a Fly.io production deployment
 achilles config add-profile fly \
-  --url https://rga.agent.projectachilles.io \
+  --url https://prod.agent.projectachilles.io \
   --label "Production"
 
 # Add a Render deployment
@@ -142,7 +142,7 @@ achilles config use fly
 ```
 
 ```
-  ✓ Switched to "fly" → https://rga.agent.projectachilles.io
+  ✓ Switched to "fly" → https://prod.agent.projectachilles.io
   ⚠ Run `achilles login` to authenticate with this deployment
 ```
 
@@ -236,7 +236,7 @@ The `~/.achilles/config.json` file structure:
       "label": "Local"
     },
     "fly": {
-      "server_url": "https://rga.agent.projectachilles.io",
+      "server_url": "https://prod.agent.projectachilles.io",
       "label": "Production"
     }
   },
@@ -267,7 +267,7 @@ achilles config add-profile staging \
   --label "Staging"
 
 achilles config add-profile production \
-  --url https://rga.agent.projectachilles.io \
+  --url https://prod.agent.projectachilles.io \
   --label "Production"
 
 # 2. Configure AI for chat mode

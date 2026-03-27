@@ -53,7 +53,7 @@ Browse the full test library with rich metadata and execute tests directly from 
 - **Filter and search** by MITRE ATT&CK technique, platform, category, and severity
 - **View details** including source code, detection rules, hardening scripts, and attack flow diagrams
 - **Build, sign, and download** test binaries directly from test detail pages
-- **MITRE ATT&CK coverage matrix** with visual technique heatmap
+- **MITRE ATT&CK coverage chart** with per-tactic bar visualization
 - **Execution drawer** — assign and run tests directly from the browse page
 - **Favorite tests**, track recent views, view version history and Git modification dates
 
