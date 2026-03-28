@@ -120,6 +120,14 @@ registerCommand({
           ctx.output.error('Device code expired. Please try again.');
           process.exit(1);
         }
+
+        // Unexpected status (e.g. 500 from missing CLI_AUTH_SECRET) — report and stop
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({})) as { error?: string };
+          ctx.output.raw('\n');
+          ctx.output.error(`Server error (HTTP ${response.status}): ${body.error ?? 'Unknown error'}`);
+          process.exit(1);
+        }
       } catch {
         // Network error during poll — keep trying
         process.stdout.write('!');

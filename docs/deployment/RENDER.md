@@ -84,6 +84,7 @@ The fastest path — Render reads `render.yaml` and creates both services automa
    | `CLERK_SECRET_KEY` | `sk_live_...` | From Clerk dashboard |
    | `SESSION_SECRET` | `<openssl rand -base64 32>` | Generate a random secret |
    | `ENCRYPTION_SECRET` | `<openssl rand -base64 32>` | **Required** — see note below |
+   | `CLI_AUTH_SECRET` | `<openssl rand -base64 32>` | **Required** for CLI login (`achilles login`) |
    | `CORS_ORIGIN` | `https://achilles-frontend.onrender.com` | Your frontend's Render URL |
    | `AGENT_SERVER_URL` | `https://achilles-backend.onrender.com` | Your backend's Render URL |
    | `TESTS_REPO_URL` | `https://github.com/your-org/f0_library.git` | Test library repo |

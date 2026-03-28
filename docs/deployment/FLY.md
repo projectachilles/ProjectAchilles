@@ -56,6 +56,7 @@ flyctl secrets set \
   CLERK_SECRET_KEY="sk_live_..." \
   SESSION_SECRET="$(openssl rand -base64 32)" \
   ENCRYPTION_SECRET="$(openssl rand -base64 32)" \
+  CLI_AUTH_SECRET="$(openssl rand -base64 32)" \
   CORS_ORIGIN="https://<your-frontend>.fly.dev" \
   AGENT_SERVER_URL="https://<your-backend>.fly.dev" \
   TESTS_REPO_URL="https://github.com/your-org/f0_library.git" \
@@ -74,6 +75,7 @@ flyctl secrets set \
 | `CLERK_SECRET_KEY` | `sk_live_...` | From Clerk dashboard |
 | `SESSION_SECRET` | `<openssl rand -base64 32>` | Generate a random secret |
 | `ENCRYPTION_SECRET` | `<openssl rand -base64 32>` | **Required** — see note below |
+| `CLI_AUTH_SECRET` | `<openssl rand -base64 32>` | **Required** for CLI login (`achilles login`) |
 | `CORS_ORIGIN` | `https://<your-frontend>.fly.dev` | Your frontend's Fly URL |
 | `AGENT_SERVER_URL` | `https://<your-backend>.fly.dev` | Your backend's Fly URL |
 | `TESTS_REPO_URL` | `https://github.com/your-org/f0_library.git` | Test library repo |

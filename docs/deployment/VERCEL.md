@@ -130,6 +130,7 @@ Configure these in the Vercel Dashboard (**Settings → Environment Variables**)
 | `CLERK_SECRET_KEY` | `sk_live_...` | From Clerk dashboard |
 | `SESSION_SECRET` | `openssl rand -base64 32` | Generate a random value |
 | `ENCRYPTION_SECRET` | `openssl rand -base64 32` | **Required** — no fallback on Vercel |
+| `CLI_AUTH_SECRET` | `openssl rand -base64 32` | **Required** for CLI login (`achilles login`) |
 | `TURSO_DATABASE_URL` | `libsql://projectachilles-...turso.io` | From Step 1 |
 | `TURSO_AUTH_TOKEN` | `eyJhbGci...` | From Step 1 |
 | `SIGNING_PRIVATE_KEY_B64` | Base64 string | From Step 2 |

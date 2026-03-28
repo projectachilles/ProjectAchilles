@@ -192,7 +192,7 @@ Clerk integration (`clerk.middleware.ts`) provides:
 
 ### CLI Authentication Details
 
-The CLI device flow (`cliAuth.middleware.ts`) uses JWT tokens with `type: 'cli'`, signed with `CLI_AUTH_SECRET` (falls back to `ENCRYPTION_SECRET`). The `acceptCliAuth()` middleware only activates when Clerk has not already authenticated the request, ensuring zero interference with normal web auth.
+The CLI device flow (`cliAuth.middleware.ts`) uses JWT tokens with `type: 'cli'`, signed with `CLI_AUTH_SECRET`. This env var is mandatory — there is no fallback. The `acceptCliAuth()` middleware only activates when Clerk has not already authenticated the request, ensuring zero interference with normal web auth.
 
 ## Rate Limiting Strategy
 
