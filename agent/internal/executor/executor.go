@@ -278,14 +278,24 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 	}
 
 	// Step 9b: Check for bundle_results.json (cyber-hygiene bundles write per-control results).
-	// The test binary writes to the task-local F0_BUNDLE_DIR (set in Step 7).
-	bundlePath := filepath.Join(bundleDir, "bundle_results.json")
-	if data, err := os.ReadFile(bundlePath); err == nil {
-		var bundle BundleResults
-		if json.Unmarshal(data, &bundle) == nil && bundle.BundleID == task.Payload.TestUUID {
-			result.BundleResults = &bundle
+	// Preferred: task-local F0_BUNDLE_DIR (set in Step 7).
+	// Fallback: legacy LOG_DIR paths (C:\F0 on Windows, /tmp/F0 on Linux/macOS) —
+	// existing test binaries may not yet honour F0_BUNDLE_DIR.
+	bundleCandidates := []string{filepath.Join(bundleDir, "bundle_results.json")}
+	if runtime.GOOS == "windows" {
+		bundleCandidates = append(bundleCandidates, `C:\F0\bundle_results.json`)
+	} else {
+		bundleCandidates = append(bundleCandidates, "/tmp/F0/bundle_results.json")
+	}
+	for _, bundlePath := range bundleCandidates {
+		if data, err := os.ReadFile(bundlePath); err == nil {
+			var bundle BundleResults
+			if json.Unmarshal(data, &bundle) == nil && bundle.BundleID == task.Payload.TestUUID {
+				result.BundleResults = &bundle
+			}
+			os.Remove(bundlePath)
+			break
 		}
-		os.Remove(bundlePath)
 	}
 
 	// Steps 10-11: Cleanup handled by defer; return result.
