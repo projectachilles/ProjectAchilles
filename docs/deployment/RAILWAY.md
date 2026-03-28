@@ -55,12 +55,16 @@ Services communicate over Railway's [private network](https://docs.railway.com/g
    AGENT_SERVER_URL=https://<your-backend>.up.railway.app
    TESTS_REPO_URL=https://github.com/your-org/f0_library.git
    TESTS_REPO_BRANCH=main
+   AGENT_REPO_URL=https://github.com/your-org/f0_library.git
+   AGENT_REPO_BRANCH=main
    GITHUB_TOKEN=ghp_...
    ELASTICSEARCH_CLOUD_ID=<from Elastic Cloud console>
    ELASTICSEARCH_API_KEY=<from Elastic Cloud console>
    ```
 
    > **`ENCRYPTION_SECRET` is required on Railway.** Without it, the backend falls back to a machine-derived key (hostname + username) that changes across deploys, corrupting encrypted settings.
+   >
+   > **`AGENT_REPO_URL` enables agent build-from-source.** Without it, the "Build Agent Binary" feature in Settings → Agent is unavailable. Set it to the same repo as `TESTS_REPO_URL` if the agent source is in the same repository.
 
 6. Assign a **public domain** (Settings → Networking → Generate Domain)
    - This is the URL agents will use to report results (`AGENT_SERVER_URL`)
