@@ -317,6 +317,91 @@ TESTS = [
 #   0   = NormalExit (inconclusive)
 #   259 = StillActive / timeout (inconclusive)
 #   999 = UnexpectedTestError (error)
+# =============================================================================
+# Bundle Test Definitions (CIS, multi-stage)
+# =============================================================================
+
+CIS_WINDOWS_CONTROLS = [
+    {"id": "CH-DEF-001", "name": "Ensure Windows Defender Real-Time Protection is Enabled", "validator": "validator-defender", "techniques": ["T1562.001"], "tactics": ["Defense Evasion"]},
+    {"id": "CH-DEF-002", "name": "Ensure Windows Defender Cloud Protection is Enabled", "validator": "validator-defender", "techniques": ["T1562.001"], "tactics": ["Defense Evasion"]},
+    {"id": "CH-DEF-003", "name": "Ensure Windows Defender PUA Protection is Enabled", "validator": "validator-defender", "techniques": ["T1562.001"], "tactics": ["Defense Evasion"]},
+    {"id": "CH-FW-001", "name": "Ensure Windows Firewall Domain Profile is Enabled", "validator": "validator-firewall", "techniques": ["T1562.004"], "tactics": ["Defense Evasion"]},
+    {"id": "CH-FW-002", "name": "Ensure Windows Firewall Private Profile is Enabled", "validator": "validator-firewall", "techniques": ["T1562.004"], "tactics": ["Defense Evasion"]},
+    {"id": "CH-FW-003", "name": "Ensure Windows Firewall Public Profile is Enabled", "validator": "validator-firewall", "techniques": ["T1562.004"], "tactics": ["Defense Evasion"]},
+    {"id": "CH-UAC-001", "name": "Ensure UAC is Enabled", "validator": "validator-uac", "techniques": ["T1548.002"], "tactics": ["Privilege Escalation", "Defense Evasion"]},
+    {"id": "CH-UAC-002", "name": "Ensure UAC Prompt for Elevation on Secure Desktop", "validator": "validator-uac", "techniques": ["T1548.002"], "tactics": ["Privilege Escalation"]},
+    {"id": "CH-PWD-001", "name": "Ensure Minimum Password Length is 14 Characters", "validator": "validator-password-policy", "techniques": ["T1110.001"], "tactics": ["Credential Access"]},
+    {"id": "CH-PWD-002", "name": "Ensure Password Complexity Requirements are Met", "validator": "validator-password-policy", "techniques": ["T1110.001"], "tactics": ["Credential Access"]},
+    {"id": "CH-PWD-003", "name": "Ensure Account Lockout Threshold is 5 or Fewer", "validator": "validator-password-policy", "techniques": ["T1110.001"], "tactics": ["Credential Access"]},
+    {"id": "CH-AUD-001", "name": "Ensure Audit Policy for Logon Events is Configured", "validator": "validator-audit", "techniques": ["T1562.002"], "tactics": ["Defense Evasion"]},
+    {"id": "CH-AUD-002", "name": "Ensure Audit Policy for Object Access is Configured", "validator": "validator-audit", "techniques": ["T1562.002"], "tactics": ["Defense Evasion"]},
+    {"id": "CH-NET-001", "name": "Ensure SMBv1 Protocol is Disabled", "validator": "validator-network", "techniques": ["T1210"], "tactics": ["Lateral Movement"]},
+    {"id": "CH-NET-002", "name": "Ensure Remote Desktop is Restricted", "validator": "validator-network", "techniques": ["T1021.001"], "tactics": ["Lateral Movement"]},
+    {"id": "CH-LSA-001", "name": "Ensure LSA Protection is Enabled", "validator": "validator-lsa", "techniques": ["T1003.001"], "tactics": ["Credential Access"]},
+    {"id": "CH-LSA-002", "name": "Ensure Credential Guard is Enabled", "validator": "validator-lsa", "techniques": ["T1003.001"], "tactics": ["Credential Access"]},
+    {"id": "CH-IEP-001", "name": "Ensure BitLocker Drive Encryption is Enabled", "validator": "validator-encryption", "techniques": ["T1005"], "tactics": ["Collection"]},
+    {"id": "CH-IEP-002", "name": "Ensure Secure Boot is Enabled", "validator": "validator-encryption", "techniques": ["T1542.003"], "tactics": ["Persistence", "Defense Evasion"]},
+    {"id": "CH-IEP-003", "name": "Ensure Windows Update is Configured for Auto-Install", "validator": "validator-updates", "techniques": ["T1190"], "tactics": ["Initial Access"]},
+]
+
+CIS_LINUX_CONTROLS = [
+    {"id": "CH-SSH-001", "name": "Ensure SSH Root Login is Disabled", "validator": "validator-ssh", "techniques": ["T1021.004"], "tactics": ["Lateral Movement"]},
+    {"id": "CH-SSH-002", "name": "Ensure SSH Protocol is Version 2", "validator": "validator-ssh", "techniques": ["T1021.004"], "tactics": ["Lateral Movement"]},
+    {"id": "CH-SSH-003", "name": "Ensure SSH MaxAuthTries is 4 or Less", "validator": "validator-ssh", "techniques": ["T1110.001"], "tactics": ["Credential Access"]},
+    {"id": "CH-FW-001", "name": "Ensure UFW/iptables is Active", "validator": "validator-firewall", "techniques": ["T1562.004"], "tactics": ["Defense Evasion"]},
+    {"id": "CH-FW-002", "name": "Ensure Default Deny Firewall Policy", "validator": "validator-firewall", "techniques": ["T1562.004"], "tactics": ["Defense Evasion"]},
+    {"id": "CH-FS-001", "name": "Ensure /tmp is a Separate Partition", "validator": "validator-filesystem", "techniques": ["T1036"], "tactics": ["Defense Evasion"]},
+    {"id": "CH-FS-002", "name": "Ensure noexec on /tmp", "validator": "validator-filesystem", "techniques": ["T1059"], "tactics": ["Execution"]},
+    {"id": "CH-AUD-001", "name": "Ensure auditd is Installed and Running", "validator": "validator-audit", "techniques": ["T1562.002"], "tactics": ["Defense Evasion"]},
+    {"id": "CH-AUD-002", "name": "Ensure Audit Logs are Not Automatically Deleted", "validator": "validator-audit", "techniques": ["T1070.002"], "tactics": ["Defense Evasion"]},
+    {"id": "CH-PWD-001", "name": "Ensure Password Minimum Length is 14", "validator": "validator-password-policy", "techniques": ["T1110.001"], "tactics": ["Credential Access"]},
+    {"id": "CH-SUID-001", "name": "Ensure No World-Writable SUID Programs", "validator": "validator-permissions", "techniques": ["T1548.001"], "tactics": ["Privilege Escalation"]},
+    {"id": "CH-SUID-002", "name": "Ensure No Unowned Files or Directories", "validator": "validator-permissions", "techniques": ["T1222.002"], "tactics": ["Defense Evasion"]},
+    {"id": "CH-SVC-001", "name": "Ensure Unnecessary Services are Disabled", "validator": "validator-services", "techniques": ["T1543.002"], "tactics": ["Persistence"]},
+    {"id": "CH-CRON-001", "name": "Ensure Cron Daemon is Enabled and Running", "validator": "validator-cron", "techniques": ["T1053.003"], "tactics": ["Persistence", "Execution"]},
+]
+
+MULTISTAGE_TESTS = [
+    {
+        "name": "DPRK BlueNoroff Financial Sector Attack Chain",
+        "category": "intel-driven",
+        "threat_actor": "Lazarus Group",
+        "stages": [
+            {"id": "T1566.001", "name": "Spearphishing Attachment Delivery", "validator": "stage1-initial-access", "techniques": ["T1566.001"], "tactics": ["Initial Access"]},
+            {"id": "T1059.001", "name": "PowerShell Payload Execution", "validator": "stage2-execution", "techniques": ["T1059.001"], "tactics": ["Execution"]},
+            {"id": "T1055.001", "name": "Process Injection for Evasion", "validator": "stage3-defense-evasion", "techniques": ["T1055.001"], "tactics": ["Defense Evasion"]},
+            {"id": "T1003.001", "name": "LSASS Credential Dump", "validator": "stage4-credential-access", "techniques": ["T1003.001"], "tactics": ["Credential Access"]},
+            {"id": "T1041", "name": "C2 Data Exfiltration", "validator": "stage5-exfiltration", "techniques": ["T1041"], "tactics": ["Exfiltration"]},
+        ],
+    },
+    {
+        "name": "ESXi Hypervisor Ransomware Kill Chain (RansomHub/Akira)",
+        "category": "intel-driven",
+        "threat_actor": "RansomHub",
+        "stages": [
+            {"id": "T1190", "name": "Exploit Public-Facing Application", "validator": "stage1-exploit", "techniques": ["T1190"], "tactics": ["Initial Access"]},
+            {"id": "T1021.004", "name": "SSH Lateral Movement", "validator": "stage2-lateral", "techniques": ["T1021.004"], "tactics": ["Lateral Movement"]},
+            {"id": "T1562.001", "name": "Disable ESXi Firewall", "validator": "stage3-defense-evasion", "techniques": ["T1562.001"], "tactics": ["Defense Evasion"]},
+            {"id": "T1486", "name": "VM Encryption (Ransomware)", "validator": "stage4-impact", "techniques": ["T1486"], "tactics": ["Impact"]},
+        ],
+    },
+]
+
+BUNDLE_TESTS = [
+    {
+        "name": "CIS Windows Endpoint Level 1 Hardening Bundle",
+        "category": "cyber-hygiene",
+        "controls": CIS_WINDOWS_CONTROLS,
+        "protection_rate": 0.55,
+    },
+    {
+        "name": "CIS Linux Endpoint Level 1 Hardening Bundle",
+        "category": "cyber-hygiene",
+        "controls": CIS_LINUX_CONTROLS,
+        "protection_rate": 0.60,
+    },
+]
+
 ERROR_TYPES = [
     # --- Conclusive: unprotected ---
     {"code": 101, "name": "Unprotected"},
@@ -441,27 +526,102 @@ def generate_execution(test, org, hostname, timestamp):
     }
 
 
+def generate_bundle_execution(bundle, org, hostname, timestamp, index_name):
+    """Generate bundle control documents for a CIS bundle or multi-stage test."""
+    lines = []
+    bundle_id = str(uuid.uuid4())
+    controls = bundle.get("controls") or bundle.get("stages", [])
+    category = bundle["category"]
+    protection_rate = bundle.get("protection_rate", 0.30)
+    threat_actor = bundle.get("threat_actor")
+
+    for ctrl in controls:
+        # For cyber-hygiene bundles: weighted by protection_rate
+        # For multi-stage: stage 0 (skipped) exit_code=0, rest weighted
+        is_stage = "stages" in bundle
+        if is_stage and ctrl == controls[0]:
+            # First stage of multi-stage is often skipped (exit_code=0)
+            error_code = 0 if random.random() < 0.7 else 101
+        else:
+            is_protected = random.random() < protection_rate
+            error_code = random.choice(PROTECTED_CODES) if is_protected else 101
+
+        actually_protected = error_code in PROTECTED_CODES
+
+        doc = {
+            "routing": {
+                "event_time": timestamp,
+                "oid": org["uuid"],
+                "hostname": hostname,
+            },
+            "f0rtika": {
+                "test_uuid": f"{bundle_id}::{ctrl['id']}",
+                "test_name": ctrl["name"],
+                "is_protected": actually_protected,
+                "error_name": next((e["name"] for e in ERROR_TYPES if e["code"] == error_code), "Unknown"),
+                "category": category,
+                "severity": "medium" if category == "cyber-hygiene" else "high",
+                "techniques": ctrl.get("techniques", []),
+                "tactics": ctrl.get("tactics", []),
+                "threat_actor": threat_actor or random.choice(["APT29", "APT28", "Lazarus Group"]),
+                "bundle_id": bundle_id,
+                "bundle_name": bundle["name"],
+                "control_id": ctrl["id"],
+                "control_validator": ctrl.get("validator", ""),
+                "is_bundle_control": True,
+            },
+            "event": {
+                "ERROR": error_code,
+            },
+        }
+
+        action = {"index": {"_index": index_name}}
+        lines.append(json.dumps(action))
+        lines.append(json.dumps(doc))
+
+    return lines
+
+
 def generate_bulk_data(count, index_name="achilles-results-synthetic", days_back=30):
-    """Generate NDJSON bulk data for Elasticsearch."""
+    """Generate NDJSON bulk data for Elasticsearch.
+
+    In addition to standalone test results, generates ~20% of the count as
+    bundle control documents (CIS bundles and multi-stage attack chains).
+    """
     lines = []
 
-    for i in range(count):
-        # Select random components
+    # Generate bundle executions (~20% of requested count)
+    all_bundles = BUNDLE_TESTS + MULTISTAGE_TESTS
+    bundle_count = max(4, count // 50)  # ~2% as bundle executions, each with many controls
+    doc_count = 0
+
+    for i in range(bundle_count):
+        bundle = random.choice(all_bundles)
+        org = random.choice(ORGANIZATIONS)
+        hostname = random.choice(HOSTNAMES)
+        timestamp = generate_timestamp(days_back=days_back)
+        bundle_lines = generate_bundle_execution(bundle, org, hostname, timestamp, index_name)
+        lines.extend(bundle_lines)
+        doc_count += len(bundle_lines) // 2  # 2 lines per doc (action + doc)
+
+    print(f"Generated {doc_count} bundle control documents from {bundle_count} bundle executions")
+
+    # Generate standalone test results for the remaining count
+    standalone_count = max(0, count - doc_count)
+    for i in range(standalone_count):
         test = random.choice(TESTS)
         org = random.choice(ORGANIZATIONS)
         hostname = random.choice(HOSTNAMES)
         timestamp = generate_timestamp(days_back=days_back)
 
-        # Generate the execution document
         doc = generate_execution(test, org, hostname, timestamp)
 
-        # Create bulk action and document lines
         action = {"index": {"_index": index_name}}
         lines.append(json.dumps(action))
         lines.append(json.dumps(doc))
 
         if (i + 1) % 1000 == 0:
-            print(f"Generated {i + 1}/{count} documents...")
+            print(f"Generated {doc_count + i + 1}/{count} documents...")
 
     return "\n".join(lines) + "\n"
 
