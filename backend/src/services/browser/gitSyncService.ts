@@ -168,11 +168,27 @@ export class GitSyncService {
 
   /**
    * Ensure repository is available (clone if missing, otherwise use existing)
-   * Does NOT automatically pull - call pull() separately if you want latest
+   * Does NOT automatically pull - call pull() separately if you want latest.
+   * Re-applies sparse checkout paths if the existing repo has different paths configured.
    */
   public async ensureRepo(): Promise<void> {
     if (this.repoExists()) {
       console.log(`Repository already exists at ${this.config.localPath}`);
+
+      // Verify sparse checkout includes the expected paths (may differ if a previous
+      // clone used different sparseCheckoutPaths for the same localPath, or if the
+      // initial clone failed partway through).
+      const sparsePaths = this.config.sparseCheckoutPaths;
+      if (sparsePaths && sparsePaths.length > 0) {
+        const sourceDir = path.join(this.config.localPath, this.config.sourceSubdir || sparsePaths[0]);
+        if (!fs.existsSync(sourceDir)) {
+          console.log(`  Sparse checkout missing ${this.config.sourceSubdir || sparsePaths[0]}, re-applying...`);
+          const repoGit = simpleGit(this.config.localPath);
+          await repoGit.raw(['sparse-checkout', 'set', ...sparsePaths]);
+          await repoGit.checkout(this.config.branch);
+        }
+      }
+
       await this.updateStatus();
       return;
     }
