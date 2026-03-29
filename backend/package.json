@@ -36,7 +36,10 @@
   },
   "overrides": {
     "qs": "6.14.2",
-    "undici@<6.24.0": "6.24.1"
+    "undici@<6.24.0": "6.24.1",
+    "express": {
+      "path-to-regexp": "0.1.13"
+    }
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
