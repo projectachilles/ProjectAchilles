@@ -652,8 +652,11 @@ export class DefenderAnalyticsService {
 
     const testTime = new Date(timestamp).getTime();
     const windowMs = windowMinutes * 60 * 1000;
-    // Alerts should appear DURING or AFTER the test, not before
-    const from = new Date(testTime).toISOString();
+    // Alerts can be generated DURING execution (before completed_at) as Defender
+    // processes telemetry in real-time. Start 5 minutes before test completion
+    // to catch alerts triggered mid-execution.
+    const PRE_WINDOW_MS = 5 * 60 * 1000;
+    const from = new Date(testTime - PRE_WINDOW_MS).toISOString();
     const to = new Date(testTime + windowMs).toISOString();
 
     const parseHits = (hits: any[]) => {
