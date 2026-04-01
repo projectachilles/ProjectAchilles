@@ -632,72 +632,114 @@ export class DefenderAnalyticsService {
     };
   }
 
+  /**
+   * Find Defender alerts correlated to a specific test execution.
+   *
+   * Primary match: alert evidence contains the test binary filename AND
+   * originated from the same hostname, within 0 to +windowMinutes after test.
+   *
+   * Fallback: if no evidence-based matches, falls back to MITRE technique
+   * matching on the same hostname within the time window.
+   */
   async getAlertsForTest(
     techniques: string[],
     timestamp: string,
     windowMinutes: number,
+    hostname?: string,
+    binaryName?: string,
   ): Promise<RelatedAlertsResponse> {
     const client = this.getEsClient();
 
     const testTime = new Date(timestamp).getTime();
     const windowMs = windowMinutes * 60 * 1000;
-    const from = new Date(testTime - windowMs).toISOString();
+    // Alerts should appear DURING or AFTER the test, not before
+    const from = new Date(testTime).toISOString();
     const to = new Date(testTime + windowMs).toISOString();
 
-    const result = await client.search({
-      index: DEFENDER_INDEX,
-      size: 50,
-      query: {
+    const parseHits = (hits: any[]) => {
+      const matchedTechniqueSet = new Set<string>();
+      const alerts = hits.map((hit) => {
+        const s = hit._source as Record<string, unknown>;
+        const alertTechniques = (s.mitre_techniques as string[]) ?? [];
+        for (const t of alertTechniques) {
+          if (techniques.includes(t)) matchedTechniqueSet.add(t);
+        }
+        return {
+          alert_id: String(s.alert_id ?? ''),
+          alert_title: String(s.alert_title ?? ''),
+          description: String(s.description ?? ''),
+          severity: String(s.severity ?? ''),
+          status: String(s.status ?? ''),
+          category: String(s.category ?? ''),
+          service_source: String(s.service_source ?? ''),
+          mitre_techniques: alertTechniques,
+          created_at: String(s.created_at ?? ''),
+          updated_at: String(s.updated_at ?? ''),
+          resolved_at: s.resolved_at ? String(s.resolved_at) : null,
+          recommended_actions: String(s.recommended_actions ?? ''),
+        };
+      });
+      // Sort by proximity to the test execution timestamp
+      alerts.sort((a, b) => {
+        const aDiff = Math.abs(new Date(a.created_at).getTime() - testTime);
+        const bDiff = Math.abs(new Date(b.created_at).getTime() - testTime);
+        return aDiff - bDiff;
+      });
+      return { alerts, matchedTechniques: Array.from(matchedTechniqueSet) };
+    };
+
+    // --- Primary: evidence-based correlation (binary filename + hostname) ---
+    if (binaryName && hostname) {
+      const evidenceQuery = {
         bool: {
           must: [
             { term: { doc_type: 'alert' } },
-            { terms: { mitre_techniques: techniques } },
+            { term: { evidence_filenames: binaryName.toLowerCase() } },
+            { term: { evidence_hostnames: hostname.toUpperCase() } },
             { range: { created_at: { gte: from, lte: to } } },
           ],
         },
-      },
+      };
+
+      const evidenceResult = await client.search({
+        index: DEFENDER_INDEX,
+        size: 50,
+        query: evidenceQuery,
+        sort: [{ created_at: { order: 'asc' } }],
+      });
+
+      const evidenceTotal = typeof evidenceResult.hits.total === 'number'
+        ? evidenceResult.hits.total
+        : evidenceResult.hits.total?.value ?? 0;
+
+      if (evidenceTotal > 0) {
+        const { alerts, matchedTechniques } = parseHits(evidenceResult.hits.hits);
+        return { alerts, matchedTechniques, total: evidenceTotal };
+      }
+    }
+
+    // --- Fallback: technique + hostname correlation ---
+    const fallbackFilters: any[] = [
+      { term: { doc_type: 'alert' } },
+      { terms: { mitre_techniques: techniques } },
+      { range: { created_at: { gte: from, lte: to } } },
+    ];
+    if (hostname) {
+      fallbackFilters.push({ term: { evidence_hostnames: hostname.toUpperCase() } });
+    }
+
+    const fallbackResult = await client.search({
+      index: DEFENDER_INDEX,
+      size: 50,
+      query: { bool: { must: fallbackFilters } },
       sort: [{ created_at: { order: 'asc' } }],
     });
 
-    const total = typeof result.hits.total === 'number'
-      ? result.hits.total
-      : (result.hits.total as { value: number })?.value ?? 0;
+    const fallbackTotal = typeof fallbackResult.hits.total === 'number'
+      ? fallbackResult.hits.total
+      : fallbackResult.hits.total?.value ?? 0;
 
-    const matchedTechniqueSet = new Set<string>();
-
-    const alerts = result.hits.hits.map((hit) => {
-      const s = hit._source as Record<string, unknown>;
-      const alertTechniques = (s.mitre_techniques as string[]) ?? [];
-      for (const t of alertTechniques) {
-        if (techniques.includes(t)) matchedTechniqueSet.add(t);
-      }
-      return {
-        alert_id: String(s.alert_id ?? ''),
-        alert_title: String(s.alert_title ?? ''),
-        description: String(s.description ?? ''),
-        severity: String(s.severity ?? ''),
-        status: String(s.status ?? ''),
-        category: String(s.category ?? ''),
-        service_source: String(s.service_source ?? ''),
-        mitre_techniques: alertTechniques,
-        created_at: String(s.created_at ?? ''),
-        updated_at: String(s.updated_at ?? ''),
-        resolved_at: s.resolved_at ? String(s.resolved_at) : null,
-        recommended_actions: String(s.recommended_actions ?? ''),
-      };
-    });
-
-    // Sort by proximity to the test execution timestamp
-    alerts.sort((a, b) => {
-      const aDiff = Math.abs(new Date(a.created_at).getTime() - testTime);
-      const bDiff = Math.abs(new Date(b.created_at).getTime() - testTime);
-      return aDiff - bDiff;
-    });
-
-    return {
-      alerts,
-      matchedTechniques: Array.from(matchedTechniqueSet),
-      total,
-    };
+    const { alerts, matchedTechniques } = parseHits(fallbackResult.hits.hits);
+    return { alerts, matchedTechniques, total: fallbackTotal };
   }
 }

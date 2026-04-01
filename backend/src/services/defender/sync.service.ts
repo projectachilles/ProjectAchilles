@@ -164,6 +164,28 @@ export class DefenderSyncService {
   }
 
   private transformAlert(alert: GraphAlert, tenantId: string): DefenderAlertDoc {
+    // Extract hostnames and filenames from evidence for precise correlation
+    const hostnames = new Set<string>();
+    const filenames = new Set<string>();
+
+    for (const ev of alert.evidence ?? []) {
+      // Device evidence → hostname
+      if (ev.deviceDnsName) {
+        hostnames.add(ev.deviceDnsName.toUpperCase());
+      }
+      // Process evidence → binary filename
+      if (ev.imageFile?.fileName) {
+        filenames.add(ev.imageFile.fileName.toLowerCase());
+      }
+      if (ev.parentProcess?.imageFile?.fileName) {
+        filenames.add(ev.parentProcess.imageFile.fileName.toLowerCase());
+      }
+      // File evidence → filename
+      if (ev.fileDetails?.fileName) {
+        filenames.add(ev.fileDetails.fileName.toLowerCase());
+      }
+    }
+
     return {
       doc_type: 'alert',
       timestamp: alert.lastUpdateDateTime || alert.createdDateTime,
@@ -180,6 +202,8 @@ export class DefenderSyncService {
       updated_at: alert.lastUpdateDateTime,
       resolved_at: alert.resolvedDateTime ?? null,
       recommended_actions: alert.recommendedActions ?? '',
+      evidence_hostnames: Array.from(hostnames),
+      evidence_filenames: Array.from(filenames),
     };
   }
 

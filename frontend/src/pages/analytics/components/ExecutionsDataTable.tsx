@@ -297,12 +297,22 @@ export default function ExecutionsDataTable({
     const techniques = exec.techniques;
     if (!techniques || techniques.length === 0) return;
 
-    const cacheKey = exec.test_uuid + '::alerts';
+    // Cache key includes hostname for per-host correlation
+    const cacheKey = `${exec.test_uuid}::${exec.hostname}::alerts`;
     if (alertsCache.current.has(cacheKey)) return;
+
+    // Derive binary name: for bundle controls use the base UUID (before ::),
+    // for standalone tests use the test_uuid directly. Binary is <uuid>.exe.
+    const baseUuid = exec.test_uuid.includes('::')
+      ? exec.test_uuid.split('::')[0]
+      : exec.test_uuid;
+    const binaryName = `${baseUuid}.exe`;
 
     setAlertsLoading(cacheKey);
     try {
-      const result = await defenderApi.getAlertsForTest(techniques, exec.timestamp);
+      const result = await defenderApi.getAlertsForTest(
+        techniques, exec.timestamp, 30, exec.hostname, binaryName,
+      );
       alertsCache.current.set(cacheKey, result);
       setAlertsMap(prev => new Map(prev).set(cacheKey, result));
     } catch {
@@ -881,7 +891,7 @@ export default function ExecutionsDataTable({
       </div>
       {/* Related Defender Alerts */}
       {defenderConfigured && exec.techniques && exec.techniques.length > 0 && (() => {
-        const alertKey = exec.test_uuid + '::alerts';
+        const alertKey = `${exec.test_uuid}::${exec.hostname}::alerts`;
         const alertData = alertsMap.get(alertKey);
         const isLoadingAlerts = alertsLoading === alertKey;
 

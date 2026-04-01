@@ -54,6 +54,8 @@ export const DEFENDER_INDEX_MAPPING = {
       updated_at: { type: 'date' as const },
       resolved_at: { type: 'date' as const },
       recommended_actions: { type: 'text' as const },
+      evidence_hostnames: { type: 'keyword' as const },
+      evidence_filenames: { type: 'keyword' as const },
     },
   },
 };

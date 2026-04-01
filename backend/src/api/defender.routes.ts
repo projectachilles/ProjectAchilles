@@ -123,7 +123,9 @@ router.get('/correlation/detection-rate', requirePermission('analytics:dashboard
 router.get('/correlation/alerts-for-test', requirePermission('analytics:dashboards:read'), asyncHandler(async (req, res) => {
   const techniques = String(req.query.techniques ?? '');
   const timestamp = String(req.query.timestamp ?? '');
-  const windowMinutes = parseInt(String(req.query.windowMinutes ?? '60'), 10);
+  const windowMinutes = parseInt(String(req.query.windowMinutes ?? '30'), 10);
+  const hostname = req.query.hostname ? String(req.query.hostname) : undefined;
+  const binaryName = req.query.binaryName ? String(req.query.binaryName) : undefined;
 
   if (!techniques || !timestamp) {
     throw new AppError('techniques and timestamp are required', 400);
@@ -133,6 +135,8 @@ router.get('/correlation/alerts-for-test', requirePermission('analytics:dashboar
     techniques.split(',').map((t) => t.trim()).filter(Boolean),
     timestamp,
     windowMinutes,
+    hostname,
+    binaryName,
   );
   res.json(data);
 }));

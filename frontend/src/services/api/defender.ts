@@ -194,10 +194,18 @@ export const defenderApi = {
   async getAlertsForTest(
     techniques: string[],
     timestamp: string,
-    windowMinutes = 60,
+    windowMinutes = 30,
+    hostname?: string,
+    binaryName?: string,
   ): Promise<RelatedAlertsResponse> {
     const res = await apiClient.get('/analytics/defender/correlation/alerts-for-test', {
-      params: { techniques: techniques.join(','), timestamp, windowMinutes },
+      params: {
+        techniques: techniques.join(','),
+        timestamp,
+        windowMinutes,
+        ...(hostname && { hostname }),
+        ...(binaryName && { binaryName }),
+      },
     });
     return res.data;
   },

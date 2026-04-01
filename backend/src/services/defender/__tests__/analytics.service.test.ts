@@ -606,15 +606,15 @@ describe('DefenderAnalyticsService', () => {
 
       const searchCall = mockSearch.mock.calls[0][0];
 
-      // Verify time window: ±30 minutes around 12:00
+      // Verify time window: 0 to +30 minutes after test (12:00 to 12:30)
       const rangeFilter = searchCall.query.bool.must.find(
         (f: Record<string, unknown>) => 'range' in f
       );
       expect(rangeFilter).toBeDefined();
-      expect(rangeFilter.range.created_at.gte).toBe('2026-02-25T11:30:00.000Z');
+      expect(rangeFilter.range.created_at.gte).toBe('2026-02-25T12:00:00.000Z');
       expect(rangeFilter.range.created_at.lte).toBe('2026-02-25T12:30:00.000Z');
 
-      // Verify techniques filter
+      // Verify techniques filter (fallback path — no hostname/binaryName provided)
       const termsFilter = searchCall.query.bool.must.find(
         (f: Record<string, unknown>) => 'terms' in f
       );

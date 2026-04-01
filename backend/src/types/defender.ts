@@ -35,6 +35,20 @@ export interface GraphControlProfile {
   deprecated: boolean;
 }
 
+export interface GraphAlertEvidence {
+  '@odata.type': string;
+  remediationStatus: string;
+  verdict: string;
+  // deviceEvidence fields
+  deviceDnsName?: string;
+  mdeDeviceId?: string;
+  // processEvidence fields
+  imageFile?: { fileName: string; filePath: string; sha256?: string };
+  parentProcess?: { imageFile?: { fileName: string; filePath: string } };
+  // fileEvidence fields
+  fileDetails?: { fileName: string; filePath: string; sha256?: string };
+}
+
 export interface GraphAlert {
   id: string;
   title: string;
@@ -48,7 +62,7 @@ export interface GraphAlert {
   resolvedDateTime?: string;
   mitreTechniques: string[];
   recommendedActions: string;
-  evidence: Array<{ '@odata.type': string; remediationStatus: string; verdict: string }>;
+  evidence: GraphAlertEvidence[];
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +118,10 @@ export interface DefenderAlertDoc {
   updated_at: string;
   resolved_at: string | null;
   recommended_actions: string;
+  /** Hostnames extracted from evidence (deviceEvidence.deviceDnsName). */
+  evidence_hostnames: string[];
+  /** Filenames extracted from evidence (process imageFile + fileDetails). */
+  evidence_filenames: string[];
 }
 
 // ---------------------------------------------------------------------------
