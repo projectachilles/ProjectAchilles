@@ -65,6 +65,12 @@ export class DefenderSyncService {
 
     try {
       const integrationsService = new IntegrationsSettingsService();
+
+      // Self-healing: remove bogus file-based defender entry with empty credentials.
+      // A prior code version accidentally wrote configured:true with empty creds
+      // when persisting sync timestamps, shadowing env-var-based credentials.
+      this.cleanupBogusDefenderEntry(integrationsService);
+
       const timestamps = integrationsService.getDefenderSyncTimestamps();
       if (timestamps.last_alert_sync) {
         this.syncStatus.lastAlertSync = timestamps.last_alert_sync;
@@ -74,6 +80,28 @@ export class DefenderSyncService {
       }
     } catch {
       // Settings not available yet — will do full initial sync
+    }
+  }
+
+  /** Remove a file-based defender entry that has configured:true but empty credentials. */
+  private cleanupBogusDefenderEntry(integrationsService: IntegrationsSettingsService): void {
+    try {
+      // Only relevant when credentials come from env vars
+      if (!integrationsService.isEnvDefenderConfigured()) return;
+
+      const settings = integrationsService.getDefenderSettings();
+      if (!settings) return;
+
+      // If file-based entry exists with empty credentials, it's the bogus one
+      const creds = integrationsService.getDefenderCredentials();
+      if (creds) return; // Credentials resolve fine — nothing to fix
+
+      // getDefenderSettings returned non-null (file entry exists with configured:true)
+      // but getDefenderCredentials returned null (empty creds) → bogus entry
+      console.warn('[Defender] Cleaning up bogus file-based defender entry with empty credentials');
+      integrationsService.deleteDefenderSettings();
+    } catch {
+      // Non-fatal
     }
   }
 
