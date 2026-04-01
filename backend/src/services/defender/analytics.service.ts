@@ -718,28 +718,55 @@ export class DefenderAnalyticsService {
       }
     }
 
-    // --- Fallback: technique + hostname correlation ---
-    const fallbackFilters: any[] = [
-      { term: { doc_type: 'alert' } },
-      { terms: { mitre_techniques: techniques } },
-      { range: { created_at: { gte: from, lte: to } } },
-    ];
+    // --- Fallback 1: technique + hostname (via evidence) ---
     if (hostname) {
-      fallbackFilters.push({ term: { evidence_hostnames: hostname.toUpperCase() } });
+      const hostFallbackResult = await client.search({
+        index: DEFENDER_INDEX,
+        size: 50,
+        query: {
+          bool: {
+            must: [
+              { term: { doc_type: 'alert' } },
+              { terms: { mitre_techniques: techniques } },
+              { term: { evidence_hostnames: hostname.toUpperCase() } },
+              { range: { created_at: { gte: from, lte: to } } },
+            ],
+          },
+        },
+        sort: [{ created_at: { order: 'asc' } }],
+      });
+
+      const hostTotal = typeof hostFallbackResult.hits.total === 'number'
+        ? hostFallbackResult.hits.total
+        : hostFallbackResult.hits.total?.value ?? 0;
+
+      if (hostTotal > 0) {
+        const { alerts, matchedTechniques } = parseHits(hostFallbackResult.hits.hits);
+        return { alerts, matchedTechniques, total: hostTotal };
+      }
     }
 
-    const fallbackResult = await client.search({
+    // --- Fallback 2: technique-only (no hostname — alerts may lack evidence metadata) ---
+    const techniqueFallbackResult = await client.search({
       index: DEFENDER_INDEX,
       size: 50,
-      query: { bool: { must: fallbackFilters } },
+      query: {
+        bool: {
+          must: [
+            { term: { doc_type: 'alert' } },
+            { terms: { mitre_techniques: techniques } },
+            { range: { created_at: { gte: from, lte: to } } },
+          ],
+        },
+      },
       sort: [{ created_at: { order: 'asc' } }],
     });
 
-    const fallbackTotal = typeof fallbackResult.hits.total === 'number'
-      ? fallbackResult.hits.total
-      : fallbackResult.hits.total?.value ?? 0;
+    const techniqueTotal = typeof techniqueFallbackResult.hits.total === 'number'
+      ? techniqueFallbackResult.hits.total
+      : techniqueFallbackResult.hits.total?.value ?? 0;
 
-    const { alerts, matchedTechniques } = parseHits(fallbackResult.hits.hits);
-    return { alerts, matchedTechniques, total: fallbackTotal };
+    const { alerts, matchedTechniques } = parseHits(techniqueFallbackResult.hits.hits);
+    return { alerts, matchedTechniques, total: techniqueTotal };
   }
 }
