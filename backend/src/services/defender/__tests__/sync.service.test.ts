@@ -179,11 +179,13 @@ describe('DefenderSyncService', () => {
     it('uses incremental filter on second sync', async () => {
       mockGetAlerts.mockResolvedValue([]);
 
-      // First sync — no filter
+      // First sync — 90-day lookback filter (no persisted lastAlertSync)
       await service.syncAlerts();
-      expect(mockGetAlerts).toHaveBeenCalledWith(undefined);
+      expect(mockGetAlerts).toHaveBeenCalledWith(
+        expect.stringContaining('createdDateTime ge'),
+      );
 
-      // Second sync — should include lastUpdateDateTime filter
+      // Second sync — should include lastUpdateDateTime filter (incremental)
       mockGetAlerts.mockClear();
       await service.syncAlerts();
       expect(mockGetAlerts).toHaveBeenCalledWith(

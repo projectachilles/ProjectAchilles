@@ -20,6 +20,9 @@ import type {
   DefenderSyncStatus,
 } from '../../types/defender.js';
 
+/** Days of alert history to fetch on first sync (no persisted lastAlertSync). */
+const INITIAL_ALERT_LOOKBACK_DAYS = 90;
+
 export class DefenderSyncService {
   private graphClient: MicrosoftGraphClient | null = null;
   private syncStatus: DefenderSyncStatus = {
@@ -28,6 +31,7 @@ export class DefenderSyncService {
     lastAlertSync: null,
     lastSyncResult: null,
   };
+  private syncStatusLoaded = false;
 
   // ---------------------------------------------------------------------------
   // Client initialization
@@ -52,6 +56,38 @@ export class DefenderSyncService {
       throw new Error('Elasticsearch is not configured');
     }
     return createEsClient(settings);
+  }
+
+  /** Load persisted sync timestamps from integrations settings on first use. */
+  private async loadPersistedSyncStatus(): Promise<void> {
+    if (this.syncStatusLoaded) return;
+    this.syncStatusLoaded = true;
+
+    try {
+      const integrationsService = new IntegrationsSettingsService();
+      const settings = await integrationsService.getDefenderSettings();
+      if (settings?.last_alert_sync) {
+        this.syncStatus.lastAlertSync = settings.last_alert_sync;
+      }
+      if (settings?.last_score_sync) {
+        this.syncStatus.lastScoreSync = settings.last_score_sync;
+      }
+    } catch {
+      // Settings not available yet — will do full initial sync
+    }
+  }
+
+  /** Persist sync timestamps to integrations settings (Vercel Blob). */
+  private async persistSyncTimestamps(): Promise<void> {
+    try {
+      const integrationsService = new IntegrationsSettingsService();
+      await integrationsService.saveDefenderSettings({
+        last_alert_sync: this.syncStatus.lastAlertSync ?? undefined,
+        last_score_sync: this.syncStatus.lastScoreSync ?? undefined,
+      });
+    } catch {
+      // Non-fatal — sync continues, timestamps just won't survive next invocation
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -125,6 +161,8 @@ export class DefenderSyncService {
 
   /** Sync Secure Scores (upsert by date). */
   async syncSecureScores(): Promise<SyncResult> {
+    await this.loadPersistedSyncStatus();
+
     const client = await this.ensureGraphClient();
     const es = await this.getEsClient();
     await ensureDefenderIndex();
@@ -158,11 +196,13 @@ export class DefenderSyncService {
 
         synced = scores.length - errors.length;
       }
+
+      this.syncStatus.lastScoreSync = new Date().toISOString();
+      await this.persistSyncTimestamps();
     } catch (err) {
       errors.push(err instanceof Error ? err.message : String(err));
     }
 
-    this.syncStatus.lastScoreSync = new Date().toISOString();
     return { synced, errors };
   }
 
@@ -221,6 +261,8 @@ export class DefenderSyncService {
 
   /** Sync Alerts (incremental — only new/updated since last sync). */
   async syncAlerts(): Promise<SyncResult> {
+    await this.loadPersistedSyncStatus();
+
     const client = await this.ensureGraphClient();
     const es = await this.getEsClient();
     await ensureDefenderIndex();
@@ -229,9 +271,14 @@ export class DefenderSyncService {
     let synced = 0;
 
     try {
-      let filter: string | undefined;
+      // Build filter: incremental if we have a checkpoint, otherwise 90-day lookback
+      let filter: string;
       if (this.syncStatus.lastAlertSync) {
         filter = `lastUpdateDateTime ge ${this.syncStatus.lastAlertSync}`;
+      } else {
+        const lookback = new Date(Date.now() - INITIAL_ALERT_LOOKBACK_DAYS * 86400_000);
+        filter = `createdDateTime ge ${lookback.toISOString()}`;
+        console.log(`[Defender] Initial alert sync — fetching last ${INITIAL_ALERT_LOOKBACK_DAYS} days`);
       }
 
       const alerts = await client.getAlerts(filter);
@@ -261,11 +308,14 @@ export class DefenderSyncService {
 
         synced = alerts.length - errors.length;
       }
+
+      // Only update checkpoint on successful fetch
+      this.syncStatus.lastAlertSync = new Date().toISOString();
+      await this.persistSyncTimestamps();
     } catch (err) {
       errors.push(err instanceof Error ? err.message : String(err));
     }
 
-    this.syncStatus.lastAlertSync = new Date().toISOString();
     return { synced, errors };
   }
 

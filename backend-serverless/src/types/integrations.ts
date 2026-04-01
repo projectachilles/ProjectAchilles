@@ -14,6 +14,8 @@ export interface DefenderIntegrationSettings {
   client_secret: string;
   configured: boolean;
   label?: string;
+  last_alert_sync?: string;
+  last_score_sync?: string;
 }
 
 // ---------------------------------------------------------------------------

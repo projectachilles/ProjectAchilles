@@ -273,6 +273,8 @@ export class IntegrationsSettingsService {
       client_secret: settings.client_secret || current.client_secret,
       configured: true,
       label: settings.label !== undefined ? settings.label : current.label,
+      last_alert_sync: settings.last_alert_sync !== undefined ? settings.last_alert_sync : current.last_alert_sync,
+      last_score_sync: settings.last_score_sync !== undefined ? settings.last_score_sync : current.last_score_sync,
     };
 
     const encrypted = {

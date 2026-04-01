@@ -14,6 +14,9 @@ export interface DefenderIntegrationSettings {
   client_secret: string;
   configured: boolean;
   label?: string; // e.g. "Contoso Production"
+  /** Persisted sync timestamps so incremental syncs survive process restarts. */
+  last_alert_sync?: string;
+  last_score_sync?: string;
 }
 
 // ---------------------------------------------------------------------------
