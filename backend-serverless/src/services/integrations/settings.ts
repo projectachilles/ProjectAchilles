@@ -201,6 +201,41 @@ export class IntegrationsSettingsService {
     await blobWrite(SETTINGS_KEY, JSON.stringify(toSave, null, 2));
   }
 
+  /**
+   * Read persisted Defender sync timestamps from either the defender settings
+   * section (file-based credentials) or the standalone defender_sync key (env var credentials).
+   */
+  async getDefenderSyncTimestamps(): Promise<{ last_alert_sync?: string; last_score_sync?: string }> {
+    const settings = await this.getDefenderSettings();
+    if (settings?.last_alert_sync || settings?.last_score_sync) {
+      return { last_alert_sync: settings.last_alert_sync, last_score_sync: settings.last_score_sync };
+    }
+    const raw = await this.getRawFileSettings() as Record<string, any> | null;
+    const syncSection = raw?.defender_sync;
+    if (syncSection) {
+      return { last_alert_sync: syncSection.last_alert_sync, last_score_sync: syncSection.last_score_sync };
+    }
+    return {};
+  }
+
+  /**
+   * Save only Defender sync timestamps without touching credentials.
+   * Uses a standalone defender_sync key when no file-based defender section exists,
+   * preventing env-var credentials from being clobbered.
+   */
+  async saveDefenderSyncTimestamps(timestamps: { last_alert_sync?: string; last_score_sync?: string }): Promise<void> {
+    const existing = await this.getRawFileSettings() as Record<string, any> ?? {};
+
+    if (existing.defender) {
+      if (timestamps.last_alert_sync !== undefined) existing.defender.last_alert_sync = timestamps.last_alert_sync;
+      if (timestamps.last_score_sync !== undefined) existing.defender.last_score_sync = timestamps.last_score_sync;
+    } else {
+      existing.defender_sync = { ...existing.defender_sync, ...timestamps };
+    }
+
+    await blobWrite(SETTINGS_KEY, JSON.stringify(existing, null, 2));
+  }
+
   async isDefenderConfigured(): Promise<boolean> {
     const settings = await this.getDefenderSettings();
     if (!settings?.configured) return false;

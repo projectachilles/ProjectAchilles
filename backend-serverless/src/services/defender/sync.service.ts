@@ -65,23 +65,23 @@ export class DefenderSyncService {
 
     try {
       const integrationsService = new IntegrationsSettingsService();
-      const settings = await integrationsService.getDefenderSettings();
-      if (settings?.last_alert_sync) {
-        this.syncStatus.lastAlertSync = settings.last_alert_sync;
+      const timestamps = await integrationsService.getDefenderSyncTimestamps();
+      if (timestamps.last_alert_sync) {
+        this.syncStatus.lastAlertSync = timestamps.last_alert_sync;
       }
-      if (settings?.last_score_sync) {
-        this.syncStatus.lastScoreSync = settings.last_score_sync;
+      if (timestamps.last_score_sync) {
+        this.syncStatus.lastScoreSync = timestamps.last_score_sync;
       }
     } catch {
       // Settings not available yet — will do full initial sync
     }
   }
 
-  /** Persist sync timestamps to integrations settings (Vercel Blob). */
+  /** Persist sync timestamps without touching credentials (Vercel Blob). */
   private async persistSyncTimestamps(): Promise<void> {
     try {
       const integrationsService = new IntegrationsSettingsService();
-      await integrationsService.saveDefenderSettings({
+      await integrationsService.saveDefenderSyncTimestamps({
         last_alert_sync: this.syncStatus.lastAlertSync ?? undefined,
         last_score_sync: this.syncStatus.lastScoreSync ?? undefined,
       });

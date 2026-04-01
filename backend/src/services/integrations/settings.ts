@@ -295,6 +295,62 @@ export class IntegrationsSettingsService {
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2), { mode: 0o600 });
   }
 
+  /**
+   * Read persisted Defender sync timestamps from either the defender settings
+   * section (file-based credentials) or the standalone defender_sync key (env var credentials).
+   */
+  getDefenderSyncTimestamps(): { last_alert_sync?: string; last_score_sync?: string } {
+    // Check file-based defender settings first
+    const settings = this.getDefenderSettings();
+    if (settings?.last_alert_sync || settings?.last_score_sync) {
+      return {
+        last_alert_sync: settings.last_alert_sync,
+        last_score_sync: settings.last_score_sync,
+      };
+    }
+    // Fallback: standalone key (used when credentials come from env vars)
+    const raw = this.getRawFileSettings() as Record<string, any> | null;
+    const syncSection = raw?.defender_sync;
+    if (syncSection) {
+      return {
+        last_alert_sync: syncSection.last_alert_sync,
+        last_score_sync: syncSection.last_score_sync,
+      };
+    }
+    return {};
+  }
+
+  /**
+   * Save only Defender sync timestamps without touching credentials.
+   * Writes directly to the raw file to avoid the read-decrypt-merge-encrypt
+   * cycle that would clobber env-var-based credentials with empty file entries.
+   */
+  saveDefenderSyncTimestamps(timestamps: { last_alert_sync?: string; last_score_sync?: string }): void {
+    this.ensureSettingsDir();
+    const existing = this.getRawFileSettings() ?? {};
+
+    // Write timestamps into the correct section (org-specific or top-level)
+    // but ONLY if that section already exists — never create a defender entry
+    // just for timestamps, as that would shadow env var credentials.
+    if (this.orgId && existing.orgs?.[this.orgId]?.defender) {
+      const orgDefender = existing.orgs![this.orgId]!.defender!;
+      if (timestamps.last_alert_sync !== undefined) orgDefender.last_alert_sync = timestamps.last_alert_sync;
+      if (timestamps.last_score_sync !== undefined) orgDefender.last_score_sync = timestamps.last_score_sync;
+    } else if (existing.defender) {
+      if (timestamps.last_alert_sync !== undefined) existing.defender.last_alert_sync = timestamps.last_alert_sync;
+      if (timestamps.last_score_sync !== undefined) existing.defender.last_score_sync = timestamps.last_score_sync;
+    } else {
+      // No existing defender section in file — credentials come from env vars.
+      // Store timestamps in a lightweight top-level key that won't shadow env vars.
+      (existing as any).defender_sync = {
+        ...(existing as any).defender_sync,
+        ...timestamps,
+      };
+    }
+
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2), { mode: 0o600 });
+  }
+
   /** Check if Defender integration is configured (file or env). */
   isDefenderConfigured(): boolean {
     const settings = this.getDefenderSettings();
