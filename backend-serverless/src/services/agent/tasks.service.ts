@@ -435,9 +435,10 @@ export async function createUninstallTasks(
 export async function getNextTask(agentId: string): Promise<Task | null> {
   const db = await getDb();
 
-  // Expire old tasks and fail stale executing tasks first
+  // Expire old tasks, fail stale/overdue executing tasks first
   await expireOldTasks();
   await expireStaleTasks();
+  await expireOverdueTasks();
 
   // Find and assign the next task atomically via transaction
   const result = await db.transaction(async (tx) => {
@@ -828,6 +829,39 @@ export async function expireStaleTasks(): Promise<number> {
             OR (julianday('now') - julianday(last_heartbeat)) * 86400.0 > ?
        )`,
     [STALE_TASK_THRESHOLD_SECONDS]
+  );
+
+  return result.changes;
+}
+
+/**
+ * Buffer added to execution_timeout before declaring a task overdue.
+ * Accounts for binary download time and result-reporting latency.
+ */
+const OVERDUE_BUFFER_SECONDS = 120;
+
+/**
+ * Fail tasks stuck in 'executing' or 'downloading' longer than their
+ * execution_timeout + buffer, even when the agent is still online.
+ *
+ * This catches the case where the agent-side timeout killed the main
+ * process but cmd.Wait() hangs because a child process escaped the
+ * Windows Job Object. The heartbeat goroutine keeps running, so
+ * expireStaleTasks (which checks agent heartbeat) never fires.
+ */
+export async function expireOverdueTasks(): Promise<number> {
+  const db = await getDb();
+
+  const result = await db.run(
+    `UPDATE tasks
+     SET status = 'failed',
+         completed_at = datetime('now'),
+         result = json('{"error":"Task exceeded execution timeout"}')
+     WHERE status IN ('executing', 'downloading')
+       AND assigned_at IS NOT NULL
+       AND (julianday('now') - julianday(assigned_at)) * 86400.0 >
+           COALESCE(json_extract(payload, '$.execution_timeout'), 300) + ?`,
+    [OVERDUE_BUFFER_SECONDS]
   );
 
   return result.changes;

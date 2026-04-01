@@ -476,6 +476,7 @@ export function getNextTask(agentId: string): Task | null {
   if (now - lastExpireRun > EXPIRE_THROTTLE_MS) {
     expireOldTasks();
     expireStaleTasks();
+    expireOverdueTasks();
     lastExpireRun = now;
   }
 
@@ -940,6 +941,87 @@ export function expireStaleTasks(): number {
 
   console.warn(`[tasks] Expired ${staleTasks.length} stale task(s) (agent offline >${STALE_TASK_THRESHOLD_SECONDS}s while executing)`);
   return staleTasks.length;
+}
+
+/**
+ * Buffer added to execution_timeout before declaring a task overdue.
+ * Accounts for binary download time and result-reporting latency.
+ */
+const OVERDUE_BUFFER_SECONDS = 120;
+
+/**
+ * Fail tasks stuck in 'executing' or 'downloading' longer than their
+ * execution_timeout + buffer, even when the agent is still online.
+ *
+ * This catches the case where the agent-side context.WithTimeout killed the
+ * main process but cmd.Wait() hangs because a child process escaped the
+ * Windows Job Object. The heartbeat goroutine keeps running, so
+ * expireStaleTasks (which checks agent heartbeat) never fires.
+ *
+ * Uses json_extract to read execution_timeout from the task payload.
+ * Falls back to 300s if the field is absent (e.g. update_agent tasks).
+ */
+export function expireOverdueTasks(): number {
+  const db = getDatabase();
+
+  const overdueTasks = db.prepare(`
+    SELECT * FROM tasks
+    WHERE status IN ('executing', 'downloading')
+      AND assigned_at IS NOT NULL
+      AND (julianday('now') - julianday(assigned_at)) * 86400.0 >
+          COALESCE(json_extract(payload, '$.execution_timeout'), 300) + ?
+  `).all(OVERDUE_BUFFER_SECONDS) as TaskRow[];
+
+  if (overdueTasks.length === 0) return 0;
+
+  const failStmt = db.prepare(`
+    UPDATE tasks
+    SET status = 'failed',
+        completed_at = datetime('now'),
+        result = json('{"error":"Task exceeded execution timeout","exit_code":-1,"stdout":"","stderr":"Task exceeded maximum allowed execution time. The agent may have a stuck process.","execution_duration_ms":0}')
+    WHERE id = ?
+  `);
+
+  const insertRetry = db.prepare(`
+    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload,
+      created_at, ttl, created_by, target_index, batch_id,
+      retry_count, max_retries, original_task_id, notes, notes_history)
+    VALUES (?, ?, ?, ?, ?, 'pending', ?, datetime('now'), ?, ?, ?, ?,
+      ?, ?, ?, NULL, '[]')
+  `);
+
+  db.transaction(() => {
+    for (const task of overdueTasks) {
+      failStmt.run(task.id);
+
+      const retryCount = task.retry_count ?? 0;
+      const maxRetries = task.max_retries ?? 2;
+      const canRetry = retryCount < maxRetries && task.type === 'execute_test';
+
+      recordEvent(task.agent_id, 'task_failed', {
+        task_id: task.id,
+        task_type: task.type,
+        reason: 'execution_timeout_exceeded',
+        retry_created: canRetry,
+        retry_count: retryCount,
+      });
+
+      if (canRetry) {
+        const retryId = crypto.randomUUID();
+        const originalId = task.original_task_id || task.id;
+        insertRetry.run(
+          retryId, task.agent_id, task.org_id, task.type,
+          task.priority, task.payload, task.ttl, task.created_by,
+          task.target_index, task.batch_id,
+          retryCount + 1, maxRetries, originalId,
+        );
+        console.log(`[tasks] Created retry ${retryCount + 1}/${maxRetries} for overdue task ${task.id} → ${retryId}`);
+      }
+    }
+  })();
+
+  console.warn(`[tasks] Expired ${overdueTasks.length} overdue task(s) (exceeded execution_timeout + ${OVERDUE_BUFFER_SECONDS}s buffer)`);
+  return overdueTasks.length;
 }
 
 /**

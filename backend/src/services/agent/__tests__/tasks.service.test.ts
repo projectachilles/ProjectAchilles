@@ -67,6 +67,7 @@ const {
   deleteTask,
   expireOldTasks,
   expireStaleTasks,
+  expireOverdueTasks,
   updateTaskNotes,
   sanitizeTaskForAdmin,
 } = await import('../tasks.service.js');
@@ -380,6 +381,70 @@ describe('tasks.service', () => {
 
       const count = expireStaleTasks();
       expect(count).toBe(1);
+    });
+  });
+
+  describe('expireOverdueTasks', () => {
+    it('fails executing tasks that exceeded execution_timeout + buffer', () => {
+      // Task assigned 10 minutes ago with 300s timeout (300+120=420s threshold, 600s > 420s)
+      const assignedAt = new Date(Date.now() - 600_000).toISOString().replace('T', ' ').slice(0, 19);
+      insertTestTask(testDb, { id: 't-overdue', status: 'executing', assigned_at: assignedAt });
+
+      const count = expireOverdueTasks();
+      expect(count).toBe(1);
+
+      const row = testDb.prepare('SELECT status, result FROM tasks WHERE id = ?').get('t-overdue') as any;
+      expect(row.status).toBe('failed');
+      expect(JSON.parse(row.result).error).toBe('Task exceeded execution timeout');
+    });
+
+    it('does not fail tasks still within timeout + buffer', () => {
+      // Task assigned 2 minutes ago with 300s timeout (300+120=420s, 120s < 420s)
+      const assignedAt = new Date(Date.now() - 120_000).toISOString().replace('T', ' ').slice(0, 19);
+      insertTestTask(testDb, { id: 't-ok', status: 'executing', assigned_at: assignedAt });
+
+      const count = expireOverdueTasks();
+      expect(count).toBe(0);
+
+      const row = testDb.prepare('SELECT status FROM tasks WHERE id = ?').get('t-ok') as any;
+      expect(row.status).toBe('executing');
+    });
+
+    it('respects custom execution_timeout from payload', () => {
+      // Task with 60s timeout, assigned 200s ago (60+120=180s threshold, 200s > 180s)
+      const assignedAt = new Date(Date.now() - 200_000).toISOString().replace('T', ' ').slice(0, 19);
+      const payload = JSON.stringify({
+        test_uuid: 'uuid', test_name: 'name', binary_name: 'bin',
+        binary_sha256: 'sha', binary_size: 100, execution_timeout: 60,
+        arguments: [], metadata: { category: '', subcategory: '', severity: '',
+          techniques: [], tactics: [], threat_actor: '', target: [],
+          complexity: '', tags: [], score: null, integrations: [] },
+      });
+      insertTestTask(testDb, { id: 't-short', status: 'executing', assigned_at: assignedAt, payload });
+
+      const count = expireOverdueTasks();
+      expect(count).toBe(1);
+    });
+
+    it('does not fail tasks without assigned_at', () => {
+      insertTestTask(testDb, { id: 't-noassign', status: 'executing' });
+
+      const count = expireOverdueTasks();
+      expect(count).toBe(0);
+    });
+
+    it('catches online agent with stuck task', () => {
+      // Agent is online (recent heartbeat) but task is overdue
+      const assignedAt = new Date(Date.now() - 600_000).toISOString().replace('T', ' ').slice(0, 19);
+      insertTestTask(testDb, { id: 't-stuck', status: 'executing', assigned_at: assignedAt });
+
+      // expireStaleTasks should NOT catch this (agent is online)
+      expect(expireStaleTasks()).toBe(0);
+      // expireOverdueTasks SHOULD catch it
+      expect(expireOverdueTasks()).toBe(1);
+
+      const row = testDb.prepare('SELECT status FROM tasks WHERE id = ?').get('t-stuck') as any;
+      expect(row.status).toBe('failed');
     });
   });
 

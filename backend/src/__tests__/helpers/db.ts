@@ -216,6 +216,7 @@ export function insertTestTask(
     ttl: number;
     batch_id: string;
     created_at: string;
+    assigned_at: string | null;
   }> = {}
 ): string {
   const id = overrides.id ?? 'task-001';
@@ -243,8 +244,8 @@ export function insertTestTask(
   });
 
   db.prepare(`
-    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_by, ttl, batch_id, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_by, ttl, batch_id, created_at, assigned_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     overrides.agent_id ?? 'agent-001',
@@ -257,6 +258,7 @@ export function insertTestTask(
     overrides.ttl ?? 604800,
     overrides.batch_id ?? id,
     overrides.created_at ?? new Date().toISOString().replace('T', ' ').slice(0, 19),
+    overrides.assigned_at ?? null,
   );
 
   return id;
