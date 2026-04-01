@@ -22,6 +22,13 @@ import type {
 /** Days of alert history to fetch on first sync (no persisted lastAlertSync). */
 const INITIAL_ALERT_LOOKBACK_DAYS = 90;
 
+/**
+ * Bump this when the alert schema changes (e.g. new extracted fields) to
+ * force a full re-sync on all deployments. The persisted sync_version is
+ * compared against this; a mismatch clears lastAlertSync.
+ */
+const ALERT_SYNC_VERSION = 2; // v2: evidence_hostnames + evidence_filenames
+
 export class DefenderSyncService {
   private graphClient: MicrosoftGraphClient | null = null;
   private syncStatus: DefenderSyncStatus = {
@@ -72,6 +79,13 @@ export class DefenderSyncService {
       this.cleanupBogusDefenderEntry(integrationsService);
 
       const timestamps = integrationsService.getDefenderSyncTimestamps();
+
+      // If sync version changed (schema upgrade), force a full re-sync
+      if (timestamps.sync_version !== ALERT_SYNC_VERSION) {
+        console.log(`[Defender] Sync version mismatch (${timestamps.sync_version ?? 'none'} → ${ALERT_SYNC_VERSION}) — forcing full re-sync`);
+        return; // Leave lastAlertSync as null to trigger 90-day lookback
+      }
+
       if (timestamps.last_alert_sync) {
         this.syncStatus.lastAlertSync = timestamps.last_alert_sync;
       }
@@ -112,6 +126,7 @@ export class DefenderSyncService {
       integrationsService.saveDefenderSyncTimestamps({
         last_alert_sync: this.syncStatus.lastAlertSync ?? undefined,
         last_score_sync: this.syncStatus.lastScoreSync ?? undefined,
+        sync_version: ALERT_SYNC_VERSION,
       });
     } catch {
       // Non-fatal — sync continues, timestamps just won't survive next restart

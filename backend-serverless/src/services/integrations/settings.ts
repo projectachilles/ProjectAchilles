@@ -205,15 +205,15 @@ export class IntegrationsSettingsService {
    * Read persisted Defender sync timestamps from either the defender settings
    * section (file-based credentials) or the standalone defender_sync key (env var credentials).
    */
-  async getDefenderSyncTimestamps(): Promise<{ last_alert_sync?: string; last_score_sync?: string }> {
-    const settings = await this.getDefenderSettings();
+  async getDefenderSyncTimestamps(): Promise<{ last_alert_sync?: string; last_score_sync?: string; sync_version?: number }> {
+    const settings = await this.getDefenderSettings() as Record<string, any> | null;
     if (settings?.last_alert_sync || settings?.last_score_sync) {
-      return { last_alert_sync: settings.last_alert_sync, last_score_sync: settings.last_score_sync };
+      return { last_alert_sync: settings.last_alert_sync, last_score_sync: settings.last_score_sync, sync_version: settings.sync_version };
     }
     const raw = await this.getRawFileSettings() as Record<string, any> | null;
     const syncSection = raw?.defender_sync;
     if (syncSection) {
-      return { last_alert_sync: syncSection.last_alert_sync, last_score_sync: syncSection.last_score_sync };
+      return { last_alert_sync: syncSection.last_alert_sync, last_score_sync: syncSection.last_score_sync, sync_version: syncSection.sync_version };
     }
     return {};
   }
@@ -223,7 +223,7 @@ export class IntegrationsSettingsService {
    * Uses a standalone defender_sync key when no file-based defender section exists,
    * preventing env-var credentials from being clobbered.
    */
-  async saveDefenderSyncTimestamps(timestamps: { last_alert_sync?: string; last_score_sync?: string }): Promise<void> {
+  async saveDefenderSyncTimestamps(timestamps: { last_alert_sync?: string; last_score_sync?: string; sync_version?: number }): Promise<void> {
     const existing = await this.getRawFileSettings() as Record<string, any> ?? {};
 
     if (existing.defender) {

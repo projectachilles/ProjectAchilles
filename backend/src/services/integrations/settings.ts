@@ -299,13 +299,14 @@ export class IntegrationsSettingsService {
    * Read persisted Defender sync timestamps from either the defender settings
    * section (file-based credentials) or the standalone defender_sync key (env var credentials).
    */
-  getDefenderSyncTimestamps(): { last_alert_sync?: string; last_score_sync?: string } {
+  getDefenderSyncTimestamps(): { last_alert_sync?: string; last_score_sync?: string; sync_version?: number } {
     // Check file-based defender settings first
-    const settings = this.getDefenderSettings();
+    const settings = this.getDefenderSettings() as Record<string, any> | null;
     if (settings?.last_alert_sync || settings?.last_score_sync) {
       return {
         last_alert_sync: settings.last_alert_sync,
         last_score_sync: settings.last_score_sync,
+        sync_version: settings.sync_version,
       };
     }
     // Fallback: standalone key (used when credentials come from env vars)
@@ -315,6 +316,7 @@ export class IntegrationsSettingsService {
       return {
         last_alert_sync: syncSection.last_alert_sync,
         last_score_sync: syncSection.last_score_sync,
+        sync_version: syncSection.sync_version,
       };
     }
     return {};
@@ -325,7 +327,7 @@ export class IntegrationsSettingsService {
    * Writes directly to the raw file to avoid the read-decrypt-merge-encrypt
    * cycle that would clobber env-var-based credentials with empty file entries.
    */
-  saveDefenderSyncTimestamps(timestamps: { last_alert_sync?: string; last_score_sync?: string }): void {
+  saveDefenderSyncTimestamps(timestamps: { last_alert_sync?: string; last_score_sync?: string; sync_version?: number }): void {
     this.ensureSettingsDir();
     const existing = this.getRawFileSettings() ?? {};
 
