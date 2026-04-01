@@ -390,7 +390,7 @@ export default function AnalyticsDashboardPage() {
     }
   }, []);
 
-  const handleAcceptRisk = useCallback(async (items: { test_name: string; control_id?: string; hostname?: string }[], justification: string) => {
+  const handleAcceptRisk = useCallback(async (items: { test_name: string; control_id?: string; hostname?: string; scope?: 'host' | 'global' }[], justification: string) => {
     setAcceptingRisk(true);
     try {
       // Accept risk for each item

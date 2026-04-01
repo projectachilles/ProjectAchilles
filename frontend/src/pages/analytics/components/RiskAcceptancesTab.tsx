@@ -192,14 +192,18 @@ export default function RiskAcceptancesTab({ onActiveCountChange }: RiskAcceptan
                           )}
                         </td>
                         <td className="py-2.5 pr-3">
-                          {acc.hostname ? (
-                            <span className="text-foreground">{acc.hostname}</span>
-                          ) : (
-                            <span className="flex items-center gap-1 text-muted-foreground italic">
-                              <Globe className="w-3 h-3" />
-                              Global
-                            </span>
-                          )}
+                          {(() => {
+                            const scope = acc.scope ?? (acc.hostname ? 'host' : 'global');
+                            if (scope === 'global') {
+                              return (
+                                <span className="flex items-center gap-1 text-muted-foreground italic">
+                                  <Globe className="w-3 h-3" />
+                                  All Hosts{acc.hostname ? ` (from ${acc.hostname})` : ''}
+                                </span>
+                              );
+                            }
+                            return <span className="text-foreground">{acc.hostname ?? 'Unknown'}</span>;
+                          })()}
                         </td>
                         <td className="py-2.5 pr-3 max-w-xs">
                           <span

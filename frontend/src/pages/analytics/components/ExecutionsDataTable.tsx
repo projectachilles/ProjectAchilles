@@ -189,6 +189,7 @@ interface AcceptRiskItem {
   test_name: string;
   control_id?: string;
   hostname?: string;
+  scope?: 'host' | 'global';
 }
 
 interface ExecutionsDataTableProps {
@@ -202,7 +203,7 @@ interface ExecutionsDataTableProps {
   onArchive?: (groupKeys: string[]) => Promise<void>;
   onArchiveByDate?: (before: string) => Promise<void>;
   archiving?: boolean;
-  onAcceptRisk?: (items: AcceptRiskItem[], justification: string) => Promise<void>;
+  onAcceptRisk?: (items: (AcceptRiskItem & { scope?: 'host' | 'global' })[], justification: string) => Promise<void>;
   onRevokeRisk?: (acceptanceId: string, reason: string) => Promise<void>;
   riskAcceptances?: Map<string, RiskAcceptance[]>;
   acceptingRisk?: boolean;
@@ -372,6 +373,7 @@ export default function ExecutionsDataTable({
   // ── Risk Acceptance state ────────────────────────────────────────
   const [riskAcceptItems, setRiskAcceptItems] = useState<AcceptRiskItem[] | null>(null);
   const [riskJustification, setRiskJustification] = useState('');
+  const [riskScope, setRiskScope] = useState<'host' | 'global'>('global');
   const [revokeTarget, setRevokeTarget] = useState<{ id: string; testName: string } | null>(null);
   const [revokeReason, setRevokeReason] = useState('');
 
@@ -392,9 +394,11 @@ export default function ExecutionsDataTable({
 
   const handleAcceptRiskConfirm = async () => {
     if (!riskAcceptItems || !onAcceptRisk || riskJustification.trim().length < 10) return;
-    await onAcceptRisk(riskAcceptItems, riskJustification.trim());
+    const itemsWithScope = riskAcceptItems.map(item => ({ ...item, scope: riskScope }));
+    await onAcceptRisk(itemsWithScope, riskJustification.trim());
     setRiskAcceptItems(null);
     setRiskJustification('');
+    setRiskScope('global');
   };
 
   const handleRevokeConfirm = async () => {
@@ -1551,6 +1555,30 @@ export default function ExecutionsDataTable({
               {riskAcceptItems.length > 10 && (
                 <div className="text-muted-foreground">...and {riskAcceptItems.length - 10} more</div>
               )}
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-foreground mb-1.5">Scope</label>
+              <div className="flex rounded-lg border border-border overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setRiskScope('global')}
+                  className={`flex-1 px-3 py-1.5 text-sm transition-colors ${riskScope === 'global' ? 'bg-amber-600 text-white' : 'bg-background text-muted-foreground hover:bg-accent'}`}
+                >
+                  All Hosts
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRiskScope('host')}
+                  className={`flex-1 px-3 py-1.5 text-sm transition-colors border-l border-border ${riskScope === 'host' ? 'bg-amber-600 text-white' : 'bg-background text-muted-foreground hover:bg-accent'}`}
+                >
+                  This Host Only
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {riskScope === 'global'
+                  ? 'Excluded from Defense Score across all hosts in the organization.'
+                  : 'Excluded from Defense Score only for the specific host(s) where it was observed.'}
+              </p>
             </div>
             <div className="mb-4">
               <label className="block text-sm font-medium text-foreground mb-1.5">

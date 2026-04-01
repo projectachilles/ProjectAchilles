@@ -36,7 +36,7 @@ export function getRiskAcceptanceService(): RiskAcceptanceService | null {
 
 // POST /api/risk-acceptances — Accept risk for a control
 router.post('/', requirePermission('analytics:risk:write'), validate(AcceptRiskSchema), asyncHandler(async (req, res) => {
-  const { test_name, control_id, hostname, justification } = req.body;
+  const { test_name, control_id, hostname, scope, justification } = req.body;
 
   const userId = getUserId(req.auth);
   if (!userId) throw new AppError('Authentication required', 401);
@@ -52,6 +52,7 @@ router.post('/', requirePermission('analytics:risk:write'), validate(AcceptRiskS
     test_name,
     control_id: control_id || undefined,
     hostname: hostname || undefined,
+    scope: scope || 'global',
     justification: justification.trim(),
     accepted_by: userId,
     accepted_by_name: displayName,

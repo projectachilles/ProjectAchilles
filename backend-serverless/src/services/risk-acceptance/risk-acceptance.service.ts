@@ -8,11 +8,14 @@ import { RISK_ACCEPTANCE_INDEX, ensureRiskAcceptanceIndex } from './index-manage
 
 // ── Types ──────────────────────────────────────────────────────────
 
+export type RiskScope = 'host' | 'global';
+
 export interface RiskAcceptance {
   acceptance_id: string;
   test_name: string;
   control_id?: string;
   hostname?: string;
+  scope?: RiskScope;
   justification: string;
   accepted_by: string;
   accepted_by_name: string;
@@ -28,6 +31,7 @@ export interface AcceptRiskParams {
   test_name: string;
   control_id?: string;
   hostname?: string;
+  scope?: RiskScope;
   justification: string;
   accepted_by: string;
   accepted_by_name: string;
@@ -77,6 +81,7 @@ export class RiskAcceptanceService {
       test_name: params.test_name,
       control_id: params.control_id || undefined,
       hostname: params.hostname || undefined,
+      scope: params.scope || 'global',
       justification: params.justification,
       accepted_by: params.accepted_by,
       accepted_by_name: params.accepted_by_name,
@@ -248,8 +253,13 @@ export class RiskAcceptanceService {
     const exclusions: any[] = [];
 
     for (const acc of acceptances) {
-      if (acc.hostname) {
-        // Per-host acceptance
+      // Determine effective scope:
+      // - Explicit scope field takes priority
+      // - Legacy records (no scope): hostname present → 'host', absent → 'global'
+      const effectiveScope: RiskScope = acc.scope ?? (acc.hostname ? 'host' : 'global');
+
+      if (effectiveScope === 'host' && acc.hostname) {
+        // Per-host acceptance — exclude only for this hostname
         const must: any[] = [
           { term: { 'f0rtika.test_name': acc.test_name } },
           { term: { 'routing.hostname': acc.hostname } },
@@ -259,7 +269,7 @@ export class RiskAcceptanceService {
         }
         exclusions.push({ bool: { must } });
       } else if (acc.control_id) {
-        // Global bundle sub-control acceptance
+        // Global bundle sub-control acceptance — all hosts
         exclusions.push({
           bool: {
             must: [
@@ -269,7 +279,7 @@ export class RiskAcceptanceService {
           },
         });
       } else {
-        // Global acceptance for entire test
+        // Global acceptance for entire test — all hosts
         exclusions.push({ term: { 'f0rtika.test_name': acc.test_name } });
       }
     }

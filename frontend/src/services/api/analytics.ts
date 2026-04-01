@@ -293,11 +293,14 @@ export interface ArchiveResult {
 // Risk Acceptance Types
 // ============================================
 
+export type RiskScope = 'host' | 'global';
+
 export interface RiskAcceptance {
   acceptance_id: string;
   test_name: string;
   control_id?: string;
   hostname?: string;
+  scope?: RiskScope;
   justification: string;
   accepted_by: string;
   accepted_by_name: string;
@@ -313,6 +316,7 @@ export interface AcceptRiskRequest {
   test_name: string;
   control_id?: string;
   hostname?: string;
+  scope?: RiskScope;
   justification: string;
 }
 

@@ -8,6 +8,7 @@ export const AcceptRiskSchema = z.object({
   test_name: z.string().min(1, 'test_name is required'),
   control_id: z.string().optional(),
   hostname: z.string().optional(),
+  scope: z.enum(['host', 'global']).optional(),
   justification: z.string().min(10, 'justification is required (minimum 10 characters)'),
 });
 

@@ -13,6 +13,7 @@ export const RISK_ACCEPTANCE_MAPPING = {
       test_name: { type: 'keyword' as const },
       control_id: { type: 'keyword' as const },
       hostname: { type: 'keyword' as const },
+      scope: { type: 'keyword' as const },
       justification: { type: 'text' as const },
       accepted_by: { type: 'keyword' as const },
       accepted_by_name: { type: 'keyword' as const },
