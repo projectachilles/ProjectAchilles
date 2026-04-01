@@ -351,6 +351,7 @@ export class DefenderSyncService {
       }
 
       const alerts = await client.getAlerts(filter);
+      console.log(`[Defender] Alert sync: fetched ${alerts.length} alert(s) from Graph API`);
 
       // Get tenant_id from credentials
       const integrationsService = new IntegrationsSettingsService();
@@ -383,7 +384,13 @@ export class DefenderSyncService {
       this.syncStatus.lastAlertSync = new Date().toISOString();
       this.persistSyncTimestamps();
     } catch (err) {
-      errors.push(err instanceof Error ? err.message : String(err));
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(msg);
+      console.error(`[Defender] Alert sync FAILED:`, msg);
+    }
+
+    if (synced > 0 || errors.length > 0) {
+      console.log(`[Defender] Alert sync result: ${synced} synced, ${errors.length} error(s)${errors.length > 0 ? ' — ' + errors[0] : ''}`);
     }
 
     return { synced, errors };
