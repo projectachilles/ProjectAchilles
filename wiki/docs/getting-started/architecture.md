@@ -12,47 +12,35 @@ ProjectAchilles follows a three-tier architecture: a React SPA frontend, an Expr
 
 ```mermaid
 graph TB
-    subgraph Frontend["Frontend (React SPA)"]
-        Browser[Test Browser]
-        Analytics[Analytics Dashboard]
-        Agents[Agent Management]
-        Settings[Settings & Scheduling]
+    subgraph Clients
+        FE["Frontend<br/>React 19 · Vite · Tailwind CSS<br/><i>Browser · Analytics · Agents · Settings</i>"]
+        CLI["CLI<br/>Bun · Ink · AI SDK v6<br/><i>Commands · AI Chat Agent</i>"]
     end
 
-    subgraph Backend["Backend (Express + TypeScript)"]
-        BrowserSvc[Browser Service]
-        AnalyticsSvc[Analytics Service]
-        AgentSvc[Agent Service]
-        BuildSvc[Build Service]
-        AlertSvc[Alerting Service]
-        DefenderSvc[Defender Service]
+    FE -->|Clerk JWT| BE
+    CLI -->|Clerk JWT| BE
+
+    subgraph BE ["Backend — Express + TypeScript"]
+        BRS[Browser Service]
+        ANS[Analytics Service]
+        AGS[Agent Service]
+        BDS[Build Service]
+        DFS[Defender Service]
+        ALS[Alerting Service]
     end
 
-    subgraph Storage
-        Git[(Git Repo<br/>Tests)]
-        ES[(Elasticsearch<br/>Results)]
-        SQLite[(SQLite<br/>Agents, Tasks)]
-        Settings2[(Encrypted Files<br/>Settings)]
-    end
+    BRS --> GIT[(Git Repo)]
+    ANS --> ES[(Elasticsearch)]
+    AGS --> DB[(SQLite)]
+    BDS --> GO[Go Toolchain + Code Signing]
+    DFS --> GRAPH[Microsoft Graph API]
+    ALS --> NOTIFY[Slack · Email]
 
-    subgraph External
-        Agent[Achilles Agent<br/>Go Binary]
-        GraphAPI[Microsoft Graph API]
-        Slack[Slack Webhook]
-        SMTP[SMTP Server]
-    end
+    AGS <-->|Agent API Key| AGENT
 
-    Frontend -->|REST API| Backend
-    BrowserSvc --> Git
-    AnalyticsSvc --> ES
-    AgentSvc --> SQLite
-    BuildSvc -->|Go Toolchain| BuildSvc
-    DefenderSvc --> GraphAPI
-    AlertSvc --> Slack
-    AlertSvc --> SMTP
-    Agent -->|Heartbeat, Results| AgentSvc
-    AgentSvc -->|Tasks, Updates| Agent
-    AgentSvc -->|Ingest Results| ES
+    subgraph EP ["Endpoints — Windows · Linux · macOS"]
+        AGENT["Achilles Agent — Go<br/>Heartbeat · Executor · Updater"]
+    end
 ```
 
 ## Data Flow
