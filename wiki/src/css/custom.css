@@ -307,6 +307,78 @@ hr {
   border-radius: 0 !important;
 }
 
+/* ── Mermaid diagram click-to-fullscreen ── */
+.docusaurus-mermaid-container {
+  cursor: pointer;
+  position: relative;
+  transition: outline-color 0.2s;
+  outline: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0.25rem;
+}
+
+.docusaurus-mermaid-container:hover {
+  outline-color: #1a2535;
+}
+
+.docusaurus-mermaid-container::after {
+  content: '⤢ Click to expand';
+  position: absolute;
+  top: 0.35rem;
+  right: 0.5rem;
+  font-size: 0.65rem;
+  color: #888891;
+  opacity: 0;
+  transition: opacity 0.2s;
+  font-family: 'Inter', sans-serif;
+  pointer-events: none;
+  letter-spacing: 0.02em;
+}
+
+.docusaurus-mermaid-container:hover::after {
+  opacity: 1;
+}
+
+/* Fullscreen overlay */
+.mermaid-fullscreen-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(10, 14, 26, 0.96);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-out;
+  backdrop-filter: blur(6px);
+  animation: mermaid-fade-in 0.15s ease-out;
+}
+
+@keyframes mermaid-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.mermaid-fullscreen-overlay > svg {
+  max-width: 95vw;
+  max-height: 88vh;
+  filter: drop-shadow(0 0 40px rgba(6, 149, 107, 0.1));
+}
+
+.mermaid-fullscreen-hint {
+  position: absolute;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.75rem;
+  color: #888891;
+  font-family: 'Inter', sans-serif;
+  letter-spacing: 0.03em;
+  pointer-events: none;
+}
+
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .hero__logo-group {

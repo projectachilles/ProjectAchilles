@@ -18,6 +18,10 @@ const config: Config = {
   projectName: 'ProjectAchilles',
   onBrokenLinks: 'throw',
 
+  clientModules: [
+    './src/mermaid-zoom.js',
+  ],
+
   i18n: {
     defaultLocale: 'en',
     locales: ['en'],
