@@ -1,5 +1,5 @@
 ---
-sidebar_position: 3
+sidebar_position: 4
 title: "Alerting (Slack & Email)"
 description: "Configure threshold-based alerting for defense score changes via Slack and email notifications."
 ---

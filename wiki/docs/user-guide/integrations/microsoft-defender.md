@@ -1,5 +1,5 @@
 ---
-sidebar_position: 2
+sidebar_position: 3
 title: "Microsoft Defender"
 description: "Configure Microsoft 365 Defender integration for Secure Score sync and alert cross-correlation."
 ---
