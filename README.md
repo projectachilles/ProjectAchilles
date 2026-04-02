@@ -288,46 +288,37 @@ The agent-server communication channel has been hardened through an internal sec
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Frontend (React SPA)                        │
-│   Browser  │  Analytics  │  Agents  │  Settings  │  Scheduling     │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │ REST API
-┌──────────────────────────────┤
-│        CLI (Bun + Ink)       │
-│   Commands  │  AI Chat Agent │
-└──────────────────────────────┤
-                               │
-┌──────────────────────────────┴──────────────────────────────────────┐
-│                      Backend (Express + TS)                        │
-│                                                                    │
-│  ┌──────────┐  ┌───────────┐  ┌──────────┐  ┌──────────────────┐  │
-│  │ Browser  │  │ Analytics │  │  Agent   │  │     Build        │  │
-│  │ Service  │  │  Service  │  │ Service  │  │    Service       │  │
-│  └────┬─────┘  └─────┬─────┘  └────┬─────┘  └───────┬──────────┘  │
-│       │              │             │                │              │
-│  ┌────┴─────┐  ┌─────┴─────┐  ┌───┴──────┐  ┌──────┴──────────┐  │
-│  │ Git Repo │  │Elastic-   │  │ SQLite   │  │ Go Toolchain    │  │
-│  │ (Tests)  │  │search     │  │ (Agents, │  │ + osslsigncode  │  │
-│  └──────────┘  └───────────┘  │  Tasks)  │  └─────────────────┘  │
-│                               └──────────┘                        │
-│  ┌────────────────────────┐  ┌───────────────────────────────┐    │
-│  │ Alerting Service       │  │ Defender Service              │    │
-│  │ (Slack + Email)        │  │ (Graph API client)            │    │
-│  └────────────────────────┘  └──────────┬────────────────────┘    │
-└──────────────────────────────────────────┼────────────────────────┘
-                               │           │
-                    ┌──────────┴──────┐  ┌─┴──────────────────┐
-                    │  Achilles Agent │  │ Microsoft Graph API │
-                    │  (Go binary)   │  │ (Secure Score,      │
-                    │  ┌───────────┐ │  │  Alerts, Controls)  │
-                    │  │ Heartbeat │ │  └─────────────────────┘
-                    │  │ Executor  │ │
-                    │  │ Updater   │ │
-                    │  └───────────┘ │
-                    └────────────────┘
-                         Endpoints
+```mermaid
+graph TB
+    subgraph Clients
+        FE["Frontend<br/>React 19 · Vite · Tailwind CSS<br/><i>Browser · Analytics · Agents · Settings</i>"]
+        CLI["CLI<br/>Bun · Ink · AI SDK v6<br/><i>Commands · AI Chat Agent</i>"]
+    end
+
+    FE -->|Clerk JWT| BE
+    CLI -->|Clerk JWT| BE
+
+    subgraph BE ["Backend — Express + TypeScript"]
+        BRS[Browser Service]
+        ANS[Analytics Service]
+        AGS[Agent Service]
+        BDS[Build Service]
+        DFS[Defender Service]
+        ALS[Alerting Service]
+    end
+
+    BRS --> GIT[(Git Repo)]
+    ANS --> ES[(Elasticsearch)]
+    AGS --> DB[(SQLite)]
+    BDS --> GO[Go Toolchain + Code Signing]
+    DFS --> GRAPH[Microsoft Graph API]
+    ALS --> NOTIFY[Slack · Email]
+
+    AGS <-->|Agent API Key| AGENT
+
+    subgraph EP ["Endpoints — Windows · Linux · macOS"]
+        AGENT["Achilles Agent — Go<br/>Heartbeat · Executor · Updater"]
+    end
 ```
 
 ### Tech Stack
