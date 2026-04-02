@@ -21,6 +21,10 @@ Stop hoping your defenses work. Start proving it.
 
 </div>
 
+<p align="center">
+  <img src="docs/screenshots/analytics-dashboard.png" alt="ProjectAchilles Analytics Dashboard — Defense Score, trend analysis, Secure Score correlation, and technique distribution" width="800">
+</p>
+
 ---
 
 ## Why ProjectAchilles
@@ -140,6 +144,10 @@ Threat Intelligence Article
 | Documentation | Markdown (README + info card) | MITRE mapping, severity, threat actor context |
 | Kill chain diagram | Interactive HTML | Visualizes multi-stage attack flow |
 
+<p align="center">
+  <img src="docs/screenshots/test-detail-killchain.png" alt="Test detail view — multi-stage kill chain diagram with stage progression, source files, and build artifacts" width="800">
+</p>
+
 **Test categories:**
 
 | Category | Description | Example |
@@ -185,6 +193,10 @@ A Bun-powered command-line interface for managing the entire platform from the t
 
 Browse the full test library with rich metadata and execute tests directly from the UI.
 
+<p align="center">
+  <img src="docs/screenshots/test-browser.png" alt="Test browser — card grid with severity badges, MITRE techniques, platform tags, and defense scores" width="800">
+</p>
+
 - Filter by MITRE ATT&CK technique, platform, category, and severity
 - View source code, detection rules, hardening scripts, and attack flow diagrams
 - Build, sign, and download test binaries directly from test detail pages
@@ -196,6 +208,10 @@ Browse the full test library with rich metadata and execute tests directly from 
 
 Deploy a lightweight Go agent to endpoints for remote test execution with full lifecycle management.
 
+<p align="center">
+  <img src="docs/screenshots/agent-dashboard.png" alt="Agent dashboard — fleet overview with online/offline status, health metrics, version and OS distribution" width="800">
+</p>
+
 - **Enrollment** — Token-based registration with configurable TTL and max uses
 - **Heartbeat Monitoring** — Real-time online/offline status with CPU, memory, disk, and uptime metrics
 - **Secure Execution** — Download, verify (SHA256 + Ed25519 signature), execute, and report results
@@ -206,9 +222,24 @@ Deploy a lightweight Go agent to endpoints for remote test execution with full l
 - **Encrypted Config** — Agent credentials encrypted at rest with AES-256-GCM using machine-bound keys
 - **Remote Uninstall** — Two-phase agent removal (stop service + cleanup) initiated from admin UI
 
+<details>
+<summary>More: Fleet management &amp; heartbeat monitoring</summary>
+<br>
+<p align="center">
+  <img src="docs/screenshots/agent-fleet.png" alt="Agent fleet — full table with health scores, version management, OS badges, and tags" width="800">
+</p>
+<p align="center">
+  <img src="docs/screenshots/agent-heartbeat.png" alt="Agent heartbeat — CPU usage, memory usage, and disk free charts over 7 days" width="800">
+</p>
+</details>
+
 ### Analytics & Measurement
 
 Quantify your security posture with 30+ query endpoints powered by Elasticsearch.
+
+<p align="center">
+  <img src="docs/screenshots/executions-table.png" alt="Executions table — bundle results with per-control Protected/Unprotected badges, techniques, and category filters" width="800">
+</p>
 
 - **Defense Score** — Aggregate score with breakdowns by test, technique, category, hostname, and severity
 - **Trend Analysis** — Rolling-window defense score and error rate trends over time
