@@ -57,6 +57,8 @@ Threat intelligence reports pile up unread. Compliance checklists are checked on
 - **5 Deployment Targets** — Docker Compose, Railway, Render, Fly.io, and Vercel (serverless)
 - **Risk Acceptance** — Accept risk for individual controls with audit tracking
 
+![ProjectAchilles Analytics Dashboard — Defense Score, trend analysis, Secure Score correlation, and technique distribution](/img/screenshots/analytics-dashboard.png)
+
 ## What's Next?
 
 - **[Features Overview](./features)** — Detailed walkthrough of every platform capability

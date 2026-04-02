@@ -72,6 +72,8 @@ graph TD
 
 Navigate to **Settings** and select the **Tests** tab to access certificate management.
 
+![Settings tests page — target platform selection and code signing certificate management](/img/screenshots/settings-tests.png)
+
 ## Certificate Management Walkthrough
 
 ### Uploading a Certificate
@@ -135,6 +137,8 @@ Manages connections to external services through a card-based interface:
 
 Each integration card shows a status indicator: **Connected**, **Not Configured**, or **Error**.
 
+![Settings integrations page — Elasticsearch, Azure/Entra ID, Microsoft Defender, and Alerting cards](/img/screenshots/settings-integrations.png)
+
 ### Agent Tab
 
 Manages agent binary distribution:
@@ -150,6 +154,8 @@ User and role management (visible only to users with the `settings:users:manage`
 - **User list** with role assignment
 - **Invitation system** for onboarding new team members via email
 - **Permission reference** showing the full permission matrix for each role
+
+![Settings users page — user roles with RBAC permission reference matrix](/img/screenshots/settings-users.png)
 
 ### Platform Config
 

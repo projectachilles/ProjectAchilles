@@ -12,14 +12,20 @@ Clicking any test in the browser opens its detail page with comprehensive metada
 
 The test detail page is organized into tabs:
 
+![Test detail page — kill chain diagram with stage progression, file tree, and build artifacts](/img/screenshots/test-detail-killchain.png)
+
 ### Source Tab
 View the test's Go source code with syntax highlighting. Copy-to-clipboard available for the entire file.
+
+![Source code viewer — Go source with syntax highlighting](/img/screenshots/test-detail-source.png)
 
 ### Documentation Tab
 Rendered markdown documentation describing the test's purpose, behavior, and expected outcomes.
 
 ### Detection Rules Tab
 KQL (Kusto Query Language) and YARA rules for detecting the test's activity. Copy individual rules to clipboard for use in your SIEM.
+
+![Detection rules — KQL query with syntax highlighting and file tree](/img/screenshots/test-detail-detection.png)
 
 ### References Tab
 External references and documentation links related to the technique.

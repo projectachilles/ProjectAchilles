@@ -32,6 +32,8 @@ The Agents page displays:
 - Agent version
 - Custom tags
 
+![Agent heartbeat — CPU usage, memory usage, and disk free charts over 7 days](/img/screenshots/agent-heartbeat.png)
+
 ## Stale Task Detection
 
 If an agent goes offline while executing a task, the task is automatically marked as **failed** with a stale detection message. This prevents tasks from hanging indefinitely.
@@ -55,6 +57,8 @@ When an agent reconnects after being offline, it reports **why** it was disconne
 | **Network Recovery** | 📶 | Generic network issue resolved (none of the above specific causes matched) |
 | **Update Restart** | ⬇ | Agent was restarted after applying a self-update |
 | **Unknown** | ? | Reason could not be determined (typically agents running an older version) |
+
+![Agent event log — lifecycle events with disconnect reasons, task completions, and version updates](/img/screenshots/agent-event-log.png)
 
 Reasons are detected via a dual-layer system: **agent-side** error classification (HTTP error type, network adapter state checks per platform) and **backend-side** last-known metrics correlation. Process restarts with high memory or low disk at the time of the last heartbeat are correlated with the last-known metrics to infer crash causes (e.g., a `service_restart` following a heartbeat with > 90% memory usage is tagged as `memory_pressure_crash`).
 

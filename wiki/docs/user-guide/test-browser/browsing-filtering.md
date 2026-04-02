@@ -16,12 +16,16 @@ The browser page opens with a 3-tab layout:
 2. **Overview** — MITRE ATT&CK coverage chart and summary statistics
 3. **List** — Filterable test grid/list
 
+![Browser overview — MITRE ATT&CK coverage chart, severity distribution, and category breakdown](/img/screenshots/browser-overview.png)
+
 ## Views
 
 Toggle between **Grid** and **List** views using the view selector in the top-right corner.
 
 - **Grid view** — Card-based layout showing test name, category, severity, and platform badges
 - **List view** — Compact table with sortable columns
+
+![Test browser — card grid view with severity badges, platform tags, and defense scores](/img/screenshots/test-browser-cards.png)
 
 ## Filtering
 

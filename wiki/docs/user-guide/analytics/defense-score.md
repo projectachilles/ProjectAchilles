@@ -47,6 +47,8 @@ The dashboard overlays the real-time score with a trend line, making it easy to 
 
 ## Dashboard Layout
 
+![Analytics dashboard — Defense Score, trend overview, Secure Score, category breakdown, and technique distribution](/img/screenshots/analytics-dashboard.png)
+
 The Analytics Dashboard uses a multi-tab interface with four main areas:
 
 ```mermaid

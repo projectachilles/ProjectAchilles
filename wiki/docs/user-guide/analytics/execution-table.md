@@ -18,6 +18,8 @@ The Execution Table provides a paginated, filterable view of all test execution 
 
 The Execution Table shares its filter bar with other Analytics dashboard tabs, providing a unified filtering experience.
 
+![Executions table — paginated results with bundle grouping, Protected/Unprotected badges, and technique filters](/img/screenshots/executions-table.png)
+
 ## Bundle Results
 
 Tests that produce per-control results (cyber-hygiene bundles, multi-stage tests) are grouped under collapsible parent rows:

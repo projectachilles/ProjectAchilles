@@ -91,6 +91,8 @@ If either check fails, the task is rejected.
 
 ## Task Creation Dialog
 
+![Create task dialog — agent selection, task type, schedule configuration, and priority settings](/img/screenshots/create-task-modal.png)
+
 The task creation dialog supports two task types and multiple scheduling options.
 
 ```mermaid
@@ -155,6 +157,8 @@ Before submitting, the dialog checks for required integrations:
 ## Task Management Page
 
 The Tasks page is the central control panel for all task activity.
+
+![Tasks page — scheduled tasks and execution table with status badges, agents, and exit codes](/img/screenshots/tasks-page.png)
 
 ### Task List
 

@@ -114,6 +114,8 @@ For large deployments, create a token with a high **Max Uses** value and distrib
 
 After agents are enrolled, the **Agent Dashboard** provides fleet-wide monitoring:
 
+![Agent dashboard — fleet overview with health metrics, version distribution, and OS breakdown](/img/screenshots/agent-dashboard.png)
+
 - **Fleet Metrics** -- Total agents, online/offline counts, pending tasks
 - **Health KPIs** -- Fleet uptime, task success rates, mean time between failures
 - **Distribution Charts** -- Agent version distribution, OS breakdown, status summary
@@ -124,6 +126,8 @@ The dashboard auto-refreshes every 30 seconds. Stale agents (those that have not
 ### Agent List
 
 The main agent list supports:
+
+![Agent fleet — full table with status, hostname, OS, version, health scores, and tags](/img/screenshots/agent-fleet.png)
 
 - **Filtering** by hostname, OS, status, and online state
 - **Bulk operations** such as tagging, triggering updates, and uninstalling

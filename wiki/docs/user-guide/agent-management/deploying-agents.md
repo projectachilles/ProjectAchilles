@@ -14,6 +14,8 @@ description: "Build, distribute, and install the ProjectAchilles Go agent on Win
 2. Upload a pre-built binary for the desired platform/architecture
 3. Or build from source if the deployment target supports it (Docker, Fly.io, Render)
 
+![Settings agent page — build agent binary, upload binaries, and registered versions table](/img/screenshots/settings-agent.png)
+
 ### From Source
 
 ```bash

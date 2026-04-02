@@ -34,6 +34,8 @@ Threat Intelligence Article
 | Documentation | Markdown (README + info card) | MITRE mapping, severity, threat actor context |
 | Kill chain diagram | Interactive HTML | Visualizes multi-stage attack flow |
 
+![Test detail view — multi-stage kill chain diagram with stage progression, source files, and build artifacts](/img/screenshots/test-detail-killchain.png)
+
 **Test categories:**
 
 | Category | Description | Example |
@@ -56,6 +58,8 @@ Browse the full test library with rich metadata and execute tests directly from 
 - **MITRE ATT&CK coverage chart** with per-tactic bar visualization
 - **Execution drawer** — assign and run tests directly from the browse page
 - **Favorite tests**, track recent views, view version history and Git modification dates
+
+![Test browser — card grid with severity badges, MITRE techniques, platform tags, and defense scores](/img/screenshots/test-browser-cards.png)
 
 :::tip Hybrid Test Library
 Tests can come from an upstream Git repository (auto-synced) or from custom local directories. Both sources are indexed with collision-free UUIDs. See [Custom Tests](../user-guide/test-browser/custom-tests) for details.
@@ -81,6 +85,8 @@ Quantify your security posture with 30+ query endpoints powered by Elasticsearch
 ## Execution Framework
 
 Deploy a lightweight Go agent to endpoints for remote test execution with full lifecycle management.
+
+![Agent dashboard — fleet overview with online/offline status, health metrics, version and OS distribution](/img/screenshots/agent-dashboard.png)
 
 - **Enrollment** — Token-based registration with configurable TTL and max uses
 - **Heartbeat Monitoring** — Real-time online/offline status with CPU, memory, disk, and uptime metrics
