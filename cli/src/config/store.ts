@@ -174,7 +174,12 @@ export function setConfigValue(key: string, value: string): void {
     return;
   }
 
+  const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
   const parts = key.split('.');
+  if (parts.some(p => DANGEROUS_KEYS.has(p))) {
+    throw new Error(`Invalid config key: ${key}`);
+  }
+
   let current: Record<string, unknown> = config as Record<string, unknown>;
 
   for (let i = 0; i < parts.length - 1; i++) {

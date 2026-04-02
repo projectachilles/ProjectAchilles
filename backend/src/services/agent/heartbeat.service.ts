@@ -734,7 +734,7 @@ export function getFleetHealthMetrics(orgId?: string): FleetHealthMetrics {
     const hbCountRow = db.prepare(`
       SELECT COUNT(*) as count FROM heartbeat_history h
       INNER JOIN agents a ON h.agent_id = a.id
-      WHERE h.timestamp > datetime('now', '-30 days') AND a.status = 'active'${orgCondition.replace('a.org_id', 'a.org_id')}
+      WHERE h.timestamp > datetime('now', '-30 days') AND a.status = 'active'${orgCondition}
     `).get(...orgParams) as { count: number };
 
     const expectedHeartbeats = agentCount * 30 * 24 * 60; // one per minute over 30 days
