@@ -45,6 +45,12 @@ Retry tasks appear in the task list with a **"Retry 1/2"** badge. The `original_
 Retries are created automatically by the `expireStaleTasks` background job. No manual intervention is needed. If you need to stop retries for a specific task, cancel the pending retry task.
 :::
 
+### Execution Timeout Expiry
+
+Tasks can also be expired when they exceed the configured `execution_timeout` — even if the agent remains online. This catches cases where the agent-side timeout fails to kill a hung process (e.g., a child process escaped the Windows Job Object) but the heartbeat goroutine continues running.
+
+The backend checks `assigned_at + execution_timeout + 120s` buffer on each task poll. Tasks that exceed this threshold are marked as **failed** with an execution timeout error. This runs alongside the existing stale task detection (agent offline) in `getNextTask()`.
+
 ### Local Result Queue
 
 If the agent completes a task but cannot report the result (server unreachable, all retry attempts exhausted), the result is **persisted locally** as a JSON file in the agent's work directory:

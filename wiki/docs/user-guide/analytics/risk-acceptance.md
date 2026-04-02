@@ -14,8 +14,11 @@ Risk Acceptance allows you to formally acknowledge that certain security control
 
 1. In the Execution Table or Defense Score breakdown, find the unprotected control
 2. Click the **Accept Risk** button on the row
-3. Provide a justification (required)
-4. The control is marked as "Risk Accepted" and excluded from the Defense Score calculation
+3. Choose the **scope** using the toggle:
+   - **All Hosts** (default) — excludes the test/control from Defense Score across the entire organization
+   - **This Host Only** — scopes the exclusion to the specific hostname where the failure occurred
+4. Provide a justification (required)
+5. The control is marked as "Risk Accepted" and excluded from the Defense Score calculation
 
 ![Risk acceptance dialog — justification form with scope selection over the executions table](/img/screenshots/risk-acceptance-modal.png)
 
@@ -30,17 +33,20 @@ All risk acceptance decisions are tracked with:
 
 Risk acceptance can be revoked at any time, which returns the control to the "Unprotected" category and recalculates the Defense Score.
 
-## Acceptance Granularity
+## Acceptance Scope
 
-Risk acceptance supports three levels of specificity:
+The Accept Risk dialog provides a scope toggle with two options:
 
-| Level | Scope | Example Use Case |
-|-------|-------|------------------|
-| **Global Test** | All failures for a specific test across all hosts | A test that triggers false positives everywhere |
-| **Global Control** | All failures for a specific control within a bundle | A CIS control that conflicts with business requirements |
-| **Host-Specific** | Failures for a test/control on one particular host | A legacy server that cannot be patched |
+| Scope | Behavior | Example Use Case |
+|-------|----------|------------------|
+| **All Hosts** (global) | Excludes the test/control from Defense Score across all endpoints | A test that triggers false positives everywhere, or a CIS control that conflicts with business requirements |
+| **This Host Only** (host) | Excludes only on the specific hostname where the failure occurred | A legacy server that cannot be patched, while other endpoints should still be tracked |
 
-When accepting risk, choose the narrowest scope that fits the business justification. Host-specific acceptances are preferred over global ones.
+The hostname is always stored for audit trail regardless of scope. When choosing scope, prefer **This Host Only** unless the business justification applies organization-wide.
+
+:::info Legacy Records
+Risk acceptances created before the scope toggle was added fall back to current behavior: records with a hostname are treated as host-scoped, records without are treated as global.
+:::
 
 ## Risk Scoring Model
 
@@ -126,7 +132,8 @@ Each risk acceptance is stored as an immutable document in the `achilles-risk-ac
 | `acceptance_id` | keyword | Unique UUID |
 | `test_name` | keyword | Security test name |
 | `control_id` | keyword | Bundle control ID (optional) |
-| `hostname` | keyword | Target hostname (optional) |
+| `hostname` | keyword | Target hostname (always stored for audit) |
+| `scope` | keyword | `global` (all hosts) or `host` (this host only) |
 | `justification` | text | Business justification (required) |
 | `accepted_by` | keyword | Clerk user ID |
 | `accepted_by_name` | keyword | Display name |

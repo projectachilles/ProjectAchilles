@@ -139,6 +139,12 @@ The sync service (`sync.service.ts`) orchestrates data flow from Graph API to El
 
 Each Graph API response is normalized into a consistent document structure with a `doc_type` discriminator field before indexing.
 
+**Initial sync behavior:** The first alert sync uses a **90-day lookback** (`createdDateTime` filter) to fetch all relevant alerts without pulling the entire tenant history. Subsequent syncs resume incrementally from the last successful sync timestamp.
+
+**Persisted sync timestamps:** `lastAlertSync` and `lastScoreSync` are persisted to `integrations.json` (Docker) or Vercel Blob (serverless). On server restart, the sync service loads persisted timestamps and resumes incremental syncs instead of re-fetching from scratch. Timestamps are only set on successful syncs — failed fetches do not advance the watermark.
+
+**Evidence extraction:** During alert sync, the service extracts `evidence_hostnames` and `evidence_filenames` from the Graph API alert's evidence metadata (`deviceEvidence`, `processEvidence`, `fileEvidence`). These fields enable precise cross-correlation with test executions.
+
 ### Elasticsearch Storage Model
 
 All Defender data is stored in a single index (`achilles-defender`) using a **sparse document** pattern with a `doc_type` discriminator:
@@ -157,6 +163,8 @@ All Defender data is stored in a single index (`achilles-defender`) using a **sp
 | `severity` | keyword | alert | `low`, `medium`, `high`, `critical` |
 | `status` | keyword | alert | `new`, `inProgress`, `resolved` |
 | `mitre_techniques` | keyword[] | alert | MITRE ATT&CK technique IDs (e.g., `T1566.001`) |
+| `evidence_hostnames` | keyword[] | alert | Hostnames extracted from alert evidence metadata |
+| `evidence_filenames` | keyword[] | alert | Filenames extracted from alert evidence metadata |
 
 :::info Index Design Rationale
 A single sparse index is used instead of three separate indices because the total document volume is low (typically hundreds, not millions) and it simplifies cross-document queries and index lifecycle management.
@@ -168,22 +176,31 @@ The analytics service provides three types of cross-correlation between Achilles
 
 **1. Detection Rate Analysis**
 
-Correlates attack simulation executions with Defender security alerts within a configurable time window:
+Correlates attack simulation executions with Defender security alerts using a **three-tier matching strategy** within a **-5 min to +30 min** window relative to test completion:
 
 ```mermaid
-graph LR
-    A[Test Execution<br/>in achilles-results] -->|Time window<br/>default: 60 min| B[Defender Alerts<br/>in achilles-defender]
-    B --> C{Matching<br/>MITRE technique?}
-    C -->|Yes| D[Detected]
-    C -->|No| E[Undetected]
-    D --> F[Detection Rate %]
-    E --> F
+graph TB
+    A[Test Execution<br/>in achilles-results] --> B{Evidence-based match?<br/>binary filename + hostname<br/>in alert evidence}
+    B -->|Yes| D[Detected<br/>High confidence]
+    B -->|No| C{Technique + hostname match?<br/>via evidence_hostnames}
+    C -->|Yes| E[Detected<br/>Medium confidence]
+    C -->|No| F{Technique-only match?<br/>MITRE technique ID}
+    F -->|Yes| G[Detected<br/>Low confidence]
+    F -->|No| H[Undetected]
+    D & E & G --> I[Detection Rate %]
+    H --> I
 ```
 
-- Queries both indices with overlapping time ranges
-- Matches on MITRE ATT&CK technique IDs
+**Tier 1 — Evidence-based (most precise):** Matches `evidence_filenames` containing the test binary's UUID filename (e.g., `<uuid>.exe`) AND `evidence_hostnames` containing the test endpoint's hostname. This proves the specific test execution triggered the alert.
+
+**Tier 2 — Technique + hostname:** Falls back to matching MITRE ATT&CK technique IDs with hostname scoping via `evidence_hostnames`. Used when Defender alerts lack file-level evidence.
+
+**Tier 3 — Technique-only:** Falls back to matching on MITRE technique ID alone, without hostname scoping. Used for alerts that contain no evidence metadata at all.
+
+The time window of **-5 min to +30 min** accounts for Defender's real-time telemetry generating alerts *during* test execution (before the test's `completed_at` timestamp) while excluding unrelated pre-test alerts.
+
 - Excludes cyber-hygiene bundle controls (configuration checks, not attack simulations)
-- Returns per-technique detection coverage
+- Returns per-technique detection coverage with match confidence tier
 
 **2. Technique Coverage Overlap**
 
