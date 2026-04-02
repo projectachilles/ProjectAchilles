@@ -81,6 +81,7 @@ const sidebars: SidebarsConfig = {
           label: 'Integrations',
           items: [
             'user-guide/integrations/elasticsearch',
+            'user-guide/integrations/azure-entra-id',
             'user-guide/integrations/microsoft-defender',
             'user-guide/integrations/alerting',
           ],
