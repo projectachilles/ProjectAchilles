@@ -44,8 +44,8 @@ sign-windows: build-windows
 sign-darwin: build-darwin-amd64 build-darwin-arm64
 	@if command -v rcodesign >/dev/null 2>&1; then \
 	  echo "Signing darwin binaries (ad-hoc)..."; \
-	  rcodesign sign --code-signature-flags adhoc $(DIST)/achilles-agent-darwin-amd64; \
-	  rcodesign sign --code-signature-flags adhoc $(DIST)/achilles-agent-darwin-arm64; \
+	  rcodesign sign $(DIST)/achilles-agent-darwin-amd64; \
+	  rcodesign sign $(DIST)/achilles-agent-darwin-arm64; \
 	else \
 	  echo "rcodesign not found, skipping macOS signing"; \
 	fi
