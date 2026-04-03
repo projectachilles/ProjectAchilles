@@ -338,9 +338,9 @@ docker compose ps
 
 - `README.md` - Project overview, features, and quick start
 - `CLAUDE.md` - AI assistant development guidance
-- `CONTRIBUTING.md` - This file
-- `SECURITY.md` - Security policy and architecture
-- `CHANGELOG.md` - Version history
+- `.github/CONTRIBUTING.md` - This file
+- `.github/SECURITY.md` - Security policy and architecture
+- `docs/CHANGELOG.md` - Version history
 - `docs/ROADMAP.md` - Planned features and direction
 
 ## Questions?

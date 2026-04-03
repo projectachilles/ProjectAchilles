@@ -533,23 +533,23 @@ CLERK_SECRET_KEY=sk_test_...
 
 ### Development
 - [CLAUDE.md](CLAUDE.md) — AI-assisted development guidance
-- [Contributing Guide](CONTRIBUTING.md) — Contribution guidelines and code standards
-- [Changelog](CHANGELOG.md) — Version history
+- [Contributing Guide](.github/CONTRIBUTING.md) — Contribution guidelines and code standards
+- [Changelog](docs/CHANGELOG.md) — Version history
 
 ### Security & Community
-- [Security Policy](SECURITY.md) — Vulnerability reporting and security model
+- [Security Policy](.github/SECURITY.md) — Vulnerability reporting and security model
 - [Security Audit Report](docs/security/SECURITY-AUDIT.md) — Comprehensive audit: 47 findings
 - [Agent Security Findings](docs/agent-security-findings.md) — Internal audit: 9 findings, 8 fixed
-- [Code of Conduct](CODE_OF_CONDUCT.md) — Community guidelines
+- [Code of Conduct](.github/CODE_OF_CONDUCT.md) — Community guidelines
 - [Roadmap](docs/ROADMAP.md) — Planned features and direction
 
 ## Contributing
 
-We welcome contributions across all modules — frontend, backend, CLI (Bun), agent (Go), and documentation. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on setup, coding standards, and the PR process.
+We welcome contributions across all modules — frontend, backend, CLI (Bun), agent (Go), and documentation. See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for guidelines on setup, coding standards, and the PR process.
 
 ## Security
 
-For security vulnerabilities, please report via [GitHub Security Advisories](https://github.com/projectachilles/ProjectAchilles/security/advisories) or review our [Security Policy](SECURITY.md).
+For security vulnerabilities, please report via [GitHub Security Advisories](https://github.com/projectachilles/ProjectAchilles/security/advisories) or review our [Security Policy](.github/SECURITY.md).
 
 ## License
 

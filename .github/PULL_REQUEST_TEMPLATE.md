@@ -60,7 +60,7 @@
 - [ ] I have updated the documentation accordingly
 - [ ] My changes generate no new warnings
 - [ ] I have not included any sensitive data or credentials
-- [ ] I have updated CHANGELOG.md (if applicable)
+- [ ] I have updated docs/CHANGELOG.md (if applicable)
 
 ## Additional Notes
 
