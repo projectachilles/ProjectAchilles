@@ -11,6 +11,30 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+## Agent [0.6.0] - 2026-04-03
+
+First tagged release of the Achilles Agent binary.
+
+### Added
+- Custom Go agent with enrollment, heartbeat, task execution, and self-updating
+- Cross-platform support: Windows (amd64), Linux (amd64), macOS (amd64 + arm64)
+- System service installation (systemd on Linux, SCM on Windows, launchd on macOS)
+- Token-based enrollment with configurable TTL and max uses
+- Heartbeat monitoring with real-time system metrics (CPU, memory, disk, uptime)
+- Task queue with priority-based execution and state machine
+- SHA256 binary verification before execution
+- Self-update mechanism — agents poll for new versions and auto-apply
+- Remote uninstall with two-phase cleanup (stop service + remove files)
+- Enhanced `--status` diagnostics: service state, connection health, config validation
+- Async task execution with Windows Job Objects for orphan process cleanup
+- Azure/Entra ID credential flow for identity-tenant tests
+- Bundle results fan-out for cyber-hygiene and intel-driven multi-stage controls
+- Ad-hoc code signing for macOS via rcodesign
+
+## [2.0.0] - 2026-04-03
+
+Complete platform overhaul — custom agent system, multi-deployment support, Microsoft Defender integration, and release automation.
+
 ### Added
 
 #### Agent System
@@ -148,6 +172,13 @@ This project uses two version streams:
 - Session isolation per authenticated user
 - Rate limiting on authentication endpoints (20 req/15min)
 
+#### Release Management
+- Semi-automated release flow with Claude Code `/release` command
+- GitHub Actions release workflows for platform and agent binary releases
+- Conventional commit validation hooks
+- CHANGELOG generation from commits via `/changelog` command
+- Pre-push tag consistency validation
+
 ### Changed
 - **BREAKING**: Removed LimaCharlie integration — replaced by custom agent system
 - **BREAKING**: All routes now require Clerk authentication (Browser was previously public)
@@ -260,7 +291,11 @@ This project uses two version streams:
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 2.0.0 | 2026-04-03 | Custom agent, multi-deployment, Defender integration, release tooling |
+| Agent 0.6.0 | 2026-04-03 | First tagged agent binary release |
 | 1.0.0 | 2024-12-10 | Initial release |
 
-[Unreleased]: https://github.com/F0RT1KA/ProjectAchilles/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/F0RT1KA/ProjectAchilles/compare/v2.0.0...HEAD
+[Agent 0.6.0]: https://github.com/F0RT1KA/ProjectAchilles/releases/tag/agent-v0.6.0
+[2.0.0]: https://github.com/F0RT1KA/ProjectAchilles/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/F0RT1KA/ProjectAchilles/releases/tag/v1.0.0

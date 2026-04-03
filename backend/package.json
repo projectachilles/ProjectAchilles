@@ -1,6 +1,6 @@
 {
   "name": "project-achilles-backend",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "ProjectAchilles - Unified Security Platform Backend",
   "main": "dist/server.js",
   "type": "module",
