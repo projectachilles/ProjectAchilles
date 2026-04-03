@@ -551,6 +551,16 @@ We welcome contributions across all modules — frontend, backend, CLI (Bun), ag
 
 For security vulnerabilities, please report via [GitHub Security Advisories](https://github.com/projectachilles/ProjectAchilles/security/advisories) or review our [Security Policy](.github/SECURITY.md).
 
+## Acknowledgments
+
+- [MITRE ATT&CK](https://attack.mitre.org) framework by MITRE Corporation — technique taxonomy and coverage mapping
+- [Elasticsearch](https://www.elastic.co/elasticsearch) — analytics and result storage engine
+- [Clerk](https://clerk.com) — authentication and user management
+- [Semgrep](https://semgrep.dev) — static analysis in CI
+- [Trail of Bits](https://trailofbits.com) — security analysis plugins for Claude Code
+- [Claude Code](https://claude.ai/code) by Anthropic — AI-assisted development and release automation
+- Purple team methodology inspired by [DORA](https://www.digital-operational-resilience-act.com/) and [TIBER-EU](https://www.ecb.europa.eu/paym/cyber-resilience/tiber-eu/html/index.en.html) frameworks
+
 ## License
 
 This project is licensed under the Apache License 2.0 — see the [LICENSE](LICENSE) file for details.
