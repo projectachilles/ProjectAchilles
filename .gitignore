@@ -36,6 +36,7 @@ npm-debug.log*
 !.claude/commands/
 !.claude/skills/
 .superpowers/
+docs/superpowers/
 
 # Conversation exports (may contain secrets from terminal output)
 *.txt
