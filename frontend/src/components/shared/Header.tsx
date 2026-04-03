@@ -26,15 +26,6 @@ export default function Header({
   const { user, isLoaded } = useUser();
   const location = useLocation();
 
-  // DEBUG: Log useUser hook values
-  console.log('[Header] useUser() values:', {
-    isLoaded,
-    hasUser: !!user,
-    userId: user?.id,
-    userName: user?.fullName || user?.firstName,
-    condition: isLoaded && user,
-  });
-
   // Determine active module from path
   const getActiveModule = () => {
     if (location.pathname.startsWith('/analytics')) return 'analytics';

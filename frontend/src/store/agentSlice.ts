@@ -230,3 +230,10 @@ const agentSlice = createSlice({
 
 export const { setFilters, setPage, setPageSize, selectAgent, clearError, setAgents } = agentSlice.actions;
 export default agentSlice.reducer;
+
+// Fine-grained selectors — prevent re-renders when unrelated slice fields change
+type RootState = { agent: AgentState };
+export const selectAgents = (state: RootState) => state.agent.agents;
+export const selectAgentFilters = (state: RootState) => state.agent.filters;
+export const selectAgentLoading = (state: RootState) => state.agent.loading;
+export const selectAgentError = (state: RootState) => state.agent.error;

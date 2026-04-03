@@ -1,6 +1,6 @@
+import { memo, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useMemo, useState } from 'react';
 
 interface StackedBarChartProps {
   data: Array<{
@@ -45,7 +45,7 @@ interface TooltipData {
  *
  * Uses custom SVG rendering to avoid Recharts stacking bugs.
  */
-export default function StackedBarChart({
+function StackedBarChart({
   data,
   loading,
   title = 'Coverage',
@@ -305,3 +305,5 @@ export default function StackedBarChart({
     </Card>
   );
 }
+
+export default memo(StackedBarChart);

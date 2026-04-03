@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Loader2 } from 'lucide-react';
 import { PieChart, Pie, Cell } from 'recharts';
 import type { ErrorTypeBreakdown } from '../../../services/api/analytics';
@@ -40,7 +41,7 @@ const FALLBACK_COLORS = [
   'var(--chart-5)',
 ];
 
-export default function ErrorTypePieChart({
+function ErrorTypePieChart({
   data,
   loading,
   title = 'Results by Error Type'
@@ -164,3 +165,5 @@ export default function ErrorTypePieChart({
     </Card>
   );
 }
+
+export default memo(ErrorTypePieChart);

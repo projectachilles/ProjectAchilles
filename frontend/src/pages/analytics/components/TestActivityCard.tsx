@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Loader2, Clock, CheckCircle, XCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { TrendDataPoint, EnrichedTestExecution } from '@/services/api/analytics';
@@ -57,7 +58,7 @@ function truncateText(text: string, maxLength: number): string {
   return text.substring(0, maxLength - 1) + '…';
 }
 
-export default function TestActivityCard({
+function TestActivityCard({
   trendData,
   recentTests,
   loading,
@@ -192,3 +193,5 @@ export default function TestActivityCard({
     </Card>
   );
 }
+
+export default memo(TestActivityCard);

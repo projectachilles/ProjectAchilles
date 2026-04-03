@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { Loader2, ExternalLink, ShieldAlert } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -11,7 +11,7 @@ interface TopControlsCardProps {
   compact?: boolean;
 }
 
-export default function TopControlsCard({ compact }: TopControlsCardProps) {
+function TopControlsCard({ compact }: TopControlsCardProps) {
   const [controls, setControls] = useState<ControlItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -100,3 +100,5 @@ export default function TopControlsCard({ compact }: TopControlsCardProps) {
     </Card>
   );
 }
+
+export default memo(TopControlsCard);

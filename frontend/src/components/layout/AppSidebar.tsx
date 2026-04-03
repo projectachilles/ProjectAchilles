@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAnalyticsAuth } from "@/hooks/useAnalyticsAuth";
@@ -78,7 +78,7 @@ export function AppSidebar({ collapsed }: AppSidebarProps) {
     if (flyoutTimeout.current) clearTimeout(flyoutTimeout.current);
   };
 
-  const modules: ModuleWithItems[] = [
+  const modules = useMemo<ModuleWithItems[]>(() => [
     {
       label: "Tests",
       icon: Shield,
@@ -125,7 +125,7 @@ export function AppSidebar({ collapsed }: AppSidebarProps) {
           },
         ]
       : []),
-  ];
+  ], [analyticsConfigured, canAccessEndpoints, canAccessAgents, outdatedCount]);
 
   const toggleModule = (path: string) => {
     setExpandedModules((prev) => {

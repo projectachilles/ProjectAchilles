@@ -3,7 +3,8 @@
  * overview, task history, heartbeat metrics, and event log.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
+import { usePolling } from '@/hooks/usePolling';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
@@ -49,14 +50,21 @@ export default function AgentDetailPage() {
     }
 
     loadAgent();
-
-    // Refresh every 30s
-    const interval = setInterval(() => {
-      agentApi.getAgent(agentId!).then(data => setAgent(data)).catch(() => {});
-    }, 30_000);
-
-    return () => { cancelled = true; clearInterval(interval); };
+    return () => { cancelled = true; };
   }, [agentId]);
+
+  // Silent poll — visibility-aware, pauses when tab is hidden
+  const pollAgent = useCallback(async () => {
+    if (!agentId) return;
+    try {
+      const data = await agentApi.getAgent(agentId);
+      setAgent(data);
+    } catch {
+      // Silent — don't surface transient poll failures
+    }
+  }, [agentId]);
+
+  usePolling(pollAgent, 30_000);
 
   if (loading) {
     return (

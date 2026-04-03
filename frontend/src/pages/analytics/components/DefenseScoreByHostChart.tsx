@@ -1,6 +1,6 @@
+import { memo, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useMemo, useState } from 'react';
 import type { DefenseScoreByHostItem } from '@/services/api/analytics';
 
 interface DefenseScoreByHostChartProps {
@@ -41,7 +41,7 @@ interface TooltipData {
  *   ████ = Score fill (colored by threshold)
  *   ░░░░ = Empty background
  */
-export default function DefenseScoreByHostChart({
+function DefenseScoreByHostChart({
   data,
   loading,
   title = 'Defense Score by Host',
@@ -286,3 +286,5 @@ export default function DefenseScoreByHostChart({
     </Card>
   );
 }
+
+export default memo(DefenseScoreByHostChart);

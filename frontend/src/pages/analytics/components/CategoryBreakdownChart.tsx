@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Loader2 } from 'lucide-react';
 import { PieChart, Pie, Cell } from 'recharts';
 import type { CategorySubcategoryBreakdownItem, CategoryType } from '@/services/api/analytics';
@@ -49,7 +50,7 @@ function getSubcategoryColor(category: CategoryType, index: number, total: numbe
   return `oklch(${lightness.toFixed(2)} ${(base.c * 0.8).toFixed(2)} ${base.h})`;
 }
 
-export default function CategoryBreakdownChart({
+function CategoryBreakdownChart({
   data,
   loading,
   title = 'Score by Category',
@@ -277,3 +278,5 @@ export default function CategoryBreakdownChart({
     </Card>
   );
 }
+
+export default memo(CategoryBreakdownChart);

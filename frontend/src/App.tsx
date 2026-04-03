@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import { ClerkProvider } from '@clerk/clerk-react';
@@ -9,11 +10,8 @@ import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import AppRouter from './routes/AppRouter';
 import { isMarketingMode } from './lib/siteMode';
 
-// Hero page styles
-import './styles/hero.css';
-
-// Marketing mode: static landing page — no Clerk, no Redux, no Router
-import HeroPage from './pages/HeroPage';
+// Marketing mode: lazy-loaded landing page — no Clerk, no Redux, no Router
+const HeroPage = lazy(() => import('./pages/HeroPage'));
 
 function AppContent() {
   useAuthenticatedApi(); // Setup JWT interceptor
@@ -33,7 +31,7 @@ function AppContent() {
 
 export default function App() {
   if (isMarketingMode) {
-    return <HeroPage />;
+    return <Suspense fallback={null}><HeroPage /></Suspense>;
   }
 
   return (

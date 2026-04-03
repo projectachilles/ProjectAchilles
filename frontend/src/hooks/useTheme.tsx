@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 type Theme = 'light' | 'dark';
 type ThemeStyle = 'default' | 'neobrutalism' | 'hackerterminal';
@@ -154,12 +154,14 @@ export function ThemeProvider({
     setPhosphorVariantState(prev => prev === 'green' ? 'amber' : 'green');
   };
 
+  const contextValue = useMemo(() => ({
+    theme, setTheme, toggleTheme,
+    themeStyle, setThemeStyle, toggleThemeStyle,
+    phosphorVariant, setPhosphorVariant, togglePhosphorVariant,
+  }), [theme, themeStyle, phosphorVariant]);
+
   return (
-    <ThemeContext.Provider value={{
-      theme, setTheme, toggleTheme,
-      themeStyle, setThemeStyle, toggleThemeStyle,
-      phosphorVariant, setPhosphorVariant, togglePhosphorVariant,
-    }}>
+    <ThemeContext.Provider value={contextValue}>
       {children}
     </ThemeContext.Provider>
   );

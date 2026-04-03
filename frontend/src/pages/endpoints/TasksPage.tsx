@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { usePolling } from '@/hooks/usePolling';
 import { useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCw, Search, X, Trash2, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, ChevronDown } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
@@ -110,10 +111,7 @@ export default function TasksPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, debouncedSearch, page, pageSize]);
 
-  useEffect(() => {
-    const id = setInterval(poll, 10_000);
-    return () => clearInterval(id);
-  }, [poll]);
+  usePolling(poll, 10_000);
 
   // --- Search ---
 

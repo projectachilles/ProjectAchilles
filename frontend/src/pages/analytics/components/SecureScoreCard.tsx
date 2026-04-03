@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Loader2, ShieldCheck } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import type { SecureScoreSummary } from '@/services/api/defender';
@@ -13,7 +14,7 @@ function getScoreColor(percentage: number): string {
   return 'text-red-500';
 }
 
-export default function SecureScoreCard({ data, loading }: SecureScoreCardProps) {
+function SecureScoreCard({ data, loading }: SecureScoreCardProps) {
   if (loading || !data) {
     return (
       <Card className="h-full flex items-center justify-center">
@@ -42,3 +43,5 @@ export default function SecureScoreCard({ data, loading }: SecureScoreCardProps)
     </Card>
   );
 }
+
+export default memo(SecureScoreCard);

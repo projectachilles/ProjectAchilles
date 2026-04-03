@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Loader2, Shield, Monitor, FlaskConical, AlertTriangle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 
@@ -16,7 +17,7 @@ interface HeroMetricsCardProps {
  * with Unique Endpoints and Executed Tests in a compact bottom section.
  * Designed to occupy 1/3 width alongside the Defense Score Trend chart.
  */
-export default function HeroMetricsCard({
+function HeroMetricsCard({
   defenseScore,
   uniqueEndpoints,
   executedTests,
@@ -109,3 +110,5 @@ export default function HeroMetricsCard({
     </Card>
   );
 }
+
+export default memo(HeroMetricsCard);

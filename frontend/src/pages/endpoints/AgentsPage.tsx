@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { usePolling } from '@/hooks/usePolling';
 import { useSearchParams } from 'react-router-dom';
 import { UserPlus, ChevronDown, ChevronUp, Download, Unplug, Ban, Trash2, AlertTriangle } from 'lucide-react';
 import { useHasPermission } from '@/hooks/useAppRole';
@@ -16,6 +17,10 @@ import {
   tagAgent,
   untagAgent,
   updateAgentStatus,
+  selectAgents,
+  selectAgentFilters,
+  selectAgentLoading,
+  selectAgentError,
 } from '../../store/agentSlice';
 import { PageContainer, PageHeader } from '../../components/endpoints/Layout';
 import AgentFilters from '../../components/endpoints/agents/AgentFilters';
@@ -38,9 +43,10 @@ import type { AgentSummary, ListAgentsRequest, Agent } from '@/types/agent';
 export default function AgentsPage() {
   const dispatch = useAppDispatch();
   const [searchParams] = useSearchParams();
-  const { agents, filters, loading, error } = useAppSelector(
-    (state) => state.agent
-  );
+  const agents = useAppSelector(selectAgents);
+  const filters = useAppSelector(selectAgentFilters);
+  const loading = useAppSelector(selectAgentLoading);
+  const error = useAppSelector(selectAgentError);
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [detailAgent, setDetailAgent] = useState<Agent | null>(null);
@@ -102,10 +108,7 @@ export default function AgentsPage() {
     refreshVersions();
   }, [filters, dispatch, refreshVersions]);
 
-  useEffect(() => {
-    const id = setInterval(pollAgents, 15_000);
-    return () => clearInterval(id);
-  }, [pollAgents]);
+  usePolling(pollAgents, 15_000);
 
   function handleFilterChange(newFilters: Partial<ListAgentsRequest>): void {
     dispatch(setFilters(newFilters));

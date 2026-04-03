@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { agentApi } from '@/services/api/agent';
 import { getLatestVersionMap } from '@/pages/endpoints/utils/versionHelpers';
+import { usePolling } from './usePolling';
 
 /**
  * Polls the agent and version APIs to compute how many agents are running
@@ -46,11 +47,8 @@ export function useOutdatedAgentCount(pollIntervalMs = 60_000) {
     }
   }, []);
 
-  useEffect(() => {
-    refresh();
-    const id = setInterval(refresh, pollIntervalMs);
-    return () => clearInterval(id);
-  }, [refresh, pollIntervalMs]);
+  useEffect(() => { refresh(); }, [refresh]);
+  usePolling(refresh, pollIntervalMs);
 
   return { outdatedCount, totalCount, latestVersion, refresh } as const;
 }

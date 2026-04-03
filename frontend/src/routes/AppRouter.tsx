@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAnalyticsAuth } from '../hooks/useAnalyticsAuth';
 import { useCanAccessModule } from '../hooks/useAppRole';
@@ -7,30 +8,22 @@ import Layout from '../components/shared/Layout';
 import { Loading } from '../components/shared/ui/Spinner';
 import { Alert } from '../components/shared/ui/Alert';
 
-// Public Pages
-import HeroPage from '../pages/HeroPage';
-
-// Auth Pages
+// Auth pages — eagerly loaded (must be instant for sign-in flow)
 import SignInPage from '../pages/auth/SignInPage';
 import SignUpPage from '../pages/auth/SignUpPage';
-import UserProfilePage from '../pages/auth/UserProfilePage';
-import CliAuthPage from '../pages/auth/CliAuthPage';
 
-// Browser Module Pages
-import BrowserHomePage from '../pages/browser/BrowserHomePage';
-import TestDetailPage from '../pages/browser/TestDetailPage';
-
-// Analytics Module Pages
-import AnalyticsDashboardPage from '../pages/analytics/AnalyticsDashboardPage';
-
-// Settings Page
-import SettingsPage from '../pages/settings/SettingsPage';
-
-// Endpoints Module Pages
-import AgentDashboardPage from '../pages/endpoints/AgentDashboardPage';
-import AgentsPage from '../pages/endpoints/AgentsPage';
-import AgentDetailPage from '../pages/endpoints/AgentDetailPage';
-import TasksPage from '../pages/endpoints/TasksPage';
+// All other pages — lazy-loaded for code splitting
+const HeroPage = lazy(() => import('../pages/HeroPage'));
+const UserProfilePage = lazy(() => import('../pages/auth/UserProfilePage'));
+const CliAuthPage = lazy(() => import('../pages/auth/CliAuthPage'));
+const BrowserHomePage = lazy(() => import('../pages/browser/BrowserHomePage'));
+const TestDetailPage = lazy(() => import('../pages/browser/TestDetailPage'));
+const AnalyticsDashboardPage = lazy(() => import('../pages/analytics/AnalyticsDashboardPage'));
+const SettingsPage = lazy(() => import('../pages/settings/SettingsPage'));
+const AgentDashboardPage = lazy(() => import('../pages/endpoints/AgentDashboardPage'));
+const AgentsPage = lazy(() => import('../pages/endpoints/AgentsPage'));
+const AgentDetailPage = lazy(() => import('../pages/endpoints/AgentDetailPage'));
+const TasksPage = lazy(() => import('../pages/endpoints/TasksPage'));
 
 // Analytics route guard — renders children directly (layout provided by AppLayout above)
 function AnalyticsProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -72,6 +65,7 @@ function AppLayout() {
 
 export default function AppRouter() {
   return (
+    <Suspense fallback={<div className="min-h-[400px] flex items-center justify-center"><Loading message="Loading..." /></div>}>
     <Routes>
       {/* Public landing page */}
       <Route path="/" element={<HeroPage />} />
@@ -121,5 +115,6 @@ export default function AppRouter() {
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>
+    </Suspense>
   );
 }

@@ -51,6 +51,13 @@ interface DefenseScoreData {
 }
 
 export default function AnalyticsDashboardPage() {
+  // Performance measurement (dev only)
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      performance.mark('analytics-mount');
+    }
+  }, []);
+
   const { setTopBarActions } = useLayoutActions();
 
   // URL state for tab
@@ -318,6 +325,17 @@ export default function AnalyticsDashboardPage() {
       console.error('Failed to load dashboard data:', error);
     } finally {
       setLoadingDashboard(false);
+      if (import.meta.env.DEV) {
+        performance.mark('analytics-data-ready');
+        if (performance.getEntriesByName('analytics-mount').length) {
+          performance.measure('analytics-time-to-data', 'analytics-mount', 'analytics-data-ready');
+          const m = performance.getEntriesByName('analytics-time-to-data').pop();
+          if (m) {
+            // eslint-disable-next-line no-console
+            console.log(`%c[Perf] Analytics time-to-data: ${m.duration.toFixed(0)}ms`, 'color: #10b981; font-weight: bold');
+          }
+        }
+      }
     }
   }, [filterState, defenderConfigured, scoringMode]);
 

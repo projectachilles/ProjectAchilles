@@ -1,3 +1,4 @@
+import '../styles/hero.css';
 import { useState, useEffect, useRef } from "react";
 import {
   Shield,
@@ -914,7 +915,7 @@ function FeaturesSection({ lang }: { lang: Lang }) {
 
 const platformSlides = [
   {
-    src: "assets/images/Scoring.png",
+    src: "assets/images/Scoring.webp",
     label: { en: "Analytics Dashboard", es: "Panel de Analíticas" },
     title: { en: "Real-Time Defense Scoring", es: "Puntuación de Defensa en Tiempo Real" },
     desc: {
@@ -923,7 +924,7 @@ const platformSlides = [
     },
   },
   {
-    src: "assets/images/Library.png",
+    src: "assets/images/Library.webp",
     label: { en: "Test Library", es: "Librería de Tests" },
     title: { en: "MITRE ATT&CK Test Library", es: "Librería de Tests MITRE ATT&CK" },
     desc: {
@@ -932,7 +933,7 @@ const platformSlides = [
     },
   },
   {
-    src: "assets/images/Endpoint.png",
+    src: "assets/images/Endpoint.webp",
     label: { en: "Fleet Management", es: "Gestión de Flota" },
     title: { en: "Fleet-Wide Endpoint Management", es: "Gestión de Endpoints a Escala de Flota" },
     desc: {

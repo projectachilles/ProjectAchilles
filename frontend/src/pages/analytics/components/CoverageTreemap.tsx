@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, memo } from 'react';
 import { Treemap, ResponsiveContainer, Tooltip } from 'recharts';
 import { Loader2, ChevronLeft } from 'lucide-react';
 import type { HostTestMatrixCell } from '../../../services/api/analytics';
@@ -303,7 +303,7 @@ function DrillDownTooltip({ active, payload }: { active?: boolean; payload?: Too
   );
 }
 
-export default function CoverageTreemap({
+function CoverageTreemap({
   data,
   loading,
   title = 'Test Breadth by Host',
@@ -687,3 +687,5 @@ export default function CoverageTreemap({
     </Card>
   );
 }
+
+export default memo(CoverageTreemap);

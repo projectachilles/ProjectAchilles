@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Loader2, TrendingUp } from 'lucide-react';
 import {
   AreaChart,
@@ -66,7 +67,7 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
-export default function TrendChart({ data, errorRateData, errorRateOverall, secureScoreTrendData, loading, title = 'Trend Overview', windowDays }: TrendChartProps) {
+function TrendChart({ data, errorRateData, errorRateOverall, secureScoreTrendData, loading, title = 'Trend Overview', windowDays }: TrendChartProps) {
   const hasErrorRate = errorRateData && errorRateData.length > 0;
   const hasSecureScore = secureScoreTrendData && secureScoreTrendData.length > 0;
   const hasRealScore = data.some(d => d.realScore !== undefined && d.realScore !== d.score);
@@ -380,3 +381,5 @@ export default function TrendChart({ data, errorRateData, errorRateOverall, secu
     </Card>
   );
 }
+
+export default memo(TrendChart);

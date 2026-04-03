@@ -8,3 +8,8 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>
 );
+
+// Report Web Vitals in development
+if (import.meta.env.DEV) {
+  import('./lib/vitals').then(({ reportWebVitals }) => reportWebVitals());
+}
