@@ -201,21 +201,21 @@ export function AppSidebar({ collapsed }: AppSidebarProps) {
               collapsed ? "opacity-100 scale-100" : "opacity-0 scale-75",
             )}
           >
-            <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-emerald-600 dark:text-emerald-500">
+            <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-emerald-600 dark:text-emerald-500">
               <path fill="currentColor" fillRule="evenodd" d="M 250,28 L 480,458 L 20,458 Z M 250,252 L 312,458 L 230,458 L 150,360 L 195,310 L 155,250 Z"/>
             </svg>
           </div>
           {/* Expanded: triangle logo + ACHILLES text */}
           <div
             className={cn(
-              "flex items-center gap-2.5 h-8 transition-all duration-300",
+              "flex items-center gap-2.5 h-10 transition-all duration-300",
               collapsed ? "opacity-0 scale-95" : "opacity-100 scale-100",
             )}
           >
-            <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 shrink-0 text-emerald-600 dark:text-emerald-500">
+            <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 shrink-0 text-emerald-600 dark:text-emerald-500">
               <path fill="currentColor" fillRule="evenodd" d="M 250,28 L 480,458 L 20,458 Z M 250,252 L 312,458 L 230,458 L 150,360 L 195,310 L 155,250 Z"/>
             </svg>
-            <span className="text-lg font-bold tracking-widest text-sidebar-foreground">ACHILLES</span>
+            <span className="text-xl font-bold tracking-widest text-sidebar-foreground">ACHILLES</span>
           </div>
         </div>
 
