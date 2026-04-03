@@ -1,0 +1,202 @@
+name: Release Agent
+
+on:
+  push:
+    tags: ['agent-v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-agent
+  cancel-in-progress: false
+
+jobs:
+  verify-tag:
+    name: Verify tag is on main
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+      - name: Ensure tag commit is on main
+        env:
+          TAG_REF: ${{ github.ref }}
+        run: |
+          TAG_COMMIT=$(git rev-list -n 1 "$TAG_REF")
+          if ! git merge-base --is-ancestor "$TAG_COMMIT" origin/main; then
+            echo "::error::Tag does not point to a commit on main"
+            exit 1
+          fi
+
+  test:
+    name: Test Agent
+    needs: verify-tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - run: go test ./...
+      - run: go vet ./...
+
+  build:
+    name: Build Agent Binaries
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+
+      - name: Extract version from tag
+        id: version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: echo "version=${TAG_NAME#agent-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build all platforms
+        working-directory: agent
+        env:
+          BUILD_VERSION: ${{ steps.version.outputs.version }}
+        run: make build-all VERSION="$BUILD_VERSION"
+
+      - name: Sign Windows binary
+        working-directory: agent
+        env:
+          WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if [ -z "$WINDOWS_CERT_PFX" ]; then
+            echo "No Windows certificate configured, skipping signing"
+            exit 0
+          fi
+
+          sudo apt-get update -qq && sudo apt-get install -y -qq osslsigncode > /dev/null
+
+          echo "$WINDOWS_CERT_PFX" | base64 -d > /tmp/cert.pfx
+
+          osslsigncode sign \
+            -pkcs12 /tmp/cert.pfx \
+            -pass "$WINDOWS_CERT_PASSWORD" \
+            -n "Achilles Agent" \
+            -t http://timestamp.digicert.com \
+            -in dist/achilles-agent-windows-amd64.exe \
+            -out dist/achilles-agent-windows-amd64-signed.exe
+
+          mv dist/achilles-agent-windows-amd64-signed.exe \
+             dist/achilles-agent-windows-amd64.exe
+
+          rm -f /tmp/cert.pfx
+
+      - name: Sign macOS binaries (ad-hoc)
+        run: |
+          pip install apple-codesign
+          rcodesign sign --code-signature-flags adhoc agent/dist/achilles-agent-darwin-amd64
+          rcodesign sign --code-signature-flags adhoc agent/dist/achilles-agent-darwin-arm64
+
+      - name: Regenerate checksums after signing
+        working-directory: agent
+        run: make checksum
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-binaries
+          path: agent/dist/
+          retention-days: 5
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-binaries
+          path: dist/
+
+      - name: Extract version
+        id: version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: echo "version=${TAG_NAME#agent-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release notes
+        env:
+          AGENT_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Look for ## Agent [X.Y.Z] section in changelog
+          NOTES=$(awk -v ver="$AGENT_VERSION" '
+            /^## Agent \[/ {
+              if (found) exit
+              if ($0 ~ "\\[" ver "\\]") { found=1; next }
+            }
+            found && /^## / { exit }
+            found { print }
+          ' docs/CHANGELOG.md)
+
+          if [ -z "$NOTES" ]; then
+            NOTES="Agent release ${AGENT_VERSION}. See [CHANGELOG.md](docs/CHANGELOG.md) for details."
+          fi
+
+          # Write release notes with installation header
+          cat > /tmp/release-notes.md << 'HEADER'
+          ## Installation
+
+          Download the binary for your platform and enroll:
+
+          ```bash
+          # Linux
+          chmod +x achilles-agent-linux-amd64
+          sudo ./achilles-agent-linux-amd64 --enroll TOKEN --server https://your-server.example.com --install
+
+          # macOS (Apple Silicon)
+          chmod +x achilles-agent-darwin-arm64
+          sudo ./achilles-agent-darwin-arm64 --enroll TOKEN --server https://your-server.example.com --install
+
+          # Windows (PowerShell as Administrator)
+          .\achilles-agent-windows-amd64.exe --enroll TOKEN --server https://your-server.example.com --install
+          ```
+
+          ## Verify checksums
+
+          ```bash
+          sha256sum -c SHA256SUMS
+          ```
+
+          ---
+
+          HEADER
+
+          echo "$NOTES" >> /tmp/release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          AGENT_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "$TAG_NAME" \
+            --title "Achilles Agent $AGENT_VERSION" \
+            --notes-file /tmp/release-notes.md \
+            --latest=false \
+            dist/*

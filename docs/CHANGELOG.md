@@ -5,6 +5,10 @@ All notable changes to ProjectAchilles will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+This project uses two version streams:
+- **Platform** (frontend, backend, backend-serverless): tagged as `vX.Y.Z`
+- **Agent** (Go binary): tagged as `agent-vX.Y.Z`
+
 ## [Unreleased]
 
 ### Added
@@ -258,5 +262,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 |---------|------|-------------|
 | 1.0.0 | 2024-12-10 | Initial release |
 
-[Unreleased]: https://github.com/projectachilles/ProjectAchilles/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/projectachilles/ProjectAchilles/releases/tag/v1.0.0
+[Unreleased]: https://github.com/F0RT1KA/ProjectAchilles/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/F0RT1KA/ProjectAchilles/releases/tag/v1.0.0

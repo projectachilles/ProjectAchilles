@@ -52,8 +52,8 @@ sign-darwin: build-darwin-amd64 build-darwin-arm64
 
 checksum:
 	@echo "Computing checksums..."
-	@cd $(DIST) && sha256sum * > SHA256SUMS 2>/dev/null || true
-	@cat $(DIST)/SHA256SUMS 2>/dev/null || true
+	@cd $(DIST) && sha256sum achilles-agent-* > SHA256SUMS
+	@cat $(DIST)/SHA256SUMS
 
 clean:
 	rm -rf $(DIST)

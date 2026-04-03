@@ -343,6 +343,33 @@ docker compose ps
 - `docs/CHANGELOG.md` - Version history
 - `docs/ROADMAP.md` - Planned features and direction
 
+## Releasing
+
+Releases are managed through Claude Code commands and GitHub Actions. See `docs/RELEASING.md` for the full guide.
+
+### Quick Reference
+
+| Stream | Tag format | Workflow | Example |
+|--------|-----------|----------|---------|
+| Platform | `vX.Y.Z` | `release.yml` | `v2.0.0` |
+| Agent | `agent-vX.Y.Z` | `release-agent.yml` | `agent-v0.7.0` |
+
+### Process
+
+1. Ensure all tests pass and you're on `main`
+2. Run `/release` in Claude Code for an interactive flow, or manually:
+   - Update version numbers in package.json files (platform) or Makefile + main.go (agent)
+   - Update `docs/CHANGELOG.md` with a new version section
+   - Commit: `chore(release): vX.Y.Z`
+   - Tag: `git tag vX.Y.Z`
+   - Push: `git push origin main --tags`
+3. GitHub Actions automatically creates the GitHub Release
+   - Agent releases also build, sign, and attach binaries for all platforms
+
+### Who Can Release
+
+Only members of `@projectachilles/maintainers` can push release tags. Tag protection rules are configured in the repository settings.
+
 ## Questions?
 
 If you have questions about contributing, please open a GitHub issue with the "question" label or start a [Discussion](https://github.com/projectachilles/ProjectAchilles/discussions).

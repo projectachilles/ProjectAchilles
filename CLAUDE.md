@@ -59,6 +59,14 @@ cd agent && go test ./...        # Run Go tests
 cd agent && go build ./...       # Validate compilation
 ```
 
+### Release Management (Claude Code Commands)
+
+```bash
+/release    # Interactive release flow (platform or agent)
+/changelog  # Generate changelog entries from commits
+/pr         # Create PR with filled template and pre-checks
+```
+
 ## Architecture
 
 ### Frontend (`frontend/src/`)
@@ -222,7 +230,7 @@ Vite proxies `/api` → `http://localhost:$VITE_BACKEND_PORT` (default 3000)
 <type>(<scope>): <description>
 ```
 Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`
-Scopes: `frontend`, `backend`, `backend-serverless`, `agent`, `analytics`, `browser`, `docker`, `render`, `vercel`, `settings`, `certs`, `deps`
+Scopes: `frontend`, `backend`, `backend-serverless`, `agent`, `analytics`, `browser`, `docker`, `render`, `vercel`, `fly`, `settings`, `certs`, `deps`, `ci`, `release`, `wiki`
 
 ## CI/CD
 
