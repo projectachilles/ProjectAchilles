@@ -30,11 +30,8 @@ npm-debug.log*
 # Vite cache
 .vite/
 
-# Claude Code (ignore local/user files, keep shared config)
-.claude/*
-!.claude/settings.json
-!.claude/commands/
-!.claude/skills/
+# Claude Code
+.claude/
 .superpowers/
 docs/superpowers/
 

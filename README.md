@@ -559,7 +559,17 @@ For security vulnerabilities, please report via [GitHub Security Advisories](htt
 - [Semgrep](https://semgrep.dev) — static analysis in CI
 - [Trail of Bits](https://trailofbits.com) — security analysis plugins for Claude Code
 - [Claude Code](https://claude.ai/code) by Anthropic — AI-assisted development and release automation
+- [LimaCharlie](https://limacharlie.io) — cloud SecOps platform that inspired the original endpoint management module
 - Purple team methodology inspired by [DORA](https://www.digital-operational-resilience-act.com/) and [TIBER-EU](https://www.ecb.europa.eu/paym/cyber-resilience/tiber-eu/html/index.en.html) frameworks
+
+Special thanks to:
+- [@topher-lo](https://github.com/topher-lo) (Chris Lo) — ideas and inspiration
+- [@crpol](https://github.com/crpol) (Cesar Rosa) — continuous support and great ideas
+- [@msum83](https://github.com/msum83) (Michal Sumega) — continuous support and great ideas
+- [@kmazara89](https://github.com/kmazara89) (Kendra Mazara) — testing and quality
+- [@Albert2707](https://github.com/Albert2707) (Albert Agramonte) — testing and quality
+- [@Yamilithia](https://github.com/Yamilithia) (Yamilet Cruz) — testing and quality
+- [@MarcosxDeveloper](https://github.com/MarcosxDeveloper) (Marcos Gonzalez) — testing and quality
 
 ## License
 
