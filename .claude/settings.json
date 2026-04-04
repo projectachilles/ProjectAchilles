@@ -6,19 +6,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./scripts/hooks/validate-commit-msg.sh",
+            "command": "cd /home/jimx/F0RT1KA/ProjectAchilles && ./scripts/hooks/validate-commit-msg.sh",
             "timeout": 5,
             "statusMessage": "Validating commit message..."
           },
           {
             "type": "command",
-            "command": "./scripts/hooks/validate-branch-name.sh",
+            "command": "cd /home/jimx/F0RT1KA/ProjectAchilles && ./scripts/hooks/validate-branch-name.sh",
             "timeout": 5,
             "statusMessage": "Checking branch name..."
           },
           {
             "type": "command",
-            "command": "./scripts/hooks/validate-tag-push.sh",
+            "command": "cd /home/jimx/F0RT1KA/ProjectAchilles && ./scripts/hooks/validate-tag-push.sh",
             "timeout": 10,
             "statusMessage": "Validating tag consistency..."
           }
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./scripts/hooks/changelog-reminder.sh",
+            "command": "cd /home/jimx/F0RT1KA/ProjectAchilles && ./scripts/hooks/changelog-reminder.sh",
             "timeout": 5,
             "statusMessage": "Checking changelog..."
           }
@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./scripts/check-docs-drift.sh",
+            "command": "cd $(git rev-parse --show-toplevel 2>/dev/null || echo /home/jimx/F0RT1KA/ProjectAchilles) && ./scripts/check-docs-drift.sh",
             "timeout": 10,
             "statusMessage": "Checking for documentation drift..."
           }
