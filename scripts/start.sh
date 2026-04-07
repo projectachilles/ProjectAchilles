@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# ProjectAchilles - Unified Security Platform
+# ProjectAchilles - Continuous Security Testing platform
 # Smart startup with port detection and fallback
 
 set -e
@@ -72,7 +72,7 @@ echo "║   ██╔══██║██║     ██╔══██║██
 echo "║   ██║  ██║╚██████╗██║  ██║██║███████╗███████╗███████╗███████║   ║"
 echo "║   ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝╚══════╝   ║"
 echo "║                                                                   ║"
-echo "║   ACHILLES - Unified Security Platform                            ║"
+echo "║   ACHILLES - Continuous Security Testing Platform                            ║"
 echo "║                                                                   ║"
 echo "╚═══════════════════════════════════════════════════════════════════╝"
 echo ""
