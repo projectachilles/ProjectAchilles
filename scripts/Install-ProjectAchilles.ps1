@@ -690,19 +690,19 @@ function Invoke-PhaseConfiguration {
     $script:GitHubToken  = ''
     $script:TestsRepoUrl = ''
     if (-not $Quick) {
-        $defaultToken = if ($defaults.ContainsKey('GITHUB_TOKEN') -and $defaults['GITHUB_TOKEN'] -ne 'ghp_xxxxx') { $defaults['GITHUB_TOKEN'] } else { '' }
         $defaultRepo  = if ($defaults.ContainsKey('TESTS_REPO_URL')) { $defaults['TESTS_REPO_URL'] } else { 'https://github.com/your-org/f0_library.git' }
 
         Write-Host ""
-        $hasRepo = Read-Host "  Do you have a private test library? [y/N]"
-        if ($hasRepo -match '^[Yy]') {
+        $repoInput = Read-Host "  Test library repository URL [$defaultRepo]"
+        $script:TestsRepoUrl = if ([string]::IsNullOrWhiteSpace($repoInput)) { $defaultRepo } else { $repoInput }
+
+        $isPrivate = Read-Host "  Is this a private repository? (public repos need no token) [y/N]"
+        if ($isPrivate -match '^[Yy]') {
             $script:GitHubToken = Read-SecurePrompt -Prompt "  GitHub Personal Access Token (input hidden)"
-            $repoInput = Read-Host "  Repository URL [$defaultRepo]"
-            $script:TestsRepoUrl = if ([string]::IsNullOrWhiteSpace($repoInput)) { $defaultRepo } else { $repoInput }
-            Write-Success "Test repository configured"
+            Write-Success "Test repository configured (private, with token)"
         }
         else {
-            Write-Info "Test repository: skipped"
+            Write-Success "Test repository configured (public, no token needed)"
         }
     }
 
@@ -759,9 +759,11 @@ function Invoke-PhaseWriteConfig {
     Set-EnvValue -Path $script:EnvFile -Key 'PORT'                  -Value '3000'
 
     # Test repository
+    if (-not [string]::IsNullOrEmpty($script:TestsRepoUrl)) {
+        Set-EnvValue -Path $script:EnvFile -Key 'TESTS_REPO_URL' -Value $script:TestsRepoUrl
+    }
     if (-not [string]::IsNullOrEmpty($script:GitHubToken)) {
         Set-EnvValue -Path $script:EnvFile -Key 'GITHUB_TOKEN'   -Value $script:GitHubToken
-        Set-EnvValue -Path $script:EnvFile -Key 'TESTS_REPO_URL' -Value $script:TestsRepoUrl
     }
 
     # Elasticsearch -- comment out all first, then set relevant ones

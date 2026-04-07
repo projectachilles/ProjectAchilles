@@ -340,21 +340,26 @@ step_test_repo() {
     existing_token=$(env_get "GITHUB_TOKEN")
     existing_url=$(env_get "TESTS_REPO_URL")
 
+    TESTS_REPO_URL=$(show_inputbox "Test Repository" \
+        "Repository URL for the security test library.\n\nPublic repos work without a token." \
+        "${existing_url:-https://github.com/your-org/f0_library.git}")
+
+    # Only ask for token if repo is private
     if [[ -n "$existing_token" && "$existing_token" != "ghp_xxxxx" ]]; then
-        if show_yesno "Test Repository" \
-            "GitHub token already configured.\n\nKeep existing settings?"; then
+        if show_yesno "GitHub Token" \
+            "GitHub token already configured.\n\nKeep existing token?"; then
             GITHUB_TOKEN="$existing_token"
-            TESTS_REPO_URL="${existing_url:-https://github.com/your-org/f0_library.git}"
             return
         fi
     fi
 
-    GITHUB_TOKEN=$(show_passwordbox "Test Repository" \
-        "Enter GitHub Personal Access Token\n(Required for private test repos)\n\nGenerate at: github.com/settings/tokens")
-
-    TESTS_REPO_URL=$(show_inputbox "Test Repository" \
-        "Repository URL" \
-        "${existing_url:-https://github.com/your-org/f0_library.git}")
+    if show_yesno "GitHub Token" \
+        "Is this a private repository?\n\nPublic repos (including the default f0_library) do not need a token."; then
+        GITHUB_TOKEN=$(show_passwordbox "GitHub Token" \
+            "Enter GitHub Personal Access Token\n\nGenerate at: github.com/settings/tokens (scope: repo)")
+    else
+        GITHUB_TOKEN=""
+    fi
 }
 
 step_generate_secrets() {
@@ -415,8 +420,12 @@ write_env() {
     fi
 
     # --- Test Repository ---
-    [[ -n "${GITHUB_TOKEN:-}" ]] && env_set "GITHUB_TOKEN" "$GITHUB_TOKEN" || true
     [[ -n "${TESTS_REPO_URL:-}" ]] && env_set "TESTS_REPO_URL" "$TESTS_REPO_URL" || true
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        env_set "GITHUB_TOKEN" "$GITHUB_TOKEN"
+    else
+        env_comment "GITHUB_TOKEN"
+    fi
 
     # --- Elasticsearch ---
     # Clear all ES vars first, then set only the relevant ones

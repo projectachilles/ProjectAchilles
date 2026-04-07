@@ -123,10 +123,13 @@ To populate the Test Browser, configure a Git repository containing security tes
 ```bash
 # In backend/.env
 TESTS_REPO_URL=https://github.com/your-org/your-test-library.git
-GITHUB_TOKEN=ghp_your_pat_here  # Only needed for private repos
 ```
 
-The backend will clone and sync the test library on startup.
+The backend will clone and sync the test library on startup. **No GitHub token is needed for public repositories.** If your test library is in a private repo, also add:
+
+```bash
+GITHUB_TOKEN=ghp_your_pat_here
+```
 
 ## Stopping Services
 
