@@ -173,6 +173,328 @@ if [ "$KILL_EXISTING" = true ]; then
     pkill -f "ngrok.*achilles" 2>/dev/null || true
 fi
 
+# =============================================================================
+# Dependency Management — auto-detect platform and install prerequisites
+# =============================================================================
+
+detect_platform() {
+    PA_OS="unknown"
+    PA_DISTRO=""
+    PA_PKG_MGR=""
+    PA_IS_WSL=false
+
+    case "$(uname -s)" in
+        Linux*)
+            PA_OS="linux"
+            if grep -qi microsoft /proc/version 2>/dev/null; then
+                PA_IS_WSL=true
+            fi
+            if [ -f /etc/os-release ]; then
+                . /etc/os-release
+                PA_DISTRO="$ID"
+            fi
+            case "$PA_DISTRO" in
+                ubuntu|debian|pop|linuxmint|elementary|kali|raspbian|zorin)
+                    PA_PKG_MGR="apt"
+                    ;;
+                fedora|rhel|centos|rocky|alma)
+                    PA_PKG_MGR="dnf"
+                    ;;
+                arch|manjaro|endeavouros|garuda)
+                    PA_PKG_MGR="pacman"
+                    ;;
+                opensuse*|sles)
+                    PA_PKG_MGR="zypper"
+                    ;;
+            esac
+            ;;
+        Darwin*)
+            PA_OS="macos"
+            if command -v brew &>/dev/null; then
+                PA_PKG_MGR="brew"
+            fi
+            ;;
+    esac
+}
+
+# --- Per-package install functions, dispatched as install_<pkg>_<mgr> ---
+
+install_node_apt() {
+    echo "  Installing Node.js 22.x via NodeSource..."
+    if ! command -v curl &>/dev/null; then
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq curl ca-certificates
+    fi
+    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+    sudo apt-get install -y -qq nodejs
+}
+install_node_dnf() {
+    echo "  Installing Node.js 22.x..."
+    sudo dnf module install -y nodejs:22/common 2>/dev/null || {
+        curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo bash -
+        sudo dnf install -y nodejs
+    }
+}
+install_node_pacman() {
+    echo "  Installing Node.js and npm..."
+    sudo pacman -Sy --noconfirm nodejs npm
+}
+install_node_zypper() {
+    echo "  Installing Node.js 22.x via NodeSource..."
+    if ! command -v curl &>/dev/null; then
+        sudo zypper install -y curl ca-certificates
+    fi
+    curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo bash -
+    sudo zypper install -y nodejs
+}
+install_node_brew() {
+    echo "  Installing Node.js 22 via Homebrew..."
+    brew install node@22
+    brew link --overwrite node@22 2>/dev/null || true
+}
+
+install_git_apt()    { sudo apt-get update -qq && sudo apt-get install -y -qq git; }
+install_git_dnf()    { sudo dnf install -y git; }
+install_git_pacman() { sudo pacman -Sy --noconfirm git; }
+install_git_zypper() { sudo zypper install -y git; }
+install_git_brew()   { brew install git; }
+
+# Go install — tarball from go.dev for distros that ship outdated versions
+GO_INSTALL_VERSION="1.24.2"
+
+install_go_tarball() {
+    local arch
+    arch=$(uname -m)
+    case "$arch" in
+        x86_64)  arch="amd64" ;;
+        aarch64) arch="arm64" ;;
+        armv*)   arch="armv6l" ;;
+    esac
+
+    echo "  Installing Go ${GO_INSTALL_VERSION} (${arch}) from go.dev..."
+    if ! command -v curl &>/dev/null; then
+        case "$PA_PKG_MGR" in
+            apt)    sudo apt-get install -y -qq curl ca-certificates ;;
+            dnf)    sudo dnf install -y curl ;;
+            zypper) sudo zypper install -y curl ca-certificates ;;
+        esac
+    fi
+
+    # Remove previous Go installation at /usr/local/go if present
+    if [ -d /usr/local/go ]; then
+        echo "  Removing existing /usr/local/go..."
+        sudo rm -rf /usr/local/go
+    fi
+
+    curl -fsSL "https://go.dev/dl/go${GO_INSTALL_VERSION}.linux-${arch}.tar.gz" \
+        | sudo tar -C /usr/local -xz
+
+    # Make available in this session
+    export PATH="/usr/local/go/bin:$PATH"
+
+    echo "  Installed to /usr/local/go"
+    echo "  Tip: add to your shell profile — export PATH=/usr/local/go/bin:\$PATH"
+}
+
+install_go_apt()    { install_go_tarball; }
+install_go_zypper() { install_go_tarball; }
+install_go_dnf() {
+    echo "  Trying dnf first..."
+    sudo dnf install -y golang
+    # dnf may ship an older version — check it
+    local go_minor
+    go_minor=$(go version 2>/dev/null | awk '{print $3}' | sed 's/go//' | cut -d. -f2)
+    if [ "${go_minor:-0}" -lt 24 ]; then
+        echo "  dnf provided Go $(go version 2>/dev/null | awk '{print $3}') (too old) — switching to tarball..."
+        install_go_tarball
+    fi
+}
+install_go_pacman() {
+    echo "  Installing Go..."
+    sudo pacman -Sy --noconfirm go
+}
+install_go_brew() {
+    echo "  Installing Go via Homebrew..."
+    brew install go
+}
+
+check_and_install_deps() {
+    detect_platform
+
+    # Build display label
+    local platform_label="$PA_OS"
+    if $PA_IS_WSL; then
+        platform_label="WSL"
+        [ -n "$PA_DISTRO" ] && platform_label="WSL ($PA_DISTRO)"
+    elif [ "$PA_OS" = "linux" ] && [ -n "$PA_DISTRO" ]; then
+        platform_label="$PA_DISTRO"
+    elif [ "$PA_OS" = "macos" ]; then
+        platform_label="macOS"
+    fi
+    echo "Checking dependencies (platform: $platform_label)..."
+
+    local missing=()
+
+    # --- git ---
+    if command -v git &>/dev/null; then
+        echo "  git $(git --version | awk '{print $3}') ✓"
+    else
+        echo "  git — not found"
+        missing+=("git")
+    fi
+
+    # --- node (try loading nvm first if node isn't on PATH) ---
+    if ! command -v node &>/dev/null && [ -s "$HOME/.nvm/nvm.sh" ]; then
+        echo "  nvm detected but not loaded — sourcing..."
+        export NVM_DIR="$HOME/.nvm"
+        . "$NVM_DIR/nvm.sh"
+    fi
+
+    if command -v node &>/dev/null; then
+        local node_major
+        node_major=$(node -v | sed 's/v//' | cut -d. -f1)
+        if [ "$node_major" -lt 22 ] 2>/dev/null; then
+            echo "  Node.js $(node -v) — upgrade needed (22+ required)"
+            missing+=("node")
+        else
+            echo "  Node.js $(node -v) ✓"
+        fi
+    else
+        echo "  Node.js — not found"
+        missing+=("node")
+    fi
+
+    # --- npm (ships with node, but verify) ---
+    if command -v npm &>/dev/null; then
+        echo "  npm $(npm -v) ✓"
+    elif [[ ! " ${missing[*]} " =~ " node " ]]; then
+        echo "  npm — not found (unusual — Node.js present without npm)"
+        missing+=("npm")
+    fi
+
+    # --- Go (optional but auto-installed — needed for agent/test builds) ---
+    if command -v go &>/dev/null; then
+        local go_ver go_minor
+        go_ver=$(go version | awk '{print $3}' | sed 's/go//')
+        go_minor=$(echo "$go_ver" | cut -d. -f2)
+        if [ "${go_minor:-0}" -lt 24 ] 2>/dev/null; then
+            echo "  Go $go_ver — upgrade needed (1.24+ required)"
+            missing+=("go")
+        else
+            echo "  Go $go_ver ✓"
+        fi
+    else
+        echo "  Go — not found (needed for agent/test builds)"
+        missing+=("go")
+    fi
+
+    echo ""
+
+    # All present — nothing to do
+    if [ ${#missing[@]} -eq 0 ]; then
+        return 0
+    fi
+
+    # --- Can we auto-install? ---
+    if [ -z "$PA_PKG_MGR" ]; then
+        echo "Missing: ${missing[*]}"
+        echo ""
+        if [ "$PA_OS" = "macos" ]; then
+            echo "Homebrew is required to install dependencies on macOS."
+            echo "Install it with:"
+            echo '  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+        else
+            echo "Could not detect a supported package manager ($PA_DISTRO)."
+            echo "Please install manually: Node.js 22+, npm, git, Go 1.24+"
+        fi
+        exit 1
+    fi
+
+    # --- Prompt (unless non-interactive / piped) ---
+    echo "Missing: ${missing[*]}"
+    if [ -t 0 ] && [ -t 1 ]; then
+        read -rp "Install now using $PA_PKG_MGR? [Y/n] " response
+        case "${response:-Y}" in
+            [Nn]*)
+                echo "Skipping. Install manually and re-run."
+                exit 1
+                ;;
+        esac
+    else
+        echo "Non-interactive shell — installing automatically..."
+    fi
+    echo ""
+
+    # --- Deduplicate node/npm (installing node also installs npm) ---
+    local need_node=false
+    local need_git=false
+    local need_go=false
+    for dep in "${missing[@]}"; do
+        case "$dep" in
+            node|npm) need_node=true ;;
+            git)      need_git=true ;;
+            go)       need_go=true ;;
+        esac
+    done
+
+    if $need_git; then
+        echo "Installing git..."
+        "install_git_${PA_PKG_MGR}"
+    fi
+    if $need_node; then
+        echo "Installing Node.js 22..."
+        "install_node_${PA_PKG_MGR}"
+    fi
+    if $need_go; then
+        echo "Installing Go..."
+        "install_go_${PA_PKG_MGR}"
+    fi
+
+    # --- Verify ---
+    echo ""
+    echo "Verifying installation..."
+    local failed=false
+
+    # Required — block startup if missing
+    if ! command -v git &>/dev/null; then
+        echo "  ✗ git — installation failed"
+        failed=true
+    else
+        echo "  git $(git --version | awk '{print $3}') ✓"
+    fi
+    if ! command -v node &>/dev/null; then
+        echo "  ✗ Node.js — installation failed"
+        failed=true
+    else
+        echo "  Node.js $(node -v) ✓"
+    fi
+    if ! command -v npm &>/dev/null; then
+        echo "  ✗ npm — installation failed"
+        failed=true
+    else
+        echo "  npm $(npm -v) ✓"
+    fi
+
+    # Optional — warn but continue
+    if ! command -v go &>/dev/null; then
+        echo "  ⚠ Go — installation failed (agent/test builds will be unavailable)"
+    else
+        local go_installed_ver
+        go_installed_ver=$(go version | awk '{print $3}' | sed 's/go//')
+        echo "  Go $go_installed_ver ✓"
+    fi
+
+    if $failed; then
+        echo ""
+        echo "Required dependencies failed to install. Please install manually and re-run."
+        exit 1
+    fi
+    echo ""
+}
+
+# Run dependency check before anything else that needs node/npm/git
+check_and_install_deps
+
 # Validate tunnel mode requirements
 if [ "$TUNNEL_MODE" = true ]; then
     if ! command -v ngrok &> /dev/null; then
@@ -269,14 +591,14 @@ if [ "$TUNNEL_MODE" = true ]; then
 fi
 
 # Check if npm dependencies are installed
-if [ ! -d "backend/node_modules" ]; then
+if [ ! -d "$PROJECT_ROOT/backend/node_modules" ]; then
     echo "Installing backend dependencies..."
-    cd backend && npm install && cd ..
+    (cd "$PROJECT_ROOT/backend" && npm install)
 fi
 
-if [ ! -d "frontend/node_modules" ]; then
+if [ ! -d "$PROJECT_ROOT/frontend/node_modules" ]; then
     echo "Installing frontend dependencies..."
-    cd frontend && npm install && cd ..
+    (cd "$PROJECT_ROOT/frontend" && npm install)
 fi
 
 # Export ports as environment variables for the apps
@@ -286,7 +608,7 @@ export VITE_BACKEND_PORT=$BACKEND_PORT
 
 # Start backend in background
 echo "Starting backend server on port $BACKEND_PORT..."
-cd backend
+cd "$PROJECT_ROOT/backend"
 if [ "$DAEMON_MODE" = true ]; then
     # Build and use compiled server for daemon mode (tsx watch exits in non-interactive shells)
     if [ ! -f "dist/server.js" ] || [ "src/server.ts" -nt "dist/server.js" ]; then
@@ -298,7 +620,7 @@ else
     PORT=$BACKEND_PORT npm run dev &
 fi
 BACKEND_PID=$!
-cd ..
+cd "$PROJECT_ROOT"
 
 # Wait for backend to start
 sleep 2
@@ -306,7 +628,7 @@ sleep 2
 # Start frontend with custom port and backend proxy config
 echo "Starting frontend server on port $FRONTEND_PORT..."
 echo "  (proxying /api to backend on port $BACKEND_PORT)"
-cd frontend
+cd "$PROJECT_ROOT/frontend"
 if [ "$DAEMON_MODE" = true ]; then
     # Run vite directly for daemon mode (npm exits in non-interactive shells)
     nohup env VITE_BACKEND_PORT=$BACKEND_PORT node node_modules/vite/bin/vite.js --port $FRONTEND_PORT > "$PROJECT_ROOT/.frontend.log" 2>&1 &
@@ -314,7 +636,7 @@ else
     VITE_BACKEND_PORT=$BACKEND_PORT npm run dev -- --port $FRONTEND_PORT &
 fi
 FRONTEND_PID=$!
-cd ..
+cd "$PROJECT_ROOT"
 
 echo ""
 echo "╔═══════════════════════════════════════════════════════════════════╗"
