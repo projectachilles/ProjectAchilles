@@ -758,7 +758,10 @@ check_and_setup_clerk() {
             ;;
         *)
             open_browser "https://dashboard.clerk.com"
-            echo "  Opening https://dashboard.clerk.com ..."
+            echo ""
+            echo "  Open https://dashboard.clerk.com in your browser"
+            echo "  (If it didn't open automatically, copy the URL above)"
+            echo ""
             echo "  Complete steps 1-3, then paste your keys below."
             prompt_clerk_keys
             echo ""
