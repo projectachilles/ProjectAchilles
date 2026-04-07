@@ -567,8 +567,9 @@ Special thanks to:
 - [@crpol](https://github.com/crpol) (Cesar Rosa) — continuous support and great ideas
 - [@msum83](https://github.com/msum83) (Michal Sumega) — continuous support and great ideas
 - [@kmazara89](https://github.com/kmazara89) (Kendra Mazara) — testing and quality
-- [@Albert2707](https://github.com/Albert2707) (Albert Agramonte) — testing and quality
+- [@javierdiplan04](https://github.com/javierdiplan04) (Javier Diplan) — testing and quality
 - [@Yamilithia](https://github.com/Yamilithia) (Yamilet Cruz) — testing and quality
+- [@Albert2707](https://github.com/Albert2707) (Albert Agramonte) — testing and quality
 - [@MarcosxDeveloper](https://github.com/MarcosxDeveloper) (Marcos Gonzalez) — testing and quality
 
 ## License
