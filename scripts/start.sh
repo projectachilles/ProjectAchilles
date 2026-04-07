@@ -495,6 +495,280 @@ check_and_install_deps() {
 # Run dependency check before anything else that needs node/npm/git
 check_and_install_deps
 
+# =============================================================================
+# Clerk Authentication — detect, guide, validate, and write keys
+# =============================================================================
+
+BACKEND_ENV="$PROJECT_ROOT/backend/.env"
+BACKEND_ENV_EXAMPLE="$PROJECT_ROOT/backend/.env.example"
+FRONTEND_ENV="$PROJECT_ROOT/frontend/.env"
+FRONTEND_ENV_EXAMPLE="$PROJECT_ROOT/frontend/.env.example"
+
+# Read a value from a .env file (returns empty if not found or commented)
+read_env_value() {
+    local file="$1" key="$2"
+    if [ -f "$file" ]; then
+        grep -E "^${key}=" "$file" 2>/dev/null | head -1 | cut -d'=' -f2-
+    fi
+}
+
+# Write or update a key in a .env file
+write_env_value() {
+    local file="$1" key="$2" value="$3"
+    if [ ! -f "$file" ]; then
+        touch "$file"
+    fi
+    if grep -qE "^#?\s*${key}=" "$file" 2>/dev/null; then
+        sed -i "s|^#*\s*${key}=.*|${key}=${value}|" "$file"
+    else
+        echo "${key}=${value}" >> "$file"
+    fi
+}
+
+# Open a URL in the user's browser (platform-aware)
+open_browser() {
+    local url="$1"
+    if $PA_IS_WSL; then
+        powershell.exe Start "'$url'" 2>/dev/null || wslview "$url" 2>/dev/null || true
+    elif [ "$PA_OS" = "macos" ]; then
+        open "$url" 2>/dev/null || true
+    elif [ "$PA_OS" = "linux" ]; then
+        xdg-open "$url" 2>/dev/null || true
+    fi
+}
+
+# Validate Clerk key format. Returns 0 if valid, 1 if invalid.
+# Sets CLERK_KEY_ENV to "test" or "live" on success.
+validate_clerk_key_format() {
+    local key="$1" type="$2"  # type: "pk" or "sk"
+    if [[ "$key" =~ ^${type}_(test|live)_.+ ]]; then
+        CLERK_KEY_ENV="${BASH_REMATCH[1]}"
+        return 0
+    fi
+    return 1
+}
+
+# Extract the Clerk Frontend API domain from a publishable key.
+# pk_test_<base64-encoded-domain>$ → domain string
+extract_clerk_domain() {
+    local pk="$1"
+    local payload="${pk#pk_test_}"
+    payload="${payload#pk_live_}"
+    # base64 decode, strip trailing $ and whitespace
+    local domain
+    domain=$(echo "$payload" | base64 -d 2>/dev/null | tr -d '$\n\r ' )
+    echo "$domain"
+}
+
+# Test connectivity to a Clerk app via its JWKS endpoint.
+# Returns 0 if reachable, 1 if not.
+validate_clerk_connectivity() {
+    local pk="$1"
+    local domain
+    domain=$(extract_clerk_domain "$pk")
+
+    if [ -z "$domain" ]; then
+        echo "  Could not decode Clerk domain from publishable key"
+        return 1
+    fi
+
+    local url="https://${domain}/.well-known/jwks.json"
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$url" 2>/dev/null)
+
+    if [ "$http_code" = "200" ]; then
+        return 0
+    else
+        echo "  Could not reach Clerk app at $domain (HTTP $http_code)"
+        echo "  Check that your publishable key is correct"
+        return 1
+    fi
+}
+
+# Prompt user for Clerk keys interactively
+prompt_clerk_keys() {
+    local pk_input sk_input
+
+    while true; do
+        echo ""
+        read -rp "  Publishable Key: " pk_input
+
+        if [ -z "$pk_input" ]; then
+            echo "  Key cannot be empty"
+            continue
+        fi
+
+        if ! validate_clerk_key_format "$pk_input" "pk"; then
+            echo "  Invalid format — must start with pk_test_ or pk_live_"
+            continue
+        fi
+        local pk_env="$CLERK_KEY_ENV"
+        echo "  ✓ Format valid ($pk_env environment)"
+        break
+    done
+
+    while true; do
+        echo ""
+        read -rsp "  Secret Key (hidden): " sk_input
+        echo ""
+
+        if [ -z "$sk_input" ]; then
+            echo "  Key cannot be empty"
+            continue
+        fi
+
+        if ! validate_clerk_key_format "$sk_input" "sk"; then
+            echo "  Invalid format — must start with sk_test_ or sk_live_"
+            continue
+        fi
+        local sk_env="$CLERK_KEY_ENV"
+        echo "  ✓ ${sk_input:0:12}... confirmed ($sk_env environment)"
+
+        # Warn on environment mismatch
+        if [ "$pk_env" != "$sk_env" ]; then
+            echo ""
+            echo "  ⚠ Warning: publishable key is $pk_env but secret key is $sk_env"
+            echo "    Keys should be from the same environment"
+        fi
+        break
+    done
+
+    # Connectivity test
+    echo ""
+    echo "  Validating keys with Clerk API..."
+    if validate_clerk_connectivity "$pk_input"; then
+        echo "  ✓ Clerk app is reachable"
+    else
+        echo ""
+        read -rp "  Keys could not be verified. Use them anyway? [y/N] " use_anyway
+        case "${use_anyway:-N}" in
+            [Yy]*) ;;
+            *)
+                echo "  Retrying..."
+                prompt_clerk_keys
+                return
+                ;;
+        esac
+    fi
+
+    # Write to both env files
+    echo ""
+    echo "  Writing to backend/.env and frontend/.env..."
+    write_env_value "$BACKEND_ENV" "CLERK_PUBLISHABLE_KEY" "$pk_input"
+    write_env_value "$BACKEND_ENV" "CLERK_SECRET_KEY" "$sk_input"
+    write_env_value "$FRONTEND_ENV" "VITE_CLERK_PUBLISHABLE_KEY" "$pk_input"
+    echo "  ✓ Authentication configured"
+}
+
+check_and_setup_clerk() {
+    echo "Checking Clerk authentication..."
+
+    # Ensure backend .env exists
+    if [ ! -f "$BACKEND_ENV" ]; then
+        if [ -f "$BACKEND_ENV_EXAMPLE" ]; then
+            cp "$BACKEND_ENV_EXAMPLE" "$BACKEND_ENV"
+            echo "  Created backend/.env from .env.example"
+        else
+            touch "$BACKEND_ENV"
+        fi
+    fi
+
+    # Ensure frontend .env exists
+    if [ ! -f "$FRONTEND_ENV" ]; then
+        if [ -f "$FRONTEND_ENV_EXAMPLE" ]; then
+            cp "$FRONTEND_ENV_EXAMPLE" "$FRONTEND_ENV"
+        else
+            touch "$FRONTEND_ENV"
+        fi
+    fi
+
+    # Read current keys
+    local pk sk fe_pk
+    pk=$(read_env_value "$BACKEND_ENV" "CLERK_PUBLISHABLE_KEY")
+    sk=$(read_env_value "$BACKEND_ENV" "CLERK_SECRET_KEY")
+    fe_pk=$(read_env_value "$FRONTEND_ENV" "VITE_CLERK_PUBLISHABLE_KEY")
+
+    # Check if keys look like real values (not placeholders)
+    local pk_valid=false sk_valid=false
+    if [[ -n "$pk" && "$pk" != "pk_test_..." && "$pk" =~ ^pk_(test|live)_.{10,} ]]; then
+        pk_valid=true
+    fi
+    if [[ -n "$sk" && "$sk" != "sk_test_..." && "$sk" =~ ^sk_(test|live)_.{10,} ]]; then
+        sk_valid=true
+    fi
+
+    if $pk_valid && $sk_valid; then
+        # Keys look real — validate connectivity silently
+        if validate_clerk_connectivity "$pk" 2>/dev/null; then
+            echo "  Clerk keys ✓"
+            # Sync frontend .env if needed
+            if [ "$fe_pk" != "$pk" ]; then
+                write_env_value "$FRONTEND_ENV" "VITE_CLERK_PUBLISHABLE_KEY" "$pk"
+                echo "  Synced frontend/.env with backend publishable key"
+            fi
+            echo ""
+            return 0
+        else
+            echo "  ⚠ Clerk keys present but could not verify connectivity"
+            echo "    (This may be a network issue — proceeding anyway)"
+            if [ "$fe_pk" != "$pk" ]; then
+                write_env_value "$FRONTEND_ENV" "VITE_CLERK_PUBLISHABLE_KEY" "$pk"
+            fi
+            echo ""
+            return 0
+        fi
+    fi
+
+    # Keys are missing or placeholder — interactive setup needed
+    echo "  ✗ No valid Clerk keys configured"
+
+    # Non-interactive mode: can't prompt, just fail with instructions
+    if ! [ -t 0 ] || ! [ -t 1 ]; then
+        echo ""
+        echo "  Clerk authentication is required. Set these in backend/.env:"
+        echo "    CLERK_PUBLISHABLE_KEY=pk_test_your_key"
+        echo "    CLERK_SECRET_KEY=sk_test_your_key"
+        echo "  And in frontend/.env:"
+        echo "    VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_key"
+        echo ""
+        echo "  Get keys from: https://dashboard.clerk.com"
+        exit 1
+    fi
+
+    # Interactive guided setup
+    echo ""
+    echo "  ╭──────────────────────────────────────────────────────╮"
+    echo "  │  Clerk Setup (free account — takes ~2 minutes)       │"
+    echo "  │                                                      │"
+    echo "  │  1. Sign up or log in at clerk.com                   │"
+    echo "  │  2. Create a new application                         │"
+    echo "  │  3. Go to \"API Keys\" in the sidebar                  │"
+    echo "  │  4. Copy both keys below                             │"
+    echo "  ╰──────────────────────────────────────────────────────╯"
+    echo ""
+    read -rp "  Press Enter to open Clerk in your browser (or S to skip): " clerk_action
+
+    case "$clerk_action" in
+        [Ss]*)
+            echo ""
+            echo "  ⚠ Skipping Clerk setup — authentication will not work"
+            echo "    Run this script again to configure Clerk later"
+            echo ""
+            return 0
+            ;;
+        *)
+            open_browser "https://dashboard.clerk.com"
+            echo "  Opening https://dashboard.clerk.com ..."
+            echo "  Complete steps 1-3, then paste your keys below."
+            prompt_clerk_keys
+            echo ""
+            ;;
+    esac
+}
+
+# Run Clerk check before starting servers
+check_and_setup_clerk
+
 # Validate tunnel mode requirements
 if [ "$TUNNEL_MODE" = true ]; then
     if ! command -v ngrok &> /dev/null; then

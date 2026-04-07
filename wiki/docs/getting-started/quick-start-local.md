@@ -38,34 +38,7 @@ git clone https://github.com/projectachilles/ProjectAchilles.git
 cd ProjectAchilles
 ```
 
-### 2. Configure Clerk Authentication
-
-All modules require [Clerk](https://clerk.com) authentication. Create a free Clerk application:
-
-1. Sign up at [clerk.com](https://clerk.com) and create a new application
-2. Enable your desired sign-in methods (Google, GitHub, email/password)
-3. Copy your API keys from the Clerk Dashboard
-
-Create the environment files:
-
-```bash
-# Frontend
-cat > frontend/.env << 'EOF'
-VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_key_here
-EOF
-
-# Backend
-cat > backend/.env << 'EOF'
-CLERK_PUBLISHABLE_KEY=pk_test_your_key_here
-CLERK_SECRET_KEY=sk_test_your_key_here
-EOF
-```
-
-:::warning Separate Keys
-The frontend uses `VITE_CLERK_PUBLISHABLE_KEY` (with the `VITE_` prefix) and the backend uses `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`. Both the frontend and backend publishable keys should be the same value.
-:::
-
-### 3. Start the Development Stack
+### 2. Start the Development Stack
 
 ```bash
 ./scripts/start.sh -k --daemon
@@ -74,22 +47,36 @@ The frontend uses `VITE_CLERK_PUBLISHABLE_KEY` (with the `VITE_` prefix) and the
 This script will:
 - Kill any existing ProjectAchilles processes (`-k`)
 - Detect your platform and install missing system dependencies (Node.js, npm, Git, Go)
+- **Guide you through Clerk authentication setup** (if not already configured)
 - Install npm dependencies for both frontend and backend
 - Find available ports (defaults: frontend 5173, backend 3000)
 - Start both services in the background (`--daemon`)
 
-On a fresh machine, you'll see a prompt like:
-```
-Checking dependencies (platform: ubuntu)...
-  git — not found
-  Node.js — not found
-  Go — not found (needed for agent/test builds)
+On a fresh machine, the script will install dependencies, then walk you through Clerk setup:
 
-Missing: git node go
-Install now using apt? [Y/n]
+```
+Checking Clerk authentication...
+  ✗ No valid Clerk keys configured
+
+  ╭──────────────────────────────────────────────────────╮
+  │  Clerk Setup (free account — takes ~2 minutes)       │
+  │                                                      │
+  │  1. Sign up or log in at clerk.com                   │
+  │  2. Create a new application                         │
+  │  3. Go to "API Keys" in the sidebar                  │
+  │  4. Copy both keys below                             │
+  ╰──────────────────────────────────────────────────────╯
+
+  Press Enter to open Clerk in your browser (or S to skip):
 ```
 
-### 4. Open the Dashboard
+The script opens Clerk's dashboard in your browser, prompts you for both keys, validates them against Clerk's API, and writes them to both `backend/.env` and `frontend/.env` automatically.
+
+:::tip Already Have Clerk Keys?
+If you've set up Clerk before, just add `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` to `backend/.env` before running the script — it will detect them and skip the interactive setup.
+:::
+
+### 3. Open the Dashboard
 
 Navigate to **http://localhost:5173** in your browser. You'll be redirected to Clerk's sign-in page. After authenticating, you'll see the Test Browser.
 
