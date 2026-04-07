@@ -87,4 +87,8 @@ echo "Documentation may need updating based on code changes in this session:"
 echo ""
 echo "$suggestions"
 echo ""
-echo "Review these pages and update if the changes affect user-facing behavior, API contracts, or configuration."
+echo "Review these pages and update if the changes affect user-facing behavior,"
+echo "API contracts, or configuration. If no doc update is needed, explain why."
+
+# Exit non-zero so the Stop hook re-engages Claude to address the drift
+exit 1
