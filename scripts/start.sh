@@ -741,9 +741,9 @@ check_and_setup_clerk() {
     echo "  │  Clerk Setup (free account — takes ~2 minutes)       │"
     echo "  │                                                      │"
     echo "  │  1. Sign up or log in at clerk.com                   │"
-    echo "  │  2. Create a new application                         │"
+    echo "  │  2. Create a new application (Development mode)      │"
     echo "  │  3. Go to \"API Keys\" in the sidebar                  │"
-    echo "  │  4. Copy both keys below                             │"
+    echo "  │  4. Copy both keys below (pk_test_ and sk_test_)     │"
     echo "  ╰──────────────────────────────────────────────────────╯"
     echo ""
     read -rp "  Press Enter to open Clerk in your browser (or S to skip): " clerk_action
