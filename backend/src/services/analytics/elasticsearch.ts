@@ -1678,11 +1678,12 @@ export class ElasticsearchService {
       const from = new Date(testTime - PRE_WINDOW_MS).toISOString();
       const to = new Date(testTime + POST_WINDOW_MS).toISOString();
 
-      // Derive binary name from test_uuid (strip ::control_id for bundle controls)
+      // Derive binary name prefix from test_uuid (strip ::control_id for bundle controls).
+      // Multi-stage binaries are named <uuid>-<stage>.exe, so match with wildcard.
       const baseUuid = rep.test_uuid?.includes('::')
         ? rep.test_uuid.split('::')[0]
         : rep.test_uuid;
-      const binaryName = baseUuid ? `${baseUuid}.exe`.toLowerCase() : null;
+      const binaryPrefix = baseUuid ? `${baseUuid.toLowerCase()}*` : null;
 
       // Evidence-based query: binary filename + hostname + time window
       const must: any[] = [
@@ -1690,9 +1691,9 @@ export class ElasticsearchService {
         { range: { created_at: { gte: from, lte: to } } },
       ];
 
-      if (binaryName && rep.hostname) {
-        // Tier 1: evidence-based (most precise)
-        must.push({ term: { evidence_filenames: binaryName } });
+      if (binaryPrefix && rep.hostname) {
+        // Tier 1: evidence-based (most precise) — wildcard matches <uuid>.exe and <uuid>-<stage>.exe
+        must.push({ wildcard: { evidence_filenames: { value: binaryPrefix } } });
         must.push({ term: { evidence_hostnames: rep.hostname.toUpperCase() } });
       } else if (rep.techniques?.length) {
         // Fallback: technique-based
@@ -1718,9 +1719,9 @@ export class ElasticsearchService {
         const baseUuid = rep.test_uuid?.includes('::')
           ? rep.test_uuid.split('::')[0]
           : rep.test_uuid;
-        const binaryName = baseUuid ? `${baseUuid}.exe`.toLowerCase() : null;
+        const binaryPrefix = baseUuid ? `${baseUuid.toLowerCase()}*` : null;
 
-        if (!binaryName && !rep.techniques?.length) continue;
+        if (!binaryPrefix && !rep.techniques?.length) continue;
 
         const resp = msearchResult.responses[responseIdx++] as any;
         if (resp.error) continue;
@@ -1731,7 +1732,7 @@ export class ElasticsearchService {
 
         if (total > 0) {
           group.defenderDetected = true;
-        } else if (binaryName && rep.hostname) {
+        } else if (binaryPrefix && rep.hostname) {
           // Evidence query returned 0 — try technique fallback
           // (We skip this extra query if the evidence query already matched)
           // This runs as a second pass only for groups that need it.

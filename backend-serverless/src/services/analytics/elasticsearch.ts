@@ -1445,15 +1445,15 @@ export class ElasticsearchService {
       const baseUuid = rep.test_uuid?.includes('::')
         ? rep.test_uuid.split('::')[0]
         : rep.test_uuid;
-      const binaryName = baseUuid ? `${baseUuid}.exe`.toLowerCase() : null;
+      const binaryPrefix = baseUuid ? `${baseUuid.toLowerCase()}*` : null;
 
       const must: any[] = [
         { term: { doc_type: 'alert' } },
         { range: { created_at: { gte: from, lte: to } } },
       ];
 
-      if (binaryName && rep.hostname) {
-        must.push({ term: { evidence_filenames: binaryName } });
+      if (binaryPrefix && rep.hostname) {
+        must.push({ wildcard: { evidence_filenames: { value: binaryPrefix } } });
         must.push({ term: { evidence_hostnames: rep.hostname.toUpperCase() } });
       } else if (rep.techniques?.length) {
         must.push({ terms: { mitre_techniques: rep.techniques } });
@@ -1478,9 +1478,9 @@ export class ElasticsearchService {
         const baseUuid = rep.test_uuid?.includes('::')
           ? rep.test_uuid.split('::')[0]
           : rep.test_uuid;
-        const binaryName = baseUuid ? `${baseUuid}.exe`.toLowerCase() : null;
+        const binaryPrefix = baseUuid ? `${baseUuid.toLowerCase()}*` : null;
 
-        if (!binaryName && !rep.techniques?.length) continue;
+        if (!binaryPrefix && !rep.techniques?.length) continue;
 
         const resp = msearchResult.responses[responseIdx++] as any;
         if (resp.error) continue;
