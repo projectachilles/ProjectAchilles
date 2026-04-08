@@ -223,22 +223,54 @@ step_deployment_mode() {
     local default_mode="docker"
     $HAS_DOCKER || default_mode="local"
 
+    PAAS_TARGET=""
+
     if [[ -n "$TUI" ]]; then
         DEPLOY_MODE=$($TUI --backtitle "$BACKTITLE" --title "Deployment Mode" \
-            --radiolist "How will you run ProjectAchilles?" 12 72 2 \
+            --radiolist "How will you run ProjectAchilles?" 14 72 3 \
             "docker" "Docker Compose (recommended)" "$( [[ $default_mode == docker ]] && echo ON || echo OFF )" \
             "local"  "Local development (Node.js)"   "$( [[ $default_mode == local ]]  && echo ON || echo OFF )" \
+            "paas"   "PaaS (Railway/Render/Fly.io/Vercel)" OFF \
             3>&1 1>&2 2>&3) || DEPLOY_MODE="$default_mode"
     else
         echo ""
         echo "=== Deployment Mode ==="
         echo "  1) docker — Docker Compose (recommended)"
         echo "  2) local  — Local development (Node.js)"
+        echo "  3) paas   — PaaS (Railway/Render/Fly.io/Vercel)"
         read -rp "Choice [1]: " choice
         case "${choice:-1}" in
             2) DEPLOY_MODE="local" ;;
+            3) DEPLOY_MODE="paas" ;;
             *) DEPLOY_MODE="docker" ;;
         esac
+    fi
+
+    # PaaS sub-menu
+    if [[ "$DEPLOY_MODE" == "paas" ]]; then
+        if [[ -n "$TUI" ]]; then
+            PAAS_TARGET=$($TUI --backtitle "$BACKTITLE" --title "PaaS Target" \
+                --radiolist "Which platform?" 14 72 4 \
+                "railway" "Railway (GitHub integration, private networking)" ON \
+                "render"  "Render (Blueprint deploy, persistent disk)"       OFF \
+                "fly"     "Fly.io (CLI deploy, volumes, cheapest)"           OFF \
+                "vercel"  "Vercel (Serverless — uses separate backend fork)" OFF \
+                3>&1 1>&2 2>&3) || PAAS_TARGET="railway"
+        else
+            echo ""
+            echo "=== PaaS Target ==="
+            echo "  1) railway — Railway"
+            echo "  2) render  — Render"
+            echo "  3) fly     — Fly.io"
+            echo "  4) vercel  — Vercel (serverless)"
+            read -rp "Choice [1]: " paas_choice
+            case "${paas_choice:-1}" in
+                2) PAAS_TARGET="render" ;;
+                3) PAAS_TARGET="fly" ;;
+                4) PAAS_TARGET="vercel" ;;
+                *) PAAS_TARGET="railway" ;;
+            esac
+        fi
     fi
 }
 
@@ -366,6 +398,7 @@ step_generate_secrets() {
     # Generate secrets if not already set
     ENCRYPTION_SECRET=$(env_get "ENCRYPTION_SECRET")
     SESSION_SECRET=$(env_get "SESSION_SECRET")
+    CLI_AUTH_SECRET=$(env_get "CLI_AUTH_SECRET")
 
     if [[ -z "$ENCRYPTION_SECRET" || "$ENCRYPTION_SECRET" == "change-me-to-a-secure-random-string" ]]; then
         ENCRYPTION_SECRET=$(openssl rand -base64 32)
@@ -373,10 +406,26 @@ step_generate_secrets() {
     if [[ -z "$SESSION_SECRET" || "$SESSION_SECRET" == "change-me-to-a-secure-random-string" ]]; then
         SESSION_SECRET=$(openssl rand -base64 32)
     fi
+    if [[ -z "$CLI_AUTH_SECRET" ]]; then
+        CLI_AUTH_SECRET=$(openssl rand -base64 32)
+    fi
+
+    # For Vercel, also generate Ed25519 signing keys
+    SIGNING_PRIVATE_KEY_B64=""
+    SIGNING_PUBLIC_KEY_B64=""
+    if [[ "${PAAS_TARGET:-}" == "vercel" ]]; then
+        local tmpkey="/tmp/achilles-ed25519-$$.der"
+        openssl genpkey -algorithm Ed25519 -outform DER -out "$tmpkey" 2>/dev/null
+        SIGNING_PRIVATE_KEY_B64=$(base64 -w0 "$tmpkey")
+        SIGNING_PUBLIC_KEY_B64=$(openssl pkey -inform DER -in "$tmpkey" -pubout -outform DER 2>/dev/null | base64 -w0)
+        rm -f "$tmpkey"
+    fi
 
     if ! $NON_INTERACTIVE; then
-        show_msgbox "Secrets Generated" \
-            "Cryptographic secrets generated:\n\n  ENCRYPTION_SECRET: (set)\n  SESSION_SECRET: (set)\n\nThese are stored in backend/.env only."
+        local msg="Cryptographic secrets generated:\n\n  ENCRYPTION_SECRET: (set)\n  SESSION_SECRET: (set)\n  CLI_AUTH_SECRET: (set)"
+        [[ -n "$SIGNING_PRIVATE_KEY_B64" ]] && msg+="\n  SIGNING_PRIVATE_KEY_B64: (set)\n  SIGNING_PUBLIC_KEY_B64: (set)"
+        msg+="\n\nThese are stored in backend/.env only."
+        show_msgbox "Secrets Generated" "$msg"
     fi
 }
 
@@ -409,6 +458,7 @@ write_env() {
     # --- Secrets ---
     env_set "SESSION_SECRET" "$SESSION_SECRET"
     env_set "ENCRYPTION_SECRET" "$ENCRYPTION_SECRET"
+    [[ -n "${CLI_AUTH_SECRET:-}" ]] && env_set "CLI_AUTH_SECRET" "$CLI_AUTH_SECRET" || true
 
     # --- CORS (depends on deploy mode) ---
     if [[ "$DEPLOY_MODE" == "docker" ]]; then
@@ -456,6 +506,91 @@ write_env() {
     esac
 }
 
+show_paas_output() {
+    # For PaaS targets, display env vars for copy-paste instead of writing to .env
+    echo ""
+    echo "============================================================"
+    echo "  Environment variables for ${PAAS_TARGET^^} deployment"
+    echo "============================================================"
+    echo ""
+    echo "# --- Authentication ---"
+    [[ -n "${CLERK_PUB:-}" ]] && echo "CLERK_PUBLISHABLE_KEY=$CLERK_PUB"
+    [[ -n "${CLERK_SEC:-}" ]] && echo "CLERK_SECRET_KEY=$CLERK_SEC"
+    echo ""
+    echo "# --- Secrets ---"
+    echo "SESSION_SECRET=$SESSION_SECRET"
+    echo "ENCRYPTION_SECRET=$ENCRYPTION_SECRET"
+    echo "CLI_AUTH_SECRET=$CLI_AUTH_SECRET"
+    if [[ -n "${SIGNING_PRIVATE_KEY_B64:-}" ]]; then
+        echo "SIGNING_PRIVATE_KEY_B64=$SIGNING_PRIVATE_KEY_B64"
+        echo "SIGNING_PUBLIC_KEY_B64=$SIGNING_PUBLIC_KEY_B64"
+    fi
+    echo ""
+    echo "# --- Server ---"
+    echo "NODE_ENV=production"
+    echo "CORS_ORIGIN=https://<your-frontend-domain>"
+    echo "AGENT_SERVER_URL=https://<your-backend-domain>"
+    echo ""
+    echo "# --- Elasticsearch ---"
+    if [[ "${ES_MODE:-skip}" == "cloud" ]]; then
+        [[ -n "${ES_CLOUD_ID:-}" ]] && echo "ELASTICSEARCH_CLOUD_ID=$ES_CLOUD_ID"
+        [[ -n "${ES_API_KEY:-}" ]]  && echo "ELASTICSEARCH_API_KEY=$ES_API_KEY"
+        [[ -n "${ES_INDEX:-}" ]]    && echo "ELASTICSEARCH_INDEX_PATTERN=$ES_INDEX"
+    else
+        echo "# (configure later via dashboard or env vars)"
+    fi
+    echo ""
+    echo "# --- Test Repository ---"
+    [[ -n "${TESTS_REPO_URL:-}" ]] && echo "TESTS_REPO_URL=$TESTS_REPO_URL"
+    [[ -n "${GITHUB_TOKEN:-}" ]]   && echo "GITHUB_TOKEN=$GITHUB_TOKEN"
+
+    if [[ "$PAAS_TARGET" == "vercel" ]]; then
+        echo ""
+        echo "# --- Vercel-specific ---"
+        echo "# TURSO_DATABASE_URL=libsql://your-db.turso.io"
+        echo "# TURSO_AUTH_TOKEN=your-turso-token"
+        echo "# BLOB_READ_WRITE_TOKEN is auto-provisioned by Vercel Blob integration"
+    fi
+
+    echo ""
+    echo "============================================================"
+
+    # Also show in CLI format if applicable
+    case "$PAAS_TARGET" in
+        fly)
+            echo ""
+            echo "Fly.io CLI command (paste and edit domains):"
+            echo "  flyctl secrets set \\"
+            echo "    SESSION_SECRET=\"$SESSION_SECRET\" \\"
+            echo "    ENCRYPTION_SECRET=\"$ENCRYPTION_SECRET\" \\"
+            echo "    CLI_AUTH_SECRET=\"$CLI_AUTH_SECRET\" \\"
+            [[ -n "${CLERK_PUB:-}" ]] && echo "    CLERK_PUBLISHABLE_KEY=\"$CLERK_PUB\" \\"
+            [[ -n "${CLERK_SEC:-}" ]] && echo "    CLERK_SECRET_KEY=\"$CLERK_SEC\" \\"
+            echo "    CORS_ORIGIN=\"https://<frontend>.fly.dev\" \\"
+            echo "    AGENT_SERVER_URL=\"https://<backend>.fly.dev\" \\"
+            echo "    --app achilles-backend"
+            ;;
+        railway)
+            echo ""
+            echo "Copy the variables above into the Railway Dashboard"
+            echo "→ Your Project → Backend Service → Variables"
+            ;;
+        render)
+            echo ""
+            echo "For Blueprint deploy: these are set via render.yaml (sync: false vars)"
+            echo "For manual deploy: paste into Render Dashboard → Environment"
+            ;;
+        vercel)
+            echo ""
+            echo "Set these in the Vercel Dashboard → Settings → Environment Variables"
+            echo "Or use: printf 'value' | vercel env add KEY production"
+            echo ""
+            echo "IMPORTANT: Use printf (not echo) to avoid trailing newlines!"
+            ;;
+    esac
+    echo ""
+}
+
 show_summary() {
     local docker_cmd="docker compose up -d"
     [[ "${ES_MODE:-skip}" == "local" ]] && docker_cmd="docker compose --profile elasticsearch up -d" || true
@@ -466,7 +601,7 @@ show_summary() {
         summary+="To start:\n"
         summary+="  $docker_cmd\n\n"
         summary+="Dashboard: http://localhost\n"
-    else
+    elif [[ "$DEPLOY_MODE" == "local" ]]; then
         summary+="To start:\n"
         summary+="  ./scripts/start.sh\n\n"
         summary+="Dashboard: http://localhost:5173\n"
@@ -480,12 +615,8 @@ show_summary() {
     fi
 
     summary+="\n--- Tunnel (./scripts/start.sh only) ---"
-    summary+="\nngrok domains are pre-configured in backend/.env for external access."
-    summary+="\nThis does NOT apply to Docker Compose — only to: ./scripts/start.sh --tunnel"
-    summary+="\nDefaults:"
-    summary+="\n  NGROK_FRONTEND_DOMAIN=projectachilles.ngrok.app"
-    summary+="\n  NGROK_BACKEND_DOMAIN=achilles-agent.ngrok.app"
-    summary+="\nEdit backend/.env to use your own ngrok domains."
+    summary+="\nFor external access: ./scripts/start.sh --tunnel"
+    summary+="\nSupports Cloudflare Tunnel (free) and ngrok."
 
     show_msgbox "Setup Complete" "$summary"
 }
@@ -517,12 +648,50 @@ main() {
     step_welcome
     step_deployment_mode
     step_clerk_keys
-    step_elasticsearch
+
+    # PaaS: skip local ES Docker option
+    if [[ "$DEPLOY_MODE" == "paas" ]]; then
+        # Only show Cloud or Skip for PaaS
+        if [[ -n "$TUI" ]]; then
+            ES_MODE=$($TUI --backtitle "$BACKTITLE" --title "Elasticsearch (Analytics)" \
+                --radiolist "How should analytics be configured?" 12 72 2 \
+                "cloud" "Elastic Cloud (Cloud ID + API Key)" OFF \
+                "skip"  "Skip — configure later"              ON  \
+                3>&1 1>&2 2>&3) || ES_MODE="skip"
+        else
+            echo ""
+            echo "=== Elasticsearch (Analytics) ==="
+            echo "  1) cloud — Elastic Cloud"
+            echo "  2) skip  — Configure later"
+            read -rp "Choice [2]: " choice
+            case "${choice:-2}" in
+                1) ES_MODE="cloud" ;;
+                *) ES_MODE="skip" ;;
+            esac
+        fi
+        ES_NODE="" ES_CLOUD_ID="" ES_API_KEY="" ES_USERNAME="" ES_PASSWORD="" ES_INDEX=""
+        if [[ "$ES_MODE" == "cloud" ]]; then
+            ES_CLOUD_ID=$(show_inputbox "Elastic Cloud" \
+                "Enter your Elastic Cloud ID" "")
+            ES_API_KEY=$(show_passwordbox "Elastic Cloud" \
+                "Enter your Elasticsearch API Key")
+            ES_INDEX="achilles-results-*"
+        fi
+    else
+        step_elasticsearch
+    fi
+
     step_test_repo
     step_generate_secrets
-    step_seed_data
-    write_env
-    show_summary
+
+    if [[ "$DEPLOY_MODE" == "paas" ]]; then
+        SEED_DATA=false
+        show_paas_output
+    else
+        step_seed_data
+        write_env
+        show_summary
+    fi
 }
 
 main "$@"
