@@ -1040,8 +1040,14 @@ fi
 
 # Export ports as environment variables for the apps
 export PORT=$BACKEND_PORT
-export VITE_API_URL="http://localhost:$BACKEND_PORT"
 export VITE_BACKEND_PORT=$BACKEND_PORT
+
+# VITE_API_URL tells the frontend to make direct requests to the backend
+# instead of using Vite's /api proxy. In tunnel mode, the proxy is required
+# (the browser can't reach localhost on the remote server), so leave it unset.
+if [ "$TUNNEL_MODE" != true ]; then
+    export VITE_API_URL="http://localhost:$BACKEND_PORT"
+fi
 
 # Prevent git from prompting for credentials in background processes.
 # The backend's git sync uses GITHUB_TOKEN in the URL when available;
