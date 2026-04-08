@@ -699,7 +699,7 @@ export class DefenderAnalyticsService {
             { term: { doc_type: 'alert' } },
             { term: { evidence_filenames: binaryName.toLowerCase() } },
             { wildcard: { evidence_hostnames: { value: `${hostname.toUpperCase()}*` } } },
-            { range: { created_at: { gte: from, lte: to } } },
+            { range: { updated_at: { gte: from, lte: to } } },
           ],
         },
       };
@@ -732,7 +732,7 @@ export class DefenderAnalyticsService {
               { term: { doc_type: 'alert' } },
               { terms: { mitre_techniques: techniques } },
               { wildcard: { evidence_hostnames: { value: `${hostname.toUpperCase()}*` } } },
-              { range: { created_at: { gte: from, lte: to } } },
+              { range: { updated_at: { gte: from, lte: to } } },
             ],
           },
         },
@@ -758,7 +758,7 @@ export class DefenderAnalyticsService {
           must: [
             { term: { doc_type: 'alert' } },
             { terms: { mitre_techniques: techniques } },
-            { range: { created_at: { gte: from, lte: to } } },
+            { range: { updated_at: { gte: from, lte: to } } },
           ],
         },
       },

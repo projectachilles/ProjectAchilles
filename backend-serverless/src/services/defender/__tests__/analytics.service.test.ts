@@ -261,8 +261,8 @@ describe('DefenderAnalyticsService (serverless)', () => {
         (f: Record<string, unknown>) => 'range' in f
       );
       expect(rangeFilter).toBeDefined();
-      expect(rangeFilter.range.created_at.gte).toBe('2026-02-25T11:55:00.000Z');
-      expect(rangeFilter.range.created_at.lte).toBe('2026-02-25T12:30:00.000Z');
+      expect(rangeFilter.range.updated_at.gte).toBe('2026-02-25T11:55:00.000Z');
+      expect(rangeFilter.range.updated_at.lte).toBe('2026-02-25T12:30:00.000Z');
 
       const termsFilter = searchCall.query.bool.must.find(
         (f: Record<string, unknown>) => 'terms' in f

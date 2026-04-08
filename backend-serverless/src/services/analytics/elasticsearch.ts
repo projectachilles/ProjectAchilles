@@ -1449,7 +1449,7 @@ export class ElasticsearchService {
 
       const must: any[] = [
         { term: { doc_type: 'alert' } },
-        { range: { created_at: { gte: from, lte: to } } },
+        { range: { updated_at: { gte: from, lte: to } } },
       ];
 
       if (binaryPrefix && rep.hostname) {
