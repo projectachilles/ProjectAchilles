@@ -277,6 +277,26 @@ With Elastic Cloud handling analytics externally:
 
 For comparison, Railway runs the same stack for ~$10-13/mo (usage-based pricing). Render's Starter plan is a flat rate. See [Render pricing](https://render.com/pricing) for current rates.
 
+## Helper Scripts
+
+Generate all secrets at once:
+
+```bash
+./scripts/generate-secrets.sh --target render
+```
+
+Interactive setup wizard:
+
+```bash
+./scripts/setup.sh    # Select: PaaS → Render
+```
+
+Initialize Elasticsearch indices on Elastic Cloud:
+
+```bash
+./scripts/init-elasticsearch.sh --cloud-id "deploy:..." --api-key "..."
+```
+
 ## Troubleshooting
 
 ### Frontend shows "502 Bad Gateway"

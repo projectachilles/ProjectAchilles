@@ -140,6 +140,26 @@ With Elastic Cloud handling analytics externally, Railway costs are minimal:
 
 The Hobby plan includes $5/month in credits. See [Railway pricing](https://railway.com/pricing) for current rates.
 
+## Helper Scripts
+
+Generate all secrets at once:
+
+```bash
+./scripts/generate-secrets.sh --target railway
+```
+
+Interactive setup wizard (generates secrets, collects Clerk/ES config, outputs Railway-ready env vars):
+
+```bash
+./scripts/setup.sh    # Select: PaaS → Railway
+```
+
+Initialize Elasticsearch indices on an external Elastic Cloud instance:
+
+```bash
+./scripts/init-elasticsearch.sh --cloud-id "deploy:..." --api-key "..."
+```
+
 ## Troubleshooting
 
 ### Frontend shows "502 Bad Gateway"

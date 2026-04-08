@@ -343,6 +343,27 @@ flyctl apps restart achilles-backend
 
 For comparison: Railway ~$10-13/mo (usage-based), Render ~$14/mo (flat rate), Vercel ~$20/mo (Pro plan). See [Fly.io pricing](https://fly.io/docs/about/pricing/) for current rates.
 
+## Helper Scripts
+
+Generate all secrets in `flyctl` format:
+
+```bash
+./scripts/generate-secrets.sh --target fly --format flyctl
+# Output: flyctl secrets set SESSION_SECRET=... ENCRYPTION_SECRET=... CLI_AUTH_SECRET=...
+```
+
+Interactive setup wizard:
+
+```bash
+./scripts/setup.sh    # Select: PaaS → Fly.io
+```
+
+Initialize Elasticsearch indices on Elastic Cloud:
+
+```bash
+./scripts/init-elasticsearch.sh --cloud-id "deploy:..." --api-key "..."
+```
+
 ## Troubleshooting
 
 ### Frontend shows nginx "502 Bad Gateway" or fails to start

@@ -73,6 +73,12 @@ while IFS= read -r file; do
       add "wiki: user-guide/cli/" "CLI changed" ;;
     docker-compose.yml)
       add "wiki: deployment/docker-compose.md" "Docker Compose changed" ;;
+    scripts/start.sh|scripts/setup.sh|scripts/Install-ProjectAchilles.ps1)
+      add "wiki: getting-started/quick-start-local.md" "Scripts changed" ;;
+    scripts/init-elasticsearch.sh|scripts/upload_to_elasticsearch.py|scripts/generate_synthetic_data.py)
+      add "wiki: deployment/environment-variables.md" "ES/seed scripts changed" ;;
+    scripts/generate-secrets.sh)
+      add "wiki: deployment/environment-variables.md" "Secret generation changed" ;;
     scripts/*)
       add "wiki: getting-started/quick-start-local.md" "Scripts changed" ;;
   esac

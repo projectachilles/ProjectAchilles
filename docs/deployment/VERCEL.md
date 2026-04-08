@@ -312,6 +312,26 @@ If you create a Clerk application with a custom domain (e.g., `clerk.yourdomain.
 
 Without this, the test library directory won't exist at runtime even though it was cloned during the build step.
 
+## Helper Scripts
+
+Generate all secrets including Ed25519 signing keys:
+
+```bash
+./scripts/generate-secrets.sh --target vercel
+```
+
+Interactive setup wizard (collects Clerk/ES/Turso config, outputs Vercel-ready env vars):
+
+```bash
+./scripts/setup.sh    # Select: PaaS → Vercel
+```
+
+Initialize Elasticsearch indices on Elastic Cloud:
+
+```bash
+./scripts/init-elasticsearch.sh --cloud-id "deploy:..." --api-key "..."
+```
+
 ## Troubleshooting
 
 ### Frontend API calls return CORS errors
