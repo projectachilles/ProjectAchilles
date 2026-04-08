@@ -79,6 +79,7 @@ export class DefenderSyncService {
       this.cleanupBogusDefenderEntry(integrationsService);
 
       const timestamps = integrationsService.getDefenderSyncTimestamps();
+      console.log(`[Defender] Loaded sync timestamps: version=${timestamps.sync_version ?? 'none'}, lastAlert=${timestamps.last_alert_sync ?? 'none'}`);
 
       // If sync version changed (schema upgrade), force a full re-sync
       if (timestamps.sync_version !== ALERT_SYNC_VERSION) {
@@ -128,8 +129,8 @@ export class DefenderSyncService {
         last_score_sync: this.syncStatus.lastScoreSync ?? undefined,
         sync_version: ALERT_SYNC_VERSION,
       });
-    } catch {
-      // Non-fatal — sync continues, timestamps just won't survive next restart
+    } catch (err) {
+      console.warn('[Defender] Failed to persist sync timestamps:', err instanceof Error ? err.message : String(err));
     }
   }
 
