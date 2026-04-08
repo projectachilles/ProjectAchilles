@@ -731,6 +731,20 @@ check_and_setup_clerk() {
         fi
     fi
 
+    # Auto-generate secrets if missing or placeholder
+    local session_secret encryption_secret
+    session_secret=$(read_env_value "$BACKEND_ENV" "SESSION_SECRET")
+    encryption_secret=$(read_env_value "$BACKEND_ENV" "ENCRYPTION_SECRET")
+
+    if [ -z "$session_secret" ]; then
+        write_env_value "$BACKEND_ENV" "SESSION_SECRET" "$(openssl rand -base64 32)"
+        echo "  Generated SESSION_SECRET"
+    fi
+    if [ -z "$encryption_secret" ] || [ "$encryption_secret" = "change-me-to-a-secure-random-string" ]; then
+        write_env_value "$BACKEND_ENV" "ENCRYPTION_SECRET" "$(openssl rand -base64 32)"
+        echo "  Generated ENCRYPTION_SECRET"
+    fi
+
     # Read current keys
     local pk sk fe_pk
     pk=$(read_env_value "$BACKEND_ENV" "CLERK_PUBLISHABLE_KEY")
