@@ -54,14 +54,29 @@ SIGNING_PUBLIC_KEY_B64=$(openssl pkey -inform DER -in /tmp/ed25519_private.der \
 rm /tmp/ed25519_private.der
 ```
 
-## Step 3: Create Vercel Projects
+## Step 3: Add Vercel Blob Storage
+
+In the [Vercel Dashboard](https://vercel.com/dashboard), go to **Storage** → **Create Database** → **Blob**. Link the Blob store to your backend project. This auto-provisions the `BLOB_READ_WRITE_TOKEN` environment variable — no manual value needed.
+
+:::info
+Vercel Blob is used for certificate storage, agent binary uploads, and other file-based data that replaces the filesystem on serverless.
+:::
+
+## Step 4: Create Vercel Projects
 
 Create **two separate Vercel projects** linked to the same GitHub repo:
 
 - **Backend**: Root Directory `backend-serverless`, Framework Preset "Other"
 - **Frontend**: Root Directory `frontend`, Framework Preset "Vite"
 
-## Step 4: Set Environment Variables
+## Step 5: Set Environment Variables
+
+:::tip Generate Secrets
+```bash
+./scripts/generate-secrets.sh --target vercel
+```
+Outputs `SESSION_SECRET`, `ENCRYPTION_SECRET`, `CLI_AUTH_SECRET`, and Ed25519 signing keys — ready to paste.
+:::
 
 ### Backend
 
@@ -71,14 +86,16 @@ Create **two separate Vercel projects** linked to the same GitHub repo:
 | `CLERK_SECRET_KEY` | `sk_live_...` |
 | `SESSION_SECRET` | Random 32+ chars |
 | `ENCRYPTION_SECRET` | Random 32+ chars (**required, no fallback**) |
+| `CLI_AUTH_SECRET` | Random 32+ chars |
 | `TURSO_DATABASE_URL` | `libsql://...turso.io` |
 | `TURSO_AUTH_TOKEN` | Turso auth token |
 | `SIGNING_PRIVATE_KEY_B64` | From Step 2 |
 | `SIGNING_PUBLIC_KEY_B64` | From Step 2 |
+| `BLOB_READ_WRITE_TOKEN` | Auto-provisioned by Blob integration (Step 3) |
 | `CORS_ORIGIN` | `https://<frontend>.vercel.app` |
 | `AGENT_SERVER_URL` | `https://<backend>.vercel.app` |
 | `TESTS_REPO_URL` | Test library Git URL |
-| `GITHUB_TOKEN` | PAT with `repo` scope |
+| `GITHUB_TOKEN` | PAT with `repo` scope (only for private repos) |
 | `ELASTICSEARCH_CLOUD_ID` | From Elastic Cloud |
 | `ELASTICSEARCH_API_KEY` | From Elastic Cloud |
 

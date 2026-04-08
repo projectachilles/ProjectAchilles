@@ -45,6 +45,7 @@ flyctl secrets set \
   CLERK_SECRET_KEY="sk_live_..." \
   SESSION_SECRET="$(openssl rand -base64 32)" \
   ENCRYPTION_SECRET="$(openssl rand -base64 32)" \
+  CLI_AUTH_SECRET="$(openssl rand -base64 32)" \
   CORS_ORIGIN="https://achilles-frontend.fly.dev" \
   AGENT_SERVER_URL="https://achilles-backend.fly.dev" \
   TESTS_REPO_URL="https://github.com/your-org/f0_library.git" \

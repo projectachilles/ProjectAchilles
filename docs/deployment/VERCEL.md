@@ -78,7 +78,17 @@ rm /tmp/ed25519_private.der
 
 Save both base64 strings for Step 4.
 
-## Step 3: Create Vercel Projects
+## Step 3: Add Vercel Blob Storage
+
+The serverless backend uses [Vercel Blob](https://vercel.com/docs/storage/vercel-blob) for certificate storage, agent binary uploads, and settings files. Set it up before creating the projects so the `BLOB_READ_WRITE_TOKEN` is auto-provisioned:
+
+1. Go to the Vercel Dashboard → **Storage** → **Create Database** → **Blob**
+2. Name it (e.g., "projectachilles-blob")
+3. After creating the backend project (Step 4), link the Blob store to it under **Storage** → **Connect Project**
+
+The `BLOB_READ_WRITE_TOKEN` environment variable is injected automatically when the store is linked — no manual value needed.
+
+## Step 4: Create Vercel Projects
 
 You need **two separate Vercel projects**, both linked to the same GitHub repo with different root directories.
 
@@ -135,6 +145,7 @@ Configure these in the Vercel Dashboard (**Settings → Environment Variables**)
 | `TURSO_AUTH_TOKEN` | `eyJhbGci...` | From Step 1 |
 | `SIGNING_PRIVATE_KEY_B64` | Base64 string | From Step 2 |
 | `SIGNING_PUBLIC_KEY_B64` | Base64 string | From Step 2 |
+| `BLOB_READ_WRITE_TOKEN` | (auto-provisioned) | From Step 3 — linked Blob store |
 | `CORS_ORIGIN` | `https://<frontend>.vercel.app` | Your frontend's Vercel URL |
 | `AGENT_SERVER_URL` | `https://<backend>.vercel.app` | Your backend's Vercel URL |
 | `TESTS_REPO_URL` | `https://github.com/your-org/f0_library.git` | Test library repo |

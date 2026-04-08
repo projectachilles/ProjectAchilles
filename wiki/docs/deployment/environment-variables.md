@@ -24,6 +24,7 @@ This page consolidates all environment variables used across all deployment targ
 |----------|-------------|-------|
 | `SESSION_SECRET` | Session signing key | `openssl rand -base64 32` |
 | `ENCRYPTION_SECRET` | Settings encryption key | **Required** on all PaaS targets (no machine-derived fallback) |
+| `CLI_AUTH_SECRET` | JWT signing key for CLI device-flow auth | `openssl rand -base64 32` |
 | `AGENT_SERVER_URL` | External URL for agent communication | Must include `https://` |
 
 ### Elasticsearch
@@ -66,6 +67,7 @@ This page consolidates all environment variables used across all deployment targ
 | `TURSO_AUTH_TOKEN` | Turso authentication token |
 | `SIGNING_PRIVATE_KEY_B64` | Ed25519 private key (base64, PKCS8 DER) |
 | `SIGNING_PUBLIC_KEY_B64` | Ed25519 public key (base64, SPKI DER) |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob storage token (auto-provisioned when Blob integration is added via Vercel Marketplace) |
 
 ### Docker-Only
 
@@ -100,10 +102,12 @@ This page consolidates all environment variables used across all deployment targ
 | `SESSION_SECRET` | Prod | Yes | Yes | Yes | Yes |
 | `ENCRYPTION_SECRET` | Prod | **Required** | **Required** | **Required** | **Required** |
 | `AGENT_SERVER_URL` | Prod | Yes | Yes | Yes | Yes |
+| `CLI_AUTH_SECRET` | Optional | Yes | Yes | Yes | Yes |
 | `ELASTICSEARCH_*` | Optional | Optional | Optional | Optional | Optional |
 | `TESTS_REPO_URL` | Optional | Optional | Optional | Optional | Optional |
 | `TURSO_*` | — | — | — | — | **Required** |
 | `SIGNING_*_B64` | — | — | — | — | **Required** |
+| `BLOB_READ_WRITE_TOKEN` | — | — | — | — | Auto |
 | `BACKEND_HOST` | Auto | Yes | No* | No | — |
 | `VITE_API_URL` | — | — | Yes | Yes | Yes |
 

@@ -54,14 +54,23 @@ Services communicate over Railway's [private network](https://docs.railway.com/g
    CLERK_SECRET_KEY=sk_live_...
    SESSION_SECRET=<openssl rand -base64 32>
    ENCRYPTION_SECRET=<openssl rand -base64 32>
+   CLI_AUTH_SECRET=<openssl rand -base64 32>
    CORS_ORIGIN=https://<your-frontend>.up.railway.app
    AGENT_SERVER_URL=https://<your-backend>.up.railway.app
    TESTS_REPO_URL=https://github.com/your-org/f0_library.git
    TESTS_REPO_BRANCH=main
+   AGENT_REPO_URL=https://github.com/projectachilles/ProjectAchilles.git
+   AGENT_REPO_BRANCH=main
    GITHUB_TOKEN=ghp_...
    ELASTICSEARCH_CLOUD_ID=<from Elastic Cloud console>
    ELASTICSEARCH_API_KEY=<from Elastic Cloud console>
    ```
+
+   :::tip Generate Secrets
+   ```bash
+   ./scripts/generate-secrets.sh --target railway
+   ```
+   :::
 
 :::danger ENCRYPTION_SECRET is Required
 Without `ENCRYPTION_SECRET`, the backend falls back to a machine-derived key (hostname + username) that changes across deploys, corrupting encrypted settings.

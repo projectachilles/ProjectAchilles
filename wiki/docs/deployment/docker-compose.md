@@ -39,7 +39,18 @@ CORS_ORIGIN=http://localhost:8080
 NODE_ENV=production
 ENCRYPTION_SECRET=$(openssl rand -hex 32)
 SESSION_SECRET=$(openssl rand -hex 32)
+CLI_AUTH_SECRET=$(openssl rand -hex 32)
+
+# Agent server URL — only needed if agents connect from outside your network
+# AGENT_SERVER_URL=https://your-backend.ngrok-free.app
 ```
+
+:::tip Generate All Secrets
+Use the helper script to generate all secrets at once:
+```bash
+./scripts/generate-secrets.sh --env-file backend/.env
+```
+:::
 
 Create `frontend/.env`:
 
