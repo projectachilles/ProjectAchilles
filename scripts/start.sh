@@ -1001,6 +1001,32 @@ if [ "$TUNNEL_MODE" = true ]; then
     if [ -n "$TUNNEL_FRONTEND_URL" ]; then
         export CORS_ORIGIN="$TUNNEL_FRONTEND_URL"
     fi
+
+    # Register tunnel URL with Clerk's allowed_origins (API-only, no dashboard UI)
+    if [ -n "$TUNNEL_FRONTEND_URL" ]; then
+        local clerk_sk
+        clerk_sk=$(read_env_value "$BACKEND_ENV" "CLERK_SECRET_KEY")
+        if [ -n "$clerk_sk" ]; then
+            echo "Registering tunnel with Clerk allowed_origins..."
+            local http_code
+            http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+                -X PATCH https://api.clerk.com/v1/instance \
+                -H "Authorization: Bearer $clerk_sk" \
+                -H "Content-type: application/json" \
+                -d "{\"allowed_origins\": [\"$TUNNEL_FRONTEND_URL\"]}" 2>/dev/null)
+            if [ "$http_code" = "200" ] || [ "$http_code" = "204" ]; then
+                echo "  ✓ Clerk allowed_origins updated with $TUNNEL_FRONTEND_URL"
+            else
+                echo "  ⚠ Could not update Clerk allowed_origins (HTTP $http_code)"
+                echo "    You may need to run manually:"
+                echo "    curl -X PATCH https://api.clerk.com/v1/instance \\"
+                echo "      -H \"Authorization: Bearer \$CLERK_SECRET_KEY\" \\"
+                echo "      -H \"Content-type: application/json\" \\"
+                echo "      -d '{\"allowed_origins\": [\"$TUNNEL_FRONTEND_URL\"]}'"
+            fi
+            echo ""
+        fi
+    fi
 fi
 
 # Check if npm dependencies are installed
@@ -1081,9 +1107,6 @@ echo "╠═══════════════════════�
 if [ "$TUNNEL_MODE" = true ] && [ -n "$TUNNEL_BACKEND_URL" ]; then
 echo "║   Agent enrollment URL (use this in agent config):                ║"
 echo "║     $TUNNEL_BACKEND_URL"
-echo "║                                                                   ║"
-echo "║   ⚠ Add the Dashboard URL to Clerk → Settings → Allowed Origins  ║"
-echo "║     for authentication to work via tunnel                         ║"
 echo "╠═══════════════════════════════════════════════════════════════════╣"
 fi
 
