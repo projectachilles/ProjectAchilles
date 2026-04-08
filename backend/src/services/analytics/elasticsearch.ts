@@ -1711,6 +1711,7 @@ export class ElasticsearchService {
     if (searches.length === 0) return;
 
     try {
+      console.log(`[Defender-Enrich] Running msearch with ${searches.length / 2} queries`);
       const msearchResult = await this.client.msearch({ searches });
       let responseIdx = 0;
 
@@ -1726,24 +1727,23 @@ export class ElasticsearchService {
         if (!binaryPrefix && !rep.techniques?.length) continue;
 
         const resp = msearchResult.responses[responseIdx++] as any;
-        if (resp.error) continue;
+        if (resp.error) {
+          console.warn(`[Defender-Enrich] msearch error for ${rep.test_name}:`, JSON.stringify(resp.error).substring(0, 200));
+          continue;
+        }
 
         const total = typeof resp.hits?.total === 'number'
           ? resp.hits.total
           : resp.hits?.total?.value ?? 0;
 
+        console.log(`[Defender-Enrich] ${rep.test_name} | host=${rep.hostname} | binary=${binaryPrefix} | time=${rep.timestamp} | matches=${total}`);
+
         if (total > 0) {
           group.defenderDetected = true;
-        } else if (binaryPrefix && rep.hostname) {
-          // Evidence query returned 0 — try technique fallback
-          // (We skip this extra query if the evidence query already matched)
-          // This runs as a second pass only for groups that need it.
-          // For simplicity, we leave defenderDetected as undefined here.
-          // The detail panel still shows the full 3-tier correlation.
         }
       }
-    } catch {
-      // Defender index might not exist — graceful fallback
+    } catch (err) {
+      console.error('[Defender-Enrich] msearch failed:', err instanceof Error ? err.message : String(err));
     }
   }
 
