@@ -1045,7 +1045,15 @@ export VITE_BACKEND_PORT=$BACKEND_PORT
 # VITE_API_URL tells the frontend to make direct requests to the backend
 # instead of using Vite's /api proxy. In tunnel mode, the proxy is required
 # (the browser can't reach localhost on the remote server), so leave it unset.
-if [ "$TUNNEL_MODE" != true ]; then
+if [ "$TUNNEL_MODE" = true ]; then
+    # Clear VITE_API_URL from frontend/.env if present — Vite reads .env files
+    # directly at startup, bypassing shell env vars. A hardcoded localhost URL
+    # in .env would make the browser send requests to the user's local machine.
+    if [ -f "$FRONTEND_ENV" ] && grep -qE "^VITE_API_URL=" "$FRONTEND_ENV"; then
+        sed -i 's|^VITE_API_URL=.*|# VITE_API_URL= # cleared for tunnel mode|' "$FRONTEND_ENV"
+    fi
+    export VITE_API_URL=""
+else
     export VITE_API_URL="http://localhost:$BACKEND_PORT"
 fi
 
