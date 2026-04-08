@@ -14,6 +14,12 @@ Usage:
 
     # For self-hosted
     python upload_to_elasticsearch.py --file synthetic_data.ndjson --host "http://localhost:9200"
+
+    # Create all indices (results, defender, risk-acceptance) without uploading data
+    python upload_to_elasticsearch.py --init-indices --host "http://localhost:9200"
+
+    # Create results index with data upload
+    python upload_to_elasticsearch.py --file data.ndjson --create-index --host "http://localhost:9200"
 """
 
 import argparse
@@ -165,16 +171,15 @@ def upload_with_requests(file_path, host, auth_header=None, chunk_size=5000):
     return success_count, error_count
 
 
-def create_index_mapping(es_client, index_name):
-    """Create index with mappings matching ES dynamic mapping behaviour.
+def get_results_index_mapping():
+    """Return the results index mapping matching the TypeScript source of truth.
 
-    String fields use text + keyword sub-field so the analytics service
-    can query ``f0rtika.test_name.keyword`` for exact-match aggregations
-    — the same layout ES would create automatically for real agent data.
+    Source: backend/src/services/analytics/index-management.service.ts
+    All string fields use pure keyword type (no text + keyword sub-field).
     """
-    kw_field = {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}}
+    kw = {"type": "keyword"}
 
-    mapping = {
+    return {
         "mappings": {
             "properties": {
                 "routing": {
@@ -186,20 +191,26 @@ def create_index_mapping(es_client, index_name):
                 },
                 "f0rtika": {
                     "properties": {
-                        "test_uuid": kw_field,
-                        "test_name": kw_field,
+                        "test_uuid": kw,
+                        "test_name": kw,
                         "is_protected": {"type": "boolean"},
-                        "techniques": kw_field,
-                        "error_name": kw_field,
-                        "category": kw_field,
-                        "subcategory": kw_field,
-                        "severity": kw_field,
-                        "tactics": kw_field,
-                        "target": kw_field,
-                        "complexity": kw_field,
-                        "threat_actor": kw_field,
-                        "tags": kw_field,
-                        "score": {"type": "float"}
+                        "error_name": kw,
+                        "category": kw,
+                        "subcategory": kw,
+                        "severity": kw,
+                        "techniques": kw,
+                        "tactics": kw,
+                        "target": kw,
+                        "complexity": kw,
+                        "threat_actor": kw,
+                        "tags": kw,
+                        "score": {"type": "float"},
+                        "bundle_id": kw,
+                        "bundle_name": kw,
+                        "control_id": kw,
+                        "control_validator": kw,
+                        "is_bundle_control": {"type": "boolean"},
+                        "tenant_label": kw
                     }
                 },
                 "event": {
@@ -211,6 +222,123 @@ def create_index_mapping(es_client, index_name):
         }
     }
 
+
+def get_defender_index_mapping():
+    """Return the defender index mapping matching the TypeScript source of truth.
+
+    Source: backend/src/services/defender/index-management.ts
+    Single index with doc_type discriminator for secure_score, control_profile, alert.
+    """
+    return {
+        "mappings": {
+            "properties": {
+                "doc_type": {"type": "keyword"},
+                "timestamp": {"type": "date"},
+                "tenant_id": {"type": "keyword"},
+
+                # Secure Score fields
+                "current_score": {"type": "float"},
+                "max_score": {"type": "float"},
+                "score_percentage": {"type": "float"},
+                "control_scores": {
+                    "type": "nested",
+                    "properties": {
+                        "name": {"type": "keyword"},
+                        "category": {"type": "keyword"},
+                        "score": {"type": "float"}
+                    }
+                },
+                "average_comparative_score": {"type": "float"},
+
+                # Control Profile fields
+                "control_name": {"type": "keyword"},
+                "control_category": {"type": "keyword"},
+                "title": {"type": "text", "fields": {"keyword": {"type": "keyword"}}},
+                "implementation_cost": {"type": "keyword"},
+                "user_impact": {"type": "keyword"},
+                "rank": {"type": "integer"},
+                "threats": {"type": "keyword"},
+                "deprecated": {"type": "boolean"},
+                "remediation_summary": {"type": "text"},
+                "action_url": {"type": "keyword"},
+                "tier": {"type": "keyword"},
+
+                # Alert fields
+                "alert_id": {"type": "keyword"},
+                "alert_title": {"type": "text", "fields": {"keyword": {"type": "keyword"}}},
+                "description": {"type": "text"},
+                "severity": {"type": "keyword"},
+                "status": {"type": "keyword"},
+                "category": {"type": "keyword"},
+                "service_source": {"type": "keyword"},
+                "mitre_techniques": {"type": "keyword"},
+                "created_at": {"type": "date"},
+                "updated_at": {"type": "date"},
+                "resolved_at": {"type": "date"},
+                "recommended_actions": {"type": "text"},
+                "evidence_hostnames": {"type": "keyword"},
+                "evidence_filenames": {"type": "keyword"}
+            }
+        }
+    }
+
+
+def get_risk_acceptance_mapping():
+    """Return the risk acceptance index mapping matching the TypeScript source of truth.
+
+    Source: backend/src/services/risk-acceptance/index-management.ts
+    Immutable audit trail for risk acceptance records.
+    """
+    return {
+        "mappings": {
+            "properties": {
+                "acceptance_id": {"type": "keyword"},
+                "test_name": {"type": "keyword"},
+                "control_id": {"type": "keyword"},
+                "hostname": {"type": "keyword"},
+                "scope": {"type": "keyword"},
+                "justification": {"type": "text"},
+                "accepted_by": {"type": "keyword"},
+                "accepted_by_name": {"type": "keyword"},
+                "accepted_at": {"type": "date"},
+                "status": {"type": "keyword"},
+                "revoked_at": {"type": "date"},
+                "revoked_by": {"type": "keyword"},
+                "revoked_by_name": {"type": "keyword"},
+                "revocation_reason": {"type": "text"}
+            }
+        }
+    }
+
+
+def create_index_with_requests(session, host, index_name, mapping, api_key=None):
+    """Create an ES index using raw HTTP PUT (requests fallback).
+
+    Handles 400 'resource_already_exists_exception' as a no-op.
+    Returns (created: bool, message: str).
+    """
+    url = f"{host.rstrip('/')}/{index_name}"
+    headers = {'Content-Type': 'application/json'}
+    if api_key:
+        headers['Authorization'] = f"ApiKey {api_key}"
+
+    try:
+        response = session.put(url, headers=headers, json=mapping)
+        if response.status_code == 200:
+            return True, f"Created index '{index_name}' with mappings"
+        elif response.status_code == 400:
+            # Index already exists
+            return False, f"Index '{index_name}' already exists"
+        else:
+            return False, f"Failed to create index '{index_name}': HTTP {response.status_code} — {response.text[:200]}"
+    except Exception as e:
+        return False, f"Failed to create index '{index_name}': {e}"
+
+
+def create_index_mapping(es_client, index_name):
+    """Create results index with mappings using the ES Python client."""
+    mapping = get_results_index_mapping()
+
     try:
         if not es_client.indices.exists(index=index_name):
             es_client.indices.create(index=index_name, body=mapping)
@@ -221,6 +349,86 @@ def create_index_mapping(es_client, index_name):
         print(f"Warning: Could not create index mapping: {e}")
 
 
+def create_defender_index_mapping(es_client_or_session, index_name="achilles-defender", host=None, api_key=None):
+    """Create the Defender index with mappings.
+
+    Supports both the elasticsearch Python client and the requests fallback.
+    When host is provided, uses requests; otherwise assumes es_client_or_session
+    is an Elasticsearch client instance.
+    """
+    mapping = get_defender_index_mapping()
+
+    if host is not None:
+        # requests fallback
+        created, msg = create_index_with_requests(es_client_or_session, host, index_name, mapping, api_key)
+        print(msg)
+        return created
+    else:
+        # ES Python client
+        try:
+            if not es_client_or_session.indices.exists(index=index_name):
+                es_client_or_session.indices.create(index=index_name, body=mapping)
+                print(f"Created index '{index_name}' with mappings")
+                return True
+            else:
+                print(f"Index '{index_name}' already exists")
+                return False
+        except Exception as e:
+            print(f"Warning: Could not create defender index mapping: {e}")
+            return False
+
+
+def create_risk_acceptance_mapping(es_client_or_session, index_name="achilles-risk-acceptances", host=None, api_key=None):
+    """Create the risk acceptance index with mappings.
+
+    Supports both the elasticsearch Python client and the requests fallback.
+    When host is provided, uses requests; otherwise assumes es_client_or_session
+    is an Elasticsearch client instance.
+    """
+    mapping = get_risk_acceptance_mapping()
+
+    if host is not None:
+        # requests fallback
+        created, msg = create_index_with_requests(es_client_or_session, host, index_name, mapping, api_key)
+        print(msg)
+        return created
+    else:
+        # ES Python client
+        try:
+            if not es_client_or_session.indices.exists(index=index_name):
+                es_client_or_session.indices.create(index=index_name, body=mapping)
+                print(f"Created index '{index_name}' with mappings")
+                return True
+            else:
+                print(f"Index '{index_name}' already exists")
+                return False
+        except Exception as e:
+            print(f"Warning: Could not create risk acceptance index mapping: {e}")
+            return False
+
+
+def _init_all_indices_es(es_client, results_index):
+    """Create all three index types using the ES Python client."""
+    print("--- Initializing results index ---")
+    create_index_mapping(es_client, results_index)
+    print("--- Initializing defender index ---")
+    create_defender_index_mapping(es_client)
+    print("--- Initializing risk acceptance index ---")
+    create_risk_acceptance_mapping(es_client)
+
+
+def _init_all_indices_requests(session, host, results_index, api_key=None):
+    """Create all three index types using the requests fallback."""
+    print("--- Initializing results index ---")
+    mapping = get_results_index_mapping()
+    _, msg = create_index_with_requests(session, host, results_index, mapping, api_key)
+    print(msg)
+    print("--- Initializing defender index ---")
+    create_defender_index_mapping(session, host=host, api_key=api_key)
+    print("--- Initializing risk acceptance index ---")
+    create_risk_acceptance_mapping(session, host=host, api_key=api_key)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Upload NDJSON bulk data to Elasticsearch"
@@ -228,7 +436,7 @@ def main():
     parser.add_argument(
         "--file", "-f",
         type=str,
-        required=True,
+        default=None,
         help="Path to NDJSON file"
     )
     parser.add_argument(
@@ -270,21 +478,41 @@ def main():
     parser.add_argument(
         "--create-index",
         action="store_true",
-        help="Create index with mappings before uploading"
+        help="Create results index with mappings before uploading"
+    )
+    parser.add_argument(
+        "--init-indices",
+        action="store_true",
+        help="Create all index types (results, defender, risk-acceptance) and exit. Does not require --file."
     )
     parser.add_argument(
         "--index",
         type=str,
         default="achilles-results-synthetic",
-        help="Index name (default: achilles-results-synthetic)"
+        help="Index name for results (default: achilles-results-synthetic)"
     )
 
     args = parser.parse_args()
 
-    # Validate file exists
-    if not Path(args.file).exists():
+    # --init-indices does not require --file; all other modes do
+    if not args.init_indices and not args.file:
+        parser.error("--file is required unless --init-indices is used")
+
+    # Validate file exists (only when a file is specified)
+    if args.file and not Path(args.file).exists():
         print(f"Error: File not found: {args.file}")
         sys.exit(1)
+
+    # --- Helper to build a requests session with auth ---
+    def _make_requests_session():
+        session = requests.Session()
+        if args.api_key:
+            session.headers['Authorization'] = f"ApiKey {args.api_key}"
+        elif args.username and args.password:
+            import base64
+            credentials = base64.b64encode(f"{args.username}:{args.password}".encode()).decode()
+            session.headers['Authorization'] = f"Basic {credentials}"
+        return session
 
     # Determine connection method
     if args.cloud_id and args.api_key:
@@ -294,7 +522,11 @@ def main():
                 cloud_id=args.cloud_id,
                 api_key=args.api_key
             )
-            if args.create_index:
+            if args.init_indices:
+                _init_all_indices_es(es, args.index)
+                if not args.file:
+                    return
+            elif args.create_index:
                 create_index_mapping(es, args.index)
             upload_with_es_client(args.file, es, args.chunk_size)
         else:
@@ -314,18 +546,26 @@ def main():
             else:
                 es = Elasticsearch(args.host)
 
-            if args.create_index:
+            if args.init_indices:
+                _init_all_indices_es(es, args.index)
+                if not args.file:
+                    return
+            elif args.create_index:
                 create_index_mapping(es, args.index)
             upload_with_es_client(args.file, es, args.chunk_size)
 
         elif HAS_REQUESTS:
-            auth_header = None
-            if args.api_key:
-                auth_header = f"ApiKey {args.api_key}"
-            elif args.username and args.password:
-                import base64
-                credentials = base64.b64encode(f"{args.username}:{args.password}".encode()).decode()
-                auth_header = f"Basic {credentials}"
+            session = _make_requests_session()
+            auth_header = session.headers.get('Authorization')
+
+            if args.init_indices:
+                _init_all_indices_requests(session, args.host, args.index, args.api_key)
+                if not args.file:
+                    return
+            elif args.create_index:
+                mapping = get_results_index_mapping()
+                _, msg = create_index_with_requests(session, args.host, args.index, mapping, args.api_key)
+                print(msg)
 
             upload_with_requests(args.file, args.host, auth_header, args.chunk_size)
         else:
