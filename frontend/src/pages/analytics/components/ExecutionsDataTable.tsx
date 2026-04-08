@@ -120,6 +120,7 @@ interface BundleGroup {
   unprotectedCount: number;
   totalCount: number;
   category?: CategoryType;
+  defenderDetected?: boolean;
 }
 
 interface StandaloneRow {
@@ -147,6 +148,7 @@ function mapGroupsToDisplayRows(groups: ExecutionGroup[]): DisplayRow[] {
         unprotectedCount: group.unprotectedCount,
         totalCount: group.totalCount,
         category: rep.category,
+        defenderDetected: group.defenderDetected,
       };
     }
     return {
@@ -711,19 +713,34 @@ export default function ExecutionsDataTable({
         );
 
       case 'result': {
-        // "Any Stage" mode: non-CH bundles show binary Protected/Unprotected
+        const isProtected = group.protectedCount > 0;
+        const isDetected = !isProtected && group.defenderDetected;
+
+        // "Any Stage" mode: non-CH bundles show binary Protected/Detected/Unprotected
         if (scoringMode === 'any-stage' && group.category !== 'cyber-hygiene') {
-          const isProtected = group.protectedCount > 0;
+          const label = isProtected ? 'Protected' : isDetected ? 'Detected' : 'Unprotected';
+          const cls = isProtected ? 'text-green-600 dark:text-green-400'
+            : isDetected ? 'text-amber-600 dark:text-amber-400'
+            : 'text-red-600 dark:text-red-400';
+          const Icon = isProtected ? ShieldCheck : isDetected ? ShieldAlert : ShieldX;
           return (
-            <span className={`inline-flex items-center gap-1.5 ${isProtected ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-              {isProtected ? <ShieldCheck className="w-4 h-4" /> : <ShieldX className="w-4 h-4" />}
+            <span className={`inline-flex items-center gap-1.5 ${cls}`}>
+              <Icon className="w-4 h-4" />
+              <span className="text-sm font-medium">{label}</span>
+            </span>
+          );
+        }
+        // "All Stages" mode (default): ratio-based badge with Detected fallback
+        if (isDetected) {
+          return (
+            <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+              <ShieldAlert className="w-4 h-4" />
               <span className="text-sm font-medium">
-                {isProtected ? 'Protected' : 'Unprotected'}
+                {group.protectedCount}/{group.totalCount} Detected
               </span>
             </span>
           );
         }
-        // "All Stages" mode (default): ratio-based badge
         const ratio = group.totalCount > 0 ? group.protectedCount / group.totalCount : 0;
         const color = ratio >= 0.8 ? 'text-green-600 dark:text-green-400'
           : ratio >= 0.5 ? 'text-yellow-600 dark:text-yellow-400'

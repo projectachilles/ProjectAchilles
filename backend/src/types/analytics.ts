@@ -190,6 +190,8 @@ export interface ExecutionGroup {
   protectedCount: number;
   unprotectedCount: number;
   totalCount: number;
+  /** True when a correlated Defender alert exists for this group's binary + hostname. */
+  defenderDetected?: boolean;
 }
 
 // Response shape for grouped/collapsed pagination

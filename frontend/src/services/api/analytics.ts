@@ -260,6 +260,7 @@ export interface ExecutionGroup {
   protectedCount: number;
   unprotectedCount: number;
   totalCount: number;
+  defenderDetected?: boolean;
 }
 
 // Response shape for grouped/collapsed pagination
