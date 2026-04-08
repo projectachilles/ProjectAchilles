@@ -80,19 +80,24 @@ echo ""
 # PID file for daemon mode
 PID_FILE="$PROJECT_ROOT/.achilles.pid"
 
-# ngrok tunnel configuration (can be overridden via environment or .env file)
+# Tunnel configuration
 NGROK_CONFIG_MAIN="$HOME/.config/ngrok/ngrok.yml"
-NGROK_CONFIG_TUNNELS="${NGROK_CONFIG_TUNNELS:-$HOME/.config/ngrok/achilles-tunnels.yml}"
+TUNNEL_PROVIDER="${TUNNEL_PROVIDER:-}"  # "cloudflare" or "ngrok" — auto-detected if empty
 
 # Load .env if present (for NGROK_*_DOMAIN overrides)
 if [ -f "$PROJECT_ROOT/backend/.env" ]; then
-    # Only load NGROK_ variables to avoid polluting environment
     eval "$(grep -E '^NGROK_' "$PROJECT_ROOT/backend/.env" 2>/dev/null | sed 's/^/export /')"
 fi
 
-# Tunnel domains - users should set these in backend/.env or environment
+# ngrok custom domains (only used when TUNNEL_PROVIDER=ngrok)
 NGROK_FRONTEND_DOMAIN="${NGROK_FRONTEND_DOMAIN:-projectachilles.ngrok.app}"
 NGROK_BACKEND_DOMAIN="${NGROK_BACKEND_DOMAIN:-achilles-agent.ngrok.app}"
+
+# Cloudflare tunnel state (populated at runtime)
+CF_FRONTEND_URL=""
+CF_BACKEND_URL=""
+CF_FRONTEND_PID=""
+CF_BACKEND_PID=""
 
 # Check for command line arguments
 KILL_EXISTING=false
@@ -126,18 +131,17 @@ for arg in "$@"; do
             echo "  --kill, -k              Kill existing processes on default ports"
             echo "  --daemon, -d            Run in daemon mode (background, no blocking)"
             echo "  --stop, -s              Stop daemon processes"
-            echo "  --tunnel, -t            Start ngrok tunnels for external access"
+            echo "  --tunnel, -t            Start tunnels for external access"
             echo "  --backend-port=PORT     Specify backend port (default: 3000)"
             echo "  --frontend-port=PORT    Specify frontend port (default: 5173)"
             echo "  --help, -h              Show this help message"
             echo ""
-            echo "Tunnel mode exposes:"
-            echo "  Frontend: https://$NGROK_FRONTEND_DOMAIN"
-            echo "  Backend:  https://$NGROK_BACKEND_DOMAIN"
+            echo "Tunnel mode (--tunnel):"
+            echo "  Auto-detects: Cloudflare (free, no account) or ngrok"
+            echo "  Override with: TUNNEL_PROVIDER=cloudflare|ngrok"
             echo ""
-            echo "Custom domains (set in backend/.env or environment):"
-            echo "  NGROK_FRONTEND_DOMAIN=your-app.ngrok.app"
-            echo "  NGROK_BACKEND_DOMAIN=your-api.ngrok.app"
+            echo "  Cloudflare: random HTTPS URLs, no setup needed"
+            echo "  ngrok:      custom domains via NGROK_FRONTEND_DOMAIN / NGROK_BACKEND_DOMAIN"
             echo ""
             exit 0
             ;;
@@ -169,8 +173,9 @@ if [ "$KILL_EXISTING" = true ]; then
     echo "Killing existing processes..."
     kill_port $BACKEND_PORT
     kill_port $FRONTEND_PORT
-    # Also kill any existing ngrok processes for our tunnels
+    # Also kill any existing tunnel processes
     pkill -f "ngrok.*achilles" 2>/dev/null || true
+    pkill -f "cloudflared tunnel" 2>/dev/null || true
 fi
 
 # =============================================================================
@@ -316,6 +321,50 @@ install_go_pacman() {
 install_go_brew() {
     echo "  Installing Go via Homebrew..."
     brew install go
+}
+
+# cloudflared install — direct binary from GitHub releases (no repo keys needed)
+install_cloudflared_binary() {
+    local arch
+    arch=$(uname -m)
+    case "$arch" in
+        x86_64)  arch="amd64" ;;
+        aarch64) arch="arm64" ;;
+        armv*)   arch="arm" ;;
+    esac
+
+    echo "  Installing cloudflared (${arch})..."
+    local url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${arch}"
+    curl -fsSL "$url" -o /tmp/cloudflared
+    sudo install -m 755 /tmp/cloudflared /usr/local/bin/cloudflared
+    rm -f /tmp/cloudflared
+}
+
+install_cloudflared() {
+    if [ "$PA_OS" = "macos" ] && [ "$PA_PKG_MGR" = "brew" ]; then
+        echo "  Installing cloudflared via Homebrew..."
+        brew install cloudflare/cloudflare/cloudflared
+    else
+        install_cloudflared_binary
+    fi
+}
+
+# Wait for a cloudflare tunnel URL to appear in a log file.
+# Polls for up to 20 seconds, returns the URL or exits 1.
+wait_for_cf_url() {
+    local log_file="$1"
+    local elapsed=0
+    while [ $elapsed -lt 20 ]; do
+        local url
+        url=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' "$log_file" 2>/dev/null | head -1)
+        if [ -n "$url" ]; then
+            echo "$url"
+            return 0
+        fi
+        sleep 1
+        ((elapsed++))
+    done
+    return 1
 }
 
 check_and_install_deps() {
@@ -772,27 +821,63 @@ check_and_setup_clerk() {
 # Run Clerk check before starting servers
 check_and_setup_clerk
 
-# Validate tunnel mode requirements
+# Validate and configure tunnel provider
 if [ "$TUNNEL_MODE" = true ]; then
-    if ! command -v ngrok &> /dev/null; then
-        echo "Error: ngrok is required for tunnel mode but not installed."
-        echo "Install with: yay -S ngrok  (or download from ngrok.com)"
-        exit 1
-    fi
-    if [ ! -f "$NGROK_CONFIG_MAIN" ]; then
-        echo "Error: ngrok main config not found at $NGROK_CONFIG_MAIN"
-        echo "Run: ngrok config add-authtoken YOUR_TOKEN"
-        exit 1
+    # Auto-detect provider if not set
+    if [ -z "$TUNNEL_PROVIDER" ]; then
+        if command -v cloudflared &>/dev/null; then
+            TUNNEL_PROVIDER="cloudflare"
+        elif command -v ngrok &>/dev/null && [ -f "$NGROK_CONFIG_MAIN" ]; then
+            TUNNEL_PROVIDER="ngrok"
+        fi
     fi
 
-    # Generate tunnel config dynamically from environment variables
-    NGROK_CONFIG_TUNNELS="/tmp/achilles-tunnels-$$.yml"
-    cat > "$NGROK_CONFIG_TUNNELS" << EOF
-# Auto-generated ngrok tunnel configuration
-# Domains configured via NGROK_FRONTEND_DOMAIN and NGROK_BACKEND_DOMAIN
+    # If still no provider, offer to install cloudflared (free, no account)
+    if [ -z "$TUNNEL_PROVIDER" ]; then
+        echo "No tunnel provider found."
+        echo "  Cloudflare Tunnel: free, no account needed, HTTPS"
+        echo "  ngrok:             requires account + auth token"
+        echo ""
+        if [ -t 0 ] && [ -t 1 ]; then
+            read -rp "Install Cloudflare Tunnel (cloudflared)? [Y/n] " response
+            case "${response:-Y}" in
+                [Nn]*)
+                    echo "Install a tunnel provider manually and re-run with --tunnel."
+                    exit 1
+                    ;;
+            esac
+            install_cloudflared
+            if command -v cloudflared &>/dev/null; then
+                TUNNEL_PROVIDER="cloudflare"
+                echo "  ✓ cloudflared installed"
+            else
+                echo "  ✗ cloudflared installation failed"
+                exit 1
+            fi
+        else
+            echo "Non-interactive mode — install cloudflared manually."
+            exit 1
+        fi
+    fi
 
+    echo "Tunnel provider: $TUNNEL_PROVIDER"
+
+    # Provider-specific validation
+    if [ "$TUNNEL_PROVIDER" = "ngrok" ]; then
+        if ! command -v ngrok &>/dev/null; then
+            echo "Error: ngrok not found. Install from ngrok.com or use TUNNEL_PROVIDER=cloudflare"
+            exit 1
+        fi
+        if [ ! -f "$NGROK_CONFIG_MAIN" ]; then
+            echo "Error: ngrok config not found at $NGROK_CONFIG_MAIN"
+            echo "Run: ngrok config add-authtoken YOUR_TOKEN"
+            exit 1
+        fi
+
+        # Generate tunnel config dynamically
+        NGROK_CONFIG_TUNNELS="/tmp/achilles-tunnels-$$.yml"
+        cat > "$NGROK_CONFIG_TUNNELS" << EOF
 version: 3
-
 endpoints:
   - name: achilles-frontend
     url: https://$NGROK_FRONTEND_DOMAIN
@@ -803,7 +888,8 @@ endpoints:
     upstream:
       url: $BACKEND_PORT
 EOF
-    echo "  Generated tunnel config for: $NGROK_FRONTEND_DOMAIN, $NGROK_BACKEND_DOMAIN"
+        echo "  ngrok domains: $NGROK_FRONTEND_DOMAIN, $NGROK_BACKEND_DOMAIN"
+    fi
 fi
 
 # Find available ports
@@ -837,34 +923,70 @@ fi
 
 echo ""
 
-# Start ngrok tunnels if requested
+# Start tunnels if requested
 NGROK_PID=""
+TUNNEL_FRONTEND_URL=""
+TUNNEL_BACKEND_URL=""
 if [ "$TUNNEL_MODE" = true ]; then
-    echo "Starting ngrok tunnels..."
-    ngrok start --config "$NGROK_CONFIG_MAIN" --config "$NGROK_CONFIG_TUNNELS" --all > /tmp/ngrok-achilles.log 2>&1 &
-    NGROK_PID=$!
-    sleep 3
+    if [ "$TUNNEL_PROVIDER" = "cloudflare" ]; then
+        echo "Starting Cloudflare tunnels..."
 
-    # Verify tunnels are running
-    if ! kill -0 $NGROK_PID 2>/dev/null; then
-        echo "Error: Failed to start ngrok tunnels. Check /tmp/ngrok-achilles.log"
-        exit 1
-    fi
+        # Start backend tunnel
+        cloudflared tunnel --url "http://localhost:$BACKEND_PORT" --no-autoupdate > /tmp/cf-backend.log 2>&1 &
+        CF_BACKEND_PID=$!
 
-    # Verify both tunnels are active
-    TUNNEL_COUNT=$(curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null | grep -c "public_url" || echo "0")
-    if [ "$TUNNEL_COUNT" -lt 2 ]; then
-        echo "Warning: Expected 2 tunnels but found $TUNNEL_COUNT"
-        echo "Check ngrok dashboard: http://127.0.0.1:4040"
-    else
-        echo "  ✓ Frontend tunnel: https://$NGROK_FRONTEND_DOMAIN"
-        echo "  ✓ Backend tunnel:  https://$NGROK_BACKEND_DOMAIN"
-        echo "  ✓ Inspect:         http://127.0.0.1:4040"
+        # Start frontend tunnel
+        cloudflared tunnel --url "http://localhost:$FRONTEND_PORT" --no-autoupdate > /tmp/cf-frontend.log 2>&1 &
+        CF_FRONTEND_PID=$!
+
+        # Wait for URLs to be assigned
+        echo "  Waiting for tunnel URLs..."
+        CF_BACKEND_URL=$(wait_for_cf_url /tmp/cf-backend.log) || true
+        CF_FRONTEND_URL=$(wait_for_cf_url /tmp/cf-frontend.log) || true
+
+        if [ -z "$CF_BACKEND_URL" ] || [ -z "$CF_FRONTEND_URL" ]; then
+            echo "  ⚠ Timed out waiting for tunnel URLs"
+            [ -z "$CF_BACKEND_URL" ] && echo "    Backend tunnel failed — check /tmp/cf-backend.log"
+            [ -z "$CF_FRONTEND_URL" ] && echo "    Frontend tunnel failed — check /tmp/cf-frontend.log"
+            echo "  Continuing without tunnels..."
+            TUNNEL_MODE=false
+        else
+            echo "  ✓ Dashboard:  $CF_FRONTEND_URL"
+            echo "  ✓ Agent API:  $CF_BACKEND_URL"
+            TUNNEL_FRONTEND_URL="$CF_FRONTEND_URL"
+            TUNNEL_BACKEND_URL="$CF_BACKEND_URL"
+        fi
+        echo ""
+
+    elif [ "$TUNNEL_PROVIDER" = "ngrok" ]; then
+        echo "Starting ngrok tunnels..."
+        ngrok start --config "$NGROK_CONFIG_MAIN" --config "$NGROK_CONFIG_TUNNELS" --all > /tmp/ngrok-achilles.log 2>&1 &
+        NGROK_PID=$!
+        sleep 3
+
+        if ! kill -0 $NGROK_PID 2>/dev/null; then
+            echo "Error: Failed to start ngrok tunnels. Check /tmp/ngrok-achilles.log"
+            exit 1
+        fi
+
+        TUNNEL_COUNT=$(curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null | grep -c "public_url" || echo "0")
+        if [ "$TUNNEL_COUNT" -lt 2 ]; then
+            echo "Warning: Expected 2 tunnels but found $TUNNEL_COUNT"
+            echo "Check ngrok dashboard: http://127.0.0.1:4040"
+        else
+            echo "  ✓ Frontend tunnel: https://$NGROK_FRONTEND_DOMAIN"
+            echo "  ✓ Backend tunnel:  https://$NGROK_BACKEND_DOMAIN"
+            echo "  ✓ Inspect:         http://127.0.0.1:4040"
+        fi
+        TUNNEL_FRONTEND_URL="https://$NGROK_FRONTEND_DOMAIN"
+        TUNNEL_BACKEND_URL="https://$NGROK_BACKEND_DOMAIN"
+        echo ""
     fi
-    echo ""
 
     # Set CORS to allow frontend tunnel domain
-    export CORS_ORIGIN="https://$NGROK_FRONTEND_DOMAIN"
+    if [ -n "$TUNNEL_FRONTEND_URL" ]; then
+        export CORS_ORIGIN="$TUNNEL_FRONTEND_URL"
+    fi
 fi
 
 # Check if npm dependencies are installed
@@ -926,39 +1048,46 @@ echo "╔═══════════════════════�
 echo "║   ProjectAchilles is running!                                     ║"
 echo "╠═══════════════════════════════════════════════════════════════════╣"
 echo "║                                                                   ║"
-if [ "$TUNNEL_MODE" = true ]; then
-echo "║   Frontend:  https://$NGROK_FRONTEND_DOMAIN                  ║"
-echo "║   Backend:   https://$NGROK_BACKEND_DOMAIN                   ║"
-echo "║   Inspect:   http://127.0.0.1:4040                                ║"
+if [ "$TUNNEL_MODE" = true ] && [ -n "$TUNNEL_FRONTEND_URL" ]; then
+echo "║   Dashboard:   $TUNNEL_FRONTEND_URL"
+echo "║   Agent API:   $TUNNEL_BACKEND_URL"
+if [ "$TUNNEL_PROVIDER" = "ngrok" ]; then
+echo "║   Inspect:     http://127.0.0.1:4040"
+fi
+echo "║"
+echo "║   Local:"
+echo "║     Frontend:  http://localhost:$FRONTEND_PORT"
+echo "║     Backend:   http://localhost:$BACKEND_PORT"
 else
-echo "║   Frontend:  http://localhost:$FRONTEND_PORT                              ║"
-echo "║   Backend:   http://localhost:$BACKEND_PORT                               ║"
+echo "║   Frontend:  http://localhost:$FRONTEND_PORT"
+echo "║   Backend:   http://localhost:$BACKEND_PORT"
 fi
 echo "║                                                                   ║"
 echo "╠═══════════════════════════════════════════════════════════════════╣"
-echo "║   Modules:                                                        ║"
-if [ "$TUNNEL_MODE" = true ]; then
-echo "║     • Tests:      https://$NGROK_FRONTEND_DOMAIN/            ║"
-echo "║     • Analytics:  https://$NGROK_FRONTEND_DOMAIN/analytics   ║"
-echo "║     • Agent:      https://$NGROK_FRONTEND_DOMAIN/agent       ║"
-else
-echo "║     • Tests:      http://localhost:$FRONTEND_PORT/                        ║"
-echo "║     • Analytics:  http://localhost:$FRONTEND_PORT/analytics               ║"
-echo "║     • Agent:      http://localhost:$FRONTEND_PORT/agent                   ║"
-fi
+if [ "$TUNNEL_MODE" = true ] && [ -n "$TUNNEL_BACKEND_URL" ]; then
+echo "║   Agent enrollment URL (use this in agent config):                ║"
+echo "║     $TUNNEL_BACKEND_URL"
 echo "║                                                                   ║"
+echo "║   ⚠ Add the Dashboard URL to Clerk → Settings → Allowed Origins  ║"
+echo "║     for authentication to work via tunnel                         ║"
 echo "╠═══════════════════════════════════════════════════════════════════╣"
+fi
 
 if [ "$DAEMON_MODE" = true ]; then
     # Save PIDs for later cleanup
     echo "$BACKEND_PID" > "$PID_FILE"
     echo "$FRONTEND_PID" >> "$PID_FILE"
     [ -n "$NGROK_PID" ] && echo "$NGROK_PID" >> "$PID_FILE"
+    [ -n "$CF_BACKEND_PID" ] && echo "$CF_BACKEND_PID" >> "$PID_FILE"
+    [ -n "$CF_FRONTEND_PID" ] && echo "$CF_FRONTEND_PID" >> "$PID_FILE"
     echo "║   Running in daemon mode. Use --stop to shut down.              ║"
     echo "╚═══════════════════════════════════════════════════════════════════╝"
     echo ""
     echo "PIDs saved to $PID_FILE"
-    [ "$TUNNEL_MODE" = true ] && echo "ngrok logs: /tmp/ngrok-achilles.log"
+    if [ "$TUNNEL_MODE" = true ]; then
+        [ "$TUNNEL_PROVIDER" = "ngrok" ] && echo "ngrok logs: /tmp/ngrok-achilles.log"
+        [ "$TUNNEL_PROVIDER" = "cloudflare" ] && echo "Cloudflare logs: /tmp/cf-backend.log, /tmp/cf-frontend.log"
+    fi
     exit 0
 else
     echo "║   Press Ctrl+C to stop                                            ║"
@@ -972,6 +1101,8 @@ else
         kill $BACKEND_PID 2>/dev/null || true
         kill $FRONTEND_PID 2>/dev/null || true
         [ -n "$NGROK_PID" ] && kill $NGROK_PID 2>/dev/null || true
+        [ -n "$CF_BACKEND_PID" ] && kill $CF_BACKEND_PID 2>/dev/null || true
+        [ -n "$CF_FRONTEND_PID" ] && kill $CF_FRONTEND_PID 2>/dev/null || true
         # Also kill any child processes
         pkill -P $BACKEND_PID 2>/dev/null || true
         pkill -P $FRONTEND_PID 2>/dev/null || true
