@@ -1454,7 +1454,7 @@ export class ElasticsearchService {
 
       if (binaryPrefix && rep.hostname) {
         must.push({ wildcard: { evidence_filenames: { value: binaryPrefix } } });
-        must.push({ term: { evidence_hostnames: rep.hostname.toUpperCase() } });
+        must.push({ wildcard: { evidence_hostnames: { value: `${rep.hostname.toUpperCase()}*` } } });
       } else if (rep.techniques?.length) {
         must.push({ terms: { mitre_techniques: rep.techniques } });
       } else {

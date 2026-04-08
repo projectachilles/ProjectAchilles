@@ -703,7 +703,7 @@ export class DefenderAnalyticsService {
             must: [
               { term: { doc_type: 'alert' } },
               { term: { evidence_filenames: binaryName.toLowerCase() } },
-              { term: { evidence_hostnames: hostname.toUpperCase() } },
+              { wildcard: { evidence_hostnames: { value: `${hostname.toUpperCase()}*` } } },
               { range: { created_at: { gte: from, lte: to } } },
             ],
           },
@@ -731,7 +731,7 @@ export class DefenderAnalyticsService {
             must: [
               { term: { doc_type: 'alert' } },
               { terms: { mitre_techniques: techniques } },
-              { term: { evidence_hostnames: hostname.toUpperCase() } },
+              { wildcard: { evidence_hostnames: { value: `${hostname.toUpperCase()}*` } } },
               { range: { created_at: { gte: from, lte: to } } },
             ],
           },

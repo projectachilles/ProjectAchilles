@@ -1692,9 +1692,11 @@ export class ElasticsearchService {
       ];
 
       if (binaryPrefix && rep.hostname) {
-        // Tier 1: evidence-based (most precise) — wildcard matches <uuid>.exe and <uuid>-<stage>.exe
+        // Tier 1: evidence-based (most precise)
+        // Wildcard on filenames: matches <uuid>.exe and <uuid>-<stage>.exe
+        // Wildcard on hostnames: matches short name (LT-TPL-L50) and FQDN (LT-TPL-L50.domain.com)
         must.push({ wildcard: { evidence_filenames: { value: binaryPrefix } } });
-        must.push({ term: { evidence_hostnames: rep.hostname.toUpperCase() } });
+        must.push({ wildcard: { evidence_hostnames: { value: `${rep.hostname.toUpperCase()}*` } } });
       } else if (rep.techniques?.length) {
         // Fallback: technique-based
         must.push({ terms: { mitre_techniques: rep.techniques } });
