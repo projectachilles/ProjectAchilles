@@ -883,6 +883,12 @@ export PORT=$BACKEND_PORT
 export VITE_API_URL="http://localhost:$BACKEND_PORT"
 export VITE_BACKEND_PORT=$BACKEND_PORT
 
+# Prevent git from prompting for credentials in background processes.
+# The backend's git sync uses GITHUB_TOKEN in the URL when available;
+# without this, git writes credential prompts to /dev/tty, bypassing
+# stdout/stderr redirection and leaking into the user's terminal.
+export GIT_TERMINAL_PROMPT=0
+
 # Start backend in background
 echo "Starting backend server on port $BACKEND_PORT..."
 cd "$PROJECT_ROOT/backend"
