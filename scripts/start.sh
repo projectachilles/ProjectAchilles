@@ -835,6 +835,133 @@ check_and_setup_clerk() {
 # Run Clerk check before starting servers
 check_and_setup_clerk
 
+# =============================================================================
+# Elasticsearch — detect, optionally configure, initialize indices
+# =============================================================================
+
+check_and_setup_elasticsearch() {
+    echo "Checking Elasticsearch..."
+
+    local es_cloud_id es_node es_api_key
+    es_cloud_id=$(read_env_value "$BACKEND_ENV" "ELASTICSEARCH_CLOUD_ID")
+    es_node=$(read_env_value "$BACKEND_ENV" "ELASTICSEARCH_NODE")
+    es_api_key=$(read_env_value "$BACKEND_ENV" "ELASTICSEARCH_API_KEY")
+
+    # Case 1: Not configured — offer to configure or skip
+    if [ -z "$es_cloud_id" ] && [ -z "$es_node" ]; then
+        echo "  Not configured (Analytics will prompt for setup in the UI)"
+
+        # Offer interactive configuration if TTY available
+        if [ -t 0 ] && [ -t 1 ]; then
+            echo ""
+            read -rp "  Configure Elasticsearch now? [Cloud / Local Docker / Skip (default)] " es_choice
+            case "$es_choice" in
+                [Cc]*)
+                    echo ""
+                    read -rp "  Cloud ID: " es_cloud_id
+                    read -rp "  API Key: " es_api_key
+
+                    if [ -n "$es_cloud_id" ] && [ -n "$es_api_key" ]; then
+                        write_env_value "$BACKEND_ENV" "ELASTICSEARCH_CLOUD_ID" "$es_cloud_id"
+                        write_env_value "$BACKEND_ENV" "ELASTICSEARCH_API_KEY" "$es_api_key"
+                        write_env_value "$BACKEND_ENV" "ELASTICSEARCH_INDEX_PATTERN" "achilles-results-*"
+                        echo "  ✓ Elastic Cloud credentials saved to backend/.env"
+                    else
+                        echo "  Skipped — both Cloud ID and API Key are required"
+                        echo ""
+                        return 0
+                    fi
+                    ;;
+                [Ll]*)
+                    echo "  Use: docker compose --profile elasticsearch up -d"
+                    echo "  Then configure at Analytics → Setup with: http://elasticsearch:9200"
+                    echo ""
+                    return 0
+                    ;;
+                *)
+                    echo ""
+                    return 0
+                    ;;
+            esac
+        else
+            echo ""
+            return 0
+        fi
+    fi
+
+    # At this point ES is configured — test connectivity
+    local es_url=""
+    local curl_auth=""
+
+    if [ -n "$es_cloud_id" ]; then
+        # For Elastic Cloud, we can't easily derive the URL from the cloud ID
+        # (it's a base64-encoded compound value). Test via the Python script instead.
+        echo "  Elastic Cloud configured (Cloud ID: ${es_cloud_id:0:20}...)"
+    elif [ -n "$es_node" ]; then
+        es_url="$es_node"
+        if [ -n "$es_api_key" ]; then
+            curl_auth="-H \"Authorization: ApiKey $es_api_key\""
+        fi
+
+        # Quick connectivity test
+        local http_code
+        http_code=$(eval curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$curl_auth" "$es_url" 2>/dev/null) || true
+        if [ "$http_code" != "200" ]; then
+            echo "  ⚠ Could not connect to $es_url (HTTP $http_code)"
+            echo "    Check credentials in backend/.env — starting anyway"
+            echo ""
+            return 0
+        fi
+    fi
+
+    # Check if indices exist (only for direct node connections)
+    if [ -n "$es_url" ]; then
+        local index_count
+        index_count=$(eval curl -s --max-time 5 "$curl_auth" "$es_url/_cat/indices/achilles-*?h=index" 2>/dev/null | wc -l) || true
+        index_count=$((index_count + 0))  # ensure numeric
+
+        if [ "$index_count" -gt 0 ]; then
+            local doc_count
+            doc_count=$(eval curl -s --max-time 5 "$curl_auth" "$es_url/_cat/indices/achilles-*?h=docs.count" 2>/dev/null | awk '{s+=$1} END {print s+0}') || true
+            echo "  ✓ Connected ($index_count indices, $doc_count documents)"
+            echo ""
+            return 0
+        fi
+
+        # No indices — offer to initialize
+        echo "  ✓ Connected to $es_url"
+        echo "  ✗ No achilles-* indices found"
+    else
+        # Elastic Cloud — can't check indices with curl, delegate to init script
+        echo "  Checking indices..."
+    fi
+
+    if [ -t 0 ] && [ -t 1 ]; then
+        echo ""
+        read -rp "  Initialize Elasticsearch indices? [Y/n] " init_response
+        case "${init_response:-Y}" in
+            [Nn]*)
+                echo "  Skipped. Run ./scripts/init-elasticsearch.sh later."
+                echo ""
+                return 0
+                ;;
+        esac
+
+        read -rp "  Seed with synthetic demo data? [y/N] " seed_response
+        local seed_flag=""
+        case "${seed_response:-N}" in
+            [Yy]*) seed_flag="--seed" ;;
+        esac
+
+        echo ""
+        "$SCRIPT_DIR/init-elasticsearch.sh" $seed_flag
+    fi
+
+    echo ""
+}
+
+check_and_setup_elasticsearch
+
 # Validate and configure tunnel provider
 if [ "$TUNNEL_MODE" = true ]; then
     # Auto-detect provider if not set
