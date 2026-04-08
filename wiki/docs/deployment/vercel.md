@@ -158,6 +158,19 @@ Vite only exposes env vars with `VITE_` prefix. Use `VITE_CLERK_PUBLISHABLE_KEY`
 | Vercel Blob (1 GB included) | $0 |
 | **Total** | **~$20** |
 
+## Helper Scripts
+
+```bash
+# Generate all secrets including Ed25519 signing keys
+./scripts/generate-secrets.sh --target vercel
+
+# Interactive setup wizard — collects Clerk/ES/Turso config, outputs Vercel-ready env vars
+./scripts/setup.sh    # Select: PaaS → Vercel
+
+# Initialize Elasticsearch indices on Elastic Cloud
+./scripts/init-elasticsearch.sh --cloud-id "deploy:..." --api-key "..."
+```
+
 ## Troubleshooting
 
 ### CORS errors

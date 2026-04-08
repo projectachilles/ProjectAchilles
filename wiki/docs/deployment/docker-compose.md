@@ -148,6 +148,22 @@ docker compose build
 docker compose up -d
 ```
 
+## Helper Scripts
+
+```bash
+# Generate all secrets at once and append to backend/.env
+./scripts/generate-secrets.sh --target docker --env-file backend/.env
+
+# Interactive setup wizard — configures Clerk, ES, test repo, secrets
+./scripts/setup.sh    # Select: Docker
+
+# Initialize Elasticsearch indices (for external ES — local Docker ES is auto-seeded)
+./scripts/init-elasticsearch.sh --cloud-id "deploy:..." --api-key "..."
+
+# Initialize local ES indices with synthetic demo data
+./scripts/init-elasticsearch.sh --host http://localhost:9200 --seed
+```
+
 ## Troubleshooting
 
 ### Port 8080 Conflict

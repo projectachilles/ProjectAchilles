@@ -132,6 +132,19 @@ Railway uses `watchPatterns` from `railway.toml` for selective rebuilds:
 | Volumes (~1-2 GB) | ~$0.30 |
 | **Total** | **~$10-13** |
 
+## Helper Scripts
+
+```bash
+# Generate all secrets at once
+./scripts/generate-secrets.sh --target railway
+
+# Interactive setup wizard — collects Clerk/ES config, outputs Railway-ready env vars
+./scripts/setup.sh    # Select: PaaS → Railway
+
+# Initialize Elasticsearch indices on Elastic Cloud
+./scripts/init-elasticsearch.sh --cloud-id "deploy:..." --api-key "..."
+```
+
 ## Troubleshooting
 
 ### Frontend shows "502 Bad Gateway"

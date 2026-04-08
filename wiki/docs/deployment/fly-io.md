@@ -125,6 +125,19 @@ Full Go build support (Docker image includes Go 1.24.3). Set `AGENT_REPO_URL` an
 | Volume (1 GB) | ~$0.15 |
 | **Total** | **~$8** |
 
+## Helper Scripts
+
+```bash
+# Generate all secrets in flyctl format (copy-paste ready)
+./scripts/generate-secrets.sh --target fly --format flyctl
+
+# Interactive setup wizard — collects Clerk/ES config, outputs Fly.io-ready env vars
+./scripts/setup.sh    # Select: PaaS → Fly.io
+
+# Initialize Elasticsearch indices on Elastic Cloud
+./scripts/init-elasticsearch.sh --cloud-id "deploy:..." --api-key "..."
+```
+
 ## Troubleshooting
 
 ### Frontend shows "502 Bad Gateway" at startup
