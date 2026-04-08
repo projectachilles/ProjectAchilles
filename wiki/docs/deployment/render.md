@@ -109,6 +109,19 @@ Then update `CORS_ORIGIN`, `AGENT_SERVER_URL`, and `VITE_API_URL` to use the cus
 | Persistent disk (1 GB) | ~$0.25 |
 | **Total** | **~$14** |
 
+## Helper Scripts
+
+```bash
+# Generate all secrets at once
+./scripts/generate-secrets.sh --target render
+
+# Interactive setup wizard — collects Clerk/ES config, outputs Render-ready env vars
+./scripts/setup.sh    # Select: PaaS → Render
+
+# Initialize Elasticsearch indices on Elastic Cloud
+./scripts/init-elasticsearch.sh --cloud-id "deploy:..." --api-key "..."
+```
+
 ## Troubleshooting
 
 ### Frontend shows CORS errors
