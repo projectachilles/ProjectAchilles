@@ -1002,6 +1002,17 @@ if [ "$TUNNEL_MODE" = true ]; then
         export CORS_ORIGIN="$TUNNEL_FRONTEND_URL"
     fi
 
+    # Set AGENT_SERVER_URL so enrollment one-liners use the backend tunnel URL
+    # (the backend's /agent/config endpoint reads this to generate install commands)
+    # Also update backend/.env in case it has an old value — dotenv reads .env files
+    # but does NOT override existing env vars, so export must come first.
+    if [ -n "$TUNNEL_BACKEND_URL" ]; then
+        export AGENT_SERVER_URL="$TUNNEL_BACKEND_URL"
+        if [ -f "$BACKEND_ENV" ] && grep -qE "^AGENT_SERVER_URL=" "$BACKEND_ENV"; then
+            sed -i "s|^AGENT_SERVER_URL=.*|AGENT_SERVER_URL=${TUNNEL_BACKEND_URL}|" "$BACKEND_ENV"
+        fi
+    fi
+
     # Register tunnel URL with Clerk's allowed_origins (API-only, no dashboard UI)
     if [ -n "$TUNNEL_FRONTEND_URL" ]; then
         CLERK_SK_FOR_TUNNEL=$(read_env_value "$BACKEND_ENV" "CLERK_SECRET_KEY")
