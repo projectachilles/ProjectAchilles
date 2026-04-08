@@ -1,12 +1,12 @@
 ---
 sidebar_position: 4
 title: Quick Start — Local Dev
-description: Get ProjectAchilles running locally for development in under 5 minutes.
+description: Get ProjectAchilles running locally or on a remote server in under 5 minutes with a single command.
 ---
 
 # Quick Start — Local Development
 
-Get ProjectAchilles running on your machine for development. This guide uses the development startup script that automatically detects your platform, installs missing dependencies, finds available ports, and starts both frontend and backend.
+Get ProjectAchilles running on your machine or a remote server with a single command. The startup script handles everything: installs system dependencies, walks you through authentication setup, and starts the platform. Add `--tunnel` to expose it via HTTPS for remote access and agent enrollment.
 
 ## Prerequisites
 
@@ -80,6 +80,72 @@ If you've set up Clerk before, just add `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRE
 
 Navigate to **http://localhost:5173** in your browser. You'll be redirected to Clerk's sign-in page. After authenticating, you'll see the Test Browser.
 
+## Remote Access
+
+If you're running ProjectAchilles on a remote server (cloud VM, VPS, headless machine), you have two options to access the dashboard and enable agent communication.
+
+### Option A — SSH Tunnel (quickest, personal use)
+
+Forward the ports to your local machine. No extra tools or accounts needed:
+
+```bash
+# From your local machine (not the server)
+ssh -L 5173:localhost:5173 -L 3000:localhost:3000 user@your-server
+```
+
+Then open **http://localhost:5173** in your local browser. Clerk auth works because it sees `localhost`.
+
+:::note
+SSH tunnels are great for verifying the app works, but agents on other machines can't reach the backend through your SSH tunnel. Use Cloudflare Tunnels (Option B) for agent enrollment.
+:::
+
+### Option B — Cloudflare Tunnels (full setup with agents, ~5 minutes)
+
+Exposes both frontend and backend via free HTTPS tunnel URLs. Agents can enroll from any network. No account or credit card required.
+
+```bash
+./scripts/start.sh -k --daemon --tunnel
+```
+
+The script will:
+1. Install `cloudflared` if not present (single binary, ~30 MB)
+2. Start two HTTPS tunnels (frontend + backend)
+3. Register the tunnel URL with Clerk's allowed origins automatically
+4. Set `AGENT_SERVER_URL` so enrollment one-liners use the tunnel address
+
+```
+Starting Cloudflare tunnels...
+  Waiting for tunnel URLs...
+  ✓ Dashboard:  https://random-words.trycloudflare.com
+  ✓ Agent API:  https://other-words.trycloudflare.com
+
+Registering tunnel with Clerk allowed_origins...
+  ✓ Clerk allowed_origins updated
+
+╔══════════════════════════════════════════════════════╗
+║   Dashboard:   https://random-words.trycloudflare.com ║
+║   Agent API:   https://other-words.trycloudflare.com  ║
+║                                                       ║
+║   Agent enrollment URL (use this in agent config):    ║
+║     https://other-words.trycloudflare.com             ║
+╚══════════════════════════════════════════════════════╝
+```
+
+Open the Dashboard URL in your browser to access the platform. Use the Agent API URL when enrolling agents — the one-liner install commands on the Agents page will use it automatically.
+
+:::warning Ephemeral URLs
+Cloudflare quick tunnel URLs change every time the server restarts. For persistent URLs, use a [named Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (free, requires a Cloudflare account) or deploy with [Docker](./quick-start-docker) behind a reverse proxy.
+:::
+
+:::tip ngrok users
+If you prefer ngrok, set your custom domains in `backend/.env` and the script will auto-detect it:
+```bash
+NGROK_FRONTEND_DOMAIN=your-app.ngrok.app
+NGROK_BACKEND_DOMAIN=your-api.ngrok.app
+```
+Or force the provider: `TUNNEL_PROVIDER=ngrok ./scripts/start.sh -k --daemon --tunnel`
+:::
+
 ## Optional: Elasticsearch
 
 The Analytics module requires an Elasticsearch connection. You can either:
@@ -105,18 +171,22 @@ The local ES instance is available at `http://localhost:9200` — no credentials
 
 ## Optional: Test Library
 
-To populate the Test Browser, configure a Git repository containing security tests:
+The Test Browser displays security tests from a Git-synced repository. To populate it, add the repo URL to `backend/.env`:
 
 ```bash
 # In backend/.env
 TESTS_REPO_URL=https://github.com/your-org/your-test-library.git
 ```
 
-The backend will clone and sync the test library on startup. **No GitHub token is needed for public repositories.** If your test library is in a private repo, also add:
+The backend will clone and sync the test library on startup. **No GitHub token is needed for public repositories.** For private repos, also add:
 
 ```bash
 GITHUB_TOKEN=ghp_your_pat_here
 ```
+
+:::note Coming Soon
+The default test library ([f0_library](https://github.com/ubercylon8/f0_library)) will be configured automatically once its repository access restrictions are resolved. Until then, the Test Browser will show "No tests in library" — the rest of the platform (Analytics, Agent management) works independently.
+:::
 
 ## Stopping Services
 
