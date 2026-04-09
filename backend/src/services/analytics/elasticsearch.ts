@@ -1685,12 +1685,10 @@ export class ElasticsearchService {
         : rep.test_uuid;
       const binaryPrefix = baseUuid ? `${baseUuid.toLowerCase()}*` : null;
 
-      // Evidence-based query: binary filename + hostname + time window.
-      // Use updated_at (not created_at) — Defender updates existing alerts with
-      // new evidence when a test triggers re-evaluation of a prior alert.
+      // Evidence-based query: binary filename + hostname + time window
       const must: any[] = [
         { term: { doc_type: 'alert' } },
-        { range: { updated_at: { gte: from, lte: to } } },
+        { range: { created_at: { gte: from, lte: to } } },
       ];
 
       if (binaryPrefix && rep.hostname) {
