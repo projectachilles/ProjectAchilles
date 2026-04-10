@@ -41,7 +41,10 @@ export class DefenderEnrichmentService {
           index: this.resultsIndexPattern,
           size: batchSize,
           query: this.buildEligibilityQuery(lookbackDays),
-          sort: [{ 'routing.event_time': 'desc' }, { _id: 'asc' }],
+          // Sort by event_time only — _id fielddata is disabled on Elastic Cloud
+          // Serverless. Ties (same ms timestamp) may skip a doc across pages,
+          // but the next enrichment pass self-heals via the defender_detected != true filter.
+          sort: [{ 'routing.event_time': 'desc' }],
           ...(searchAfter ? { search_after: searchAfter } : {}),
         } as any);
       } catch (err) {
