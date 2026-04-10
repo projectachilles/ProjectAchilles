@@ -214,11 +214,20 @@ GITHUB_TOKEN=ghp_your_pat_here  # only for private repos
 ```
 :::
 
-## Stopping Services
+## Managing Services
 
 ```bash
+# Stop everything (servers + tunnels)
 ./scripts/start.sh --stop
+
+# Restart servers only (keep tunnel URLs alive)
+./scripts/start.sh --restart-servers
+# or: ./scripts/start.sh -r
 ```
+
+:::tip Restart After Config Changes
+Changed Clerk keys, Elasticsearch credentials, or `.env` settings? Use `--restart-servers` (`-r`) to reload without generating new tunnel URLs. The backend re-reads `backend/.env` on startup.
+:::
 
 ## Troubleshooting
 

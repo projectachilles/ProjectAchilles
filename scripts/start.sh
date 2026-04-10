@@ -104,6 +104,7 @@ KILL_EXISTING=false
 DAEMON_MODE=false
 STOP_DAEMON=false
 TUNNEL_MODE=false
+RESTART_SERVERS=false
 for arg in "$@"; do
     case $arg in
         --kill|-k)
@@ -118,6 +119,10 @@ for arg in "$@"; do
         --tunnel|-t)
             TUNNEL_MODE=true
             ;;
+        --restart-servers|-r)
+            RESTART_SERVERS=true
+            DAEMON_MODE=true
+            ;;
         --backend-port=*)
             BACKEND_PORT="${arg#*=}"
             ;;
@@ -131,6 +136,7 @@ for arg in "$@"; do
             echo "  --kill, -k              Kill existing processes on default ports"
             echo "  --daemon, -d            Run in daemon mode (background, no blocking)"
             echo "  --stop, -s              Stop daemon processes"
+            echo "  --restart-servers, -r   Restart backend/frontend, keep tunnels running"
             echo "  --tunnel, -t            Start tunnels for external access"
             echo "  --backend-port=PORT     Specify backend port (default: 3000)"
             echo "  --frontend-port=PORT    Specify frontend port (default: 5173)"
@@ -166,6 +172,60 @@ if [ "$STOP_DAEMON" = true ]; then
         echo "No daemon PID file found. Servers may not be running."
     fi
     exit 0
+fi
+
+# Handle --restart-servers flag: kill only backend/frontend, preserve tunnels
+if [ "$RESTART_SERVERS" = true ]; then
+    if [ -f "$PID_FILE" ]; then
+        echo "Restarting servers (keeping tunnels alive)..."
+        TUNNEL_PIDS_TO_KEEP=()
+        SERVER_PIDS=()
+
+        while read -r pid; do
+            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+                # Check if this is a tunnel process (cloudflared or ngrok)
+                local_comm=$(cat "/proc/$pid/comm" 2>/dev/null || ps -p "$pid" -o comm= 2>/dev/null || echo "")
+                if [[ "$local_comm" == "cloudflared" ]] || [[ "$local_comm" == "ngrok" ]]; then
+                    TUNNEL_PIDS_TO_KEEP+=("$pid")
+                    echo "  Keeping tunnel PID $pid ($local_comm)"
+                else
+                    kill "$pid" 2>/dev/null || true
+                    pkill -P "$pid" 2>/dev/null || true
+                    echo "  Stopped server PID $pid"
+                fi
+            fi
+        done < "$PID_FILE"
+
+        # Recover tunnel URLs from logs
+        if [ ${#TUNNEL_PIDS_TO_KEEP[@]} -gt 0 ]; then
+            TUNNEL_MODE=true
+            TUNNEL_PROVIDER="cloudflare"
+            CF_BACKEND_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' /tmp/cf-backend.log 2>/dev/null | head -1) || true
+            CF_FRONTEND_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' /tmp/cf-frontend.log 2>/dev/null | head -1) || true
+            TUNNEL_FRONTEND_URL="$CF_FRONTEND_URL"
+            TUNNEL_BACKEND_URL="$CF_BACKEND_URL"
+
+            if [ -n "$TUNNEL_FRONTEND_URL" ]; then
+                export CORS_ORIGIN="$TUNNEL_FRONTEND_URL"
+                echo "  Tunnel URLs preserved:"
+                echo "    Dashboard: $TUNNEL_FRONTEND_URL"
+                echo "    Agent API: $TUNNEL_BACKEND_URL"
+            fi
+
+            # Recover tunnel PIDs
+            CF_BACKEND_PID="${TUNNEL_PIDS_TO_KEEP[0]:-}"
+            CF_FRONTEND_PID="${TUNNEL_PIDS_TO_KEEP[1]:-}"
+
+            # Set AGENT_SERVER_URL from tunnel
+            if [ -n "$TUNNEL_BACKEND_URL" ]; then
+                export AGENT_SERVER_URL="$TUNNEL_BACKEND_URL"
+            fi
+        fi
+
+        echo ""
+    else
+        echo "No PID file found. Starting fresh..."
+    fi
 fi
 
 # Kill existing processes if requested
@@ -832,6 +892,9 @@ check_and_setup_clerk() {
     esac
 }
 
+# Skip setup checks during --restart-servers (config unchanged, just reload)
+if [ "$RESTART_SERVERS" != true ]; then
+
 # Run Clerk check before starting servers
 check_and_setup_clerk
 
@@ -1049,8 +1112,10 @@ check_and_setup_test_library() {
 
 check_and_setup_test_library
 
-# Validate and configure tunnel provider
-if [ "$TUNNEL_MODE" = true ]; then
+fi  # end of RESTART_SERVERS != true (skip setup checks)
+
+# Validate and configure tunnel provider (skip during restart — tunnels are already running)
+if [ "$TUNNEL_MODE" = true ] && [ "$RESTART_SERVERS" != true ]; then
     # Auto-detect provider if not set
     if [ -z "$TUNNEL_PROVIDER" ]; then
         if command -v cloudflared &>/dev/null; then
@@ -1151,11 +1216,13 @@ fi
 
 echo ""
 
-# Start tunnels if requested
+# Start tunnels if requested (skip during restart — tunnels are preserved)
+if [ "$RESTART_SERVERS" != true ]; then
 NGROK_PID=""
 TUNNEL_FRONTEND_URL=""
 TUNNEL_BACKEND_URL=""
-if [ "$TUNNEL_MODE" = true ]; then
+fi
+if [ "$TUNNEL_MODE" = true ] && [ "$RESTART_SERVERS" != true ]; then
     if [ "$TUNNEL_PROVIDER" = "cloudflare" ]; then
         echo "Starting Cloudflare tunnels..."
 
