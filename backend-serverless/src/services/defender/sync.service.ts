@@ -357,6 +357,8 @@ export class DefenderSyncService {
       scores,
       controls,
       alerts,
+      // TODO(wave-5): computed via dual-query
+      enrichment: { scanned: 0, detected: 0, skipped: 0, batches: 0, errors: [], durationMs: 0 },
       timestamp: new Date().toISOString(),
     };
 

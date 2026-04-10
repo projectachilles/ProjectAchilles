@@ -14,10 +14,16 @@ export interface AnalyticsSettings {
 
 // Defense score response
 export interface DefenseScoreResponse {
+  /** Combined score: (protected + detected) / total × 100. */
   score: number;
+  /** Documents where is_protected:true. */
   protectedCount: number;
+  /** Documents where defender_detected:true AND is_protected:false. Mutually exclusive with protectedCount. */
+  detectedCount: number;
+  /** Documents where neither is_protected nor defender_detected. Mutually exclusive with the above. */
   unprotectedCount: number;
   totalExecutions: number;
+  /** EDR-only (strict) score: protected / total × 100. Also carries pre-risk-acceptance semantics when risk acceptance is active. */
   realScore?: number;
   realProtectedCount?: number;
   realUnprotectedCount?: number;
@@ -140,6 +146,8 @@ export interface EnrichedTestExecution extends TestExecution {
   control_id?: string;
   control_validator?: string;
   is_bundle_control?: boolean;
+  /** Set true by the enrichment pass when a Defender alert matches this doc's bundle UUID, hostname, and time window. */
+  defender_detected?: boolean;
 }
 
 // Pagination support

@@ -486,6 +486,8 @@ export class ElasticsearchService {
       return {
         score: Math.round(overall * 100) / 100,
         protectedCount,
+        // TODO(wave-5): computed via dual-query
+        detectedCount: 0,
         unprotectedCount: total - protectedCount,
         totalExecutions: total,
         riskAcceptedCount: 0,
@@ -505,6 +507,8 @@ export class ElasticsearchService {
     return {
       score: Math.round(adjustedScore * 100) / 100,
       protectedCount: adjusted.protectedCount,
+      // TODO(wave-5): computed via dual-query
+      detectedCount: 0,
       unprotectedCount: adjusted.total - adjusted.protectedCount,
       totalExecutions: adjusted.total,
       realScore: Math.round(rawScore * 100) / 100,

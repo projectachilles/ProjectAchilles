@@ -128,10 +128,35 @@ export interface SyncResult {
   errors: string[];
 }
 
+export interface EnrichmentPassOptions {
+  /** How far back to consider eligible test docs. Defaults to 90. */
+  lookbackDays?: number;
+  /** Test docs per msearch batch. Defaults to 200. */
+  batchSize?: number;
+  /** Hard cap on pass duration to avoid blocking the next sync. Defaults to 60000. */
+  maxDurationMs?: number;
+}
+
+export interface EnrichmentPassResult {
+  /** Eligible test docs examined. */
+  scanned: number;
+  /** Docs flipped to defender_detected:true in this pass. */
+  detected: number;
+  /** Docs skipped because the helper returned null (malformed input). */
+  skipped: number;
+  /** Number of msearch round-trips. */
+  batches: number;
+  /** Per-batch errors collected non-fatally. */
+  errors: string[];
+  /** Wall-clock duration of the pass. */
+  durationMs: number;
+}
+
 export interface DefenderSyncResult {
   scores: SyncResult;
   controls: SyncResult;
   alerts: SyncResult;
+  enrichment: EnrichmentPassResult;
   timestamp: string;
 }
 
