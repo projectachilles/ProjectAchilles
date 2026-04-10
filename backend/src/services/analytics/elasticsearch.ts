@@ -222,6 +222,8 @@ export class ElasticsearchService {
   }
 
   /** Run a size:0 defense score aggregation and extract totals. */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- dead code, removed in Wave 7
+  // @ts-ignore TS6133
   private parseScoreResponse(response: any): { total: number; protectedCount: number } {
     const total =
       typeof response.hits.total === 'number'
@@ -232,6 +234,7 @@ export class ElasticsearchService {
   }
 
   /** Build and execute a size:0 defense score query. */
+  // @ts-ignore TS6133 -- dead code, removed in Wave 7
   private async runScoreQuery(filters: any[]): Promise<any> {
     return this.client.search({
       index: this.settings.indexPattern,
@@ -245,6 +248,114 @@ export class ElasticsearchService {
     });
   }
 
+  /**
+   * Run a score query that returns both combined (is_protected OR defender_detected)
+   * and strict (is_protected only) counts in a single ES request.
+   */
+  private async runCombinedScoreQuery(filters: any[]): Promise<{
+    total: number;
+    combinedProtected: number;
+    strictProtected: number;
+  }> {
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: { bool: { filter: filters } },
+      aggs: {
+        combined: {
+          filter: {
+            bool: {
+              should: [
+                { term: { 'f0rtika.is_protected': true } },
+                { term: { 'f0rtika.defender_detected': true } },
+              ],
+              minimum_should_match: 1,
+            },
+          },
+        },
+        strict: { filter: { term: { 'f0rtika.is_protected': true } } },
+      },
+    });
+    const total = typeof response.hits.total === 'number'
+      ? response.hits.total
+      : response.hits.total?.value || 0;
+    const combinedProtected = (response.aggregations?.combined as any)?.doc_count || 0;
+    const strictProtected = (response.aggregations?.strict as any)?.doc_count || 0;
+    return { total, combinedProtected, strictProtected };
+  }
+
+  /**
+   * Any-stage combined query: returns both combined and strict counts
+   * split into per-doc and per-bundle subsets.
+   */
+  private async runAnyStageCombinedQuery(
+    filters: any[],
+  ): Promise<{ total: number; combinedProtected: number; strictProtected: number }> {
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: { bool: { filter: filters } },
+      aggs: {
+        per_doc: {
+          filter: this.PER_DOC_FILTER,
+          aggs: {
+            combined: {
+              filter: {
+                bool: {
+                  should: [
+                    { term: { 'f0rtika.is_protected': true } },
+                    { term: { 'f0rtika.defender_detected': true } },
+                  ],
+                  minimum_should_match: 1,
+                },
+              },
+            },
+            strict: { filter: { term: { 'f0rtika.is_protected': true } } },
+          },
+        },
+        per_bundle: {
+          filter: this.PER_BUNDLE_FILTER,
+          aggs: {
+            bundles: {
+              terms: { script: this.BUNDLE_GROUP_SCRIPT, size: 10000 },
+              aggs: {
+                has_combined: {
+                  filter: {
+                    bool: {
+                      should: [
+                        { term: { 'f0rtika.is_protected': true } },
+                        { term: { 'f0rtika.defender_detected': true } },
+                      ],
+                      minimum_should_match: 1,
+                    },
+                  },
+                },
+                has_strict: { filter: { term: { 'f0rtika.is_protected': true } } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const perDoc = (response.aggregations as any)?.per_doc;
+    const perDocTotal = perDoc?.doc_count || 0;
+    const perDocCombined = perDoc?.combined?.doc_count || 0;
+    const perDocStrict = perDoc?.strict?.doc_count || 0;
+
+    const perBundle = (response.aggregations as any)?.per_bundle;
+    const bundleBuckets: any[] = perBundle?.bundles?.buckets || [];
+    const bundleTotal = bundleBuckets.length;
+    const bundleCombined = bundleBuckets.filter((b: any) => (b.has_combined?.doc_count || 0) > 0).length;
+    const bundleStrict = bundleBuckets.filter((b: any) => (b.has_strict?.doc_count || 0) > 0).length;
+
+    return {
+      total: perDocTotal + bundleTotal,
+      combinedProtected: perDocCombined + bundleCombined,
+      strictProtected: perDocStrict + bundleStrict,
+    };
+  }
+
   // ============================================================================
   // ANY-STAGE SCORING — treats each non-CH bundle as a single scoring unit
   // ============================================================================
@@ -252,7 +363,9 @@ export class ElasticsearchService {
   /**
    * Query the Defender alerts index for all MITRE techniques with alerts
    * in the given date range. Returns null if Defender is not configured.
+   * @deprecated dead code — removed in Wave 7
    */
+  // @ts-ignore TS6133 -- dead code, removed in Wave 7
   private async getDefenderDetectedTechniques(from?: string, to?: string): Promise<Set<string> | null> {
     try {
       const intSettings = new IntegrationsSettingsService();
@@ -293,22 +406,17 @@ export class ElasticsearchService {
   }
 
   /**
-   * Build the "has_detected" filter for per-bundle scoring.
-   * A stage is "detected" if is_protected:true OR its techniques match a Defender alert.
+   * Build the "has_detected" filter for per-bundle scoring. A stage is
+   * "detected" if the agent reported is_protected:true OR the Defender
+   * enrichment pass marked defender_detected:true.
    */
-  private buildDetectedFilter(defenderTechniques: Set<string> | null): Record<string, any> {
-    if (!defenderTechniques || defenderTechniques.size === 0) {
-      // No Defender data — fall back to exit-code-only
-      return { filter: { term: { 'f0rtika.is_protected': true } } };
-    }
-
-    // is_protected OR techniques overlap with Defender alerts
+  private buildDetectedFilter(): Record<string, any> {
     return {
       filter: {
         bool: {
           should: [
             { term: { 'f0rtika.is_protected': true } },
-            { terms: { 'f0rtika.techniques': [...defenderTechniques] } },
+            { term: { 'f0rtika.defender_detected': true } },
           ],
           minimum_should_match: 1,
         },
@@ -349,11 +457,11 @@ export class ElasticsearchService {
    * A bundle counts as 1 protected/detected if ANY member has is_protected:true
    * OR matches a Defender alert technique (when Defender is configured).
    */
+  // @ts-ignore TS6133 -- dead code, removed in Wave 7
   private async runAnyStageScoreQuery(
     filters: any[],
-    defenderTechniques?: Set<string> | null,
   ): Promise<{ total: number; protectedCount: number }> {
-    const detectedFilter = this.buildDetectedFilter(defenderTechniques ?? null);
+    const detectedFilter = this.buildDetectedFilter();
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
@@ -402,8 +510,8 @@ export class ElasticsearchService {
   }
 
   /** Build any-stage aggregations for use inside a date_histogram or terms bucket. */
-  private buildAnyStageSubAggs(defenderTechniques?: Set<string> | null): Record<string, any> {
-    const detectedFilter = this.buildDetectedFilter(defenderTechniques ?? null);
+  private buildAnyStageSubAggs(): Record<string, any> {
+    const detectedFilter = this.buildDetectedFilter();
     return {
       per_doc: {
         filter: this.PER_DOC_FILTER,
@@ -446,7 +554,6 @@ export class ElasticsearchService {
   private async runAnyStageTrendQuery(
     filters: any[],
     interval: string,
-    defenderTechniques?: Set<string> | null,
   ): Promise<any> {
     return this.client.search({
       index: this.settings.indexPattern,
@@ -459,7 +566,7 @@ export class ElasticsearchService {
             calendar_interval: interval as 'day' | 'week' | 'month' | 'hour',
             min_doc_count: 0,
           },
-          aggs: this.buildAnyStageSubAggs(defenderTechniques),
+          aggs: this.buildAnyStageSubAggs(),
         },
       },
     });
@@ -472,50 +579,44 @@ export class ElasticsearchService {
     const adjustedFilters = await this.buildDefenseScoreFilters(params);
     const hasExclusion = adjustedFilters.length > rawFilters.length;
 
-    // Fetch Defender-detected techniques for any-stage mode (single query, reused for both paths)
-    const defenderTechniques = isAnyStage ? await this.getDefenderDetectedTechniques(params.from, params.to) : null;
-
     const runQuery = isAnyStage
-      ? (f: any[]) => this.runAnyStageScoreQuery(f, defenderTechniques)
-      : async (f: any[]) => this.parseScoreResponse(await this.runScoreQuery(f));
+      ? (f: any[]) => this.runAnyStageCombinedQuery(f)
+      : (f: any[]) => this.runCombinedScoreQuery(f);
 
     if (!hasExclusion) {
-      // No risk acceptances — single query, real === adjusted
-      const { total, protectedCount } = await runQuery(adjustedFilters);
-      const overall = total > 0 ? (protectedCount / total) * 100 : 0;
+      const counts = await runQuery(adjustedFilters);
+      const combinedScore = counts.total > 0 ? (counts.combinedProtected / counts.total) * 100 : 0;
+      const strictScore = counts.total > 0 ? (counts.strictProtected / counts.total) * 100 : 0;
       return {
-        score: Math.round(overall * 100) / 100,
-        protectedCount,
-        // TODO(wave-5): computed via dual-query
-        detectedCount: 0,
-        unprotectedCount: total - protectedCount,
-        totalExecutions: total,
+        score: Math.round(combinedScore * 100) / 100,
+        protectedCount: counts.strictProtected,
+        detectedCount: counts.combinedProtected - counts.strictProtected,
+        unprotectedCount: counts.total - counts.combinedProtected,
+        totalExecutions: counts.total,
+        realScore: Math.round(strictScore * 100) / 100,
         riskAcceptedCount: 0,
       };
     }
 
-    // Dual query: adjusted (with exclusion) + raw (without exclusion)
     const [adjusted, raw] = await Promise.all([
       runQuery(adjustedFilters),
       runQuery(rawFilters),
     ]);
 
-    const adjustedScore = adjusted.total > 0 ? (adjusted.protectedCount / adjusted.total) * 100 : 0;
-    const rawScore = raw.total > 0 ? (raw.protectedCount / raw.total) * 100 : 0;
-    const riskAcceptedCount = raw.total - adjusted.total;
+    const adjustedCombined = adjusted.total > 0 ? (adjusted.combinedProtected / adjusted.total) * 100 : 0;
+    const adjustedStrict = adjusted.total > 0 ? (adjusted.strictProtected / adjusted.total) * 100 : 0;
 
     return {
-      score: Math.round(adjustedScore * 100) / 100,
-      protectedCount: adjusted.protectedCount,
-      // TODO(wave-5): computed via dual-query
-      detectedCount: 0,
-      unprotectedCount: adjusted.total - adjusted.protectedCount,
+      score: Math.round(adjustedCombined * 100) / 100,
+      protectedCount: adjusted.strictProtected,
+      detectedCount: adjusted.combinedProtected - adjusted.strictProtected,
+      unprotectedCount: adjusted.total - adjusted.combinedProtected,
       totalExecutions: adjusted.total,
-      realScore: Math.round(rawScore * 100) / 100,
-      realProtectedCount: raw.protectedCount,
-      realUnprotectedCount: raw.total - raw.protectedCount,
+      realScore: Math.round(adjustedStrict * 100) / 100,
+      realProtectedCount: raw.combinedProtected,
+      realUnprotectedCount: raw.total - raw.combinedProtected,
       realTotalExecutions: raw.total,
-      riskAcceptedCount: Math.max(0, riskAcceptedCount),
+      riskAcceptedCount: Math.max(0, raw.total - adjusted.total),
     };
   }
 
@@ -550,10 +651,8 @@ export class ElasticsearchService {
     const hasExclusion = adjustedFilters.length > rawFilters.length;
     const interval = params.interval || 'day';
 
-    const defenderTechniques = isAnyStage ? await this.getDefenderDetectedTechniques(params.from, params.to) : null;
-
     const runTrend = isAnyStage
-      ? (f: any[]) => this.runAnyStageTrendQuery(f, interval, defenderTechniques)
+      ? (f: any[]) => this.runAnyStageTrendQuery(f, interval)
       : (f: any[]) => this.runTrendQuery(f, interval);
 
     const parseBucket = isAnyStage
@@ -686,10 +785,8 @@ export class ElasticsearchService {
     const adjustedFilters = await this.buildDefenseScoreFilters(extendedParams);
     const hasExclusion = adjustedFilters.length > rawFilters.length;
 
-    const defenderTechniques = isAnyStage ? await this.getDefenderDetectedTechniques(extendedParams.from, params.to) : null;
-
     const runTrend = isAnyStage
-      ? (f: any[]) => this.runAnyStageTrendQuery(f, interval, defenderTechniques)
+      ? (f: any[]) => this.runAnyStageTrendQuery(f, interval)
       : (f: any[]) => this.runTrendQuery(f, interval);
 
     const normalizeBuckets = isAnyStage
@@ -782,14 +879,13 @@ export class ElasticsearchService {
     fieldOrScript: string | { script: any },
     size: number,
     isAnyStage: boolean,
-    defenderTechniques?: Set<string> | null,
   ): Promise<{ key: string; total: number; protectedCount: number }[]> {
     const termsConfig = typeof fieldOrScript === 'string'
       ? { field: fieldOrScript, size }
       : { ...fieldOrScript, size };
 
     const subAggs = isAnyStage
-      ? this.buildAnyStageSubAggs(defenderTechniques)
+      ? this.buildAnyStageSubAggs()
       : { protected: { filter: { term: { 'f0rtika.is_protected': true } } } };
 
     const response = await this.client.search({
@@ -814,8 +910,7 @@ export class ElasticsearchService {
   async getDefenseScoreByTest(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<BreakdownItem[]> {
     const isAnyStage = params.scoringMode === 'any-stage';
     const filters = await this.buildDefenseScoreFilters(params);
-    const defenderTechniques = isAnyStage ? await this.getDefenderDetectedTechniques(params.from, params.to) : null;
-    const results = await this.runBreakdownQuery(filters, 'by_test', 'f0rtika.test_name', params.limit || 50, isAnyStage, defenderTechniques);
+    const results = await this.runBreakdownQuery(filters, 'by_test', 'f0rtika.test_name', params.limit || 50, isAnyStage);
 
     return results
       .map(({ key, total, protectedCount }) => {
@@ -829,8 +924,7 @@ export class ElasticsearchService {
   async getDefenseScoreByTechnique(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<BreakdownItem[]> {
     const isAnyStage = params.scoringMode === 'any-stage';
     const filters = await this.buildDefenseScoreFilters(params);
-    const defenderTechniques = isAnyStage ? await this.getDefenderDetectedTechniques(params.from, params.to) : null;
-    const results = await this.runBreakdownQuery(filters, 'by_technique', 'f0rtika.techniques', 50, isAnyStage, defenderTechniques);
+    const results = await this.runBreakdownQuery(filters, 'by_technique', 'f0rtika.techniques', 50, isAnyStage);
 
     return results
       .map(({ key, total, protectedCount }) => {
@@ -2049,8 +2143,7 @@ export class ElasticsearchService {
   async getDefenseScoreBySeverity(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<SeverityBreakdownItem[]> {
     const isAnyStage = params.scoringMode === 'any-stage';
     const filters = await this.buildDefenseScoreFilters(params);
-    const defenderTechniques = isAnyStage ? await this.getDefenderDetectedTechniques(params.from, params.to) : null;
-    const results = await this.runBreakdownQuery(filters, 'by_severity', 'f0rtika.severity', 10, isAnyStage, defenderTechniques);
+    const results = await this.runBreakdownQuery(filters, 'by_severity', 'f0rtika.severity', 10, isAnyStage);
     const severityOrder = ['critical', 'high', 'medium', 'low', 'info'];
 
     return results
@@ -2071,8 +2164,7 @@ export class ElasticsearchService {
   async getDefenseScoreByCategory(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<CategoryBreakdownItem[]> {
     const isAnyStage = params.scoringMode === 'any-stage';
     const filters = await this.buildDefenseScoreFilters(params);
-    const defenderTechniques = isAnyStage ? await this.getDefenderDetectedTechniques(params.from, params.to) : null;
-    const results = await this.runBreakdownQuery(filters, 'by_category', 'f0rtika.category', 20, isAnyStage, defenderTechniques);
+    const results = await this.runBreakdownQuery(filters, 'by_category', 'f0rtika.category', 20, isAnyStage);
 
     return results
       .map(({ key, total, protectedCount }) => {
@@ -2092,10 +2184,9 @@ export class ElasticsearchService {
   async getDefenseScoreByCategoryWithSubcategories(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<CategorySubcategoryBreakdownItem[]> {
     const isAnyStage = params.scoringMode === 'any-stage';
     const filters = await this.buildDefenseScoreFilters(params);
-    const defenderTechniques = isAnyStage ? await this.getDefenderDetectedTechniques(params.from, params.to) : null;
 
     const subAggs: Record<string, any> = isAnyStage
-      ? { ...this.buildAnyStageSubAggs(defenderTechniques), by_subcategory: { terms: { field: 'f0rtika.subcategory', size: 50 }, aggs: this.buildAnyStageSubAggs(defenderTechniques) } }
+      ? { ...this.buildAnyStageSubAggs(), by_subcategory: { terms: { field: 'f0rtika.subcategory', size: 50 }, aggs: this.buildAnyStageSubAggs() } }
       : { protected: { filter: { term: { 'f0rtika.is_protected': true } } }, by_subcategory: { terms: { field: 'f0rtika.subcategory', size: 50 }, aggs: { protected: { filter: { term: { 'f0rtika.is_protected': true } } } } } };
 
     const response = await this.client.search({
@@ -2147,8 +2238,7 @@ export class ElasticsearchService {
   async getDefenseScoreByHostname(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<DefenseScoreByHostItem[]> {
     const isAnyStage = params.scoringMode === 'any-stage';
     const filters = await this.buildDefenseScoreFilters(params);
-    const defenderTechniques = isAnyStage ? await this.getDefenderDetectedTechniques(params.from, params.to) : null;
-    const results = await this.runBreakdownQuery(filters, 'by_hostname', 'routing.hostname', params.limit || 50, isAnyStage, defenderTechniques);
+    const results = await this.runBreakdownQuery(filters, 'by_hostname', 'routing.hostname', params.limit || 50, isAnyStage);
 
     return results
       .map(({ key, total, protectedCount }) => {

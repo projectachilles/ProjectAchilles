@@ -222,6 +222,7 @@ export class ElasticsearchService {
   }
 
   /** Run a size:0 defense score aggregation and extract totals. */
+  // @ts-ignore TS6133 -- dead code, removed in Wave 7
   private parseScoreResponse(response: any): { total: number; protectedCount: number } {
     const total =
       typeof response.hits.total === 'number'
@@ -232,6 +233,7 @@ export class ElasticsearchService {
   }
 
   /** Build and execute a size:0 defense score query. */
+  // @ts-ignore TS6133 -- dead code, removed in Wave 7
   private async runScoreQuery(filters: any[]): Promise<any> {
     return this.client.search({
       index: this.settings.indexPattern,
@@ -245,6 +247,42 @@ export class ElasticsearchService {
     });
   }
 
+  /**
+   * Run a score query that returns both combined (is_protected OR defender_detected)
+   * and strict (is_protected only) counts in a single ES request.
+   */
+  private async runCombinedScoreQuery(filters: any[]): Promise<{
+    total: number;
+    combinedProtected: number;
+    strictProtected: number;
+  }> {
+    const response = await this.client.search({
+      index: this.settings.indexPattern,
+      size: 0,
+      query: { bool: { filter: filters } },
+      aggs: {
+        combined: {
+          filter: {
+            bool: {
+              should: [
+                { term: { 'f0rtika.is_protected': true } },
+                { term: { 'f0rtika.defender_detected': true } },
+              ],
+              minimum_should_match: 1,
+            },
+          },
+        },
+        strict: { filter: { term: { 'f0rtika.is_protected': true } } },
+      },
+    });
+    const total = typeof response.hits.total === 'number'
+      ? response.hits.total
+      : response.hits.total?.value || 0;
+    const combinedProtected = (response.aggregations?.combined as any)?.doc_count || 0;
+    const strictProtected = (response.aggregations?.strict as any)?.doc_count || 0;
+    return { total, combinedProtected, strictProtected };
+  }
+
   // Get overall defense score
   async getDefenseScore(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<DefenseScoreResponse> {
     const rawFilters = this.buildDefenseScoreFiltersWithoutExclusion(params);
@@ -252,46 +290,40 @@ export class ElasticsearchService {
     const hasExclusion = adjustedFilters.length > rawFilters.length;
 
     if (!hasExclusion) {
-      // No risk acceptances — single query, real === adjusted
-      const response = await this.runScoreQuery(adjustedFilters);
-      const { total, protectedCount } = this.parseScoreResponse(response);
-      const overall = total > 0 ? (protectedCount / total) * 100 : 0;
+      const counts = await this.runCombinedScoreQuery(adjustedFilters);
+      const combinedScore = counts.total > 0 ? (counts.combinedProtected / counts.total) * 100 : 0;
+      const strictScore = counts.total > 0 ? (counts.strictProtected / counts.total) * 100 : 0;
       return {
-        score: Math.round(overall * 100) / 100,
-        protectedCount,
-        // TODO(wave-5): computed via dual-query
-        detectedCount: 0,
-        unprotectedCount: total - protectedCount,
-        totalExecutions: total,
+        score: Math.round(combinedScore * 100) / 100,
+        protectedCount: counts.strictProtected,
+        detectedCount: counts.combinedProtected - counts.strictProtected,
+        unprotectedCount: counts.total - counts.combinedProtected,
+        totalExecutions: counts.total,
+        realScore: Math.round(strictScore * 100) / 100,
         riskAcceptedCount: 0,
       };
     }
 
     // Dual query: adjusted (with exclusion) + raw (without exclusion)
-    const [adjustedResponse, rawResponse] = await Promise.all([
-      this.runScoreQuery(adjustedFilters),
-      this.runScoreQuery(rawFilters),
+    const [adjusted, raw] = await Promise.all([
+      this.runCombinedScoreQuery(adjustedFilters),
+      this.runCombinedScoreQuery(rawFilters),
     ]);
 
-    const adjusted = this.parseScoreResponse(adjustedResponse);
-    const raw = this.parseScoreResponse(rawResponse);
-
-    const adjustedScore = adjusted.total > 0 ? (adjusted.protectedCount / adjusted.total) * 100 : 0;
-    const rawScore = raw.total > 0 ? (raw.protectedCount / raw.total) * 100 : 0;
-    const riskAcceptedCount = raw.total - adjusted.total;
+    const adjustedCombined = adjusted.total > 0 ? (adjusted.combinedProtected / adjusted.total) * 100 : 0;
+    const adjustedStrict = adjusted.total > 0 ? (adjusted.strictProtected / adjusted.total) * 100 : 0;
 
     return {
-      score: Math.round(adjustedScore * 100) / 100,
-      protectedCount: adjusted.protectedCount,
-      // TODO(wave-5): computed via dual-query
-      detectedCount: 0,
-      unprotectedCount: adjusted.total - adjusted.protectedCount,
+      score: Math.round(adjustedCombined * 100) / 100,
+      protectedCount: adjusted.strictProtected,
+      detectedCount: adjusted.combinedProtected - adjusted.strictProtected,
+      unprotectedCount: adjusted.total - adjusted.combinedProtected,
       totalExecutions: adjusted.total,
-      realScore: Math.round(rawScore * 100) / 100,
-      realProtectedCount: raw.protectedCount,
-      realUnprotectedCount: raw.total - raw.protectedCount,
+      realScore: Math.round(adjustedStrict * 100) / 100,
+      realProtectedCount: raw.combinedProtected,
+      realUnprotectedCount: raw.total - raw.combinedProtected,
       realTotalExecutions: raw.total,
-      riskAcceptedCount: Math.max(0, riskAcceptedCount),
+      riskAcceptedCount: Math.max(0, raw.total - adjusted.total),
     };
   }
 

@@ -201,21 +201,37 @@ describe('elasticsearch.ts', () => {
   // Group 4: getDefenseScore (Pattern 1 — Score Aggregation)
   // ================================================================
   describe('getDefenseScore', () => {
-    it('computes 70.0 when 70/100 protected', async () => {
+    it('computes 70.0 when 70/100 combined-protected (all via is_protected)', async () => {
+      // combined=70 (is_protected OR defender_detected), strict=70 (is_protected only)
       mockSearch.mockResolvedValue(esSearchResponse({
         total: 100,
-        aggs: { protected: { doc_count: 70 } },
+        aggs: { combined: { doc_count: 70 }, strict: { doc_count: 70 } },
       }));
       const svc = createService();
       const result = await svc.getDefenseScore(makeParams());
       expect(result.score).toBe(70);
-      expect(result.protectedCount).toBe(70);
-      expect(result.unprotectedCount).toBe(30);
+      expect(result.protectedCount).toBe(70);   // strict count
+      expect(result.detectedCount).toBe(0);      // combined - strict
+      expect(result.unprotectedCount).toBe(30);  // total - combined
       expect(result.totalExecutions).toBe(100);
     });
 
+    it('computes detectedCount when defender_detected adds coverage beyond is_protected', async () => {
+      // 80 combined (70 is_protected + 10 defender_detected only), 70 strict
+      mockSearch.mockResolvedValue(esSearchResponse({
+        total: 100,
+        aggs: { combined: { doc_count: 80 }, strict: { doc_count: 70 } },
+      }));
+      const svc = createService();
+      const result = await svc.getDefenseScore(makeParams());
+      expect(result.score).toBe(80);
+      expect(result.protectedCount).toBe(70);   // strict
+      expect(result.detectedCount).toBe(10);     // combined - strict
+      expect(result.unprotectedCount).toBe(20);  // total - combined
+    });
+
     it('returns score=0 when 0 results', async () => {
-      mockSearch.mockResolvedValue(esSearchResponse({ total: 0, aggs: { protected: { doc_count: 0 } } }));
+      mockSearch.mockResolvedValue(esSearchResponse({ total: 0, aggs: { combined: { doc_count: 0 }, strict: { doc_count: 0 } } }));
       const svc = createService();
       const result = await svc.getDefenseScore(makeParams());
       expect(result.score).toBe(0);
@@ -225,7 +241,7 @@ describe('elasticsearch.ts', () => {
     it('rounds to 2 decimal places (1/3 = 33.33)', async () => {
       mockSearch.mockResolvedValue(esSearchResponse({
         total: 3,
-        aggs: { protected: { doc_count: 1 } },
+        aggs: { combined: { doc_count: 1 }, strict: { doc_count: 1 } },
       }));
       const svc = createService();
       const result = await svc.getDefenseScore(makeParams());
@@ -235,7 +251,7 @@ describe('elasticsearch.ts', () => {
     it('handles numeric hits.total format (backward compat)', async () => {
       mockSearch.mockResolvedValue({
         hits: { total: 50, hits: [] },
-        aggregations: { protected: { doc_count: 25 } },
+        aggregations: { combined: { doc_count: 25 }, strict: { doc_count: 25 } },
       });
       const svc = createService();
       const result = await svc.getDefenseScore(makeParams());
@@ -244,7 +260,7 @@ describe('elasticsearch.ts', () => {
     });
 
     it('includes org filter when params.org is set', async () => {
-      mockSearch.mockResolvedValue(esSearchResponse({ total: 10, aggs: { protected: { doc_count: 5 } } }));
+      mockSearch.mockResolvedValue(esSearchResponse({ total: 10, aggs: { combined: { doc_count: 5 }, strict: { doc_count: 5 } } }));
       const svc = createService();
       await svc.getDefenseScore(makeParams({ org: 'org-uuid' }));
 
@@ -254,7 +270,7 @@ describe('elasticsearch.ts', () => {
     });
 
     it('defaults to now-7d when no from/to', async () => {
-      mockSearch.mockResolvedValue(esSearchResponse({ total: 5, aggs: { protected: { doc_count: 3 } } }));
+      mockSearch.mockResolvedValue(esSearchResponse({ total: 5, aggs: { combined: { doc_count: 3 }, strict: { doc_count: 3 } } }));
       const svc = createService();
       await svc.getDefenseScore({});
 
@@ -263,16 +279,17 @@ describe('elasticsearch.ts', () => {
       expect(filters).toContainEqual({ range: { 'routing.event_time': { gte: 'now-7d' } } });
     });
 
-    it('returns riskAcceptedCount=0 when no exclusions active', async () => {
+    it('returns riskAcceptedCount=0 and realScore when no exclusions active', async () => {
+      // combined=70, strict=65 → score=70, realScore=65
       mockSearch.mockResolvedValue(esSearchResponse({
         total: 100,
-        aggs: { protected: { doc_count: 70 } },
+        aggs: { combined: { doc_count: 70 }, strict: { doc_count: 65 } },
       }));
       const svc = createService();
       const result = await svc.getDefenseScore(makeParams());
       expect(result.riskAcceptedCount).toBe(0);
-      // realScore should NOT be set when no exclusion
-      expect(result.realScore).toBeUndefined();
+      expect(result.score).toBe(70);
+      expect(result.realScore).toBe(65);
     });
 
     it('returns both adjusted and real scores when risk exclusions active', async () => {
@@ -283,22 +300,22 @@ describe('elasticsearch.ts', () => {
         bool: { must_not: [{ term: { 'f0rtika.test_name': 'Excluded Test' } }] },
       });
 
-      // First call: adjusted (with exclusion) → 80/90 protected
-      // Second call: raw (without exclusion) → 80/100 protected
+      // First call: adjusted (with exclusion) → combined=80/90, strict=80/90
+      // Second call: raw (without exclusion) → combined=80/100, strict=80/100
       mockSearch
-        .mockResolvedValueOnce(esSearchResponse({ total: 90, aggs: { protected: { doc_count: 80 } } }))
-        .mockResolvedValueOnce(esSearchResponse({ total: 100, aggs: { protected: { doc_count: 80 } } }));
+        .mockResolvedValueOnce(esSearchResponse({ total: 90, aggs: { combined: { doc_count: 80 }, strict: { doc_count: 80 } } }))
+        .mockResolvedValueOnce(esSearchResponse({ total: 100, aggs: { combined: { doc_count: 80 }, strict: { doc_count: 80 } } }));
 
       const result = await svc.getDefenseScore(makeParams());
 
       // Adjusted score: 80/90 = 88.89%
       expect(result.score).toBe(88.89);
-      expect(result.protectedCount).toBe(80);
+      expect(result.protectedCount).toBe(80);   // adjusted strict
       expect(result.totalExecutions).toBe(90);
 
-      // Real score: 80/100 = 80%
-      expect(result.realScore).toBe(80);
-      expect(result.realProtectedCount).toBe(80);
+      // realProtectedCount uses raw combined (80)
+      expect(result.realScore).toBe(88.89);     // adjustedStrict = 80/90
+      expect(result.realProtectedCount).toBe(80); // raw.combinedProtected
       expect(result.realTotalExecutions).toBe(100);
       expect(result.riskAcceptedCount).toBe(10);
     });
