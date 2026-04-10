@@ -414,6 +414,7 @@ export class DefenderSyncService {
       const es = this.getEsClient();
       const settingsService = new SettingsService();
       const settings = settingsService.getSettings();
+      console.log(`[Defender-Enrichment] using indexPattern="${settings.indexPattern}"`);
       const service = new DefenderEnrichmentService(es, settings.indexPattern);
       const result = await service.runEnrichmentPass({ lookbackDays: 90 });
       console.log(
