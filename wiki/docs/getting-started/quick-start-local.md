@@ -48,6 +48,8 @@ This script will:
 - Kill any existing ProjectAchilles processes (`-k`)
 - Detect your platform and install missing system dependencies (Node.js, npm, Git, Go)
 - **Guide you through Clerk authentication setup** (if not already configured)
+- **Configure Elasticsearch** (if not already set up — Cloud or skip)
+- **Check the test library** and prompt for a GitHub token if authentication is required
 - Install npm dependencies for both frontend and backend
 - Find available ports (defaults: frontend 5173, backend 3000)
 - Start both services in the background (`--daemon`)
@@ -148,44 +150,68 @@ Or force the provider: `TUNNEL_PROVIDER=ngrok ./scripts/start.sh -k --daemon --t
 
 ## Optional: Elasticsearch
 
-The Analytics module requires an Elasticsearch connection. You can either:
+The Analytics module requires an Elasticsearch connection. The start script will prompt you to configure it during first run:
 
-**Option A — Use Elastic Cloud (recommended for production):**
-1. Create a free trial at [elastic.co](https://www.elastic.co/cloud)
-2. Add credentials to `backend/.env`:
+```
+Checking Elasticsearch...
+  Not configured (Analytics will prompt for setup in the UI)
+
+  Configure Elasticsearch now? [Cloud / Local Docker / Skip (default)]
+```
+
+You can also configure it manually:
+
+**Option A — Elastic Cloud:**
+Add credentials to `backend/.env` or enter them when prompted by `start.sh`:
 
 ```bash
 ELASTICSEARCH_CLOUD_ID=your_cloud_id
 ELASTICSEARCH_API_KEY=your_api_key
 ```
 
-**Option B — Use local Elasticsearch via Docker:**
+If the instance has no indices, the script offers to create them and optionally seed synthetic demo data.
+
+**Option B — Local Elasticsearch via Docker:**
 
 ```bash
 docker compose --profile elasticsearch up -d
 ```
 
-This starts Elasticsearch 8.17 (single-node, security disabled) and seeds 1,000 synthetic test results.
+This starts Elasticsearch 8.17 (single-node, security disabled) and seeds 1,000 synthetic test results. The local instance is available at `http://localhost:9200` — no credentials needed.
 
-The local ES instance is available at `http://localhost:9200` — no credentials needed.
+**Option C — Initialize an external instance manually:**
+
+```bash
+./scripts/init-elasticsearch.sh --cloud-id "deploy:..." --api-key "..."
+./scripts/init-elasticsearch.sh --cloud-id "deploy:..." --api-key "..." --seed  # with demo data
+```
 
 ## Optional: Test Library
 
-The Test Browser displays security tests from a Git-synced repository. To populate it, add the repo URL to `backend/.env`:
+The Test Browser displays security tests synced from a Git repository. The default library ([f0_library](https://github.com/ubercylon8/f0_library)) is configured automatically.
 
+If the repository requires authentication (temporary restriction), the start script detects this and prompts you:
+
+```
+Checking test library...
+  ✗ Test library requires authentication
+
+  The security test library (f0_library) currently requires a GitHub
+  token for access. This is a temporary restriction — the repo will
+  become fully public soon.
+
+  GitHub Token (hidden, or S to skip): ****
+  ✓ Token saved to backend/.env
+```
+
+Get a read-only token from the project maintainer and paste it when prompted. The token is saved to `backend/.env` (gitignored) and never committed.
+
+:::tip Custom Test Library
+To use a different test repository, set it in `backend/.env`:
 ```bash
-# In backend/.env
 TESTS_REPO_URL=https://github.com/your-org/your-test-library.git
+GITHUB_TOKEN=ghp_your_pat_here  # only for private repos
 ```
-
-The backend will clone and sync the test library on startup. **No GitHub token is needed for public repositories.** For private repos, also add:
-
-```bash
-GITHUB_TOKEN=ghp_your_pat_here
-```
-
-:::note Coming Soon
-The default test library ([f0_library](https://github.com/ubercylon8/f0_library)) will be configured automatically once its repository access restrictions are resolved. Until then, the Test Browser will show "No tests in library" — the rest of the platform (Analytics, Agent management) works independently.
 :::
 
 ## Stopping Services
