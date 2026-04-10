@@ -1440,7 +1440,13 @@ export class ElasticsearchService {
       };
     });
 
-    await this.enrichGroupsWithDefenderDetection(groups);
+    // Roll up defender_detected from member docs.
+    // The enrichment pass (DefenderEnrichmentService) populates
+    // f0rtika.defender_detected on each eligible doc; the badge shows
+    // "Detected" if any stage of a bundle group is detected.
+    for (const group of groups) {
+      group.defenderDetected = group.members.some((m) => m.defender_detected === true);
+    }
 
     return {
       groups,
@@ -1459,7 +1465,9 @@ export class ElasticsearchService {
   /**
    * Check achilles-defender for alerts matching each group's binary + hostname.
    * Uses evidence_filenames and evidence_hostnames for precise correlation.
+   * @deprecated dead code — removed in Wave 7
    */
+  // @ts-ignore TS6133 -- dead code, removed in Wave 7
   private async enrichGroupsWithDefenderDetection(groups: ExecutionGroup[]): Promise<void> {
     try {
       const intSettings = new IntegrationsSettingsService();
@@ -1568,6 +1576,7 @@ export class ElasticsearchService {
       control_id: getField(source, 'f0rtika.control_id'),
       control_validator: getField(source, 'f0rtika.control_validator'),
       is_bundle_control: getField(source, 'f0rtika.is_bundle_control') ?? false,
+      defender_detected: getField(source, 'f0rtika.defender_detected') ?? false,
     };
   }
 
