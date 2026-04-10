@@ -7,6 +7,7 @@ import { ensureDefenderIndex, DEFENDER_INDEX } from './index-management.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
+import { DefenderEnrichmentService } from './enrichment.service.js';
 import type { Client } from '@elastic/elasticsearch';
 import type {
   GraphSecureScore,
@@ -18,6 +19,7 @@ import type {
   SyncResult,
   DefenderSyncResult,
   DefenderSyncStatus,
+  EnrichmentPassResult,
 } from '../../types/defender.js';
 
 /** Days of alert history to fetch on first sync (no persisted lastAlertSync). */
@@ -345,6 +347,39 @@ export class DefenderSyncService {
     return { synced, errors };
   }
 
+  /**
+   * Run the Defender evidence enrichment pass. Non-blocking: any failure
+   * is captured and returned without throwing, so the sync loop stays
+   * healthy and the pass will self-heal on the next cycle. Early-returns
+   * as a no-op when Defender integration is not configured.
+   */
+  private async runEnrichmentPass(): Promise<EnrichmentPassResult> {
+    try {
+      const integrationsService = new IntegrationsSettingsService();
+      if (!(await integrationsService.isDefenderConfigured())) {
+        return { scanned: 0, detected: 0, skipped: 0, batches: 0, errors: [], durationMs: 0 };
+      }
+      const es = await this.getEsClient();
+      const settingsService = new SettingsService();
+      const settings = await settingsService.getSettings();
+      const service = new DefenderEnrichmentService(es, settings.indexPattern);
+      const result = await service.runEnrichmentPass({ lookbackDays: 90 });
+      console.log(
+        `[Defender-Enrichment] scanned=${result.scanned} detected=${result.detected} ` +
+        `skipped=${result.skipped} batches=${result.batches} ` +
+        `durationMs=${result.durationMs} errors=${result.errors.length}`,
+      );
+      for (const e of result.errors) {
+        console.warn(`[Defender-Enrichment-ERROR] ${e}`);
+      }
+      return result;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[Defender-Enrichment] pass threw: ${msg}`);
+      return { scanned: 0, detected: 0, skipped: 0, batches: 0, errors: [msg], durationMs: 0 };
+    }
+  }
+
   /** Run all three syncs. */
   async syncAll(): Promise<DefenderSyncResult> {
     const [scores, controls, alerts] = await Promise.all([
@@ -353,12 +388,15 @@ export class DefenderSyncService {
       this.syncAlerts(),
     ]);
 
+    // Run enrichment AFTER alerts are synced so fresh alerts are
+    // in the index when we evaluate test docs.
+    const enrichment = await this.runEnrichmentPass();
+
     const result: DefenderSyncResult = {
       scores,
       controls,
       alerts,
-      // TODO(wave-4): replaced with actual runEnrichmentPass() result
-      enrichment: { scanned: 0, detected: 0, skipped: 0, batches: 0, errors: [], durationMs: 0 },
+      enrichment,
       timestamp: new Date().toISOString(),
     };
 

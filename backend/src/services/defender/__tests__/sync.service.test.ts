@@ -51,6 +51,22 @@ vi.mock('../../analytics/client.js', () => ({
   }),
 }));
 
+// Mock enrichment service
+vi.mock('../enrichment.service.js', () => ({
+  DefenderEnrichmentService: class {
+    async runEnrichmentPass() {
+      return {
+        scanned: 0,
+        detected: 0,
+        skipped: 0,
+        batches: 0,
+        errors: [],
+        durationMs: 0,
+      };
+    }
+  },
+}));
+
 const { DefenderSyncService } = await import('../sync.service.js');
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -197,7 +213,7 @@ describe('DefenderSyncService', () => {
   // ── syncAll ────────────────────────────────────────────────────
 
   describe('syncAll', () => {
-    it('runs all three syncs', async () => {
+    it('runs all three syncs and enrichment pass', async () => {
       mockGetSecureScores.mockResolvedValue([]);
       mockGetControlProfiles.mockResolvedValue([]);
       mockGetAlerts.mockResolvedValue([]);
@@ -207,6 +223,9 @@ describe('DefenderSyncService', () => {
       expect(result.scores).toBeDefined();
       expect(result.controls).toBeDefined();
       expect(result.alerts).toBeDefined();
+      expect(result.enrichment).toBeDefined();
+      expect(result.enrichment.scanned).toBe(0);
+      expect(result.enrichment.detected).toBe(0);
       expect(result.timestamp).toBeDefined();
     });
   });
