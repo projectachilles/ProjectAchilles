@@ -962,6 +962,93 @@ check_and_setup_elasticsearch() {
 
 check_and_setup_elasticsearch
 
+# =============================================================================
+# Test Library — check if the default repo needs authentication
+# =============================================================================
+
+check_and_setup_test_library() {
+    local repo_url github_token
+    repo_url=$(read_env_value "$BACKEND_ENV" "TESTS_REPO_URL")
+    github_token=$(read_env_value "$BACKEND_ENV" "GITHUB_TOKEN")
+
+    # If TESTS_REPO_URL is explicitly set with a token, nothing to do
+    if [ -n "$repo_url" ] && [ -n "$github_token" ]; then
+        echo "Checking test library..."
+        echo "  ✓ Configured ($repo_url)"
+        echo ""
+        return 0
+    fi
+
+    # The default repo is https://github.com/ubercylon8/f0_library.git (hardcoded in server.ts)
+    # Test if it's accessible without auth
+    local test_url="${repo_url:-https://github.com/ubercylon8/f0_library.git}"
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$test_url/info/refs?service=git-upload-pack" 2>/dev/null) || true
+
+    if [ "$http_code" = "200" ]; then
+        # Repo is public — no token needed
+        echo "Checking test library..."
+        echo "  ✓ Public repo accessible (no token needed)"
+        echo ""
+        return 0
+    fi
+
+    # Repo needs authentication
+    if [ -n "$github_token" ]; then
+        # Token already set, let the backend handle it
+        echo "Checking test library..."
+        echo "  Token configured"
+        echo ""
+        return 0
+    fi
+
+    echo "Checking test library..."
+    echo "  ✗ Test library requires authentication"
+
+    # Non-interactive — just warn
+    if ! [ -t 0 ] || ! [ -t 1 ]; then
+        echo "    Set GITHUB_TOKEN in backend/.env to sync the test library"
+        echo ""
+        return 0
+    fi
+
+    echo ""
+    echo "  The security test library (f0_library) currently requires a GitHub"
+    echo "  token for access. This is a temporary restriction — the repo will"
+    echo "  become fully public soon."
+    echo ""
+    echo "  You can get a read-only token from the project maintainer, or skip"
+    echo "  to use the platform without the test library."
+    echo ""
+    read -rp "  GitHub Token (hidden, or S to skip): " -s gh_response
+    echo ""
+
+    case "$gh_response" in
+        [Ss])
+            echo "  Skipped — Test Browser will show 'No tests in library'"
+            echo ""
+            return 0
+            ;;
+        "")
+            echo "  Skipped"
+            echo ""
+            return 0
+            ;;
+        *)
+            write_env_value "$BACKEND_ENV" "GITHUB_TOKEN" "$gh_response"
+            # Also ensure the repo URL is set explicitly
+            if [ -z "$repo_url" ]; then
+                write_env_value "$BACKEND_ENV" "TESTS_REPO_URL" "https://github.com/ubercylon8/f0_library.git"
+                write_env_value "$BACKEND_ENV" "TESTS_REPO_BRANCH" "main"
+            fi
+            echo "  ✓ Token saved to backend/.env"
+            echo ""
+            ;;
+    esac
+}
+
+check_and_setup_test_library
+
 # Validate and configure tunnel provider
 if [ "$TUNNEL_MODE" = true ]; then
     # Auto-detect provider if not set
