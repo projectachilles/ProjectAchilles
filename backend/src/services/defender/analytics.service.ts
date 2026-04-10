@@ -692,14 +692,19 @@ export class DefenderAnalyticsService {
     };
 
     // --- Primary: evidence-based correlation (binary filename + hostname) ---
+    // Both filters target .keyword subfields: the parent text fields tokenize on
+    // '-' and '.', so neither term-exact nor wildcard can match a full UUID against
+    // the analyzed value.
     if (binaryName && hostname) {
       const evidenceQuery = {
         bool: {
           must: [
             { term: { doc_type: 'alert' } },
-            { term: { evidence_filenames: binaryName.toLowerCase() } },
-            { wildcard: { evidence_hostnames: { value: `${hostname.toUpperCase()}*` } } },
-            { range: { created_at: { gte: from, lte: to } } },
+            { term: { 'evidence_filenames.keyword': binaryName.toLowerCase() } },
+            { wildcard: { 'evidence_hostnames.keyword': { value: `${hostname.toUpperCase()}*` } } },
+            // `timestamp` (= lastUpdateDateTime || createdDateTime) — see
+            // enrichGroupsWithDefenderDetection in elasticsearch.ts for rationale.
+            { range: { timestamp: { gte: from, lte: to } } },
           ],
         },
       };
@@ -731,8 +736,8 @@ export class DefenderAnalyticsService {
             must: [
               { term: { doc_type: 'alert' } },
               { terms: { mitre_techniques: techniques } },
-              { wildcard: { evidence_hostnames: { value: `${hostname.toUpperCase()}*` } } },
-              { range: { created_at: { gte: from, lte: to } } },
+              { wildcard: { 'evidence_hostnames.keyword': { value: `${hostname.toUpperCase()}*` } } },
+              { range: { timestamp: { gte: from, lte: to } } },
             ],
           },
         },
@@ -758,7 +763,7 @@ export class DefenderAnalyticsService {
           must: [
             { term: { doc_type: 'alert' } },
             { terms: { mitre_techniques: techniques } },
-            { range: { created_at: { gte: from, lte: to } } },
+            { range: { timestamp: { gte: from, lte: to } } },
           ],
         },
       },

@@ -1447,14 +1447,19 @@ export class ElasticsearchService {
         : rep.test_uuid;
       const binaryPrefix = baseUuid ? `${baseUuid.toLowerCase()}*` : null;
 
+      // Filter on `timestamp` (= lastUpdateDateTime || createdDateTime) — see
+      // backend/elasticsearch.ts enrichGroupsWithDefenderDetection for the
+      // rationale (Defender reuses alerts; created_at can predate the test).
       const must: any[] = [
         { term: { doc_type: 'alert' } },
-        { range: { created_at: { gte: from, lte: to } } },
+        { range: { timestamp: { gte: from, lte: to } } },
       ];
 
       if (binaryPrefix && rep.hostname) {
-        must.push({ wildcard: { evidence_filenames: { value: binaryPrefix } } });
-        must.push({ wildcard: { evidence_hostnames: { value: `${rep.hostname.toUpperCase()}*` } } });
+        // Query the .keyword subfield: the parent text field tokenizes on '-' and '.',
+        // so a wildcard against the analyzed value can never match a full hyphenated UUID.
+        must.push({ wildcard: { 'evidence_filenames.keyword': { value: binaryPrefix } } });
+        must.push({ wildcard: { 'evidence_hostnames.keyword': { value: `${rep.hostname.toUpperCase()}*` } } });
       } else if (rep.techniques?.length) {
         must.push({ terms: { mitre_techniques: rep.techniques } });
       } else {

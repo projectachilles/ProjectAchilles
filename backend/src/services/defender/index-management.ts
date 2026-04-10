@@ -54,8 +54,18 @@ export const DEFENDER_INDEX_MAPPING = {
       updated_at: { type: 'date' as const },
       resolved_at: { type: 'date' as const },
       recommended_actions: { type: 'text' as const },
-      evidence_hostnames: { type: 'keyword' as const },
-      evidence_filenames: { type: 'keyword' as const },
+      // text + .keyword multi-field: matches the dynamic mapping that ES
+      // produced for the original index. Queries must target the .keyword
+      // subfield for exact / wildcard matches on hyphenated UUIDs, since
+      // the parent text field tokenizes on '-' and '.'.
+      evidence_hostnames: {
+        type: 'text' as const,
+        fields: { keyword: { type: 'keyword' as const, ignore_above: 256 } },
+      },
+      evidence_filenames: {
+        type: 'text' as const,
+        fields: { keyword: { type: 'keyword' as const, ignore_above: 256 } },
+      },
     },
   },
 };

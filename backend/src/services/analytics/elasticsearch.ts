@@ -1685,18 +1685,26 @@ export class ElasticsearchService {
         : rep.test_uuid;
       const binaryPrefix = baseUuid ? `${baseUuid.toLowerCase()}*` : null;
 
-      // Evidence-based query: binary filename + hostname + time window
+      // Evidence-based query: binary filename + hostname + time window.
+      // Filter on `timestamp` (= lastUpdateDateTime || createdDateTime) rather
+      // than `created_at`. Defender reuses existing alerts and bumps their
+      // updated time when new evidence arrives, so a test triggering an old
+      // alert leaves `created_at` weeks in the past while `timestamp` reflects
+      // when the test actually fired the detection. This also matches the
+      // field used as the data view's time axis in Kibana Discover.
       const must: any[] = [
         { term: { doc_type: 'alert' } },
-        { range: { created_at: { gte: from, lte: to } } },
+        { range: { timestamp: { gte: from, lte: to } } },
       ];
 
       if (binaryPrefix && rep.hostname) {
-        // Tier 1: evidence-based (most precise)
+        // Tier 1: evidence-based (most precise).
+        // Query the .keyword subfield: the parent text field tokenizes on '-' and '.',
+        // so a wildcard against the analyzed value can never match a full hyphenated UUID.
         // Wildcard on filenames: matches <uuid>.exe and <uuid>-<stage>.exe
         // Wildcard on hostnames: matches short name (LT-TPL-L50) and FQDN (LT-TPL-L50.domain.com)
-        must.push({ wildcard: { evidence_filenames: { value: binaryPrefix } } });
-        must.push({ wildcard: { evidence_hostnames: { value: `${rep.hostname.toUpperCase()}*` } } });
+        must.push({ wildcard: { 'evidence_filenames.keyword': { value: binaryPrefix } } });
+        must.push({ wildcard: { 'evidence_hostnames.keyword': { value: `${rep.hostname.toUpperCase()}*` } } });
       } else if (rep.techniques?.length) {
         // Fallback: technique-based
         must.push({ terms: { mitre_techniques: rep.techniques } });
@@ -1711,7 +1719,6 @@ export class ElasticsearchService {
     if (searches.length === 0) return;
 
     try {
-      console.log(`[Defender-Enrich] Running msearch with ${searches.length / 2} queries`);
       const msearchResult = await this.client.msearch({ searches });
       let responseIdx = 0;
 
@@ -1727,23 +1734,18 @@ export class ElasticsearchService {
         if (!binaryPrefix && !rep.techniques?.length) continue;
 
         const resp = msearchResult.responses[responseIdx++] as any;
-        if (resp.error) {
-          console.warn(`[Defender-Enrich] msearch error for ${rep.test_name}:`, JSON.stringify(resp.error).substring(0, 200));
-          continue;
-        }
+        if (resp.error) continue;
 
         const total = typeof resp.hits?.total === 'number'
           ? resp.hits.total
           : resp.hits?.total?.value ?? 0;
 
-        console.log(`[Defender-Enrich] ${rep.test_name} | host=${rep.hostname} | binary=${binaryPrefix} | time=${rep.timestamp} | matches=${total}`);
-
         if (total > 0) {
           group.defenderDetected = true;
         }
       }
-    } catch (err) {
-      console.error('[Defender-Enrich] msearch failed:', err instanceof Error ? err.message : String(err));
+    } catch {
+      // Defender index might not exist — non-fatal, leave defenderDetected unset
     }
   }
 
