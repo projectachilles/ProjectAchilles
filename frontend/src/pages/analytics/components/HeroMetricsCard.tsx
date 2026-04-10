@@ -70,6 +70,12 @@ function HeroMetricsCard({
             </span>
           </div>
         )}
+        {/* EDR-only sub-stat: shown when Defender detections boost the headline score */}
+        {defenseScore != null && realScore != null && realScore !== defenseScore && (
+          <div className="text-xs text-muted-foreground mt-1">
+            EDR-only: {realScore.toFixed(1)}%
+          </div>
+        )}
         {errorRate !== null && errorRate !== undefined && errorRate > 0 && (
           <div className="flex items-center gap-1 mt-1">
             <AlertTriangle className="w-3 h-3 text-amber-500 flex-shrink-0" />
