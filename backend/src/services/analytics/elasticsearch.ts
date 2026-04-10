@@ -377,64 +377,6 @@ export class ElasticsearchService {
     lang: 'painless',
   };
 
-  /**
-   * Run an "any-stage" defense score query.
-   * Splits into per-doc scoring (standalone + CH) and per-bundle scoring (non-CH bundles).
-   * A bundle counts as 1 protected/detected if ANY member has is_protected:true
-   * OR matches a Defender alert technique (when Defender is configured).
-   */
-  // @ts-ignore TS6133 -- dead code, removed in Wave 7
-  private async runAnyStageScoreQuery(
-    filters: any[],
-  ): Promise<{ total: number; protectedCount: number }> {
-    const detectedFilter = this.buildDetectedFilter();
-    const response = await this.client.search({
-      index: this.settings.indexPattern,
-      size: 0,
-      query: { bool: { filter: filters } },
-      aggs: {
-        per_doc: {
-          filter: this.PER_DOC_FILTER,
-          aggs: {
-            protected: { filter: { term: { 'f0rtika.is_protected': true } } },
-          },
-        },
-        per_bundle: {
-          filter: this.PER_BUNDLE_FILTER,
-          aggs: {
-            bundles: {
-              terms: { script: this.BUNDLE_GROUP_SCRIPT, size: 10000 },
-              aggs: {
-                has_protected: detectedFilter,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    return this.parseAnyStageResponse(response);
-  }
-
-  /** Extract combined totals from a split per-doc + per-bundle aggregation response. */
-  private parseAnyStageResponse(response: any): { total: number; protectedCount: number } {
-    const perDoc = response.aggregations?.per_doc as any;
-    const perDocTotal = perDoc?.doc_count || 0;
-    const perDocProtected = perDoc?.protected?.doc_count || 0;
-
-    const perBundle = response.aggregations?.per_bundle as any;
-    const bundleBuckets: any[] = perBundle?.bundles?.buckets || [];
-    const bundleTotal = bundleBuckets.length;
-    const bundleProtected = bundleBuckets.filter(
-      (b: any) => (b.has_protected?.doc_count || 0) > 0
-    ).length;
-
-    return {
-      total: perDocTotal + bundleTotal,
-      protectedCount: perDocProtected + bundleProtected,
-    };
-  }
-
   /** Build any-stage aggregations for use inside a date_histogram or terms bucket. */
   private buildAnyStageSubAggs(): Record<string, any> {
     const detectedFilter = this.buildDetectedFilter();
