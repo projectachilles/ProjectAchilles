@@ -11,6 +11,8 @@ export interface AnalyticsSettings {
 export interface DefenseScore {
   score: number;
   protectedCount: number;
+  /** Documents where defender_detected:true AND is_protected:false. Populated by the dual-query introduced in Wave 5. */
+  detectedCount?: number;
   unprotectedCount: number;
   totalExecutions: number;
   realScore?: number;

@@ -181,6 +181,7 @@ export interface ExtendedAnalyticsQueryParams extends AnalyticsQueryParams {
   errorCodes?: string;     // comma-separated numeric error codes
   bundleNames?: string;    // comma-separated bundle names
   result?: 'all' | 'protected' | 'unprotected' | 'inconclusive';
+  scoringMode?: 'all-stages' | 'any-stage'; // multi-stage bundle scoring strategy
 }
 
 // Combined query params for paginated executions
@@ -197,6 +198,7 @@ export interface ExecutionGroup {
   protectedCount: number;
   unprotectedCount: number;
   totalCount: number;
+  /** True when a correlated Defender alert exists for this group's binary + hostname. */
   defenderDetected?: boolean;
 }
 
