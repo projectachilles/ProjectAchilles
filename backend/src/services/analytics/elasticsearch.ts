@@ -2,8 +2,6 @@
 
 import { Client } from '@elastic/elasticsearch';
 import { RiskAcceptanceService } from '../risk-acceptance/risk-acceptance.service.js';
-import { DEFENDER_INDEX } from '../defender/index-management.js';
-import { IntegrationsSettingsService } from '../integrations/settings.js';
 import type {
   AnalyticsSettings,
   AnalyticsQueryParams,
@@ -221,33 +219,6 @@ export class ElasticsearchService {
     return filters;
   }
 
-  /** Run a size:0 defense score aggregation and extract totals. */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- dead code, removed in Wave 7
-  // @ts-ignore TS6133
-  private parseScoreResponse(response: any): { total: number; protectedCount: number } {
-    const total =
-      typeof response.hits.total === 'number'
-        ? response.hits.total
-        : response.hits.total?.value || 0;
-    const protectedCount = (response.aggregations?.protected as any)?.doc_count || 0;
-    return { total, protectedCount };
-  }
-
-  /** Build and execute a size:0 defense score query. */
-  // @ts-ignore TS6133 -- dead code, removed in Wave 7
-  private async runScoreQuery(filters: any[]): Promise<any> {
-    return this.client.search({
-      index: this.settings.indexPattern,
-      size: 0,
-      query: { bool: { filter: filters } },
-      aggs: {
-        protected: {
-          filter: { term: { 'f0rtika.is_protected': true } },
-        },
-      },
-    });
-  }
-
   /**
    * Run a score query that returns both combined (is_protected OR defender_detected)
    * and strict (is_protected only) counts in a single ES request.
@@ -359,51 +330,6 @@ export class ElasticsearchService {
   // ============================================================================
   // ANY-STAGE SCORING — treats each non-CH bundle as a single scoring unit
   // ============================================================================
-
-  /**
-   * Query the Defender alerts index for all MITRE techniques with alerts
-   * in the given date range. Returns null if Defender is not configured.
-   * @deprecated dead code — removed in Wave 7
-   */
-  // @ts-ignore TS6133 -- dead code, removed in Wave 7
-  private async getDefenderDetectedTechniques(from?: string, to?: string): Promise<Set<string> | null> {
-    try {
-      const intSettings = new IntegrationsSettingsService();
-      if (!intSettings.isDefenderConfigured()) return null;
-    } catch {
-      return null;
-    }
-
-    try {
-      const dateFilter: any = { range: { created_at: {} } };
-      dateFilter.range.created_at.gte = from || 'now-7d';
-      if (to) dateFilter.range.created_at.lte = to;
-
-      const response = await this.client.search({
-        index: DEFENDER_INDEX,
-        size: 0,
-        query: {
-          bool: {
-            must: [
-              { term: { doc_type: 'alert' } },
-              dateFilter,
-            ],
-          },
-        },
-        aggs: {
-          techniques: {
-            terms: { field: 'mitre_techniques', size: 500 },
-          },
-        },
-      });
-
-      const buckets = (response.aggregations?.techniques as any)?.buckets || [];
-      return new Set<string>(buckets.map((b: any) => b.key as string));
-    } catch {
-      // Defender index may not exist or be inaccessible — graceful fallback
-      return null;
-    }
-  }
 
   /**
    * Build the "has_detected" filter for per-bundle scoring. A stage is
@@ -1753,103 +1679,6 @@ export class ElasticsearchService {
         hasPrevious: page > 1,
       },
     };
-  }
-
-  /**
-   * Check achilles-defender for alerts matching each group's binary + hostname.
-   * Uses evidence_filenames and evidence_hostnames for precise correlation,
-   * with technique-based fallback. Mutates groups in place.
-   * @deprecated dead code — removed in Wave 7
-   */
-  // @ts-ignore TS6133 -- dead code, removed in Wave 7
-  private async enrichGroupsWithDefenderDetection(groups: ExecutionGroup[]): Promise<void> {
-    try {
-      const intSettings = new IntegrationsSettingsService();
-      if (!intSettings.isDefenderConfigured()) return;
-    } catch { return; }
-
-    // Build per-group correlation queries as a single msearch
-    const searches: any[] = [];
-    const PRE_WINDOW_MS = 5 * 60 * 1000;
-    const POST_WINDOW_MS = 30 * 60 * 1000;
-
-    for (const group of groups) {
-      const rep = group.representative;
-      if (!rep.timestamp) continue;
-
-      const testTime = new Date(rep.timestamp).getTime();
-      const from = new Date(testTime - PRE_WINDOW_MS).toISOString();
-      const to = new Date(testTime + POST_WINDOW_MS).toISOString();
-
-      // Derive binary name prefix from test_uuid (strip ::control_id for bundle controls).
-      // Multi-stage binaries are named <uuid>-<stage>.exe, so match with wildcard.
-      const baseUuid = rep.test_uuid?.includes('::')
-        ? rep.test_uuid.split('::')[0]
-        : rep.test_uuid;
-      const binaryPrefix = baseUuid ? `${baseUuid.toLowerCase()}*` : null;
-
-      // Evidence-based query: binary filename + hostname + time window.
-      // Filter on `timestamp` (= lastUpdateDateTime || createdDateTime) rather
-      // than `created_at`. Defender reuses existing alerts and bumps their
-      // updated time when new evidence arrives, so a test triggering an old
-      // alert leaves `created_at` weeks in the past while `timestamp` reflects
-      // when the test actually fired the detection. This also matches the
-      // field used as the data view's time axis in Kibana Discover.
-      const must: any[] = [
-        { term: { doc_type: 'alert' } },
-        { range: { timestamp: { gte: from, lte: to } } },
-      ];
-
-      if (binaryPrefix && rep.hostname) {
-        // Tier 1: evidence-based (most precise).
-        // Query the .keyword subfield: the parent text field tokenizes on '-' and '.',
-        // so a wildcard against the analyzed value can never match a full hyphenated UUID.
-        // Wildcard on filenames: matches <uuid>.exe and <uuid>-<stage>.exe
-        // Wildcard on hostnames: matches short name (LT-TPL-L50) and FQDN (LT-TPL-L50.domain.com)
-        must.push({ wildcard: { 'evidence_filenames.keyword': { value: binaryPrefix } } });
-        must.push({ wildcard: { 'evidence_hostnames.keyword': { value: `${rep.hostname.toUpperCase()}*` } } });
-      } else if (rep.techniques?.length) {
-        // Fallback: technique-based
-        must.push({ terms: { mitre_techniques: rep.techniques } });
-      } else {
-        continue;
-      }
-
-      searches.push({ index: DEFENDER_INDEX });
-      searches.push({ size: 0, query: { bool: { must } } });
-    }
-
-    if (searches.length === 0) return;
-
-    try {
-      const msearchResult = await this.client.msearch({ searches });
-      let responseIdx = 0;
-
-      for (const group of groups) {
-        const rep = group.representative;
-        if (!rep.timestamp) continue;
-
-        const baseUuid = rep.test_uuid?.includes('::')
-          ? rep.test_uuid.split('::')[0]
-          : rep.test_uuid;
-        const binaryPrefix = baseUuid ? `${baseUuid.toLowerCase()}*` : null;
-
-        if (!binaryPrefix && !rep.techniques?.length) continue;
-
-        const resp = msearchResult.responses[responseIdx++] as any;
-        if (resp.error) continue;
-
-        const total = typeof resp.hits?.total === 'number'
-          ? resp.hits.total
-          : resp.hits?.total?.value ?? 0;
-
-        if (total > 0) {
-          group.defenderDetected = true;
-        }
-      }
-    } catch {
-      // Defender index might not exist — non-fatal, leave defenderDetected unset
-    }
   }
 
   // Map a single ES hit (from search or inner_hits) to EnrichedTestExecution

@@ -2,8 +2,6 @@
 
 import { Client } from '@elastic/elasticsearch';
 import { RiskAcceptanceService } from '../risk-acceptance/risk-acceptance.service.js';
-import { DEFENDER_INDEX } from '../defender/index-management.js';
-import { IntegrationsSettingsService } from '../integrations/settings.js';
 import type {
   AnalyticsSettings,
   AnalyticsQueryParams,
@@ -219,32 +217,6 @@ export class ElasticsearchService {
     if (orgFilter) filters.push(orgFilter);
     filters.push(...this.buildFilterBarClauses(params));
     return filters;
-  }
-
-  /** Run a size:0 defense score aggregation and extract totals. */
-  // @ts-ignore TS6133 -- dead code, removed in Wave 7
-  private parseScoreResponse(response: any): { total: number; protectedCount: number } {
-    const total =
-      typeof response.hits.total === 'number'
-        ? response.hits.total
-        : response.hits.total?.value || 0;
-    const protectedCount = (response.aggregations?.protected as any)?.doc_count || 0;
-    return { total, protectedCount };
-  }
-
-  /** Build and execute a size:0 defense score query. */
-  // @ts-ignore TS6133 -- dead code, removed in Wave 7
-  private async runScoreQuery(filters: any[]): Promise<any> {
-    return this.client.search({
-      index: this.settings.indexPattern,
-      size: 0,
-      query: { bool: { filter: filters } },
-      aggs: {
-        protected: {
-          filter: { term: { 'f0rtika.is_protected': true } },
-        },
-      },
-    });
   }
 
   /**
@@ -1460,91 +1432,6 @@ export class ElasticsearchService {
         hasPrevious: page > 1,
       },
     };
-  }
-
-  /**
-   * Check achilles-defender for alerts matching each group's binary + hostname.
-   * Uses evidence_filenames and evidence_hostnames for precise correlation.
-   * @deprecated dead code — removed in Wave 7
-   */
-  // @ts-ignore TS6133 -- dead code, removed in Wave 7
-  private async enrichGroupsWithDefenderDetection(groups: ExecutionGroup[]): Promise<void> {
-    try {
-      const intSettings = new IntegrationsSettingsService();
-      if (!(await intSettings.isDefenderConfigured())) return;
-    } catch { return; }
-
-    const searches: any[] = [];
-    const PRE_WINDOW_MS = 5 * 60 * 1000;
-    const POST_WINDOW_MS = 30 * 60 * 1000;
-
-    for (const group of groups) {
-      const rep = group.representative;
-      if (!rep.timestamp) continue;
-
-      const testTime = new Date(rep.timestamp).getTime();
-      const from = new Date(testTime - PRE_WINDOW_MS).toISOString();
-      const to = new Date(testTime + POST_WINDOW_MS).toISOString();
-
-      const baseUuid = rep.test_uuid?.includes('::')
-        ? rep.test_uuid.split('::')[0]
-        : rep.test_uuid;
-      const binaryPrefix = baseUuid ? `${baseUuid.toLowerCase()}*` : null;
-
-      // Filter on `timestamp` (= lastUpdateDateTime || createdDateTime) — see
-      // backend/elasticsearch.ts enrichGroupsWithDefenderDetection for the
-      // rationale (Defender reuses alerts; created_at can predate the test).
-      const must: any[] = [
-        { term: { doc_type: 'alert' } },
-        { range: { timestamp: { gte: from, lte: to } } },
-      ];
-
-      if (binaryPrefix && rep.hostname) {
-        // Query the .keyword subfield: the parent text field tokenizes on '-' and '.',
-        // so a wildcard against the analyzed value can never match a full hyphenated UUID.
-        must.push({ wildcard: { 'evidence_filenames.keyword': { value: binaryPrefix } } });
-        must.push({ wildcard: { 'evidence_hostnames.keyword': { value: `${rep.hostname.toUpperCase()}*` } } });
-      } else if (rep.techniques?.length) {
-        must.push({ terms: { mitre_techniques: rep.techniques } });
-      } else {
-        continue;
-      }
-
-      searches.push({ index: DEFENDER_INDEX });
-      searches.push({ size: 0, query: { bool: { must } } });
-    }
-
-    if (searches.length === 0) return;
-
-    try {
-      const msearchResult = await this.client.msearch({ searches });
-      let responseIdx = 0;
-
-      for (const group of groups) {
-        const rep = group.representative;
-        if (!rep.timestamp) continue;
-
-        const baseUuid = rep.test_uuid?.includes('::')
-          ? rep.test_uuid.split('::')[0]
-          : rep.test_uuid;
-        const binaryPrefix = baseUuid ? `${baseUuid.toLowerCase()}*` : null;
-
-        if (!binaryPrefix && !rep.techniques?.length) continue;
-
-        const resp = msearchResult.responses[responseIdx++] as any;
-        if (resp.error) continue;
-
-        const total = typeof resp.hits?.total === 'number'
-          ? resp.hits.total
-          : resp.hits?.total?.value ?? 0;
-
-        if (total > 0) {
-          group.defenderDetected = true;
-        }
-      }
-    } catch {
-      // Defender index might not exist
-    }
   }
 
   // Map a single ES hit to EnrichedTestExecution
