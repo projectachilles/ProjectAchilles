@@ -1160,11 +1160,11 @@ if [ "$TUNNEL_MODE" = true ]; then
         echo "Starting Cloudflare tunnels..."
 
         # Start backend tunnel
-        cloudflared tunnel --url "http://localhost:$BACKEND_PORT" --no-autoupdate > /tmp/cf-backend.log 2>&1 &
+        cloudflared tunnel --url "http://localhost:$BACKEND_PORT" --no-autoupdate --protocol http2 > /tmp/cf-backend.log 2>&1 &
         CF_BACKEND_PID=$!
 
         # Start frontend tunnel
-        cloudflared tunnel --url "http://localhost:$FRONTEND_PORT" --no-autoupdate > /tmp/cf-frontend.log 2>&1 &
+        cloudflared tunnel --url "http://localhost:$FRONTEND_PORT" --no-autoupdate --protocol http2 > /tmp/cf-frontend.log 2>&1 &
         CF_FRONTEND_PID=$!
 
         # Wait for URLs to be assigned
