@@ -176,11 +176,10 @@ fi
 
 # Handle --restart-servers flag: kill only backend/frontend, preserve tunnels
 if [ "$RESTART_SERVERS" = true ]; then
-    if [ -f "$PID_FILE" ]; then
-        echo "Restarting servers (keeping tunnels alive)..."
-        TUNNEL_PIDS_TO_KEEP=()
-        SERVER_PIDS=()
+    echo "Restarting servers (keeping tunnels alive)..."
+    TUNNEL_PIDS_TO_KEEP=()
 
+    if [ -f "$PID_FILE" ]; then
         while read -r pid; do
             if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
                 # Check if this is a tunnel process (cloudflared or ngrok)
@@ -195,37 +194,40 @@ if [ "$RESTART_SERVERS" = true ]; then
                 fi
             fi
         done < "$PID_FILE"
+    fi
 
-        # Recover tunnel URLs from logs
-        if [ ${#TUNNEL_PIDS_TO_KEEP[@]} -gt 0 ]; then
-            TUNNEL_MODE=true
-            TUNNEL_PROVIDER="cloudflare"
-            CF_BACKEND_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' /tmp/cf-backend.log 2>/dev/null | head -1) || true
-            CF_FRONTEND_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' /tmp/cf-frontend.log 2>/dev/null | head -1) || true
-            TUNNEL_FRONTEND_URL="$CF_FRONTEND_URL"
-            TUNNEL_BACKEND_URL="$CF_BACKEND_URL"
+    # Also kill by port as a safety net (PID file may be stale)
+    kill_port $BACKEND_PORT
+    kill_port $FRONTEND_PORT
+    sleep 1
 
-            if [ -n "$TUNNEL_FRONTEND_URL" ]; then
-                export CORS_ORIGIN="$TUNNEL_FRONTEND_URL"
-                echo "  Tunnel URLs preserved:"
-                echo "    Dashboard: $TUNNEL_FRONTEND_URL"
-                echo "    Agent API: $TUNNEL_BACKEND_URL"
-            fi
+    # Recover tunnel URLs from logs
+    if [ ${#TUNNEL_PIDS_TO_KEEP[@]} -gt 0 ]; then
+        TUNNEL_MODE=true
+        TUNNEL_PROVIDER="cloudflare"
+        CF_BACKEND_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' /tmp/cf-backend.log 2>/dev/null | head -1) || true
+        CF_FRONTEND_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' /tmp/cf-frontend.log 2>/dev/null | head -1) || true
+        TUNNEL_FRONTEND_URL="$CF_FRONTEND_URL"
+        TUNNEL_BACKEND_URL="$CF_BACKEND_URL"
 
-            # Recover tunnel PIDs
-            CF_BACKEND_PID="${TUNNEL_PIDS_TO_KEEP[0]:-}"
-            CF_FRONTEND_PID="${TUNNEL_PIDS_TO_KEEP[1]:-}"
-
-            # Set AGENT_SERVER_URL from tunnel
-            if [ -n "$TUNNEL_BACKEND_URL" ]; then
-                export AGENT_SERVER_URL="$TUNNEL_BACKEND_URL"
-            fi
+        if [ -n "$TUNNEL_FRONTEND_URL" ]; then
+            export CORS_ORIGIN="$TUNNEL_FRONTEND_URL"
+            echo "  Tunnel URLs preserved:"
+            echo "    Dashboard: $TUNNEL_FRONTEND_URL"
+            echo "    Agent API: $TUNNEL_BACKEND_URL"
         fi
 
-        echo ""
-    else
-        echo "No PID file found. Starting fresh..."
+        # Recover tunnel PIDs
+        CF_BACKEND_PID="${TUNNEL_PIDS_TO_KEEP[0]:-}"
+        CF_FRONTEND_PID="${TUNNEL_PIDS_TO_KEEP[1]:-}"
+
+        # Set AGENT_SERVER_URL from tunnel
+        if [ -n "$TUNNEL_BACKEND_URL" ]; then
+            export AGENT_SERVER_URL="$TUNNEL_BACKEND_URL"
+        fi
     fi
+
+    echo ""
 fi
 
 # Kill existing processes if requested
