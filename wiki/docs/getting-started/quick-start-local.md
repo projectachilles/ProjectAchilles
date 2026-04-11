@@ -169,22 +169,21 @@ Checking Elasticsearch...
   Free 14-day trial (no credit card):
   https://cloud.elastic.co/registration
 
-  Cloud ID: deploy:abc123...
-  elastic password (hidden): ****
-
-  Creating scoped API key via https://...es.cloud.es.io...
-  ✓ API key created (scoped to achilles-* indices)
-  ✓ Elastic Cloud credentials saved to backend/.env
+  Elasticsearch endpoint URL: https://my-project-fa3ad...cloud:443
+  API Key: VFo5a3...
+  Testing connection...
+  ✓ Connected to Elasticsearch
+  ✓ Elasticsearch credentials saved to backend/.env
 
   Initialize Elasticsearch indices? [Y/n]
   Seed with synthetic demo data? [y/N] y
   ✓ 3 indices created, 1000 documents seeded
 ```
 
-The script auto-creates a properly scoped API key from the `elastic` user password — you never need to navigate Kibana's API key management. The password is used once and not stored.
+Both values are shown on the Elastic Cloud **"Getting Started"** page after creating a deployment — two copy-pastes from one page.
 
-:::tip Already have an API key?
-Press Enter when prompted for the password, and you'll be asked for an API key directly instead. Or pre-set `ELASTICSEARCH_CLOUD_ID` and `ELASTICSEARCH_API_KEY` in `backend/.env` to skip the prompt entirely.
+:::tip Already configured?
+Pre-set `ELASTICSEARCH_NODE` and `ELASTICSEARCH_API_KEY` in `backend/.env` to skip the interactive prompt entirely.
 :::
 
 **Option B — Local Elasticsearch via Docker:**

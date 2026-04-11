@@ -1042,128 +1042,42 @@ check_and_setup_elasticsearch() {
                     echo "  Free 14-day trial (no credit card):"
                     echo "  https://cloud.elastic.co/registration"
                     echo ""
-                    echo "  After creating a deployment, copy the Cloud ID and"
-                    echo "  elastic password from the deployment overview page."
+                    echo "  After creating a deployment, go to the \"Getting Started\" page"
+                    echo "  and copy the Elasticsearch endpoint URL and API key."
                     echo ""
 
                     open_browser "https://cloud.elastic.co/registration"
 
-                    read -rp "  Cloud ID: " es_cloud_id
-                    if [ -z "$es_cloud_id" ]; then
+                    read -rp "  Elasticsearch endpoint URL: " es_node
+                    if [ -z "$es_node" ]; then
                         echo "  Skipped"
                         echo ""
                         return 0
                     fi
 
-                    # Ask for password (preferred — creates a properly scoped API key)
-                    echo ""
-                    echo "  The elastic user password was shown when you created the deployment."
-                    echo "  The script will auto-create a properly scoped API key from it."
-                    echo ""
-                    read -rsp "  elastic password (hidden): " es_password
-                    echo ""
-
-                    if [ -n "$es_password" ]; then
-                        # Derive ES endpoint from Cloud ID
-                        # Cloud ID format: <name>:<base64 of "host$es_uuid$kibana_uuid">
-                        # Decoded: "eastus.azure.elastic.cloud$fa3ad...66.es$fa3ad...66.kb"
-                        # ES endpoint: https://<es_uuid>.<host> (es_uuid already has .es suffix)
-                        local cloud_decoded es_host es_uuid
-                        cloud_decoded=$(echo "$es_cloud_id" | cut -d: -f2 | base64 -d 2>/dev/null) || true
-                        es_host=$(echo "$cloud_decoded" | cut -d'$' -f1)
-                        es_uuid=$(echo "$cloud_decoded" | cut -d'$' -f2)
-
-                        if [ -z "$es_host" ] || [ -z "$es_uuid" ]; then
-                            echo "  ⚠ Could not parse Cloud ID — falling back to manual API key"
-                            read -rp "  API Key: " es_api_key
-                        else
-                            local es_endpoint="https://${es_uuid}.${es_host}:443"
-                            echo "  ES endpoint: ${es_endpoint}"
-                            echo "  Creating scoped API key..."
-
-                            # Test connectivity first
-                            local es_test_code
-                            es_test_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
-                                -u "elastic:$es_password" "$es_endpoint" 2>/dev/null) || true
-                            echo "  Connectivity test: HTTP $es_test_code"
-
-                            if [ "$es_test_code" != "200" ]; then
-                                echo "  ⚠ Could not connect to ES — check Cloud ID and password"
-                                echo "  You can enter an existing API key instead."
-                                echo "  ⚠ Ensure it has manage+read+write on achilles-*/archived-* indices"
-                                read -rp "  API Key (or Enter to skip): " es_api_key
-                                if [ -z "$es_api_key" ]; then
-                                    echo "  Skipped"
-                                    echo ""
-                                    return 0
-                                fi
-                            else
-                            local api_key_response
-                            api_key_response=$(curl -s --max-time 15 \
-                                -X POST "${es_endpoint}/_security/api_key/grant" \
-                                -H "Content-Type: application/json" \
-                                -d "{
-                                    \"grant_type\": \"password\",
-                                    \"username\": \"elastic\",
-                                    \"password\": \"$es_password\",
-                                    \"api_key\": {
-                                        \"name\": \"projectachilles-$(date +%s)\",
-                                        \"role_descriptors\": {
-                                            \"achilles_role\": {
-                                                \"cluster\": [\"monitor\"],
-                                                \"indices\": [{
-                                                    \"names\": [\"achilles-*\", \"archived-*\"],
-                                                    \"privileges\": [\"manage\", \"read\", \"write\"],
-                                                    \"allow_restricted_indices\": false
-                                                }]
-                                            }
-                                        }
-                                    }
-                                }" 2>/dev/null) || true
-
-                            es_api_key=$(echo "$api_key_response" | python3 -c "
-import sys, json
-try:
-    r = json.load(sys.stdin)
-    print(r.get('encoded', ''))
-except: pass
-" 2>/dev/null) || true
-
-                            if [ -n "$es_api_key" ]; then
-                                echo "  ✓ API key created (scoped to achilles-* indices)"
-                            else
-                                echo "  ⚠ Could not create API key — check password"
-                                echo "    Error: $(echo "$api_key_response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error',{}).get('reason','unknown'))" 2>/dev/null || echo 'connection failed')"
-                                echo ""
-                                echo "  You can enter an existing API key instead."
-                                echo "  ⚠ Ensure it has manage+read+write on achilles-*/archived-* indices"
-                                read -rp "  API Key (or Enter to skip): " es_api_key
-                                if [ -z "$es_api_key" ]; then
-                                    echo "  Skipped"
-                                    echo ""
-                                    return 0
-                                fi
-                            fi
-                        fi  # end connectivity test else
-                        fi  # end es_host/es_uuid check
-                    else
-                        # No password — ask for API key as fallback
-                        echo "  No password provided. You can enter an existing API key instead."
-                        echo "  ⚠ Ensure it has manage+read+write on achilles-*/archived-* indices"
-                        echo "    (see docs for required role_descriptors)"
+                    read -rp "  API Key: " es_api_key
+                    if [ -z "$es_api_key" ]; then
+                        echo "  Skipped"
                         echo ""
-                        read -rp "  API Key (or Enter to skip): " es_api_key
-                        if [ -z "$es_api_key" ]; then
-                            echo "  Skipped"
-                            echo ""
-                            return 0
-                        fi
+                        return 0
                     fi
 
-                    write_env_value "$BACKEND_ENV" "ELASTICSEARCH_CLOUD_ID" "$es_cloud_id"
+                    # Test connectivity
+                    echo "  Testing connection..."
+                    local es_test_code
+                    es_test_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+                        -H "Authorization: ApiKey $es_api_key" "$es_node" 2>/dev/null) || true
+
+                    if [ "$es_test_code" = "200" ]; then
+                        echo "  ✓ Connected to Elasticsearch"
+                    else
+                        echo "  ⚠ Connection test returned HTTP $es_test_code (continuing anyway)"
+                    fi
+
+                    write_env_value "$BACKEND_ENV" "ELASTICSEARCH_NODE" "$es_node"
                     write_env_value "$BACKEND_ENV" "ELASTICSEARCH_API_KEY" "$es_api_key"
                     write_env_value "$BACKEND_ENV" "ELASTICSEARCH_INDEX_PATTERN" "achilles-results-*"
-                    echo "  ✓ Elastic Cloud credentials saved to backend/.env"
+                    echo "  ✓ Elasticsearch credentials saved to backend/.env"
                     ;;
                 [Ll]*)
                     echo "  Use: docker compose --profile elasticsearch up -d"
