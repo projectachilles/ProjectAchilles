@@ -632,7 +632,7 @@ write_env_value() {
         touch "$file"
     fi
     if grep -qE "^#?\s*${key}=" "$file" 2>/dev/null; then
-        sed -i "s|^#*\s*${key}=.*|${key}=${value}|" "$file"
+        sed -i.bak "s|^#*\s*${key}=.*|${key}=${value}|" "$file" && rm -f "${file}.bak"
     else
         echo "${key}=${value}" >> "$file"
     fi
@@ -1441,7 +1441,7 @@ if [ "$TUNNEL_MODE" = true ] && { [ "$RESTART_SERVERS" != true ] || [ "$START_FR
     if [ -n "$TUNNEL_BACKEND_URL" ]; then
         export AGENT_SERVER_URL="$TUNNEL_BACKEND_URL"
         if [ -f "$BACKEND_ENV" ] && grep -qE "^AGENT_SERVER_URL=" "$BACKEND_ENV"; then
-            sed -i "s|^AGENT_SERVER_URL=.*|AGENT_SERVER_URL=${TUNNEL_BACKEND_URL}|" "$BACKEND_ENV"
+            sed -i.bak "s|^AGENT_SERVER_URL=.*|AGENT_SERVER_URL=${TUNNEL_BACKEND_URL}|" "$BACKEND_ENV" && rm -f "${BACKEND_ENV}.bak"
         fi
     fi
 
@@ -1493,7 +1493,7 @@ if [ "$TUNNEL_MODE" = true ]; then
     # directly at startup, bypassing shell env vars. A hardcoded localhost URL
     # in .env would make the browser send requests to the user's local machine.
     if [ -f "$FRONTEND_ENV" ] && grep -qE "^VITE_API_URL=" "$FRONTEND_ENV"; then
-        sed -i 's|^VITE_API_URL=.*|# VITE_API_URL= # cleared for tunnel mode|' "$FRONTEND_ENV"
+        sed -i.bak 's|^VITE_API_URL=.*|# VITE_API_URL= # cleared for tunnel mode|' "$FRONTEND_ENV" && rm -f "${FRONTEND_ENV}.bak"
     fi
     export VITE_API_URL=""
 else

@@ -169,7 +169,7 @@ env_set() {
     local key="$1" value="$2"
     if [[ -f "$ENV_FILE" ]] && grep -qE "^#?\s*${key}=" "$ENV_FILE"; then
         # Update existing (commented or not)
-        sed -i "s|^#*\s*${key}=.*|${key}=${value}|" "$ENV_FILE"
+        sed -i.bak "s|^#*\s*${key}=.*|${key}=${value}|" "$ENV_FILE" && rm -f "${ENV_FILE}.bak"
     else
         echo "${key}=${value}" >> "$ENV_FILE"
     fi
@@ -179,7 +179,7 @@ env_set() {
 env_comment() {
     local key="$1"
     if [[ -f "$ENV_FILE" ]]; then
-        sed -i "s|^${key}=|# ${key}=|" "$ENV_FILE"
+        sed -i.bak "s|^${key}=|# ${key}=|" "$ENV_FILE" && rm -f "${ENV_FILE}.bak"
     fi
 }
 
