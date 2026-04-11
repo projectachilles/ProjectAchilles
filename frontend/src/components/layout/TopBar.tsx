@@ -1,6 +1,6 @@
-import { useLocation } from 'react-router-dom';
-import { UserButton, useUser } from '@clerk/clerk-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAppRole } from '@/hooks/useAppRole';
+import { useAppAuth } from '@/contexts/AuthContext';
 import { ROLE_LABELS, ROLE_COLORS } from '@/types/roles';
 import {
   Menu,
@@ -8,6 +8,8 @@ import {
   Settings,
   ChevronRight,
   BookOpen,
+  LogOut,
+  User,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { NotificationBell } from '@/components/layout/NotificationBell';
@@ -29,13 +31,12 @@ export function TopBar({
   isRefreshing,
 }: TopBarProps) {
   const location = useLocation();
-  const { user, isLoaded } = useUser();
+  const navigate = useNavigate();
+  const { user, logout } = useAppAuth();
   const role = useAppRole();
 
-  // Generate breadcrumb from path
   const getBreadcrumb = () => {
     const path = location.pathname;
-
     if (path === '/') return ['Tests', 'Browse All'];
     if (path.startsWith('/test/')) return ['Tests', 'Test Details'];
     if (path === '/analytics') return ['Analytics', 'Dashboard'];
@@ -45,62 +46,44 @@ export function TopBar({
     if (path === '/endpoints/dashboard') return ['Endpoints', 'Dashboard'];
     if (path === '/endpoints/agents') return ['Endpoints', 'Agents'];
     if (path === '/endpoints/tasks') return ['Endpoints', 'Tasks'];
-
     return ['Home'];
   };
 
   const breadcrumb = getBreadcrumb();
 
+  const handleLogout = () => {
+    logout();
+    navigate('/login', { replace: true });
+  };
+
   return (
     <header className="h-14 border-b-[length:var(--theme-border-width)] border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex items-center px-4 gap-4">
-      {/* Menu Button */}
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={onMenuClick}
-        className="shrink-0"
-      >
+      <Button variant="ghost" size="icon" onClick={onMenuClick} className="shrink-0">
         <Menu className="h-5 w-5" />
         <span className="sr-only">Toggle sidebar</span>
       </Button>
 
-      {/* Breadcrumb */}
       <nav className="hidden sm:flex items-center gap-1 text-sm text-muted-foreground">
         {breadcrumb.map((item, index) => (
           <span key={item} className="flex items-center gap-1">
             {index > 0 && <ChevronRight className="h-3.5 w-3.5" />}
-            <span
-              className={cn(
-                index === breadcrumb.length - 1 && 'text-foreground font-medium'
-              )}
-            >
+            <span className={cn(index === breadcrumb.length - 1 && 'text-foreground font-medium')}>
               {item}
             </span>
           </span>
         ))}
       </nav>
 
-      {/* Global Search */}
       <GlobalSearch />
 
-      {/* Right side actions - pushed to far right */}
       <div className="flex items-center gap-1 ml-auto">
-        {/* Refresh */}
         {onRefreshClick && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onRefreshClick}
-            disabled={isRefreshing}
-          >
-            <RefreshCw
-              className={cn('h-4 w-4', isRefreshing && 'animate-spin')}
-            />
+          <Button variant="ghost" size="icon" onClick={onRefreshClick} disabled={isRefreshing}>
+            <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
             <span className="sr-only">Refresh</span>
           </Button>
         )}
 
-        {/* Settings */}
         {onSettingsClick && (
           <Button variant="ghost" size="icon" onClick={onSettingsClick}>
             <Settings className="h-4 w-4" />
@@ -108,27 +91,17 @@ export function TopBar({
           </Button>
         )}
 
-        {/* Docs */}
-        <Button
-          variant="ghost"
-          size="icon"
-          asChild
-          title="Documentation"
-        >
+        <Button variant="ghost" size="icon" asChild title="Documentation">
           <a href="https://docs.projectachilles.io" target="_blank" rel="noopener noreferrer">
             <BookOpen className="h-4 w-4" />
             <span className="sr-only">Documentation</span>
           </a>
         </Button>
 
-        {/* Notifications */}
         <NotificationBell />
-
-        {/* Theme Selector */}
         <ThemeSelector />
 
-        {/* User - Last item */}
-        {isLoaded && user && (
+        {user && (
           <div className="flex items-center gap-2 ml-2">
             <span className={cn(
               'text-xs font-medium px-2 py-0.5 rounded-full hidden sm:inline',
@@ -137,17 +110,14 @@ export function TopBar({
               {role ? ROLE_LABELS[role] : ROLE_LABELS.admin}
             </span>
             <span className="text-sm text-muted-foreground hidden lg:inline">
-              {user.firstName || user.emailAddresses[0]?.emailAddress}
+              {user.name}
             </span>
-            <UserButton
-              afterSignOutUrl="/sign-in"
-              appearance={{
-                elements: {
-                  avatarBox:
-                    'w-8 h-8 rounded-full border border-border hover:border-primary transition-colors',
-                },
-              }}
-            />
+            <div className="w-8 h-8 rounded-full bg-primary/10 border border-border flex items-center justify-center">
+              <User className="w-4 h-4 text-primary" />
+            </div>
+            <Button variant="ghost" size="icon" onClick={handleLogout} title="Sign out">
+              <LogOut className="w-4 h-4" />
+            </Button>
           </div>
         )}
       </div>

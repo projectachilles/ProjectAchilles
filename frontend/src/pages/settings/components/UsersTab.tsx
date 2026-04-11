@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useAppAuth } from '@/contexts/AuthContext';
 import { usersApi, type UserInfo, type InvitationInfo } from '@/services/api/users';
 import {
   VALID_ROLES, ROLE_LABELS, ROLE_COLORS, ROLE_PERMISSIONS,
@@ -25,7 +25,10 @@ function timeAgo(epoch: number): string {
 }
 
 export function UsersTab() {
-  const { user: currentUser } = useUser();
+  const { user: authUser } = useAppAuth();
+  const currentUser = authUser
+    ? { id: authUser.id, publicMetadata: { role: authUser.role } }
+    : null;
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

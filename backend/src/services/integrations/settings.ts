@@ -108,6 +108,20 @@ export class IntegrationsSettingsService {
         }
       }
 
+      // Decrypt auth provider fields
+      if (settings.auth_providers) {
+        for (const provider of Object.values(settings.auth_providers) as Record<string, unknown>[]) {
+          if (provider) {
+            for (const key of Object.keys(provider)) {
+              const val = provider[key];
+              if (typeof val === 'string' && val.startsWith('enc:')) {
+                provider[key] = this.decrypt(val.slice(4));
+              }
+            }
+          }
+        }
+      }
+
       // Decrypt sensitive Alert channel fields
       if (settings.alerts) {
         if (settings.alerts.slack?.webhook_url?.startsWith('enc:')) {
@@ -541,5 +555,65 @@ export class IntegrationsSettingsService {
   /** Convenience: update the last_alert_at timestamp. */
   updateLastAlertTimestamp(timestamp: string): void {
     this.saveAlertSettings({ last_alert_at: timestamp });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Authentication Providers (Azure AD, Google, Clerk)
+  // ---------------------------------------------------------------------------
+
+  getAuthProviders(): import('../../types/integrations.js').AuthProvidersSettings | null {
+    const fileSettings = this.getFileSettings();
+    return fileSettings?.auth_providers ?? null;
+  }
+
+  getAuthProvider(provider: 'azuread' | 'google' | 'clerk'): Record<string, unknown> | null {
+    const providers = this.getAuthProviders();
+    if (!providers) return null;
+    const p = providers[provider];
+    return p?.configured ? p as unknown as Record<string, unknown> : null;
+  }
+
+  saveAuthProvider(provider: 'azuread' | 'google' | 'clerk', settings: Record<string, unknown>): void {
+    this.ensureSettingsDir();
+    const existing = this.getRawFileSettings() ?? {} as any;
+    existing.auth_providers ??= {};
+
+    // Encrypt all string values
+    const encrypted: Record<string, unknown> = { configured: true };
+    for (const [key, value] of Object.entries(settings)) {
+      if (key === 'configured') continue;
+      if (typeof value === 'string' && value) {
+        encrypted[key] = 'enc:' + this.encrypt(value);
+      } else {
+        encrypted[key] = value;
+      }
+    }
+
+    (existing.auth_providers as any)[provider] = encrypted;
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2), { mode: 0o600 });
+  }
+
+  deleteAuthProvider(provider: 'azuread' | 'google' | 'clerk'): void {
+    this.ensureSettingsDir();
+    const existing = this.getRawFileSettings() ?? {};
+    if (existing.auth_providers) {
+      delete existing.auth_providers[provider];
+      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2), { mode: 0o600 });
+    }
+  }
+
+  isAuthProviderConfigured(provider: 'azuread' | 'google' | 'clerk'): boolean {
+    return !!this.getAuthProvider(provider);
+  }
+
+  /** Returns a list of configured auth provider names. */
+  getConfiguredAuthProviders(): string[] {
+    const providers = this.getAuthProviders();
+    if (!providers) return [];
+    const result: string[] = [];
+    if (providers.azuread?.configured) result.push('azuread');
+    if (providers.google?.configured) result.push('google');
+    if (providers.clerk?.configured) result.push('clerk');
+    return result;
   }
 }

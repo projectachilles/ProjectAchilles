@@ -1,15 +1,14 @@
 import { useMemo } from 'react';
-import { useUser } from '@clerk/clerk-react';
 import type { AppRole, Permission, AppModule } from '@/types/roles';
 import { getPermissionsForRole, canAccessModule } from '@/types/roles';
+import { useAppAuth } from '@/contexts/AuthContext';
 
 /**
- * Returns the current user's role from Clerk publicMetadata.
- * Returns undefined if no role is set (= explorer read-only access).
+ * Returns the current user's role from AuthContext.
  */
 export function useAppRole(): AppRole | undefined {
-  const { user } = useUser();
-  const role = (user?.publicMetadata as Record<string, unknown> | undefined)?.role;
+  const { user } = useAppAuth();
+  const role = user?.role;
   if (role === 'admin' || role === 'operator' || role === 'analyst' || role === 'explorer') {
     return role;
   }

@@ -1,13 +1,15 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Database, Cloud, ShieldCheck, Bell } from 'lucide-react';
+import { Database, Cloud, ShieldCheck, Bell, KeyRound, Globe, Users } from 'lucide-react';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { IntegrationCard, type IntegrationStatus } from './IntegrationCard';
 import { AnalyticsConfig } from './AnalyticsConfig';
 import { AzureConfig } from './AzureConfig';
 import { DefenderConfig } from './DefenderConfig';
 import { AlertsConfig } from './AlertsConfig';
+import { AuthProviderConfig } from './AuthProviderConfig';
 import { integrationsApi } from '@/services/api/integrations';
 import { alertsApi } from '@/services/api/alerts';
+import { authProvidersApi } from '@/services/api/authProviders';
 
 export function IntegrationsTab() {
   const { configured: analyticsConfigured } = useAnalyticsAuth();
@@ -22,6 +24,12 @@ export function IntegrationsTab() {
   const [defenderLoaded, setDefenderLoaded] = useState(false);
   const [alertsStatus, setAlertsStatus] = useState<IntegrationStatus>('not-configured');
   const [alertsLoaded, setAlertsLoaded] = useState(false);
+
+  // Auth providers
+  const [azureAdAuthStatus, setAzureAdAuthStatus] = useState<IntegrationStatus>('not-configured');
+  const [googleAuthStatus, setGoogleAuthStatus] = useState<IntegrationStatus>('not-configured');
+  const [clerkAuthStatus, setClerkAuthStatus] = useState<IntegrationStatus>('not-configured');
+  const [authProvidersLoaded, setAuthProvidersLoaded] = useState(false);
 
   const handleAnalyticsStatusChange = useCallback((configured: boolean) => {
     setAnalyticsStatus(configured ? 'connected' : 'not-configured');
@@ -61,6 +69,13 @@ export function IntegrationsTab() {
     }).catch(() => {
       setAlertsLoaded(true);
     });
+
+    // Fetch auth provider statuses
+    Promise.all([
+      authProvidersApi.getSettings('azuread').then(s => setAzureAdAuthStatus(s.configured ? 'connected' : 'not-configured')).catch(() => {}),
+      authProvidersApi.getSettings('google').then(s => setGoogleAuthStatus(s.configured ? 'connected' : 'not-configured')).catch(() => {}),
+      authProvidersApi.getSettings('clerk').then(s => setClerkAuthStatus(s.configured ? 'connected' : 'not-configured')).catch(() => {}),
+    ]).finally(() => setAuthProvidersLoaded(true));
   }, []);
 
   return (
@@ -110,6 +125,66 @@ export function IntegrationsTab() {
         defaultExpanded={alertsLoaded && alertsStatus === 'not-configured'}
       >
         <AlertsConfig onStatusChange={handleAlertsStatusChange} />
+      </IntegrationCard>
+
+      {/* Authentication Providers */}
+      <div className="mt-8 mb-6">
+        <h2 className="text-xl font-semibold">Authentication</h2>
+        <p className="text-muted-foreground text-sm mt-1">
+          Configure sign-in methods for your team. Enabled providers appear on the login page.
+        </p>
+      </div>
+
+      <IntegrationCard
+        icon={Cloud}
+        title="Azure AD / Entra ID"
+        description="Sign in with Microsoft corporate accounts via OAuth 2.0"
+        status={azureAdAuthStatus}
+        defaultExpanded={authProvidersLoaded && azureAdAuthStatus === 'not-configured'}
+      >
+        <AuthProviderConfig
+          provider="azuread"
+          fields={[
+            { key: 'tenant_id', label: 'Tenant ID', placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', helperText: 'Azure AD tenant (directory) ID' },
+            { key: 'client_id', label: 'Client ID (Application ID)', placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', helperText: 'App registration client ID' },
+            { key: 'client_secret', label: 'Client Secret', placeholder: 'Enter client secret', type: 'password', helperText: 'App registration client secret value' },
+          ]}
+          onStatusChange={(c) => setAzureAdAuthStatus(c ? 'connected' : 'not-configured')}
+        />
+      </IntegrationCard>
+
+      <IntegrationCard
+        icon={Globe}
+        title="Google"
+        description="Sign in with Google accounts via OAuth 2.0"
+        status={googleAuthStatus}
+        defaultExpanded={authProvidersLoaded && googleAuthStatus === 'not-configured'}
+      >
+        <AuthProviderConfig
+          provider="google"
+          fields={[
+            { key: 'client_id', label: 'Client ID', placeholder: 'xxxxx.apps.googleusercontent.com', helperText: 'Google Cloud Console OAuth 2.0 client ID' },
+            { key: 'client_secret', label: 'Client Secret', placeholder: 'Enter client secret', type: 'password', helperText: 'OAuth 2.0 client secret' },
+          ]}
+          onStatusChange={(c) => setGoogleAuthStatus(c ? 'connected' : 'not-configured')}
+        />
+      </IntegrationCard>
+
+      <IntegrationCard
+        icon={Users}
+        title="Clerk"
+        description="Managed authentication with Clerk (user management, SSO, MFA)"
+        status={clerkAuthStatus}
+        defaultExpanded={authProvidersLoaded && clerkAuthStatus === 'not-configured'}
+      >
+        <AuthProviderConfig
+          provider="clerk"
+          fields={[
+            { key: 'publishable_key', label: 'Publishable Key', placeholder: 'pk_test_...', helperText: 'From Clerk Dashboard → API Keys' },
+            { key: 'secret_key', label: 'Secret Key', placeholder: 'sk_test_...', type: 'password', helperText: 'From Clerk Dashboard → API Keys' },
+          ]}
+          onStatusChange={(c) => setClerkAuthStatus(c ? 'connected' : 'not-configured')}
+        />
       </IntegrationCard>
     </div>
   );

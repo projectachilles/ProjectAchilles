@@ -32,6 +32,10 @@ import defenderRoutes from './api/defender.routes.js';
 import riskAcceptanceRoutes from './api/risk-acceptance.routes.js';
 import cliAuthRoutes from './api/cli-auth.routes.js';
 import { acceptCliAuth } from './middleware/cliAuth.middleware.js';
+import authRoutes from './api/auth.routes.js';
+import authProvidersRoutes from './api/auth-providers.routes.js';
+import { acceptBasicAuth } from './middleware/basicAuth.middleware.js';
+import { printBasicAuthCredentials } from './services/auth/basic.service.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -40,10 +44,12 @@ const __dirname = path.dirname(__filename);
 // Load environment variables
 dotenv.config();
 
-// Validate required environment variables
-if (!process.env.CLERK_PUBLISHABLE_KEY || !process.env.CLERK_SECRET_KEY) {
-  console.error('❌ CLERK_PUBLISHABLE_KEY and CLERK_SECRET_KEY must be set');
-  process.exit(1);
+// Validate required environment variables (warn instead of exit for local/demo usage)
+const hasClerkKeys = process.env.CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY
+  && !process.env.CLERK_PUBLISHABLE_KEY.endsWith('...')
+  && !process.env.CLERK_SECRET_KEY.endsWith('...');
+if (!hasClerkKeys) {
+  console.warn('⚠ Clerk keys not configured — running without authentication (demo mode)');
 }
 
 const app = express();
@@ -95,8 +101,27 @@ app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Health check — before auth so it works without credentials
+app.get('/api/health', (_req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'ProjectAchilles',
+    version: '1.0.0',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Auth login endpoint — public, before any auth middleware
+app.use('/api/auth', authRoutes);
+app.use('/api/auth', authProvidersRoutes);
+
+// Basic auth JWT middleware — validates our own JWTs
+app.use(acceptBasicAuth());
+
 // Clerk authentication middleware (parses JWT, populates req.auth — does NOT reject)
-app.use(clerkAuth);
+if (hasClerkKeys) {
+  app.use(clerkAuth);
+}
 
 // CLI token auth — if a valid CLI JWT is present and Clerk didn't parse anything,
 // inject a Clerk-compatible req.auth so downstream requireClerkAuth() works.
@@ -220,16 +245,6 @@ async function startServer() {
 
   // ============ ROUTES ============
 
-  // Health check
-  app.get('/api/health', (_req, res) => {
-    res.json({
-      status: 'ok',
-      service: 'ProjectAchilles',
-      version: '1.0.0',
-      timestamp: new Date().toISOString(),
-    });
-  });
-
   // Capabilities endpoint — tells frontend what features are available
   app.get('/api/capabilities', (_req, res) => {
     res.json({
@@ -304,7 +319,9 @@ async function startServer() {
       console.log(`║   Tests: ${status.testCount || 0} tests from ${status.branch} branch             ║`);
     }
     console.log('╚═══════════════════════════════════════════════════════════╝');
-    console.log('');
+
+    // Print basic auth credentials (always available as a fallback auth method)
+    printBasicAuthCredentials();
 
     // Background jobs only run in single-process mode (no clustering) or
     // cluster primary. In cluster mode, workers skip these to avoid duplicates.

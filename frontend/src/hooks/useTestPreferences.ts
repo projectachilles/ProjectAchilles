@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useAppAuth } from '@/contexts/AuthContext';
 
 export interface RecentEntry {
   uuid: string;
@@ -33,8 +33,8 @@ function writePrefs(userId: string, prefs: TestPreferences) {
 }
 
 export function useTestPreferences() {
-  const { user } = useUser();
-  const userId = user?.id ?? '';
+  const { user } = useAppAuth();
+  const userId = user?.id ?? 'anonymous';
   const [prefs, setPrefs] = useState<TestPreferences>(() => readPrefs(userId));
 
   // Re-read when userId changes or when another hook instance writes

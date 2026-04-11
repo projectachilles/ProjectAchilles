@@ -5,10 +5,12 @@
 # I3: Use jq to safely JSON-encode env vars, preventing string breakout.
 CLERK_KEY_JSON=$(printf '%s' "${CLERK_PUBLISHABLE_KEY:-}" | jq -Rs .)
 API_URL_JSON=$(printf '%s' "${VITE_API_URL:-}" | jq -Rs .)
+AUTH_METHOD_JSON=$(printf '%s' "${AUTH_METHOD:-basic}" | jq -Rs .)
 cat <<EOF > /usr/share/nginx/html/env-config.js
 window.__env__ = {
   VITE_CLERK_PUBLISHABLE_KEY: ${CLERK_KEY_JSON},
-  VITE_API_URL: ${API_URL_JSON}
+  VITE_API_URL: ${API_URL_JSON},
+  AUTH_METHOD: ${AUTH_METHOD_JSON}
 };
 EOF
 

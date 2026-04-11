@@ -73,6 +73,37 @@ export interface OrgIntegrationSettings {
   alerts?: AlertSettings;
 }
 
+// ---------------------------------------------------------------------------
+// Authentication Provider Settings
+// ---------------------------------------------------------------------------
+
+export interface AuthProviderAzureAD {
+  tenant_id: string;
+  client_id: string;
+  client_secret: string;
+  configured: boolean;
+}
+
+export interface AuthProviderGoogle {
+  client_id: string;
+  client_secret: string;
+  configured: boolean;
+}
+
+export interface AuthProviderClerk {
+  publishable_key: string;
+  secret_key: string;
+  configured: boolean;
+}
+
+export interface AuthProvidersSettings {
+  azuread?: AuthProviderAzureAD;
+  google?: AuthProviderGoogle;
+  clerk?: AuthProviderClerk;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+}
+
 /**
  * Top-level settings file format. Supports both legacy (flat) and per-org modes.
  * Legacy keys are kept for backward compat — they act as the fallback when no
@@ -82,6 +113,7 @@ export interface IntegrationsSettings {
   azure?: AzureIntegrationSettings;
   defender?: DefenderIntegrationSettings;
   alerts?: AlertSettings;
+  auth_providers?: AuthProvidersSettings;
   /** Per-org overrides. Key is the Clerk org_id. */
   orgs?: Record<string, OrgIntegrationSettings>;
 }

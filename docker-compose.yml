@@ -7,6 +7,7 @@ services:
     environment:
       - PORT=3000
       - NODE_ENV=production
+      - AUTH_METHOD=${AUTH_METHOD:-basic}
       # These can be overridden via .env file in project root or shell environment
       - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost}
       - AGENT_SOURCE_PATH=/agent-src
@@ -33,11 +34,12 @@ services:
     build: ./frontend
     # Only pass frontend-safe variables (not backend secrets like CLERK_SECRET_KEY)
     environment:
+      - AUTH_METHOD=${AUTH_METHOD:-basic}
       - CLERK_PUBLISHABLE_KEY=${CLERK_PUBLISHABLE_KEY:-}
       - VITE_CLERK_PUBLISHABLE_KEY=${VITE_CLERK_PUBLISHABLE_KEY:-}
       - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost}
     ports:
-      - "127.0.0.1:80:80"
+      - "127.0.0.1:8080:80"
     depends_on:
       backend:
         condition: service_healthy

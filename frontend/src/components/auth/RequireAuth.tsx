@@ -1,17 +1,15 @@
-import { SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
 import type { ReactNode } from 'react';
+import { Navigate } from 'react-router-dom';
+import { useAppAuth } from '../../contexts/AuthContext';
 
 interface RequireAuthProps {
   children: ReactNode;
 }
 
 export function RequireAuth({ children }: RequireAuthProps) {
-  return (
-    <>
-      <SignedIn>{children}</SignedIn>
-      <SignedOut>
-        <RedirectToSignIn />
-      </SignedOut>
-    </>
-  );
+  const { isSignedIn, isLoaded } = useAppAuth();
+
+  if (!isLoaded) return null;
+  if (!isSignedIn) return <Navigate to="/login" replace />;
+  return <>{children}</>;
 }

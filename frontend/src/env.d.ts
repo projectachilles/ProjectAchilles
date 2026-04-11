@@ -3,5 +3,6 @@ interface Window {
     VITE_CLERK_PUBLISHABLE_KEY?: string;
     VITE_API_URL?: string;
     VITE_SITE_MODE?: string;
+    AUTH_METHOD?: string;
   };
 }
