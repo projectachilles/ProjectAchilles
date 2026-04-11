@@ -1065,20 +1065,39 @@ check_and_setup_elasticsearch() {
 
                     if [ -n "$es_password" ]; then
                         # Derive ES endpoint from Cloud ID
-                        # Format: <name>:<base64 of "host$es_uuid:443$kibana_uuid:443">
-                        local cloud_decoded es_host
+                        # Cloud ID format: <name>:<base64 of "host$es_uuid$kibana_uuid">
+                        # Decoded: "eastus.azure.elastic.cloud$fa3ad...66.es$fa3ad...66.kb"
+                        # ES endpoint: https://<es_uuid>.<host> (es_uuid already has .es suffix)
+                        local cloud_decoded es_host es_uuid
                         cloud_decoded=$(echo "$es_cloud_id" | cut -d: -f2 | base64 -d 2>/dev/null) || true
                         es_host=$(echo "$cloud_decoded" | cut -d'$' -f1)
-                        local es_uuid
-                        es_uuid=$(echo "$cloud_decoded" | cut -d'$' -f2 | cut -d: -f1)
+                        es_uuid=$(echo "$cloud_decoded" | cut -d'$' -f2)
 
                         if [ -z "$es_host" ] || [ -z "$es_uuid" ]; then
                             echo "  ⚠ Could not parse Cloud ID — falling back to manual API key"
                             read -rp "  API Key: " es_api_key
                         else
-                            local es_endpoint="https://${es_uuid}.es.${es_host}"
-                            echo "  Creating scoped API key via ${es_endpoint}..."
+                            local es_endpoint="https://${es_uuid}.${es_host}:443"
+                            echo "  ES endpoint: ${es_endpoint}"
+                            echo "  Creating scoped API key..."
 
+                            # Test connectivity first
+                            local es_test_code
+                            es_test_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+                                -u "elastic:$es_password" "$es_endpoint" 2>/dev/null) || true
+                            echo "  Connectivity test: HTTP $es_test_code"
+
+                            if [ "$es_test_code" != "200" ]; then
+                                echo "  ⚠ Could not connect to ES — check Cloud ID and password"
+                                echo "  You can enter an existing API key instead."
+                                echo "  ⚠ Ensure it has manage+read+write on achilles-*/archived-* indices"
+                                read -rp "  API Key (or Enter to skip): " es_api_key
+                                if [ -z "$es_api_key" ]; then
+                                    echo "  Skipped"
+                                    echo ""
+                                    return 0
+                                fi
+                            else
                             local api_key_response
                             api_key_response=$(curl -s --max-time 15 \
                                 -X POST "${es_endpoint}/_security/api_key/grant" \
@@ -1125,7 +1144,8 @@ except: pass
                                     return 0
                                 fi
                             fi
-                        fi
+                        fi  # end connectivity test else
+                        fi  # end es_host/es_uuid check
                     else
                         # No password — ask for API key as fallback
                         echo "  No password provided. You can enter an existing API key instead."
