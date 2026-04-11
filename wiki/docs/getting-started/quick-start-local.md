@@ -157,26 +157,34 @@ Or force the provider: `TUNNEL_PROVIDER=ngrok ./scripts/start.sh -k --daemon --t
 
 ## Optional: Elasticsearch
 
-The Analytics module requires an Elasticsearch connection. The start script will prompt you to configure it during first run:
+The Analytics module requires an Elasticsearch connection. The start script prompts you to configure it during first run:
 
 ```
 Checking Elasticsearch...
   Not configured (Analytics will prompt for setup in the UI)
 
-  Configure Elasticsearch now? [Cloud / Local Docker / Skip (default)]
+  Configure Elasticsearch now? [Cloud / Local Docker / Skip (default)] C
+
+  Free 14-day trial (no credit card):
+  https://cloud.elastic.co/registration
+
+  Cloud ID: deploy:abc123...
+  elastic password (hidden): ****
+
+  Creating scoped API key via https://...es.cloud.es.io...
+  ✓ API key created (scoped to achilles-* indices)
+  ✓ Elastic Cloud credentials saved to backend/.env
+
+  Initialize Elasticsearch indices? [Y/n]
+  Seed with synthetic demo data? [y/N] y
+  ✓ 3 indices created, 1000 documents seeded
 ```
 
-You can also configure it manually:
+The script auto-creates a properly scoped API key from the `elastic` user password — you never need to navigate Kibana's API key management. The password is used once and not stored.
 
-**Option A — Elastic Cloud:**
-Add credentials to `backend/.env` or enter them when prompted by `start.sh`:
-
-```bash
-ELASTICSEARCH_CLOUD_ID=your_cloud_id
-ELASTICSEARCH_API_KEY=your_api_key
-```
-
-If the instance has no indices, the script offers to create them and optionally seed synthetic demo data.
+:::tip Already have an API key?
+Press Enter when prompted for the password, and you'll be asked for an API key directly instead. Or pre-set `ELASTICSEARCH_CLOUD_ID` and `ELASTICSEARCH_API_KEY` in `backend/.env` to skip the prompt entirely.
+:::
 
 **Option B — Local Elasticsearch via Docker:**
 
