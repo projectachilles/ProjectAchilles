@@ -952,13 +952,15 @@ check_and_setup_clerk_rbac() {
     # Set admin role on the first user
     echo ""
     echo "  Setting admin role on your user account..."
-    read -rp "  Your email address (used to sign up with Clerk): " admin_email
+    echo "  (You must have signed in to the app at least once first."
+    echo "   If you haven't yet, skip this and re-run with -r after signing in.)"
+    echo ""
+    read -rp "  Your email address (or S to skip): " admin_email
 
-    if [ -z "$admin_email" ]; then
-        echo "  Skipped — set admin role manually in Clerk Dashboard → Users"
+    if [ -z "$admin_email" ] || [[ "$admin_email" =~ ^[Ss]$ ]]; then
+        echo "  Skipped — after signing in, run: ./scripts/start.sh -r"
         echo ""
-        touch "$CLERK_RBAC_FLAG"
-        return 0
+        return 0  # don't set flag — re-prompt on next run
     fi
 
     # Look up user by email
@@ -977,12 +979,11 @@ except: pass
 " 2>/dev/null) || true
 
     if [ -z "$user_id" ]; then
-        echo "  ⚠ User not found — sign in to the app first, then re-run with -r"
+        echo "  ⚠ User not found — sign in to the app first, then run: ./scripts/start.sh -r"
         echo "    Or set the role manually: Clerk Dashboard → Users → your user → Public metadata"
         echo "    Add: {\"role\": \"admin\"}"
         echo ""
-        touch "$CLERK_RBAC_FLAG"
-        return 0
+        return 0  # don't set flag — re-prompt on next run
     fi
 
     # Set public_metadata with admin role
@@ -1004,8 +1005,6 @@ except: pass
     touch "$CLERK_RBAC_FLAG"
     echo ""
 }
-
-check_and_setup_clerk_rbac
 
 # =============================================================================
 # Elasticsearch — detect, optionally configure, initialize indices
@@ -1213,7 +1212,11 @@ except: pass
         esac
 
         echo ""
-        "$SCRIPT_DIR/init-elasticsearch.sh" $seed_flag
+        "$SCRIPT_DIR/init-elasticsearch.sh" $seed_flag || {
+            echo "  ⚠ Index initialization failed — you can retry later with:"
+            echo "    ./scripts/init-elasticsearch.sh --seed"
+            echo ""
+        }
     fi
 
     echo ""
@@ -1309,6 +1312,9 @@ check_and_setup_test_library() {
 check_and_setup_test_library
 
 fi  # end of RESTART_SERVERS != true (skip setup checks)
+
+# RBAC runs outside the restart guard — users retry after signing in with -r
+check_and_setup_clerk_rbac
 
 # Validate and configure tunnel provider (skip during restart — tunnels are already running)
 if [ "$TUNNEL_MODE" = true ] && [ "$RESTART_SERVERS" != true ]; then
