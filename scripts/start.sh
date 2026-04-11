@@ -105,6 +105,7 @@ DAEMON_MODE=false
 STOP_DAEMON=false
 TUNNEL_MODE=false
 RESTART_SERVERS=false
+START_FRESH_TUNNELS=false
 for arg in "$@"; do
     case $arg in
         --kill|-k)
@@ -228,7 +229,7 @@ if [ "$RESTART_SERVERS" = true ]; then
     elif [ "$TUNNEL_MODE" = true ]; then
         # No existing tunnels found but --tunnel was requested — start fresh
         echo "  No existing tunnels found — will start new ones"
-        RESTART_SERVERS=false  # allow tunnel startup to proceed
+        START_FRESH_TUNNELS=true
     fi
 
     echo ""
@@ -1012,6 +1013,9 @@ check_and_install_deps
 # Run Clerk check before starting servers
 check_and_setup_clerk
 
+# RBAC right after Clerk — user is already in the dashboard
+check_and_setup_clerk_rbac
+
 # =============================================================================
 # Elasticsearch — detect, optionally configure, initialize indices
 # =============================================================================
@@ -1323,7 +1327,7 @@ fi  # end of RESTART_SERVERS != true (skip setup checks)
 check_and_setup_clerk_rbac
 
 # Validate and configure tunnel provider (skip during restart — tunnels are already running)
-if [ "$TUNNEL_MODE" = true ] && [ "$RESTART_SERVERS" != true ]; then
+if [ "$TUNNEL_MODE" = true ] && { [ "$RESTART_SERVERS" != true ] || [ "$START_FRESH_TUNNELS" = true ]; }; then
     # Auto-detect provider if not set
     if [ -z "$TUNNEL_PROVIDER" ]; then
         if command -v cloudflared &>/dev/null; then
@@ -1430,7 +1434,7 @@ NGROK_PID=""
 TUNNEL_FRONTEND_URL=""
 TUNNEL_BACKEND_URL=""
 fi
-if [ "$TUNNEL_MODE" = true ] && [ "$RESTART_SERVERS" != true ]; then
+if [ "$TUNNEL_MODE" = true ] && { [ "$RESTART_SERVERS" != true ] || [ "$START_FRESH_TUNNELS" = true ]; }; then
     if [ "$TUNNEL_PROVIDER" = "cloudflare" ]; then
         echo "Starting Cloudflare tunnels..."
 
