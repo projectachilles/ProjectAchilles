@@ -1082,9 +1082,13 @@ check_and_setup_elasticsearch() {
                                     \"api_key\": {
                                         \"name\": \"projectachilles-$(date +%s)\",
                                         \"role_descriptors\": {
-                                            \"achilles\": {
+                                            \"achilles_role\": {
                                                 \"cluster\": [\"monitor\"],
-                                                \"indices\": [{\"names\": [\"achilles-*\"], \"privileges\": [\"all\"]}]
+                                                \"indices\": [{
+                                                    \"names\": [\"achilles-*\", \"archived-*\"],
+                                                    \"privileges\": [\"manage\", \"read\", \"write\"],
+                                                    \"allow_restricted_indices\": false
+                                                }]
                                             }
                                         }
                                     }
