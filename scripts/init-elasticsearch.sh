@@ -93,17 +93,17 @@ if [ -z "$ES_HOST" ] && [ -z "$ES_CLOUD_ID" ]; then
     exit 1
 fi
 
-# Build Python args
-PY_ARGS="--init-indices"
+# Build Python args as an array (safe for values with special characters)
+PY_ARGS=(--init-indices)
 
 if [ -n "$ES_CLOUD_ID" ]; then
-    PY_ARGS="$PY_ARGS --cloud-id $ES_CLOUD_ID"
+    PY_ARGS+=(--cloud-id "$ES_CLOUD_ID")
 fi
 if [ -n "$ES_API_KEY" ]; then
-    PY_ARGS="$PY_ARGS --api-key $ES_API_KEY"
+    PY_ARGS+=(--api-key "$ES_API_KEY")
 fi
 if [ -n "$ES_HOST" ]; then
-    PY_ARGS="$PY_ARGS --host $ES_HOST"
+    PY_ARGS+=(--host "$ES_HOST")
 fi
 
 echo "Initializing Elasticsearch indices..."
@@ -130,7 +130,7 @@ else
 fi
 
 # Run index initialization
-$PYTHON "$SCRIPT_DIR/upload_to_elasticsearch.py" $PY_ARGS
+$PYTHON "$SCRIPT_DIR/upload_to_elasticsearch.py" "${PY_ARGS[@]}"
 
 # Seed data if requested
 if $SEED_DATA; then
@@ -140,18 +140,18 @@ if $SEED_DATA; then
     $PYTHON "$SCRIPT_DIR/generate_synthetic_data.py" -c "$SEED_COUNT" -o "$SEED_FILE"
 
     echo "Uploading to Elasticsearch..."
-    UPLOAD_ARGS="--file $SEED_FILE --index $INDEX_NAME --create-index"
+    UPLOAD_ARGS=(--file "$SEED_FILE" --index "$INDEX_NAME" --create-index)
     if [ -n "$ES_CLOUD_ID" ]; then
-        UPLOAD_ARGS="$UPLOAD_ARGS --cloud-id $ES_CLOUD_ID"
+        UPLOAD_ARGS+=(--cloud-id "$ES_CLOUD_ID")
     fi
     if [ -n "$ES_API_KEY" ]; then
-        UPLOAD_ARGS="$UPLOAD_ARGS --api-key $ES_API_KEY"
+        UPLOAD_ARGS+=(--api-key "$ES_API_KEY")
     fi
     if [ -n "$ES_HOST" ]; then
-        UPLOAD_ARGS="$UPLOAD_ARGS --host $ES_HOST"
+        UPLOAD_ARGS+=(--host "$ES_HOST")
     fi
 
-    $PYTHON "$SCRIPT_DIR/upload_to_elasticsearch.py" $UPLOAD_ARGS
+    $PYTHON "$SCRIPT_DIR/upload_to_elasticsearch.py" "${UPLOAD_ARGS[@]}"
     rm -f "$SEED_FILE"
     echo "  ✓ $SEED_COUNT synthetic results uploaded to $INDEX_NAME"
 fi

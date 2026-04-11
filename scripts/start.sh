@@ -1055,13 +1055,12 @@ check_and_setup_elasticsearch() {
                         return 0
                     fi
 
-                    # Ask for password OR API key
+                    # Ask for password (preferred — creates a properly scoped API key)
                     echo ""
-                    echo "  Provide either the elastic user password (shown at deployment creation)"
-                    echo "  or an existing API key. The script will auto-create a scoped API key"
-                    echo "  from the password if provided."
+                    echo "  The elastic user password was shown when you created the deployment."
+                    echo "  The script will auto-create a properly scoped API key from it."
                     echo ""
-                    read -rsp "  elastic password (hidden, or press Enter for API key instead): " es_password
+                    read -rsp "  elastic password (hidden): " es_password
                     echo ""
 
                     if [ -n "$es_password" ]; then
@@ -1117,7 +1116,9 @@ except: pass
                                 echo "  ⚠ Could not create API key — check password"
                                 echo "    Error: $(echo "$api_key_response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error',{}).get('reason','unknown'))" 2>/dev/null || echo 'connection failed')"
                                 echo ""
-                                read -rp "  Enter an API key manually instead: " es_api_key
+                                echo "  You can enter an existing API key instead."
+                                echo "  ⚠ Ensure it has manage+read+write on achilles-*/archived-* indices"
+                                read -rp "  API Key (or Enter to skip): " es_api_key
                                 if [ -z "$es_api_key" ]; then
                                     echo "  Skipped"
                                     echo ""
@@ -1126,8 +1127,12 @@ except: pass
                             fi
                         fi
                     else
-                        # User chose API key instead of password
-                        read -rp "  API Key: " es_api_key
+                        # No password — ask for API key as fallback
+                        echo "  No password provided. You can enter an existing API key instead."
+                        echo "  ⚠ Ensure it has manage+read+write on achilles-*/archived-* indices"
+                        echo "    (see docs for required role_descriptors)"
+                        echo ""
+                        read -rp "  API Key (or Enter to skip): " es_api_key
                         if [ -z "$es_api_key" ]; then
                             echo "  Skipped"
                             echo ""
