@@ -18,6 +18,11 @@ const __dirname = path.dirname(__filename);
 
 // Module-level state (initialized by createBrowserRouter)
 let testIndexer: TestIndexer | null = null;
+
+/** Access the shared test indexer instance (used by v1 public API). */
+export function getTestIndexer(): TestIndexer | null {
+  return testIndexer;
+}
 let gitSyncService: GitSyncService | null = null;
 let githubMetadataService: GitHubMetadataService | null = null;
 

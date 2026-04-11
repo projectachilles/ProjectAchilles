@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Database, Cloud, ShieldCheck, Bell, KeyRound, Globe, Users } from 'lucide-react';
+import { Database, Cloud, ShieldCheck, Bell, KeyRound, Globe, Users, Plug } from 'lucide-react';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { IntegrationCard, type IntegrationStatus } from './IntegrationCard';
 import { AnalyticsConfig } from './AnalyticsConfig';
@@ -7,9 +7,11 @@ import { AzureConfig } from './AzureConfig';
 import { DefenderConfig } from './DefenderConfig';
 import { AlertsConfig } from './AlertsConfig';
 import { AuthProviderConfig } from './AuthProviderConfig';
+import { ApiKeysConfig } from './ApiKeysConfig';
 import { integrationsApi } from '@/services/api/integrations';
 import { alertsApi } from '@/services/api/alerts';
 import { authProvidersApi } from '@/services/api/authProviders';
+import { apikeysApi } from '@/services/api/apikeys';
 
 export function IntegrationsTab() {
   const { configured: analyticsConfigured } = useAnalyticsAuth();
@@ -30,6 +32,9 @@ export function IntegrationsTab() {
   const [googleAuthStatus, setGoogleAuthStatus] = useState<IntegrationStatus>('not-configured');
   const [clerkAuthStatus, setClerkAuthStatus] = useState<IntegrationStatus>('not-configured');
   const [authProvidersLoaded, setAuthProvidersLoaded] = useState(false);
+
+  // API keys
+  const [apiKeysStatus, setApiKeysStatus] = useState<IntegrationStatus>('not-configured');
 
   const handleAnalyticsStatusChange = useCallback((configured: boolean) => {
     setAnalyticsStatus(configured ? 'connected' : 'not-configured');
@@ -76,6 +81,10 @@ export function IntegrationsTab() {
       authProvidersApi.getSettings('google').then(s => setGoogleAuthStatus(s.configured ? 'connected' : 'not-configured')).catch(() => {}),
       authProvidersApi.getSettings('clerk').then(s => setClerkAuthStatus(s.configured ? 'connected' : 'not-configured')).catch(() => {}),
     ]).finally(() => setAuthProvidersLoaded(true));
+
+    apikeysApi.list().then(({ keys }) => {
+      setApiKeysStatus(keys.length > 0 ? 'connected' : 'not-configured');
+    }).catch(() => {});
   }, []);
 
   return (
@@ -185,6 +194,24 @@ export function IntegrationsTab() {
           ]}
           onStatusChange={(c) => setClerkAuthStatus(c ? 'connected' : 'not-configured')}
         />
+      </IntegrationCard>
+
+      {/* External API Access */}
+      <div className="mt-8 mb-6">
+        <h2 className="text-xl font-semibold">External API</h2>
+        <p className="text-muted-foreground text-sm mt-1">
+          Generate API keys for external platforms to access the test library and MITRE coverage data
+        </p>
+      </div>
+
+      <IntegrationCard
+        icon={Plug}
+        title="External API Access"
+        description="API keys for read-only access to tests and MITRE ATT&CK coverage"
+        status={apiKeysStatus}
+        defaultExpanded
+      >
+        <ApiKeysConfig onStatusChange={(c) => setApiKeysStatus(c ? 'connected' : 'not-configured')} />
       </IntegrationCard>
     </div>
   );

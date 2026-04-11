@@ -34,6 +34,8 @@ import cliAuthRoutes from './api/cli-auth.routes.js';
 import { acceptCliAuth } from './middleware/cliAuth.middleware.js';
 import authRoutes from './api/auth.routes.js';
 import authProvidersRoutes from './api/auth-providers.routes.js';
+import v1Routes from './api/v1.routes.js';
+import { generateApiKey, listApiKeys, revokeApiKey } from './services/auth/apikey.service.js';
 import { acceptBasicAuth } from './middleware/basicAuth.middleware.js';
 import { printBasicAuthCredentials } from './services/auth/basic.service.js';
 
@@ -114,6 +116,9 @@ app.get('/api/health', (_req, res) => {
 // Auth login endpoint — public, before any auth middleware
 app.use('/api/auth', authRoutes);
 app.use('/api/auth', authProvidersRoutes);
+
+// Public v1 API — uses X-API-Key auth, not user auth
+app.use('/api/v1', v1Routes);
 
 // Basic auth JWT middleware — validates our own JWTs
 app.use(acceptBasicAuth());
@@ -294,6 +299,21 @@ async function startServer() {
 
   // CLI auth - device flow for headless CLI authentication
   app.use('/api/cli/auth', cliAuthRoutes);
+
+  // API key management (requires user auth)
+  app.post('/api/apikeys', (req, res) => {
+    const { label } = req.body ?? {};
+    const result = generateApiKey(label || 'Untitled');
+    res.json({ success: true, key: result.key, ...result.stored });
+  });
+  app.get('/api/apikeys', (_req, res) => {
+    res.json({ keys: listApiKeys() });
+  });
+  app.delete('/api/apikeys/:id', (req, res) => {
+    const revoked = revokeApiKey(req.params.id);
+    if (!revoked) { res.status(404).json({ error: 'Key not found' }); return; }
+    res.json({ success: true });
+  });
 
   // ============ ERROR HANDLING ============
   app.use(notFoundHandler);
