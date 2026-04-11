@@ -603,9 +603,6 @@ check_and_install_deps() {
     echo ""
 }
 
-# Run dependency check before anything else that needs node/npm/git
-check_and_install_deps
-
 # =============================================================================
 # Clerk Authentication — detect, guide, validate, and write keys
 # =============================================================================
@@ -894,12 +891,6 @@ check_and_setup_clerk() {
     esac
 }
 
-# Skip setup checks during --restart-servers (config unchanged, just reload)
-if [ "$RESTART_SERVERS" != true ]; then
-
-# Run Clerk check before starting servers
-check_and_setup_clerk
-
 # =============================================================================
 # Clerk RBAC — session token claims + admin role
 # =============================================================================
@@ -1007,6 +998,15 @@ except: pass
     touch "$CLERK_RBAC_FLAG"
     echo ""
 }
+
+# Skip setup checks during --restart-servers (config unchanged, just reload)
+if [ "$RESTART_SERVERS" != true ]; then
+
+# Run dependency check before anything else that needs node/npm/git
+check_and_install_deps
+
+# Run Clerk check before starting servers
+check_and_setup_clerk
 
 # =============================================================================
 # Elasticsearch — detect, optionally configure, initialize indices
