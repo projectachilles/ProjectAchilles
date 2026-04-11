@@ -901,6 +901,113 @@ if [ "$RESTART_SERVERS" != true ]; then
 check_and_setup_clerk
 
 # =============================================================================
+# Clerk RBAC — session token claims + admin role
+# =============================================================================
+
+CLERK_RBAC_FLAG="$PROJECT_ROOT/.clerk-rbac-configured"
+
+check_and_setup_clerk_rbac() {
+    # Only run once — skip if already configured in a previous run
+    if [ -f "$CLERK_RBAC_FLAG" ]; then
+        return 0
+    fi
+
+    local sk
+    sk=$(read_env_value "$BACKEND_ENV" "CLERK_SECRET_KEY")
+    if [ -z "$sk" ]; then
+        return 0
+    fi
+
+    # Non-interactive — skip
+    if ! [ -t 0 ] || ! [ -t 1 ]; then
+        return 0
+    fi
+
+    echo "Configuring Clerk RBAC..."
+    echo ""
+    echo "  ╭──────────────────────────────────────────────────────────────╮"
+    echo "  │  Session Token Setup (required for role-based access)        │"
+    echo "  │                                                              │"
+    echo "  │  1. Open dashboard.clerk.com → Configure → Sessions         │"
+    echo "  │  2. Click \"Edit\" on the session token                        │"
+    echo "  │  3. Add this custom claim:                                   │"
+    echo "  │                                                              │"
+    echo "  │     \"metadata\": \"{{user.public_metadata}}\"                    │"
+    echo "  │                                                              │"
+    echo "  │  4. Click Save                                               │"
+    echo "  ╰──────────────────────────────────────────────────────────────╯"
+    echo ""
+
+    open_browser "https://dashboard.clerk.com"
+
+    read -rp "  Press Enter after you've added the claim (or S to skip): " rbac_response
+    case "$rbac_response" in
+        [Ss]*)
+            echo "  Skipped — RBAC features may not work correctly"
+            echo ""
+            return 0
+            ;;
+    esac
+
+    # Set admin role on the first user
+    echo ""
+    echo "  Setting admin role on your user account..."
+    read -rp "  Your email address (used to sign up with Clerk): " admin_email
+
+    if [ -z "$admin_email" ]; then
+        echo "  Skipped — set admin role manually in Clerk Dashboard → Users"
+        echo ""
+        touch "$CLERK_RBAC_FLAG"
+        return 0
+    fi
+
+    # Look up user by email
+    local user_response user_id
+    user_response=$(curl -s --max-time 10 \
+        -H "Authorization: Bearer $sk" \
+        "https://api.clerk.com/v1/users?email_address=$admin_email" 2>/dev/null) || true
+
+    user_id=$(echo "$user_response" | python3 -c "
+import sys, json
+try:
+    users = json.load(sys.stdin)
+    if isinstance(users, list) and len(users) > 0:
+        print(users[0]['id'])
+except: pass
+" 2>/dev/null) || true
+
+    if [ -z "$user_id" ]; then
+        echo "  ⚠ User not found — sign in to the app first, then re-run with -r"
+        echo "    Or set the role manually: Clerk Dashboard → Users → your user → Public metadata"
+        echo "    Add: {\"role\": \"admin\"}"
+        echo ""
+        touch "$CLERK_RBAC_FLAG"
+        return 0
+    fi
+
+    # Set public_metadata with admin role
+    local meta_code
+    meta_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+        -X PATCH "https://api.clerk.com/v1/users/$user_id/metadata" \
+        -H "Authorization: Bearer $sk" \
+        -H "Content-Type: application/json" \
+        -d '{"public_metadata": {"role": "admin"}}' 2>/dev/null) || true
+
+    if [ "$meta_code" = "200" ]; then
+        echo "  ✓ Admin role set for $admin_email ($user_id)"
+    else
+        echo "  ⚠ Could not set admin role (HTTP $meta_code)"
+        echo "    Set manually: Clerk Dashboard → Users → $admin_email → Public metadata"
+        echo "    Add: {\"role\": \"admin\"}"
+    fi
+
+    touch "$CLERK_RBAC_FLAG"
+    echo ""
+}
+
+check_and_setup_clerk_rbac
+
+# =============================================================================
 # Elasticsearch — detect, optionally configure, initialize indices
 # =============================================================================
 
