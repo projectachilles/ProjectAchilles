@@ -84,7 +84,12 @@ flyctl secrets set \
 | `AGENT_REPO_BRANCH` | `main` | |
 | `GITHUB_TOKEN` | `ghp_...` | PAT with `repo` scope |
 | `ELASTICSEARCH_CLOUD_ID` | From Elastic Cloud console | |
-| `ELASTICSEARCH_API_KEY` | From Elastic Cloud console | |
+| `ELASTICSEARCH_API_KEY` | From Elastic Cloud console | See permissions below |
+
+> **Elasticsearch API Key Permissions:** Create the key in Kibana (Stack Management → API Keys) with these role descriptors:
+> ```json
+> { "achilles_role": { "cluster": ["monitor"], "indices": [{ "names": ["achilles-*", "archived-*"], "privileges": ["manage", "read", "write"], "allow_restricted_indices": false }] } }
+> ```
 
 > **`ENCRYPTION_SECRET` is required on Fly.io.** Without it, the backend derives a key from the container's hostname, which changes across deploys and corrupts encrypted settings.
 

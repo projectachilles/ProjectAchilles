@@ -59,8 +59,14 @@ Services communicate over Railway's [private network](https://docs.railway.com/g
    AGENT_REPO_BRANCH=main
    GITHUB_TOKEN=ghp_...
    ELASTICSEARCH_CLOUD_ID=<from Elastic Cloud console>
-   ELASTICSEARCH_API_KEY=<from Elastic Cloud console>
+   ELASTICSEARCH_API_KEY=<from Elastic Cloud — see permissions below>
    ```
+
+   > **Elasticsearch API Key Permissions:** Create the key in Kibana (Stack Management → API Keys) with these role descriptors:
+   > ```json
+   > { "achilles_role": { "cluster": ["monitor"], "indices": [{ "names": ["achilles-*", "archived-*"], "privileges": ["manage", "read", "write"], "allow_restricted_indices": false }] } }
+   > ```
+   > Or use `./scripts/generate-secrets.sh` locally and the script will guide you.
 
    > **`ENCRYPTION_SECRET` is required on Railway.** Without it, the backend falls back to a machine-derived key (hostname + username) that changes across deploys, corrupting encrypted settings.
    >

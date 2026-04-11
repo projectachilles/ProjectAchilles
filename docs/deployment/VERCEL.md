@@ -152,7 +152,12 @@ Configure these in the Vercel Dashboard (**Settings → Environment Variables**)
 | `TESTS_REPO_BRANCH` | `main` | |
 | `GITHUB_TOKEN` | `ghp_...` | PAT with `repo` scope |
 | `ELASTICSEARCH_CLOUD_ID` | From Elastic Cloud console | |
-| `ELASTICSEARCH_API_KEY` | From Elastic Cloud console | |
+| `ELASTICSEARCH_API_KEY` | From Elastic Cloud console | See permissions below |
+
+> **Elasticsearch API Key Permissions:** Create the key in Kibana (Stack Management → API Keys) with these role descriptors:
+> ```json
+> { "achilles_role": { "cluster": ["monitor"], "indices": [{ "names": ["achilles-*", "archived-*"], "privileges": ["manage", "read", "write"], "allow_restricted_indices": false }] } }
+> ```
 
 ### Frontend (`frontend`)
 
