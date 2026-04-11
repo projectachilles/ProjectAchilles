@@ -225,6 +225,10 @@ if [ "$RESTART_SERVERS" = true ]; then
         if [ -n "$TUNNEL_BACKEND_URL" ]; then
             export AGENT_SERVER_URL="$TUNNEL_BACKEND_URL"
         fi
+    elif [ "$TUNNEL_MODE" = true ]; then
+        # No existing tunnels found but --tunnel was requested — start fresh
+        echo "  No existing tunnels found — will start new ones"
+        RESTART_SERVERS=false  # allow tunnel startup to proceed
     fi
 
     echo ""
