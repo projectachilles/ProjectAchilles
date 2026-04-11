@@ -952,8 +952,10 @@ check_and_setup_clerk_rbac() {
     # Set admin role on the first user
     echo ""
     echo "  Setting admin role on your user account..."
-    echo "  (You must have signed in to the app at least once first."
-    echo "   If you haven't yet, skip this and re-run with -r after signing in.)"
+    echo ""
+    echo "  If you haven't created a user yet, do it now in the Clerk Dashboard:"
+    echo "    → Users → Add user → enter email and password"
+    echo "  (You're already in the dashboard from the previous step)"
     echo ""
     read -rp "  Your email address (or S to skip): " admin_email
 

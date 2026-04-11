@@ -81,9 +81,10 @@ If you've set up Clerk before, just add `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRE
 After key setup, the script guides you through **RBAC configuration** — a required one-time step for role-based access:
 
 1. **Session token claim** (manual) — you'll be directed to add `"metadata": "{{user.public_metadata}}"` to your Clerk session token template. This lets the backend read user roles from the JWT.
-2. **Admin role** (automated) — the script asks for your email, looks up your Clerk user ID via API, and sets `{"role": "admin"}` on your account automatically.
+2. **Create your user** — while in the Clerk Dashboard, go to **Users → Add user** and create your admin account with an email and password.
+3. **Admin role** (automated) — the script asks for your email, looks up your Clerk user ID via API, and sets `{"role": "admin"}` on your account automatically.
 
-This step runs once and is remembered (`.clerk-rbac-configured` flag file).
+This step runs once and is remembered (`.clerk-rbac-configured` flag file). If you skip it, the script will re-prompt on the next run.
 
 ### 3. Open the Dashboard
 
