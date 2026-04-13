@@ -901,9 +901,16 @@ check_and_setup_clerk() {
 # =============================================================================
 
 CLERK_RBAC_FLAG="$PROJECT_ROOT/.clerk-rbac-configured"
+RBAC_CALLED_THIS_RUN=false
 
 check_and_setup_clerk_rbac() {
-    # Only run once — skip if already configured in a previous run
+    # Skip if already called in this invocation (guard vs post-guard double call)
+    if [ "$RBAC_CALLED_THIS_RUN" = true ]; then
+        return 0
+    fi
+    RBAC_CALLED_THIS_RUN=true
+
+    # Only run once across sessions — skip if already configured in a previous run
     if [ -f "$CLERK_RBAC_FLAG" ]; then
         return 0
     fi
@@ -1055,12 +1062,14 @@ check_and_setup_elasticsearch() {
                         return 0
                     fi
 
-                    read -rp "  API Key: " es_api_key
+                    read -rsp "  API Key (hidden): " es_api_key
+                    echo ""
                     if [ -z "$es_api_key" ]; then
                         echo "  Skipped"
                         echo ""
                         return 0
                     fi
+                    echo "  ✓ ${es_api_key:0:10}... received"
 
                     # Test connectivity
                     echo "  Testing connection..."
@@ -1078,6 +1087,7 @@ check_and_setup_elasticsearch() {
                     write_env_value "$BACKEND_ENV" "ELASTICSEARCH_API_KEY" "$es_api_key"
                     write_env_value "$BACKEND_ENV" "ELASTICSEARCH_INDEX_PATTERN" "achilles-results-*"
                     echo "  ✓ Elasticsearch credentials saved to backend/.env"
+                    ES_JUST_CONFIGURED=true
                     ;;
                 [Ll]*)
                     echo "  Use: docker compose --profile elasticsearch up -d"
@@ -1122,10 +1132,12 @@ check_and_setup_elasticsearch() {
     fi
 
     # Check if indices exist (only for direct node connections)
-    if [ -n "$es_url" ]; then
+    # Skip the "already initialized" short-circuit if ES was JUST configured in this run —
+    # always offer init on fresh config, even if some achilles-* indices happen to exist.
+    if [ -n "$es_url" ] && [ "${ES_JUST_CONFIGURED:-false}" != "true" ]; then
+        # Count only indices that actually start with "achilles-" (filter out empty lines)
         local index_count
-        index_count=$(eval curl -s --max-time 5 "$curl_auth" "$es_url/_cat/indices/achilles-*?h=index" 2>/dev/null | wc -l) || true
-        index_count=$((index_count + 0))  # ensure numeric
+        index_count=$(eval curl -s --max-time 5 "$curl_auth" "$es_url/_cat/indices/achilles-*?h=index" 2>/dev/null | grep -c '^achilles-' 2>/dev/null) || index_count=0
 
         if [ "$index_count" -gt 0 ]; then
             local doc_count
@@ -1138,8 +1150,10 @@ check_and_setup_elasticsearch() {
         # No indices — offer to initialize
         echo "  ✓ Connected to $es_url"
         echo "  ✗ No achilles-* indices found"
+    elif [ -n "$es_url" ]; then
+        echo "  Fresh configuration — proceeding to index initialization"
     else
-        # Elastic Cloud — can't check indices with curl, delegate to init script
+        # Elastic Cloud (cloud_id) — can't check indices with curl, delegate to init script
         echo "  Checking indices..."
     fi
 
