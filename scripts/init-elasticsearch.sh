@@ -29,11 +29,12 @@ SEED_DATA=false
 SEED_COUNT=1000
 INDEX_NAME="achilles-results-default"
 
-# Read a value from a .env file
+# Read a value from a .env file (returns empty if not found — doesn't fail pipefail)
 read_env_value() {
     local file="$1" key="$2"
     if [ -f "$file" ]; then
-        grep -E "^${key}=" "$file" 2>/dev/null | head -1 | cut -d'=' -f2-
+        # Use awk to avoid pipefail issues when grep returns no matches
+        awk -F= -v k="$key" '$1 == k { sub(/^[^=]*=/, ""); print; exit }' "$file"
     fi
 }
 
