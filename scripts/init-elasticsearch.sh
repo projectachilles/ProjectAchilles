@@ -122,6 +122,17 @@ if ! python3 -c "import elasticsearch" 2>/dev/null; then
     VENV_DIR="$PROJECT_ROOT/.es-venv"
     if [ ! -d "$VENV_DIR" ]; then
         echo "  Installing elasticsearch Python package..."
+        # Check if python3 -m venv works (python3-venv is installed on Debian/Ubuntu)
+        if ! python3 -m venv --help &>/dev/null || ! python3 -c "import ensurepip" 2>/dev/null; then
+            if command -v apt-get &>/dev/null; then
+                echo "  Installing python3-venv (required on Debian/Ubuntu)..."
+                sudo apt-get install -y -qq python3-venv python3-pip 2>&1 | tail -3
+            else
+                echo "  Error: python3-venv is required but not installed."
+                echo "  Install it manually for your system (e.g., apt install python3-venv)."
+                exit 1
+            fi
+        fi
         python3 -m venv "$VENV_DIR"
         "$VENV_DIR/bin/pip" install -q 'elasticsearch>=8.0,<9.0'
     fi
