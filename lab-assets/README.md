@@ -33,3 +33,4 @@ version bump of the test is expected).
 | Path | Serves test | f0_library path |
 |------|-------------|-----------------|
 | `lab-assets/honestcue/v2/` | HONESTCUE v2 | `f0_library/tests_source/intel-driven/e5472cd5-c799-4b07-b455-8c02665ca4cf/` |
+| `lab-assets/promptflux/v1/` | PROMPTFLUX v1 | `f0_library/tests_source/intel-driven/0a749b39-409e-46f5-9338-ee886b439cfa/` |

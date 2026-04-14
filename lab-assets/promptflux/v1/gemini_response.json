@@ -1,0 +1,60 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "' --- ACHILLES-PROMPTFLUX stage1 benign VBS ---\r\nDim aX7Q, bPz3, cL2K, dM9W, eR4V, fN8T\r\nDim sH1Y, sU3A, sW6B, sF0L\r\nDim oFs, oSh, hFile\r\n\r\naX7Q = Chr(65) & Chr(67) & Chr(72) & Chr(73) & Chr(76) & Chr(76) & Chr(69) & Chr(83)\r\nbPz3 = Chr(45) & Chr(80) & Chr(82) & Chr(79) & Chr(77) & Chr(80) & Chr(84) & Chr(70) & Chr(76) & Chr(85) & Chr(88)\r\ncL2K = Chr(45) & Chr(83) & Chr(84) & Chr(65) & Chr(71) & Chr(69) & Chr(49)\r\ndM9W = aX7Q & Chr(45) & Chr(32) & bPz3 & Chr(32) & cL2K\r\n\r\nsH1Y = Chr(99) & Chr(58) & Chr(92) & Chr(70) & Chr(48) & Chr(92)\r\nsU3A = Chr(112) & Chr(114) & Chr(111) & Chr(109) & Chr(112) & Chr(116) & Chr(102) & Chr(108) & Chr(117) & Chr(120) & Chr(95) & Chr(115) & Chr(116) & Chr(97) & Chr(103) & Chr(101) & Chr(49) & Chr(95) & Chr(109) & Chr(97) & Chr(114) & Chr(107) & Chr(101) & Chr(114) & Chr(46) & Chr(116) & Chr(120) & Chr(116)\r\nsW6B = sH1Y & sU3A\r\n\r\nSet oFs = CreateObject(Chr(83) & Chr(99) & Chr(114) & Chr(105) & Chr(112) & Chr(116) & Chr(105) & Chr(110) & Chr(103) & Chr(46) & Chr(70) & Chr(105) & Chr(108) & Chr(101) & Chr(83) & Chr(121) & Chr(115) & Chr(116) & Chr(101) & Chr(109) & Chr(79) & Chr(98) & Chr(106) & Chr(101) & Chr(99) & Chr(116))\r\nIf Not oFs.FolderExists(sH1Y) Then\r\n    On Error Resume Next\r\n    oFs.CreateFolder(sH1Y)\r\n    On Error GoTo 0\r\nEnd If\r\n\r\nSet hFile = oFs.CreateTextFile(sW6B, True)\r\nhFile.WriteLine dM9W & Chr(32) & Chr(64) & Chr(32) & Now()\r\nhFile.Close\r\n\r\nWScript.Echo dM9W\r\n"
+          }
+        ]
+      },
+      "finishReason": "STOP",
+      "index": 0,
+      "safetyRatings": [
+        {
+          "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+          "probability": "NEGLIGIBLE"
+        },
+        {
+          "category": "HARM_CATEGORY_HARASSMENT",
+          "probability": "NEGLIGIBLE"
+        },
+        {
+          "category": "HARM_CATEGORY_HATE_SPEECH",
+          "probability": "NEGLIGIBLE"
+        },
+        {
+          "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+          "probability": "NEGLIGIBLE"
+        }
+      ]
+    }
+  ],
+  "promptFeedback": {
+    "safetyRatings": [
+      {
+        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+        "probability": "NEGLIGIBLE"
+      },
+      {
+        "category": "HARM_CATEGORY_HARASSMENT",
+        "probability": "NEGLIGIBLE"
+      },
+      {
+        "category": "HARM_CATEGORY_HATE_SPEECH",
+        "probability": "NEGLIGIBLE"
+      },
+      {
+        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+        "probability": "NEGLIGIBLE"
+      }
+    ]
+  },
+  "usageMetadata": {
+    "promptTokenCount": 112,
+    "candidatesTokenCount": 284,
+    "totalTokenCount": 396
+  },
+  "modelVersion": "gemini-pro-001"
+}
