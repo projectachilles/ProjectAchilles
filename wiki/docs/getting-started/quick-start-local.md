@@ -48,6 +48,7 @@ This script will:
 - Kill any existing ProjectAchilles processes (`-k`)
 - Detect your platform and install missing system dependencies (Node.js, npm, Git, Go)
 - **Guide you through Clerk authentication setup** (if not already configured)
+- **Configure Clerk RBAC** (session token custom claim + admin role via Clerk API)
 - **Configure Elasticsearch** (if not already set up — Cloud or skip)
 - **Check the test library** and prompt for a GitHub token if authentication is required
 - Install npm dependencies for both frontend and backend
