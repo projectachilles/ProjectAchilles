@@ -1,0 +1,60 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "using System;\nusing System.IO;\nusing Microsoft.Win32;\n\npublic class HonestcueStage2\n{\n    public static string Run()\n    {\n        string defenderSub = \"unavailable\";\n        try\n        {\n            using (RegistryKey k = Registry.LocalMachine.OpenSubKey(\n                @\"SOFTWARE\\Microsoft\\Windows Defender\\Features\"))\n            {\n                if (k != null)\n                {\n                    string[] names = k.GetValueNames();\n                    defenderSub = \"read_ok:\" + names.Length + \"_values\";\n                }\n            }\n        }\n        catch (Exception ex) { defenderSub = \"read_err:\" + ex.Message; }\n\n        string artifactDir = @\"c:\\Users\\fortika-test\";\n        try { Directory.CreateDirectory(artifactDir); } catch { }\n        string marker = Path.Combine(artifactDir, \"honestcue_marker.txt\");\n        File.WriteAllText(marker, \"honestcue-stage2-reflective-load \" +\n            DateTime.UtcNow.ToString(\"o\") + \" defender=\" + defenderSub);\n        return \"marker:\" + marker;\n    }\n}\n"
+          }
+        ]
+      },
+      "finishReason": "STOP",
+      "index": 0,
+      "safetyRatings": [
+        {
+          "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+          "probability": "NEGLIGIBLE"
+        },
+        {
+          "category": "HARM_CATEGORY_HARASSMENT",
+          "probability": "NEGLIGIBLE"
+        },
+        {
+          "category": "HARM_CATEGORY_HATE_SPEECH",
+          "probability": "NEGLIGIBLE"
+        },
+        {
+          "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+          "probability": "NEGLIGIBLE"
+        }
+      ]
+    }
+  ],
+  "promptFeedback": {
+    "safetyRatings": [
+      {
+        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+        "probability": "NEGLIGIBLE"
+      },
+      {
+        "category": "HARM_CATEGORY_HARASSMENT",
+        "probability": "NEGLIGIBLE"
+      },
+      {
+        "category": "HARM_CATEGORY_HATE_SPEECH",
+        "probability": "NEGLIGIBLE"
+      },
+      {
+        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+        "probability": "NEGLIGIBLE"
+      }
+    ]
+  },
+  "usageMetadata": {
+    "promptTokenCount": 97,
+    "candidatesTokenCount": 198,
+    "totalTokenCount": 295
+  },
+  "modelVersion": "gemini-pro-001"
+}
