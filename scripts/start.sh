@@ -365,7 +365,21 @@ install_go_tarball() {
     export PATH="/usr/local/go/bin:$PATH"
 
     echo "  Installed to /usr/local/go"
-    echo "  Tip: add to your shell profile — export PATH=/usr/local/go/bin:\$PATH"
+
+    # Persist PATH update to common shell profiles so future shells see Go
+    local path_line='export PATH=/usr/local/go/bin:$PATH'
+    local profile=""
+    if [ -f "$HOME/.bashrc" ]; then
+        profile="$HOME/.bashrc"
+    elif [ -f "$HOME/.zshrc" ]; then
+        profile="$HOME/.zshrc"
+    elif [ -f "$HOME/.profile" ]; then
+        profile="$HOME/.profile"
+    fi
+    if [ -n "$profile" ] && ! grep -qF "/usr/local/go/bin" "$profile" 2>/dev/null; then
+        echo "$path_line" >> "$profile"
+        echo "  Added /usr/local/go/bin to PATH in $profile"
+    fi
 }
 
 install_go_apt()    { install_go_tarball; }
@@ -489,6 +503,12 @@ check_and_install_deps() {
     fi
 
     # --- Go (optional but auto-installed — needed for agent/test builds) ---
+    # If go isn't on PATH but was installed at /usr/local/go, add it to PATH
+    # so users don't have to update their shell profile for the script to work.
+    if ! command -v go &>/dev/null && [ -x /usr/local/go/bin/go ]; then
+        export PATH="/usr/local/go/bin:$PATH"
+    fi
+
     if command -v go &>/dev/null; then
         local go_ver go_minor
         go_ver=$(go version | awk '{print $3}' | sed 's/go//')
