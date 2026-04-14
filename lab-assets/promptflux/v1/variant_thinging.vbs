@@ -1,10 +1,14 @@
-' --- ACHILLES-PROMPTFLUX stage2 metamorphic variant (benign) ---
+' --- ACHILLES-PROMPTFLUX stage2 metamorphic variant (benign, v1.1) ---
 ' Simulates the "Thinging" module's hourly rewrite: same semantic
 ' intent as stage1, different variable names, different Chr() offsets,
 ' different concatenation order. Blue-team detections relying on a
 ' fixed string hash or YARA string constant will miss; detections
 ' relying on behaviour (wscript spawned from c:\F0 writing to c:\F0
-' and echoing a marker) will still fire.
+' and dropping a marker file) will still fire.
+'
+' v1.1: WScript.Echo removed — under SSH-spawned Session 0 (no interactive
+' desktop), wscript.exe renders Echo as a MessageBox that blocks forever.
+' The marker file write below is the entire detection-relevant side effect.
 
 Dim kB2C, mX8D, pQ4E, rT7F, sV5G, uW1H
 Dim zP9J, zN3M, zK6R
@@ -31,5 +35,3 @@ End If
 Set tf = fso.CreateTextFile(zK6R, True)
 tf.WriteLine uW1H & Chr(32) & Chr(64) & Chr(32) & Now()
 tf.Close
-
-WScript.Echo uW1H

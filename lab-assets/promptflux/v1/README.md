@@ -12,7 +12,11 @@ Both artefacts here are **structurally obfuscated but semantically benign**:
 
 - No shell, registry, WMI, network, persistence, or destructive API calls.
 - The only observable side-effect is a marker file written under
-  `c:\F0\` and a single `WScript.Echo` to console.
+  `c:\F0\` (one per stage). **No `WScript.Echo` / no MessageBox** —
+  asset bodies are file-only so they execute correctly under
+  non-interactive (Session 0 / SSH-spawned / SYSTEM) wscript hosts
+  where Echo would otherwise block on a hidden modal dialog. See the
+  v1.1 changelog below.
 - They exist to model the **shape** of a PROMPTFLUX-generated VBS (Chr-based
   string assembly, randomized variable names, stripped comments, inline
   concatenation) so blue-team detection engineers can tune string and
@@ -47,8 +51,29 @@ propagation step to enumeration only (no copy).
 
 | File | SHA256 |
 |------|--------|
-| `gemini_response.json` | `d26c8b1c23aae42f711e7b3b474e5925f5be30a068ae0bd9d2d33671cce83ff5` |
-| `variant_thinging.vbs` | `c254774bf0e050e154ccaa9eb39a191b2855e12669e14088f07a1624eb9a8969` |
+| `gemini_response.json` | `4896cef7403728a9e71ddd1ff51c48eda9f09d7cd38652318a47386090edb398` |
+| `variant_thinging.vbs` | `7ddc530e17bbe73bbee169d7405844a02aa06955b57828f458567ffe668bd12c` |
+
+### v1.1 changelog (2026-04-13)
+
+- Removed `WScript.Echo` from both `gemini_response.json` (embedded
+  stage-1 VBS body inside `candidates[0].content.parts[0].text`) and
+  `variant_thinging.vbs`.
+- Rationale: `wscript.exe` interprets `WScript.Echo` as a modal
+  `MessageBox`. When the F0RT1KA orchestrator runs under SSH (Session 0
+  / Services session, no interactive desktop), the MessageBox queues
+  forever and the process hangs until killed externally. Stage 1
+  detonation observed a 5m51s hang on `WIN-81O55OA6LO0` before manual
+  termination.
+- Behavioural side effect retained: each VBS still creates a marker
+  file under `c:\F0\` (`promptflux_stage1_marker.txt`,
+  `promptflux_stage2_marker.txt`). Detection rules that key on
+  `wscript.exe` writing to `c:\F0\promptflux_stage*_marker.txt` are
+  unaffected.
+- All Chr()-based obfuscation, variable shuffling, and concatenation
+  ordering is preserved — string-hash and YARA rules unaffected, but
+  any rule pinned to the previous SHA256 must be re-pinned to the v1.1
+  hashes above.
 
 Verify locally:
 
