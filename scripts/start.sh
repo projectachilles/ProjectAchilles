@@ -1411,18 +1411,42 @@ if [ "$TUNNEL_MODE" = true ] && { [ "$RESTART_SERVERS" != true ] || [ "$START_FR
     if [ "$TUNNEL_PROVIDER" = "cloudflare" ]; then
         echo "Starting Cloudflare tunnels..."
 
-        # Start backend tunnel
-        cloudflared tunnel --url "http://localhost:$BACKEND_PORT" --no-autoupdate --protocol http2 > /tmp/cf-backend.log 2>&1 &
-        CF_BACKEND_PID=$!
+        # Helper: start a tunnel, wait for URL, retry once on failure
+        # Quick Tunnels API (trycloudflare.com) sometimes returns 500 when two
+        # requests arrive from the same IP in the same second. Staggering the
+        # launches and retrying on failure makes the setup much more reliable.
+        start_cf_tunnel() {
+            local port="$1" log_file="$2" pid_var="$3" url_var="$4"
+            local attempt url pid
+            for attempt in 1 2; do
+                cloudflared tunnel --url "http://localhost:$port" --no-autoupdate --protocol http2 > "$log_file" 2>&1 &
+                pid=$!
+                url=$(wait_for_cf_url "$log_file") || true
+                if [ -n "$url" ]; then
+                    printf -v "$pid_var" '%s' "$pid"
+                    printf -v "$url_var" '%s' "$url"
+                    return 0
+                fi
+                # Failed — kill and retry
+                kill "$pid" 2>/dev/null || true
+                if [ "$attempt" -eq 1 ]; then
+                    echo "  ⚠ Tunnel for port $port failed, retrying in 3s..."
+                    sleep 3
+                fi
+            done
+            return 1
+        }
+
+        # Start backend tunnel first
+        start_cf_tunnel "$BACKEND_PORT" /tmp/cf-backend.log CF_BACKEND_PID CF_BACKEND_URL || true
+
+        # Small stagger before starting frontend tunnel to avoid rate limit
+        sleep 2
 
         # Start frontend tunnel
-        cloudflared tunnel --url "http://localhost:$FRONTEND_PORT" --no-autoupdate --protocol http2 > /tmp/cf-frontend.log 2>&1 &
-        CF_FRONTEND_PID=$!
+        start_cf_tunnel "$FRONTEND_PORT" /tmp/cf-frontend.log CF_FRONTEND_PID CF_FRONTEND_URL || true
 
-        # Wait for URLs to be assigned
         echo "  Waiting for tunnel URLs..."
-        CF_BACKEND_URL=$(wait_for_cf_url /tmp/cf-backend.log) || true
-        CF_FRONTEND_URL=$(wait_for_cf_url /tmp/cf-frontend.log) || true
 
         if [ -z "$CF_BACKEND_URL" ] || [ -z "$CF_FRONTEND_URL" ]; then
             echo "  ⚠ Timed out waiting for tunnel URLs"
