@@ -12,15 +12,27 @@ vi.mock('../../analytics/settings.js', () => ({
 
 const mockIndicesCreate = vi.fn();
 const mockCatIndices = vi.fn();
+const mockIndicesExists = vi.fn();
+const mockPutMapping = vi.fn();
 
 vi.mock('../../analytics/client.js', () => ({
   createEsClient: () => ({
-    indices: { create: mockIndicesCreate },
+    indices: {
+      create: mockIndicesCreate,
+      exists: mockIndicesExists,
+      putMapping: mockPutMapping,
+    },
     cat: { indices: mockCatIndices },
   }),
 }));
 
-const { createDefenderIndex, listDefenderIndices, DEFENDER_INDEX } = await import('../index-management.js');
+const {
+  createDefenderIndex,
+  listDefenderIndices,
+  ensureDefenderIndexMappings,
+  DEFENDER_INDEX,
+  DEFENDER_INDEX_MAPPING,
+} = await import('../index-management.js');
 
 describe('Defender index management', () => {
   beforeEach(() => {
@@ -62,6 +74,59 @@ describe('Defender index management', () => {
       mockIndicesCreate.mockRejectedValue(new Error('cluster down'));
 
       await expect(createDefenderIndex()).rejects.toThrow('cluster down');
+    });
+  });
+
+  describe('DEFENDER_INDEX_MAPPING', () => {
+    it('includes f0rtika sub-object with correlation + auto-resolve fields', () => {
+      const props = DEFENDER_INDEX_MAPPING.mappings.properties as Record<string, any>;
+      expect(props.f0rtika).toBeDefined();
+      expect(props.f0rtika.properties.achilles_correlated.type).toBe('boolean');
+      expect(props.f0rtika.properties.achilles_test_uuid.type).toBe('keyword');
+      expect(props.f0rtika.properties.achilles_matched_at.type).toBe('date');
+      expect(props.f0rtika.properties.auto_resolved.type).toBe('boolean');
+      expect(props.f0rtika.properties.auto_resolved_at.type).toBe('date');
+      expect(props.f0rtika.properties.auto_resolve_mode.type).toBe('keyword');
+      expect(props.f0rtika.properties.auto_resolve_error.type).toBe('keyword');
+    });
+  });
+
+  describe('ensureDefenderIndexMappings', () => {
+    it('calls putMapping when the index exists', async () => {
+      mockIndicesExists.mockResolvedValueOnce(true);
+      mockPutMapping.mockResolvedValueOnce({ acknowledged: true });
+
+      await ensureDefenderIndexMappings();
+
+      expect(mockPutMapping).toHaveBeenCalledWith(
+        expect.objectContaining({
+          index: DEFENDER_INDEX,
+          properties: expect.any(Object),
+        }),
+      );
+    });
+
+    it('skips putMapping when the index does not exist', async () => {
+      mockIndicesExists.mockResolvedValueOnce(false);
+
+      await ensureDefenderIndexMappings();
+
+      expect(mockPutMapping).not.toHaveBeenCalled();
+    });
+
+    it('no-ops when Elasticsearch is not configured', async () => {
+      mockGetSettings.mockReturnValue({ configured: false });
+
+      await ensureDefenderIndexMappings();
+
+      expect(mockIndicesExists).not.toHaveBeenCalled();
+      expect(mockPutMapping).not.toHaveBeenCalled();
+    });
+
+    it('swallows transient errors without throwing', async () => {
+      mockIndicesExists.mockRejectedValueOnce(new Error('cluster transient'));
+
+      await expect(ensureDefenderIndexMappings()).resolves.toBeUndefined();
     });
   });
 

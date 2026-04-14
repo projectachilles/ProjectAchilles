@@ -275,6 +275,117 @@ describe('IntegrationsSettingsService — Defender', () => {
     });
   });
 
+  // ── Auto-resolve mode ─────────────────────────────────────────
+
+  describe('auto_resolve_mode', () => {
+    it("defaults to 'disabled' when field is missing", () => {
+      process.env.DEFENDER_TENANT_ID = 'tid';
+      process.env.DEFENDER_CLIENT_ID = 'cid';
+      process.env.DEFENDER_CLIENT_SECRET = 'secret';
+
+      expect(service.getAutoResolveMode()).toBe('disabled');
+    });
+
+    it("defaults to 'disabled' when Defender is not configured", () => {
+      expect(service.getAutoResolveMode()).toBe('disabled');
+    });
+
+    it("persists 'dry_run' via setAutoResolveMode and reads it back", () => {
+      let writtenData = '';
+      mockWriteFileSync.mockImplementation((_p: string, data: string) => {
+        writtenData = data;
+      });
+
+      // Initial credentials (required for setAutoResolveMode)
+      service.saveDefenderSettings({
+        tenant_id: 'tid',
+        client_id: 'cid',
+        client_secret: 'secret',
+      });
+
+      mockExistsSync.mockImplementation((p: string) => p === SETTINGS_FILE || p === SETTINGS_DIR);
+      mockReadFileSync.mockReturnValue(writtenData);
+
+      service.setAutoResolveMode('dry_run');
+
+      mockReadFileSync.mockReturnValue(writtenData);
+      expect(service.getAutoResolveMode()).toBe('dry_run');
+    });
+
+    it("persists 'enabled' mode", () => {
+      let writtenData = '';
+      mockWriteFileSync.mockImplementation((_p: string, data: string) => {
+        writtenData = data;
+      });
+
+      service.saveDefenderSettings({
+        tenant_id: 'tid',
+        client_id: 'cid',
+        client_secret: 'secret',
+      });
+
+      mockExistsSync.mockImplementation((p: string) => p === SETTINGS_FILE || p === SETTINGS_DIR);
+      mockReadFileSync.mockReturnValue(writtenData);
+
+      service.setAutoResolveMode('enabled');
+
+      mockReadFileSync.mockReturnValue(writtenData);
+      expect(service.getAutoResolveMode()).toBe('enabled');
+    });
+
+    it('throws on invalid mode string', () => {
+      let writtenData = '';
+      mockWriteFileSync.mockImplementation((_p: string, data: string) => { writtenData = data; });
+      service.saveDefenderSettings({ tenant_id: 't', client_id: 'c', client_secret: 's' });
+      mockExistsSync.mockImplementation((p: string) => p === SETTINGS_FILE || p === SETTINGS_DIR);
+      mockReadFileSync.mockReturnValue(writtenData);
+
+      // @ts-expect-error — testing runtime validation
+      expect(() => service.setAutoResolveMode('bogus')).toThrow(/Invalid auto_resolve_mode/);
+    });
+
+    it('throws when setting mode before Defender is configured', () => {
+      expect(() => service.setAutoResolveMode('dry_run')).toThrow(/not configured/);
+    });
+
+    it('setAutoResolveMode preserves existing credentials', () => {
+      let writtenData = '';
+      mockWriteFileSync.mockImplementation((_p: string, data: string) => { writtenData = data; });
+
+      service.saveDefenderSettings({
+        tenant_id: 'original-tid',
+        client_id: 'original-cid',
+        client_secret: 'original-secret',
+        label: 'Original Tenant',
+      });
+
+      mockExistsSync.mockImplementation((p: string) => p === SETTINGS_FILE || p === SETTINGS_DIR);
+      mockReadFileSync.mockReturnValue(writtenData);
+
+      service.setAutoResolveMode('dry_run');
+
+      mockReadFileSync.mockReturnValue(writtenData);
+      const settings = service.getDefenderSettings();
+      expect(settings!.tenant_id).toBe('original-tid');
+      expect(settings!.client_id).toBe('original-cid');
+      expect(settings!.client_secret).toBe('original-secret');
+      expect(settings!.label).toBe('Original Tenant');
+      expect(settings!.auto_resolve_mode).toBe('dry_run');
+    });
+
+    it('ignores unknown mode values read from disk (forward compat)', () => {
+      // Simulate a forward-compat scenario where disk has a mode string the current code doesn't know about
+      const onDisk = { defender: { tenant_id: 'enc:x', client_id: 'enc:y', client_secret: 'enc:z', configured: true, auto_resolve_mode: 'future-mode-v2' } };
+      mockExistsSync.mockImplementation((p: string) => p === SETTINGS_FILE || p === SETTINGS_DIR);
+      mockReadFileSync.mockReturnValue(JSON.stringify(onDisk));
+
+      // Suppress decryption console.error noise from the mock 'enc:' values
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      expect(service.getAutoResolveMode()).toBe('disabled');
+      errorSpy.mockRestore();
+    });
+  });
+
   // ── Error handling ────────────────────────────────────────────
 
   describe('error handling', () => {

@@ -6,6 +6,10 @@ import * as path from 'path';
 import * as os from 'os';
 import { encrypt as sharedEncrypt, decrypt as sharedDecrypt } from '../shared/encryption.js';
 import type { AzureIntegrationSettings, DefenderIntegrationSettings, AlertSettings, IntegrationsSettings, OrgIntegrationSettings } from '../../types/integrations.js';
+import type { AutoResolveMode } from '../../types/defender.js';
+
+const AUTO_RESOLVE_MODES: ReadonlyArray<AutoResolveMode> = ['disabled', 'dry_run', 'enabled'] as const;
+const DEFAULT_AUTO_RESOLVE_MODE: AutoResolveMode = 'disabled';
 
 const SETTINGS_DIR = path.join(os.homedir(), '.projectachilles');
 const SETTINGS_FILE = path.join(SETTINGS_DIR, 'integrations.json');
@@ -275,6 +279,7 @@ export class IntegrationsSettingsService {
       label: settings.label !== undefined ? settings.label : current.label,
       last_alert_sync: settings.last_alert_sync !== undefined ? settings.last_alert_sync : current.last_alert_sync,
       last_score_sync: settings.last_score_sync !== undefined ? settings.last_score_sync : current.last_score_sync,
+      auto_resolve_mode: settings.auto_resolve_mode !== undefined ? settings.auto_resolve_mode : current.auto_resolve_mode,
     };
 
     const encrypted = {
@@ -408,6 +413,43 @@ export class IntegrationsSettingsService {
       client_id: settings.client_id,
       client_secret: settings.client_secret,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Defender Auto-Resolve mode
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Read the current auto-resolve mode for the Defender integration.
+   * Defaults to 'disabled' when the field is missing or the integration is
+   * not yet configured — the auto-resolve pillar is opt-in.
+   */
+  getAutoResolveMode(): AutoResolveMode {
+    const settings = this.getDefenderSettings();
+    const mode = settings?.auto_resolve_mode;
+    if (mode && AUTO_RESOLVE_MODES.includes(mode)) return mode;
+    return DEFAULT_AUTO_RESOLVE_MODE;
+  }
+
+  /**
+   * Persist a new auto-resolve mode without touching any other Defender
+   * credentials. Throws if the mode string is not one of the valid values.
+   * Does nothing (and throws) if Defender is not yet configured — we never
+   * want to create a defender settings entry with empty credentials just to
+   * hold a mode, since that would shadow env var credentials.
+   */
+  setAutoResolveMode(mode: AutoResolveMode): void {
+    if (!AUTO_RESOLVE_MODES.includes(mode)) {
+      throw new Error(`Invalid auto_resolve_mode: ${mode}. Must be one of: ${AUTO_RESOLVE_MODES.join(', ')}`);
+    }
+
+    const current = this.getDefenderSettings();
+    if (!current?.configured) {
+      throw new Error('Cannot set auto_resolve_mode: Defender integration is not configured');
+    }
+
+    // Partial update preserves credentials (encrypted) and existing sync timestamps.
+    this.saveDefenderSettings({ auto_resolve_mode: mode });
   }
 
   // ---------------------------------------------------------------------------

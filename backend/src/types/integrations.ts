@@ -1,5 +1,8 @@
 // Type definitions for external integration settings (Azure / Entra ID, etc.)
 
+import type { AutoResolveMode } from './defender.js';
+export type { AutoResolveMode };
+
 export interface AzureIntegrationSettings {
   tenant_id: string;
   client_id: string;
@@ -17,6 +20,12 @@ export interface DefenderIntegrationSettings {
   /** Persisted sync timestamps so incremental syncs survive process restarts. */
   last_alert_sync?: string;
   last_score_sync?: string;
+  /**
+   * Auto-resolve pillar mode. Missing/undefined = 'disabled' (default).
+   * Operationally opt-in — requires SecurityAlert.ReadWrite.All granted to
+   * the Azure AD app registration for modes other than 'disabled'.
+   */
+  auto_resolve_mode?: AutoResolveMode;
 }
 
 // ---------------------------------------------------------------------------

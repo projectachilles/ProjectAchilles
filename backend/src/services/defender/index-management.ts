@@ -66,6 +66,23 @@ export const DEFENDER_INDEX_MAPPING = {
         type: 'text' as const,
         fields: { keyword: { type: 'keyword' as const, ignore_above: 256 } },
       },
+
+      // Achilles correlation + auto-resolve fields.
+      // Populated on ALERT docs by:
+      //   - enrichment.service.ts  (achilles_correlated, achilles_test_uuid, achilles_matched_at)
+      //   - auto-resolve.service.ts (auto_resolved, auto_resolved_at, auto_resolve_mode, auto_resolve_error)
+      // Object mapping (not nested) — single sub-object per alert doc; dotted-path queries work directly.
+      f0rtika: {
+        properties: {
+          achilles_correlated: { type: 'boolean' as const },
+          achilles_test_uuid:  { type: 'keyword' as const },
+          achilles_matched_at: { type: 'date' as const },
+          auto_resolved:       { type: 'boolean' as const },
+          auto_resolved_at:    { type: 'date' as const },
+          auto_resolve_mode:   { type: 'keyword' as const },
+          auto_resolve_error:  { type: 'keyword' as const },
+        },
+      },
     },
   },
 };
@@ -98,6 +115,38 @@ export async function createDefenderIndex(): Promise<{ created: boolean; message
 /** Ensure the Defender index exists (create if missing, no-op if exists). */
 export async function ensureDefenderIndex(): Promise<void> {
   await createDefenderIndex();
+}
+
+/**
+ * Idempotently apply the Defender index mapping to an existing index.
+ * Used to propagate additive mapping changes (e.g., new f0rtika.* fields)
+ * to indexes created before those fields were declared. Safe to call on
+ * every sync cycle — Elasticsearch ignores no-op mapping updates.
+ *
+ * Does nothing if Elasticsearch is not configured or the index doesn't
+ * exist yet; the next ensureDefenderIndex() call will create it with the
+ * full mapping.
+ */
+export async function ensureDefenderIndexMappings(): Promise<void> {
+  const settingsService = new SettingsService();
+  const settings = settingsService.getSettings();
+  if (!settings.configured) return;
+
+  const client = createEsClient(settings);
+
+  try {
+    const exists = await client.indices.exists({ index: DEFENDER_INDEX });
+    if (!exists) return;
+
+    await client.indices.putMapping({
+      index: DEFENDER_INDEX,
+      properties: DEFENDER_INDEX_MAPPING.mappings.properties,
+    });
+  } catch (err) {
+    // Non-fatal — index may not exist yet, or cluster may be transiently unavailable.
+    // Propagating the error would block the sync cycle; the next cycle will retry.
+    console.warn(`[Defender] ensureDefenderIndexMappings failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /** List the Defender index info. */

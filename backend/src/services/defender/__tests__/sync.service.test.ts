@@ -30,6 +30,7 @@ vi.mock('../../integrations/settings.js', () => ({
 // Mock index management
 vi.mock('../index-management.js', () => ({
   ensureDefenderIndex: vi.fn().mockResolvedValue(undefined),
+  ensureDefenderIndexMappings: vi.fn().mockResolvedValue(undefined),
   DEFENDER_INDEX: 'achilles-defender',
 }));
 

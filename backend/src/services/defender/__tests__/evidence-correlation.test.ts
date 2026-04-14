@@ -1,5 +1,25 @@
 import { describe, it, expect } from 'vitest';
-import { buildDefenderEvidenceQuery } from '../evidence-correlation.js';
+import { buildDefenderEvidenceQuery, extractBundleUuid } from '../evidence-correlation.js';
+
+describe('extractBundleUuid', () => {
+  it('strips the `::<technique>` suffix', () => {
+    expect(extractBundleUuid('92b0b4f6-a09b-4c7b-b593-31ce461f804c::T1204.002'))
+      .toBe('92b0b4f6-a09b-4c7b-b593-31ce461f804c');
+  });
+
+  it('returns the input unchanged when no `::` is present', () => {
+    expect(extractBundleUuid('standalone-uuid-no-separator')).toBe('standalone-uuid-no-separator');
+  });
+
+  it('returns empty string for empty input', () => {
+    expect(extractBundleUuid('')).toBe('');
+  });
+
+  it('preserves UUID casing (does not lowercase)', () => {
+    // buildDefenderEvidenceQuery handles lowercasing; extractBundleUuid is case-preserving.
+    expect(extractBundleUuid('ABC-DEF::T1')).toBe('ABC-DEF');
+  });
+});
 
 describe('buildDefenderEvidenceQuery', () => {
   const baseInput = {

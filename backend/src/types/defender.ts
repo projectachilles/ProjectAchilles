@@ -122,6 +122,25 @@ export interface DefenderAlertDoc {
   evidence_hostnames: string[];
   /** Filenames extracted from evidence (process imageFile + fileDetails). */
   evidence_filenames: string[];
+  /** Achilles correlation + auto-resolve state. Populated by the enrichment
+   *  pass (correlation fields) and by the auto-resolve pass (resolve fields).
+   *  All fields optional — legacy docs predate these pillars. */
+  f0rtika?: {
+    /** True when the enrichment pass matched this alert to an Achilles test doc. */
+    achilles_correlated?: boolean;
+    /** Bundle UUID of the matched Achilles test (the `::` suffix is stripped). */
+    achilles_test_uuid?: string;
+    /** ISO timestamp of when correlation was established. */
+    achilles_matched_at?: string;
+    /** True once the auto-resolve pass has processed this alert (in dry-run or enabled mode). */
+    auto_resolved?: boolean;
+    /** ISO timestamp of the auto-resolve action. */
+    auto_resolved_at?: string;
+    /** Mode under which the receipt was written — distinguishes dry-run from live PATCH. */
+    auto_resolve_mode?: AutoResolveMode;
+    /** Populated if the Graph PATCH failed; keeps the doc visible for retry in the next pass. */
+    auto_resolve_error?: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -151,7 +170,47 @@ export interface EnrichmentPassResult {
   skipped: number;
   /** Number of msearch round-trips. */
   batches: number;
+  /** Alerts tagged with f0rtika.achilles_correlated in this pass. */
+  alertsMarkedCorrelated: number;
   /** Per-batch errors collected non-fatally. */
+  errors: string[];
+  /** Wall-clock duration of the pass. */
+  durationMs: number;
+}
+
+// ---------------------------------------------------------------------------
+// Auto-resolve pillar
+// ---------------------------------------------------------------------------
+
+/**
+ * Operational mode for the Defender auto-resolve pass.
+ * - `disabled`: feature off, no ES or Graph calls
+ * - `dry_run`: compute candidates and write receipts, but do NOT PATCH Defender
+ * - `enabled`: PATCH Defender alerts to status=resolved
+ */
+export type AutoResolveMode = 'disabled' | 'dry_run' | 'enabled';
+
+export interface AutoResolvePassOptions {
+  /** Override the mode from settings (primarily for tests). */
+  modeOverride?: AutoResolveMode;
+  /** Max alerts to PATCH per pass (rate-limit guard). Defaults to 30. */
+  maxPerPass?: number;
+  /** Hard cap on pass duration. Defaults to 30000. */
+  maxDurationMs?: number;
+}
+
+export interface AutoResolvePassResult {
+  /** Mode the pass ran under. */
+  mode: AutoResolveMode;
+  /** Correlated + unresolved + not-yet-auto-resolved alert docs considered. */
+  candidates: number;
+  /** Alerts actually PATCHed to Defender (0 in dry-run). */
+  patched: number;
+  /** Alerts that would have been PATCHed in dry-run. */
+  wouldPatch: number;
+  /** Candidates skipped (e.g., malformed correlation fields). */
+  skipped: number;
+  /** Error messages collected non-fatally. */
   errors: string[];
   /** Wall-clock duration of the pass. */
   durationMs: number;
@@ -162,6 +221,7 @@ export interface DefenderSyncResult {
   controls: SyncResult;
   alerts: SyncResult;
   enrichment: EnrichmentPassResult;
+  autoResolve: AutoResolvePassResult;
   timestamp: string;
 }
 

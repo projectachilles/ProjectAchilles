@@ -2,7 +2,7 @@
 // Supports manual and automatic (interval-based) sync.
 
 import { MicrosoftGraphClient } from './graph-client.js';
-import { ensureDefenderIndex, DEFENDER_INDEX } from './index-management.js';
+import { ensureDefenderIndex, ensureDefenderIndexMappings, DEFENDER_INDEX } from './index-management.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
@@ -19,6 +19,7 @@ import type {
   DefenderSyncResult,
   DefenderSyncStatus,
   EnrichmentPassResult,
+  AutoResolvePassResult,
 } from '../../types/defender.js';
 
 /** Days of alert history to fetch on first sync (no persisted lastAlertSync). */
@@ -409,7 +410,7 @@ export class DefenderSyncService {
     try {
       const integrationsService = new IntegrationsSettingsService();
       if (!integrationsService.isDefenderConfigured()) {
-        return { scanned: 0, detected: 0, skipped: 0, batches: 0, errors: [], durationMs: 0 };
+        return { scanned: 0, detected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, errors: [], durationMs: 0 };
       }
       const es = this.getEsClient();
       const settingsService = new SettingsService();
@@ -428,12 +429,18 @@ export class DefenderSyncService {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[Defender-Enrichment] pass threw: ${msg}`);
-      return { scanned: 0, detected: 0, skipped: 0, batches: 0, errors: [msg], durationMs: 0 };
+      return { scanned: 0, detected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, errors: [msg], durationMs: 0 };
     }
   }
 
   /** Run all three syncs. */
   async syncAll(): Promise<DefenderSyncResult> {
+    // Propagate any additive mapping changes to pre-existing indexes.
+    // Idempotent and non-fatal — a failure here does not block the sync.
+    // This is what lets Wave 2's alert-side f0rtika.* writes land on
+    // deployments whose achilles-defender index pre-dates those fields.
+    await ensureDefenderIndexMappings();
+
     const [scores, controls, alerts] = await Promise.all([
       this.syncSecureScores(),
       this.syncControlProfiles(),
@@ -444,11 +451,25 @@ export class DefenderSyncService {
     // in the index when we evaluate test docs.
     const enrichment = await this.runEnrichmentPass();
 
+    // Auto-resolve pillar: wired up in Wave 5. Placeholder disabled result
+    // keeps the type-complete shape from day one so downstream consumers
+    // (sync status UI, tests) don't need optional-field handling.
+    const autoResolve: AutoResolvePassResult = {
+      mode: 'disabled',
+      candidates: 0,
+      patched: 0,
+      wouldPatch: 0,
+      skipped: 0,
+      errors: [],
+      durationMs: 0,
+    };
+
     const result: DefenderSyncResult = {
       scores,
       controls,
       alerts,
       enrichment,
+      autoResolve,
       timestamp: new Date().toISOString(),
     };
 
