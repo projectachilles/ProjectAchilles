@@ -351,4 +351,114 @@ describe('DefenderEnrichmentService', () => {
     expect(result.detected).toBe(1);
     expect(result.errors.length).toBeGreaterThan(0);
   });
+
+  // ─────────────────────────────────────────────────────────────
+  // Wave 2 — alert-side correlation writes (mirrored from backend/)
+  // ─────────────────────────────────────────────────────────────
+
+  const makeMsearchHits = (alertIds: string[]) => ({
+    hits: {
+      total: { value: alertIds.length },
+      hits: alertIds.map((id) => ({ _id: id, _index: 'achilles-defender' })),
+    },
+  });
+
+  it('emits alert-side bulk updates alongside test-doc updates when alerts match', async () => {
+    const service = createService();
+    mockSearch.mockResolvedValueOnce(makeScanResponse([eligibleDoc('d1', 'bundle-uuid-A::T1204.002')]));
+    mockMsearch.mockResolvedValueOnce(
+      makeMsearchResponse([makeMsearchHits(['alert-1', 'alert-2'])]),
+    );
+    mockBulk.mockResolvedValueOnce(makeBulkResponse([{ ok: true }, { ok: true }, { ok: true }]));
+
+    const result = await service.runEnrichmentPass();
+
+    expect(result.detected).toBe(1);
+    expect(result.alertsMarkedCorrelated).toBe(2);
+
+    const ops = mockBulk.mock.calls[0][0].operations;
+    expect(ops).toHaveLength(6);
+    expect(ops[0]).toEqual({ update: { _index: 'achilles-results-tpsgl', _id: 'd1' } });
+    expect(ops[1].doc.f0rtika.defender_detected).toBe(true);
+    expect(ops[2]).toEqual({ update: { _index: 'achilles-defender', _id: 'alert-1' } });
+    expect(ops[3].doc.f0rtika.achilles_correlated).toBe(true);
+    expect(ops[3].doc.f0rtika.achilles_test_uuid).toBe('bundle-uuid-A');
+    expect(typeof ops[3].doc.f0rtika.achilles_matched_at).toBe('string');
+    expect(ops[4]).toEqual({ update: { _index: 'achilles-defender', _id: 'alert-2' } });
+    expect(ops[5].doc.f0rtika.achilles_test_uuid).toBe('bundle-uuid-A');
+  });
+
+  it('strips the `::<technique>` suffix from test_uuid for the alert-side achilles_test_uuid', async () => {
+    const service = createService();
+    mockSearch.mockResolvedValueOnce(
+      makeScanResponse([eligibleDoc('d1', '92b0b4f6-a09b-4c7b-b593-31ce461f804c::T1204.002')]),
+    );
+    mockMsearch.mockResolvedValueOnce(makeMsearchResponse([makeMsearchHits(['alert-1'])]));
+    mockBulk.mockResolvedValueOnce(makeBulkResponse([{ ok: true }, { ok: true }]));
+
+    await service.runEnrichmentPass();
+
+    const ops = mockBulk.mock.calls[0][0].operations;
+    expect(ops[3].doc.f0rtika.achilles_test_uuid).toBe('92b0b4f6-a09b-4c7b-b593-31ce461f804c');
+    expect(ops[3].doc.f0rtika.achilles_test_uuid).not.toContain('::');
+  });
+
+  it('deduplicates alert-side updates when multiple test docs match the same alert', async () => {
+    const service = createService();
+    mockSearch.mockResolvedValueOnce(
+      makeScanResponse([
+        eligibleDoc('d1', 'bundle-X::T1'),
+        eligibleDoc('d2', 'bundle-X::T2'),
+      ]),
+    );
+    mockMsearch.mockResolvedValueOnce(
+      makeMsearchResponse([
+        makeMsearchHits(['shared-alert-id']),
+        makeMsearchHits(['shared-alert-id']),
+      ]),
+    );
+    mockBulk.mockResolvedValueOnce(makeBulkResponse([{ ok: true }, { ok: true }, { ok: true }]));
+
+    const result = await service.runEnrichmentPass();
+
+    expect(result.detected).toBe(2);
+    expect(result.alertsMarkedCorrelated).toBe(1);
+
+    const ops = mockBulk.mock.calls[0][0].operations;
+    expect(ops).toHaveLength(6);
+    const alertHeaders = ops.filter(
+      (op: any) => op.update && op.update._index === 'achilles-defender',
+    );
+    expect(alertHeaders).toHaveLength(1);
+    expect(alertHeaders[0].update._id).toBe('shared-alert-id');
+  });
+
+  it('emits no alert-side updates when msearch returns total>0 but empty hits array', async () => {
+    const service = createService();
+    mockSearch.mockResolvedValueOnce(makeScanResponse([eligibleDoc('d1', 'a::T1')]));
+    mockMsearch.mockResolvedValueOnce(
+      makeMsearchResponse([{ hits: { total: { value: 1 }, hits: [] } }]),
+    );
+    mockBulk.mockResolvedValueOnce(makeBulkResponse([{ ok: true }]));
+
+    const result = await service.runEnrichmentPass();
+
+    expect(result.detected).toBe(1);
+    expect(result.alertsMarkedCorrelated).toBe(0);
+
+    const ops = mockBulk.mock.calls[0][0].operations;
+    expect(ops).toHaveLength(2);
+  });
+
+  it('msearch sub-query returns alert hits (size > 0) with _source disabled', async () => {
+    const service = createService();
+    mockSearch.mockResolvedValueOnce(makeScanResponse([eligibleDoc('d1', 'a::T1')]));
+    mockMsearch.mockResolvedValueOnce(makeMsearchResponse([{ hits: { total: { value: 0 } } }]));
+
+    await service.runEnrichmentPass();
+
+    const searches = mockMsearch.mock.calls[0][0].searches;
+    expect(searches[1].size).toBeGreaterThan(0);
+    expect(searches[1]._source).toBe(false);
+  });
 });

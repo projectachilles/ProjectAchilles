@@ -1,7 +1,19 @@
 // Lightweight Microsoft Graph API client using fetch — no SDK dependency.
 // Handles OAuth2 client_credentials, token caching, pagination, and rate limiting.
 
-import type { GraphSecureScore, GraphControlProfile, GraphAlert } from '../../types/defender.js';
+import type { GraphSecureScore, GraphControlProfile, GraphAlert, GraphAlertPatch } from '../../types/defender.js';
+
+/** Distinguishable error for Graph PATCH failures — see backend/ for full rationale. */
+export class GraphPatchError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: number,
+    readonly bodySnippet: string,
+  ) {
+    super(message);
+    this.name = 'GraphPatchError';
+  }
+}
 
 const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 const TOKEN_REFRESH_MARGIN_S = 300; // Refresh 5 min before expiry
@@ -151,5 +163,70 @@ export class MicrosoftGraphClient {
       params.$filter = filter;
     }
     return this.graphRequest<GraphAlert>('/security/alerts_v2', params);
+  }
+
+  /**
+   * PATCH a Microsoft Defender alert. Used by the auto-resolve pillar.
+   * Requires `SecurityAlert.ReadWrite.All` consent on the Azure AD app.
+   * Throws GraphPatchError on non-2xx; callers can branch on .statusCode.
+   */
+  async updateAlert(alertId: string, patch: GraphAlertPatch): Promise<void> {
+    if (!alertId) {
+      throw new Error('updateAlert: alertId is required');
+    }
+
+    const url = `${GRAPH_BASE}/security/alerts_v2/${encodeURIComponent(alertId)}`;
+    let retryCount = 0;
+
+    while (true) {
+      const token = await this.getAccessToken();
+      const res = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(patch),
+      });
+
+      if (res.status === 429 && retryCount < MAX_RETRIES) {
+        const retryAfter = parseInt(res.headers.get('Retry-After') || '5', 10);
+        await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+        retryCount++;
+        continue;
+      }
+
+      if (res.status === 401 && retryCount < 1) {
+        this.invalidateToken();
+        retryCount++;
+        continue;
+      }
+
+      if (res.ok) return;
+
+      const bodySnippet = (await res.text().catch(() => '')).slice(0, 300);
+
+      if (res.status === 403) {
+        throw new GraphPatchError(
+          `Graph PATCH forbidden (HTTP 403). Ensure the Azure AD app has 'SecurityAlert.ReadWrite.All' application permission with admin consent granted. Body: ${bodySnippet}`,
+          403,
+          bodySnippet,
+        );
+      }
+
+      if (res.status === 404) {
+        throw new GraphPatchError(
+          `Graph alert not found (HTTP 404): ${alertId}. The alert may have been deleted upstream.`,
+          404,
+          bodySnippet,
+        );
+      }
+
+      throw new GraphPatchError(
+        `Graph PATCH failed: HTTP ${res.status} — ${bodySnippet}`,
+        res.status,
+        bodySnippet,
+      );
+    }
   }
 }

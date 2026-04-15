@@ -2,9 +2,13 @@
 
 import * as crypto from 'crypto';
 import type { AzureIntegrationSettings, DefenderIntegrationSettings, IntegrationsSettings } from '../../types/integrations.js';
+import type { AutoResolveMode } from '../../types/defender.js';
 import { blobReadText, blobWrite } from '../storage.js';
 
 const SETTINGS_KEY = 'settings/integrations.json';
+
+const AUTO_RESOLVE_MODES: ReadonlyArray<AutoResolveMode> = ['disabled', 'dry_run', 'enabled'] as const;
+const DEFAULT_AUTO_RESOLVE_MODE: AutoResolveMode = 'disabled';
 
 export class IntegrationsSettingsService {
   private getEncryptionKey(): Buffer {
@@ -188,6 +192,7 @@ export class IntegrationsSettingsService {
       label: settings.label !== undefined ? settings.label : current.label,
       last_alert_sync: settings.last_alert_sync !== undefined ? settings.last_alert_sync : current.last_alert_sync,
       last_score_sync: settings.last_score_sync !== undefined ? settings.last_score_sync : current.last_score_sync,
+      auto_resolve_mode: settings.auto_resolve_mode !== undefined ? settings.auto_resolve_mode : current.auto_resolve_mode,
     };
     const toSave: IntegrationsSettings = {
       ...existing,
@@ -276,5 +281,34 @@ export class IntegrationsSettingsService {
       client_id: settings.client_id,
       client_secret: settings.client_secret,
     };
+  }
+
+  // ── Defender Auto-Resolve mode ─────────────────────────────────────
+
+  /**
+   * Read the current auto-resolve mode. Defaults to 'disabled' when the
+   * field is missing, Defender isn't configured, or disk holds an unknown
+   * string (forward-compat).
+   */
+  async getAutoResolveMode(): Promise<AutoResolveMode> {
+    const settings = await this.getDefenderSettings();
+    const mode = settings?.auto_resolve_mode;
+    if (mode && AUTO_RESOLVE_MODES.includes(mode)) return mode;
+    return DEFAULT_AUTO_RESOLVE_MODE;
+  }
+
+  /**
+   * Persist a new auto-resolve mode without touching credentials. Throws
+   * when the mode is invalid or when Defender isn't configured yet.
+   */
+  async setAutoResolveMode(mode: AutoResolveMode): Promise<void> {
+    if (!AUTO_RESOLVE_MODES.includes(mode)) {
+      throw new Error(`Invalid auto_resolve_mode: ${mode}. Must be one of: ${AUTO_RESOLVE_MODES.join(', ')}`);
+    }
+    const current = await this.getDefenderSettings();
+    if (!current?.configured) {
+      throw new Error('Cannot set auto_resolve_mode: Defender integration is not configured');
+    }
+    await this.saveDefenderSettings({ auto_resolve_mode: mode });
   }
 }

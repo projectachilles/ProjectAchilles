@@ -1,5 +1,5 @@
 import type { Client } from '@elastic/elasticsearch';
-import { buildDefenderEvidenceQuery } from './evidence-correlation.js';
+import { buildDefenderEvidenceQuery, extractBundleUuid } from './evidence-correlation.js';
 import { DEFENDER_INDEX } from './index-management.js';
 import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/defender.js';
 
@@ -7,6 +7,14 @@ const DEFAULT_LOOKBACK_DAYS = 90;
 const DEFAULT_BATCH_SIZE = 200;
 const DEFAULT_MAX_DURATION_MS = 60_000;
 const CONCLUSIVE_ERROR_CODES = [101, 105, 126, 127];
+
+/**
+ * Cap on the number of alert hits we pull back per sub-query. A single test
+ * doc rarely matches more than a handful of Defender alerts; this bound both
+ * protects the request shape and deduplicates naturally when a bundle's
+ * stages all hit the same orchestrator alert.
+ */
+const ALERT_HITS_PER_SUBQUERY = 5;
 
 export class DefenderEnrichmentService {
   constructor(
@@ -27,6 +35,7 @@ export class DefenderEnrichmentService {
       detected: 0,
       skipped: 0,
       batches: 0,
+      alertsMarkedCorrelated: 0,
       errors: [],
       durationMs: 0,
     };
@@ -57,13 +66,16 @@ export class DefenderEnrichmentService {
       result.scanned += hits.length;
       result.batches += 1;
 
-      // 2. Build msearch body, skipping docs where helper returns null
-      const queries: Array<{ hit: any; body: Record<string, unknown> }> = [];
+      // 2. Build msearch body, skipping docs where helper returns null.
+      //    Remember the bundle UUID per queried test so we can write it back
+      //    to each matched alert's f0rtika.achilles_test_uuid in step 5.
+      const queries: Array<{ hit: any; body: Record<string, unknown>; bundleUuid: string }> = [];
       for (const hit of hits) {
         const src = hit._source?.f0rtika ?? {};
         const routing = hit._source?.routing ?? {};
+        const testUuid = src.test_uuid ?? '';
         const query = buildDefenderEvidenceQuery({
-          test_uuid: src.test_uuid ?? '',
+          test_uuid: testUuid,
           routing_event_time: routing.event_time ?? '',
           routing_hostname: routing.hostname ?? '',
         });
@@ -71,15 +83,16 @@ export class DefenderEnrichmentService {
           result.skipped += 1;
           continue;
         }
-        queries.push({ hit, body: query });
+        queries.push({ hit, body: query, bundleUuid: extractBundleUuid(testUuid) });
       }
 
-      // 3. Execute msearch
+      // 3. Execute msearch. size=ALERT_HITS_PER_SUBQUERY so we get back the
+      //    matched alert _ids (needed for the alert-side correlation update).
       if (queries.length > 0) {
         const searches: unknown[] = [];
         for (const q of queries) {
           searches.push({ index: DEFENDER_INDEX });
-          searches.push({ size: 0, query: q.body });
+          searches.push({ size: ALERT_HITS_PER_SUBQUERY, _source: false, query: q.body });
         }
 
         let msearchResponse;
@@ -92,8 +105,8 @@ export class DefenderEnrichmentService {
           continue;
         }
 
-        // 4. Collect matched docs for bulk update
-        const updates: Array<{ hit: any }> = [];
+        // 4. Collect matched test docs along with the alert _ids that matched.
+        const updates: Array<{ hit: any; bundleUuid: string; alertIds: string[] }> = [];
         const responses = (msearchResponse as any).responses ?? [];
         for (let i = 0; i < queries.length; i++) {
           const resp = responses[i];
@@ -105,25 +118,58 @@ export class DefenderEnrichmentService {
           const total = typeof resp.hits?.total === 'number'
             ? resp.hits.total
             : resp.hits?.total?.value ?? 0;
-          if (total > 0) updates.push({ hit: queries[i].hit });
+          if (total > 0) {
+            const alertHits = (resp.hits?.hits ?? []) as any[];
+            const alertIds = alertHits.map((h) => h._id).filter((id): id is string => typeof id === 'string');
+            updates.push({ hit: queries[i].hit, bundleUuid: queries[i].bundleUuid, alertIds });
+          }
         }
 
-        // 5. Bulk update matched docs
+        // 5. Bulk update matched docs — test-doc flag + alert-side flags.
+        //    Alert-side writes are deduplicated per batch when multiple test
+        //    stages match the same orchestrator alert.
         if (updates.length > 0) {
           const operations: unknown[] = [];
+          const testOpMeta: Array<{ kind: 'test' | 'alert'; alertId?: string }> = [];
+          const alertIdsEmitted = new Set<string>();
+          const matchedAt = new Date().toISOString();
+
           for (const u of updates) {
             operations.push({ update: { _index: u.hit._index, _id: u.hit._id } });
             operations.push({ doc: { f0rtika: { defender_detected: true } } });
+            testOpMeta.push({ kind: 'test' });
+
+            for (const alertId of u.alertIds) {
+              if (alertIdsEmitted.has(alertId)) continue;
+              alertIdsEmitted.add(alertId);
+              operations.push({ update: { _index: DEFENDER_INDEX, _id: alertId } });
+              operations.push({
+                doc: {
+                  f0rtika: {
+                    achilles_correlated: true,
+                    achilles_test_uuid: u.bundleUuid,
+                    achilles_matched_at: matchedAt,
+                  },
+                },
+              });
+              testOpMeta.push({ kind: 'alert', alertId });
+            }
           }
+
           try {
             const bulkResponse = await this.client.bulk({ operations } as any);
             const items = (bulkResponse as any).items ?? [];
             for (let i = 0; i < items.length; i++) {
               const item = items[i]?.update;
+              const meta = testOpMeta[i];
               if (item?.error) {
                 result.errors.push(`bulk[${i}]: ${item.error.reason ?? 'unknown'}`);
-              } else {
+                continue;
+              }
+              if (meta?.kind === 'test') {
                 result.detected += 1;
+              } else if (meta?.kind === 'alert') {
+                result.alertsMarkedCorrelated += 1;
               }
             }
           } catch (err) {

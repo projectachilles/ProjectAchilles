@@ -66,6 +66,21 @@ export const DEFENDER_INDEX_MAPPING = {
         type: 'text' as const,
         fields: { keyword: { type: 'keyword' as const, ignore_above: 256 } },
       },
+
+      // Achilles correlation + auto-resolve fields on alert docs.
+      // Populated by enrichment.service (achilles_*) and auto-resolve.service
+      // (auto_resolve_*). Object mapping — single sub-object per alert doc.
+      f0rtika: {
+        properties: {
+          achilles_correlated: { type: 'boolean' as const },
+          achilles_test_uuid:  { type: 'keyword' as const },
+          achilles_matched_at: { type: 'date' as const },
+          auto_resolved:       { type: 'boolean' as const },
+          auto_resolved_at:    { type: 'date' as const },
+          auto_resolve_mode:   { type: 'keyword' as const },
+          auto_resolve_error:  { type: 'keyword' as const },
+        },
+      },
     },
   },
 };
@@ -98,6 +113,33 @@ export async function createDefenderIndex(): Promise<{ created: boolean; message
 /** Ensure the Defender index exists (create if missing, no-op if exists). */
 export async function ensureDefenderIndex(): Promise<void> {
   await createDefenderIndex();
+}
+
+/**
+ * Idempotently apply the Defender index mapping to an existing index.
+ * Used to propagate additive mapping changes (e.g., f0rtika.* fields) to
+ * indexes created before those fields were declared. Safe to call on every
+ * cron tick — no-op when ES isn't configured or the index doesn't exist.
+ * Non-fatal on transient errors so it doesn't block the sync cycle.
+ */
+export async function ensureDefenderIndexMappings(): Promise<void> {
+  const settingsService = new SettingsService();
+  const settings = await settingsService.getSettings();
+  if (!settings.configured) return;
+
+  const client = createEsClient(settings);
+
+  try {
+    const exists = await client.indices.exists({ index: DEFENDER_INDEX });
+    if (!exists) return;
+
+    await client.indices.putMapping({
+      index: DEFENDER_INDEX,
+      properties: DEFENDER_INDEX_MAPPING.mappings.properties,
+    });
+  } catch (err) {
+    console.warn(`[Defender] ensureDefenderIndexMappings failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /** List the Defender index info. */

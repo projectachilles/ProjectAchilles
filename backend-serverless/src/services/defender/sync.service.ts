@@ -3,11 +3,12 @@
 // Triggered by Vercel Cron instead of setInterval.
 
 import { MicrosoftGraphClient } from './graph-client.js';
-import { ensureDefenderIndex, DEFENDER_INDEX } from './index-management.js';
+import { ensureDefenderIndex, ensureDefenderIndexMappings, DEFENDER_INDEX } from './index-management.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { DefenderEnrichmentService } from './enrichment.service.js';
+import { DefenderAutoResolveService } from './auto-resolve.service.js';
 import type { Client } from '@elastic/elasticsearch';
 import type {
   GraphSecureScore,
@@ -20,6 +21,7 @@ import type {
   DefenderSyncResult,
   DefenderSyncStatus,
   EnrichmentPassResult,
+  AutoResolvePassResult,
 } from '../../types/defender.js';
 
 /** Days of alert history to fetch on first sync (no persisted lastAlertSync). */
@@ -357,7 +359,7 @@ export class DefenderSyncService {
     try {
       const integrationsService = new IntegrationsSettingsService();
       if (!(await integrationsService.isDefenderConfigured())) {
-        return { scanned: 0, detected: 0, skipped: 0, batches: 0, errors: [], durationMs: 0 };
+        return { scanned: 0, detected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, errors: [], durationMs: 0 };
       }
       const es = await this.getEsClient();
       const settingsService = new SettingsService();
@@ -376,12 +378,61 @@ export class DefenderSyncService {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[Defender-Enrichment] pass threw: ${msg}`);
-      return { scanned: 0, detected: 0, skipped: 0, batches: 0, errors: [msg], durationMs: 0 };
+      return { scanned: 0, detected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, errors: [msg], durationMs: 0 };
+    }
+  }
+
+  /**
+   * Run the Defender auto-resolve pass. Customer opt-in — no-op when
+   * auto_resolve_mode='disabled' (the default). Non-blocking: any error
+   * is captured in the result's errors[] rather than thrown.
+   * Public so the Vercel cron path (via syncAll) can invoke it after
+   * the enrichment pass.
+   */
+  async runAutoResolvePass(): Promise<AutoResolvePassResult> {
+    const zero: AutoResolvePassResult = {
+      mode: 'disabled',
+      candidates: 0,
+      patched: 0,
+      wouldPatch: 0,
+      skipped: 0,
+      errors: [],
+      durationMs: 0,
+    };
+    try {
+      const integrationsService = new IntegrationsSettingsService();
+      if (!(await integrationsService.isDefenderConfigured())) return zero;
+
+      const mode = await integrationsService.getAutoResolveMode();
+      if (mode === 'disabled') return { ...zero, mode: 'disabled' };
+
+      const es = await this.getEsClient();
+      const graph = await this.ensureGraphClient();
+      const service = new DefenderAutoResolveService(es, graph, mode);
+      const result = await service.runAutoResolvePass();
+
+      console.log(
+        `[Defender-AutoResolve] mode=${result.mode} candidates=${result.candidates} ` +
+        `patched=${result.patched} wouldPatch=${result.wouldPatch} skipped=${result.skipped} ` +
+        `errors=${result.errors.length} durationMs=${result.durationMs}`,
+      );
+      for (const e of result.errors) {
+        console.warn(`[Defender-AutoResolve-ERROR] ${e}`);
+      }
+      return result;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[Defender-AutoResolve] pass threw: ${msg}`);
+      return { ...zero, errors: [msg] };
     }
   }
 
   /** Run all three syncs. */
   async syncAll(): Promise<DefenderSyncResult> {
+    // Propagate any additive mapping changes (f0rtika.*) to existing indexes.
+    // Idempotent and non-fatal — the next cron tick will retry on failure.
+    await ensureDefenderIndexMappings();
+
     const [scores, controls, alerts] = await Promise.all([
       this.syncSecureScores(),
       this.syncControlProfiles(),
@@ -392,11 +443,17 @@ export class DefenderSyncService {
     // in the index when we evaluate test docs.
     const enrichment = await this.runEnrichmentPass();
 
+    // Auto-resolve pass runs AFTER enrichment because its candidates are
+    // exactly the alerts the enrichment pass just tagged. Customer opt-in;
+    // no-op when auto_resolve_mode='disabled' (the default).
+    const autoResolve = await this.runAutoResolvePass();
+
     const result: DefenderSyncResult = {
       scores,
       controls,
       alerts,
       enrichment,
+      autoResolve,
       timestamp: new Date().toISOString(),
     };
 

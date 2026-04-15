@@ -62,6 +62,34 @@ export interface GraphAlert {
   evidence: GraphAlertEvidence[];
 }
 
+/**
+ * Subset of mutable fields Microsoft Graph accepts on a PATCH to
+ * /security/alerts_v2/{id}. See backend/ for full rationale.
+ */
+export interface GraphAlertPatch {
+  status?: 'new' | 'inProgress' | 'resolved';
+  classification?:
+    | 'unknown'
+    | 'falsePositive'
+    | 'truePositive'
+    | 'informationalExpectedActivity';
+  determination?:
+    | 'unknown'
+    | 'apt'
+    | 'malware'
+    | 'securityPersonnel'
+    | 'securityTesting'
+    | 'unwantedSoftware'
+    | 'other'
+    | 'multiStagedAttack'
+    | 'compromisedAccount'
+    | 'phishing'
+    | 'maliciousUserActivity'
+    | 'notMalicious'
+    | 'lineOfBusinessApplication';
+  comments?: Array<{ comment: string }>;
+}
+
 // ---------------------------------------------------------------------------
 // Normalized ES document shapes
 // ---------------------------------------------------------------------------
@@ -117,6 +145,16 @@ export interface DefenderAlertDoc {
   recommended_actions: string;
   evidence_hostnames: string[];
   evidence_filenames: string[];
+  /** Achilles correlation + auto-resolve state. See backend/ for field semantics. */
+  f0rtika?: {
+    achilles_correlated?: boolean;
+    achilles_test_uuid?: string;
+    achilles_matched_at?: string;
+    auto_resolved?: boolean;
+    auto_resolved_at?: string;
+    auto_resolve_mode?: AutoResolveMode;
+    auto_resolve_error?: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -146,9 +184,33 @@ export interface EnrichmentPassResult {
   skipped: number;
   /** Number of msearch round-trips. */
   batches: number;
+  /** Alerts tagged with f0rtika.achilles_correlated in this pass. */
+  alertsMarkedCorrelated: number;
   /** Per-batch errors collected non-fatally. */
   errors: string[];
   /** Wall-clock duration of the pass. */
+  durationMs: number;
+}
+
+// ---------------------------------------------------------------------------
+// Auto-resolve pillar
+// ---------------------------------------------------------------------------
+
+export type AutoResolveMode = 'disabled' | 'dry_run' | 'enabled';
+
+export interface AutoResolvePassOptions {
+  modeOverride?: AutoResolveMode;
+  maxPerPass?: number;
+  maxDurationMs?: number;
+}
+
+export interface AutoResolvePassResult {
+  mode: AutoResolveMode;
+  candidates: number;
+  patched: number;
+  wouldPatch: number;
+  skipped: number;
+  errors: string[];
   durationMs: number;
 }
 
@@ -157,6 +219,7 @@ export interface DefenderSyncResult {
   controls: SyncResult;
   alerts: SyncResult;
   enrichment: EnrichmentPassResult;
+  autoResolve: AutoResolvePassResult;
   timestamp: string;
 }
 

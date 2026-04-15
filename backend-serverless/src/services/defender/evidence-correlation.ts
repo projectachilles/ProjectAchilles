@@ -25,6 +25,17 @@ export interface TestEvidenceInput {
 const PRE_WINDOW_MS = 5 * 60 * 1000;
 const POST_WINDOW_MS = 30 * 60 * 1000;
 
+/**
+ * Strip the `::<technique>` suffix from a test_uuid to get the bundle UUID.
+ * Shared between the correlation query and the alert-side test_uuid field
+ * written by the enrichment pass.
+ */
+export function extractBundleUuid(testUuid: string): string {
+  if (!testUuid) return '';
+  const sep = testUuid.indexOf('::');
+  return sep >= 0 ? testUuid.slice(0, sep) : testUuid;
+}
+
 export function buildDefenderEvidenceQuery(
   input: TestEvidenceInput,
 ): Record<string, unknown> | null {
@@ -34,7 +45,7 @@ export function buildDefenderEvidenceQuery(
   const testTime = new Date(routing_event_time).getTime();
   if (Number.isNaN(testTime)) return null;
 
-  const baseUuid = test_uuid.includes('::') ? test_uuid.split('::')[0] : test_uuid;
+  const baseUuid = extractBundleUuid(test_uuid);
   const binaryPrefix = `${baseUuid.toLowerCase()}*`;
   const hostnamePrefix = `${routing_hostname.toUpperCase()}*`;
 
