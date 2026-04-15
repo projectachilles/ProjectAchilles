@@ -361,6 +361,22 @@ Pulls Secure Score, alerts (v2), and control profiles from Microsoft Graph API. 
 - **Conditional UI**: All Defender dashboard elements hidden when not configured (`useDefenderConfig` hook)
 - **Serverless parity**: Full implementation in `backend-serverless/` with async blob storage and Vercel Cron
 
+#### Auto-Resolve Pillar (third Defender pillar, Apr 2026)
+
+Programmatically resolves Achilles-correlated alerts in Microsoft Defender so continuous-validation activity doesn't flood the SOC queue. Architecturally integral to the Defender integration, operationally opt-in.
+
+- **Extra permission required**: `SecurityAlert.ReadWrite.All` on the Azure AD app (in addition to the existing read-only scopes). 403 failures surface the exact scope name in the error message.
+- **Modes** (persisted in `auto_resolve_mode` field of Defender settings): `disabled` (default) | `dry_run` (compute + log + receipt, no PATCH) | `enabled` (PATCH via `MicrosoftGraphClient.updateAlert`)
+- **Correlation flags on alert docs** (written by the enrichment pass when an alert matches an Achilles test): `f0rtika.achilles_correlated`, `f0rtika.achilles_test_uuid`, `f0rtika.achilles_matched_at`
+- **Receipt flags on alert docs** (written by the auto-resolve pass): `f0rtika.auto_resolved`, `f0rtika.auto_resolved_at`, `f0rtika.auto_resolve_mode`, `f0rtika.auto_resolve_error`
+- **Resolver semantics**: PATCH sets `status=resolved`, `classification=informationalExpectedActivity`, `determination=securityTesting`, with an audit-trail comment naming the bundle UUID. 403 halts the pass cleanly; 404 writes a skip-forever receipt; transient errors skip the receipt so the next pass retries.
+- **Cadence**: runs after every enrichment pass (5 min on Docker/Render/Fly, Vercel Cron tick on Vercel). Capped at 30 PATCHes per pass to protect the tenant from rate-limiting.
+- **Defense Score invariant**: auto-resolve NEVER writes to test docs. Test docs and Defense Score stay byte-identical whether auto-resolve is disabled or enabled.
+- **Routes**: `GET /api/integrations/defender/auto-resolve/status`, `PUT /.../mode`, `GET /.../receipts?limit=&offset=`
+- **UI**: Collapsed `DefenderAutoResolveSection` inside the existing Defender settings card, shown only once Defender is configured
+- **Key files**: `services/defender/auto-resolve.service.ts`, `graph-client.ts` (`updateAlert` + `GraphPatchError`), `enrichment.service.ts` (alert-side writes), `sync.service.ts` (wiring)
+- **Customer setup guide**: `docs/defender-auto-resolve.md` (permission grant, dry-run audit, enable flow, troubleshooting)
+
 ### Alerting Service
 Threshold-based alerting dispatched when test results cross configured score thresholds. Hooked into the result ingestion pipeline.
 
