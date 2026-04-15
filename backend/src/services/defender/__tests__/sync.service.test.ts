@@ -61,6 +61,7 @@ vi.mock('../enrichment.service.js', () => ({
         detected: 0,
         skipped: 0,
         batches: 0,
+        alertsMarkedCorrelated: 0,
         errors: [],
         durationMs: 0,
       };
@@ -228,6 +229,27 @@ describe('DefenderSyncService', () => {
       expect(result.enrichment.scanned).toBe(0);
       expect(result.enrichment.detected).toBe(0);
       expect(result.timestamp).toBeDefined();
+    });
+  });
+
+  // ── runEnrichmentPass (public — docker 5-min cadence) ──────────
+
+  describe('runEnrichmentPass', () => {
+    it('is callable independently of syncAll and returns a zero result when no eligible docs', async () => {
+      // Server.ts invokes this on every 5-min alert interval so correlation
+      // isn't frozen between container boots. Guard against regressions that
+      // would re-privatize it.
+      const result = await service.runEnrichmentPass();
+
+      expect(result).toMatchObject({
+        scanned: expect.any(Number),
+        detected: expect.any(Number),
+        skipped: expect.any(Number),
+        batches: expect.any(Number),
+        alertsMarkedCorrelated: expect.any(Number),
+        errors: expect.any(Array),
+        durationMs: expect.any(Number),
+      });
     });
   });
 

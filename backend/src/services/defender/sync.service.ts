@@ -405,8 +405,14 @@ export class DefenderSyncService {
    * is captured and returned without throwing, so the sync loop stays
    * healthy and the pass will self-heal on the next cycle. Early-returns
    * as a no-op when Defender integration is not configured.
+   *
+   * Public so the 5-min alert interval in server.ts can call it alongside
+   * syncAlerts(). Without this cadence, enrichment would only run on boot
+   * (via syncAll), leaving freshly-ingested alerts uncorrelated for up to
+   * the container's full uptime — the serverless path is already correct
+   * because its cron endpoint calls syncAll() on every tick.
    */
-  private async runEnrichmentPass(): Promise<EnrichmentPassResult> {
+  async runEnrichmentPass(): Promise<EnrichmentPassResult> {
     try {
       const integrationsService = new IntegrationsSettingsService();
       if (!integrationsService.isDefenderConfigured()) {
