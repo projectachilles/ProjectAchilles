@@ -357,12 +357,17 @@ function startBackgroundJobs(httpServer?: http.Server) {
       defenderSyncService.syncControlProfiles().catch(() => {});
     }, 6 * 60 * 60 * 1000); // 6 hours
     defenderAlertInterval = setInterval(async () => {
-      // Alerts first so fresh evidence is in the index when enrichment runs.
-      // Both swallow their own errors so one failure doesn't silence the other.
-      // Without the enrichment call here, correlation only updates on boot
-      // (via the initial syncAll), stalling detection coverage between deploys.
+      // Order matters and each step swallows its own errors so one failure
+      // doesn't silence the others:
+      //   1. syncAlerts   — pull fresh alerts from Graph into ES
+      //   2. enrichment   — tag freshly-arrived alerts that match Achilles tests
+      //                     (without this on the 5-min cadence, correlation
+      //                     would only update on boot)
+      //   3. auto-resolve — PATCH correlated alerts to status=resolved
+      //                     when the customer has opted in (mode != 'disabled')
       await defenderSyncService.syncAlerts().catch(() => {});
       await defenderSyncService.runEnrichmentPass().catch(() => {});
+      await defenderSyncService.runAutoResolvePass().catch(() => {});
     }, 5 * 60 * 1000); // 5 minutes
   }
 

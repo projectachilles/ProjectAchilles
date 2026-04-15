@@ -15,7 +15,10 @@ vi.mock('../graph-client.js', () => ({
   },
 }));
 
-// Mock integrations settings
+// Mock integrations settings.
+// Auto-resolve mode is mutable via the exported setter so individual tests
+// can flip it without re-mocking the whole module.
+let mockAutoResolveMode: 'disabled' | 'dry_run' | 'enabled' = 'disabled';
 vi.mock('../../integrations/settings.js', () => ({
   IntegrationsSettingsService: class {
     getDefenderCredentials = () => ({
@@ -24,6 +27,7 @@ vi.mock('../../integrations/settings.js', () => ({
       client_secret: 'test-secret',
     });
     isDefenderConfigured = () => true;
+    getAutoResolveMode = () => mockAutoResolveMode;
   },
 }));
 
@@ -66,6 +70,23 @@ vi.mock('../enrichment.service.js', () => ({
         durationMs: 0,
       };
     }
+  },
+}));
+
+// Mock auto-resolve service. Exposes the call count via a shared spy so
+// tests can assert that syncAll() and runAutoResolvePass() actually invoke it.
+const mockAutoResolveRun = vi.fn().mockResolvedValue({
+  mode: 'disabled',
+  candidates: 0,
+  patched: 0,
+  wouldPatch: 0,
+  skipped: 0,
+  errors: [],
+  durationMs: 0,
+});
+vi.mock('../auto-resolve.service.js', () => ({
+  DefenderAutoResolveService: class {
+    runAutoResolvePass = mockAutoResolveRun;
   },
 }));
 
@@ -215,7 +236,7 @@ describe('DefenderSyncService', () => {
   // ── syncAll ────────────────────────────────────────────────────
 
   describe('syncAll', () => {
-    it('runs all three syncs and enrichment pass', async () => {
+    it('runs all three syncs, enrichment, and auto-resolve passes', async () => {
       mockGetSecureScores.mockResolvedValue([]);
       mockGetControlProfiles.mockResolvedValue([]);
       mockGetAlerts.mockResolvedValue([]);
@@ -228,6 +249,8 @@ describe('DefenderSyncService', () => {
       expect(result.enrichment).toBeDefined();
       expect(result.enrichment.scanned).toBe(0);
       expect(result.enrichment.detected).toBe(0);
+      expect(result.autoResolve).toBeDefined();
+      expect(result.autoResolve.mode).toBe('disabled');
       expect(result.timestamp).toBeDefined();
     });
   });
@@ -250,6 +273,61 @@ describe('DefenderSyncService', () => {
         errors: expect.any(Array),
         durationMs: expect.any(Number),
       });
+    });
+  });
+
+  // ── runAutoResolvePass (Wave 5 — public, called from server.ts) ──
+
+  describe('runAutoResolvePass', () => {
+    beforeEach(() => {
+      mockAutoResolveMode = 'disabled';
+      mockAutoResolveRun.mockClear();
+    });
+
+    it("returns a 'disabled' result without instantiating the inner service when mode is disabled", async () => {
+      mockAutoResolveMode = 'disabled';
+
+      const result = await service.runAutoResolvePass();
+
+      expect(result.mode).toBe('disabled');
+      expect(result.candidates).toBe(0);
+      // Inner service NOT invoked — the wrapper short-circuits before instantiation
+      expect(mockAutoResolveRun).not.toHaveBeenCalled();
+    });
+
+    it('runs the inner service when mode is dry_run', async () => {
+      mockAutoResolveMode = 'dry_run';
+      mockAutoResolveRun.mockResolvedValueOnce({
+        mode: 'dry_run', candidates: 2, patched: 0, wouldPatch: 2,
+        skipped: 0, errors: [], durationMs: 5,
+      });
+
+      const result = await service.runAutoResolvePass();
+
+      expect(mockAutoResolveRun).toHaveBeenCalledTimes(1);
+      expect(result.mode).toBe('dry_run');
+      expect(result.wouldPatch).toBe(2);
+    });
+
+    it('captures inner-service errors into the result rather than throwing', async () => {
+      mockAutoResolveMode = 'enabled';
+      mockAutoResolveRun.mockRejectedValueOnce(new Error('graph offline'));
+
+      const result = await service.runAutoResolvePass();
+
+      expect(result.errors.length).toBeGreaterThan(0);
+      expect(result.errors[0]).toContain('graph offline');
+    });
+
+    it('syncAll() invokes runAutoResolvePass — single call per sync cycle', async () => {
+      mockAutoResolveMode = 'enabled';
+      mockGetSecureScores.mockResolvedValue([]);
+      mockGetControlProfiles.mockResolvedValue([]);
+      mockGetAlerts.mockResolvedValue([]);
+
+      await service.syncAll();
+
+      expect(mockAutoResolveRun).toHaveBeenCalledTimes(1);
     });
   });
 

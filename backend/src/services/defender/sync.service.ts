@@ -7,6 +7,7 @@ import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { DefenderEnrichmentService } from './enrichment.service.js';
+import { DefenderAutoResolveService } from './auto-resolve.service.js';
 import type { Client } from '@elastic/elasticsearch';
 import type {
   GraphSecureScore,
@@ -439,6 +440,54 @@ export class DefenderSyncService {
     }
   }
 
+  /**
+   * Run the Defender auto-resolve pass. Customer opt-in — no-op when
+   * integration settings have auto_resolve_mode='disabled' (the default).
+   * Non-blocking: any error is captured in the result's errors[] rather
+   * than thrown, so the sync loop stays healthy.
+   *
+   * Public so both syncAll() (boot) and the 5-min alert interval in
+   * server.ts can invoke it after the enrichment pass that produces
+   * its input (alerts tagged with f0rtika.achilles_correlated=true).
+   */
+  async runAutoResolvePass(): Promise<AutoResolvePassResult> {
+    const zero: AutoResolvePassResult = {
+      mode: 'disabled',
+      candidates: 0,
+      patched: 0,
+      wouldPatch: 0,
+      skipped: 0,
+      errors: [],
+      durationMs: 0,
+    };
+    try {
+      const integrationsService = new IntegrationsSettingsService();
+      if (!integrationsService.isDefenderConfigured()) return zero;
+
+      const mode = integrationsService.getAutoResolveMode();
+      if (mode === 'disabled') return { ...zero, mode: 'disabled' };
+
+      const es = this.getEsClient();
+      const graph = this.ensureGraphClient();
+      const service = new DefenderAutoResolveService(es, graph, mode);
+      const result = await service.runAutoResolvePass();
+
+      console.log(
+        `[Defender-AutoResolve] mode=${result.mode} candidates=${result.candidates} ` +
+        `patched=${result.patched} wouldPatch=${result.wouldPatch} skipped=${result.skipped} ` +
+        `errors=${result.errors.length} durationMs=${result.durationMs}`,
+      );
+      for (const e of result.errors) {
+        console.warn(`[Defender-AutoResolve-ERROR] ${e}`);
+      }
+      return result;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[Defender-AutoResolve] pass threw: ${msg}`);
+      return { ...zero, errors: [msg] };
+    }
+  }
+
   /** Run all three syncs. */
   async syncAll(): Promise<DefenderSyncResult> {
     // Propagate any additive mapping changes to pre-existing indexes.
@@ -457,18 +506,10 @@ export class DefenderSyncService {
     // in the index when we evaluate test docs.
     const enrichment = await this.runEnrichmentPass();
 
-    // Auto-resolve pillar: wired up in Wave 5. Placeholder disabled result
-    // keeps the type-complete shape from day one so downstream consumers
-    // (sync status UI, tests) don't need optional-field handling.
-    const autoResolve: AutoResolvePassResult = {
-      mode: 'disabled',
-      candidates: 0,
-      patched: 0,
-      wouldPatch: 0,
-      skipped: 0,
-      errors: [],
-      durationMs: 0,
-    };
+    // Auto-resolve pass runs AFTER enrichment because its candidates are
+    // exactly the alerts the enrichment pass just tagged. Customer opt-in;
+    // no-op when auto_resolve_mode='disabled' (the default).
+    const autoResolve = await this.runAutoResolvePass();
 
     const result: DefenderSyncResult = {
       scores,
