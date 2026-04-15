@@ -28,6 +28,10 @@ export const DefenderCredentialsSchema = z.object({
   label: z.string().optional(),
 });
 
+export const DefenderAutoResolveModeSchema = z.object({
+  mode: z.enum(['disabled', 'dry_run', 'enabled']),
+});
+
 export const DefenderTestSchema = z.object({
   tenant_id: z.string().optional(),
   client_id: z.string().optional(),

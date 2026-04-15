@@ -14,9 +14,13 @@ import {
   AzureTestSchema,
   DefenderCredentialsSchema,
   DefenderTestSchema,
+  DefenderAutoResolveModeSchema,
   AlertSettingsSchema,
   AlertTestSchema,
 } from '../schemas/integrations.schemas.js';
+import { DEFENDER_INDEX } from '../services/defender/index-management.js';
+import { SettingsService as AnalyticsSettingsService } from '../services/analytics/settings.js';
+import { createEsClient } from '../services/analytics/client.js';
 
 const router = Router();
 
@@ -281,6 +285,148 @@ router.post('/defender/sync', requirePermission('integrations:write'), asyncHand
 router.get('/defender/sync/status', requirePermission('integrations:read'), (_req, res) => {
   res.json(defenderSyncService.getSyncStatus());
 });
+
+// ---------------------------------------------------------------------------
+// Defender Auto-Resolve (Wave 6 — customer-facing controls)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build an ES client from the request's analytics settings. The auto-resolve
+ * status + receipts endpoints query the achilles-defender index directly
+ * (not via DefenderSyncService) because those reads don't need Graph access.
+ */
+function getEsClientForRequest(): ReturnType<typeof createEsClient> | null {
+  const settings = new AnalyticsSettingsService().getSettings();
+  if (!settings.configured) return null;
+  return createEsClient(settings);
+}
+
+/**
+ * GET /api/integrations/defender/auto-resolve/status
+ *
+ * Returns the current mode plus receipt counts over 24h / 7d / 30d windows.
+ * Safe to call even when Defender isn't configured — returns mode='disabled'
+ * and zeroed counts.
+ */
+router.get('/defender/auto-resolve/status', requirePermission('integrations:read'), asyncHandler(async (req, res) => {
+  const mode = getSettingsService(req).getAutoResolveMode();
+  const lastAutoResolve = defenderSyncService.getSyncStatus().lastSyncResult?.autoResolve ?? null;
+
+  const es = getEsClientForRequest();
+  const counts = { last24h: 0, last7d: 0, last30d: 0 };
+
+  if (es) {
+    const windows: Array<[keyof typeof counts, string]> = [
+      ['last24h', 'now-24h'],
+      ['last7d', 'now-7d'],
+      ['last30d', 'now-30d'],
+    ];
+    for (const [key, gte] of windows) {
+      try {
+        const resp = await es.count({
+          index: DEFENDER_INDEX,
+          query: {
+            bool: {
+              filter: [
+                { term: { doc_type: 'alert' } },
+                { term: { 'f0rtika.auto_resolved': true } },
+                { range: { 'f0rtika.auto_resolved_at': { gte } } },
+              ],
+            },
+          },
+        });
+        counts[key] = typeof resp.count === 'number' ? resp.count : 0;
+      } catch {
+        // Non-fatal — UI will show 0 on a missing index or transient failure.
+      }
+    }
+  }
+
+  res.json({ success: true, data: { mode, counts, lastAutoResolve } });
+}));
+
+/**
+ * PUT /api/integrations/defender/auto-resolve/mode
+ *
+ * Body: { mode: 'disabled' | 'dry_run' | 'enabled' }
+ *
+ * Fails with 400 when Defender is not yet configured (the setter throws —
+ * we surface that clearly rather than silently writing a shadow entry).
+ */
+router.put('/defender/auto-resolve/mode', requirePermission('integrations:write'), validate(DefenderAutoResolveModeSchema), asyncHandler(async (req, res) => {
+  const { mode } = req.body as { mode: 'disabled' | 'dry_run' | 'enabled' };
+  try {
+    getSettingsService(req).setAutoResolveMode(mode);
+  } catch (err) {
+    throw new AppError(err instanceof Error ? err.message : String(err), 400);
+  }
+  res.json({ success: true, data: { mode } });
+}));
+
+/**
+ * GET /api/integrations/defender/auto-resolve/receipts?limit=20&offset=0
+ *
+ * Paginated list of alert docs that carry an auto-resolve receipt,
+ * ordered by auto_resolved_at desc. Each item is the bare minimum the
+ * UI needs to render a row; full alert details stay in Defender's portal.
+ */
+router.get('/defender/auto-resolve/receipts', requirePermission('integrations:read'), asyncHandler(async (_req, res) => {
+  const limit = Math.min(Math.max(parseInt(String(_req.query.limit ?? '20'), 10) || 20, 1), 100);
+  const offset = Math.max(parseInt(String(_req.query.offset ?? '0'), 10) || 0, 0);
+
+  const es = getEsClientForRequest();
+  if (!es) {
+    res.json({ success: true, data: { items: [], total: 0, limit, offset } });
+    return;
+  }
+
+  try {
+    const resp = await es.search({
+      index: DEFENDER_INDEX,
+      size: limit,
+      from: offset,
+      query: {
+        bool: {
+          filter: [
+            { term: { doc_type: 'alert' } },
+            { term: { 'f0rtika.auto_resolved': true } },
+          ],
+        },
+      },
+      sort: [{ 'f0rtika.auto_resolved_at': 'desc' }],
+      _source: [
+        'alert_id', 'alert_title', 'severity',
+        'f0rtika.auto_resolved_at', 'f0rtika.auto_resolve_mode',
+        'f0rtika.auto_resolve_error', 'f0rtika.achilles_test_uuid',
+      ],
+    } as any);
+
+    const hits = ((resp as any).hits?.hits ?? []) as any[];
+    const totalRaw = (resp as any).hits?.total;
+    const total = typeof totalRaw === 'number' ? totalRaw : totalRaw?.value ?? hits.length;
+
+    const items = hits.map((h) => {
+      const src = h._source ?? {};
+      const f0rtika = src.f0rtika ?? {};
+      return {
+        alert_id: src.alert_id ?? '',
+        alert_title: src.alert_title ?? '',
+        severity: src.severity ?? '',
+        auto_resolved_at: f0rtika.auto_resolved_at ?? null,
+        auto_resolve_mode: f0rtika.auto_resolve_mode ?? null,
+        auto_resolve_error: f0rtika.auto_resolve_error ?? null,
+        achilles_test_uuid: f0rtika.achilles_test_uuid ?? null,
+      };
+    });
+
+    res.json({ success: true, data: { items, total, limit, offset } });
+  } catch (err) {
+    // Missing index or transient ES failure — surface empty list rather than 500
+    // so the UI can still render the page.
+    console.warn('[auto-resolve receipts] query failed:', err instanceof Error ? err.message : String(err));
+    res.json({ success: true, data: { items: [], total: 0, limit, offset } });
+  }
+}));
 
 /** Expose the singleton for background sync from server.ts */
 export { defenderSyncService };

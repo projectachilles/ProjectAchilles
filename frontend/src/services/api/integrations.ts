@@ -46,6 +46,41 @@ export interface TestDefenderResult {
   error?: string;
 }
 
+// --- Defender Auto-Resolve (Wave 7) ---
+
+export type AutoResolveMode = 'disabled' | 'dry_run' | 'enabled';
+
+export interface AutoResolveStatus {
+  mode: AutoResolveMode;
+  counts: { last24h: number; last7d: number; last30d: number };
+  lastAutoResolve: {
+    mode: AutoResolveMode;
+    candidates: number;
+    patched: number;
+    wouldPatch: number;
+    skipped: number;
+    errors: string[];
+    durationMs: number;
+  } | null;
+}
+
+export interface AutoResolveReceipt {
+  alert_id: string;
+  alert_title: string;
+  severity: string;
+  auto_resolved_at: string | null;
+  auto_resolve_mode: AutoResolveMode | null;
+  auto_resolve_error: string | null;
+  achilles_test_uuid: string | null;
+}
+
+export interface AutoResolveReceiptsResponse {
+  items: AutoResolveReceipt[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export const integrationsApi = {
   async getAzureSettings(): Promise<AzureSettingsMasked> {
     try {
@@ -95,5 +130,22 @@ export const integrationsApi = {
   async deleteDefenderSettings(): Promise<{ success: boolean }> {
     const response = await apiClient.delete('/integrations/defender');
     return response.data;
+  },
+
+  // --- Defender Auto-Resolve ---
+
+  async getAutoResolveStatus(): Promise<AutoResolveStatus> {
+    const response = await apiClient.get('/integrations/defender/auto-resolve/status');
+    return response.data.data;
+  },
+
+  async setAutoResolveMode(mode: AutoResolveMode): Promise<{ mode: AutoResolveMode }> {
+    const response = await apiClient.put('/integrations/defender/auto-resolve/mode', { mode });
+    return response.data.data;
+  },
+
+  async getAutoResolveReceipts(limit = 20, offset = 0): Promise<AutoResolveReceiptsResponse> {
+    const response = await apiClient.get(`/integrations/defender/auto-resolve/receipts?limit=${limit}&offset=${offset}`);
+    return response.data.data;
   },
 };

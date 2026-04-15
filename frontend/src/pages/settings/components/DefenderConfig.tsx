@@ -5,6 +5,7 @@ import { Input } from '@/components/shared/ui/Input';
 import { Button } from '@/components/shared/ui/Button';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Spinner } from '@/components/shared/ui/Spinner';
+import { DefenderAutoResolveSection } from './DefenderAutoResolveSection';
 
 interface DefenderConfigProps {
   onStatusChange?: (configured: boolean) => void;
@@ -324,6 +325,9 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
           </div>
         </div>
       )}
+
+      {/* Auto-resolve section — only surfaced once Defender is configured */}
+      {editMode && <DefenderAutoResolveSection />}
     </div>
   );
 }

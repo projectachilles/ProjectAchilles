@@ -34,6 +34,10 @@ export const DefenderTestSchema = z.object({
   client_secret: z.string().optional(),
 });
 
+export const DefenderAutoResolveModeSchema = z.object({
+  mode: z.enum(['disabled', 'dry_run', 'enabled']),
+});
+
 // ── Alert Settings ───────────────────────────────────────────────────────────
 
 const AlertThresholdsSchema = z.object({

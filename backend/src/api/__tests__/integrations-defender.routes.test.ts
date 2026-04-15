@@ -27,6 +27,8 @@ const mockDeleteDefenderSettings = vi.fn();
 const mockIsDefenderConfigured = vi.fn();
 const mockGetDefenderCredentials = vi.fn();
 const mockIsEnvDefenderConfigured = vi.fn();
+const mockGetAutoResolveMode = vi.fn();
+const mockSetAutoResolveMode = vi.fn();
 
 vi.mock('../../services/integrations/settings.js', () => ({
   IntegrationsSettingsService: class MockIntegrationsSettingsService {
@@ -42,7 +44,24 @@ vi.mock('../../services/integrations/settings.js', () => ({
     isDefenderConfigured = mockIsDefenderConfigured;
     getDefenderCredentials = mockGetDefenderCredentials;
     isEnvDefenderConfigured = mockIsEnvDefenderConfigured;
+    getAutoResolveMode = mockGetAutoResolveMode;
+    setAutoResolveMode = mockSetAutoResolveMode;
   },
+}));
+
+// Mock the analytics settings service — auto-resolve routes query ES.
+// Default: unconfigured, which short-circuits ES queries to empty results.
+const mockGetAnalyticsSettings = vi.fn();
+vi.mock('../../services/analytics/settings.js', () => ({
+  SettingsService: class MockAnalyticsSettingsService {
+    getSettings = mockGetAnalyticsSettings;
+  },
+}));
+
+const mockEsCount = vi.fn();
+const mockEsSearch = vi.fn();
+vi.mock('../../services/analytics/client.js', () => ({
+  createEsClient: () => ({ count: mockEsCount, search: mockEsSearch }),
 }));
 
 // Mock global fetch for the /test endpoint
@@ -67,6 +86,8 @@ describe('Defender integration routes', () => {
     mockIsDefenderConfigured.mockReturnValue(false);
     mockGetDefenderCredentials.mockReturnValue(null);
     mockIsEnvDefenderConfigured.mockReturnValue(false);
+    mockGetAutoResolveMode.mockReturnValue('disabled');
+    mockGetAnalyticsSettings.mockReturnValue({ configured: false });
   });
 
   // ── GET /api/integrations/defender ───────────────────────────
@@ -300,6 +321,190 @@ describe('Defender integration routes', () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/environment variables/);
       expect(mockDeleteDefenderSettings).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── GET /api/integrations/defender/auto-resolve/status ───────
+
+  describe('GET /api/integrations/defender/auto-resolve/status', () => {
+    it("returns mode='disabled' with zero counts when ES not configured", async () => {
+      const app = createApp();
+      const res = await request(app).get('/api/integrations/defender/auto-resolve/status');
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.mode).toBe('disabled');
+      expect(res.body.data.counts).toEqual({ last24h: 0, last7d: 0, last30d: 0 });
+      // ES count should NOT have been called since analytics is unconfigured
+      expect(mockEsCount).not.toHaveBeenCalled();
+    });
+
+    it('returns current mode and counts when ES configured', async () => {
+      mockGetAutoResolveMode.mockReturnValue('dry_run');
+      mockGetAnalyticsSettings.mockReturnValue({ configured: true, connectionType: 'node', node: 'http://es:9200' });
+      mockEsCount.mockResolvedValueOnce({ count: 5 })  // last24h
+        .mockResolvedValueOnce({ count: 20 })          // last7d
+        .mockResolvedValueOnce({ count: 80 });         // last30d
+
+      const app = createApp();
+      const res = await request(app).get('/api/integrations/defender/auto-resolve/status');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.mode).toBe('dry_run');
+      expect(res.body.data.counts).toEqual({ last24h: 5, last7d: 20, last30d: 80 });
+    });
+
+    it('survives ES count errors gracefully (returns zero for failing window)', async () => {
+      mockGetAnalyticsSettings.mockReturnValue({ configured: true, connectionType: 'node', node: 'http://es:9200' });
+      mockEsCount.mockRejectedValue(new Error('index not found'));
+
+      const app = createApp();
+      const res = await request(app).get('/api/integrations/defender/auto-resolve/status');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.counts).toEqual({ last24h: 0, last7d: 0, last30d: 0 });
+    });
+  });
+
+  // ── PUT /api/integrations/defender/auto-resolve/mode ─────────
+
+  describe('PUT /api/integrations/defender/auto-resolve/mode', () => {
+    it("accepts 'dry_run' and calls setAutoResolveMode", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .put('/api/integrations/defender/auto-resolve/mode')
+        .send({ mode: 'dry_run' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.mode).toBe('dry_run');
+      expect(mockSetAutoResolveMode).toHaveBeenCalledWith('dry_run');
+    });
+
+    it("accepts 'enabled'", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .put('/api/integrations/defender/auto-resolve/mode')
+        .send({ mode: 'enabled' });
+
+      expect(res.status).toBe(200);
+      expect(mockSetAutoResolveMode).toHaveBeenCalledWith('enabled');
+    });
+
+    it('rejects an invalid mode via schema validation', async () => {
+      const app = createApp();
+      const res = await request(app)
+        .put('/api/integrations/defender/auto-resolve/mode')
+        .send({ mode: 'bogus' });
+
+      expect(res.status).toBe(400);
+      expect(mockSetAutoResolveMode).not.toHaveBeenCalled();
+    });
+
+    it('rejects a missing mode field', async () => {
+      const app = createApp();
+      const res = await request(app)
+        .put('/api/integrations/defender/auto-resolve/mode')
+        .send({});
+
+      expect(res.status).toBe(400);
+    });
+
+    it('surfaces a 400 when the setter throws (e.g., Defender not configured)', async () => {
+      mockSetAutoResolveMode.mockImplementation(() => {
+        throw new Error('Cannot set auto_resolve_mode: Defender integration is not configured');
+      });
+
+      const app = createApp();
+      const res = await request(app)
+        .put('/api/integrations/defender/auto-resolve/mode')
+        .send({ mode: 'enabled' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/not configured/);
+    });
+  });
+
+  // ── GET /api/integrations/defender/auto-resolve/receipts ─────
+
+  describe('GET /api/integrations/defender/auto-resolve/receipts', () => {
+    it('returns empty list when ES not configured', async () => {
+      const app = createApp();
+      const res = await request(app).get('/api/integrations/defender/auto-resolve/receipts');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.items).toEqual([]);
+      expect(res.body.data.total).toBe(0);
+      expect(mockEsSearch).not.toHaveBeenCalled();
+    });
+
+    it('maps ES hits to receipt rows', async () => {
+      mockGetAnalyticsSettings.mockReturnValue({ configured: true, connectionType: 'node', node: 'http://es:9200' });
+      mockEsSearch.mockResolvedValueOnce({
+        hits: {
+          total: { value: 2 },
+          hits: [
+            {
+              _source: {
+                alert_id: 'alert-1',
+                alert_title: 'Suspicious process',
+                severity: 'medium',
+                f0rtika: {
+                  auto_resolved_at: '2026-04-14T12:00:00Z',
+                  auto_resolve_mode: 'enabled',
+                  achilles_test_uuid: 'bundle-A',
+                },
+              },
+            },
+            {
+              _source: {
+                alert_id: 'alert-2',
+                alert_title: 'Other',
+                severity: 'low',
+                f0rtika: {
+                  auto_resolved_at: '2026-04-14T11:00:00Z',
+                  auto_resolve_mode: 'dry_run',
+                  achilles_test_uuid: 'bundle-B',
+                  auto_resolve_error: 'not_found',
+                },
+              },
+            },
+          ],
+        },
+      });
+
+      const app = createApp();
+      const res = await request(app).get('/api/integrations/defender/auto-resolve/receipts?limit=10');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.total).toBe(2);
+      expect(res.body.data.items).toHaveLength(2);
+      expect(res.body.data.items[0]).toMatchObject({
+        alert_id: 'alert-1',
+        auto_resolve_mode: 'enabled',
+        achilles_test_uuid: 'bundle-A',
+      });
+      expect(res.body.data.items[1].auto_resolve_error).toBe('not_found');
+    });
+
+    it('clamps limit to max 100', async () => {
+      mockGetAnalyticsSettings.mockReturnValue({ configured: true, connectionType: 'node', node: 'http://es:9200' });
+      mockEsSearch.mockResolvedValueOnce({ hits: { total: { value: 0 }, hits: [] } });
+
+      const app = createApp();
+      await request(app).get('/api/integrations/defender/auto-resolve/receipts?limit=999');
+
+      expect(mockEsSearch.mock.calls[0][0].size).toBe(100);
+    });
+
+    it('survives ES search failure and returns empty list', async () => {
+      mockGetAnalyticsSettings.mockReturnValue({ configured: true, connectionType: 'node', node: 'http://es:9200' });
+      mockEsSearch.mockRejectedValueOnce(new Error('cluster transient'));
+
+      const app = createApp();
+      const res = await request(app).get('/api/integrations/defender/auto-resolve/receipts');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.items).toEqual([]);
     });
   });
 });
