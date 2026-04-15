@@ -65,6 +65,43 @@ export interface GraphAlert {
   evidence: GraphAlertEvidence[];
 }
 
+/**
+ * Subset of mutable fields Microsoft Graph accepts on a PATCH to
+ * /security/alerts_v2/{id}. Only fields we actually write are modelled;
+ * Graph accepts more (e.g. assignedTo, feedback) that we don't use.
+ *
+ * - classification: SOC-analyst-facing label for the alert's truth value
+ *   ('informationalExpectedActivity' is the correct choice for authorized
+ *   test activity — it preserves the detection as real while flagging
+ *   the activity itself as benign)
+ * - determination: the category of threat (or lack thereof);
+ *   'securityTesting' maps exactly to Achilles' use case
+ * - comments: free-text audit trail visible in the Defender portal
+ */
+export interface GraphAlertPatch {
+  status?: 'new' | 'inProgress' | 'resolved';
+  classification?:
+    | 'unknown'
+    | 'falsePositive'
+    | 'truePositive'
+    | 'informationalExpectedActivity';
+  determination?:
+    | 'unknown'
+    | 'apt'
+    | 'malware'
+    | 'securityPersonnel'
+    | 'securityTesting'
+    | 'unwantedSoftware'
+    | 'other'
+    | 'multiStagedAttack'
+    | 'compromisedAccount'
+    | 'phishing'
+    | 'maliciousUserActivity'
+    | 'notMalicious'
+    | 'lineOfBusinessApplication';
+  comments?: Array<{ comment: string }>;
+}
+
 // ---------------------------------------------------------------------------
 // Normalized ES document shapes
 // ---------------------------------------------------------------------------

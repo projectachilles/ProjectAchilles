@@ -1,7 +1,24 @@
 // Lightweight Microsoft Graph API client using fetch — no SDK dependency.
 // Handles OAuth2 client_credentials, token caching, pagination, and rate limiting.
 
-import type { GraphSecureScore, GraphControlProfile, GraphAlert } from '../../types/defender.js';
+import type { GraphSecureScore, GraphControlProfile, GraphAlert, GraphAlertPatch } from '../../types/defender.js';
+
+/**
+ * Distinguishable error class for Graph PATCH failures so callers can
+ * branch on HTTP status without string-matching. Used by the auto-resolve
+ * service to decide whether a candidate should be retried (transient)
+ * vs. shelved (permission or not-found).
+ */
+export class GraphPatchError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: number,
+    readonly bodySnippet: string,
+  ) {
+    super(message);
+    this.name = 'GraphPatchError';
+  }
+}
 
 const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 const TOKEN_REFRESH_MARGIN_S = 300; // Refresh 5 min before expiry
@@ -151,5 +168,88 @@ export class MicrosoftGraphClient {
       params.$filter = filter;
     }
     return this.graphRequest<GraphAlert>('/security/alerts_v2', params);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Write operations
+  // ---------------------------------------------------------------------------
+
+  /**
+   * PATCH a Microsoft Defender alert. Used by the auto-resolve pillar
+   * to flip correlated Achilles alerts to status=resolved with a
+   * securityTesting determination and an audit-trail comment.
+   *
+   * Requires the Azure AD app registration to have
+   * `SecurityAlert.ReadWrite.All` granted (strictly more than the
+   * read-only scope used by the existing ingest methods). A 403 here
+   * almost always means that consent hasn't been granted — the error
+   * message surfaces the exact scope needed so the operator can fix
+   * it without digging through Graph's generic error payloads.
+   *
+   * Throws `GraphPatchError` on non-2xx responses so callers can
+   * branch on `.statusCode` (e.g., 404 → alert deleted upstream,
+   * shelve; 403 → permission missing, halt pass; everything else →
+   * record and retry on next pass).
+   */
+  async updateAlert(alertId: string, patch: GraphAlertPatch): Promise<void> {
+    if (!alertId) {
+      throw new Error('updateAlert: alertId is required');
+    }
+
+    const url = `${GRAPH_BASE}/security/alerts_v2/${encodeURIComponent(alertId)}`;
+    let retryCount = 0;
+
+    while (true) {
+      const token = await this.getAccessToken();
+      const res = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(patch),
+      });
+
+      // 429 — rate limited, honor Retry-After up to MAX_RETRIES
+      if (res.status === 429 && retryCount < MAX_RETRIES) {
+        const retryAfter = parseInt(res.headers.get('Retry-After') || '5', 10);
+        await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+        retryCount++;
+        continue;
+      }
+
+      // 401 — token expired, refresh once
+      if (res.status === 401 && retryCount < 1) {
+        this.invalidateToken();
+        retryCount++;
+        continue;
+      }
+
+      if (res.ok) return; // 2xx
+
+      const bodySnippet = (await res.text().catch(() => '')).slice(0, 300);
+
+      if (res.status === 403) {
+        throw new GraphPatchError(
+          `Graph PATCH forbidden (HTTP 403). Ensure the Azure AD app has 'SecurityAlert.ReadWrite.All' application permission with admin consent granted. Body: ${bodySnippet}`,
+          403,
+          bodySnippet,
+        );
+      }
+
+      if (res.status === 404) {
+        throw new GraphPatchError(
+          `Graph alert not found (HTTP 404): ${alertId}. The alert may have been deleted upstream.`,
+          404,
+          bodySnippet,
+        );
+      }
+
+      throw new GraphPatchError(
+        `Graph PATCH failed: HTTP ${res.status} — ${bodySnippet}`,
+        res.status,
+        bodySnippet,
+      );
+    }
   }
 }
