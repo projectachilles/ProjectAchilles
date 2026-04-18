@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@clerk/backend": "^2.31.0",
-    "@clerk/express": "^1.7.70",
+    "@clerk/express": "^2.1.5",
     "@elastic/elasticsearch": "^8.19.1",
     "@libsql/client": "^0.14.0",
     "@vercel/blob": "^2.3.0",
