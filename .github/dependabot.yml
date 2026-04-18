@@ -25,6 +25,10 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 10
+    ignore:
+      # ES server is 8.17 — v9 client sends incompatible headers (compatible-with=9)
+      - dependency-name: "@elastic/elasticsearch"
+        update-types: ["version-update:semver-major"]
     groups:
       npm-minor-patch:
         patterns:
@@ -32,6 +36,35 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    commit-message:
+      prefix: "chore(deps)"
+
+  # Backend serverless dependencies (Vercel/Turso fork)
+  - package-ecosystem: "npm"
+    directory: "/backend-serverless"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: "@elastic/elasticsearch"
+        update-types: ["version-update:semver-major"]
+    groups:
+      npm-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "chore(deps)"
+
+  # Go agent dependencies
+  - package-ecosystem: "gomod"
+    directory: "/agent"
+    schedule:
+      interval: "weekly"
+      day: "monday"
     commit-message:
       prefix: "chore(deps)"
 
