@@ -25,7 +25,7 @@
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
-    "helmet": "^7.1.0",
+    "helmet": "^8.1.0",
     "morgan": "^1.10.0",
     "multer": "^2.1.1",
     "node-forge": "^1.4.0",
