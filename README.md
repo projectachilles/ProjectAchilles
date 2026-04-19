@@ -437,6 +437,83 @@ CLERK_SECRET_KEY=sk_test_...
 | `NGROK_FRONTEND_DOMAIN` | ngrok domain for frontend tunnel |
 | `NGROK_BACKEND_DOMAIN` | ngrok domain for backend/agent tunnel |
 
+## Data Storage & Clean Reset
+
+Runtime state (agents, tokens, settings, certificates, compiled binaries) is stored **outside the repository** — in the user's home directory. This is intentional: it protects your data from `git pull`, re-clones, or accidental deletion of the repo folder.
+
+### Where state lives
+
+| Platform | Data directory |
+|----------|----------------|
+| Linux / macOS (local) | `~/.projectachilles/` |
+| Windows | `C:\Users\<user>\.projectachilles\` |
+| Docker / Render / Fly.io | `/root/.projectachilles/` (inside container, backed by a volume) |
+| Vercel (serverless) | Turso database + Vercel Blob store (no filesystem state) |
+
+### What's inside
+
+| Path | Contents |
+|------|----------|
+| `agents.db` | SQLite database: agents, enrollment tokens, tasks, schedules, agent_versions |
+| `analytics.json` | Encrypted Elasticsearch credentials (AES-256-GCM) |
+| `integrations.json` | Encrypted Defender, Slack, and email credentials |
+| `tests.json` | Test library configuration |
+| `certs/cert-*/` | Code-signing PFX certificates (max 5, active cert tracked in `active-cert.txt`) |
+| `binaries/<os>-<arch>/` | Compiled Go agents ready to download |
+| `builds/<test-uuid>/` | Per-test compiled binaries |
+| `signing/` | Agent API key signing keypair |
+| `custom-tests/` | User-authored tests outside the git-synced library |
+
+Additionally, test results and Defender alerts are stored in **Elasticsearch** (`achilles-results-*`, `achilles-defender` indices) — that data lives in your ES cluster, not on the local filesystem.
+
+> **Why this matters**: deleting or renaming `/ProjectAchilles` and doing a fresh `git clone` does **not** reset your installation. The backend will start up against the same `agents.db` and show the same agents, tokens, schedules, and settings.
+
+### Clean reset (start from scratch)
+
+Stop services and remove the data directory. The next startup will create an empty database.
+
+**Linux / macOS (local install):**
+
+```bash
+./scripts/start.sh --stop
+rm -rf ~/.projectachilles
+# optional: also wipe Elasticsearch test results
+curl -X DELETE "$ELASTICSEARCH_NODE/achilles-results-*"
+```
+
+**Windows (PowerShell):**
+
+```powershell
+.\scripts\start.sh --stop   # or stop backend/frontend processes manually
+Remove-Item -Recurse -Force $HOME\.projectachilles
+```
+
+**Docker Compose:**
+
+```bash
+docker compose down --volumes   # removes the achilles-data volume
+docker compose up -d
+```
+
+**Render / Fly.io:** delete and recreate the persistent disk/volume via the provider dashboard or CLI (`flyctl volumes destroy`, Render → Disk → Delete), then redeploy.
+
+**Vercel (serverless):** drop the Turso database (`turso db destroy <name>` and recreate) and clear the Blob store (delete objects via `vercel blob` CLI or Dashboard).
+
+### Selective reset (keep install, clear agents only)
+
+If you want to keep your Clerk config, certificates, and ES credentials but remove all enrolled agents:
+
+```bash
+sqlite3 ~/.projectachilles/agents.db <<'SQL'
+DELETE FROM tasks;
+DELETE FROM schedules;
+DELETE FROM agents;
+DELETE FROM enrollment_tokens;
+SQL
+```
+
+Restart the backend afterwards so it reopens the database cleanly.
+
 ## API Reference
 
 > All endpoints require Clerk JWT authentication unless noted. Include `Authorization: Bearer <token>` header.

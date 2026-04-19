@@ -27,6 +27,7 @@ const sidebars: SidebarsConfig = {
         'deployment/vercel',
         'deployment/production-checklist',
         'deployment/environment-variables',
+        'deployment/data-storage',
       ],
     },
     {
