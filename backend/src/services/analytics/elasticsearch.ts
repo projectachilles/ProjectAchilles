@@ -2267,47 +2267,68 @@ export class ElasticsearchService {
 
   /**
    * Archive executions by group keys.
-   * Group key format:
-   *   "bundle::<bundle_id>::<hostname>" — all docs in a bundle execution
-   *   "standalone::<test_uuid>::<hostname>" — a single standalone test execution
+   *
+   * Group key format (matches what the Executions listing emits — see
+   * groupKeyScript earlier in this file):
+   *   "bundle::<bundle_id>::<hostname>::<bucket>"        — one 30-min-bucketed run
+   *   "standalone::<test_uuid>::<hostname>::<bucket>"    — one 30-min-bucketed run
+   *
+   * The bucket is `event_time_ms / 1800000` (30 minutes). Archive scopes its
+   * filter to the matching [bucket_start, bucket_start+30min) range so clicking
+   * one row in the UI archives only that row's docs, not all historical runs
+   * of the same (bundle, host) pair.
+   *
+   * Legacy 3-part keys (pre-bucket, from older clients) are rejected — the UI
+   * has not emitted them since c28fee4 (2026-04-08).
    */
   async archiveByGroupKeys(
     groupKeys: string[],
   ): Promise<{ archived: number; errors: string[] }> {
+    const BUCKET_MS = 1_800_000; // 30 minutes
     const errors: string[] = [];
     const shouldClauses: any[] = [];
 
+    const bucketRange = (bucket: number) => ({
+      range: {
+        'routing.event_time': {
+          gte: bucket * BUCKET_MS,
+          lt: (bucket + 1) * BUCKET_MS,
+          format: 'epoch_millis',
+        },
+      },
+    });
+
     for (const key of groupKeys) {
-      if (key.startsWith('bundle::')) {
-        const parts = key.split('::');
-        if (parts.length < 3) {
-          errors.push(`Invalid bundle group key: ${key}`);
-          continue;
-        }
-        const bundleId = parts[1];
-        const hostname = parts.slice(2).join('::');
+      const parts = key.split('::');
+      if (parts.length !== 4) {
+        errors.push(`Invalid group key (expected 4 parts, got ${parts.length}): ${key}`);
+        continue;
+      }
+      const [prefix, id, hostname, bucketStr] = parts;
+      const bucket = Number.parseInt(bucketStr, 10);
+      if (!Number.isFinite(bucket)) {
+        errors.push(`Invalid bucket in group key: ${key}`);
+        continue;
+      }
+
+      if (prefix === 'bundle') {
         shouldClauses.push({
           bool: {
             filter: [
-              { term: { 'f0rtika.bundle_id': bundleId } },
+              { term: { 'f0rtika.bundle_id': id } },
               { term: { 'routing.hostname': hostname } },
+              bucketRange(bucket),
             ],
           },
         });
-      } else if (key.startsWith('standalone::')) {
-        const parts = key.split('::');
-        if (parts.length < 3) {
-          errors.push(`Invalid standalone group key: ${key}`);
-          continue;
-        }
-        const testUuid = parts[1];
-        const hostname = parts.slice(2).join('::');
+      } else if (prefix === 'standalone') {
         shouldClauses.push({
           bool: {
             filter: [
-              { term: { 'f0rtika.test_uuid': testUuid } },
+              { term: { 'f0rtika.test_uuid': id } },
               { term: { 'routing.hostname': hostname } },
               { bool: { must_not: [{ term: { 'f0rtika.is_bundle_control': true } }] } },
+              bucketRange(bucket),
             ],
           },
         });
