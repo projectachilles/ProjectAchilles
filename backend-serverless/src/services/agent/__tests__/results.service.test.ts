@@ -366,7 +366,53 @@ describe('results.service', () => {
       await ingestResult(task, result);
 
       const ops = mockEsBulk.mock.calls[0][0].operations;
-      expect(ops[0]).toEqual({ index: { _index: 'custom-index' } });
+      expect(ops[0]).toEqual({
+        index: { _index: 'custom-index', _id: 'a3c923ae-1a46-4b1f-b696-be6c2731a628::CH-DEF-001' },
+      });
+    });
+  });
+
+  // ── Group 7: Ingestion Idempotency ─────────────────────────
+
+  describe('ingestion idempotency', () => {
+    it('sets a deterministic _id on single-document ingestion', async () => {
+      const task = makeTask({ id: 'fixed-task-uuid-42' });
+      await ingestResult(task, makeResult());
+
+      expect(mockEsIndex).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'fixed-task-uuid-42' }),
+      );
+    });
+
+    it('re-ingesting the same single result produces the same _id (overwrite, not duplicate)', async () => {
+      const task = makeTask();
+      await ingestResult(task, makeResult());
+      await ingestResult(task, makeResult());
+
+      const firstId = mockEsIndex.mock.calls[0][0].id;
+      const secondId = mockEsIndex.mock.calls[1][0].id;
+      expect(firstId).toBe(secondId);
+      expect(firstId).toBeDefined();
+    });
+
+    it('sets a deterministic composite _id on each bundle control action line', async () => {
+      const result = makeResult({ bundle_results: makeBundle() });
+      await ingestResult(makeTask(), result);
+
+      const ops = mockEsBulk.mock.calls[0][0].operations;
+      expect(ops[0].index._id).toBe('a3c923ae-1a46-4b1f-b696-be6c2731a628::CH-DEF-001');
+      expect(ops[2].index._id).toBe('a3c923ae-1a46-4b1f-b696-be6c2731a628::CH-DEF-002');
+    });
+
+    it('re-ingesting the same bundle produces the same per-control _ids', async () => {
+      const result = makeResult({ bundle_results: makeBundle() });
+      await ingestResult(makeTask(), result);
+      await ingestResult(makeTask(), result);
+
+      const firstOps = mockEsBulk.mock.calls[0][0].operations;
+      const secondOps = mockEsBulk.mock.calls[1][0].operations;
+      expect(firstOps[0].index._id).toBe(secondOps[0].index._id);
+      expect(firstOps[2].index._id).toBe(secondOps[2].index._id);
     });
   });
 });

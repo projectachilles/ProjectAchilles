@@ -89,13 +89,18 @@ export async function ingestResult(task: Task, result: TaskResult): Promise<void
     },
   };
 
-  await client.index({ index, document: doc });
+  await client.index({ index, id: task.id, document: doc });
 }
 
 /**
  * Fan out bundle controls into individual ES documents via the bulk API.
  * Each control becomes an independent document so existing dashboards and
  * Defense Score formulas count them as separate test results.
+ *
+ * Deterministic `_id` (`<bundle_id>::<control_id>`) makes ingestion idempotent:
+ * if the agent retries a POST after a lost response, re-ingestion overwrites
+ * the prior doc instead of creating a duplicate. Without this the Executions
+ * table groups two full control sets into one inflated row.
  */
 async function ingestBundleControls(
   client: Client,
@@ -117,7 +122,7 @@ async function ingestBundleControls(
   }
 
   const operations = bundle.controls.flatMap((control) => [
-    { index: { _index: index } },
+    { index: { _index: index, _id: `${bundle.bundle_id}::${control.control_id}` } },
     {
       routing: {
         event_time: result.completed_at,
