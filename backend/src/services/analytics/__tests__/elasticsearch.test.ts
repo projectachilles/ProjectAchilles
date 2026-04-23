@@ -1645,13 +1645,21 @@ describe('elasticsearch.ts', () => {
   // Archive operations
   // ================================================================
   describe('archiveByGroupKeys', () => {
+    // Realistic keys match what the Painless groupKeyScript emits: 4 parts with
+    // a 30-min bucket as the final component. `bucket = event_time_ms / 1_800_000`.
+    // 1893456 corresponds to 2026-01-15T10:00:00Z (arbitrary, stable across tests).
+    const BUCKET = 1893456;
+    const BUCKET_MS = 1_800_000;
+    const BUCKET_START_MS = BUCKET * BUCKET_MS;
+    const BUCKET_END_MS = (BUCKET + 1) * BUCKET_MS;
+
     it('archives standalone group — reindex + delete called', async () => {
       mockIndicesExists.mockResolvedValue(true);
       mockReindex.mockResolvedValue({ total: 1 });
       mockDeleteByQuery.mockResolvedValue({ deleted: 1 });
 
       const svc = createService({ indexPattern: 'achilles-results-*' });
-      const result = await svc.archiveByGroupKeys(['standalone::uuid-001::host-a']);
+      const result = await svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${BUCKET}`]);
 
       expect(result.archived).toBe(1);
       expect(result.errors).toHaveLength(0);
@@ -1664,26 +1672,62 @@ describe('elasticsearch.ts', () => {
       expect(reindexCall.source.index).toBe('achilles-results-*');
     });
 
-    it('archives bundle group — uses bundle_id + hostname', async () => {
+    it('archives bundle group — uses bundle_id + hostname + bucket range', async () => {
       mockIndicesExists.mockResolvedValue(true);
       mockReindex.mockResolvedValue({ total: 5 });
       mockDeleteByQuery.mockResolvedValue({ deleted: 5 });
 
       const svc = createService({ indexPattern: 'achilles-results-*' });
-      const result = await svc.archiveByGroupKeys(['bundle::bundle-001::host-a']);
+      const result = await svc.archiveByGroupKeys([`bundle::bundle-001::host-a::${BUCKET}`]);
 
       expect(result.archived).toBe(5);
       expect(mockReindex).toHaveBeenCalledOnce();
 
-      // Check the query includes bundle_id filter
+      // Check the query includes bundle_id, hostname, and the 30-min time range.
       const query = mockReindex.mock.calls[0][0].source.query;
       const shouldClause = query.bool.should[0];
       expect(shouldClause.bool.filter).toEqual(
         expect.arrayContaining([
           { term: { 'f0rtika.bundle_id': 'bundle-001' } },
           { term: { 'routing.hostname': 'host-a' } },
+          {
+            range: {
+              'routing.event_time': {
+                gte: BUCKET_START_MS,
+                lt: BUCKET_END_MS,
+                format: 'epoch_millis',
+              },
+            },
+          },
         ])
       );
+    });
+
+    it('scopes standalone archive to the 30-min bucket window', async () => {
+      mockIndicesExists.mockResolvedValue(true);
+      mockReindex.mockResolvedValue({ total: 1 });
+      mockDeleteByQuery.mockResolvedValue({ deleted: 1 });
+
+      const svc = createService({ indexPattern: 'achilles-results-*' });
+      await svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${BUCKET}`]);
+
+      const query = mockReindex.mock.calls[0][0].source.query;
+      const filters = query.bool.should[0].bool.filter;
+      const rangeFilter = filters.find((f: any) => f.range?.['routing.event_time']);
+      expect(rangeFilter).toEqual({
+        range: {
+          'routing.event_time': {
+            gte: BUCKET_START_MS,
+            lt: BUCKET_END_MS,
+            format: 'epoch_millis',
+          },
+        },
+      });
+      // Standalone must also exclude bundle-control docs.
+      const exclusion = filters.find(
+        (f: any) => f.bool?.must_not?.[0]?.term?.['f0rtika.is_bundle_control'] === true,
+      );
+      expect(exclusion).toBeDefined();
     });
 
     it('creates archive index when missing', async () => {
@@ -1693,7 +1737,7 @@ describe('elasticsearch.ts', () => {
       mockDeleteByQuery.mockResolvedValue({ deleted: 1 });
 
       const svc = createService({ indexPattern: 'achilles-results-*' });
-      await svc.archiveByGroupKeys(['standalone::uuid-001::host-a']);
+      await svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${BUCKET}`]);
 
       expect(mockIndicesCreate).toHaveBeenCalledOnce();
       expect(mockIndicesCreate.mock.calls[0][0].index).toBe('archived-achilles-results');
@@ -1704,7 +1748,7 @@ describe('elasticsearch.ts', () => {
       mockReindex.mockResolvedValue({ total: 0 });
 
       const svc = createService({ indexPattern: 'achilles-results-*' });
-      const result = await svc.archiveByGroupKeys(['standalone::uuid-001::host-a']);
+      const result = await svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${BUCKET}`]);
 
       expect(result.archived).toBe(0);
       expect(mockDeleteByQuery).not.toHaveBeenCalled();
@@ -1717,8 +1761,8 @@ describe('elasticsearch.ts', () => {
 
       const svc = createService({ indexPattern: 'achilles-results-*' });
       const result = await svc.archiveByGroupKeys([
-        'bundle::b1::host-a',
-        'standalone::uuid-001::host-b',
+        `bundle::b1::host-a::${BUCKET}`,
+        `standalone::uuid-001::host-b::${BUCKET}`,
       ]);
 
       expect(result.archived).toBe(6);
@@ -1733,13 +1777,33 @@ describe('elasticsearch.ts', () => {
 
       const svc = createService({ indexPattern: 'achilles-results-*' });
       const result = await svc.archiveByGroupKeys([
-        'unknown::foo',
-        'standalone::uuid-001::host-a',
+        `unknown::foo::host::${BUCKET}`,
+        `standalone::uuid-001::host-a::${BUCKET}`,
       ]);
 
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0]).toContain('Unknown group key prefix');
       expect(result.archived).toBe(1);
+    });
+
+    it('rejects legacy 3-part group keys (pre-bucket format)', async () => {
+      const svc = createService({ indexPattern: 'achilles-results-*' });
+      const result = await svc.archiveByGroupKeys(['bundle::bundle-001::host-a']);
+
+      expect(result.archived).toBe(0);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toContain('expected 4 parts, got 3');
+      expect(mockReindex).not.toHaveBeenCalled();
+    });
+
+    it('rejects keys with non-numeric bucket', async () => {
+      const svc = createService({ indexPattern: 'achilles-results-*' });
+      const result = await svc.archiveByGroupKeys(['bundle::b1::host-a::notanumber']);
+
+      expect(result.archived).toBe(0);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toContain('Invalid bucket');
+      expect(mockReindex).not.toHaveBeenCalled();
     });
 
     it('returns 0 archived when all keys are invalid', async () => {
