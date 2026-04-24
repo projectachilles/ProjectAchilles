@@ -37,7 +37,7 @@ import { isAppMode } from "@/lib/siteMode";
 type Lang = "en" | "es";
 
 const GITHUB_URL = "https://github.com/projectachilles/ProjectAchilles";
-const DISCORD_URL = "https://discord.gg/4qzwX9XA";
+const DISCORD_URL = "https://discord.gg/aZ2dx2p4Ef";
 
 function tx(obj: { en: string; es: string }, lang: Lang) {
   return obj[lang];
