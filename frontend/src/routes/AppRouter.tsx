@@ -13,7 +13,7 @@ import SignInPage from '../pages/auth/SignInPage';
 import SignUpPage from '../pages/auth/SignUpPage';
 
 // All other pages — lazy-loaded for code splitting
-const HeroPage = lazy(() => import('../pages/HeroPage'));
+const Landing = lazy(() => import('../pages/landing/Landing'));
 const UserProfilePage = lazy(() => import('../pages/auth/UserProfilePage'));
 const CliAuthPage = lazy(() => import('../pages/auth/CliAuthPage'));
 const BrowserHomePage = lazy(() => import('../pages/browser/BrowserHomePage'));
@@ -68,7 +68,7 @@ export default function AppRouter() {
     <Suspense fallback={<div className="min-h-[400px] flex items-center justify-center"><Loading message="Loading..." /></div>}>
     <Routes>
       {/* Public landing page */}
-      <Route path="/" element={<HeroPage />} />
+      <Route path="/" element={<Landing />} />
 
       {/* Auth routes */}
       <Route path="/sign-in/*" element={<SignInPage />} />
