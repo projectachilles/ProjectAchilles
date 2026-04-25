@@ -52,7 +52,7 @@ describe('FileService', () => {
       expect(FileService.readFileContent('/test/README.md').type).toBe('markdown');
     });
 
-    it('detects html, bash, json, yaml, kql, yara types', () => {
+    it('detects html, bash, json, yaml, kql, yara, ndjson types', () => {
       mockStatSync.mockReturnValue({ size: 10 });
       mockReadFileSync.mockReturnValue('content');
 
@@ -64,11 +64,27 @@ describe('FileService', () => {
         ['/test/config.yml', 'yaml'],
         ['/test/query.kql', 'kql'],
         ['/test/rule.yar', 'yara'],
+        ['/test/rule.yara', 'yara'],
+        ['/test/rules.ndjson', 'ndjson'],
       ];
 
       for (const [filePath, expectedType] of cases) {
         expect(FileService.readFileContent(filePath).type).toBe(expectedType);
       }
+    });
+
+    it('detects sigma type from filename pattern (overrides .yml extension)', () => {
+      mockStatSync.mockReturnValue({ size: 10 });
+      mockReadFileSync.mockReturnValue('title: test');
+
+      expect(FileService.readFileContent('/test/abc_sigma_rules.yml').type).toBe('sigma');
+    });
+
+    it('detects ndjson type from elastic_rules filename pattern', () => {
+      mockStatSync.mockReturnValue({ size: 10 });
+      mockReadFileSync.mockReturnValue('{"rule":{}}');
+
+      expect(FileService.readFileContent('/test/abc_elastic_rules.ndjson').type).toBe('ndjson');
     });
 
     it('defaults to text for unknown extensions', () => {
