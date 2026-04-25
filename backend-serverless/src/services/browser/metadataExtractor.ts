@@ -16,6 +16,9 @@ export class MetadataExtractor {
       tactics: [],
       tags: [],
       integrations: [],
+      isacaControlIds: [],
+      cisaDomains: [],
+      cobitObjectives: [],
       stages: [],
       isMultiStage: false,
     };
@@ -103,6 +106,33 @@ export class MetadataExtractor {
           .split(',')
           .map(t => t.trim())
           .filter(t => t);
+      }
+
+      // Extract ISACA_CONTROLS (comma-separated ITGC-* control IDs)
+      const isacaMatch = header.match(/ISACA_CONTROLS:\s*(.+)/i);
+      if (isacaMatch) {
+        metadata.isacaControlIds = isacaMatch[1]
+          .split(',')
+          .map(t => t.trim())
+          .filter(t => t && t.toLowerCase() !== 'n/a');
+      }
+
+      // Extract CISA_DOMAINS (comma-separated, e.g. "D5,D2")
+      const cisaMatch = header.match(/CISA_DOMAINS:\s*(.+)/i);
+      if (cisaMatch) {
+        metadata.cisaDomains = cisaMatch[1]
+          .split(',')
+          .map(t => t.trim())
+          .filter(t => t && t.toLowerCase() !== 'n/a');
+      }
+
+      // Extract COBIT_OBJECTIVES (comma-separated COBIT 2019 management objectives)
+      const cobitMatch = header.match(/COBIT_OBJECTIVES:\s*(.+)/i);
+      if (cobitMatch) {
+        metadata.cobitObjectives = cobitMatch[1]
+          .split(',')
+          .map(t => t.trim())
+          .filter(t => t && t.toLowerCase() !== 'n/a');
       }
 
       // Extract AUTHOR
@@ -329,6 +359,9 @@ export class MetadataExtractor {
       tactics: [],
       tags: [],
       integrations: [],
+      isacaControlIds: [],
+      cisaDomains: [],
+      cobitObjectives: [],
       stages: [],
       isMultiStage: false,
     };
@@ -344,8 +377,11 @@ export class MetadataExtractor {
       this.mergeArrayField(metadata, goData, 'techniques');
       this.mergeArrayField(metadata, goData, 'tactics');
       this.mergeArrayField(metadata, goData, 'tags');
+      this.mergeArrayField(metadata, goData, 'isacaControlIds');
+      this.mergeArrayField(metadata, goData, 'cisaDomains');
+      this.mergeArrayField(metadata, goData, 'cobitObjectives');
       // Assign other fields (but not arrays, we already merged them)
-      const { techniques, tactics, tags, ...otherGoData } = goData;
+      const { techniques, tactics, tags, isacaControlIds, cisaDomains, cobitObjectives, ...otherGoData } = goData;
       Object.assign(metadata, otherGoData);
     }
 
@@ -397,7 +433,7 @@ export class MetadataExtractor {
   private static mergeArrayField(
     target: Partial<TestMetadata>,
     source: Partial<TestMetadata>,
-    field: 'techniques' | 'tactics' | 'tags'
+    field: 'techniques' | 'tactics' | 'tags' | 'isacaControlIds' | 'cisaDomains' | 'cobitObjectives'
   ): void {
     const sourceArray = source[field];
     if (sourceArray && sourceArray.length > 0) {
