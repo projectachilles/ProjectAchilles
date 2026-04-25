@@ -114,6 +114,8 @@ export default function CodeViewer({ content, language, filename }: CodeViewerPr
     'json': 'json',
     'kql': 'sql',  // KQL is similar to SQL
     'yara': 'clike',  // YARA has C-like syntax
+    'sigma': 'yaml',  // Sigma rules are YAML
+    'ndjson': 'json',  // NDJSON: per-line JSON, lex as JSON
     'yaml': 'yaml',
   };
 

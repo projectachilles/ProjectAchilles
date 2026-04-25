@@ -7,6 +7,22 @@ interface FileViewerProps {
   file: FileContent;
 }
 
+function prettyPrintNdjson(content: string): string {
+  return content
+    .split('\n')
+    .map(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return '';
+      try {
+        return JSON.stringify(JSON.parse(trimmed), null, 2);
+      } catch {
+        return line;
+      }
+    })
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 export default function FileViewer({ file }: FileViewerProps) {
   // Render markdown files
   if (file.type === 'markdown') {
@@ -14,8 +30,9 @@ export default function FileViewer({ file }: FileViewerProps) {
   }
 
   // Render code files with syntax highlighting
-  if (['go', 'powershell', 'bash', 'json', 'kql', 'yara', 'yaml'].includes(file.type)) {
-    return <CodeViewer content={file.content} language={file.type} filename={file.name} />;
+  if (['go', 'powershell', 'bash', 'json', 'kql', 'yara', 'sigma', 'ndjson', 'yaml'].includes(file.type)) {
+    const displayContent = file.type === 'ndjson' ? prettyPrintNdjson(file.content) : file.content;
+    return <CodeViewer content={displayContent} language={file.type} filename={file.name} />;
   }
 
   // Render plain text

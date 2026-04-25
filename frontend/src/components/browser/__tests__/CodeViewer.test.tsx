@@ -68,6 +68,18 @@ describe('CodeViewer', () => {
     expect(screen.getByText('(sql)')).toBeInTheDocument();
   });
 
+  it('maps sigma to yaml', () => {
+    render(<CodeViewer content="title: test" language="sigma" />);
+
+    expect(screen.getByText('(yaml)')).toBeInTheDocument();
+  });
+
+  it('maps ndjson to json', () => {
+    render(<CodeViewer content='{"a":1}' language="ndjson" />);
+
+    expect(screen.getByText('(json)')).toBeInTheDocument();
+  });
+
   it('has a copy button', () => {
     render(<CodeViewer content="test" language="go" />);
 
