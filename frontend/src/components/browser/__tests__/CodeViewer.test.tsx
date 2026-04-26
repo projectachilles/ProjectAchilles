@@ -1,27 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import CodeViewer from '../CodeViewer';
 
-// Mock useTheme since jsdom doesn't have a real localStorage
-const mockUseTheme = vi.fn().mockReturnValue({
-  theme: 'dark' as const,
-  setTheme: vi.fn(),
-  toggleTheme: vi.fn(),
-});
-
-vi.mock('@/hooks/useTheme', () => ({
-  useTheme: () => mockUseTheme(),
-}));
-
 describe('CodeViewer', () => {
-  beforeEach(() => {
-    mockUseTheme.mockReturnValue({
-      theme: 'dark',
-      setTheme: vi.fn(),
-      toggleTheme: vi.fn(),
-    });
-  });
-
   it('renders code content', () => {
     const { container } = render(<CodeViewer content="const x = 42;" language="go" />);
 
@@ -84,18 +65,6 @@ describe('CodeViewer', () => {
     render(<CodeViewer content="test" language="go" />);
 
     expect(screen.getByText('Copy')).toBeInTheDocument();
-  });
-
-  it('renders with light theme', () => {
-    mockUseTheme.mockReturnValue({
-      theme: 'light',
-      setTheme: vi.fn(),
-      toggleTheme: vi.fn(),
-    });
-
-    render(<CodeViewer content="hello" language="bash" />);
-
-    expect(screen.getByText('hello')).toBeInTheDocument();
   });
 
   it('shows line numbers', () => {

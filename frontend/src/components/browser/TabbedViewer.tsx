@@ -3,7 +3,6 @@ import DOMPurify from 'dompurify';
 import type { TestDetails, FileContent } from '@/types/test';
 import { browserApi } from '@/services/api/browser';
 import FileViewer from './FileViewer';
-import { useTheme } from '@/hooks/useTheme';
 import { FileText, BookOpen, ShieldCheck, Workflow, Loader2 } from 'lucide-react';
 
 interface TabbedViewerProps {
@@ -20,29 +19,27 @@ interface Tab {
 }
 
 export default function TabbedViewer({ test }: TabbedViewerProps) {
-  const { theme } = useTheme();
   const attackFlowIframeRef = useRef<HTMLIFrameElement>(null);
   const [activeTab, setActiveTab] = useState<string>('readme');
   const [fileContent, setFileContent] = useState<FileContent | null>(null);
   const [attackFlowHtml, setAttackFlowHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Sync theme to attack flow iframe via postMessage
+  // Tactical Green is dark-only; sync once when the iframe loads.
   const syncThemeToIframe = useCallback(() => {
     if (attackFlowIframeRef.current?.contentWindow) {
       attackFlowIframeRef.current.contentWindow.postMessage(
-        { type: 'theme-change', theme },
+        { type: 'theme-change', theme: 'dark' },
         window.location.origin
       );
     }
-  }, [theme]);
+  }, []);
 
-  // Sync theme when it changes or when attack flow HTML loads
   useEffect(() => {
     if (activeTab === 'attack-flow' && attackFlowHtml) {
       syncThemeToIframe();
     }
-  }, [theme, activeTab, attackFlowHtml, syncThemeToIframe]);
+  }, [activeTab, attackFlowHtml, syncThemeToIframe]);
 
   // Define available tabs based on test files
   const tabs: Tab[] = [

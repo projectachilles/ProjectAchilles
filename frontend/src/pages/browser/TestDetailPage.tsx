@@ -5,7 +5,6 @@ import { browserApi } from '@/services/api/browser';
 import type { TestDetails, FileContent } from '@/types/test';
 import TechniqueBadge from '@/components/browser/TechniqueBadge';
 import FileViewer from '@/components/browser/FileViewer';
-import { useTheme } from '@/hooks/useTheme';
 import BuildSection from '@/components/browser/BuildSection';
 import CollapsibleSection from '@/components/browser/CollapsibleSection';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
@@ -18,7 +17,6 @@ import { ExecutionDrawer } from '@/components/browser/execution';
 export default function TestDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
   const navigate = useNavigate();
-  const { theme } = useTheme();
   const attackFlowIframeRef = useRef<HTMLIFrameElement>(null);
   const killChainIframeRef = useRef<HTMLIFrameElement>(null);
   const [test, setTest] = useState<TestDetails | null>(null);
@@ -36,21 +34,20 @@ export default function TestDetailPage() {
   const canCreateTasks = useHasPermission('endpoints:tasks:create');
   const [executionDrawerOpen, setExecutionDrawerOpen] = useState(false);
 
-  // Sync theme to visualization iframes via postMessage
+  // Tactical Green is dark-only; sync iframes to dark when they load.
   const syncThemeToIframe = useCallback(() => {
-    const message = { type: 'theme-change', theme };
+    const message = { type: 'theme-change', theme: 'dark' };
     if (attackFlowIframeRef.current?.contentWindow) {
       attackFlowIframeRef.current.contentWindow.postMessage(message, window.location.origin);
     }
     if (killChainIframeRef.current?.contentWindow) {
       killChainIframeRef.current.contentWindow.postMessage(message, window.location.origin);
     }
-  }, [theme]);
+  }, []);
 
-  // Sync theme when it changes or when iframe loads
   useEffect(() => {
     syncThemeToIframe();
-  }, [theme, attackFlowHtml, killChainHtml, syncThemeToIframe]);
+  }, [attackFlowHtml, killChainHtml, syncThemeToIframe]);
 
   useEffect(() => {
     if (uuid) {

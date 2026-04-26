@@ -2,7 +2,6 @@ import { useState, useMemo, useCallback, memo } from 'react';
 import { Treemap, ResponsiveContainer, Tooltip } from 'recharts';
 import { Loader2, ChevronLeft } from 'lucide-react';
 import type { HostTestMatrixCell } from '../../../services/api/analytics';
-import { useTheme } from '../../../hooks/useTheme';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface CoverageTreemapProps {
@@ -310,8 +309,8 @@ function CoverageTreemap({
   canonicalTestCount,
   canonicalTestCount30d
 }: CoverageTreemapProps) {
-  const { theme } = useTheme();
-  const isDark = theme === 'dark';
+  // Tactical Green is dark-only.
+  const isDark = true;
 
   // Drill-down state: null = overview, string = hostname to show tests for
   const [drillDownHost, setDrillDownHost] = useState<string | null>(null);

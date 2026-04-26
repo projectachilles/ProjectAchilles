@@ -1,6 +1,5 @@
 import { Loader2 } from 'lucide-react';
 import type { HostTestMatrixCell } from '../../../services/api/analytics';
-import { useTheme } from '../../../hooks/useTheme';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface HeatmapChartProps {
@@ -14,8 +13,6 @@ export default function HeatmapChart({
   loading,
   title = 'Host-Test Coverage Matrix'
 }: HeatmapChartProps) {
-  const { theme } = useTheme();
-
   // Return early if no data
   if (!data || data.length === 0) {
     if (loading) {
@@ -32,7 +29,8 @@ export default function HeatmapChart({
     );
   }
 
-  const isDark = theme === 'dark';
+  // Tactical Green is dark-only.
+  const isDark = true;
 
   // Extract unique hostnames and test names
   const hostnames = [...new Set(data.map(d => d.hostname))].sort();

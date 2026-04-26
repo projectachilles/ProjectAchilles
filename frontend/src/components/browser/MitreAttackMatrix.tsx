@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import type { TestMetadata } from '@/types/test';
-import { useTheme } from '@/hooks/useTheme';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Switch } from '@/components/shared/ui/Switch';
 import { Grid3X3 } from 'lucide-react';
@@ -49,10 +48,10 @@ interface MitreAttackMatrixProps {
 // ── Component ────────────────────────────────────────────────────────
 
 export default function MitreAttackMatrix({ tests, onDrillToTechnique }: MitreAttackMatrixProps) {
-  const { theme, themeStyle } = useTheme();
-  const isDark = theme === 'dark' || themeStyle === 'hackerterminal';
-  const isHacker = themeStyle === 'hackerterminal';
-  const isNeobrut = themeStyle === 'neobrutalism';
+  // Tactical Green is dark-only; hacker/neobrut variants are gone.
+  const isDark = true;
+  const isHacker = false;
+  const isNeobrut = false;
 
   const [showEmpty, setShowEmpty] = useState(false);
   const [selectedTactic, setSelectedTactic] = useState<string | null>(null);
