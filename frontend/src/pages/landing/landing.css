@@ -238,9 +238,14 @@ html:has(.landing-page) { scroll-behavior: smooth; }
 
 /* ─── HERO ───────────────────────────────────────────────────── */
 .landing-page .hero {
-  min-height: 100vh;
+  /* Cap hero height so the content stays anchored on tall monitors —
+     above ~1100px viewport the bare 100vh leaves visible voids above
+     and below the centered grid. clamp() keeps the cinematic
+     "fills the screen" feel on laptops while preventing growth past
+     a comfortable reading width on larger displays. */
+  min-height: clamp(720px, 88vh, 980px);
   padding-top: 6rem;
-  padding-bottom: 4rem;
+  padding-bottom: 1.5rem;
   display: flex; align-items: center;
   position: relative;
 }
@@ -471,11 +476,13 @@ html:has(.landing-page) { scroll-behavior: smooth; }
 @media (max-width: 1100px) { .landing-page .viz-float { display: none; } }
 
 /* ─── TRUST BAR ──────────────────────────────────────────────── */
+/* Reads as the hero's tail rather than a free-floating banner: no
+   top border, transparent bg, tight top padding. The bottom border
+   is the only crisp edge — it cues the transition into Regulatory. */
 .landing-page .trust-bar {
-  border-top: 1px solid var(--line-soft);
   border-bottom: 1px solid var(--line-soft);
-  padding: 2rem 0;
-  background: rgba(0, 0, 0, 0.2);
+  padding: 0.5rem 0 2rem;
+  background: transparent;
 }
 .landing-page .trust-label {
   font-family: var(--font-mono);
