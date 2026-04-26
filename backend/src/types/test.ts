@@ -30,6 +30,9 @@ export interface TestMetadata {
   validatorDescriptions?: Record<string, string>;  // validator name → description (bundle tests)
   tags?: string[];             // Additional tags for filtering
   integrations?: string[];     // Required integrations (e.g. 'azure')
+  isacaControlIds?: string[];  // ITGC-* control IDs covered (e.g. 'ITGC-AM-001') — populated by ISACA / CIS / ISO27001 bundles
+  cisaDomains?: string[];      // CISA 2024 ECO domains covered (e.g. 'D5')
+  cobitObjectives?: string[];  // COBIT 2019 management objectives (e.g. 'DSS05.04')
   lastModifiedDate?: string;   // ISO 8601 date from Git history
   lastCommitMessage?: string;  // First line of last commit touching this test
   source?: TestSourceProvenance; // 'upstream' (f0_library) or 'custom' (user-created)

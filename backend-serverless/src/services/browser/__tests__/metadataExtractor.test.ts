@@ -237,6 +237,58 @@ describe('MetadataExtractor', () => {
 
       expect(result.integrations).toEqual([]);
     });
+
+    it('parses ISACA_CONTROLS: comma-separated ITGC IDs', () => {
+      const filePath = writeGoFile('isaca-multi', `
+  ID: isaca-multi
+  ISACA_CONTROLS: ITGC-AM-001, ITGC-EP-002, ITGC-NS-003
+`);
+
+      const result = MetadataExtractor.extractFromGoFile(filePath);
+
+      expect(result.isacaControlIds).toEqual(['ITGC-AM-001', 'ITGC-EP-002', 'ITGC-NS-003']);
+    });
+
+    it('parses CISA_DOMAINS and COBIT_OBJECTIVES side-by-side', () => {
+      const filePath = writeGoFile('compliance-multi', `
+  ID: compliance-multi
+  CISA_DOMAINS: D5, D2
+  COBIT_OBJECTIVES: DSS05.04, APO13.01
+`);
+
+      const result = MetadataExtractor.extractFromGoFile(filePath);
+
+      expect(result.cisaDomains).toEqual(['D5', 'D2']);
+      expect(result.cobitObjectives).toEqual(['DSS05.04', 'APO13.01']);
+    });
+
+    it('treats N/A as absent for compliance fields', () => {
+      const filePath = writeGoFile('compliance-na', `
+  ID: compliance-na
+  ISACA_CONTROLS: N/A
+  CISA_DOMAINS: n/a
+  COBIT_OBJECTIVES: N/A
+`);
+
+      const result = MetadataExtractor.extractFromGoFile(filePath);
+
+      expect(result.isacaControlIds).toEqual([]);
+      expect(result.cisaDomains).toEqual([]);
+      expect(result.cobitObjectives).toEqual([]);
+    });
+
+    it('missing compliance fields → empty arrays', () => {
+      const filePath = writeGoFile('compliance-missing', `
+  ID: compliance-missing
+  NAME: Plain test
+`);
+
+      const result = MetadataExtractor.extractFromGoFile(filePath);
+
+      expect(result.isacaControlIds).toEqual([]);
+      expect(result.cisaDomains).toEqual([]);
+      expect(result.cobitObjectives).toEqual([]);
+    });
   });
 
   // ── Group 2: extractFromReadme ─────────────────────────────
