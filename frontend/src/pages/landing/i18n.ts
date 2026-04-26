@@ -105,6 +105,7 @@ export type LandingCopy = {
     secondary: string;
     tertiary: string;
   };
+  signIn: string;
   footer: {
     tagline: string;
     colPlatform: string;
@@ -273,6 +274,7 @@ export const COPY: Record<Lang, LandingCopy> = {
       secondary: 'Star on GitHub',
       tertiary: 'Join Discord →',
     },
+    signIn: 'Sign in',
     footer: {
       tagline: 'Open-source Continuous Security Testing for any organization. MITRE ATT&CK, DORA, TIBER-EU, ISO 27001, CIS — built on a Go agent and an AI test pipeline.',
       colPlatform: 'Platform',
@@ -428,6 +430,7 @@ export const COPY: Record<Lang, LandingCopy> = {
       secondary: 'Danos una estrella',
       tertiary: 'Únete a Discord →',
     },
+    signIn: 'Iniciar sesión',
     footer: {
       tagline: 'Continuous Security Testing open-source para cualquier organización. MITRE ATT&CK, DORA, TIBER-EU, ISO 27001, CIS — construido sobre un agente Go y un pipeline de tests con IA.',
       colPlatform: 'Plataforma',

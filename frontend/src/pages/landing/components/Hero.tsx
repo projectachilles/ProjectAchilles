@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react';
 import { COPY, HERO_TERMINAL_LINES, type Lang } from '../i18n';
 import { I } from '../icons';
+import { isAppMode } from '@/lib/siteMode';
 
 const GITHUB_URL = 'https://github.com/projectachilles/ProjectAchilles';
 const GET_STARTED_URL = 'https://docs.projectachilles.io/docs/getting-started/introduction';
+const SIGN_IN_URL = '/sign-in';
 
 export function Hero({ lang }: { lang: Lang }) {
   const t = COPY[lang].hero;
   const lines = HERO_TERMINAL_LINES[lang];
   const [tick, setTick] = useState(0);
+  const ctaLabel = isAppMode ? COPY[lang].signIn : t.ctaPrimary;
+  const ctaHref = isAppMode ? SIGN_IN_URL : GET_STARTED_URL;
 
   useEffect(() => {
     setTick(0);
@@ -36,11 +40,10 @@ export function Hero({ lang }: { lang: Lang }) {
             <div className="hero-ctas">
               <a
                 className="lp-btn lp-btn-primary lp-btn-lg"
-                href={GET_STARTED_URL}
-                target="_blank"
-                rel="noreferrer"
+                href={ctaHref}
+                {...(isAppMode ? {} : { target: '_blank', rel: 'noreferrer' })}
               >
-                {t.ctaPrimary} {I.Arrow}
+                {ctaLabel} {I.Arrow}
               </a>
               <a
                 className="lp-btn lp-btn-secondary lp-btn-lg"
