@@ -82,3 +82,6 @@ wiki/build/
 wiki/node_modules/
 .gitnexus/
 .remember/
+
+# Redesign handoffs (zipped originals are committed; extracted copies are derivable)
+handoffs/*/
