@@ -1,12 +1,16 @@
 import { COPY, type Lang } from '../i18n';
 import { I } from '../icons';
+import { isAppMode } from '@/lib/siteMode';
 
 const GITHUB_URL = 'https://github.com/projectachilles/ProjectAchilles';
 const DISCORD_URL = 'https://discord.gg/aZ2dx2p4Ef';
 const GET_STARTED_URL = 'https://docs.projectachilles.io/docs/getting-started/introduction';
+const SIGN_IN_URL = '/sign-in';
 
 export function FinalCTA({ lang }: { lang: Lang }) {
   const t = COPY[lang].cta;
+  const ctaLabel = isAppMode ? COPY[lang].signIn : t.primary;
+  const ctaHref = isAppMode ? SIGN_IN_URL : GET_STARTED_URL;
   return (
     <section id="demo" className="reveal">
       <div className="lp-container">
@@ -35,11 +39,10 @@ export function FinalCTA({ lang }: { lang: Lang }) {
           >
             <a
               className="lp-btn lp-btn-primary lp-btn-lg"
-              href={GET_STARTED_URL}
-              target="_blank"
-              rel="noreferrer"
+              href={ctaHref}
+              {...(isAppMode ? {} : { target: '_blank', rel: 'noreferrer' })}
             >
-              {t.primary} {I.Arrow}
+              {ctaLabel} {I.Arrow}
             </a>
             <a
               className="lp-btn lp-btn-secondary lp-btn-lg"
