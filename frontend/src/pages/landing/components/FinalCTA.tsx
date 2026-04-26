@@ -3,6 +3,7 @@ import { I } from '../icons';
 
 const GITHUB_URL = 'https://github.com/projectachilles/ProjectAchilles';
 const DISCORD_URL = 'https://discord.gg/aZ2dx2p4Ef';
+const GET_STARTED_URL = 'https://docs.projectachilles.io/docs/getting-started/introduction';
 
 export function FinalCTA({ lang }: { lang: Lang }) {
   const t = COPY[lang].cta;
@@ -32,7 +33,12 @@ export function FinalCTA({ lang }: { lang: Lang }) {
               flexWrap: 'wrap',
             }}
           >
-            <a className="lp-btn lp-btn-primary lp-btn-lg" href="#">
+            <a
+              className="lp-btn lp-btn-primary lp-btn-lg"
+              href={GET_STARTED_URL}
+              target="_blank"
+              rel="noreferrer"
+            >
               {t.primary} {I.Arrow}
             </a>
             <a
