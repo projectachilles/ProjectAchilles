@@ -11,7 +11,7 @@ import AppRouter from './routes/AppRouter';
 import { isMarketingMode } from './lib/siteMode';
 
 // Marketing mode: lazy-loaded landing page — no Clerk, no Redux, no Router
-const HeroPage = lazy(() => import('./pages/HeroPage'));
+const Landing = lazy(() => import('./pages/landing/Landing'));
 
 function AppContent() {
   useAuthenticatedApi(); // Setup JWT interceptor
@@ -31,7 +31,7 @@ function AppContent() {
 
 export default function App() {
   if (isMarketingMode) {
-    return <Suspense fallback={null}><HeroPage /></Suspense>;
+    return <Suspense fallback={null}><Landing /></Suspense>;
   }
 
   return (
