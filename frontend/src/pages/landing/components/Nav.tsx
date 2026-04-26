@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { COPY, type Lang } from '../i18n';
 import { AchillesLogo, I } from '../icons';
 import { LangToggle } from './LangToggle';
+import { isAppMode } from '@/lib/siteMode';
 
 type Props = {
   lang: Lang;
@@ -11,10 +12,13 @@ type Props = {
 const GITHUB_URL = 'https://github.com/projectachilles/ProjectAchilles';
 const DOCS_URL = 'https://docs.projectachilles.io';
 const GET_STARTED_URL = 'https://docs.projectachilles.io/docs/getting-started/introduction';
+const SIGN_IN_URL = '/sign-in';
 
 export function Nav({ lang, setLang }: Props) {
   const [scrolled, setScrolled] = useState(false);
   const t = COPY[lang].nav;
+  const ctaLabel = isAppMode ? COPY[lang].signIn : t.cta;
+  const ctaHref = isAppMode ? SIGN_IN_URL : GET_STARTED_URL;
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -48,11 +52,10 @@ export function Nav({ lang, setLang }: Props) {
           </a>
           <a
             className="lp-btn lp-btn-primary"
-            href={GET_STARTED_URL}
-            target="_blank"
-            rel="noreferrer"
+            href={ctaHref}
+            {...(isAppMode ? {} : { target: '_blank', rel: 'noreferrer' })}
           >
-            {t.cta} {I.Arrow}
+            {ctaLabel} {I.Arrow}
           </a>
         </div>
       </div>
