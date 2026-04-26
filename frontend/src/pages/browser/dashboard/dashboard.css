@@ -70,42 +70,19 @@
   font-variant-numeric: tabular-nums;
 }
 .v1-kpi-foot {
-  display: flex; align-items: center; justify-content: space-between;
   font-family: var(--font-mono); font-size: 10.5px;
   color: var(--text-muted);
+  line-height: 1.4;
 }
-.v1-kpi-spark { display: block; }
 
-/* Right column: Top Rated stretches; Severity + Category split below */
-.v1-col-stretch { min-height: 0; }
-.v1-col-stretch > * { display: flex; flex-direction: column; min-height: 0; }
-.v1-col-stretch > *:nth-child(1) { flex: 1.1 1 0; }
-.v1-col-stretch > *:nth-child(2) { flex: 1 1 0; }
-.v1-grid2-stretch { height: 100%; align-items: stretch; }
-.v1-grid2-stretch > .dash-card {
-  display: flex; flex-direction: column;
-  min-height: 0; height: 100%;
-}
-.v1-grid2-stretch > .dash-card > .dash-card-head { flex: none; }
-.v1-grid2-stretch .v1-sev-bar-wrap { height: 36px; }
-.v1-grid2-stretch .v1-sev-rows {
-  flex: 1; display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px 16px; align-content: space-around;
-  margin-top: 14px !important;
-}
-.v1-grid2-stretch .v1-donut-wrap {
-  flex: 1; display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 10px; align-items: center;
-}
-.v1-grid2-stretch .v1-donut-wrap > svg { width: 84px; height: 84px; }
-.v1-grid2-stretch .v1-donut-legend { font-size: 10px; }
-.v1-grid2-stretch .v1-donut-row .name {
-  font-size: 10.5px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  max-width: 9ch;
-}
+/* Right column: cards stack vertically and take full column width.
+   Replaced the original 50/50 Severity + Category split because at the
+   right column's narrow width (4 of 12 grid cols) the donut had to shrink
+   to 84px and category names clipped at 9ch. */
+.v1-col-stack { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.v1-col-stack > .dash-card { min-height: 0; }
+.v1-col-stack .v1-donut-wrap > svg { width: 110px; height: 110px; flex-shrink: 0; }
+.v1-col-stack .v1-donut-row .name { max-width: none; }
 
 /* MITRE matrix card */
 .v1-mitre {

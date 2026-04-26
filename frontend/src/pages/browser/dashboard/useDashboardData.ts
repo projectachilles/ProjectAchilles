@@ -52,28 +52,18 @@ function colorForCategory(id: string): string {
   return CATEGORY_COLORS[id] ?? '#6b7388';
 }
 
-/* ── KPI trend (placeholder until backend exposes time-series) ──── */
-function trendFromCount(n: number): number[] {
-  // 14-point gentle climb to current value (decorative sparkline)
-  const out: number[] = [];
-  const start = Math.max(0, Math.floor(n * 0.7));
-  for (let i = 0; i < 14; i++) out.push(start + Math.round(((n - start) * i) / 13));
-  return out;
-}
-
 /* ── Aggregations on the test catalog ───────────────────────────── */
 export interface DashboardData {
   loading: boolean;
   error: string | null;
 
   totalTests: number;
+  critHighCount: number;
   techniqueCount: number;
   tacticCount: number;
   categoryCount: number;
   avgScore: number;
   testsScored: number;
-
-  trends: { tests: number[]; techniques: number[]; categories: number[]; score: number[] };
 
   tactics: Array<{ id: string; name: string; techniques: number; covered: number }>;
   severity: SeverityBuckets;
@@ -148,8 +138,10 @@ function aggregate(tests: TestMetadata[], tasks: AgentTask[]): Omit<DashboardDat
     .sort((a, b) => b[1] - a[1])
     .map(([id, count]) => ({ id, name: id, count, color: colorForCategory(id) }));
 
-  // Avg score (only tests that have a score)
-  const scored = tests.filter((t) => typeof t.score === 'number');
+  // Avg score — only tests with a positive score (matches the legacy
+  // TestLibraryOverview behavior so the dashboard and the old Browser
+  // page agree on the headline number).
+  const scored = tests.filter((t) => typeof t.score === 'number' && (t.score ?? 0) > 0);
   const avgScore =
     scored.length > 0
       ? scored.reduce((sum, t) => sum + (t.score ?? 0), 0) / scored.length
@@ -198,17 +190,12 @@ function aggregate(tests: TestMetadata[], tasks: AgentTask[]): Omit<DashboardDat
 
   return {
     totalTests: total,
+    critHighCount: severity.critical + severity.high,
     techniqueCount: techniqueSet.size,
     tacticCount: tactics.filter((t) => t.covered > 0).length,
     categoryCount: categories.length,
     avgScore,
     testsScored: scored.length,
-    trends: {
-      tests: trendFromCount(total),
-      techniques: trendFromCount(techniqueSet.size),
-      categories: trendFromCount(categories.length),
-      score: trendFromCount(Math.round(avgScore * 10)).map((v) => v / 10),
-    },
     tactics,
     severity,
     categories,
@@ -220,12 +207,12 @@ function aggregate(tests: TestMetadata[], tasks: AgentTask[]): Omit<DashboardDat
 
 const EMPTY: Omit<DashboardData, 'loading' | 'error'> = {
   totalTests: 0,
+  critHighCount: 0,
   techniqueCount: 0,
   tacticCount: 0,
   categoryCount: 0,
   avgScore: 0,
   testsScored: 0,
-  trends: { tests: [], techniques: [], categories: [], score: [] },
   tactics: [],
   severity: { critical: 0, high: 0, medium: 0, low: 0 },
   categories: [],
@@ -234,10 +221,17 @@ const EMPTY: Omit<DashboardData, 'loading' | 'error'> = {
   runQueue: [],
 };
 
-export function useDashboardData(): DashboardData {
+/** Caller-supplied result type — `refresh()` is exposed so the Sync button
+    can force a re-aggregation after a successful test catalog sync. */
+export interface UseDashboardData extends DashboardData {
+  refresh: () => void;
+}
+
+export function useDashboardData(): UseDashboardData {
   const [data, setData] = useState<Omit<DashboardData, 'loading' | 'error'>>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -261,7 +255,7 @@ export function useDashboardData(): DashboardData {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [tick]);
 
-  return { loading, error, ...data };
+  return { loading, error, ...data, refresh: () => setTick((n) => n + 1) };
 }

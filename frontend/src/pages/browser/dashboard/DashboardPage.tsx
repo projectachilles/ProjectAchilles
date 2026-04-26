@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   BranchPill,
@@ -6,7 +5,6 @@ import {
   I,
   type QuickAction,
 } from '@/components/layout/AchillesShell';
-import { browserApi } from '@/services/api/browser';
 import { KpiCard } from './cards/KpiCard';
 import { MitreMatrix } from './cards/MitreMatrix';
 import { TopRated } from './cards/TopRated';
@@ -19,17 +17,7 @@ import './dashboard.css';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const [syncing, setSyncing] = useState(false);
   const data = useDashboardData();
-
-  const handleSync = async () => {
-    setSyncing(true);
-    try {
-      await browserApi.syncTests();
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const actions: QuickAction[] = [
     { icon: I.bolt, label: 'Run all critical', tone: 'primary', onClick: () => navigate('/browser?sev=critical') },
@@ -41,7 +29,7 @@ export default function DashboardPage() {
 
   return (
     <main className="v1-content">
-      <BranchPill onSync={handleSync} syncing={syncing} />
+      <BranchPill onAfterSync={data.refresh} />
       <QuickActions actions={actions} />
 
       {data.error && (
@@ -53,41 +41,38 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* KPI strip */}
+      {/* KPI strip — semantics match TestLibraryOverview so the dashboard
+          and the legacy Browser page report the same headline numbers. */}
       <div className="v1-grid v1-row-kpis">
         <KpiCard
           icon={I.flask}
           label="Total Tests"
           value={data.totalTests}
-          trend={data.totalTests > 0 ? '↑' : '—'}
-          foot={data.totalTests === 0 ? 'no tests synced' : 'across catalog'}
-          sparkData={data.trends.tests}
+          foot={
+            data.totalTests === 0
+              ? 'no tests synced'
+              : data.critHighCount > 0
+                ? `${data.critHighCount} critical/high severity`
+                : 'across catalog'
+          }
         />
         <KpiCard
           icon={I.target}
           label="MITRE Techniques"
           value={data.techniqueCount}
-          trend={data.techniqueCount > 0 ? '↑' : '—'}
           foot={`across ${data.tacticCount} tactics`}
-          sparkData={data.trends.techniques}
         />
         <KpiCard
           icon={I.grid}
           label="Categories"
           value={data.categoryCount}
-          trend="—"
           foot={data.categories.map((c) => c.name).join(' · ') || 'none'}
-          sparkData={data.trends.categories}
-          sparkColor="var(--cyan)"
         />
         <KpiCard
           icon={I.star}
           label="Avg Score"
-          value={data.avgScore.toFixed(2)}
-          trend={data.avgScore > 0 ? '↑' : '—'}
-          foot={`${data.testsScored} scored`}
-          sparkData={data.trends.score}
-          sparkColor="var(--accent-bright)"
+          value={data.avgScore > 0 ? data.avgScore.toFixed(3) : '—'}
+          foot={`across ${data.testsScored} scored tests`}
         />
       </div>
 
@@ -96,12 +81,10 @@ export default function DashboardPage() {
         <div className="v1-cell-mitre">
           <MitreMatrix tactics={data.tactics} />
         </div>
-        <div className="v1-cell-side v1-col-stretch">
+        <div className="v1-cell-side v1-col-stack">
           <TopRated items={data.topRated} />
-          <div className="v1-grid2 v1-grid2-stretch">
-            <SeverityCard severity={data.severity} />
-            <CategoryDonut categories={data.categories} />
-          </div>
+          <SeverityCard severity={data.severity} />
+          <CategoryDonut categories={data.categories} />
         </div>
       </div>
 

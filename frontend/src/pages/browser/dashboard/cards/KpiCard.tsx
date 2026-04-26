@@ -1,25 +1,17 @@
 import type { ReactNode } from 'react';
-import { Icon, Sparkline } from '@/components/layout/AchillesShell';
+import { Icon } from '@/components/layout/AchillesShell';
 
 interface KpiCardProps {
   icon: ReactNode;
   label: string;
   value: string | number;
+  /** Right-aligned tag in the head row — e.g. a unit, "+5", or a delta. */
   trend?: string;
+  /** Foot text under the big number — short caption explaining the value. */
   foot?: string;
-  sparkData: number[];
-  sparkColor?: string;
 }
 
-export function KpiCard({
-  icon,
-  label,
-  value,
-  trend,
-  foot,
-  sparkData,
-  sparkColor = 'var(--accent)',
-}: KpiCardProps) {
+export function KpiCard({ icon, label, value, trend, foot }: KpiCardProps) {
   return (
     <div className="v1-kpi">
       <div className="v1-kpi-head">
@@ -32,10 +24,7 @@ export function KpiCard({
         {trend && <div className="v1-kpi-trend">{trend}</div>}
       </div>
       <div className="v1-kpi-value">{value}</div>
-      <div className="v1-kpi-foot">
-        <span>{foot}</span>
-        <Sparkline data={sparkData} color={sparkColor} width={80} height={22} />
-      </div>
+      {foot && <div className="v1-kpi-foot">{foot}</div>}
     </div>
   );
 }
