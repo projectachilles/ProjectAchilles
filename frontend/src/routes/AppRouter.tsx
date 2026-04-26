@@ -16,6 +16,7 @@ import SignUpPage from '../pages/auth/SignUpPage';
 const Landing = lazy(() => import('../pages/landing/Landing'));
 const UserProfilePage = lazy(() => import('../pages/auth/UserProfilePage'));
 const CliAuthPage = lazy(() => import('../pages/auth/CliAuthPage'));
+const DashboardPage = lazy(() => import('../pages/browser/dashboard/DashboardPage'));
 const BrowserHomePage = lazy(() => import('../pages/browser/BrowserHomePage'));
 const TestDetailPage = lazy(() => import('../pages/browser/TestDetailPage'));
 const AnalyticsDashboardPage = lazy(() => import('../pages/analytics/AnalyticsDashboardPage'));
@@ -80,19 +81,35 @@ export default function AppRouter() {
 
       {/* All authenticated routes share a single persistent AppLayout */}
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
-        {/* Browser Module */}
-        <Route path="dashboard" element={<BrowserHomePage />} />
+        {/* Tests Module */}
+        <Route path="dashboard" element={<DashboardPage />} />
         <Route path="favorites" element={<BrowserHomePage mode="favorites" />} />
         <Route path="recent" element={<BrowserHomePage mode="recent" />} />
         <Route path="browser">
-          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route index element={<BrowserHomePage />} />
           <Route path="test/:uuid" element={<TestDetailPage />} />
         </Route>
 
-        {/* Analytics Module */}
+        {/* Analytics Module — sub-routes redesigned in Phase 2; redirect old URL for now */}
         <Route path="analytics">
           <Route path="setup" element={<Navigate to="/settings" replace />} />
-          <Route index element={
+          <Route index element={<Navigate to="/analytics/dashboard" replace />} />
+          <Route path="dashboard" element={
+            <AnalyticsProtectedRoute>
+              <AnalyticsDashboardPage />
+            </AnalyticsProtectedRoute>
+          } />
+          <Route path="executions" element={
+            <AnalyticsProtectedRoute>
+              <AnalyticsDashboardPage />
+            </AnalyticsProtectedRoute>
+          } />
+          <Route path="defender" element={
+            <AnalyticsProtectedRoute>
+              <AnalyticsDashboardPage />
+            </AnalyticsProtectedRoute>
+          } />
+          <Route path="risk" element={
             <AnalyticsProtectedRoute>
               <AnalyticsDashboardPage />
             </AnalyticsProtectedRoute>

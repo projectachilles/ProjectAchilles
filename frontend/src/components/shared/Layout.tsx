@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
-import { SidebarLayout } from '@/components/layout';
+import { AchillesShell } from '@/components/layout/AchillesShell';
 
 interface LayoutProps {
   children: ReactNode;
 }
 
 export default function Layout({ children }: LayoutProps) {
-  return <SidebarLayout>{children}</SidebarLayout>;
+  return <AchillesShell>{children}</AchillesShell>;
 }
