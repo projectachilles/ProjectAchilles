@@ -162,12 +162,13 @@ html:has(.landing-page) { scroll-behavior: smooth; }
 }
 .landing-page .nav-logo {
   display: flex; align-items: center; gap: 0.625rem;
+  margin-right: 2.5rem;
 }
-.landing-page .nav-logo svg { width: 28px; height: 28px; }
+.landing-page .nav-logo svg { width: 36px; height: 36px; }
 .landing-page .nav-logo span {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 1rem;
+  font-size: 1.3rem;
   letter-spacing: 0.22em;
   color: var(--text-primary);
 }
@@ -184,6 +185,7 @@ html:has(.landing-page) { scroll-behavior: smooth; }
   padding: 0.5rem 0.9rem;
   border-radius: 4px;
   transition: color 0.2s, background 0.2s;
+  white-space: nowrap;
 }
 .landing-page .nav-link:hover { color: var(--accent-bright); background: var(--accent-bg); }
 .landing-page .nav-right { display: flex; align-items: center; gap: 0.5rem; }
