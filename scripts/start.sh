@@ -1133,6 +1133,30 @@ check_and_setup_elasticsearch() {
         fi
     fi
 
+    # At this point ES is configured via env vars — but
+    # ~/.projectachilles/analytics.json (if present) silently overrides
+    # them in the backend SettingsService. Reconcile here.
+    local analytics_json="$HOME/.projectachilles/analytics.json"
+    if [ -f "$analytics_json" ]; then
+        echo "  ⚠ Found ~/.projectachilles/analytics.json — this file overrides backend/.env at runtime"
+        if [ -t 0 ] && [ -t 1 ]; then
+            local reset_choice
+            read -rp "    Reset to env config (delete file)? [Y/n] " reset_choice
+            case "$reset_choice" in
+                [Nn]*)
+                    echo "    Keeping analytics.json (UI config wins). Edit via Settings → Analytics."
+                    ;;
+                *)
+                    rm -f "$analytics_json"
+                    echo "    ✓ Cleared ~/.projectachilles/analytics.json (env vars now active)"
+                    ;;
+            esac
+        else
+            echo "    Non-interactive — leaving file in place."
+            echo "    To use env config, run: rm $analytics_json"
+        fi
+    fi
+
     # At this point ES is configured — test connectivity
     local es_url=""
     local curl_auth=""
