@@ -1107,6 +1107,13 @@ check_and_setup_elasticsearch() {
                     write_env_value "$BACKEND_ENV" "ELASTICSEARCH_API_KEY" "$es_api_key"
                     write_env_value "$BACKEND_ENV" "ELASTICSEARCH_INDEX_PATTERN" "achilles-results-*"
                     echo "  ✓ Elasticsearch credentials saved to backend/.env"
+                    # Backend SettingsService prefers ~/.projectachilles/analytics.json
+                    # over env vars when configured:true. Stale file from prior install
+                    # would silently override what we just wrote — wipe it so env wins.
+                    if [ -f "$HOME/.projectachilles/analytics.json" ]; then
+                        rm -f "$HOME/.projectachilles/analytics.json"
+                        echo "  ✓ Cleared stale ~/.projectachilles/analytics.json (env vars now active)"
+                    fi
                     ES_JUST_CONFIGURED=true
                     ;;
                 [Ll]*)

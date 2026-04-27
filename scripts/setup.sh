@@ -504,6 +504,14 @@ write_env() {
             [[ -n "$ES_INDEX" ]]    && env_set "ELASTICSEARCH_INDEX_PATTERN" "$ES_INDEX" || true
             ;;
     esac
+
+    # Backend SettingsService prefers ~/.projectachilles/analytics.json over
+    # env vars when configured:true. Stale file from prior install would
+    # silently override what we just wrote — wipe it so env wins.
+    if [[ "${ES_MODE:-skip}" != "skip" && -f "$HOME/.projectachilles/analytics.json" ]]; then
+        rm -f "$HOME/.projectachilles/analytics.json"
+        echo "  Cleared stale ~/.projectachilles/analytics.json (env vars now active)"
+    fi
 }
 
 show_paas_output() {
