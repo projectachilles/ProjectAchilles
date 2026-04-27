@@ -1,5 +1,5 @@
 /**
- * CLI device flow verification page.
+ * CLI device-flow verification page.
  *
  * The CLI displays a code and sends the user here. Since they're already
  * logged in via Clerk, this page just confirms the code and calls the
@@ -9,6 +9,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
+import { Check } from 'lucide-react';
+import { I, Icon } from '@/components/layout/AchillesShell';
+import '@/pages/settings/settings.css';
 
 export default function CliAuthPage() {
   const [searchParams] = useSearchParams();
@@ -19,8 +22,8 @@ export default function CliAuthPage() {
   const { getToken, isLoaded } = useAuth();
   const autoVerifyAttempted = useRef(false);
 
-  // Auto-verify once Clerk is loaded and code is present from URL
-  // useRef guard prevents React Strict Mode double-fire
+  // Auto-verify once Clerk is loaded and a code is present in the URL.
+  // useRef guard prevents React Strict Mode double-fire.
   useEffect(() => {
     if (codeFromUrl && isLoaded && !autoVerifyAttempted.current) {
       autoVerifyAttempted.current = true;
@@ -46,7 +49,7 @@ export default function CliAuthPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ user_code: userCode.trim().toUpperCase() }),
       });
@@ -66,44 +69,51 @@ export default function CliAuthPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="text-3xl font-bold text-primary mb-2">◆ ProjectAchilles</div>
-          <div className="text-muted-foreground">CLI Authorization</div>
+    <div className="cli-auth-shell">
+      <div className="cli-auth-card">
+        <div className="cli-auth-brand">
+          <div className="cli-auth-brand-mark">
+            <span className="accent-dot" />
+            ProjectAchilles
+          </div>
+          <div className="cli-auth-brand-sub">CLI Authorization</div>
         </div>
 
-        <div className="border border-border rounded-lg bg-card p-6 shadow-lg">
+        <section className="dash-card" style={{ padding: 24 }}>
           {status === 'success' ? (
-            <div className="text-center space-y-4">
-              <div className="text-4xl">✓</div>
-              <h2 className="text-xl font-semibold text-green-500">CLI Authorized</h2>
-              <p className="text-muted-foreground">
-                Your CLI session has been authenticated. You can close this tab
-                and return to the terminal.
+            <div className="cli-auth-success">
+              <span className="cli-auth-success-icon">
+                <Check size={26} strokeWidth={2.5} />
+              </span>
+              <h2 className="cli-auth-success-title">CLI Authorized</h2>
+              <p style={{ color: 'var(--text-muted)', fontSize: 12.5, margin: 0 }}>
+                Your CLI session has been authenticated. You can close this tab and return to
+                the terminal.
               </p>
             </div>
           ) : (
-            <div className="space-y-6">
-              <div className="text-center">
-                <h2 className="text-lg font-semibold mb-1">Authorize CLI Access</h2>
-                <p className="text-sm text-muted-foreground">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+              <header style={{ textAlign: 'center' }}>
+                <h2 className="dash-card-title" style={{ justifyContent: 'center', marginBottom: 6 }}>
+                  <span className="accent-dot" />
+                  Authorize CLI Access
+                </h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: 12, margin: 0 }}>
                   Enter the code shown in your terminal to authorize the CLI.
                 </p>
-              </div>
+              </header>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Device Code</label>
+                <label className="mono-label" style={{ display: 'block', marginBottom: 8 }}>
+                  Device Code
+                </label>
                 <input
                   type="text"
+                  className="cli-auth-input"
                   value={code}
                   onChange={(e) => setCode(e.target.value.toUpperCase())}
                   placeholder="XXXX-XXXX"
                   maxLength={9}
-                  className="w-full px-4 py-3 text-center text-2xl font-mono tracking-widest
-                             bg-background border border-border rounded-md
-                             focus:outline-none focus:ring-2 focus:ring-primary"
                   disabled={status === 'verifying'}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') verify(code);
@@ -112,31 +122,26 @@ export default function CliAuthPage() {
                 />
               </div>
 
-              {status === 'error' && (
-                <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20">
-                  <p className="text-sm text-destructive">{errorMessage}</p>
-                </div>
-              )}
+              {status === 'error' && <div className="cli-auth-error">{errorMessage}</div>}
 
               <button
+                type="button"
+                className="dash-quick-btn primary"
+                style={{ width: '100%', justifyContent: 'center', padding: '10px 14px' }}
                 onClick={() => verify(code)}
                 disabled={!code.trim() || status === 'verifying'}
-                className="w-full py-3 px-4 rounded-md font-medium
-                           bg-primary text-primary-foreground
-                           hover:bg-primary/90
-                           disabled:opacity-50 disabled:cursor-not-allowed
-                           transition-colors"
               >
-                {status === 'verifying' ? 'Verifying...' : 'Authorize CLI'}
+                <Icon size={12}>{I.bolt}</Icon>
+                {status === 'verifying' ? 'Verifying…' : 'Authorize CLI'}
               </button>
 
-              <p className="text-xs text-center text-muted-foreground">
-                This grants the CLI access to your ProjectAchilles account.
-                The session expires in 7 days.
+              <p className="cli-auth-foot">
+                This grants the CLI access to your ProjectAchilles account. The session
+                expires in 7 days.
               </p>
             </div>
           )}
-        </div>
+        </section>
       </div>
     </div>
   );
