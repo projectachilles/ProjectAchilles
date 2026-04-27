@@ -1,0 +1,261 @@
+/* ═══════════════════════════════════════════════════════════════
+   SETTINGS — TACTICAL GREEN
+   Sub-nav strip + page chrome shared by every /settings/* route.
+   Cards themselves use the global .dash-card / .dash-card-* classes
+   defined in shell.css; this file only adds settings-specific layout.
+   ═══════════════════════════════════════════════════════════════ */
+
+.settings-content {
+  padding: 18px 24px 32px;
+  display: flex; flex-direction: column; gap: 16px;
+  position: relative; z-index: 1;
+}
+
+.settings-page-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 4px;
+}
+.settings-page-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  margin: 0;
+}
+.settings-page-eyebrow {
+  font-family: var(--font-mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: .26em;
+  color: var(--accent);
+  margin: 0 0 4px;
+}
+.settings-page-sub {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+/* ── Sub-nav strip ────────────────────────────────────────────── */
+.settings-subnav {
+  display: flex; align-items: center;
+  gap: 4px;
+  padding: 0 24px;
+  background: rgba(5, 8, 16, 0.55);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  position: sticky; top: 0;
+  z-index: 3;
+  backdrop-filter: blur(8px);
+}
+.settings-subnav-inner {
+  display: flex;
+  gap: 2px;
+}
+.settings-subnav-link {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 12px 14px 11px;
+  font-family: var(--font-tactical); font-weight: 600;
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  transition: color .15s, border-color .15s, background .15s;
+  white-space: nowrap;
+}
+.settings-subnav-link:hover {
+  color: var(--text-primary);
+  background: rgba(255,255,255,.02);
+}
+.settings-subnav-link.is-active {
+  color: var(--accent-bright);
+  border-bottom-color: var(--accent);
+}
+.settings-subnav-link svg { flex-shrink: 0; }
+
+/* ── Card list inside a settings page ─────────────────────────── */
+.settings-stack { display: flex; flex-direction: column; gap: 14px; }
+
+/* Status pill mounted on a card head — uses sev / accent colors. */
+.settings-status-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 8px;
+  font-family: var(--font-mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: .14em;
+  border-radius: 2px;
+  border: 1px solid var(--line);
+  color: var(--text-muted);
+  background: rgba(255,255,255,.02);
+}
+.settings-status-pill.is-connected {
+  color: var(--accent-bright);
+  border-color: var(--accent-dim);
+  background: var(--accent-bg);
+}
+.settings-status-pill.is-error {
+  color: var(--danger);
+  border-color: rgba(255,59,92,.3);
+  background: rgba(255,59,92,.08);
+}
+.settings-status-pill .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+}
+
+/* Empty state inside a settings card (e.g. "Defender not configured") */
+.settings-empty {
+  padding: 28px 20px;
+  text-align: center;
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  background: rgba(255,255,255,.01);
+}
+.settings-empty .settings-empty-title {
+  font-family: var(--font-tactical); font-weight: 600;
+  font-size: 13px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 0 0 6px;
+}
+.settings-empty p { margin: 0 0 12px; }
+.settings-empty .settings-empty-actions {
+  display: flex; justify-content: center; gap: 8px;
+}
+
+/* CLI-Auth page surface — full-screen centered card, no Shell. */
+.cli-auth-shell {
+  min-height: 100vh;
+  background: var(--bg-deep);
+  background-image: radial-gradient(ellipse 60% 35% at 50% 0%, var(--accent-subtle), transparent 70%);
+  display: grid; place-items: center;
+  padding: 32px 16px;
+  position: relative;
+  isolation: isolate;
+}
+.cli-auth-shell::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: .03;
+}
+.cli-auth-card {
+  position: relative; z-index: 1;
+  width: 100%; max-width: 420px;
+  display: flex; flex-direction: column; gap: 20px;
+}
+.cli-auth-brand {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding-bottom: 4px;
+}
+.cli-auth-brand-mark {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: .26em;
+  color: var(--text-primary);
+}
+.cli-auth-brand-mark .accent-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  background: var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 0 10px var(--accent-glow);
+  margin-right: 10px;
+  vertical-align: middle;
+}
+.cli-auth-brand-sub {
+  font-family: var(--font-mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: .26em;
+  color: var(--accent);
+}
+
+.cli-auth-input {
+  width: 100%;
+  padding: 14px 16px;
+  text-align: center;
+  font-family: var(--font-mono); font-size: 22px; font-weight: 500;
+  letter-spacing: .4em;
+  background: var(--bg-card-solid);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text-primary);
+  transition: border-color .15s, box-shadow .15s;
+}
+.cli-auth-input:focus {
+  outline: none;
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.cli-auth-input:disabled { opacity: .6; cursor: not-allowed; }
+
+.cli-auth-error {
+  padding: 10px 12px;
+  border: 1px solid rgba(255,59,92,.3);
+  background: rgba(255,59,92,.08);
+  border-radius: 4px;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--danger);
+}
+
+.cli-auth-foot {
+  font-family: var(--font-mono); font-size: 10px;
+  text-align: center;
+  color: var(--text-muted);
+  letter-spacing: .04em;
+  margin: 0;
+}
+
+.cli-auth-success {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  text-align: center;
+  padding: 8px 0;
+}
+.cli-auth-success-icon {
+  display: grid; place-items: center;
+  width: 48px; height: 48px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-dim);
+  border-radius: 50%;
+  color: var(--accent-bright);
+}
+.cli-auth-success-title {
+  font-family: var(--font-display); font-weight: 700;
+  font-size: 16px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--accent-bright);
+  margin: 0;
+}
+
+/* ── Auth shell (Sign-in / Sign-up / User-profile) ───────────── */
+.auth-shell {
+  min-height: 100vh;
+  background: var(--bg-deep);
+  background-image: radial-gradient(ellipse 60% 35% at 50% 0%, var(--accent-subtle), transparent 70%);
+  display: grid; place-items: center;
+  padding: 48px 16px;
+  position: relative;
+  isolation: isolate;
+}
+.auth-shell::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: .03;
+}
+.auth-shell-inner {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; align-items: center; gap: 18px;
+  width: 100%;
+}
+.auth-shell-brand {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--font-display); font-weight: 700;
+  font-size: 16px; letter-spacing: .26em; text-transform: uppercase;
+  color: var(--text-primary);
+}
+.auth-shell-brand .accent-dot {
+  width: 8px; height: 8px;
+  background: var(--accent); border-radius: 50%;
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+.auth-shell.user-profile { padding: 32px 16px; }
