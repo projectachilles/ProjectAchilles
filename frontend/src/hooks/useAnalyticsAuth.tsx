@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { useAuth } from '@clerk/clerk-react';
 import { analyticsApi } from '../services/api/analytics';
 
 interface AnalyticsSettings {
@@ -24,6 +25,14 @@ interface AnalyticsAuthProviderProps {
 }
 
 export function AnalyticsAuthProvider({ children }: AnalyticsAuthProviderProps) {
+  // AnalyticsAuthProvider mounts at the React root, BEFORE Clerk hydrates the
+  // user. If we call /api/analytics/settings before isSignedIn flips true, the
+  // backend returns 302 → fetch follows the redirect to Clerk's sign-in HTML →
+  // JSON parse fails → catch block pins configured:false until reload, even
+  // after the user signs in. Wait for Clerk to finish loading and the user
+  // to be signed in before issuing the check.
+  const { isLoaded, isSignedIn } = useAuth();
+
   const [configured, setConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<AnalyticsSettings | null>(null);
@@ -45,8 +54,19 @@ export function AnalyticsAuthProvider({ children }: AnalyticsAuthProviderProps) 
   }, []);
 
   useEffect(() => {
+    if (!isLoaded) {
+      // Clerk still hydrating — keep loading state, don't fire the request yet.
+      return;
+    }
+    if (!isSignedIn) {
+      // Unauthenticated callers don't get analytics state.
+      setConfigured(false);
+      setSettings(null);
+      setLoading(false);
+      return;
+    }
     checkConfiguration();
-  }, [checkConfiguration]);
+  }, [isLoaded, isSignedIn, checkConfiguration]);
 
   const updateSettings = (newSettings: AnalyticsSettings) => {
     setSettings(newSettings);
