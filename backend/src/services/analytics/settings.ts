@@ -140,4 +140,50 @@ export class SettingsService {
       return !!settings.node;
     }
   }
+
+  /**
+   * Returns a one-line, human-readable description of which config source
+   * is active and any conflict warning. Intended for the backend startup
+   * banner so operators can immediately see whether file or env vars won —
+   * eliminates the silent "I configured ES but the app still says no" class
+   * of bugs.
+   */
+  describeActiveSource(): string {
+    const fileSettings = this.getFileSettings();
+    const envSettings = this.getEnvSettings();
+    const fileWins = !!fileSettings?.configured;
+
+    if (!fileWins && !envSettings) {
+      return '[analytics] Settings source: NONE — analytics not configured';
+    }
+
+    const active = fileWins ? fileSettings! : envSettings!;
+    const sourceLabel = fileWins
+      ? 'file (~/.projectachilles/analytics.json)'
+      : 'env vars (backend/.env or process env)';
+    const target =
+      active.connectionType === 'cloud'
+        ? `cloud, indexPattern=${active.indexPattern}`
+        : `direct, node=${active.node}, indexPattern=${active.indexPattern}`;
+
+    let line = `[analytics] Settings source: ${sourceLabel} — ${target}`;
+
+    // Warn when both sources are present but disagree — that's the silent-
+    // override scenario the user hit before the install-script reconciliation
+    // and the docker entrypoint were added.
+    if (fileWins && envSettings) {
+      const fileTarget = fileSettings!.connectionType === 'cloud'
+        ? fileSettings!.cloudId
+        : fileSettings!.node;
+      const envTarget = envSettings.connectionType === 'cloud'
+        ? envSettings.cloudId
+        : envSettings.node;
+      if (fileTarget !== envTarget || fileSettings!.indexPattern !== envSettings.indexPattern) {
+        line += '\n[analytics] WARN: env vars are also set but differ from the file. The file wins.';
+        line += '\n[analytics]       To switch to env config, delete ~/.projectachilles/analytics.json and restart.';
+      }
+    }
+
+    return line;
+  }
 }

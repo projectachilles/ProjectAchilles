@@ -306,6 +306,16 @@ async function startServer() {
     console.log('╚═══════════════════════════════════════════════════════════╝');
     console.log('');
 
+    // Surface which analytics config source is winning. Quiet success line
+    // when one source is active; multi-line warning when file overrides env.
+    // Dynamic import avoids pulling encryption/file-IO into module init.
+    import('./services/analytics/settings.js')
+      .then(({ SettingsService }) => {
+        console.log(new SettingsService().describeActiveSource());
+        console.log('');
+      })
+      .catch(() => { /* diagnostic only — never block startup */ });
+
     // Background jobs only run in single-process mode (no clustering) or
     // cluster primary. In cluster mode, workers skip these to avoid duplicates.
     if (!cluster.isWorker) {

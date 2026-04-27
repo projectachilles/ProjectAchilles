@@ -260,6 +260,13 @@ docker compose --profile elasticsearch up -d    # Include ES + synthetic seed da
 
 The `elasticsearch` profile starts ES 8.17 (single-node, security disabled) and seeds 1000 synthetic test results.
 
+**Image rebuild after pulling**: source-code changes to `backend/` or `frontend/` only ship in fresh images — `docker compose up -d` against a previously-built image runs the OLD code. After `git pull`, run `docker compose build && docker compose up -d` to pick up changes.
+
+**Stale `analytics.json` in the persistent volume**: the `achilles-data:/root/.projectachilles` volume preserves analytics config (and other state) across container restarts. The backend `SettingsService` prefers the file over env vars when `configured: true`, so a previously UI-configured `analytics.json` will silently override new ES env vars on subsequent `docker compose up`. Mitigations:
+- The backend `docker-entrypoint.sh` (added 2026-04-27) auto-wipes `analytics.json` when explicit auth env vars (`ELASTICSEARCH_CLOUD_ID`, `_API_KEY`, `_USERNAME`, or `_PASSWORD`) are set in the container env. Bundled `--profile elasticsearch` and self-hosted-no-auth setups do NOT trigger the wipe (UI config persists by design).
+- The backend startup banner now prints which source is active: `[analytics] Settings source: file (...)` or `... env vars (...)`. Watch for this line in logs to diagnose silent-overrides without spelunking.
+- For a manual reset: `docker exec <backend-container> rm /root/.projectachilles/analytics.json && docker compose restart backend`.
+
 ### Render
 
 Uses the existing Dockerfiles with Render's persistent disk for SQLite and settings. Deploy via Blueprint (`render.yaml`) or manual setup. See `docs/deployment/RENDER.md` for full walkthrough.
