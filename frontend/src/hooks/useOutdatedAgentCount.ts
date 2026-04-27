@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '@clerk/clerk-react';
 import { agentApi } from '@/services/api/agent';
 import { getLatestVersionMap } from '@/pages/endpoints/utils/versionHelpers';
 import { usePolling } from './usePolling';
@@ -9,11 +10,17 @@ import { usePolling } from './usePolling';
  * Used by the sidebar badge, agents page banner, and notification bell.
  */
 export function useOutdatedAgentCount(pollIntervalMs = 60_000) {
+  // Wait for Clerk before calling backend; otherwise the request goes out
+  // unauthed → 302 → catch sets count:0 silently and the badge under-reports
+  // until a manual reload triggers another poll. (Same race that bit
+  // useAnalyticsAuth.)
+  const { isLoaded, isSignedIn } = useAuth();
   const [outdatedCount, setOutdatedCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    if (!isLoaded || !isSignedIn) return;
     try {
       const [agents, versions] = await Promise.all([
         agentApi.listAgents(),
@@ -45,7 +52,7 @@ export function useOutdatedAgentCount(pollIntervalMs = 60_000) {
     } catch {
       // Silent — don't surface transient failures
     }
-  }, []);
+  }, [isLoaded, isSignedIn]);
 
   useEffect(() => { refresh(); }, [refresh]);
   usePolling(refresh, pollIntervalMs);
