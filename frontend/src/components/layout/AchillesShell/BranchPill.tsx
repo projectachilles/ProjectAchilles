@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { browserApi } from '@/services/api/browser';
 import { agentApi } from '@/services/api/agent';
 import type { SyncStatus } from '@/types/test';
@@ -16,43 +16,61 @@ function formatRelative(iso: string | null): string {
 }
 
 interface BranchPillProps {
-  /** Optional sync trigger; if omitted, the Sync button hides. */
-  onSync?: () => void;
-  syncing?: boolean;
+  /** When provided, BranchPill renders a Sync button that POSTs the sync,
+      refetches its own state, then calls this so the page can refresh too. */
+  onAfterSync?: () => void;
 }
 
-export function BranchPill({ onSync, syncing }: BranchPillProps) {
+type SyncPhase = 'idle' | 'syncing' | 'error';
+
+/** Header status strip: branch + last sync + agent online + Sync action.
+    Self-contained — owns its data fetching and the Sync flow. */
+export function BranchPill({ onAfterSync }: BranchPillProps) {
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [agentOnline, setAgentOnline] = useState<number | null>(null);
+  const [phase, setPhase] = useState<SyncPhase>('idle');
+  const [syncError, setSyncError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    const [s, agents] = await Promise.all([
+      browserApi.getSyncStatus().catch(() => null),
+      agentApi.listAgents().catch(() => []),
+    ]);
+    setStatus(s);
+    setAgentOnline(agents.filter((a) => a.is_online).length);
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    browserApi
-      .getSyncStatus()
-      .then((s) => !cancelled && setStatus(s))
-      .catch(() => {});
-    agentApi
-      .listAgents()
-      .then((agents) => {
-        if (cancelled) return;
-        setAgentOnline(agents.filter((a) => a.is_online).length);
-      })
-      .catch(() => setAgentOnline(0));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    void refresh();
+  }, [refresh]);
+
+  const handleSync = async () => {
+    setPhase('syncing');
+    setSyncError(null);
+    try {
+      await browserApi.syncTests();
+      await refresh();
+      setPhase('idle');
+      onAfterSync?.();
+    } catch (e) {
+      setPhase('error');
+      setSyncError(e instanceof Error ? e.message : 'Sync failed');
+    }
+  };
 
   const branch = status?.branch ?? 'unknown';
   const commit = (status?.commitHash ?? '').slice(0, 7) || '—';
   const synced = formatRelative(status?.lastSyncTime ?? null);
+
+  // Three agent-online visual states: loading (muted) / connected (green pulse) / none (muted, no pulse)
+  const isOnline = agentOnline != null && agentOnline > 0;
   const onlineLabel =
     agentOnline == null
-      ? 'agents'
-      : agentOnline > 0
+      ? 'checking agents'
+      : isOnline
         ? `${agentOnline} agent${agentOnline === 1 ? '' : 's'} online`
         : 'no agents online';
-  const onlineColor = agentOnline && agentOnline > 0 ? 'var(--accent)' : 'var(--text-muted)';
+  const onlineColor = isOnline ? 'var(--accent)' : 'var(--text-muted)';
 
   return (
     <div className="dash-branch">
@@ -69,23 +87,28 @@ export function BranchPill({ onSync, syncing }: BranchPillProps) {
       <div className="dash-branch-sep" />
       <div className="dash-branch-item">
         <span
-          className="dot dot-pulse"
+          className={isOnline ? 'dot dot-pulse' : 'dot'}
           style={{ background: onlineColor, color: onlineColor }}
         />
         <span style={{ color: onlineColor }}>{onlineLabel}</span>
       </div>
       <div className="dash-branch-spacer" />
-      {onSync && (
-        <button
-          type="button"
-          className="dash-quick-btn primary"
-          onClick={onSync}
-          disabled={syncing}
-        >
-          <Icon size={12}>{I.sync}</Icon>
-          <span>{syncing ? 'Syncing…' : 'Sync'}</span>
-        </button>
+      {syncError && (
+        <span style={{ color: 'var(--danger)', fontSize: 11 }} title={syncError}>
+          sync failed
+        </span>
       )}
+      <button
+        type="button"
+        className="dash-quick-btn primary"
+        onClick={handleSync}
+        disabled={phase === 'syncing'}
+      >
+        <span className={phase === 'syncing' ? 'dash-spin' : undefined}>
+          <Icon size={12}>{I.sync}</Icon>
+        </span>
+        <span>{phase === 'syncing' ? 'Syncing…' : 'Sync'}</span>
+      </button>
     </div>
   );
 }

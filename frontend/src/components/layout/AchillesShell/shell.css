@@ -6,7 +6,9 @@
 
 .dash-shell {
   display: grid;
-  grid-template-columns: 232px 1fr;
+  /* --sidebar-width set by Sidebar.tsx (232px expanded, 64px collapsed). */
+  grid-template-columns: var(--sidebar-width, 232px) 1fr;
+  transition: grid-template-columns .2s ease;
   width: 100%;
   height: 100vh;
   background: var(--bg-deep);
@@ -52,15 +54,31 @@
   overflow-y: auto;
 }
 .dash-sidebar-logo {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 4px 8px 18px;
   border-bottom: 1px solid var(--line-soft);
-  text-decoration: none;
+}
+.dash-sidebar-brand-link {
+  display: flex; align-items: center; gap: 10px;
+  text-decoration: none; color: inherit;
+  flex: 1; min-width: 0;
 }
 .dash-sidebar-brand {
   font-family: var(--font-display); font-weight: 700;
   font-size: 14px; letter-spacing: .26em;
   color: var(--text-primary);
+}
+.dash-sidebar-collapse-btn {
+  display: grid; place-items: center;
+  width: 24px; height: 24px;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-muted);
+  border-radius: 3px;
+  transition: color .15s, background .15s;
+}
+.dash-sidebar-collapse-btn:hover {
+  color: var(--accent-bright);
+  background: rgba(255,255,255,.04);
 }
 .dash-sidebar-section-title {
   font-family: var(--font-mono); font-size: 9px;
@@ -77,8 +95,25 @@
   color: var(--text-secondary);
   text-transform: uppercase;
   border-radius: 4px;
+  width: 100%;
+  background: none; border: none; cursor: pointer;
+  transition: color .15s, background .15s;
 }
-.dash-sidebar-group-head.is-locked { opacity: .5; }
+.dash-sidebar-group-head:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: rgba(255,255,255,.02);
+}
+.dash-sidebar-group-head.is-locked { opacity: .5; cursor: not-allowed; }
+.dash-sidebar-chevron {
+  display: inline-grid; place-items: center;
+  color: var(--text-faint);
+  transition: color .15s;
+}
+.dash-sidebar-group-head:hover .dash-sidebar-chevron { color: var(--text-secondary); }
+.dash-sidebar-link {
+  display: flex; align-items: center; gap: 10px; flex: 1;
+  color: inherit; text-decoration: none;
+}
 .dash-sidebar ul { list-style: none; padding: 0 0 6px 6px; margin: 0; }
 .dash-sidebar li {
   display: flex; align-items: center; gap: 10px;
@@ -118,6 +153,44 @@
 }
 .dash-sidebar-settings:hover { color: var(--text-primary); background: rgba(255,255,255,.02); }
 .dash-sidebar-settings.is-active { color: var(--accent-bright); background: var(--accent-bg); }
+
+/* ── Collapsed sidebar (icons only) ───────────────────────────────── */
+.dash-sidebar.is-collapsed {
+  padding: 14px 6px;
+  align-items: center;
+}
+.dash-sidebar.is-collapsed .dash-sidebar-collapse-btn {
+  width: 40px; height: 40px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.dash-sidebar-collapsed-nav {
+  display: flex; flex-direction: column; gap: 6px;
+  margin-top: 12px;
+  width: 100%;
+  align-items: center;
+}
+.dash-sidebar-collapsed-icon {
+  display: grid; place-items: center;
+  width: 40px; height: 40px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color .15s, background .15s, border-color .15s;
+}
+.dash-sidebar-collapsed-icon:hover {
+  color: var(--accent-bright);
+  background: rgba(255,255,255,.03);
+  border-color: var(--line);
+}
+.dash-sidebar-collapsed-icon.is-active {
+  color: var(--accent-bright);
+  background: var(--accent-bg);
+  border-color: var(--accent-dim);
+}
+.dash-sidebar-collapsed-icon.is-locked { opacity: .4; cursor: not-allowed; }
 
 /* ── Topbar ───────────────────────────────────────────────────────── */
 .dash-topbar {
@@ -192,6 +265,10 @@
   border-left: 1px solid var(--line);
   margin-left: 4px;
 }
+
+/* Spin animation used by the Sync button while a sync is in flight. */
+.dash-spin { display: inline-block; animation: dash-spin 1s linear infinite; }
+@keyframes dash-spin { to { transform: rotate(360deg); } }
 
 /* ── Branch pill / status strip ───────────────────────────────────── */
 .dash-branch {
