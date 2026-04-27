@@ -187,7 +187,13 @@ export default function AnalyticsDashboardPage() {
     });
 
     return () => { cancelled = true; };
-  }, [filterState, settingsVersion, defenderConfigured, scoringMode]);
+    // useAnalyticsFilters returns a fresh top-level object every render; only
+    // the inner .filters reference is stable React state. Depending on the
+    // whole filterState caused an infinite refetch loop (12 endpoints x N
+    // renders). filterState.getApiParams reads filters via closure and is
+    // safe to call inside the effect without being a dep.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterState.filters, settingsVersion, defenderConfigured, scoringMode]);
 
   // Build the trend series the chart expects
   const trendSeries = useMemo(() => {

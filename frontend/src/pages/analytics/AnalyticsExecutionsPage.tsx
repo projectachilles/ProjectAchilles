@@ -70,7 +70,12 @@ export default function AnalyticsExecutionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filterState, page, pageSize, sortField, sortOrder]);
+    // useAnalyticsFilters returns a fresh top-level object every render; only
+    // the inner .filters reference is stable React state. Depending on the
+    // whole filterState made loadExecutions identity churn, which made the
+    // downstream useEffect refire on every render — infinite refetch loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterState.filters, page, pageSize, sortField, sortOrder]);
 
   // Stable ref so async callbacks always fire the latest fetcher
   const loadExecutionsRef = useRef<() => Promise<void>>(loadExecutions);
