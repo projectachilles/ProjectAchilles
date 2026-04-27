@@ -109,7 +109,6 @@ export function Sidebar() {
       items: [
         { icon: I.layout, label: 'Dashboard', path: '/dashboard' },
         { icon: I.grid, label: 'Browse All', path: '/browser' },
-        { icon: I.bookmark, label: 'Favorites', path: '/favorites' },
       ],
     },
     {

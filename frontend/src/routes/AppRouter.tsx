@@ -16,15 +16,35 @@ import SignUpPage from '../pages/auth/SignUpPage';
 const Landing = lazy(() => import('../pages/landing/Landing'));
 const UserProfilePage = lazy(() => import('../pages/auth/UserProfilePage'));
 const CliAuthPage = lazy(() => import('../pages/auth/CliAuthPage'));
+
+// Tests Module
 const DashboardPage = lazy(() => import('../pages/browser/dashboard/DashboardPage'));
-const BrowserHomePage = lazy(() => import('../pages/browser/BrowserHomePage'));
-const TestDetailPage = lazy(() => import('../pages/browser/TestDetailPage'));
+const BrowseAllPage = lazy(() => import('../pages/browser/tests-module/BrowseAllPage'));
+const TestDetailPage = lazy(() => import('../pages/browser/tests-module/TestDetailPage'));
+
+// Analytics Module
 const AnalyticsDashboardPage = lazy(() => import('../pages/analytics/AnalyticsDashboardPage'));
-const SettingsPage = lazy(() => import('../pages/settings/SettingsPage'));
-const AgentDashboardPage = lazy(() => import('../pages/endpoints/AgentDashboardPage'));
-const AgentsPage = lazy(() => import('../pages/endpoints/AgentsPage'));
-const AgentDetailPage = lazy(() => import('../pages/endpoints/AgentDetailPage'));
-const TasksPage = lazy(() => import('../pages/endpoints/TasksPage'));
+const AnalyticsExecutionsPage = lazy(() => import('../pages/analytics/AnalyticsExecutionsPage'));
+const AnalyticsDefenderPage = lazy(() => import('../pages/analytics/AnalyticsDefenderPage'));
+const AnalyticsRiskPage = lazy(() => import('../pages/analytics/AnalyticsRiskPage'));
+
+// Endpoints Module
+const EndpointsLayout = lazy(() => import('../pages/endpoints/EndpointsLayout'));
+const EndpointsDashboardPage = lazy(() => import('../pages/endpoints/EndpointsDashboardPage'));
+const EndpointsAgentsPage = lazy(() => import('../pages/endpoints/EndpointsAgentsPage'));
+const EndpointsAgentDetailPage = lazy(() => import('../pages/endpoints/EndpointsAgentDetailPage'));
+const EndpointsTasksPage = lazy(() => import('../pages/endpoints/EndpointsTasksPage'));
+
+// Settings Module — sub-routes
+const SettingsLayout = lazy(() => import('../pages/settings/SettingsLayout'));
+const SettingsAgentPage = lazy(() => import('../pages/settings/SettingsAgentPage'));
+const SettingsTestsPage = lazy(() => import('../pages/settings/SettingsTestsPage'));
+const SettingsIntegrationsPage = lazy(() => import('../pages/settings/SettingsIntegrationsPage'));
+const SettingsUsersPage = lazy(() => import('../pages/settings/SettingsUsersPage'));
+const SettingsIndexManagementPage = lazy(() => import('../pages/settings/SettingsIndexManagementPage'));
+const SettingsPlatformPage = lazy(() => import('../pages/settings/SettingsPlatformPage'));
+const SettingsCertificatePage = lazy(() => import('../pages/settings/SettingsCertificatePage'));
+const SettingsAnalyticsPage = lazy(() => import('../pages/settings/SettingsAnalyticsPage'));
 
 // Analytics route guard — renders children directly (layout provided by AppLayout above)
 function AnalyticsProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -83,50 +103,60 @@ export default function AppRouter() {
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
         {/* Tests Module */}
         <Route path="dashboard" element={<DashboardPage />} />
-        <Route path="favorites" element={<BrowserHomePage mode="favorites" />} />
-        <Route path="recent" element={<BrowserHomePage mode="recent" />} />
         <Route path="browser">
-          <Route index element={<BrowserHomePage />} />
+          <Route index element={<BrowseAllPage />} />
           <Route path="test/:uuid" element={<TestDetailPage />} />
         </Route>
+        {/* Legacy /favorites + /recent dropped — Favorites view not yet
+            ported to the new design. The per-test favorite toggle still
+            works via useTestPreferences. */}
+        <Route path="favorites" element={<Navigate to="/browser" replace />} />
+        <Route path="recent" element={<Navigate to="/browser?sort=modified" replace />} />
 
-        {/* Analytics Module — sub-routes redesigned in Phase 2; redirect old URL for now */}
+        {/* Analytics Module — 4 sub-routes, each page wraps itself in
+            AnalyticsLayout so we don't add a layout route here. */}
         <Route path="analytics">
           <Route path="setup" element={<Navigate to="/settings" replace />} />
           <Route index element={<Navigate to="/analytics/dashboard" replace />} />
           <Route path="dashboard" element={
-            <AnalyticsProtectedRoute>
-              <AnalyticsDashboardPage />
-            </AnalyticsProtectedRoute>
+            <AnalyticsProtectedRoute><AnalyticsDashboardPage /></AnalyticsProtectedRoute>
           } />
           <Route path="executions" element={
-            <AnalyticsProtectedRoute>
-              <AnalyticsDashboardPage />
-            </AnalyticsProtectedRoute>
+            <AnalyticsProtectedRoute><AnalyticsExecutionsPage /></AnalyticsProtectedRoute>
           } />
           <Route path="defender" element={
-            <AnalyticsProtectedRoute>
-              <AnalyticsDashboardPage />
-            </AnalyticsProtectedRoute>
+            <AnalyticsProtectedRoute><AnalyticsDefenderPage /></AnalyticsProtectedRoute>
           } />
           <Route path="risk" element={
-            <AnalyticsProtectedRoute>
-              <AnalyticsDashboardPage />
-            </AnalyticsProtectedRoute>
+            <AnalyticsProtectedRoute><AnalyticsRiskPage /></AnalyticsProtectedRoute>
           } />
         </Route>
 
-        {/* Endpoints Module */}
-        <Route path="endpoints" element={<RequireModule module="endpoints"><Outlet /></RequireModule>}>
+        {/* Endpoints Module — layout route renders the sub-nav + Outlet. */}
+        <Route path="endpoints" element={
+          <RequireModule module="endpoints"><EndpointsLayout /></RequireModule>
+        }>
           <Route index element={<Navigate to="/endpoints/dashboard" replace />} />
-          <Route path="dashboard" element={<AgentDashboardPage />} />
-          <Route path="agents" element={<AgentsPage />} />
-          <Route path="agents/:agentId" element={<AgentDetailPage />} />
-          <Route path="tasks" element={<TasksPage />} />
+          <Route path="dashboard" element={<EndpointsDashboardPage />} />
+          <Route path="agents" element={<EndpointsAgentsPage />} />
+          <Route path="agents/:agentId" element={<EndpointsAgentDetailPage />} />
+          <Route path="tasks" element={<EndpointsTasksPage />} />
         </Route>
 
-        {/* Settings */}
-        <Route path="settings" element={<RequireModule module="settings"><SettingsPage /></RequireModule>} />
+        {/* Settings Module — sub-routes with horizontal sub-nav layout. */}
+        <Route path="settings" element={
+          <RequireModule module="settings"><SettingsLayout /></RequireModule>
+        }>
+          <Route index element={<Navigate to="/settings/agent" replace />} />
+          <Route path="agent" element={<SettingsAgentPage />} />
+          <Route path="tests" element={<SettingsTestsPage />} />
+          <Route path="integrations" element={<SettingsIntegrationsPage />} />
+          <Route path="platform" element={<SettingsPlatformPage />} />
+          <Route path="certificate" element={<SettingsCertificatePage />} />
+          <Route path="analytics" element={<SettingsAnalyticsPage />} />
+          <Route path="index-management" element={<SettingsIndexManagementPage />} />
+          <Route path="users" element={<SettingsUsersPage />} />
+        </Route>
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
