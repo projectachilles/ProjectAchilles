@@ -12,11 +12,10 @@
   width: 100%;
   height: 100vh;
   background: var(--bg-deep);
-  background-image:
-    radial-gradient(ellipse 60% 35% at 60% 0%, var(--accent-subtle), transparent 70%),
-    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px),
-    linear-gradient(0deg, var(--line-soft) 1px, transparent 1px);
-  background-size: auto, 64px 64px, 64px 64px;
+  /* Soft green glow at the top center adds depth without fighting the
+     data viz. The 64px grid pattern that lived here (two linear-gradients)
+     was visually overkill against the dense cards and was removed. */
+  background-image: radial-gradient(ellipse 60% 35% at 60% 0%, var(--accent-subtle), transparent 70%);
   color: var(--text-primary);
   overflow: hidden;
   position: relative;
