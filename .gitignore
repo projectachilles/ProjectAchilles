@@ -76,6 +76,9 @@ scripts/tunnel.sh
 presentation-abstract.md
 presentation/
 
+# Handoff archives (built artifacts, not source)
+handoffs/
+
 # Wiki (Docusaurus)
 wiki/.docusaurus/
 wiki/build/
