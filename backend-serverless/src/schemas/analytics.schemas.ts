@@ -14,6 +14,8 @@ export const AnalyticsSettingsSchema = z.object({
   username: z.string().optional(),
   password: z.string().optional(),
   indexPattern: z.string().optional(),
+  caCert: z.string().optional(),
+  tlsInsecureSkipVerify: z.boolean().optional(),
 });
 
 export const AnalyticsTestSchema = z.object({
@@ -23,6 +25,8 @@ export const AnalyticsTestSchema = z.object({
   node: z.string().optional(),
   username: z.string().optional(),
   password: z.string().optional(),
+  caCert: z.string().optional(),
+  tlsInsecureSkipVerify: z.boolean().optional(),
 });
 
 // ── Index management ─────────────────────────────────────────────────────────

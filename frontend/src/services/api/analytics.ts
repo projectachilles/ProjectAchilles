@@ -6,6 +6,9 @@ export interface AnalyticsSettings {
   indexPattern?: string;
   cloudId?: string;
   node?: string;
+  /** '***' placeholder when a CA cert is saved; undefined otherwise. Real PEM is never echoed. */
+  caCert?: string;
+  tlsInsecureSkipVerify?: boolean;
 }
 
 export interface DefenseScore {
@@ -343,6 +346,8 @@ export const analyticsApi = {
     username?: string;
     password?: string;
     indexPattern?: string;
+    caCert?: string;
+    tlsInsecureSkipVerify?: boolean;
   }): Promise<{ success: boolean }> {
     const response = await apiClient.post('/analytics/settings', settings);
     return response.data;
@@ -355,6 +360,8 @@ export const analyticsApi = {
     node?: string;
     username?: string;
     password?: string;
+    caCert?: string;
+    tlsInsecureSkipVerify?: boolean;
   }): Promise<{ success: boolean; version?: string; error?: string }> {
     const response = await apiClient.post('/analytics/settings/test', settings);
     return response.data;

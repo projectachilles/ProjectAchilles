@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Check, AlertCircle, Loader2 } from 'lucide-react';
+import { X, Check, AlertCircle, Loader2, ShieldAlert } from 'lucide-react';
 import { analyticsApi } from '../../../services/api/analytics';
 
 interface SettingsModalProps {
@@ -16,6 +16,9 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [indexPattern, setIndexPattern] = useState('achilles-results-*');
+  const [caCert, setCaCert] = useState('');
+  const [hasSavedCaCert, setHasSavedCaCert] = useState(false);
+  const [tlsInsecureSkipVerify, setTlsInsecureSkipVerify] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -35,6 +38,8 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
       if (settings.configured && settings.connectionType) {
         setConnectionType(settings.connectionType);
         setIndexPattern(settings.indexPattern || 'achilles-results-*');
+        setHasSavedCaCert(settings.caCert === '***');
+        setTlsInsecureSkipVerify(!!settings.tlsInsecureSkipVerify);
         // Note: Credentials come back masked, so we don't populate them
       }
     } catch (err) {
@@ -55,6 +60,8 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
         node: connectionType === 'direct' ? node : undefined,
         username: connectionType === 'direct' ? username : undefined,
         password: connectionType === 'direct' ? password : undefined,
+        caCert: connectionType === 'direct' ? caCert : undefined,
+        tlsInsecureSkipVerify: connectionType === 'direct' ? tlsInsecureSkipVerify : undefined,
       });
       setTestResult(result);
     } catch (err: any) {
@@ -76,7 +83,9 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
         node: connectionType === 'direct' ? node : undefined,
         username: connectionType === 'direct' ? username : undefined,
         password: connectionType === 'direct' ? password : undefined,
-        indexPattern
+        indexPattern,
+        caCert: connectionType === 'direct' ? caCert : undefined,
+        tlsInsecureSkipVerify: connectionType === 'direct' ? tlsInsecureSkipVerify : undefined,
       });
       onSave?.();
       onClose();
@@ -209,6 +218,53 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
                     className="w-full px-3 py-2 bg-secondary border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
+              </div>
+
+              {/* TLS / Self-signed certificate options */}
+              <div className="border-t border-border pt-3 mt-2">
+                <p className="text-sm font-medium mb-1">TLS / Certificates</p>
+                <p className="text-xs text-muted-foreground mb-2">
+                  For Elasticsearch using a self-signed or custom-CA certificate.
+                </p>
+
+                <label className="block text-sm font-medium mb-1">Custom CA Certificate (PEM)</label>
+                <textarea
+                  rows={5}
+                  spellCheck={false}
+                  value={caCert}
+                  onChange={(e) => setCaCert(e.target.value)}
+                  placeholder={
+                    hasSavedCaCert
+                      ? 'A CA certificate is saved. Paste a new one to replace it, or leave blank to keep it.'
+                      : '-----BEGIN CERTIFICATE-----\n...'
+                  }
+                  className="w-full px-3 py-2 bg-secondary border border-border rounded-lg font-mono text-xs focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+
+                <label className="flex items-start gap-2 mt-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={tlsInsecureSkipVerify}
+                    onChange={(e) => setTlsInsecureSkipVerify(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 text-primary"
+                  />
+                  <div>
+                    <p className="text-sm font-medium">Skip TLS certificate validation (insecure)</p>
+                    <p className="text-xs text-muted-foreground">
+                      Local/lab use only — accepts any certificate.
+                    </p>
+                  </div>
+                </label>
+
+                {tlsInsecureSkipVerify && (
+                  <div className="mt-2 p-3 rounded-lg bg-red-500/10 text-red-600 dark:text-red-400 flex gap-2">
+                    <ShieldAlert className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <span className="text-xs">
+                      TLS validation is disabled. The connection is vulnerable to man-in-the-middle
+                      attacks. Prefer a custom CA certificate.
+                    </span>
+                  </div>
+                )}
               </div>
             </>
           )}

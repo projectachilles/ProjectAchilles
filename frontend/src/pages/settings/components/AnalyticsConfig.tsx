@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Cloud, Server, CheckCircle, Info } from 'lucide-react';
+import { Cloud, Server, CheckCircle, Info, ShieldAlert } from 'lucide-react';
 import { analyticsApi } from '@/services/api/analytics';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { Input } from '@/components/shared/ui/Input';
@@ -23,6 +23,9 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [indexPattern, setIndexPattern] = useState('achilles-results-*');
+  const [caCert, setCaCert] = useState('');
+  const [hasSavedCaCert, setHasSavedCaCert] = useState(false);
+  const [tlsInsecureSkipVerify, setTlsInsecureSkipVerify] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
@@ -43,6 +46,9 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
         setEditMode(true);
         setConnectionType(settings.connectionType || 'cloud');
         setIndexPattern(settings.indexPattern || 'achilles-results-*');
+        // Backend returns '***' as a presence-only placeholder; the real PEM is never echoed.
+        setHasSavedCaCert(settings.caCert === '***');
+        setTlsInsecureSkipVerify(!!settings.tlsInsecureSkipVerify);
         onStatusChange?.(true);
       }
     } catch {
@@ -62,7 +68,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
       const credentials =
         connectionType === 'cloud'
           ? { connectionType, cloudId, apiKey }
-          : { connectionType, node, username, password };
+          : { connectionType, node, username, password, caCert, tlsInsecureSkipVerify };
 
       const result = await analyticsApi.testConnection(credentials);
 
@@ -93,7 +99,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
       const credentials =
         connectionType === 'cloud'
           ? { connectionType, cloudId, apiKey }
-          : { connectionType, node, username, password };
+          : { connectionType, node, username, password, caCert, tlsInsecureSkipVerify };
 
       // Auto-test connection if not already tested successfully
       if (!testResult?.success) {
@@ -114,7 +120,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
       const settings =
         connectionType === 'cloud'
           ? { connectionType, cloudId, apiKey, indexPattern }
-          : { connectionType, node, username, password, indexPattern };
+          : { connectionType, node, username, password, indexPattern, caCert, tlsInsecureSkipVerify };
 
       await analyticsApi.saveSettings(settings);
 
@@ -260,6 +266,64 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
             onChange={(e) => setPassword(e.target.value)}
             helperText={editMode ? 'Optional: Only fill in to update' : undefined}
           />
+
+          {/* TLS / Self-signed certificate options */}
+          <div className="border-t border-border pt-4 mt-2">
+            <p className="text-sm font-medium text-card-foreground mb-1">TLS / Certificates</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              For self-hosted Elasticsearch using a self-signed or organization CA certificate.
+            </p>
+
+            <label className="block text-sm font-medium mb-1" htmlFor="es-ca-cert">
+              Custom CA Certificate (PEM)
+            </label>
+            <textarea
+              id="es-ca-cert"
+              rows={6}
+              spellCheck={false}
+              value={caCert}
+              onChange={(e) => setCaCert(e.target.value)}
+              placeholder={
+                hasSavedCaCert
+                  ? 'A CA certificate is saved. Paste a new one to replace it, or leave blank to keep it.'
+                  : '-----BEGIN CERTIFICATE-----\nMIIDazCCAlOgAwIBAgIUS...\n-----END CERTIFICATE-----'
+              }
+              className="w-full px-3 py-2 bg-secondary border border-border rounded-lg font-mono text-xs focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Recommended over disabling validation. Paste your ELK CA's public certificate in PEM format.
+            </p>
+
+            <label className="flex items-start gap-2 mt-4 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={tlsInsecureSkipVerify}
+                onChange={(e) => setTlsInsecureSkipVerify(e.target.checked)}
+                className="mt-0.5 w-4 h-4 text-primary"
+              />
+              <div>
+                <p className="text-sm font-medium text-card-foreground">
+                  Skip TLS certificate validation (insecure)
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Accepts any TLS certificate. Use only against trusted local/lab Elasticsearch instances.
+                </p>
+              </div>
+            </label>
+
+            {tlsInsecureSkipVerify && (
+              <Alert variant="destructive" className="mt-3">
+                <ShieldAlert className="w-4 h-4" />
+                <div>
+                  <p className="font-medium">TLS validation is disabled.</p>
+                  <p className="text-sm">
+                    The connection is vulnerable to man-in-the-middle attacks. Switch to a custom CA
+                    certificate for any deployment beyond a local sandbox.
+                  </p>
+                </div>
+              </Alert>
+            )}
+          </div>
         </>
       )}
 
