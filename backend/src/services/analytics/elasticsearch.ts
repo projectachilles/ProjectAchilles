@@ -1,6 +1,7 @@
 // Elasticsearch service for analytics queries
 
 import { Client } from '@elastic/elasticsearch';
+import { createEsClient } from './client.js';
 import { RiskAcceptanceService } from '../risk-acceptance/risk-acceptance.service.js';
 import type {
   AnalyticsSettings,
@@ -95,24 +96,7 @@ export class ElasticsearchService {
 
   constructor(settings: AnalyticsSettings) {
     this.settings = settings;
-
-    if (settings.connectionType === 'cloud' && settings.cloudId) {
-      this.client = new Client({
-        cloud: { id: settings.cloudId },
-        auth: { apiKey: settings.apiKey || '' },
-      });
-    } else if (settings.node) {
-      const auth = settings.apiKey
-        ? { apiKey: settings.apiKey }
-        : { username: settings.username || '', password: settings.password || '' };
-
-      this.client = new Client({
-        node: settings.node,
-        auth,
-      });
-    } else {
-      throw new Error('Invalid Elasticsearch configuration');
-    }
+    this.client = createEsClient(settings);
   }
 
   // Test the connection
