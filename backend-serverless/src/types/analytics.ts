@@ -10,6 +10,10 @@ export interface AnalyticsSettings {
   password?: string;
   indexPattern: string;
   configured: boolean;
+  /** PEM-encoded custom CA for trusting self-signed Elasticsearch certs (direct connections only). */
+  caCert?: string;
+  /** Disable TLS certificate validation. Insecure — local/lab use only. */
+  tlsInsecureSkipVerify?: boolean;
 }
 
 // Defense score response

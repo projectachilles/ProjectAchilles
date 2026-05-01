@@ -33,6 +33,8 @@ export class SettingsService {
       password: process.env.ELASTICSEARCH_PASSWORD || '',
       indexPattern: process.env.ELASTICSEARCH_INDEX_PATTERN || 'achilles-results-*',
       configured: true,
+      caCert: process.env.ELASTICSEARCH_CA_CERT || undefined,
+      tlsInsecureSkipVerify: process.env.ELASTICSEARCH_TLS_INSECURE_SKIP_VERIFY === 'true',
     };
   }
 

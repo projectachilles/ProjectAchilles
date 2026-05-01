@@ -63,12 +63,17 @@ router.get('/settings', requirePermission('analytics:settings:read'), (_req, res
     // Mask sensitive fields
     cloudId: settings.cloudId ? '***' : undefined,
     node: settings.node,
+    // Surface non-secret TLS state so the UI can reflect what's saved.
+    // caCert is not echoed back as content — only its presence is signalled
+    // via a placeholder so the textarea can show "leave blank to keep current".
+    caCert: settings.caCert ? '***' : undefined,
+    tlsInsecureSkipVerify: settings.tlsInsecureSkipVerify ?? false,
   });
 });
 
 // POST /api/analytics/settings - Save settings
 router.post('/settings', requirePermission('analytics:settings:write'), validate(AnalyticsSettingsSchema), asyncHandler(async (req, res) => {
-  const { connectionType, cloudId, apiKey, node, username, password, indexPattern } = req.body;
+  const { connectionType, cloudId, apiKey, node, username, password, indexPattern, caCert, tlsInsecureSkipVerify } = req.body;
 
   // Load existing settings to merge with new values
   // This allows updating settings without providing all credentials
@@ -90,6 +95,13 @@ router.post('/settings', requirePermission('analytics:settings:write'), validate
     password: password || existingSettings.password,
     indexPattern: indexPattern || existingSettings.indexPattern || 'achilles-results-*',
     configured: true,
+    // TLS overrides: caCert blank-string keeps existing (matches credential-merge semantics);
+    // tlsInsecureSkipVerify is an explicit boolean so we accept the new value when defined.
+    caCert: caCert || existingSettings.caCert,
+    tlsInsecureSkipVerify:
+      typeof tlsInsecureSkipVerify === 'boolean'
+        ? tlsInsecureSkipVerify
+        : existingSettings.tlsInsecureSkipVerify,
   };
 
   settingsService.saveSettings(settingsToSave);
@@ -105,7 +117,7 @@ router.post('/settings', requirePermission('analytics:settings:write'), validate
 
 // POST /api/analytics/settings/test - Test connection
 router.post('/settings/test', requirePermission('analytics:settings:read'), validate(AnalyticsTestSchema), asyncHandler(async (req, res) => {
-  const { connectionType, cloudId, apiKey, node, username, password } = req.body;
+  const { connectionType, cloudId, apiKey, node, username, password, caCert, tlsInsecureSkipVerify } = req.body;
 
   // Merge with existing settings so edit-mode tests work with blank credentials
   const existingSettings = settingsService.getSettings();
@@ -127,6 +139,11 @@ router.post('/settings/test', requirePermission('analytics:settings:read'), vali
       password: password || existingSettings.password,
       indexPattern: existingSettings.indexPattern || 'achilles-results-*',
       configured: true,
+      caCert: caCert || existingSettings.caCert,
+      tlsInsecureSkipVerify:
+        typeof tlsInsecureSkipVerify === 'boolean'
+          ? tlsInsecureSkipVerify
+          : existingSettings.tlsInsecureSkipVerify,
     });
 
     const version = await testService.testConnection();
