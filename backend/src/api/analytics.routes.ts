@@ -79,29 +79,44 @@ router.post('/settings', requirePermission('analytics:settings:write'), validate
   // This allows updating settings without providing all credentials
   const existingSettings = settingsService.getSettings();
 
+  // When the connection type changes (e.g., 'cloud' → 'self-hosted'), the existing
+  // credentials belong to a *different* cluster and must not be carried forward.
+  // Otherwise the merge below would happily reuse a stale cloudId/apiKey/etc. against
+  // a freshly entered URL — yielding silent auth failures. See PR introducing this guard.
+  const isModeSwitch =
+    !!existingSettings.configured &&
+    !!existingSettings.connectionType &&
+    !!connectionType &&
+    connectionType !== existingSettings.connectionType;
+
+  // On a mode switch, fall back to empty rather than the previous-cluster value.
+  const fallback = <T>(prev: T | undefined): T | string => (isModeSwitch ? '' : (prev ?? ''));
+
   // Validate self-hosted ES node URL against SSRF before saving
-  const effectiveNode = node || existingSettings.node;
+  const effectiveNode = node || (isModeSwitch ? '' : existingSettings.node);
   if (connectionType === 'self-hosted' && effectiveNode) {
     await validateUrlForSSRF(effectiveNode);
   }
 
-  // Merge: use new values if provided, otherwise keep existing ones
+  // Merge: use new values if provided, otherwise keep existing ones (unless mode switched).
   const settingsToSave = {
     connectionType,
-    cloudId: cloudId || existingSettings.cloudId,
-    apiKey: apiKey || existingSettings.apiKey,
+    cloudId: cloudId || fallback(existingSettings.cloudId),
+    apiKey: apiKey || fallback(existingSettings.apiKey),
     node: effectiveNode,
-    username: username || existingSettings.username,
-    password: password || existingSettings.password,
+    username: username || fallback(existingSettings.username),
+    password: password || fallback(existingSettings.password),
+    // indexPattern survives mode switches — it's a query-shape concern, not a credential
     indexPattern: indexPattern || existingSettings.indexPattern || 'achilles-results-*',
     configured: true,
     // TLS overrides: caCert blank-string keeps existing (matches credential-merge semantics);
     // tlsInsecureSkipVerify is an explicit boolean so we accept the new value when defined.
-    caCert: caCert || existingSettings.caCert,
+    // Both are direct-mode-only, so on mode-switch they're cleared.
+    caCert: caCert || fallback(existingSettings.caCert),
     tlsInsecureSkipVerify:
       typeof tlsInsecureSkipVerify === 'boolean'
         ? tlsInsecureSkipVerify
-        : existingSettings.tlsInsecureSkipVerify,
+        : isModeSwitch ? false : existingSettings.tlsInsecureSkipVerify,
   };
 
   settingsService.saveSettings(settingsToSave);
@@ -122,28 +137,38 @@ router.post('/settings/test', requirePermission('analytics:settings:read'), vali
   // Merge with existing settings so edit-mode tests work with blank credentials
   const existingSettings = settingsService.getSettings();
 
+  // Mirror the save handler's mode-switch guard: when the user is testing a different
+  // connection type than what's saved, the saved credentials are for a different cluster
+  // and must not leak into the test request.
+  const effectiveType = connectionType || existingSettings.connectionType;
+  const isModeSwitch =
+    !!existingSettings.configured &&
+    !!existingSettings.connectionType &&
+    !!connectionType &&
+    connectionType !== existingSettings.connectionType;
+  const fallback = <T>(prev: T | undefined): T | string => (isModeSwitch ? '' : (prev ?? ''));
+
   try {
     // Validate self-hosted ES node URL against SSRF (cloud IDs are safe — they resolve to *.elastic-cloud.com)
-    const effectiveNode = node || existingSettings.node;
-    const effectiveType = connectionType || existingSettings.connectionType;
+    const effectiveNode = node || (isModeSwitch ? '' : existingSettings.node);
     if (effectiveType === 'self-hosted' && effectiveNode) {
       await validateUrlForSSRF(effectiveNode);
     }
 
     const testService = new ElasticsearchService({
       connectionType: effectiveType,
-      cloudId: cloudId || existingSettings.cloudId,
-      apiKey: apiKey || existingSettings.apiKey,
+      cloudId: cloudId || fallback(existingSettings.cloudId),
+      apiKey: apiKey || fallback(existingSettings.apiKey),
       node: effectiveNode,
-      username: username || existingSettings.username,
-      password: password || existingSettings.password,
+      username: username || fallback(existingSettings.username),
+      password: password || fallback(existingSettings.password),
       indexPattern: existingSettings.indexPattern || 'achilles-results-*',
       configured: true,
-      caCert: caCert || existingSettings.caCert,
+      caCert: caCert || fallback(existingSettings.caCert),
       tlsInsecureSkipVerify:
         typeof tlsInsecureSkipVerify === 'boolean'
           ? tlsInsecureSkipVerify
-          : existingSettings.tlsInsecureSkipVerify,
+          : isModeSwitch ? false : existingSettings.tlsInsecureSkipVerify,
     });
 
     const version = await testService.testConnection();

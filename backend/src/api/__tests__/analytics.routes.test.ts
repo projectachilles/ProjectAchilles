@@ -18,6 +18,13 @@ vi.mock('../../middleware/clerk.middleware.js', () => ({
   requirePermission: () => (_req: any, _res: any, next: any) => next(),
 }));
 
+// Mock SSRF validation — tests use placeholder hostnames that don't resolve.
+// Production behavior (DNS lookup, private-IP rejection) is exercised in the
+// dedicated middleware tests for urlValidation.
+vi.mock('../../middleware/urlValidation.js', () => ({
+  validateUrlForSSRF: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Mock the settings service
 const mockGetSettings = vi.fn();
 const mockSaveSettings = vi.fn();
@@ -121,6 +128,83 @@ describe('analytics routes', () => {
         .send({});
 
       expect(res.status).toBe(400);
+    });
+
+    it('clears stale cloudId/apiKey when switching from cloud → self-hosted', async () => {
+      // Existing config: cloud-mode for the OLD cluster
+      mockGetSettings.mockReturnValue({
+        configured: true,
+        connectionType: 'cloud',
+        cloudId: 'OLD_ENCRYPTED_CLOUD_ID',
+        apiKey: 'OLD_API_KEY_FOR_CLOUD',
+        node: '',
+        username: '',
+        password: '',
+        indexPattern: 'achilles-*',
+      });
+
+      const app = createApp();
+      const res = await request(app)
+        .post('/api/analytics/settings')
+        .send({
+          connectionType: 'self-hosted',
+          node: 'https://new-cluster.example.com',
+          apiKey: 'NEW_DIRECT_API_KEY',
+        });
+
+      expect(res.status).toBe(200);
+      const saved = mockSaveSettings.mock.calls.at(-1)?.[0];
+      // Mode switched: stale cloud creds must NOT carry over
+      expect(saved.cloudId).toBe('');
+      expect(saved.apiKey).toBe('NEW_DIRECT_API_KEY');
+      expect(saved.node).toBe('https://new-cluster.example.com');
+      expect(saved.connectionType).toBe('self-hosted');
+    });
+
+    it('preserves existing apiKey on same-mode partial update (regression guard)', async () => {
+      mockGetSettings.mockReturnValue({
+        configured: true,
+        connectionType: 'self-hosted',
+        cloudId: '',
+        apiKey: 'EXISTING_DIRECT_KEY',
+        node: 'https://existing.example.com',
+        username: '',
+        password: '',
+        indexPattern: 'achilles-*',
+      });
+
+      const app = createApp();
+      // User updates only the node, keeps apiKey blank (= keep existing)
+      const res = await request(app)
+        .post('/api/analytics/settings')
+        .send({
+          connectionType: 'self-hosted',
+          node: 'https://updated.example.com',
+        });
+
+      expect(res.status).toBe(200);
+      const saved = mockSaveSettings.mock.calls.at(-1)?.[0];
+      expect(saved.apiKey).toBe('EXISTING_DIRECT_KEY');
+      expect(saved.node).toBe('https://updated.example.com');
+    });
+
+    it('does not treat first-time setup as a mode switch', async () => {
+      // No prior config — `configured: false` (or absent)
+      mockGetSettings.mockReturnValue({});
+
+      const app = createApp();
+      const res = await request(app)
+        .post('/api/analytics/settings')
+        .send({
+          connectionType: 'cloud',
+          cloudId: 'first-cloud-id',
+          apiKey: 'first-api-key',
+        });
+
+      expect(res.status).toBe(200);
+      const saved = mockSaveSettings.mock.calls.at(-1)?.[0];
+      expect(saved.cloudId).toBe('first-cloud-id');
+      expect(saved.apiKey).toBe('first-api-key');
     });
   });
 

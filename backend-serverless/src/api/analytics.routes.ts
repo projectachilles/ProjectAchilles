@@ -76,27 +76,36 @@ router.post('/settings', requirePermission('analytics:settings:write'), validate
   // This allows updating settings without providing all credentials
   const existingSettings = await settingsService.getSettings();
 
+  // When the connection type changes (e.g., 'cloud' → 'self-hosted'), the existing
+  // credentials belong to a *different* cluster and must not be carried forward.
+  const isModeSwitch =
+    !!existingSettings.configured &&
+    !!existingSettings.connectionType &&
+    !!connectionType &&
+    connectionType !== existingSettings.connectionType;
+  const fallback = <T>(prev: T | undefined): T | string => (isModeSwitch ? '' : (prev ?? ''));
+
   // Validate self-hosted ES node URL against SSRF before saving
-  const effectiveNode = node || existingSettings.node;
+  const effectiveNode = node || (isModeSwitch ? '' : existingSettings.node);
   if (connectionType === 'self-hosted' && effectiveNode) {
     await validateUrlForSSRF(effectiveNode);
   }
 
-  // Merge: use new values if provided, otherwise keep existing ones
+  // Merge: use new values if provided, otherwise keep existing ones (unless mode switched).
   const settingsToSave = {
     connectionType,
-    cloudId: cloudId || existingSettings.cloudId,
-    apiKey: apiKey || existingSettings.apiKey,
+    cloudId: cloudId || fallback(existingSettings.cloudId),
+    apiKey: apiKey || fallback(existingSettings.apiKey),
     node: effectiveNode,
-    username: username || existingSettings.username,
-    password: password || existingSettings.password,
+    username: username || fallback(existingSettings.username),
+    password: password || fallback(existingSettings.password),
     indexPattern: indexPattern || existingSettings.indexPattern || 'achilles-results-*',
     configured: true,
-    caCert: caCert || existingSettings.caCert,
+    caCert: caCert || fallback(existingSettings.caCert),
     tlsInsecureSkipVerify:
       typeof tlsInsecureSkipVerify === 'boolean'
         ? tlsInsecureSkipVerify
-        : existingSettings.tlsInsecureSkipVerify,
+        : isModeSwitch ? false : existingSettings.tlsInsecureSkipVerify,
   };
 
   await settingsService.saveSettings(settingsToSave);
@@ -117,28 +126,37 @@ router.post('/settings/test', requirePermission('analytics:settings:read'), vali
   // Merge with existing settings so edit-mode tests work with blank credentials
   const existingSettings = await settingsService.getSettings();
 
+  // Mirror save handler's mode-switch guard: when testing a different connection type
+  // than what's saved, saved credentials belong to a different cluster and must not leak.
+  const effectiveType = connectionType || existingSettings.connectionType;
+  const isModeSwitch =
+    !!existingSettings.configured &&
+    !!existingSettings.connectionType &&
+    !!connectionType &&
+    connectionType !== existingSettings.connectionType;
+  const fallback = <T>(prev: T | undefined): T | string => (isModeSwitch ? '' : (prev ?? ''));
+
   try {
     // Validate self-hosted ES node URL against SSRF
-    const effectiveNode = node || existingSettings.node;
-    const effectiveType = connectionType || existingSettings.connectionType;
+    const effectiveNode = node || (isModeSwitch ? '' : existingSettings.node);
     if (effectiveType === 'self-hosted' && effectiveNode) {
       await validateUrlForSSRF(effectiveNode);
     }
 
     const testService = new ElasticsearchService({
       connectionType: effectiveType,
-      cloudId: cloudId || existingSettings.cloudId,
-      apiKey: apiKey || existingSettings.apiKey,
+      cloudId: cloudId || fallback(existingSettings.cloudId),
+      apiKey: apiKey || fallback(existingSettings.apiKey),
       node: effectiveNode,
-      username: username || existingSettings.username,
-      password: password || existingSettings.password,
+      username: username || fallback(existingSettings.username),
+      password: password || fallback(existingSettings.password),
       indexPattern: existingSettings.indexPattern || 'achilles-results-*',
       configured: true,
-      caCert: caCert || existingSettings.caCert,
+      caCert: caCert || fallback(existingSettings.caCert),
       tlsInsecureSkipVerify:
         typeof tlsInsecureSkipVerify === 'boolean'
           ? tlsInsecureSkipVerify
-          : existingSettings.tlsInsecureSkipVerify,
+          : isModeSwitch ? false : existingSettings.tlsInsecureSkipVerify,
     });
 
     const version = await testService.testConnection();
