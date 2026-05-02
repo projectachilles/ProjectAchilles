@@ -329,13 +329,8 @@ export interface AcceptRiskRequest {
 export const analyticsApi = {
   // Settings
   async getSettings(): Promise<AnalyticsSettings> {
-    try {
-      const response = await apiClient.get('/analytics/settings');
-      return response.data;
-    } catch (error) {
-      // If settings endpoint fails, return unconfigured state
-      return { configured: false };
-    }
+    const response = await apiClient.get('/analytics/settings');
+    return response.data;
   },
 
   async saveSettings(settings: {
