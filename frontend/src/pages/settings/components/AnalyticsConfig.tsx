@@ -68,7 +68,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
       const credentials =
         connectionType === 'cloud'
           ? { connectionType, cloudId, apiKey }
-          : { connectionType, node, username, password, caCert, tlsInsecureSkipVerify };
+          : { connectionType, node, apiKey, username, password, caCert, tlsInsecureSkipVerify };
 
       const result = await analyticsApi.testConnection(credentials);
 
@@ -99,7 +99,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
       const credentials =
         connectionType === 'cloud'
           ? { connectionType, cloudId, apiKey }
-          : { connectionType, node, username, password, caCert, tlsInsecureSkipVerify };
+          : { connectionType, node, apiKey, username, password, caCert, tlsInsecureSkipVerify };
 
       // Auto-test connection if not already tested successfully
       if (!testResult?.success) {
@@ -120,7 +120,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
       const settings =
         connectionType === 'cloud'
           ? { connectionType, cloudId, apiKey, indexPattern }
-          : { connectionType, node, username, password, indexPattern, caCert, tlsInsecureSkipVerify };
+          : { connectionType, node, apiKey, username, password, indexPattern, caCert, tlsInsecureSkipVerify };
 
       await analyticsApi.saveSettings(settings);
 
