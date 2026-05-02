@@ -400,6 +400,28 @@ docker compose ps
 
 Wait ~30 seconds for Kibana to bootstrap, then open <http://localhost:5601> in a browser. Log in as the **`elastic` superuser** (not `kibana_system`).
 
+### Running multiple Kibana instances on the same host (for multi-cluster ops)
+
+If you operate more than one ES cluster and want a Kibana per cluster on the same dev box (e.g., `:5601` for one, `:5602` for another), you'll hit a session-cookie collision: HTTP cookies are scoped by hostname, **not** by port, so both Kibanas share the `localhost` cookie jar. Each Kibana issues its session cookie under the same name (`sid` by default) and overwrites the other's, producing repeated `AUTHENTICATION_ERROR` redirects when switching tabs.
+
+Fix per-instance with `XPACK_SECURITY_COOKIENAME` — give each container a distinct cookie name and keep the rest of the multi-instance pattern straightforward:
+
+```yaml
+services:
+  kibana-cluster-a:
+    # ... rest of config ...
+    environment:
+      # ... other env ...
+      XPACK_SECURITY_COOKIENAME: sid_cluster_a   # <-- unique per instance
+
+  kibana-cluster-b:
+    # ... same shape, different port + ELASTICSEARCH_HOSTS + encryption key ...
+    environment:
+      XPACK_SECURITY_COOKIENAME: sid_cluster_b
+```
+
+Each instance also needs its own `XPACK_*ENCRYPTIONKEY` triplet (32+ hex chars, distinct from other instances) and its own `SERVER_PUBLICBASEURL` matching its host port. After applying, **clear browser cookies for `localhost`** (the old `sid` lingers) before logging in fresh.
+
 ## Verification checklist
 
 | Check | Command | Expected |
