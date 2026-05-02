@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { useAuth } from '@clerk/clerk-react';
 import { analyticsApi } from '../services/api/analytics';
 
 interface AnalyticsSettings {
@@ -11,6 +12,7 @@ interface AnalyticsSettings {
 interface AnalyticsAuthContextType {
   configured: boolean;
   loading: boolean;
+  error: Error | null;
   settings: AnalyticsSettings | null;
   settingsVersion: number;
   checkConfiguration: () => Promise<void>;
@@ -24,19 +26,23 @@ interface AnalyticsAuthProviderProps {
 }
 
 export function AnalyticsAuthProvider({ children }: AnalyticsAuthProviderProps) {
+  const { isLoaded, isSignedIn } = useAuth();
   const [configured, setConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
   const [settings, setSettings] = useState<AnalyticsSettings | null>(null);
   const [settingsVersion, setSettingsVersion] = useState(0);
 
   const checkConfiguration = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       const response = await analyticsApi.getSettings();
       setSettings(response);
       setConfigured(response.configured);
-    } catch (error) {
-      console.error('Failed to check analytics configuration:', error);
+    } catch (err) {
+      console.error('Failed to check analytics configuration:', err);
+      setError(err instanceof Error ? err : new Error('Failed to check analytics configuration'));
       setConfigured(false);
       setSettings(null);
     } finally {
@@ -44,9 +50,20 @@ export function AnalyticsAuthProvider({ children }: AnalyticsAuthProviderProps) 
     }
   }, []);
 
+  // Wait for Clerk to hydrate before calling /analytics/settings: getToken()
+  // returns null until then, so an unauthenticated request would hit a 401
+  // and the module would render as "locked" until the user refreshed.
   useEffect(() => {
+    if (!isLoaded) return;
+    if (!isSignedIn) {
+      setConfigured(false);
+      setSettings(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     checkConfiguration();
-  }, [checkConfiguration]);
+  }, [isLoaded, isSignedIn, checkConfiguration]);
 
   const updateSettings = (newSettings: AnalyticsSettings) => {
     setSettings(newSettings);
@@ -60,6 +77,7 @@ export function AnalyticsAuthProvider({ children }: AnalyticsAuthProviderProps) 
       value={{
         configured,
         loading,
+        error,
         settings,
         settingsVersion,
         checkConfiguration,
