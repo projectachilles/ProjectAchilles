@@ -55,6 +55,10 @@ backend/data/
 .backend.log
 .frontend.log
 
+# start.sh per-developer setup markers (user opt-outs, one-time setup flags)
+.start.sh-skip-go
+.clerk-rbac-configured
+
 # Certificates and private keys
 *.pfx
 *.p12
