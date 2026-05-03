@@ -130,6 +130,9 @@ async function initializeTables(c: Client): Promise<void> {
       retry_count INTEGER DEFAULT 0,
       max_retries INTEGER DEFAULT 2,
       original_task_id TEXT DEFAULT NULL,
+      es_ingested INTEGER NOT NULL DEFAULT 0,
+      ingest_attempts INTEGER NOT NULL DEFAULT 0,
+      last_ingest_attempt_at TEXT DEFAULT NULL,
       FOREIGN KEY (agent_id) REFERENCES agents(id)
     )`,
     `CREATE TABLE IF NOT EXISTS agent_versions (
@@ -205,7 +208,27 @@ async function initializeTables(c: Client): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_hb_hist_agent_ts ON heartbeat_history(agent_id, timestamp)`,
     `CREATE INDEX IF NOT EXISTS idx_hb_hist_ts ON heartbeat_history(timestamp)`,
     `CREATE INDEX IF NOT EXISTS idx_agent_events_agent_ts ON agent_events(agent_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_tasks_es_ingested ON tasks(status, es_ingested)`,
   ]);
+
+  // Idempotent ALTER for tasks table on Turso DBs that pre-date the
+  // ES-ingestion-tracking schema. CREATE TABLE IF NOT EXISTS won't add
+  // columns to an existing table, so we probe with PRAGMA table_info and
+  // ALTER only if missing. New columns: es_ingested, ingest_attempts,
+  // last_ingest_attempt_at — all backed by application-level retry logic.
+  const taskCols = await c.execute('PRAGMA table_info(tasks)');
+  const taskColNames = new Set(
+    taskCols.rows.map((r) => String((r as { name?: unknown }).name ?? '')),
+  );
+  if (!taskColNames.has('es_ingested')) {
+    await c.execute('ALTER TABLE tasks ADD COLUMN es_ingested INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!taskColNames.has('ingest_attempts')) {
+    await c.execute('ALTER TABLE tasks ADD COLUMN ingest_attempts INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!taskColNames.has('last_ingest_attempt_at')) {
+    await c.execute('ALTER TABLE tasks ADD COLUMN last_ingest_attempt_at TEXT DEFAULT NULL');
+  }
 }
 
 /**

@@ -367,5 +367,55 @@ describe('tasks routes', () => {
 
       expect(res.status).toBe(400);
     });
+
+    it('sets es_ingested=1 when synchronous ingestion succeeds', async () => {
+      const app = createApp();
+      insertTestTask(testDb, { id: 't-ok', agent_id: 'agent-001', status: 'executing', type: 'execute_test' });
+
+      const { ingestResult } = await import('../../../services/agent/results.service.js');
+      vi.mocked(ingestResult).mockResolvedValueOnce(undefined);
+
+      await request(app)
+        .post('/agent/tasks/t-ok/result')
+        .send({
+          task_id: 't-ok', test_uuid: '00000000-0000-0000-0000-000000000000',
+          exit_code: 0, stdout: '', stderr: '',
+          started_at: new Date().toISOString(), completed_at: new Date().toISOString(),
+          execution_duration_ms: 1, binary_sha256: 'x', hostname: 'h', os: 'linux', arch: 'amd64',
+        })
+        .expect(200);
+
+      const row = testDb.prepare('SELECT es_ingested, ingest_attempts FROM tasks WHERE id = ?').get('t-ok') as { es_ingested: number; ingest_attempts: number };
+      expect(row.es_ingested).toBe(1);
+      expect(row.ingest_attempts).toBe(1);
+    });
+
+    it('returns 200 and queues for retry when ingestion throws (durable in SQLite)', async () => {
+      const app = createApp();
+      insertTestTask(testDb, { id: 't-fail', agent_id: 'agent-001', status: 'executing', type: 'execute_test' });
+
+      const { ingestResult } = await import('../../../services/agent/results.service.js');
+      vi.mocked(ingestResult).mockRejectedValueOnce(new Error('ES bulk had 3 per-item errors: mapper_parsing_exception'));
+
+      const res = await request(app)
+        .post('/agent/tasks/t-fail/result')
+        .send({
+          task_id: 't-fail', test_uuid: '00000000-0000-0000-0000-000000000000',
+          exit_code: 101, stdout: '', stderr: '',
+          started_at: new Date().toISOString(), completed_at: new Date().toISOString(),
+          execution_duration_ms: 1, binary_sha256: 'x', hostname: 'h', os: 'linux', arch: 'amd64',
+        });
+
+      // Critical: agent sees 200 even when ES failed. Data is durable in
+      // tasks.result; the retry worker will drain the backlog.
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe('completed');
+
+      const row = testDb.prepare('SELECT es_ingested, ingest_attempts, result FROM tasks WHERE id = ?').get('t-fail') as { es_ingested: number; ingest_attempts: number; result: string };
+      expect(row.es_ingested).toBe(0);
+      expect(row.ingest_attempts).toBe(1);
+      // Result is preserved so the worker can replay it
+      expect(JSON.parse(row.result).exit_code).toBe(101);
+    });
   });
 });

@@ -56,6 +56,40 @@ router.get('/auto-rotation', async (req, res) => {
 });
 
 /**
+ * Cron endpoint for ES ingestion retry. Drains tasks where the synchronous
+ * ingestion attempt in POST /tasks/:id/result failed. Capped at
+ * MAX_INGEST_ATTEMPTS=10 retries per task to avoid burning ES capacity on
+ * permanent failures (mapping conflicts, etc.).
+ *
+ * Called by Vercel Cron every 5 minutes.
+ */
+router.get('/retry-ingestion', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!verifyCronSecret(authHeader)) {
+    res.status(401).json({ success: false, error: 'Unauthorized' });
+    return;
+  }
+
+  try {
+    const { retryPendingIngestions } = await import('../services/agent/ingestionWorker.service.js');
+    const report = await retryPendingIngestions();
+    if (report.attempted > 0 || report.permanentlyFailed > 0) {
+      console.log(
+        '[Ingestion-Retry] attempted=%d succeeded=%d failed=%d permanent=%d',
+        report.attempted,
+        report.succeeded,
+        report.failed,
+        report.permanentlyFailed,
+      );
+    }
+    res.json({ success: true, data: report });
+  } catch (error) {
+    console.error('[cron/retry-ingestion] Error:', error);
+    res.status(500).json({ success: false, error: 'Ingestion retry failed' });
+  }
+});
+
+/**
  * Cron endpoint for Defender data sync.
  * Called by Vercel Crons every 5 minutes for alerts, every 6 hours for scores/controls.
  * A single endpoint runs syncAll() — Vercel Cron triggers at the desired interval.

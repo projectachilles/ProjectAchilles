@@ -4,6 +4,7 @@
   "routes": [{ "src": "/api/(.*)", "dest": "/api/index.ts" }],
   "crons": [
     { "path": "/api/cron/schedules", "schedule": "* * * * *" },
-    { "path": "/api/cron/auto-rotation", "schedule": "* * * * *" }
+    { "path": "/api/cron/auto-rotation", "schedule": "* * * * *" },
+    { "path": "/api/cron/retry-ingestion", "schedule": "*/5 * * * *" }
   ]
 }
