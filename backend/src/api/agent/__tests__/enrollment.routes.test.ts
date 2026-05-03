@@ -7,9 +7,10 @@ import { mockClerkMiddleware } from '../../../__tests__/helpers/clerk-mock.js';
 
 let testDb: Database.Database;
 
-vi.mock('../../../services/agent/database.js', () => ({
-  getDatabase: () => testDb,
-}));
+vi.mock('../../../services/agent/database.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../services/agent/database.js')>();
+  return { ...actual, getDatabase: () => testDb };
+});
 
 mockClerkMiddleware();
 

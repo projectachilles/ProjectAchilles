@@ -5,9 +5,10 @@ import type { HeartbeatPayload } from '../../../types/agent.js';
 
 let testDb: Database.Database;
 
-vi.mock('../database.js', () => ({
-  getDatabase: () => testDb,
-}));
+vi.mock('../database.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../database.js')>();
+  return { ...actual, getDatabase: () => testDb };
+});
 
 vi.mock('../enrollment.service.js', () => ({
   ROTATION_GRACE_PERIOD_SECONDS: 300,

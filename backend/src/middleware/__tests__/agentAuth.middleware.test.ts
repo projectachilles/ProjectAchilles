@@ -6,9 +6,10 @@ import { createTestDatabase, insertTestAgent } from '../../__tests__/helpers/db.
 
 let testDb: Database.Database;
 
-vi.mock('../../services/agent/database.js', () => ({
-  getDatabase: () => testDb,
-}));
+vi.mock('../../services/agent/database.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../services/agent/database.js')>();
+  return { ...actual, getDatabase: () => testDb };
+});
 
 // Disable agent auth cache in tests — each test creates a fresh DB,
 // so stale cache entries would cause false positives.

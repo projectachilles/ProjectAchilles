@@ -4,9 +4,10 @@ import { createTestDatabase, insertTestAgent, insertTestTask } from '../../../__
 
 let testDb: Database.Database;
 
-vi.mock('../database.js', () => ({
-  getDatabase: () => testDb,
-}));
+vi.mock('../database.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../database.js')>();
+  return { ...actual, getDatabase: () => testDb };
+});
 
 // Mock ingestResult so we can simulate ES success/failure deterministically.
 vi.mock('../results.service.js', () => ({

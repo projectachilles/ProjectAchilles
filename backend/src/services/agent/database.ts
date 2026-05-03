@@ -43,7 +43,14 @@ export function getDatabase(): Database.Database {
   return db;
 }
 
-function initializeTables(database: Database.Database): void {
+/**
+ * Apply the full schema (CREATE TABLEs + every additive ALTER + CHECK-constraint
+ * migrations) to the given database. Exported so test helpers can run the same
+ * code path tests will exercise in production — schema duplication caused a
+ * silent migration-drop incident in PR #181 where 1100+ tests passed against
+ * a fabricated test schema while production migration code was missing.
+ */
+export function initializeTables(database: Database.Database): void {
   database.exec(`
     CREATE TABLE IF NOT EXISTS agents (
       id TEXT PRIMARY KEY,
@@ -75,11 +82,14 @@ function initializeTables(database: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- 'execute_command' is included in the CHECK so fresh installs don't
+    -- trigger migrateExecuteCommandType() table recreation. The migration
+    -- still runs on legacy DBs whose CHECK predates this entry.
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
       org_id TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('execute_test', 'update_agent', 'uninstall')),
+      type TEXT NOT NULL CHECK(type IN ('execute_test', 'update_agent', 'uninstall', 'execute_command')),
       priority INTEGER NOT NULL DEFAULT 1,
       status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'assigned', 'downloading', 'executing', 'completed', 'failed', 'expired')),
       payload TEXT NOT NULL,

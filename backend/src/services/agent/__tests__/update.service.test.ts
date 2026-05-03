@@ -4,13 +4,27 @@ import { createTestDatabase } from '../../../__tests__/helpers/db.js';
 
 // ── Mock setup ──────────────────────────────────────────────────────
 
-const mockExistsSync = vi.fn();
-const mockReadFileSync = vi.fn();
-const mockWriteFileSync = vi.fn();
-const mockMkdirSync = vi.fn();
-const mockStatSync = vi.fn();
-const mockUnlinkSync = vi.fn();
-const mockCreateReadStream = vi.fn();
+// vi.hoisted lifts these fns into hoist scope so the fs mock factory below
+// can reference them safely. The database mock uses importOriginal(), which
+// triggers a real `import fs` chain at hoist time; without vi.hoisted these
+// would be in TDZ when the fs factory runs.
+const {
+  mockExistsSync,
+  mockReadFileSync,
+  mockWriteFileSync,
+  mockMkdirSync,
+  mockStatSync,
+  mockUnlinkSync,
+  mockCreateReadStream,
+} = vi.hoisted(() => ({
+  mockExistsSync: vi.fn(),
+  mockReadFileSync: vi.fn(),
+  mockWriteFileSync: vi.fn(),
+  mockMkdirSync: vi.fn(),
+  mockStatSync: vi.fn(),
+  mockUnlinkSync: vi.fn(),
+  mockCreateReadStream: vi.fn(),
+}));
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
@@ -42,7 +56,10 @@ vi.mock('../signing.service.js', () => ({
 }));
 
 let testDb: Database.Database;
-vi.mock('../../agent/database.js', () => ({ getDatabase: () => testDb }));
+vi.mock('../../agent/database.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../agent/database.js')>();
+  return { ...actual, getDatabase: () => testDb };
+});
 
 const {
   registerVersion,

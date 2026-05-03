@@ -5,9 +5,10 @@ import { createTestDatabase } from '../../../__tests__/helpers/db.js';
 // Mock the database module to use our in-memory DB
 let testDb: Database.Database;
 
-vi.mock('../database.js', () => ({
-  getDatabase: () => testDb,
-}));
+vi.mock('../database.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../database.js')>();
+  return { ...actual, getDatabase: () => testDb };
+});
 
 // Mock signing service — use real ensureSigningKeyPair (creates key on disk)
 // so that pending key encryption works, but override getPublicKeyBase64 for

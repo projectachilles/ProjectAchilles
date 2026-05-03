@@ -7,14 +7,21 @@ import { mockClerkMiddleware } from '../../../__tests__/helpers/clerk-mock.js';
 
 let testDb: Database.Database;
 
-vi.mock('../../../services/agent/database.js', () => ({
-  getDatabase: () => testDb,
-}));
+vi.mock('../../../services/agent/database.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../services/agent/database.js')>();
+  return { ...actual, getDatabase: () => testDb };
+});
 
-// Mock fs and os for createTasks dependency (reads build metadata from disk)
-const mockExistsSync = vi.fn().mockReturnValue(true);
-const mockReadFileSync = vi.fn();
-const mockStatSync = vi.fn().mockReturnValue({ size: 1024 });
+// Mock fs and os for createTasks dependency (reads build metadata from disk).
+// vi.hoisted lifts the mock fns into hoist scope so the fs mock factory below
+// can reference them safely. Without this, since the database mock now uses
+// importOriginal() and triggers a real `import fs` chain at hoist time, these
+// consts would be in TDZ when the fs mock factory runs.
+const { mockExistsSync, mockReadFileSync, mockStatSync } = vi.hoisted(() => ({
+  mockExistsSync: vi.fn().mockReturnValue(true),
+  mockReadFileSync: vi.fn(),
+  mockStatSync: vi.fn().mockReturnValue({ size: 1024 }),
+}));
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
