@@ -63,6 +63,58 @@ kill_port() {
     fi
 }
 
+# Walk the daemon PID file and classify each entry:
+#   - cloudflared / ngrok  -> add to TUNNEL_PIDS_TO_KEEP (preserved)
+#   - everything else      -> kill (server processes restart cleanly)
+# Sets TUNNEL_PIDS_TO_KEEP as a side-effect (caller-readable). No-op if
+# $PID_FILE does not exist (fresh-install case).
+classify_and_kill_servers() {
+    TUNNEL_PIDS_TO_KEEP=()
+    if [ ! -f "$PID_FILE" ]; then
+        return 0
+    fi
+    while read -r pid; do
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            local local_comm
+            local_comm=$(cat "/proc/$pid/comm" 2>/dev/null || ps -p "$pid" -o comm= 2>/dev/null || echo "")
+            if [[ "$local_comm" == "cloudflared" ]] || [[ "$local_comm" == "ngrok" ]]; then
+                TUNNEL_PIDS_TO_KEEP+=("$pid")
+                echo "  Keeping tunnel PID $pid ($local_comm)"
+            else
+                kill "$pid" 2>/dev/null || true
+                pkill -P "$pid" 2>/dev/null || true
+                echo "  Stopped server PID $pid"
+            fi
+        fi
+    done < "$PID_FILE"
+}
+
+# Recover the cloudflared tunnel URLs from /tmp/cf-*.log and re-export
+# the env vars that downstream startup steps read. Idempotent — safe to
+# call when no tunnels are preserved (it returns immediately).
+recover_tunnel_urls() {
+    if [ ${#TUNNEL_PIDS_TO_KEEP[@]} -eq 0 ]; then
+        return 0
+    fi
+    TUNNEL_MODE=true
+    TUNNEL_PROVIDER="cloudflare"
+    CF_BACKEND_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' /tmp/cf-backend.log 2>/dev/null | head -1) || true
+    CF_FRONTEND_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' /tmp/cf-frontend.log 2>/dev/null | head -1) || true
+    TUNNEL_FRONTEND_URL="$CF_FRONTEND_URL"
+    TUNNEL_BACKEND_URL="$CF_BACKEND_URL"
+    if [ -n "$TUNNEL_FRONTEND_URL" ]; then
+        export CORS_ORIGIN="$TUNNEL_FRONTEND_URL"
+        echo "  Tunnel URLs preserved:"
+        echo "    Dashboard: $TUNNEL_FRONTEND_URL"
+        echo "    Agent API: $TUNNEL_BACKEND_URL"
+    fi
+    CF_BACKEND_PID="${TUNNEL_PIDS_TO_KEEP[0]:-}"
+    CF_FRONTEND_PID="${TUNNEL_PIDS_TO_KEEP[1]:-}"
+    if [ -n "$TUNNEL_BACKEND_URL" ]; then
+        export AGENT_SERVER_URL="$TUNNEL_BACKEND_URL"
+    fi
+}
+
 echo "╔═══════════════════════════════════════════════════════════════════╗"
 echo "║                                                                   ║"
 echo "║    █████╗  ██████╗██╗  ██╗██╗██╗     ██╗     ███████╗███████╗   ║"
@@ -178,54 +230,15 @@ fi
 # Handle --restart-servers flag: kill only backend/frontend, preserve tunnels
 if [ "$RESTART_SERVERS" = true ]; then
     echo "Restarting servers (keeping tunnels alive)..."
-    TUNNEL_PIDS_TO_KEEP=()
-
-    if [ -f "$PID_FILE" ]; then
-        while read -r pid; do
-            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-                # Check if this is a tunnel process (cloudflared or ngrok)
-                local_comm=$(cat "/proc/$pid/comm" 2>/dev/null || ps -p "$pid" -o comm= 2>/dev/null || echo "")
-                if [[ "$local_comm" == "cloudflared" ]] || [[ "$local_comm" == "ngrok" ]]; then
-                    TUNNEL_PIDS_TO_KEEP+=("$pid")
-                    echo "  Keeping tunnel PID $pid ($local_comm)"
-                else
-                    kill "$pid" 2>/dev/null || true
-                    pkill -P "$pid" 2>/dev/null || true
-                    echo "  Stopped server PID $pid"
-                fi
-            fi
-        done < "$PID_FILE"
-    fi
+    classify_and_kill_servers
 
     # Also kill by port as a safety net (PID file may be stale)
     kill_port $BACKEND_PORT
     kill_port $FRONTEND_PORT
     sleep 1
 
-    # Recover tunnel URLs from logs
     if [ ${#TUNNEL_PIDS_TO_KEEP[@]} -gt 0 ]; then
-        TUNNEL_MODE=true
-        TUNNEL_PROVIDER="cloudflare"
-        CF_BACKEND_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' /tmp/cf-backend.log 2>/dev/null | head -1) || true
-        CF_FRONTEND_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' /tmp/cf-frontend.log 2>/dev/null | head -1) || true
-        TUNNEL_FRONTEND_URL="$CF_FRONTEND_URL"
-        TUNNEL_BACKEND_URL="$CF_BACKEND_URL"
-
-        if [ -n "$TUNNEL_FRONTEND_URL" ]; then
-            export CORS_ORIGIN="$TUNNEL_FRONTEND_URL"
-            echo "  Tunnel URLs preserved:"
-            echo "    Dashboard: $TUNNEL_FRONTEND_URL"
-            echo "    Agent API: $TUNNEL_BACKEND_URL"
-        fi
-
-        # Recover tunnel PIDs
-        CF_BACKEND_PID="${TUNNEL_PIDS_TO_KEEP[0]:-}"
-        CF_FRONTEND_PID="${TUNNEL_PIDS_TO_KEEP[1]:-}"
-
-        # Set AGENT_SERVER_URL from tunnel
-        if [ -n "$TUNNEL_BACKEND_URL" ]; then
-            export AGENT_SERVER_URL="$TUNNEL_BACKEND_URL"
-        fi
+        recover_tunnel_urls
     elif [ "$TUNNEL_MODE" = true ]; then
         # No existing tunnels found but --tunnel was requested — start fresh
         echo "  No existing tunnels found — will start new ones"
@@ -235,14 +248,25 @@ if [ "$RESTART_SERVERS" = true ]; then
     echo ""
 fi
 
-# Kill existing processes if requested
+# Kill existing processes if requested. By default this preserves tunnel
+# PIDs recorded in $PID_FILE so a remote agent's trycloudflare URL stays
+# stable across a -k restart — without this, every "kill + restart" cycle
+# regenerates tunnel URLs and breaks the fleet. Aggressive pkill is kept
+# as a fallback for orphans (no PID file or no tunnel PIDs in it).
 if [ "$KILL_EXISTING" = true ]; then
     echo "Killing existing processes..."
+    classify_and_kill_servers
     kill_port $BACKEND_PORT
     kill_port $FRONTEND_PORT
-    # Also kill any existing tunnel processes
-    pkill -f "ngrok.*achilles" 2>/dev/null || true
-    pkill -f "cloudflared tunnel" 2>/dev/null || true
+    if [ ${#TUNNEL_PIDS_TO_KEEP[@]} -gt 0 ]; then
+        sleep 1
+        recover_tunnel_urls
+    else
+        # No tunnel PIDs to preserve — best-effort cleanup of orphaned
+        # tunnel processes that crashed out of the PID file.
+        pkill -f "ngrok.*achilles" 2>/dev/null || true
+        pkill -f "cloudflared tunnel" 2>/dev/null || true
+    fi
 fi
 
 # =============================================================================
