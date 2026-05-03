@@ -14,6 +14,7 @@ import DefenseScoreByHostChart from './components/DefenseScoreByHostChart';
 import CategoryBreakdownChart from './components/CategoryBreakdownChart';
 import TestActivityCard from './components/TestActivityCard';
 import ExecutionsDataTable from './components/ExecutionsDataTable';
+import { Toast } from '@/components/shared/ui/Alert';
 import RiskAcceptancesTab from './components/RiskAcceptancesTab';
 import DefenderTab from './components/DefenderTab';
 import SecureScoreCard from './components/SecureScoreCard';
@@ -158,6 +159,7 @@ export default function AnalyticsDashboardPage() {
 
   // Archive state
   const [archiving, setArchiving] = useState(false);
+  const [archiveToast, setArchiveToast] = useState<{ message: string; variant: 'success' | 'destructive' } | null>(null);
   // Ref to latest loadExecutionsData so archive handlers always call the current version
   const loadExecutionsDataRef = useRef<() => Promise<void>>(undefined);
 
@@ -367,10 +369,20 @@ export default function AnalyticsDashboardPage() {
   const handleArchive = useCallback(async (groupKeys: string[]) => {
     setArchiving(true);
     try {
-      await analyticsApi.archiveExecutions(groupKeys);
+      const result = await analyticsApi.archiveExecutions(groupKeys);
       await loadExecutionsDataRef.current?.();
+      setArchiveToast({
+        message: result.archived === 0
+          ? 'Archive call succeeded but matched 0 documents — nothing was moved.'
+          : `Archived ${result.archived} document${result.archived === 1 ? '' : 's'}.`,
+        variant: result.archived === 0 ? 'destructive' : 'success',
+      });
     } catch (error) {
+      // Axios interceptor in useAuthenticatedApi promotes server's response.data.error to error.message,
+      // so this surfaces e.g. ES "security_exception: action [indices:admin/create] is unauthorized" verbatim.
+      const detail = (error as { message?: string })?.message || 'Unknown error';
       console.error('Failed to archive executions:', error);
+      setArchiveToast({ message: `Archive failed: ${detail}`, variant: 'destructive' });
     } finally {
       setArchiving(false);
     }
@@ -379,14 +391,30 @@ export default function AnalyticsDashboardPage() {
   const handleArchiveByDate = useCallback(async (before: string) => {
     setArchiving(true);
     try {
-      await analyticsApi.archiveExecutionsByDate(before);
+      const result = await analyticsApi.archiveExecutionsByDate(before);
       await loadExecutionsDataRef.current?.();
+      setArchiveToast({
+        message: result.archived === 0
+          ? 'Archive-by-date call succeeded but matched 0 documents.'
+          : `Archived ${result.archived} document${result.archived === 1 ? '' : 's'} before ${before}.`,
+        variant: result.archived === 0 ? 'destructive' : 'success',
+      });
     } catch (error) {
+      const detail = (error as { message?: string })?.message || 'Unknown error';
       console.error('Failed to archive executions by date:', error);
+      setArchiveToast({ message: `Archive failed: ${detail}`, variant: 'destructive' });
     } finally {
       setArchiving(false);
     }
   }, []);
+
+  // Auto-dismiss the archive toast after 8s — long enough for users to read a multi-line ES error
+  // (e.g. "security_exception: action [indices:admin/create] is unauthorized..."), but not permanent.
+  useEffect(() => {
+    if (!archiveToast) return;
+    const timer = globalThis.setTimeout(() => setArchiveToast(null), 8000);
+    return () => globalThis.clearTimeout(timer);
+  }, [archiveToast]);
 
   // Risk acceptance handlers
   const loadRiskAcceptances = useCallback(async (groups: GroupedPaginatedResponse | null) => {
@@ -734,6 +762,17 @@ export default function AnalyticsDashboardPage() {
         onClose={() => setSettingsOpen(false)}
         onSave={handleRefresh}
       />
+
+      {/* Archive result toast — fixed bottom-right so it overlays the table without shifting layout */}
+      {archiveToast && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-md">
+          <Toast
+            variant={archiveToast.variant}
+            message={archiveToast.message}
+            onClose={() => setArchiveToast(null)}
+          />
+        </div>
+      )}
     </>
   );
 }

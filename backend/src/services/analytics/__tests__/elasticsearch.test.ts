@@ -1814,6 +1814,81 @@ describe('elasticsearch.ts', () => {
       expect(result.errors).toHaveLength(1);
       expect(mockReindex).not.toHaveBeenCalled();
     });
+
+    // Regressions for the silent-403 bug: the global error handler used to
+    // log "Error: " (empty) and respond with "Internal Server Error" because
+    // ResponseError on HEAD requests has no body to format. The wrapper now
+    // pulls root_cause/reason out of the error and re-throws as AppError.
+
+    it('surfaces ES root_cause when indices.exists returns 403', async () => {
+      const esError = Object.assign(new Error('Response Error'), {
+        statusCode: 403,
+        meta: { body: undefined },
+      });
+      mockIndicesExists.mockRejectedValueOnce(esError);
+
+      const svc = createService({ indexPattern: 'achilles-results-*' });
+      await expect(
+        svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${BUCKET}`]),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        message: expect.stringContaining('indices.exists'),
+      });
+    });
+
+    it('surfaces ES security_exception detail when indices.create is unauthorized', async () => {
+      mockIndicesExists.mockResolvedValueOnce(false);
+      const esError = Object.assign(new Error('security_exception'), {
+        statusCode: 403,
+        meta: {
+          body: {
+            error: {
+              type: 'security_exception',
+              root_cause: [
+                {
+                  type: 'security_exception',
+                  reason:
+                    'action [indices:admin/create] is unauthorized for API key id [WTLE6J0B01yw1h2HIrqZ]',
+                },
+              ],
+            },
+          },
+        },
+      });
+      mockIndicesCreate.mockRejectedValueOnce(esError);
+
+      const svc = createService({ indexPattern: 'achilles-results-*' });
+      await expect(
+        svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${BUCKET}`]),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        message: expect.stringMatching(/indices:admin\/create.*unauthorized/),
+      });
+    });
+
+    it('surfaces ES error when reindex fails', async () => {
+      mockIndicesExists.mockResolvedValueOnce(true);
+      const esError = Object.assign(new Error('forbidden'), {
+        statusCode: 403,
+        meta: {
+          body: {
+            error: {
+              type: 'security_exception',
+              reason: 'no privilege [write] on indices [archived-achilles-results]',
+            },
+          },
+        },
+      });
+      mockReindex.mockRejectedValueOnce(esError);
+
+      const svc = createService({ indexPattern: 'achilles-results-*' });
+      await expect(
+        svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${BUCKET}`]),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        message: expect.stringContaining('no privilege [write]'),
+      });
+    });
   });
 
   describe('archiveByDateRange', () => {
@@ -1845,6 +1920,29 @@ describe('elasticsearch.ts', () => {
 
       expect(result.archived).toBe(0);
       expect(mockDeleteByQuery).not.toHaveBeenCalled();
+    });
+
+    it('surfaces ES error from deleteByQuery instead of silent 500', async () => {
+      mockIndicesExists.mockResolvedValueOnce(true);
+      mockReindex.mockResolvedValueOnce({ total: 5 });
+      const esError = Object.assign(new Error('forbidden'), {
+        statusCode: 403,
+        meta: {
+          body: {
+            error: {
+              type: 'security_exception',
+              reason: 'no privilege [delete] on indices [achilles-results-*]',
+            },
+          },
+        },
+      });
+      mockDeleteByQuery.mockRejectedValueOnce(esError);
+
+      const svc = createService({ indexPattern: 'achilles-results-*' });
+      await expect(svc.archiveByDateRange('2020-01-01T00:00:00Z')).rejects.toMatchObject({
+        statusCode: 403,
+        message: expect.stringContaining('no privilege [delete]'),
+      });
     });
   });
 });

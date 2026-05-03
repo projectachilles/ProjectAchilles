@@ -3,6 +3,7 @@
 import { Client } from '@elastic/elasticsearch';
 import { createEsClient } from './client.js';
 import { RiskAcceptanceService } from '../risk-acceptance/risk-acceptance.service.js';
+import { AppError } from '../../middleware/error.middleware.js';
 import type {
   AnalyticsSettings,
   AnalyticsQueryParams,
@@ -2235,16 +2236,59 @@ export class ElasticsearchService {
     return `archived-${base}`;
   }
 
+  /**
+   * Convert any Elasticsearch client error into an AppError that propagates a
+   * useful message to the response body. Without this, ES errors on HEAD-only
+   * operations (like indices.exists) reach the global error handler with an
+   * empty/'Response Error' message and the user just sees "Internal Server
+   * Error" — which obscures e.g. "API key lacks create_index on archived-*".
+   */
+  private wrapEsError(operation: string, err: unknown): never {
+    const e = err as {
+      statusCode?: number;
+      message?: string;
+      meta?: { body?: { error?: { type?: string; reason?: string; root_cause?: Array<{ type?: string; reason?: string }> } } };
+    };
+    const status = typeof e.statusCode === 'number' ? e.statusCode : 500;
+    const body = e.meta?.body?.error;
+
+    let detail = '';
+    if (body) {
+      const rootCause = body.root_cause?.[0];
+      detail = rootCause?.reason ?? body.reason ?? body.type ?? '';
+    }
+    if (!detail && e.message && e.message !== 'Response Error') {
+      detail = e.message;
+    }
+    if (!detail) {
+      detail = `Elasticsearch returned ${status} with no body (likely HEAD request). Check API key privileges on the target index pattern.`;
+    }
+
+    // Surface to server logs with full context — the global handler only logs message.
+    console.error(`[Archive] ${operation} failed (status=${status}):`, detail, body ? { esError: body } : '');
+
+    throw new AppError(`Archive ${operation}: ${detail}`, status);
+  }
+
   /** Ensure the archive index exists with the correct mapping. */
   private async ensureArchiveIndex(): Promise<string> {
     const archiveIndex = this.getArchiveIndexName();
-    const exists = await this.client.indices.exists({ index: archiveIndex });
+    let exists: boolean;
+    try {
+      exists = await this.client.indices.exists({ index: archiveIndex });
+    } catch (err) {
+      this.wrapEsError(`indices.exists(${archiveIndex})`, err);
+    }
     if (!exists) {
       const { RESULTS_INDEX_MAPPING } = await import('./index-management.service.js');
-      await this.client.indices.create({
-        index: archiveIndex,
-        ...RESULTS_INDEX_MAPPING,
-      });
+      try {
+        await this.client.indices.create({
+          index: archiveIndex,
+          ...RESULTS_INDEX_MAPPING,
+        });
+      } catch (err) {
+        this.wrapEsError(`indices.create(${archiveIndex})`, err);
+      }
     }
     return archiveIndex;
   }
@@ -2336,24 +2380,33 @@ export class ElasticsearchService {
     const archiveIndex = await this.ensureArchiveIndex();
 
     // Step 1: Reindex to archive
-    const reindexResult = await this.client.reindex({
-      source: { index: this.settings.indexPattern, query },
-      dest: { index: archiveIndex },
-      refresh: true,
-    });
+    let reindexResult: unknown;
+    try {
+      reindexResult = await this.client.reindex({
+        source: { index: this.settings.indexPattern, query },
+        dest: { index: archiveIndex },
+        refresh: true,
+      });
+    } catch (err) {
+      this.wrapEsError(`reindex(${this.settings.indexPattern} → ${archiveIndex})`, err);
+    }
 
-    const archived = (reindexResult as any).total || 0;
+    const archived = (reindexResult as { total?: number }).total || 0;
 
     if (archived === 0) {
       return { archived: 0, errors };
     }
 
     // Step 2: Delete from source
-    await this.client.deleteByQuery({
-      index: this.settings.indexPattern,
-      query,
-      refresh: true,
-    });
+    try {
+      await this.client.deleteByQuery({
+        index: this.settings.indexPattern,
+        query,
+        refresh: true,
+      });
+    } catch (err) {
+      this.wrapEsError(`deleteByQuery(${this.settings.indexPattern})`, err);
+    }
 
     return { archived, errors };
   }
@@ -2375,23 +2428,32 @@ export class ElasticsearchService {
 
     const archiveIndex = await this.ensureArchiveIndex();
 
-    const reindexResult = await this.client.reindex({
-      source: { index: this.settings.indexPattern, query },
-      dest: { index: archiveIndex },
-      refresh: true,
-    });
+    let reindexResult: unknown;
+    try {
+      reindexResult = await this.client.reindex({
+        source: { index: this.settings.indexPattern, query },
+        dest: { index: archiveIndex },
+        refresh: true,
+      });
+    } catch (err) {
+      this.wrapEsError(`reindex(${this.settings.indexPattern} → ${archiveIndex})`, err);
+    }
 
-    const archived = (reindexResult as any).total || 0;
+    const archived = (reindexResult as { total?: number }).total || 0;
 
     if (archived === 0) {
       return { archived: 0, errors };
     }
 
-    await this.client.deleteByQuery({
-      index: this.settings.indexPattern,
-      query,
-      refresh: true,
-    });
+    try {
+      await this.client.deleteByQuery({
+        index: this.settings.indexPattern,
+        query,
+        refresh: true,
+      });
+    } catch (err) {
+      this.wrapEsError(`deleteByQuery(${this.settings.indexPattern})`, err);
+    }
 
     return { archived, errors };
   }
