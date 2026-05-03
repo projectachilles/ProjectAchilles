@@ -936,7 +936,7 @@ describe('tasks.service', () => {
       const taskIds = await createUninstallTasks(['agent-001'], 'org-001', 'user-001');
 
       const rows = await testDb.all('SELECT ttl FROM tasks WHERE id = ?', [taskIds[0]]);
-      expect((rows[0] as { ttl: number }).ttl).toBe(86400);
+      expect((rows[0] as unknown as { ttl: number }).ttl).toBe(86400);
     });
   });
 
@@ -967,7 +967,7 @@ describe('tasks.service', () => {
       await submitResult('uninstall-task-1', 'agent-001', result);
 
       const rows = await testDb.all('SELECT status FROM agents WHERE id = ?', ['agent-001']);
-      expect((rows[0] as { status: string }).status).toBe('uninstalled');
+      expect((rows[0] as unknown as { status: string }).status).toBe('uninstalled');
     });
 
     it('does not change agent status for non-uninstall tasks', async () => {
@@ -994,7 +994,7 @@ describe('tasks.service', () => {
       });
 
       const rows = await testDb.all('SELECT status FROM agents WHERE id = ?', ['agent-001']);
-      expect((rows[0] as { status: string }).status).toBe('active');
+      expect((rows[0] as unknown as { status: string }).status).toBe('active');
     });
   });
 });
