@@ -503,31 +503,66 @@ check_and_install_deps() {
     fi
 
     # --- Go (optional but auto-installed — needed for agent/test builds) ---
-    # If go isn't on PATH but was installed at /usr/local/go, add it to PATH
-    # so users don't have to update their shell profile for the script to work.
-    if ! command -v go &>/dev/null && [ -x /usr/local/go/bin/go ]; then
-        export PATH="/usr/local/go/bin:$PATH"
-    fi
-
-    if command -v go &>/dev/null; then
-        local go_ver go_minor
-        go_ver=$(go version | awk '{print $3}' | sed 's/go//')
-        go_minor=$(echo "$go_ver" | cut -d. -f2)
-        if [ "${go_minor:-0}" -lt 24 ] 2>/dev/null; then
-            echo "  Go $go_ver — upgrade needed (1.24+ required)"
-            missing+=("go")
-        else
-            echo "  Go $go_ver ✓"
-        fi
+    # Skip-forever flag: user opted out of Go management (e.g. they manage it
+    # themselves via mise/asdf, or don't care about agent builds).
+    local go_skip_flag="$PROJECT_ROOT/.start.sh-skip-go"
+    local go_problem=false go_managed=""
+    if [ -f "$go_skip_flag" ]; then
+        echo "  Go — skipped (remove $(basename "$go_skip_flag") to re-enable)"
     else
-        echo "  Go — not found (needed for agent/test builds)"
-        missing+=("go")
+        # If go isn't on PATH but was installed at /usr/local/go, add it to PATH
+        # so users don't have to update their shell profile for the script to work.
+        if ! command -v go &>/dev/null && [ -x /usr/local/go/bin/go ]; then
+            export PATH="/usr/local/go/bin:$PATH"
+        fi
+
+        if command -v go &>/dev/null; then
+            local go_ver go_minor go_path
+            go_ver=$(go version | awk '{print $3}' | sed 's/go//')
+            go_minor=$(echo "$go_ver" | cut -d. -f2)
+            go_path=$(command -v go)
+            if [ "${go_minor:-0}" -lt 24 ] 2>/dev/null; then
+                # Detect version manager — installing system Go would be shadowed
+                # on PATH by their shim, leaving the user stuck in a re-prompt loop.
+                case "$go_path" in
+                    */mise/*)         go_managed="mise" ;;
+                    */asdf/*)         go_managed="asdf" ;;
+                    */.gvm/*|*/gvm/*) go_managed="gvm"  ;;
+                esac
+                if [ -n "$go_managed" ]; then
+                    echo "  Go $go_ver via $go_managed — older than 1.24 (agent build won't work)"
+                    if [ -t 0 ] && [ -t 1 ]; then
+                        prompt_go_manager_upgrade  # interactive: install or skip-forever
+                    else
+                        # Non-interactive: print the right command for the user to run later
+                        case "$go_managed" in
+                            mise) echo "    Upgrade: cd $PROJECT_ROOT && mise use go@${GO_INSTALL_VERSION}  # project-local" ;;
+                            asdf) echo "    Upgrade: cd $PROJECT_ROOT && asdf install golang ${GO_INSTALL_VERSION} && asdf local golang ${GO_INSTALL_VERSION}" ;;
+                            gvm)  echo "    Upgrade: gvm install go${GO_INSTALL_VERSION} && gvm use go${GO_INSTALL_VERSION} --default" ;;
+                        esac
+                    fi
+                    go_problem=true  # offer skip-forever, but DON'T add to missing
+                else
+                    echo "  Go $go_ver — upgrade needed (1.24+ required)"
+                    missing+=("go")
+                    go_problem=true
+                fi
+            else
+                echo "  Go $go_ver ✓"
+            fi
+        else
+            echo "  Go — not found (needed for agent/test builds)"
+            missing+=("go")
+            go_problem=true
+        fi
     fi
 
     echo ""
 
-    # All present — nothing to do
+    # All required present — but Go may still be a managed-and-old situation
+    # (which never got added to missing[]). Offer skip-forever before returning.
     if [ ${#missing[@]} -eq 0 ]; then
+        _offer_go_skip_forever
         return 0
     fi
 
@@ -625,6 +660,113 @@ check_and_install_deps() {
         echo "Required dependencies failed to install. Please install manually and re-run."
         exit 1
     fi
+    echo ""
+
+    _offer_go_skip_forever
+}
+
+# When Go is managed by mise/asdf/gvm and is older than required, offer paths
+# to actually fix it. Project-local pinning is preferred (mise/asdf) — it avoids
+# clobbering the user's global toolchain pin or breaking other projects.
+# Reads/writes the caller's $go_managed and $go_problem (dynamic scoping).
+prompt_go_manager_upgrade() {
+    echo ""
+    echo "    How would you like to proceed?"
+    echo "      [1] Pin Go ${GO_INSTALL_VERSION} for this project (recommended)"
+    echo "      [2] Skip this run (warn again next time)"
+    echo "      [3] Don't ask again (creates $(basename "$go_skip_flag"))"
+    echo ""
+    read -rp "    Choose [1/2/3] (default 2): " choice
+    case "${choice:-2}" in
+        1)
+            case "$go_managed" in
+                mise)
+                    echo "    Running: mise use go@${GO_INSTALL_VERSION}  (in $PROJECT_ROOT)"
+                    if (cd "$PROJECT_ROOT" && mise use "go@${GO_INSTALL_VERSION}"); then
+                        # Modern mise writes to mise.toml (no leading dot); legacy writes .mise.toml.
+                        local pin_file="mise.toml"
+                        [ -f "$PROJECT_ROOT/.mise.toml" ] && [ ! -f "$PROJECT_ROOT/mise.toml" ] && pin_file=".mise.toml"
+                        echo "    ✓ Wrote project-local pin to $PROJECT_ROOT/$pin_file"
+                        # Refresh PATH so 'go version' below picks up the new install.
+                        local new_go_dir
+                        new_go_dir=$(cd "$PROJECT_ROOT" && mise where "go@${GO_INSTALL_VERSION}" 2>/dev/null) || true
+                        if [ -n "$new_go_dir" ] && [ -x "$new_go_dir/bin/go" ]; then
+                            export PATH="$new_go_dir/bin:$PATH"
+                            hash -r 2>/dev/null || true
+                        fi
+                        if command -v go &>/dev/null; then
+                            local new_ver
+                            new_ver=$(go version | awk '{print $3}')
+                            echo "    ✓ Now active: $new_ver"
+                        fi
+                        echo "    ℹ Open a new terminal (or run 'mise install') to make this stick globally"
+                        go_problem=false
+                    else
+                        echo "    ✗ mise use failed — leaving Go as-is"
+                    fi
+                    ;;
+                asdf)
+                    echo "    Running: asdf install golang ${GO_INSTALL_VERSION} && asdf local golang ${GO_INSTALL_VERSION}"
+                    if (cd "$PROJECT_ROOT" \
+                        && asdf install golang "${GO_INSTALL_VERSION}" \
+                        && asdf local golang "${GO_INSTALL_VERSION}"); then
+                        echo "    ✓ Wrote project-local pin to $PROJECT_ROOT/.tool-versions"
+                        hash -r 2>/dev/null || true
+                        if command -v go &>/dev/null; then
+                            local new_ver
+                            new_ver=$(go version | awk '{print $3}')
+                            echo "    ✓ Now active: $new_ver"
+                        fi
+                        go_problem=false
+                    else
+                        echo "    ✗ asdf install failed — leaving Go as-is"
+                    fi
+                    ;;
+                gvm)
+                    # gvm has no project-local concept — guide the user instead of mutating global state.
+                    echo "    gvm has no project-local pinning. Run these to upgrade globally:"
+                    echo "      gvm install go${GO_INSTALL_VERSION}"
+                    echo "      gvm use go${GO_INSTALL_VERSION} --default"
+                    echo "    Then re-run this script."
+                    ;;
+            esac
+            ;;
+        3)
+            touch "$go_skip_flag"
+            echo "    ✓ Created $(basename "$go_skip_flag") — Go check disabled"
+            go_problem=false  # suppress the late skip-forever offer in this run
+            ;;
+        *)
+            : # option 2 (skip-this-run) — do nothing, fall through
+            ;;
+    esac
+}
+
+# Offer to silence future Go warnings if Go is still problematic.
+# Called from two places in check_and_install_deps:
+#   1. After install verification (user accepted install but it was managed/failed)
+#   2. Before the "all required present" early-return (managed-old + others OK)
+_offer_go_skip_forever() {
+    $go_problem || return 0
+    [ -f "$go_skip_flag" ] && return 0
+    [ -t 0 ] && [ -t 1 ] || return 0
+
+    # Re-check current state — if user accepted install and it succeeded, no nag.
+    local check_minor
+    if command -v go &>/dev/null; then
+        check_minor=$(go version | awk '{print $3}' | sed 's/go//' | cut -d. -f2)
+        [ "${check_minor:-0}" -ge 24 ] 2>/dev/null && return 0
+    fi
+
+    echo "Don't show Go warnings/install prompts on future runs?"
+    echo "  (You can re-enable later by deleting $(basename "$go_skip_flag"))"
+    read -rp "  Skip Go check forever? [y/N] " skip_go_answer
+    case "${skip_go_answer:-N}" in
+        [Yy]*)
+            touch "$go_skip_flag"
+            echo "  ✓ Created $(basename "$go_skip_flag") — Go check disabled"
+            ;;
+    esac
     echo ""
 }
 
@@ -967,6 +1109,14 @@ check_and_setup_clerk_rbac() {
     case "$rbac_response" in
         [Ss]*)
             echo "  Skipped — RBAC features may not work correctly"
+            read -rp "  Don't ask about RBAC again on future runs? [y/N] " skip_forever
+            case "${skip_forever:-N}" in
+                [Yy]*)
+                    touch "$CLERK_RBAC_FLAG"
+                    echo "  ✓ Created $(basename "$CLERK_RBAC_FLAG") — RBAC setup permanently skipped"
+                    echo "    Delete it or run ./scripts/start.sh -r to re-enable"
+                    ;;
+            esac
             echo ""
             return 0
             ;;
@@ -984,8 +1134,16 @@ check_and_setup_clerk_rbac() {
 
     if [ -z "$admin_email" ] || [[ "$admin_email" =~ ^[Ss]$ ]]; then
         echo "  Skipped — after signing in, run: ./scripts/start.sh -r"
+        read -rp "  Don't ask about admin role on future runs? [y/N] " skip_forever
+        case "${skip_forever:-N}" in
+            [Yy]*)
+                touch "$CLERK_RBAC_FLAG"
+                echo "  ✓ Created $(basename "$CLERK_RBAC_FLAG") — RBAC setup permanently skipped"
+                echo "    Delete it or run ./scripts/start.sh -r to re-enable"
+                ;;
+        esac
         echo ""
-        return 0  # don't set flag — re-prompt on next run
+        return 0  # set flag only if user opted in above
     fi
 
     # Look up user by email
