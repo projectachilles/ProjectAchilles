@@ -25,7 +25,11 @@ type Config struct {
 	LogFile           string        `yaml:"log_file"`
 	MaxExecutionTime  time.Duration `yaml:"max_execution_time"`
 	MaxBinarySize     int64         `yaml:"max_binary_size"`
-	UpdateInterval    time.Duration `yaml:"update_interval"`
+	// MaxDownloadTimeout bounds streaming binary downloads (test binaries,
+	// agent self-update). Distinct from the 30s budget used for short JSON
+	// requests because large binaries on slow links legitimately need minutes.
+	MaxDownloadTimeout time.Duration `yaml:"max_download_timeout"`
+	UpdateInterval     time.Duration `yaml:"update_interval"`
 	CACert            string        `yaml:"ca_cert"`
 	SkipTLSVerify     bool          `yaml:"skip_tls_verify"`
 	UpdatePublicKey   string        `yaml:"update_public_key"`
@@ -45,13 +49,14 @@ func DefaultConfig() Config {
 	}
 
 	return Config{
-		PollInterval:      30 * time.Second,
-		HeartbeatInterval: 60 * time.Second,
-		MaxExecutionTime:  5 * time.Minute,
-		UpdateInterval:    1 * time.Hour,
-		MaxBinarySize:     100 * 1024 * 1024, // 100 MB
-		WorkDir:           workDir,
-		LogFile:           logFile,
+		PollInterval:       30 * time.Second,
+		HeartbeatInterval:  60 * time.Second,
+		MaxExecutionTime:   5 * time.Minute,
+		UpdateInterval:     1 * time.Hour,
+		MaxBinarySize:      100 * 1024 * 1024, // 100 MB
+		MaxDownloadTimeout: 5 * time.Minute,   // covers ~50 MB at ~1 Mbps
+		WorkDir:            workDir,
+		LogFile:            logFile,
 	}
 }
 

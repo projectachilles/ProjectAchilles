@@ -15,14 +15,29 @@ import (
 	"github.com/f0rt1ka/achilles-agent/internal/config"
 )
 
-// Client wraps http.Client with agent-specific auth headers and retry logic.
+// quickRequestTimeout bounds short JSON calls (heartbeat, status, metadata).
+// Streaming downloads use streamHeaderTimeout via Transport instead so the
+// per-request budget can scale with body size.
+const (
+	quickRequestTimeout = 30 * time.Second
+	streamHeaderTimeout = 30 * time.Second
+	streamIdleTimeout   = 90 * time.Second
+)
+
+// Client wraps two http.Client instances with agent-specific auth headers and
+// retry logic: one with a short total-request timeout for metadata calls, and
+// one with no overall timeout for streaming binary downloads (bounded only by
+// the caller's context and a header-receipt deadline).
 type Client struct {
-	http    *http.Client
-	config  *config.Config
-	version string
+	httpQuick  *http.Client
+	httpStream *http.Client
+	config     *config.Config
+	version    string
 }
 
-// NewClient creates a Client configured with TLS settings from cfg and a 30s timeout.
+// NewClient creates a Client configured with TLS settings from cfg, a 30s
+// timeout for short requests, and a separate streaming client whose total
+// duration is bounded only by the caller's context.
 func NewClient(cfg *config.Config, version string) *Client {
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: cfg.SkipTLSVerify,
@@ -38,23 +53,35 @@ func NewClient(cfg *config.Config, version string) *Client {
 		}
 	}
 
-	transport := &http.Transport{
+	checkRedirect := func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("too many redirects")
+		}
+		if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme == "http" {
+			return fmt.Errorf("refusing redirect from %s to %s: HTTPS to HTTP downgrade", via[len(via)-1].URL, req.URL)
+		}
+		return nil
+	}
+
+	quickTransport := &http.Transport{
 		TLSClientConfig: tlsConfig,
 	}
 
+	streamTransport := &http.Transport{
+		TLSClientConfig:       tlsConfig,
+		ResponseHeaderTimeout: streamHeaderTimeout,
+		IdleConnTimeout:       streamIdleTimeout,
+	}
+
 	return &Client{
-		http: &http.Client{
-			Timeout:   30 * time.Second,
-			Transport: transport,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				if len(via) >= 10 {
-					return fmt.Errorf("too many redirects")
-				}
-				if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme == "http" {
-					return fmt.Errorf("refusing redirect from %s to %s: HTTPS to HTTP downgrade", via[len(via)-1].URL, req.URL)
-				}
-				return nil
-			},
+		httpQuick: &http.Client{
+			Timeout:       quickRequestTimeout,
+			Transport:     quickTransport,
+			CheckRedirect: checkRedirect,
+		},
+		httpStream: &http.Client{
+			Transport:     streamTransport,
+			CheckRedirect: checkRedirect,
 		},
 		config:  cfg,
 		version: version,
@@ -62,8 +89,27 @@ func NewClient(cfg *config.Config, version string) *Client {
 }
 
 // Do sends an HTTP request with agent auth headers, JSON body marshalling,
-// and exponential backoff on 429/5xx responses (max 3 retries).
+// and exponential backoff on 429/5xx responses (max 3 retries). Bounded by
+// a 30s total-request timeout — suitable for heartbeat, status, and metadata.
+// For streaming binary downloads, use DoStream.
 func (c *Client) Do(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
+	return c.doInternal(ctx, c.httpQuick, method, path, body)
+}
+
+// DoStream is identical to Do but uses an http.Client with no total-request
+// timeout — only the caller's context and a header-receipt deadline bound the
+// request. Use for endpoints that stream large response bodies (binary
+// downloads, agent self-update) where the response body read can legitimately
+// exceed 30 seconds. The caller is responsible for setting a context timeout
+// appropriate to the expected payload size.
+func (c *Client) DoStream(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
+	return c.doInternal(ctx, c.httpStream, method, path, body)
+}
+
+// doInternal executes a request against the given http.Client, applying auth
+// headers, body marshalling, and retry-on-429/5xx logic. Retries occur before
+// any body reads happen, so they are safe even for streaming clients.
+func (c *Client) doInternal(ctx context.Context, hc *http.Client, method, path string, body interface{}) (*http.Response, error) {
 	url := c.config.ServerURL + path
 
 	const maxRetries = 3
@@ -95,7 +141,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body interface{}) 
 		req.Header.Set("X-Request-Timestamp", time.Now().UTC().Format(time.RFC3339))
 		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := c.http.Do(req)
+		resp, err := hc.Do(req)
 		if err != nil {
 			if attempt < maxRetries {
 				select {

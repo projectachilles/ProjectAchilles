@@ -93,12 +93,14 @@ func patchStatus(ctx context.Context, client *httpclient.Client, taskID, status 
 }
 
 // downloadBinary fetches the test binary and saves it to destPath, returning
-// the SHA256 hex digest of the downloaded content.
+// the SHA256 hex digest of the downloaded content. Uses the streaming HTTP
+// client because test binaries can be tens of megabytes — the body read
+// budget is bounded by the caller's context, not a fixed 30s.
 func downloadBinary(ctx context.Context, client *httpclient.Client, task Task, destPath string, maxSize int64) (string, int64, error) {
 	path := fmt.Sprintf("/api/agent/binary/%s?test_uuid=%s",
 		task.Payload.BinaryName, task.Payload.TestUUID)
 
-	resp, err := client.Do(ctx, http.MethodGet, path, nil)
+	resp, err := client.DoStream(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return "", 0, fmt.Errorf("download binary: %w", err)
 	}
@@ -149,9 +151,13 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 	}
 	defer os.RemoveAll(tempDir)
 
-	// Step 2: Download the binary.
+	// Step 2: Download the binary. Scope the context to MaxDownloadTimeout
+	// so a slow link can't tie up the agent forever; large binaries (e.g.
+	// 50 MB orchestrators with embedded .NET stages) need the full budget.
 	binaryPath := filepath.Join(tempDir, task.Payload.BinaryName)
-	digest, written, err := downloadBinary(ctx, client, task, binaryPath, cfg.MaxBinarySize)
+	dlCtx, cancelDl := context.WithTimeout(ctx, cfg.MaxDownloadTimeout)
+	digest, written, err := downloadBinary(dlCtx, client, task, binaryPath, cfg.MaxBinarySize)
+	cancelDl()
 	if err != nil {
 		return nil, err
 	}
