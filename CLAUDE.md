@@ -225,6 +225,14 @@ Frontend tests mock all Clerk hooks globally via `frontend/src/__tests__/setup.t
 ### API Proxying
 Vite proxies `/api` → `http://localhost:$VITE_BACKEND_PORT` (default 3000)
 
+## Documentation Hygiene
+
+**Never commit live secrets to docs.** Real API keys, tokens, passwords, private keys, OAuth client secrets, webhook URLs, signed URLs, or any other production credential must never appear in any tracked file under `docs/`, `README.md`, `AGENTS.md`, `CLAUDE.md`, or any other markdown / `.txt` / config sample. Once a value is committed to git history it must be considered compromised — redacting it after the fact does not retroactively protect it; the credential must be rotated.
+
+Applies equally to: Elasticsearch API keys + Cloud IDs, Clerk `sk_*` / `pk_live_*` keys, Defender `client_secret`, Slack webhook URLs, GitHub PATs, AWS access keys, signing certificate passwords, Turso tokens, Vercel Blob tokens, Render/Fly secrets.
+
+Use placeholders instead — `<elasticsearch-api-key>`, `pk_live_XXX`, `${ENV_VAR_NAME}`, or `[REDACTED]`. For runbooks that need to record a credential's value during a transient operation (e.g. rollback values during a migration soak window), store the actual value in a password manager or `~/.projectachilles/` settings file and reference it from the doc by name only — never inline. If a credential leaks despite this, treat it as an incident: rotate immediately, then sanitize the doc.
+
 ## Commit Convention
 ```
 <type>(<scope>): <description>

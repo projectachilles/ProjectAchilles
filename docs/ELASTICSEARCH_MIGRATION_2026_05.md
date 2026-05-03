@@ -1,6 +1,6 @@
 # Elasticsearch Migration — Serverless → Self-Hosted DO (2026-05-02)
 
-> **This is a transient runbook.** It documents the one-off migration from Elastic Cloud Serverless to the self-hosted Elasticsearch instance on a DigitalOcean droplet, the rollback procedure during the soak window, and the post-soak cleanup steps. After the soak window closes and cleanup is done, this document becomes purely historical — keep for audit trail or delete.
+> **This is a transient runbook.** It documents the one-off migration from Elastic Cloud Serverless to the self-hosted Elasticsearch instance on a DigitalOcean droplet and the post-soak cleanup steps. After the soak window closes and cleanup is done, this document becomes purely historical — keep for audit trail or delete.
 
 ## Summary
 
@@ -119,31 +119,15 @@ Re-ran `_reindex` per index with a `range` filter on the index-specific timestam
 
 Final source/target count parity verified — all four indices match exactly.
 
-## Rollback procedure (during soak window)
-
-If the new ES exhibits problems within the soak window, revert with:
-
-```bash
-flyctl secrets set \
-  ELASTICSEARCH_CLOUD_ID="achilles-test2:bm9ydGhldXJvcGUuYXp1cmUuZWxhc3RpYy5jbG91ZCRhZGRmZTk1ZWE5NWE0N2M2ODZiNWE4NTYyMmM2NDI0Yy5lcyRhZGRmZTk1ZWE5NWE0N2M2ODZiNWE4NTYyMmM2NDI0Yy5rYg==" \
-  ELASTICSEARCH_API_KEY="WjJvTDBKd0IwT1EtZWlfOVViNU46RlA4aTFrb1RBZ0J1c2dJLXpCblRJZw==" \
-  -a achilles-backend
-flyctl secrets unset ELASTICSEARCH_NODE -a achilles-backend
-```
-
-Fly auto-restarts; ~30 s back on serverless.
-
-**What you'd lose by rolling back:** any docs written to DO between cutover (2026-05-02 10:55:37 UTC) and rollback time. To recover them, run `_reindex` *back* serverless ← DO with the same `op_type: create` pattern. The serverless instance also needs `reindex.remote.whitelist` added on the source side, but that's a managed cluster — adding it requires opening a support ticket. For practical purposes, treat rollback as "accept the data gap and reconcile manually if needed."
-
 ## Soak checklist
 
-Mark items as done. Hold rollback ability until item 4 is complete.
+Mark items as done.
 
 - [ ] **By 2026-05-03**: Confirm dashboards load with data; spot-check Analytics → Defense Score, Heatmap panels
 - [ ] **By 2026-05-03**: Confirm new test results from agents are landing in `achilles-results-` (count should grow past 5,932)
 - [ ] **By 2026-05-04**: Confirm Defender alert sync is writing to `achilles-defender` (check logs for `Alert sync result: <N> synced, 0 error(s)`)
 - [ ] **By 2026-05-09**: Cancel Elastic Cloud Serverless subscription
-- [ ] **By 2026-05-09**: Revoke source API key (`WjJvTDBKd0IwT1EtZWlfOVViNU46RlA4aTFrb1RBZ0J1c2dJLXpCblRJZw==`) from the Elastic Cloud UI before subscription ends — defense in depth in case the subscription deletion grace period leaves the key briefly active
+- [ ] **By 2026-05-09**: Revoke source API key from the Elastic Cloud UI before subscription ends — defense in depth in case the subscription deletion grace period leaves the key briefly active
 
 ## Post-soak cleanup
 

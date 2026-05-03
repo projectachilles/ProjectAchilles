@@ -1,6 +1,6 @@
 # Elasticsearch Migration — Serverless → Self-Hosted DO (tpsgl, 2026-05-02)
 
-> **This is a transient runbook.** It documents the one-off migration of the tpsgl tenant's Elasticsearch from Elastic Cloud Serverless to a self-hosted DigitalOcean droplet, the rollback procedure during the soak window, and the post-soak cleanup steps. After soak ends and cleanup is done, this is purely historical — keep for audit trail or delete.
+> **This is a transient runbook.** It documents the one-off migration of the tpsgl tenant's Elasticsearch from Elastic Cloud Serverless to a self-hosted DigitalOcean droplet and the post-soak cleanup steps. After soak ends and cleanup is done, this is purely historical — keep for audit trail or delete.
 >
 > Parallel structure to `ELASTICSEARCH_MIGRATION_2026_05.md` (which covers the rga tenant migration done the same day). Different source region, different number of indices, different downstream platform.
 
@@ -51,7 +51,7 @@ Backend's `ELASTICSEARCH_INDEX_PATTERN=achilles-results-*` matches all three res
 
 ### Phase 1 — Inspect serverless
 
-Read source mappings + counts via the API key (inlined in the rollback section below). All field types were 8.x-compatible (boolean, date, float, integer, keyword, nested, text) — safe to copy mappings as-is.
+Read source mappings + counts via the API key. All field types were 8.x-compatible (boolean, date, float, integer, keyword, nested, text) — safe to copy mappings as-is.
 
 ### Phase 2 — Prep DO instance
 
@@ -125,27 +125,13 @@ Result:
 
 Final source/target count parity verified — all 5 indices match exactly.
 
-## Rollback procedure (during soak window)
-
-Revert in the Render dashboard at <https://dashboard.render.com/web/srv-d6cse7bh46gs73b0qhvg> → **Environment**:
-
-```
-SET    ELASTICSEARCH_CLOUD_ID = achilles-tpsgl:ZXUtd2VzdC0yLmF3cy5lbGFzdGljLmNsb3VkJGY1ZGU0ZDU2MmFiNjQxMmFhMTFkNjJmZTM4NWZkMGUyLmVzJGY1ZGU0ZDU2MmFiNjQxMmFhMTFkNjJmZTM4NWZkMGUyLmti
-SET    ELASTICSEARCH_API_KEY  = ZnQ3QnE1d0JWanl5MW45N1M4bG86eVNqUm9XUWR2RVo1UURndmpndDRIZw==
-DELETE ELASTICSEARCH_NODE
-```
-
-**Save Changes** → Render auto-redeploys; ~30–60 s back on serverless.
-
-**What you'd lose by rolling back:** any docs written to DO between cutover (~13:05 UTC on 2026-05-02) and rollback time. To recover them, reindex DO → serverless using the same `op_type: create` pattern. Treat rollback as "accept data gap unless critical."
-
 ## Soak checklist
 
 - [ ] **By 2026-05-03**: Confirm tpsgl backend is healthy via `render logs -r srv-d6cse7bh46gs73b0qhvg | grep -iE 'error|fail' | head` — should be empty or pre-existing
 - [ ] **By 2026-05-03**: Confirm new test results from agents are landing in `achilles-results-*` (counts grow past 1,199 / 1,984 / 288)
 - [ ] **By 2026-05-04**: Confirm Defender alert sync runs cleanly (`[Defender] Alert sync result: <N> synced, 0 error(s)` in Render logs)
 - [ ] **By 2026-05-09**: Cancel Elastic Cloud Serverless `achilles-tpsgl` subscription (eu-west-2)
-- [ ] **By 2026-05-09**: Revoke source API key in the Elastic Cloud UI before subscription end (key id starts `ZnQ3Q...`)
+- [ ] **By 2026-05-09**: Revoke source API key in the Elastic Cloud UI before subscription end
 
 ## Post-soak cleanup
 
