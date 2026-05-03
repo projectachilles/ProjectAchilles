@@ -294,14 +294,29 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 		bundleCandidates = append(bundleCandidates, "/tmp/F0/bundle_results.json")
 	}
 	for _, bundlePath := range bundleCandidates {
-		if data, err := os.ReadFile(bundlePath); err == nil {
-			var bundle BundleResults
-			if json.Unmarshal(data, &bundle) == nil && bundle.BundleID == task.Payload.TestUUID {
-				result.BundleResults = &bundle
-			}
-			os.Remove(bundlePath)
+		data, readErr := os.ReadFile(bundlePath)
+		if readErr != nil {
+			continue // file not present at this candidate path — try the next one
+		}
+		var bundle BundleResults
+		if err := json.Unmarshal(data, &bundle); err != nil {
+			// Don't os.Remove — preserve forensic evidence for debugging.
+			// Result is still reported via single-doc fallback (BundleResults stays nil).
+			log.Printf("WARNING: failed to parse %s as bundle_results: %v (falling back to single-doc result)",
+				bundlePath, err)
 			break
 		}
+		if bundle.BundleID != task.Payload.TestUUID {
+			// Likewise: keep the file. A bundle_id mismatch usually means a stale
+			// file from a prior run leaked through, or the test binary is writing
+			// the wrong UUID. Either way the operator needs to see the file.
+			log.Printf("WARNING: bundle_id mismatch in %s — got %q, expected %q for test %q (falling back to single-doc result)",
+				bundlePath, bundle.BundleID, task.Payload.TestUUID, task.Payload.TestName)
+			break
+		}
+		result.BundleResults = &bundle
+		os.Remove(bundlePath) // only clean up on successful processing
+		break
 	}
 
 	// Steps 10-11: Cleanup handled by defer; return result.
