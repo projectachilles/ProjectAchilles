@@ -97,10 +97,19 @@ export async function ingestResult(task: Task, result: TaskResult): Promise<void
  * Each control becomes an independent document so existing dashboards and
  * Defense Score formulas count them as separate test results.
  *
- * Deterministic `_id` (`<bundle_id>::<control_id>`) makes ingestion idempotent:
- * if the agent retries a POST after a lost response, re-ingestion overwrites
- * the prior doc instead of creating a duplicate. Without this the Executions
- * table groups two full control sets into one inflated row.
+ * `_id = <task_id>::<control_id>` — keyed on task_id (unique per dispatch
+ * per agent), NOT bundle_id (constant across every run of the same test).
+ * This preserves data across distinct runs (different agents, repeated
+ * schedules) while keeping retries idempotent: the reporter reuses the
+ * same task_id when retrying after a lost response, so a retry overwrites
+ * its own prior doc instead of creating a duplicate. The earlier
+ * `bundle_id::control_id` key silently overwrote one run's results with
+ * the next, destroying the very data the system exists to capture.
+ *
+ * Throws if ES bulk reports per-item errors (errors:true). The HTTP layer
+ * returns 200 even when individual ops fail, so swallowing the response
+ * loses data silently; surface it so the caller can mark the task for
+ * retry by the durable retry worker.
  */
 async function ingestBundleControls(
   client: Client,
@@ -122,7 +131,7 @@ async function ingestBundleControls(
   }
 
   const operations = bundle.controls.flatMap((control) => [
-    { index: { _index: index, _id: `${bundle.bundle_id}::${control.control_id}` } },
+    { index: { _index: index, _id: `${task.id}::${control.control_id}` } },
     {
       routing: {
         event_time: result.completed_at,
@@ -157,7 +166,20 @@ async function ingestBundleControls(
     },
   ]);
 
-  await client.bulk({ operations });
+  const response = await client.bulk({ operations });
+  if (response?.errors) {
+    const failures: string[] = [];
+    for (let i = 0; i < (response.items ?? []).length; i++) {
+      const item = response.items[i] as Record<string, { _id?: string; error?: { type?: string; reason?: string } } | undefined>;
+      const op = item.index ?? item.create ?? item.update ?? item.delete;
+      if (op?.error) {
+        failures.push(`op[${i}] _id=${op._id ?? '?'}: ${op.error.type ?? 'error'}: ${op.error.reason ?? 'no reason'}`);
+      }
+    }
+    throw new Error(
+      `ES bulk ingestion had ${failures.length}/${bundle.controls.length} per-item errors for task ${task.id}: ${failures.join('; ')}`,
+    );
+  }
 }
 
 /**

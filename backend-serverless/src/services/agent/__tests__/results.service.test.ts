@@ -367,12 +367,42 @@ describe('results.service', () => {
 
       const ops = mockEsBulk.mock.calls[0][0].operations;
       expect(ops[0]).toEqual({
-        index: { _index: 'custom-index', _id: 'a3c923ae-1a46-4b1f-b696-be6c2731a628::CH-DEF-001' },
+        index: { _index: 'custom-index', _id: 'task-001::CH-DEF-001' },
       });
+    });
+
+    it('preserves f0rtika.test_uuid as <bundle_id>::<control_id> (cross-run identity for UI grouping)', async () => {
+      const result = makeResult({ bundle_results: makeBundle() });
+      await ingestResult(makeTask(), result);
+
+      const ops = mockEsBulk.mock.calls[0][0].operations;
+      expect(ops[1].f0rtika.test_uuid).toBe('a3c923ae-1a46-4b1f-b696-be6c2731a628::CH-DEF-001');
+      expect(ops[3].f0rtika.test_uuid).toBe('a3c923ae-1a46-4b1f-b696-be6c2731a628::CH-DEF-002');
+    });
+
+    it('throws when bulk reports per-item errors (so the route marks for retry)', async () => {
+      mockEsBulk.mockResolvedValue({
+        errors: true,
+        items: [
+          { index: { _id: 'task-001::CH-DEF-001', error: { type: 'mapper_parsing_exception', reason: 'bad shape' } } },
+          { index: { _id: 'task-001::CH-DEF-002', status: 201 } },
+        ],
+      });
+      const result = makeResult({ bundle_results: makeBundle() });
+
+      await expect(ingestResult(makeTask(), result))
+        .rejects.toThrow(/per-item errors.*mapper_parsing_exception.*bad shape/);
+    });
+
+    it('does not throw when bulk reports errors:false', async () => {
+      mockEsBulk.mockResolvedValueOnce({ errors: false, items: [] });
+      const result = makeResult({ bundle_results: makeBundle() });
+
+      await expect(ingestResult(makeTask(), result)).resolves.toBeUndefined();
     });
   });
 
-  // ── Group 7: Ingestion Idempotency ─────────────────────────
+  // ── Group 7: Ingestion Idempotency & Run-Uniqueness ─────────
 
   describe('ingestion idempotency', () => {
     it('sets a deterministic _id on single-document ingestion', async () => {
@@ -395,24 +425,44 @@ describe('results.service', () => {
       expect(firstId).toBeDefined();
     });
 
-    it('sets a deterministic composite _id on each bundle control action line', async () => {
+    it('sets <task_id>::<control_id> as the bundle control _id (run-unique, not bundle-unique)', async () => {
       const result = makeResult({ bundle_results: makeBundle() });
-      await ingestResult(makeTask(), result);
+      await ingestResult(makeTask({ id: 'task-A' }), result);
 
       const ops = mockEsBulk.mock.calls[0][0].operations;
-      expect(ops[0].index._id).toBe('a3c923ae-1a46-4b1f-b696-be6c2731a628::CH-DEF-001');
-      expect(ops[2].index._id).toBe('a3c923ae-1a46-4b1f-b696-be6c2731a628::CH-DEF-002');
+      expect(ops[0].index._id).toBe('task-A::CH-DEF-001');
+      expect(ops[2].index._id).toBe('task-A::CH-DEF-002');
     });
 
-    it('re-ingesting the same bundle produces the same per-control _ids', async () => {
+    it('reporter retry of the SAME task reuses the same _ids (idempotent overwrite)', async () => {
+      const sameTask = makeTask({ id: 'retried-task' });
       const result = makeResult({ bundle_results: makeBundle() });
-      await ingestResult(makeTask(), result);
-      await ingestResult(makeTask(), result);
+      await ingestResult(sameTask, result);
+      await ingestResult(sameTask, result);
 
       const firstOps = mockEsBulk.mock.calls[0][0].operations;
       const secondOps = mockEsBulk.mock.calls[1][0].operations;
       expect(firstOps[0].index._id).toBe(secondOps[0].index._id);
       expect(firstOps[2].index._id).toBe(secondOps[2].index._id);
+    });
+
+    it('REGRESSION: distinct tasks ingesting the same bundle produce DISTINCT _ids (no overwrite)', async () => {
+      // This is the data-loss bug. Two agents (or one agent twice) running the
+      // same bundle test must NOT collide on _id — each run is its own record.
+      const taskOnAgentA = makeTask({ id: 'task-from-agent-A', agent_id: 'agent-A' });
+      const taskOnAgentB = makeTask({ id: 'task-from-agent-B', agent_id: 'agent-B' });
+      const sameBundle = makeBundle();
+
+      await ingestResult(taskOnAgentA, makeResult({ bundle_results: sameBundle, hostname: 'agent-A-host' }));
+      await ingestResult(taskOnAgentB, makeResult({ bundle_results: sameBundle, hostname: 'agent-B-host' }));
+
+      const opsA = mockEsBulk.mock.calls[0][0].operations;
+      const opsB = mockEsBulk.mock.calls[1][0].operations;
+
+      expect(opsA[0].index._id).toBe('task-from-agent-A::CH-DEF-001');
+      expect(opsB[0].index._id).toBe('task-from-agent-B::CH-DEF-001');
+      expect(opsA[0].index._id).not.toBe(opsB[0].index._id);
+      expect(opsA[1].f0rtika.test_uuid).toBe(opsB[1].f0rtika.test_uuid);
     });
   });
 });
