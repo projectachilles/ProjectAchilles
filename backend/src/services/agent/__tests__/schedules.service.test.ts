@@ -4,9 +4,10 @@ import { createTestDatabase, insertTestAgent } from '../../../__tests__/helpers/
 
 let testDb: Database.Database;
 
-vi.mock('../database.js', () => ({
-  getDatabase: () => testDb,
-}));
+vi.mock('../database.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../database.js')>();
+  return { ...actual, getDatabase: () => testDb };
+});
 
 // Mock createTasks (called by processSchedules)
 const mockCreateTasks = vi.fn().mockReturnValue(['task-001']);

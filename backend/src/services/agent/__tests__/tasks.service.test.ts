@@ -4,9 +4,10 @@ import { createTestDatabase, insertTestAgent, insertTestTask } from '../../../__
 
 let testDb: Database.Database;
 
-vi.mock('../database.js', () => ({
-  getDatabase: () => testDb,
-}));
+vi.mock('../database.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../database.js')>();
+  return { ...actual, getDatabase: () => testDb };
+});
 
 // Mock the test-catalog service (used for metadata enrichment in createTasks)
 const mockGetTestMetadata = vi.fn().mockReturnValue(null);
@@ -14,12 +15,17 @@ vi.mock('../test-catalog.service.js', () => ({
   getTestMetadata: (...args: unknown[]) => mockGetTestMetadata(...args),
 }));
 
-// Mock fs and os for createTasks (reads build metadata from disk)
+// Mock fs and os for createTasks (reads build metadata from disk).
 // The source does `import fs from 'fs'` which becomes `fs.default` in ESM.
 // vi.mock provides both named exports and default to cover all access patterns.
-const mockExistsSync = vi.fn().mockReturnValue(true);
-const mockReadFileSync = vi.fn();
-const mockStatSync = vi.fn().mockReturnValue({ size: 1024 });
+// vi.hoisted lifts these into hoist scope — required because the database mock
+// now uses importOriginal(), which triggers a real `import fs` chain at hoist
+// time and would hit a TDZ on plain top-level consts.
+const { mockExistsSync, mockReadFileSync, mockStatSync } = vi.hoisted(() => ({
+  mockExistsSync: vi.fn().mockReturnValue(true),
+  mockReadFileSync: vi.fn(),
+  mockStatSync: vi.fn().mockReturnValue({ size: 1024 }),
+}));
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
