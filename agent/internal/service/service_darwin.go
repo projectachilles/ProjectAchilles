@@ -130,7 +130,8 @@ func platformRun(cfg *config.Config, st *store.Store, version string) error {
 	// On macOS, launchd manages the lifecycle. Just run the poller directly.
 	ctx, cancel := signalContext()
 	defer cancel()
-	return runForeground(ctx, cfg, st, version)
+	reloadCh := startReloadListener(ctx)
+	return runForegroundWithReload(ctx, cfg, st, version, reloadCh)
 }
 
 // signalContext returns a context that cancels on SIGINT/SIGTERM.
