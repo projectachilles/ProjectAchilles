@@ -26,6 +26,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	configPath := flag.String("config", config.DefaultConfigPath(), "Path to config file")
 	run := flag.Bool("run", false, "Run agent in foreground")
+	reload := flag.Bool("reload", false, "Signal the running service to re-read its config from disk (no restart)")
 	allowInsecure := flag.Bool("allow-insecure", false, "Allow skip_tls_verify for remote servers (NOT recommended)")
 
 	flag.Parse()
@@ -72,6 +73,15 @@ func main() {
 
 	if *showStatus {
 		status.PrintStatus(*configPath, version)
+		os.Exit(0)
+	}
+
+	if *reload {
+		if err := service.SendReload(); err != nil {
+			fmt.Fprintf(os.Stderr, "reload error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Reload signal sent. The agent will re-read its config on its next loop tick.")
 		os.Exit(0)
 	}
 
@@ -138,8 +148,17 @@ func main() {
 	fmt.Println("achilles-agent: no command specified")
 	fmt.Println("Usage:")
 	fmt.Println("  --enroll TOKEN --server URL  Enroll this agent")
+	fmt.Println("  --install                    Register as a system service (combine with --enroll)")
 	fmt.Println("  --run                        Run agent in foreground")
+	fmt.Println("  --reload                     Signal running service to re-read config (no restart)")
 	fmt.Println("  --status                     Show agent status")
 	fmt.Println("  --uninstall                  Remove agent service")
 	fmt.Println("  --version                    Print version")
+	fmt.Println()
+	fmt.Println("Service control (use the platform service manager):")
+	fmt.Println("  Linux:    sudo systemctl {start|stop|restart} achilles-agent")
+	fmt.Println("  Windows:  sc {start|stop} AchillesAgent")
+	fmt.Println("  macOS:    sudo launchctl {load|unload} -w /Library/LaunchDaemons/com.f0rtika.achilles-agent.plist")
+	fmt.Println()
+	fmt.Println("To apply config changes WITHOUT bouncing the service, use --reload (preferred over restart).")
 }

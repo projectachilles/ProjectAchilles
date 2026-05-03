@@ -288,7 +288,12 @@ func deriveDisconnectReason(dc *disconnectContext, st *store.Store, version stri
 
 // Run starts the agent's main loop with heartbeat and task polling timers.
 // It blocks until the context is cancelled or a SIGINT/SIGTERM is received.
-func Run(ctx context.Context, cfg *config.Config, st *store.Store, version string) error {
+//
+// `reloadCh` is optional. When non-nil, each receive triggers an in-place
+// re-read of the config YAML and atomically updates hot-reloadable fields
+// (server URL, intervals, TLS) without restarting the process. Pass nil to
+// disable hot-reload (e.g. unit tests, or platforms without a reload source).
+func Run(ctx context.Context, cfg *config.Config, st *store.Store, version string, reloadCh <-chan struct{}) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -481,6 +486,75 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 			} else if updated {
 				log.Println("update applied, exiting for restart")
 				return ErrUpdateApplied
+			}
+
+		case <-reloadCh:
+			// Hot-reload config from disk. We're on the same goroutine that
+			// reads cfg fields, so the swap is race-free with no locks.
+			//
+			// Policy on validation failure: keep running with the old config
+			// and log loudly. The alternative (exit and let the supervisor
+			// respawn) would re-read the same broken file from disk and crash
+			// repeatedly — strictly worse. Operators should see the warning
+			// in the heartbeat log and via a future status flag.
+			path := cfg.ConfigPath()
+			if path == "" {
+				log.Println("reload: skipped (config was not loaded from a file)")
+				continue
+			}
+			next, err := config.Load(path)
+			if err != nil {
+				log.Printf("reload: failed to read %s: %v (keeping current config)", path, err)
+				continue
+			}
+			if err := next.Validate(); err != nil {
+				log.Printf("reload: validation failed: %v (keeping current config)", err)
+				continue
+			}
+			oldHB, oldPoll, oldUpdate := cfg.HeartbeatInterval, cfg.PollInterval, cfg.UpdateInterval
+			oldServer, oldCA, oldSkip := cfg.ServerURL, cfg.CACert, cfg.SkipTLSVerify
+			changed, err := cfg.ApplyHotReload(next)
+			if err != nil {
+				log.Printf("reload: refused: %v (keeping current config)", err)
+				continue
+			}
+			if len(changed) == 0 {
+				log.Println("reload: no changes detected")
+				continue
+			}
+			log.Printf("reload: applied changes: %v", changed)
+
+			// Rebuild httpclient if anything that affects it changed.
+			if cfg.ServerURL != oldServer || cfg.CACert != oldCA || cfg.SkipTLSVerify != oldSkip {
+				client = httpclient.NewClient(cfg, version)
+				log.Printf("reload: httpclient rebuilt (server=%s)", cfg.ServerURL)
+			}
+
+			// Reset timers only when their interval actually changed. Resetting
+			// on every reload would amplify a noisy reload source into a noisy
+			// heartbeat stream.
+			if cfg.HeartbeatInterval != oldHB {
+				if !heartbeatTimer.Stop() {
+					select {
+					case <-heartbeatTimer.C:
+					default:
+					}
+				}
+				heartbeatTimer.Reset(addJitter(hbBackoff.interval(cfg.HeartbeatInterval)))
+			}
+			if cfg.PollInterval != oldPoll {
+				if !pollTimer.Stop() {
+					select {
+					case <-pollTimer.C:
+					default:
+					}
+				}
+				pollTimer.Reset(addJitter(cfg.PollInterval))
+			}
+			if cfg.UpdateInterval != oldUpdate {
+				// Update ticker is rebuilt rarely; simplest correct path is to
+				// log and require a restart for this one to take full effect.
+				log.Println("reload: update_interval change requires service restart to fully apply")
 			}
 		}
 	}

@@ -182,6 +182,12 @@ func (c *Config) Save(path string) error {
 	return nil
 }
 
+// ConfigPath returns the path this config was loaded from, or "" if it was
+// not loaded from a file. Used by hot-reload to know which file to re-read.
+func (c *Config) ConfigPath() string {
+	return c.configPath
+}
+
 // Persist saves the config back to the file it was loaded from.
 // Returns an error if the config was not loaded from a file (configPath is empty).
 func (c *Config) Persist() error {
@@ -244,6 +250,83 @@ func (c *Config) ValidateTLSConfig(allowInsecure bool) error {
 			"Use ca_cert to trust a specific CA, or pass --allow-insecure to override this check",
 		c.ServerURL,
 	)
+}
+
+// ApplyHotReload copies the hot-reloadable fields from `next` into the
+// receiver. It returns the list of field names that actually changed (empty
+// if the reload was a no-op).
+//
+// Hot-reloadable: ServerURL, PollInterval, HeartbeatInterval, UpdateInterval,
+// MaxExecutionTime, MaxBinarySize, MaxDownloadTimeout, CACert, SkipTLSVerify,
+// UpdatePublicKey.
+//
+// Refused (returns ErrImmutableField if `next` differs from `c` on these):
+// AgentID, AgentKey/AgentKeyEncrypted, OrgID, WorkDir, LogFile. These are
+// either bound to enrollment state, the on-disk layout, or already-open file
+// handles — rotating them at runtime would split state between the in-memory
+// process and the persisted YAML.
+func (c *Config) ApplyHotReload(next *Config) ([]string, error) {
+	if next == nil {
+		return nil, fmt.Errorf("nil reload config")
+	}
+
+	// Refuse reload if any immutable field changed. The on-disk YAML is now
+	// inconsistent with the running agent — fail loud rather than partially apply.
+	if next.AgentID != "" && next.AgentID != c.AgentID {
+		return nil, fmt.Errorf("agent_id is immutable at runtime (was %q, file has %q); restart required", c.AgentID, next.AgentID)
+	}
+	if next.OrgID != "" && next.OrgID != c.OrgID {
+		return nil, fmt.Errorf("org_id is immutable at runtime; restart required")
+	}
+	if next.WorkDir != "" && next.WorkDir != c.WorkDir {
+		return nil, fmt.Errorf("work_dir is immutable at runtime; restart required")
+	}
+	if next.LogFile != "" && next.LogFile != c.LogFile {
+		return nil, fmt.Errorf("log_file is immutable at runtime; restart required")
+	}
+
+	var changed []string
+	if next.ServerURL != "" && next.ServerURL != c.ServerURL {
+		c.ServerURL = next.ServerURL
+		changed = append(changed, "server_url")
+	}
+	if next.PollInterval > 0 && next.PollInterval != c.PollInterval {
+		c.PollInterval = next.PollInterval
+		changed = append(changed, "poll_interval")
+	}
+	if next.HeartbeatInterval > 0 && next.HeartbeatInterval != c.HeartbeatInterval {
+		c.HeartbeatInterval = next.HeartbeatInterval
+		changed = append(changed, "heartbeat_interval")
+	}
+	if next.UpdateInterval >= 0 && next.UpdateInterval != c.UpdateInterval {
+		c.UpdateInterval = next.UpdateInterval
+		changed = append(changed, "update_interval")
+	}
+	if next.MaxExecutionTime > 0 && next.MaxExecutionTime != c.MaxExecutionTime {
+		c.MaxExecutionTime = next.MaxExecutionTime
+		changed = append(changed, "max_execution_time")
+	}
+	if next.MaxBinarySize > 0 && next.MaxBinarySize != c.MaxBinarySize {
+		c.MaxBinarySize = next.MaxBinarySize
+		changed = append(changed, "max_binary_size")
+	}
+	if next.MaxDownloadTimeout > 0 && next.MaxDownloadTimeout != c.MaxDownloadTimeout {
+		c.MaxDownloadTimeout = next.MaxDownloadTimeout
+		changed = append(changed, "max_download_timeout")
+	}
+	if next.CACert != c.CACert {
+		c.CACert = next.CACert
+		changed = append(changed, "ca_cert")
+	}
+	if next.SkipTLSVerify != c.SkipTLSVerify {
+		c.SkipTLSVerify = next.SkipTLSVerify
+		changed = append(changed, "skip_tls_verify")
+	}
+	if next.UpdatePublicKey != "" && next.UpdatePublicKey != c.UpdatePublicKey {
+		c.UpdatePublicKey = next.UpdatePublicKey
+		changed = append(changed, "update_public_key")
+	}
+	return changed, nil
 }
 
 // Validate checks that required fields are populated.

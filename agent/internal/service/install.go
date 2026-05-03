@@ -44,8 +44,17 @@ func RunService(cfg *config.Config, st *store.Store, version string) error {
 }
 
 // runForeground is shared logic: starts the poller loop until context cancels.
+// Passes a nil reload channel — for the reload-capable variant, platform code
+// should call runForegroundWithReload directly.
 func runForeground(ctx context.Context, cfg *config.Config, st *store.Store, version string) error {
-	if err := poller.Run(ctx, cfg, st, version); err != nil {
+	return runForegroundWithReload(ctx, cfg, st, version, nil)
+}
+
+// runForegroundWithReload is the same as runForeground but accepts a reload
+// channel. Each receive on `reloadCh` triggers an in-place YAML re-read and
+// hot-reload of mutable config fields. Pass nil to disable hot-reload.
+func runForegroundWithReload(ctx context.Context, cfg *config.Config, st *store.Store, version string, reloadCh <-chan struct{}) error {
+	if err := poller.Run(ctx, cfg, st, version, reloadCh); err != nil {
 		if err == poller.ErrUpdateApplied {
 			log.Println("update applied, exiting for restart")
 			return poller.ErrUpdateApplied

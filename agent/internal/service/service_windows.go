@@ -27,6 +27,11 @@ const (
 	serviceDesc    = "ProjectAchilles security testing agent"
 )
 
+// SCMReloadCmd is the custom service-control code used to request a config
+// reload via `sc control AchillesAgent 128`. Codes 128–255 are reserved for
+// application-defined commands, and 128 is the conventional first pick.
+const SCMReloadCmd svc.Cmd = 128
+
 // achillesSvc implements svc.Handler for the Windows Service Control Manager.
 type achillesSvc struct {
 	cfg     *config.Config
@@ -43,10 +48,13 @@ func (s *achillesSvc) Execute(_ []string, r <-chan svc.ChangeRequest, status cha
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Reload channel: SCM control 128 → poller hot-reload.
+	reloadCh := make(chan struct{}, 1)
+
 	// Run the poller in the background.
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- runForeground(ctx, s.cfg, s.st, s.version)
+		errCh <- runForegroundWithReload(ctx, s.cfg, s.st, s.version, reloadCh)
 	}()
 
 	// Tell SCM we're running.
@@ -62,6 +70,14 @@ func (s *achillesSvc) Execute(_ []string, r <-chan svc.ChangeRequest, status cha
 				<-errCh
 				return false, 0
 			case svc.Interrogate:
+				status <- cr.CurrentStatus
+			case SCMReloadCmd:
+				log.Println("SCM control 128 received, requesting config reload")
+				select {
+				case reloadCh <- struct{}{}:
+				default:
+					// Reload already pending; drop this one.
+				}
 				status <- cr.CurrentStatus
 			}
 		case err := <-errCh:
@@ -275,6 +291,8 @@ func platformRun(cfg *config.Config, st *store.Store, version string) error {
 
 	if !inService {
 		// Interactive / foreground mode (e.g. --run from command line).
+		// No reload channel — Windows foreground has no signal mechanism for
+		// remote reload. Restart the foreground process to apply config changes.
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		return runForeground(ctx, cfg, st, version)
