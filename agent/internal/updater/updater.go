@@ -45,7 +45,12 @@ func CheckAndUpdate(ctx context.Context, client *httpclient.Client, currentVersi
 		return false, err
 	}
 
-	tmpPath, err := downloadAndVerify(ctx, client, info, filepath.Dir(currentBin))
+	// Scope the download to MaxDownloadTimeout; the agent binary itself is
+	// 20+ MB and shouldn't be bound by the 30s short-request budget used by
+	// fetchVersionInfo above.
+	dlCtx, cancelDl := context.WithTimeout(ctx, cfg.MaxDownloadTimeout)
+	tmpPath, err := downloadAndVerify(dlCtx, client, info, filepath.Dir(currentBin))
+	cancelDl()
 	if err != nil {
 		return false, err
 	}
@@ -139,11 +144,12 @@ func resolveExecutablePath() (string, error) {
 // downloadAndVerify fetches the update binary from the server, writes it to a
 // temp file in dir, and verifies its SHA256 digest and size against info.
 // On success it returns the path to the verified temp file; the caller is
-// responsible for cleanup.
+// responsible for cleanup. Uses the streaming HTTP client because agent
+// binaries can exceed the 30s budget of the quick-request path.
 func downloadAndVerify(ctx context.Context, client *httpclient.Client, info *VersionInfo, dir string) (string, error) {
 	downloadPath := fmt.Sprintf("/api/agent/update?os=%s&arch=%s", runtime.GOOS, runtime.GOARCH)
 
-	dlResp, err := client.Do(ctx, http.MethodGet, downloadPath, nil)
+	dlResp, err := client.DoStream(ctx, http.MethodGet, downloadPath, nil)
 	if err != nil {
 		return "", fmt.Errorf("download update: %w", err)
 	}
