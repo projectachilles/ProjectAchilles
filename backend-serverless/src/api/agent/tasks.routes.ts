@@ -16,6 +16,8 @@ import {
   cancelTask,
   deleteTask,
   updateTaskNotes,
+  markTaskIngested,
+  markIngestionFailed,
 } from '../../services/agent/tasks.service.js';
 import { ingestResult } from '../../services/agent/results.service.js';
 import { UpdateTaskStatusSchema, TaskResultSchema } from '../../schemas/agent.schemas.js';
@@ -99,12 +101,24 @@ agentTasksRouter.post(
 
     const task = await submitResult(req.params.id, agent.id, result);
 
-    // Only ingest security test results into ES (not command results)
+    // Result is now durably stored in Turso (tasks.result column). ES
+    // ingestion is best-effort on the fast path: try synchronously, and
+    // on failure leave es_ingested=0 for the /api/cron/retry-ingestion
+    // Vercel Cron to drain later. We ALWAYS return 200 to the agent
+    // because submitResult() rejects re-submission of completed tasks
+    // with HTTP 400, so a 5xx -> agent-retry loop would deadlock.
     if (task.type === 'execute_test') {
-      ingestResult(task, result).catch((err) => {
-        console.error('[ES Ingestion] Failed for task %s:', task.id,
-          err instanceof Error ? err.message : err);
-      });
+      try {
+        await ingestResult(task, result);
+        await markTaskIngested(task.id);
+      } catch (err) {
+        await markIngestionFailed(task.id);
+        console.error(
+          '[ES Ingestion] task %s queued for retry (sync attempt failed): %s',
+          task.id,
+          err instanceof Error ? err.message : err,
+        );
+      }
     }
 
     res.json({ success: true, data: task });

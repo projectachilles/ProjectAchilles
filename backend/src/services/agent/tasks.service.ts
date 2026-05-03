@@ -46,6 +46,9 @@ interface TaskRow {
   retry_count: number;
   max_retries: number;
   original_task_id: string | null;
+  es_ingested: number;
+  ingest_attempts: number;
+  last_ingest_attempt_at: string | null;
 }
 
 function parseTaskRow(row: TaskRow): Task {
@@ -627,6 +630,78 @@ export function submitResult(
 
   const updated = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as TaskRow;
   return parseTaskRow(updated);
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// ES INGESTION TRACKING
+// ────────────────────────────────────────────────────────────────────────
+//
+// Result ingestion is async-with-retry: the route stores the result via
+// submitResult() (durable in SQLite), then attempts ES bulk ingestion. On
+// failure the task is left at es_ingested=0 and a background worker retries.
+//
+// This decouples agent task acknowledgment from ES availability — agents
+// always see a 200 once their result is durably stored, even if ES is
+// briefly unreachable. Eventual consistency is restored by the worker.
+
+/** Cap on retry attempts before a task is left for manual investigation. */
+export const MAX_INGEST_ATTEMPTS = 10;
+
+/** Mark a task as successfully ingested into ES. */
+export function markTaskIngested(taskId: string): void {
+  getDatabase().prepare(`
+    UPDATE tasks
+    SET es_ingested = 1,
+        ingest_attempts = ingest_attempts + 1,
+        last_ingest_attempt_at = datetime('now')
+    WHERE id = ?
+  `).run(taskId);
+}
+
+/**
+ * Record a failed ingestion attempt without flipping es_ingested.
+ * The task remains a candidate for retry until ingest_attempts hits the cap.
+ */
+export function markIngestionFailed(taskId: string): void {
+  getDatabase().prepare(`
+    UPDATE tasks
+    SET ingest_attempts = ingest_attempts + 1,
+        last_ingest_attempt_at = datetime('now')
+    WHERE id = ?
+  `).run(taskId);
+}
+
+/**
+ * Fetch tasks that the retry worker should attempt next:
+ *   completed execute_test tasks whose ES ingestion has not yet succeeded
+ *   AND whose attempt count is below the permanent-failure cap.
+ *
+ * Ordered oldest-first so a backlog drains FIFO instead of starving older work.
+ */
+export function getPendingIngestionTasks(limit = 50): Task[] {
+  const rows = getDatabase().prepare(`
+    SELECT * FROM tasks
+    WHERE status = 'completed'
+      AND type = 'execute_test'
+      AND es_ingested = 0
+      AND ingest_attempts < ?
+      AND result IS NOT NULL
+    ORDER BY completed_at ASC
+    LIMIT ?
+  `).all(MAX_INGEST_ATTEMPTS, limit) as TaskRow[];
+  return rows.map(parseTaskRow);
+}
+
+/** Count tasks that have permanently failed ingestion (ingest_attempts >= cap). */
+export function countPermanentlyFailedIngestions(): number {
+  const row = getDatabase().prepare(`
+    SELECT COUNT(*) as cnt FROM tasks
+    WHERE status = 'completed'
+      AND type = 'execute_test'
+      AND es_ingested = 0
+      AND ingest_attempts >= ?
+  `).get(MAX_INGEST_ATTEMPTS) as { cnt: number };
+  return row.cnt;
 }
 
 /**

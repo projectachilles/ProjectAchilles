@@ -40,6 +40,12 @@ interface TaskRow {
   created_by: string;
   target_index: string | null;
   batch_id: string;
+  retry_count?: number;
+  max_retries?: number;
+  original_task_id?: string | null;
+  es_ingested?: number;
+  ingest_attempts?: number;
+  last_ingest_attempt_at?: string | null;
 }
 
 function parseTaskRow(row: TaskRow): Task {
@@ -564,6 +570,70 @@ export async function submitResult(
 
   const updated = await db.get('SELECT * FROM tasks WHERE id = ?', [taskId]) as unknown as TaskRow;
   return parseTaskRow(updated);
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// ES INGESTION TRACKING (serverless parity with backend/)
+// ────────────────────────────────────────────────────────────────────────
+//
+// Result ingestion is async-with-retry: the route stores the result via
+// submitResult() (durable in Turso), then attempts ES bulk ingestion. On
+// failure the task is left at es_ingested=0 and the /api/cron/retry-ingestion
+// Vercel Cron drains the backlog every 5 minutes.
+
+/** Cap on retry attempts before a task is left for manual investigation. */
+export const MAX_INGEST_ATTEMPTS = 10;
+
+export async function markTaskIngested(taskId: string): Promise<void> {
+  const db = await getDb();
+  await db.run(
+    `UPDATE tasks
+     SET es_ingested = 1,
+         ingest_attempts = ingest_attempts + 1,
+         last_ingest_attempt_at = datetime('now')
+     WHERE id = ?`,
+    [taskId],
+  );
+}
+
+export async function markIngestionFailed(taskId: string): Promise<void> {
+  const db = await getDb();
+  await db.run(
+    `UPDATE tasks
+     SET ingest_attempts = ingest_attempts + 1,
+         last_ingest_attempt_at = datetime('now')
+     WHERE id = ?`,
+    [taskId],
+  );
+}
+
+export async function getPendingIngestionTasks(limit = 50): Promise<Task[]> {
+  const db = await getDb();
+  const rows = await db.all(
+    `SELECT * FROM tasks
+     WHERE status = 'completed'
+       AND type = 'execute_test'
+       AND es_ingested = 0
+       AND ingest_attempts < ?
+       AND result IS NOT NULL
+     ORDER BY completed_at ASC
+     LIMIT ?`,
+    [MAX_INGEST_ATTEMPTS, limit],
+  );
+  return rows.map((r) => parseTaskRow(r as unknown as TaskRow));
+}
+
+export async function countPermanentlyFailedIngestions(): Promise<number> {
+  const db = await getDb();
+  const row = await db.get(
+    `SELECT COUNT(*) as cnt FROM tasks
+     WHERE status = 'completed'
+       AND type = 'execute_test'
+       AND es_ingested = 0
+       AND ingest_attempts >= ?`,
+    [MAX_INGEST_ATTEMPTS],
+  );
+  return Number((row as { cnt?: unknown })?.cnt ?? 0);
 }
 
 /**

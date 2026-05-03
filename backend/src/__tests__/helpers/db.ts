@@ -69,6 +69,9 @@ export function createTestDatabase(): Database.Database {
       retry_count INTEGER DEFAULT 0,
       max_retries INTEGER DEFAULT 2,
       original_task_id TEXT DEFAULT NULL,
+      es_ingested INTEGER NOT NULL DEFAULT 0,
+      ingest_attempts INTEGER NOT NULL DEFAULT 0,
+      last_ingest_attempt_at TEXT DEFAULT NULL,
       FOREIGN KEY (agent_id) REFERENCES agents(id)
     );
 

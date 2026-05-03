@@ -16,6 +16,8 @@ import {
   deleteTask,
   updateTaskNotes,
   sanitizeTaskForAdmin,
+  markTaskIngested,
+  markIngestionFailed,
 } from '../../services/agent/tasks.service.js';
 import { ingestResult } from '../../services/agent/results.service.js';
 import { alertsService } from '../integrations.routes.js';
@@ -107,19 +109,37 @@ agentTasksRouter.post(
 
     const task = submitResult(req.params.id, agent.id, result);
 
-    // Only ingest security test results into ES (not command results)
+    // Result is now durably stored in SQLite (tasks.result column). ES
+    // ingestion is best-effort on the fast path: try synchronously, and
+    // on failure leave es_ingested=0 for the background retry worker
+    // (services/agent/ingestionWorker.service.ts) to drain later. We
+    // ALWAYS return 200 to the agent because:
+    //   1. The data is durable. No retry from the agent is necessary.
+    //   2. submitResult() rejects re-submission of completed tasks with
+    //      HTTP 400, so a 5xx -> agent-retry loop would deadlock.
+    //   3. Returning 200 prevents the "Invalid state transition" log
+    //      pollution caused by agents giving up after exhausted retries.
     if (task.type === 'execute_test') {
-      ingestResult(task, result).then(() => {
-        // Evaluate alert thresholds after successful ingestion
-        alertsService.evaluateAndNotify(
-          task.payload.test_name,
-          result.hostname ?? 'unknown',
-        ).catch((err) => {
-          console.error('[Alerts] Evaluation failed for task %s:', task.id,
-            err instanceof Error ? err.message : err);
-        });
-      }).catch((err) => {
-        console.error('[ES Ingestion] Failed for task %s:', task.id,
+      try {
+        await ingestResult(task, result);
+        markTaskIngested(task.id);
+      } catch (err) {
+        markIngestionFailed(task.id);
+        console.error(
+          '[ES Ingestion] task %s queued for retry (sync attempt failed): %s',
+          task.id,
+          err instanceof Error ? err.message : err,
+        );
+      }
+
+      // Alert evaluation is non-critical for ack — let it run async and
+      // log on failure. Even if ingestion failed, alerts still evaluate
+      // against whatever data IS in ES.
+      alertsService.evaluateAndNotify(
+        task.payload.test_name,
+        result.hostname ?? 'unknown',
+      ).catch((err) => {
+        console.error('[Alerts] Evaluation failed for task %s:', task.id,
           err instanceof Error ? err.message : err);
       });
     }

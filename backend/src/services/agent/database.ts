@@ -285,6 +285,23 @@ function initializeTables(database: Database.Database): void {
   if (!taskRetryColNames.has('original_task_id')) {
     database.exec(`ALTER TABLE tasks ADD COLUMN original_task_id TEXT DEFAULT NULL`);
   }
+
+  // Migration: ES ingestion tracking. Result ingestion is async-with-retry —
+  // the route stores the result in SQLite (durable), then attempts ES bulk
+  // ingestion. On failure we leave es_ingested=0 and let the background
+  // worker retry. ingest_attempts caps retries (10) to prevent infinite
+  // loops on permanent failures (e.g. ES mapping conflicts).
+  if (!taskRetryColNames.has('es_ingested')) {
+    database.prepare(`ALTER TABLE tasks ADD COLUMN es_ingested INTEGER NOT NULL DEFAULT 0`).run();
+  }
+  if (!taskRetryColNames.has('ingest_attempts')) {
+    database.prepare(`ALTER TABLE tasks ADD COLUMN ingest_attempts INTEGER NOT NULL DEFAULT 0`).run();
+  }
+  if (!taskRetryColNames.has('last_ingest_attempt_at')) {
+    database.prepare(`ALTER TABLE tasks ADD COLUMN last_ingest_attempt_at TEXT DEFAULT NULL`).run();
+  }
+  // Hot path for the retry worker: filter by status + ingestion flag.
+  database.prepare(`CREATE INDEX IF NOT EXISTS idx_tasks_es_ingested ON tasks(status, es_ingested)`).run();
 }
 
 function migrateDarwinConstraint(database: Database.Database): void {
@@ -424,6 +441,9 @@ function migrateExecuteCommandType(database: Database.Database): void {
     colSet.has('retry_count') ? 'retry_count INTEGER DEFAULT 0' : null,
     colSet.has('max_retries') ? 'max_retries INTEGER DEFAULT 2' : null,
     colSet.has('original_task_id') ? 'original_task_id TEXT DEFAULT NULL' : null,
+    colSet.has('es_ingested') ? 'es_ingested INTEGER NOT NULL DEFAULT 0' : null,
+    colSet.has('ingest_attempts') ? 'ingest_attempts INTEGER NOT NULL DEFAULT 0' : null,
+    colSet.has('last_ingest_attempt_at') ? 'last_ingest_attempt_at TEXT DEFAULT NULL' : null,
   ].filter(Boolean);
 
   database.exec(`DROP TABLE IF EXISTS tasks_new`);

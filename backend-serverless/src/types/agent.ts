@@ -225,6 +225,11 @@ export interface Task {
   retry_count: number;
   max_retries: number;
   original_task_id: string | null;
+  /** ES ingestion tracking: 1 = ingested, 0 = pending or failed */
+  es_ingested: number;
+  /** Attempts made by route + retry worker; capped at MAX_INGEST_ATTEMPTS */
+  ingest_attempts: number;
+  last_ingest_attempt_at: string | null;
 }
 
 export interface TaskGroup {

@@ -25,6 +25,7 @@ import { processSchedules } from './services/agent/schedules.service.js';
 import { processAutoRotation } from './services/agent/autoRotation.service.js';
 import { pruneHeartbeatHistory, detectOfflineAgents } from './services/agent/heartbeat.service.js';
 import { initCatalog } from './services/agent/test-catalog.service.js';
+import { startIngestionRetryWorker, stopIngestionRetryWorker } from './services/agent/ingestionWorker.service.js';
 import type { TestSource } from './types/test.js';
 import { IntegrationsSettingsService } from './services/integrations/settings.js';
 import { defenderSyncService } from './api/integrations.routes.js';
@@ -342,6 +343,12 @@ function startBackgroundJobs(httpServer?: http.Server) {
     });
   }, 60_000);
 
+  // --- ES ingestion retry worker: every 5 min ---
+  // Drains tasks where the synchronous ingestion attempt in the result
+  // route failed. Capped at MAX_INGEST_ATTEMPTS=10 retries per task to
+  // avoid burning ES capacity on permanent failures.
+  startIngestionRetryWorker();
+
   // --- Defender sync: scores every 6h, alerts every 5min ---
   let defenderScoreInterval: ReturnType<typeof setInterval> | undefined;
   let defenderAlertInterval: ReturnType<typeof setInterval> | undefined;
@@ -376,6 +383,7 @@ function startBackgroundJobs(httpServer?: http.Server) {
     clearInterval(autoRotationInterval);
     clearInterval(heartbeatPruneInterval);
     clearInterval(offlineDetectionInterval);
+    stopIngestionRetryWorker();
     if (defenderScoreInterval) clearInterval(defenderScoreInterval);
     if (defenderAlertInterval) clearInterval(defenderAlertInterval);
     if (httpServer) httpServer.close();
