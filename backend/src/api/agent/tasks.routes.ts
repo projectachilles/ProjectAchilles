@@ -20,6 +20,7 @@ import {
   markIngestionFailed,
 } from '../../services/agent/tasks.service.js';
 import { ingestResult } from '../../services/agent/results.service.js';
+import { retryPendingIngestions } from '../../services/agent/ingestionWorker.service.js';
 import { alertsService } from '../integrations.routes.js';
 import { validate } from '../../middleware/validation.js';
 import { UpdateTaskStatusSchema, TaskResultSchema } from '../../schemas/agent.schemas.js';
@@ -369,5 +370,26 @@ adminTasksRouter.patch(
     const task = updateTaskNotes(req.params.id, content, userId);
 
     res.json({ success: true, data: task });
+  })
+);
+
+/**
+ * POST /admin/ingestion/retry
+ * Manually drain the ES ingestion backlog. Mirrors the Vercel cron
+ * endpoint /api/cron/retry-ingestion in serverless deployments — gives
+ * Docker / Render / Fly.io / Railway operators a uniform "force-drain
+ * now" surface alongside the automatic 5-minute setInterval worker.
+ *
+ * Returns a RetryReport: { attempted, succeeded, failed, permanentlyFailed }.
+ * Bounded by MAX_INGEST_ATTEMPTS (10) per task — tasks at the cap are
+ * counted in `permanentlyFailed` but not retried until their attempt
+ * counter is manually reset.
+ */
+adminTasksRouter.post(
+  '/ingestion/retry',
+  requirePermission('endpoints:tasks:create'),
+  asyncHandler(async (_req, res) => {
+    const report = await retryPendingIngestions();
+    res.json({ success: true, data: report });
   })
 );

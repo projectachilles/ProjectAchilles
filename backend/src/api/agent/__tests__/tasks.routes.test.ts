@@ -43,9 +43,14 @@ vi.mock('../../../services/agent/test-catalog.service.js', () => ({
   getTestMetadata: () => null,
 }));
 
-// Mock results ingestion (fire-and-forget in POST /tasks/:id/result)
+// Mock results ingestion (sync attempt path in POST /tasks/:id/result)
 vi.mock('../../../services/agent/results.service.js', () => ({
   ingestResult: vi.fn().mockResolvedValue(undefined),
+}));
+
+// Mock the ingestion retry worker so the admin endpoint test is hermetic.
+vi.mock('../../../services/agent/ingestionWorker.service.js', () => ({
+  retryPendingIngestions: vi.fn(),
 }));
 
 mockClerkMiddleware();
@@ -423,6 +428,46 @@ describe('tasks routes', () => {
       expect(row.ingest_attempts).toBe(1);
       // Result is preserved so the worker can replay it
       expect(JSON.parse(row.result).exit_code).toBe(101);
+    });
+  });
+
+  describe('POST /admin/ingestion/retry', () => {
+    it('runs retryPendingIngestions and returns the report', async () => {
+      const app = createApp();
+
+      const { retryPendingIngestions } = await import('../../../services/agent/ingestionWorker.service.js');
+      vi.mocked(retryPendingIngestions).mockResolvedValueOnce({
+        attempted: 5,
+        succeeded: 4,
+        failed: 1,
+        permanentlyFailed: 0,
+      });
+
+      const res = await request(app).post('/admin/ingestion/retry').send({});
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        success: true,
+        data: { attempted: 5, succeeded: 4, failed: 1, permanentlyFailed: 0 },
+      });
+      expect(retryPendingIngestions).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports zero-attempted when nothing is pending', async () => {
+      const app = createApp();
+
+      const { retryPendingIngestions } = await import('../../../services/agent/ingestionWorker.service.js');
+      vi.mocked(retryPendingIngestions).mockResolvedValueOnce({
+        attempted: 0,
+        succeeded: 0,
+        failed: 0,
+        permanentlyFailed: 0,
+      });
+
+      const res = await request(app).post('/admin/ingestion/retry').send({});
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.attempted).toBe(0);
     });
   });
 });
