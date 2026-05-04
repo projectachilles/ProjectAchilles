@@ -621,5 +621,67 @@ describe('DefenderAnalyticsService', () => {
       expect(termsFilter).toBeDefined();
       expect(termsFilter.terms.mitre_techniques).toEqual(['T1003', 'T1059']);
     });
+
+    it('uses the shared evidence-correlation helper when binaryName + hostname + bundleName are provided', async () => {
+      // Drift fix: the per-row drill-down must use the SAME query the
+      // enrichment pass uses, otherwise badges and alert lists disagree.
+      // Verifies the primary block delegates to buildDefenderEvidenceQuery
+      // by checking for the helper's signature shape: a should[] containing
+      // both bare and `.keyword` filename wildcards, and a filepath
+      // bundle-name-token clause when bundle_name is provided.
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 1 }, hits: [{ _source: {
+          alert_id: 'a-eicar', alert_title: 'EICAR_Test_File prevented',
+          description: '', severity: 'informational', status: 'resolved',
+          category: 'Malware', service_source: 'MDE', mitre_techniques: [],
+          created_at: '2026-05-03T19:01:05Z', updated_at: '2026-05-03T19:12:15Z',
+          resolved_at: '2026-05-03T19:12:15Z', recommended_actions: '',
+        } }] },
+      });
+
+      await service.getAlertsForTest(
+        ['T1562.001'],
+        '2026-05-03T19:12:00Z',
+        30,
+        'SBL3483',
+        '5e59dd6a-6c87-4377-942c-ea9b5e054cb9.exe',
+        'BlueHammer Early-Stage Behavioral Pattern',
+      );
+
+      const searchCall = mockSearch.mock.calls[0][0];
+      const must = searchCall.query.bool.must as any[];
+
+      // Hostname clause: should[] with bare + .keyword variants
+      const hostShould = must.find((c: any) =>
+        'bool' in c && c.bool.should?.some((s: any) =>
+          'wildcard' in s && (
+            'evidence_hostnames' in s.wildcard
+            || 'evidence_hostnames.keyword' in s.wildcard
+          ),
+        ),
+      );
+      expect(hostShould).toBeDefined();
+      expect(hostShould.bool.minimum_should_match).toBe(1);
+
+      // File-or-path should[] contains both filename wildcards AND filepath
+      // bundle-name-token (`*bluehammer*`) — proves the helper is used and
+      // bundle_name is being plumbed through.
+      const fileOrPath = must.find((c: any) =>
+        'bool' in c && c.bool.should?.some((s: any) =>
+          'wildcard' in s && (
+            'evidence_filepaths' in s.wildcard
+            || 'evidence_filepaths.keyword' in s.wildcard
+          ),
+        ),
+      );
+      expect(fileOrPath).toBeDefined();
+      const tokenClauses = fileOrPath.bool.should.filter((s: any) =>
+        'wildcard' in s && (
+          s.wildcard.evidence_filepaths?.value === '*bluehammer*'
+          || s.wildcard['evidence_filepaths.keyword']?.value === '*bluehammer*'
+        ),
+      );
+      expect(tokenClauses).toHaveLength(2);
+    });
   });
 });

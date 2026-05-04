@@ -145,6 +145,8 @@ export interface DefenderAlertDoc {
   recommended_actions: string;
   evidence_hostnames: string[];
   evidence_filenames: string[];
+  /** Filepaths from evidence (lowercased). Issue #2 / Option B — see backend/ */
+  evidence_filepaths: string[];
   /** Achilles correlation + auto-resolve state. See backend/ for field semantics. */
   f0rtika?: {
     achilles_correlated?: boolean;

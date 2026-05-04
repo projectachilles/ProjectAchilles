@@ -118,6 +118,7 @@ router.get('/correlation/alerts-for-test', requirePermission('analytics:dashboar
   const windowMinutes = parseInt(String(req.query.windowMinutes ?? '30'), 10);
   const hostname = req.query.hostname ? String(req.query.hostname) : undefined;
   const binaryName = req.query.binaryName ? String(req.query.binaryName) : undefined;
+  const bundleName = req.query.bundleName ? String(req.query.bundleName) : undefined;
 
   if (!techniques || !timestamp) {
     throw new AppError('techniques and timestamp are required', 400);
@@ -129,6 +130,7 @@ router.get('/correlation/alerts-for-test', requirePermission('analytics:dashboar
     windowMinutes,
     hostname,
     binaryName,
+    bundleName,
   );
   res.json(data);
 }));

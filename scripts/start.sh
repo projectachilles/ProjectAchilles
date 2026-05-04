@@ -1750,8 +1750,13 @@ export GIT_TERMINAL_PROMPT=0
 echo "Starting backend server on port $BACKEND_PORT..."
 cd "$PROJECT_ROOT/backend"
 if [ "$DAEMON_MODE" = true ]; then
-    # Build and use compiled server for daemon mode (tsx watch exits in non-interactive shells)
-    if [ ! -f "dist/server.js" ] || [ "src/server.ts" -nt "dist/server.js" ]; then
+    # Build and use compiled server for daemon mode (tsx watch exits in non-interactive shells).
+    # Trigger a rebuild when ANY .ts file under src/ is newer than dist/server.js — not only
+    # src/server.ts itself, otherwise edits to deeply-nested service files leave dist/ stale and
+    # the running daemon silently serves old code (the failure mode is invisible because the
+    # build never runs and there's no compile error to flag the drift).
+    if [ ! -f "dist/server.js" ] \
+       || [ -n "$(find src -name '*.ts' -newer dist/server.js -print -quit 2>/dev/null)" ]; then
         echo "  Building backend..."
         npm run build > /dev/null 2>&1
     fi

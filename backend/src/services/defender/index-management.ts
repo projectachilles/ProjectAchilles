@@ -55,9 +55,12 @@ export const DEFENDER_INDEX_MAPPING = {
       resolved_at: { type: 'date' as const },
       recommended_actions: { type: 'text' as const },
       // text + .keyword multi-field: matches the dynamic mapping that ES
-      // produced for the original index. Queries must target the .keyword
-      // subfield for exact / wildcard matches on hyphenated UUIDs, since
-      // the parent text field tokenizes on '-' and '.'.
+      // produced for the original index on Render. Queries target both the
+      // bare field and the .keyword subfield in a should[] disjunction —
+      // some legacy clusters (commit 63236dd era) declared bare keyword
+      // and ES rejects keyword→text type changes, so the mapping is
+      // permanent on a given cluster. Tolerating either shape via the
+      // query is safer than chasing the mapping. See evidence-correlation.ts.
       evidence_hostnames: {
         type: 'text' as const,
         fields: { keyword: { type: 'keyword' as const, ignore_above: 256 } },
@@ -65,6 +68,12 @@ export const DEFENDER_INDEX_MAPPING = {
       evidence_filenames: {
         type: 'text' as const,
         fields: { keyword: { type: 'keyword' as const, ignore_above: 256 } },
+      },
+      // Filepaths for substring matching (Issue #2 / Option B). ignore_above
+      // is larger than for filenames because Windows paths can be long.
+      evidence_filepaths: {
+        type: 'text' as const,
+        fields: { keyword: { type: 'keyword' as const, ignore_above: 1024 } },
       },
 
       // Achilles correlation + auto-resolve fields.

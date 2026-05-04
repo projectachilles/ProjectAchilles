@@ -31,7 +31,7 @@ const INITIAL_ALERT_LOOKBACK_DAYS = 90;
  * force a full re-sync on all deployments. The persisted sync_version is
  * compared against this; a mismatch clears lastAlertSync.
  */
-const ALERT_SYNC_VERSION = 2; // v2: evidence_hostnames + evidence_filenames
+const ALERT_SYNC_VERSION = 3; // v3: + evidence_filepaths (Issue #2 / Option B)
 
 export class DefenderSyncService {
   private graphClient: MicrosoftGraphClient | null = null;
@@ -184,25 +184,39 @@ export class DefenderSyncService {
   }
 
   private transformAlert(alert: GraphAlert, tenantId: string): DefenderAlertDoc {
-    // Extract hostnames and filenames from evidence for precise correlation
+    // Extract hostnames, filenames, and filepaths from evidence for precise
+    // correlation. Filepaths recover AV-only alerts (Issue #2 / Option B):
+    // Defender's static-AV file detections often carry only a dropped-file
+    // path in evidence — no calling binary chain — so without filepath
+    // capture they are uncorrelatable via filename matching alone.
     const hostnames = new Set<string>();
     const filenames = new Set<string>();
+    const filepaths = new Set<string>();
 
     for (const ev of alert.evidence ?? []) {
       // Device evidence → hostname
       if (ev.deviceDnsName) {
         hostnames.add(ev.deviceDnsName.toUpperCase());
       }
-      // Process evidence → binary filename
+      // Process evidence → binary filename + binary path
       if (ev.imageFile?.fileName) {
         filenames.add(ev.imageFile.fileName.toLowerCase());
+      }
+      if (ev.imageFile?.filePath) {
+        filepaths.add(ev.imageFile.filePath.toLowerCase());
       }
       if (ev.parentProcess?.imageFile?.fileName) {
         filenames.add(ev.parentProcess.imageFile.fileName.toLowerCase());
       }
-      // File evidence → filename
+      if (ev.parentProcess?.imageFile?.filePath) {
+        filepaths.add(ev.parentProcess.imageFile.filePath.toLowerCase());
+      }
+      // File evidence → filename + path
       if (ev.fileDetails?.fileName) {
         filenames.add(ev.fileDetails.fileName.toLowerCase());
+      }
+      if (ev.fileDetails?.filePath) {
+        filepaths.add(ev.fileDetails.filePath.toLowerCase());
       }
     }
 
@@ -224,6 +238,7 @@ export class DefenderSyncService {
       recommended_actions: alert.recommendedActions ?? '',
       evidence_hostnames: Array.from(hostnames),
       evidence_filenames: Array.from(filenames),
+      evidence_filepaths: Array.from(filepaths),
     };
   }
 

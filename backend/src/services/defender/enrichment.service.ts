@@ -78,6 +78,7 @@ export class DefenderEnrichmentService {
           test_uuid: testUuid,
           routing_event_time: routing.event_time ?? '',
           routing_hostname: routing.hostname ?? '',
+          bundle_name: src.bundle_name,
         });
         if (!query) {
           result.skipped += 1;

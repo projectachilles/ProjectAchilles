@@ -31,7 +31,7 @@ const INITIAL_ALERT_LOOKBACK_DAYS = 90;
  * Bump this when the alert schema changes (e.g. new extracted fields) to
  * force a full re-sync on all deployments.
  */
-const ALERT_SYNC_VERSION = 2; // v2: evidence_hostnames + evidence_filenames
+const ALERT_SYNC_VERSION = 3; // v3: + evidence_filepaths (Issue #2 / Option B)
 
 export class DefenderSyncService {
   private graphClient: MicrosoftGraphClient | null = null;
@@ -154,14 +154,21 @@ export class DefenderSyncService {
   }
 
   private transformAlert(alert: GraphAlert, tenantId: string): DefenderAlertDoc {
+    // Extract hostnames, filenames, and filepaths for correlation. Filepaths
+    // recover AV-only alerts whose evidence has only a dropped-file path
+    // (Issue #2 / Option B). Mirror of backend/ transformAlert.
     const hostnames = new Set<string>();
     const filenames = new Set<string>();
+    const filepaths = new Set<string>();
 
     for (const ev of alert.evidence ?? []) {
       if (ev.deviceDnsName) hostnames.add(ev.deviceDnsName.toUpperCase());
       if (ev.imageFile?.fileName) filenames.add(ev.imageFile.fileName.toLowerCase());
+      if (ev.imageFile?.filePath) filepaths.add(ev.imageFile.filePath.toLowerCase());
       if (ev.parentProcess?.imageFile?.fileName) filenames.add(ev.parentProcess.imageFile.fileName.toLowerCase());
+      if (ev.parentProcess?.imageFile?.filePath) filepaths.add(ev.parentProcess.imageFile.filePath.toLowerCase());
       if (ev.fileDetails?.fileName) filenames.add(ev.fileDetails.fileName.toLowerCase());
+      if (ev.fileDetails?.filePath) filepaths.add(ev.fileDetails.filePath.toLowerCase());
     }
 
     return {
@@ -182,6 +189,7 @@ export class DefenderSyncService {
       recommended_actions: alert.recommendedActions ?? '',
       evidence_hostnames: Array.from(hostnames),
       evidence_filenames: Array.from(filenames),
+      evidence_filepaths: Array.from(filepaths),
     };
   }
 
