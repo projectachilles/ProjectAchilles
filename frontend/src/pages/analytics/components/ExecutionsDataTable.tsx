@@ -26,6 +26,7 @@ import {
 import type { ScoringMode } from '@/hooks/useScoringMode';
 import { formatDistanceToNow, isValid, format } from 'date-fns';
 import type { EnrichedTestExecution, SeverityLevel, CategoryType, GroupedPaginatedResponse, ExecutionGroup, RiskAcceptance } from '@/services/api/analytics';
+import { findAcceptanceForExec } from '../utils/riskAcceptanceLookup';
 import {
   Table,
   TableBody,
@@ -392,21 +393,21 @@ export default function ExecutionsDataTable({
   const riskEnabled = !!onAcceptRisk;
 
   /** Look up active risk acceptance for a given execution. */
-  const getAcceptanceForExec = useCallback((exec: EnrichedTestExecution): RiskAcceptance | undefined => {
-    if (!riskAcceptances) return undefined;
-    const key = exec.control_id ? `${exec.test_name}::${exec.control_id}` : exec.test_name;
-    const matches = riskAcceptances.get(key);
-    if (!matches || matches.length === 0) return undefined;
-    // If there's a host-specific acceptance for this hostname, prefer it
-    const hostMatch = matches.find(a => a.hostname === exec.hostname);
-    if (hostMatch) return hostMatch;
-    // Otherwise return a global acceptance
-    return matches.find(a => !a.hostname);
-  }, [riskAcceptances]);
+  const getAcceptanceForExec = useCallback(
+    (exec: EnrichedTestExecution): RiskAcceptance | undefined =>
+      findAcceptanceForExec(exec, riskAcceptances ?? null),
+    [riskAcceptances],
+  );
 
   const handleAcceptRiskConfirm = async () => {
     if (!riskAcceptItems || !onAcceptRisk || riskJustification.trim().length < 10) return;
-    const itemsWithScope = riskAcceptItems.map(item => ({ ...item, scope: riskScope }));
+    // When scope is 'global', drop hostname so the persisted record is unambiguously
+    // org-wide. Storing both fields confused readers that didn't honor `scope`.
+    const itemsWithScope = riskAcceptItems.map(item => ({
+      ...item,
+      scope: riskScope,
+      hostname: riskScope === 'host' ? item.hostname : undefined,
+    }));
     await onAcceptRisk(itemsWithScope, riskJustification.trim());
     setRiskAcceptItems(null);
     setRiskJustification('');
