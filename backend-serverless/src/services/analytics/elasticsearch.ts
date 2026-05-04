@@ -249,13 +249,15 @@ export class ElasticsearchService {
       const counts = await this.runCombinedScoreQuery(adjustedFilters);
       const combinedScore = counts.total > 0 ? (counts.combinedProtected / counts.total) * 100 : 0;
       const strictScore = counts.total > 0 ? (counts.strictProtected / counts.total) * 100 : 0;
+      const rounded = Math.round(combinedScore * 100) / 100;
       return {
-        score: Math.round(combinedScore * 100) / 100,
+        score: rounded,
         protectedCount: counts.strictProtected,
         detectedCount: counts.combinedProtected - counts.strictProtected,
         unprotectedCount: counts.total - counts.combinedProtected,
         totalExecutions: counts.total,
         realScore: Math.round(strictScore * 100) / 100,
+        rawScore: rounded, // no exclusion ⇒ raw == adjusted
         riskAcceptedCount: 0,
       };
     }
@@ -268,6 +270,7 @@ export class ElasticsearchService {
 
     const adjustedCombined = adjusted.total > 0 ? (adjusted.combinedProtected / adjusted.total) * 100 : 0;
     const adjustedStrict = adjusted.total > 0 ? (adjusted.strictProtected / adjusted.total) * 100 : 0;
+    const rawCombined = raw.total > 0 ? (raw.combinedProtected / raw.total) * 100 : 0;
 
     return {
       score: Math.round(adjustedCombined * 100) / 100,
@@ -279,6 +282,7 @@ export class ElasticsearchService {
       realProtectedCount: raw.combinedProtected,
       realUnprotectedCount: raw.total - raw.combinedProtected,
       realTotalExecutions: raw.total,
+      rawScore: Math.round(rawCombined * 100) / 100,
       riskAcceptedCount: Math.max(0, raw.total - adjusted.total),
     };
   }

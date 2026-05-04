@@ -27,11 +27,13 @@ export interface DefenseScoreResponse {
   /** Documents where neither is_protected nor defender_detected. Mutually exclusive with the above. */
   unprotectedCount: number;
   totalExecutions: number;
-  /** EDR-only (strict) score: protected / total × 100. Also carries pre-risk-acceptance semantics when risk acceptance is active. */
+  /** EDR-only (strict) score: protected / total × 100, computed on the same exclusion-filtered base as `score`. */
   realScore?: number;
   realProtectedCount?: number;
   realUnprotectedCount?: number;
   realTotalExecutions?: number;
+  /** Combined score computed against the unfiltered (pre-risk-acceptance) base — i.e. what `score` would be if no acceptances were active. Equals `score` when `riskAcceptedCount === 0`. */
+  rawScore?: number;
   riskAcceptedCount?: number;
 }
 
