@@ -31,9 +31,12 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends git openssl osslsigncode wget curl ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Go with checksum verification (required for agent cross-compilation at runtime)
-ARG GO_VERSION=1.24.3
-ARG GO_SHA256=3333f6ea53afa971e9078895eaa4ac7204a8c6b5c68c10e6bc9a33e8e391bdd8
+# Install Go with checksum verification (required for agent cross-compilation at runtime).
+# Must be >= the `go` directive in agent/go.mod, otherwise `go mod tidy` triggers an
+# auto-toolchain download to /root/.projectachilles/go-cache (~140 MB) which can blow
+# the 1 GB persistent-disk budget. Bump in lockstep with agent/go.mod.
+ARG GO_VERSION=1.25.9
+ARG GO_SHA256=00859d7bd6defe8bf84d9db9e57b9a4467b2887c18cd93ae7460e713db774bc1
 RUN curl -fsSL -o /tmp/go.tar.gz "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" && \
     echo "${GO_SHA256}  /tmp/go.tar.gz" | sha256sum -c - && \
     tar -C /usr/local -xzf /tmp/go.tar.gz && \
