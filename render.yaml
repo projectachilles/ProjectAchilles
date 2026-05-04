@@ -22,7 +22,8 @@ services:
     disk:
       name: achilles-data
       mountPath: /root/.projectachilles
-      sizeGB: 1
+      sizeGB: 5  # Bumped from 1 GB May-2026: agent build go-cache hit 681 MB
+                 # alone, leaving no headroom for the Go toolchain auto-download.
     envVars:
       - key: NODE_ENV
         value: production
