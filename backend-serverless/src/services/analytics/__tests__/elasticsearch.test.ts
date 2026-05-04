@@ -1022,6 +1022,23 @@ describe('elasticsearch.ts', () => {
       expect(searchCall.aggs.total_groups.cardinality.script).toBeDefined();
     });
 
+    // Regression mirror of backend/. The 30-min bucket made two runs of
+    // the same bundle on the same host within the same half-hour collapse
+    // into one display group. Now the group key uses exact event_time
+    // millis so each run gets its own row.
+    it('uses exact event_time millis (not a 30-min bucket) in the group key script', async () => {
+      mockCount.mockResolvedValue(esCountResponse(0));
+      mockSearch.mockResolvedValue(makeGroupedSearchResponse([], 0));
+
+      const svc = createService();
+      await svc.getGroupedPaginatedExecutions(makePaginatedParams());
+
+      const scriptSource: string = mockSearch.mock.calls[0][0].aggs.display_groups.terms.script.source;
+      expect(scriptSource).toMatch(/toEpochMilli\(\)/);
+      expect(scriptSource).not.toMatch(/1800000/);
+      expect(scriptSource).not.toMatch(/1_800_000/);
+    });
+
     it('returns correct pagination metadata', async () => {
       // 45 groups across 150 docs; page 2 of 25 per page = 2 total pages
       const buckets = Array.from({ length: 45 }, (_, i) =>

@@ -1036,6 +1036,32 @@ describe('elasticsearch.ts', () => {
       expect(searchCall.aggs.total_groups.cardinality.script).toBeDefined();
     });
 
+    // -----------------------------------------------------------------------
+    // Regression: two runs of the same bundle on the same host within the
+    // same 30-min window must NOT merge into one group. The original group-
+    // key script bucketed event_time as `epoch_ms / 1_800_000`, which made
+    // any two runs that landed in the same half-hour collide. Field evidence
+    // (see issue): two BlueHammer runs at 11:01:08Z and 11:08:30Z on the
+    // same host produced one merged group of "6 stages" instead of two
+    // separate groups of "3 stages" each. Fix: drop the bucket and key on
+    // the exact event_time millis — bundles share `result.completed_at`
+    // across all their controls, so members of one run still cluster.
+    // -----------------------------------------------------------------------
+    it('uses exact event_time millis (not a 30-min bucket) in the group key script', async () => {
+      mockCount.mockResolvedValue(esCountResponse(0));
+      mockSearch.mockResolvedValue(makeGroupedSearchResponse([], 0));
+
+      const svc = createService();
+      await svc.getGroupedPaginatedExecutions(makePaginatedParams());
+
+      const scriptSource: string = mockSearch.mock.calls[0][0].aggs.display_groups.terms.script.source;
+      // Must include exact-millis access; must NOT divide by 1_800_000 (the
+      // 30-min bucket window). The latter is the regression we're fixing.
+      expect(scriptSource).toMatch(/toEpochMilli\(\)/);
+      expect(scriptSource).not.toMatch(/1800000/);
+      expect(scriptSource).not.toMatch(/1_800_000/);
+    });
+
     it('returns correct pagination metadata', async () => {
       // 45 groups across 150 docs; page 2 of 25 per page = 2 total pages
       const buckets = Array.from({ length: 45 }, (_, i) =>
@@ -1654,13 +1680,12 @@ describe('elasticsearch.ts', () => {
   // Archive operations
   // ================================================================
   describe('archiveByGroupKeys', () => {
-    // Realistic keys match what the Painless groupKeyScript emits: 4 parts with
-    // a 30-min bucket as the final component. `bucket = event_time_ms / 1_800_000`.
-    // 1893456 corresponds to 2026-01-15T10:00:00Z (arbitrary, stable across tests).
-    const BUCKET = 1893456;
-    const BUCKET_MS = 1_800_000;
-    const BUCKET_START_MS = BUCKET * BUCKET_MS;
-    const BUCKET_END_MS = (BUCKET + 1) * BUCKET_MS;
+    // Realistic keys match what the Painless groupKeyScript emits: 4 parts
+    // with `routing.event_time` epoch-millis as the final component.
+    // 1736935200000 corresponds to 2025-01-15T10:00:00Z (arbitrary, stable
+    // across tests). Was previously a 30-min bucket; switched to exact
+    // millis to prevent two runs in the same half-hour from merging.
+    const EVENT_TIME_MS = 1_736_935_200_000;
 
     it('archives standalone group — reindex + delete called', async () => {
       mockIndicesExists.mockResolvedValue(true);
@@ -1668,7 +1693,7 @@ describe('elasticsearch.ts', () => {
       mockDeleteByQuery.mockResolvedValue({ deleted: 1 });
 
       const svc = createService({ indexPattern: 'achilles-results-*' });
-      const result = await svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${BUCKET}`]);
+      const result = await svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${EVENT_TIME_MS}`]);
 
       expect(result.archived).toBe(1);
       expect(result.errors).toHaveLength(0);
@@ -1681,18 +1706,20 @@ describe('elasticsearch.ts', () => {
       expect(reindexCall.source.index).toBe('achilles-results-*');
     });
 
-    it('archives bundle group — uses bundle_id + hostname + bucket range', async () => {
+    it('archives bundle group — uses bundle_id + hostname + exact event_time range', async () => {
       mockIndicesExists.mockResolvedValue(true);
       mockReindex.mockResolvedValue({ total: 5 });
       mockDeleteByQuery.mockResolvedValue({ deleted: 5 });
 
       const svc = createService({ indexPattern: 'achilles-results-*' });
-      const result = await svc.archiveByGroupKeys([`bundle::bundle-001::host-a::${BUCKET}`]);
+      const result = await svc.archiveByGroupKeys([`bundle::bundle-001::host-a::${EVENT_TIME_MS}`]);
 
       expect(result.archived).toBe(5);
       expect(mockReindex).toHaveBeenCalledOnce();
 
-      // Check the query includes bundle_id, hostname, and the 30-min time range.
+      // Check the query includes bundle_id, hostname, and the 1-ms window
+      // around the exact event_time. Every control of a bundle dispatch
+      // shares completed_at, so a 1-ms range catches the whole run.
       const query = mockReindex.mock.calls[0][0].source.query;
       const shouldClause = query.bool.should[0];
       expect(shouldClause.bool.filter).toEqual(
@@ -1702,8 +1729,8 @@ describe('elasticsearch.ts', () => {
           {
             range: {
               'routing.event_time': {
-                gte: BUCKET_START_MS,
-                lt: BUCKET_END_MS,
+                gte: EVENT_TIME_MS,
+                lt: EVENT_TIME_MS + 1,
                 format: 'epoch_millis',
               },
             },
@@ -1712,13 +1739,13 @@ describe('elasticsearch.ts', () => {
       );
     });
 
-    it('scopes standalone archive to the 30-min bucket window', async () => {
+    it('scopes standalone archive to the 1-ms event_time window', async () => {
       mockIndicesExists.mockResolvedValue(true);
       mockReindex.mockResolvedValue({ total: 1 });
       mockDeleteByQuery.mockResolvedValue({ deleted: 1 });
 
       const svc = createService({ indexPattern: 'achilles-results-*' });
-      await svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${BUCKET}`]);
+      await svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${EVENT_TIME_MS}`]);
 
       const query = mockReindex.mock.calls[0][0].source.query;
       const filters = query.bool.should[0].bool.filter;
@@ -1726,8 +1753,8 @@ describe('elasticsearch.ts', () => {
       expect(rangeFilter).toEqual({
         range: {
           'routing.event_time': {
-            gte: BUCKET_START_MS,
-            lt: BUCKET_END_MS,
+            gte: EVENT_TIME_MS,
+            lt: EVENT_TIME_MS + 1,
             format: 'epoch_millis',
           },
         },
@@ -1739,6 +1766,35 @@ describe('elasticsearch.ts', () => {
       expect(exclusion).toBeDefined();
     });
 
+    it('two runs of the same bundle in the same 30-min window archive independently', async () => {
+      // Regression: the old bucket-based key would have produced identical
+      // archive keys for these two runs (same 30-min bucket), and archiving
+      // one would have wiped both. Exact-millis keys keep them distinct.
+      mockIndicesExists.mockResolvedValue(true);
+      mockReindex.mockResolvedValue({ total: 3 });
+      mockDeleteByQuery.mockResolvedValue({ deleted: 3 });
+
+      const RUN_A_MS = 1_736_935_200_000; // 10:00:00.000Z
+      const RUN_B_MS = 1_736_935_510_000; // 10:05:10.000Z (same 30-min bucket)
+      const svc = createService({ indexPattern: 'achilles-results-*' });
+      await svc.archiveByGroupKeys([
+        `bundle::bundle-001::host-a::${RUN_A_MS}`,
+        `bundle::bundle-001::host-a::${RUN_B_MS}`,
+      ]);
+
+      const query = mockReindex.mock.calls[0][0].source.query;
+      // Two distinct should-clauses, one per run; each scoped to its own
+      // 1-ms window. If the parser had quietly bucketed these to the same
+      // window, only one clause would emit.
+      expect(query.bool.should).toHaveLength(2);
+      const ranges = query.bool.should
+        .map((s: any) => s.bool.filter.find((f: any) => f.range?.['routing.event_time']))
+        .map((f: any) => f.range['routing.event_time'].gte);
+      expect(ranges).toContain(RUN_A_MS);
+      expect(ranges).toContain(RUN_B_MS);
+      expect(ranges[0]).not.toBe(ranges[1]);
+    });
+
     it('creates archive index when missing', async () => {
       mockIndicesExists.mockResolvedValue(false);
       mockIndicesCreate.mockResolvedValue({});
@@ -1746,7 +1802,7 @@ describe('elasticsearch.ts', () => {
       mockDeleteByQuery.mockResolvedValue({ deleted: 1 });
 
       const svc = createService({ indexPattern: 'achilles-results-*' });
-      await svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${BUCKET}`]);
+      await svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${EVENT_TIME_MS}`]);
 
       expect(mockIndicesCreate).toHaveBeenCalledOnce();
       expect(mockIndicesCreate.mock.calls[0][0].index).toBe('archived-achilles-results');
@@ -1757,7 +1813,7 @@ describe('elasticsearch.ts', () => {
       mockReindex.mockResolvedValue({ total: 0 });
 
       const svc = createService({ indexPattern: 'achilles-results-*' });
-      const result = await svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${BUCKET}`]);
+      const result = await svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${EVENT_TIME_MS}`]);
 
       expect(result.archived).toBe(0);
       expect(mockDeleteByQuery).not.toHaveBeenCalled();
@@ -1770,8 +1826,8 @@ describe('elasticsearch.ts', () => {
 
       const svc = createService({ indexPattern: 'achilles-results-*' });
       const result = await svc.archiveByGroupKeys([
-        `bundle::b1::host-a::${BUCKET}`,
-        `standalone::uuid-001::host-b::${BUCKET}`,
+        `bundle::b1::host-a::${EVENT_TIME_MS}`,
+        `standalone::uuid-001::host-b::${EVENT_TIME_MS}`,
       ]);
 
       expect(result.archived).toBe(6);
@@ -1786,8 +1842,8 @@ describe('elasticsearch.ts', () => {
 
       const svc = createService({ indexPattern: 'achilles-results-*' });
       const result = await svc.archiveByGroupKeys([
-        `unknown::foo::host::${BUCKET}`,
-        `standalone::uuid-001::host-a::${BUCKET}`,
+        `unknown::foo::host::${EVENT_TIME_MS}`,
+        `standalone::uuid-001::host-a::${EVENT_TIME_MS}`,
       ]);
 
       expect(result.errors).toHaveLength(1);
@@ -1795,7 +1851,7 @@ describe('elasticsearch.ts', () => {
       expect(result.archived).toBe(1);
     });
 
-    it('rejects legacy 3-part group keys (pre-bucket format)', async () => {
+    it('rejects legacy 3-part group keys (pre-millis format)', async () => {
       const svc = createService({ indexPattern: 'achilles-results-*' });
       const result = await svc.archiveByGroupKeys(['bundle::bundle-001::host-a']);
 
@@ -1805,13 +1861,13 @@ describe('elasticsearch.ts', () => {
       expect(mockReindex).not.toHaveBeenCalled();
     });
 
-    it('rejects keys with non-numeric bucket', async () => {
+    it('rejects keys with non-numeric event_time', async () => {
       const svc = createService({ indexPattern: 'achilles-results-*' });
       const result = await svc.archiveByGroupKeys(['bundle::b1::host-a::notanumber']);
 
       expect(result.archived).toBe(0);
       expect(result.errors).toHaveLength(1);
-      expect(result.errors[0]).toContain('Invalid bucket');
+      expect(result.errors[0]).toContain('Invalid event_time');
       expect(mockReindex).not.toHaveBeenCalled();
     });
 
@@ -1838,7 +1894,7 @@ describe('elasticsearch.ts', () => {
 
       const svc = createService({ indexPattern: 'achilles-results-*' });
       await expect(
-        svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${BUCKET}`]),
+        svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${EVENT_TIME_MS}`]),
       ).rejects.toMatchObject({
         statusCode: 403,
         message: expect.stringContaining('indices.exists'),
@@ -1868,7 +1924,7 @@ describe('elasticsearch.ts', () => {
 
       const svc = createService({ indexPattern: 'achilles-results-*' });
       await expect(
-        svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${BUCKET}`]),
+        svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${EVENT_TIME_MS}`]),
       ).rejects.toMatchObject({
         statusCode: 403,
         message: expect.stringMatching(/indices:admin\/create.*unauthorized/),
@@ -1892,7 +1948,7 @@ describe('elasticsearch.ts', () => {
 
       const svc = createService({ indexPattern: 'achilles-results-*' });
       await expect(
-        svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${BUCKET}`]),
+        svc.archiveByGroupKeys([`standalone::uuid-001::host-a::${EVENT_TIME_MS}`]),
       ).rejects.toMatchObject({
         statusCode: 403,
         message: expect.stringContaining('no privilege [write]'),
