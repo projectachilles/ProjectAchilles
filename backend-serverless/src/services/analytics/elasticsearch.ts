@@ -1302,17 +1302,21 @@ export class ElasticsearchService {
     const sortOrder = params.sortOrder || 'desc';
 
     // Painless script that computes a display group key per document.
-    // Includes a 30-minute time bucket so separate runs of the same test
-    // on the same host get distinct groups instead of merging.
+    // Mirror of backend/. Fourth segment is the EXACT `routing.event_time`
+    // in epoch millis — every control of one bundle dispatch shares the
+    // same `result.completed_at`, so members cluster while two different
+    // runs always produce distinct keys (the agent doesn't run bundles in
+    // parallel). Was previously `epoch_ms / 1_800_000` (30-min bucket),
+    // which silently merged any two runs in the same half-hour window.
     const groupKeyScript = {
       source: `
-        long bucket = doc['routing.event_time'].value.toInstant().toEpochMilli() / 1800000L;
+        long t = doc['routing.event_time'].value.toInstant().toEpochMilli();
         if (doc.containsKey('f0rtika.is_bundle_control')
             && doc['f0rtika.is_bundle_control'].size() > 0
             && doc['f0rtika.is_bundle_control'].value == true) {
-          return 'bundle::' + doc['f0rtika.bundle_id'].value + '::' + doc['routing.hostname'].value + '::' + bucket;
+          return 'bundle::' + doc['f0rtika.bundle_id'].value + '::' + doc['routing.hostname'].value + '::' + t;
         } else {
-          return 'standalone::' + doc['f0rtika.test_uuid'].value + '::' + doc['routing.hostname'].value + '::' + bucket;
+          return 'standalone::' + doc['f0rtika.test_uuid'].value + '::' + doc['routing.hostname'].value + '::' + t;
         }
       `,
       lang: 'painless',

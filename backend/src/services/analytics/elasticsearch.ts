@@ -1490,19 +1490,30 @@ export class ElasticsearchService {
     const sortOrder = params.sortOrder || 'desc';
 
     // Painless script that computes a display group key per document.
-    // Includes a 30-minute time bucket so separate runs of the same test
-    // on the same host get distinct groups instead of merging.
-    //   bundle controls → "bundle::<bundle_id>::<hostname>::<time_bucket>"
-    //   standalone tests → "standalone::<test_uuid>::<hostname>::<time_bucket>"
+    // The fourth segment is the EXACT `routing.event_time` in milliseconds
+    // since epoch. Every control of one bundle dispatch shares the same
+    // `result.completed_at` (set once per run on the agent), so members
+    // cluster correctly. Two separate runs of the same bundle on the same
+    // host always have distinct completion timestamps (the agent doesn't
+    // run bundles in parallel), so they always produce distinct group
+    // keys — no merge.
+    //
+    // Was previously bucketed as `epoch_ms / 1_800_000` (30-min window),
+    // which silently merged any two runs that landed in the same half-hour.
+    // Field reproduction: two BlueHammer runs at 11:01:08Z and 11:08:30Z
+    // on the same host collapsed into one group of "6 stages". Removing
+    // the bucket math is the fix.
+    //   bundle controls → "bundle::<bundle_id>::<hostname>::<event_time_ms>"
+    //   standalone tests → "standalone::<test_uuid>::<hostname>::<event_time_ms>"
     const groupKeyScript = {
       source: `
-        long bucket = doc['routing.event_time'].value.toInstant().toEpochMilli() / 1800000L;
+        long t = doc['routing.event_time'].value.toInstant().toEpochMilli();
         if (doc.containsKey('f0rtika.is_bundle_control')
             && doc['f0rtika.is_bundle_control'].size() > 0
             && doc['f0rtika.is_bundle_control'].value == true) {
-          return 'bundle::' + doc['f0rtika.bundle_id'].value + '::' + doc['routing.hostname'].value + '::' + bucket;
+          return 'bundle::' + doc['f0rtika.bundle_id'].value + '::' + doc['routing.hostname'].value + '::' + t;
         } else {
-          return 'standalone::' + doc['f0rtika.test_uuid'].value + '::' + doc['routing.hostname'].value + '::' + bucket;
+          return 'standalone::' + doc['f0rtika.test_uuid'].value + '::' + doc['routing.hostname'].value + '::' + t;
         }
       `,
       lang: 'painless',
@@ -2302,29 +2313,37 @@ export class ElasticsearchService {
    *
    * Group key format (matches what the Executions listing emits — see
    * groupKeyScript earlier in this file):
-   *   "bundle::<bundle_id>::<hostname>::<bucket>"        — one 30-min-bucketed run
-   *   "standalone::<test_uuid>::<hostname>::<bucket>"    — one 30-min-bucketed run
+   *   "bundle::<bundle_id>::<hostname>::<event_time_ms>"     — one specific run
+   *   "standalone::<test_uuid>::<hostname>::<event_time_ms>" — one specific run
    *
-   * The bucket is `event_time_ms / 1800000` (30 minutes). Archive scopes its
-   * filter to the matching [bucket_start, bucket_start+30min) range so clicking
-   * one row in the UI archives only that row's docs, not all historical runs
-   * of the same (bundle, host) pair.
+   * The fourth segment is the EXACT `routing.event_time` in milliseconds
+   * since epoch. Archive scopes its filter to a 1-ms window centered on
+   * that timestamp — every control of a single bundle dispatch shares the
+   * same `result.completed_at`, so the entire run's docs are captured.
    *
-   * Legacy 3-part keys (pre-bucket, from older clients) are rejected — the UI
-   * has not emitted them since c28fee4 (2026-04-08).
+   * Was previously a 30-min bucket (`event_time_ms / 1_800_000`); the
+   * bucketing collapsed two runs in the same half-hour into one group,
+   * which broke both the listing AND archive scoping. The new key is
+   * exact-millis, so each run gets its own row and archive scoping
+   * targets that one run's docs.
+   *
+   * Legacy 3-part keys (pre-millis-bucket era, pre-c28fee4 / 2026-04-08)
+   * are rejected — UI hasn't emitted them in over a month.
    */
   async archiveByGroupKeys(
     groupKeys: string[],
   ): Promise<{ archived: number; errors: string[] }> {
-    const BUCKET_MS = 1_800_000; // 30 minutes
     const errors: string[] = [];
     const shouldClauses: any[] = [];
 
-    const bucketRange = (bucket: number) => ({
+    // Match the exact event_time millis. We use a 1-ms range rather than a
+    // term filter because `routing.event_time` is a date field and ES is
+    // pickier about term equality on dates than on a small range.
+    const eventTimeRange = (eventTimeMs: number) => ({
       range: {
         'routing.event_time': {
-          gte: bucket * BUCKET_MS,
-          lt: (bucket + 1) * BUCKET_MS,
+          gte: eventTimeMs,
+          lt: eventTimeMs + 1,
           format: 'epoch_millis',
         },
       },
@@ -2336,10 +2355,10 @@ export class ElasticsearchService {
         errors.push(`Invalid group key (expected 4 parts, got ${parts.length}): ${key}`);
         continue;
       }
-      const [prefix, id, hostname, bucketStr] = parts;
-      const bucket = Number.parseInt(bucketStr, 10);
-      if (!Number.isFinite(bucket)) {
-        errors.push(`Invalid bucket in group key: ${key}`);
+      const [prefix, id, hostname, eventTimeStr] = parts;
+      const eventTimeMs = Number.parseInt(eventTimeStr, 10);
+      if (!Number.isFinite(eventTimeMs) || eventTimeMs <= 0) {
+        errors.push(`Invalid event_time millis in group key: ${key}`);
         continue;
       }
 
@@ -2349,7 +2368,7 @@ export class ElasticsearchService {
             filter: [
               { term: { 'f0rtika.bundle_id': id } },
               { term: { 'routing.hostname': hostname } },
-              bucketRange(bucket),
+              eventTimeRange(eventTimeMs),
             ],
           },
         });
@@ -2360,7 +2379,7 @@ export class ElasticsearchService {
               { term: { 'f0rtika.test_uuid': id } },
               { term: { 'routing.hostname': hostname } },
               { bool: { must_not: [{ term: { 'f0rtika.is_bundle_control': true } }] } },
-              bucketRange(bucket),
+              eventTimeRange(eventTimeMs),
             ],
           },
         });
