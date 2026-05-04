@@ -949,12 +949,17 @@ const OVERDUE_BUFFER_SECONDS = 120;
 export async function expireOverdueTasks(): Promise<number> {
   const db = await getDb();
 
+  // 'assigned' is included so a task that was handed to an agent but
+  // never PATCHed to 'downloading' (e.g. agent crashed between poll and
+  // download, or the PATCH failed mid-flight) gets cleaned up. Without
+  // this branch the task zombies until TTL (default 7 days). Mirror of
+  // backend/ counterpart.
   const result = await db.run(
     `UPDATE tasks
      SET status = 'failed',
          completed_at = datetime('now'),
          result = json('{"error":"Task exceeded execution timeout"}')
-     WHERE status IN ('executing', 'downloading')
+     WHERE status IN ('executing', 'downloading', 'assigned')
        AND assigned_at IS NOT NULL
        AND (julianday('now') - julianday(assigned_at)) * 86400.0 >
            COALESCE(json_extract(payload, '$.execution_timeout'), 300) + ?`,

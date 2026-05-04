@@ -41,6 +41,7 @@ const {
   deleteTask,
   expireOldTasks,
   expireStaleTasks,
+  expireOverdueTasks,
   updateTaskNotes,
   TerminalStateRejection,
 } = await import('../tasks.service.js');
@@ -392,6 +393,31 @@ describe('tasks.service', () => {
 
       const count = await expireStaleTasks();
       expect(count).toBe(1);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // expireOverdueTasks — regression for the 'assigned' zombie pattern.
+  // Mirror of backend/ test.
+  // ──────────────────────────────────────────────────────────────────────
+  describe('expireOverdueTasks', () => {
+    it('catches assigned tasks past execution_timeout + buffer', async () => {
+      const assignedAt = new Date(Date.now() - 600_000).toISOString().replace('T', ' ').slice(0, 19);
+      await insertTestTask(testDb, { id: 't-assigned-zombie', status: 'assigned', assigned_at: assignedAt });
+
+      const count = await expireOverdueTasks();
+      expect(count).toBe(1);
+
+      const row = await testDb.get('SELECT status FROM tasks WHERE id = ?', ['t-assigned-zombie']) as unknown as { status: string };
+      expect(row.status).toBe('failed');
+    });
+
+    it('does NOT touch assigned tasks within buffer', async () => {
+      const assignedAt = new Date(Date.now() - 60_000).toISOString().replace('T', ' ').slice(0, 19);
+      await insertTestTask(testDb, { id: 't-assigned-recent', status: 'assigned', assigned_at: assignedAt });
+
+      const count = await expireOverdueTasks();
+      expect(count).toBe(0);
     });
   });
 
