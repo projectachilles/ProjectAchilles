@@ -1,11 +1,12 @@
 import { useState, Fragment } from 'react';
-import { ChevronDown, ChevronRight, Copy, Check, Maximize, StickyNote, X, Trash2, AlertTriangle } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, Check, Maximize, StickyNote, X, Trash2, AlertTriangle, ShieldOff } from 'lucide-react';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/shared/ui/Table';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
 import { Checkbox } from '@/components/shared/ui/Checkbox';
 import { Dialog, DialogHeader, DialogTitle, DialogContent } from '@/components/shared/ui/Dialog';
 import type { AgentTask, TaskGroup, TaskStatus } from '@/types/agent';
+import { classifyFailure, failureClassLabel, failureClassTooltip, type FailureClass } from '@/utils/taskFailureClassifier';
 
 interface TaskListProps {
   groups: TaskGroup[];
@@ -92,6 +93,41 @@ function TaskName({ task }: { task: Pick<AgentTask, 'type' | 'payload'> }): Reac
     return <span className="text-muted-foreground italic">Agent Uninstall</span>;
   }
   return <>{task.payload.test_name}</>;
+}
+
+/**
+ * Renders a small badge next to the failed status that names WHY the task
+ * failed (EDR-block / agent-offline / timeout / etc.). Distinct from the
+ * generic red "failed" status — surfaces operator-actionable categories.
+ * Returns null for non-failed tasks or unrecognised failure shapes that
+ * already render fine without the extra badge.
+ */
+function FailureClassBadge({ task }: { task: Pick<AgentTask, 'status' | 'result'> }): React.ReactElement | null {
+  const cls = classifyFailure(task);
+  if (!cls || cls === 'generic_failure') return null;
+
+  const variants: Record<FailureClass, 'default' | 'primary' | 'warning' | 'success' | 'destructive' | 'outline' | 'secondary'> = {
+    edr_blocked: 'warning',
+    agent_offline: 'secondary',
+    execution_timeout: 'secondary',
+    binary_integrity: 'outline',
+    generic_failure: 'destructive',
+  };
+
+  // Surface the EDR-block case with a shield icon — it's the most
+  // operator-actionable category (whitelist a cert, not "retry the task").
+  const showIcon = cls === 'edr_blocked';
+
+  return (
+    <Badge
+      variant={variants[cls]}
+      className="text-[10px] px-1.5 py-0 ml-1 inline-flex items-center gap-1"
+      title={failureClassTooltip[cls]}
+    >
+      {showIcon && <ShieldOff className="w-3 h-3" />}
+      {failureClassLabel[cls]}
+    </Badge>
+  );
 }
 
 function StatusBadges({ statusCounts }: { statusCounts: Partial<Record<TaskStatus, number>> }): React.ReactElement {
@@ -247,6 +283,7 @@ export default function TaskList({
             <Badge variant={statusVariants[task.status]}>
               {task.status}
             </Badge>
+            <FailureClassBadge task={task} />
           </TableCell>
           <TableCell className="font-medium">
             <TaskName task={task} />
@@ -419,6 +456,7 @@ export default function TaskList({
                               <Badge variant={statusVariants[task.status]}>
                                 {task.status}
                               </Badge>
+                              <FailureClassBadge task={task} />
                             </TableCell>
                             <TableCell className="text-sm">
                               {task.result?.execution_duration_ms != null && task.result.execution_duration_ms > 0
