@@ -57,9 +57,13 @@ function parseScheduleRow(row: ScheduleRow): Schedule {
 /**
  * For active recurring schedules whose next_run_at is in the past (e.g. after
  * the machine was off and missed a run), recompute next_run_at to the next
- * future occurrence so the UI doesn't show "8h ago".
+ * future occurrence and persist it so the cron tick reads the same value
+ * the UI shows. See the backend/ counterpart for full rationale.
+ *
+ * Persistence is conditional: we only write when next_run_at was already in
+ * the past, to keep `randomize_time` stable across page refreshes.
  */
-function freshenNextRun(schedule: Schedule): Schedule {
+async function freshenNextRun(schedule: Schedule): Promise<Schedule> {
   if (
     schedule.status !== 'active' ||
     schedule.schedule_type === 'once' ||
@@ -77,9 +81,20 @@ function freshenNextRun(schedule: Schedule): Schedule {
     schedule.timezone,
   );
 
+  if (!freshNext) return schedule;
+
+  const freshNextIso = freshNext.toISOString();
+
+  // Persist so the cron tick (processSchedules) reads the fresh value too.
+  const db = await getDb();
+  await db.run(
+    'UPDATE schedules SET next_run_at = ?, updated_at = datetime(\'now\') WHERE id = ?',
+    [freshNextIso, schedule.id]
+  );
+
   return {
     ...schedule,
-    next_run_at: freshNext ? freshNext.toISOString() : schedule.next_run_at,
+    next_run_at: freshNextIso,
   };
 }
 
@@ -353,7 +368,7 @@ export async function listSchedules(
     [...params]
   ) as unknown as ScheduleRow[];
 
-  return rows.map(parseScheduleRow).map(freshenNextRun);
+  return Promise.all(rows.map(parseScheduleRow).map(freshenNextRun));
 }
 
 export async function getSchedule(id: string): Promise<Schedule> {
@@ -453,9 +468,17 @@ export async function processSchedules(): Promise<{ processed: number; errors: s
   const errors: string[] = [];
   let processed = 0;
 
+  // See backend/ counterpart for full rationale: ISO 8601 ('T' separator)
+  // and SQLite space-form datetime strings don't compare correctly via raw
+  // `<=` because 'T' > ' ' lexicographically. Wrapping both sides in
+  // `datetime()` normalises before compare. Without this, weekly/monthly
+  // schedules silently never fired once their next_run_at had been written
+  // in ISO form by `nextRun.toISOString()`.
   const dueRows = await db.all(
     `SELECT * FROM schedules
-     WHERE status = 'active' AND next_run_at IS NOT NULL AND next_run_at <= datetime('now')`
+     WHERE status = 'active'
+       AND next_run_at IS NOT NULL
+       AND datetime(next_run_at) <= datetime('now')`
   ) as unknown as ScheduleRow[];
 
   for (const row of dueRows) {
