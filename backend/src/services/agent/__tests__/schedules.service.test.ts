@@ -594,5 +594,94 @@ describe('schedules.service', () => {
 
       warnSpy.mockRestore();
     });
+
+    // ────────────────────────────────────────────────────────────────────
+    // Regression for May-2026 outage on tpsgl.projectachilles.io.
+    // When next_run_at is stored in ISO 8601 ('YYYY-MM-DDTHH:MM:SS.sssZ',
+    // i.e. what `Date.toISOString()` writes — and what processSchedules
+    // itself persists), the old SQL `next_run_at <= datetime('now')`
+    // never matched because 'T' (0x54) > ' ' (0x20) in lexicographic
+    // string compare. Schedules silently stopped firing once their value
+    // had been written in ISO form. The fix wraps both sides of the
+    // comparison in `datetime(...)` to normalise to space form first.
+    // ────────────────────────────────────────────────────────────────────
+    it('fires due schedule whose next_run_at is stored in ISO 8601 format', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-05-04T15:42:00Z'));
+
+      const schedule = createSchedule(baseScheduleRequest(), 'user-001');
+
+      // ISO format with 'T' separator and millisecond precision —
+      // what processSchedules writes via toISOString(). 7 hours overdue.
+      testDb.prepare('UPDATE schedules SET next_run_at = ? WHERE id = ?')
+        .run('2026-05-04T08:17:00.000Z', schedule.id);
+
+      const result = processSchedules();
+
+      expect(result.processed).toBe(1);
+      expect(result.errors).toHaveLength(0);
+      expect(mockCreateTasks).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT fire a schedule whose ISO next_run_at is in the future', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-05-04T15:42:00Z'));
+
+      const schedule = createSchedule(baseScheduleRequest(), 'user-001');
+
+      // Future ISO timestamp.
+      testDb.prepare('UPDATE schedules SET next_run_at = ? WHERE id = ?')
+        .run('2026-05-05T14:01:00.000Z', schedule.id);
+
+      const result = processSchedules();
+
+      expect(result.processed).toBe(0);
+      expect(mockCreateTasks).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // freshenNextRun via listSchedules / getSchedule (persistence regression)
+  // ==========================================================================
+
+  describe('freshenNextRun persistence', () => {
+    it('persists a recomputed next_run_at when listSchedules sees a stale value', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-05-04T15:42:00Z'));
+
+      const schedule = createSchedule(baseScheduleRequest(), 'user-001');
+
+      // Simulate a stale ISO next_run_at in the past (e.g. backend restarted
+      // after missing several cron ticks).
+      testDb.prepare('UPDATE schedules SET next_run_at = ? WHERE id = ?')
+        .run('2026-05-04T08:17:00.000Z', schedule.id);
+
+      // Calling listSchedules should freshen AND persist.
+      listSchedules();
+
+      const row = testDb.prepare('SELECT next_run_at FROM schedules WHERE id = ?')
+        .get(schedule.id) as { next_run_at: string };
+      expect(row.next_run_at).not.toBe('2026-05-04T08:17:00.000Z');
+      expect(new Date(row.next_run_at).getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it('does NOT touch next_run_at when it is already in the future', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-05-04T15:42:00Z'));
+
+      const schedule = createSchedule(baseScheduleRequest(), 'user-001');
+
+      const futureIso = '2026-05-05T14:01:00.000Z';
+      testDb.prepare('UPDATE schedules SET next_run_at = ? WHERE id = ?')
+        .run(futureIso, schedule.id);
+
+      listSchedules();
+
+      // Stable across page-refresh: randomize_time would otherwise scramble
+      // the displayed "Next" on every read.
+      const row = testDb.prepare('SELECT next_run_at FROM schedules WHERE id = ?')
+        .get(schedule.id) as { next_run_at: string };
+      expect(row.next_run_at).toBe(futureIso);
+    });
   });
 });

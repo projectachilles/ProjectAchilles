@@ -57,7 +57,19 @@ function parseScheduleRow(row: ScheduleRow): Schedule {
 /**
  * For active recurring schedules whose next_run_at is in the past (e.g. after
  * the machine was off and missed a run), recompute next_run_at to the next
- * future occurrence so the UI doesn't show "8h ago".
+ * future occurrence and persist it to the DB so the cron tick reads the
+ * same value the UI shows.
+ *
+ * Persistence matters: previously this function only mutated the returned
+ * object, leaving the DB row stale. processSchedules's WHERE clause read the
+ * stale value, which (combined with the ISO/space-format SQL bug above) led
+ * to schedules firing multiple times at the wrong moment, or never firing.
+ *
+ * Persistence is conditional: we only write when next_run_at was already in
+ * the past. Active future values are left untouched, so a casual page-refresh
+ * that triggers `listSchedules()` does NOT randomise the next run on every
+ * call (which would defeat `randomize_time` and change displayed "Next" on
+ * every refresh).
  */
 function freshenNextRun(schedule: Schedule): Schedule {
   if (
@@ -77,9 +89,18 @@ function freshenNextRun(schedule: Schedule): Schedule {
     schedule.timezone,
   );
 
+  if (!freshNext) return schedule;
+
+  const freshNextIso = freshNext.toISOString();
+
+  // Persist so the cron tick (processSchedules) reads the fresh value too.
+  getDatabase()
+    .prepare('UPDATE schedules SET next_run_at = ?, updated_at = datetime(\'now\') WHERE id = ?')
+    .run(freshNextIso, schedule.id);
+
   return {
     ...schedule,
-    next_run_at: freshNext ? freshNext.toISOString() : schedule.next_run_at,
+    next_run_at: freshNextIso,
   };
 }
 
@@ -444,9 +465,20 @@ export function processSchedules(): { processed: number; errors: string[] } {
   const errors: string[] = [];
   let processed = 0;
 
+  // SQLite has two textual datetime conventions: ISO 8601 with `T` separator
+  // (what `Date.toISOString()` writes — used by createSchedule/processSchedules
+  // when persisting next_run_at) and the space-separated form (`'YYYY-MM-DD
+  // HH:MM:SS'`) returned by `datetime('now')`. Raw `<=` does a char-by-char
+  // string compare, and 'T' (0x54) > ' ' (0x20), so any next_run_at written in
+  // ISO form would NEVER match this WHERE — even when many hours overdue. This
+  // silently broke all weekly/monthly schedules on tpsgl.projectachilles.io
+  // (last fire 2026-05-01; verified directly against the production DB).
+  // Wrap both sides in `datetime()` to normalise to space-form before compare.
   const dueRows = db.prepare(`
     SELECT * FROM schedules
-    WHERE status = 'active' AND next_run_at IS NOT NULL AND next_run_at <= datetime('now')
+    WHERE status = 'active'
+      AND next_run_at IS NOT NULL
+      AND datetime(next_run_at) <= datetime('now')
   `).all() as ScheduleRow[];
 
   for (const row of dueRows) {

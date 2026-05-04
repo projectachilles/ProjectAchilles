@@ -594,5 +594,78 @@ describe('schedules.service', () => {
 
       warnSpy.mockRestore();
     });
+
+    // Regression for May-2026 outage. Mirror of backend/ test.
+    it('fires due schedule whose next_run_at is stored in ISO 8601 format', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-05-04T15:42:00Z'));
+
+      const schedule = await createSchedule(baseScheduleRequest(), 'user-001');
+
+      // ISO format with 'T' separator — what processSchedules persists.
+      await testDb.run('UPDATE schedules SET next_run_at = ? WHERE id = ?',
+        ['2026-05-04T08:17:00.000Z', schedule.id]);
+
+      const result = await processSchedules();
+
+      expect(result.processed).toBe(1);
+      expect(result.errors).toHaveLength(0);
+      expect(mockCreateTasks).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT fire a schedule whose ISO next_run_at is in the future', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-05-04T15:42:00Z'));
+
+      const schedule = await createSchedule(baseScheduleRequest(), 'user-001');
+
+      await testDb.run('UPDATE schedules SET next_run_at = ? WHERE id = ?',
+        ['2026-05-05T14:01:00.000Z', schedule.id]);
+
+      const result = await processSchedules();
+
+      expect(result.processed).toBe(0);
+      expect(mockCreateTasks).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // freshenNextRun via listSchedules / getSchedule (persistence regression)
+  // ==========================================================================
+
+  describe('freshenNextRun persistence', () => {
+    it('persists a recomputed next_run_at when listSchedules sees a stale value', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-05-04T15:42:00Z'));
+
+      const schedule = await createSchedule(baseScheduleRequest(), 'user-001');
+
+      await testDb.run('UPDATE schedules SET next_run_at = ? WHERE id = ?',
+        ['2026-05-04T08:17:00.000Z', schedule.id]);
+
+      await listSchedules();
+
+      const row = await testDb.get('SELECT next_run_at FROM schedules WHERE id = ?',
+        [schedule.id]) as unknown as { next_run_at: string };
+      expect(row.next_run_at).not.toBe('2026-05-04T08:17:00.000Z');
+      expect(new Date(row.next_run_at).getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it('does NOT touch next_run_at when it is already in the future', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-05-04T15:42:00Z'));
+
+      const schedule = await createSchedule(baseScheduleRequest(), 'user-001');
+
+      const futureIso = '2026-05-05T14:01:00.000Z';
+      await testDb.run('UPDATE schedules SET next_run_at = ? WHERE id = ?',
+        [futureIso, schedule.id]);
+
+      await listSchedules();
+
+      const row = await testDb.get('SELECT next_run_at FROM schedules WHERE id = ?',
+        [schedule.id]) as unknown as { next_run_at: string };
+      expect(row.next_run_at).toBe(futureIso);
+    });
   });
 });
