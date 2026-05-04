@@ -140,6 +140,19 @@ export class DefenderAutoResolveService {
   // ---------------------------------------------------------------------------
 
   private async findCandidates(size: number): Promise<Candidate[]> {
+    // Whitelist on status='new': we only auto-resolve alerts Defender has not
+    // yet acted on. Specifically excluded:
+    //   - 'resolved'   — someone (human or Defender's auto-investigation) has
+    //                    already closed the alert; leave it alone, even if the
+    //                    classification doesn't match what we'd have used.
+    //   - 'inProgress' — a human operator is actively triaging. PATCHing the
+    //                    alert under them would be a UX surprise; respect their
+    //                    acknowledgment.
+    //   - 'unknown' / future statuses — fail closed. If Defender ever adds a
+    //                    new status value, default to NOT auto-resolving until
+    //                    the policy is intentionally updated.
+    // The original implementation only excluded 'resolved' via must_not, which
+    // would have PATCHed inProgress alerts and any future state values.
     const response = await this.esClient.search({
       index: DEFENDER_INDEX,
       size,
@@ -148,10 +161,10 @@ export class DefenderAutoResolveService {
           filter: [
             { term: { doc_type: 'alert' } },
             { term: { 'f0rtika.achilles_correlated': true } },
+            { term: { status: 'new' } },
           ],
           must_not: [
             { term: { 'f0rtika.auto_resolved': true } },
-            { term: { status: 'resolved' } },
           ],
         },
       },

@@ -110,6 +110,10 @@ export class DefenderAutoResolveService {
   }
 
   private async findCandidates(size: number): Promise<Candidate[]> {
+    // Whitelist on status='new': only auto-resolve alerts Defender has not yet
+    // acted on. Excludes 'resolved' (already closed), 'inProgress' (human is
+    // actively triaging — respect their acknowledgment), and 'unknown' / any
+    // future status (fail closed). Mirror of backend/.
     const response = await this.esClient.search({
       index: DEFENDER_INDEX,
       size,
@@ -118,10 +122,10 @@ export class DefenderAutoResolveService {
           filter: [
             { term: { doc_type: 'alert' } },
             { term: { 'f0rtika.achilles_correlated': true } },
+            { term: { status: 'new' } },
           ],
           must_not: [
             { term: { 'f0rtika.auto_resolved': true } },
-            { term: { status: 'resolved' } },
           ],
         },
       },

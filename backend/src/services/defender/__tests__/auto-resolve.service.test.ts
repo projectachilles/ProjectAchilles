@@ -148,6 +148,38 @@ describe('DefenderAutoResolveService', () => {
     expect(queryStr).toContain('auto_resolved');
   });
 
+  // ─── status whitelist (only 'new' alerts are candidates) ─────────
+
+  // The candidate query whitelists `status: 'new'` — not a must_not on
+  // 'resolved'. This excludes 'inProgress' (someone is actively triaging),
+  // 'resolved' (already handled by a human or Defender), 'unknown', and any
+  // future status values Defender might add. Failing closed on the status
+  // dimension is the conservative posture: the customer can grant
+  // SecurityAlert.ReadWrite.All and flip to enabled mode without worrying
+  // that auto-resolve will reach into alerts a SOC analyst is mid-triage on.
+  it('candidate query whitelists status="new" (not just excluding "resolved")', async () => {
+    const service = createService('dry_run');
+    mockSearch.mockResolvedValueOnce(searchResponse([]));
+
+    await service.runAutoResolvePass();
+
+    const query = mockSearch.mock.calls[0][0].query;
+    const filter = query.bool.filter;
+    const mustNot = query.bool.must_not;
+
+    // The status='new' clause MUST be in `filter` (whitelist), not in `must_not`.
+    expect(filter).toContainEqual({ term: { status: 'new' } });
+
+    // And must_not must NOT carry a status:'resolved' clause anymore — that
+    // was the prior, looser policy. Pinning this prevents accidental drift
+    // back to a behavior that would PATCH inProgress alerts.
+    const mustNotJson = JSON.stringify(mustNot);
+    expect(mustNotJson).not.toContain('"status"');
+
+    // Sanity: existing receipt-based dedup is still in must_not.
+    expect(mustNot).toContainEqual({ term: { 'f0rtika.auto_resolved': true } });
+  });
+
   // ─── 403 halts the pass ──────────────────────────────────────────
 
   it('403 halts the pass — no further candidates are processed', async () => {
