@@ -85,13 +85,20 @@ export class DefenderAutoResolveService {
           continue;
         }
 
-        const patch = this.buildPatch(candidate.testUuid);
+        const patch = this.buildPatch();
+        const commentText = this.buildCommentText(candidate.testUuid);
 
         if (mode === 'enabled') {
           const patchError = await this.patchAlert(candidate.alertId, patch);
 
           if (!patchError) {
             result.patched += 1;
+            // Comment is best-effort: posted via a separate Graph endpoint
+            // (alerts_v2 PATCH does not accept `comments`). A failure here
+            // does NOT undo the resolve, and the alert is already correctly
+            // classified — the comment is purely an audit-trail enhancement.
+            // Don't propagate errors; just log and continue to the receipt.
+            await this.postCommentBestEffort(candidate.alertId, commentText);
             await this.writeReceipt(candidate, 'enabled');
             continue;
           }
@@ -194,17 +201,16 @@ export class DefenderAutoResolveService {
   // Graph PATCH (with error capture rather than throw)
   // ---------------------------------------------------------------------------
 
-  private buildPatch(testUuid: string): GraphAlertPatch {
+  private buildPatch(): GraphAlertPatch {
     return {
       status: 'resolved',
       classification: 'informationalExpectedActivity',
       determination: 'securityTesting',
-      comments: [
-        {
-          comment: `Achilles test ${testUuid} — authorized continuous validation. Resolved automatically by Project Achilles.`,
-        },
-      ],
     };
+  }
+
+  private buildCommentText(testUuid: string): string {
+    return `Achilles test ${testUuid} — authorized continuous validation. Resolved automatically by Project Achilles.`;
   }
 
   /** Returns the error on failure, or null on success. Never throws. */
@@ -214,6 +220,23 @@ export class DefenderAutoResolveService {
       return null;
     } catch (err) {
       return err;
+    }
+  }
+
+  /**
+   * Post the audit-trail comment to the alert via the dedicated
+   * `/security/alerts_v2/{id}/comments` endpoint. Best-effort: a failure
+   * here does NOT fail the auto-resolve, because the resolve PATCH has
+   * already succeeded and the alert is correctly classified — the comment
+   * is purely an audit-trail enhancement. We log so it's visible in the
+   * daemon log if comment writes start failing systemically.
+   */
+  private async postCommentBestEffort(alertId: string, commentText: string): Promise<void> {
+    try {
+      await this.graphClient.addAlertComment(alertId, commentText);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[Defender-AutoResolve] comment post failed for alert ${alertId}: ${msg}`);
     }
   }
 

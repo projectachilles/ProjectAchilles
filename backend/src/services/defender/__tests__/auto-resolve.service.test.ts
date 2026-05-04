@@ -11,14 +11,17 @@ describe('DefenderAutoResolveService', () => {
   const mockSearch = vi.fn();
   const mockUpdate = vi.fn();
   const mockUpdateAlert = vi.fn();
+  const mockAddAlertComment = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: comment post succeeds. Individual tests override for failure.
+    mockAddAlertComment.mockResolvedValue(undefined);
   });
 
   const createService = (mode: 'disabled' | 'dry_run' | 'enabled') => {
     const esClient = { search: mockSearch, update: mockUpdate } as any;
-    const graphClient = { updateAlert: mockUpdateAlert } as any;
+    const graphClient = { updateAlert: mockUpdateAlert, addAlertComment: mockAddAlertComment } as any;
     return new DefenderAutoResolveService(esClient, graphClient, mode);
   };
 
@@ -87,8 +90,17 @@ describe('DefenderAutoResolveService', () => {
       classification: 'informationalExpectedActivity',
       determination: 'securityTesting',
     });
-    expect(firstPatchArgs[1].comments[0].comment).toContain('bundle-A');
-    expect(firstPatchArgs[1].comments[0].comment).toContain('Achilles test');
+    // The PATCH body MUST NOT carry `comments` — alerts_v2 silently drops it.
+    // Comments go through addAlertComment() instead (separate endpoint).
+    expect(firstPatchArgs[1].comments).toBeUndefined();
+
+    // Comment was sent via the dedicated /comments endpoint with the
+    // expected text. One call per PATCHed alert.
+    expect(mockAddAlertComment).toHaveBeenCalledTimes(2);
+    const firstCommentArgs = mockAddAlertComment.mock.calls[0];
+    expect(firstCommentArgs[0]).toBe('alert-1');
+    expect(firstCommentArgs[1]).toContain('bundle-A');
+    expect(firstCommentArgs[1]).toContain('Achilles test');
 
     // Receipt written for each
     expect(mockUpdate).toHaveBeenCalledTimes(2);
@@ -101,6 +113,44 @@ describe('DefenderAutoResolveService', () => {
   });
 
   // ─── dry-run mode ────────────────────────────────────────────────
+
+  // ─── comment failure is non-fatal ────────────────────────────────
+
+  // The audit-trail comment is posted via a SEPARATE Graph endpoint
+  // (alerts_v2 PATCH silently drops `comments` from the body). If the
+  // comment POST fails for any reason — 403, 5xx, network, etc. — the
+  // resolve PATCH has ALREADY succeeded and the alert is correctly
+  // classified. Failing the whole pass on a comment-write error would
+  // produce zero net benefit (alert still resolved in Defender) and
+  // miss a receipt write (causing infinite re-PATCH attempts on every
+  // 5-min cycle). So comment failure must be non-fatal: log + continue
+  // to the receipt write.
+  it('comment post failure does NOT undo the resolve or block the receipt', async () => {
+    const service = createService('enabled');
+    mockSearch.mockResolvedValueOnce(
+      searchResponse([candidateHit('doc-1', 'alert-1', 'bundle-A')]),
+    );
+    mockUpdateAlert.mockResolvedValue(undefined);   // PATCH succeeds
+    mockAddAlertComment.mockRejectedValue(new Error('Graph 503: service unavailable')); // comment fails
+    mockUpdate.mockResolvedValue({ result: 'updated' });
+
+    const result = await service.runAutoResolvePass();
+
+    // Resolve was successful — patched count must reflect the PATCH success
+    expect(result.patched).toBe(1);
+    expect(result.errors).toEqual([]); // comment error is logged, not surfaced
+
+    // Comment was attempted (we still TRY)
+    expect(mockAddAlertComment).toHaveBeenCalledTimes(1);
+
+    // Receipt was still written despite comment failure — this is
+    // critical, otherwise the next pass would see the alert as a
+    // candidate again and re-PATCH it forever.
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    const receipt = mockUpdate.mock.calls[0][0];
+    expect(receipt.doc.f0rtika.auto_resolved).toBe(true);
+    expect(receipt.doc.f0rtika.auto_resolve_mode).toBe('enabled');
+  });
 
   it('dry_run mode writes receipts but does NOT call Graph PATCH', async () => {
     const service = createService('dry_run');
@@ -117,6 +167,9 @@ describe('DefenderAutoResolveService', () => {
     expect(result.wouldPatch).toBe(2);
     expect(result.patched).toBe(0);
     expect(mockUpdateAlert).not.toHaveBeenCalled();
+    // Comment endpoint must not be hit in dry_run either — the whole point
+    // of dry_run is zero side-effects on Defender state.
+    expect(mockAddAlertComment).not.toHaveBeenCalled();
 
     // Receipt written with mode='dry_run' so next pass skips them
     expect(mockUpdate).toHaveBeenCalledTimes(2);

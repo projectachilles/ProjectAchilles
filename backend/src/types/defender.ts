@@ -76,7 +76,13 @@ export interface GraphAlert {
  *   the activity itself as benign)
  * - determination: the category of threat (or lack thereof);
  *   'securityTesting' maps exactly to Achilles' use case
- * - comments: free-text audit trail visible in the Defender portal
+ *
+ * NOTE: `comments` is intentionally NOT included here. The Graph
+ * `alerts_v2` PATCH endpoint silently drops `comments` from the body
+ * (the legacy `/security/alerts/{id}` endpoint accepted it; `alerts_v2`
+ * does not). Comments must be sent via a separate POST to
+ * `/security/alerts_v2/{id}/comments` — see `addAlertComment()` on
+ * `MicrosoftGraphClient`.
  */
 export interface GraphAlertPatch {
   status?: 'new' | 'inProgress' | 'resolved';
@@ -99,7 +105,6 @@ export interface GraphAlertPatch {
     | 'maliciousUserActivity'
     | 'notMalicious'
     | 'lineOfBusinessApplication';
-  comments?: Array<{ comment: string }>;
 }
 
 // ---------------------------------------------------------------------------

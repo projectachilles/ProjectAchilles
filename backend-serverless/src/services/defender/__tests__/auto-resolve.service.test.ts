@@ -14,14 +14,16 @@ describe('DefenderAutoResolveService (serverless)', () => {
   const mockSearch = vi.fn();
   const mockUpdate = vi.fn();
   const mockUpdateAlert = vi.fn();
+  const mockAddAlertComment = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAddAlertComment.mockResolvedValue(undefined);
   });
 
   const createService = (mode: 'disabled' | 'dry_run' | 'enabled') => {
     const esClient = { search: mockSearch, update: mockUpdate } as any;
-    const graphClient = { updateAlert: mockUpdateAlert } as any;
+    const graphClient = { updateAlert: mockUpdateAlert, addAlertComment: mockAddAlertComment } as any;
     return new DefenderAutoResolveService(esClient, graphClient, mode);
   };
 
@@ -75,6 +77,32 @@ describe('DefenderAutoResolveService (serverless)', () => {
       classification: 'informationalExpectedActivity',
       determination: 'securityTesting',
     });
+    // PATCH must NOT carry comments (alerts_v2 silently drops them);
+    // comments go through the dedicated endpoint instead.
+    expect(firstPatch[1].comments).toBeUndefined();
+
+    // Comment posted via separate endpoint, one per PATCHed alert
+    expect(mockAddAlertComment).toHaveBeenCalledTimes(2);
+    expect(mockAddAlertComment.mock.calls[0][0]).toBe('alert-1');
+    expect(mockAddAlertComment.mock.calls[0][1]).toContain('Achilles test');
+    expect(mockAddAlertComment.mock.calls[0][1]).toContain('bundle-A');
+  });
+
+  // Comment failure must not undo the resolve or block the receipt — see
+  // backend/ for full rationale.
+  it('comment post failure is non-fatal (resolve and receipt still succeed)', async () => {
+    const service = createService('enabled');
+    mockSearch.mockResolvedValueOnce(searchResponse([candidateHit('doc-1', 'alert-1', 'bundle-A')]));
+    mockUpdateAlert.mockResolvedValue(undefined);
+    mockAddAlertComment.mockRejectedValue(new Error('Graph 503'));
+    mockUpdate.mockResolvedValue({});
+
+    const result = await service.runAutoResolvePass();
+    expect(result.patched).toBe(1);
+    expect(result.errors).toEqual([]);
+    expect(mockAddAlertComment).toHaveBeenCalledTimes(1);
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockUpdate.mock.calls[0][0].doc.f0rtika.auto_resolved).toBe(true);
   });
 
   it('dry_run mode writes receipts but does not call Graph', async () => {
@@ -85,6 +113,7 @@ describe('DefenderAutoResolveService (serverless)', () => {
     const result = await service.runAutoResolvePass();
     expect(result.wouldPatch).toBe(1);
     expect(mockUpdateAlert).not.toHaveBeenCalled();
+    expect(mockAddAlertComment).not.toHaveBeenCalled();
     expect(mockUpdate.mock.calls[0][0].doc.f0rtika.auto_resolve_mode).toBe('dry_run');
   });
 

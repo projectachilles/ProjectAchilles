@@ -66,13 +66,17 @@ export class DefenderAutoResolveService {
           continue;
         }
 
-        const patch = this.buildPatch(candidate.testUuid);
+        const patch = this.buildPatch();
+        const commentText = this.buildCommentText(candidate.testUuid);
 
         if (mode === 'enabled') {
           const patchError = await this.patchAlert(candidate.alertId, patch);
 
           if (!patchError) {
             result.patched += 1;
+            // Best-effort comment via the dedicated /comments endpoint;
+            // alerts_v2 PATCH silently drops `comments` from the body.
+            await this.postCommentBestEffort(candidate.alertId, commentText);
             await this.writeReceipt(candidate, 'enabled');
             continue;
           }
@@ -150,17 +154,16 @@ export class DefenderAutoResolveService {
       .filter((c): c is Candidate => c !== null);
   }
 
-  private buildPatch(testUuid: string): GraphAlertPatch {
+  private buildPatch(): GraphAlertPatch {
     return {
       status: 'resolved',
       classification: 'informationalExpectedActivity',
       determination: 'securityTesting',
-      comments: [
-        {
-          comment: `Achilles test ${testUuid} — authorized continuous validation. Resolved automatically by Project Achilles.`,
-        },
-      ],
     };
+  }
+
+  private buildCommentText(testUuid: string): string {
+    return `Achilles test ${testUuid} — authorized continuous validation. Resolved automatically by Project Achilles.`;
   }
 
   private async patchAlert(alertId: string, patch: GraphAlertPatch): Promise<unknown | null> {
@@ -169,6 +172,16 @@ export class DefenderAutoResolveService {
       return null;
     } catch (err) {
       return err;
+    }
+  }
+
+  /** Best-effort comment post — failure does not undo the resolve. */
+  private async postCommentBestEffort(alertId: string, commentText: string): Promise<void> {
+    try {
+      await this.graphClient.addAlertComment(alertId, commentText);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[Defender-AutoResolve] comment post failed for alert ${alertId}: ${msg}`);
     }
   }
 
