@@ -88,6 +88,21 @@ describe('DefenderAutoResolveService (serverless)', () => {
     expect(mockUpdate.mock.calls[0][0].doc.f0rtika.auto_resolve_mode).toBe('dry_run');
   });
 
+  // Whitelist on status='new' — see backend/ test of the same name for full
+  // rationale. Pinning this prevents drift back to a policy that would PATCH
+  // alerts a SOC analyst is mid-triage on.
+  it('candidate query whitelists status="new" (not just excluding "resolved")', async () => {
+    const service = createService('dry_run');
+    mockSearch.mockResolvedValueOnce(searchResponse([]));
+
+    await service.runAutoResolvePass();
+
+    const query = mockSearch.mock.calls[0][0].query;
+    expect(query.bool.filter).toContainEqual({ term: { status: 'new' } });
+    expect(JSON.stringify(query.bool.must_not)).not.toContain('"status"');
+    expect(query.bool.must_not).toContainEqual({ term: { 'f0rtika.auto_resolved': true } });
+  });
+
   it('403 halts the pass', async () => {
     const service = createService('enabled');
     mockSearch.mockResolvedValueOnce(

@@ -24,6 +24,24 @@ The auto-resolve pillar has three modes, chosen from the UI or API:
 
 Receipts are written in both `dry_run` and `enabled` modes so the same candidate isn't reprocessed on every 5-minute cycle.
 
+## Which alerts are eligible
+
+An alert is a candidate for auto-resolve only when **all** of these hold:
+
+| Condition | Why |
+|---|---|
+| `f0rtika.achilles_correlated == true` | The enrichment pass tied the alert to an Achilles test execution (bundle-UUID match in evidence within the time window). |
+| `status == "new"` | Defender hasn't acted on the alert yet, and no human has acknowledged it. |
+| `f0rtika.auto_resolved != true` | The alert hasn't already been processed by a previous pass (idempotency). |
+
+Specifically **excluded** from auto-resolve:
+
+- **`status == "resolved"`** — already closed by a human or by Defender's auto-investigation. Auto-resolve never reaches into closed alerts, even if it would have classified them differently. The original disposition stands.
+- **`status == "inProgress"`** — a SOC analyst has acknowledged the alert and is actively triaging it. Auto-resolve respects that acknowledgment and leaves the alert alone. The analyst can finish their workflow without finding the alert flipped to `resolved` underneath them.
+- **`status == "unknown"` or any future status value Defender introduces** — fail-closed by default. The candidate query is a *whitelist* on `status: 'new'`, not a denylist on `status: 'resolved'`, so any new status Defender adds is automatically excluded until the policy is updated.
+
+What this means in practice: turning auto-resolve on never disrupts in-flight SOC work, and historical alerts your team has already triaged stay exactly as they were left. The only alerts that get PATCHed are the ones nobody has touched yet — which is precisely the intended target of the feature.
+
 ## Setup walkthrough
 
 ### 1. Grant the extra scope in Azure AD
