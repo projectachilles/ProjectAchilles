@@ -683,5 +683,139 @@ describe('DefenderAnalyticsService', () => {
       );
       expect(tokenClauses).toHaveLength(2);
     });
+
+    // -----------------------------------------------------------------------
+    // Per-alert stage/bundle attribution. Defender's evidence sometimes
+    // identifies the precise stage binary (`<uuid>-<technique>.exe`) and
+    // sometimes only the bundle (orchestrator UUID-only binary, dropped-file
+    // path under a sandbox dir, etc.). The frontend needs that signal to
+    // render alerts under the correct stage drill-down vs at the bundle
+    // level. Classifier output: `attribution` + `attributed_control_id`.
+    // -----------------------------------------------------------------------
+
+    it('classifies an alert with <uuid>-<technique>.exe evidence as stage-attributable', async () => {
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 1 }, hits: [{ _source: {
+          alert_id: 'a-stage', alert_title: 'Wacatac blocked',
+          description: '', severity: 'medium', status: 'resolved',
+          category: 'Malware', service_source: 'MDE', mitre_techniques: [],
+          created_at: '2026-04-28T12:20:12Z', updated_at: '2026-04-28T12:20:12Z',
+          resolved_at: null, recommended_actions: '',
+          evidence_filenames: ['5e59dd6a-6c87-4377-942c-ea9b5e054cb9-t1211-cfapi.exe'],
+        } }] },
+      });
+
+      const result = await service.getAlertsForTest(
+        ['T1211'],
+        '2026-04-28T12:20:00Z',
+        30,
+        'SBL5708',
+        '5e59dd6a-6c87-4377-942c-ea9b5e054cb9.exe',
+        'BlueHammer Early-Stage Behavioral Pattern',
+      );
+
+      expect(result.alerts[0].attribution).toBe('stage');
+      expect(result.alerts[0].attributed_control_id).toBe('t1211-cfapi');
+    });
+
+    it('classifies an alert with only the orchestrator <uuid>.exe as bundle-attributable', async () => {
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 1 }, hits: [{ _source: {
+          alert_id: 'a-orch', alert_title: 'Orchestrator alert',
+          description: '', severity: 'medium', status: 'resolved',
+          category: 'Malware', service_source: 'MDE', mitre_techniques: [],
+          created_at: '2026-04-28T12:20:12Z', updated_at: '2026-04-28T12:20:12Z',
+          resolved_at: null, recommended_actions: '',
+          evidence_filenames: ['5e59dd6a-6c87-4377-942c-ea9b5e054cb9.exe'],
+        } }] },
+      });
+
+      const result = await service.getAlertsForTest(
+        ['T1211'], '2026-04-28T12:20:00Z', 30, 'SBL5708',
+        '5e59dd6a-6c87-4377-942c-ea9b5e054cb9.exe',
+        'BlueHammer Early-Stage Behavioral Pattern',
+      );
+
+      expect(result.alerts[0].attribution).toBe('bundle');
+      expect(result.alerts[0].attributed_control_id).toBeUndefined();
+    });
+
+    it('classifies an EICAR-style alert (no UUID in any filename) as bundle-attributable', async () => {
+      // Reproduces the live SBL3483 case: only a dropped-file name in evidence,
+      // and only a bundle-named sandbox dir in the path. No bundle-UUID anywhere.
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 1 }, hits: [{ _source: {
+          alert_id: 'a-eicar', alert_title: 'EICAR_Test_File prevented',
+          description: '', severity: 'informational', status: 'resolved',
+          category: 'Malware', service_source: 'MDE', mitre_techniques: [],
+          created_at: '2026-05-03T19:01:05Z', updated_at: '2026-05-03T19:12:15Z',
+          resolved_at: '2026-05-03T19:12:15Z', recommended_actions: '',
+          evidence_filenames: ['mimikatz_dump_win32_signature.txt'],
+        } }] },
+      });
+
+      const result = await service.getAlertsForTest(
+        ['T1562.001'], '2026-05-03T19:00:24Z', 30, 'SBL3483',
+        '5e59dd6a-6c87-4377-942c-ea9b5e054cb9.exe',
+        'BlueHammer Early-Stage Behavioral Pattern',
+      );
+
+      expect(result.alerts[0].attribution).toBe('bundle');
+      expect(result.alerts[0].attributed_control_id).toBeUndefined();
+    });
+
+    it('rejects a stage-binary attribution when the UUID prefix does not match the queried bundle', async () => {
+      // Defense against false-positive attribution. If for some reason an alert's
+      // evidence references a DIFFERENT bundle's stage binary (e.g. cross-test
+      // contamination on a shared host), it must not be misattributed to the
+      // queried bundle's stage. The classifier should fall back to 'bundle'.
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 1 }, hits: [{ _source: {
+          alert_id: 'a-cross', alert_title: 'Cross-bundle binary',
+          description: '', severity: 'low', status: 'resolved',
+          category: 'Malware', service_source: 'MDE', mitre_techniques: [],
+          created_at: '2026-04-28T12:20:12Z', updated_at: '2026-04-28T12:20:12Z',
+          resolved_at: null, recommended_actions: '',
+          evidence_filenames: ['11111111-2222-3333-4444-555555555555-t9999.exe'],
+        } }] },
+      });
+
+      const result = await service.getAlertsForTest(
+        ['T1211'], '2026-04-28T12:20:00Z', 30, 'SBL5708',
+        '5e59dd6a-6c87-4377-942c-ea9b5e054cb9.exe',
+        'BlueHammer Early-Stage Behavioral Pattern',
+      );
+
+      expect(result.alerts[0].attribution).toBe('bundle');
+    });
+
+    it('classifies stage-attributable when evidence has BOTH orchestrator and a stage binary', async () => {
+      // When evidence carries multiple binaries (common for behavioral
+      // detections that capture parent + image processes), prefer stage
+      // attribution if any filename matches the stage pattern.
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 1 }, hits: [{ _source: {
+          alert_id: 'a-mixed', alert_title: 'Mixed evidence',
+          description: '', severity: 'high', status: 'new',
+          category: 'Malware', service_source: 'MDE', mitre_techniques: [],
+          created_at: '2026-04-28T12:20:12Z', updated_at: '2026-04-28T12:20:12Z',
+          resolved_at: null, recommended_actions: '',
+          evidence_filenames: [
+            '5e59dd6a-6c87-4377-942c-ea9b5e054cb9.exe',
+            '5e59dd6a-6c87-4377-942c-ea9b5e054cb9-t1211-vssenum.exe',
+            'cmd.exe',
+          ],
+        } }] },
+      });
+
+      const result = await service.getAlertsForTest(
+        ['T1211'], '2026-04-28T12:20:00Z', 30, 'SBL5708',
+        '5e59dd6a-6c87-4377-942c-ea9b5e054cb9.exe',
+        'BlueHammer Early-Stage Behavioral Pattern',
+      );
+
+      expect(result.alerts[0].attribution).toBe('stage');
+      expect(result.alerts[0].attributed_control_id).toBe('t1211-vssenum');
+    });
   });
 });

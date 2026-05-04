@@ -295,13 +295,27 @@ export default function ExecutionsDataTable({
   const [alertsLoading, setAlertsLoading] = useState<string | null>(null);
   const [alertsMap, setAlertsMap] = useState<Map<string, RelatedAlertsResponse | null>>(new Map());
 
+  // Cache key derivation. Alerts are correlated at the BUNDLE level — every
+  // stage of the same bundle on the same host shares the same set of related
+  // Defender alerts (the helper query uses bundle UUID + hostname + a wide
+  // time window, not stage-specific filters). One fetch per bundle/host.
+  // Frontend filters per attribution at render time:
+  //   - stage detail panel: alerts where attributed_control_id matches that
+  //     stage's control_id
+  //   - bundle parent row callout: alerts where attribution === 'bundle'
+  const bundleAlertsCacheKey = (exec: EnrichedTestExecution) => {
+    const baseUuid = exec.test_uuid.includes('::')
+      ? exec.test_uuid.split('::')[0]
+      : exec.test_uuid;
+    return `${baseUuid}::${exec.hostname}::bundle-alerts`;
+  };
+
   const fetchRelatedAlerts = useCallback(async (exec: EnrichedTestExecution) => {
     if (!defenderConfigured) return;
     const techniques = exec.techniques;
     if (!techniques || techniques.length === 0) return;
 
-    // Cache key includes hostname for per-host correlation
-    const cacheKey = `${exec.test_uuid}::${exec.hostname}::alerts`;
+    const cacheKey = bundleAlertsCacheKey(exec);
     if (alertsCache.current.has(cacheKey)) return;
 
     // Derive binary name: for bundle controls use the base UUID (before ::),
@@ -907,11 +921,27 @@ export default function ExecutionsDataTable({
         <span className="text-muted-foreground">Full Timestamp:</span>
         <p className="mt-1 text-foreground">{formatTimestamp(exec.timestamp, false)}</p>
       </div>
-      {/* Related Defender Alerts */}
+      {/* Related Defender Alerts — STAGE-ATTRIBUTABLE only.
+          Bundle-level alerts (those whose evidence doesn't carry a
+          per-stage binary discriminator) render once at the bundle
+          parent row instead of being duplicated under every stage. */}
       {defenderConfigured && exec.techniques && exec.techniques.length > 0 && (() => {
-        const alertKey = `${exec.test_uuid}::${exec.hostname}::alerts`;
+        const alertKey = bundleAlertsCacheKey(exec);
         const alertData = alertsMap.get(alertKey);
         const isLoadingAlerts = alertsLoading === alertKey;
+
+        // Filter to alerts whose evidence binary is THIS specific stage's
+        // technique. Bundle-level alerts (no per-stage attribution) are
+        // surfaced at the parent row, not here, so each stage panel only
+        // shows alerts that are genuinely about THIS stage.
+        const stageControlId = exec.control_id?.toLowerCase();
+        const stageAlerts = alertData
+          ? alertData.alerts.filter((a) =>
+              a.attribution === 'stage'
+              && stageControlId
+              && a.attributed_control_id?.toLowerCase() === stageControlId
+            )
+          : [];
 
         return (
           <div className="col-span-full border-t border-border pt-3 mt-1">
@@ -921,9 +951,9 @@ export default function ExecutionsDataTable({
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
                 <span className="text-xs text-muted-foreground">Checking for related alerts...</span>
               </div>
-            ) : alertData && alertData.alerts.length > 0 ? (
+            ) : stageAlerts.length > 0 ? (
               <div className="mt-2 space-y-2">
-                {alertData.alerts.map((alert) => {
+                {stageAlerts.map((alert) => {
                   const testTime = parseTimestamp(exec.timestamp).getTime();
                   const alertTime = new Date(alert.created_at).getTime();
                   const deltaMin = Math.round(Math.abs(alertTime - testTime) / 60000);
@@ -953,7 +983,11 @@ export default function ExecutionsDataTable({
                 })}
               </div>
             ) : (
-              <p className="mt-2 text-xs text-muted-foreground">No related Defender alerts within the time window</p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {alertData && alertData.alerts.some((a) => a.attribution === 'bundle')
+                  ? 'No stage-specific Defender alerts. See bundle-level alerts at the top of this bundle.'
+                  : 'No related Defender alerts within the time window'}
+              </p>
             )}
           </div>
         );
@@ -972,8 +1006,13 @@ export default function ExecutionsDataTable({
   const actionsEnabled = archiveEnabled || riskEnabled;
   const totalColSpan = visibleColumnsList.length + (actionsEnabled ? 2 : 0);
 
-  // Toggle bundle expand/collapse
-  const toggleBundle = (key: string) => {
+  // Toggle bundle expand/collapse. On expand, eagerly fetch the bundle's
+  // related Defender alerts so the bundle-level callout that renders above
+  // the stage sub-rows has data without waiting for the user to open a
+  // specific stage's detail panel. Uses the first control as a representative
+  // execution for the API call (the helper query is bundle-level: one fetch
+  // covers every stage of this bundle on this host).
+  const toggleBundle = (key: string, firstControl?: EnrichedTestExecution) => {
     setExpandedBundles(prev => {
       const next = new Set(prev);
       if (next.has(key)) {
@@ -985,6 +1024,7 @@ export default function ExecutionsDataTable({
         });
       } else {
         next.add(key);
+        if (firstControl) fetchRelatedAlerts(firstControl);
       }
       return next;
     });
@@ -1326,7 +1366,7 @@ export default function ExecutionsDataTable({
                     {/* Bundle parent row */}
                     <TableRow
                       className={`cursor-pointer group/row bg-muted/30 hover:bg-muted/50 ${isExpanded ? 'border-b-0' : ''}`}
-                      onClick={() => toggleBundle(group.key)}
+                      onClick={() => toggleBundle(group.key, group.controls[0])}
                     >
                       {/* Checkbox */}
                       {actionsEnabled && (
@@ -1359,6 +1399,71 @@ export default function ExecutionsDataTable({
                         </TableCell>
                       ))}
                     </TableRow>
+
+                    {/* Bundle-level Defender alerts callout. Renders alerts whose
+                        evidence doesn't carry a per-stage discriminator (e.g. AV
+                        detections that surface only the dropped file's path under
+                        a bundle-named sandbox dir). Stage detail panels filter
+                        these out so the same alert isn't shown N times under N
+                        stages. Only renders when there's at least one such alert. */}
+                    {isExpanded && defenderConfigured && (() => {
+                      const firstCtrl = group.controls[0];
+                      if (!firstCtrl) return null;
+                      const cacheKey = bundleAlertsCacheKey(firstCtrl);
+                      const alertData = alertsMap.get(cacheKey);
+                      const isLoadingAlerts = alertsLoading === cacheKey;
+                      const bundleAlerts = alertData
+                        ? alertData.alerts.filter((a) => a.attribution === 'bundle')
+                        : [];
+                      if (!isLoadingAlerts && bundleAlerts.length === 0) return null;
+                      return (
+                        <TableRow className="bg-amber-500/5 border-l-2 border-l-amber-500/40">
+                          {actionsEnabled && <TableCell className="w-10" />}
+                          {actionsEnabled && <TableCell className="w-10" />}
+                          <TableCell colSpan={visibleColumnsList.length} className="py-2">
+                            <div className="flex items-start gap-2">
+                              <ShieldAlert className="w-4 h-4 mt-0.5 text-amber-500 flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <span className="text-amber-600 dark:text-amber-400 text-xs font-medium uppercase tracking-wide">
+                                  Bundle-level Defender alerts
+                                </span>
+                                <span className="text-muted-foreground text-xs ml-2">
+                                  (evidence doesn't identify a specific stage)
+                                </span>
+                                {isLoadingAlerts ? (
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+                                    <span className="text-xs text-muted-foreground">Checking…</span>
+                                  </div>
+                                ) : (
+                                  <div className="mt-1 space-y-1">
+                                    {bundleAlerts.map((alert) => {
+                                      const severityClass: Record<string, string> = {
+                                        high: 'bg-red-500/10 text-red-500 border-red-500/30',
+                                        medium: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30',
+                                        low: 'bg-green-500/10 text-green-500 border-green-500/30',
+                                        informational: 'bg-blue-500/10 text-blue-500 border-blue-500/30',
+                                      };
+                                      return (
+                                        <div key={alert.alert_id} className="flex items-center gap-2 text-xs">
+                                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${severityClass[alert.severity] ?? ''}`}>
+                                            {alert.severity}
+                                          </Badge>
+                                          <span className="text-foreground truncate flex-1">{alert.alert_title}</span>
+                                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                            {alert.status}
+                                          </Badge>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })()}
 
                     {/* Expanded control sub-rows */}
                     {isExpanded && group.controls.map((ctrl, ctrlIdx) => {

@@ -54,6 +54,19 @@ export interface DefenderAlertItem {
   updated_at: string;
   resolved_at: string | null;
   recommended_actions: string;
+  /**
+   * 'stage' when the alert's evidence carries a `<bundle_uuid>-<technique>.exe`
+   * binary that pins it to a specific stage; 'bundle' otherwise (orchestrator
+   * UUID-only binary, dropped-file path under a bundle-named sandbox dir,
+   * etc.). Drives whether the alert renders inside a stage drill-down or in
+   * the bundle parent's bundle-level callout.
+   */
+  attribution?: 'stage' | 'bundle';
+  /**
+   * Lowercased technique token from a stage-attributable evidence binary.
+   * Frontend matches case-insensitively against `f0rtika.control_id`.
+   */
+  attributed_control_id?: string;
 }
 
 export interface PaginatedAlerts {
