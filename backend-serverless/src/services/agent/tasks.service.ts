@@ -70,6 +70,23 @@ const VALID_TRANSITIONS: Record<string, TaskStatus[]> = {
 };
 
 /**
+ * Signals an idempotent rejection: the task is already in a terminal state
+ * (completed/failed/expired) when the agent submitted a result or status
+ * update. Routes catch this and return 200 with header `F0-Task-State:
+ * terminal-idempotent` so the agent's local result queue stops retrying.
+ *
+ * Mirrors `backend/src/services/agent/tasks.service.ts`.
+ */
+export class TerminalStateRejection extends Error {
+  constructor(public readonly task: Task) {
+    super(`Task ${task.id} is already in terminal state: ${task.status}`);
+    this.name = 'TerminalStateRejection';
+  }
+}
+
+const TERMINAL_STATUSES: ReadonlySet<TaskStatus> = new Set(['completed', 'failed', 'expired']);
+
+/**
  * Resolve integration environment variables for cloud-targeted tests.
  * Currently supports Azure/Entra ID via the identity-tenant subcategory.
  */
@@ -505,6 +522,11 @@ export async function updateTaskStatus(
     throw new AppError('Agent does not own this task', 403);
   }
 
+  // Idempotent path for terminal source states — see backend/ counterpart.
+  if (TERMINAL_STATUSES.has(row.status as TaskStatus)) {
+    throw new TerminalStateRejection(parseTaskRow(row));
+  }
+
   const allowed = VALID_TRANSITIONS[row.status];
   if (!allowed || !allowed.includes(newStatus)) {
     throw new AppError(
@@ -546,6 +568,11 @@ export async function submitResult(
 
   if (row.agent_id !== agentId) {
     throw new AppError('Agent does not own this task', 403);
+  }
+
+  // Idempotent path for terminal source states — see backend/ counterpart.
+  if (TERMINAL_STATUSES.has(row.status as TaskStatus)) {
+    throw new TerminalStateRejection(parseTaskRow(row));
   }
 
   if (row.status !== 'executing' && row.status !== 'downloading') {

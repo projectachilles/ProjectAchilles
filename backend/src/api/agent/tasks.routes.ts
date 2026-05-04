@@ -18,6 +18,7 @@ import {
   sanitizeTaskForAdmin,
   markTaskIngested,
   markIngestionFailed,
+  TerminalStateRejection,
 } from '../../services/agent/tasks.service.js';
 import { ingestResult } from '../../services/agent/results.service.js';
 import { retryPendingIngestions } from '../../services/agent/ingestionWorker.service.js';
@@ -86,9 +87,19 @@ agentTasksRouter.patch(
 
     const { status, error: errorMsg } = req.body as { status: TaskStatus; error?: string };
 
-    const task = updateTaskStatus(req.params.id, agent.id, status, errorMsg);
-
-    res.json({ success: true, data: task });
+    try {
+      const task = updateTaskStatus(req.params.id, agent.id, status, errorMsg);
+      res.json({ success: true, data: task });
+    } catch (err) {
+      if (err instanceof TerminalStateRejection) {
+        // Idempotent: server already has final outcome. 2xx so the agent's
+        // reporter doesn't loop trying to PATCH a terminal task.
+        res.setHeader('F0-Task-State', 'terminal-idempotent');
+        res.json({ success: true, data: err.task, idempotent: true });
+        return;
+      }
+      throw err;
+    }
   })
 );
 
@@ -108,7 +119,21 @@ agentTasksRouter.post(
 
     const result = req.body as TaskResult;
 
-    const task = submitResult(req.params.id, agent.id, result);
+    let task;
+    try {
+      task = submitResult(req.params.id, agent.id, result);
+    } catch (err) {
+      if (err instanceof TerminalStateRejection) {
+        // Idempotent: server already has a final outcome. Skip ES ingestion
+        // and alerts (those ran at the original completion). Returning 2xx
+        // signals success so the agent's queue.Drain deletes its file and
+        // stops the resubmission storm.
+        res.setHeader('F0-Task-State', 'terminal-idempotent');
+        res.json({ success: true, data: err.task, idempotent: true });
+        return;
+      }
+      throw err;
+    }
 
     // Result is now durably stored in SQLite (tasks.result column). ES
     // ingestion is best-effort on the fast path: try synchronously, and
@@ -116,10 +141,8 @@ agentTasksRouter.post(
     // (services/agent/ingestionWorker.service.ts) to drain later. We
     // ALWAYS return 200 to the agent because:
     //   1. The data is durable. No retry from the agent is necessary.
-    //   2. submitResult() rejects re-submission of completed tasks with
-    //      HTTP 400, so a 5xx -> agent-retry loop would deadlock.
-    //   3. Returning 200 prevents the "Invalid state transition" log
-    //      pollution caused by agents giving up after exhausted retries.
+    //   2. Re-submission of terminal tasks is handled idempotently above
+    //      (TerminalStateRejection -> 200) so agents won't deadlock.
     if (task.type === 'execute_test') {
       try {
         await ingestResult(task, result);

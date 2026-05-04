@@ -76,6 +76,7 @@ const {
   expireOverdueTasks,
   updateTaskNotes,
   sanitizeTaskForAdmin,
+  TerminalStateRejection,
 } = await import('../tasks.service.js');
 
 describe('tasks.service', () => {
@@ -178,6 +179,48 @@ describe('tasks.service', () => {
         'Task not found'
       );
     });
+
+    // ────────────────────────────────────────────────────────────────────
+    // Terminal-state idempotency for PATCH status. The agent's reporter
+    // PATCHes status='failed' as a final give-up after exhausting retries;
+    // if the server already terminated the task, this PATCH must be
+    // accepted idempotently rather than logged as "Invalid state transition".
+    // ────────────────────────────────────────────────────────────────────
+    it.each([
+      ['completed', 'failed'],
+      ['failed', 'failed'],
+      ['expired', 'failed'],
+      ['failed', 'completed'],
+    ] as const)(
+      'throws TerminalStateRejection when transitioning %s -> %s',
+      (fromStatus, toStatus) => {
+        insertTestTask(testDb, { id: 't1', agent_id: 'agent-001', status: fromStatus });
+
+        let caught: unknown;
+        try {
+          updateTaskStatus('t1', 'agent-001', toStatus);
+        } catch (err) {
+          caught = err;
+        }
+
+        expect(caught).toBeInstanceOf(TerminalStateRejection);
+        expect((caught as InstanceType<typeof TerminalStateRejection>).task.status).toBe(fromStatus);
+      },
+    );
+
+    it('does NOT modify task state when terminal rejection fires', () => {
+      insertTestTask(testDb, { id: 't1', agent_id: 'agent-001', status: 'completed' });
+      const before = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
+
+      try {
+        updateTaskStatus('t1', 'agent-001', 'failed');
+      } catch {
+        // expected
+      }
+
+      const after = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
+      expect(after).toEqual(before);
+    });
   });
 
   describe('submitResult', () => {
@@ -220,6 +263,44 @@ describe('tasks.service', () => {
       expect(() =>
         submitResult('t1', 'agent-002', { exit_code: 0 } as any)
       ).toThrow('Agent does not own this task');
+    });
+
+    // ────────────────────────────────────────────────────────────────────
+    // Terminal-state idempotency: regression tests for the May-2026 storm.
+    // Agents in the field repeatedly POSTed results for tasks already
+    // marked failed/expired by server-side expiration sweeps. The old
+    // behavior threw HTTP 400 and the agent's queue.Drain looped forever.
+    // Now we throw TerminalStateRejection so routes can return 2xx.
+    // ────────────────────────────────────────────────────────────────────
+    it.each(['completed', 'failed', 'expired'] as const)(
+      'throws TerminalStateRejection (not AppError) when task is %s',
+      (status) => {
+        insertTestTask(testDb, { id: 't1', agent_id: 'agent-001', status });
+
+        let caught: unknown;
+        try {
+          submitResult('t1', 'agent-001', { exit_code: 0 } as any);
+        } catch (err) {
+          caught = err;
+        }
+
+        expect(caught).toBeInstanceOf(TerminalStateRejection);
+        expect((caught as InstanceType<typeof TerminalStateRejection>).task.status).toBe(status);
+      },
+    );
+
+    it('does NOT modify task state when terminal rejection fires', () => {
+      insertTestTask(testDb, { id: 't1', agent_id: 'agent-001', status: 'failed' });
+      const before = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
+
+      try {
+        submitResult('t1', 'agent-001', { exit_code: 0, stdout: 'tampered' } as any);
+      } catch {
+        // expected
+      }
+
+      const after = testDb.prepare('SELECT * FROM tasks WHERE id = ?').get('t1');
+      expect(after).toEqual(before);
     });
   });
 

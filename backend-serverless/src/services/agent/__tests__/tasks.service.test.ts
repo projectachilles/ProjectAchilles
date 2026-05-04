@@ -42,6 +42,7 @@ const {
   expireOldTasks,
   expireStaleTasks,
   updateTaskNotes,
+  TerminalStateRejection,
 } = await import('../tasks.service.js');
 
 describe('tasks.service', () => {
@@ -144,6 +145,29 @@ describe('tasks.service', () => {
         'Task not found'
       );
     });
+
+    // Terminal-state idempotency for PATCH status.
+    it.each([
+      ['completed', 'failed'],
+      ['failed', 'failed'],
+      ['expired', 'failed'],
+      ['failed', 'completed'],
+    ] as const)(
+      'throws TerminalStateRejection when transitioning %s -> %s',
+      async (fromStatus, toStatus) => {
+        await insertTestTask(testDb, { id: 't1', agent_id: 'agent-001', status: fromStatus });
+
+        let caught: unknown;
+        try {
+          await updateTaskStatus('t1', 'agent-001', toStatus);
+        } catch (err) {
+          caught = err;
+        }
+
+        expect(caught).toBeInstanceOf(TerminalStateRejection);
+        expect((caught as InstanceType<typeof TerminalStateRejection>).task.status).toBe(fromStatus);
+      },
+    );
   });
 
   describe('submitResult', () => {
@@ -187,6 +211,25 @@ describe('tasks.service', () => {
         submitResult('t1', 'agent-002', { exit_code: 0 } as any)
       ).rejects.toThrow('Agent does not own this task');
     });
+
+    // Terminal-state idempotency: regression for the May-2026 storm.
+    // Mirror of backend/ tests.
+    it.each(['completed', 'failed', 'expired'] as const)(
+      'throws TerminalStateRejection (not AppError) when task is %s',
+      async (status) => {
+        await insertTestTask(testDb, { id: 't1', agent_id: 'agent-001', status });
+
+        let caught: unknown;
+        try {
+          await submitResult('t1', 'agent-001', { exit_code: 0 } as any);
+        } catch (err) {
+          caught = err;
+        }
+
+        expect(caught).toBeInstanceOf(TerminalStateRejection);
+        expect((caught as InstanceType<typeof TerminalStateRejection>).task.status).toBe(status);
+      },
+    );
   });
 
   describe('listTasks', () => {
