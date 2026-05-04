@@ -18,6 +18,7 @@ import {
   updateTaskNotes,
   markTaskIngested,
   markIngestionFailed,
+  TerminalStateRejection,
 } from '../../services/agent/tasks.service.js';
 import { ingestResult } from '../../services/agent/results.service.js';
 import { retryPendingIngestions } from '../../services/agent/ingestionWorker.service.js';
@@ -78,9 +79,17 @@ agentTasksRouter.patch(
 
     const { status } = req.body as { status: TaskStatus };
 
-    const task = await updateTaskStatus(req.params.id, agent.id, status);
-
-    res.json({ success: true, data: task });
+    try {
+      const task = await updateTaskStatus(req.params.id, agent.id, status);
+      res.json({ success: true, data: task });
+    } catch (err) {
+      if (err instanceof TerminalStateRejection) {
+        res.setHeader('F0-Task-State', 'terminal-idempotent');
+        res.json({ success: true, data: err.task, idempotent: true });
+        return;
+      }
+      throw err;
+    }
   })
 );
 
@@ -100,14 +109,24 @@ agentTasksRouter.post(
 
     const result = req.body as TaskResult;
 
-    const task = await submitResult(req.params.id, agent.id, result);
+    let task;
+    try {
+      task = await submitResult(req.params.id, agent.id, result);
+    } catch (err) {
+      if (err instanceof TerminalStateRejection) {
+        // Idempotent: server already has a final outcome. Skip ingestion.
+        res.setHeader('F0-Task-State', 'terminal-idempotent');
+        res.json({ success: true, data: err.task, idempotent: true });
+        return;
+      }
+      throw err;
+    }
 
     // Result is now durably stored in Turso (tasks.result column). ES
     // ingestion is best-effort on the fast path: try synchronously, and
     // on failure leave es_ingested=0 for the /api/cron/retry-ingestion
-    // Vercel Cron to drain later. We ALWAYS return 200 to the agent
-    // because submitResult() rejects re-submission of completed tasks
-    // with HTTP 400, so a 5xx -> agent-retry loop would deadlock.
+    // Vercel Cron to drain later. Re-submission of terminal tasks is
+    // handled idempotently above (TerminalStateRejection -> 200).
     if (task.type === 'execute_test') {
       try {
         await ingestResult(task, result);

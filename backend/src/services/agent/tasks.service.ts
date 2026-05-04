@@ -73,6 +73,25 @@ const VALID_TRANSITIONS: Record<string, TaskStatus[]> = {
 };
 
 /**
+ * Signals an idempotent rejection: the task is already in a terminal state
+ * (completed/failed/expired) when the agent submitted a result or status
+ * update. The server's outcome is authoritative; the agent's request is
+ * stale and should be acknowledged with a 2xx response so the agent's
+ * local result queue stops retrying.
+ *
+ * Routes catch this and return 200 with header `F0-Task-State: terminal-idempotent`.
+ * Distinct from AppError so the global error middleware doesn't log it as 4xx noise.
+ */
+export class TerminalStateRejection extends Error {
+  constructor(public readonly task: Task) {
+    super(`Task ${task.id} is already in terminal state: ${task.status}`);
+    this.name = 'TerminalStateRejection';
+  }
+}
+
+const TERMINAL_STATUSES: ReadonlySet<TaskStatus> = new Set(['completed', 'failed', 'expired']);
+
+/**
  * Resolve integration environment variables for cloud-targeted tests.
  * Currently supports Azure/Entra ID via the identity-tenant subcategory.
  */
@@ -541,6 +560,15 @@ export function updateTaskStatus(
     throw new AppError('Agent does not own this task', 403);
   }
 
+  // Idempotent path for terminal source states. The agent's reporter PATCHes
+  // status='failed' as a final give-up after exhausting result-POST retries;
+  // if the server already failed/expired/completed the task, this PATCH is
+  // moot. Throwing TerminalStateRejection lets the route return 2xx so the
+  // agent stops looping.
+  if (TERMINAL_STATUSES.has(row.status as TaskStatus)) {
+    throw new TerminalStateRejection(parseTaskRow(row));
+  }
+
   const allowed = VALID_TRANSITIONS[row.status];
   if (!allowed || !allowed.includes(newStatus)) {
     throw new AppError(
@@ -605,6 +633,14 @@ export function submitResult(
 
   if (row.agent_id !== agentId) {
     throw new AppError('Agent does not own this task', 403);
+  }
+
+  // Idempotent path for terminal source states. The server already has a
+  // final outcome for this task (e.g. expireStaleTasks marked it failed
+  // while the agent's result POST was in flight). Don't overwrite — let
+  // the route signal success so the agent's queue.Drain deletes its copy.
+  if (TERMINAL_STATUSES.has(row.status as TaskStatus)) {
+    throw new TerminalStateRejection(parseTaskRow(row));
   }
 
   if (row.status !== 'executing' && row.status !== 'downloading') {
