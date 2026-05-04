@@ -325,11 +325,18 @@ export class DefenderSyncService {
       const creds = (await integrationsService.getDefenderCredentials())!;
 
       if (alerts.length > 0) {
+        // Use `update` with `doc_as_upsert:true` so f0rtika.* fields written by
+        // the enrichment pass (achilles_correlated, achilles_test_uuid,
+        // achilles_matched_at) and the auto-resolve pass (auto_resolved,
+        // auto_resolve_mode, auto_resolved_at) survive subsequent syncs.
+        // A plain `index` op replaces the whole doc and would wipe them whenever
+        // Defender re-emits the alert (which it does whenever lastUpdateDateTime
+        // ticks — common for "new"/"in progress" alerts as evidence evolves).
         const operations = alerts.flatMap((alert) => {
           const doc = this.transformAlert(alert, creds.tenant_id);
           return [
-            { index: { _index: DEFENDER_INDEX, _id: `alert-${alert.id}` } },
-            doc,
+            { update: { _index: DEFENDER_INDEX, _id: `alert-${alert.id}`, retry_on_conflict: 3 } },
+            { doc, doc_as_upsert: true },
           ];
         });
 
@@ -337,7 +344,7 @@ export class DefenderSyncService {
 
         if (result.errors) {
           for (const item of result.items) {
-            const op = item.index;
+            const op = item.update;
             if (op?.error) {
               errors.push(`Alert ${op._id}: ${op.error.reason}`);
             }

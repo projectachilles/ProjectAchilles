@@ -208,11 +208,17 @@ describe('DefenderSyncService', () => {
       const result = await service.syncAlerts();
       expect(result.synced).toBe(1);
 
-      // Verify the _id uses alert- prefix
+      // Use `update` with `doc_as_upsert:true` so f0rtika.* annotations from
+      // the enrichment + auto-resolve passes survive subsequent re-syncs.
+      // See sync.service.ts for the rationale (a plain `index` op replaces the
+      // whole doc and would wipe correlation flags whenever Defender re-emits
+      // the alert).
       const operations = mockBulk.mock.calls[0][0].operations;
       expect(operations[0]).toMatchObject({
-        index: { _id: 'alert-alert-123' },
+        update: { _id: 'alert-alert-123', retry_on_conflict: 3 },
       });
+      expect(operations[1]).toMatchObject({ doc_as_upsert: true });
+      expect(operations[1].doc).toMatchObject({ alert_id: 'alert-123' });
     });
 
     it('extracts evidence_filepaths from fileDetails, imageFile, and parentProcess', async () => {
@@ -241,12 +247,54 @@ describe('DefenderSyncService', () => {
       ]);
 
       await service.syncAlerts();
-      const doc = mockBulk.mock.calls[0][0].operations[1];
+      // operations[1] is now `{ doc: <alertDoc>, doc_as_upsert: true }`,
+      // not the doc directly — see the syncAlerts test above for the rationale.
+      const doc = mockBulk.mock.calls[0][0].operations[1].doc;
       expect(doc.evidence_filepaths).toEqual(expect.arrayContaining([
         'c:\\users\\fortika-test\\bluehammersandbox',
         'c:\\f0\\tasks\\task-abc-1\\orchestrator.exe',
         'c:\\program files\\f0rtika\\achilles-agent.exe',
       ]));
+    });
+
+    // Regression: the auto-resolve pillar depends on f0rtika.achilles_correlated
+    // and f0rtika.auto_resolved* surviving across alert syncs. Defender re-emits
+    // open alerts every time lastUpdateDateTime ticks (evidence enrichment, etc.),
+    // and the previous `index`-based bulk op silently wiped the f0rtika subtree.
+    // The fix is `update` + `doc_as_upsert:true`, which leaves top-level fields
+    // not present in `doc` (i.e., f0rtika) untouched. This test pins that contract.
+    it('uses update+doc_as_upsert so f0rtika annotations are not in the request body', async () => {
+      mockGetAlerts.mockResolvedValue([
+        {
+          id: 'alert-1',
+          title: 'Test',
+          description: '',
+          severity: 'low',
+          status: 'new',
+          category: 'Malware',
+          serviceSource: 'microsoftDefenderForEndpoint',
+          createdDateTime: '2026-05-04T12:00:00Z',
+          lastUpdateDateTime: '2026-05-04T12:05:00Z',
+          mitreTechniques: [],
+          recommendedActions: '',
+          evidence: [],
+        },
+      ]);
+
+      await service.syncAlerts();
+
+      const operations = mockBulk.mock.calls[0][0].operations;
+      // Action line must be `update`, not `index` — `index` would replace the
+      // whole doc and clobber f0rtika.* written by enrichment/auto-resolve.
+      expect(operations[0].update).toBeDefined();
+      expect(operations[0].index).toBeUndefined();
+
+      // Body must use `doc_as_upsert:true` and must NOT carry an f0rtika field.
+      // ES merges only the top-level keys present in `doc`; omitting f0rtika is
+      // what guarantees the existing achilles_correlated / auto_resolved
+      // receipts on the live doc survive this update.
+      expect(operations[1].doc_as_upsert).toBe(true);
+      expect(operations[1].doc.f0rtika).toBeUndefined();
     });
 
     it('uses incremental filter on second sync', async () => {
