@@ -7,7 +7,10 @@ interface HeroMetricsCardProps {
   uniqueEndpoints: number;
   executedTests: number;
   errorRate?: number | null;
+  /** EDR-only score (strict, on the same exclusion-filtered base as defenseScore). Used for the "EDR-only" sub-stat when Defender is boosting the headline. */
   realScore?: number | null;
+  /** Combined score against the unfiltered (pre-risk-acceptance) base. Used for the "actual: X% (N excluded)" line. */
+  rawScore?: number | null;
   riskAcceptedCount?: number;
   loading?: boolean;
 }
@@ -23,6 +26,7 @@ function HeroMetricsCard({
   executedTests,
   errorRate,
   realScore,
+  rawScore,
   riskAcceptedCount,
   loading,
 }: HeroMetricsCardProps) {
@@ -60,10 +64,10 @@ function HeroMetricsCard({
         <div className={`text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight ${getScoreColor(defenseScore)}`}>
           {formatScore(defenseScore)}
         </div>
-        {riskAcceptedCount != null && riskAcceptedCount > 0 && realScore != null && (
+        {riskAcceptedCount != null && riskAcceptedCount > 0 && rawScore != null && (
           <div className="flex items-center gap-1.5 mt-1">
-            <span className={`text-sm font-medium ${getScoreColor(realScore)}`}>
-              actual: {realScore.toFixed(1)}%
+            <span className={`text-sm font-medium ${getScoreColor(rawScore)}`}>
+              actual: {rawScore.toFixed(1)}%
             </span>
             <span className="text-xs text-amber-500">
               ({riskAcceptedCount} excluded)

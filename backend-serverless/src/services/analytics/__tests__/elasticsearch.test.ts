@@ -276,6 +276,8 @@ describe('elasticsearch.ts', () => {
       expect(result.riskAcceptedCount).toBe(0);
       expect(result.score).toBe(70);
       expect(result.realScore).toBe(65);
+      // rawScore mirrors score when nothing is excluded
+      expect(result.rawScore).toBe(70);
     });
 
     it('returns both adjusted and real scores when risk exclusions active', async () => {
@@ -304,6 +306,13 @@ describe('elasticsearch.ts', () => {
       expect(result.realProtectedCount).toBe(80); // raw.combinedProtected
       expect(result.realTotalExecutions).toBe(100);
       expect(result.riskAcceptedCount).toBe(10);
+
+      // rawScore = raw.combinedProtected / raw.total = 80/100 = 80%
+      // This is the "what would the score be without risk acceptance" value
+      // surfaced as "actual: X%" on the headline tile.
+      expect(result.rawScore).toBe(80);
+      // Math sanity: rawScore < score when an unprotected doc was excluded
+      expect(result.rawScore).toBeLessThan(result.score);
     });
   });
 
