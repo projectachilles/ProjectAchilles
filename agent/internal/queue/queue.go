@@ -6,6 +6,7 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/f0rt1ka/achilles-agent/internal/executor"
 	"github.com/f0rt1ka/achilles-agent/internal/httpclient"
+	"github.com/f0rt1ka/achilles-agent/internal/reporter"
 )
 
 const maxQueueSize = 100
@@ -64,8 +66,17 @@ func (q *Queue) Enqueue(taskID string, result *executor.Result) error {
 }
 
 // Drain attempts to deliver all queued results using the provided report function.
-// It processes files oldest-first and stops on the first failure (server likely
-// still unreachable). Returns the number of successfully delivered results.
+// It processes files oldest-first.
+//
+// On reporter.ErrPermanent (HTTP 400/404 — server has decided this result will
+// never be accepted), the queued file is DELETED and processing continues to
+// the next file. This prevents the May-2026 resubmission storm where a single
+// rejected result would be re-POSTed every heartbeat forever.
+//
+// On reporter.ErrTransient (network, 5xx, 4xx-after-retries) or any unrecognised
+// error, processing breaks and the file is preserved for the next drain pass.
+//
+// Returns the number of successfully delivered results.
 func (q *Queue) Drain(ctx context.Context, reportFn ReportFunc, client *httpclient.Client) int {
 	entries, err := os.ReadDir(q.dir)
 	if err != nil || len(entries) == 0 {
@@ -98,8 +109,17 @@ func (q *Queue) Drain(ctx context.Context, reportFn ReportFunc, client *httpclie
 		}
 
 		if err := reportFn(ctx, client, queued.TaskID, queued.Result); err != nil {
-			log.Printf("[queue] Drain failed for task %s: %v (stopping)", queued.TaskID, err)
-			break // Stop on first failure — server still unreachable.
+			if errors.Is(err, reporter.ErrPermanent) {
+				// Server has a final answer for this task — likely the task
+				// was already terminal server-side when our POST landed.
+				// Deleting the queued file stops the retry loop; the result
+				// is a write-off (server's outcome is authoritative).
+				log.Printf("[queue] Permanent rejection for task %s, removing queued file: %v", queued.TaskID, err)
+				os.Remove(path)
+				continue
+			}
+			log.Printf("[queue] Drain failed for task %s: %v (stopping, file retained)", queued.TaskID, err)
+			break // Transient — keep file for the next drain pass.
 		}
 
 		os.Remove(path)
