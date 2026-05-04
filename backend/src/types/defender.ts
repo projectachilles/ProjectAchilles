@@ -311,6 +311,22 @@ export interface RelatedAlertsResponse {
     updated_at: string;
     resolved_at: string | null;
     recommended_actions: string;
+    /**
+     * Whether this alert can be attributed to a specific stage of the bundle
+     * (`'stage'`) or applies to the bundle as a whole because the evidence
+     * shape doesn't discriminate (`'bundle'`). Driven by parsing the alert's
+     * `evidence_filenames` for a `<bundle_uuid>-<technique>.exe` pattern: if
+     * found, attribution is `'stage'` and `attributed_control_id` carries the
+     * technique token (lowercased). Otherwise `'bundle'`.
+     */
+    attribution: 'stage' | 'bundle';
+    /**
+     * Lowercased technique token from a stage-attributable evidence binary
+     * (e.g. `'t1211-cfapi'`). Frontend matches this case-insensitively
+     * against `f0rtika.control_id` to render the alert under the correct
+     * stage's drill-down. Undefined when `attribution === 'bundle'`.
+     */
+    attributed_control_id?: string;
   }>;
   matchedTechniques: string[];
   total: number;

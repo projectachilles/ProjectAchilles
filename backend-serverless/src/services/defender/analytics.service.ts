@@ -60,6 +60,14 @@ export interface DefenderAlertItem {
   updated_at: string;
   resolved_at: string | null;
   recommended_actions: string;
+  /**
+   * Whether this alert is attributable to a specific stage of the bundle
+   * (`'stage'`) or only to the bundle as a whole (`'bundle'`). See backend/
+   * for full rationale.
+   */
+  attribution?: 'stage' | 'bundle';
+  /** Lowercased technique token from a stage-attributable evidence binary. */
+  attributed_control_id?: string;
 }
 
 export interface ControlItem {
@@ -664,6 +672,26 @@ export class DefenderAnalyticsService {
     const from = new Date(testTime - PRE_WINDOW_MS).toISOString();
     const to = new Date(testTime + windowMs).toISOString();
 
+    // Bundle UUID for stage-attribution classification — see backend/ for
+    // full rationale. Empty when binaryName isn't provided (technique-only
+    // fallback path), in which case every alert is classified as 'bundle'.
+    const bundleUuidForAttribution = binaryName
+      ? binaryName.toLowerCase().replace(/\.exe$/, '')
+      : '';
+
+    const classifyAttribution = (
+      filenames: string[],
+    ): { attribution: 'stage' | 'bundle'; attributed_control_id?: string } => {
+      if (!bundleUuidForAttribution) return { attribution: 'bundle' };
+      const escaped = bundleUuidForAttribution.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const stagePattern = new RegExp(`^${escaped}-([a-z0-9._-]+?)\\.exe$`, 'i');
+      for (const fn of filenames) {
+        const m = fn.match(stagePattern);
+        if (m) return { attribution: 'stage', attributed_control_id: m[1].toLowerCase() };
+      }
+      return { attribution: 'bundle' };
+    };
+
     const parseHits = (hits: any[]) => {
       const matchedTechniqueSet = new Set<string>();
       const alerts: DefenderAlertItem[] = hits.map((hit) => {
@@ -672,6 +700,8 @@ export class DefenderAnalyticsService {
         for (const t of alertTechniques) {
           if (techniques.includes(t)) matchedTechniqueSet.add(t);
         }
+        const evidenceFilenames = (s.evidence_filenames as string[]) ?? [];
+        const { attribution, attributed_control_id } = classifyAttribution(evidenceFilenames);
         return {
           alert_id: String(s.alert_id ?? ''),
           alert_title: String(s.alert_title ?? ''),
@@ -685,6 +715,8 @@ export class DefenderAnalyticsService {
           updated_at: String(s.updated_at ?? ''),
           resolved_at: s.resolved_at ? String(s.resolved_at) : null,
           recommended_actions: String(s.recommended_actions ?? ''),
+          attribution,
+          ...(attributed_control_id ? { attributed_control_id } : {}),
         };
       });
       alerts.sort((a, b) => {
