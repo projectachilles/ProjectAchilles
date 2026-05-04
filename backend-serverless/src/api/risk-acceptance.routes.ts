@@ -47,12 +47,18 @@ router.post('/', requirePermission('analytics:risk:write'), validate(AcceptRiskS
     || user.emailAddresses[0]?.emailAddress
     || userId;
 
+  // Normalize hostname/scope so they can never disagree downstream.
+  // Resolution mirrors the consumer (buildExclusionFilter): explicit `scope` wins,
+  // legacy clients (no scope) fall back to "hostname presence implies host scope".
+  const resolvedScope: 'host' | 'global' = scope ?? (hostname ? 'host' : 'global');
+  const resolvedHostname = resolvedScope === 'host' ? (hostname || undefined) : undefined;
+
   const svc = await getRiskService();
   const acceptance = await svc.acceptRisk({
     test_name,
     control_id: control_id || undefined,
-    hostname: hostname || undefined,
-    scope: scope || 'global',
+    hostname: resolvedHostname,
+    scope: resolvedScope,
     justification: justification.trim(),
     accepted_by: userId,
     accepted_by_name: displayName,
