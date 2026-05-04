@@ -945,9 +945,12 @@ export function expireOldTasks(): number {
  * been offline for longer than STALE_TASK_THRESHOLD_SECONDS. This prevents
  * tasks from being orphaned forever when an agent crashes or loses network.
  *
- * If a failed task has retries remaining (retry_count < max_retries) and is
- * of type 'execute_test', a new pending task is created automatically for
- * the same agent with incremented retry_count.
+ * Retry creation is gated on the agent's CURRENT heartbeat: a retry is
+ * created only when the agent has come back online (last_heartbeat fresh
+ * within STALE_TASK_THRESHOLD_SECONDS). For an agent that's still offline
+ * — e.g. powered off overnight — we skip the retry. Otherwise we'd pile
+ * 2× retries onto every silent agent and produce all-failed retry chains
+ * that flood the Tasks UI without any chance of succeeding.
  */
 const STALE_TASK_THRESHOLD_SECONDS = 360; // 2× heartbeat timeout (180s)
 
@@ -983,6 +986,21 @@ export function expireStaleTasks(): number {
       ?, ?, ?, NULL, '[]')
   `);
 
+  // Re-fetch the agent's current heartbeat per task to decide whether to
+  // create a retry. The staleTasks SELECT already established the agent
+  // was offline at that moment; this query asks "has it come back since?"
+  const agentHbStmt = db.prepare(`
+    SELECT last_heartbeat,
+           CASE
+             WHEN last_heartbeat IS NULL THEN 0
+             WHEN (julianday('now') - julianday(last_heartbeat)) * 86400.0 > ? THEN 0
+             ELSE 1
+           END AS is_back_online
+    FROM agents WHERE id = ?
+  `);
+
+  let skipped_offline_retries = 0;
+
   db.transaction(() => {
     for (const task of staleTasks) {
       failStmt.run(task.id);
@@ -991,16 +1009,23 @@ export function expireStaleTasks(): number {
       const maxRetries = task.max_retries ?? 2;
       const canRetry = retryCount < maxRetries && task.type === 'execute_test';
 
+      const agentHb = agentHbStmt.get(STALE_TASK_THRESHOLD_SECONDS, task.agent_id) as
+        { last_heartbeat: string | null; is_back_online: number } | undefined;
+      const isAgentBackOnline = !!agentHb && agentHb.is_back_online === 1;
+
+      const willRetry = canRetry && isAgentBackOnline;
+
       // Record task_failed event with retry context
       recordEvent(task.agent_id, 'task_failed', {
         task_id: task.id,
         task_type: task.type,
         reason: 'agent_offline',
-        retry_created: canRetry,
+        retry_created: willRetry,
         retry_count: retryCount,
+        agent_back_online: isAgentBackOnline,
       });
 
-      if (canRetry) {
+      if (willRetry) {
         const retryId = crypto.randomUUID();
         const originalId = task.original_task_id || task.id;
         insertRetry.run(
@@ -1010,11 +1035,17 @@ export function expireStaleTasks(): number {
           retryCount + 1, maxRetries, originalId,
         );
         console.log(`[tasks] Created retry ${retryCount + 1}/${maxRetries} for task ${task.id} → ${retryId}`);
+      } else if (canRetry) {
+        skipped_offline_retries++;
+        console.log(`[tasks] Skipping retry for task ${task.id} — agent ${task.agent_id} still offline (last_hb ${agentHb?.last_heartbeat ?? 'never'})`);
       }
     }
   })();
 
-  console.warn(`[tasks] Expired ${staleTasks.length} stale task(s) (agent offline >${STALE_TASK_THRESHOLD_SECONDS}s while executing)`);
+  const skippedNote = skipped_offline_retries > 0
+    ? `; ${skipped_offline_retries} retry/retries skipped (agent still offline)`
+    : '';
+  console.warn(`[tasks] Expired ${staleTasks.length} stale task(s) (agent offline >${STALE_TASK_THRESHOLD_SECONDS}s while executing)${skippedNote}`);
   return staleTasks.length;
 }
 
@@ -1039,9 +1070,15 @@ const OVERDUE_BUFFER_SECONDS = 120;
 export function expireOverdueTasks(): number {
   const db = getDatabase();
 
+  // 'assigned' is included so a task that was handed to an agent but
+  // never PATCHed to 'downloading' (e.g. agent crashed between poll and
+  // download, or the PATCH failed mid-flight) gets cleaned up. Without
+  // this branch the task zombies until TTL (default 7 days). Verified
+  // a real zombie of this shape on tpsgl: task df09471f sat 'assigned'
+  // for 4+ days while its agent was heartbeating fresh.
   const overdueTasks = db.prepare(`
     SELECT * FROM tasks
-    WHERE status IN ('executing', 'downloading')
+    WHERE status IN ('executing', 'downloading', 'assigned')
       AND assigned_at IS NOT NULL
       AND (julianday('now') - julianday(assigned_at)) * 86400.0 >
           COALESCE(json_extract(payload, '$.execution_timeout'), 300) + ?
