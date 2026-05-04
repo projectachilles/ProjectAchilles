@@ -194,7 +194,9 @@ describe('MicrosoftGraphClient', () => {
       status: 'resolved' as const,
       classification: 'informationalExpectedActivity' as const,
       determination: 'securityTesting' as const,
-      comments: [{ comment: 'Achilles test — authorized activity' }],
+      // NOTE: `comments` is intentionally NOT here. The Graph alerts_v2
+      // PATCH endpoint silently drops the field. Comments go through
+      // addAlertComment() against /security/alerts_v2/{id}/comments.
     };
 
     // Helper: mock a 204 No Content PATCH success (or 200 with body).
@@ -348,6 +350,93 @@ describe('MicrosoftGraphClient', () => {
       }
 
       await expect(client.updateAlert('alert-1', samplePatch)).rejects.toBeInstanceOf(GraphPatchError);
+    });
+  });
+
+  // ── addAlertComment ───────────────────────────────────────────────
+
+  describe('addAlertComment', () => {
+    // Earlier `stops retrying 429` test queues 5 mockResolvedValueOnce
+    // responses but the code consumes only MAX_RETRIES+1 = 4. The leftover
+    // mocks survive `vi.clearAllMocks()` (which only resets call history,
+    // not the mockResolvedValueOnce queue) and would be consumed by our
+    // tests in the wrong order. mockReset() drains the queue for a clean
+    // slate without affecting the outer beforeEach.
+    beforeEach(() => {
+      mockFetch.mockReset();
+    });
+
+    function mockCommentSuccess() {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => '{}',
+      });
+    }
+
+    it('POSTs to /security/alerts_v2/{id}/comments with @odata.type and comment body', async () => {
+      mockTokenResponse();
+      mockCommentSuccess();
+
+      await client.addAlertComment('alert-abc', 'Achilles test foo — authorized.');
+
+      const postCall = mockFetch.mock.calls[1];
+      expect(postCall[0]).toBe('https://graph.microsoft.com/v1.0/security/alerts_v2/alert-abc/comments');
+      expect(postCall[1].method).toBe('POST');
+      expect(postCall[1].headers.Authorization).toBe('Bearer test-token');
+      expect(postCall[1].headers['Content-Type']).toBe('application/json');
+
+      const body = JSON.parse(postCall[1].body);
+      expect(body['@odata.type']).toBe('microsoft.graph.security.alertComment');
+      expect(body.comment).toBe('Achilles test foo — authorized.');
+    });
+
+    it('throws when alertId is empty', async () => {
+      await expect(client.addAlertComment('', 'hi')).rejects.toThrow('alertId is required');
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('returns void without HTTP call when comment is empty', async () => {
+      // Defensive: callers can pass an empty string defensively. We don't want
+      // to spam Graph with a useless POST that would just create a blank
+      // comment in the audit history.
+      const result = await client.addAlertComment('alert-1', '');
+      expect(result).toBeUndefined();
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('URL-encodes alert ids with special characters', async () => {
+      mockTokenResponse();
+      mockCommentSuccess();
+
+      await client.addAlertComment('alert/with spaces', 'comment text');
+
+      const url = mockFetch.mock.calls[1][0] as string;
+      expect(url).toContain('alert%2Fwith%20spaces');
+    });
+
+    it('maps 403 to GraphPatchError with the SecurityAlert.ReadWrite.All hint', async () => {
+      mockTokenResponse();
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => 'Forbidden',
+      });
+
+      await expect(client.addAlertComment('alert-1', 'comment'))
+        .rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('maps 404 to GraphPatchError', async () => {
+      mockTokenResponse();
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: async () => 'NotFound',
+      });
+
+      await expect(client.addAlertComment('alert-deleted', 'comment'))
+        .rejects.toMatchObject({ statusCode: 404 });
     });
   });
 });

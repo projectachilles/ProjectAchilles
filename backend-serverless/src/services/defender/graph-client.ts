@@ -174,19 +174,49 @@ export class MicrosoftGraphClient {
     if (!alertId) {
       throw new Error('updateAlert: alertId is required');
     }
-
     const url = `${GRAPH_BASE}/security/alerts_v2/${encodeURIComponent(alertId)}`;
+    await this.writeRequest('PATCH', url, patch, alertId, 'PATCH');
+  }
+
+  /**
+   * POST a comment to an alert via the dedicated comments sub-resource.
+   * The alerts_v2 PATCH endpoint silently drops `comments` from the body,
+   * so audit-trail comments must go through this separate endpoint.
+   * Mirror of backend/. Throws GraphPatchError on non-2xx.
+   */
+  async addAlertComment(alertId: string, comment: string): Promise<void> {
+    if (!alertId) {
+      throw new Error('addAlertComment: alertId is required');
+    }
+    if (!comment) return;
+
+    const url = `${GRAPH_BASE}/security/alerts_v2/${encodeURIComponent(alertId)}/comments`;
+    const body = {
+      '@odata.type': 'microsoft.graph.security.alertComment',
+      comment,
+    };
+    await this.writeRequest('POST', url, body, alertId, 'POST comment');
+  }
+
+  /** Shared write-request loop with 429 backoff, 401 refresh, error mapping. */
+  private async writeRequest(
+    method: 'PATCH' | 'POST',
+    url: string,
+    body: unknown,
+    alertId: string,
+    label: string,
+  ): Promise<void> {
     let retryCount = 0;
 
     while (true) {
       const token = await this.getAccessToken();
       const res = await fetch(url, {
-        method: 'PATCH',
+        method,
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(patch),
+        body: JSON.stringify(body),
       });
 
       if (res.status === 429 && retryCount < MAX_RETRIES) {
@@ -208,7 +238,7 @@ export class MicrosoftGraphClient {
 
       if (res.status === 403) {
         throw new GraphPatchError(
-          `Graph PATCH forbidden (HTTP 403). Ensure the Azure AD app has 'SecurityAlert.ReadWrite.All' application permission with admin consent granted. Body: ${bodySnippet}`,
+          `Graph ${label} forbidden (HTTP 403). Ensure the Azure AD app has 'SecurityAlert.ReadWrite.All' application permission with admin consent granted. Body: ${bodySnippet}`,
           403,
           bodySnippet,
         );
@@ -223,7 +253,7 @@ export class MicrosoftGraphClient {
       }
 
       throw new GraphPatchError(
-        `Graph PATCH failed: HTTP ${res.status} — ${bodySnippet}`,
+        `Graph ${label} failed: HTTP ${res.status} — ${bodySnippet}`,
         res.status,
         bodySnippet,
       );

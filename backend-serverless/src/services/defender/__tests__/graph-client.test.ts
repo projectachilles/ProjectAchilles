@@ -30,7 +30,8 @@ describe('MicrosoftGraphClient (serverless)', () => {
       status: 'resolved' as const,
       classification: 'informationalExpectedActivity' as const,
       determination: 'securityTesting' as const,
-      comments: [{ comment: 'Achilles test — authorized activity' }],
+      // `comments` intentionally absent — alerts_v2 PATCH drops it; comments
+      // go through addAlertComment().
     };
 
     function mockPatchSuccess() {
@@ -161,6 +162,45 @@ describe('MicrosoftGraphClient (serverless)', () => {
       }
 
       await expect(client.updateAlert('alert-1', samplePatch)).rejects.toBeInstanceOf(GraphPatchError);
+    });
+  });
+
+  describe('addAlertComment', () => {
+    // Drain leftover mockResolvedValueOnce queue from prior tests — see
+    // backend/ test of the same name for full rationale.
+    beforeEach(() => {
+      mockFetch.mockReset();
+    });
+
+    it('POSTs to /security/alerts_v2/{id}/comments with @odata.type and comment', async () => {
+      mockTokenResponse();
+      mockFetch.mockResolvedValueOnce({ ok: true, status: 200, text: async () => '{}' });
+
+      await client.addAlertComment('alert-abc', 'Achilles test foo.');
+
+      const postCall = mockFetch.mock.calls[1];
+      expect(postCall[0]).toBe('https://graph.microsoft.com/v1.0/security/alerts_v2/alert-abc/comments');
+      expect(postCall[1].method).toBe('POST');
+      const body = JSON.parse(postCall[1].body);
+      expect(body['@odata.type']).toBe('microsoft.graph.security.alertComment');
+      expect(body.comment).toBe('Achilles test foo.');
+    });
+
+    it('throws when alertId is empty', async () => {
+      await expect(client.addAlertComment('', 'hi')).rejects.toThrow('alertId is required');
+    });
+
+    it('returns void without HTTP call when comment is empty', async () => {
+      const result = await client.addAlertComment('alert-1', '');
+      expect(result).toBeUndefined();
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('maps 403 to GraphPatchError', async () => {
+      mockTokenResponse();
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 403, text: async () => 'Forbidden' });
+      await expect(client.addAlertComment('alert-1', 'comment'))
+        .rejects.toMatchObject({ statusCode: 403 });
     });
   });
 });

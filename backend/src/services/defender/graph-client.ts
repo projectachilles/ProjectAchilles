@@ -195,19 +195,65 @@ export class MicrosoftGraphClient {
     if (!alertId) {
       throw new Error('updateAlert: alertId is required');
     }
-
     const url = `${GRAPH_BASE}/security/alerts_v2/${encodeURIComponent(alertId)}`;
+    await this.writeRequest('PATCH', url, patch, alertId, 'PATCH');
+  }
+
+  /**
+   * POST a comment to a Microsoft Defender alert via the dedicated
+   * `/security/alerts_v2/{id}/comments` endpoint. Used by the auto-resolve
+   * pillar to add an audit-trail comment after the resolve PATCH.
+   *
+   * Why a separate method: the `alerts_v2` PATCH endpoint silently drops
+   * `comments` from the request body — comments are managed via this
+   * separate sub-resource (Microsoft Graph design, not ours). The legacy
+   * `/security/alerts/{id}` endpoint accepted comments inline in PATCH;
+   * `alerts_v2` does not.
+   *
+   * Permission: `SecurityAlert.ReadWrite.All` (same as `updateAlert`).
+   * Throws `GraphPatchError` on non-2xx so callers can branch on status
+   * code. Auto-resolve treats failures here as non-fatal — the alert is
+   * already resolved at that point and the audit comment is "nice to have"
+   * relative to the resolution itself.
+   */
+  async addAlertComment(alertId: string, comment: string): Promise<void> {
+    if (!alertId) {
+      throw new Error('addAlertComment: alertId is required');
+    }
+    if (!comment) return; // nothing to post
+
+    const url = `${GRAPH_BASE}/security/alerts_v2/${encodeURIComponent(alertId)}/comments`;
+    const body = {
+      '@odata.type': 'microsoft.graph.security.alertComment',
+      comment,
+    };
+    await this.writeRequest('POST', url, body, alertId, 'POST comment');
+  }
+
+  /**
+   * Shared request loop for write operations against the Graph alerts_v2
+   * endpoint (PATCH alert, POST comment). Handles 429 backoff, 401 token
+   * refresh, and maps 403/404/other to GraphPatchError so callers can
+   * branch on status code.
+   */
+  private async writeRequest(
+    method: 'PATCH' | 'POST',
+    url: string,
+    body: unknown,
+    alertId: string,
+    label: string,
+  ): Promise<void> {
     let retryCount = 0;
 
     while (true) {
       const token = await this.getAccessToken();
       const res = await fetch(url, {
-        method: 'PATCH',
+        method,
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(patch),
+        body: JSON.stringify(body),
       });
 
       // 429 — rate limited, honor Retry-After up to MAX_RETRIES
@@ -231,7 +277,7 @@ export class MicrosoftGraphClient {
 
       if (res.status === 403) {
         throw new GraphPatchError(
-          `Graph PATCH forbidden (HTTP 403). Ensure the Azure AD app has 'SecurityAlert.ReadWrite.All' application permission with admin consent granted. Body: ${bodySnippet}`,
+          `Graph ${label} forbidden (HTTP 403). Ensure the Azure AD app has 'SecurityAlert.ReadWrite.All' application permission with admin consent granted. Body: ${bodySnippet}`,
           403,
           bodySnippet,
         );
@@ -246,7 +292,7 @@ export class MicrosoftGraphClient {
       }
 
       throw new GraphPatchError(
-        `Graph PATCH failed: HTTP ${res.status} — ${bodySnippet}`,
+        `Graph ${label} failed: HTTP ${res.status} — ${bodySnippet}`,
         res.status,
         bodySnippet,
       );

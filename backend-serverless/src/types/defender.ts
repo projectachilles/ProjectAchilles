@@ -65,6 +65,9 @@ export interface GraphAlert {
 /**
  * Subset of mutable fields Microsoft Graph accepts on a PATCH to
  * /security/alerts_v2/{id}. See backend/ for full rationale.
+ *
+ * NOTE: `comments` is intentionally NOT here. The alerts_v2 PATCH endpoint
+ * silently drops it; comments must go through `addAlertComment()`.
  */
 export interface GraphAlertPatch {
   status?: 'new' | 'inProgress' | 'resolved';
@@ -87,7 +90,6 @@ export interface GraphAlertPatch {
     | 'maliciousUserActivity'
     | 'notMalicious'
     | 'lineOfBusinessApplication';
-  comments?: Array<{ comment: string }>;
 }
 
 // ---------------------------------------------------------------------------
