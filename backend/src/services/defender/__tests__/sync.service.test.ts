@@ -215,6 +215,40 @@ describe('DefenderSyncService', () => {
       });
     });
 
+    it('extracts evidence_filepaths from fileDetails, imageFile, and parentProcess', async () => {
+      // Issue #2 / Option B: capture file paths so AV-only alerts (whose
+      // evidence carries only a dropped-file path under a bundle-named
+      // sandbox dir) become correlatable via path-substring matching.
+      mockGetAlerts.mockResolvedValue([
+        {
+          id: 'alert-paths',
+          title: 'EICAR file detected',
+          description: '',
+          severity: 'informational',
+          status: 'resolved',
+          category: 'Malware',
+          serviceSource: 'microsoftDefenderForEndpoint',
+          createdDateTime: '2026-05-03T19:01:05Z',
+          lastUpdateDateTime: '2026-05-03T19:12:15Z',
+          mitreTechniques: [],
+          recommendedActions: '',
+          evidence: [
+            { fileDetails: { fileName: 'EICAR.txt', filePath: 'C:\\Users\\fortika-test\\BlueHammerSandbox' } },
+            { imageFile: { fileName: 'orchestrator.exe', filePath: 'C:\\F0\\tasks\\task-abc-1\\orchestrator.exe' } },
+            { parentProcess: { imageFile: { fileName: 'achilles-agent.exe', filePath: 'C:\\Program Files\\F0rtika\\achilles-agent.exe' } } },
+          ],
+        },
+      ]);
+
+      await service.syncAlerts();
+      const doc = mockBulk.mock.calls[0][0].operations[1];
+      expect(doc.evidence_filepaths).toEqual(expect.arrayContaining([
+        'c:\\users\\fortika-test\\bluehammersandbox',
+        'c:\\f0\\tasks\\task-abc-1\\orchestrator.exe',
+        'c:\\program files\\f0rtika\\achilles-agent.exe',
+      ]));
+    });
+
     it('uses incremental filter on second sync', async () => {
       mockGetAlerts.mockResolvedValue([]);
 

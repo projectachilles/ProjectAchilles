@@ -159,6 +159,14 @@ export interface DefenderAlertDoc {
   evidence_hostnames: string[];
   /** Filenames extracted from evidence (process imageFile + fileDetails). */
   evidence_filenames: string[];
+  /**
+   * Filepaths extracted from evidence (fileDetails.filePath + imageFile.filePath +
+   * parentProcess.imageFile.filePath). Lowercased for case-insensitive substring
+   * wildcard matching. Recovers correlations for AV-only alerts whose evidence
+   * carries a dropped-file path under a bundle-named sandbox dir but no
+   * bundle-UUID binary in evidence_filenames.
+   */
+  evidence_filepaths: string[];
   /** Achilles correlation + auto-resolve state. Populated by the enrichment
    *  pass (correlation fields) and by the auto-resolve pass (resolve fields).
    *  All fields optional — legacy docs predate these pillars. */

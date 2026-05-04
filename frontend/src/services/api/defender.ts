@@ -197,6 +197,7 @@ export const defenderApi = {
     windowMinutes = 30,
     hostname?: string,
     binaryName?: string,
+    bundleName?: string,
   ): Promise<RelatedAlertsResponse> {
     const res = await apiClient.get('/analytics/defender/correlation/alerts-for-test', {
       params: {
@@ -205,6 +206,7 @@ export const defenderApi = {
         windowMinutes,
         ...(hostname && { hostname }),
         ...(binaryName && { binaryName }),
+        ...(bundleName && { bundleName }),
       },
     });
     return res.data;

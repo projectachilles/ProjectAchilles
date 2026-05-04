@@ -4,6 +4,7 @@
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { DEFENDER_INDEX } from './index-management.js';
+import { buildDefenderEvidenceQuery } from './evidence-correlation.js';
 import type { Client } from '@elastic/elasticsearch';
 import type { QueryDslQueryContainer } from '@elastic/elasticsearch/lib/api/types.js';
 
@@ -651,6 +652,7 @@ export class DefenderAnalyticsService {
     windowMinutes: number,
     hostname?: string,
     binaryName?: string,
+    bundleName?: string,
   ): Promise<RelatedAlertsResponse> {
     const client = await this.getEsClient();
 
@@ -693,36 +695,34 @@ export class DefenderAnalyticsService {
       return { alerts, matchedTechniques: Array.from(matchedTechniqueSet) };
     };
 
-    // Primary: evidence-based correlation (binary filename + hostname).
-    // Both filters target .keyword subfields: the parent text fields tokenize on
-    // '-' and '.', so neither term-exact nor wildcard can match a full UUID against
-    // the analyzed value.
+    // Primary: delegate to the shared evidence-correlation helper so the
+    // drill-down agrees with the enrichment pass by construction. Same
+    // query, same hits.
     if (binaryName && hostname) {
-      const evidenceResult = await client.search({
-        index: DEFENDER_INDEX,
-        size: 50,
-        query: {
-          bool: {
-            must: [
-              { term: { doc_type: 'alert' } },
-              { term: { 'evidence_filenames.keyword': binaryName.toLowerCase() } },
-              { wildcard: { 'evidence_hostnames.keyword': { value: `${hostname.toUpperCase()}*` } } },
-              // `timestamp` (= lastUpdateDateTime || createdDateTime) — see
-              // enrichGroupsWithDefenderDetection in elasticsearch.ts for rationale.
-              { range: { timestamp: { gte: from, lte: to } } },
-            ],
-          },
-        },
-        sort: [{ created_at: { order: 'asc' } }],
+      const bundleUuid = binaryName.toLowerCase().replace(/\.exe$/, '');
+      const evidenceQuery = buildDefenderEvidenceQuery({
+        test_uuid: bundleUuid,
+        routing_event_time: timestamp,
+        routing_hostname: hostname,
+        bundle_name: bundleName,
       });
 
-      const evidenceTotal = typeof evidenceResult.hits.total === 'number'
-        ? evidenceResult.hits.total
-        : evidenceResult.hits.total?.value ?? 0;
+      if (evidenceQuery) {
+        const evidenceResult = await client.search({
+          index: DEFENDER_INDEX,
+          size: 50,
+          query: evidenceQuery as QueryDslQueryContainer,
+          sort: [{ created_at: { order: 'asc' } }],
+        });
 
-      if (evidenceTotal > 0) {
-        const { alerts, matchedTechniques } = parseHits(evidenceResult.hits.hits);
-        return { alerts, matchedTechniques, total: evidenceTotal };
+        const evidenceTotal = typeof evidenceResult.hits.total === 'number'
+          ? evidenceResult.hits.total
+          : evidenceResult.hits.total?.value ?? 0;
+
+        if (evidenceTotal > 0) {
+          const { alerts, matchedTechniques } = parseHits(evidenceResult.hits.hits);
+          return { alerts, matchedTechniques, total: evidenceTotal };
+        }
       }
     }
 
@@ -736,7 +736,15 @@ export class DefenderAnalyticsService {
             must: [
               { term: { doc_type: 'alert' } },
               { terms: { mitre_techniques: techniques } },
-              { wildcard: { 'evidence_hostnames.keyword': { value: `${hostname.toUpperCase()}*` } } },
+              {
+                bool: {
+                  should: [
+                    { wildcard: { 'evidence_hostnames':         { value: `${hostname.toUpperCase()}*` } } },
+                    { wildcard: { 'evidence_hostnames.keyword': { value: `${hostname.toUpperCase()}*` } } },
+                  ],
+                  minimum_should_match: 1,
+                },
+              },
               { range: { timestamp: { gte: from, lte: to } } },
             ],
           },

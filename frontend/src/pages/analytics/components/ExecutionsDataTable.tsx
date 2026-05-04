@@ -314,7 +314,7 @@ export default function ExecutionsDataTable({
     setAlertsLoading(cacheKey);
     try {
       const result = await defenderApi.getAlertsForTest(
-        techniques, exec.timestamp, 30, exec.hostname, binaryName,
+        techniques, exec.timestamp, 30, exec.hostname, binaryName, exec.bundle_name,
       );
       alertsCache.current.set(cacheKey, result);
       setAlertsMap(prev => new Map(prev).set(cacheKey, result));
