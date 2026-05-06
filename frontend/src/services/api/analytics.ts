@@ -369,6 +369,7 @@ export const analyticsApi = {
     org?: string;
     from?: string;
     to?: string;
+    scoringMode?: 'all-stages' | 'any-stage';
   }): Promise<DefenseScore> {
     const response = await apiClient.get('/analytics/defense-score', { params });
     return response.data;
@@ -380,6 +381,7 @@ export const analyticsApi = {
     to?: string;
     interval?: 'hour' | 'day' | 'week';
     windowDays?: number;
+    scoringMode?: 'all-stages' | 'any-stage';
   }): Promise<TrendDataPoint[]> {
     const response = await apiClient.get('/analytics/defense-score/trend', { params });
     return response.data;
@@ -555,7 +557,12 @@ export const analyticsApi = {
     return response.data;
   },
 
-  async getDefenseScoreByCategorySubcategory(params?: { org?: string; from?: string; to?: string }): Promise<CategorySubcategoryBreakdownItem[]> {
+  async getDefenseScoreByCategorySubcategory(params?: {
+    org?: string;
+    from?: string;
+    to?: string;
+    scoringMode?: 'all-stages' | 'any-stage';
+  }): Promise<CategorySubcategoryBreakdownItem[]> {
     const response = await apiClient.get('/analytics/defense-score/by-category-subcategory', { params });
     return response.data;
   },
@@ -565,7 +572,13 @@ export const analyticsApi = {
     return response.data;
   },
 
-  async getDefenseScoreByHostname(params?: { org?: string; from?: string; to?: string; limit?: number }): Promise<DefenseScoreByHostItem[]> {
+  async getDefenseScoreByHostname(params?: {
+    org?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+    scoringMode?: 'all-stages' | 'any-stage';
+  }): Promise<DefenseScoreByHostItem[]> {
     const response = await apiClient.get('/analytics/defense-score/by-hostname', { params });
     return response.data;
   },

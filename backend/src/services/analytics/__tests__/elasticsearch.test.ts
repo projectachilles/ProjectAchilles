@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import type { AnalyticsSettings, AnalyticsQueryParams, PaginatedExecutionsParams } from '../../../types/analytics.js';
+import type { AnalyticsSettings, AnalyticsQueryParams, ExtendedAnalyticsQueryParams, PaginatedExecutionsParams } from '../../../types/analytics.js';
 
 // ─── Mock setup ───────────────────────────────────────────────────
 const mockSearch = vi.fn();
@@ -48,7 +48,9 @@ function makeSettings(overrides?: Partial<AnalyticsSettings>): AnalyticsSettings
   };
 }
 
-function makeParams(overrides?: Partial<AnalyticsQueryParams>): AnalyticsQueryParams {
+function makeParams(
+  overrides?: Partial<AnalyticsQueryParams> & Partial<ExtendedAnalyticsQueryParams>,
+): AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams> {
   return { from: '2025-01-01T00:00:00Z', to: '2025-01-31T23:59:59Z', ...overrides };
 }
 
@@ -2007,6 +2009,354 @@ describe('elasticsearch.ts', () => {
       await expect(svc.archiveByDateRange('2020-01-01T00:00:00Z')).rejects.toMatchObject({
         statusCode: 403,
         message: expect.stringContaining('no privilege [delete]'),
+      });
+    });
+  });
+
+  // ================================================================
+  // Group: scoringMode === 'any-stage' branch
+  // ================================================================
+  //
+  // Any Stage collapses non-cyber-hygiene multi-stage bundles into one
+  // scoring unit per (bundle_id, hostname): if any single stage is protected,
+  // the whole bundle counts as Protected. Cyber-hygiene controls and
+  // standalone tests stay per-doc. The product invariant — "CH bundles
+  // never collapse" — lives in PER_BUNDLE_FILTER (must include
+  // is_bundle_control AND must_not category=cyber-hygiene). If that drifts,
+  // the headline score becomes gameable. These tests pin both the routing
+  // (per_doc + per_bundle aggs are emitted only under any-stage) and the
+  // cyber-hygiene exclusion.
+  describe('scoringMode: any-stage', () => {
+    function anyStageCombinedAgg(opts: {
+      perDocTotal: number; perDocCombined: number; perDocStrict: number;
+      bundles: { combinedHits: number; strictHits: number }[];
+    }) {
+      return {
+        per_doc: {
+          doc_count: opts.perDocTotal,
+          combined: { doc_count: opts.perDocCombined },
+          strict: { doc_count: opts.perDocStrict },
+        },
+        per_bundle: {
+          bundles: {
+            buckets: opts.bundles.map((b, i) => ({
+              key: `bundle-${i}::host-1`,
+              has_combined: { doc_count: b.combinedHits },
+              has_strict: { doc_count: b.strictHits },
+            })),
+          },
+        },
+      };
+    }
+
+    function anyStageTrendBucket(opts: {
+      key: number; key_as_string: string;
+      perDocTotal: number; perDocProtected: number;
+      bundles: { hasProtected: number }[];
+    }) {
+      return {
+        key: opts.key,
+        key_as_string: opts.key_as_string,
+        doc_count: opts.perDocTotal + opts.bundles.length,
+        per_doc: {
+          doc_count: opts.perDocTotal,
+          protected: { doc_count: opts.perDocProtected },
+        },
+        per_bundle: {
+          doc_count: opts.bundles.length,
+          bundles: {
+            buckets: opts.bundles.map((b, i) => ({
+              key: `bundle-${i}::host-1`,
+              has_protected: { doc_count: b.hasProtected },
+            })),
+          },
+        },
+      };
+    }
+
+    describe('getDefenseScore', () => {
+      it('routes to runAnyStageCombinedQuery (per_doc + per_bundle aggs)', async () => {
+        mockSearch.mockResolvedValue(esSearchResponse({
+          aggs: anyStageCombinedAgg({
+            perDocTotal: 0, perDocCombined: 0, perDocStrict: 0, bundles: [],
+          }),
+        }));
+        const svc = createService();
+        await svc.getDefenseScore(makeParams({ scoringMode: 'any-stage' }));
+
+        const callArg = mockSearch.mock.calls[0][0];
+        expect(callArg.aggs.per_doc).toBeDefined();
+        expect(callArg.aggs.per_bundle).toBeDefined();
+        // sanity: not the all-stages shape
+        expect(callArg.aggs.combined).toBeUndefined();
+        expect(callArg.aggs.strict).toBeUndefined();
+      });
+
+      it('PER_BUNDLE_FILTER excludes cyber-hygiene category (load-bearing invariant)', async () => {
+        mockSearch.mockResolvedValue(esSearchResponse({
+          aggs: anyStageCombinedAgg({
+            perDocTotal: 0, perDocCombined: 0, perDocStrict: 0, bundles: [],
+          }),
+        }));
+        const svc = createService();
+        await svc.getDefenseScore(makeParams({ scoringMode: 'any-stage' }));
+
+        const callArg = mockSearch.mock.calls[0][0];
+        const perBundleFilter = callArg.aggs.per_bundle.filter;
+        expect(perBundleFilter.bool.must).toContainEqual({
+          term: { 'f0rtika.is_bundle_control': true },
+        });
+        expect(perBundleFilter.bool.must).toContainEqual({
+          bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] },
+        });
+      });
+
+      it('PER_DOC_FILTER routes cyber-hygiene controls through per-doc scoring', async () => {
+        mockSearch.mockResolvedValue(esSearchResponse({
+          aggs: anyStageCombinedAgg({
+            perDocTotal: 0, perDocCombined: 0, perDocStrict: 0, bundles: [],
+          }),
+        }));
+        const svc = createService();
+        await svc.getDefenseScore(makeParams({ scoringMode: 'any-stage' }));
+
+        const callArg = mockSearch.mock.calls[0][0];
+        const perDocFilter = callArg.aggs.per_doc.filter;
+        // Per-doc covers: NOT a bundle control, OR cyber-hygiene category
+        expect(perDocFilter.bool.should).toContainEqual({
+          bool: { must_not: [{ term: { 'f0rtika.is_bundle_control': true } }] },
+        });
+        expect(perDocFilter.bool.should).toContainEqual({
+          term: { 'f0rtika.category': 'cyber-hygiene' },
+        });
+      });
+
+      it('sums per-doc + per-bundle counts: 100 standalone (60 prot) + 4 bundles (1 prot) = 104 / 61', async () => {
+        mockSearch.mockResolvedValue(esSearchResponse({
+          aggs: anyStageCombinedAgg({
+            perDocTotal: 100, perDocCombined: 60, perDocStrict: 60,
+            bundles: [
+              { combinedHits: 1, strictHits: 1 },
+              { combinedHits: 0, strictHits: 0 },
+              { combinedHits: 0, strictHits: 0 },
+              { combinedHits: 0, strictHits: 0 },
+            ],
+          }),
+        }));
+        const svc = createService();
+        const result = await svc.getDefenseScore(makeParams({ scoringMode: 'any-stage' }));
+
+        expect(result.totalExecutions).toBe(104);
+        expect(result.protectedCount).toBe(61);
+        expect(result.score).toBe(58.65);
+      });
+
+      it('a bundle counts as protected iff has_strict > 0 (any single protected stage flips it)', async () => {
+        mockSearch.mockResolvedValue(esSearchResponse({
+          aggs: anyStageCombinedAgg({
+            perDocTotal: 0, perDocCombined: 0, perDocStrict: 0,
+            bundles: [
+              { combinedHits: 1, strictHits: 1 },
+              { combinedHits: 0, strictHits: 0 },
+            ],
+          }),
+        }));
+        const svc = createService();
+        const result = await svc.getDefenseScore(makeParams({ scoringMode: 'any-stage' }));
+
+        expect(result.totalExecutions).toBe(2);
+        expect(result.protectedCount).toBe(1);
+        expect(result.score).toBe(50);
+      });
+
+      it('any-stage produces a higher score than all-stages on the same physical data', async () => {
+        // 12 stages from 4 bundles, only 1 stage protected (in bundle 0).
+        // All-stages: 1/12 = 8.33%
+        // Any-stage:  1/4 = 25%
+        const svc = createService();
+
+        mockSearch.mockResolvedValueOnce(esSearchResponse({
+          total: 12,
+          aggs: { combined: { doc_count: 1 }, strict: { doc_count: 1 } },
+        }));
+        const allStages = await svc.getDefenseScore(makeParams({ scoringMode: 'all-stages' }));
+
+        mockSearch.mockResolvedValueOnce(esSearchResponse({
+          aggs: anyStageCombinedAgg({
+            perDocTotal: 0, perDocCombined: 0, perDocStrict: 0,
+            bundles: [
+              { combinedHits: 1, strictHits: 1 },
+              { combinedHits: 0, strictHits: 0 },
+              { combinedHits: 0, strictHits: 0 },
+              { combinedHits: 0, strictHits: 0 },
+            ],
+          }),
+        }));
+        const anyStage = await svc.getDefenseScore(makeParams({ scoringMode: 'any-stage' }));
+
+        expect(allStages.score).toBeCloseTo(8.33, 1);
+        expect(anyStage.score).toBe(25);
+        expect(anyStage.score).toBeGreaterThan(allStages.score);
+      });
+
+      it('all-stages (default) does NOT emit per_doc/per_bundle aggs', async () => {
+        mockSearch.mockResolvedValue(esSearchResponse({
+          total: 100,
+          aggs: { combined: { doc_count: 70 }, strict: { doc_count: 70 } },
+        }));
+        const svc = createService();
+        await svc.getDefenseScore(makeParams()); // default → all-stages
+
+        const callArg = mockSearch.mock.calls[0][0];
+        expect(callArg.aggs.combined).toBeDefined();
+        expect(callArg.aggs.per_doc).toBeUndefined();
+        expect(callArg.aggs.per_bundle).toBeUndefined();
+      });
+    });
+
+    describe('getDefenseScoreTrend', () => {
+      it('routes to runAnyStageTrendQuery (per_doc + per_bundle nested in date_histogram)', async () => {
+        mockSearch.mockResolvedValue(esSearchResponse({
+          aggs: { over_time: { buckets: [] } },
+        }));
+        const svc = createService();
+        await svc.getDefenseScoreTrend(makeParams({ scoringMode: 'any-stage' }));
+
+        const callArg = mockSearch.mock.calls[0][0];
+        const subAggs = callArg.aggs.over_time.aggs;
+        expect(subAggs.per_doc).toBeDefined();
+        expect(subAggs.per_bundle).toBeDefined();
+        // sanity: not the all-stages shape
+        expect(subAggs.protected).toBeUndefined();
+      });
+
+      it('parses each bucket: 10 docs (7 prot) + 2 bundles (1 prot) = 12 / 8 → 66.67%', async () => {
+        mockSearch.mockResolvedValue(esSearchResponse({
+          aggs: {
+            over_time: {
+              buckets: [
+                anyStageTrendBucket({
+                  key: 1704067200000, key_as_string: '2024-01-01',
+                  perDocTotal: 10, perDocProtected: 7,
+                  bundles: [{ hasProtected: 1 }, { hasProtected: 0 }],
+                }),
+              ],
+            },
+          },
+        }));
+        const svc = createService();
+        const result = await svc.getDefenseScoreTrend(makeParams({ scoringMode: 'any-stage' }));
+
+        expect(result).toHaveLength(1);
+        expect(result[0].total).toBe(12);
+        expect(result[0].protected).toBe(8);
+        expect(result[0].score).toBe(66.67);
+      });
+    });
+
+    describe('getDefenseScoreByHostname (covers runBreakdownQuery)', () => {
+      // runBreakdownQuery is shared across getDefenseScoreByTest/Technique/
+      // Severity/Category/Hostname — testing one path covers all five.
+      it('builds per-bucket any-stage sub-aggs for each hostname', async () => {
+        mockSearch.mockResolvedValue(esSearchResponse({
+          aggs: { by_hostname: { buckets: [] } },
+        }));
+        const svc = createService();
+        await svc.getDefenseScoreByHostname(makeParams({ scoringMode: 'any-stage' }));
+
+        const callArg = mockSearch.mock.calls[0][0];
+        const subAggs = callArg.aggs.by_hostname.aggs;
+        expect(subAggs.per_doc).toBeDefined();
+        expect(subAggs.per_bundle).toBeDefined();
+      });
+
+      it('parses any-stage counts per hostname: 8 per-doc (6 prot) + 1 protected bundle = 9 / 7', async () => {
+        mockSearch.mockResolvedValue(esSearchResponse({
+          aggs: {
+            by_hostname: {
+              buckets: [
+                {
+                  key: 'host-1',
+                  doc_count: 10,
+                  per_doc: { doc_count: 8, protected: { doc_count: 6 } },
+                  per_bundle: {
+                    doc_count: 2,
+                    bundles: {
+                      buckets: [
+                        { key: 'b0::host-1', has_protected: { doc_count: 1 } },
+                      ],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        }));
+        const svc = createService();
+        const result = await svc.getDefenseScoreByHostname(makeParams({ scoringMode: 'any-stage' }));
+
+        expect(result).toHaveLength(1);
+        expect(result[0].hostname).toBe('host-1');
+        expect(result[0].total).toBe(9);
+        expect(result[0].protected).toBe(7);
+        expect(result[0].score).toBe(77.78);
+      });
+    });
+
+    describe('getDefenseScoreByCategoryWithSubcategories', () => {
+      it('uses any-stage parsing for top-level categories AND nested subcategories', async () => {
+        mockSearch.mockResolvedValue(esSearchResponse({
+          aggs: {
+            by_category: {
+              buckets: [
+                {
+                  key: 'intel-driven',
+                  doc_count: 10,
+                  per_doc: { doc_count: 0, protected: { doc_count: 0 } },
+                  per_bundle: {
+                    doc_count: 10,
+                    bundles: {
+                      buckets: [
+                        { key: 'b0::h1', has_protected: { doc_count: 1 } },
+                        { key: 'b1::h1', has_protected: { doc_count: 0 } },
+                      ],
+                    },
+                  },
+                  by_subcategory: {
+                    buckets: [
+                      {
+                        key: 'kill-chain',
+                        doc_count: 6,
+                        per_doc: { doc_count: 0, protected: { doc_count: 0 } },
+                        per_bundle: {
+                          doc_count: 6,
+                          bundles: {
+                            buckets: [
+                              { key: 'b0::h1', has_protected: { doc_count: 1 } },
+                            ],
+                          },
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        }));
+        const svc = createService();
+        const result = await svc.getDefenseScoreByCategoryWithSubcategories(
+          makeParams({ scoringMode: 'any-stage' }),
+        );
+
+        expect(result).toHaveLength(1);
+        expect(result[0].category).toBe('intel-driven');
+        expect(result[0].count).toBe(2);          // 0 per-doc + 2 bundles
+        expect(result[0].protected).toBe(1);
+        expect(result[0].subcategories).toHaveLength(1);
+        expect(result[0].subcategories[0].subcategory).toBe('kill-chain');
+        expect(result[0].subcategories[0].count).toBe(1);
+        expect(result[0].subcategories[0].protected).toBe(1);
       });
     });
   });
