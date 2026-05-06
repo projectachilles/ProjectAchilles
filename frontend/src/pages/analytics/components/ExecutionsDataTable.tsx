@@ -1120,31 +1120,45 @@ export default function ExecutionsDataTable({
         <div className="flex items-center gap-2">
           {/* Scoring Mode Toggle */}
           {onScoringModeChange && (
-            <div className="flex items-center rounded-lg border border-border overflow-hidden">
-              <button
-                onClick={() => onScoringModeChange('all-stages')}
-                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                  scoringMode === 'all-stages'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-secondary text-muted-foreground hover:text-foreground hover:bg-accent'
-                }`}
-                title="Score each stage independently"
+            <div className="flex items-center gap-1.5">
+              <div className="flex items-center rounded-lg border border-border overflow-hidden">
+                <button
+                  onClick={() => onScoringModeChange('all-stages')}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    scoringMode === 'all-stages'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-secondary text-muted-foreground hover:text-foreground hover:bg-accent'
+                  }`}
+                  title="Score every individual stage. Each stage of a multi-stage bundle counts as a separate Protected/Unprotected entry."
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  All Stages
+                </button>
+                <button
+                  onClick={() => onScoringModeChange('any-stage')}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    scoringMode === 'any-stage'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-secondary text-muted-foreground hover:text-foreground hover:bg-accent'
+                  }`}
+                  title="Collapse multi-stage intel-driven bundles to one verdict per bundle: any single protected stage marks the whole bundle Protected. Cyber-hygiene control bundles are unaffected — each control is always scored independently."
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Any Stage
+                </button>
+              </div>
+              <span
+                className="inline-flex"
+                title={
+                  'Scope: this toggle only affects intel-driven multi-stage bundles ' +
+                  '(e.g., kill-chain tests like BlueHammer). Cyber-hygiene bundles ' +
+                  '(Identity Endpoint Posture, CIS Hardening, etc.) keep per-control ' +
+                  'scoring in both modes — flipping the toggle never collapses an ' +
+                  '"X/Y Protected" cyber-hygiene row to a single verdict.'
+                }
               >
-                <Layers className="w-3.5 h-3.5" />
-                All Stages
-              </button>
-              <button
-                onClick={() => onScoringModeChange('any-stage')}
-                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                  scoringMode === 'any-stage'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-secondary text-muted-foreground hover:text-foreground hover:bg-accent'
-                }`}
-                title="Protected if any stage is blocked (SOC mode)"
-              >
-                <ShieldCheck className="w-3.5 h-3.5" />
-                Any Stage
-              </button>
+                <Info className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground cursor-help" />
+              </span>
             </div>
           )}
 
