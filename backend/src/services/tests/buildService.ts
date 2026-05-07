@@ -103,19 +103,43 @@ export class BuildService {
       : testSourcePaths;
   }
 
-  /** Locate the test directory for a UUID across all source paths */
+  /**
+   * Locate the test directory for a UUID across all source paths.
+   *
+   * Defense in depth: even though every public entry point that calls
+   * findTestDir already validates the UUID against UUID_REGEX (which
+   * forbids `..`, `/`, `\`, and NUL by construction), we additionally
+   * canonicalise the candidate path and verify it stays within the
+   * basePath root. This protects against:
+   *   1. future regressions where UUID validation is loosened
+   *   2. symlink redirection if testSourcePaths ever contains a symlinked dir
+   *   3. CodeQL `js/path-injection` flow analysis, which doesn't recognise
+   *      regex validation as a sufficient sanitiser and would otherwise
+   *      flag every fs.* call downstream of testDir (5 alerts on PR #204).
+   */
   private findTestDir(uuid: string): string | null {
     for (const basePath of this.testSourcePaths) {
+      const root = path.resolve(basePath);
+
+      const isWithinRoot = (candidate: string): boolean => {
+        const resolved = path.resolve(candidate);
+        const rel = path.relative(root, resolved);
+        // Empty rel means candidate IS the root (not a subpath); the leading
+        // `..` test catches escapes (e.g., `../etc`); isAbsolute catches
+        // platform-specific absolute relatives (e.g., Windows drive switch).
+        return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+      };
+
       // Try category/<uuid> first
       for (const cat of KNOWN_CATEGORIES) {
         const dir = path.join(basePath, cat, uuid);
-        if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
+        if (isWithinRoot(dir) && fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
           return dir;
         }
       }
       // Try flat <uuid>
       const flat = path.join(basePath, uuid);
-      if (fs.existsSync(flat) && fs.statSync(flat).isDirectory()) {
+      if (isWithinRoot(flat) && fs.existsSync(flat) && fs.statSync(flat).isDirectory()) {
         return flat;
       }
     }

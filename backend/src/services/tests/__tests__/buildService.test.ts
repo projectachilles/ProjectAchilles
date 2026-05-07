@@ -683,6 +683,38 @@ var data string
     });
   });
 
+  // ── findTestDir — path traversal guard (defense in depth) ──
+
+  describe('findTestDir — path traversal guard', () => {
+    // findTestDir is private; access via type assertion. UUID_REGEX prevents
+    // traversal at every public entry point in practice — these tests pin
+    // the internal guard so the defense-in-depth check can't be silently
+    // removed. CodeQL `js/path-injection` (PR #204 alerts 117–121) reads
+    // this guard as the sanitiser that clears the data-flow alerts.
+    type FindTestDir = (uuid: string) => string | null;
+    const callFindTestDir = (svc: typeof service, uuid: string): string | null =>
+      (svc as unknown as { findTestDir: FindTestDir }).findTestDir(uuid);
+
+    it('returns null when the candidate path would escape basePath', () => {
+      // Without the guard, a malicious UUID-shaped input could resolve
+      // outside basePath. Use enough `..` segments to escape both the
+      // categorised lookup (3 levels deep) and the flat lookup (2 levels).
+      mockExistsSync.mockReturnValue(true); // would return a match without the guard
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+
+      expect(callFindTestDir(service, '../../../../etc')).toBeNull();
+      expect(callFindTestDir(service, '../../../etc/passwd')).toBeNull();
+    });
+
+    it('returns the canonical dir when candidate stays inside basePath', () => {
+      const expectedDir = `${TESTS_SOURCE}/cyber-hygiene/${VALID_UUID}`;
+      mockExistsSync.mockImplementation((p: string) => p === expectedDir);
+      mockStatSync.mockReturnValue({ isDirectory: () => true });
+
+      expect(callFindTestDir(service, VALID_UUID)).toBe(expectedDir);
+    });
+  });
+
   // ── Group 6.5: buildAndSign — LOG_DIR injection (issue #202) ─
 
   describe('buildAndSign — LOG_DIR injection', () => {
