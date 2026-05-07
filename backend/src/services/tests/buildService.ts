@@ -103,20 +103,50 @@ export class BuildService {
       : testSourcePaths;
   }
 
-  /** Locate the test directory for a UUID across all source paths */
+  /**
+   * Locate the test directory for a UUID across all source paths.
+   *
+   * Defense in depth: every public entry point already validates the UUID
+   * against UUID_REGEX (which forbids `..`, `/`, `\`, and NUL by
+   * construction), but here we additionally canonicalise the candidate
+   * path and verify it stays within the basePath root. This protects
+   * against:
+   *   1. future regressions where UUID validation is loosened
+   *   2. symlink redirection if testSourcePaths ever contains a symlinked dir
+   *   3. CodeQL `js/path-injection` flow analysis, which doesn't recognise
+   *      regex validation as a sufficient sanitiser. The pattern below
+   *      (path.resolve → path.relative boundary check → return resolved)
+   *      IS recognised — that's why the candidate is rebuilt as `resolved`
+   *      and `resolved` is what flows downstream, not the raw join result.
+   */
   private findTestDir(uuid: string): string | null {
     for (const basePath of this.testSourcePaths) {
+      const root = path.resolve(basePath);
+
+      // Verify a candidate path stays inside `root`. Returns the canonical
+      // form (path.resolve output) when safe, null otherwise. Returning the
+      // resolved form is what CodeQL's js/path-injection query treats as a
+      // sanitised value flowing forward.
+      const safeResolve = (candidate: string): string | null => {
+        const resolved = path.resolve(candidate);
+        const rel = path.relative(root, resolved);
+        // Empty rel means candidate IS the root (not a subpath); leading `..`
+        // means it escaped; isAbsolute catches Windows drive switches.
+        if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+        return resolved;
+      };
+
       // Try category/<uuid> first
       for (const cat of KNOWN_CATEGORIES) {
-        const dir = path.join(basePath, cat, uuid);
-        if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
-          return dir;
+        const safe = safeResolve(path.join(basePath, cat, uuid));
+        if (safe && fs.existsSync(safe) && fs.statSync(safe).isDirectory()) {
+          return safe;
         }
       }
       // Try flat <uuid>
-      const flat = path.join(basePath, uuid);
-      if (fs.existsSync(flat) && fs.statSync(flat).isDirectory()) {
-        return flat;
+      const safeFlat = safeResolve(path.join(basePath, uuid));
+      if (safeFlat && fs.existsSync(safeFlat) && fs.statSync(safeFlat).isDirectory()) {
+        return safeFlat;
       }
     }
     return null;
@@ -159,6 +189,65 @@ export class BuildService {
       // File read error — fall through
     }
     return null;
+  }
+
+  /**
+   * Synthesize LOG_DIR/ARTIFACT_DIR if a .go file references LOG_DIR but no
+   * file declares it. Returns the injected file path, or null if nothing was
+   * needed.
+   *
+   * Why: tests that ship the shared `test_logger.go` without the platform
+   * companion (`test_logger_<os>.go`) reference LOG_DIR but don't declare it,
+   * so `go build .` fails with `undefined: LOG_DIR`. Rather than patch every
+   * affected test source-side, we synthesize the declaration at build time
+   * with the same constants the agent itself uses (C:\F0 on Windows,
+   * /tmp/F0 on POSIX) — see f0_library/CLAUDE.md "Cross-Platform Test
+   * Development". The caller MUST clean up the returned path in `finally`.
+   *
+   * Issue #202: mitre-top10 `b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02` build
+   * failed with `./test_logger.go:1221:30: undefined: LOG_DIR`.
+   */
+  private injectLogDirIfMissing(testDir: string, targetOs: PlatformSettings['os']): string | null {
+    const goFiles = fs.readdirSync(testDir).filter(f => f.endsWith('.go'));
+
+    let referenced = false;
+    let declared = false;
+    for (const f of goFiles) {
+      const content = fs.readFileSync(path.join(testDir, f), 'utf8');
+      if (!referenced && /\bLOG_DIR\b/.test(content)) referenced = true;
+      // Match `const LOG_DIR` or `var LOG_DIR` at start of a line (allow
+      // leading whitespace). Single-line and grouped (parenthesised) decls
+      // are both accepted by Go but we only need the simple form here since
+      // every existing test uses it.
+      if (!declared && /^\s*(const|var)\s+LOG_DIR\b/m.test(content)) declared = true;
+      if (referenced && declared) break;
+    }
+
+    if (!referenced || declared) return null;
+
+    // Match the agent's platform-specific fallback paths (agent/internal/config).
+    const logDir = targetOs === 'windows' ? 'C:\\F0' : '/tmp/F0';
+    const artifactDir = targetOs === 'windows'
+      ? 'c:\\Users\\fortika-test'
+      : targetOs === 'darwin'
+        ? '/Users/fortika-test'
+        : '/home/fortika-test';
+
+    const injectedPath = path.join(testDir, '_achilles_log_dir.go');
+    // Use Go raw strings (backticks) so backslashes in Windows paths are
+    // taken literally without escaping. Underscore-prefixed filename keeps
+    // `go build` from picking the file up if cleanup is ever skipped — the
+    // Go toolchain ignores `_*` and `.*` files by spec.
+    const goSource = `// Code generated by ProjectAchilles buildService. DO NOT EDIT.
+// Removed automatically after \`go build\`. See injectLogDirIfMissing in
+// backend/src/services/tests/buildService.ts and issue #202 for context.
+package main
+
+const LOG_DIR = \`${logDir}\`
+const ARTIFACT_DIR = \`${artifactDir}\`
+`;
+    fs.writeFileSync(injectedPath, goSource);
+    return injectedPath;
   }
 
   /** Resolve the target OS for a test: build tags take precedence over global setting */
@@ -503,6 +592,10 @@ export class BuildService {
         throw new BuildError('No Go source files found in test directory');
       }
 
+      // Synthesize LOG_DIR/ARTIFACT_DIR if the test references LOG_DIR but
+      // ships no platform-specific test_logger_<os>.go. See issue #202.
+      const injectedLogDirPath = this.injectLogDirIfMissing(testDir, platform.os);
+
       try {
         if (!hadGoMod) {
           // Auto-init a temporary module so "go build ." works in package mode
@@ -529,6 +622,11 @@ export class BuildService {
         if (!hadGoMod) {
           if (fs.existsSync(goModPath)) fs.unlinkSync(goModPath);
           if (fs.existsSync(goSumPath)) fs.unlinkSync(goSumPath);
+        }
+        // Clean up the synthesized LOG_DIR file. Cleanup runs even if the
+        // build above throws, so the source tree never holds the auto-file.
+        if (injectedLogDirPath && fs.existsSync(injectedLogDirPath)) {
+          fs.unlinkSync(injectedLogDirPath);
         }
       }
     }
