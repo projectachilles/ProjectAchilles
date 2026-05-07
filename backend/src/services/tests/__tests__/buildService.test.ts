@@ -719,7 +719,7 @@ var data string
 
   describe('buildAndSign — LOG_DIR injection', () => {
     const testDir = `${TESTS_SOURCE}/mitre-top10/${VALID_UUID}`;
-    const injectedPath = `${testDir}/_achilles_log_dir.go`;
+    const injectedPath = `${testDir}/achilles_log_dir.go`;
 
     // Helper: stage a test directory with given .go files and contents.
     // The test_logger.go reference is the standard form from f0_library —
@@ -751,7 +751,7 @@ var data string
       });
     }
 
-    it('injects _achilles_log_dir.go when LOG_DIR is referenced but not declared', async () => {
+    it('injects achilles_log_dir.go when LOG_DIR is referenced but not declared', async () => {
       stageTest({
         'main.go': 'package main\nfunc main() {}',
         'test_logger.go': 'package main\n\nimport "path/filepath"\nfunc x() string { return filepath.Join(LOG_DIR, "out.json") }',
@@ -830,6 +830,29 @@ var data string
         (c) => typeof c[0] === 'string' && c[0] === injectedPath,
       );
       expect(write).toBeUndefined();
+    });
+
+    it('injected filename does NOT start with `_` or `.` (go build would skip those)', async () => {
+      // Regression for the v1 fix: underscore-prefixed files are ignored
+      // by `go build` per the Go spec, so the injection ran but the build
+      // silently skipped the synthesised file and the original
+      // `undefined: LOG_DIR` error persisted in production despite
+      // injectLogDirIfMissing returning a path.
+      stageTest({
+        'main.go': 'package main\nfunc main() {}',
+        'test_logger.go': 'package main\nfunc x() { _ = LOG_DIR }',
+      });
+
+      await service.buildAndSign(VALID_UUID);
+
+      const write = mockWriteFileSync.mock.calls.find(
+        (c) => typeof c[0] === 'string' && c[0].endsWith('.go') && c[0].includes('log_dir'),
+      );
+      expect(write).toBeDefined();
+      const filePath = write![0] as string;
+      const basename = filePath.split('/').pop()!;
+      expect(basename.startsWith('_')).toBe(false);
+      expect(basename.startsWith('.')).toBe(false);
     });
 
     it('removes the injected file in finally even when the build fails', async () => {
