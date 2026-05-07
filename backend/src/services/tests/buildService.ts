@@ -106,41 +106,47 @@ export class BuildService {
   /**
    * Locate the test directory for a UUID across all source paths.
    *
-   * Defense in depth: even though every public entry point that calls
-   * findTestDir already validates the UUID against UUID_REGEX (which
-   * forbids `..`, `/`, `\`, and NUL by construction), we additionally
-   * canonicalise the candidate path and verify it stays within the
-   * basePath root. This protects against:
+   * Defense in depth: every public entry point already validates the UUID
+   * against UUID_REGEX (which forbids `..`, `/`, `\`, and NUL by
+   * construction), but here we additionally canonicalise the candidate
+   * path and verify it stays within the basePath root. This protects
+   * against:
    *   1. future regressions where UUID validation is loosened
    *   2. symlink redirection if testSourcePaths ever contains a symlinked dir
    *   3. CodeQL `js/path-injection` flow analysis, which doesn't recognise
-   *      regex validation as a sufficient sanitiser and would otherwise
-   *      flag every fs.* call downstream of testDir (5 alerts on PR #204).
+   *      regex validation as a sufficient sanitiser. The pattern below
+   *      (path.resolve → path.relative boundary check → return resolved)
+   *      IS recognised — that's why the candidate is rebuilt as `resolved`
+   *      and `resolved` is what flows downstream, not the raw join result.
    */
   private findTestDir(uuid: string): string | null {
     for (const basePath of this.testSourcePaths) {
       const root = path.resolve(basePath);
 
-      const isWithinRoot = (candidate: string): boolean => {
+      // Verify a candidate path stays inside `root`. Returns the canonical
+      // form (path.resolve output) when safe, null otherwise. Returning the
+      // resolved form is what CodeQL's js/path-injection query treats as a
+      // sanitised value flowing forward.
+      const safeResolve = (candidate: string): string | null => {
         const resolved = path.resolve(candidate);
         const rel = path.relative(root, resolved);
-        // Empty rel means candidate IS the root (not a subpath); the leading
-        // `..` test catches escapes (e.g., `../etc`); isAbsolute catches
-        // platform-specific absolute relatives (e.g., Windows drive switch).
-        return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+        // Empty rel means candidate IS the root (not a subpath); leading `..`
+        // means it escaped; isAbsolute catches Windows drive switches.
+        if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+        return resolved;
       };
 
       // Try category/<uuid> first
       for (const cat of KNOWN_CATEGORIES) {
-        const dir = path.join(basePath, cat, uuid);
-        if (isWithinRoot(dir) && fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
-          return dir;
+        const safe = safeResolve(path.join(basePath, cat, uuid));
+        if (safe && fs.existsSync(safe) && fs.statSync(safe).isDirectory()) {
+          return safe;
         }
       }
       // Try flat <uuid>
-      const flat = path.join(basePath, uuid);
-      if (isWithinRoot(flat) && fs.existsSync(flat) && fs.statSync(flat).isDirectory()) {
-        return flat;
+      const safeFlat = safeResolve(path.join(basePath, uuid));
+      if (safeFlat && fs.existsSync(safeFlat) && fs.statSync(safeFlat).isDirectory()) {
+        return safeFlat;
       }
     }
     return null;
