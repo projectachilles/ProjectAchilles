@@ -17,7 +17,7 @@
     "@clerk/express": "^1.7.79",
     "@elastic/elasticsearch": "^8.19.1",
     "@types/jsonwebtoken": "^9.0.10",
-    "axios": "^1.13.6",
+    "axios": "^1.16.0",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.8.0",
     "cors": "^2.8.6",
