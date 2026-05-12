@@ -950,16 +950,22 @@ export default function ExecutionsDataTable({
         const isLoadingAlerts = alertsLoading.has(alertKey);
 
         // Filter to alerts whose evidence binary is THIS specific stage's
-        // technique. Bundle-level alerts (no per-stage attribution) are
-        // surfaced at the parent row, not here, so each stage panel only
-        // shows alerts that are genuinely about THIS stage.
+        // technique. The classifier captures the full token between the
+        // bundle UUID and `.exe`, including an optional `-<variant>` suffix
+        // (e.g. evidence `...t1562.001-svcnotify.exe` → attributed_control_id
+        // `t1562.001-svcnotify`). The test doc's `control_id` is only the
+        // MITRE technique (`T1562.001`), so an exact-equality match would
+        // drop the variant rows entirely. Accept exact match OR a
+        // `<control_id>-` prefix; the `-` boundary prevents `T108` from
+        // accidentally matching `T1083`.
         const stageControlId = exec.control_id?.toLowerCase();
-        const stageAlerts = alertData
-          ? alertData.alerts.filter((a) =>
-              a.attribution === 'stage'
-              && stageControlId
-              && a.attributed_control_id?.toLowerCase() === stageControlId
-            )
+        const stageAlerts = alertData && stageControlId
+          ? alertData.alerts.filter((a) => {
+              if (a.attribution !== 'stage') return false;
+              const att = a.attributed_control_id?.toLowerCase();
+              if (!att) return false;
+              return att === stageControlId || att.startsWith(`${stageControlId}-`);
+            })
           : [];
 
         return (

@@ -243,3 +243,88 @@ describe('ExecutionsDataTable — bundle-level alert callout dedupe', () => {
     expect(screen.queryByText(/Bundle-level Defender alerts/i)).toBeNull();
   });
 });
+
+describe('ExecutionsDataTable — variant-suffix attribution matching', () => {
+  // The backend classifier extracts the full token between the bundle UUID
+  // and `.exe` from the evidence binary name. For binaries with a variant
+  // suffix (e.g. `<uuid>-t1562.001-svcnotify.exe`), this is
+  // `t1562.001-svcnotify` — strictly *not equal* to the test doc's
+  // `control_id` of `T1562.001`. Strict-equality matching dropped these
+  // alerts entirely (the original symptom reported on Fly.io: both stages
+  // badged Detected but every detail panel said "No related Defender
+  // alerts"). The filter must accept `<control_id>-<variant>` as a match.
+  it('surfaces alerts whose attributed_control_id has a -<variant> suffix beyond the stage control_id', async () => {
+    const variantAlert = makeAlert({
+      alert_id: 'wacatac-001',
+      alert_title: "An active 'Wacatac' malware was blocked",
+      attribution: 'stage',
+      attributed_control_id: 't1562.001-svcnotify',
+    });
+    getAlertsForTestMock.mockResolvedValue({
+      alerts: [variantAlert],
+      matchedTechniques: [],
+      total: 1,
+    });
+
+    const stage1 = makeStage({
+      test_uuid: `${BUNDLE_UUID}::T1083`,
+      control_id: 'T1083',
+      techniques: ['T1083'],
+    });
+    const stage2 = makeStage({
+      test_uuid: `${BUNDLE_UUID}::T1562.001`,
+      control_id: 'T1562.001',
+      techniques: ['T1562.001'],
+      test_name: 'WinDefend Service-Stop Notification Subscription',
+      defender_detected: true,
+    });
+    renderTable(makeData([stage1, stage2], { defenderDetected: true }));
+
+    await userEvent.click(screen.getByText(stage1.bundle_name!));
+    await waitFor(() => {
+      expect(getAlertsForTestMock).toHaveBeenCalledTimes(2);
+    });
+
+    // Open stage 2's detail panel — its control_id is T1562.001 and the
+    // alert's attributed_control_id is "t1562.001-svcnotify".
+    await userEvent.click(screen.getByText(stage2.test_name));
+    await waitFor(() => {
+      expect(screen.getByText(/Wacatac/)).toBeInTheDocument();
+    });
+  });
+
+  it('rejects attributed_control_id that shares only a prefix without the dash boundary', async () => {
+    // Defensive: `t10831` must NOT match a stage with control_id `t1083`.
+    // The boundary check (`startsWith(`${stageControlId}-`)`) is the
+    // safeguard against false positives across adjacent technique IDs.
+    const lookalikeAlert = makeAlert({
+      attribution: 'stage',
+      attributed_control_id: 't10831',
+    });
+    getAlertsForTestMock.mockResolvedValue({
+      alerts: [lookalikeAlert],
+      matchedTechniques: [],
+      total: 1,
+    });
+
+    const stage = makeStage({
+      test_uuid: `${BUNDLE_UUID}::T1083`,
+      control_id: 'T1083',
+      techniques: ['T1083'],
+      defender_detected: true,
+    });
+    renderTable(makeData([stage], { defenderDetected: true }));
+
+    await userEvent.click(screen.getByText(stage.bundle_name!));
+    await userEvent.click(screen.getByText(stage.test_name));
+
+    await waitFor(() => {
+      expect(getAlertsForTestMock).toHaveBeenCalled();
+    });
+
+    // The lookalike alert title should NOT appear; the panel falls through
+    // to the "no related alerts" copy.
+    expect(screen.queryByText(/Wacatac/)).toBeNull();
+    expect(screen.getByText(/No related Defender alerts/i)).toBeInTheDocument();
+  });
+});
