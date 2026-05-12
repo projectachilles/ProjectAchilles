@@ -69,7 +69,7 @@ function useGlobalSearch(query: string, isOpen: boolean) {
       // Fetch data (use cache if available)
       const [tests, agents, tasksData] = await Promise.all([
         cacheRef.current.tests ?? browserApi.getAllTests().then(t => { cacheRef.current.tests = t; return t; }),
-        cacheRef.current.agents ?? agentApi.listAgents().then(a => { cacheRef.current.agents = a; return a; }).catch(() => [] as AgentSummary[]),
+        cacheRef.current.agents ?? agentApi.listAgents().then(r => { cacheRef.current.agents = r.agents; return r.agents; }).catch(() => [] as AgentSummary[]),
         cacheRef.current.tasks ?? agentApi.listTasks({ limit: 200 }).then(t => { cacheRef.current.tasks = t; return t; }).catch(() => ({ tasks: [] as AgentTask[], total: 0 })),
       ]);
 

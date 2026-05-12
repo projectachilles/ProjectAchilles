@@ -15,7 +15,7 @@ export function useOutdatedAgentCount(pollIntervalMs = 60_000) {
 
   const refresh = useCallback(async () => {
     try {
-      const [agents, versions] = await Promise.all([
+      const [agentResult, versions] = await Promise.all([
         agentApi.listAgents(),
         agentApi.listVersions(),
       ]);
@@ -23,7 +23,7 @@ export function useOutdatedAgentCount(pollIntervalMs = 60_000) {
       const latestMap = getLatestVersionMap(versions);
       let outdated = 0;
 
-      for (const agent of agents) {
+      for (const agent of agentResult.agents) {
         const latest = latestMap.get(`${agent.os}-${agent.arch}`);
         if (latest && latest !== agent.agent_version) {
           outdated++;
@@ -31,7 +31,7 @@ export function useOutdatedAgentCount(pollIntervalMs = 60_000) {
       }
 
       setOutdatedCount(outdated);
-      setTotalCount(agents.length);
+      setTotalCount(agentResult.agents.length);
 
       // Track the most common "latest" version for display
       const versionCounts = new Map<string, number>();
