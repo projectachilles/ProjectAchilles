@@ -141,18 +141,19 @@ describe('agentSlice reducers', () => {
   });
 
   describe('setAgents', () => {
-    it('sets agents array and updates total', () => {
+    it('sets agents array and updates total from API response', () => {
       const store = createStore();
       const agents = [
         { id: '1', hostname: 'host-1', tags: [] },
         { id: '2', hostname: 'host-2', tags: [] },
       ] as any[];
 
-      store.dispatch(setAgents(agents));
+      // Simulate a paginated response: 2 agents on this page, 137 total in DB
+      store.dispatch(setAgents({ agents, total: 137 }));
       const state = store.getState().agent;
 
       expect(state.agents).toEqual(agents);
-      expect(state.pagination.total).toBe(2);
+      expect(state.pagination.total).toBe(137);
     });
   });
 });
@@ -168,16 +169,17 @@ describe('agentSlice async thunk state transitions', () => {
     expect(state.error).toBeNull();
   });
 
-  it('sets agents on fetchAgents.fulfilled', () => {
+  it('sets agents on fetchAgents.fulfilled with paginated total', () => {
     const store = createStore();
     const agents = [{ id: '1', hostname: 'h1', tags: [] }];
 
-    store.dispatch({ type: 'agents/fetch/fulfilled', payload: agents });
+    // Simulate a paginated response: 1 agent on this page, 137 total in DB
+    store.dispatch({ type: 'agents/fetch/fulfilled', payload: { agents, total: 137 } });
     const state = store.getState().agent;
 
     expect(state.loading).toBe(false);
     expect(state.agents).toEqual(agents);
-    expect(state.pagination.total).toBe(1);
+    expect(state.pagination.total).toBe(137);
   });
 
   it('sets error on fetchAgents.rejected', () => {

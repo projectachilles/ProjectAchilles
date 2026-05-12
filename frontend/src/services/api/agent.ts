@@ -10,6 +10,7 @@ import type {
   CreateTasksRequest,
   CreateCommandTasksRequest,
   ListAgentsRequest,
+  ListAgentsResult,
   ListTasksRequest,
   TaskGroup,
   TaskNoteEntry,
@@ -33,11 +34,13 @@ export const agentApi = {
 
   // --- Agents ---
 
-  async listAgents(params?: ListAgentsRequest): Promise<AgentSummary[]> {
+  async listAgents(params?: ListAgentsRequest): Promise<ListAgentsResult> {
     const response = await apiClient.get('/agent/admin/agents', { params });
     const data = response.data.data;
-    // Backend returns { agents: [...], total: N }
-    return Array.isArray(data) ? data : data.agents ?? [];
+    if (Array.isArray(data)) {
+      return { agents: data, total: data.length };
+    }
+    return { agents: data.agents ?? [], total: data.total ?? (data.agents?.length ?? 0) };
   },
 
   async getAgent(agentId: string): Promise<Agent> {
@@ -234,6 +237,7 @@ export type {
   CreateTasksRequest,
   CreateCommandTasksRequest,
   ListAgentsRequest,
+  ListAgentsResult,
   ListTasksRequest,
   TaskGroup,
   TaskNoteEntry,

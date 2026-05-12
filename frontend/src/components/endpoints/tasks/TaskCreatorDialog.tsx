@@ -113,7 +113,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
     if (!open) return;
     setTargetAgentIds(stableSelectedAgents);
     agentApi.listAgents({ status: 'active' })
-      .then(setAgents)
+      .then((result) => setAgents(result.agents))
       .catch(() => {});
   }, [open, stableSelectedAgents]);
 

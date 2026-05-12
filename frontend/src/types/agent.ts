@@ -176,6 +176,11 @@ export interface ListAgentsRequest {
   offset?: number;
 }
 
+export interface ListAgentsResult {
+  agents: AgentSummary[];
+  total: number;
+}
+
 export interface ListTasksRequest {
   agent_id?: string;
   status?: TaskStatus;

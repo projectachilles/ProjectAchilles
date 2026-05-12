@@ -12,6 +12,7 @@ import type {
   AgentMetrics,
   CreateTasksRequest,
   ListAgentsRequest,
+  ListAgentsResult,
   ListTasksRequest,
 } from '@/types/agent';
 
@@ -172,9 +173,9 @@ const agentSlice = createSlice({
     clearError: (state) => {
       state.error = null;
     },
-    setAgents: (state, action: PayloadAction<AgentSummary[]>) => {
-      state.agents = action.payload;
-      state.pagination.total = action.payload.length;
+    setAgents: (state, action: PayloadAction<ListAgentsResult>) => {
+      state.agents = action.payload.agents;
+      state.pagination.total = action.payload.total;
     },
   },
   extraReducers: (builder) => {
@@ -185,8 +186,8 @@ const agentSlice = createSlice({
     });
     builder.addCase(fetchAgents.fulfilled, (state, action) => {
       state.loading = false;
-      state.agents = action.payload;
-      state.pagination.total = action.payload.length;
+      state.agents = action.payload.agents;
+      state.pagination.total = action.payload.total;
     });
     builder.addCase(fetchAgents.rejected, (state, action) => {
       state.loading = false;
@@ -237,3 +238,4 @@ export const selectAgents = (state: RootState) => state.agent.agents;
 export const selectAgentFilters = (state: RootState) => state.agent.filters;
 export const selectAgentLoading = (state: RootState) => state.agent.loading;
 export const selectAgentError = (state: RootState) => state.agent.error;
+export const selectAgentPagination = (state: RootState) => state.agent.pagination;

@@ -55,7 +55,7 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
 
     setAgentsLoading(true);
     agentApi.listAgents({ status: 'active' })
-      .then(setAgents)
+      .then((result) => setAgents(result.agents))
       .catch(() => {})
       .finally(() => setAgentsLoading(false));
 

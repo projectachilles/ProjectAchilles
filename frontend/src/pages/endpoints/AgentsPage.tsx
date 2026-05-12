@@ -6,13 +6,14 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { usePolling } from '@/hooks/usePolling';
 import { useSearchParams } from 'react-router-dom';
-import { UserPlus, ChevronDown, ChevronUp, Download, Unplug, Ban, Trash2, AlertTriangle } from 'lucide-react';
+import { UserPlus, ChevronDown, ChevronUp, Download, Unplug, Ban, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useHasPermission } from '@/hooks/useAppRole';
 import { useAppDispatch, useAppSelector } from '../../store';
 import {
   fetchAgents,
   fetchAgent,
   setFilters,
+  setPage,
   setAgents,
   tagAgent,
   untagAgent,
@@ -21,6 +22,7 @@ import {
   selectAgentFilters,
   selectAgentLoading,
   selectAgentError,
+  selectAgentPagination,
 } from '../../store/agentSlice';
 import { PageContainer, PageHeader } from '../../components/endpoints/Layout';
 import AgentFilters from '../../components/endpoints/agents/AgentFilters';
@@ -47,6 +49,7 @@ export default function AgentsPage() {
   const filters = useAppSelector(selectAgentFilters);
   const loading = useAppSelector(selectAgentLoading);
   const error = useAppSelector(selectAgentError);
+  const pagination = useAppSelector(selectAgentPagination);
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [detailAgent, setDetailAgent] = useState<Agent | null>(null);
@@ -101,7 +104,7 @@ export default function AgentsPage() {
   const pollAgents = useCallback(async () => {
     try {
       const result = await agentApi.listAgents(filters);
-      dispatch(setAgents(result));
+      dispatch(setAgents({ agents: result.agents, total: result.total }));
     } catch {
       // Silent — don't surface transient poll failures
     }
@@ -349,16 +352,56 @@ export default function AgentsPage() {
         {loading ? (
           <Loading message="Loading agents..." />
         ) : (
-          <AgentList
-            agents={agents}
-            selectedAgents={selectedAgents}
-            latestVersions={latestVersions}
-            canDelete={canDeleteAgent}
-            onToggleSelect={handleToggleSelect}
-            onToggleSelectAll={handleToggleSelectAll}
-            onAction={handleAction}
-            onSelectAgent={handleSelectAgent}
-          />
+          <>
+            <AgentList
+              agents={agents}
+              selectedAgents={selectedAgents}
+              latestVersions={latestVersions}
+              canDelete={canDeleteAgent}
+              onToggleSelect={handleToggleSelect}
+              onToggleSelectAll={handleToggleSelectAll}
+              onAction={handleAction}
+              onSelectAgent={handleSelectAgent}
+            />
+            {(() => {
+              const totalPages = Math.max(1, Math.ceil(pagination.total / pagination.pageSize));
+              if (pagination.total === 0) return null;
+              const first = (pagination.page - 1) * pagination.pageSize + 1;
+              const last = Math.min(pagination.page * pagination.pageSize, pagination.total);
+              return (
+                <div className="flex items-center justify-between mt-4">
+                  <span className="text-sm text-muted-foreground">
+                    Showing {first}–{last} of {pagination.total} agent{pagination.total !== 1 ? 's' : ''}
+                  </span>
+                  {totalPages > 1 && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={pagination.page <= 1}
+                        onClick={() => dispatch(setPage(pagination.page - 1))}
+                      >
+                        <ChevronLeft className="w-4 h-4 mr-1" />
+                        Previous
+                      </Button>
+                      <span className="text-sm text-muted-foreground">
+                        Page {pagination.page} of {totalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={pagination.page >= totalPages}
+                        onClick={() => dispatch(setPage(pagination.page + 1))}
+                      >
+                        Next
+                        <ChevronRight className="w-4 h-4 ml-1" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </>
         )}
 
         <AgentDetailPanel
