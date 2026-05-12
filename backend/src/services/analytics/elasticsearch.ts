@@ -177,7 +177,7 @@ export class ElasticsearchService {
 
     filters.push(...this.buildFilterBarClauses(params));
 
-    const exclusionFilter = await this.getRiskAcceptanceService().buildExclusionFilter();
+    const exclusionFilter = await this.getRiskAcceptanceService().buildExclusionFilter(params.org);
     if (exclusionFilter) filters.push(exclusionFilter);
 
     return filters;

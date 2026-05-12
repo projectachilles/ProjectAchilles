@@ -59,9 +59,9 @@ export class RiskAcceptanceService {
   private client: Client;
   private indexEnsured = false;
 
-  // In-memory cache for the risk acceptance exclusion filter
-  private riskAcceptanceCache: RiskAcceptance[] | null = null;
-  private riskAcceptanceCacheExpiry = 0;
+  // In-memory cache for the risk acceptance exclusion filter, keyed by org.
+  // Per-org cache so an org A acceptance never affects org B's Defense Score.
+  private riskAcceptanceCache: Map<string, { data: RiskAcceptance[]; expiry: number }> = new Map();
   private static readonly RISK_CACHE_TTL = 60_000; // 60 seconds
 
   constructor(client: Client) {
@@ -222,28 +222,52 @@ export class RiskAcceptanceService {
     return { data, total };
   }
 
-  /** Get all active acceptances (cached, used by Defense Score filter). */
-  async getActiveAcceptances(): Promise<RiskAcceptance[]> {
+  /**
+   * Get all active acceptances (cached per-org, used by Defense Score filter).
+   *
+   * `orgId` enforces org isolation: only returns acceptances belonging to
+   * the caller's org (plus legacy records with no org_id). Without this,
+   * Defense Score would silently exclude another tenant's accepted tests
+   * from this caller's results.
+   */
+  async getActiveAcceptances(orgId?: string): Promise<RiskAcceptance[]> {
+    const cacheKey = orgId ?? '';
     const now = Date.now();
-    if (this.riskAcceptanceCache && now < this.riskAcceptanceCacheExpiry) {
-      return this.riskAcceptanceCache;
+    const cached = this.riskAcceptanceCache.get(cacheKey);
+    if (cached && now < cached.expiry) {
+      return cached.data;
     }
 
     await this.ensureIndex();
 
-    // Scroll through all active acceptances (expect low volume, <1000)
+    const filter: any[] = [{ term: { status: 'active' } }];
+    if (orgId) {
+      filter.push({
+        bool: {
+          should: [
+            { term: { org_id: orgId } },
+            { bool: { must_not: { exists: { field: 'org_id' } } } },
+          ],
+          minimum_should_match: 1,
+        },
+      });
+    }
+
+    // Scroll through active acceptances (expect low volume, <1000 per org)
     const response = await this.client.search<RiskAcceptance>({
       index: RISK_ACCEPTANCE_INDEX,
       size: 1000,
-      query: { term: { status: 'active' } },
+      query: { bool: { filter } },
     });
 
     const acceptances = response.hits.hits
       .map(hit => hit._source)
       .filter((s): s is RiskAcceptance => s !== undefined);
 
-    this.riskAcceptanceCache = acceptances;
-    this.riskAcceptanceCacheExpiry = now + RiskAcceptanceService.RISK_CACHE_TTL;
+    this.riskAcceptanceCache.set(cacheKey, {
+      data: acceptances,
+      expiry: now + RiskAcceptanceService.RISK_CACHE_TTL,
+    });
     return acceptances;
   }
 
@@ -299,8 +323,8 @@ export class RiskAcceptanceService {
    * Build the must_not exclusion filter for Defense Score queries.
    * Returns null if no active acceptances exist.
    */
-  async buildExclusionFilter(): Promise<any | null> {
-    const acceptances = await this.getActiveAcceptances();
+  async buildExclusionFilter(orgId?: string): Promise<any | null> {
+    const acceptances = await this.getActiveAcceptances(orgId);
     if (acceptances.length === 0) return null;
 
     const exclusions: any[] = [];
@@ -342,7 +366,6 @@ export class RiskAcceptanceService {
 
   /** Invalidate the in-memory cache (called after accept/revoke). */
   invalidateCache(): void {
-    this.riskAcceptanceCache = null;
-    this.riskAcceptanceCacheExpiry = 0;
+    this.riskAcceptanceCache.clear();
   }
 }
