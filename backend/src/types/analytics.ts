@@ -154,6 +154,12 @@ export interface EnrichedTestExecution extends TestExecution {
   is_bundle_control?: boolean;
   /** Set true by the enrichment pass when a Defender alert matches this doc's bundle UUID, hostname, and time window. */
   defender_detected?: boolean;
+  /**
+   * Set true by the enrichment pass when an alert's evidence contains
+   * THIS stage's specific binary (`<uuid>-<control_id>[-<variant>].exe`).
+   * Strictly per-stage; does not propagate across a bundle's stages.
+   */
+  defender_stage_detected?: boolean;
 }
 
 // Pagination support

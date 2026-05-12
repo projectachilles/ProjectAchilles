@@ -94,6 +94,75 @@ function shouldWildcardEither(field: string, value: string): Record<string, unkn
   };
 }
 
+/**
+ * Build a STAGE-SPECIFIC evidence query. Distinct from
+ * {@link buildDefenderEvidenceQuery}, which matches any alert evidence
+ * containing the bundle UUID. The stage-specific query requires
+ * `evidence_filenames` to contain the exact per-stage binary
+ * `<bundleUuid>-<control_id>[-<variant>].exe`. Filepath and bundle-name
+ * fallbacks are intentionally dropped — those produce bundle-level matches
+ * that don't identify a specific stage. The output drives the
+ * `f0rtika.defender_stage_detected` flag, which only ever flips true when
+ * Defender saw the stage's own binary in alert evidence.
+ *
+ * Why two queries instead of one: a bundle's stages share a UUID, so the
+ * wide query (binary-prefix `<uuid>*`) matches alerts owned by *any* stage,
+ * which then propagates a misleading "Detected" badge onto every stage of
+ * the bundle. The narrow query restores per-stage truth: a stage is only
+ * Detected if its specific binary appears in evidence.
+ *
+ * Returns `null` if any input is missing, including `control_id` — without
+ * it there's nothing stage-specific to match against.
+ */
+export interface StageEvidenceInput extends TestEvidenceInput {
+  control_id: string;
+}
+
+export function buildStageDefenderEvidenceQuery(
+  input: StageEvidenceInput,
+): Record<string, unknown> | null {
+  const { test_uuid, routing_event_time, routing_hostname, control_id } = input;
+  if (!test_uuid || !routing_event_time || !routing_hostname || !control_id) return null;
+
+  const testTime = new Date(routing_event_time).getTime();
+  if (Number.isNaN(testTime)) return null;
+
+  const baseUuid = extractBundleUuid(test_uuid);
+  // Stage-binary prefix: `<uuid>-<control_id>*` — matches `<uuid>-t1083.exe`,
+  // `<uuid>-t1562.001.exe`, `<uuid>-t1562.001-svcnotify.exe`, etc. but NOT
+  // `<uuid>-t10831.exe` (no dash boundary after control_id). We use `<id>-*`
+  // (with the dash) for variant matching and a separate exact filename
+  // matcher for the no-variant case. Combined under should[minimum=1].
+  const idLower = control_id.toLowerCase();
+  const stageBinaryExact = `${baseUuid.toLowerCase()}-${idLower}.exe`;
+  const stageBinaryVariant = `${baseUuid.toLowerCase()}-${idLower}-*.exe`;
+  const hostnamePrefix = `${routing_hostname.toUpperCase()}*`;
+
+  const from = new Date(testTime - PRE_WINDOW_MS).toISOString();
+  const to = new Date(testTime + POST_WINDOW_MS).toISOString();
+
+  return {
+    bool: {
+      must: [
+        { term: { doc_type: 'alert' } },
+        { range: { timestamp: { gte: from, lte: to } } },
+        shouldWildcardEither('evidence_hostnames', hostnamePrefix),
+        {
+          bool: {
+            should: [
+              { term:     { 'evidence_filenames':         stageBinaryExact } },
+              { term:     { 'evidence_filenames.keyword': stageBinaryExact } },
+              { wildcard: { 'evidence_filenames':         { value: stageBinaryVariant } } },
+              { wildcard: { 'evidence_filenames.keyword': { value: stageBinaryVariant } } },
+            ],
+            minimum_should_match: 1,
+          },
+        },
+      ],
+    },
+  };
+}
+
 export function buildDefenderEvidenceQuery(
   input: TestEvidenceInput,
 ): Record<string, unknown> | null {
