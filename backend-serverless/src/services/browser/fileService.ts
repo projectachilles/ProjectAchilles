@@ -6,6 +6,31 @@ import { FileContent } from '../../types/test.js';
 
 export class FileService {
   /**
+   * Verify a candidate path stays inside one of the allowed roots and return
+   * the canonical resolved form. Returns null on escape.
+   *
+   * Returning the resolved form (rather than a boolean) is the pattern that
+   * CodeQL's js/path-injection query recognises as a sanitiser barrier:
+   *   path.resolve(candidate) -> path.relative(root, resolved) boundary
+   *   check -> return resolved (cleansed value flows forward).
+   *
+   * Callers MUST use the returned string for downstream fs.* calls — passing
+   * the original `candidate` after a boolean check is not a recognised
+   * sanitiser and leaves the taint flow intact.
+   */
+  static safeResolveWithinRoots(candidate: string, roots: string[]): string | null {
+    const resolved = path.resolve(candidate);
+    for (const root of roots) {
+      const resolvedRoot = path.resolve(root);
+      const rel = path.relative(resolvedRoot, resolved);
+      if (rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+        return resolved;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Read file content safely
    */
   static readFileContent(filePath: string): FileContent {

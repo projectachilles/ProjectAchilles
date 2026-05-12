@@ -109,6 +109,45 @@ describe('FileService', () => {
     });
   });
 
+  // ── safeResolveWithinRoots ─────────────────────────────────
+
+  describe('safeResolveWithinRoots', () => {
+    it('returns the resolved path when candidate is inside a root', () => {
+      const result = FileService.safeResolveWithinRoots('/var/lib/tests/abc/main.go', ['/var/lib/tests']);
+      expect(result).toBe('/var/lib/tests/abc/main.go');
+    });
+
+    it('returns null when candidate escapes via ..', () => {
+      const result = FileService.safeResolveWithinRoots('/var/lib/tests/../../etc/passwd', ['/var/lib/tests']);
+      expect(result).toBeNull();
+    });
+
+    it('returns null when candidate is outside all roots', () => {
+      const result = FileService.safeResolveWithinRoots('/tmp/evil', ['/var/lib/tests', '/opt/library']);
+      expect(result).toBeNull();
+    });
+
+    it('returns the resolved path when candidate is inside any of multiple roots', () => {
+      const result = FileService.safeResolveWithinRoots('/opt/library/xyz/file.md', ['/var/lib/tests', '/opt/library']);
+      expect(result).toBe('/opt/library/xyz/file.md');
+    });
+
+    it('returns null when candidate equals the root (root itself is not a subpath)', () => {
+      const result = FileService.safeResolveWithinRoots('/var/lib/tests', ['/var/lib/tests']);
+      expect(result).toBeNull();
+    });
+
+    it('normalises redundant segments before checking containment', () => {
+      const result = FileService.safeResolveWithinRoots('/var/lib/tests/./abc/./file.go', ['/var/lib/tests']);
+      expect(result).toBe('/var/lib/tests/abc/file.go');
+    });
+
+    it('returns null when roots list is empty', () => {
+      const result = FileService.safeResolveWithinRoots('/var/lib/tests/abc', []);
+      expect(result).toBeNull();
+    });
+  });
+
   // ── fileExists ─────────────────────────────────────────────
 
   describe('fileExists', () => {
