@@ -262,6 +262,43 @@ describe('RiskAcceptanceService', () => {
 
       await expect(service.getAcceptanceById('acc-001')).rejects.toThrow('Internal server error');
     });
+
+    // Org-isolation IDOR defense
+    it('returns the document when caller org matches doc org', async () => {
+      const doc = makeAcceptance({ org_id: 'org-A' });
+      mockGet.mockResolvedValue({ _source: doc });
+
+      const result = await service.getAcceptanceById('acc-001', 'org-A');
+
+      expect(result).toEqual(doc);
+    });
+
+    it('returns null when caller org does NOT match doc org (IDOR defense)', async () => {
+      const doc = makeAcceptance({ org_id: 'org-A' });
+      mockGet.mockResolvedValue({ _source: doc });
+
+      const result = await service.getAcceptanceById('acc-001', 'org-B');
+
+      expect(result).toBeNull();
+    });
+
+    it('returns the document for legacy records with no org_id (backward compat)', async () => {
+      const doc = makeAcceptance(); // no org_id
+      mockGet.mockResolvedValue({ _source: doc });
+
+      const result = await service.getAcceptanceById('acc-001', 'org-A');
+
+      expect(result).toEqual(doc);
+    });
+
+    it('returns the document when no orgId is supplied (backward compat)', async () => {
+      const doc = makeAcceptance({ org_id: 'org-A' });
+      mockGet.mockResolvedValue({ _source: doc });
+
+      const result = await service.getAcceptanceById('acc-001');
+
+      expect(result).toEqual(doc);
+    });
   });
 
   // ── listAcceptances ─────────────────────────────────────────────
@@ -378,7 +415,7 @@ describe('RiskAcceptanceService', () => {
         expect.objectContaining({
           index: 'achilles-risk-acceptances',
           size: 1000,
-          query: { term: { status: 'active' } },
+          query: { bool: { filter: [{ term: { status: 'active' } }] } },
         }),
       );
     });
@@ -411,6 +448,49 @@ describe('RiskAcceptanceService', () => {
       const result = await service.getActiveAcceptances();
 
       expect(result).toHaveLength(0);
+      expect(mockSearch).toHaveBeenCalledTimes(2);
+    });
+
+    // Cross-tenant Defense Score isolation
+    it('filters by org_id when supplied (and allows legacy untagged records)', async () => {
+      mockSearch.mockResolvedValue(makeSearchResponse([makeAcceptance({ org_id: 'org-A' })]));
+
+      await service.getActiveAcceptances('org-A');
+
+      expect(mockSearch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: expect.objectContaining({
+            bool: expect.objectContaining({
+              filter: expect.arrayContaining([
+                { term: { status: 'active' } },
+                expect.objectContaining({
+                  bool: expect.objectContaining({
+                    should: [
+                      { term: { org_id: 'org-A' } },
+                      { bool: { must_not: { exists: { field: 'org_id' } } } },
+                    ],
+                  }),
+                }),
+              ]),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('caches per-org (org A and org B do NOT share cache)', async () => {
+      // First call for org A
+      mockSearch.mockResolvedValueOnce(makeSearchResponse([makeAcceptance({ org_id: 'org-A' })]));
+      const orgA = await service.getActiveAcceptances('org-A');
+      expect(orgA[0].org_id).toBe('org-A');
+
+      // Second call for org B — should NOT return org A's cached data
+      mockSearch.mockResolvedValueOnce(makeSearchResponse([makeAcceptance({ org_id: 'org-B', acceptance_id: 'acc-002' })]));
+      const orgB = await service.getActiveAcceptances('org-B');
+      expect(orgB[0].org_id).toBe('org-B');
+      expect(orgB[0].acceptance_id).toBe('acc-002');
+
+      // Both should have hit ES (separate cache slots)
       expect(mockSearch).toHaveBeenCalledTimes(2);
     });
   });

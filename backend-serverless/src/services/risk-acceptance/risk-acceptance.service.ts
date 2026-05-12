@@ -12,6 +12,7 @@ export type RiskScope = 'host' | 'global';
 
 export interface RiskAcceptance {
   acceptance_id: string;
+  org_id?: string;
   test_name: string;
   control_id?: string;
   hostname?: string;
@@ -28,6 +29,7 @@ export interface RiskAcceptance {
 }
 
 export interface AcceptRiskParams {
+  org_id?: string;
   test_name: string;
   control_id?: string;
   hostname?: string;
@@ -44,6 +46,7 @@ export interface RevokeRiskParams {
 }
 
 export interface ListAcceptancesParams {
+  org_id?: string;
   status?: 'active' | 'revoked';
   test_name?: string;
   page?: number;
@@ -56,9 +59,9 @@ export class RiskAcceptanceService {
   private client: Client;
   private indexEnsured = false;
 
-  // In-memory cache for the risk acceptance exclusion filter
-  private riskAcceptanceCache: RiskAcceptance[] | null = null;
-  private riskAcceptanceCacheExpiry = 0;
+  // In-memory cache for the risk acceptance exclusion filter, keyed by org.
+  // Per-org cache so an org A acceptance never affects org B's Defense Score.
+  private riskAcceptanceCache: Map<string, { data: RiskAcceptance[]; expiry: number }> = new Map();
   private static readonly RISK_CACHE_TTL = 60_000; // 60 seconds
 
   constructor(client: Client) {
@@ -78,6 +81,7 @@ export class RiskAcceptanceService {
 
     const doc: RiskAcceptance = {
       acceptance_id: randomUUID(),
+      org_id: params.org_id || undefined,
       test_name: params.test_name,
       control_id: params.control_id || undefined,
       hostname: params.hostname || undefined,
@@ -100,9 +104,15 @@ export class RiskAcceptanceService {
     return doc;
   }
 
-  /** Revoke an active risk acceptance. */
-  async revokeRisk(acceptanceId: string, params: RevokeRiskParams): Promise<RiskAcceptance> {
-    const existing = await this.getAcceptanceById(acceptanceId);
+  /**
+   * Revoke an active risk acceptance.
+   *
+   * `orgId` enforces org isolation: when supplied, the existing document must
+   * belong to the same org (or be a legacy record with no org_id) or the call
+   * fails as not-found — preventing cross-tenant revocation IDOR.
+   */
+  async revokeRisk(acceptanceId: string, params: RevokeRiskParams, orgId?: string): Promise<RiskAcceptance> {
+    const existing = await this.getAcceptanceById(acceptanceId, orgId);
     if (!existing) {
       throw new Error(`Risk acceptance not found: ${acceptanceId}`);
     }
@@ -130,8 +140,16 @@ export class RiskAcceptanceService {
     return updated;
   }
 
-  /** Get a single acceptance by ID. */
-  async getAcceptanceById(id: string): Promise<RiskAcceptance | null> {
+  /**
+   * Get a single acceptance by ID.
+   *
+   * `orgId` enforces org isolation: when supplied, the returned document
+   * must belong to the same org (or be a legacy record with no org_id) — a
+   * mismatch returns null. This prevents cross-tenant disclosure IDOR.
+   * Returning null (not throwing) keeps callers' 404 paths consistent and
+   * avoids leaking existence to other orgs.
+   */
+  async getAcceptanceById(id: string, orgId?: string): Promise<RiskAcceptance | null> {
     await this.ensureIndex();
 
     try {
@@ -139,7 +157,12 @@ export class RiskAcceptanceService {
         index: RISK_ACCEPTANCE_INDEX,
         id,
       });
-      return response._source ?? null;
+      const doc = response._source ?? null;
+      if (!doc) return null;
+      if (orgId && doc.org_id && doc.org_id !== orgId) {
+        return null;
+      }
+      return doc;
     } catch (err: unknown) {
       if (err && typeof err === 'object' && 'statusCode' in err && (err as { statusCode: number }).statusCode === 404) {
         return null;
@@ -153,6 +176,20 @@ export class RiskAcceptanceService {
     await this.ensureIndex();
 
     const filters: any[] = [];
+
+    // Org isolation: filter by org_id when provided (new records have org_id;
+    // legacy records without org_id are visible to all orgs for backward compat)
+    if (params?.org_id) {
+      filters.push({
+        bool: {
+          should: [
+            { term: { org_id: params.org_id } },
+            { bool: { must_not: { exists: { field: 'org_id' } } } },
+          ],
+          minimum_should_match: 1,
+        },
+      });
+    }
 
     if (params?.status) {
       filters.push({ term: { status: params.status } });
@@ -185,48 +222,88 @@ export class RiskAcceptanceService {
     return { data, total };
   }
 
-  /** Get all active acceptances (cached, used by Defense Score filter). */
-  async getActiveAcceptances(): Promise<RiskAcceptance[]> {
+  /**
+   * Get all active acceptances (cached per-org, used by Defense Score filter).
+   *
+   * `orgId` enforces org isolation: only returns acceptances belonging to
+   * the caller's org (plus legacy records with no org_id). Without this,
+   * Defense Score would silently exclude another tenant's accepted tests
+   * from this caller's results.
+   */
+  async getActiveAcceptances(orgId?: string): Promise<RiskAcceptance[]> {
+    const cacheKey = orgId ?? '';
     const now = Date.now();
-    if (this.riskAcceptanceCache && now < this.riskAcceptanceCacheExpiry) {
-      return this.riskAcceptanceCache;
+    const cached = this.riskAcceptanceCache.get(cacheKey);
+    if (cached && now < cached.expiry) {
+      return cached.data;
     }
 
     await this.ensureIndex();
 
-    // Scroll through all active acceptances (expect low volume, <1000)
+    const filter: any[] = [{ term: { status: 'active' } }];
+    if (orgId) {
+      filter.push({
+        bool: {
+          should: [
+            { term: { org_id: orgId } },
+            { bool: { must_not: { exists: { field: 'org_id' } } } },
+          ],
+          minimum_should_match: 1,
+        },
+      });
+    }
+
+    // Scroll through active acceptances (expect low volume, <1000 per org)
     const response = await this.client.search<RiskAcceptance>({
       index: RISK_ACCEPTANCE_INDEX,
       size: 1000,
-      query: { term: { status: 'active' } },
+      query: { bool: { filter } },
     });
 
     const acceptances = response.hits.hits
       .map(hit => hit._source)
       .filter((s): s is RiskAcceptance => s !== undefined);
 
-    this.riskAcceptanceCache = acceptances;
-    this.riskAcceptanceCacheExpiry = now + RiskAcceptanceService.RISK_CACHE_TTL;
+    this.riskAcceptanceCache.set(cacheKey, {
+      data: acceptances,
+      expiry: now + RiskAcceptanceService.RISK_CACHE_TTL,
+    });
     return acceptances;
   }
 
-  /** Batch lookup: get active acceptances for a list of test_names. */
-  async getAcceptancesForControls(testNames: string[]): Promise<Record<string, RiskAcceptance[]>> {
+  /**
+   * Batch lookup: get active acceptances for a list of test_names.
+   *
+   * `orgId` enforces org isolation matching listAcceptances semantics: only
+   * documents belonging to the caller's org (or legacy docs with no org_id)
+   * are returned. Without this filter, any authenticated user could exfiltrate
+   * other tenants' risk acceptances via the lookup endpoint (IDOR).
+   */
+  async getAcceptancesForControls(testNames: string[], orgId?: string): Promise<Record<string, RiskAcceptance[]>> {
     if (testNames.length === 0) return {};
 
     await this.ensureIndex();
 
+    const filter: any[] = [
+      { term: { status: 'active' } },
+      { terms: { test_name: testNames } },
+    ];
+    if (orgId) {
+      filter.push({
+        bool: {
+          should: [
+            { term: { org_id: orgId } },
+            { bool: { must_not: { exists: { field: 'org_id' } } } },
+          ],
+          minimum_should_match: 1,
+        },
+      });
+    }
+
     const response = await this.client.search<RiskAcceptance>({
       index: RISK_ACCEPTANCE_INDEX,
       size: 1000,
-      query: {
-        bool: {
-          filter: [
-            { term: { status: 'active' } },
-            { terms: { test_name: testNames } },
-          ],
-        },
-      },
+      query: { bool: { filter } },
     });
 
     const result: Record<string, RiskAcceptance[]> = {};
@@ -246,8 +323,8 @@ export class RiskAcceptanceService {
    * Build the must_not exclusion filter for Defense Score queries.
    * Returns null if no active acceptances exist.
    */
-  async buildExclusionFilter(): Promise<any | null> {
-    const acceptances = await this.getActiveAcceptances();
+  async buildExclusionFilter(orgId?: string): Promise<any | null> {
+    const acceptances = await this.getActiveAcceptances(orgId);
     if (acceptances.length === 0) return null;
 
     const exclusions: any[] = [];
@@ -289,7 +366,6 @@ export class RiskAcceptanceService {
 
   /** Invalidate the in-memory cache (called after accept/revoke). */
   invalidateCache(): void {
-    this.riskAcceptanceCache = null;
-    this.riskAcceptanceCacheExpiry = 0;
+    this.riskAcceptanceCache.clear();
   }
 }

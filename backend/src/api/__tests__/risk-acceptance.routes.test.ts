@@ -213,7 +213,7 @@ describe('risk-acceptance routes', () => {
         revoked_by: 'test-user-001',
         revoked_by_name: 'Test User',
         revocation_reason: 'Compensating control removed from environment.',
-      }));
+      }), 'org-001');
     });
 
     it('returns 400 when reason is too short', async () => {
