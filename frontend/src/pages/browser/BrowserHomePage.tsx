@@ -51,8 +51,8 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
   const [nryFilter, setNryFilter] = useState(false);
   const [executedUuids, setExecutedUuids] = useState<Set<string> | null>(null);
   const [executedUuidsLoading, setExecutedUuidsLoading] = useState(false);
-  const [sortField, setSortField] = useState<SortField>('name');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [sortField, setSortField] = useState<SortField>('createdDate');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     return (localStorage.getItem('achilles-browse-view-mode') as ViewMode) || 'grid';
   });
