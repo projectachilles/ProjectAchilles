@@ -349,8 +349,14 @@ export function createBrowserRouter(options: {
       throw new AppError('File not found', 404);
     }
 
-    // Read file content
-    const fileContent = FileService.readFileContent(file.path);
+    // Confine the read to the indexed test library roots before hitting fs.*
+    // (CodeQL js/path-injection sanitiser barrier — see FileService.safeResolveWithinRoots).
+    const safePath = FileService.safeResolveWithinRoots(file.path, testIndexer.getSourceRoots());
+    if (!safePath) {
+      throw new AppError('Invalid file path', 400);
+    }
+
+    const fileContent = FileService.readFileContent(safePath);
 
     res.json({
       success: true,
@@ -389,8 +395,13 @@ export function createBrowserRouter(options: {
       throw new AppError('Attack flow diagram not available for this test', 404);
     }
 
-    // Read HTML file
-    const fileContent = FileService.readFileContent(test.attackFlowPath);
+    // Confine the read to the indexed test library roots before hitting fs.*
+    const safePath = FileService.safeResolveWithinRoots(test.attackFlowPath, testIndexer.getSourceRoots());
+    if (!safePath) {
+      throw new AppError('Invalid attack flow path', 400);
+    }
+
+    const fileContent = FileService.readFileContent(safePath);
 
     res.json({
       success: true,
@@ -424,8 +435,13 @@ export function createBrowserRouter(options: {
       throw new AppError('Kill chain diagram not available for this test', 404);
     }
 
-    // Read HTML file
-    const fileContent = FileService.readFileContent(test.killChainPath);
+    // Confine the read to the indexed test library roots before hitting fs.*
+    const safePath = FileService.safeResolveWithinRoots(test.killChainPath, testIndexer.getSourceRoots());
+    if (!safePath) {
+      throw new AppError('Invalid kill chain path', 400);
+    }
+
+    const fileContent = FileService.readFileContent(safePath);
 
     res.json({
       success: true,

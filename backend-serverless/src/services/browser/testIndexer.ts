@@ -20,6 +20,15 @@ export class TestIndexer {
   }
 
   /**
+   * Resolved root directories for the configured source. Used by route
+   * handlers to constrain `FileService.readFileContent` to paths inside the
+   * indexed test library, closing CodeQL js/path-injection alerts.
+   */
+  getSourceRoots(): string[] {
+    return [this.testsSourcePath];
+  }
+
+  /**
    * Detect if the tests_source uses categorical structure (new) or flat structure (legacy)
    */
   private detectStructure(): 'categorical' | 'flat' {
