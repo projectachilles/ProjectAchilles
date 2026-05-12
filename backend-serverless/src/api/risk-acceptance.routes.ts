@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { clerkClient } from '@clerk/express';
-import { requireClerkAuth, requirePermission, getUserId } from '../middleware/clerk.middleware.js';
+import { requireClerkAuth, requirePermission, getUserId, getUserOrgId } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { validate } from '../middleware/validation.js';
 import { SettingsService } from '../services/analytics/settings.js';
@@ -53,8 +53,11 @@ router.post('/', requirePermission('analytics:risk:write'), validate(AcceptRiskS
   const resolvedScope: 'host' | 'global' = scope ?? (hostname ? 'host' : 'global');
   const resolvedHostname = resolvedScope === 'host' ? (hostname || undefined) : undefined;
 
+  const orgId = getUserOrgId(req.auth);
+
   const svc = await getRiskService();
   const acceptance = await svc.acceptRisk({
+    org_id: orgId,
     test_name,
     control_id: control_id || undefined,
     hostname: resolvedHostname,
@@ -67,7 +70,7 @@ router.post('/', requirePermission('analytics:risk:write'), validate(AcceptRiskS
   res.status(201).json({ success: true, data: acceptance });
 }));
 
-// POST /api/risk-acceptances/:id/revoke — Revoke a risk acceptance
+// POST /api/risk-acceptances/:id/revoke — Revoke a risk acceptance (org-scoped)
 router.post('/:id/revoke', requirePermission('analytics:risk:write'), validate(RevokeRiskSchema), asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { reason } = req.body;
@@ -81,22 +84,26 @@ router.post('/:id/revoke', requirePermission('analytics:risk:write'), validate(R
     || user.emailAddresses[0]?.emailAddress
     || userId;
 
+  const orgId = getUserOrgId(req.auth);
+
   const svc = await getRiskService();
   const acceptance = await svc.revokeRisk(id, {
     revoked_by: userId,
     revoked_by_name: displayName,
     revocation_reason: reason.trim(),
-  });
+  }, orgId);
 
   res.json({ success: true, data: acceptance });
 }));
 
-// GET /api/risk-acceptances — List acceptances
+// GET /api/risk-acceptances — List acceptances (org-scoped)
 router.get('/', requirePermission('analytics:risk:read'), asyncHandler(async (req, res) => {
   const { status, test_name, page, pageSize } = req.query;
+  const orgId = getUserOrgId(req.auth);
 
   const svc = await getRiskService();
   const result = await svc.listAcceptances({
+    org_id: orgId,
     status: status as 'active' | 'revoked' | undefined,
     test_name: test_name as string | undefined,
     page: page ? parseInt(page as string, 10) : 1,
@@ -106,10 +113,12 @@ router.get('/', requirePermission('analytics:risk:read'), asyncHandler(async (re
   res.json({ success: true, data: result.data, total: result.total });
 }));
 
-// GET /api/risk-acceptances/:id — Get single acceptance
+// GET /api/risk-acceptances/:id — Get single acceptance (org-scoped)
 router.get('/:id', requirePermission('analytics:risk:read'), asyncHandler(async (req, res) => {
+  const orgId = getUserOrgId(req.auth);
+
   const svc = await getRiskService();
-  const acceptance = await svc.getAcceptanceById(req.params.id);
+  const acceptance = await svc.getAcceptanceById(req.params.id, orgId);
 
   if (!acceptance) {
     throw new AppError('Risk acceptance not found', 404);
@@ -118,12 +127,13 @@ router.get('/:id', requirePermission('analytics:risk:read'), asyncHandler(async 
   res.json({ success: true, data: acceptance });
 }));
 
-// POST /api/risk-acceptances/lookup — Batch lookup for UI badges
+// POST /api/risk-acceptances/lookup — Batch lookup for UI badges (org-scoped)
 router.post('/lookup', requirePermission('analytics:risk:read'), validate(LookupRiskSchema), asyncHandler(async (req, res) => {
   const { test_names } = req.body;
+  const orgId = getUserOrgId(req.auth);
 
   const svc = await getRiskService();
-  const result = await svc.getAcceptancesForControls(test_names);
+  const result = await svc.getAcceptancesForControls(test_names, orgId);
 
   res.json({ success: true, data: result });
 }));

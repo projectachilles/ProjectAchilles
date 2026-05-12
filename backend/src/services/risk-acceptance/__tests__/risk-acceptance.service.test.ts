@@ -262,6 +262,43 @@ describe('RiskAcceptanceService', () => {
 
       await expect(service.getAcceptanceById('acc-001')).rejects.toThrow('Internal server error');
     });
+
+    // Org-isolation IDOR defense
+    it('returns the document when caller org matches doc org', async () => {
+      const doc = makeAcceptance({ org_id: 'org-A' });
+      mockGet.mockResolvedValue({ _source: doc });
+
+      const result = await service.getAcceptanceById('acc-001', 'org-A');
+
+      expect(result).toEqual(doc);
+    });
+
+    it('returns null when caller org does NOT match doc org (IDOR defense)', async () => {
+      const doc = makeAcceptance({ org_id: 'org-A' });
+      mockGet.mockResolvedValue({ _source: doc });
+
+      const result = await service.getAcceptanceById('acc-001', 'org-B');
+
+      expect(result).toBeNull();
+    });
+
+    it('returns the document for legacy records with no org_id (backward compat)', async () => {
+      const doc = makeAcceptance(); // no org_id
+      mockGet.mockResolvedValue({ _source: doc });
+
+      const result = await service.getAcceptanceById('acc-001', 'org-A');
+
+      expect(result).toEqual(doc);
+    });
+
+    it('returns the document when no orgId is supplied (backward compat)', async () => {
+      const doc = makeAcceptance({ org_id: 'org-A' });
+      mockGet.mockResolvedValue({ _source: doc });
+
+      const result = await service.getAcceptanceById('acc-001');
+
+      expect(result).toEqual(doc);
+    });
   });
 
   // ── listAcceptances ─────────────────────────────────────────────
