@@ -1,30 +1,19 @@
-import { useState, useCallback } from 'react';
-
 export type ScoringMode = 'all-stages' | 'any-stage';
 
-const STORAGE_KEY = 'achilles-scoring-mode';
-
-function readStoredMode(): ScoringMode {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === 'any-stage') return 'any-stage';
-  } catch {
-    // SSR or localStorage unavailable
-  }
-  return 'all-stages';
-}
-
+/**
+ * Returns the active scoring mode for analytics queries.
+ *
+ * The All-Stages / Any-Stage toggle was removed from the UI — kill-chain
+ * semantics ("breaking one link breaks the chain") match how SOCs and
+ * Red Teams operationally evaluate detection, so the user-facing surface
+ * is locked to `'any-stage'`. The backend retains the parameter and the
+ * `'all-stages'` code paths for completeness, but no caller exercises
+ * the all-stages branch in the live app.
+ *
+ * The hook is kept (rather than inlining `'any-stage'`) so a future
+ * reintroduction of the toggle — e.g. behind an Advanced setting — is
+ * a localized change. `setScoringMode` is intentionally a no-op.
+ */
 export function useScoringMode() {
-  const [scoringMode, setScoringModeState] = useState<ScoringMode>(readStoredMode);
-
-  const setScoringMode = useCallback((mode: ScoringMode) => {
-    setScoringModeState(mode);
-    try {
-      localStorage.setItem(STORAGE_KEY, mode);
-    } catch {
-      // Ignore write failures
-    }
-  }, []);
-
-  return { scoringMode, setScoringMode } as const;
+  return { scoringMode: 'any-stage' as const, setScoringMode: () => {} } as const;
 }

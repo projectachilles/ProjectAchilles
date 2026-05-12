@@ -113,7 +113,6 @@ function renderTable(data: GroupedPaginatedResponse) {
       onSort={vi.fn()}
       sortField="routing.event_time"
       sortOrder="desc"
-      scoringMode="all-stages"
     />,
   );
 }
@@ -149,8 +148,11 @@ describe('ExecutionsDataTable — per-stage Defender detection', () => {
     await userEvent.click(screen.getByText(plainStage.bundle_name!));
 
     // Both stages are unprotected by EDR. Only one was Defender-detected.
+    // After PR-B parent badge agrees with stage badges (same "Detected"
+    // wording), so 2 "Detected" labels appear: parent + the one stage.
+    // Use getAllByText to disambiguate.
     await waitFor(() => {
-      expect(screen.getByText('Detected')).toBeInTheDocument();
+      expect(screen.getAllByText('Detected').length).toBeGreaterThanOrEqual(2);
     });
     expect(screen.getAllByText('Unprotected')).toHaveLength(1);
   });
@@ -165,8 +167,10 @@ describe('ExecutionsDataTable — per-stage Defender detection', () => {
 
     await userEvent.click(screen.getByText(stage.bundle_name!));
 
+    // 2 "Unprotected" rows: parent rollup + the one stage. No "Detected"
+    // anywhere because group.defenderDetected is false.
     await waitFor(() => {
-      expect(screen.getByText('Unprotected')).toBeInTheDocument();
+      expect(screen.getAllByText('Unprotected').length).toBeGreaterThanOrEqual(2);
     });
     expect(screen.queryByText('Detected')).toBeNull();
   });
@@ -326,5 +330,149 @@ describe('ExecutionsDataTable — variant-suffix attribution matching', () => {
     // to the "no related alerts" copy.
     expect(screen.queryByText(/Wacatac/)).toBeNull();
     expect(screen.getByText(/No related Defender alerts/i)).toBeInTheDocument();
+  });
+});
+
+describe('ExecutionsDataTable — stage-flag preference (per-stage truth)', () => {
+  // After PR-A's stage-specific enrichment lands, the per-stage Result cell
+  // should prefer defender_stage_detected (set ONLY when the alert evidence
+  // contains THIS stage's binary). The bundle-level defender_detected flag
+  // is reserved for the parent badge rollup.
+  it('uses defender_stage_detected when present, ignoring the bundle flag', async () => {
+    // Stage 1 has the bundle flag but NOT the stage flag — alert was for
+    // another stage of the same bundle. The parent rolls up to Detected
+    // (group.defenderDetected:true), but the single stage sub-row must NOT
+    // show Detected because its own stage flag is false. Expect exactly 1
+    // "Detected" (the parent) and 1 "Unprotected" (the stage).
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    const stage = makeStage({
+      defender_detected: true,
+      defender_stage_detected: false,
+    });
+    renderTable(makeData([stage], { defenderDetected: true }));
+
+    await userEvent.click(screen.getByText(stage.bundle_name!));
+    await waitFor(() => {
+      expect(screen.getAllByText('Unprotected').length).toBeGreaterThanOrEqual(1);
+    });
+    expect(screen.getAllByText('Detected')).toHaveLength(1); // parent only
+  });
+
+  it('renders Detected when defender_stage_detected is true', async () => {
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    const stage = makeStage({
+      defender_detected: true,
+      defender_stage_detected: true,
+    });
+    renderTable(makeData([stage], { defenderDetected: true }));
+
+    await userEvent.click(screen.getByText(stage.bundle_name!));
+    // Parent rolls up Detected AND stage row shows Detected (per-stage flag).
+    await waitFor(() => {
+      expect(screen.getAllByText('Detected').length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  it('falls back to defender_detected for legacy docs missing the stage flag', async () => {
+    // Pre-PR-A docs only carry defender_detected. Until the next enrichment
+    // passes backfill defender_stage_detected, the UI must still show
+    // Detected — the fallback prevents a visible regression during deploy.
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    const stage = makeStage({
+      defender_detected: true,
+      defender_stage_detected: undefined,
+    });
+    renderTable(makeData([stage], { defenderDetected: true }));
+
+    await userEvent.click(screen.getByText(stage.bundle_name!));
+    await waitFor(() => {
+      expect(screen.getAllByText('Detected').length).toBeGreaterThanOrEqual(2);
+    });
+  });
+});
+
+describe('ExecutionsDataTable — toggle removal + parent rollup', () => {
+  it('does not render the All Stages / Any Stage toggle in the header', () => {
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    const stage = makeStage({});
+    renderTable(makeData([stage], { defenderDetected: false }));
+
+    expect(screen.queryByText('All Stages')).toBeNull();
+    expect(screen.queryByText('Any Stage')).toBeNull();
+  });
+
+  it('parent bundle badge: any-stage Protected wins over any-stage Detected', () => {
+    // Three stages: one Protected (error_code 105), one Detected
+    // (defender_detected: true, error_code 101), one plain Unprotected
+    // (error_code 101, no detection). Parent must badge Protected — the
+    // strongest signal (EDR prevention) wins.
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    const protectedStage = makeStage({
+      test_uuid: `${BUNDLE_UUID}::T1083`,
+      control_id: 'T1083',
+      error_code: 105,
+    });
+    const detectedStage = makeStage({
+      test_uuid: `${BUNDLE_UUID}::T1562.001`,
+      control_id: 'T1562.001',
+      error_code: 101,
+      defender_detected: true,
+      defender_stage_detected: true,
+    });
+    const unprotectedStage = makeStage({
+      test_uuid: `${BUNDLE_UUID}::T1078`,
+      control_id: 'T1078',
+      error_code: 101,
+    });
+    renderTable(
+      makeData([protectedStage, detectedStage, unprotectedStage], { defenderDetected: true }),
+    );
+
+    // Parent row badge is the FIRST 'Protected' in the DOM (the table
+    // renders parent before stage sub-rows). Without expanding, only the
+    // parent is visible — so any Protected text we find is the parent.
+    expect(screen.getByText('Protected')).toBeInTheDocument();
+    // Parent should NOT badge Detected when there's a Protected stage
+    expect(screen.queryByText('Detected')).toBeNull();
+  });
+
+  it('parent bundle badge: Detected when no stage is Protected but one is Detected', () => {
+    // Bundle has no EDR-prevented stages but does have Defender correlation
+    // → parent badges Detected (not Unprotected). Same priority as PR #225.
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    const detectedStage = makeStage({ defender_detected: true });
+    const unprotectedStage = makeStage({
+      test_uuid: `${BUNDLE_UUID}::T1078`,
+      control_id: 'T1078',
+      error_code: 101,
+    });
+    renderTable(
+      makeData([detectedStage, unprotectedStage], { defenderDetected: true }),
+    );
+
+    expect(screen.getByText('Detected')).toBeInTheDocument();
+  });
+
+  it('cyber-hygiene bundles keep their per-control ratio badge', () => {
+    // The any-stage rollup is intentionally NOT applied to cyber-hygiene
+    // bundles — each control is independently scored, so collapsing to a
+    // single verdict would erase per-control gap analysis.
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    const chStage1 = makeStage({
+      category: 'cyber-hygiene',
+      test_uuid: `${BUNDLE_UUID}::CH-001`,
+      control_id: 'CH-001',
+      error_code: 105,
+    });
+    const chStage2 = makeStage({
+      category: 'cyber-hygiene',
+      test_uuid: `${BUNDLE_UUID}::CH-002`,
+      control_id: 'CH-002',
+      error_code: 101,
+    });
+    renderTable(makeData([chStage1, chStage2], { defenderDetected: false }));
+
+    // Ratio badge format: "1/2 Protected"
+    expect(screen.getByText('1/2 Protected')).toBeInTheDocument();
   });
 });

@@ -68,7 +68,7 @@ export default function AnalyticsDashboardPage() {
 
   // Defender integration status (Approach A: hidden when not configured)
   const { configured: defenderConfigured } = useDefenderConfig();
-  const { scoringMode, setScoringMode } = useScoringMode();
+  const { scoringMode } = useScoringMode();
 
   // UI State
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -753,8 +753,6 @@ export default function AnalyticsDashboardPage() {
             onRevokeRisk={handleRevokeRisk}
             riskAcceptances={riskAcceptances}
             acceptingRisk={acceptingRisk}
-            scoringMode={scoringMode}
-            onScoringModeChange={setScoringMode}
           />
         )}
       </div>
