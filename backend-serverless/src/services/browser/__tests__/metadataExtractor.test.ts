@@ -395,7 +395,7 @@ A simple test.
       const result = MetadataExtractor.extractFromInfoCard(filePath);
 
       expect(result.category).toBe('defense_evasion');
-      expect(result.severity).toBe('Critical');
+      expect(result.severity).toBe('critical');
       expect(result.techniques).toEqual(['T1055', 'T1059']);
       expect(result.score).toBe(8.5);
     });

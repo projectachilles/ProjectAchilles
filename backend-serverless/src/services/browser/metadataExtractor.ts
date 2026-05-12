@@ -225,7 +225,7 @@ export class MetadataExtractor {
     // Extract severity
     const severityMatch = content.match(/\*\*Severity\*\*:\s*(\w+)/i);
     if (severityMatch) {
-      metadata.severity = severityMatch[1].trim();
+      metadata.severity = severityMatch[1].trim().toLowerCase();
     }
 
     // Extract MITRE ATT&CK techniques
