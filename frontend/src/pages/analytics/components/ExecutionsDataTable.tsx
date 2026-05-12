@@ -290,32 +290,29 @@ export default function ExecutionsDataTable({
     }
   }, []);
 
-  // Related Defender alerts cache (mirrors descriptionCache pattern)
+  // Related Defender alerts cache (mirrors descriptionCache pattern).
+  // Keyed PER STAGE so each stage queries with its own timestamp + techniques.
+  // alertsLoading is a Set to track concurrent in-flight fetches across stages.
   const alertsCache = useRef<Map<string, RelatedAlertsResponse | null>>(new Map());
-  const [alertsLoading, setAlertsLoading] = useState<string | null>(null);
+  const [alertsLoading, setAlertsLoading] = useState<Set<string>>(new Set());
   const [alertsMap, setAlertsMap] = useState<Map<string, RelatedAlertsResponse | null>>(new Map());
 
-  // Cache key derivation. Alerts are correlated at the BUNDLE level — every
-  // stage of the same bundle on the same host shares the same set of related
-  // Defender alerts (the helper query uses bundle UUID + hostname + a wide
-  // time window, not stage-specific filters). One fetch per bundle/host.
-  // Frontend filters per attribution at render time:
-  //   - stage detail panel: alerts where attributed_control_id matches that
-  //     stage's control_id
-  //   - bundle parent row callout: alerts where attribution === 'bundle'
-  const bundleAlertsCacheKey = (exec: EnrichedTestExecution) => {
-    const baseUuid = exec.test_uuid.includes('::')
-      ? exec.test_uuid.split('::')[0]
-      : exec.test_uuid;
-    return `${baseUuid}::${exec.hostname}::bundle-alerts`;
-  };
+  // Per-stage cache key. The previous bundle-level collapse (one cache entry
+  // shared by all stages) caused enrichment/drill-down divergence: when stages
+  // ran tens of minutes apart, the bundle-wide query was anchored at stage 1's
+  // timestamp with stage 1's techniques and missed alerts correlated to later
+  // stages. Each stage now queries with its own routing.event_time + techniques;
+  // the bundle-level callout (parent row) aggregates `attribution === 'bundle'`
+  // alerts across every stage cache and dedupes by alert_id.
+  const stageAlertsCacheKey = (exec: EnrichedTestExecution) =>
+    `${exec.test_uuid}::${exec.hostname}::stage-alerts`;
 
   const fetchRelatedAlerts = useCallback(async (exec: EnrichedTestExecution) => {
     if (!defenderConfigured) return;
     const techniques = exec.techniques;
     if (!techniques || techniques.length === 0) return;
 
-    const cacheKey = bundleAlertsCacheKey(exec);
+    const cacheKey = stageAlertsCacheKey(exec);
     if (alertsCache.current.has(cacheKey)) return;
 
     // Derive binary name: for bundle controls use the base UUID (before ::),
@@ -325,7 +322,11 @@ export default function ExecutionsDataTable({
       : exec.test_uuid;
     const binaryName = `${baseUuid}.exe`;
 
-    setAlertsLoading(cacheKey);
+    setAlertsLoading(prev => {
+      const next = new Set(prev);
+      next.add(cacheKey);
+      return next;
+    });
     try {
       const result = await defenderApi.getAlertsForTest(
         techniques, exec.timestamp, 30, exec.hostname, binaryName, exec.bundle_name,
@@ -336,7 +337,11 @@ export default function ExecutionsDataTable({
       alertsCache.current.set(cacheKey, null);
       setAlertsMap(prev => new Map(prev).set(cacheKey, null));
     } finally {
-      setAlertsLoading(null);
+      setAlertsLoading(prev => {
+        const next = new Set(prev);
+        next.delete(cacheKey);
+        return next;
+      });
     }
   }, [defenderConfigured]);
 
@@ -571,12 +576,26 @@ export default function ExecutionsDataTable({
             </span>
           );
         } else if (result === 'unprotected') {
-          resultElement = (
-            <span className="inline-flex items-center gap-1.5 text-red-600 dark:text-red-400">
-              <ShieldX className="w-4 h-4" />
-              <span className="text-sm font-medium">Unprotected</span>
-            </span>
-          );
+          // EDR failed (error_code 101) but the Defender enrichment pass
+          // correlated this doc to a Defender alert. The cloud SIEM caught
+          // what the endpoint missed; we surface "Detected" to keep the
+          // parent's bundle-level badge consistent with what the user sees
+          // at the stage row, and to point them at the right stage to expand.
+          if (exec.defender_detected) {
+            resultElement = (
+              <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                <ShieldAlert className="w-4 h-4" />
+                <span className="text-sm font-medium">Detected</span>
+              </span>
+            );
+          } else {
+            resultElement = (
+              <span className="inline-flex items-center gap-1.5 text-red-600 dark:text-red-400">
+                <ShieldX className="w-4 h-4" />
+                <span className="text-sm font-medium">Unprotected</span>
+              </span>
+            );
+          }
         } else {
           resultElement = (
             <span className="inline-flex items-center gap-1.5 text-yellow-600 dark:text-yellow-400">
@@ -926,9 +945,9 @@ export default function ExecutionsDataTable({
           per-stage binary discriminator) render once at the bundle
           parent row instead of being duplicated under every stage. */}
       {defenderConfigured && exec.techniques && exec.techniques.length > 0 && (() => {
-        const alertKey = bundleAlertsCacheKey(exec);
+        const alertKey = stageAlertsCacheKey(exec);
         const alertData = alertsMap.get(alertKey);
-        const isLoadingAlerts = alertsLoading === alertKey;
+        const isLoadingAlerts = alertsLoading.has(alertKey);
 
         // Filter to alerts whose evidence binary is THIS specific stage's
         // technique. Bundle-level alerts (no per-stage attribution) are
@@ -1006,13 +1025,14 @@ export default function ExecutionsDataTable({
   const actionsEnabled = archiveEnabled || riskEnabled;
   const totalColSpan = visibleColumnsList.length + (actionsEnabled ? 2 : 0);
 
-  // Toggle bundle expand/collapse. On expand, eagerly fetch the bundle's
-  // related Defender alerts so the bundle-level callout that renders above
-  // the stage sub-rows has data without waiting for the user to open a
-  // specific stage's detail panel. Uses the first control as a representative
-  // execution for the API call (the helper query is bundle-level: one fetch
-  // covers every stage of this bundle on this host).
-  const toggleBundle = (key: string, firstControl?: EnrichedTestExecution) => {
+  // Toggle bundle expand/collapse. On expand, eagerly fetch the related
+  // Defender alerts for EACH stage independently so the bundle-level callout
+  // (parent row) can aggregate `attribution === 'bundle'` alerts across all
+  // stages, and each stage's detail panel can find its own stage-attributed
+  // alert without re-fetching. Stages share results: if multiple stages
+  // overlap in time, their queries return overlapping alert sets, deduped
+  // by alert_id in the callout.
+  const toggleBundle = (key: string, controls?: EnrichedTestExecution[]) => {
     setExpandedBundles(prev => {
       const next = new Set(prev);
       if (next.has(key)) {
@@ -1024,7 +1044,9 @@ export default function ExecutionsDataTable({
         });
       } else {
         next.add(key);
-        if (firstControl) fetchRelatedAlerts(firstControl);
+        if (controls) {
+          for (const ctrl of controls) fetchRelatedAlerts(ctrl);
+        }
       }
       return next;
     });
@@ -1380,7 +1402,7 @@ export default function ExecutionsDataTable({
                     {/* Bundle parent row */}
                     <TableRow
                       className={`cursor-pointer group/row bg-muted/30 hover:bg-muted/50 ${isExpanded ? 'border-b-0' : ''}`}
-                      onClick={() => toggleBundle(group.key, group.controls[0])}
+                      onClick={() => toggleBundle(group.key, group.controls)}
                     >
                       {/* Checkbox */}
                       {actionsEnabled && (
@@ -1419,16 +1441,31 @@ export default function ExecutionsDataTable({
                         detections that surface only the dropped file's path under
                         a bundle-named sandbox dir). Stage detail panels filter
                         these out so the same alert isn't shown N times under N
-                        stages. Only renders when there's at least one such alert. */}
+                        stages. Aggregates `attribution === 'bundle'` alerts
+                        across all per-stage caches and dedupes by alert_id —
+                        overlapping stage time windows naturally produce
+                        duplicate hits of the same bundle alert. */}
                     {isExpanded && defenderConfigured && (() => {
-                      const firstCtrl = group.controls[0];
-                      if (!firstCtrl) return null;
-                      const cacheKey = bundleAlertsCacheKey(firstCtrl);
-                      const alertData = alertsMap.get(cacheKey);
-                      const isLoadingAlerts = alertsLoading === cacheKey;
-                      const bundleAlerts = alertData
-                        ? alertData.alerts.filter((a) => a.attribution === 'bundle')
-                        : [];
+                      if (group.controls.length === 0) return null;
+                      const isLoadingAlerts = group.controls.some(
+                        (ctrl) => alertsLoading.has(stageAlertsCacheKey(ctrl)),
+                      );
+                      // Union bundle-attribution alerts across every stage's
+                      // cache. Dedupe by alert_id; later inserts win, which
+                      // means the alert version from the stage whose query
+                      // window most tightly bounded the alert's `timestamp`
+                      // is preferred (the underlying ES doc is the same, but
+                      // Defender can mutate fields like `status` between sync
+                      // passes — using the latest cached version is safest).
+                      const seen = new Map<string, RelatedAlertsResponse['alerts'][number]>();
+                      for (const ctrl of group.controls) {
+                        const entry = alertsMap.get(stageAlertsCacheKey(ctrl));
+                        if (!entry) continue;
+                        for (const a of entry.alerts) {
+                          if (a.attribution === 'bundle') seen.set(a.alert_id, a);
+                        }
+                      }
+                      const bundleAlerts = Array.from(seen.values());
                       if (!isLoadingAlerts && bundleAlerts.length === 0) return null;
                       return (
                         <TableRow className="bg-amber-500/5 border-l-2 border-l-amber-500/40">
