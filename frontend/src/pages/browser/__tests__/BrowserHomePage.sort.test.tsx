@@ -140,21 +140,21 @@ describe('BrowserHomePage default sort', () => {
     );
 
     await waitFor(() => expect(getAllTestsMock).toHaveBeenCalled());
-    // Wait for the sorted result to render
-    await within(container).findByText('Bravo test');
 
-    // Get all rendered test name nodes within this render only, in DOM order
-    const allText = container.textContent || '';
-    const bravoIdx = allText.indexOf('Bravo test');
-    const charlieIdx = allText.indexOf('Charlie test');
-    const alphaIdx = allText.indexOf('Alpha test');
+    // Wait for all three cards to mount. Each test name appears exactly once in the
+    // DOM (TestCard.tsx renders test.name in a single <h3>), so findByText is safe.
+    // Avoid asserting via `container.textContent.indexOf` — concatenated text positions
+    // are fragile across CI/local rendering timing and any incidental sibling text.
+    const bravo = await within(container).findByText('Bravo test');
+    const charlie = await within(container).findByText('Charlie test');
+    const alpha = await within(container).findByText('Alpha test');
 
-    expect(bravoIdx).toBeGreaterThanOrEqual(0);
-    expect(charlieIdx).toBeGreaterThanOrEqual(0);
-    expect(alphaIdx).toBeGreaterThanOrEqual(0);
+    // Sort the three title nodes by their actual DOM document position.
+    const nodesInDomOrder = [alpha, bravo, charlie].slice().sort((a, b) =>
+      a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1
+    );
 
     // Newest-first: Bravo (2026-05-01) → Charlie (2026-03-15) → Alpha (2026-01-10)
-    expect(bravoIdx).toBeLessThan(charlieIdx);
-    expect(charlieIdx).toBeLessThan(alphaIdx);
+    expect(nodesInDomOrder).toEqual([bravo, charlie, alpha]);
   });
 });
