@@ -14,8 +14,8 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@clerk/backend": "^2.31.0",
-    "@clerk/express": "^1.7.70",
+    "@clerk/backend": "^2.33.3",
+    "@clerk/express": "^1.7.79",
     "@elastic/elasticsearch": "^8.19.1",
     "@libsql/client": "^0.17.2",
     "@vercel/blob": "^2.3.3",
