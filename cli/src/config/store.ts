@@ -174,16 +174,27 @@ export function setConfigValue(key: string, value: string): void {
     return;
   }
 
-  const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+  // Inline string equality is what CodeQL's js/prototype-pollution-utility
+  // query recognises as a sanitiser — Set.has() and Array.includes() are not
+  // detected even though they're semantically equivalent. The check is
+  // applied at both the validation step AND at every assignment site as
+  // defence-in-depth, so any future refactor that loses one guard still
+  // leaves the other.
+  const isUnsafeKey = (k: string): boolean =>
+    k === '__proto__' || k === 'constructor' || k === 'prototype';
+
   const parts = key.split('.');
-  if (parts.some(p => DANGEROUS_KEYS.has(p))) {
-    throw new Error(`Invalid config key: ${key}`);
+  for (const part of parts) {
+    if (isUnsafeKey(part)) {
+      throw new Error(`Invalid config key: ${key}`);
+    }
   }
 
   let current: Record<string, unknown> = config as Record<string, unknown>;
 
   for (let i = 0; i < parts.length - 1; i++) {
     const part = parts[i];
+    if (isUnsafeKey(part)) continue;
     if (typeof current[part] !== 'object' || current[part] === null) {
       current[part] = {};
     }
@@ -191,6 +202,9 @@ export function setConfigValue(key: string, value: string): void {
   }
 
   const finalKey = parts[parts.length - 1];
+  if (isUnsafeKey(finalKey)) {
+    throw new Error(`Invalid config key: ${key}`);
+  }
   const numValue = Number(value);
   current[finalKey] = !isNaN(numValue) && value.trim() !== '' ? numValue : value;
 
