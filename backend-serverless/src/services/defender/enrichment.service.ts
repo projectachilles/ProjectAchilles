@@ -1,5 +1,9 @@
 import type { Client } from '@elastic/elasticsearch';
-import { buildDefenderEvidenceQuery, extractBundleUuid } from './evidence-correlation.js';
+import {
+  buildDefenderEvidenceQuery,
+  buildStageDefenderEvidenceQuery,
+  extractBundleUuid,
+} from './evidence-correlation.js';
 import { DEFENDER_INDEX } from './index-management.js';
 import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/defender.js';
 
@@ -33,6 +37,7 @@ export class DefenderEnrichmentService {
     const result: EnrichmentPassResult = {
       scanned: 0,
       detected: 0,
+      stageDetected: 0,
       skipped: 0,
       batches: 0,
       alertsMarkedCorrelated: 0,
@@ -66,25 +71,34 @@ export class DefenderEnrichmentService {
       result.scanned += hits.length;
       result.batches += 1;
 
-      // 2. Build msearch body, skipping docs where helper returns null.
-      //    Remember the bundle UUID per queried test so we can write it back
-      //    to each matched alert's f0rtika.achilles_test_uuid in step 5.
-      const queries: Array<{ hit: any; body: Record<string, unknown>; bundleUuid: string }> = [];
+      // 2. Build msearch body. Two sub-queries per scanned hit: wide bundle
+      //    (drives defender_detected) and narrow stage-binary (drives
+      //    defender_stage_detected). See backend mirror for full rationale.
+      type SubQuery = { kind: 'wide' | 'stage'; hit: any; body: Record<string, unknown>; bundleUuid: string };
+      const queries: SubQuery[] = [];
       for (const hit of hits) {
         const src = hit._source?.f0rtika ?? {};
         const routing = hit._source?.routing ?? {};
         const testUuid = src.test_uuid ?? '';
-        const query = buildDefenderEvidenceQuery({
+        const wideQuery = buildDefenderEvidenceQuery({
           test_uuid: testUuid,
           routing_event_time: routing.event_time ?? '',
           routing_hostname: routing.hostname ?? '',
           bundle_name: src.bundle_name,
         });
-        if (!query) {
+        const stageQuery = buildStageDefenderEvidenceQuery({
+          test_uuid: testUuid,
+          routing_event_time: routing.event_time ?? '',
+          routing_hostname: routing.hostname ?? '',
+          control_id: src.control_id ?? '',
+        });
+        if (!wideQuery && !stageQuery) {
           result.skipped += 1;
           continue;
         }
-        queries.push({ hit, body: query, bundleUuid: extractBundleUuid(testUuid) });
+        const bundleUuid = extractBundleUuid(testUuid);
+        if (wideQuery)  queries.push({ kind: 'wide',  hit, body: wideQuery,  bundleUuid });
+        if (stageQuery) queries.push({ kind: 'stage', hit, body: stageQuery, bundleUuid });
       }
 
       // 3. Execute msearch. size=ALERT_HITS_PER_SUBQUERY so we get back the
@@ -106,39 +120,60 @@ export class DefenderEnrichmentService {
           continue;
         }
 
-        // 4. Collect matched test docs along with the alert _ids that matched.
-        const updates: Array<{ hit: any; bundleUuid: string; alertIds: string[] }> = [];
+        // 4. Collapse the two sub-responses per hit into a single update spec.
+        interface PerHitUpdate {
+          hit: any;
+          bundleUuid: string;
+          wideMatched: boolean;
+          stageMatched: boolean;
+          alertIds: Set<string>;
+        }
+        const updatesByHitId = new Map<string, PerHitUpdate>();
         const responses = (msearchResponse as any).responses ?? [];
         for (let i = 0; i < queries.length; i++) {
           const resp = responses[i];
+          const q = queries[i];
           if (!resp) continue;
           if (resp.error) {
-            result.errors.push(`msearch[${i}]: ${JSON.stringify(resp.error).slice(0, 200)}`);
+            result.errors.push(`msearch[${i}/${q.kind}]: ${JSON.stringify(resp.error).slice(0, 200)}`);
             continue;
           }
           const total = typeof resp.hits?.total === 'number'
             ? resp.hits.total
             : resp.hits?.total?.value ?? 0;
-          if (total > 0) {
-            const alertHits = (resp.hits?.hits ?? []) as any[];
-            const alertIds = alertHits.map((h) => h._id).filter((id): id is string => typeof id === 'string');
-            updates.push({ hit: queries[i].hit, bundleUuid: queries[i].bundleUuid, alertIds });
+          if (total === 0) continue;
+
+          const alertHits = (resp.hits?.hits ?? []) as any[];
+          const alertIds = alertHits
+            .map((h) => h._id)
+            .filter((id): id is string => typeof id === 'string');
+
+          const hitId = q.hit._id as string;
+          let entry = updatesByHitId.get(hitId);
+          if (!entry) {
+            entry = { hit: q.hit, bundleUuid: q.bundleUuid, wideMatched: false, stageMatched: false, alertIds: new Set() };
+            updatesByHitId.set(hitId, entry);
           }
+          if (q.kind === 'wide')  entry.wideMatched = true;
+          if (q.kind === 'stage') entry.stageMatched = true;
+          for (const id of alertIds) entry.alertIds.add(id);
         }
 
-        // 5. Bulk update matched docs — test-doc flag + alert-side flags.
-        //    Alert-side writes are deduplicated per batch when multiple test
-        //    stages match the same orchestrator alert.
-        if (updates.length > 0) {
+        // 5. Bulk update matched docs — test-doc flag(s) + alert-side flags.
+        //    Alert-side writes are deduplicated per batch.
+        if (updatesByHitId.size > 0) {
           const operations: unknown[] = [];
-          const testOpMeta: Array<{ kind: 'test' | 'alert'; alertId?: string }> = [];
+          const testOpMeta: Array<{ kind: 'test' | 'alert'; alertId?: string; wide: boolean; stage: boolean }> = [];
           const alertIdsEmitted = new Set<string>();
           const matchedAt = new Date().toISOString();
 
-          for (const u of updates) {
+          for (const u of updatesByHitId.values()) {
+            const f0rtika: Record<string, unknown> = {};
+            if (u.wideMatched)  f0rtika.defender_detected       = true;
+            if (u.stageMatched) f0rtika.defender_stage_detected = true;
             operations.push({ update: { _index: u.hit._index, _id: u.hit._id } });
-            operations.push({ doc: { f0rtika: { defender_detected: true } } });
-            testOpMeta.push({ kind: 'test' });
+            operations.push({ doc: { f0rtika } });
+            testOpMeta.push({ kind: 'test', wide: u.wideMatched, stage: u.stageMatched });
 
             for (const alertId of u.alertIds) {
               if (alertIdsEmitted.has(alertId)) continue;
@@ -153,7 +188,7 @@ export class DefenderEnrichmentService {
                   },
                 },
               });
-              testOpMeta.push({ kind: 'alert', alertId });
+              testOpMeta.push({ kind: 'alert', alertId, wide: false, stage: false });
             }
           }
 
@@ -168,7 +203,8 @@ export class DefenderEnrichmentService {
                 continue;
               }
               if (meta?.kind === 'test') {
-                result.detected += 1;
+                if (meta.wide)  result.detected += 1;
+                if (meta.stage) result.stageDetected += 1;
               } else if (meta?.kind === 'alert') {
                 result.alertsMarkedCorrelated += 1;
               }
@@ -189,13 +225,27 @@ export class DefenderEnrichmentService {
   }
 
   private buildEligibilityQuery(lookbackDays: number): Record<string, unknown> {
+    // Match docs missing EITHER flag — covers new docs and backfill of
+    // pre-stage-flag docs that already have defender_detected:true but no
+    // defender_stage_detected.
+    const missingFlag = (field: string) => ({
+      bool: { must_not: [{ term: { [field]: true } }] },
+    });
     return {
       bool: {
         filter: [
           { range: { 'routing.event_time': { gte: `now-${lookbackDays}d` } } },
           { terms: { 'event.ERROR': CONCLUSIVE_ERROR_CODES } },
           { bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] } },
-          { bool: { must_not: [{ term: { 'f0rtika.defender_detected': true } }] } },
+          {
+            bool: {
+              should: [
+                missingFlag('f0rtika.defender_detected'),
+                missingFlag('f0rtika.defender_stage_detected'),
+              ],
+              minimum_should_match: 1,
+            },
+          },
         ],
       },
     };

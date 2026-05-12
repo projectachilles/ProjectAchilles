@@ -56,6 +56,59 @@ function shouldWildcardEither(field: string, value: string): Record<string, unkn
   };
 }
 
+/**
+ * Stage-specific evidence query. Mirrors the backend implementation —
+ * see backend/src/services/defender/evidence-correlation.ts for the
+ * full rationale. Requires `evidence_filenames` to contain the per-stage
+ * binary `<bundleUuid>-<control_id>[-<variant>].exe`. Filepath and
+ * bundle-name fallbacks are intentionally dropped (those produce
+ * bundle-level matches, not stage-specific ones). Returns null when
+ * any input is missing, including `control_id`.
+ */
+export interface StageEvidenceInput extends TestEvidenceInput {
+  control_id: string;
+}
+
+export function buildStageDefenderEvidenceQuery(
+  input: StageEvidenceInput,
+): Record<string, unknown> | null {
+  const { test_uuid, routing_event_time, routing_hostname, control_id } = input;
+  if (!test_uuid || !routing_event_time || !routing_hostname || !control_id) return null;
+
+  const testTime = new Date(routing_event_time).getTime();
+  if (Number.isNaN(testTime)) return null;
+
+  const baseUuid = extractBundleUuid(test_uuid);
+  const idLower = control_id.toLowerCase();
+  const stageBinaryExact = `${baseUuid.toLowerCase()}-${idLower}.exe`;
+  const stageBinaryVariant = `${baseUuid.toLowerCase()}-${idLower}-*.exe`;
+  const hostnamePrefix = `${routing_hostname.toUpperCase()}*`;
+
+  const from = new Date(testTime - PRE_WINDOW_MS).toISOString();
+  const to = new Date(testTime + POST_WINDOW_MS).toISOString();
+
+  return {
+    bool: {
+      must: [
+        { term: { doc_type: 'alert' } },
+        { range: { timestamp: { gte: from, lte: to } } },
+        shouldWildcardEither('evidence_hostnames', hostnamePrefix),
+        {
+          bool: {
+            should: [
+              { term:     { 'evidence_filenames':         stageBinaryExact } },
+              { term:     { 'evidence_filenames.keyword': stageBinaryExact } },
+              { wildcard: { 'evidence_filenames':         { value: stageBinaryVariant } } },
+              { wildcard: { 'evidence_filenames.keyword': { value: stageBinaryVariant } } },
+            ],
+            minimum_should_match: 1,
+          },
+        },
+      ],
+    },
+  };
+}
+
 export function buildDefenderEvidenceQuery(
   input: TestEvidenceInput,
 ): Record<string, unknown> | null {

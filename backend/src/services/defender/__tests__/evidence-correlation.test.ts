@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildDefenderEvidenceQuery, extractBundleUuid } from '../evidence-correlation.js';
+import {
+  buildDefenderEvidenceQuery,
+  buildStageDefenderEvidenceQuery,
+  extractBundleUuid,
+} from '../evidence-correlation.js';
 
 describe('extractBundleUuid', () => {
   it('strips the `::<technique>` suffix', () => {
@@ -263,5 +267,102 @@ describe('buildDefenderEvidenceQuery', () => {
     });
     expect(fileOrPath).toBeDefined();
     expect(fileOrPath.bool.minimum_should_match).toBe(1);
+  });
+});
+
+describe('buildStageDefenderEvidenceQuery', () => {
+  const baseInput = {
+    test_uuid: 'bf448c7a-307e-4458-ba36-341d6d8e671b::T1053.005',
+    routing_event_time: '2026-05-12T12:19:13Z',
+    routing_hostname: 'LAP-PF1A47F0',
+    control_id: 'T1053.005',
+  };
+
+  it('returns null when control_id is missing — without it there is nothing stage-specific to match', () => {
+    expect(
+      buildStageDefenderEvidenceQuery({ ...baseInput, control_id: '' }),
+    ).toBeNull();
+  });
+
+  it('returns null for blank test_uuid / event_time / hostname (mirrors wide-query contract)', () => {
+    expect(buildStageDefenderEvidenceQuery({ ...baseInput, test_uuid: '' })).toBeNull();
+    expect(buildStageDefenderEvidenceQuery({ ...baseInput, routing_event_time: '' })).toBeNull();
+    expect(buildStageDefenderEvidenceQuery({ ...baseInput, routing_hostname: '' })).toBeNull();
+  });
+
+  it('matches the exact stage binary AND the variant pattern on both bare and .keyword fields', () => {
+    // Live TclBanker repro: evidence `bf448c7a-...-t1053.005.exe` (no variant)
+    // and `6a2351ac-...-t1562.001-svcnotify.exe` (variant) both must match
+    // the stage-specific query for their respective stages.
+    const q = buildStageDefenderEvidenceQuery(baseInput)!;
+    const must = (q.bool as any).must as any[];
+    const filenameClause = must.find((c: any) =>
+      c.bool?.should?.some((s: any) =>
+        ('term' in s && 'evidence_filenames' in s.term)
+        || ('term' in s && 'evidence_filenames.keyword' in s.term)
+        || ('wildcard' in s && 'evidence_filenames' in s.wildcard)
+        || ('wildcard' in s && 'evidence_filenames.keyword' in s.wildcard),
+      ),
+    );
+    expect(filenameClause).toBeDefined();
+    expect(filenameClause.bool.minimum_should_match).toBe(1);
+
+    const exactExpected = 'bf448c7a-307e-4458-ba36-341d6d8e671b-t1053.005.exe';
+    const variantExpected = 'bf448c7a-307e-4458-ba36-341d6d8e671b-t1053.005-*.exe';
+
+    const shoulds = filenameClause.bool.should;
+    // Exact match against bare field and .keyword field
+    expect(shoulds).toContainEqual({ term: { 'evidence_filenames':         exactExpected } });
+    expect(shoulds).toContainEqual({ term: { 'evidence_filenames.keyword': exactExpected } });
+    // Variant match (dash boundary mandatory) against bare and .keyword
+    expect(shoulds).toContainEqual({ wildcard: { 'evidence_filenames':         { value: variantExpected } } });
+    expect(shoulds).toContainEqual({ wildcard: { 'evidence_filenames.keyword': { value: variantExpected } } });
+  });
+
+  it('drops filepath and bundle-name fallbacks — those are bundle-level, not stage-specific', () => {
+    // The wide query includes filepath wildcards (catches AV alerts whose
+    // evidence is a sandbox-dir filepath) and a bundle-name token wildcard
+    // (catches `BlueHammerSandbox`-style paths). Both are intentionally
+    // omitted here: a filepath match doesn't pin to a stage.
+    const q = buildStageDefenderEvidenceQuery({ ...baseInput, bundle_name: 'BlueHammer' as any })!;
+    const stringified = JSON.stringify(q);
+    expect(stringified).not.toContain('evidence_filepaths');
+    expect(stringified).not.toContain('bluehammer');
+  });
+
+  it('lowercases the control_id when building the binary pattern', () => {
+    // Defender's evidence filenames are typically already lowercase, but the
+    // caller passes f0rtika.control_id which is uppercased (`T1562.001`).
+    // Query must normalize to match.
+    const q = buildStageDefenderEvidenceQuery({
+      test_uuid: '6a2351ac-654a-4112-b378-e6919beef70d::T1562.001',
+      routing_event_time: '2026-05-12T12:19:13Z',
+      routing_hostname: 'LAP-PF1A47F0',
+      control_id: 'T1562.001',
+    })!;
+    const stringified = JSON.stringify(q);
+    expect(stringified).toContain('6a2351ac-654a-4112-b378-e6919beef70d-t1562.001.exe');
+    expect(stringified).toContain('6a2351ac-654a-4112-b378-e6919beef70d-t1562.001-*.exe');
+    expect(stringified).not.toContain('T1562.001'); // uppercase form should not leak into the pattern
+  });
+
+  it('applies the same time window as the wide query (-5 / +30 min)', () => {
+    const q = buildStageDefenderEvidenceQuery(baseInput)!;
+    const must = (q.bool as any).must as any[];
+    const range = must.find((c: any) => 'range' in c && 'timestamp' in c.range)!;
+    const from = new Date(range.range.timestamp.gte).getTime();
+    const to = new Date(range.range.timestamp.lte).getTime();
+    const test = new Date(baseInput.routing_event_time).getTime();
+    expect(test - from).toBe(5 * 60 * 1000);
+    expect(to - test).toBe(30 * 60 * 1000);
+  });
+
+  it('strips the `::<technique>` suffix from test_uuid to derive the bundle UUID', () => {
+    // Same UUID-derivation contract as the wide query; verifies the helper
+    // doesn't accidentally prefix the binary pattern with the full
+    // `<uuid>::T1053.005` string.
+    const q = buildStageDefenderEvidenceQuery(baseInput)!;
+    expect(JSON.stringify(q)).not.toContain('::');
+    expect(JSON.stringify(q)).toContain('bf448c7a-307e-4458-ba36-341d6d8e671b-t1053.005');
   });
 });

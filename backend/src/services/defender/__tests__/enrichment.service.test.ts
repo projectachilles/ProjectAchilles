@@ -478,4 +478,122 @@ describe('DefenderEnrichmentService', () => {
     expect(searches[1].size).toBeGreaterThan(0);
     expect(searches[1]._source).toBe(false);
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Stage-specific enrichment (defender_stage_detected)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // Doc with a control_id — exercises BOTH the wide and stage queries.
+  const eligibleStageDoc = (id: string, bundleUuid: string, controlId: string) => ({
+    _id: id,
+    _index: 'achilles-results-tpsgl',
+    _source: {
+      f0rtika: {
+        test_uuid: `${bundleUuid}::${controlId}`,
+        test_name: 'T',
+        category: 'intel-driven',
+        control_id: controlId,
+      },
+      routing: { event_time: '2026-05-12T12:19:13Z', hostname: 'LAP-PF1A47F0' },
+    },
+    sort: ['2026-05-12T12:19:13Z', 1],
+  });
+
+  it('queues TWO sub-queries per doc (wide + stage) when control_id is present', async () => {
+    const service = createService();
+    mockSearch.mockResolvedValueOnce(makeScanResponse([
+      eligibleStageDoc('d1', '6a2351ac-654a-4112-b378-e6919beef70d', 'T1562.001'),
+    ]));
+    mockMsearch.mockResolvedValueOnce(makeMsearchResponse([
+      { hits: { total: { value: 0 } } }, // wide: no hits
+      { hits: { total: { value: 0 } } }, // stage: no hits
+    ]));
+
+    await service.runEnrichmentPass();
+
+    const searches = mockMsearch.mock.calls[0][0].searches;
+    // 4 entries = 2 sub-queries × (header + body)
+    expect(searches).toHaveLength(4);
+
+    // First sub-query should reference filepath wildcards (wide query feature).
+    // Second sub-query should reference the stage-binary prefix and NOT filepath.
+    const firstBody  = JSON.stringify(searches[1]);
+    const secondBody = JSON.stringify(searches[3]);
+    expect(firstBody).toContain('evidence_filepaths');
+    expect(secondBody).not.toContain('evidence_filepaths');
+    expect(secondBody).toContain('6a2351ac-654a-4112-b378-e6919beef70d-t1562.001');
+  });
+
+  it('sets defender_stage_detected only when the narrow query matches', async () => {
+    // Wide matches (bundle-level evidence found) but stage does NOT (no
+    // per-stage binary in evidence). This is the TclBanker shape: alert
+    // carries Stage 4's binary, so the wide query matches all stages via
+    // bundle UUID, but the stage query only matches Stage 4's doc.
+    const service = createService();
+    mockSearch.mockResolvedValueOnce(makeScanResponse([
+      eligibleStageDoc('d1', 'bf448c7a-307e-4458-ba36-341d6d8e671b', 'T1071.001'), // stage that should NOT match
+    ]));
+    mockMsearch.mockResolvedValueOnce(makeMsearchResponse([
+      { hits: { total: { value: 1 }, hits: [{ _id: 'alert-a' }] } }, // wide: matches via UUID
+      { hits: { total: { value: 0 } } },                              // stage: no per-stage binary match
+    ]));
+    mockBulk.mockResolvedValueOnce(makeBulkResponse([
+      { ok: true },  // test-doc update
+      { ok: true },  // alert-doc correlation update
+    ]));
+
+    const result = await service.runEnrichmentPass();
+
+    expect(result.detected).toBe(1);
+    expect(result.stageDetected).toBe(0);
+
+    // The test-doc patch must include defender_detected but NOT defender_stage_detected.
+    const ops = mockBulk.mock.calls[0][0].operations;
+    const testPatch = ops[1].doc.f0rtika;
+    expect(testPatch.defender_detected).toBe(true);
+    expect(testPatch.defender_stage_detected).toBeUndefined();
+  });
+
+  it('sets both flags when the narrow stage query matches', async () => {
+    // TclBanker Stage 4 (T1053.005) — evidence binary `<uuid>-t1053.005.exe`
+    // matches both the wide and the stage query.
+    const service = createService();
+    mockSearch.mockResolvedValueOnce(makeScanResponse([
+      eligibleStageDoc('d1', 'bf448c7a-307e-4458-ba36-341d6d8e671b', 'T1053.005'),
+    ]));
+    mockMsearch.mockResolvedValueOnce(makeMsearchResponse([
+      { hits: { total: { value: 1 }, hits: [{ _id: 'alert-a' }] } }, // wide
+      { hits: { total: { value: 1 }, hits: [{ _id: 'alert-a' }] } }, // stage (same alert)
+    ]));
+    mockBulk.mockResolvedValueOnce(makeBulkResponse([
+      { ok: true }, // test patch
+      { ok: true }, // alert correlation (deduped across both sub-queries)
+    ]));
+
+    const result = await service.runEnrichmentPass();
+
+    expect(result.detected).toBe(1);
+    expect(result.stageDetected).toBe(1);
+    // Alert dedupe across sub-queries: the same alert_id from both queries
+    // results in a single alert-side update.
+    expect(result.alertsMarkedCorrelated).toBe(1);
+
+    const ops = mockBulk.mock.calls[0][0].operations;
+    const testPatch = ops[1].doc.f0rtika;
+    expect(testPatch.defender_detected).toBe(true);
+    expect(testPatch.defender_stage_detected).toBe(true);
+  });
+
+  it('eligibility query selects docs missing EITHER flag (backfill path)', async () => {
+    // A doc with defender_detected:true but no defender_stage_detected MUST
+    // be re-scanned so the stage flag can be computed. The eligibility query
+    // is a should[…] over missing-flag clauses with minimum_should_match:1.
+    const service = createService();
+    mockSearch.mockResolvedValueOnce(makeScanResponse([]));
+    await service.runEnrichmentPass();
+    const scanQuery = JSON.stringify(mockSearch.mock.calls[0][0].query);
+    expect(scanQuery).toContain('defender_detected');
+    expect(scanQuery).toContain('defender_stage_detected');
+    expect(scanQuery).toContain('minimum_should_match');
+  });
 });

@@ -374,7 +374,7 @@ export class DefenderSyncService {
     try {
       const integrationsService = new IntegrationsSettingsService();
       if (!(await integrationsService.isDefenderConfigured())) {
-        return { scanned: 0, detected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, errors: [], durationMs: 0 };
+        return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, errors: [], durationMs: 0 };
       }
       const es = await this.getEsClient();
       const settingsService = new SettingsService();
@@ -383,8 +383,8 @@ export class DefenderSyncService {
       const result = await service.runEnrichmentPass({ lookbackDays: 90 });
       console.log(
         `[Defender-Enrichment] scanned=${result.scanned} detected=${result.detected} ` +
-        `skipped=${result.skipped} batches=${result.batches} ` +
-        `durationMs=${result.durationMs} errors=${result.errors.length}`,
+        `stageDetected=${result.stageDetected} skipped=${result.skipped} ` +
+        `batches=${result.batches} durationMs=${result.durationMs} errors=${result.errors.length}`,
       );
       for (const e of result.errors) {
         console.warn(`[Defender-Enrichment-ERROR] ${e}`);
@@ -393,7 +393,7 @@ export class DefenderSyncService {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[Defender-Enrichment] pass threw: ${msg}`);
-      return { scanned: 0, detected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, errors: [msg], durationMs: 0 };
+      return { scanned: 0, detected: 0, stageDetected: 0, skipped: 0, batches: 0, alertsMarkedCorrelated: 0, errors: [msg], durationMs: 0 };
     }
   }
 

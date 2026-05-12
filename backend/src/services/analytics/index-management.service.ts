@@ -43,6 +43,12 @@ export const RESULTS_INDEX_MAPPING = {
           control_validator: { type: 'keyword' as const },
           is_bundle_control: { type: 'boolean' as const },
           defender_detected: { type: 'boolean' as const },
+          // Set true only when an alert's evidence contains THIS stage's
+          // specific binary (`<uuid>-<control_id>[-<variant>].exe`). Distinct
+          // from defender_detected, which is bundle-scoped and so propagates
+          // across every stage of a bundle when only one stage was actually
+          // detected. Drives the per-stage "Detected" badge in the UI.
+          defender_stage_detected: { type: 'boolean' as const },
           tenant_label: { type: 'keyword' as const },
         },
       },

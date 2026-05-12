@@ -1456,6 +1456,7 @@ export class ElasticsearchService {
       control_validator: getField(source, 'f0rtika.control_validator'),
       is_bundle_control: getField(source, 'f0rtika.is_bundle_control') ?? false,
       defender_detected: getField(source, 'f0rtika.defender_detected') ?? false,
+      defender_stage_detected: getField(source, 'f0rtika.defender_stage_detected') ?? false,
     };
   }
 

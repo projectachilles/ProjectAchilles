@@ -214,8 +214,15 @@ export interface EnrichmentPassOptions {
 export interface EnrichmentPassResult {
   /** Eligible test docs examined. */
   scanned: number;
-  /** Docs flipped to defender_detected:true in this pass. */
+  /** Docs flipped to defender_detected:true in this pass (bundle-level match). */
   detected: number;
+  /**
+   * Docs flipped to defender_stage_detected:true in this pass — the stricter
+   * stage-binary match. Subset of `detected` for new docs; can include
+   * docs previously flagged at the bundle level that are now confirmed
+   * stage-specific.
+   */
+  stageDetected: number;
   /** Docs skipped because the helper returned null (malformed input). */
   skipped: number;
   /** Number of msearch round-trips. */

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildDefenderEvidenceQuery, extractBundleUuid } from '../evidence-correlation.js';
+import {
+  buildDefenderEvidenceQuery,
+  buildStageDefenderEvidenceQuery,
+  extractBundleUuid,
+} from '../evidence-correlation.js';
 
 describe('extractBundleUuid', () => {
   it('strips the `::<technique>` suffix', () => {
@@ -228,5 +232,54 @@ describe('buildDefenderEvidenceQuery', () => {
     });
     expect(fileOrPath).toBeDefined();
     expect(fileOrPath.bool.minimum_should_match).toBe(1);
+  });
+});
+
+describe('buildStageDefenderEvidenceQuery', () => {
+  const baseInput = {
+    test_uuid: 'bf448c7a-307e-4458-ba36-341d6d8e671b::T1053.005',
+    routing_event_time: '2026-05-12T12:19:13Z',
+    routing_hostname: 'LAP-PF1A47F0',
+    control_id: 'T1053.005',
+  };
+
+  it('returns null when control_id is missing', () => {
+    expect(buildStageDefenderEvidenceQuery({ ...baseInput, control_id: '' })).toBeNull();
+  });
+
+  it('matches exact stage binary AND variant pattern (both bare and .keyword)', () => {
+    const q = buildStageDefenderEvidenceQuery(baseInput)!;
+    const must = (q.bool as any).must as any[];
+    const filenameClause = must.find((c: any) =>
+      c.bool?.should?.some((s: any) =>
+        ('term' in s && ('evidence_filenames' in s.term || 'evidence_filenames.keyword' in s.term))
+        || ('wildcard' in s && ('evidence_filenames' in s.wildcard || 'evidence_filenames.keyword' in s.wildcard)),
+      ),
+    );
+    expect(filenameClause).toBeDefined();
+    const exactExpected = 'bf448c7a-307e-4458-ba36-341d6d8e671b-t1053.005.exe';
+    const variantExpected = 'bf448c7a-307e-4458-ba36-341d6d8e671b-t1053.005-*.exe';
+    expect(filenameClause.bool.should).toContainEqual({ term: { 'evidence_filenames':         exactExpected } });
+    expect(filenameClause.bool.should).toContainEqual({ term: { 'evidence_filenames.keyword': exactExpected } });
+    expect(filenameClause.bool.should).toContainEqual({ wildcard: { 'evidence_filenames':         { value: variantExpected } } });
+    expect(filenameClause.bool.should).toContainEqual({ wildcard: { 'evidence_filenames.keyword': { value: variantExpected } } });
+  });
+
+  it('drops filepath and bundle-name fallbacks', () => {
+    const q = buildStageDefenderEvidenceQuery({ ...baseInput, bundle_name: 'BlueHammer' as any })!;
+    const stringified = JSON.stringify(q);
+    expect(stringified).not.toContain('evidence_filepaths');
+    expect(stringified).not.toContain('bluehammer');
+  });
+
+  it('lowercases control_id in the binary pattern', () => {
+    const q = buildStageDefenderEvidenceQuery({
+      ...baseInput,
+      test_uuid: '6a2351ac-654a-4112-b378-e6919beef70d::T1562.001',
+      control_id: 'T1562.001',
+    })!;
+    const stringified = JSON.stringify(q);
+    expect(stringified).toContain('6a2351ac-654a-4112-b378-e6919beef70d-t1562.001.exe');
+    expect(stringified).not.toContain('T1562.001');
   });
 });
