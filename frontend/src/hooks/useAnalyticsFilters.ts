@@ -57,7 +57,7 @@ function getDateRangeFilter(value: DateRangeValue): { from?: string; to?: string
   }
   const match = value.preset.match(/^(\d+)([dhw])$/);
   if (!match) {
-    return { from: 'now-7d' };
+    return { from: 'now-30d' };
   }
   return { from: `now-${value.preset}` };
 }
@@ -112,7 +112,7 @@ export interface UseAnalyticsFiltersReturn {
 
 const defaultFilters: AnalyticsFilterState = {
   org: null,
-  dateRange: { preset: '7d' },
+  dateRange: { preset: '30d' },
   result: 'all',
   hostnames: [],
   tests: [],
@@ -189,7 +189,7 @@ function serializeToUrlParams(filters: AnalyticsFilterState): Record<string, str
   if (filters.dateRange.preset === 'custom' && filters.dateRange.from && filters.dateRange.to) {
     params.from = filters.dateRange.from;
     params.to = filters.dateRange.to;
-  } else if (filters.dateRange.preset && filters.dateRange.preset !== '7d') {
+  } else if (filters.dateRange.preset && filters.dateRange.preset !== '30d') {
     params.date = filters.dateRange.preset;
   }
 

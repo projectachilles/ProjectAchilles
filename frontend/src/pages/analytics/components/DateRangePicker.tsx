@@ -59,7 +59,7 @@ export default function DateRangePicker({ value, onChange }: DateRangePickerProp
 
   const clearCustom = () => {
     setShowCustom(false);
-    onChange({ preset: '7d' });
+    onChange({ preset: '30d' });
   };
 
   // Format dates for display
@@ -70,7 +70,7 @@ export default function DateRangePicker({ value, onChange }: DateRangePickerProp
       const formatDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       return `${formatDate(from)} - ${formatDate(to)}`;
     }
-    return DATE_RANGE_OPTIONS.find(opt => opt.value === value.preset)?.label || 'Last 7 days';
+    return DATE_RANGE_OPTIONS.find(opt => opt.value === value.preset)?.label || 'Last 30 days';
   };
 
   return (
@@ -137,7 +137,7 @@ export function getDateRangeFilter(value: DateRangeValue): { from?: string; to?:
   // Relative time presets
   const match = value.preset.match(/^(\d+)([dhw])$/);
   if (!match) {
-    return { from: 'now-7d' };
+    return { from: 'now-30d' };
   }
 
   return { from: `now-${value.preset}` };
