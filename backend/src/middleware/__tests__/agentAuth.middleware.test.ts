@@ -12,11 +12,14 @@ vi.mock('../../services/agent/database.js', async (importOriginal) => {
 });
 
 // Disable agent auth cache in tests — each test creates a fresh DB,
-// so stale cache entries would cause false positives.
+// so stale cache entries would cause false positives. The verdict-cache
+// stubs always say "not verified" so every test exercises the bcrypt path.
 vi.mock('../../services/agent/agentAuthCache.js', () => ({
   getCachedAgent: () => null,
   setCachedAgent: () => {},
   invalidateAgentCache: () => {},
+  isTokenVerifiedRecently: () => false,
+  setVerifiedToken: () => {},
 }));
 
 // Mock the enrollment service exports used by the auth middleware.

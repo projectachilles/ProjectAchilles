@@ -1,8 +1,15 @@
 import type { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { getDatabase } from '../services/agent/database.js';
 import { promotePendingKey, ROTATION_GRACE_PERIOD_SECONDS } from '../services/agent/enrollment.service.js';
-import { getCachedAgent, setCachedAgent, invalidateAgentCache } from '../services/agent/agentAuthCache.js';
+import {
+  getCachedAgent,
+  setCachedAgent,
+  invalidateAgentCache,
+  isTokenVerifiedRecently,
+  setVerifiedToken,
+} from '../services/agent/agentAuthCache.js';
 import type { CachedAgentRow } from '../services/agent/agentAuthCache.js';
 import type { AuthenticatedAgent } from '../types/agent.js';
 
@@ -47,6 +54,7 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
   }
 
   const token = parts[1];
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
   // Try in-memory cache first, fall back to DB on miss
   let row: AgentRow | undefined = getCachedAgent(agentId) ?? undefined;
@@ -77,6 +85,16 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
     }
   }
 
+  // Verdict-cache fast path: if this exact tokenHash recently passed bcrypt
+  // for this agent, skip the cost-12 bcrypt.compare entirely. The verdict
+  // cache is auto-cleared on rotation (setCachedAgent replaces the entry)
+  // and bounded by CACHE_TTL_MS, so a deactivated agent or rotated key
+  // re-runs bcrypt within a single TTL window.
+  if (row && isTokenVerifiedRecently(agentId, tokenHash)) {
+    finalizeAgentAuth(req, res, next, row);
+    return;
+  }
+
   // M2: Always run bcrypt.compare to prevent timing oracle — use dummy hash if agent not found
   const hashToCompare = row?.api_key_hash ?? DUMMY_HASH;
 
@@ -104,50 +122,69 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
         return;
       }
 
-      if (row.status !== 'active') {
-        console.warn(`[agentAuth] REJECTED agent_id=${row.id} hostname=${row.hostname} reason=inactive status=${row.status}`);
-        res.status(401).json({ success: false, error: 'Invalid agent credentials' });
-        return;
-      }
+      // Record verdict so the next request from this agent with the same
+      // token can take the fast path. Done before finalize so even rejected
+      // status/timestamp checks below don't suppress the bcrypt-pass record.
+      setVerifiedToken(row.id, tokenHash);
 
-      // Replay protection: validate X-Request-Timestamp header
-      const requestTimestamp = req.headers['x-request-timestamp'];
-      if (typeof requestTimestamp === 'string') {
-        const requestTime = new Date(requestTimestamp).getTime();
-        if (isNaN(requestTime)) {
-          console.warn(`[agentAuth] Agent ${row.id} (${row.hostname}) sent unparseable X-Request-Timestamp: ${requestTimestamp}`);
-          res.status(401).json({ success: false, error: 'Invalid agent credentials' });
-          return;
-        }
-        const now = Date.now();
-        const skew = Math.abs(now - requestTime) / 1000;
-        if (skew > MAX_TIMESTAMP_SKEW_SECONDS) {
-          const direction = requestTime > now ? 'ahead' : 'behind';
-          console.warn(`[agentAuth] Agent ${row.id} (${row.hostname}) rejected: clock skew ${skew.toFixed(0)}s ${direction} (max ${MAX_TIMESTAMP_SKEW_SECONDS}s). agent=${requestTimestamp} server=${new Date(now).toISOString()}`);
-          res.status(401).json({ success: false, error: 'Invalid agent credentials' });
-          return;
-        }
-      } else {
-        // Reject requests without timestamp header to prevent replay attacks
-        console.warn(`[agentAuth] Agent ${row.id} (${row.hostname}) rejected: missing X-Request-Timestamp header`);
-        res.status(401).json({ success: false, error: 'Invalid agent credentials' });
-        return;
-      }
-
-      const agent: AuthenticatedAgent = {
-        id: row.id,
-        org_id: row.org_id,
-        hostname: row.hostname,
-        os: row.os,
-        arch: row.arch,
-        status: row.status,
-      };
-
-      req.agent = agent;
-      next();
+      finalizeAgentAuth(req, res, next, row);
     })
     .catch((err) => {
       console.warn(`[agentAuth] REJECTED agent_id=${agentId} reason=internal_error error=${err instanceof Error ? err.message : String(err)}`);
       res.status(401).json({ success: false, error: 'Invalid agent credentials' });
     });
+}
+
+/**
+ * Post-bcrypt (or post-verdict-cache-hit) checks: agent status + replay-protection
+ * timestamp. On success, attaches `req.agent` and calls `next()`. On any failure,
+ * responds 401 with the uniform message. Same semantics whether reached via the
+ * slow bcrypt path or the verdict fast path — the only thing the fast path skips
+ * is the bcrypt compare itself.
+ */
+function finalizeAgentAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+  row: AgentRow,
+): void {
+  if (row.status !== 'active') {
+    console.warn(`[agentAuth] REJECTED agent_id=${row.id} hostname=${row.hostname} reason=inactive status=${row.status}`);
+    res.status(401).json({ success: false, error: 'Invalid agent credentials' });
+    return;
+  }
+
+  const requestTimestamp = req.headers['x-request-timestamp'];
+  if (typeof requestTimestamp === 'string') {
+    const requestTime = new Date(requestTimestamp).getTime();
+    if (isNaN(requestTime)) {
+      console.warn(`[agentAuth] Agent ${row.id} (${row.hostname}) sent unparseable X-Request-Timestamp: ${requestTimestamp}`);
+      res.status(401).json({ success: false, error: 'Invalid agent credentials' });
+      return;
+    }
+    const now = Date.now();
+    const skew = Math.abs(now - requestTime) / 1000;
+    if (skew > MAX_TIMESTAMP_SKEW_SECONDS) {
+      const direction = requestTime > now ? 'ahead' : 'behind';
+      console.warn(`[agentAuth] Agent ${row.id} (${row.hostname}) rejected: clock skew ${skew.toFixed(0)}s ${direction} (max ${MAX_TIMESTAMP_SKEW_SECONDS}s). agent=${requestTimestamp} server=${new Date(now).toISOString()}`);
+      res.status(401).json({ success: false, error: 'Invalid agent credentials' });
+      return;
+    }
+  } else {
+    console.warn(`[agentAuth] Agent ${row.id} (${row.hostname}) rejected: missing X-Request-Timestamp header`);
+    res.status(401).json({ success: false, error: 'Invalid agent credentials' });
+    return;
+  }
+
+  const agent: AuthenticatedAgent = {
+    id: row.id,
+    org_id: row.org_id,
+    hostname: row.hostname,
+    os: row.os,
+    arch: row.arch,
+    status: row.status,
+  };
+
+  req.agent = agent;
+  next();
 }
