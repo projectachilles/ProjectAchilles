@@ -44,7 +44,12 @@ apiClient.interceptors.response.use(undefined, (error) => {
 // When Clerk returns a redirect, the final response is often HTML — detect this
 // and throw a clear error instead of letting callers parse undefined fields.
 apiClient.interceptors.response.use((response) => {
-  const ct = response.headers['content-type'] || '';
+  // axios 1.16+ widened header value types to `string | number | true |
+  // string[] | AxiosHeaders` to reflect HTTP semantics, so .includes() is
+  // no longer guaranteed. Content-Type is always a string in practice, but
+  // narrow defensively so .includes() is callable without `any`.
+  const ctHeader = response.headers['content-type'];
+  const ct = typeof ctHeader === 'string' ? ctHeader : '';
   if (response.config.responseType !== 'blob' && !ct.includes('application/json') && response.config.url) {
     throw new axios.AxiosError(
       'Session expired or authentication failed',
