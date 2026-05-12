@@ -5,6 +5,7 @@ import {
   invalidateAgentCache,
   isTokenVerifiedRecently,
   setVerifiedToken,
+  hashTokenForCache,
   type CachedAgentRow,
 } from '../agentAuthCache.js';
 
@@ -115,5 +116,21 @@ describe('agentAuthCache verdict (bcrypt-skip) cache', () => {
     setVerifiedToken('agent-001', TOKEN_HASH);
     invalidateAgentCache('agent-001');
     expect(isTokenVerifiedRecently('agent-001', TOKEN_HASH)).toBe(false);
+  });
+});
+
+describe('hashTokenForCache', () => {
+  it('produces a 64-hex-char HMAC-SHA256 digest', () => {
+    const h = hashTokenForCache('ak_some_token');
+    expect(h).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('is deterministic for the same input within a process', () => {
+    // Cache lookups depend on the same token deriving the same key.
+    expect(hashTokenForCache('ak_a')).toBe(hashTokenForCache('ak_a'));
+  });
+
+  it('produces different outputs for different tokens', () => {
+    expect(hashTokenForCache('ak_a')).not.toBe(hashTokenForCache('ak_b'));
   });
 });

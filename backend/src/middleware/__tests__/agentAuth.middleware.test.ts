@@ -20,6 +20,7 @@ vi.mock('../../services/agent/agentAuthCache.js', () => ({
   invalidateAgentCache: () => {},
   isTokenVerifiedRecently: () => false,
   setVerifiedToken: () => {},
+  hashTokenForCache: (token: string) => `mock-hash:${token}`,
 }));
 
 // Mock the enrollment service exports used by the auth middleware.

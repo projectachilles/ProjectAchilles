@@ -1,6 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
 import { getDatabase } from '../services/agent/database.js';
 import { promotePendingKey, ROTATION_GRACE_PERIOD_SECONDS } from '../services/agent/enrollment.service.js';
 import {
@@ -9,6 +8,7 @@ import {
   invalidateAgentCache,
   isTokenVerifiedRecently,
   setVerifiedToken,
+  hashTokenForCache,
 } from '../services/agent/agentAuthCache.js';
 import type { CachedAgentRow } from '../services/agent/agentAuthCache.js';
 import type { AuthenticatedAgent } from '../types/agent.js';
@@ -54,7 +54,7 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
   }
 
   const token = parts[1];
-  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  const tokenHash = hashTokenForCache(token);
 
   // Try in-memory cache first, fall back to DB on miss
   let row: AgentRow | undefined = getCachedAgent(agentId) ?? undefined;
