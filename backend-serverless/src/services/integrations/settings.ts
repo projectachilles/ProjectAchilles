@@ -1,7 +1,7 @@
 // Settings service for external integration credentials — Vercel Blob storage version
 
 import * as crypto from 'crypto';
-import type { AzureIntegrationSettings, DefenderIntegrationSettings, IntegrationsSettings } from '../../types/integrations.js';
+import type { AzureIntegrationSettings, DefenderIntegrationSettings, SophosIntegrationSettings, IntegrationsSettings } from '../../types/integrations.js';
 import type { AutoResolveMode } from '../../types/defender.js';
 import { blobReadText, blobWrite } from '../storage.js';
 
@@ -87,6 +87,16 @@ export class IntegrationsSettingsService {
         }
         if (settings.defender.client_secret?.startsWith('enc:')) {
           settings.defender.client_secret = this.decrypt(settings.defender.client_secret.slice(4));
+        }
+      }
+      // Sophos: only client_id + client_secret are encrypted; tenant_id,
+      // data_region, tier are discovered via whoami and stored as plaintext.
+      if (settings.sophos) {
+        if (settings.sophos.client_id?.startsWith('enc:')) {
+          settings.sophos.client_id = this.decrypt(settings.sophos.client_id.slice(4));
+        }
+        if (settings.sophos.client_secret?.startsWith('enc:')) {
+          settings.sophos.client_secret = this.decrypt(settings.sophos.client_secret.slice(4));
         }
       }
       return settings;
@@ -281,6 +291,88 @@ export class IntegrationsSettingsService {
       client_id: settings.client_id,
       client_secret: settings.client_secret,
     };
+  }
+
+  // ── Sophos Central ─────────────────────────────────────────────────
+  //
+  // Mirrors the Defender section but with two structural differences:
+  //   1. Only client_id + client_secret are operator-supplied. tenant_id,
+  //      data_region, and tier are discovered via Sophos's whoami endpoint.
+  //   2. Env-var override only sets credentials; the discovered fields
+  //      never come from env vars (no SOPHOS_TENANT_ID etc.).
+
+  private getEnvSophosSettings(): SophosIntegrationSettings | null {
+    const clientId = process.env.SOPHOS_CLIENT_ID;
+    const clientSecret = process.env.SOPHOS_CLIENT_SECRET;
+    if (!clientId || !clientSecret) return null;
+    return {
+      client_id: clientId,
+      client_secret: clientSecret,
+      configured: true,
+      label: process.env.SOPHOS_TENANT_LABEL || undefined,
+    };
+  }
+
+  isEnvSophosConfigured(): boolean {
+    return this.getEnvSophosSettings() !== null;
+  }
+
+  async getSophosSettings(): Promise<SophosIntegrationSettings | null> {
+    const fileSettings = await this.getFileSettings();
+    if (fileSettings?.sophos?.configured) {
+      return fileSettings.sophos;
+    }
+    return this.getEnvSophosSettings();
+  }
+
+  async saveSophosSettings(settings: Partial<SophosIntegrationSettings>): Promise<void> {
+    const existing = await this.getFileSettings() ?? {};
+    const current = existing.sophos ?? {
+      client_id: '',
+      client_secret: '',
+      configured: false,
+    };
+    const merged: SophosIntegrationSettings = {
+      client_id: settings.client_id || current.client_id,
+      client_secret: settings.client_secret || current.client_secret,
+      configured: true,
+      label: settings.label !== undefined ? settings.label : current.label,
+      tenant_id: settings.tenant_id !== undefined ? settings.tenant_id : current.tenant_id,
+      data_region: settings.data_region !== undefined ? settings.data_region : current.data_region,
+      tier: settings.tier !== undefined ? settings.tier : current.tier,
+      last_alert_sync: settings.last_alert_sync !== undefined ? settings.last_alert_sync : current.last_alert_sync,
+      last_score_sync: settings.last_score_sync !== undefined ? settings.last_score_sync : current.last_score_sync,
+      auto_resolve_mode: settings.auto_resolve_mode !== undefined ? settings.auto_resolve_mode : current.auto_resolve_mode,
+    };
+    const toSave: IntegrationsSettings = {
+      ...existing,
+      sophos: {
+        ...merged,
+        client_id: 'enc:' + this.encrypt(merged.client_id),
+        client_secret: 'enc:' + this.encrypt(merged.client_secret),
+      },
+    };
+    await blobWrite(SETTINGS_KEY, JSON.stringify(toSave, null, 2));
+  }
+
+  async isSophosConfigured(): Promise<boolean> {
+    const settings = await this.getSophosSettings();
+    if (!settings?.configured) return false;
+    return !!(settings.client_id && settings.client_secret);
+  }
+
+  async getSophosCredentials(): Promise<{ client_id: string; client_secret: string } | null> {
+    const settings = await this.getSophosSettings();
+    if (!settings?.configured) return null;
+    if (!settings.client_id || !settings.client_secret) return null;
+    return { client_id: settings.client_id, client_secret: settings.client_secret };
+  }
+
+  async deleteSophosSettings(): Promise<void> {
+    const raw = await this.getRawFileSettings();
+    if (!raw || !raw.sophos) return;
+    delete raw.sophos;
+    await blobWrite(SETTINGS_KEY, JSON.stringify(raw, null, 2));
   }
 
   // ── Defender Auto-Resolve mode ─────────────────────────────────────

@@ -38,6 +38,23 @@ export const DefenderTestSchema = z.object({
   client_secret: z.string().optional(),
 });
 
+// ── Sophos Central ───────────────────────────────────────────────────────────
+//
+// Note: no tenant_id field. Sophos's tenant is discovered via whoami at
+// connection-test time, not operator-supplied. Including a tenant_id input
+// here would mislead users into typing one in only for it to be ignored.
+
+export const SophosCredentialsSchema = z.object({
+  client_id: z.string().optional(),
+  client_secret: z.string().optional(),
+  label: z.string().optional(),
+});
+
+export const SophosTestSchema = z.object({
+  client_id: z.string().optional(),
+  client_secret: z.string().optional(),
+});
+
 // ── Alert Settings ───────────────────────────────────────────────────────────
 
 const AlertThresholdsSchema = z.object({
