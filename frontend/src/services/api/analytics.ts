@@ -142,6 +142,10 @@ export interface EnrichedTestExecution extends TestExecution {
   control_id?: string;
   control_validator?: string;
   is_bundle_control?: boolean;
+  // Populated by the Defender enrichment pass when an alert in
+  // achilles-defender correlates to this doc via bundle UUID + hostname +
+  // time window. Permanent (only flipped false→true). Stage-level signal.
+  defender_detected?: boolean;
 }
 
 export interface PaginatedResponse<T> {
