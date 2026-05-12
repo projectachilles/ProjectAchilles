@@ -120,7 +120,7 @@ jobs:
         run: make checksum
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: agent-binaries
           path: agent/dist/
