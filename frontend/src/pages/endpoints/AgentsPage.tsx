@@ -24,7 +24,8 @@ import {
   selectAgentError,
   selectAgentPagination,
 } from '../../store/agentSlice';
-import { PageContainer, PageHeader } from '../../components/endpoints/Layout';
+import { PageContainer } from '../../components/endpoints/Layout';
+import { Badge } from '../../components/shared/ui/Badge';
 import AgentFilters from '../../components/endpoints/agents/AgentFilters';
 import AgentList from '../../components/endpoints/agents/AgentList';
 import AgentDetailPanel from '../../components/endpoints/agents/AgentDetailPanel';
@@ -227,24 +228,35 @@ export default function AgentsPage() {
   return (
     <>
       <PageContainer>
-        <PageHeader
-          title="Agents"
-          description="Manage and monitor your Achilles agents"
-          actions={canEnroll ? (
-            <Button
-              variant={showEnrollment ? 'secondary' : 'primary'}
-              onClick={() => setShowEnrollment((v) => !v)}
-            >
-              <UserPlus className="w-4 h-4 mr-2" />
-              Enroll Agent
-              {showEnrollment ? (
-                <ChevronUp className="w-4 h-4 ml-2" />
-              ) : (
-                <ChevronDown className="w-4 h-4 ml-2" />
-              )}
-            </Button>
-          ) : undefined}
-        />
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold">Agents</h1>
+              <Badge variant="default" className="text-xs">
+                {pagination.total} {pagination.total === 1 ? 'agent' : 'agents'}
+              </Badge>
+            </div>
+            <p className="text-muted-foreground mt-1">
+              Manage and monitor your Achilles agents
+            </p>
+          </div>
+          {canEnroll && (
+            <div className="flex items-center gap-2">
+              <Button
+                variant={showEnrollment ? 'secondary' : 'primary'}
+                onClick={() => setShowEnrollment((v) => !v)}
+              >
+                <UserPlus className="w-4 h-4 mr-2" />
+                Enroll Agent
+                {showEnrollment ? (
+                  <ChevronUp className="w-4 h-4 ml-2" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 ml-2" />
+                )}
+              </Button>
+            </div>
+          )}
+        </div>
 
         {showEnrollment && (
           <div className="mb-6">
