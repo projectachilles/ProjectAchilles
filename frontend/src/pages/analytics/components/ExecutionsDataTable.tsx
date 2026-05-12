@@ -21,9 +21,7 @@ import {
   Info,
   ShieldOff,
   ShieldAlert,
-  Layers,
 } from 'lucide-react';
-import type { ScoringMode } from '@/hooks/useScoringMode';
 import { formatDistanceToNow, isValid, format } from 'date-fns';
 import type { EnrichedTestExecution, SeverityLevel, CategoryType, GroupedPaginatedResponse, ExecutionGroup, RiskAcceptance } from '@/services/api/analytics';
 import { findAcceptanceForExec } from '../utils/riskAcceptanceLookup';
@@ -210,8 +208,6 @@ interface ExecutionsDataTableProps {
   onRevokeRisk?: (acceptanceId: string, reason: string) => Promise<void>;
   riskAcceptances?: Map<string, RiskAcceptance[]>;
   acceptingRisk?: boolean;
-  scoringMode?: ScoringMode;
-  onScoringModeChange?: (mode: ScoringMode) => void;
 }
 
 export default function ExecutionsDataTable({
@@ -229,8 +225,6 @@ export default function ExecutionsDataTable({
   onRevokeRisk,
   riskAcceptances,
   acceptingRisk,
-  scoringMode = 'all-stages',
-  onScoringModeChange,
 }: ExecutionsDataTableProps) {
   const { configured: defenderConfigured } = useDefenderConfig();
 
@@ -581,7 +575,16 @@ export default function ExecutionsDataTable({
           // what the endpoint missed; we surface "Detected" to keep the
           // parent's bundle-level badge consistent with what the user sees
           // at the stage row, and to point them at the right stage to expand.
-          if (exec.defender_detected) {
+          //
+          // Prefer the stage-specific flag (set only when alert evidence
+          // contains THIS stage's binary). Fall back to the bundle-level
+          // flag for docs predating the stage-specific enrichment write —
+          // the fallback over-detects (whole bundle badged when any stage
+          // matched), but is strictly safer than silently showing
+          // Unprotected. Stage-flag backfill happens automatically once
+          // PR-A's enrichment pass re-evaluates eligible docs.
+          const isDetected = exec.defender_stage_detected ?? exec.defender_detected;
+          if (isDetected) {
             resultElement = (
               <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
                 <ShieldAlert className="w-4 h-4" />
@@ -747,44 +750,53 @@ export default function ExecutionsDataTable({
         );
 
       case 'result': {
+        // Any-stage rollup with three-tier priority: Protected > Detected >
+        // Unprotected. Matches kill-chain semantic — breaking one link breaks
+        // the chain, so "any stage protected" is success and "any stage
+        // detected" is fallback. Cyber-hygiene bundles keep their per-control
+        // ratio scoring; flipping the whole bundle to a single verdict
+        // wouldn't make sense when each control is meant to be evaluated
+        // independently.
         const isProtected = group.protectedCount > 0;
         const isDetected = !isProtected && group.defenderDetected;
 
-        // "Any Stage" mode: non-CH bundles show binary Protected/Detected/Unprotected
-        if (scoringMode === 'any-stage' && group.category !== 'cyber-hygiene') {
-          const label = isProtected ? 'Protected' : isDetected ? 'Detected' : 'Unprotected';
-          const cls = isProtected ? 'text-green-600 dark:text-green-400'
-            : isDetected ? 'text-amber-600 dark:text-amber-400'
+        if (group.category === 'cyber-hygiene') {
+          // Per-control ratio badge (preserved from the old all-stages path).
+          if (isDetected) {
+            return (
+              <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                <ShieldAlert className="w-4 h-4" />
+                <span className="text-sm font-medium">
+                  {group.protectedCount}/{group.totalCount} Detected
+                </span>
+              </span>
+            );
+          }
+          const ratio = group.totalCount > 0 ? group.protectedCount / group.totalCount : 0;
+          const color = ratio >= 0.8 ? 'text-green-600 dark:text-green-400'
+            : ratio >= 0.5 ? 'text-yellow-600 dark:text-yellow-400'
             : 'text-red-600 dark:text-red-400';
-          const Icon = isProtected ? ShieldCheck : isDetected ? ShieldAlert : ShieldX;
           return (
-            <span className={`inline-flex items-center gap-1.5 ${cls}`}>
-              <Icon className="w-4 h-4" />
-              <span className="text-sm font-medium">{label}</span>
-            </span>
-          );
-        }
-        // "All Stages" mode (default): ratio-based badge with Detected fallback
-        if (isDetected) {
-          return (
-            <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
-              <ShieldAlert className="w-4 h-4" />
+            <span className={`inline-flex items-center gap-1.5 ${color}`}>
+              <ShieldCheck className="w-4 h-4" />
               <span className="text-sm font-medium">
-                {group.protectedCount}/{group.totalCount} Detected
+                {group.protectedCount}/{group.totalCount} Protected
               </span>
             </span>
           );
         }
-        const ratio = group.totalCount > 0 ? group.protectedCount / group.totalCount : 0;
-        const color = ratio >= 0.8 ? 'text-green-600 dark:text-green-400'
-          : ratio >= 0.5 ? 'text-yellow-600 dark:text-yellow-400'
+
+        // Non-cyber-hygiene bundles (intel-driven, phase-aligned, mitre-top10):
+        // single verdict per bundle.
+        const label = isProtected ? 'Protected' : isDetected ? 'Detected' : 'Unprotected';
+        const cls = isProtected ? 'text-green-600 dark:text-green-400'
+          : isDetected ? 'text-amber-600 dark:text-amber-400'
           : 'text-red-600 dark:text-red-400';
+        const Icon = isProtected ? ShieldCheck : isDetected ? ShieldAlert : ShieldX;
         return (
-          <span className={`inline-flex items-center gap-1.5 ${color}`}>
-            <ShieldCheck className="w-4 h-4" />
-            <span className="text-sm font-medium">
-              {group.protectedCount}/{group.totalCount} Protected
-            </span>
+          <span className={`inline-flex items-center gap-1.5 ${cls}`}>
+            <Icon className="w-4 h-4" />
+            <span className="text-sm font-medium">{label}</span>
           </span>
         );
       }
@@ -1146,50 +1158,6 @@ export default function ExecutionsDataTable({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Scoring Mode Toggle */}
-          {onScoringModeChange && (
-            <div className="flex items-center gap-1.5">
-              <div className="flex items-center rounded-lg border border-border overflow-hidden">
-                <button
-                  onClick={() => onScoringModeChange('all-stages')}
-                  className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                    scoringMode === 'all-stages'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-secondary text-muted-foreground hover:text-foreground hover:bg-accent'
-                  }`}
-                  title="Score every individual stage. Each stage of a multi-stage bundle counts as a separate Protected/Unprotected entry."
-                >
-                  <Layers className="w-3.5 h-3.5" />
-                  All Stages
-                </button>
-                <button
-                  onClick={() => onScoringModeChange('any-stage')}
-                  className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                    scoringMode === 'any-stage'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-secondary text-muted-foreground hover:text-foreground hover:bg-accent'
-                  }`}
-                  title="Collapse multi-stage intel-driven bundles to one verdict per bundle: any single protected stage marks the whole bundle Protected. Cyber-hygiene control bundles are unaffected — each control is always scored independently."
-                >
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  Any Stage
-                </button>
-              </div>
-              <span
-                className="inline-flex"
-                title={
-                  'Scope: this toggle only affects intel-driven multi-stage bundles ' +
-                  '(e.g., kill-chain tests like BlueHammer). Cyber-hygiene bundles ' +
-                  '(Identity Endpoint Posture, CIS Hardening, etc.) keep per-control ' +
-                  'scoring in both modes — flipping the toggle never collapses an ' +
-                  '"X/Y Protected" cyber-hygiene row to a single verdict.'
-                }
-              >
-                <Info className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground cursor-help" />
-              </span>
-            </div>
-          )}
-
           {/* Archive by Date */}
           {onArchiveByDate && (
             <button

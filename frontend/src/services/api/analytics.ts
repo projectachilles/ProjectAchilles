@@ -144,8 +144,18 @@ export interface EnrichedTestExecution extends TestExecution {
   is_bundle_control?: boolean;
   // Populated by the Defender enrichment pass when an alert in
   // achilles-defender correlates to this doc via bundle UUID + hostname +
-  // time window. Permanent (only flipped false→true). Stage-level signal.
+  // time window. Permanent (only flipped false→true). BUNDLE-LEVEL signal:
+  // propagates across every stage of a bundle whenever any one stage's
+  // binary appears in evidence. For per-stage truth use defender_stage_detected.
   defender_detected?: boolean;
+  /**
+   * True when an alert's evidence contains THIS stage's specific binary
+   * (`<uuid>-<control_id>[-<variant>].exe`). Strictly per-stage. Drives
+   * the per-stage "Detected" badge. May be undefined on old docs that
+   * predate the stage-specific enrichment write — UI falls back to the
+   * bundle flag in that case.
+   */
+  defender_stage_detected?: boolean;
 }
 
 export interface PaginatedResponse<T> {
