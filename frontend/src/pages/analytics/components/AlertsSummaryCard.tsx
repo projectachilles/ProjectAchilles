@@ -1,19 +1,12 @@
 import { Loader2, AlertTriangle, Bell } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import type { AlertSummary } from '@/services/api/defender';
+import { getSeverityTokens } from '../utils/defenderSeverityTokens';
 
 interface AlertsSummaryCardProps {
   data: AlertSummary | null;
   loading?: boolean;
 }
-
-const SEVERITY_CONFIG: Record<string, { color: string; bar: string }> = {
-  high: { color: 'text-red-500', bar: 'bg-red-500' },
-  medium: { color: 'text-amber-500', bar: 'bg-amber-500' },
-  low: { color: 'text-blue-500', bar: 'bg-blue-500' },
-  informational: { color: 'text-muted-foreground', bar: 'bg-muted-foreground' },
-  unknown: { color: 'text-muted-foreground', bar: 'bg-muted-foreground' },
-};
 
 function formatTimeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -53,15 +46,15 @@ export default function AlertsSummaryCard({ data, loading }: AlertsSummaryCardPr
       <div className="flex-1 px-4 py-2 space-y-2">
         {severityOrder.map((sev) => {
           const count = data.bySeverity[sev] ?? 0;
-          const config = SEVERITY_CONFIG[sev] ?? SEVERITY_CONFIG.unknown;
+          const tokens = getSeverityTokens(sev);
           const pct = maxCount > 0 ? (count / maxCount) * 100 : 0;
 
           return (
             <div key={sev} className="flex items-center gap-2 text-xs">
-              <span className={`w-20 capitalize ${config.color}`}>{sev}</span>
+              <span className={`w-20 capitalize ${tokens.text}`}>{sev}</span>
               <div className="flex-1 h-3 bg-muted rounded-full overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all ${config.bar}`}
+                  className={`h-full rounded-full transition-all ${tokens.bar}`}
                   style={{ width: `${pct}%` }}
                 />
               </div>
