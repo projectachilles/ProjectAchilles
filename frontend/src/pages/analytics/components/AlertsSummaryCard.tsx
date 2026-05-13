@@ -1,5 +1,6 @@
-import { Loader2, AlertTriangle, Bell } from 'lucide-react';
+import { AlertTriangle, Bell } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { AlertSummary } from '@/services/api/defender';
 import { getSeverityTokens } from '../utils/defenderSeverityTokens';
 
@@ -20,8 +21,36 @@ function formatTimeAgo(dateStr: string): string {
 export default function AlertsSummaryCard({ data, loading }: AlertsSummaryCardProps) {
   if (loading || !data) {
     return (
-      <Card className="h-full flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      <Card className="h-full flex flex-col p-0 overflow-hidden">
+        <div className="flex items-center justify-between px-4 pt-4 pb-2">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Bell className="w-4 h-4" />
+            <span className="text-sm font-medium">Defender Alerts</span>
+          </div>
+          <Skeleton className="h-7 w-12" />
+        </div>
+        <div className="flex-1 px-4 py-2 space-y-2">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-3 flex-1" />
+              <Skeleton className="h-3 w-6" />
+            </div>
+          ))}
+        </div>
+        <div className="border-t border-border mx-4" />
+        <div className="px-4 py-2 space-y-1.5">
+          <Skeleton className="h-3 w-28" />
+          {[0, 1].map((i) => (
+            <div key={i} className="flex items-start gap-1.5">
+              <Skeleton className="h-3 w-3 mt-0.5 shrink-0" />
+              <div className="flex-1 space-y-1">
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-2 w-1/2" />
+              </div>
+            </div>
+          ))}
+        </div>
       </Card>
     );
   }

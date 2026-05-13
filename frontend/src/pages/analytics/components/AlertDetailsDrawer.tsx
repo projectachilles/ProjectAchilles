@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
-import { X, Loader2, AlertTriangle } from 'lucide-react';
+import { X, AlertTriangle, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/shared/ui/Button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { defenderApi, type DefenderAlertItem } from '@/services/api/defender';
 import { getSeverityTokens } from '../utils/defenderSeverityTokens';
+
+const DEFENDER_PORTAL_BASE = 'https://security.microsoft.com/alerts';
 
 interface AlertDetailsDrawerProps {
   open: boolean;
@@ -102,9 +105,24 @@ export default function AlertDetailsDrawer({
 
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="h-full flex items-center justify-center">
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-            </div>
+            <ul className="divide-y divide-border" aria-label="Loading alerts">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <li key={i} className="p-3">
+                  <div className="flex items-start gap-2">
+                    <Skeleton className="h-2 w-2 mt-1.5 rounded-full shrink-0" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-4 w-3/4" />
+                      <Skeleton className="h-3 w-1/2" />
+                      <div className="flex gap-1">
+                        <Skeleton className="h-3 w-10" />
+                        <Skeleton className="h-3 w-10" />
+                        <Skeleton className="h-3 w-10" />
+                      </div>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
           ) : error ? (
             <div className="h-full flex flex-col items-center justify-center text-center px-4 gap-2">
               <AlertTriangle className="w-6 h-6 text-muted-foreground" />
@@ -126,8 +144,20 @@ export default function AlertDetailsDrawer({
                     <div className="flex items-start gap-2">
                       <span className={`shrink-0 w-2 h-2 mt-1.5 rounded-full ${tokens.bar}`} />
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium leading-tight break-words">
-                          {alert.alert_title}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="text-sm font-medium leading-tight break-words">
+                            {alert.alert_title}
+                          </div>
+                          <a
+                            href={`${DEFENDER_PORTAL_BASE}/${alert.alert_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="shrink-0 p-1 -m-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                            aria-label="Open in Microsoft Defender"
+                            title="Open in Microsoft Defender"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                           <span className={`uppercase font-semibold ${tokens.text}`}>

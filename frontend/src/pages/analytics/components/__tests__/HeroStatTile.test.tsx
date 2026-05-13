@@ -65,11 +65,13 @@ describe('HeroStatTile', () => {
     expect(screen.queryByRole('img')).toBeNull();
   });
 
-  it('renders the loading spinner when loading=true', () => {
-    renderInRouter(<HeroStatTile title="Anything" value="" loading />);
+  it('renders skeleton placeholders with the title visible when loading=true', () => {
+    const { container } = renderInRouter(<HeroStatTile title="Anything" value="" loading />);
 
-    expect(screen.queryByText('Anything')).toBeNull();
-    // The spinner is the only thing rendered — title isn't shown in loading state
+    // Title remains visible during loading so the user knows what they're waiting for
+    expect(screen.getByText('Anything')).toBeInTheDocument();
+    // Value is replaced by skeleton placeholders
+    expect(container.querySelectorAll('[data-testid="skeleton"]').length).toBeGreaterThan(0);
   });
 
   it('renders the error message when error is set', () => {
