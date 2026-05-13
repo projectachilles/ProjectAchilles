@@ -167,11 +167,18 @@ export const defenderApi = {
     severity?: string;
     status?: string;
     search?: string;
-    technique?: string;
+    /** MITRE techniques to OR-filter on. Each matches itself + sub-techniques. */
+    techniques?: string[];
     sortField?: string;
     sortOrder?: 'asc' | 'desc';
   }): Promise<PaginatedAlerts> {
-    const res = await apiClient.get('/analytics/defender/alerts', { params });
+    // Server expects techniques as comma-separated string
+    const { techniques, ...rest } = params ?? {};
+    const queryParams: Record<string, unknown> = { ...rest };
+    if (techniques && techniques.length > 0) {
+      queryParams.techniques = techniques.join(',');
+    }
+    const res = await apiClient.get('/analytics/defender/alerts', { params: queryParams });
     return res.data;
   },
 

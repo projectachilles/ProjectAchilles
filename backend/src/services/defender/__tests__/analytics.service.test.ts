@@ -188,7 +188,7 @@ describe('DefenderAnalyticsService', () => {
         hits: { total: { value: 0 }, hits: [] },
       });
 
-      await service.getAlerts({ technique: 'T1059' });
+      await service.getAlerts({ techniques: ['T1059'] });
 
       const searchCall = mockSearch.mock.calls[0][0];
       const must = searchCall.query.bool.must;

@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { defenderApi, type TechniqueOverlapItem } from '@/services/api/defender';
+import { DEFENDER_CHART_COLORS } from '../utils/defenderChartColors';
 
-const TEST_COLOR = 'oklch(0.65 0.22 145)';    // Green
-const ALERT_COLOR = 'oklch(0.6 0.22 25)';     // Red
+const TEST_COLOR = DEFENDER_CHART_COLORS.detected;
+const ALERT_COLOR = DEFENDER_CHART_COLORS.missed;
 
 interface TechniqueOverlapChartProps {
   onSelectTechnique?: (technique: string) => void;
@@ -72,7 +73,20 @@ export default function TechniqueOverlapChart({
         <svg
           viewBox={`0 0 ${labelW + chartW + 40} ${topItems.length * (barH * 2 + gap) + 4}`}
           className="w-full h-auto"
+          role="img"
+          aria-labelledby="technique-overlap-title technique-overlap-desc"
         >
+          <title id="technique-overlap-title">
+            MITRE Technique Overlap — Test results vs Defender alerts
+          </title>
+          <desc id="technique-overlap-desc">
+            {topItems
+              .map(
+                (t) =>
+                  `${t.technique}: ${t.testResults} test result${t.testResults === 1 ? '' : 's'}, ${t.defenderAlerts} Defender alert${t.defenderAlerts === 1 ? '' : 's'}.`,
+              )
+              .join(' ')}
+          </desc>
           {topItems.map((item, i) => {
             const y = i * (barH * 2 + gap);
             const testW = maxCount > 0 ? (item.testResults / maxCount) * chartW : 0;

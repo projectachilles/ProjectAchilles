@@ -12,6 +12,7 @@ import {
 } from 'recharts';
 import { Loader2, Activity } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { DEFENDER_CHART_COLORS } from '../utils/defenderChartColors';
 import { defenderApi, type AlertTrendPoint } from '@/services/api/defender';
 import { analyticsApi, type TrendDataPoint } from '@/services/api/analytics';
 
@@ -156,8 +157,8 @@ export default function TestVsAlertTimelineCard() {
                 type="monotone"
                 dataKey="tests"
                 name="Test executions"
-                stroke="oklch(0.6 0.15 240)"
-                fill="oklch(0.6 0.15 240)"
+                stroke={DEFENDER_CHART_COLORS.tests}
+                fill={DEFENDER_CHART_COLORS.tests}
                 fillOpacity={0.2}
               />
               <Line
@@ -165,7 +166,7 @@ export default function TestVsAlertTimelineCard() {
                 type="monotone"
                 dataKey="alerts"
                 name="Defender alerts"
-                stroke="oklch(0.65 0.22 25)"
+                stroke={DEFENDER_CHART_COLORS.alerts}
                 strokeWidth={2}
                 dot={false}
               />

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, AlertTriangle, ExternalLink, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/shared/ui/Button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -10,7 +10,11 @@ const DEFENDER_PORTAL_BASE = 'https://security.microsoft.com/alerts';
 interface AlertDetailsDrawerProps {
   open: boolean;
   onClose: () => void;
+  /** Single MITRE technique filter (convenience for the chart click-throughs). */
   technique?: string;
+  /** Multi-technique OR filter (used by control click-throughs). Takes precedence over `technique`. */
+  techniques?: string[];
+  /** Optional title override (e.g., "Alerts addressed by 'BlockExeFromEmail'"). */
   title?: string;
 }
 
@@ -31,11 +35,68 @@ export default function AlertDetailsDrawer({
   open,
   onClose,
   technique,
+  techniques,
   title,
 }: AlertDetailsDrawerProps) {
   const [alerts, setAlerts] = useState<DefenderAlertItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+
+  // Focus trap + Escape-to-close + focus restoration on close
+  useEffect(() => {
+    if (!open) return;
+
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+    // Defer one frame so the dialog mounts before we move focus into it
+    queueMicrotask(() => closeButtonRef.current?.focus());
+
+    const focusableSelector =
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"]), input, select, textarea';
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab' || !dialogRef.current) return;
+      const focusables = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>(focusableSelector),
+      ).filter((el) => !el.hasAttribute('disabled'));
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      // Restore focus to the trigger element when the drawer closes
+      previouslyFocusedRef.current?.focus?.();
+    };
+  }, [open, onClose]);
+
+  // Normalize to a single source-of-truth array. `techniques` takes precedence
+  // when provided; otherwise wrap the legacy single-technique prop.
+  const effectiveTechniques =
+    techniques && techniques.length > 0
+      ? techniques
+      : technique
+      ? [technique]
+      : undefined;
+  // Stable cache key for the effect dep array (avoids array-identity churn)
+  const techniquesKey = effectiveTechniques ? effectiveTechniques.join(',') : '';
 
   useEffect(() => {
     if (!open) return;
@@ -47,7 +108,7 @@ export default function AlertDetailsDrawer({
         pageSize: PAGE_SIZE,
         sortField: 'created_at',
         sortOrder: 'desc',
-        technique,
+        techniques: effectiveTechniques,
       })
       .then((res) => {
         if (cancelled) return;
@@ -64,11 +125,18 @@ export default function AlertDetailsDrawer({
     return () => {
       cancelled = true;
     };
-  }, [open, technique]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, techniquesKey]);
 
   if (!open) return null;
 
-  const headerTitle = title ?? (technique ? `Alerts for ${technique}` : 'Recent Defender Alerts');
+  const defaultHeader =
+    !effectiveTechniques
+      ? 'Recent Defender Alerts'
+      : effectiveTechniques.length === 1
+      ? `Alerts for ${effectiveTechniques[0]}`
+      : `Alerts for ${effectiveTechniques.join(', ')}`;
+  const headerTitle = title ?? defaultHeader;
 
   return (
     <>
@@ -78,18 +146,26 @@ export default function AlertDetailsDrawer({
         aria-hidden
       />
       <div
+        ref={dialogRef}
         role="dialog"
+        aria-modal="true"
         aria-label={headerTitle}
         className="fixed inset-y-0 right-0 w-[480px] bg-card border-l border-border shadow-xl z-50 flex flex-col"
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <div className="min-w-0">
             <h3 className="text-base font-semibold truncate">{headerTitle}</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {loading ? 'Loading…' : `${alerts.length.toLocaleString()} alerts`}
+            <p className="text-xs text-muted-foreground mt-0.5" aria-live="polite">
+              {loading ? 'Loading alerts…' : `${alerts.length.toLocaleString()} alerts`}
             </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
+          <Button
+            ref={closeButtonRef}
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            aria-label="Close"
+          >
             <X className="w-4 h-4" />
           </Button>
         </div>
@@ -123,7 +199,9 @@ export default function AlertDetailsDrawer({
             <div className="h-full flex flex-col items-center justify-center text-center px-4 gap-2">
               <AlertTriangle className="w-6 h-6 text-muted-foreground opacity-60" />
               <span className="text-sm text-muted-foreground">
-                {technique ? `No alerts found for ${technique}` : 'No recent alerts'}
+                {effectiveTechniques
+                  ? `No alerts found for ${effectiveTechniques.join(', ')}`
+                  : 'No recent alerts'}
               </span>
             </div>
           ) : (

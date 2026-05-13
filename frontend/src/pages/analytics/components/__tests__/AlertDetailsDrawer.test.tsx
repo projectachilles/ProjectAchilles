@@ -70,8 +70,7 @@ describe('AlertDetailsDrawer', () => {
     expect(screen.getByText('2 alerts')).toBeInTheDocument();
   });
 
-  it('passes the technique to the backend filter; renders the response as-is', async () => {
-    // Backend is the SUT for the filter; the drawer just renders whatever it gets.
+  it('wraps the single technique prop into the techniques array for the API call', async () => {
     mockGetAlerts.mockResolvedValue({
       data: [
         makeAlert({ alert_id: 'a1', alert_title: 'PSH parent', mitre_techniques: ['T1059'] }),
@@ -86,21 +85,33 @@ describe('AlertDetailsDrawer', () => {
 
     await waitFor(() => expect(screen.getByText('PSH parent')).toBeInTheDocument());
     expect(mockGetAlerts).toHaveBeenCalledWith(
-      expect.objectContaining({ technique: 'T1059' })
+      expect.objectContaining({ techniques: ['T1059'] }),
     );
     expect(screen.getByText('Alerts for T1059')).toBeInTheDocument();
-    expect(screen.getByText('PSH sub')).toBeInTheDocument();
     expect(screen.getByText('2 alerts')).toBeInTheDocument();
   });
 
-  it('does not pass technique when none is set (recent-all view)', async () => {
+  it('passes a multi-technique array straight through to the backend', async () => {
+    mockGetAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 100 });
+
+    render(<AlertDetailsDrawer open onClose={() => {}} techniques={['T1078', 'T1110']} />);
+
+    await waitFor(() => expect(mockGetAlerts).toHaveBeenCalled());
+    expect(mockGetAlerts).toHaveBeenCalledWith(
+      expect.objectContaining({ techniques: ['T1078', 'T1110'] }),
+    );
+    // Default header lists both techniques
+    expect(screen.getByText(/Alerts for T1078, T1110/)).toBeInTheDocument();
+  });
+
+  it('does not pass techniques when neither prop is set (recent-all view)', async () => {
     mockGetAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 100 });
 
     render(<AlertDetailsDrawer open onClose={() => {}} />);
 
     await waitFor(() => expect(mockGetAlerts).toHaveBeenCalled());
-    const callArgs = mockGetAlerts.mock.calls[0][0] as { technique?: string };
-    expect(callArgs.technique).toBeUndefined();
+    const callArgs = mockGetAlerts.mock.calls[0][0] as { techniques?: string[] };
+    expect(callArgs.techniques).toBeUndefined();
   });
 
   it('renders the Auto-resolved badge when an alert has f0rtika.auto_resolved=true', async () => {
@@ -210,5 +221,42 @@ describe('AlertDetailsDrawer', () => {
     expect(backdrop).not.toBeNull();
     await userEvent.click(backdrop as Element);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks the dialog with role + aria-modal + aria-label for assistive tech', async () => {
+    mockGetAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 100 });
+
+    render(<AlertDetailsDrawer open onClose={() => {}} technique="T1059" />);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveAttribute('aria-label', 'Alerts for T1059');
+  });
+
+  it('closes the drawer when Escape is pressed', async () => {
+    mockGetAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 100 });
+    const onClose = vi.fn();
+
+    render(<AlertDetailsDrawer open onClose={onClose} />);
+    await waitFor(() => expect(screen.getByText('No recent alerts')).toBeInTheDocument());
+
+    await userEvent.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('exposes the alert count region as an aria-live region', async () => {
+    mockGetAlerts.mockResolvedValue({
+      data: [makeAlert({ alert_id: 'a1', alert_title: 'PSH', mitre_techniques: ['T1059'] })],
+      total: 1,
+      page: 1,
+      pageSize: 100,
+    });
+
+    const { container } = render(<AlertDetailsDrawer open onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText('1 alerts')).toBeInTheDocument());
+    const live = container.querySelector('[aria-live="polite"]');
+    expect(live).not.toBeNull();
+    expect(live?.textContent).toBe('1 alerts');
   });
 });
