@@ -89,6 +89,16 @@ router.get('/controls/by-category', requirePermission('analytics:dashboards:read
   res.json(data);
 }));
 
+router.get('/controls/correlation', requirePermission('analytics:dashboards:read'), asyncHandler(async (req, res) => {
+  const controlTitle = req.query.controlTitle ? String(req.query.controlTitle) : '';
+  const days = req.query.days ? parseInt(String(req.query.days), 10) : 30;
+  if (!controlTitle) {
+    throw new AppError('controlTitle is required', 400);
+  }
+  const data = await analyticsService.getControlCorrelation(controlTitle, days);
+  res.json(data);
+}));
+
 // ---------------------------------------------------------------------------
 // Cross-correlation
 // ---------------------------------------------------------------------------

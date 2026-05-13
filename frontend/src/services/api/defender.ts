@@ -100,6 +100,11 @@ export interface ControlCategoryBreakdown {
   totalMaxScore: number;
 }
 
+export interface ControlCorrelationResult {
+  coveredTechniques: string[];
+  alertCount: number;
+}
+
 export interface ScoreComparisonPoint {
   date: string;
   defenseScore: number | null;
@@ -186,6 +191,16 @@ export const defenderApi = {
 
   async getControlsByCategory(): Promise<ControlCategoryBreakdown[]> {
     const res = await apiClient.get('/analytics/defender/controls/by-category');
+    return res.data;
+  },
+
+  async getControlCorrelation(
+    controlTitle: string,
+    days = 30,
+  ): Promise<ControlCorrelationResult> {
+    const res = await apiClient.get('/analytics/defender/controls/correlation', {
+      params: { controlTitle, days },
+    });
     return res.data;
   },
 

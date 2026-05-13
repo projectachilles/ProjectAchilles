@@ -372,6 +372,46 @@ describe('DefenderAnalyticsService', () => {
 
   // ── Cross-correlation ──────────────────────────────────────
 
+  describe('getControlCorrelation', () => {
+    it('returns zero count + no techniques for a control title with no curated mapping', async () => {
+      const result = await service.getControlCorrelation('Some unrelated control', 30);
+      expect(result.coveredTechniques).toEqual([]);
+      expect(result.alertCount).toBe(0);
+      // ES must not be hit when there's no mapping
+      expect(mockSearch).not.toHaveBeenCalled();
+    });
+
+    it('builds an ES query with technique OR clauses + a 30d range filter', async () => {
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 12 }, hits: [] },
+      });
+
+      const result = await service.getControlCorrelation(
+        'Block executable content from email client and webmail',
+        30,
+      );
+
+      expect(result.coveredTechniques).toEqual(['T1566', 'T1204']);
+      expect(result.alertCount).toBe(12);
+
+      const searchCall = mockSearch.mock.calls[0][0];
+      expect(searchCall.size).toBe(0); // count-only query
+      const must = searchCall.query.bool.must;
+      expect(must).toContainEqual({ term: { doc_type: 'alert' } });
+      expect(must).toContainEqual({ range: { created_at: { gte: 'now-30d/d' } } });
+
+      // The technique should-clauses live in the filter bool.should
+      const filter = searchCall.query.bool.filter as Array<{
+        bool: { should: unknown[]; minimum_should_match: number };
+      }>;
+      expect(filter[0].bool.should).toContainEqual({ term: { mitre_techniques: 'T1566' } });
+      expect(filter[0].bool.should).toContainEqual({ prefix: { mitre_techniques: 'T1566.' } });
+      expect(filter[0].bool.should).toContainEqual({ term: { mitre_techniques: 'T1204' } });
+      expect(filter[0].bool.should).toContainEqual({ prefix: { mitre_techniques: 'T1204.' } });
+      expect(filter[0].bool.minimum_should_match).toBe(1);
+    });
+  });
+
   describe('getDefenseVsSecureScore', () => {
     it('merges defense and secure scores by date', async () => {
       // First call: getSecureScoreTrend (called internally)

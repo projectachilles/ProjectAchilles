@@ -95,6 +95,20 @@ router.get('/controls/by-category', requirePermission('analytics:dashboards:read
   res.json(data);
 }));
 
+/** GET /api/analytics/defender/controls/correlation?controlTitle=...&days=30
+ *  Returns { coveredTechniques, alertCount } for a Secure Score control by title.
+ *  Empty result if no curated mapping pattern matches the title (see
+ *  services/defender/control-correlation.service.ts). */
+router.get('/controls/correlation', requirePermission('analytics:dashboards:read'), asyncHandler(async (req, res) => {
+  const controlTitle = req.query.controlTitle ? String(req.query.controlTitle) : '';
+  const days = req.query.days ? parseInt(String(req.query.days), 10) : 30;
+  if (!controlTitle) {
+    throw new AppError('controlTitle is required', 400);
+  }
+  const data = await analyticsService.getControlCorrelation(controlTitle, days);
+  res.json(data);
+}));
+
 // ---------------------------------------------------------------------------
 // Cross-correlation
 // ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { DEFENDER_INDEX } from './index-management.js';
 import { buildDefenderEvidenceQuery } from './evidence-correlation.js';
+import { getControlMitreTechniques } from './control-correlation.service.js';
 import type { Client } from '@elastic/elasticsearch';
 import type { QueryDslQueryContainer } from '@elastic/elasticsearch/lib/api/types.js';
 
@@ -111,6 +112,11 @@ export interface PaginatedAlerts {
   total: number;
   page: number;
   pageSize: number;
+}
+
+export interface ControlCorrelationResult {
+  coveredTechniques: string[];
+  alertCount: number;
 }
 
 export interface DetectionRateTechniqueItem {
@@ -465,6 +471,49 @@ export class DefenderAnalyticsService {
   }
 
   // ── Cross-correlation ────────────────────────────────────────
+
+  /**
+   * Per-control correlation: count of Defender alerts in the time window whose
+   * mitre_techniques intersect those the control is expected to address.
+   * Mirror of backend/ — keep mapping data in sync.
+   */
+  async getControlCorrelation(
+    controlTitle: string,
+    days: number,
+  ): Promise<ControlCorrelationResult> {
+    const techniques = getControlMitreTechniques(controlTitle);
+    if (techniques.length === 0) {
+      return { coveredTechniques: [], alertCount: 0 };
+    }
+
+    const client = await this.getEsClient();
+    const techniqueClauses: QueryDslQueryContainer[] = techniques.flatMap((t) => [
+      { term: { mitre_techniques: t } },
+      { prefix: { mitre_techniques: `${t}.` } },
+    ]);
+
+    const result = await client.search({
+      index: DEFENDER_INDEX,
+      size: 0,
+      query: {
+        bool: {
+          must: [
+            { term: { doc_type: 'alert' } },
+            { range: { created_at: { gte: `now-${days}d/d` } } },
+          ],
+          filter: [
+            { bool: { should: techniqueClauses, minimum_should_match: 1 } },
+          ],
+        },
+      },
+    });
+
+    const alertCount = typeof result.hits.total === 'number'
+      ? result.hits.total
+      : (result.hits.total as { value: number })?.value ?? 0;
+
+    return { coveredTechniques: techniques, alertCount };
+  }
 
   async getDefenseVsSecureScore(days: number): Promise<ScoreComparisonPoint[]> {
     const client = await this.getEsClient();
