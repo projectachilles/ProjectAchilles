@@ -222,4 +222,41 @@ describe('AlertDetailsDrawer', () => {
     await userEvent.click(backdrop as Element);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('marks the dialog with role + aria-modal + aria-label for assistive tech', async () => {
+    mockGetAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 100 });
+
+    render(<AlertDetailsDrawer open onClose={() => {}} technique="T1059" />);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveAttribute('aria-label', 'Alerts for T1059');
+  });
+
+  it('closes the drawer when Escape is pressed', async () => {
+    mockGetAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 100 });
+    const onClose = vi.fn();
+
+    render(<AlertDetailsDrawer open onClose={onClose} />);
+    await waitFor(() => expect(screen.getByText('No recent alerts')).toBeInTheDocument());
+
+    await userEvent.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('exposes the alert count region as an aria-live region', async () => {
+    mockGetAlerts.mockResolvedValue({
+      data: [makeAlert({ alert_id: 'a1', alert_title: 'PSH', mitre_techniques: ['T1059'] })],
+      total: 1,
+      page: 1,
+      pageSize: 100,
+    });
+
+    const { container } = render(<AlertDetailsDrawer open onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText('1 alerts')).toBeInTheDocument());
+    const live = container.querySelector('[aria-live="polite"]');
+    expect(live).not.toBeNull();
+    expect(live?.textContent).toBe('1 alerts');
+  });
 });

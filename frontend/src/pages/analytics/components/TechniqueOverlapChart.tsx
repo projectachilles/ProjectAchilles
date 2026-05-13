@@ -73,7 +73,20 @@ export default function TechniqueOverlapChart({
         <svg
           viewBox={`0 0 ${labelW + chartW + 40} ${topItems.length * (barH * 2 + gap) + 4}`}
           className="w-full h-auto"
+          role="img"
+          aria-labelledby="technique-overlap-title technique-overlap-desc"
         >
+          <title id="technique-overlap-title">
+            MITRE Technique Overlap — Test results vs Defender alerts
+          </title>
+          <desc id="technique-overlap-desc">
+            {topItems
+              .map(
+                (t) =>
+                  `${t.technique}: ${t.testResults} test result${t.testResults === 1 ? '' : 's'}, ${t.defenderAlerts} Defender alert${t.defenderAlerts === 1 ? '' : 's'}.`,
+              )
+              .join(' ')}
+          </desc>
           {topItems.map((item, i) => {
             const y = i * (barH * 2 + gap);
             const testW = maxCount > 0 ? (item.testResults / maxCount) * chartW : 0;

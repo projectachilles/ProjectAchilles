@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, AlertTriangle, ExternalLink, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/shared/ui/Button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -41,6 +41,51 @@ export default function AlertDetailsDrawer({
   const [alerts, setAlerts] = useState<DefenderAlertItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+
+  // Focus trap + Escape-to-close + focus restoration on close
+  useEffect(() => {
+    if (!open) return;
+
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+    // Defer one frame so the dialog mounts before we move focus into it
+    queueMicrotask(() => closeButtonRef.current?.focus());
+
+    const focusableSelector =
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"]), input, select, textarea';
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab' || !dialogRef.current) return;
+      const focusables = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>(focusableSelector),
+      ).filter((el) => !el.hasAttribute('disabled'));
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      // Restore focus to the trigger element when the drawer closes
+      previouslyFocusedRef.current?.focus?.();
+    };
+  }, [open, onClose]);
 
   // Normalize to a single source-of-truth array. `techniques` takes precedence
   // when provided; otherwise wrap the legacy single-technique prop.
@@ -101,18 +146,26 @@ export default function AlertDetailsDrawer({
         aria-hidden
       />
       <div
+        ref={dialogRef}
         role="dialog"
+        aria-modal="true"
         aria-label={headerTitle}
         className="fixed inset-y-0 right-0 w-[480px] bg-card border-l border-border shadow-xl z-50 flex flex-col"
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <div className="min-w-0">
             <h3 className="text-base font-semibold truncate">{headerTitle}</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {loading ? 'Loading…' : `${alerts.length.toLocaleString()} alerts`}
+            <p className="text-xs text-muted-foreground mt-0.5" aria-live="polite">
+              {loading ? 'Loading alerts…' : `${alerts.length.toLocaleString()} alerts`}
             </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
+          <Button
+            ref={closeButtonRef}
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            aria-label="Close"
+          >
             <X className="w-4 h-4" />
           </Button>
         </div>
