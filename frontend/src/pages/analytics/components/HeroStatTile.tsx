@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { Loader2, AlertCircle, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import Sparkline from './Sparkline';
 
 export type DeltaTone = 'positive' | 'negative' | 'neutral';
@@ -68,8 +69,18 @@ export default function HeroStatTile(props: HeroStatTileProps) {
 
   if (loading) {
     return (
-      <Card className="h-full flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      <Card className="h-full flex flex-col p-0 overflow-hidden">
+        <div className="flex items-center gap-2 px-4 pt-4 pb-1 min-w-0">
+          {icon}
+          <span className="text-sm font-medium truncate text-muted-foreground">{title}</span>
+        </div>
+        <div className="flex-1 flex flex-col justify-center px-4 py-2 gap-2">
+          <Skeleton className="h-8 w-24" />
+          <Skeleton className="h-3 w-32" />
+        </div>
+        <div className="px-4 pb-4">
+          <Skeleton className="h-3 w-full" />
+        </div>
       </Card>
     );
   }

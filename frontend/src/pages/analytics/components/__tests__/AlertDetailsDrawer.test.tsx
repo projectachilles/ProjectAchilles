@@ -127,6 +127,29 @@ describe('AlertDetailsDrawer', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('renders a Defender portal external link per alert row', async () => {
+    mockGetAlerts.mockResolvedValue({
+      data: [
+        makeAlert({
+          alert_id: 'da123abc',
+          alert_title: 'PSH abuse',
+          mitre_techniques: ['T1059'],
+        }),
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 100,
+    });
+
+    render(<AlertDetailsDrawer open onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText('PSH abuse')).toBeInTheDocument());
+    const link = screen.getByLabelText('Open in Microsoft Defender');
+    expect(link).toHaveAttribute('href', 'https://security.microsoft.com/alerts/da123abc');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
   it('calls onClose when the backdrop is clicked', async () => {
     mockGetAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 100 });
     const onClose = vi.fn();
