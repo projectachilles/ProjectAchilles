@@ -1,16 +1,22 @@
 import { useState, useEffect } from 'react';
-import { Loader2, RefreshCw } from 'lucide-react';
-import { Button } from '@/components/shared/ui/Button';
-import { defenderApi, type SecureScoreSummary } from '@/services/api/defender';
+import {
+  defenderApi,
+  type SecureScoreSummary,
+  type AlertSummary,
+} from '@/services/api/defender';
+import DefenderTabHeader from './DefenderTabHeader';
 import SecureScoreCard from './SecureScoreCard';
+import AlertsSummaryCard from './AlertsSummaryCard';
+import AutoResolveStatTile from './AutoResolveStatTile';
+import TopControlsCard from './TopControlsCard';
 import TechniqueOverlapChart from './TechniqueOverlapChart';
 import DetectionAnalysisCard from './DetectionAnalysisCard';
-import TopControlsCard from './TopControlsCard';
 
 export default function DefenderTab() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [secureScore, setSecureScore] = useState<SecureScoreSummary | null>(null);
+  const [alertSummary, setAlertSummary] = useState<AlertSummary | null>(null);
   const [lastSync, setLastSync] = useState<string | null>(null);
 
   useEffect(() => {
@@ -20,21 +26,30 @@ export default function DefenderTab() {
 
   async function loadData() {
     setLoading(true);
-    try {
-      const score = await defenderApi.getSecureScore();
-      setSecureScore(score);
-    } catch (err) {
-      console.error('Failed to load Defender data:', err);
-    } finally {
-      setLoading(false);
+    const [scoreResult, alertResult] = await Promise.allSettled([
+      defenderApi.getSecureScore(),
+      defenderApi.getAlertSummary(),
+    ]);
+
+    if (scoreResult.status === 'fulfilled') {
+      setSecureScore(scoreResult.value);
+    } else {
+      console.error('Failed to load Defender secure score:', scoreResult.reason);
     }
+
+    if (alertResult.status === 'fulfilled') {
+      setAlertSummary(alertResult.value);
+    } else {
+      console.error('Failed to load Defender alert summary:', alertResult.reason);
+    }
+
+    setLoading(false);
   }
 
   async function loadSyncStatus() {
     try {
-      // Load sync status from dedicated endpoint
       const res = await fetch('/api/integrations/defender/sync/status', {
-        headers: { 'Authorization': `Bearer ${document.cookie}` },
+        headers: { Authorization: `Bearer ${document.cookie}` },
       }).catch(() => null);
       if (res?.ok) {
         const syncStatus = await res.json();
@@ -65,43 +80,23 @@ export default function DefenderTab() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Microsoft Defender</h2>
-          <p className="text-sm text-muted-foreground">
-            Secure Score, security alerts, and remediation controls
-            {lastSync && (
-              <span className="ml-2">
-                &middot; Last synced {new Date(lastSync).toLocaleString()}
-              </span>
-            )}
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleSync}
-          disabled={syncing}
-        >
-          {syncing ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <RefreshCw className="w-4 h-4" />
-          )}
-          Sync Now
-        </Button>
-      </div>
+      <DefenderTabHeader lastSync={lastSync} syncing={syncing} onSync={handleSync} />
 
-      {/* Summary row: Secure Score + Top Remediation Controls */}
+      {/* Top stat row: Secure Score · Alerts Summary · Auto-Resolve */}
       <div className="grid grid-cols-12 gap-4" style={{ minHeight: '280px' }}>
         <div className="col-span-12 md:col-span-4">
           <SecureScoreCard data={secureScore} loading={loading} />
         </div>
-        <div className="col-span-12 md:col-span-8">
-          <TopControlsCard compact />
+        <div className="col-span-12 md:col-span-4">
+          <AlertsSummaryCard data={alertSummary} loading={loading} />
+        </div>
+        <div className="col-span-12 md:col-span-4">
+          <AutoResolveStatTile />
         </div>
       </div>
+
+      {/* Recommendations */}
+      <TopControlsCard compact />
 
       {/* Detection analysis */}
       <DetectionAnalysisCard />
