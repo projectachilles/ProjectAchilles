@@ -6,7 +6,13 @@ import { defenderApi, type TechniqueOverlapItem } from '@/services/api/defender'
 const TEST_COLOR = 'oklch(0.65 0.22 145)';    // Green
 const ALERT_COLOR = 'oklch(0.6 0.22 25)';     // Red
 
-export default function TechniqueOverlapChart() {
+interface TechniqueOverlapChartProps {
+  onSelectTechnique?: (technique: string) => void;
+}
+
+export default function TechniqueOverlapChart({
+  onSelectTechnique,
+}: TechniqueOverlapChartProps = {}) {
   const [data, setData] = useState<TechniqueOverlapItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -71,9 +77,24 @@ export default function TechniqueOverlapChart() {
             const y = i * (barH * 2 + gap);
             const testW = maxCount > 0 ? (item.testResults / maxCount) * chartW : 0;
             const alertW = maxCount > 0 ? (item.defenderAlerts / maxCount) * chartW : 0;
+            const clickable = !!onSelectTechnique;
 
             return (
-              <g key={item.technique}>
+              <g
+                key={item.technique}
+                onClick={clickable ? () => onSelectTechnique!(item.technique) : undefined}
+                style={clickable ? { cursor: 'pointer' } : undefined}
+              >
+                {/* Transparent full-row hit target so empty space is clickable too */}
+                {clickable && (
+                  <rect
+                    x={0}
+                    y={y - gap / 2}
+                    width={labelW + chartW + 40}
+                    height={barH * 2 + gap}
+                    fill="transparent"
+                  />
+                )}
                 {/* Label */}
                 <text
                   x={labelW - 4}

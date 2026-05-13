@@ -16,6 +16,7 @@ import TopControlsCard from './TopControlsCard';
 import TestVsAlertTimelineCard from './TestVsAlertTimelineCard';
 import DetectionAnalysisCard from './DetectionAnalysisCard';
 import TechniqueOverlapChart from './TechniqueOverlapChart';
+import AlertDetailsDrawer from './AlertDetailsDrawer';
 
 const TREND_DAYS = 30;
 
@@ -48,6 +49,18 @@ export default function DefenderTab() {
   const [alertTrend, setAlertTrend] = useState<AlertTrendPoint[]>([]);
   const [detectionRate, setDetectionRate] = useState<DetectionRateResponse | null>(null);
   const [lastSync, setLastSync] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerTechnique, setDrawerTechnique] = useState<string | undefined>(undefined);
+
+  function openDrawerForTechnique(t: string) {
+    setDrawerTechnique(t);
+    setDrawerOpen(true);
+  }
+
+  function openDrawerForAll() {
+    setDrawerTechnique(undefined);
+    setDrawerOpen(true);
+  }
 
   useEffect(() => {
     loadData();
@@ -156,6 +169,7 @@ export default function DefenderTab() {
             sparklineData={alertTrend.map((p) => p.count)}
             sparklineClass="text-red-500"
             loading={loading}
+            onClick={openDrawerForAll}
           />
         </div>
         <div className="col-span-12 sm:col-span-6 md:col-span-3">
@@ -191,10 +205,16 @@ export default function DefenderTab() {
       </div>
 
       {/* Detection analysis */}
-      <DetectionAnalysisCard />
+      <DetectionAnalysisCard onSelectTechnique={openDrawerForTechnique} />
 
       {/* Technique overlap */}
-      <TechniqueOverlapChart />
+      <TechniqueOverlapChart onSelectTechnique={openDrawerForTechnique} />
+
+      <AlertDetailsDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        technique={drawerTechnique}
+      />
     </div>
   );
 }

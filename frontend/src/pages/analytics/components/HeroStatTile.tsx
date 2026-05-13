@@ -20,6 +20,7 @@ interface HeroStatTileProps {
   loading?: boolean;
   error?: string;
   href?: string;
+  onClick?: () => void;
   emptyState?: ReactNode;
 }
 
@@ -61,6 +62,7 @@ export default function HeroStatTile(props: HeroStatTileProps) {
     loading,
     error,
     href,
+    onClick,
     emptyState,
   } = props;
 
@@ -131,6 +133,17 @@ export default function HeroStatTile(props: HeroStatTileProps) {
       <Link to={href} className="block h-full">
         {tile}
       </Link>
+    );
+  }
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="block h-full w-full text-left appearance-none bg-transparent border-0 p-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-base"
+      >
+        {tile}
+      </button>
     );
   }
   return tile;
