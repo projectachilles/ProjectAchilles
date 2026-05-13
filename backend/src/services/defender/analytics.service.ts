@@ -256,29 +256,26 @@ export class DefenderAnalyticsService {
     severity?: string;
     status?: string;
     search?: string;
-    technique?: string;
+    /** MITRE techniques to OR-filter on. Each entry matches itself + sub-techniques. */
+    techniques?: string[];
     sortField?: string;
     sortOrder?: 'asc' | 'desc';
   }): Promise<PaginatedAlerts> {
     const client = this.getEsClient();
-    const { page = 1, pageSize = 25, severity, status, search, technique, sortField = 'created_at', sortOrder = 'desc' } = params;
+    const { page = 1, pageSize = 25, severity, status, search, techniques, sortField = 'created_at', sortOrder = 'desc' } = params;
 
     const must: QueryDslQueryContainer[] = [{ term: { doc_type: 'alert' } }];
     if (severity) must.push({ term: { severity } });
     if (status) must.push({ term: { status } });
     if (search) must.push({ multi_match: { query: search, fields: ['alert_title', 'description', 'category'] } });
-    if (technique) {
-      // Match the exact technique (e.g. T1059) and any sub-technique (T1059.001, T1059.003 …)
+    if (techniques && techniques.length > 0) {
+      // Match exact technique (e.g. T1059) and any sub-technique (T1059.001, T1059.003 …)
       // without false-positives like T10590. The trailing dot in the prefix is load-bearing.
-      must.push({
-        bool: {
-          should: [
-            { term: { mitre_techniques: technique } },
-            { prefix: { mitre_techniques: `${technique}.` } },
-          ],
-          minimum_should_match: 1,
-        },
-      });
+      const should: QueryDslQueryContainer[] = techniques.flatMap((t) => [
+        { term: { mitre_techniques: t } },
+        { prefix: { mitre_techniques: `${t}.` } },
+      ]);
+      must.push({ bool: { should, minimum_should_match: 1 } });
     }
 
     const result = await client.search({

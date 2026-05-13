@@ -50,29 +50,29 @@ export default function DefenderTab() {
   const [detectionRate, setDetectionRate] = useState<DetectionRateResponse | null>(null);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerTechnique, setDrawerTechnique] = useState<string | undefined>(undefined);
+  const [drawerTechniques, setDrawerTechniques] = useState<string[] | undefined>(undefined);
   const [drawerTitle, setDrawerTitle] = useState<string | undefined>(undefined);
 
   function openDrawerForTechnique(t: string) {
-    setDrawerTechnique(t);
+    setDrawerTechniques([t]);
     setDrawerTitle(undefined);
     setDrawerOpen(true);
   }
 
   function openDrawerForAll() {
-    setDrawerTechnique(undefined);
+    setDrawerTechniques(undefined);
     setDrawerTitle(undefined);
     setDrawerOpen(true);
   }
 
   /**
    * Open the drawer for the alerts addressed by a Top Remediation Control.
-   * For now we pass only the first covered technique to the server-side filter
-   * (single-technique drawer). Backend multi-technique OR is a follow-on.
-   * The title is overridden so the user sees the control name in the header.
+   * Passes the FULL covered-techniques array — backend ORs them via the
+   * /alerts?techniques=... filter, so a multi-technique control surfaces
+   * alerts for every covered technique.
    */
   function openDrawerForControl(techniques: string[], controlTitle: string) {
-    setDrawerTechnique(techniques[0]);
+    setDrawerTechniques(techniques);
     setDrawerTitle(`Alerts addressed by '${controlTitle}'`);
     setDrawerOpen(true);
   }
@@ -228,7 +228,7 @@ export default function DefenderTab() {
       <AlertDetailsDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        technique={drawerTechnique}
+        techniques={drawerTechniques}
         title={drawerTitle}
       />
     </div>

@@ -10,7 +10,11 @@ const DEFENDER_PORTAL_BASE = 'https://security.microsoft.com/alerts';
 interface AlertDetailsDrawerProps {
   open: boolean;
   onClose: () => void;
+  /** Single MITRE technique filter (convenience for the chart click-throughs). */
   technique?: string;
+  /** Multi-technique OR filter (used by control click-throughs). Takes precedence over `technique`. */
+  techniques?: string[];
+  /** Optional title override (e.g., "Alerts addressed by 'BlockExeFromEmail'"). */
   title?: string;
 }
 
@@ -31,11 +35,23 @@ export default function AlertDetailsDrawer({
   open,
   onClose,
   technique,
+  techniques,
   title,
 }: AlertDetailsDrawerProps) {
   const [alerts, setAlerts] = useState<DefenderAlertItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Normalize to a single source-of-truth array. `techniques` takes precedence
+  // when provided; otherwise wrap the legacy single-technique prop.
+  const effectiveTechniques =
+    techniques && techniques.length > 0
+      ? techniques
+      : technique
+      ? [technique]
+      : undefined;
+  // Stable cache key for the effect dep array (avoids array-identity churn)
+  const techniquesKey = effectiveTechniques ? effectiveTechniques.join(',') : '';
 
   useEffect(() => {
     if (!open) return;
@@ -47,7 +63,7 @@ export default function AlertDetailsDrawer({
         pageSize: PAGE_SIZE,
         sortField: 'created_at',
         sortOrder: 'desc',
-        technique,
+        techniques: effectiveTechniques,
       })
       .then((res) => {
         if (cancelled) return;
@@ -64,11 +80,18 @@ export default function AlertDetailsDrawer({
     return () => {
       cancelled = true;
     };
-  }, [open, technique]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, techniquesKey]);
 
   if (!open) return null;
 
-  const headerTitle = title ?? (technique ? `Alerts for ${technique}` : 'Recent Defender Alerts');
+  const defaultHeader =
+    !effectiveTechniques
+      ? 'Recent Defender Alerts'
+      : effectiveTechniques.length === 1
+      ? `Alerts for ${effectiveTechniques[0]}`
+      : `Alerts for ${effectiveTechniques.join(', ')}`;
+  const headerTitle = title ?? defaultHeader;
 
   return (
     <>
@@ -123,7 +146,9 @@ export default function AlertDetailsDrawer({
             <div className="h-full flex flex-col items-center justify-center text-center px-4 gap-2">
               <AlertTriangle className="w-6 h-6 text-muted-foreground opacity-60" />
               <span className="text-sm text-muted-foreground">
-                {technique ? `No alerts found for ${technique}` : 'No recent alerts'}
+                {effectiveTechniques
+                  ? `No alerts found for ${effectiveTechniques.join(', ')}`
+                  : 'No recent alerts'}
               </span>
             </div>
           ) : (
