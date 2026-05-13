@@ -98,4 +98,32 @@ describe('HeroStatTile', () => {
     await userEvent.click(button);
     expect(onClick).toHaveBeenCalledTimes(1);
   });
+
+  it('renders the chartSlot when provided', () => {
+    renderInRouter(
+      <HeroStatTile
+        title="Detection Rate"
+        value="15.4"
+        chartSlot={<div data-testid="custom-chart">custom viz</div>}
+      />
+    );
+
+    expect(screen.getByTestId('custom-chart')).toBeInTheDocument();
+    expect(screen.getByText('custom viz')).toBeInTheDocument();
+  });
+
+  it('prefers chartSlot over sparklineData when both are provided', () => {
+    renderInRouter(
+      <HeroStatTile
+        title="Detection Rate"
+        value="15.4"
+        sparklineData={[1, 2, 3, 4]}
+        chartSlot={<div data-testid="custom-chart">pip grid</div>}
+      />
+    );
+
+    expect(screen.getByTestId('custom-chart')).toBeInTheDocument();
+    // Sparkline SVG should be skipped when chartSlot takes its place
+    expect(screen.queryByRole('img', { name: 'Detection Rate trend' })).toBeNull();
+  });
 });

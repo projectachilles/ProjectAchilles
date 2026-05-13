@@ -17,6 +17,7 @@ import TestVsAlertTimelineCard from './TestVsAlertTimelineCard';
 import DetectionAnalysisCard from './DetectionAnalysisCard';
 import TechniqueOverlapChart from './TechniqueOverlapChart';
 import AlertDetailsDrawer from './AlertDetailsDrawer';
+import CoveragePips from './CoveragePips';
 
 const TREND_DAYS = 30;
 
@@ -197,6 +198,16 @@ export default function DefenderTab() {
               detectionRate
                 ? `${detectionRate.overall.detectedTechniques}/${detectionRate.overall.testedTechniques} techniques`
                 : undefined
+            }
+            chartSlot={
+              detectionRate && detectionRate.byTechnique.length > 0 ? (
+                <CoveragePips
+                  items={detectionRate.byTechnique.map((t) => ({
+                    technique: t.technique,
+                    detected: t.detected,
+                  }))}
+                />
+              ) : undefined
             }
             loading={loading}
           />

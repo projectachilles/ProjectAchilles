@@ -120,38 +120,51 @@ export default function TestVsAlertTimelineCard() {
         ) : (
           <ResponsiveContainer width="100%" height={260}>
             <ComposedChart data={data} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis
                 dataKey="date"
                 tickFormatter={(d: string) =>
                   new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
                 }
-                tick={{ fontSize: 11 }}
-                stroke="hsl(var(--muted-foreground))"
+                tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                stroke="var(--muted-foreground)"
               />
               <YAxis
                 yAxisId="tests"
                 orientation="left"
-                tick={{ fontSize: 11 }}
-                stroke="hsl(var(--muted-foreground))"
-                label={{ value: 'Tests', angle: -90, position: 'insideLeft', fontSize: 11 }}
+                tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                stroke="var(--muted-foreground)"
+                label={{
+                  value: 'Tests',
+                  angle: -90,
+                  position: 'insideLeft',
+                  fontSize: 11,
+                  fill: 'var(--muted-foreground)',
+                }}
               />
               <YAxis
                 yAxisId="alerts"
                 orientation="right"
-                tick={{ fontSize: 11 }}
-                stroke="hsl(var(--muted-foreground))"
-                label={{ value: 'Alerts', angle: 90, position: 'insideRight', fontSize: 11 }}
+                tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                stroke="var(--muted-foreground)"
+                label={{
+                  value: 'Alerts',
+                  angle: 90,
+                  position: 'insideRight',
+                  fontSize: 11,
+                  fill: 'var(--muted-foreground)',
+                }}
               />
               <Tooltip
                 contentStyle={{
-                  background: 'hsl(var(--card))',
-                  border: '1px solid hsl(var(--border))',
+                  background: 'var(--card)',
+                  border: '1px solid var(--border)',
                   borderRadius: 6,
                   fontSize: 12,
+                  color: 'var(--foreground)',
                 }}
               />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted-foreground)' }} />
               <Area
                 yAxisId="tests"
                 type="monotone"

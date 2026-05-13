@@ -18,6 +18,12 @@ interface HeroStatTileProps {
   deltaTone?: DeltaTone;
   sparklineData?: number[];
   sparklineClass?: string;
+  /**
+   * Custom visualization rendered in place of the sparkline. When provided
+   * the sparkline is skipped — used for tiles whose data is naturally
+   * categorical (e.g., per-technique coverage pips) rather than a time series.
+   */
+  chartSlot?: ReactNode;
   loading?: boolean;
   error?: string;
   href?: string;
@@ -60,6 +66,7 @@ export default function HeroStatTile(props: HeroStatTileProps) {
     deltaTone,
     sparklineData,
     sparklineClass = 'text-primary',
+    chartSlot,
     loading,
     error,
     href,
@@ -121,11 +128,13 @@ export default function HeroStatTile(props: HeroStatTileProps) {
         )}
       </div>
 
-      {sparklineData && sparklineData.length >= 2 && (
+      {chartSlot ? (
+        <div className="px-4 pt-1">{chartSlot}</div>
+      ) : sparklineData && sparklineData.length >= 2 ? (
         <div className={`px-4 ${sparklineClass}`}>
           <Sparkline data={sparklineData} width={240} height={32} ariaLabel={`${title} trend`} />
         </div>
-      )}
+      ) : null}
 
       {typeof delta === 'number' && (
         <div className="px-4 pb-3 pt-1 flex items-center gap-1 text-xs">
