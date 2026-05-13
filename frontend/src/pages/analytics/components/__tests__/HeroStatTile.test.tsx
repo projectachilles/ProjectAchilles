@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import HeroStatTile from '../HeroStatTile';
 
@@ -84,5 +85,15 @@ describe('HeroStatTile', () => {
     const link = screen.getByRole('link');
     expect(link).toHaveAttribute('href', '/settings');
     expect(link).toContainElement(screen.getByText('Click me'));
+  });
+
+  it('wraps the card in a button and fires onClick when clicked', async () => {
+    const onClick = vi.fn();
+    renderInRouter(<HeroStatTile title="Alerts" value="12" onClick={onClick} />);
+
+    const button = screen.getByRole('button');
+    expect(button).toContainElement(screen.getByText('Alerts'));
+    await userEvent.click(button);
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 });

@@ -6,7 +6,13 @@ import { defenderApi, type DetectionRateResponse } from '@/services/api/defender
 const DETECTED_COLOR = 'oklch(0.65 0.22 145)';   // Green
 const MISSED_COLOR = 'oklch(0.6 0.22 25)';        // Red
 
-export default function DetectionAnalysisCard() {
+interface DetectionAnalysisCardProps {
+  onSelectTechnique?: (technique: string) => void;
+}
+
+export default function DetectionAnalysisCard({
+  onSelectTechnique,
+}: DetectionAnalysisCardProps = {}) {
   const [data, setData] = useState<DetectionRateResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
@@ -66,8 +72,28 @@ export default function DetectionAnalysisCard() {
         <div className="space-y-1.5">
           {data.byTechnique.map((item) => {
             const barWidth = maxTests > 0 ? (item.testExecutions / maxTests) * 100 : 0;
+            const clickable = !!onSelectTechnique;
+            const rowClass = clickable
+              ? 'flex items-center gap-2 text-xs cursor-pointer rounded px-1 -mx-1 hover:bg-muted/40 transition-colors'
+              : 'flex items-center gap-2 text-xs';
             return (
-              <div key={item.technique} className="flex items-center gap-2 text-xs">
+              <div
+                key={item.technique}
+                className={rowClass}
+                onClick={clickable ? () => onSelectTechnique!(item.technique) : undefined}
+                role={clickable ? 'button' : undefined}
+                tabIndex={clickable ? 0 : undefined}
+                onKeyDown={
+                  clickable
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onSelectTechnique!(item.technique);
+                        }
+                      }
+                    : undefined
+                }
+              >
                 {/* Technique label */}
                 <span className="w-14 font-mono text-muted-foreground shrink-0">
                   {item.technique}
