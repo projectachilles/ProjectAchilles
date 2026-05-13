@@ -70,14 +70,14 @@ describe('AlertDetailsDrawer', () => {
     expect(screen.getByText('2 alerts')).toBeInTheDocument();
   });
 
-  it('filters client-side when a technique is provided and matches sub-techniques', async () => {
+  it('passes the technique to the backend filter; renders the response as-is', async () => {
+    // Backend is the SUT for the filter; the drawer just renders whatever it gets.
     mockGetAlerts.mockResolvedValue({
       data: [
         makeAlert({ alert_id: 'a1', alert_title: 'PSH parent', mitre_techniques: ['T1059'] }),
         makeAlert({ alert_id: 'a2', alert_title: 'PSH sub', mitre_techniques: ['T1059.001'] }),
-        makeAlert({ alert_id: 'a3', alert_title: 'Cred dump', mitre_techniques: ['T1003'] }),
       ],
-      total: 3,
+      total: 2,
       page: 1,
       pageSize: 100,
     });
@@ -85,19 +85,68 @@ describe('AlertDetailsDrawer', () => {
     render(<AlertDetailsDrawer open onClose={() => {}} technique="T1059" />);
 
     await waitFor(() => expect(screen.getByText('PSH parent')).toBeInTheDocument());
+    expect(mockGetAlerts).toHaveBeenCalledWith(
+      expect.objectContaining({ technique: 'T1059' })
+    );
     expect(screen.getByText('Alerts for T1059')).toBeInTheDocument();
     expect(screen.getByText('PSH sub')).toBeInTheDocument();
-    expect(screen.queryByText('Cred dump')).toBeNull();
     expect(screen.getByText('2 alerts')).toBeInTheDocument();
   });
 
-  it('shows the technique-specific empty state when no matches', async () => {
+  it('does not pass technique when none is set (recent-all view)', async () => {
+    mockGetAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 100 });
+
+    render(<AlertDetailsDrawer open onClose={() => {}} />);
+
+    await waitFor(() => expect(mockGetAlerts).toHaveBeenCalled());
+    const callArgs = mockGetAlerts.mock.calls[0][0] as { technique?: string };
+    expect(callArgs.technique).toBeUndefined();
+  });
+
+  it('renders the Auto-resolved badge when an alert has f0rtika.auto_resolved=true', async () => {
     mockGetAlerts.mockResolvedValue({
-      data: [makeAlert({ alert_id: 'a1', mitre_techniques: ['T1003'] })],
+      data: [
+        {
+          ...makeAlert({ alert_id: 'a1', alert_title: 'PSH auto-handled' }),
+          auto_resolved: true,
+          auto_resolved_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+          auto_resolve_mode: 'enabled',
+        },
+      ],
       total: 1,
       page: 1,
       pageSize: 100,
     });
+
+    render(<AlertDetailsDrawer open onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText('PSH auto-handled')).toBeInTheDocument());
+    expect(screen.getByText(/Auto-resolved by Achilles/)).toBeInTheDocument();
+  });
+
+  it('marks the auto-resolve mode when not the default "enabled"', async () => {
+    mockGetAlerts.mockResolvedValue({
+      data: [
+        {
+          ...makeAlert({ alert_id: 'a1', alert_title: 'Some quiet alert' }),
+          auto_resolved: true,
+          auto_resolved_at: new Date().toISOString(),
+          auto_resolve_mode: 'dry_run',
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 100,
+    });
+
+    render(<AlertDetailsDrawer open onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText(/dry-run/)).toBeInTheDocument());
+  });
+
+  it('shows the technique-specific empty state when the backend returns no matches', async () => {
+    // Server-side filter returns an empty array for techniques with no alerts.
+    mockGetAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 100 });
 
     render(<AlertDetailsDrawer open onClose={() => {}} technique="T1486" />);
 

@@ -68,6 +68,9 @@ export interface DefenderAlertItem {
   attribution?: 'stage' | 'bundle';
   /** Lowercased technique token from a stage-attributable evidence binary. */
   attributed_control_id?: string;
+  auto_resolved?: boolean;
+  auto_resolved_at?: string | null;
+  auto_resolve_mode?: 'disabled' | 'dry_run' | 'enabled' | null;
 }
 
 export interface ControlItem {
@@ -275,16 +278,30 @@ export class DefenderAnalyticsService {
     severity?: string;
     status?: string;
     search?: string;
+    technique?: string;
     sortField?: string;
     sortOrder?: 'asc' | 'desc';
   }): Promise<PaginatedAlerts> {
     const client = await this.getEsClient();
-    const { page = 1, pageSize = 25, severity, status, search, sortField = 'created_at', sortOrder = 'desc' } = params;
+    const { page = 1, pageSize = 25, severity, status, search, technique, sortField = 'created_at', sortOrder = 'desc' } = params;
 
     const must: QueryDslQueryContainer[] = [{ term: { doc_type: 'alert' } }];
     if (severity) must.push({ term: { severity } });
     if (status) must.push({ term: { status } });
     if (search) must.push({ multi_match: { query: search, fields: ['alert_title', 'description', 'category'] } });
+    if (technique) {
+      // Match the exact technique (e.g. T1059) and any sub-technique (T1059.001, T1059.003 …)
+      // without false-positives like T10590. The trailing dot in the prefix is load-bearing.
+      must.push({
+        bool: {
+          should: [
+            { term: { mitre_techniques: technique } },
+            { prefix: { mitre_techniques: `${technique}.` } },
+          ],
+          minimum_should_match: 1,
+        },
+      });
+    }
 
     const result = await client.search({
       index: DEFENDER_INDEX,
@@ -300,7 +317,8 @@ export class DefenderAnalyticsService {
 
     const data = result.hits.hits.map((hit) => {
       const s = hit._source as Record<string, unknown>;
-      return {
+      const f0rtika = (s.f0rtika as Record<string, unknown> | undefined) ?? {};
+      const item: DefenderAlertItem = {
         alert_id: String(s.alert_id ?? ''),
         alert_title: String(s.alert_title ?? ''),
         description: String(s.description ?? ''),
@@ -314,6 +332,14 @@ export class DefenderAnalyticsService {
         resolved_at: s.resolved_at ? String(s.resolved_at) : null,
         recommended_actions: String(s.recommended_actions ?? ''),
       };
+      if (typeof f0rtika.auto_resolved === 'boolean') {
+        item.auto_resolved = f0rtika.auto_resolved;
+        item.auto_resolved_at = f0rtika.auto_resolved_at ? String(f0rtika.auto_resolved_at) : null;
+        const mode = f0rtika.auto_resolve_mode;
+        item.auto_resolve_mode =
+          mode === 'disabled' || mode === 'dry_run' || mode === 'enabled' ? mode : null;
+      }
+      return item;
     });
 
     return { data, total, page, pageSize };

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, AlertTriangle, ExternalLink } from 'lucide-react';
+import { X, AlertTriangle, ExternalLink, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/shared/ui/Button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { defenderApi, type DefenderAlertItem } from '@/services/api/defender';
@@ -27,16 +27,6 @@ function formatTimeAgo(dateStr: string): string {
   return `${d}d ago`;
 }
 
-function filterByTechnique(
-  alerts: DefenderAlertItem[],
-  technique: string | undefined
-): DefenderAlertItem[] {
-  if (!technique) return alerts;
-  return alerts.filter((a) =>
-    a.mitre_techniques?.some((t) => t === technique || t.startsWith(`${technique}.`))
-  );
-}
-
 export default function AlertDetailsDrawer({
   open,
   onClose,
@@ -57,10 +47,11 @@ export default function AlertDetailsDrawer({
         pageSize: PAGE_SIZE,
         sortField: 'created_at',
         sortOrder: 'desc',
+        technique,
       })
       .then((res) => {
         if (cancelled) return;
-        setAlerts(filterByTechnique(res.data, technique));
+        setAlerts(res.data);
       })
       .catch((e) => {
         if (cancelled) return;
@@ -170,6 +161,20 @@ export default function AlertDetailsDrawer({
                           <span>·</span>
                           <span>{alert.service_source}</span>
                         </div>
+                        {alert.auto_resolved && (
+                          <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400">
+                            <ShieldCheck className="w-3 h-3" />
+                            <span>
+                              Auto-resolved by Achilles
+                              {alert.auto_resolved_at && (
+                                <> · {formatTimeAgo(alert.auto_resolved_at)}</>
+                              )}
+                              {alert.auto_resolve_mode && alert.auto_resolve_mode !== 'enabled' && (
+                                <> · {alert.auto_resolve_mode === 'dry_run' ? 'dry-run' : alert.auto_resolve_mode}</>
+                              )}
+                            </span>
+                          </div>
+                        )}
                         {alert.mitre_techniques && alert.mitre_techniques.length > 0 && (
                           <div className="mt-1 flex flex-wrap gap-1">
                             {alert.mitre_techniques.slice(0, 6).map((t) => (
