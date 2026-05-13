@@ -37,7 +37,7 @@ describe('AutoResolveStatTile', () => {
     await waitFor(() => expect(screen.getByText('184')).toBeInTheDocument());
     expect(screen.getByText('resolved in last 30d')).toBeInTheDocument();
     expect(screen.getByText('Enabled')).toBeInTheDocument();
-    expect(screen.getByText('7')).toBeInTheDocument();
+    expect(screen.getByText(/24h:\s*7/)).toBeInTheDocument();
   });
 
   it('renders Disabled mode with zero counts as the default-quiet state', async () => {
@@ -50,7 +50,8 @@ describe('AutoResolveStatTile', () => {
     renderTile();
 
     await waitFor(() => expect(screen.getByText('Disabled')).toBeInTheDocument());
-    expect(screen.getAllByText('0').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('0')).toBeInTheDocument();
+    expect(screen.getByText(/24h:\s*0/)).toBeInTheDocument();
   });
 
   it('renders Dry Run mode label when in dry_run', async () => {
@@ -64,6 +65,7 @@ describe('AutoResolveStatTile', () => {
 
     await waitFor(() => expect(screen.getByText('Dry Run')).toBeInTheDocument());
     expect(screen.getByText('18')).toBeInTheDocument();
+    expect(screen.getByText(/24h:\s*2/)).toBeInTheDocument();
   });
 
   it('renders the unavailable empty state when the API rejects', async () => {

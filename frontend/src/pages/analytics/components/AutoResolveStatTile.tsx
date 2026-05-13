@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Loader2, ShieldCheck, Settings, AlertCircle } from 'lucide-react';
-import { Card } from '@/components/ui/card';
+import { ShieldCheck } from 'lucide-react';
 import {
   integrationsApi,
   type AutoResolveStatus,
   type AutoResolveMode,
 } from '@/services/api/integrations';
+import HeroStatTile from './HeroStatTile';
 
 const MODE_META: Record<AutoResolveMode, { label: string; tone: string }> = {
   disabled: { label: 'Disabled', tone: 'text-muted-foreground' },
@@ -42,60 +41,45 @@ export default function AutoResolveStatTile() {
 
   if (loading) {
     return (
-      <Card className="h-full flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </Card>
+      <HeroStatTile
+        title="Auto-Resolve"
+        icon={<ShieldCheck className="w-4 h-4 text-primary" />}
+        value=""
+        loading
+      />
     );
   }
 
   if (error || !status) {
     return (
-      <Card className="h-full flex flex-col items-center justify-center text-center p-4 gap-2">
-        <AlertCircle className="w-6 h-6 text-muted-foreground" />
-        <span className="text-xs text-muted-foreground">
-          Auto-resolve status unavailable
-        </span>
-      </Card>
+      <HeroStatTile
+        title="Auto-Resolve"
+        icon={<ShieldCheck className="w-4 h-4 text-primary" />}
+        value=""
+        error="Auto-resolve status unavailable"
+      />
     );
   }
 
   const modeMeta = MODE_META[status.mode];
+  const subValue = (
+    <span className="flex flex-col gap-0.5">
+      <span>resolved in last 30d</span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className={`font-medium ${modeMeta.tone}`}>{modeMeta.label}</span>
+        <span>·</span>
+        <span>24h: {status.counts.last24h.toLocaleString()}</span>
+      </span>
+    </span>
+  );
 
   return (
-    <Card className="h-full flex flex-col p-0 overflow-hidden">
-      <div className="flex items-center justify-between px-4 pt-4 pb-2">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="w-4 h-4 text-primary" />
-          <span className="text-sm font-medium">Auto-Resolve</span>
-        </div>
-        <Link
-          to="/settings"
-          className="text-muted-foreground hover:text-foreground transition-colors"
-          title="Configure auto-resolve"
-        >
-          <Settings className="w-4 h-4" />
-        </Link>
-      </div>
-
-      <div className="flex-1 flex flex-col items-center justify-center gap-1 px-4 py-3">
-        <span className="text-3xl font-bold tabular-nums">
-          {status.counts.last30d.toLocaleString()}
-        </span>
-        <span className="text-xs text-muted-foreground">resolved in last 30d</span>
-      </div>
-
-      <div className="border-t border-border mx-4" />
-
-      <div className="px-4 py-2 flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">Mode</span>
-        <span className={`font-medium ${modeMeta.tone}`}>{modeMeta.label}</span>
-      </div>
-      <div className="px-4 pb-3 flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">Last 24h</span>
-        <span className="font-medium tabular-nums">
-          {status.counts.last24h.toLocaleString()}
-        </span>
-      </div>
-    </Card>
+    <HeroStatTile
+      title="Auto-Resolve"
+      icon={<ShieldCheck className="w-4 h-4 text-primary" />}
+      value={status.counts.last30d.toLocaleString()}
+      subValue={subValue}
+      href="/settings"
+    />
   );
 }
