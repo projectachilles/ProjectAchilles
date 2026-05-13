@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { defenderApi, type TechniqueOverlapItem } from '@/services/api/defender';
+import { DEFENDER_CHART_COLORS } from '../utils/defenderChartColors';
 
-const TEST_COLOR = 'oklch(0.65 0.22 145)';    // Green
-const ALERT_COLOR = 'oklch(0.6 0.22 25)';     // Red
+const TEST_COLOR = DEFENDER_CHART_COLORS.detected;
+const ALERT_COLOR = DEFENDER_CHART_COLORS.missed;
 
 interface TechniqueOverlapChartProps {
   onSelectTechnique?: (technique: string) => void;

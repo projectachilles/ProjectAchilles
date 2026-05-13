@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { ShieldCheck, ShieldX } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { defenderApi, type DetectionRateResponse } from '@/services/api/defender';
+import { DEFENDER_CHART_COLORS } from '../utils/defenderChartColors';
 
-const DETECTED_COLOR = 'oklch(0.65 0.22 145)';   // Green
-const MISSED_COLOR = 'oklch(0.6 0.22 25)';        // Red
+const DETECTED_COLOR = DEFENDER_CHART_COLORS.detected;
+const MISSED_COLOR = DEFENDER_CHART_COLORS.missed;
 
 interface DetectionAnalysisCardProps {
   onSelectTechnique?: (technique: string) => void;
