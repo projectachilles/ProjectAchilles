@@ -4,7 +4,8 @@ import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { validate } from '../middleware/validation.js';
 import { IntegrationsSettingsService } from '../services/integrations/settings.js';
 import { DefenderSyncService } from '../services/defender/sync.service.js';
-import { AzureCredentialsSchema, AzureTestSchema, DefenderCredentialsSchema, DefenderTestSchema, DefenderAutoResolveModeSchema } from '../schemas/integrations.schemas.js';
+import { AzureCredentialsSchema, AzureTestSchema, DefenderCredentialsSchema, DefenderTestSchema, DefenderAutoResolveModeSchema, SophosCredentialsSchema, SophosTestSchema } from '../schemas/integrations.schemas.js';
+import { SophosCentralClient, SophosApiError } from '../services/sophos/sophos-client.js';
 import { DEFENDER_INDEX } from '../services/defender/index-management.js';
 import { SettingsService as AnalyticsSettingsService } from '../services/analytics/settings.js';
 import { createEsClient } from '../services/analytics/client.js';
@@ -340,4 +341,101 @@ router.get('/defender/auto-resolve/receipts', requirePermission('integrations:re
 }));
 
 export { defenderSyncService };
+
+// ── Sophos Central ──────────────────────────────────────────────────
+//
+// Sophos differs from Defender in two operator-visible ways: no tenant_id
+// input field (discovered via whoami), and the /test route returns the
+// discovered tenant + region + tier so the UI can confirm the connection
+// metadata before save. See `backend/src/api/integrations.routes.ts` for
+// the matching pattern in the Docker backend.
+
+router.get('/sophos', requirePermission('integrations:read'), asyncHandler(async (_req, res) => {
+  const settings = await settingsService.getSophosSettings();
+
+  if (!settings?.configured) {
+    res.json({ configured: false });
+    return;
+  }
+
+  const mask = (val: string) =>
+    val && val.length > 4 ? '****' + val.slice(-4) : '****';
+
+  res.json({
+    configured: true,
+    client_id: mask(settings.client_id),
+    client_secret_set: !!settings.client_secret,
+    label: settings.label ?? '',
+    tenant_id: settings.tenant_id,
+    data_region: settings.data_region,
+    tier: settings.tier,
+    env_configured: settingsService.isEnvSophosConfigured(),
+  });
+}));
+
+router.post('/sophos', requirePermission('integrations:write'), validate(SophosCredentialsSchema), asyncHandler(async (req, res) => {
+  const { client_id, client_secret, label } = req.body;
+
+  const isEdit = await settingsService.isSophosConfigured();
+
+  if (!isEdit) {
+    if (!client_id || !client_secret) {
+      throw new AppError('client_id and client_secret are required for initial setup', 400);
+    }
+  }
+
+  await settingsService.saveSophosSettings({ client_id, client_secret, label });
+  res.json({ success: true });
+}));
+
+router.delete('/sophos', requirePermission('integrations:write'), asyncHandler(async (_req, res) => {
+  if (settingsService.isEnvSophosConfigured()) {
+    throw new AppError(
+      'Cannot disconnect: Sophos credentials are set via environment variables (SOPHOS_CLIENT_ID, SOPHOS_CLIENT_SECRET). Remove these env vars to disconnect.',
+      400
+    );
+  }
+  await settingsService.deleteSophosSettings();
+  res.json({ success: true });
+}));
+
+router.post('/sophos/test', requirePermission('integrations:write'), validate(SophosTestSchema), asyncHandler(async (req, res) => {
+  const { client_id, client_secret } = req.body;
+
+  const stored = await settingsService.getSophosCredentials();
+  const effectiveClientId = client_id || stored?.client_id;
+  const effectiveClientSecret = client_secret || stored?.client_secret;
+
+  if (!effectiveClientId || !effectiveClientSecret) {
+    res.json({
+      success: false,
+      error: 'Missing credentials: client_id and client_secret are both required',
+    });
+    return;
+  }
+
+  try {
+    const client = new SophosCentralClient(effectiveClientId, effectiveClientSecret);
+    const result = await client.testConnection();
+
+    res.json({
+      success: true,
+      tenant_id: result.tenantId,
+      data_region: result.dataRegion,
+      tier: result.tier,
+      id_type: result.idType,
+      message: `Connected to Sophos Central tenant ${result.tenantId} (${result.tier} tier)`,
+    });
+  } catch (err) {
+    if (err instanceof SophosApiError) {
+      res.json({ success: false, error: err.message });
+      return;
+    }
+    res.json({
+      success: false,
+      error: `Connection failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+    });
+  }
+}));
+
 export default router;

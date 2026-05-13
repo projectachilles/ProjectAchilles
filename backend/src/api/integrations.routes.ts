@@ -15,9 +15,12 @@ import {
   DefenderCredentialsSchema,
   DefenderTestSchema,
   DefenderAutoResolveModeSchema,
+  SophosCredentialsSchema,
+  SophosTestSchema,
   AlertSettingsSchema,
   AlertTestSchema,
 } from '../schemas/integrations.schemas.js';
+import { SophosCentralClient, SophosApiError } from '../services/sophos/sophos-client.js';
 import { DEFENDER_INDEX } from '../services/defender/index-management.js';
 import { SettingsService as AnalyticsSettingsService } from '../services/analytics/settings.js';
 import { createEsClient } from '../services/analytics/client.js';
@@ -430,6 +433,120 @@ router.get('/defender/auto-resolve/receipts', requirePermission('integrations:re
 
 /** Expose the singleton for background sync from server.ts */
 export { defenderSyncService };
+
+// ---------------------------------------------------------------------------
+// Sophos Central
+// ---------------------------------------------------------------------------
+//
+// Sophos differs from Defender in two operator-visible ways:
+//   - No tenant_id input field. Sophos discovers the tenant via whoami.
+//   - The /test route therefore performs a *real* token + whoami round-trip
+//     against Sophos and returns the discovered tenant, region, and tier so
+//     the UI can show "Connected to <region>, <tier> tier" before the
+//     operator commits to saving credentials.
+
+/** GET /api/integrations/sophos — Returns masked settings + discovered metadata */
+router.get('/sophos', requirePermission('integrations:read'), (req, res) => {
+  const settings = getSettingsService(req).getSophosSettings();
+
+  if (!settings?.configured) {
+    res.json({ configured: false });
+    return;
+  }
+
+  const mask = (val: string) =>
+    val && val.length > 4 ? '****' + val.slice(-4) : '****';
+
+  res.json({
+    configured: true,
+    client_id: mask(settings.client_id),
+    client_secret_set: !!settings.client_secret,
+    label: settings.label ?? '',
+    // Discovered fields (populated by /test or by Phase 2 sync). Surface
+    // them so the UI can display "Connected to <region>, <tier> tier" without
+    // a second round-trip.
+    tenant_id: settings.tenant_id,
+    data_region: settings.data_region,
+    tier: settings.tier,
+    env_configured: settingsService.isEnvSophosConfigured(),
+  });
+});
+
+/** POST /api/integrations/sophos — Save credentials (partial update supported) */
+router.post('/sophos', requirePermission('integrations:write'), validate(SophosCredentialsSchema), asyncHandler(async (req, res) => {
+  const svc = getSettingsService(req);
+  const { client_id, client_secret, label } = req.body;
+
+  const isEdit = svc.isSophosConfigured();
+
+  if (!isEdit) {
+    if (!client_id || !client_secret) {
+      throw new AppError('client_id and client_secret are required for initial setup', 400);
+    }
+  }
+
+  svc.saveSophosSettings({ client_id, client_secret, label });
+
+  res.json({ success: true });
+}));
+
+/** DELETE /api/integrations/sophos — Remove Sophos credentials */
+router.delete('/sophos', requirePermission('integrations:write'), asyncHandler(async (req, res) => {
+  if (settingsService.isEnvSophosConfigured()) {
+    throw new AppError(
+      'Cannot disconnect: Sophos credentials are set via environment variables (SOPHOS_CLIENT_ID, SOPHOS_CLIENT_SECRET). Remove these env vars to disconnect.',
+      400
+    );
+  }
+  getSettingsService(req).deleteSophosSettings();
+  res.json({ success: true });
+}));
+
+/**
+ * POST /api/integrations/sophos/test — Real OAuth2 + whoami round-trip
+ *
+ * Returns the discovered tenant ID, data-region URL, and tier on success.
+ * Used by the Settings UI both to validate the credential and to show the
+ * operator the discovered metadata before they commit the save.
+ */
+router.post('/sophos/test', requirePermission('integrations:write'), validate(SophosTestSchema), asyncHandler(async (req, res) => {
+  const { client_id, client_secret } = req.body;
+
+  const stored = getSettingsService(req).getSophosCredentials();
+  const effectiveClientId = client_id || stored?.client_id;
+  const effectiveClientSecret = client_secret || stored?.client_secret;
+
+  if (!effectiveClientId || !effectiveClientSecret) {
+    res.json({
+      success: false,
+      error: 'Missing credentials: client_id and client_secret are both required',
+    });
+    return;
+  }
+
+  try {
+    const client = new SophosCentralClient(effectiveClientId, effectiveClientSecret);
+    const result = await client.testConnection();
+
+    res.json({
+      success: true,
+      tenant_id: result.tenantId,
+      data_region: result.dataRegion,
+      tier: result.tier,
+      id_type: result.idType,
+      message: `Connected to Sophos Central tenant ${result.tenantId} (${result.tier} tier)`,
+    });
+  } catch (err) {
+    if (err instanceof SophosApiError) {
+      res.json({ success: false, error: err.message });
+      return;
+    }
+    res.json({
+      success: false,
+      error: `Connection failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+    });
+  }
+}));
 
 // ---------------------------------------------------------------------------
 // Trend Alerting

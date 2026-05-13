@@ -1,7 +1,9 @@
 // Type definitions for external integration settings (Azure / Entra ID, etc.)
 
 import type { AutoResolveMode } from './defender.js';
+import type { SophosTier } from './sophos.js';
 export type { AutoResolveMode };
+export type { SophosTier };
 
 export interface AzureIntegrationSettings {
   tenant_id: string;
@@ -25,6 +27,39 @@ export interface DefenderIntegrationSettings {
    * Operationally opt-in — requires SecurityAlert.ReadWrite.All granted to
    * the Azure AD app registration for modes other than 'disabled'.
    */
+  auto_resolve_mode?: AutoResolveMode;
+}
+
+/**
+ * Sophos Central integration credentials and discovered metadata.
+ *
+ * `client_id` and `client_secret` are operator-supplied. `tenant_id`,
+ * `data_region`, and `tier` are *discovered* via the Sophos `whoami`
+ * endpoint at credential-save time and cached here to avoid an extra
+ * round-trip on every sync. They're optional on the type because they
+ * don't exist before the first successful `whoami` call.
+ *
+ * Phase 1 only persists `client_id`, `client_secret`, `configured`, and
+ * `label`. The other fields (`last_alert_sync`, `auto_resolve_mode`,
+ * etc.) are declared now so the type is stable across Phase 1→4 — they
+ * become live in their respective phases.
+ */
+export interface SophosIntegrationSettings {
+  client_id: string;
+  client_secret: string;
+  /** Discovered via whoami. Not present before first successful connection. */
+  tenant_id?: string;
+  /** Discovered via whoami (e.g., "https://api-eu01.central.sophos.com"). */
+  data_region?: string;
+  /** Discovered via whoami's product list. Defaults to 'basic' when unknown. */
+  tier?: SophosTier;
+  configured: boolean;
+  label?: string; // e.g. "Contoso Production"
+  /** Phase 2: incremental alert sync checkpoint. */
+  last_alert_sync?: string;
+  /** Phase 2: health-score snapshot checkpoint. */
+  last_score_sync?: string;
+  /** Phase 4: auto-resolve mode for Sophos alerts. */
   auto_resolve_mode?: AutoResolveMode;
 }
 
@@ -79,6 +114,7 @@ export interface AlertSettings {
 export interface OrgIntegrationSettings {
   azure?: AzureIntegrationSettings;
   defender?: DefenderIntegrationSettings;
+  sophos?: SophosIntegrationSettings;
   alerts?: AlertSettings;
 }
 
@@ -90,6 +126,7 @@ export interface OrgIntegrationSettings {
 export interface IntegrationsSettings {
   azure?: AzureIntegrationSettings;
   defender?: DefenderIntegrationSettings;
+  sophos?: SophosIntegrationSettings;
   alerts?: AlertSettings;
   /** Per-org overrides. Key is the Clerk org_id. */
   orgs?: Record<string, OrgIntegrationSettings>;

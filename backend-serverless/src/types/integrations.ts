@@ -1,7 +1,9 @@
 // Type definitions for external integration settings (Azure / Entra ID, etc.)
 
 import type { AutoResolveMode } from './defender.js';
+import type { SophosTier } from './sophos.js';
 export type { AutoResolveMode };
+export type { SophosTier };
 
 export interface AzureIntegrationSettings {
   tenant_id: string;
@@ -20,6 +22,27 @@ export interface DefenderIntegrationSettings {
   last_alert_sync?: string;
   last_score_sync?: string;
   /** Auto-resolve pillar mode. Missing/undefined = 'disabled' (default). */
+  auto_resolve_mode?: AutoResolveMode;
+}
+
+/**
+ * Sophos Central integration credentials and discovered metadata.
+ *
+ * Only `client_id` + `client_secret` are operator-supplied; `tenant_id`,
+ * `data_region`, and `tier` are discovered via Sophos's `whoami` endpoint
+ * at credential-save time. See `backend-serverless/src/types/sophos.ts`
+ * for the discovery mechanism.
+ */
+export interface SophosIntegrationSettings {
+  client_id: string;
+  client_secret: string;
+  tenant_id?: string;
+  data_region?: string;
+  tier?: SophosTier;
+  configured: boolean;
+  label?: string;
+  last_alert_sync?: string;
+  last_score_sync?: string;
   auto_resolve_mode?: AutoResolveMode;
 }
 
@@ -73,5 +96,6 @@ export interface AlertSettings {
 export interface IntegrationsSettings {
   azure?: AzureIntegrationSettings;
   defender?: DefenderIntegrationSettings;
+  sophos?: SophosIntegrationSettings;
   alerts?: AlertSettings;
 }
