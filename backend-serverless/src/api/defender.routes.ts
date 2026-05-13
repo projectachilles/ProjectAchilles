@@ -59,6 +59,7 @@ router.get('/alerts', requirePermission('analytics:dashboards:read'), asyncHandl
     severity: req.query.severity ? String(req.query.severity) : undefined,
     status: req.query.status ? String(req.query.status) : undefined,
     search: req.query.search ? String(req.query.search) : undefined,
+    technique: req.query.technique ? String(req.query.technique) : undefined,
     sortField: req.query.sortField ? String(req.query.sortField) : undefined,
     sortOrder: req.query.sortOrder === 'asc' ? 'asc' : 'desc',
   });

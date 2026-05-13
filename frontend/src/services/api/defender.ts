@@ -67,6 +67,9 @@ export interface DefenderAlertItem {
    * Frontend matches case-insensitively against `f0rtika.control_id`.
    */
   attributed_control_id?: string;
+  auto_resolved?: boolean;
+  auto_resolved_at?: string | null;
+  auto_resolve_mode?: 'disabled' | 'dry_run' | 'enabled' | null;
 }
 
 export interface PaginatedAlerts {
@@ -159,6 +162,7 @@ export const defenderApi = {
     severity?: string;
     status?: string;
     search?: string;
+    technique?: string;
     sortField?: string;
     sortOrder?: 'asc' | 'desc';
   }): Promise<PaginatedAlerts> {

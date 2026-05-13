@@ -182,6 +182,101 @@ describe('DefenderAnalyticsService', () => {
       expect(searchCall.from).toBe(10); // (page 2 - 1) * 10
       expect(searchCall.size).toBe(10);
     });
+
+    it('passes the technique filter through to the ES query with sub-technique support', async () => {
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 0 }, hits: [] },
+      });
+
+      await service.getAlerts({ technique: 'T1059' });
+
+      const searchCall = mockSearch.mock.calls[0][0];
+      const must = searchCall.query.bool.must;
+      // Find the technique clause — it's a bool with should covering exact + prefix
+      const techClause = must.find(
+        (c: unknown) =>
+          typeof c === 'object' &&
+          c !== null &&
+          'bool' in c &&
+          Array.isArray((c as { bool: { should?: unknown[] } }).bool.should)
+      );
+      expect(techClause).toBeDefined();
+      const should = (techClause as { bool: { should: unknown[]; minimum_should_match: number } })
+        .bool.should;
+      expect(should).toContainEqual({ term: { mitre_techniques: 'T1059' } });
+      // Trailing dot is load-bearing — T10590 must NOT match
+      expect(should).toContainEqual({ prefix: { mitre_techniques: 'T1059.' } });
+    });
+
+    it('surfaces auto-resolved fields from the nested f0rtika object', async () => {
+      mockSearch.mockResolvedValueOnce({
+        hits: {
+          total: { value: 1 },
+          hits: [
+            {
+              _source: {
+                alert_id: 'a1',
+                alert_title: 'Auto-resolved alert',
+                description: '',
+                severity: 'medium',
+                status: 'resolved',
+                category: 'Execution',
+                service_source: 'MDE',
+                mitre_techniques: ['T1059'],
+                created_at: '2026-05-12T10:00:00Z',
+                updated_at: '2026-05-13T10:00:00Z',
+                resolved_at: '2026-05-13T10:05:00Z',
+                recommended_actions: '',
+                f0rtika: {
+                  auto_resolved: true,
+                  auto_resolved_at: '2026-05-13T10:05:00Z',
+                  auto_resolve_mode: 'enabled',
+                },
+              },
+            },
+          ],
+        },
+      });
+
+      const result = await service.getAlerts({});
+
+      expect(result.data[0].auto_resolved).toBe(true);
+      expect(result.data[0].auto_resolved_at).toBe('2026-05-13T10:05:00Z');
+      expect(result.data[0].auto_resolve_mode).toBe('enabled');
+    });
+
+    it('omits auto-resolve fields when the f0rtika object is absent', async () => {
+      mockSearch.mockResolvedValueOnce({
+        hits: {
+          total: { value: 1 },
+          hits: [
+            {
+              _source: {
+                alert_id: 'a2',
+                alert_title: 'Untagged alert',
+                description: '',
+                severity: 'low',
+                status: 'new',
+                category: '',
+                service_source: 'MDE',
+                mitre_techniques: [],
+                created_at: '2026-05-12T10:00:00Z',
+                updated_at: '2026-05-12T10:00:00Z',
+                resolved_at: null,
+                recommended_actions: '',
+                // no f0rtika key
+              },
+            },
+          ],
+        },
+      });
+
+      const result = await service.getAlerts({});
+
+      expect(result.data[0].auto_resolved).toBeUndefined();
+      expect(result.data[0].auto_resolved_at).toBeUndefined();
+      expect(result.data[0].auto_resolve_mode).toBeUndefined();
+    });
   });
 
   describe('getAlertTrend', () => {
