@@ -76,7 +76,7 @@ export default function HeroStatTile(props: HeroStatTileProps) {
 
   if (loading) {
     return (
-      <Card className="h-full flex flex-col p-0 overflow-hidden">
+      <Card className="h-full flex flex-col gap-0 p-0 overflow-hidden">
         <div className="flex items-center gap-2 px-4 pt-4 pb-1 min-w-0">
           {icon}
           <span className="text-sm font-medium truncate text-muted-foreground">{title}</span>
@@ -106,7 +106,7 @@ export default function HeroStatTile(props: HeroStatTileProps) {
   }
 
   const tile = (
-    <Card className="h-full flex flex-col p-0 overflow-hidden hover:border-primary/50 transition-colors">
+    <Card className="h-full flex flex-col gap-0 p-0 overflow-hidden hover:border-primary/50 transition-colors">
       <div className="flex items-center justify-between px-4 pt-4 pb-1">
         <div className="flex items-center gap-2 min-w-0">
           {icon}
