@@ -28,17 +28,20 @@ export interface SecureScoreTrendPoint {
   percentage: number;
 }
 
+interface RecentAlert {
+  alert_id: string;
+  title: string;
+  severity: string;
+  created_at: string;
+  service_source: string;
+}
+
 export interface AlertSummary {
   total: number;
   bySeverity: Record<string, number>;
   byStatus: Record<string, number>;
-  recentHigh: Array<{
-    alert_id: string;
-    title: string;
-    severity: string;
-    created_at: string;
-    service_source: string;
-  }>;
+  recentHigh: RecentAlert[];
+  recentMedium: RecentAlert[];
 }
 
 export interface AlertTrendPoint {
@@ -221,23 +224,11 @@ export class DefenderAnalyticsService {
       ? result.hits.total
       : (result.hits.total as { value: number })?.value ?? 0;
 
-    // Fetch top 3 recent high alerts
-    const highAlerts = await client.search({
-      index: DEFENDER_INDEX,
-      size: 3,
-      query: {
-        bool: {
-          must: [
-            { term: { doc_type: 'alert' } },
-            { term: { severity: 'high' } },
-          ],
-        },
-      },
-      sort: [{ created_at: { order: 'desc' } }],
-    });
-
-    const recentHigh = highAlerts.hits.hits.map((hit) => {
-      const s = hit._source as Record<string, unknown>;
+    // Two parallel searches: recent high + recent medium. Listed in the
+    // UI side-by-side so an analyst can scan both severity tiers without
+    // jumping into the full alerts drawer.
+    const mapHit = (hit: { _source?: unknown }): RecentAlert => {
+      const s = (hit._source as Record<string, unknown>) ?? {};
       return {
         alert_id: String(s.alert_id ?? ''),
         title: String(s.alert_title ?? ''),
@@ -245,9 +236,31 @@ export class DefenderAnalyticsService {
         created_at: String(s.created_at ?? ''),
         service_source: String(s.service_source ?? ''),
       };
-    });
+    };
 
-    return { total, bySeverity, byStatus, recentHigh };
+    const recentBySeverity = async (severity: 'high' | 'medium', size: number) => {
+      const resp = await client.search({
+        index: DEFENDER_INDEX,
+        size,
+        query: {
+          bool: {
+            must: [
+              { term: { doc_type: 'alert' } },
+              { term: { severity } },
+            ],
+          },
+        },
+        sort: [{ created_at: { order: 'desc' } }],
+      });
+      return resp.hits.hits.map(mapHit);
+    };
+
+    const [recentHigh, recentMedium] = await Promise.all([
+      recentBySeverity('high', 10),
+      recentBySeverity('medium', 6),
+    ]);
+
+    return { total, bySeverity, byStatus, recentHigh, recentMedium };
   }
 
   async getAlerts(params: {

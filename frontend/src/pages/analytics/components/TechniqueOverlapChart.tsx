@@ -11,6 +11,13 @@ interface TechniqueOverlapChartProps {
   onSelectTechnique?: (technique: string) => void;
 }
 
+/**
+ * Per-technique view of test execution volume vs Defender alert volume.
+ * Renders HTML/CSS bars (not SVG) so the visual density stays consistent with
+ * DetectionAnalysisCard when both are placed side-by-side at half width —
+ * an SVG with `w-full` auto-scales and produces wildly different bar
+ * thicknesses depending on container width.
+ */
 export default function TechniqueOverlapChart({
   onSelectTechnique,
 }: TechniqueOverlapChartProps = {}) {
@@ -41,10 +48,6 @@ export default function TechniqueOverlapChart({
   }
 
   const maxCount = Math.max(...data.map((d) => Math.max(d.testResults, d.defenderAlerts)));
-  const barH = 16;
-  const gap = 6;
-  const labelW = 60;
-  const chartW = 400;
   const topItems = data.slice(0, 10);
 
   return (
@@ -70,87 +73,74 @@ export default function TechniqueOverlapChart({
           </div>
         </div>
 
-        <svg
-          viewBox={`0 0 ${labelW + chartW + 40} ${topItems.length * (barH * 2 + gap) + 4}`}
-          className="w-full h-auto"
-          role="img"
-          aria-labelledby="technique-overlap-title technique-overlap-desc"
+        {/* Per-technique rows */}
+        <div
+          className="space-y-2"
+          role="list"
+          aria-label="MITRE technique overlap: test results vs Defender alerts"
         >
-          <title id="technique-overlap-title">
-            MITRE Technique Overlap — Test results vs Defender alerts
-          </title>
-          <desc id="technique-overlap-desc">
-            {topItems
-              .map(
-                (t) =>
-                  `${t.technique}: ${t.testResults} test result${t.testResults === 1 ? '' : 's'}, ${t.defenderAlerts} Defender alert${t.defenderAlerts === 1 ? '' : 's'}.`,
-              )
-              .join(' ')}
-          </desc>
-          {topItems.map((item, i) => {
-            const y = i * (barH * 2 + gap);
-            const testW = maxCount > 0 ? (item.testResults / maxCount) * chartW : 0;
-            const alertW = maxCount > 0 ? (item.defenderAlerts / maxCount) * chartW : 0;
+          {topItems.map((item) => {
+            const testPct = maxCount > 0 ? (item.testResults / maxCount) * 100 : 0;
+            const alertPct = maxCount > 0 ? (item.defenderAlerts / maxCount) * 100 : 0;
             const clickable = !!onSelectTechnique;
+            const rowClass = clickable
+              ? 'flex items-start gap-2 text-xs cursor-pointer rounded px-1 -mx-1 hover:bg-muted/40 transition-colors'
+              : 'flex items-start gap-2 text-xs';
 
             return (
-              <g
+              <div
                 key={item.technique}
+                className={rowClass}
+                role={clickable ? 'button' : 'listitem'}
+                aria-label={
+                  clickable
+                    ? `${item.technique}: ${item.testResults} test results, ${item.defenderAlerts} Defender alerts. Click to view related alerts.`
+                    : `${item.technique}: ${item.testResults} test results, ${item.defenderAlerts} Defender alerts`
+                }
+                tabIndex={clickable ? 0 : undefined}
                 onClick={clickable ? () => onSelectTechnique!(item.technique) : undefined}
-                style={clickable ? { cursor: 'pointer' } : undefined}
+                onKeyDown={
+                  clickable
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onSelectTechnique!(item.technique);
+                        }
+                      }
+                    : undefined
+                }
               >
-                {/* Transparent full-row hit target so empty space is clickable too */}
-                {clickable && (
-                  <rect
-                    x={0}
-                    y={y - gap / 2}
-                    width={labelW + chartW + 40}
-                    height={barH * 2 + gap}
-                    fill="transparent"
-                  />
-                )}
-                {/* Label */}
-                <text
-                  x={labelW - 4}
-                  y={y + barH}
-                  textAnchor="end"
-                  dominantBaseline="middle"
-                  className="fill-muted-foreground"
-                  fontSize={10}
-                  stroke="none"
-                >
+                <span className="w-16 font-mono text-muted-foreground shrink-0 pt-0.5">
                   {item.technique}
-                </text>
-
-                {/* Test Results bar */}
-                <rect x={labelW} y={y} width={testW} height={barH} rx={2} fill={TEST_COLOR} />
-                <text
-                  x={labelW + testW + 4}
-                  y={y + barH / 2}
-                  dominantBaseline="middle"
-                  className="fill-muted-foreground"
-                  fontSize={9}
-                  stroke="none"
-                >
-                  {item.testResults}
-                </text>
-
-                {/* Alerts bar */}
-                <rect x={labelW} y={y + barH} width={alertW} height={barH} rx={2} fill={ALERT_COLOR} />
-                <text
-                  x={labelW + alertW + 4}
-                  y={y + barH + barH / 2}
-                  dominantBaseline="middle"
-                  className="fill-muted-foreground"
-                  fontSize={9}
-                  stroke="none"
-                >
-                  {item.defenderAlerts}
-                </text>
-              </g>
+                </span>
+                <div className="flex-1 space-y-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex-1 h-3 bg-muted/30 rounded overflow-hidden">
+                      <div
+                        className="h-full rounded transition-all"
+                        style={{ width: `${testPct}%`, backgroundColor: TEST_COLOR }}
+                      />
+                    </div>
+                    <span className="w-10 text-right text-muted-foreground tabular-nums shrink-0">
+                      {item.testResults}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex-1 h-3 bg-muted/30 rounded overflow-hidden">
+                      <div
+                        className="h-full rounded transition-all"
+                        style={{ width: `${alertPct}%`, backgroundColor: ALERT_COLOR }}
+                      />
+                    </div>
+                    <span className="w-10 text-right text-muted-foreground tabular-nums shrink-0">
+                      {item.defenderAlerts}
+                    </span>
+                  </div>
+                </div>
+              </div>
             );
           })}
-        </svg>
+        </div>
       </CardContent>
     </Card>
   );

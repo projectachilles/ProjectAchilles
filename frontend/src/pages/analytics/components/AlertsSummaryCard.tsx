@@ -1,7 +1,7 @@
-import { AlertTriangle, Bell } from 'lucide-react';
+import { AlertTriangle, Bell, AlertCircle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { AlertSummary } from '@/services/api/defender';
+import type { AlertSummary, RecentAlertItem } from '@/services/api/defender';
 import { getSeverityTokens } from '../utils/defenderSeverityTokens';
 
 interface AlertsSummaryCardProps {
@@ -18,6 +18,42 @@ function formatTimeAgo(dateStr: string): string {
   return `${days}d ago`;
 }
 
+/** Section header + list of alert rows, used for both High and Medium lists. */
+function RecentAlertList({
+  title,
+  alerts,
+  icon: Icon,
+  iconClass,
+  emptyText,
+}: {
+  title: string;
+  alerts: RecentAlertItem[];
+  icon: typeof AlertTriangle;
+  iconClass: string;
+  emptyText: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <span className="text-xs font-medium text-muted-foreground">{title}</span>
+      {alerts.length === 0 ? (
+        <div className="text-xs text-muted-foreground py-1">{emptyText}</div>
+      ) : (
+        alerts.map((alert) => (
+          <div key={alert.alert_id} className="flex items-start gap-1.5 text-xs">
+            <Icon className={`w-3 h-3 mt-0.5 shrink-0 ${iconClass}`} />
+            <div className="flex-1 min-w-0">
+              <div className="truncate">{alert.title}</div>
+              <div className="text-muted-foreground">
+                {alert.service_source} &middot; {formatTimeAgo(alert.created_at)}
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 export default function AlertsSummaryCard({ data, loading }: AlertsSummaryCardProps) {
   if (loading || !data) {
     return (
@@ -29,7 +65,7 @@ export default function AlertsSummaryCard({ data, loading }: AlertsSummaryCardPr
           </div>
           <Skeleton className="h-7 w-12" />
         </div>
-        <div className="flex-1 px-4 py-2 space-y-2">
+        <div className="px-4 py-2 space-y-2">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="flex items-center gap-2">
               <Skeleton className="h-3 w-16" />
@@ -39,9 +75,9 @@ export default function AlertsSummaryCard({ data, loading }: AlertsSummaryCardPr
           ))}
         </div>
         <div className="border-t border-border mx-4" />
-        <div className="px-4 py-2 space-y-1.5">
+        <div className="flex-1 px-4 py-2 space-y-1.5 overflow-auto">
           <Skeleton className="h-3 w-28" />
-          {[0, 1].map((i) => (
+          {[0, 1, 2, 3].map((i) => (
             <div key={i} className="flex items-start gap-1.5">
               <Skeleton className="h-3 w-3 mt-0.5 shrink-0" />
               <div className="flex-1 space-y-1">
@@ -72,7 +108,7 @@ export default function AlertsSummaryCard({ data, loading }: AlertsSummaryCardPr
       </div>
 
       {/* Severity bars */}
-      <div className="flex-1 px-4 py-2 space-y-2">
+      <div className="px-4 py-2 space-y-2">
         {severityOrder.map((sev) => {
           const count = data.bySeverity[sev] ?? 0;
           const tokens = getSeverityTokens(sev);
@@ -96,24 +132,24 @@ export default function AlertsSummaryCard({ data, loading }: AlertsSummaryCardPr
       {/* Divider */}
       <div className="border-t border-border mx-4" />
 
-      {/* Recent high alerts */}
-      <div className="px-4 py-2 space-y-1.5 min-h-0 overflow-auto">
-        <span className="text-xs font-medium text-muted-foreground">Recent High Alerts</span>
-        {data.recentHigh.length === 0 ? (
-          <div className="text-xs text-muted-foreground py-1">No recent high-severity alerts</div>
-        ) : (
-          data.recentHigh.map((alert) => (
-            <div key={alert.alert_id} className="flex items-start gap-1.5 text-xs">
-              <AlertTriangle className="w-3 h-3 text-red-500 mt-0.5 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="truncate">{alert.title}</div>
-                <div className="text-muted-foreground">
-                  {alert.service_source} &middot; {formatTimeAgo(alert.created_at)}
-                </div>
-              </div>
-            </div>
-          ))
-        )}
+      {/* Recent alerts — high + medium. The card's flex-1 + overflow-auto
+          fills the row's stretched height with content; if both lists overflow
+          the available space the inner area scrolls. */}
+      <div className="flex-1 px-4 py-2 space-y-3 min-h-0 overflow-auto">
+        <RecentAlertList
+          title="Recent High Alerts"
+          alerts={data.recentHigh}
+          icon={AlertTriangle}
+          iconClass="text-red-500"
+          emptyText="No recent high-severity alerts"
+        />
+        <RecentAlertList
+          title="Recent Medium Alerts"
+          alerts={data.recentMedium}
+          icon={AlertCircle}
+          iconClass="text-amber-500"
+          emptyText="No recent medium-severity alerts"
+        />
       </div>
     </Card>
   );
