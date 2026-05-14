@@ -230,11 +230,17 @@ export default function DefenderTab() {
         </div>
       </div>
 
-      {/* Detection analysis */}
-      <DetectionAnalysisCard onSelectTechnique={openDrawerForTechnique} />
-
-      {/* Technique overlap */}
-      <TechniqueOverlapChart onSelectTechnique={openDrawerForTechnique} />
+      {/* Detection analysis + Technique overlap side-by-side — both are
+          per-technique horizontal-bar charts and share visual rhythm at
+          half width. */}
+      <div className="grid grid-cols-12 gap-4">
+        <div className="col-span-12 lg:col-span-6">
+          <DetectionAnalysisCard onSelectTechnique={openDrawerForTechnique} />
+        </div>
+        <div className="col-span-12 lg:col-span-6">
+          <TechniqueOverlapChart onSelectTechnique={openDrawerForTechnique} />
+        </div>
+      </div>
 
       <AlertDetailsDrawer
         open={drawerOpen}

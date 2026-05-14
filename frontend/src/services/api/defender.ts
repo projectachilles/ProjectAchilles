@@ -20,17 +20,20 @@ export interface SecureScoreTrendPoint {
   percentage: number;
 }
 
+export interface RecentAlertItem {
+  alert_id: string;
+  title: string;
+  severity: string;
+  created_at: string;
+  service_source: string;
+}
+
 export interface AlertSummary {
   total: number;
   bySeverity: Record<string, number>;
   byStatus: Record<string, number>;
-  recentHigh: Array<{
-    alert_id: string;
-    title: string;
-    severity: string;
-    created_at: string;
-    service_source: string;
-  }>;
+  recentHigh: RecentAlertItem[];
+  recentMedium: RecentAlertItem[];
 }
 
 export interface AlertTrendPoint {

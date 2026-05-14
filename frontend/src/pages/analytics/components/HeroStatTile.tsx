@@ -82,7 +82,7 @@ export default function HeroStatTile(props: HeroStatTileProps) {
           <span className="text-sm font-medium truncate text-muted-foreground">{title}</span>
         </div>
         <div className="flex flex-col px-4 pt-2 pb-2 gap-2">
-          <Skeleton className="h-8 w-24" />
+          <Skeleton className="h-14 w-32" />
           <Skeleton className="h-3 w-32" />
         </div>
         <div className="flex-1" />
@@ -123,9 +123,9 @@ export default function HeroStatTile(props: HeroStatTileProps) {
         ) : (
           <>
             <div className="flex items-baseline gap-1">
-              <span className="text-3xl font-bold tabular-nums">{value}</span>
+              <span className="text-[3.1875rem] leading-tight font-bold tabular-nums">{value}</span>
               {valueSuffix && (
-                <span className="text-lg text-muted-foreground">{valueSuffix}</span>
+                <span className="text-3xl text-muted-foreground">{valueSuffix}</span>
               )}
             </div>
             {subValue && (

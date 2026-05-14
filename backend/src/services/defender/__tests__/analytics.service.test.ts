@@ -96,7 +96,7 @@ describe('DefenderAnalyticsService', () => {
   // ── Alerts ─────────────────────────────────────────────────
 
   describe('getAlertSummary', () => {
-    it('returns severity/status breakdown and recent high alerts', async () => {
+    it('returns severity/status breakdown plus recent high and medium alerts', async () => {
       // First call: aggregation query
       mockSearch.mockResolvedValueOnce({
         hits: { total: { value: 15 }, hits: [] },
@@ -117,12 +117,21 @@ describe('DefenderAnalyticsService', () => {
         },
       });
 
-      // Second call: recent high alerts
+      // Second call: recent high alerts (Promise.all kicks these off in array order)
       mockSearch.mockResolvedValueOnce({
         hits: {
           hits: [
             { _source: { alert_id: 'a1', alert_title: 'Ransomware', severity: 'high', created_at: '2026-02-27T10:00:00Z', service_source: 'MDE' } },
             { _source: { alert_id: 'a2', alert_title: 'Phishing', severity: 'high', created_at: '2026-02-27T09:00:00Z', service_source: 'MDO' } },
+          ],
+        },
+      });
+
+      // Third call: recent medium alerts
+      mockSearch.mockResolvedValueOnce({
+        hits: {
+          hits: [
+            { _source: { alert_id: 'b1', alert_title: 'Office macro blocked', severity: 'medium', created_at: '2026-02-27T08:00:00Z', service_source: 'MDE' } },
           ],
         },
       });
@@ -135,6 +144,28 @@ describe('DefenderAnalyticsService', () => {
       expect(result.byStatus.new).toBe(8);
       expect(result.recentHigh).toHaveLength(2);
       expect(result.recentHigh[0].title).toBe('Ransomware');
+      expect(result.recentMedium).toHaveLength(1);
+      expect(result.recentMedium[0].title).toBe('Office macro blocked');
+      expect(result.recentMedium[0].severity).toBe('medium');
+    });
+
+    it('requests up to 10 high and 6 medium alerts', async () => {
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 0 }, hits: [] },
+        aggregations: { by_severity: { buckets: [] }, by_status: { buckets: [] } },
+      });
+      mockSearch.mockResolvedValueOnce({ hits: { hits: [] } });
+      mockSearch.mockResolvedValueOnce({ hits: { hits: [] } });
+
+      await service.getAlertSummary();
+
+      // Inspect the last two calls — order matches Promise.all array order
+      const highCall = mockSearch.mock.calls[1][0];
+      const mediumCall = mockSearch.mock.calls[2][0];
+      expect(highCall.size).toBe(10);
+      expect(highCall.query.bool.must).toContainEqual({ term: { severity: 'high' } });
+      expect(mediumCall.size).toBe(6);
+      expect(mediumCall.query.bool.must).toContainEqual({ term: { severity: 'medium' } });
     });
   });
 
