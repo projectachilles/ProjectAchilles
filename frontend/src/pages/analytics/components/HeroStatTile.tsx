@@ -81,12 +81,16 @@ export default function HeroStatTile(props: HeroStatTileProps) {
           {icon}
           <span className="text-sm font-medium truncate text-muted-foreground">{title}</span>
         </div>
-        <div className="flex-1 flex flex-col justify-center px-4 py-2 gap-2">
+        <div className="flex flex-col px-4 pt-2 pb-2 gap-2">
           <Skeleton className="h-8 w-24" />
           <Skeleton className="h-3 w-32" />
         </div>
-        <div className="px-4 pb-4">
-          <Skeleton className="h-3 w-full" />
+        <div className="flex-1" />
+        <div className="px-4 pt-1 min-h-[36px] flex items-center">
+          <Skeleton className="h-4 w-full" />
+        </div>
+        <div className="px-4 pb-3 pt-1 min-h-[28px]">
+          <Skeleton className="h-3 w-20" />
         </div>
       </Card>
     );
@@ -110,7 +114,10 @@ export default function HeroStatTile(props: HeroStatTileProps) {
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col justify-center px-4 py-2 gap-1">
+      {/* Value section — top-anchored so the main number sits at the same
+          Y-position regardless of whether the tile has a sparkline, pip
+          chart, or delta row below it. */}
+      <div className="flex flex-col px-4 pt-2 pb-2 gap-1">
         {emptyState ? (
           <div className="text-sm text-muted-foreground">{emptyState}</div>
         ) : (
@@ -128,23 +135,40 @@ export default function HeroStatTile(props: HeroStatTileProps) {
         )}
       </div>
 
-      {chartSlot ? (
-        <div className="px-4 pt-1">{chartSlot}</div>
-      ) : sparklineData && sparklineData.length >= 2 ? (
-        <div className={`px-4 ${sparklineClass}`}>
-          <Sparkline data={sparklineData} width={240} height={32} ariaLabel={`${title} trend`} />
-        </div>
-      ) : null}
+      {/* Spacer — absorbs any extra height from the equal-height grid
+          stretching so chart + delta hug the bottom edge. */}
+      <div className="flex-1" />
 
-      {typeof delta === 'number' && (
-        <div className="px-4 pb-3 pt-1 flex items-center gap-1 text-xs">
-          <span className={`inline-flex items-center gap-0.5 font-medium ${deltaToneClass(deltaTone, delta)}`}>
-            <DeltaIcon delta={delta} />
-            {formatDelta(delta)}
-          </span>
-          {deltaLabel && <span className="text-muted-foreground">{deltaLabel}</span>}
-        </div>
-      )}
+      {/* Chart area — min-h reserved so a short pip row and a 32px-tall
+          sparkline occupy the same vertical real estate. Color class only
+          applied for sparklines (chartSlot consumers carry their own colors). */}
+      <div
+        className={`px-4 pt-1 flex items-center min-h-[36px] ${
+          !chartSlot && sparklineData && sparklineData.length >= 2 ? sparklineClass : ''
+        }`}
+      >
+        {chartSlot ? (
+          chartSlot
+        ) : sparklineData && sparklineData.length >= 2 ? (
+          <Sparkline data={sparklineData} width={240} height={32} ariaLabel={`${title} trend`} />
+        ) : null}
+      </div>
+
+      {/* Delta row — always reserves its height even when no delta is shown,
+          so the chart area lands at the same Y-position across all tiles. */}
+      <div className="px-4 pb-3 pt-1 flex items-center gap-1 text-xs min-h-[28px]">
+        {typeof delta === 'number' && (
+          <>
+            <span
+              className={`inline-flex items-center gap-0.5 font-medium ${deltaToneClass(deltaTone, delta)}`}
+            >
+              <DeltaIcon delta={delta} />
+              {formatDelta(delta)}
+            </span>
+            {deltaLabel && <span className="text-muted-foreground">{deltaLabel}</span>}
+          </>
+        )}
+      </div>
     </Card>
   );
 
