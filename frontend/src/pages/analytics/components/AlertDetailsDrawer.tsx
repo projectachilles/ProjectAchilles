@@ -4,6 +4,7 @@ import { Button } from '@/components/shared/ui/Button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { defenderApi, type DefenderAlertItem } from '@/services/api/defender';
 import { getSeverityTokens } from '../utils/defenderSeverityTokens';
+import { formatServiceSource } from '../utils/defenderServiceSource';
 
 const DEFENDER_PORTAL_BASE = 'https://security.microsoft.com/alerts';
 
@@ -236,8 +237,12 @@ export default function AlertDetailsDrawer({
                           <span>{alert.status}</span>
                           <span>·</span>
                           <span>{formatTimeAgo(alert.created_at)}</span>
-                          <span>·</span>
-                          <span>{alert.service_source}</span>
+                          {formatServiceSource(alert.service_source) && (
+                            <>
+                              <span>·</span>
+                              <span>{formatServiceSource(alert.service_source)}</span>
+                            </>
+                          )}
                         </div>
                         {alert.auto_resolved && (
                           <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400">

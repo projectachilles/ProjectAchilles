@@ -9,6 +9,7 @@ import {
   type ChartConfig,
 } from '@/components/ui/chart';
 import type { AlertSummary, RecentAlertItem } from '@/services/api/defender';
+import { formatServiceSource } from '../utils/defenderServiceSource';
 
 interface AlertsSummaryCardProps {
   data: AlertSummary | null;
@@ -64,17 +65,25 @@ function RecentAlertList({
       {alerts.length === 0 ? (
         <div className="text-xs text-muted-foreground py-1">{emptyText}</div>
       ) : (
-        alerts.map((alert) => (
-          <div key={alert.alert_id} className="flex items-start gap-1.5 text-xs">
-            <Icon className={`w-3 h-3 mt-0.5 shrink-0 ${iconClass}`} />
-            <div className="flex-1 min-w-0">
-              <div className="truncate">{alert.title}</div>
-              <div className="text-muted-foreground">
-                {alert.service_source} &middot; {formatTimeAgo(alert.created_at)}
+        alerts.map((alert) => {
+          const source = formatServiceSource(alert.service_source);
+          return (
+            <div key={alert.alert_id} className="flex items-start gap-1.5 text-xs">
+              <Icon className={`w-3 h-3 mt-0.5 shrink-0 ${iconClass}`} />
+              <div className="flex-1 min-w-0">
+                <div className="truncate">{alert.title}</div>
+                <div className="text-muted-foreground">
+                  {source && (
+                    <>
+                      {source} &middot;{' '}
+                    </>
+                  )}
+                  {formatTimeAgo(alert.created_at)}
+                </div>
               </div>
             </div>
-          </div>
-        ))
+          );
+        })
       )}
     </div>
   );
