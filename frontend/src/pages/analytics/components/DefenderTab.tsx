@@ -155,7 +155,7 @@ export default function DefenderTab() {
 
       {/* Hero row: 4 tiles */}
       <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-12 sm:col-span-6 md:col-span-3 max-h-[250px]">
+        <div className="col-span-12 sm:col-span-6 md:col-span-3">
           <HeroStatTile
             title="Secure Score"
             icon={<ShieldCheck className="w-4 h-4 text-primary" />}
@@ -173,7 +173,7 @@ export default function DefenderTab() {
             loading={loading}
           />
         </div>
-        <div className="col-span-12 sm:col-span-6 md:col-span-3 max-h-[250px]">
+        <div className="col-span-12 sm:col-span-6 md:col-span-3">
           <HeroStatTile
             title="Defender Alerts"
             icon={<Bell className="w-4 h-4 text-primary" />}
@@ -188,7 +188,7 @@ export default function DefenderTab() {
             onClick={openDrawerForAll}
           />
         </div>
-        <div className="col-span-12 sm:col-span-6 md:col-span-3 max-h-[250px]">
+        <div className="col-span-12 sm:col-span-6 md:col-span-3">
           <HeroStatTile
             title="Detection Rate"
             icon={<Crosshair className="w-4 h-4 text-primary" />}
@@ -212,7 +212,7 @@ export default function DefenderTab() {
             loading={loading}
           />
         </div>
-        <div className="col-span-12 sm:col-span-6 md:col-span-3 max-h-[250px]">
+        <div className="col-span-12 sm:col-span-6 md:col-span-3">
           <AutoResolveStatTile />
         </div>
       </div>
