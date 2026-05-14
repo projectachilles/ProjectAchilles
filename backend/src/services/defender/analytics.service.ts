@@ -256,8 +256,8 @@ export class DefenderAnalyticsService {
     };
 
     const [recentHigh, recentMedium] = await Promise.all([
-      recentBySeverity('high', 10),
-      recentBySeverity('medium', 6),
+      recentBySeverity('high', 5),
+      recentBySeverity('medium', 5),
     ]);
 
     return { total, bySeverity, byStatus, recentHigh, recentMedium };

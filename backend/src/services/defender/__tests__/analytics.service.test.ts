@@ -149,7 +149,7 @@ describe('DefenderAnalyticsService', () => {
       expect(result.recentMedium[0].severity).toBe('medium');
     });
 
-    it('requests up to 10 high and 6 medium alerts', async () => {
+    it('requests up to 5 high and 5 medium alerts', async () => {
       mockSearch.mockResolvedValueOnce({
         hits: { total: { value: 0 }, hits: [] },
         aggregations: { by_severity: { buckets: [] }, by_status: { buckets: [] } },
@@ -162,9 +162,9 @@ describe('DefenderAnalyticsService', () => {
       // Inspect the last two calls — order matches Promise.all array order
       const highCall = mockSearch.mock.calls[1][0];
       const mediumCall = mockSearch.mock.calls[2][0];
-      expect(highCall.size).toBe(10);
+      expect(highCall.size).toBe(5);
       expect(highCall.query.bool.must).toContainEqual({ term: { severity: 'high' } });
-      expect(mediumCall.size).toBe(6);
+      expect(mediumCall.size).toBe(5);
       expect(mediumCall.query.bool.must).toContainEqual({ term: { severity: 'medium' } });
     });
   });
