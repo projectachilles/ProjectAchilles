@@ -220,24 +220,27 @@ export default function DefenderTab() {
       {/* Correlation timeline */}
       <TestVsAlertTimelineCard />
 
-      {/* Detail row: alert breakdown + remediation controls */}
-      <div className="grid grid-cols-12 gap-4" style={{ minHeight: '320px' }}>
-        <div className="col-span-12 md:col-span-5">
+      {/* Detail row: alert breakdown + remediation controls. Both cells get
+          an explicit max-h so the row stays compact; each card uses h-full
+          + internal overflow-y-auto, so whichever has more content scrolls
+          inside instead of stretching the row. */}
+      <div className="grid grid-cols-12 gap-4">
+        <div className="col-span-12 md:col-span-5 max-h-[600px]">
           <AlertsSummaryCard data={alertSummary} loading={loading} />
         </div>
-        <div className="col-span-12 md:col-span-7">
+        <div className="col-span-12 md:col-span-7 max-h-[600px]">
           <TopControlsCard compact onSelectControlAlerts={openDrawerForControl} />
         </div>
       </div>
 
       {/* Detection analysis + Technique overlap side-by-side — both are
           per-technique horizontal-bar charts and share visual rhythm at
-          half width. */}
+          half width. Same max-h pattern as the row above. */}
       <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-12 lg:col-span-6">
+        <div className="col-span-12 lg:col-span-6 max-h-[480px]">
           <DetectionAnalysisCard onSelectTechnique={openDrawerForTechnique} />
         </div>
-        <div className="col-span-12 lg:col-span-6">
+        <div className="col-span-12 lg:col-span-6 max-h-[480px]">
           <TechniqueOverlapChart onSelectTechnique={openDrawerForTechnique} />
         </div>
       </div>

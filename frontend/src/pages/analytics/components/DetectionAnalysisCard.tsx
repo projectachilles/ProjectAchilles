@@ -34,7 +34,7 @@ export default function DetectionAnalysisCard({
   const maxTests = Math.max(...data.byTechnique.map((t) => t.testExecutions));
 
   return (
-    <Card>
+    <Card className="h-full flex flex-col">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium">Detection Analysis</CardTitle>
@@ -60,17 +60,18 @@ export default function DetectionAnalysisCard({
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* Headline metric */}
-        <div className="mb-4 flex items-baseline gap-2">
+        <div className="mb-4 flex items-baseline gap-2 shrink-0">
           <span className="text-2xl font-bold">{data.overall.detectionRate}%</span>
           <span className="text-sm text-muted-foreground">
             detection rate ({data.overall.detectedTechniques}/{data.overall.testedTechniques} techniques)
           </span>
         </div>
 
-        {/* Per-technique bars */}
-        <div className="space-y-1.5">
+        {/* Per-technique bars — flex-1 + overflow-y-auto so the list fills
+            the card and scrolls when there are more techniques than fit. */}
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5">
           {data.byTechnique.map((item) => {
             const barWidth = maxTests > 0 ? (item.testExecutions / maxTests) * 100 : 0;
             const clickable = !!onSelectTechnique;
