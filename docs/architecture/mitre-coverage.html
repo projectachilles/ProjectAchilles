@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProjectAchilles — MITRE ATT&CK Coverage</title>
+<style>
+:root {
+  --bg: #0a0f0c; --bg-2: #0f1612; --bg-3: #131b16;
+  --panel: #0c1410; --border: #1f2a23; --border-2: #2a3a31;
+  --text: #d6e6dc; --text-2: #94aa9d; --text-3: #5e7268;
+  --accent: #00ff88; --amber: #ffb86b; --magenta: #ff5edb;
+  --blue: #5ec9ff; --purple: #c084fc; --red: #ff5e7e;
+  --mono: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--text); margin: 0; padding: 0; font-family: var(--sans); font-size: 14px; line-height: 1.5; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono { font-family: var(--mono); font-size: 12px; }
+
+header.top {
+  position: sticky; top: 0; z-index: 50;
+  background: linear-gradient(180deg, var(--bg) 0%, rgba(10,15,12,0.95) 100%);
+  border-bottom: 1px solid var(--border); padding: 12px 24px;
+  backdrop-filter: blur(8px);
+  display: flex; align-items: center; gap: 12px;
+}
+header.top h1 { margin: 0; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 12px; }
+header.top .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+header.top .sub { color: var(--text-2); font-weight: 400; font-size: 12px; margin-left: auto; }
+header.top a.cross-link { color: var(--text-2); font-size: 12px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px; }
+header.top a.cross-link:hover { color: var(--accent); border-color: var(--accent); text-decoration: none; }
+
+main { padding: 20px 24px; max-width: 100%; margin: 0 auto; }
+
+.pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-family: var(--mono);
+  background: var(--bg-3); color: var(--text-2); border: 1px solid var(--border); }
+.pill.accent { color: var(--accent); border-color: rgba(0,255,136,0.3); background: rgba(0,255,136,0.06); }
+.pill.amber { color: var(--amber); border-color: rgba(255,184,107,0.3); background: rgba(255,184,107,0.06); }
+.pill.blue { color: var(--blue); border-color: rgba(94,201,255,0.3); background: rgba(94,201,255,0.06); }
+.pill.magenta { color: var(--magenta); border-color: rgba(255,94,219,0.3); background: rgba(255,94,219,0.06); }
+
+.controls {
+  display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 16px; margin-bottom: 16px;
+}
+.controls label { color: var(--text-2); font-size: 12px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.controls input[type="text"] { background: var(--bg-2); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-family: var(--sans); font-size: 12px; min-width: 200px; }
+.controls .stat { color: var(--text); font-family: var(--mono); font-size: 12px; }
+.controls .stat .num { color: var(--accent); font-weight: 700; }
+
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.sum-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; }
+.sum-card .num { font-size: 22px; font-weight: 600; color: var(--accent); font-family: var(--mono); }
+.sum-card .lab { font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; }
+
+.matrix-wrap {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px; overflow-x: auto;
+}
+.matrix {
+  display: grid; gap: 8px;
+  grid-template-columns: repeat(15, minmax(110px, 1fr));
+  min-width: 1700px;
+}
+.tactic-col {
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 6px; display: flex; flex-direction: column; gap: 4px;
+}
+.tactic-col .tactic-name {
+  font-size: 11px; font-weight: 600; color: var(--text); text-align: center;
+  padding-bottom: 6px; border-bottom: 1px solid var(--border-2); margin-bottom: 4px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.tactic-col .tactic-id {
+  font-family: var(--mono); font-size: 9px; color: var(--text-3);
+}
+.tactic-col .tactic-count {
+  font-family: var(--mono); font-size: 10px; color: var(--accent); font-weight: 600;
+}
+.tactic-col .tactic-count.zero { color: var(--text-3); }
+
+.tech-cell {
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: 3px; padding: 5px 6px;
+  font-family: var(--mono); font-size: 10px; color: var(--text-2);
+  cursor: pointer; transition: all 0.12s;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.tech-cell:hover { border-color: var(--accent); color: var(--text); }
+.tech-cell.selected { border-color: var(--accent); background: rgba(0,255,136,0.08); }
+.tech-cell.uncovered { opacity: 0.35; }
+.tech-cell.uncovered:hover { opacity: 1; }
+.tech-cell .tech-id { font-weight: 600; }
+.tech-cell .tech-name { color: var(--text-3); font-size: 9px; font-family: var(--sans); }
+.tech-cell .tech-bar {
+  height: 3px; background: var(--accent); border-radius: 1px; margin-top: 3px;
+}
+.tech-cell.cov-1 { background: rgba(0,255,136,0.06); border-color: rgba(0,255,136,0.2); color: var(--text); }
+.tech-cell.cov-2 { background: rgba(0,255,136,0.12); border-color: rgba(0,255,136,0.3); color: var(--text); }
+.tech-cell.cov-3 { background: rgba(0,255,136,0.18); border-color: rgba(0,255,136,0.4); color: var(--text); }
+.tech-cell.cov-4 { background: rgba(0,255,136,0.26); border-color: rgba(0,255,136,0.55); color: var(--text); }
+.tech-cell.cov-5 { background: rgba(0,255,136,0.36); border-color: var(--accent); color: var(--text); font-weight: 600; }
+
+.detail-panel {
+  background: var(--panel); border: 1px solid var(--border-2); border-radius: 8px;
+  padding: 16px; margin-top: 20px; min-height: 120px;
+}
+.detail-panel.empty { color: var(--text-3); font-style: italic; text-align: center; padding: 40px; }
+.detail-panel h3 { margin: 0 0 8px; color: var(--accent); font-size: 14px; }
+.detail-panel .sub { color: var(--text-2); font-size: 12px; margin-bottom: 12px; }
+.detail-panel .test-row {
+  display: grid; grid-template-columns: 1fr auto; gap: 8px;
+  padding: 8px 10px; background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 4px; margin: 4px 0; align-items: center;
+}
+.detail-panel .test-row .tn { font-family: var(--mono); font-size: 11px; color: var(--text); }
+.detail-panel .test-row .tn .uuid { color: var(--text-3); font-size: 10px; }
+.detail-panel .test-row .cat { font-size: 10px; }
+.detail-panel .technique-meta { font-size: 11px; color: var(--text-3); margin-top: 12px; font-family: var(--mono); }
+.detail-panel .technique-meta a { color: var(--blue); }
+
+.legend-bar {
+  display: flex; gap: 12px; flex-wrap: wrap; padding: 10px 14px;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px;
+  margin-bottom: 16px; font-size: 11px; align-items: center;
+}
+.legend-bar .it { display: flex; align-items: center; gap: 6px; color: var(--text-2); }
+.legend-bar .sw {
+  display: inline-block; width: 22px; height: 18px; border-radius: 3px;
+  border: 1px solid var(--border); font-family: var(--mono); font-size: 9px;
+  text-align: center; line-height: 18px;
+}
+
+footer { padding: 16px 24px; text-align: center; color: var(--text-3); font-size: 12px; border-top: 1px solid var(--border); margin-top: 32px; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>
+    <span class="dot"></span>
+    ProjectAchilles
+    <span class="pill accent">MITRE ATT&amp;CK Coverage</span>
+  </h1>
+  <span class="sub" id="meta-sub"></span>
+  <a class="cross-link" href="architecture.html">Architecture</a>
+  <a class="cross-link" href="flows.html">Flows</a>
+  <a class="cross-link" href="data-model.html">Data Model</a>
+  <a class="cross-link" href="ops-timeline.html">Ops Timeline</a>
+</header>
+
+<main>
+
+<div class="summary" id="summary"></div>
+
+<div class="controls">
+  <label>Filter category:
+    <select id="cat-filter" style="background:var(--bg-2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-family:var(--mono);font-size:12px">
+      <option value="">all (53 tests)</option>
+      <option value="cyber-hygiene">cyber-hygiene (10)</option>
+      <option value="intel-driven">intel-driven (33)</option>
+      <option value="mitre-top10">mitre-top10 (10)</option>
+    </select>
+  </label>
+  <label>Search: <input type="text" id="search" placeholder="T1486, ransomware, lsass..."/></label>
+  <label><input type="checkbox" id="show-uncovered" checked> Show uncovered techniques (dim)</label>
+  <span class="stat">Covered: <span class="num" id="covered-count">0</span> / <span id="total-count">0</span> techniques</span>
+</div>
+
+<div class="legend-bar">
+  <div class="it"><span class="sw" style="opacity:0.35;color:var(--text-3)">·</span>uncovered</div>
+  <div class="it"><span class="sw cov-1" style="background:rgba(0,255,136,0.06);border-color:rgba(0,255,136,0.2)">1</span>1 test</div>
+  <div class="it"><span class="sw cov-2" style="background:rgba(0,255,136,0.12);border-color:rgba(0,255,136,0.3)">2</span>2 tests</div>
+  <div class="it"><span class="sw cov-3" style="background:rgba(0,255,136,0.18);border-color:rgba(0,255,136,0.4)">3</span>3 tests</div>
+  <div class="it"><span class="sw cov-4" style="background:rgba(0,255,136,0.26);border-color:rgba(0,255,136,0.55)">4</span>4 tests</div>
+  <div class="it"><span class="sw cov-5" style="background:rgba(0,255,136,0.36);border-color:var(--accent)">5+</span>5 or more tests</div>
+  <div class="it" style="margin-left:auto;color:var(--text-3)">Click any technique cell to see covering tests</div>
+</div>
+
+<div class="matrix-wrap">
+  <div class="matrix" id="matrix"></div>
+</div>
+
+<div class="detail-panel empty" id="detail">Click a technique cell above to see the tests that cover it.</div>
+
+</main>
+
+<footer>
+  Generated from <code>f0_library/tests_source/</code> (cyber-hygiene + intel-driven + mitre-top10)
+  · pairs with <a href="architecture.html">architecture.html</a> · <a href="flows.html">flows.html</a> · <a href="data-model.html">data-model.html</a> · <a href="ops-timeline.html">ops-timeline.html</a>
+</footer>
+
+<script>
+// ============================================================================
+// ATT&CK Enterprise tactics in canonical kill-chain order
+// ============================================================================
+const TACTICS = [
+  { id: 'TA0043', name: 'Reconnaissance' },
+  { id: 'TA0042', name: 'Resource Development' },
+  { id: 'TA0001', name: 'Initial Access' },
+  { id: 'TA0002', name: 'Execution' },
+  { id: 'TA0003', name: 'Persistence' },
+  { id: 'TA0004', name: 'Privilege Escalation' },
+  { id: 'TA0005', name: 'Defense Evasion' },
+  { id: 'TA0006', name: 'Credential Access' },
+  { id: 'TA0007', name: 'Discovery' },
+  { id: 'TA0008', name: 'Lateral Movement' },
+  { id: 'TA0009', name: 'Collection' },
+  { id: 'TA0011', name: 'Command and Control' },
+  { id: 'TA0010', name: 'Exfiltration' },
+  { id: 'TA0040', name: 'Impact' },
+  { id: 'TA9999', name: 'Other / Multi-tactic' },
+];
+
+// ============================================================================
+// Technique → tactic mapping (curated for the techniques present in our library).
+// Includes short technique names so cells are self-explanatory.
+// Format: 'Tnnnn[.nnn]': ['TACTIC_ID', 'short name']
+// ============================================================================
+const TECHNIQUE_MAP = {
+  // Resource Development
+  'T1588.004': ['TA0042', 'Obtain Digital Certificates'],
+
+  // Initial Access
+  'T1078':     ['TA0001', 'Valid Accounts'],
+  'T1078.001': ['TA0001', 'Default Accounts'],
+  'T1078.002': ['TA0001', 'Domain Accounts'],
+  'T1078.003': ['TA0001', 'Local Accounts'],
+  'T1078.004': ['TA0001', 'Cloud Accounts'],
+  'T1190':     ['TA0001', 'Exploit Public App'],
+  'T1091':     ['TA0001', 'Removable Media Replication'],
+  'T1566':     ['TA0001', 'Phishing'],
+  'T1566.001': ['TA0001', 'Spearphishing Attachment'],
+
+  // Execution
+  'T1059':     ['TA0002', 'Command/Script Interpreter'],
+  'T1059.001': ['TA0002', 'PowerShell'],
+  'T1059.002': ['TA0002', 'AppleScript'],
+  'T1059.003': ['TA0002', 'Windows Cmd Shell'],
+  'T1059.004': ['TA0002', 'Unix Shell'],
+  'T1059.005': ['TA0002', 'Visual Basic'],
+  'T1047':     ['TA0002', 'WMI'],
+  'T1053.005': ['TA0002', 'Scheduled Task'],
+  'T1204':     ['TA0002', 'User Execution'],
+  'T1204.002': ['TA0002', 'Malicious File'],
+  'T1559.001': ['TA0002', 'COM IPC'],
+  'T1569.002': ['TA0002', 'Service Execution'],
+
+  // Persistence
+  'T1037.001': ['TA0003', 'Logon Script (Windows)'],
+  'T1098.001': ['TA0003', 'Add Cloud Credentials'],
+  'T1098.003': ['TA0003', 'Add Cloud Roles'],
+  'T1505.003': ['TA0003', 'Web Shell'],
+  'T1543.002': ['TA0003', 'Systemd Service'],
+  'T1543.003': ['TA0003', 'Windows Service'],
+  'T1543.004': ['TA0003', 'Launch Daemon'],
+  'T1546':     ['TA0003', 'Event Triggered Exec'],
+  'T1546.003': ['TA0003', 'WMI Event Subscription'],
+  'T1547':     ['TA0003', 'Boot/Logon Autostart'],
+  'T1547.001': ['TA0003', 'Registry Run Keys'],
+  'T1556.002': ['TA0003', 'Password Filter DLL'],
+  'T1556.006': ['TA0003', 'MFA Modify'],
+  'T1556.007': ['TA0003', 'Hybrid Identity'],
+  'T1574':     ['TA0003', 'Hijack Execution Flow'],
+  'T1574.002': ['TA0003', 'DLL Side-Loading'],
+  'T1574.006': ['TA0003', 'Dynamic Linker Hijack'],
+
+  // Privilege Escalation
+  'T1068':     ['TA0004', 'Exploit for Privesc'],
+  'T1134.001': ['TA0004', 'Token Impersonation'],
+  'T1484.001': ['TA0004', 'Group Policy Modify'],
+  'T1548.001': ['TA0004', 'Setuid/Setgid'],
+  'T1548.002': ['TA0004', 'Bypass UAC'],
+  'T1548.004': ['TA0004', 'Elevated Prompt'],
+  'T1055':     ['TA0004', 'Process Injection'],
+  'T1055.001': ['TA0004', 'DLL Injection'],
+
+  // Defense Evasion
+  'T1006':     ['TA0005', 'Direct Volume Access'],
+  'T1014':     ['TA0005', 'Rootkit'],
+  'T1027':     ['TA0005', 'Obfuscated Files'],
+  'T1027.001': ['TA0005', 'Binary Padding'],
+  'T1027.004': ['TA0005', 'Compile After Delivery'],
+  'T1027.010': ['TA0005', 'Command Obfuscation'],
+  'T1036':     ['TA0005', 'Masquerading'],
+  'T1036.004': ['TA0005', 'Masq Task/Service'],
+  'T1036.005': ['TA0005', 'Match Legit Name'],
+  'T1070':     ['TA0005', 'Indicator Removal'],
+  'T1070.001': ['TA0005', 'Clear Win Event Logs'],
+  'T1070.002': ['TA0005', 'Clear Linux Logs'],
+  'T1070.006': ['TA0005', 'Timestomp'],
+  'T1140':     ['TA0005', 'Deobfuscate/Decode'],
+  'T1211':     ['TA0005', 'Exploit for Defense Evasion'],
+  'T1218.007': ['TA0005', 'Msiexec'],
+  'T1497.001': ['TA0005', 'System Checks (Sandbox)'],
+  'T1497.003': ['TA0005', 'Time-based Sandbox'],
+  'T1550.001': ['TA0005', 'App Access Token'],
+  'T1553.001': ['TA0005', 'Gatekeeper Bypass'],
+  'T1562':     ['TA0005', 'Impair Defenses'],
+  'T1562.001': ['TA0005', 'Disable Security Tools'],
+  'T1562.004': ['TA0005', 'Disable Firewall'],
+  'T1562.008': ['TA0005', 'Disable Cloud Logs'],
+  'T1620':     ['TA0005', 'Reflective Code Loading'],
+  'T1622':     ['TA0005', 'Debugger Evasion'],
+
+  // Credential Access
+  'T1003.001': ['TA0006', 'LSASS Memory'],
+  'T1003.002': ['TA0006', 'SAM'],
+  'T1003.008': ['TA0006', '/etc/shadow'],
+  'T1110':     ['TA0006', 'Brute Force'],
+  'T1110.001': ['TA0006', 'Password Guessing'],
+  'T1111':     ['TA0006', 'MFA Interception'],
+  'T1528':     ['TA0006', 'Steal App Token'],
+  'T1555':     ['TA0006', 'Password Stores'],
+  'T1555.001': ['TA0006', 'Keychain'],
+  'T1555.003': ['TA0006', 'Browser Credentials'],
+  'T1555.004': ['TA0006', 'Win Credential Manager'],
+  'T1557':     ['TA0006', 'Adversary-in-the-Middle'],
+  'T1557.001': ['TA0006', 'LLMNR/NBT-NS Poison'],
+  'T1558':     ['TA0006', 'Kerberos Tickets'],
+  'T1558.003': ['TA0006', 'Kerberoasting'],
+  'T1558.004': ['TA0006', 'AS-REP Roasting'],
+  'T1056.002': ['TA0006', 'GUI Input Capture'],
+  'T1056.003': ['TA0006', 'Web Portal Capture'],
+
+  // Discovery
+  'T1010':     ['TA0007', 'App Window Discovery'],
+  'T1018':     ['TA0007', 'Remote System Discovery'],
+  'T1046':     ['TA0007', 'Network Service Discovery'],
+  'T1082':     ['TA0007', 'System Info Discovery'],
+  'T1083':     ['TA0007', 'File/Directory Discovery'],
+  'T1087':     ['TA0007', 'Account Discovery'],
+  'T1087.001': ['TA0007', 'Local Account'],
+  'T1518.001': ['TA0007', 'Security Software Disc.'],
+
+  // Lateral Movement
+  'T1021':     ['TA0008', 'Remote Services'],
+  'T1021.001': ['TA0008', 'RDP'],
+  'T1021.002': ['TA0008', 'SMB/Admin Shares'],
+  'T1021.004': ['TA0008', 'SSH'],
+  'T1021.006': ['TA0008', 'WinRM'],
+  'T1210':     ['TA0008', 'Exploit Remote Services'],
+  'T1185':     ['TA0008', 'Browser Session Hijack'],
+
+  // Collection
+  'T1005':     ['TA0009', 'Local System Data'],
+  'T1074.001': ['TA0009', 'Local Data Staging'],
+  'T1119':     ['TA0009', 'Automated Collection'],
+  'T1560.001': ['TA0009', 'Archive via Utility'],
+
+  // Command and Control
+  'T1071':     ['TA0011', 'App Layer Protocol'],
+  'T1071.001': ['TA0011', 'Web Protocols'],
+  'T1071.003': ['TA0011', 'Mail Protocols'],
+  'T1071.004': ['TA0011', 'DNS'],
+  'T1090.003': ['TA0011', 'Multi-hop Proxy'],
+  'T1102':     ['TA0011', 'Web Service'],
+  'T1105':     ['TA0011', 'Ingress Tool Transfer'],
+  'T1219':     ['TA0011', 'Remote Access Software'],
+  'T1573.001': ['TA0011', 'Symmetric Encryption'],
+  'T1573.002': ['TA0011', 'Asymmetric Encryption'],
+
+  // Exfiltration
+  'T1020':     ['TA0010', 'Automated Exfil'],
+  'T1041':     ['TA0010', 'Exfil over C2'],
+  'T1048':     ['TA0010', 'Exfil Alt Protocol'],
+  'T1048.003': ['TA0010', 'Unencrypted Non-C2'],
+  'T1567.002': ['TA0010', 'Exfil to Cloud Storage'],
+
+  // Impact
+  'T1485':     ['TA0040', 'Data Destruction'],
+  'T1486':     ['TA0040', 'Ransomware (Encrypt for Impact)'],
+  'T1489':     ['TA0040', 'Service Stop'],
+  'T1490':     ['TA0040', 'Inhibit System Recovery'],
+  'T1491':     ['TA0040', 'Defacement'],
+  'T1491.001': ['TA0040', 'Internal Defacement'],
+  'T1529':     ['TA0040', 'System Shutdown'],
+};
+
+// ============================================================================
+// Test catalog — extracted from f0_library/tests_source by scanning READMEs.
+// Each entry: { uuid, name, category, techniques: [Txxxx], tactics: [] }
+// ============================================================================
+const CATALOG = [ { "uuid": "078f1409-9f7b-4492-bb35-3fd596e85ce0", "name": "CIS Windows Endpoint Level 1 Hardening Bundle", "category": "cyber-hygiene", "techniques": [ "T1003.001", "T1021.001", "T1059.001", "T1078.001", "T1110", "T1557.001", "T1562.001", "T1562.004" ], "tactics": [] }, { "uuid": "4f484076-9816-4813-947e-b76bce3d3f83", "name": "Entra ID Tenant Security Hygiene Bundle", "category": "cyber-hygiene", "techniques": [ "T1078.004", "T1098.001", "T1098.003", "T1110.001", "T1528", "T1556.007", "T1562.008", "T1566" ], "tactics": [] }, { "uuid": "602a5333-e9cf-4ddf-a132-a22aa7126447", "name": "CIS Identity & Active Directory Level 1 Bundle", "category": "cyber-hygiene", "techniques": [ "T1078.002", "T1078.004", "T1098.001", "T1098.003", "T1484.001", "T1556.007", "T1558.003", "T1558.004" ], "tactics": [] }, { "uuid": "6d63934b-963f-4e3b-83f5-8166e33eb6da", "name": "CIS macOS Endpoint Level 1 Hardening Bundle", "category": "cyber-hygiene", "techniques": [ "T1021.004", "T1059.004", "T1070.002", "T1071.001", "T1548.004", "T1553.001", "T1562.001" ], "tactics": [] }, { "uuid": "7659eeba-f315-440e-9882-4aa015d68b27", "name": "Identity Endpoint Posture Bundle", "category": "cyber-hygiene", "techniques": [ "T1005", "T1078.004", "T1111", "T1528", "T1550.001", "T1556.006", "T1556.007", "T1588.004" ], "tactics": [] }, { "uuid": "7f0d43e7-8a7b-48f3-9aff-cfa9703a51e8", "name": "CIS Linux Endpoint Level 1 Hardening Bundle", "category": "cyber-hygiene", "techniques": [ "T1021.004", "T1059.004", "T1070.002", "T1543.002", "T1548.001", "T1562.001" ], "tactics": [] }, { "uuid": "a26a91b2-8d59-410b-9f5e-7ec5ffb6734c", "name": "ISACA ITGC AD Identity Validation Bundle", "category": "cyber-hygiene", "techniques": [ "T1078.001", "T1078.002", "T1078.003", "T1558.003" ], "tactics": [] }, { "uuid": "a3c923ae-1a46-4b1f-b696-be6c2731a628", "name": "Cyber-Hygiene Bundle (Windows Defender Edition)", "category": "cyber-hygiene", "techniques": [ "T1003.001", "T1021.002", "T1059.001", "T1110", "T1547.001", "T1548.002", "T1562.001", "T1569.002" ], "tactics": [] }, { "uuid": "b2cd3532-701d-4700-bbb2-f7c10ef0d717", "name": "Cyber-Hygiene Bundle (CrowdStrike Falcon Edition)", "category": "cyber-hygiene", "techniques": [ "T1003.001", "T1021.002", "T1059.001", "T1070", "T1110", "T1547.001", "T1548.002", "T1562.001", "T1562.004", "T1569.002" ], "tactics": [] }, { "uuid": "db0738eb-848e-442b-b43c-208029063fe9", "name": "ISACA ITGC Windows Endpoint Validation Bundle", "category": "cyber-hygiene", "techniques": [ "T1003.001", "T1021.001", "T1021.006", "T1053.005", "T1059.001", "T1070.001", "T1070.006", "T1078", "T1078.001", "T1110", "T1210", "T1486", "T1490", "T1562.001", "T1562.004" ], "tactics": [] }, { "uuid": "09efee46-f098-4948-8e35-dded024cd1e7", "name": "Sliver C2 Client Detection", "category": "intel-driven", "techniques": [ "T1219" ], "tactics": [] }, { "uuid": "0a749b39-409e-46f5-9338-ee886b439cfa", "name": "PROMPTFLUX v1 \u2014 LLM-Assisted VBScript Dropper", "category": "intel-driven", "techniques": [ "T1027", "T1027.001", "T1059.005", "T1071", "T1071.001", "T1074.001", "T1091", "T1547", "T1547.001" ], "tactics": [] }, { "uuid": "0d7e7571-45e2-426a-ac8e-bdb000439761", "name": "Nightmare-Eclipse RedSun Cloud Files Rewrite Primitive Chain", "category": "intel-driven", "techniques": [ "T1006", "T1211", "T1559.001", "T1574" ], "tactics": [] }, { "uuid": "109266e2-2310-40ea-9f63-b97e4b7fda61", "name": "SafePay Ransomware Simulation & Data Staging Test", "category": "intel-driven", "techniques": [ "T1071.001", "T1486", "T1490", "T1560.001" ], "tactics": [] }, { "uuid": "13c2d073-8e33-4fca-ab27-68f20c408ce9", "name": "APT33 Tickler Backdoor DLL Sideloading", "category": "intel-driven", "techniques": [ "T1036", "T1053.005", "T1071.001", "T1547.001", "T1566.001", "T1574.002" ], "tactics": [] }, { "uuid": "244dfb88-9068-4db4-9fa8-dbc49517f63d", "name": "DPRK BlueNoroff Financial Sector Attack Chain", "category": "intel-driven", "techniques": [ "T1041", "T1056.002", "T1059.002", "T1071.001", "T1071.004", "T1543.004", "T1553.001", "T1555.001", "T1560.001", "T1567.002", "T1573.002" ], "tactics": [] }, { "uuid": "25aafe2c-ec57-4a85-a26a-c3d7cf35620c", "name": "ESXi Hypervisor Ransomware Kill Chain (RansomHub/Akira)", "category": "intel-driven", "techniques": [ "T1018", "T1021", "T1021.004", "T1046", "T1048", "T1068", "T1486", "T1489", "T1529", "T1567.002" ], "tactics": [] }, { "uuid": "2cf59d3e-ae82-48bb-9779-4a5ba5bd9c11", "name": "SafePay UAC Bypass & Defense Evasion Test", "category": "intel-driven", "techniques": [ "T1547.001", "T1548.002", "T1562.001" ], "tactics": [] }, { "uuid": "3e985e9e-8141-49d3-a23c-6c7f5e3282f5", "name": "AMOS/Banshee macOS Infostealer Credential Harvesting Simulation", "category": "intel-driven", "techniques": [ "T1005", "T1027", "T1041", "T1056.002", "T1059.002", "T1555.001", "T1560.001" ], "tactics": [] }, { "uuid": "414a4c61-019f-48ba-934d-d5e91a29a878", "name": "UNK_RobotDreams Rust Backdoor Execution Chain", "category": "intel-driven", "techniques": [ "T1036.005", "T1059", "T1059.001", "T1071", "T1071.001", "T1105", "T1204", "T1204.002", "T1573.001" ], "tactics": [] }, { "uuid": "4b4bd24c-fff5-4de8-982e-6d0fa5e22284", "name": "Data Exfiltration and Encryption Simulation", "category": "intel-driven", "techniques": [ "T1020", "T1041", "T1055", "T1083", "T1486" ], "tactics": [] }, { "uuid": "54a0bd24-d75a-4d89-8dce-c381d932ca97", "name": "Perfctl/Symbiote LD_PRELOAD Hijacking with PAM Credential Harvesting", "category": "intel-driven", "techniques": [ "T1003.008", "T1014", "T1059.004", "T1548.001", "T1574.006" ], "tactics": [] }, { "uuid": "5691f436-e630-4fd2-b930-911023cf638f", "name": "APT34 Exchange Server Weaponization with Email-Based C2", "category": "intel-driven", "techniques": [ "T1048.003", "T1071.003", "T1505.003", "T1556.002" ], "tactics": [] }, { "uuid": "581e0f20-13f0-4374-9686-be3abd110ae0", "name": "Ransomware Encryption via BitLocker", "category": "intel-driven", "techniques": [ "T1070.001", "T1082", "T1083", "T1486", "T1490", "T1562.004" ], "tactics": [] }, { "uuid": "5e59dd6a-6c87-4377-942c-ea9b5e054cb9", "name": "BlueHammer Early-Stage Behavioral Pattern (Nightmare-Eclipse)", "category": "intel-driven", "techniques": [ "T1003.002", "T1134.001", "T1211", "T1562.001" ], "tactics": [] }, { "uuid": "5ed12ef2-5e29-49a2-8f26-269d8e9edcea", "name": "Multi-Stage Ransomware Killchain Simulation", "category": "intel-driven", "techniques": [ "T1083", "T1134.001", "T1204.002", "T1486", "T1491.001" ], "tactics": [] }, { "uuid": "6717c98c-b3db-490e-b03c-7b3bd3fb02ee", "name": "SafePay Go-Native Ransomware Simulation", "category": "intel-driven", "techniques": [ "T1005", "T1071.001", "T1083", "T1486", "T1490", "T1560.001" ], "tactics": [] }, { "uuid": "6a2351ac-654a-4112-b378-e6919beef70d", "name": "UnDefend - Defender Signature/Engine Update DoS via File-Lock Race", "category": "intel-driven", "techniques": [ "T1083", "T1562.001" ], "tactics": [] }, { "uuid": "7d39b861-644d-4f8b-bb19-4faae527a130", "name": "Agrius Multi-Wiper Deployment Against Banking Infrastructure", "category": "intel-driven", "techniques": [ "T1070.001", "T1485", "T1505.003", "T1543.003", "T1562.001" ], "tactics": [] }, { "uuid": "87b7653b-2cee-44d4-9d80-73ec94d5e18e", "name": "EDR-Freeze Defense Evasion Test", "category": "intel-driven", "techniques": [ "T1055", "T1562.001", "T1574" ], "tactics": [] }, { "uuid": "8e2cf534-857b-4d29-a1ac-0f23d248db93", "name": "TA453 NICECURL VBScript Backdoor Detection", "category": "intel-driven", "techniques": [ "T1036.004", "T1047", "T1059.005", "T1071.001", "T1105", "T1204.002", "T1518.001" ], "tactics": [] }, { "uuid": "92b0b4f6-a09b-4c7b-b593-31ce461f804c", "name": "APT42 TAMECAT Fileless Backdoor with Browser Credential Theft", "category": "intel-driven", "techniques": [ "T1037.001", "T1059.001", "T1059.005", "T1102", "T1204.002", "T1547.001", "T1555.003" ], "tactics": [] }, { "uuid": "94b248c0-a104-48c3-b4a5-3d45028c407d", "name": "Gunra Ransomware Simulation", "category": "intel-driven", "techniques": [ "T1082", "T1083", "T1486", "T1490", "T1622" ], "tactics": [] }, { "uuid": "b6c73735-0c24-4a1e-8f0a-3c24af39671b", "name": "MDE Authentication Bypass Command Interception", "category": "intel-driven", "techniques": [ "T1014", "T1071.001", "T1090.003", "T1140", "T1562.001" ], "tactics": [] }, { "uuid": "b83616c2-84ee-4738-b398-d2d57eebecec", "name": "NativeDump (NimDump) Detection Test", "category": "intel-driven", "techniques": [ "T1003.001" ], "tactics": [] }, { "uuid": "bf448c7a-307e-4458-ba36-341d6d8e671b", "name": "TclBanker Brazilian Banking Trojan Full Killchain", "category": "intel-driven", "techniques": [ "T1010", "T1027", "T1053.005", "T1056.003", "T1071.001", "T1102", "T1140", "T1185", "T1218.007", "T1497.001", "T1497.003", "T1566.001", "T1574.002" ], "tactics": [] }, { "uuid": "c1f0fe6f-6907-4f95-820d-47e0a39abe54", "name": "TrollDisappearKey AMSI Bypass Detection Test", "category": "intel-driven", "techniques": [ "T1562", "T1562.001" ], "tactics": [] }, { "uuid": "c3634a9c-e8c9-44a8-992b-0faeca14f612", "name": "Akira Ransomware BYOVD Attack Chain (Hybrid Testing)", "category": "intel-driven", "techniques": [ "T1068", "T1562.001" ], "tactics": [] }, { "uuid": "e5472cd5-c799-4b07-b455-8c02665ca4cf", "name": "HONESTCUE LLM-Assisted Runtime C# Compilation (v2)", "category": "intel-driven", "techniques": [ "T1027", "T1027.004", "T1027.010", "T1059.001", "T1071", "T1071.001", "T1105", "T1204", "T1204.002", "T1620" ], "tactics": [] }, { "uuid": "e5577355-f8e4-4e52-b1b2-f7d1c8b864f1", "name": "SilentButDeadly WFP EDR Network Isolation", "category": "intel-driven", "techniques": [ "T1562", "T1562.001" ], "tactics": [] }, { "uuid": "eafce2fc-75fd-4c62-92dc-32cabe5cf206", "name": "Tailscale Remote Access and Data Exfiltration", "category": "intel-driven", "techniques": [ "T1021.004", "T1041", "T1048", "T1071.001", "T1105", "T1219", "T1543.003", "T1560.001" ], "tactics": [] }, { "uuid": "ecd2514c-512a-4251-a6f4-eb3aa834d401", "name": "CyberEye RAT - Windows Defender Disabling via PowerShell", "category": "intel-driven", "techniques": [ "T1562.001" ], "tactics": [] }, { "uuid": "fec68e9b-af59-40c1-abbd-98ec98428444", "name": "MDE Process Injection and API Authentication Bypass", "category": "intel-driven", "techniques": [ "T1014", "T1055", "T1055.001", "T1071.001", "T1140", "T1557", "T1562", "T1562.001" ], "tactics": [] }, { "uuid": "a3d9b4c7-2e8f-9d6a-3b0c-7f8a9b0c1d07", "name": "Pre-Encryption File Enumeration", "category": "mitre-top10", "techniques": [ "T1082", "T1083", "T1119" ], "tactics": [] }, { "uuid": "b4e0c5d8-3f9a-0e7b-4c1d-8a9b0c1d2e08", "name": "Ransomware Encryption (Safe Mode)", "category": "mitre-top10", "techniques": [ "T1486", "T1491", "T1491.001" ], "tactics": [] }, { "uuid": "b8e4c9d2-7f3a-4e1b-8c5d-2a3b4c5d6e02", "name": "Local Account Enumeration", "category": "mitre-top10", "techniques": [ "T1078", "T1078.003", "T1087", "T1087.001", "T1558", "T1558.003" ], "tactics": [] }, { "uuid": "c5f1d6e9-4a0b-1f8c-5d2e-9b0c1d2e3f09", "name": "Webshell Post-Exploitation Simulation", "category": "mitre-top10", "techniques": [ "T1059", "T1059.003", "T1190" ], "tactics": [] }, { "uuid": "c9f5d0e3-8a4b-5f2c-9d6e-3b4c5d6e7f03", "name": "RDP Lateral Movement Simulation", "category": "mitre-top10", "techniques": [ "T1021", "T1021.001", "T1555", "T1555.004" ], "tactics": [] }, { "uuid": "d0a6e1f4-9b5c-6a3d-0e7f-4c5d6e7f8a04", "name": "WMI Execution Simulation", "category": "mitre-top10", "techniques": [ "T1047", "T1546", "T1546.003" ], "tactics": [] }, { "uuid": "d6a2e7f0-5b1c-2a9d-6e3f-0c1d2e3f4a10", "name": "Security Service Stop Simulation", "category": "mitre-top10", "techniques": [ "T1489", "T1562", "T1562.001" ], "tactics": [] }, { "uuid": "e1b7f2a5-0c6d-7b4e-1f8a-5d6e7f8a9b05", "name": "System Recovery Inhibition (Safe Mode)", "category": "mitre-top10", "techniques": [ "T1490" ], "tactics": [] }, { "uuid": "f2c8a3b6-1d7e-8c5f-2a9b-6e7f8a9b0c06", "name": "LOLBIN Download Detection", "category": "mitre-top10", "techniques": [ "T1059", "T1059.001", "T1105" ], "tactics": [] }, { "uuid": "f3d7a2b1-8c4e-4f5a-9d6b-1e2f3a4b5c01", "name": "PowerShell Execution & AMSI Detection", "category": "mitre-top10", "techniques": [ "T1059", "T1059.001", "T1140" ], "tactics": [] } ];
+
+// ============================================================================
+// Aggregate: build per-technique test list
+// ============================================================================
+const TECH_TESTS = {};  // 'Txxxx' -> [{uuid, name, category}, ...]
+CATALOG.forEach(t => {
+  t.techniques.forEach(tech => {
+    if (!TECH_TESTS[tech]) TECH_TESTS[tech] = [];
+    TECH_TESTS[tech].push({ uuid: t.uuid, name: t.name, category: t.category });
+  });
+});
+
+// Group techniques by tactic
+const TACTIC_TECHS = {};
+TACTICS.forEach(t => TACTIC_TECHS[t.id] = []);
+Object.keys(TECHNIQUE_MAP).forEach(tech => {
+  const [tactic, name] = TECHNIQUE_MAP[tech];
+  TACTIC_TECHS[tactic].push({ id: tech, name, covered: !!TECH_TESTS[tech], count: (TECH_TESTS[tech] || []).length });
+});
+// Unmapped techniques (in catalog but not in TECHNIQUE_MAP) → "Other"
+Object.keys(TECH_TESTS).forEach(tech => {
+  if (!TECHNIQUE_MAP[tech]) {
+    TACTIC_TECHS['TA9999'].push({ id: tech, name: '(unmapped)', covered: true, count: TECH_TESTS[tech].length });
+  }
+});
+// Sort each tactic column: covered first (most tests first), then uncovered alphabetically
+Object.values(TACTIC_TECHS).forEach(arr => arr.sort((a, b) => {
+  if (a.covered !== b.covered) return b.covered ? 1 : -1;
+  if (a.covered && b.covered) return b.count - a.count;
+  return a.id.localeCompare(b.id);
+}));
+
+// ============================================================================
+// Rendering
+// ============================================================================
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+function covClass(count) {
+  if (count === 0) return 'uncovered';
+  if (count === 1) return 'cov-1';
+  if (count === 2) return 'cov-2';
+  if (count === 3) return 'cov-3';
+  if (count === 4) return 'cov-4';
+  return 'cov-5';
+}
+
+let selectedTech = null;
+let categoryFilter = '';
+let searchTerm = '';
+let showUncovered = true;
+
+function rebuildMatrix() {
+  // Apply filter: recompute counts based on filtered catalog
+  const filtered = CATALOG.filter(t =>
+    (!categoryFilter || t.category === categoryFilter)
+  );
+  const filtTechTests = {};
+  filtered.forEach(t => {
+    t.techniques.forEach(tech => {
+      if (!filtTechTests[tech]) filtTechTests[tech] = [];
+      filtTechTests[tech].push(t);
+    });
+  });
+
+  const matrix = document.getElementById('matrix');
+  matrix.innerHTML = '';
+
+  let coveredCount = 0;
+  let totalCells = 0;
+
+  TACTICS.forEach(tactic => {
+    if (tactic.id === 'TA9999' && TACTIC_TECHS[tactic.id].length === 0) return;
+    const col = document.createElement('div');
+    col.className = 'tactic-col';
+    const techs = TACTIC_TECHS[tactic.id];
+    const colCovered = techs.filter(t => (filtTechTests[t.id] || []).length > 0).length;
+    let html = '<div class="tactic-name">' + esc(tactic.name) +
+      '<span class="tactic-id">' + tactic.id + '</span>' +
+      '<span class="tactic-count' + (colCovered === 0 ? ' zero' : '') + '">' + colCovered + ' / ' + techs.length + '</span>' +
+      '</div>';
+
+    techs.forEach(tech => {
+      const count = (filtTechTests[tech.id] || []).length;
+      totalCells++;
+      if (count > 0) coveredCount++;
+      const matchSearch = !searchTerm ||
+        tech.id.toLowerCase().includes(searchTerm) ||
+        (tech.name || '').toLowerCase().includes(searchTerm);
+      if (!matchSearch) return;
+      if (count === 0 && !showUncovered) return;
+
+      const cls = 'tech-cell ' + covClass(count) + (selectedTech === tech.id ? ' selected' : '');
+      html += '<div class="' + cls + '" data-tech="' + tech.id + '" title="' +
+        esc(tech.id) + ' — ' + count + ' test' + (count===1?'':'s') + '">';
+      html += '<span class="tech-id">' + tech.id + '</span>';
+      html += '<span class="tech-name">' + esc(tech.name) + '</span>';
+      if (count > 0) html += '<div class="tech-bar" style="width:' + Math.min(100, count * 20) + '%"></div>';
+      html += '</div>';
+    });
+
+    col.innerHTML = html;
+    matrix.appendChild(col);
+  });
+
+  document.getElementById('covered-count').textContent = coveredCount;
+  document.getElementById('total-count').textContent = totalCells;
+}
+
+function showDetail(techId) {
+  selectedTech = techId;
+  rebuildMatrix();
+  const tests = (TECH_TESTS[techId] || [])
+    .filter(t => !categoryFilter || t.category === categoryFilter);
+  const meta = TECHNIQUE_MAP[techId];
+  const tacticInfo = meta ? TACTICS.find(t => t.id === meta[0]) : null;
+  const techName = meta ? meta[1] : '(unmapped)';
+
+  const det = document.getElementById('detail');
+  det.classList.remove('empty');
+
+  let html = '<h3>' + esc(techId) + ' — ' + esc(techName) + '</h3>';
+  html += '<div class="sub">';
+  if (tacticInfo) html += '<span class="pill blue">' + esc(tacticInfo.id) + ' ' + esc(tacticInfo.name) + '</span> ';
+  html += '<span class="pill accent">' + tests.length + ' test' + (tests.length===1?'':'s') + ' in catalog</span>';
+  html += '</div>';
+
+  if (tests.length === 0) {
+    html += '<div style="color:var(--text-3);padding:20px;text-align:center;font-style:italic">No tests in the filtered catalog cover this technique.</div>';
+  } else {
+    tests.forEach(t => {
+      html += '<div class="test-row">';
+      html += '<div class="tn">' + esc(t.name) + '<br><span class="uuid">' + esc(t.uuid) + '</span></div>';
+      html += '<div class="cat"><span class="pill">' + esc(t.category) + '</span></div>';
+      html += '</div>';
+    });
+  }
+
+  html += '<div class="technique-meta">MITRE reference: <a href="https://attack.mitre.org/techniques/' +
+    techId.replace('.', '/') + '/" target="_blank" rel="noopener">attack.mitre.org/techniques/' +
+    esc(techId) + '</a></div>';
+
+  det.innerHTML = html;
+  det.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// ============================================================================
+// Wire up controls
+// ============================================================================
+document.getElementById('matrix').addEventListener('click', e => {
+  const cell = e.target.closest('.tech-cell');
+  if (cell) showDetail(cell.dataset.tech);
+});
+document.getElementById('cat-filter').addEventListener('change', e => {
+  categoryFilter = e.target.value;
+  rebuildMatrix();
+  if (selectedTech) showDetail(selectedTech);
+});
+document.getElementById('search').addEventListener('input', e => {
+  searchTerm = e.target.value.trim().toLowerCase();
+  rebuildMatrix();
+});
+document.getElementById('show-uncovered').addEventListener('change', e => {
+  showUncovered = e.target.checked;
+  rebuildMatrix();
+});
+
+// ============================================================================
+// Summary stats
+// ============================================================================
+const totalCovered = Object.keys(TECH_TESTS).length;
+const totalMapped = Object.keys(TECHNIQUE_MAP).length;
+const uniqueTactics = new Set(Object.values(TECHNIQUE_MAP).map(v => v[0])).size;
+const tacticsHit = new Set(Object.keys(TECH_TESTS).map(t => (TECHNIQUE_MAP[t] || [])[0]).filter(Boolean)).size;
+const mostCovered = Object.entries(TECH_TESTS).sort((a,b) => b[1].length - a[1].length).slice(0, 3);
+
+document.getElementById('summary').innerHTML = [
+  ['<span class="num">' + CATALOG.length + '</span>', 'tests in catalog'],
+  ['<span class="num">' + totalCovered + '</span>', 'techniques covered'],
+  ['<span class="num">' + tacticsHit + ' / ' + uniqueTactics + '</span>', 'tactics hit'],
+  ['<span class="num">' + mostCovered[0][0] + '</span>', mostCovered[0][1].length + ' tests · ' + (TECHNIQUE_MAP[mostCovered[0][0]] || ['','?'])[1]],
+  ['<span class="num">' + mostCovered[1][0] + '</span>', mostCovered[1][1].length + ' tests · ' + (TECHNIQUE_MAP[mostCovered[1][0]] || ['','?'])[1]],
+  ['<span class="num">' + mostCovered[2][0] + '</span>', mostCovered[2][1].length + ' tests · ' + (TECHNIQUE_MAP[mostCovered[2][0]] || ['','?'])[1]],
+].map(([n, l]) => '<div class="sum-card"><div class="num" style="font-size:18px">' + n + '</div><div class="lab">' + l + '</div></div>').join('');
+
+rebuildMatrix();
+
+document.getElementById('meta-sub').textContent =
+  CATALOG.length + ' tests · ' + totalCovered + ' techniques · ' + tacticsHit + '/14 tactics';
+</script>
+</body>
+</html>

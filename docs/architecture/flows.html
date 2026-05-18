@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProjectAchilles — Data Flows</title>
+<style>
+:root {
+  --bg: #0a0f0c;
+  --bg-2: #0f1612;
+  --bg-3: #131b16;
+  --panel: #0c1410;
+  --border: #1f2a23;
+  --border-2: #2a3a31;
+  --text: #d6e6dc;
+  --text-2: #94aa9d;
+  --text-3: #5e7268;
+  --accent: #00ff88;
+  --accent-2: #00cc6e;
+  --amber: #ffb86b;
+  --magenta: #ff5edb;
+  --blue: #5ec9ff;
+  --purple: #c084fc;
+  --red: #ff5e7e;
+  --gray: #6b7a72;
+  --mono: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--text); margin: 0; padding: 0; font-family: var(--sans); font-size: 14px; line-height: 1.5; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono { font-family: var(--mono); }
+
+header.top {
+  position: sticky; top: 0; z-index: 50;
+  background: linear-gradient(180deg, var(--bg) 0%, rgba(10,15,12,0.95) 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+  backdrop-filter: blur(8px);
+  display: flex; align-items: center; gap: 12px;
+}
+header.top h1 {
+  margin: 0; font-size: 16px; font-weight: 600; letter-spacing: 0.02em;
+  display: flex; align-items: center; gap: 12px;
+}
+header.top .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+header.top .sub { color: var(--text-2); font-weight: 400; font-size: 12px; margin-left: auto; }
+header.top a.cross-link { color: var(--text-2); font-size: 12px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px; }
+header.top a.cross-link:hover { color: var(--accent); border-color: var(--accent); text-decoration: none; }
+
+.layout { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 50px); }
+
+aside.sidebar {
+  background: var(--bg-2); border-right: 1px solid var(--border); padding: 16px;
+  overflow-y: auto; position: sticky; top: 49px; max-height: calc(100vh - 50px);
+}
+aside.sidebar h3 {
+  margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-3); font-weight: 600;
+}
+.flow-list { list-style: none; padding: 0; margin: 0 0 24px; }
+.flow-list li { margin: 4px 0; }
+.flow-list button {
+  display: block; width: 100%; text-align: left;
+  background: transparent; color: var(--text-2); border: 1px solid transparent; border-radius: 6px;
+  padding: 8px 12px; cursor: pointer; font-family: inherit; font-size: 13px;
+  transition: all 0.12s;
+}
+.flow-list button:hover { background: var(--bg-3); color: var(--text); }
+.flow-list button.active {
+  background: var(--bg-3); color: var(--accent); border-color: var(--border-2);
+}
+.flow-list .cadence {
+  display: block; font-family: var(--mono); font-size: 10px; color: var(--text-3); margin-top: 2px;
+}
+.flow-list button.active .cadence { color: var(--text-2); }
+
+.legend { background: var(--bg-3); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-size: 11px; }
+.legend .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+.legend .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+.legend .arrow-sample { display: inline-block; width: 24px; height: 1px; background: var(--text-2); flex-shrink: 0; position: relative; }
+.legend .arrow-sample.dashed { background: transparent; border-top: 1px dashed var(--text-2); }
+.legend .arrow-sample.dotted { background: transparent; border-top: 1px dotted var(--text-2); }
+.legend .arrow-sample::after {
+  content: ''; position: absolute; right: -2px; top: -3px;
+  border-left: 5px solid var(--text-2); border-top: 3px solid transparent; border-bottom: 3px solid transparent;
+}
+.legend .arrow-sample.return::after {
+  border-left: none; border-top: 1px solid var(--text-2); border-right: 1px solid var(--text-2);
+  width: 5px; height: 5px; background: transparent; transform: rotate(45deg); top: -2px; right: 0;
+}
+
+main.content { padding: 24px 32px; overflow-x: auto; }
+
+.flow-header { margin-bottom: 16px; }
+.flow-header h2 { margin: 0 0 6px; font-size: 22px; font-weight: 600; }
+.flow-header .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+.pill {
+  display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px;
+  font-family: var(--mono); background: var(--bg-3); color: var(--text-2); border: 1px solid var(--border);
+}
+.pill.accent { color: var(--accent); border-color: rgba(0,255,136,0.3); background: rgba(0,255,136,0.06); }
+.pill.amber { color: var(--amber); border-color: rgba(255,184,107,0.3); background: rgba(255,184,107,0.06); }
+.pill.blue { color: var(--blue); border-color: rgba(94,201,255,0.3); background: rgba(94,201,255,0.06); }
+.pill.magenta { color: var(--magenta); border-color: rgba(255,94,219,0.3); background: rgba(255,94,219,0.06); }
+.pill.purple { color: var(--purple); border-color: rgba(192,132,252,0.3); background: rgba(192,132,252,0.06); }
+.pill.red { color: var(--red); border-color: rgba(255,94,126,0.3); background: rgba(255,94,126,0.06); }
+
+.diagram {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px;
+  overflow-x: auto;
+}
+
+.notes {
+  margin-top: 16px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px;
+}
+.notes h3 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); }
+.invariant { padding: 10px 12px; background: rgba(0,255,136,0.05); border-left: 3px solid var(--accent); color: var(--text); font-size: 13px; margin: 8px 0; border-radius: 0 4px 4px 0; }
+.frontend-grouping { padding: 10px 12px; background: rgba(94,201,255,0.05); border-left: 3px solid var(--blue); color: var(--text); font-size: 13px; margin: 8px 0; border-radius: 0 4px 4px 0; }
+
+.narrative {
+  margin-top: 16px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px;
+}
+.narrative h3 { margin: 0 0 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); }
+.narrative ol { counter-reset: nstep; list-style: none; padding-left: 0; margin: 0; }
+.narrative ol li {
+  position: relative; padding: 6px 0 6px 32px; font-size: 13px; color: var(--text-2);
+  border-left: 1px solid var(--border); margin-left: 12px;
+}
+.narrative ol li::before {
+  counter-increment: nstep; content: counter(nstep);
+  position: absolute; left: -10px; top: 6px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--bg-3); border: 1px solid var(--border-2);
+  color: var(--accent); font-size: 10px; font-family: var(--mono); font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* SVG diagram element styles */
+svg.flow-svg { display: block; min-width: 100%; }
+svg.flow-svg .actor-box { fill: var(--bg-3); stroke-width: 1.5; }
+svg.flow-svg .actor-label { fill: var(--text); font-size: 12px; font-family: var(--sans); font-weight: 600; text-anchor: middle; }
+svg.flow-svg .actor-sub { fill: var(--text-3); font-size: 9px; font-family: var(--mono); text-anchor: middle; }
+svg.flow-svg .lifeline { stroke: var(--border-2); stroke-width: 1; stroke-dasharray: 3 4; }
+svg.flow-svg .phase-band { fill: rgba(0,255,136,0.03); stroke: rgba(0,255,136,0.15); stroke-width: 1; stroke-dasharray: 2 3; }
+svg.flow-svg .phase-label { fill: var(--accent); font-size: 10px; font-family: var(--mono); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+svg.flow-svg .step-arrow { stroke: var(--text-2); stroke-width: 1.2; fill: none; }
+svg.flow-svg .step-arrow.async { stroke-dasharray: 5 3; }
+svg.flow-svg .step-arrow.retry { stroke-dasharray: 1 3; }
+svg.flow-svg .step-arrow.return { stroke: var(--text-3); }
+svg.flow-svg .step-arrow.user { stroke: var(--blue); }
+svg.flow-svg .step-label { fill: var(--text); font-size: 11px; font-family: var(--mono); }
+svg.flow-svg .step-note { fill: var(--text-3); font-size: 10px; font-family: var(--sans); font-style: italic; }
+svg.flow-svg .self-loop { stroke: var(--text-2); stroke-width: 1.2; fill: none; }
+svg.flow-svg .self-loop-bg { fill: var(--panel); }
+svg.flow-svg .self-label { fill: var(--text); font-size: 10px; font-family: var(--mono); }
+
+footer { padding: 16px 24px; text-align: center; color: var(--text-3); font-size: 12px; border-top: 1px solid var(--border); margin-top: 24px; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>
+    <span class="dot"></span>
+    ProjectAchilles
+    <span class="pill accent">Data Flows</span>
+  </h1>
+  <span class="sub" id="meta-sub"></span>
+  <a class="cross-link" href="architecture.html">← Architecture map</a>
+</header>
+
+<div class="layout">
+
+  <aside class="sidebar">
+    <h3>Flows</h3>
+    <ul class="flow-list" id="flow-list"></ul>
+
+    <h3>Legend</h3>
+    <div class="legend">
+      <div class="row"><span class="swatch" style="background:#5ec9ff"></span>Client (Operator / Frontend / CLI)</div>
+      <div class="row"><span class="swatch" style="background:#00ff88"></span>Backend / Cron</div>
+      <div class="row"><span class="swatch" style="background:#c084fc"></span>Agent / Test Binary</div>
+      <div class="row"><span class="swatch" style="background:#ffb86b"></span>Stores (SQLite / ES / Files)</div>
+      <div class="row"><span class="swatch" style="background:#ff5edb"></span>External (Defender / Slack / Email / GitHub / Clerk)</div>
+      <div class="row"><span class="swatch" style="background:#6b7a72"></span>OS Service</div>
+      <div class="row" style="margin-top:8px"><span class="arrow-sample"></span>sync call</div>
+      <div class="row"><span class="arrow-sample dashed"></span>async / fire-forget</div>
+      <div class="row"><span class="arrow-sample dotted"></span>retry</div>
+      <div class="row"><span class="arrow-sample return"></span>return value</div>
+    </div>
+  </aside>
+
+  <main class="content">
+    <div id="flow-view"></div>
+  </main>
+</div>
+
+<footer>
+  Self-contained · open by double-click · pairs with <a href="architecture.html">architecture.html</a>
+</footer>
+
+<script>
+// ============================================================================
+// Actor color registry — every actor name used in flows below must be here.
+// ============================================================================
+const ACTORS = {
+  'Operator':       { color: '#5ec9ff', sub: 'human' },
+  'Frontend':       { color: '#5ec9ff', sub: 'React + Clerk' },
+  'CLI':            { color: '#5ec9ff', sub: 'headless' },
+  'Backend':        { color: '#00ff88', sub: 'Express' },
+  'Cron':           { color: '#00ff88', sub: 'setInterval / Vercel' },
+  'Agent':          { color: '#c084fc', sub: 'Go binary' },
+  'Test Binary':    { color: '#c084fc', sub: 'security test' },
+  'OS Service':     { color: '#6b7a72', sub: 'SCM/systemd/launchd' },
+  'SQLite':         { color: '#ffb86b', sub: 'better-sqlite3 / Turso' },
+  'ES':             { color: '#ffb86b', sub: 'Elasticsearch 8.x' },
+  'Files':          { color: '#ffb86b', sub: '~/.projectachilles/' },
+  'Defender':       { color: '#ff5edb', sub: 'Graph API' },
+  'Slack':          { color: '#ff5edb', sub: 'webhook' },
+  'Email':          { color: '#ff5edb', sub: 'SMTP' },
+  'Clerk':          { color: '#ff5edb', sub: 'auth' },
+  'GitHub':         { color: '#ff5edb', sub: 'f0_library' },
+};
+
+// ============================================================================
+// Structured flow definitions.
+// Each step: { from, to, label, kind?, note? }
+//   kind: 'sync' (default) | 'async' | 'return' | 'self' | 'retry' | 'user'
+// Optional phases group consecutive steps with a labelled band.
+// ============================================================================
+const FLOWS = [
+  {
+    id: 'agent-enrollment',
+    name: 'Agent Enrollment',
+    cadence: null,
+    trigger: 'operator-initiated',
+    summary: 'Mint a single-use token, paste it into the installer, agent exchanges token for a hashed API key, optionally registers as a system service.',
+    actors: ['Operator', 'Frontend', 'Backend', 'SQLite', 'Agent', 'OS Service'],
+    steps: [
+      { from: 'Operator', to: 'Frontend', label: 'click "mint token"', kind: 'user' },
+      { from: 'Frontend', to: 'Backend', label: 'POST /api/agent/admin/enrollment-tokens', note: 'Clerk JWT' },
+      { from: 'Backend', to: 'SQLite', label: 'INSERT enrollment_tokens', note: 'single-use' },
+      { from: 'Backend', to: 'Frontend', label: '{ token }', kind: 'return' },
+      { from: 'Frontend', to: 'Operator', label: 'show token + install command', kind: 'return' },
+      { from: 'Operator', to: 'Agent', label: 'paste token into installer', kind: 'user', note: 'Install-ProjectAchilles.ps1 / shell' },
+      { from: 'Agent', to: 'Backend', label: 'POST /api/agent/enroll', note: '{ token, sysinfo }' },
+      { from: 'Backend', to: 'SQLite', label: 'DELETE enrollment_tokens; INSERT agents', note: 'token is consumed' },
+      { from: 'Backend', to: 'Agent', label: '{ api_key (hashed) }', kind: 'return' },
+      { from: 'Agent', to: 'Agent', label: 'persist API key + server URL', kind: 'self', note: 'config file' },
+      { from: 'Agent', to: 'OS Service', label: 'register unit (if --install)', note: 'SCM / systemd / launchd' },
+      { from: 'OS Service', to: 'Agent', label: 'start service', kind: 'return' },
+    ],
+  },
+
+  {
+    id: 'heartbeat',
+    name: 'Heartbeat + Offline Detection',
+    cadence: 'agent: server-driven; offline-check: 60s',
+    trigger: 'periodic',
+    summary: 'Agents heartbeat on a server-driven cadence; the backend primary marks stale agents offline and fires Slack/Email alerts when thresholds cross.',
+    actors: ['Agent', 'Backend', 'SQLite', 'Slack', 'Email'],
+    phases: [
+      { startStep: 0, endStep: 2, label: '↻ agent heartbeat (per-agent cadence)' },
+      { startStep: 3, endStep: 3, label: '↻ hourly' },
+      { startStep: 4, endStep: 8, label: '↻ every 60s (primary only)' },
+    ],
+    steps: [
+      { from: 'Agent', to: 'Backend', label: 'POST /api/agent/heartbeat', note: '{ status, version, os }' },
+      { from: 'Backend', to: 'SQLite', label: 'UPDATE agents SET last_seen=now()' },
+      { from: 'Backend', to: 'Agent', label: '{ next_poll_in }', kind: 'return' },
+      { from: 'Backend', to: 'SQLite', label: 'pruneHeartbeatHistory — DELETE old rows', note: 'hourly' },
+      { from: 'Backend', to: 'SQLite', label: 'detectOfflineAgents — SELECT WHERE last_seen < threshold' },
+      { from: 'Backend', to: 'SQLite', label: 'UPDATE agents SET status="offline"' },
+      { from: 'Backend', to: 'Backend', label: 'evaluateAgentAlerts thresholds', kind: 'self' },
+      { from: 'Backend', to: 'Slack', label: 'POST webhook (if crossed)', kind: 'async' },
+      { from: 'Backend', to: 'Email', label: 'SMTP send (if crossed)', kind: 'async' },
+    ],
+  },
+
+  {
+    id: 'task-execution',
+    name: 'Task Execution + Bundle Results Ingestion',
+    cadence: 'agent polls; ingest fan-out is one-shot per result',
+    trigger: 'task created (manual or scheduled)',
+    summary: 'Agent pulls task, downloads + runs the bundle, validates bundle_id matches task UUID, posts result. Backend fans out per-control documents into achilles-results-* and runs threshold alerting.',
+    actors: ['Backend', 'SQLite', 'Agent', 'Test Binary', 'ES', 'Slack', 'Email'],
+    steps: [
+      { from: 'Backend', to: 'SQLite', label: 'INSERT tasks (status=assigned)', note: 'from admin POST or schedule' },
+      { from: 'Agent', to: 'Backend', label: 'GET /api/agent/tasks', note: 'poll' },
+      { from: 'Backend', to: 'SQLite', label: 'SELECT pending tasks for agent' },
+      { from: 'Backend', to: 'Agent', label: '[ task + bundle metadata ]', kind: 'return' },
+      { from: 'Agent', to: 'Backend', label: 'GET /api/agent/binary/:platform/:arch', note: 'DoStream + MaxDownloadTimeout' },
+      { from: 'Backend', to: 'Agent', label: 'signed binary (streamed)', kind: 'return' },
+      { from: 'Agent', to: 'Test Binary', label: 'exec with args', kind: 'sync' },
+      { from: 'Test Binary', to: 'Test Binary', label: 'write c:\\F0\\bundle_results.json', kind: 'self' },
+      { from: 'Agent', to: 'Agent', label: 'validate bundle_id == task UUID', kind: 'self' },
+      { from: 'Agent', to: 'Backend', label: 'POST /api/agent/tasks/:id/result' },
+      { from: 'Backend', to: 'Backend', label: 'detect bundle_results.controls → ingestBundleControls()', kind: 'self' },
+      { from: 'Backend', to: 'ES', label: 'client.bulk() — fan-out per control', note: 'test_uuid = <bundle>::<control>' },
+      { from: 'Backend', to: 'Backend', label: 'alerting.service evaluate thresholds', kind: 'self' },
+      { from: 'Backend', to: 'Slack', label: 'dispatch (if crossed)', kind: 'async' },
+      { from: 'Backend', to: 'Email', label: 'dispatch (if crossed)', kind: 'async' },
+      { from: 'Backend', to: 'SQLite', label: 'UPDATE tasks SET status=complete' },
+      { from: 'Backend', to: 'SQLite', label: 'mark for retry (if ingest failed)', kind: 'retry', note: 'ingestionRetryWorker drains every 5m, cap 10' },
+    ],
+    invariant: 'Bundle controls fan out as independent ES docs; composite test_uuid = <bundle-uuid>::<control-id> with :: separator (unambiguous — neither UUIDs nor control IDs contain colons).',
+    frontendGrouping: 'Executions table groups bundle controls under collapsible parent rows with X/Y Protected badge. Cyber-hygiene shows "X controls", other categories show "X stages". Skipped stages (non-cyber-hygiene exit_code=0) excluded from Protected/Unprotected count.',
+  },
+
+  {
+    id: 'defender-sync-5m',
+    name: 'Defender Sync (5-minute loop)',
+    cadence: '5m',
+    trigger: 'periodic',
+    summary: 'Three error-isolated phases: sync alerts → enrich (correlate to Achilles tests) → auto-resolve (PATCH correlated alerts to resolved if opted in).',
+    actors: ['Cron', 'Backend', 'Defender', 'ES'],
+    phases: [
+      { startStep: 0, endStep: 3, label: 'phase 1: syncAlerts (pull + upsert)' },
+      { startStep: 4, endStep: 7, label: 'phase 2: runEnrichmentPass (correlate)' },
+      { startStep: 8, endStep: 10, label: 'phase 3: runAutoResolvePass (PATCH, opt-in)' },
+    ],
+    steps: [
+      { from: 'Cron', to: 'Backend', label: 'tick — syncAlerts()', note: 'every 5m' },
+      { from: 'Backend', to: 'Defender', label: 'GET /v2/alerts (paginated)', note: 'OData $top, $skiptoken' },
+      { from: 'Defender', to: 'Backend', label: '[ alerts ]', kind: 'return' },
+      { from: 'Backend', to: 'ES', label: 'upsert achilles-defender doc_type=alert', note: 'timestamp = lastUpdateDateTime || createdDateTime' },
+      { from: 'Backend', to: 'ES', label: 'msearch achilles-results-* wildcard on evidence_filenames.keyword + evidence_hostnames.keyword', note: '-5/+30 min window' },
+      { from: 'ES', to: 'Backend', label: '[ matching tests ]', kind: 'return' },
+      { from: 'Backend', to: 'ES', label: 'UPDATE alert f0rtika.achilles_correlated=true', note: '+ _test_uuid + _matched_at' },
+      { from: 'Backend', to: 'ES', label: 'UPDATE test f0rtika.defender_detected=true', note: 'eager per-stage enrichment' },
+      { from: 'Backend', to: 'Defender', label: 'PATCH /alerts/{id}', note: 'status=resolved, classification=informationalExpectedActivity, determination=securityTesting; cap 30/pass' },
+      { from: 'Defender', to: 'Backend', label: '200 / 403 / 404', kind: 'return' },
+      { from: 'Backend', to: 'ES', label: 'UPDATE alert f0rtika.auto_resolved (+ receipt)' },
+    ],
+    invariant: 'Auto-resolve NEVER writes to test docs — Defense Score is byte-identical whether auto-resolve is disabled, dry_run, or enabled. Each phase catches its own errors so one failure does not silence the others.',
+  },
+
+  {
+    id: 'defender-secure-score-6h',
+    name: 'Defender Secure Score (6-hour loop)',
+    cadence: '6h',
+    trigger: 'periodic',
+    summary: 'Slow loop for tenant-wide posture: pull Secure Score time series + control profile metadata. Feeds the Analytics cross-correlation views.',
+    actors: ['Cron', 'Backend', 'Defender', 'ES'],
+    phases: [
+      { startStep: 0, endStep: 3, label: 'syncSecureScores' },
+      { startStep: 4, endStep: 7, label: 'syncControlProfiles' },
+    ],
+    steps: [
+      { from: 'Cron', to: 'Backend', label: 'tick — syncSecureScores()', note: 'every 6h' },
+      { from: 'Backend', to: 'Defender', label: 'GET /v2/secureScores' },
+      { from: 'Defender', to: 'Backend', label: '[ scores ]', kind: 'return' },
+      { from: 'Backend', to: 'ES', label: 'upsert achilles-defender doc_type=secure_score' },
+      { from: 'Cron', to: 'Backend', label: 'tick — syncControlProfiles()' },
+      { from: 'Backend', to: 'Defender', label: 'GET /v2/secureScoreControlProfiles' },
+      { from: 'Defender', to: 'Backend', label: '[ control profiles ]', kind: 'return' },
+      { from: 'Backend', to: 'ES', label: 'upsert achilles-defender doc_type=control_profile' },
+    ],
+  },
+
+  {
+    id: 'scheduled-runs',
+    name: 'Scheduled Runs',
+    cadence: 'docker/render/fly: 60s setInterval; vercel: Cron tick',
+    trigger: 'operator creates schedule, then periodic',
+    summary: 'Operator defines cron-like schedule; primary (or Vercel Cron) ticks every minute, selects due schedules, enqueues tasks. Startup also runs once to recover past-due.',
+    actors: ['Operator', 'Frontend', 'Backend', 'SQLite', 'Cron'],
+    phases: [
+      { startStep: 0, endStep: 2, label: 'one-shot: create schedule' },
+      { startStep: 3, endStep: 5, label: '↻ every 60s (primary only) / Vercel Cron tick' },
+    ],
+    steps: [
+      { from: 'Operator', to: 'Frontend', label: 'define cron expression', kind: 'user' },
+      { from: 'Frontend', to: 'Backend', label: 'POST /api/agent/admin/schedules' },
+      { from: 'Backend', to: 'SQLite', label: 'INSERT schedules' },
+      { from: 'Cron', to: 'Backend', label: 'processSchedules()', note: '60s tick OR /api/cron/schedules' },
+      { from: 'Backend', to: 'SQLite', label: 'SELECT due schedules' },
+      { from: 'Backend', to: 'SQLite', label: 'INSERT tasks for matching agents' },
+    ],
+    invariant: 'On boot, processSchedules() runs once before the interval kicks in — catches past-due schedules across restarts.',
+  },
+
+  {
+    id: 'auto-key-rotation',
+    name: 'Auto Key Rotation',
+    cadence: '60s',
+    trigger: 'periodic',
+    summary: 'Periodic policy check rotates the active signing certificate when due; retains a window of past certs (max 5) and propagates the new public key via the agent update channel.',
+    actors: ['Cron', 'Backend', 'Files', 'Agent'],
+    steps: [
+      { from: 'Cron', to: 'Backend', label: 'processAutoRotation()', note: '60s tick / Vercel Cron' },
+      { from: 'Backend', to: 'Files', label: 'READ active-cert.txt + rotation policy' },
+      { from: 'Backend', to: 'Backend', label: 'generate new keypair (if due)', kind: 'self' },
+      { from: 'Backend', to: 'Files', label: 'WRITE certs/cert-<ts>/', note: 'PFX + metadata' },
+      { from: 'Backend', to: 'Files', label: 'UPDATE active-cert.txt' },
+      { from: 'Backend', to: 'Files', label: 'DELETE oldest (max 5 retained)' },
+      { from: 'Agent', to: 'Backend', label: 'GET /api/agent/update (poll)', note: 'next normal cycle' },
+      { from: 'Backend', to: 'Agent', label: '{ new public key }', kind: 'return' },
+    ],
+  },
+
+  {
+    id: 'threshold-alerting',
+    name: 'Threshold Alerting',
+    cadence: 'reactive — fires after each result ingestion',
+    trigger: 'results.service successful ES write',
+    summary: 'After every successful ES write, the alerting service evaluates Score-drop % and absolute-floor thresholds; if crossed, dispatches Block Kit Slack + SMTP email and persists the event for the NotificationBell.',
+    actors: ['Backend', 'ES', 'Files', 'Slack', 'Email', 'Frontend'],
+    steps: [
+      { from: 'Backend', to: 'ES', label: 'results.service post-ingest hook', note: 'after bulk() success' },
+      { from: 'Backend', to: 'Files', label: 'READ integrations.json (thresholds)', note: 'AES-256-GCM decrypted' },
+      { from: 'Backend', to: 'Backend', label: 'evaluate Score-drop % + absolute floor', kind: 'self' },
+      { from: 'Backend', to: 'Slack', label: 'POST webhook (Block Kit)', kind: 'async', note: 'if crossed' },
+      { from: 'Backend', to: 'Email', label: 'SMTP send (Nodemailer)', kind: 'async', note: 'if crossed' },
+      { from: 'Backend', to: 'Backend', label: 'persist event', kind: 'self' },
+      { from: 'Frontend', to: 'Backend', label: 'NotificationBell GET unseen', note: 'poll' },
+      { from: 'Backend', to: 'Frontend', label: '[ events ]', kind: 'return' },
+    ],
+  },
+
+  {
+    id: 'cli-device-flow',
+    name: 'CLI Device Flow',
+    cadence: 'one-shot per CLI session',
+    trigger: 'cli auth login command',
+    summary: 'Headless CLI gets a short-lived JWT without storing Clerk credentials: it polls a device_code while the operator approves the user_code in a browser tab.',
+    actors: ['CLI', 'Backend', 'SQLite', 'Operator', 'Frontend', 'Clerk'],
+    phases: [
+      { startStep: 0, endStep: 3, label: 'phase 1: device + user code issued' },
+      { startStep: 4, endStep: 7, label: 'phase 2: operator approves in browser' },
+      { startStep: 8, endStep: 11, label: 'phase 3: ↻ CLI polls for JWT' },
+      { startStep: 12, endStep: 13, label: 'phase 4: subsequent CLI calls' },
+    ],
+    steps: [
+      { from: 'CLI', to: 'Backend', label: 'POST /api/cli/auth/start' },
+      { from: 'Backend', to: 'SQLite', label: 'INSERT device_code + user_code' },
+      { from: 'Backend', to: 'CLI', label: '{ device_code, user_code, verification_uri }', kind: 'return' },
+      { from: 'CLI', to: 'Operator', label: 'display "open URL, enter code"', kind: 'return' },
+      { from: 'Operator', to: 'Frontend', label: 'navigate /cli-auth', kind: 'user' },
+      { from: 'Frontend', to: 'Clerk', label: 'ensure signed in' },
+      { from: 'Operator', to: 'Frontend', label: 'enter user_code + approve', kind: 'user' },
+      { from: 'Frontend', to: 'Backend', label: 'POST /api/cli/auth/approve', note: 'Clerk JWT' },
+      { from: 'CLI', to: 'Backend', label: 'POST /api/cli/auth/poll { device_code }', kind: 'retry', note: 'poll until approved' },
+      { from: 'Backend', to: 'SQLite', label: 'SELECT status' },
+      { from: 'Backend', to: 'CLI', label: '{ jwt } (when approved)', kind: 'return' },
+      { from: 'CLI', to: 'CLI', label: 'persist JWT for session', kind: 'self' },
+      { from: 'CLI', to: 'Backend', label: 'GET /api/* with CLI JWT' },
+      { from: 'Backend', to: 'Backend', label: 'acceptCliAuth middleware bridges into req.auth', kind: 'self', note: 'downstream requireClerkAuth() passes' },
+    ],
+  },
+];
+
+// ============================================================================
+// Layout helpers
+// ============================================================================
+const COL_W = 150;           // actor column width
+const COL_PAD = 30;          // left/right padding
+const ACTOR_H = 50;          // actor box height
+const ROW_H = 56;            // step row height
+const TOP_PAD = 70;          // space above first step
+const BOTTOM_PAD = 30;
+const PHASE_PAD_L = 8;
+const PHASE_PAD_R = 8;
+
+function escapeXml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderFlowSvg(flow) {
+  const actors = flow.actors;
+  const cols = actors.length;
+  const width = COL_PAD * 2 + COL_W * cols;
+  const stepRows = flow.steps.length;
+  const height = TOP_PAD + ROW_H * stepRows + BOTTOM_PAD;
+
+  const colX = i => COL_PAD + COL_W * i + COL_W / 2;
+  const actorIdx = name => actors.indexOf(name);
+
+  let svg = '<svg class="flow-svg" viewBox="0 0 ' + width + ' ' + height +
+            '" width="' + width + '" height="' + height + '" xmlns="http://www.w3.org/2000/svg">';
+
+  svg += '<defs>';
+  svg += '<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">' +
+         '<path d="M 0 0 L 10 5 L 0 10 z" fill="#94aa9d"/></marker>';
+  svg += '<marker id="arr-open" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">' +
+         '<path d="M 0 0 L 10 5 L 0 10" fill="none" stroke="#5e7268" stroke-width="1.2"/></marker>';
+  svg += '<marker id="arr-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">' +
+         '<path d="M 0 0 L 10 5 L 0 10 z" fill="#5ec9ff"/></marker>';
+  svg += '</defs>';
+
+  // Phase bands (drawn first, behind everything)
+  if (flow.phases) {
+    flow.phases.forEach(p => {
+      const y0 = TOP_PAD + p.startStep * ROW_H - 10;
+      const y1 = TOP_PAD + (p.endStep + 1) * ROW_H - 10;
+      svg += '<rect class="phase-band" x="' + (COL_PAD - 4) + '" y="' + y0 +
+             '" width="' + (width - 2 * (COL_PAD - 4)) + '" height="' + (y1 - y0) + '" rx="4"/>';
+      svg += '<text class="phase-label" x="' + (COL_PAD + 4) + '" y="' + (y0 + 13) + '">' +
+             escapeXml(p.label) + '</text>';
+    });
+  }
+
+  // Actor headers + lifelines
+  actors.forEach((name, i) => {
+    const info = ACTORS[name] || { color: '#94aa9d', sub: '' };
+    const cx = colX(i);
+    const boxX = cx - COL_W / 2 + 10;
+    const boxW = COL_W - 20;
+    svg += '<rect class="actor-box" x="' + boxX + '" y="6" width="' + boxW +
+           '" height="' + ACTOR_H + '" rx="6" fill="#131b16" stroke="' + info.color + '"/>';
+    svg += '<text class="actor-label" x="' + cx + '" y="26">' + escapeXml(name) + '</text>';
+    if (info.sub) {
+      svg += '<text class="actor-sub" x="' + cx + '" y="42">' + escapeXml(info.sub) + '</text>';
+    }
+    // Lifeline
+    svg += '<line class="lifeline" x1="' + cx + '" y1="' + (6 + ACTOR_H) +
+           '" x2="' + cx + '" y2="' + (height - 10) + '"/>';
+  });
+
+  // Steps
+  flow.steps.forEach((step, idx) => {
+    const y = TOP_PAD + idx * ROW_H + ROW_H / 2;
+    const fi = actorIdx(step.from);
+    const ti = actorIdx(step.to);
+    if (fi < 0 || ti < 0) return;
+    const kind = step.kind || 'sync';
+
+    if (fi === ti) {
+      // Self-loop: little arc on the right side of the lifeline
+      const cx = colX(fi);
+      const r = 16;
+      svg += '<path class="self-loop" d="M ' + (cx + 2) + ' ' + (y - 10) +
+             ' C ' + (cx + r + 14) + ' ' + (y - 14) + ', ' + (cx + r + 14) + ' ' + (y + 14) + ', ' +
+             (cx + 2) + ' ' + (y + 10) + '" marker-end="url(#arr)"/>';
+      // Label to the right of the loop
+      const labelX = cx + r + 20;
+      svg += '<text class="step-label" x="' + labelX + '" y="' + (y - 2) + '">' + escapeXml(step.label) + '</text>';
+      if (step.note) {
+        svg += '<text class="step-note" x="' + labelX + '" y="' + (y + 12) + '">' + escapeXml(step.note) + '</text>';
+      }
+    } else {
+      const x1 = colX(fi);
+      const x2 = colX(ti);
+      const dir = x2 > x1 ? 1 : -1;
+      const startX = x1 + dir * 4;
+      const endX = x2 - dir * 4;
+      let cls = 'step-arrow';
+      let marker = 'url(#arr)';
+      if (kind === 'async') cls += ' async';
+      if (kind === 'retry') cls += ' retry';
+      if (kind === 'return') { cls += ' return'; marker = 'url(#arr-open)'; }
+      if (kind === 'user') { cls += ' user'; marker = 'url(#arr-blue)'; }
+
+      svg += '<line class="' + cls + '" x1="' + startX + '" y1="' + y +
+             '" x2="' + endX + '" y2="' + y + '" marker-end="' + marker + '"/>';
+
+      // Centered label above arrow
+      const midX = (x1 + x2) / 2;
+      svg += '<text class="step-label" x="' + midX + '" y="' + (y - 6) +
+             '" text-anchor="middle">' + escapeXml(step.label) + '</text>';
+      if (step.note) {
+        svg += '<text class="step-note" x="' + midX + '" y="' + (y + 14) +
+               '" text-anchor="middle">' + escapeXml(step.note) + '</text>';
+      }
+    }
+  });
+
+  svg += '</svg>';
+  return svg;
+}
+
+// ============================================================================
+// Rendering
+// ============================================================================
+function cadencePill(flow) {
+  if (!flow.cadence) return '<span class="pill">one-shot</span>';
+  if (flow.cadence.includes('reactive')) return '<span class="pill amber">reactive</span>';
+  if (/\d/.test(flow.cadence)) return '<span class="pill accent">↻ ' + escapeXml(flow.cadence) + '</span>';
+  return '<span class="pill amber">' + escapeXml(flow.cadence) + '</span>';
+}
+
+function renderSidebar() {
+  const ul = document.getElementById('flow-list');
+  ul.innerHTML = FLOWS.map(f => {
+    const cadLabel = f.cadence ? f.cadence : 'one-shot';
+    return '<li><button data-flow="' + f.id + '">' +
+      escapeXml(f.name) +
+      '<span class="cadence">' + escapeXml(cadLabel) + '</span>' +
+      '</button></li>';
+  }).join('');
+  ul.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-flow]');
+    if (btn) selectFlow(btn.dataset.flow);
+  });
+}
+
+function selectFlow(id) {
+  const flow = FLOWS.find(f => f.id === id) || FLOWS[0];
+  document.querySelectorAll('#flow-list button').forEach(b =>
+    b.classList.toggle('active', b.dataset.flow === flow.id));
+
+  const view = document.getElementById('flow-view');
+  let html = '<div class="flow-header"><h2>' + escapeXml(flow.name) + '</h2>';
+  html += '<div class="meta">' + cadencePill(flow);
+  html += '<span class="pill blue">trigger: ' + escapeXml(flow.trigger) + '</span>';
+  html += '<span class="pill">' + flow.actors.length + ' actors</span>';
+  html += '<span class="pill">' + flow.steps.length + ' steps</span>';
+  html += '</div></div>';
+
+  html += '<div class="notes" style="margin-bottom:16px"><p style="margin:0;color:var(--text-2)">' +
+          escapeXml(flow.summary) + '</p></div>';
+
+  html += '<div class="diagram">' + renderFlowSvg(flow) + '</div>';
+
+  if (flow.invariant) {
+    html += '<div class="notes"><h3>Invariant</h3><div class="invariant">' +
+            escapeXml(flow.invariant) + '</div></div>';
+  }
+  if (flow.frontendGrouping) {
+    html += '<div class="notes"><h3>Frontend rendering</h3><div class="frontend-grouping">' +
+            escapeXml(flow.frontendGrouping) + '</div></div>';
+  }
+
+  // Narrative — text steps with notes
+  html += '<div class="narrative"><h3>Narrative — Step by Step</h3><ol>';
+  flow.steps.forEach(s => {
+    const kindBadge = s.kind && s.kind !== 'sync' ?
+      ' <span class="pill" style="font-size:9px;padding:1px 6px">' + escapeXml(s.kind) + '</span>' : '';
+    const fromTo = '<span class="mono" style="color:var(--text-3)">' +
+                   escapeXml(s.from) + ' → ' + escapeXml(s.to) + '</span> ';
+    const note = s.note ? '<div style="color:var(--text-3);font-size:12px;margin-top:2px">' +
+                          escapeXml(s.note) + '</div>' : '';
+    html += '<li>' + fromTo + escapeXml(s.label) + kindBadge + note + '</li>';
+  });
+  html += '</ol></div>';
+
+  view.innerHTML = html;
+  if (location.hash !== '#' + flow.id) {
+    history.replaceState(null, '', '#' + flow.id);
+  }
+}
+
+// Bootstrap
+renderSidebar();
+const initial = (location.hash || '').replace('#', '') || FLOWS[0].id;
+selectFlow(initial);
+window.addEventListener('hashchange', () => {
+  const id = (location.hash || '').replace('#', '');
+  if (FLOWS.find(f => f.id === id)) selectFlow(id);
+});
+
+document.getElementById('meta-sub').textContent =
+  FLOWS.length + ' flows · self-contained · ' + new Date().toISOString().slice(0,10);
+</script>
+
+</body>
+</html>

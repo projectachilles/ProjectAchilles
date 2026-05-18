@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProjectAchilles — Ops Timeline</title>
+<style>
+:root {
+  --bg: #0a0f0c; --bg-2: #0f1612; --bg-3: #131b16;
+  --panel: #0c1410; --border: #1f2a23; --border-2: #2a3a31;
+  --text: #d6e6dc; --text-2: #94aa9d; --text-3: #5e7268;
+  --accent: #00ff88; --amber: #ffb86b; --magenta: #ff5edb;
+  --blue: #5ec9ff; --purple: #c084fc; --red: #ff5e7e;
+  --mono: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--text); margin: 0; padding: 0; font-family: var(--sans); font-size: 14px; line-height: 1.5; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono { font-family: var(--mono); font-size: 12px; }
+
+header.top {
+  position: sticky; top: 0; z-index: 50;
+  background: linear-gradient(180deg, var(--bg) 0%, rgba(10,15,12,0.95) 100%);
+  border-bottom: 1px solid var(--border); padding: 12px 24px;
+  backdrop-filter: blur(8px);
+  display: flex; align-items: center; gap: 12px;
+}
+header.top h1 { margin: 0; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 12px; }
+header.top .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+header.top .sub { color: var(--text-2); font-weight: 400; font-size: 12px; margin-left: auto; }
+header.top a.cross-link { color: var(--text-2); font-size: 12px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px; }
+header.top a.cross-link:hover { color: var(--accent); border-color: var(--accent); text-decoration: none; }
+
+main { padding: 24px 32px; max-width: 1500px; margin: 0 auto; }
+h2 { margin: 32px 0 8px; font-size: 20px; font-weight: 600; }
+h2:first-child { margin-top: 0; }
+h3 { margin: 16px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); font-weight: 600; }
+p { color: var(--text-2); }
+
+.pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-family: var(--mono);
+  background: var(--bg-3); color: var(--text-2); border: 1px solid var(--border); }
+.pill.accent { color: var(--accent); border-color: rgba(0,255,136,0.3); background: rgba(0,255,136,0.06); }
+.pill.amber { color: var(--amber); border-color: rgba(255,184,107,0.3); background: rgba(255,184,107,0.06); }
+.pill.red { color: var(--red); border-color: rgba(255,94,126,0.3); background: rgba(255,94,126,0.06); }
+
+.controls {
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 16px; margin-bottom: 20px;
+}
+.controls label { color: var(--text-2); font-size: 12px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.controls select { background: var(--bg-2); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-family: var(--mono); font-size: 12px; }
+
+.timeline-wrap {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  overflow-x: auto;
+}
+
+.timeline {
+  position: relative;
+  font-family: var(--mono);
+  font-size: 11px;
+  min-width: 900px;
+}
+
+.hour-header {
+  display: grid; grid-template-columns: 200px 1fr; padding: 8px 0 0;
+}
+.hour-header .axis-spacer { padding: 0 16px; color: var(--text-3); }
+.hour-header .axis {
+  position: relative; height: 28px;
+  border-bottom: 1px solid var(--border);
+}
+.hour-tick {
+  position: absolute; top: 0; height: 100%;
+  border-left: 1px solid var(--border);
+  padding-left: 4px; color: var(--text-3); font-size: 10px;
+}
+.hour-tick.major { color: var(--text-2); border-left-color: var(--border-2); }
+.hour-tick.bizhours { background: rgba(0,255,136,0.03); }
+
+.lane {
+  display: grid; grid-template-columns: 200px 1fr;
+  border-bottom: 1px solid var(--border);
+  position: relative; min-height: 36px; align-items: center;
+}
+.lane:hover { background: rgba(255,255,255,0.01); }
+.lane .lab {
+  padding: 8px 12px; color: var(--text); font-size: 12px;
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 2px; min-height: 36px; justify-content: center;
+}
+.lane .lab .name { font-weight: 600; }
+.lane .lab .cad { color: var(--text-3); font-size: 10px; font-family: var(--mono); }
+.lane .track { position: relative; height: 36px; }
+
+.tick {
+  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  width: 3px; height: 12px; background: var(--accent);
+  border-radius: 1px;
+}
+.tick.dim { background: var(--text-3); height: 8px; }
+.tick.dense { width: 1px; height: 14px; opacity: 0.5; }
+.tick.event { background: var(--amber); height: 16px; width: 4px; }
+.tick.event-error { background: var(--red); width: 4px; height: 18px; box-shadow: 0 0 4px var(--red); }
+
+.bar {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  height: 10px; background: linear-gradient(90deg, rgba(0,255,136,0.4), rgba(0,255,136,0.15));
+  border-radius: 2px; border: 1px solid rgba(0,255,136,0.4);
+}
+.bar.amber { background: linear-gradient(90deg, rgba(255,184,107,0.4), rgba(255,184,107,0.15));
+  border-color: rgba(255,184,107,0.4); }
+
+.annotation {
+  position: absolute; top: 0; bottom: 0; width: 2px; background: var(--red); opacity: 0.6;
+}
+.annotation .label {
+  position: absolute; top: -22px; left: 4px; color: var(--red);
+  font-size: 10px; font-family: var(--mono); white-space: nowrap;
+  background: var(--bg); padding: 2px 6px; border: 1px solid var(--red); border-radius: 3px;
+}
+
+.tz-overlay {
+  display: grid; grid-template-columns: 200px 1fr;
+  background: var(--bg-2); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+}
+.tz-overlay .lab { padding: 6px 12px; color: var(--text-2); font-size: 11px; border-right: 1px solid var(--border); }
+.tz-overlay .lab .tzname { color: var(--blue); font-weight: 600; font-family: var(--mono); }
+.tz-overlay .track { position: relative; height: 28px; }
+.tz-overlay .tz-tick {
+  position: absolute; top: 0; bottom: 0; border-left: 1px dashed var(--border-2);
+  font-size: 10px; color: var(--text-3); padding-left: 3px;
+}
+.tz-overlay .tz-tick.biz {
+  background: rgba(94,201,255,0.05); border-left-color: var(--blue);
+  color: var(--blue);
+}
+
+.note-card {
+  background: var(--panel); border-left: 3px solid var(--blue); border-radius: 0 6px 6px 0;
+  padding: 12px 16px; margin: 16px 0; font-size: 13px; color: var(--text);
+}
+.note-card.warn { border-left-color: var(--amber); }
+.note-card.error { border-left-color: var(--red); background: rgba(255,94,126,0.04); }
+.note-card .label { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); margin-bottom: 4px; }
+.note-card code { color: var(--accent); }
+
+.legend-bar {
+  display: flex; gap: 16px; flex-wrap: wrap; padding: 10px 14px;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px;
+  margin: 16px 0; font-size: 11px;
+}
+.legend-bar .it { display: flex; align-items: center; gap: 6px; color: var(--text-2); }
+.legend-bar .sw {
+  display: inline-block; width: 14px; height: 12px; border-radius: 2px; flex-shrink: 0;
+}
+
+footer { padding: 16px 24px; text-align: center; color: var(--text-3); font-size: 12px; border-top: 1px solid var(--border); margin-top: 48px; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>
+    <span class="dot"></span>
+    ProjectAchilles
+    <span class="pill accent">Ops Timeline</span>
+  </h1>
+  <span class="sub" id="meta-sub"></span>
+  <a class="cross-link" href="architecture.html">Architecture</a>
+  <a class="cross-link" href="flows.html">Flows</a>
+  <a class="cross-link" href="data-model.html">Data Model</a>
+</header>
+
+<main>
+
+<h2>24-hour Background Job Schedule</h2>
+<p>Every periodic job that runs in the backend, plotted across a single UTC day. Background jobs only fire in the cluster <em>primary</em> (or single process) on Docker/Render/Fly; on Vercel, the same logic is invoked by Vercel Crons hitting <code>/api/cron/*</code>.</p>
+
+<div class="controls">
+  <label>Reference timezone: <select id="ref-tz">
+    <option value="UTC" selected>UTC</option>
+    <option value="London">Europe/London (GMT/BST)</option>
+    <option value="NewYork">America/New_York (EST/EDT)</option>
+  </select></label>
+  <label>Density: <select id="density">
+    <option value="auto" selected>auto (sparse over 5m)</option>
+    <option value="all">all ticks</option>
+  </select></label>
+  <label><input type="checkbox" id="show-bug" checked> Highlight TPSGL scheduler bug</label>
+</div>
+
+<div class="legend-bar">
+  <div class="it"><span class="sw" style="background:linear-gradient(90deg,rgba(0,255,136,0.4),rgba(0,255,136,0.15));border:1px solid rgba(0,255,136,0.4)"></span>continuous (60s)</div>
+  <div class="it"><span class="sw" style="background:var(--accent)"></span>fire event (≤5 min)</div>
+  <div class="it"><span class="sw" style="background:var(--text-3)"></span>fire event (sparse)</div>
+  <div class="it"><span class="sw" style="background:var(--amber)"></span>scheduled run (operator-defined)</div>
+  <div class="it"><span class="sw" style="background:var(--red)"></span>TPSGL bug fire</div>
+  <div class="it"><span class="sw" style="background:rgba(94,201,255,0.15);border:1px dashed var(--blue)"></span>09:00–17:00 office hours (selected TZ)</div>
+</div>
+
+<div class="timeline-wrap">
+  <div class="timeline" id="timeline"></div>
+</div>
+
+<h2>The TPSGL Scheduler Bug</h2>
+<div class="note-card error">
+  <div class="label">root cause — ~72% of TPSGL failures (May 2026)</div>
+  Schedules configured for <b>09:00 Europe/London</b> were firing at <b>00:00 UTC</b> instead.
+  Operator laptops were asleep at midnight → tasks went to offline agents → cascading "agent offline" → queue.Drain infinite-retry amplification (<code>agent/internal/queue/queue.go:100-108</code>).
+  Visible above as red ticks at hour 0 on the schedule lane.
+</div>
+
+<div class="note-card warn">
+  <div class="label">amplifier 1 — assigned-status zombie</div>
+  <code>expireOverdueTasks</code> in <code>tasks.service.ts:1044</code> excluded <code>'assigned'</code> status — tasks zombie for 7d until TTL sweep, blocking re-issue.
+</div>
+
+<div class="note-card warn">
+  <div class="label">amplifier 2 — queue.Drain infinite retry</div>
+  When the backend returns 400 for a bad result payload, the agent re-queues forever rather than dropping. Combined with the timezone bug, a single bad task fires every poll cycle.
+</div>
+
+<h2>Capacity Math (rough)</h2>
+<div class="note-card">
+  <div class="label">load per hour (single primary)</div>
+  <div style="font-family:var(--mono);font-size:12px;line-height:1.8">
+    • heartbeat-detect + alert-eval: 60 ticks/hr × 1 SQLite SELECT ≈ <code>60 queries/hr</code><br>
+    • scheduler: 60 ticks/hr × 1 SQLite SELECT ≈ <code>60 queries/hr</code><br>
+    • auto-rotation: 60 ticks/hr × 1 SQLite SELECT ≈ <code>60 queries/hr</code><br>
+    • ingestion retry: 12 ticks/hr × N pending tasks via bulk ≈ <code>12 ES bulks/hr</code><br>
+    • defender alerts pass: 12 ticks/hr × paginated Graph fetch + msearch + bulk ≈ <code>12 Graph rounds/hr</code><br>
+    • defender scores: <code>0.17 ticks/hr</code> (every 6h)<br>
+    • heartbeat prune: <code>1 tick/hr</code><br>
+    <span style="color:var(--text-3)">— heartbeat traffic itself is N agents × server-driven cadence (typically 30-60s) — agent-side, not primary-side</span>
+  </div>
+</div>
+
+</main>
+
+<footer>
+  Self-contained · sourced from <code>backend/src/server.ts:startBackgroundJobs</code>
+  · pairs with <a href="architecture.html">architecture.html</a> · <a href="flows.html">flows.html</a> · <a href="data-model.html">data-model.html</a>
+</footer>
+
+<script>
+const JOBS = [
+  { id: 'schedules',          name: 'processSchedules',                   cadenceSec: 60,      kind: 'continuous', source: 'server.ts setInterval / Vercel Cron' },
+  { id: 'autorotation',       name: 'processAutoRotation',                cadenceSec: 60,      kind: 'continuous', source: 'server.ts setInterval' },
+  { id: 'offline',            name: 'detectOfflineAgents + alerts',       cadenceSec: 60,      kind: 'continuous', source: 'server.ts setInterval' },
+  { id: 'ingest-retry',       name: 'ingestionRetryWorker',               cadenceSec: 300,     kind: 'periodic',   source: 'ingestionWorker.service.ts' },
+  { id: 'defender-5m',        name: 'syncAlerts → enrich → auto-resolve', cadenceSec: 300,     kind: 'periodic',   source: 'server.ts (only if Defender configured)' },
+  { id: 'heartbeat-prune',    name: 'pruneHeartbeatHistory',              cadenceSec: 3600,    kind: 'sparse',     source: 'server.ts setInterval (hourly)' },
+  { id: 'defender-6h-scores', name: 'syncSecureScores',                   cadenceSec: 21600,   kind: 'sparse',     source: 'server.ts (only if Defender configured)' },
+  { id: 'defender-6h-ctrl',   name: 'syncControlProfiles',                cadenceSec: 21600,   kind: 'sparse',     source: 'server.ts (only if Defender configured)', offsetSec: 30 },
+  { id: 'wal-checkpoint',     name: 'wal_checkpoint(TRUNCATE)',           cadenceSec: 300,     kind: 'periodic',   source: 'database.ts setInterval (5m)' },
+  { id: 'scheduled-runs',     name: 'OPERATOR scheduled runs',            cadenceSec: null,    kind: 'operator',   source: 'schedules table — fires when next_run_at ≤ now' },
+];
+
+const SECONDS_IN_DAY = 24 * 3600;
+
+function timeFor(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
+
+function tzOffsetHours(tz) {
+  if (tz === 'UTC') return 0;
+  if (tz === 'London') return 1;       // BST default; flip to 0 in winter
+  if (tz === 'NewYork') return -4;     // EDT default
+  return 0;
+}
+function tzLabel(tz) {
+  if (tz === 'UTC') return 'UTC';
+  if (tz === 'London') return 'Europe/London (BST, UTC+1)';
+  if (tz === 'NewYork') return 'America/New_York (EDT, UTC-4)';
+  return tz;
+}
+
+function render() {
+  const refTz = document.getElementById('ref-tz').value;
+  const density = document.getElementById('density').value;
+  const showBug = document.getElementById('show-bug').checked;
+  const trackPx = 1200;
+  const pxPerSec = trackPx / SECONDS_IN_DAY;
+
+  const tl = document.getElementById('timeline');
+  let html = '';
+
+  // Hour header — 24 ticks
+  html += '<div class="hour-header"><div class="axis-spacer mono">UTC</div><div class="axis">';
+  for (let h = 0; h < 24; h++) {
+    const x = h * 3600 * pxPerSec;
+    const cls = 'hour-tick' + (h % 6 === 0 ? ' major' : '') + (h >= 9 && h < 17 ? '' : '');
+    html += '<div class="' + cls + '" style="left:' + x + 'px">' + String(h).padStart(2,'0') + '</div>';
+  }
+  html += '</div></div>';
+
+  // Each job lane
+  JOBS.forEach(j => {
+    html += '<div class="lane">';
+    html += '<div class="lab"><span class="name">' + j.name + '</span>';
+    const cadLabel = j.cadenceSec
+      ? (j.cadenceSec < 60 ? j.cadenceSec + 's' : j.cadenceSec < 3600 ? (j.cadenceSec/60) + 'm' : (j.cadenceSec/3600) + 'h')
+      : 'operator';
+    html += '<span class="cad">↻ ' + cadLabel + '</span></div>';
+    html += '<div class="track">';
+
+    if (j.kind === 'operator') {
+      // Scheduled runs lane — show example operator schedules. Bug viz lives here.
+      if (showBug) {
+        // The TPSGL bug: schedule configured for 09:00 Europe/London, fires at 00:00 UTC
+        html += '<div class="annotation" style="left:0px"><div class="label">⚠ TPSGL bug: meant for 09:00 London → fires 00:00 UTC</div></div>';
+        html += '<div class="tick event-error" style="left:0px" title="TPSGL bug — laptops asleep, agent offline cascade"></div>';
+      }
+      // Show some "correct" example schedules: 09:00 in the selected TZ
+      const offsetH = tzOffsetHours(refTz);
+      const utcHour = (9 - offsetH + 24) % 24;
+      const x = utcHour * 3600 * pxPerSec;
+      html += '<div class="tick event" style="left:' + x + 'px" title="example: 09:00 ' + refTz + ' = ' + utcHour + ':00 UTC"></div>';
+      const utcHour14 = (14 - offsetH + 24) % 24;
+      html += '<div class="tick event" style="left:' + (utcHour14 * 3600 * pxPerSec) + 'px" title="example: 14:00 ' + refTz + '"></div>';
+    } else if (j.kind === 'continuous') {
+      // Continuous bar across whole day + hour-boundary subticks
+      html += '<div class="bar" style="left:0;width:' + trackPx + 'px"></div>';
+      for (let h = 0; h < 24; h++) {
+        const x = h * 3600 * pxPerSec;
+        html += '<div class="tick dense" style="left:' + x + 'px"></div>';
+      }
+    } else if (j.kind === 'periodic') {
+      const offset = j.offsetSec || 0;
+      const step = j.cadenceSec;
+      const sparseStep = density === 'all' ? step : Math.max(step, 1800); // sparse: at most every 30m
+      for (let s = offset; s < SECONDS_IN_DAY; s += sparseStep) {
+        const x = s * pxPerSec;
+        html += '<div class="tick" style="left:' + x + 'px" title="fires at ' + timeFor(s) + ' UTC"></div>';
+      }
+    } else if (j.kind === 'sparse') {
+      const offset = j.offsetSec || 0;
+      for (let s = offset; s < SECONDS_IN_DAY; s += j.cadenceSec) {
+        const x = s * pxPerSec;
+        html += '<div class="tick dim" style="left:' + x + 'px" title="fires at ' + timeFor(s) + ' UTC"></div>';
+      }
+    }
+
+    html += '</div></div>';
+  });
+
+  // Reference-timezone overlay
+  if (refTz !== 'UTC') {
+    const offsetH = tzOffsetHours(refTz);
+    html += '<div class="tz-overlay">';
+    html += '<div class="lab"><span class="tzname">' + tzLabel(refTz) + '</span><div style="color:var(--text-3);font-size:10px;margin-top:2px">local-time overlay</div></div>';
+    html += '<div class="track">';
+    for (let h = 0; h < 24; h++) {
+      const localH = (h + offsetH + 24) % 24;
+      const x = h * 3600 * pxPerSec;
+      const bizCls = (localH >= 9 && localH < 17) ? ' biz' : '';
+      html += '<div class="tz-tick' + bizCls + '" style="left:' + x + 'px;width:' + (3600 * pxPerSec) + 'px">' + String(localH).padStart(2,'0') + '</div>';
+    }
+    html += '</div></div>';
+  }
+
+  tl.innerHTML = html;
+}
+
+document.getElementById('ref-tz').addEventListener('change', render);
+document.getElementById('density').addEventListener('change', render);
+document.getElementById('show-bug').addEventListener('change', render);
+render();
+
+document.getElementById('meta-sub').textContent =
+  JOBS.length + ' periodic jobs · primary-only (or Vercel Cron)';
+</script>
+</body>
+</html>

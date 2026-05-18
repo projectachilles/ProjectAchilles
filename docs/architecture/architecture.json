@@ -1,0 +1,360 @@
+{
+  "metadata": {
+    "project": "ProjectAchilles",
+    "tagline": "Purple team platform for continuous security validation",
+    "generated_at": "2026-05-16",
+    "schema_version": "1.0",
+    "summary": "Deploys a custom Go agent to endpoints, runs security tests from a git-synced library (f0_library) with MITRE ATT&CK mapping, ingests per-control results into Elasticsearch, and correlates results against Microsoft Defender alerts/Secure Score for measured defense coverage.",
+    "repo_layout": {
+      "frontend": "React 19 + Vite 7 + TS + Tailwind v4 + Redux + Clerk",
+      "backend": "Express + TS (ES modules), better-sqlite3, Clerk, ES 8.x",
+      "backend_serverless": "Fork of backend for Vercel — Turso + Vercel Blob, Cron-driven",
+      "agent": "Go 1.24, CGO-disabled, cross-compiled for Win/Linux/macOS (amd64+arm64)",
+      "cli": "Companion CLI in cli/",
+      "wiki": "Public docs",
+      "lab_assets": "Test infra fixtures",
+      "scripts": "start.sh / setup.sh / Install-ProjectAchilles.ps1"
+    }
+  },
+
+  "modules": {
+    "frontend": {
+      "path": "frontend/src",
+      "tech": ["React 19", "TypeScript", "Vite 7", "Tailwind CSS v4", "Redux Toolkit", "React Router v7", "Clerk", "Recharts"],
+      "entry": "main.tsx -> App.tsx",
+      "pages": {
+        "browser/": ["BrowserHomePage", "TestDetailPage"],
+        "analytics/": ["AnalyticsDashboardPage"],
+        "endpoints/": ["AgentDashboardPage", "AgentsPage", "AgentDetailPage", "TasksPage"],
+        "auth/": ["SignInPage", "SignUpPage", "UserProfilePage", "CliAuthPage"],
+        "settings/": ["SettingsPage"],
+        "landing/": ["Landing (marketing mode, lazy, no Clerk/Redux/Router)"]
+      },
+      "components": {
+        "shared/ui/": ["Alert", "Badge", "Button", "Card", "Checkbox", "Dialog", "Input", "Select", "Spinner", "Switch", "Table", "Tabs"],
+        "layout/": ["AppSidebar", "TopBar", "GlobalSearch", "NotificationBell", "ThemeSelector", "SidebarLayout"],
+        "browser/": ["TestCard", "TestLibraryOverview", "TestListRow", "SearchBar", "MitreAttackMatrix", "DefenseDashboard", "BuildSection", "CodeViewer", "FileViewer", "MarkdownViewer", "TabbedViewer", "CollapsibleSection", "TargetBadge", "TechniqueBadge", "execution/"],
+        "endpoints/": ["agents/", "enrollment/", "sensors/", "tasks/", "Layout"],
+        "auth/": ["RequireAuth", "RequireModule (RBAC route guard)"]
+      },
+      "hooks": [
+        "useAuthenticatedApi (injects Clerk JWT)",
+        "useAnalyticsAuth (analytics config gate)",
+        "useAnalyticsFilters",
+        "useAppRole / useCanAccessModule (RBAC)",
+        "useCapabilities (feature flags from /api/capabilities)",
+        "useDefenderConfig",
+        "useOutdatedAgentCount",
+        "usePolling",
+        "useScoringMode",
+        "useTestPreferences",
+        "useTheme"
+      ],
+      "services_api": ["agent.ts", "alerts.ts", "analytics.ts", "browser.ts", "defender.ts", "integrations.ts", "tests.ts", "users.ts"],
+      "store": ["agentSlice (Redux Toolkit, typed useAppDispatch/useAppSelector)"],
+      "themes": ["Default (light/dark)", "Neobrutalism (hot pink)", "Hacker Terminal (phosphor green/amber, scanlines)"],
+      "routing": {
+        "type": "react-router-dom (BrowserRouter)",
+        "auth_gate": "RequireAuth + RequireModule",
+        "lazy_loaded": "All pages except SignIn/SignUp; code splitting by route",
+        "marketing_short_circuit": "isMarketingMode bypasses Clerk/Redux/Router entirely"
+      }
+    },
+
+    "backend": {
+      "path": "backend/src",
+      "tech": ["Express", "TypeScript (ES modules, .js imports)", "better-sqlite3 (WAL)", "@elastic/elasticsearch 8.x", "Clerk @clerk/express", "helmet", "morgan", "cors", "express-rate-limit"],
+      "entry": "server.ts (HTTP listen + cluster primary)",
+      "cluster_mode": "CLUSTER_WORKERS=2-8 enables Node cluster; primary owns background jobs, workers serve HTTP only — prevents duplicate scheduler/sync ticks",
+      "middleware": [
+        "helmet (CSP — unsafe-inline forced by Clerk SDK v5)",
+        "cors (CORS_ORIGIN-based)",
+        "morgan (dev format)",
+        "express.json (10mb)",
+        "clerkAuth (parses JWT, does NOT reject)",
+        "acceptCliAuth (CLI device flow JWT bridge)",
+        "apiLimiter (1000 req / 15 min, skips agent device endpoints)",
+        "asyncHandler + AppError (route-level)",
+        "errorHandler + notFoundHandler"
+      ],
+      "services": {
+        "browser/": ["gitSyncService", "githubMetadataService", "test indexing"],
+        "analytics/": ["client.ts (per-org ES client factory)", "elasticsearch.ts (queries)", "index-management.service.ts", "settings.ts (encrypted)"],
+        "tests/": ["build service (Go cross-compile)", "certificate.ts (OpenSSL PFX)", "multi-cert mgmt"],
+        "agent/": ["enrollment.service", "heartbeat.service", "tasks.service", "schedules.service", "results.service", "ingestionWorker.service", "binary.service", "agentBuild.service", "signing.service", "events.service", "health.service", "test-catalog.service", "autoRotation.service", "update.service", "database.ts (SQLite + migrations)", "agentAuthCache"],
+        "integrations/": ["settings.ts (encrypted credentials store)"],
+        "defender/": ["sync.service", "graph-client (custom fetch, OAuth2 client_credentials, OData paging, 429 retry)", "enrichment.service (alert correlation)", "auto-resolve.service (PATCH alerts to resolved)", "evidence-correlation", "control-correlation.service", "analytics.service", "index-management"],
+        "alerts/": ["alerting.service (threshold eval)", "slack.service (Block Kit webhook)", "email.service (Nodemailer)"],
+        "risk-acceptance/": ["formal risk acceptance for security controls"],
+        "shared/": ["common helpers"]
+      },
+      "background_jobs_primary_only": [
+        "processSchedules (60s)",
+        "processAutoRotation (60s)",
+        "pruneHeartbeatHistory (1h)",
+        "detectOfflineAgents + alertsService.evaluateAgentAlerts (60s)",
+        "startIngestionRetryWorker (5m, ES ingestion fallback)",
+        "defender syncSecureScores + syncControlProfiles (6h)",
+        "defender syncAlerts -> enrichmentPass -> autoResolvePass (5m, ordered, error-isolated)"
+      ],
+      "graceful_shutdown": "SIGTERM / SIGINT clear all intervals and close http server"
+    },
+
+    "backend_serverless": {
+      "path": "backend-serverless/src",
+      "tech": ["Express (exported, not listened)", "@libsql/client (Turso, async)", "@vercel/blob", "node-forge (PFX, RSA-4096 in pure JS)", "Vercel Crons"],
+      "entry": "app.ts (exports app) + api/index.ts (Vercel handler)",
+      "differences_from_backend": [
+        "Database: better-sqlite3 (sync) -> @libsql/client (async DbHelper wrapper)",
+        "Storage: fs -> @vercel/blob via storage.ts",
+        "Signing: filesystem keypair -> SIGNING_PRIVATE_KEY_B64 / SIGNING_PUBLIC_KEY_B64 env vars",
+        "Scheduling: setInterval in-process -> Vercel Crons calling /api/cron/*",
+        "Test library: runtime git sync -> build-time clone via vercel-build script",
+        "Build system: Go cross-compilation -> 503 stub",
+        "Cert generation: OpenSSL CLI -> node-forge (3des PKCS#12 for OpenSSL compat)",
+        "Capabilities endpoint flags: build=false, gitSync=false, agentBuild=false"
+      ],
+      "cron_routes": ["/api/cron/schedules", "/api/cron/auto-rotation", "/api/cron/defender-sync"],
+      "503_endpoints": ["Go build", "runtime git sync"],
+      "vercel_gotchas": [
+        "__dirname unreliable post-bundle — use process.cwd() (always /var/task)",
+        ".vercelignore replaces .gitignore for uploads — local .env can leak",
+        "echo adds \\n to env vars — always use printf (CORS_ORIGIN, TURSO_DATABASE_URL break)",
+        "includeFiles required in vercel.json for static data dirs",
+        "VITE_ prefix needed for client-exposed Clerk key"
+      ]
+    },
+
+    "agent": {
+      "path": "agent/",
+      "tech": ["Go 1.24", "CGO disabled (static binaries)"],
+      "platforms": ["windows/amd64", "linux/amd64", "darwin/amd64", "darwin/arm64"],
+      "entry": "main.go (flags: --enroll, --server, --install, --uninstall, --status, --version, --config, --run, --reload, --allow-insecure)",
+      "internal_packages": [
+        "config (config file path, server URL, agent key)",
+        "enrollment (POST /api/agent/enroll with token, persists API key)",
+        "httpclient (httpQuick 30s + httpStream — DoStream() for binaries with context.WithTimeout, see MaxDownloadTimeout)",
+        "service (Install/Uninstall — Windows SCM via sc.exe, Linux systemd, macOS launchd plist at /Library/LaunchDaemons/)",
+        "poller (heartbeat loop, task pull, server-driven cadence)",
+        "executor (run command, parse bundle_results.json, validate bundle_id matches task UUID)",
+        "queue (in-process task queue — Drain() retry semantics, currently retries 400-rejected results forever — known bug)",
+        "reporter (POST results)",
+        "store (local state — last heartbeat, version, pending tasks)",
+        "sysinfo (CPU/memory/OS — sysctl/vm_stat on darwin; no CGO)",
+        "status (CLI status flag handler)",
+        "updater (self-update via atomic rename; platform-specific service restart)",
+        "uninstaller (clean removal + state purge)"
+      ],
+      "build": "Makefile — build-all (Win/Linux/macOS amd64+arm64), sign-windows (osslsigncode + PFX), sign-darwin (rcodesign ad-hoc), checksum",
+      "signing": {
+        "windows": "Authenticode via osslsigncode + PFX (password via temp file, not CLI arg)",
+        "darwin": "rcodesign --code-signature-flags adhoc (in-place, no cert)",
+        "linux": "none"
+      },
+      "service_integration": {
+        "windows": "SCM via sc.exe",
+        "linux": "systemd unit",
+        "darwin": "launchd plist at /Library/LaunchDaemons/"
+      },
+      "version_management": "LDFLAGS -X main.version=$(VERSION)",
+      "platform_files_build_tags": ["service_darwin.go", "sysinfo_darwin.go", "update_darwin.go", "(plus _windows/_linux variants)"]
+    }
+  },
+
+  "deployment_targets": [
+    {"name": "Docker Compose", "backend_source": "backend/", "db": "SQLite (volume)", "file_storage": "Filesystem (volume)", "go_builds": true, "profile_extra": "elasticsearch profile starts ES 8.17 single-node + seeds 1000 synthetic results", "guide": "docker-compose.yml + docker compose up -d"},
+    {"name": "Railway", "backend_source": "backend/", "db": "SQLite (volume)", "file_storage": "Filesystem (volume)", "go_builds": "partial", "guide": "docs/deployment/RAILWAY.md"},
+    {"name": "Render", "backend_source": "backend/", "db": "SQLite (persistent disk, /root/.projectachilles, 5GB)", "file_storage": "Filesystem (persistent disk)", "go_builds": "partial", "guide": "docs/deployment/RENDER.md", "notes": "Port 10000 default for Docker services. Blueprint deploy via render.yaml. nginx entrypoint must strip /api/ and /ws upstream blocks when VITE_API_URL is set."},
+    {"name": "Fly.io", "backend_source": "backend/", "db": "SQLite (volume, /root/.projectachilles, 1 GB)", "file_storage": "Filesystem (volume)", "go_builds": true, "region": "cdg (Paris)", "sizes": "backend shared-2x 512MB, frontend shared-1x 256MB", "cost": "~$8/mo (cheapest always-on)", "guide": "docs/deployment/FLY.md", "notes": "Clerk app re-assigned from Vercel — same pk_live_/sk_live_ keys work across hosts when domains match"},
+    {"name": "Vercel", "backend_source": "backend-serverless/", "db": "Turso (@libsql)", "file_storage": "Vercel Blob", "go_builds": false, "cron": "Vercel Crons -> /api/cron/schedules + /api/cron/auto-rotation + /api/cron/defender-sync", "guide": "docs/deployment/VERCEL.md", "capabilities_endpoint": "GET /api/capabilities exposes feature flags so frontend hides unsupported features"}
+  ],
+
+  "data_stores": [
+    {"name": "SQLite (docker/render/fly/railway)", "lib": "better-sqlite3, WAL mode", "path": "~/.projectachilles/agents.db", "tables": ["agents", "enrollment_tokens", "tasks", "agent_versions", "schedules"], "migrations": "CREATE TABLE IF NOT EXISTS + incremental ALTERs; CHECK-constraint changes require table recreation pattern (FK OFF -> DROP IF EXISTS temp -> CREATE temp -> INSERT SELECT -> DROP old -> RENAME -> recreate indexes -> FK ON)"},
+    {"name": "Turso (Vercel)", "lib": "@libsql/client (async)", "helper": "DbHelper async wrapper; getDb() returns it (vs getDatabase() sync in non-serverless)", "tables_match_sqlite": true},
+    {"name": "Elasticsearch", "version": "8.17 (single-node profile in compose)", "client": "@elastic/elasticsearch 8.x — pinned, MUST match server major; v9 client sends compatible-with=9 header that ES 8.x rejects with 400", "indices": [
+      {"name": "achilles-results-*", "purpose": "Per-control / per-stage test execution documents. Bundle controls fanned out as independent docs with composite test_uuid = <bundle-uuid>::<control-id>", "key_fields": ["f0rtika.bundle_id", "f0rtika.bundle_name", "f0rtika.control_id", "f0rtika.control_validator", "f0rtika.is_bundle_control", "exit_code", "severity", "techniques", "tactics", "timestamp", "f0rtika.defender_detected (eager per-stage enrichment)"]},
+      {"name": "achilles-defender", "purpose": "Defender data with doc_type discriminator (avoids 3 separate indices)", "doc_types": ["secure_score", "control_profile", "alert"], "alert_correlation_fields": ["f0rtika.achilles_correlated", "f0rtika.achilles_test_uuid", "f0rtika.achilles_matched_at"], "alert_auto_resolve_fields": ["f0rtika.auto_resolved", "f0rtika.auto_resolved_at", "f0rtika.auto_resolve_mode", "f0rtika.auto_resolve_error"]}
+    ]},
+    {"name": "File storage (filesystem or Blob)", "docker_path": "~/.projectachilles/", "vercel": "Vercel Blob via storage.ts", "contents": [
+      "analytics.json (AES-256-GCM encrypted ES creds)",
+      "integrations.json (AES-256-GCM encrypted — Defender, Slack, Email, defender_sync state)",
+      "tests.json",
+      "certs/cert-<timestamp>/ (max 5; active tracked in active-cert.txt)",
+      "custom-tests/ (custom test library overlay; UUID collisions favor custom)"
+    ]}
+  ],
+
+  "external_integrations": [
+    {"name": "Clerk", "purpose": "Authentication (Sign in/up, JWT, RBAC roles, OAuth)", "scope": "All routes globally; <RequireAuth> wrapper; useAuthenticatedApi injects JWT", "envs": ["CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY", "VITE_CLERK_PUBLISHABLE_KEY"], "rbac_module_gate": "<RequireModule module=\"endpoints|settings\">"},
+    {"name": "Microsoft Defender / Graph API", "purpose": "Pull Secure Score, alerts (v2), control profiles; PATCH alerts for auto-resolve", "permissions_required": ["SecurityAlert.Read.All", "SecurityAlert.ReadWrite.All (auto-resolve mode 'enabled')"], "auth": "OAuth2 client_credentials (Azure AD app registration, admin consent)", "envs": ["DEFENDER_TENANT_ID", "DEFENDER_CLIENT_ID", "DEFENDER_CLIENT_SECRET"], "cadence": "scores/controls 6h, alerts every 5min", "auto_resolve_modes": ["disabled (default)", "dry_run", "enabled"], "cap": "30 PATCHes per pass to protect tenant rate-limits", "invariant": "Auto-resolve NEVER writes to test docs; Defense Score is byte-identical whether enabled or disabled"},
+    {"name": "Slack", "purpose": "Threshold-based alerting (Block Kit via webhook URL)", "config": "Settings UI -> integrations.json (encrypted)"},
+    {"name": "Email (SMTP)", "lib": "Nodemailer", "purpose": "Threshold-based alerting + agent offline alerts"},
+    {"name": "GitHub (f0_library)", "purpose": "Git-synced test library; optional GITHUB_TOKEN for metadata service", "default_repo": "https://github.com/ubercylon8/f0_library.git (zero-config once public)", "sparse_checkout_for_agent_source": "AGENT_REPO_URL with sparseCheckoutPaths=['agent']"}
+  ],
+
+  "api_routes": [
+    {"prefix": "/api/health", "auth": "none", "module": "infra", "purpose": "Liveness probe (status, service name, version, ts)"},
+    {"prefix": "/api/capabilities", "auth": "none", "module": "infra", "purpose": "Feature flags for frontend (build, buildUpload, certGenerate, certUpload, gitSync, agentBuild, platform)"},
+    {"prefix": "/api/browser/*", "auth": "Clerk", "module": "browser", "purpose": "Test library search, detail, MITRE mapping, build/sign/download"},
+    {"prefix": "/api/analytics/*", "auth": "Clerk + AnalyticsAuthProvider", "module": "analytics", "purpose": "ES query endpoints — defense scores, heatmaps, treemaps, trends"},
+    {"prefix": "/api/analytics/defender/*", "auth": "Clerk", "module": "defender", "purpose": "Secure Score, alerts, controls, cross-correlation (9 endpoints)"},
+    {"prefix": "/api/tests/*", "auth": "Clerk", "module": "tests", "purpose": "Build system, multi-cert management, generate/upload PFX"},
+    {"prefix": "/api/agent/admin/*", "auth": "Clerk", "module": "agent", "purpose": "Enrollment tokens, task creation, schedule mgmt, agent CRUD"},
+    {"prefix": "/api/agent/*", "auth": "Agent API key (hashed in DB)", "module": "agent", "purpose": "Device endpoints — enroll, heartbeat, fetch tasks, post results, catalog, binary download, update check"},
+    {"prefix": "/api/users/*", "auth": "Clerk (admin)", "module": "rbac", "purpose": "RBAC role assignment"},
+    {"prefix": "/api/integrations/*", "auth": "Clerk", "module": "integrations", "purpose": "External creds (Azure/Defender, Slack, Email); sync trigger; alert thresholds"},
+    {"prefix": "/api/integrations/defender/auto-resolve/*", "auth": "Clerk", "module": "defender", "purpose": "status / PUT mode / GET receipts (limit, offset)"},
+    {"prefix": "/api/integrations/alerts/*", "auth": "Clerk", "module": "alerts", "purpose": "Alert thresholds, Slack/email config"},
+    {"prefix": "/api/risk-acceptances/*", "auth": "Clerk", "module": "risk-acceptance", "purpose": "Formal risk acceptance for security controls"},
+    {"prefix": "/api/cli/auth/*", "auth": "device-flow + Clerk verify", "module": "cli", "purpose": "Headless CLI authentication device flow"},
+    {"prefix": "/api/cron/*", "auth": "CRON_SECRET", "module": "serverless-only", "purpose": "Vercel Crons -> schedules, auto-rotation, defender-sync"}
+  ],
+
+  "agent_routes_detail": {
+    "device_endpoints": [
+      "POST /api/agent/enroll (token-exchange — token + sysinfo -> API key)",
+      "POST /api/agent/heartbeat (status, version, OS, disconnect reason)",
+      "GET  /api/agent/tasks (poll pending)",
+      "POST /api/agent/tasks/:id/result (per-task or bundle_results.json payload)",
+      "GET  /api/agent/catalog (test catalog manifest)",
+      "GET  /api/agent/binary/:platform/:arch (signed binary download)",
+      "GET  /api/agent/update (version check)"
+    ],
+    "admin_endpoints": [
+      "POST /api/agent/admin/enrollment-tokens (mint single-use)",
+      "GET  /api/agent/admin/agents",
+      "DELETE /api/agent/admin/agents/:id",
+      "POST /api/agent/admin/tasks (queue test for agent)",
+      "GET  /api/agent/admin/tasks",
+      "POST /api/agent/admin/schedules (recurring runs)",
+      "GET  /api/agent/admin/schedules"
+    ]
+  },
+
+  "data_flows": [
+    {"name": "Agent Enrollment", "steps": [
+      "Operator mints enrollment token via UI -> POST /api/agent/admin/enrollment-tokens (Clerk auth)",
+      "Operator pastes token into installer (Install-ProjectAchilles.ps1 / shell)",
+      "Agent: enrollment.Enroll(server, token, configPath) -> POST /api/agent/enroll with sysinfo",
+      "Backend: enrollment.service consumes token, creates agents row, returns hashed API key",
+      "Agent persists API key + server URL in config file",
+      "If --install: service.Install() registers SCM/systemd/launchd unit and starts it"
+    ]},
+    {"name": "Heartbeat + Offline Detection", "steps": [
+      "Agent poller loops on a server-driven cadence: POST /api/agent/heartbeat with status/version/OS/disconnect_reason",
+      "Backend: heartbeat.service updates last_seen, version, status; pruneHeartbeatHistory hourly",
+      "Background primary: detectOfflineAgents (60s) marks stale agents offline -> alertsService.evaluateAgentAlerts triggers Slack/Email if thresholds crossed"
+    ]},
+    {"name": "Task Execution + Bundle Results Ingestion", "steps": [
+      "Operator/Schedule creates task -> tasks row (status assigned)",
+      "Agent polls GET /api/agent/tasks -> receives task with bundle metadata",
+      "Agent executor downloads binary (DoStream + MaxDownloadTimeout), launches it",
+      "Test writes c:\\F0\\bundle_results.json (validated: bundle_id matches task UUID)",
+      "Agent POST /api/agent/tasks/:id/result with bundle_results payload",
+      "Backend results.service detects bundle_results.controls -> ingestBundleControls() fans out via client.bulk()",
+      "Each control becomes an independent ES doc in achilles-results-* with composite test_uuid = <bundle-uuid>::<control-id>",
+      "Alerting service evaluates thresholds -> may dispatch Slack/Email",
+      "If sync ingest fails -> startIngestionRetryWorker drains (5m loop, capped MAX_INGEST_ATTEMPTS=10)"
+    ], "frontend_grouping": "Executions table groups bundle controls under collapsible parent rows; parent shows X/Y Protected badge; cyber-hygiene shows 'X controls', other categories 'X stages'; skipped stages (non-cyber-hygiene exit_code=0) excluded from Protected/Unprotected count"},
+    {"name": "Defender Sync (5-minute loop)", "steps": [
+      "syncAlerts: graph-client paginates Graph API alerts v2, upserts into achilles-defender (doc_type=alert), uses lastUpdateDateTime||createdDateTime as 'timestamp'",
+      "runEnrichmentPass: per page msearch achilles-results-* with wildcard on evidence_filenames.keyword + evidence_hostnames.keyword, -5/+30 min window; tags matches with f0rtika.achilles_correlated/_test_uuid/_matched_at",
+      "Eager per-stage enrichment: sets f0rtika.defender_detected=true on the matching test doc so Defense Score 'any-stage' query is correct (dual-query: score=combined, realScore=EDR-only)",
+      "runAutoResolvePass: if mode != 'disabled', PATCH each correlated alert with status=resolved, classification=informationalExpectedActivity, determination=securityTesting + audit comment",
+      "Each step error-isolated (catches own errors so one failure doesn't silence the others); 30 PATCH/pass cap"
+    ], "invariant": "Auto-resolve NEVER writes to test docs; Defense Score byte-identical regardless of auto-resolve state"},
+    {"name": "Defender Secure Score (6-hour loop)", "steps": [
+      "syncSecureScores -> achilles-defender doc_type=secure_score",
+      "syncControlProfiles -> achilles-defender doc_type=control_profile",
+      "Frontend Analytics: cross-correlation queries plot Defense Score vs Secure Score over time, MITRE technique overlap heatmap"
+    ]},
+    {"name": "Scheduled Runs", "steps": [
+      "Operator creates schedule (cron-like) -> schedules row",
+      "Docker/Render/Fly: setInterval processSchedules (60s) — primary only",
+      "Vercel: Vercel Cron hits /api/cron/schedules on tick",
+      "Due schedules -> enqueue tasks for matching agents",
+      "Startup recovery: processSchedules runs once on boot to catch past-due"
+    ]},
+    {"name": "Auto Key Rotation", "steps": [
+      "Cert/agent key rotation policy -> processAutoRotation (60s primary / Vercel Cron)",
+      "Generates new keypair, propagates via update channel, archives old (max 5 retained)"
+    ]},
+    {"name": "Threshold Alerting", "steps": [
+      "Result ingestion (results.service) -> after successful ES write, alerting.service evaluates Score drop % and absolute floor against per-metric config",
+      "If threshold crossed: slack.service builds Block Kit message -> POST to webhook; email.service builds + sends via SMTP",
+      "Frontend NotificationBell polls for unseen events"
+    ]},
+    {"name": "CLI Device Flow", "steps": [
+      "CLI: POST /api/cli/auth/start -> device_code + user_code + verification_uri",
+      "User opens /cli-auth in browser (Clerk-authenticated), enters user_code, approves",
+      "CLI: poll /api/cli/auth/poll with device_code -> receives CLI JWT",
+      "Subsequent CLI calls: acceptCliAuth middleware bridges CLI JWT into req.auth so downstream Clerk checks pass"
+    ]}
+  ],
+
+  "background_jobs": [
+    {"name": "processSchedules", "cadence": "60s", "owner": "primary only", "purpose": "Dispatch due scheduled runs"},
+    {"name": "processAutoRotation", "cadence": "60s", "owner": "primary only", "purpose": "Auto key/cert rotation"},
+    {"name": "pruneHeartbeatHistory", "cadence": "1h", "owner": "primary only", "purpose": "Prune old heartbeat rows"},
+    {"name": "detectOfflineAgents + evaluateAgentAlerts", "cadence": "60s", "owner": "primary only", "purpose": "Mark stale agents offline + alert"},
+    {"name": "ingestionRetryWorker", "cadence": "5m", "owner": "primary only", "purpose": "Retry failed ES ingestion (cap 10)"},
+    {"name": "defenderSyncSecureScores + defenderSyncControlProfiles", "cadence": "6h", "owner": "primary only (if Defender configured)", "purpose": "Pull Secure Score + control profiles"},
+    {"name": "defenderSyncAlerts -> enrichmentPass -> autoResolvePass", "cadence": "5m (ordered, error-isolated)", "owner": "primary only", "purpose": "Pull alerts -> correlate to tests -> optionally PATCH resolved"}
+  ],
+
+  "code_signing": {
+    "windows": {"tool": "osslsigncode", "cert": "Active PFX from ~/.projectachilles/certs/cert-<ts>/", "password_passing": "Temp file (not CLI arg) — F0_SIGN_CERT_PATH + F0_SIGN_CERT_PASS_FILE env vars piped to build_all.sh; PASS_FILE mode 0o600, deleted in finally", "scope": "Both agent builds (agentBuild.service) and test binaries (buildService)"},
+    "darwin": {"tool": "rcodesign", "args": "--code-signature-flags adhoc", "scope": "In-place, no certificate needed"},
+    "linux": {"tool": "none", "scope": "n/a"},
+    "fault_tolerance": "Signing failures are non-fatal — builds continue unsigned"
+  },
+
+  "auth_model": {
+    "global": "Clerk JWT for every dashboard route via <RequireAuth>",
+    "rbac": "Clerk roles -> useAppRole/useCanAccessModule + <RequireModule> + server-side admin-only checks",
+    "analytics_extra_gate": "AnalyticsAuthProvider redirects to /settings if Elasticsearch unconfigured",
+    "agent_device": "Per-agent API key hashed in agents table; rate-limited separately from dashboard",
+    "cli": "Device flow (POST /api/cli/auth/start -> user approves at /cli-auth -> CLI gets short-lived JWT; acceptCliAuth bridges into req.auth)"
+  },
+
+  "code_patterns": {
+    "backend_es_module_imports": "Must use .js extension in imports (TypeScript compiles to .js). Missing .js fails at runtime.",
+    "typescript_style": "Strict mode; avoid any; use 'import type' for type-only; satisfy noUnusedLocals/noUnusedParameters",
+    "backend_error_handling": "asyncHandler wrapper + AppError(message, status) thrown for HTTP errors; response shape { success: false, error }",
+    "frontend_imports": "Use @/ alias for src/; group external -> internal",
+    "vite_proxy": "/api -> http://localhost:$VITE_BACKEND_PORT (default 3000)",
+    "backend_test_pattern": "vi.mock('../database.js') with let-bound testDb (createTestDatabase :memory:); dynamic import of module under test AFTER mock setup",
+    "frontend_test_setup": "All Clerk hooks mocked globally in frontend/src/__tests__/setup.ts"
+  },
+
+  "gotchas": [
+    {"area": "Recharts SVG", "issue": "Recharts sets stroke='var(--background)' on parent SVG; SVG stroke is inherited -> text glyphs get dark outlines in dark mode. Always set stroke='none' on <text> in custom Treemap renderers."},
+    {"area": "SQLite migrations", "issue": "No ALTER COLUMN — CHECK-constraint changes need full table swap. Always DROP IF EXISTS temp first (crash recovery), disable FKs via database.pragma() not exec(), full pattern: FK OFF -> DROP temp -> CREATE temp -> INSERT SELECT -> DROP old -> RENAME -> recreate indexes -> FK ON."},
+    {"area": "Elasticsearch client", "issue": "Stay on @elastic/elasticsearch 8.x — v9 sends compatible-with=9 header that ES 8.x rejects with 400. Watch Dependabot."},
+    {"area": "Vercel env vars", "issue": "echo adds \\n — always use printf when piping to vercel env add (breaks CORS_ORIGIN, TURSO_DATABASE_URL parsers)."},
+    {"area": "Vercel paths", "issue": "__dirname unreliable post-bundle (ncc/esbuild) — use process.cwd() (always /var/task)."},
+    {"area": "Bundle composite UUID", "issue": "Bundle control test_uuid = <bundle-uuid>::<control-id>. Use split('::') — :: is unambiguous (UUIDs and control IDs only contain hyphens)."},
+    {"area": "node-forge", "issue": "RSA-4096 takes 2-8s pure JS (OK on Pro 60s timeout, tight on Hobby 10s); uses 3des for PKCS#12 (not AES) for OpenSSL compat; X.509 time second-precision — truncate ms."},
+    {"area": "Source-built vs external deps", "issue": "Only external (non-source-built) missing deps block Build button + show Upload. Source-built deps show wrench + 'Auto-built'. saveUploadedFile rejects uploads for source-built deps. 4 detection heuristics in isSourceBuiltBinary()."},
+    {"area": "Defender enrichment", "issue": "Mapping drift: evidence_filenames/_hostnames were dynamically mapped as text+.keyword (not keyword as code declared) -> query .keyword subfield. Time field: filter on 'timestamp' (=lastUpdateDateTime||createdDateTime), not 'created_at' — reused alerts have fresh updates but stale created dates."},
+    {"area": "TPSGL scheduler timezone", "issue": "Schedules configured 09:00 Europe/London fire at 00:00 UTC instead — laptops asleep -> 'agent offline' cascade. Root cause of ~72% TPSGL failures."},
+    {"area": "queue.Drain infinite retry", "issue": "agent/internal/queue/queue.go:100-108 retries 400-rejected results forever; amplifies timezone bug impact."},
+    {"area": "expireOverdueTasks", "issue": "tasks.service.ts:1044 should include 'assigned' status; without it tasks zombie for 7d until TTL sweep."}
+  ],
+
+  "ci_cd": {
+    "workflows": [".github/workflows/ci.yml — test-backend (npm ci -> build -> test), test-frontend (same), backend-serverless tests"],
+    "node_version": "22",
+    "security": ["Semgrep SAST — 11 community rulesets + 11 custom rules", "PR-comment posting", "Claude security review skipped on Dependabot PRs (no secret access)"],
+    "release_commands": ["/release (interactive)", "/changelog (from commits)", "/pr (template + pre-checks)"],
+    "commit_convention": "<type>(<scope>): <description> — types feat/fix/docs/style/refactor/perf/test/chore; scopes frontend/backend/backend-serverless/agent/analytics/browser/docker/render/vercel/fly/settings/certs/deps/ci/release/wiki"
+  },
+
+  "tests": {
+    "framework": "Vitest",
+    "counts": {"backend": "979 tests / 40 files (~12s)", "frontend": "153 tests / 8 files (~2s)", "backend_serverless": "631 tests / 25 files (~11s)"},
+    "pattern": "src/**/__tests__/**/*.test.{ts,tsx}",
+    "go_agent": "go test ./..."
+  }
+}

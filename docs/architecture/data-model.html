@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProjectAchilles — Data Model</title>
+<style>
+:root {
+  --bg: #0a0f0c; --bg-2: #0f1612; --bg-3: #131b16;
+  --panel: #0c1410; --border: #1f2a23; --border-2: #2a3a31;
+  --text: #d6e6dc; --text-2: #94aa9d; --text-3: #5e7268;
+  --accent: #00ff88; --amber: #ffb86b; --magenta: #ff5edb;
+  --blue: #5ec9ff; --purple: #c084fc; --red: #ff5e7e;
+  --mono: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--text); margin: 0; padding: 0; font-family: var(--sans); font-size: 14px; line-height: 1.5; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono { font-family: var(--mono); font-size: 12px; }
+
+header.top {
+  position: sticky; top: 0; z-index: 50;
+  background: linear-gradient(180deg, var(--bg) 0%, rgba(10,15,12,0.95) 100%);
+  border-bottom: 1px solid var(--border); padding: 12px 24px;
+  backdrop-filter: blur(8px);
+  display: flex; align-items: center; gap: 12px;
+}
+header.top h1 {
+  margin: 0; font-size: 16px; font-weight: 600;
+  display: flex; align-items: center; gap: 12px;
+}
+header.top .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+header.top .sub { color: var(--text-2); font-weight: 400; font-size: 12px; margin-left: auto; }
+header.top a.cross-link { color: var(--text-2); font-size: 12px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px; }
+header.top a.cross-link:hover { color: var(--accent); border-color: var(--accent); text-decoration: none; }
+
+main { padding: 24px 32px; max-width: 1500px; margin: 0 auto; }
+
+h2 { margin: 32px 0 12px; font-size: 20px; font-weight: 600; }
+h2:first-child { margin-top: 0; }
+h3 { margin: 16px 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); font-weight: 600; }
+p { color: var(--text-2); }
+
+.pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-family: var(--mono);
+  background: var(--bg-3); color: var(--text-2); border: 1px solid var(--border); }
+.pill.amber { color: var(--amber); border-color: rgba(255,184,107,0.3); background: rgba(255,184,107,0.06); }
+.pill.accent { color: var(--accent); border-color: rgba(0,255,136,0.3); background: rgba(0,255,136,0.06); }
+.pill.blue { color: var(--blue); border-color: rgba(94,201,255,0.3); background: rgba(94,201,255,0.06); }
+.pill.magenta { color: var(--magenta); border-color: rgba(255,94,219,0.3); background: rgba(255,94,219,0.06); }
+.pill.red { color: var(--red); border-color: rgba(255,94,126,0.3); background: rgba(255,94,126,0.06); }
+.pill.purple { color: var(--purple); border-color: rgba(192,132,252,0.3); background: rgba(192,132,252,0.06); }
+
+.tables-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.tbl {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  overflow: hidden; transition: border-color 0.15s;
+}
+.tbl:hover { border-color: var(--amber); }
+.tbl .head {
+  background: var(--bg-3); padding: 10px 14px;
+  border-bottom: 1px solid var(--border-2);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.tbl .name { font-family: var(--mono); color: var(--amber); font-weight: 600; font-size: 13px; }
+.tbl .meta { font-size: 10px; color: var(--text-3); font-family: var(--mono); }
+.tbl .cols { padding: 4px 0; }
+.tbl .col { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; padding: 4px 14px; align-items: center; }
+.tbl .col:hover { background: rgba(255,184,107,0.03); }
+.tbl .col .mark { font-family: var(--mono); font-size: 10px; color: var(--text-3); text-align: center; }
+.tbl .col .mark.pk { color: var(--accent); font-weight: 700; }
+.tbl .col .mark.fk { color: var(--blue); }
+.tbl .col .mark.uq { color: var(--magenta); }
+.tbl .col .name-col { font-family: var(--mono); font-size: 12px; color: var(--text); }
+.tbl .col .name-col.fk { color: var(--blue); }
+.tbl .col .name-col.derived { color: var(--text-3); font-style: italic; }
+.tbl .col .type { font-family: var(--mono); font-size: 10px; color: var(--text-3); white-space: nowrap; }
+.tbl .col .check { font-size: 10px; color: var(--purple); font-family: var(--mono); }
+.tbl .footer {
+  padding: 8px 14px; background: var(--bg-2); border-top: 1px solid var(--border);
+  font-size: 11px; color: var(--text-3);
+}
+.tbl .footer .idx { font-family: var(--mono); margin-right: 6px; }
+
+.es-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: 16px; overflow: hidden;
+}
+.es-card .head {
+  background: var(--bg-3); padding: 12px 16px; border-bottom: 1px solid var(--border-2);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.es-card .name { font-family: var(--mono); color: var(--accent); font-weight: 600; font-size: 14px; }
+.es-card .descr { padding: 12px 16px; color: var(--text-2); font-size: 13px; border-bottom: 1px solid var(--border); }
+
+.doctype-row {
+  display: grid; grid-template-columns: 200px 1fr; padding: 12px 16px;
+  border-bottom: 1px solid var(--border); gap: 16px;
+}
+.doctype-row:last-child { border-bottom: none; }
+.doctype-row .lhs { }
+.doctype-row .doctype-name { font-family: var(--mono); color: var(--magenta); font-weight: 600; font-size: 12px; }
+.doctype-row .doctype-sub { font-size: 11px; color: var(--text-3); margin-top: 4px; }
+.doctype-row .fields { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.field-pill {
+  font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 4px;
+  background: var(--bg-3); color: var(--text); border: 1px solid var(--border);
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.field-pill .ftype { font-size: 9px; color: var(--text-3); margin-left: 4px; }
+.field-pill.f0rtika { border-color: rgba(0,255,136,0.3); background: rgba(0,255,136,0.04); }
+.field-pill.f0rtika .ftype { color: var(--accent); }
+.field-pill.evidence { border-color: rgba(255,94,219,0.3); background: rgba(255,94,219,0.04); }
+.field-pill.routing { border-color: rgba(192,132,252,0.3); }
+
+.note-card {
+  background: var(--panel); border-left: 3px solid var(--blue); border-radius: 0 6px 6px 0;
+  padding: 12px 16px; margin: 12px 0; font-size: 13px; color: var(--text);
+}
+.note-card.warn { border-left-color: var(--amber); }
+.note-card.error { border-left-color: var(--red); }
+.note-card .label { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); margin-bottom: 4px; }
+
+.legend-bar {
+  display: flex; gap: 16px; flex-wrap: wrap; padding: 12px 16px;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px;
+  margin-bottom: 16px; font-size: 12px;
+}
+.legend-bar .it { display: flex; align-items: center; gap: 6px; color: var(--text-2); }
+.legend-bar .mk { font-family: var(--mono); font-weight: 700; }
+
+.composite-key {
+  background: var(--panel); border: 1px solid var(--border-2); border-radius: 8px;
+  padding: 20px; margin: 16px 0;
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; align-items: center;
+}
+.composite-key .part {
+  background: var(--bg-3); border-radius: 6px; padding: 12px;
+  font-family: var(--mono); font-size: 12px; text-align: center;
+}
+.composite-key .part .lab { font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+.composite-key .part .val { color: var(--accent); }
+.composite-key .sep { font-family: var(--mono); font-size: 20px; color: var(--magenta); text-align: center; font-weight: 700; }
+
+footer { padding: 16px 24px; text-align: center; color: var(--text-3); font-size: 12px; border-top: 1px solid var(--border); margin-top: 48px; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>
+    <span class="dot"></span>
+    ProjectAchilles
+    <span class="pill accent">Data Model</span>
+  </h1>
+  <span class="sub" id="meta-sub"></span>
+  <a class="cross-link" href="architecture.html">Architecture</a>
+  <a class="cross-link" href="flows.html">Flows</a>
+</header>
+
+<main>
+
+<h2>SQLite — operational state</h2>
+<p>Location <code>~/.projectachilles/agents.db</code> · WAL mode · FKs on · 5-min WAL checkpoint timer · same schema on Turso (Vercel) via <code>@libsql/client</code> async wrapper.</p>
+
+<div class="legend-bar">
+  <div class="it"><span class="mk" style="color:var(--accent)">PK</span> primary key</div>
+  <div class="it"><span class="mk" style="color:var(--blue)">FK</span> foreign key → another table</div>
+  <div class="it"><span class="mk" style="color:var(--magenta)">UQ</span> unique constraint</div>
+  <div class="it"><span class="mk" style="color:var(--purple)">CHECK</span> constraint value</div>
+  <div class="it" style="color:var(--text-3); font-style:italic">italic = added via migration</div>
+</div>
+
+<div class="tables-grid" id="sqlite-grid"></div>
+
+<div class="note-card warn">
+  <div class="label">Gotcha — table recreation</div>
+  SQLite has no <code>ALTER COLUMN</code>. Three CHECK-constraint expansions live in <code>database.ts</code>:
+  <code>migrateDarwinConstraint</code>, <code>migrateExecuteCommandType</code>, <code>migrateUninstalledStatus</code>.
+  Pattern: FK OFF → <code>DROP IF EXISTS temp</code> (crash-recovery) → CREATE temp → INSERT SELECT → DROP old → RENAME → recreate indexes → FK ON.
+  Always call <code>database.pragma('foreign_keys = OFF')</code> — never <code>exec('PRAGMA ...')</code> (PRAGMA only works outside transactions).
+</div>
+
+<h2>Elasticsearch — analytics + correlation</h2>
+<p>Two indices. Both target ES 8.x — client pinned to <code>@elastic/elasticsearch 8.x</code> because v9 sends <code>compatible-with=9</code> headers that ES 8.x rejects with 400.</p>
+
+<div id="es-section"></div>
+
+<h2>The composite test_uuid</h2>
+<p>Bundle controls fan out as <em>independent</em> ES documents but need to be groupable back to their parent. The composite key uses <code>::</code> as separator — unambiguous because neither UUIDs nor control IDs ever contain colons.</p>
+
+<div class="composite-key">
+  <div class="part"><div class="lab">parent bundle UUID</div><div class="val">7659eeba-f315-440e-9882-4aa015d68b27</div></div>
+  <div class="sep">::</div>
+  <div class="part"><div class="lab">control ID</div><div class="val">CH-IEP-003</div></div>
+</div>
+<p style="text-align:center; color:var(--text-3); font-size:12px">Use <code>uuid.split('::')</code> to decompose. Standalone (non-bundle) tests use a plain UUID with no <code>::</code>.</p>
+
+<h2>Field provenance — who writes what</h2>
+<div id="provenance"></div>
+
+</main>
+
+<footer>
+  Self-contained · sourced from <code>backend/src/services/agent/database.ts</code>, <code>analytics/index-management.service.ts</code>, <code>defender/index-management.ts</code>
+  · pairs with <a href="architecture.html">architecture.html</a> · <a href="flows.html">flows.html</a>
+</footer>
+
+<script>
+const SQLITE_TABLES = [
+  {
+    name: 'agents', purpose: 'Enrolled endpoint registry',
+    cols: [
+      { name: 'id',                          type: 'TEXT', mark: 'pk' },
+      { name: 'org_id',                      type: 'TEXT' },
+      { name: 'hostname',                    type: 'TEXT' },
+      { name: 'os',                          type: 'TEXT', check: "'windows','linux','darwin'" },
+      { name: 'arch',                        type: 'TEXT', check: "'amd64','arm64'" },
+      { name: 'agent_version',               type: 'TEXT' },
+      { name: 'api_key_hash',                type: 'TEXT' },
+      { name: 'status',                      type: 'TEXT', check: "'active','disabled','decommissioned','uninstalled'" },
+      { name: 'last_heartbeat',              type: 'TEXT' },
+      { name: 'last_heartbeat_data',         type: 'TEXT' },
+      { name: 'enrolled_at',                 type: 'TEXT' },
+      { name: 'enrolled_by',                 type: 'TEXT' },
+      { name: 'tags',                        type: 'TEXT (JSON)' },
+      { name: 'api_key_rotated_at',          type: 'TEXT', derived: true },
+      { name: 'pending_api_key_hash',        type: 'TEXT', derived: true },
+      { name: 'pending_api_key_encrypted',   type: 'TEXT', derived: true },
+      { name: 'key_rotation_initiated_at',   type: 'TEXT', derived: true },
+      { name: 'created_at, updated_at',      type: 'TEXT' },
+    ],
+    indexes: ['idx_agents_org (org_id)', 'idx_agents_status (status)'],
+  },
+  {
+    name: 'tasks', purpose: 'Work queue: per-agent test executions',
+    cols: [
+      { name: 'id',                type: 'TEXT', mark: 'pk' },
+      { name: 'agent_id',          type: 'TEXT', mark: 'fk', fk: 'agents.id' },
+      { name: 'org_id',            type: 'TEXT' },
+      { name: 'type',              type: 'TEXT', check: "'execute_test','update_agent','uninstall','execute_command'" },
+      { name: 'priority',          type: 'INTEGER' },
+      { name: 'status',            type: 'TEXT', check: "'pending','assigned','downloading','executing','completed','failed','expired'" },
+      { name: 'payload',           type: 'TEXT (JSON)' },
+      { name: 'result',            type: 'TEXT (JSON)' },
+      { name: 'ttl',               type: 'INTEGER (sec, 604800 = 7d)' },
+      { name: 'assigned_at',       type: 'TEXT' },
+      { name: 'completed_at',      type: 'TEXT' },
+      { name: 'created_by',        type: 'TEXT' },
+      { name: 'notes',             type: 'TEXT', derived: true },
+      { name: 'notes_history',     type: 'TEXT (JSON)', derived: true },
+      { name: 'target_index',      type: 'TEXT', derived: true },
+      { name: 'batch_id',          type: 'TEXT', derived: true },
+      { name: 'retry_count',       type: 'INTEGER', derived: true },
+      { name: 'max_retries',       type: 'INTEGER (=2)', derived: true },
+      { name: 'original_task_id',  type: 'TEXT', derived: true },
+    ],
+    indexes: ['idx_tasks_agent (agent_id)', 'idx_tasks_status (status)', 'idx_tasks_org (org_id)', 'idx_tasks_batch (batch_id)'],
+  },
+  {
+    name: 'enrollment_tokens', purpose: 'Single-use tokens for agent enrollment',
+    cols: [
+      { name: 'id',          type: 'TEXT', mark: 'pk' },
+      { name: 'token_hash',  type: 'TEXT' },
+      { name: 'org_id',      type: 'TEXT' },
+      { name: 'created_by',  type: 'TEXT' },
+      { name: 'expires_at',  type: 'TEXT' },
+      { name: 'max_uses',    type: 'INTEGER (=1)' },
+      { name: 'use_count',   type: 'INTEGER' },
+      { name: 'metadata',    type: 'TEXT (JSON)' },
+    ],
+    indexes: ['idx_enrollment_tokens_org (org_id)'],
+  },
+  {
+    name: 'schedules', purpose: 'Recurring test execution schedules',
+    cols: [
+      { name: 'id',                 type: 'TEXT', mark: 'pk' },
+      { name: 'name',               type: 'TEXT' },
+      { name: 'agent_ids',          type: 'TEXT (JSON[] of agents.id)' },
+      { name: 'org_id',             type: 'TEXT' },
+      { name: 'test_uuid',          type: 'TEXT' },
+      { name: 'test_name',          type: 'TEXT' },
+      { name: 'binary_name',        type: 'TEXT' },
+      { name: 'execution_timeout',  type: 'INTEGER (sec, =300)' },
+      { name: 'priority',           type: 'INTEGER' },
+      { name: 'metadata',           type: 'TEXT (JSON)' },
+      { name: 'schedule_type',      type: 'TEXT', check: "'once','daily','weekly','monthly'" },
+      { name: 'schedule_config',    type: 'TEXT (JSON)' },
+      { name: 'timezone',           type: "TEXT (='UTC')" },
+      { name: 'next_run_at',        type: 'TEXT' },
+      { name: 'last_run_at',        type: 'TEXT' },
+      { name: 'status',             type: 'TEXT', check: "'active','paused','completed','deleted'" },
+      { name: 'target_index',       type: 'TEXT', derived: true },
+    ],
+    indexes: ['idx_schedules_status_next_run (status, next_run_at)', 'idx_schedules_org (org_id)'],
+  },
+  {
+    name: 'agent_versions', purpose: 'Built/signed binary catalog by version × OS × arch',
+    cols: [
+      { name: 'version',        type: 'TEXT', mark: 'pk' },
+      { name: 'os',             type: 'TEXT', mark: 'pk', check: "'windows','linux','darwin'" },
+      { name: 'arch',           type: 'TEXT', mark: 'pk', check: "'amd64','arm64'" },
+      { name: 'binary_path',    type: 'TEXT' },
+      { name: 'binary_sha256',  type: 'TEXT' },
+      { name: 'binary_size',    type: 'INTEGER' },
+      { name: 'release_notes',  type: 'TEXT' },
+      { name: 'mandatory',      type: 'INTEGER (boolean)' },
+      { name: 'signed',         type: 'INTEGER (boolean)', derived: true },
+      { name: 'binary_signature', type: 'TEXT', derived: true },
+    ],
+    indexes: ['PK = (version, os, arch) — composite'],
+  },
+  {
+    name: 'heartbeat_history', purpose: 'Per-heartbeat process + system metrics (pruned hourly)',
+    cols: [
+      { name: 'id',                  type: 'INTEGER', mark: 'pk' },
+      { name: 'agent_id',            type: 'TEXT', mark: 'fk', fk: 'agents.id' },
+      { name: 'timestamp',           type: 'TEXT' },
+      { name: 'cpu_percent',         type: 'REAL' },
+      { name: 'memory_mb',           type: 'REAL' },
+      { name: 'disk_free_mb',        type: 'REAL' },
+      { name: 'uptime_seconds',      type: 'INTEGER' },
+      { name: 'process_cpu_percent', type: 'REAL', derived: true },
+      { name: 'process_memory_mb',   type: 'REAL', derived: true },
+      { name: 'total_memory_mb',     type: 'REAL', derived: true },
+    ],
+    indexes: ['idx_hb_hist_agent_ts (agent_id, timestamp)', 'idx_hb_hist_ts (timestamp)'],
+  },
+  {
+    name: 'agent_events', purpose: 'Audit log of lifecycle events per agent',
+    cols: [
+      { name: 'id',          type: 'INTEGER', mark: 'pk' },
+      { name: 'agent_id',    type: 'TEXT', mark: 'fk', fk: 'agents.id' },
+      { name: 'event_type',  type: 'TEXT', check: "'enrolled','went_offline','came_online','task_failed','task_completed','version_updated','key_rotated','status_changed','decommissioned'" },
+      { name: 'details',     type: 'TEXT (JSON)' },
+      { name: 'created_at',  type: 'TEXT' },
+    ],
+    indexes: ['idx_agent_events_agent_ts (agent_id, created_at)'],
+  },
+  {
+    name: 'cli_auth_codes', purpose: 'Device authorization codes (CLI device flow)',
+    cols: [
+      { name: 'device_code_hash', type: 'TEXT', mark: 'pk' },
+      { name: 'user_code',        type: 'TEXT', mark: 'uq' },
+      { name: 'expires_at',       type: 'TEXT' },
+      { name: 'verified_at',      type: 'TEXT' },
+      { name: 'user_id',          type: 'TEXT' },
+      { name: 'org_id',           type: 'TEXT' },
+      { name: 'role',             type: 'TEXT' },
+    ],
+    indexes: ['idx_cli_auth_codes_user_code (user_code)', 'idx_cli_auth_codes_expires (expires_at)'],
+  },
+  {
+    name: 'cli_refresh_tokens', purpose: 'Short-lived JWT refresh tokens for CLI sessions',
+    cols: [
+      { name: 'token_hash', type: 'TEXT', mark: 'pk' },
+      { name: 'user_id',    type: 'TEXT' },
+      { name: 'org_id',     type: 'TEXT' },
+      { name: 'role',       type: 'TEXT' },
+      { name: 'expires_at', type: 'TEXT' },
+    ],
+    indexes: ['idx_cli_refresh_expires (expires_at)'],
+  },
+];
+
+const ES_INDICES = [
+  {
+    name: 'achilles-results-*',
+    descr: 'Per-control / per-stage test execution documents. Bundle controls fanned out as independent docs via client.bulk(). Time-rotated (typically per-month suffix).',
+    doctypes: [
+      {
+        name: '(single doc shape)',
+        sub: 'one document per individual control execution',
+        groups: [
+          { label: 'routing', kind: 'routing', fields: [
+            ['routing.event_time', 'date'],
+            ['routing.oid', 'keyword'],
+            ['routing.hostname', 'keyword'],
+          ]},
+          { label: 'event', kind: 'routing', fields: [
+            ['event.ERROR', 'integer'],
+          ]},
+          { label: 'f0rtika (Achilles namespace)', kind: 'f0rtika', fields: [
+            ['f0rtika.test_uuid', 'keyword'],
+            ['f0rtika.test_name', 'keyword'],
+            ['f0rtika.is_protected', 'boolean'],
+            ['f0rtika.error_name', 'keyword'],
+            ['f0rtika.category', 'keyword'],
+            ['f0rtika.subcategory', 'keyword'],
+            ['f0rtika.severity', 'keyword'],
+            ['f0rtika.techniques', 'keyword[]'],
+            ['f0rtika.tactics', 'keyword[]'],
+            ['f0rtika.target', 'keyword'],
+            ['f0rtika.complexity', 'keyword'],
+            ['f0rtika.threat_actor', 'keyword'],
+            ['f0rtika.tags', 'keyword[]'],
+            ['f0rtika.score', 'float'],
+            ['f0rtika.bundle_id', 'keyword'],
+            ['f0rtika.bundle_name', 'keyword'],
+            ['f0rtika.control_id', 'keyword'],
+            ['f0rtika.control_validator', 'keyword'],
+            ['f0rtika.is_bundle_control', 'boolean'],
+            ['f0rtika.defender_detected', 'boolean'],
+            ['f0rtika.defender_stage_detected', 'boolean'],
+            ['f0rtika.tenant_label', 'keyword'],
+          ]},
+        ],
+      },
+    ],
+  },
+  {
+    name: 'achilles-defender',
+    descr: 'Defender data with doc_type discriminator. One physical index, three logical views — secure_score (tenant posture series), control_profile (catalog metadata), alert (security events). The discriminator lets cross-document queries work naturally and avoids 3 separate indices.',
+    doctypes: [
+      {
+        name: 'doc_type = "secure_score"',
+        sub: 'tenant-wide posture snapshot (every 6h)',
+        groups: [
+          { label: 'identity', fields: [
+            ['doc_type', 'keyword'],
+            ['timestamp', 'date'],
+            ['tenant_id', 'keyword'],
+          ]},
+          { label: 'score', fields: [
+            ['current_score', 'float'],
+            ['max_score', 'float'],
+            ['score_percentage', 'float'],
+            ['average_comparative_score', 'float'],
+            ['control_scores', 'nested(name, category, score)'],
+          ]},
+        ],
+      },
+      {
+        name: 'doc_type = "control_profile"',
+        sub: 'catalog metadata for each Secure Score control',
+        groups: [
+          { label: 'identity', fields: [
+            ['doc_type', 'keyword'],
+            ['timestamp', 'date'],
+            ['tenant_id', 'keyword'],
+          ]},
+          { label: 'control', fields: [
+            ['control_name', 'keyword'],
+            ['control_category', 'keyword'],
+            ['title', 'text+keyword'],
+            ['implementation_cost', 'keyword'],
+            ['user_impact', 'keyword'],
+            ['rank', 'integer'],
+            ['threats', 'keyword[]'],
+            ['deprecated', 'boolean'],
+            ['remediation_summary', 'text'],
+            ['action_url', 'keyword'],
+            ['tier', 'keyword'],
+          ]},
+        ],
+      },
+      {
+        name: 'doc_type = "alert"',
+        sub: 'security events from Defender Graph Alerts v2 (every 5m)',
+        groups: [
+          { label: 'identity', fields: [
+            ['doc_type', 'keyword'],
+            ['timestamp', 'date — lastUpdateDateTime || createdDateTime'],
+            ['tenant_id', 'keyword'],
+            ['alert_id', 'keyword'],
+          ]},
+          { label: 'description', fields: [
+            ['alert_title', 'text+keyword'],
+            ['description', 'text'],
+            ['severity', 'keyword'],
+            ['status', 'keyword'],
+            ['category', 'keyword'],
+            ['service_source', 'keyword'],
+            ['mitre_techniques', 'keyword[]'],
+            ['recommended_actions', 'text'],
+            ['created_at, updated_at, resolved_at', 'date'],
+          ]},
+          { label: 'evidence (multi-field: text + .keyword)', kind: 'evidence', fields: [
+            ['evidence_hostnames', 'text + keyword (ignore_above 256)'],
+            ['evidence_filenames', 'text + keyword (ignore_above 256)'],
+            ['evidence_filepaths', 'text + keyword (ignore_above 1024)'],
+          ]},
+          { label: 'f0rtika (correlation + auto-resolve)', kind: 'f0rtika', fields: [
+            ['f0rtika.achilles_correlated', 'boolean'],
+            ['f0rtika.achilles_test_uuid', 'keyword'],
+            ['f0rtika.achilles_matched_at', 'date'],
+            ['f0rtika.auto_resolved', 'boolean'],
+            ['f0rtika.auto_resolved_at', 'date'],
+            ['f0rtika.auto_resolve_mode', 'keyword'],
+            ['f0rtika.auto_resolve_error', 'keyword'],
+          ]},
+        ],
+      },
+    ],
+  },
+];
+
+const PROVENANCE = [
+  {
+    field: 'f0rtika.test_uuid',
+    writer: 'agent (executor.go) → backend (results.service.ts)',
+    consumer: 'frontend Executions table, all defender enrichment queries',
+    note: 'Composite "<bundle-uuid>::<control-id>" for bundle controls; plain UUID for standalone tests',
+  },
+  {
+    field: 'f0rtika.defender_detected',
+    writer: 'backend defender enrichment.service.ts (eager per-stage)',
+    consumer: 'Defense Score dual-query (score=combined, realScore=EDR-only)',
+    note: 'Bundle-scoped — propagates across every stage of a bundle when ANY stage was detected',
+  },
+  {
+    field: 'f0rtika.defender_stage_detected',
+    writer: 'backend defender enrichment.service.ts',
+    consumer: 'Per-stage "Detected" badge in frontend Executions table',
+    note: 'Set TRUE only when alert evidence contains THIS stage\'s specific binary <uuid>-<control_id>[-<variant>].exe',
+  },
+  {
+    field: 'f0rtika.achilles_correlated (on alert docs)',
+    writer: 'backend defender enrichment.service.ts (5m loop)',
+    consumer: 'Frontend correlation panels',
+    note: 'NEVER written to test docs — auto-resolve invariant',
+  },
+  {
+    field: 'f0rtika.auto_resolved (on alert docs)',
+    writer: 'backend defender auto-resolve.service.ts',
+    consumer: 'Auto-resolve receipts API + admin view',
+    note: 'Auto-resolve NEVER writes test docs — Defense Score byte-identical regardless of auto-resolve mode',
+  },
+  {
+    field: 'evidence_filenames / evidence_hostnames (on alert docs)',
+    writer: 'backend defender sync.service.ts (extraction from Graph alert.evidence[])',
+    consumer: 'Enrichment wildcard correlation (-5/+30 min window)',
+    note: 'Mapping drift hazard — queries hit .keyword subfield, NOT the bare field (text-analyzed, will not match hyphenated UUIDs)',
+  },
+];
+
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+// ---------- Render SQLite ----------
+const grid = document.getElementById('sqlite-grid');
+SQLITE_TABLES.forEach(t => {
+  const tbl = document.createElement('div');
+  tbl.className = 'tbl';
+  let html = '<div class="head"><span class="name">' + esc(t.name) + '</span>';
+  html += '<span class="meta">' + t.cols.length + ' cols</span></div>';
+  html += '<div style="padding:8px 14px;color:var(--text-3);font-size:11px;font-style:italic">' + esc(t.purpose) + '</div>';
+  html += '<div class="cols">';
+  t.cols.forEach(c => {
+    const markCls = c.mark ? c.mark : '';
+    const markTxt = c.mark === 'pk' ? 'PK' : c.mark === 'fk' ? 'FK' : c.mark === 'uq' ? 'UQ' : '·';
+    const nameCls = (c.derived ? 'derived' : '') + (c.mark === 'fk' ? ' fk' : '');
+    const fkTitle = c.fk ? ' title="references ' + esc(c.fk) + '"' : '';
+    html += '<div class="col"' + fkTitle + '>';
+    html += '<span class="mark ' + markCls + '">' + markTxt + '</span>';
+    html += '<span class="name-col ' + nameCls + '">' + esc(c.name) + '</span>';
+    html += '<span class="type">' + esc(c.type) + '</span>';
+    html += '</div>';
+    if (c.check) {
+      html += '<div class="col"><span class="mark"></span><span class="check">CHECK ∈ {' + esc(c.check) + '}</span><span></span></div>';
+    }
+    if (c.fk) {
+      html += '<div class="col"><span class="mark"></span><span style="font-size:10px;color:var(--blue);font-family:var(--mono)">→ ' + esc(c.fk) + '</span><span></span></div>';
+    }
+  });
+  html += '</div>';
+  if (t.indexes && t.indexes.length) {
+    html += '<div class="footer">';
+    t.indexes.forEach(i => { html += '<div class="idx">⌕ ' + esc(i) + '</div>'; });
+    html += '</div>';
+  }
+  tbl.innerHTML = html;
+  grid.appendChild(tbl);
+});
+
+// ---------- Render ES ----------
+const esSec = document.getElementById('es-section');
+ES_INDICES.forEach(idx => {
+  const card = document.createElement('div');
+  card.className = 'es-card';
+  let html = '<div class="head"><span class="name">' + esc(idx.name) + '</span>';
+  html += '<span class="pill amber">ES 8.x</span></div>';
+  html += '<div class="descr">' + esc(idx.descr) + '</div>';
+  idx.doctypes.forEach(dt => {
+    html += '<div class="doctype-row">';
+    html += '<div class="lhs"><div class="doctype-name">' + esc(dt.name) + '</div>';
+    html += '<div class="doctype-sub">' + esc(dt.sub) + '</div></div>';
+    html += '<div>';
+    dt.groups.forEach(g => {
+      const cls = g.kind ? ' ' + g.kind : '';
+      html += '<div style="margin-bottom:10px">';
+      html += '<div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;font-family:var(--mono)">' + esc(g.label) + '</div>';
+      html += '<div class="fields">';
+      g.fields.forEach(([fn, ft]) => {
+        html += '<span class="field-pill' + cls + '">' + esc(fn) + '<span class="ftype">' + esc(ft) + '</span></span>';
+      });
+      html += '</div></div>';
+    });
+    html += '</div></div>';
+  });
+  card.innerHTML = html;
+  esSec.appendChild(card);
+});
+
+// ---------- Render provenance ----------
+const provDiv = document.getElementById('provenance');
+PROVENANCE.forEach(p => {
+  const c = document.createElement('div');
+  c.className = 'note-card';
+  c.innerHTML = '<div class="label">field</div>' +
+    '<div class="mono" style="color:var(--accent);font-size:13px;margin-bottom:6px">' + esc(p.field) + '</div>' +
+    '<div style="font-size:12px;color:var(--text-2)"><b style="color:var(--text)">writer:</b> ' + esc(p.writer) + '</div>' +
+    '<div style="font-size:12px;color:var(--text-2)"><b style="color:var(--text)">consumer:</b> ' + esc(p.consumer) + '</div>' +
+    '<div style="font-size:12px;color:var(--text-3);margin-top:4px;font-style:italic">' + esc(p.note) + '</div>';
+  provDiv.appendChild(c);
+});
+
+document.getElementById('meta-sub').textContent =
+  SQLITE_TABLES.length + ' SQLite tables · ' +
+  ES_INDICES.reduce((s,i) => s + i.doctypes.length, 0) + ' ES doc shapes';
+</script>
+</body>
+</html>
