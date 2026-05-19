@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildAlertTimeWindowQuery,
   buildDefenderEvidenceQuery,
   buildStageDefenderEvidenceQuery,
   extractBundleUuid,
@@ -95,12 +96,24 @@ describe('buildDefenderEvidenceQuery', () => {
     expect(w.bare).toBe('LT-TPL-L50*');
   });
 
-  it('builds the time window as -5/+30 minutes around event_time', () => {
+  it('builds the time window as -5/+30 minutes around event_time on BOTH timestamp and created_at', () => {
     const q = buildDefenderEvidenceQuery(baseInput);
-    const must = (q as any).bool.must;
-    const rangeClause = must.find((c: any) => 'range' in c);
-    expect(rangeClause.range.timestamp.gte).toBe('2026-03-27T07:47:54.000Z');
-    expect(rangeClause.range.timestamp.lte).toBe('2026-03-27T08:22:54.000Z');
+    const must = (q as any).bool.must as any[];
+    const windowWrapper = must.find((c: any) =>
+      'bool' in c && Array.isArray(c.bool.should) && c.bool.should.some((s: any) =>
+        'range' in s && 'timestamp' in s.range,
+      ),
+    );
+    expect(windowWrapper).toBeDefined();
+    expect(windowWrapper.bool.minimum_should_match).toBe(1);
+
+    const tsRange = windowWrapper.bool.should.find((s: any) => 'range' in s && 'timestamp' in s.range);
+    expect(tsRange.range.timestamp.gte).toBe('2026-03-27T07:47:54.000Z');
+    expect(tsRange.range.timestamp.lte).toBe('2026-03-27T08:22:54.000Z');
+
+    const createdRange = windowWrapper.bool.should.find((s: any) => 'range' in s && 'created_at' in s.range);
+    expect(createdRange.range.created_at.gte).toBe('2026-03-27T07:47:54.000Z');
+    expect(createdRange.range.created_at.lte).toBe('2026-03-27T08:22:54.000Z');
   });
 
   it('includes the doc_type: alert filter', () => {
@@ -281,5 +294,67 @@ describe('buildStageDefenderEvidenceQuery', () => {
     const stringified = JSON.stringify(q);
     expect(stringified).toContain('6a2351ac-654a-4112-b378-e6919beef70d-t1562.001.exe');
     expect(stringified).not.toContain('T1562.001');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Time-window helper. Two scenarios must both qualify under the produced
+// query — see helper docstring for the rationale.
+// ---------------------------------------------------------------------------
+
+describe('buildAlertTimeWindowQuery', () => {
+  const FROM = '2026-05-13T12:06:22.000Z';
+  const TO   = '2026-05-13T12:41:22.000Z';
+  const inWindow = (iso: string) => iso >= FROM && iso <= TO;
+
+  const alertMatches = (
+    clause: any,
+    alert: { timestamp?: string; created_at?: string },
+  ): boolean => {
+    const should = clause.bool?.should ?? [];
+    return should.some((s: any) => {
+      if (!('range' in s)) return false;
+      const [field, range] = Object.entries(s.range)[0] as [string, { gte: string; lte: string }];
+      const val = (alert as any)[field];
+      if (typeof val !== 'string') return false;
+      return inWindow(val) && val >= range.gte && val <= range.lte;
+    });
+  };
+
+  it('matches an alert where timestamp is fresh but created_at is weeks stale (reused-alert path)', () => {
+    const clause = buildAlertTimeWindowQuery(FROM, TO);
+    expect(alertMatches(clause, {
+      timestamp:  '2026-05-13T12:15:00.000Z',
+      created_at: '2026-04-01T08:00:00.000Z',
+    })).toBe(true);
+  });
+
+  it('matches an alert where created_at is in window but timestamp drifted out (fresh-then-resolved path)', () => {
+    const clause = buildAlertTimeWindowQuery(FROM, TO);
+    expect(alertMatches(clause, {
+      timestamp:  '2026-05-13T13:16:44.000Z',
+      created_at: '2026-05-13T12:12:01.000Z',
+    })).toBe(true);
+  });
+
+  it('matches when both fields are in window', () => {
+    const clause = buildAlertTimeWindowQuery(FROM, TO);
+    expect(alertMatches(clause, {
+      timestamp:  '2026-05-13T12:15:00.000Z',
+      created_at: '2026-05-13T12:15:00.000Z',
+    })).toBe(true);
+  });
+
+  it('does NOT match when both fields are out of window', () => {
+    const clause = buildAlertTimeWindowQuery(FROM, TO);
+    expect(alertMatches(clause, {
+      timestamp:  '2026-04-01T08:00:00.000Z',
+      created_at: '2026-04-01T08:00:00.000Z',
+    })).toBe(false);
+  });
+
+  it('emits minimum_should_match: 1 (so either field is sufficient)', () => {
+    const clause = buildAlertTimeWindowQuery(FROM, TO);
+    expect(clause.bool).toMatchObject({ minimum_should_match: 1 });
   });
 });

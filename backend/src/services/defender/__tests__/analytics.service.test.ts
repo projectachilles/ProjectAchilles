@@ -772,18 +772,28 @@ describe('DefenderAnalyticsService', () => {
 
       const searchCall = mockSearch.mock.calls[0][0];
 
-      // Verify time window: -5 min to +30 min around test (11:55 to 12:30)
-      const rangeFilter = searchCall.query.bool.must.find(
-        (f: Record<string, unknown>) => 'range' in f
-      );
-      expect(rangeFilter).toBeDefined();
-      expect(rangeFilter.range.timestamp.gte).toBe('2026-02-25T11:55:00.000Z');
-      expect(rangeFilter.range.timestamp.lte).toBe('2026-02-25T12:30:00.000Z');
+      // The time-window filter is now a bool/should over both `timestamp`
+      // and `created_at` (see buildAlertTimeWindowQuery). Verify both
+      // ranges carry the same -5 / +30 min bounds around the test time.
+      const must = searchCall.query.bool.must as Array<Record<string, unknown>>;
+      const windowWrapper = must.find((f: any) =>
+        'bool' in f && Array.isArray(f.bool.should) && f.bool.should.some((s: any) =>
+          'range' in s && 'timestamp' in s.range,
+        ),
+      ) as any;
+      expect(windowWrapper).toBeDefined();
+      expect(windowWrapper.bool.minimum_should_match).toBe(1);
+
+      const tsRange = windowWrapper.bool.should.find((s: any) => 'range' in s && 'timestamp' in s.range);
+      expect(tsRange.range.timestamp.gte).toBe('2026-02-25T11:55:00.000Z');
+      expect(tsRange.range.timestamp.lte).toBe('2026-02-25T12:30:00.000Z');
+
+      const createdRange = windowWrapper.bool.should.find((s: any) => 'range' in s && 'created_at' in s.range);
+      expect(createdRange.range.created_at.gte).toBe('2026-02-25T11:55:00.000Z');
+      expect(createdRange.range.created_at.lte).toBe('2026-02-25T12:30:00.000Z');
 
       // Verify techniques filter (fallback path — no hostname/binaryName provided)
-      const termsFilter = searchCall.query.bool.must.find(
-        (f: Record<string, unknown>) => 'terms' in f
-      );
+      const termsFilter = must.find((f: any) => 'terms' in f) as any;
       expect(termsFilter).toBeDefined();
       expect(termsFilter.terms.mitre_techniques).toEqual(['T1003', 'T1059']);
     });

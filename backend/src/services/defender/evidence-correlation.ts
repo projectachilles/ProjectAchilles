@@ -14,8 +14,9 @@
 //     `keyword → text` so the mapping is permanent on a given cluster, and
 //     it's safer for the query to tolerate either shape than to chase the
 //     mapping. Unmapped field paths simply contribute zero matches.
-//   - `timestamp` (= lastUpdateDateTime || createdDateTime) is used over
-//     `created_at` because Defender reuses alerts when new evidence arrives.
+//   - Time-windowing is a disjunction over `timestamp` (= lastUpdateDateTime
+//     || createdDateTime) AND `created_at`; see `buildAlertTimeWindowQuery`
+//     for why both fields are needed.
 //   - The :: suffix in test_uuid is stripped to the bundle UUID prefix,
 //     matching any binary (orchestrator or per-stage) Defender saw for
 //     the bundle. See the spec's Data Shape Verification for rationale.
@@ -47,6 +48,39 @@ const POST_WINDOW_MS = 30 * 60 * 1000;
 
 /** Minimum length for a bundle-name token to be used as a filepath matcher. */
 const MIN_BUNDLE_TOKEN_LEN = 6;
+
+/**
+ * Time-window clause for Defender correlation queries. Matches if EITHER
+ * `timestamp` (= lastUpdateDateTime || createdDateTime, populated by the
+ * sync mapper) OR `created_at` falls in the [from, to] range.
+ *
+ * Both fields are needed because either can drift away from the actual
+ * alert time:
+ *   - `timestamp` is the right field for alerts Defender reuses across
+ *     days — an old alert reactivated with new evidence carries a stale
+ *     createdDateTime but a fresh lastUpdateDateTime. Querying only
+ *     `created_at` would miss those.
+ *   - `created_at` is the right field for alerts that fired during a
+ *     test and were later resolved — resolution bumps lastUpdateDateTime
+ *     forward, eventually past the test's window. Querying only
+ *     `timestamp` would miss those after they're closed.
+ *
+ * Either field falling in range is enough to qualify.
+ */
+export function buildAlertTimeWindowQuery(
+  fromIso: string,
+  toIso: string,
+): Record<string, unknown> {
+  return {
+    bool: {
+      should: [
+        { range: { timestamp:  { gte: fromIso, lte: toIso } } },
+        { range: { created_at: { gte: fromIso, lte: toIso } } },
+      ],
+      minimum_should_match: 1,
+    },
+  };
+}
 
 /**
  * Strip the `::<technique>` suffix from a test_uuid to get the bundle UUID.
@@ -145,7 +179,7 @@ export function buildStageDefenderEvidenceQuery(
     bool: {
       must: [
         { term: { doc_type: 'alert' } },
-        { range: { timestamp: { gte: from, lte: to } } },
+        buildAlertTimeWindowQuery(from, to),
         shouldWildcardEither('evidence_hostnames', hostnamePrefix),
         {
           bool: {
@@ -204,7 +238,7 @@ export function buildDefenderEvidenceQuery(
     bool: {
       must: [
         { term: { doc_type: 'alert' } },
-        { range: { timestamp: { gte: from, lte: to } } },
+        buildAlertTimeWindowQuery(from, to),
         shouldWildcardEither('evidence_hostnames', hostnamePrefix),
         {
           bool: {
