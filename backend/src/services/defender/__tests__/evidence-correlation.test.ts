@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildAlertTimeWindowQuery,
   buildDefenderEvidenceQuery,
   buildStageDefenderEvidenceQuery,
   extractBundleUuid,
@@ -101,12 +102,27 @@ describe('buildDefenderEvidenceQuery', () => {
     expect(w.bare).toBe('LT-TPL-L50*');
   });
 
-  it('builds the time window as -5/+30 minutes around event_time', () => {
+  it('builds the time window as -5/+30 minutes around event_time on BOTH timestamp and created_at', () => {
     const q = buildDefenderEvidenceQuery(baseInput);
-    const must = (q as any).bool.must;
-    const rangeClause = must.find((c: any) => 'range' in c);
-    expect(rangeClause.range.timestamp.gte).toBe('2026-03-27T07:47:54.000Z');
-    expect(rangeClause.range.timestamp.lte).toBe('2026-03-27T08:22:54.000Z');
+    const must = (q as any).bool.must as any[];
+    // The time-window clause is a bool/should with two range entries
+    // (timestamp and created_at). Find the wrapper that contains a range
+    // on `timestamp` inside its should[].
+    const windowWrapper = must.find((c: any) =>
+      'bool' in c && Array.isArray(c.bool.should) && c.bool.should.some((s: any) =>
+        'range' in s && 'timestamp' in s.range,
+      ),
+    );
+    expect(windowWrapper).toBeDefined();
+    expect(windowWrapper.bool.minimum_should_match).toBe(1);
+
+    const tsRange = windowWrapper.bool.should.find((s: any) => 'range' in s && 'timestamp' in s.range);
+    expect(tsRange.range.timestamp.gte).toBe('2026-03-27T07:47:54.000Z');
+    expect(tsRange.range.timestamp.lte).toBe('2026-03-27T08:22:54.000Z');
+
+    const createdRange = windowWrapper.bool.should.find((s: any) => 'range' in s && 'created_at' in s.range);
+    expect(createdRange.range.created_at.gte).toBe('2026-03-27T07:47:54.000Z');
+    expect(createdRange.range.created_at.lte).toBe('2026-03-27T08:22:54.000Z');
   });
 
   it('includes the doc_type: alert filter', () => {
@@ -349,7 +365,12 @@ describe('buildStageDefenderEvidenceQuery', () => {
   it('applies the same time window as the wide query (-5 / +30 min)', () => {
     const q = buildStageDefenderEvidenceQuery(baseInput)!;
     const must = (q.bool as any).must as any[];
-    const range = must.find((c: any) => 'range' in c && 'timestamp' in c.range)!;
+    const windowWrapper = must.find((c: any) =>
+      'bool' in c && Array.isArray(c.bool.should) && c.bool.should.some((s: any) =>
+        'range' in s && 'timestamp' in s.range,
+      ),
+    )!;
+    const range = windowWrapper.bool.should.find((s: any) => 'range' in s && 'timestamp' in s.range);
     const from = new Date(range.range.timestamp.gte).getTime();
     const to = new Date(range.range.timestamp.lte).getTime();
     const test = new Date(baseInput.routing_event_time).getTime();
@@ -364,5 +385,79 @@ describe('buildStageDefenderEvidenceQuery', () => {
     const q = buildStageDefenderEvidenceQuery(baseInput)!;
     expect(JSON.stringify(q)).not.toContain('::');
     expect(JSON.stringify(q)).toContain('bf448c7a-307e-4458-ba36-341d6d8e671b-t1053.005');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Time-window helper. Two scenarios must both qualify under the produced
+// query — see helper docstring for the rationale.
+// ---------------------------------------------------------------------------
+
+describe('buildAlertTimeWindowQuery', () => {
+  const FROM = '2026-05-13T12:06:22.000Z';
+  const TO   = '2026-05-13T12:41:22.000Z';
+  const inWindow = (iso: string) => iso >= FROM && iso <= TO;
+
+  // The helper output is a JSON-shaped clause; this evaluates it against a
+  // synthetic alert doc the way ES would, so the test asserts behavior
+  // rather than structure. Keeps the test robust to non-semantic shape
+  // changes (e.g., clause reordering).
+  const alertMatches = (
+    clause: any,
+    alert: { timestamp?: string; created_at?: string },
+  ): boolean => {
+    const should = clause.bool?.should ?? [];
+    return should.some((s: any) => {
+      if (!('range' in s)) return false;
+      const [field, range] = Object.entries(s.range)[0] as [string, { gte: string; lte: string }];
+      const val = (alert as any)[field];
+      if (typeof val !== 'string') return false;
+      return inWindow(val) && val >= range.gte && val <= range.lte;
+    });
+  };
+
+  it('matches an alert where timestamp is fresh but created_at is weeks stale (reused-alert path)', () => {
+    // Defender reused an old alert ID with new evidence: lastUpdateDateTime
+    // (mapped to `timestamp`) is in window, but createdDateTime is from
+    // weeks ago. Must still match.
+    const clause = buildAlertTimeWindowQuery(FROM, TO);
+    expect(alertMatches(clause, {
+      timestamp:  '2026-05-13T12:15:00.000Z',
+      created_at: '2026-04-01T08:00:00.000Z',
+    })).toBe(true);
+  });
+
+  it('matches an alert where created_at is in window but timestamp drifted out (fresh-then-resolved path)', () => {
+    // Alert fired during the test, was later resolved; resolution bumped
+    // lastUpdateDateTime forward, eventually past the test's window.
+    // The mapper now writes the post-resolution timestamp, so a single
+    // range over `timestamp` would miss it. Must still match via
+    // created_at.
+    const clause = buildAlertTimeWindowQuery(FROM, TO);
+    expect(alertMatches(clause, {
+      timestamp:  '2026-05-13T13:16:44.000Z', // outside [12:06, 12:41]
+      created_at: '2026-05-13T12:12:01.000Z', // inside the window
+    })).toBe(true);
+  });
+
+  it('matches when both fields are in window', () => {
+    const clause = buildAlertTimeWindowQuery(FROM, TO);
+    expect(alertMatches(clause, {
+      timestamp:  '2026-05-13T12:15:00.000Z',
+      created_at: '2026-05-13T12:15:00.000Z',
+    })).toBe(true);
+  });
+
+  it('does NOT match when both fields are out of window', () => {
+    const clause = buildAlertTimeWindowQuery(FROM, TO);
+    expect(alertMatches(clause, {
+      timestamp:  '2026-04-01T08:00:00.000Z',
+      created_at: '2026-04-01T08:00:00.000Z',
+    })).toBe(false);
+  });
+
+  it('emits minimum_should_match: 1 (so either field is sufficient)', () => {
+    const clause = buildAlertTimeWindowQuery(FROM, TO);
+    expect(clause.bool).toMatchObject({ minimum_should_match: 1 });
   });
 });

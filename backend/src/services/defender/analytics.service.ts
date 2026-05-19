@@ -4,7 +4,7 @@
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { DEFENDER_INDEX } from './index-management.js';
-import { buildDefenderEvidenceQuery } from './evidence-correlation.js';
+import { buildAlertTimeWindowQuery, buildDefenderEvidenceQuery } from './evidence-correlation.js';
 import { getControlMitreTechniques } from './control-correlation.service.js';
 import type { Client } from '@elastic/elasticsearch';
 import type { QueryDslQueryContainer } from '@elastic/elasticsearch/lib/api/types.js';
@@ -874,7 +874,7 @@ export class DefenderAnalyticsService {
                   minimum_should_match: 1,
                 },
               },
-              { range: { timestamp: { gte: from, lte: to } } },
+              buildAlertTimeWindowQuery(from, to),
             ],
           },
         },
@@ -900,7 +900,7 @@ export class DefenderAnalyticsService {
           must: [
             { term: { doc_type: 'alert' } },
             { terms: { mitre_techniques: techniques } },
-            { range: { timestamp: { gte: from, lte: to } } },
+            buildAlertTimeWindowQuery(from, to),
           ],
         },
       },
