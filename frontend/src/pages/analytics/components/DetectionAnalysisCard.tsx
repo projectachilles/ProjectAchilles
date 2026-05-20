@@ -61,11 +61,17 @@ export default function DetectionAnalysisCard({
         </div>
       </CardHeader>
       <CardContent className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        {/* Headline metric */}
-        <div className="mb-4 flex items-baseline gap-2 shrink-0">
-          <span className="text-2xl font-bold">{data.overall.detectionRate}%</span>
-          <span className="text-sm text-muted-foreground">
-            detection rate ({data.overall.detectedTechniques}/{data.overall.testedTechniques} techniques)
+        {/* Headline metric — per-execution; technique coverage is the
+            secondary line since the per-technique bars sit right below. */}
+        <div className="mb-4 shrink-0">
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold">{data.overall.detectionRate}%</span>
+            <span className="text-sm text-muted-foreground">
+              detection rate ({data.overall.correlatedExecutions.toLocaleString()} / {data.overall.totalExecutions.toLocaleString()} executions detected)
+            </span>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {data.overall.detectedTechniques}/{data.overall.testedTechniques} techniques exercised had a correlated alert
           </span>
         </div>
 
@@ -118,19 +124,20 @@ export default function DetectionAnalysisCard({
                   {item.testExecutions} {item.testExecutions === 1 ? 'test' : 'tests'}
                 </span>
 
-                {/* Detection indicator */}
-                <span className="w-24 flex items-center gap-1 shrink-0">
+                {/* Detection indicator — executions of this technique
+                    that had a temporally-correlated Defender alert. */}
+                <span className="w-28 flex items-center gap-1 shrink-0">
                   {item.detected ? (
                     <>
                       <ShieldCheck className="w-3.5 h-3.5 text-green-500" />
                       <span className="text-green-600 dark:text-green-400">
-                        {item.correlatedAlerts} {item.correlatedAlerts === 1 ? 'alert' : 'alerts'}
+                        {item.correlatedExecutions}/{item.testExecutions} detected
                       </span>
                     </>
                   ) : (
                     <>
                       <ShieldX className="w-3.5 h-3.5 text-red-500" />
-                      <span className="text-red-600 dark:text-red-400">no alerts</span>
+                      <span className="text-red-600 dark:text-red-400">none detected</span>
                     </>
                   )}
                 </span>
