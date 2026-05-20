@@ -640,7 +640,7 @@ describe('DefenderAnalyticsService', () => {
       expect(result.byTechnique).toEqual([]);
     });
 
-    it('excludes cyber-hygiene controls from test query', async () => {
+    it('excludes cyber-hygiene controls and skipped bundle stages from test query', async () => {
       mockSearch.mockResolvedValueOnce({
         hits: { total: { value: 0 }, hits: [] },
         aggregations: { techniques: { buckets: [] } },
@@ -652,10 +652,18 @@ describe('DefenderAnalyticsService', () => {
 
       await service.getDetectionRate(30, 60);
 
-      // First call is the test results query — should exclude cyber-hygiene
+      // First call is the test results query. It must exclude cyber-hygiene
+      // controls AND skipped bundle stages (bundle controls that exited 0,
+      // i.e. never ran) — neither can be meaningfully "detected".
       const testQuery = mockSearch.mock.calls[0][0] as Record<string, unknown>;
       const bool = (testQuery.query as Record<string, unknown>).bool as Record<string, unknown>;
-      expect(bool.must_not).toEqual([{ term: { 'f0rtika.category': 'cyber-hygiene' } }]);
+      expect(bool.must_not).toEqual([
+        { term: { 'f0rtika.category': 'cyber-hygiene' } },
+        { bool: { must: [
+          { term: { 'f0rtika.is_bundle_control': true } },
+          { term: { 'event.ERROR': 0 } },
+        ] } },
+      ]);
     });
 
     it('sorts detected techniques before undetected', async () => {

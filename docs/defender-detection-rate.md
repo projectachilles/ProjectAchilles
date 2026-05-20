@@ -68,10 +68,17 @@ The correlation is now **roll-up aware**:
 
 ## Exclusions
 
-Cyber-hygiene controls (`f0rtika.category == "cyber-hygiene"`) are excluded from
-the test-execution query. They are configuration checks, not attack
-simulations — the absence of a Defender alert for a config check is expected and
-must not count as a detection miss.
+The test-execution query excludes two kinds of document, because neither
+launched an attack that Defender could meaningfully detect:
+
+- **Cyber-hygiene controls** (`f0rtika.category == "cyber-hygiene"`) are
+  configuration checks, not attack simulations. The absence of a Defender alert
+  for a config check is expected and must not count as a detection miss.
+- **Skipped bundle stages** (`f0rtika.is_bundle_control == true` *and* exit code
+  `event.ERROR == 0`) never executed — the bundle orchestrator chose not to run
+  them. A stage that launched no attack cannot be detected, so counting it would
+  depress the rate with misses that never had a chance to succeed. This mirrors
+  the rule the Executions table uses to render a stage as "Skipped".
 
 ## Approximations
 
