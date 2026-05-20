@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { attackSimulationExclusions } from '../../analytics/attack-simulation-filter.js';
 
 // ── Mock setup ──────────────────────────────────────────────────────
 
@@ -145,13 +146,7 @@ describe('DefenderAnalyticsService (serverless)', () => {
       // i.e. never ran) — neither can be meaningfully "detected".
       const testQuery = mockSearch.mock.calls[0][0] as Record<string, unknown>;
       const bool = (testQuery.query as Record<string, unknown>).bool as Record<string, unknown>;
-      expect(bool.must_not).toEqual([
-        { term: { 'f0rtika.category': 'cyber-hygiene' } },
-        { bool: { must: [
-          { term: { 'f0rtika.is_bundle_control': true } },
-          { term: { 'event.ERROR': 0 } },
-        ] } },
-      ]);
+      expect(bool.must_not).toEqual(attackSimulationExclusions());
     });
 
     it('sorts detected techniques before undetected', async () => {
@@ -289,6 +284,27 @@ describe('DefenderAnalyticsService (serverless)', () => {
       expect(result.overall.detectionRate).toBe(90);
       expect(result.overall.testedTechniques).toBe(2);
       expect(result.overall.detectedTechniques).toBe(1);
+    });
+  });
+
+  describe('getTechniqueOverlap', () => {
+    it('restricts the test-results query to attack simulations', async () => {
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 0 }, hits: [] },
+        aggregations: { techniques: { buckets: [] } },
+      });
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 0 }, hits: [] },
+        aggregations: { techniques: { buckets: [] } },
+      });
+
+      await service.getTechniqueOverlap();
+
+      // First ES call is the test-results aggregation — it must exclude
+      // cyber-hygiene controls and skipped bundle stages.
+      const testQuery = mockSearch.mock.calls[0][0] as Record<string, unknown>;
+      const bool = (testQuery.query as Record<string, unknown>).bool as Record<string, unknown>;
+      expect(bool.must_not).toEqual(attackSimulationExclusions());
     });
   });
 

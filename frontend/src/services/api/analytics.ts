@@ -396,6 +396,8 @@ export const analyticsApi = {
     interval?: 'hour' | 'day' | 'week';
     windowDays?: number;
     scoringMode?: 'all-stages' | 'any-stage';
+    /** Attack-simulation-only scoping — drops cyber-hygiene + skipped stages. */
+    excludeCyberHygiene?: boolean;
   }): Promise<TrendDataPoint[]> {
     const response = await apiClient.get('/analytics/defense-score/trend', { params });
     return response.data;

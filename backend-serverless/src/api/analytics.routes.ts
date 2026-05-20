@@ -204,6 +204,7 @@ router.get('/defense-score/trend', asyncHandler(async (req, res) => {
     const result = await es.getDefenseScoreTrend({
       ...filterParams,
       interval: (interval as string) || 'day',
+      excludeCyberHygiene: req.query.excludeCyberHygiene === 'true',
     });
     res.json(result);
   }

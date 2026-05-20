@@ -194,6 +194,13 @@ export interface ExtendedAnalyticsQueryParams extends AnalyticsQueryParams {
   bundleNames?: string;    // comma-separated bundle names
   result?: 'all' | 'protected' | 'unprotected' | 'inconclusive';
   scoringMode?: 'all-stages' | 'any-stage'; // multi-stage bundle scoring strategy
+  /**
+   * Restrict the query to genuine attack simulations — drop cyber-hygiene
+   * controls and skipped bundle stages. Used by the Defender tab's
+   * test-volume trend so it matches the detection-rate scoping. The
+   * Dashboard's Defense Score leaves it off.
+   */
+  excludeCyberHygiene?: boolean;
 }
 
 // Combined query params for paginated executions

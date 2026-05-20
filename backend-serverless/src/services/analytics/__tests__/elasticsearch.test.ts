@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import type { AnalyticsSettings, AnalyticsQueryParams, PaginatedExecutionsParams } from '../../../types/analytics.js';
+import type { AnalyticsSettings, AnalyticsQueryParams, ExtendedAnalyticsQueryParams, PaginatedExecutionsParams } from '../../../types/analytics.js';
+import { attackSimulationExclusions } from '../attack-simulation-filter.js';
 
 // ─── Mock setup ───────────────────────────────────────────────────
 const mockSearch = vi.fn();
@@ -38,7 +39,9 @@ function makeSettings(overrides?: Partial<AnalyticsSettings>): AnalyticsSettings
   };
 }
 
-function makeParams(overrides?: Partial<AnalyticsQueryParams>): AnalyticsQueryParams {
+function makeParams(
+  overrides?: Partial<AnalyticsQueryParams> & Partial<ExtendedAnalyticsQueryParams>,
+): AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams> {
   return { from: '2025-01-01T00:00:00Z', to: '2025-01-31T23:59:59Z', ...overrides };
 }
 
@@ -400,6 +403,33 @@ describe('elasticsearch.ts', () => {
       expect(result[0].realScore).toBe(70); // 7/10
       expect(result[0].realTotal).toBe(10);
       expect(result[0].realProtected).toBe(7);
+    });
+
+    it('adds attack-simulation exclusions to the filter when excludeCyberHygiene is set', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse({ total: 0, aggs: { over_time: { buckets: [] } } }));
+      const svc = createService();
+      await svc.getDefenseScoreTrend(makeParams({ excludeCyberHygiene: true }));
+
+      const callArg = mockSearch.mock.calls[0][0];
+      const filters = callArg.query.bool.filter as any[];
+      const attackSimClause = filters.find(
+        (f) => f?.bool?.must_not && JSON.stringify(f.bool.must_not).includes('cyber-hygiene'),
+      );
+      expect(attackSimClause).toBeDefined();
+      expect(attackSimClause.bool.must_not).toEqual(attackSimulationExclusions());
+    });
+
+    it('does NOT add attack-simulation exclusions by default', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse({ total: 0, aggs: { over_time: { buckets: [] } } }));
+      const svc = createService();
+      await svc.getDefenseScoreTrend(makeParams());
+
+      const callArg = mockSearch.mock.calls[0][0];
+      const filters = callArg.query.bool.filter as any[];
+      const hasAttackSim = filters.some(
+        (f) => f?.bool?.must_not && JSON.stringify(f.bool.must_not).includes('cyber-hygiene'),
+      );
+      expect(hasAttackSim).toBe(false);
     });
   });
 

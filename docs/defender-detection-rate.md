@@ -80,6 +80,15 @@ launched an attack that Defender could meaningfully detect:
   depress the rate with misses that never had a chance to succeed. This mirrors
   the rule the Executions table uses to render a stage as "Skipped".
 
+These two exclusions are defined once in `attackSimulationExclusions()`
+(`backend/src/services/analytics/attack-simulation-filter.ts`) and applied by
+**every** Defender-tab metric that counts test executions — the detection rate,
+the *Test Execution vs Defender Alert Volume* trend, and the *Technique Overlap*
+chart — so "test execution" means the same thing across the whole tab. The
+Dashboard tab's Defense Score deliberately does **not** apply them: a passing
+hardening check legitimately counts toward that score. The trend opts in via
+the `excludeCyberHygiene` flag on `GET /api/analytics/defense-score/trend`.
+
 ## Approximations
 
 The metric is an analytics rollup, not a per-event join. Two deliberate

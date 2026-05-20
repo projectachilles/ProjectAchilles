@@ -5,6 +5,7 @@ import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { DEFENDER_INDEX } from './index-management.js';
 import { buildAlertTimeWindowQuery, buildDefenderEvidenceQuery } from './evidence-correlation.js';
+import { attackSimulationExclusions } from '../analytics/attack-simulation-filter.js';
 import { getControlMitreTechniques } from './control-correlation.service.js';
 import type { Client } from '@elastic/elasticsearch';
 import type { QueryDslQueryContainer } from '@elastic/elasticsearch/lib/api/types.js';
@@ -508,11 +509,17 @@ export class DefenderAnalyticsService {
     const secureScores = await this.getSecureScoreTrend(days);
     const secureMap = new Map(secureScores.map((s) => [s.date.split('T')[0], s.percentage]));
 
-    // Get Defense Score trend from the results index
+    // Get Defense Score trend from the results index — attack simulations
+    // only, so it lines up with the rest of the Defender tab.
     const defenseResult = await client.search({
       index: settings.indexPattern,
       size: 0,
-      query: { range: { 'routing.event_time': { gte: `now-${days}d/d` } } },
+      query: {
+        bool: {
+          must: [{ range: { 'routing.event_time': { gte: `now-${days}d/d` } } }],
+          must_not: attackSimulationExclusions(),
+        },
+      },
       aggs: {
         by_day: {
           date_histogram: { field: 'routing.event_time', calendar_interval: 'day' },
@@ -552,10 +559,12 @@ export class DefenderAnalyticsService {
     const settingsService = new SettingsService();
     const settings = settingsService.getSettings();
 
-    // Get MITRE techniques from test results
+    // Get MITRE techniques from test results — attack simulations only,
+    // so the overlap matches the rest of the Defender tab.
     const testResult = await client.search({
       index: settings.indexPattern,
       size: 0,
+      query: { bool: { must_not: attackSimulationExclusions() } },
       aggs: {
         techniques: { terms: { field: 'f0rtika.techniques', size: 100 } },
       },
@@ -611,28 +620,16 @@ export class DefenderAnalyticsService {
     const settingsService = new SettingsService();
     const settings = settingsService.getSettings();
 
-    // Query 1: Test executions by technique with hourly buckets.
-    // Two exclusions, both because the doc launched no attack that
-    // Defender could meaningfully detect:
-    //   - cyber-hygiene controls are config checks, not attack
-    //     simulations — a missing alert is expected, not a miss;
-    //   - skipped bundle stages (is_bundle_control + exit code 0) never
-    //     executed. Counting them would depress the rate with misses
-    //     that never had a chance to be detected. Mirrors the Executions
-    //     table's skipped-row rule.
+    // Query 1: test executions by technique with hourly buckets,
+    // restricted to genuine attack simulations (see
+    // attackSimulationExclusions).
     const testResult = await client.search({
       index: settings.indexPattern,
       size: 0,
       query: {
         bool: {
           must: [{ range: { 'routing.event_time': { gte: `now-${days}d/d` } } }],
-          must_not: [
-            { term: { 'f0rtika.category': 'cyber-hygiene' } },
-            { bool: { must: [
-              { term: { 'f0rtika.is_bundle_control': true } },
-              { term: { 'event.ERROR': 0 } },
-            ] } },
-          ],
+          must_not: attackSimulationExclusions(),
         },
       },
       aggs: {

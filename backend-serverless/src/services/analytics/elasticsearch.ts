@@ -3,6 +3,7 @@
 import { Client } from '@elastic/elasticsearch';
 import { createEsClient } from './client.js';
 import { RiskAcceptanceService } from '../risk-acceptance/risk-acceptance.service.js';
+import { attackSimulationExclusions } from './attack-simulation-filter.js';
 import type {
   AnalyticsSettings,
   AnalyticsQueryParams,
@@ -314,6 +315,15 @@ export class ElasticsearchService {
   async getDefenseScoreTrend(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<TrendDataPoint[]> {
     const rawFilters = this.buildDefenseScoreFiltersWithoutExclusion(params);
     const adjustedFilters = await this.buildDefenseScoreFilters(params);
+    // Defender tab opts into attack-simulation-only scoping so its
+    // test-volume trend matches the detection-rate metric. Added to both
+    // filter sets equally, so the raw-vs-adjusted risk-acceptance diff
+    // (hasExclusion) is unaffected.
+    if (params.excludeCyberHygiene) {
+      const attackSimOnly = { bool: { must_not: attackSimulationExclusions() } };
+      rawFilters.push(attackSimOnly);
+      adjustedFilters.push(attackSimOnly);
+    }
     const hasExclusion = adjustedFilters.length > rawFilters.length;
     const interval = params.interval || 'day';
 
