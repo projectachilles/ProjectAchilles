@@ -61,7 +61,10 @@ export default function TestVsAlertTimelineCard() {
       setError(null);
       const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
       const [testResult, alertResult] = await Promise.allSettled([
-        analyticsApi.getDefenseScoreTrend({ from: since, interval: 'day' }),
+        // Attack simulations only — cyber-hygiene checks and skipped
+        // bundle stages can't trip a Defender alert, so counting them
+        // would distort the test-vs-alert comparison.
+        analyticsApi.getDefenseScoreTrend({ from: since, interval: 'day', excludeCyberHygiene: true }),
         defenderApi.getAlertTrend(days),
       ]);
 
