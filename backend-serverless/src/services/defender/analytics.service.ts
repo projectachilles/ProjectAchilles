@@ -630,16 +630,28 @@ export class DefenderAnalyticsService {
     const settingsService = new SettingsService();
     const settings = await settingsService.getSettings();
 
-    // Query 1: Test executions by technique with hourly buckets
-    // Exclude cyber-hygiene controls — they are config checks, not attack simulations,
-    // so absence of a Defender alert should not count as a detection miss.
+    // Query 1: Test executions by technique with hourly buckets.
+    // Two exclusions, both because the doc launched no attack that
+    // Defender could meaningfully detect:
+    //   - cyber-hygiene controls are config checks, not attack
+    //     simulations — a missing alert is expected, not a miss;
+    //   - skipped bundle stages (is_bundle_control + exit code 0) never
+    //     executed. Counting them would depress the rate with misses
+    //     that never had a chance to be detected. Mirrors the Executions
+    //     table's skipped-row rule.
     const testResult = await client.search({
       index: settings.indexPattern,
       size: 0,
       query: {
         bool: {
           must: [{ range: { 'routing.event_time': { gte: `now-${days}d/d` } } }],
-          must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }],
+          must_not: [
+            { term: { 'f0rtika.category': 'cyber-hygiene' } },
+            { bool: { must: [
+              { term: { 'f0rtika.is_bundle_control': true } },
+              { term: { 'event.ERROR': 0 } },
+            ] } },
+          ],
         },
       },
       aggs: {
