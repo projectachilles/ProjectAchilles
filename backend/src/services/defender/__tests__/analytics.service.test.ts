@@ -599,20 +599,25 @@ describe('DefenderAnalyticsService', () => {
 
       const result = await service.getDetectionRate(30, 60);
 
+      // T1003: 5 executions, all in hours with a nearby alert → 5 correlated.
+      // T1486: 2 executions, far from any alert → 0 correlated.
+      // Per-execution rate = 5 / 7 = 71.4%.
       expect(result.overall.testedTechniques).toBe(2);
       expect(result.overall.detectedTechniques).toBe(1);
-      expect(result.overall.detectionRate).toBe(50);
+      expect(result.overall.totalExecutions).toBe(7);
+      expect(result.overall.correlatedExecutions).toBe(5);
+      expect(result.overall.detectionRate).toBe(71.4);
 
       // T1003 detected, T1486 not
       const t1003 = result.byTechnique.find((t) => t.technique === 'T1003');
       expect(t1003).toBeDefined();
       expect(t1003!.detected).toBe(true);
-      expect(t1003!.correlatedAlerts).toBeGreaterThan(0);
+      expect(t1003!.correlatedExecutions).toBe(5);
 
       const t1486 = result.byTechnique.find((t) => t.technique === 'T1486');
       expect(t1486).toBeDefined();
       expect(t1486!.detected).toBe(false);
-      expect(t1486!.correlatedAlerts).toBe(0);
+      expect(t1486!.correlatedExecutions).toBe(0);
     });
 
     it('returns zero detection rate when no tests exist', async () => {
@@ -629,6 +634,8 @@ describe('DefenderAnalyticsService', () => {
 
       expect(result.overall.testedTechniques).toBe(0);
       expect(result.overall.detectedTechniques).toBe(0);
+      expect(result.overall.totalExecutions).toBe(0);
+      expect(result.overall.correlatedExecutions).toBe(0);
       expect(result.overall.detectionRate).toBe(0);
       expect(result.byTechnique).toEqual([]);
     });
@@ -683,6 +690,114 @@ describe('DefenderAnalyticsService', () => {
       expect(result.byTechnique[0].detected).toBe(true);
       expect(result.byTechnique[1].technique).toBe('T1486');
       expect(result.byTechnique[1].detected).toBe(false);
+    });
+
+    it('credits a sub-technique test when only the parent technique has an alert (MITRE roll-up)', async () => {
+      const baseTime = new Date('2026-02-25T10:00:00Z').getTime();
+
+      // Test: T1574.002 (DLL Side-Loading), 4 executions in one hour.
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 0 }, hits: [] },
+        aggregations: {
+          techniques: {
+            buckets: [
+              { key: 'T1574.002', doc_count: 4, by_hour: { buckets: [{ key: baseTime, doc_count: 4 }] } },
+            ],
+          },
+        },
+      });
+      // Alert tagged with the PARENT T1574 only — no T1574.002 alert exists.
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 0 }, hits: [] },
+        aggregations: {
+          techniques: {
+            buckets: [
+              { key: 'T1574', doc_count: 1, by_hour: { buckets: [{ key: baseTime, doc_count: 1 }] } },
+            ],
+          },
+        },
+      });
+
+      const result = await service.getDetectionRate(30, 60);
+
+      const sub = result.byTechnique.find((t) => t.technique === 'T1574.002');
+      expect(sub).toBeDefined();
+      expect(sub!.detected).toBe(true);
+      expect(sub!.correlatedExecutions).toBe(4);
+      expect(result.overall.detectionRate).toBe(100);
+    });
+
+    it('does NOT credit a parent-technique test from a sub-technique alert (roll-up is one-directional)', async () => {
+      const baseTime = new Date('2026-02-25T10:00:00Z').getTime();
+
+      // Test: T1574 (parent), 4 executions.
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 0 }, hits: [] },
+        aggregations: {
+          techniques: {
+            buckets: [
+              { key: 'T1574', doc_count: 4, by_hour: { buckets: [{ key: baseTime, doc_count: 4 }] } },
+            ],
+          },
+        },
+      });
+      // Alert tagged with a sub-technique T1574.002 only.
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 0 }, hits: [] },
+        aggregations: {
+          techniques: {
+            buckets: [
+              { key: 'T1574.002', doc_count: 1, by_hour: { buckets: [{ key: baseTime, doc_count: 1 }] } },
+            ],
+          },
+        },
+      });
+
+      const result = await service.getDetectionRate(30, 60);
+
+      const parent = result.byTechnique.find((t) => t.technique === 'T1574');
+      expect(parent).toBeDefined();
+      expect(parent!.detected).toBe(false);
+      expect(parent!.correlatedExecutions).toBe(0);
+      expect(result.overall.detectionRate).toBe(0);
+    });
+
+    it('weights the detection rate by executions, not by technique count', async () => {
+      const baseTime = new Date('2026-02-25T10:00:00Z').getTime();
+      const hour = 3600000;
+
+      // T1003: 9 executions, all correlated. T1486: 1 execution, uncorrelated.
+      // A technique-count rate would be 1/2 = 50%. The per-execution rate is
+      // 9/10 = 90% — the metric must reflect attack volume, not catalog size.
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 0 }, hits: [] },
+        aggregations: {
+          techniques: {
+            buckets: [
+              { key: 'T1003', doc_count: 9, by_hour: { buckets: [{ key: baseTime, doc_count: 9 }] } },
+              { key: 'T1486', doc_count: 1, by_hour: { buckets: [{ key: baseTime + 10 * hour, doc_count: 1 }] } },
+            ],
+          },
+        },
+      });
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 0 }, hits: [] },
+        aggregations: {
+          techniques: {
+            buckets: [
+              { key: 'T1003', doc_count: 1, by_hour: { buckets: [{ key: baseTime, doc_count: 1 }] } },
+            ],
+          },
+        },
+      });
+
+      const result = await service.getDetectionRate(30, 60);
+
+      expect(result.overall.totalExecutions).toBe(10);
+      expect(result.overall.correlatedExecutions).toBe(9);
+      expect(result.overall.detectionRate).toBe(90);
+      expect(result.overall.testedTechniques).toBe(2);
+      expect(result.overall.detectedTechniques).toBe(1);
     });
   });
 

@@ -296,15 +296,19 @@ export interface DefenderSyncStatus {
 export interface DetectionRateTechniqueItem {
   technique: string;
   testExecutions: number;
-  correlatedAlerts: number;
+  correlatedExecutions: number;
   detected: boolean;
 }
 
 export interface DetectionRateResponse {
   overall: {
+    /** Per-execution rate: correlatedExecutions / totalExecutions, as a percentage. */
+    detectionRate: number;
+    totalExecutions: number;
+    correlatedExecutions: number;
+    /** Distinct techniques exercised — drill-down context, not the headline. */
     testedTechniques: number;
     detectedTechniques: number;
-    detectionRate: number;
   };
   byTechnique: DetectionRateTechniqueItem[];
 }

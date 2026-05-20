@@ -196,7 +196,7 @@ export default function DefenderTab() {
             valueSuffix="%"
             subValue={
               detectionRate
-                ? `${detectionRate.overall.detectedTechniques}/${detectionRate.overall.testedTechniques} techniques`
+                ? `${detectionRate.overall.correlatedExecutions.toLocaleString()} / ${detectionRate.overall.totalExecutions.toLocaleString()} executions detected`
                 : undefined
             }
             chartSlot={

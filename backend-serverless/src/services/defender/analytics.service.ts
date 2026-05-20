@@ -125,15 +125,19 @@ export interface ControlCorrelationResult {
 export interface DetectionRateTechniqueItem {
   technique: string;
   testExecutions: number;
-  correlatedAlerts: number;
+  correlatedExecutions: number;
   detected: boolean;
 }
 
 export interface DetectionRateResponse {
   overall: {
+    /** Per-execution rate: correlatedExecutions / totalExecutions, as a percentage. */
+    detectionRate: number;
+    totalExecutions: number;
+    correlatedExecutions: number;
+    /** Distinct techniques exercised — drill-down context, not the headline. */
     testedTechniques: number;
     detectedTechniques: number;
-    detectionRate: number;
   };
   byTechnique: DetectionRateTechniqueItem[];
 }
@@ -615,6 +619,12 @@ export class DefenderAnalyticsService {
 
   // ── Detection correlation ───────────────────────────────────
 
+  /**
+   * Per-execution Defender detection rate: the share of attack-simulation
+   * test executions that have a temporally-correlated Defender alert.
+   * See docs/defender-detection-rate.md for the metric definition,
+   * MITRE roll-up semantics, and known approximations.
+   */
   async getDetectionRate(days: number, windowMinutes: number): Promise<DetectionRateResponse> {
     const client = await this.getEsClient();
     const settingsService = new SettingsService();
@@ -689,19 +699,39 @@ export class DefenderAnalyticsService {
 
     const windowMs = windowMinutes * 60 * 1000;
 
-    // For each tested technique, check temporal proximity with alerts
+    // Resolve the alert-hour set for a tested technique, applying MITRE
+    // roll-up: a sub-technique test (e.g. T1574.002) is satisfied by an
+    // alert tagged with its parent (T1574), because the sub-technique is
+    // a specialization of the parent and Defender frequently tags alerts
+    // at parent granularity only. Roll-up is one-directional — a parent
+    // test is NOT credited by a sibling sub-technique's alert, since that
+    // would attribute detection of one specific behavior to a different
+    // one.
+    const rolledUpAlertHours = (technique: string): Set<number> => {
+      const direct = alertHoursByTechnique.get(technique);
+      const dot = technique.indexOf('.');
+      const parentHours = dot > 0
+        ? alertHoursByTechnique.get(technique.slice(0, dot))
+        : undefined;
+      if (!parentHours) return direct ?? new Set<number>();
+      if (!direct) return parentHours;
+      return new Set<number>([...direct, ...parentHours]);
+    };
+
+    // For each tested technique, sum the executions in test-hours that
+    // fall within ±windowMinutes of a (rolled-up) alert hour.
     const byTechnique = testTechniques.map((testBucket) => {
       const technique = testBucket.key;
-      const alertHours = alertHoursByTechnique.get(technique);
-      let correlatedAlerts = 0;
+      const alertHours = rolledUpAlertHours(technique);
+      let correlatedExecutions = 0;
 
-      if (alertHours && alertHours.size > 0) {
+      if (alertHours.size > 0) {
         const alertTimestamps = Array.from(alertHours).sort((a, b) => a - b);
         for (const testHour of testBucket.by_hour.buckets) {
           if (testHour.doc_count === 0) continue;
           for (const alertTs of alertTimestamps) {
             if (Math.abs(testHour.key - alertTs) <= windowMs) {
-              correlatedAlerts++;
+              correlatedExecutions += testHour.doc_count;
               break;
             }
           }
@@ -711,8 +741,8 @@ export class DefenderAnalyticsService {
       return {
         technique,
         testExecutions: testBucket.doc_count,
-        correlatedAlerts,
-        detected: correlatedAlerts > 0,
+        correlatedExecutions,
+        detected: correlatedExecutions > 0,
       };
     });
 
@@ -722,14 +752,22 @@ export class DefenderAnalyticsService {
       return b.testExecutions - a.testExecutions;
     });
 
+    const totalExecutions = byTechnique.reduce((sum, t) => sum + t.testExecutions, 0);
+    const correlatedExecutions = byTechnique.reduce((sum, t) => sum + t.correlatedExecutions, 0);
+    const detectionRate = totalExecutions > 0
+      ? Math.round((correlatedExecutions / totalExecutions) * 1000) / 10
+      : 0;
     const testedTechniques = byTechnique.length;
     const detectedTechniques = byTechnique.filter((t) => t.detected).length;
-    const detectionRate = testedTechniques > 0
-      ? Math.round((detectedTechniques / testedTechniques) * 1000) / 10
-      : 0;
 
     return {
-      overall: { testedTechniques, detectedTechniques, detectionRate },
+      overall: {
+        detectionRate,
+        totalExecutions,
+        correlatedExecutions,
+        testedTechniques,
+        detectedTechniques,
+      },
       byTechnique,
     };
   }
