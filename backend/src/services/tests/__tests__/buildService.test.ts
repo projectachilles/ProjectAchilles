@@ -216,7 +216,62 @@ describe('BuildService', () => {
     });
   });
 
-  // ── Group 4: getEmbedDependencies ─────────────────────────
+  // ── Group 4: listBuiltUuids ───────────────────────────────
+
+  describe('listBuiltUuids', () => {
+    const BUILT_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const UPLOADED_UUID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const NO_BINARY_UUID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+
+    it('returns [] when the builds directory does not exist', () => {
+      mockExistsSync.mockReturnValue(false);
+      expect(service.listBuiltUuids()).toEqual([]);
+    });
+
+    it('returns UUIDs with a binary (built and uploaded both count), excludes meta-only dirs', () => {
+      mockReaddirSync.mockReturnValue([BUILT_UUID, UPLOADED_UUID, NO_BINARY_UUID]);
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === BUILDS_DIR) return true;
+        if (p === `${BUILDS_DIR}/${BUILT_UUID}/build-meta.json`) return true;
+        if (p === `${BUILDS_DIR}/${BUILT_UUID}/${BUILT_UUID}.exe`) return true;
+        if (p === `${BUILDS_DIR}/${UPLOADED_UUID}/build-meta.json`) return true;
+        if (p === `${BUILDS_DIR}/${UPLOADED_UUID}/${UPLOADED_UUID}.exe`) return true;
+        // NO_BINARY_UUID has metadata but the binary file is missing
+        if (p === `${BUILDS_DIR}/${NO_BINARY_UUID}/build-meta.json`) return true;
+        return false;
+      });
+      mockReadFileSync.mockImplementation((p: string) => {
+        if (p === `${BUILDS_DIR}/${BUILT_UUID}/build-meta.json`) {
+          return JSON.stringify({
+            filename: `${BUILT_UUID}.exe`,
+            platform: { os: 'windows', arch: 'amd64' },
+            signed: false, fileSize: 100, builtAt: '2026-05-20T00:00:00Z', source: 'built',
+          });
+        }
+        if (p === `${BUILDS_DIR}/${UPLOADED_UUID}/build-meta.json`) {
+          return JSON.stringify({
+            filename: `${UPLOADED_UUID}.exe`,
+            platform: { os: 'windows', arch: 'amd64' },
+            signed: false, fileSize: 100, builtAt: '2026-05-20T00:00:00Z', source: 'uploaded',
+          });
+        }
+        if (p === `${BUILDS_DIR}/${NO_BINARY_UUID}/build-meta.json`) {
+          return JSON.stringify({
+            filename: `${NO_BINARY_UUID}.exe`,
+            platform: { os: 'windows', arch: 'amd64' },
+            signed: false, fileSize: 100, builtAt: '2026-05-20T00:00:00Z', source: 'built',
+          });
+        }
+        return '';
+      });
+
+      const result = service.listBuiltUuids();
+      expect([...result].sort()).toEqual([BUILT_UUID, UPLOADED_UUID].sort());
+      expect(result).not.toContain(NO_BINARY_UUID);
+    });
+  });
+
+  // ── Group 5: getEmbedDependencies ─────────────────────────
 
   describe('getEmbedDependencies', () => {
     it('parses //go:embed directives from Go files', () => {
