@@ -40,6 +40,7 @@ vi.mock('../../services/tests/settings.js', () => ({
 
 // Mock BuildService
 const mockUploadBinary = vi.fn();
+const mockListBuiltUuids = vi.fn();
 
 vi.mock('../../services/tests/buildService.js', () => ({
   BuildService: class MockBuildService {
@@ -51,6 +52,7 @@ vi.mock('../../services/tests/buildService.js', () => ({
     getEmbedDependencies = vi.fn();
     saveUploadedFile = vi.fn();
     uploadBinary = mockUploadBinary;
+    listBuiltUuids = mockListBuiltUuids;
   },
   BuildError: class BuildError extends Error {},
 }));
@@ -155,6 +157,35 @@ describe('tests routes', () => {
         .get('/api/tests/builds/12345678-1234-1234-1234-123456789abc');
 
       expect(res.status).toBe(200);
+    });
+  });
+
+  describe('GET /api/tests/builds', () => {
+    it('returns the list of built test UUIDs', async () => {
+      mockListBuiltUuids.mockReturnValue([
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      ]);
+      const app = createApp();
+      const res = await request(app).get('/api/tests/builds');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        success: true,
+        data: [
+          'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        ],
+      });
+    });
+
+    it('returns an empty array when no test has a binary', async () => {
+      mockListBuiltUuids.mockReturnValue([]);
+      const app = createApp();
+      const res = await request(app).get('/api/tests/builds');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true, data: [] });
     });
   });
 

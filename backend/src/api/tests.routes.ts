@@ -180,6 +180,11 @@ export function createTestsRouter(options: { testSourcePaths: string[]; testsSou
     }
   }
 
+  // GET /api/tests/builds - List UUIDs of tests that currently have a binary
+  router.get('/builds', requirePermission('tests:builds:read'), asyncHandler(async (_req, res) => {
+    res.json({ success: true, data: buildService.listBuiltUuids() });
+  }));
+
   // GET /api/tests/builds/:uuid - Get build info
   router.get('/builds/:uuid', requirePermission('tests:builds:read'), asyncHandler(async (req, res) => {
     validateUuid(req.params.uuid);
