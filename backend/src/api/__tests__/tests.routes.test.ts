@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 
@@ -161,6 +161,10 @@ describe('tests routes', () => {
   });
 
   describe('GET /api/tests/builds', () => {
+    beforeEach(() => {
+      mockListBuiltUuids.mockReset();
+    });
+
     it('returns the list of built test UUIDs', async () => {
       mockListBuiltUuids.mockReturnValue([
         'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
