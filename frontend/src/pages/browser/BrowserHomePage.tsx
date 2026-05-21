@@ -51,6 +51,9 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
   const [nryFilter, setNryFilter] = useState(false);
   const [executedUuids, setExecutedUuids] = useState<Set<string> | null>(null);
   const [executedUuidsLoading, setExecutedUuidsLoading] = useState(false);
+  const [builtFilter, setBuiltFilter] = useState(false);
+  const [builtUuids, setBuiltUuids] = useState<Set<string> | null>(null);
+  const [builtUuidsLoading, setBuiltUuidsLoading] = useState(false);
   const [sortField, setSortField] = useState<SortField>('createdDate');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -68,6 +71,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
   const canCreateTasks = useHasPermission('endpoints:tasks:create');
   const { configured: esConfigured } = useAnalyticsAuth();
   const executedUuidsFetched = useRef(false);
+  const builtUuidsFetched = useRef(false);
 
   // Tab state — URL-synced, only for browse mode
   const activeTab: BrowserTab = mode === 'browse'
@@ -106,6 +110,20 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
       .catch(() => setExecutedUuids(null))
       .finally(() => setExecutedUuidsLoading(false));
   }, [esConfigured]);
+
+  // Fetch UUIDs of tests with a binary (for the "Has binary" filter). On
+  // failure — e.g. the Vercel serverless deployment, where the build system
+  // is stubbed and this endpoint does not exist — builtUuids stays null and
+  // the toggle is not rendered.
+  useEffect(() => {
+    if (builtUuidsFetched.current) return;
+    builtUuidsFetched.current = true;
+    setBuiltUuidsLoading(true);
+    browserApi.getBuiltTestUuids()
+      .then(uuids => setBuiltUuids(new Set(uuids)))
+      .catch(() => setBuiltUuids(null))
+      .finally(() => setBuiltUuidsLoading(false));
+  }, []);
 
   // Apply mode-based pre-filtering before search/category/severity filters
   const modeFilteredTests = useMemo(() => {
@@ -174,6 +192,11 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
         filtered = filtered.filter(test => !executedUuids.has(test.uuid));
       }
 
+      // "Has binary" filter — keep only tests that currently have a binary
+      if (builtFilter && builtUuids) {
+        filtered = filtered.filter(test => builtUuids.has(test.uuid));
+      }
+
       // Sorting
       filtered.sort((a, b) => {
         let cmp = 0;
@@ -202,7 +225,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
       console.error('Error in filterTests:', err);
       setFilteredTests(modeFilteredTests);
     }
-  }, [modeFilteredTests, searchQuery, selectedCategory, selectedSeverity, selectedTarget, selectedThreatActor, nryFilter, executedUuids, sortField, sortDirection]);
+  }, [modeFilteredTests, searchQuery, selectedCategory, selectedSeverity, selectedTarget, selectedThreatActor, nryFilter, executedUuids, builtFilter, builtUuids, sortField, sortDirection]);
 
   useEffect(() => {
     filterTests();
@@ -452,6 +475,16 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
               checked={nryFilter}
               disabled={executedUuidsLoading}
               onChange={(e) => setNryFilter(e.target.checked)}
+            />
+          )}
+
+          {/* "Has binary" Toggle */}
+          {builtUuids && (
+            <Switch
+              label="Has binary"
+              checked={builtFilter}
+              disabled={builtUuidsLoading}
+              onChange={(e) => setBuiltFilter(e.target.checked)}
             />
           )}
 

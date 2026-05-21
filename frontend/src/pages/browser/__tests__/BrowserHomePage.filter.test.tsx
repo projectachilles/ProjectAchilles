@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
-import { render, screen, waitFor, within, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { TestMetadata } from '@/types/test';
 
@@ -66,7 +66,10 @@ vi.mock('@/components/browser/execution', () => ({
 
 import BrowserHomePage from '../BrowserHomePage';
 
-function makeTest(uuid: string, name: string, createdDate: string | undefined): TestMetadata {
+const BUILT_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const UNBUILT_UUID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+function makeTest(uuid: string, name: string): TestMetadata {
   return {
     uuid,
     name,
@@ -74,18 +77,17 @@ function makeTest(uuid: string, name: string, createdDate: string | undefined): 
     techniques: [],
     isMultiStage: false,
     stages: [],
-    createdDate,
+    createdDate: '2026-05-01',
     category: 'intel-driven',
   };
 }
 
-describe('BrowserHomePage default sort', () => {
+describe('BrowserHomePage "Has binary" filter', () => {
   beforeEach(() => {
     getAllTestsMock.mockReset();
     getSyncStatusMock.mockReset();
     getExecutedTestUuidsMock.mockReset();
     getBuiltTestUuidsMock.mockReset();
-    getBuiltTestUuidsMock.mockResolvedValue([]);
     getSyncStatusMock.mockResolvedValue({
       lastSyncTime: null,
       commitHash: null,
@@ -99,12 +101,12 @@ describe('BrowserHomePage default sort', () => {
     cleanup();
   });
 
-  it('defaults the sort dropdown to "Created" with descending direction', async () => {
+  it('filters the grid to only tests with a binary when the toggle is on', async () => {
     getAllTestsMock.mockResolvedValue([
-      makeTest('aaa', 'Alpha test', '2026-01-10'),
-      makeTest('bbb', 'Bravo test', '2026-05-01'),
-      makeTest('ccc', 'Charlie test', '2026-03-15'),
+      makeTest(BUILT_UUID, 'Built test'),
+      makeTest(UNBUILT_UUID, 'Unbuilt test'),
     ]);
+    getBuiltTestUuidsMock.mockResolvedValue([BUILT_UUID]);
 
     render(
       <MemoryRouter initialEntries={['/dashboard?tab=browse']}>
@@ -112,53 +114,32 @@ describe('BrowserHomePage default sort', () => {
       </MemoryRouter>
     );
 
-    // Wait for tests to load
-    await waitFor(() => expect(getAllTestsMock).toHaveBeenCalled());
-    await screen.findByText('Bravo test');
+    // Both cards visible before the filter is applied
+    await screen.findByText('Built test');
+    await screen.findByText('Unbuilt test');
 
-    // The sort dropdown is the only <select> whose currently-selected value is 'createdDate'
-    const sortSelect = screen
-      .getAllByRole('combobox')
-      .find((el) => (el as HTMLSelectElement).value === 'createdDate') as HTMLSelectElement | undefined;
-    expect(sortSelect).toBeDefined();
-    expect(sortSelect!.value).toBe('createdDate');
-    // Confirm the visible option label is "Created"
-    const selectedOption = within(sortSelect!).getByRole('option', { selected: true }) as HTMLOptionElement;
-    expect(selectedOption.textContent).toBe('Created');
+    // Flip the "Has binary" toggle on
+    const toggle = await screen.findByLabelText('Has binary');
+    fireEvent.click(toggle);
 
-    // Confirm the direction toggle button title reads "Descending"
-    expect(screen.getByTitle('Descending')).toBeInTheDocument();
+    // The test without a binary is filtered out; the built one remains
+    await waitFor(() => {
+      expect(screen.queryByText('Unbuilt test')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('Built test')).toBeInTheDocument();
   });
 
-  it('sorts tests newest-first by createdDate on initial render', async () => {
-    getAllTestsMock.mockResolvedValue([
-      makeTest('aaa', 'Alpha test', '2026-01-10'),
-      makeTest('bbb', 'Bravo test', '2026-05-01'),
-      makeTest('ccc', 'Charlie test', '2026-03-15'),
-    ]);
+  it('does not render the toggle when the builds endpoint fails (e.g. serverless)', async () => {
+    getAllTestsMock.mockResolvedValue([makeTest(BUILT_UUID, 'Built test')]);
+    getBuiltTestUuidsMock.mockRejectedValue(new Error('404 Not Found'));
 
-    const { container } = render(
+    render(
       <MemoryRouter initialEntries={['/dashboard?tab=browse']}>
         <BrowserHomePage mode="browse" />
       </MemoryRouter>
     );
 
-    await waitFor(() => expect(getAllTestsMock).toHaveBeenCalled());
-
-    // Wait for all three cards to mount. Each test name appears exactly once in the
-    // DOM (TestCard.tsx renders test.name in a single <h3>), so findByText is safe.
-    // Avoid asserting via `container.textContent.indexOf` — concatenated text positions
-    // are fragile across CI/local rendering timing and any incidental sibling text.
-    const bravo = await within(container).findByText('Bravo test');
-    const charlie = await within(container).findByText('Charlie test');
-    const alpha = await within(container).findByText('Alpha test');
-
-    // Sort the three title nodes by their actual DOM document position.
-    const nodesInDomOrder = [alpha, bravo, charlie].slice().sort((a, b) =>
-      a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1
-    );
-
-    // Newest-first: Bravo (2026-05-01) → Charlie (2026-03-15) → Alpha (2026-01-10)
-    expect(nodesInDomOrder).toEqual([bravo, charlie, alpha]);
+    await screen.findByText('Built test');
+    expect(screen.queryByLabelText('Has binary')).not.toBeInTheDocument();
   });
 });
