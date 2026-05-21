@@ -100,6 +100,12 @@ export const browserApi = {
     return response.data.data;
   },
 
+  // Get UUIDs of tests that currently have a built or uploaded binary
+  async getBuiltTestUuids(): Promise<string[]> {
+    const response = await apiClient.get('/tests/builds');
+    return response.data.data;
+  },
+
   // Refresh test index
   async refreshTests(): Promise<{ message: string; count: number }> {
     const response = await apiClient.post('/browser/tests/refresh');

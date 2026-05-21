@@ -323,6 +323,23 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     }
   }
 
+  /**
+   * List the UUIDs of every test that currently has a binary — built from
+   * source or uploaded; both count. Backs the Browse tab's "Has binary"
+   * filter. One directory scan plus a metadata check per entry, reusing
+   * getBuildInfo() so the existence semantics stay identical.
+   */
+  listBuiltUuids(): string[] {
+    if (!fs.existsSync(BUILDS_DIR)) return [];
+    try {
+      return fs.readdirSync(BUILDS_DIR)
+        .filter(entry => UUID_REGEX.test(entry))
+        .filter(uuid => this.getBuildInfo(uuid).exists);
+    } catch {
+      return [];
+    }
+  }
+
   deleteBuild(uuid: string): void {
     const buildDir = path.join(BUILDS_DIR, uuid);
     if (fs.existsSync(buildDir)) {
