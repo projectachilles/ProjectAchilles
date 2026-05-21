@@ -332,7 +332,9 @@ const ARTIFACT_DIR = \`${artifactDir}\`
   listBuiltUuids(): string[] {
     if (!fs.existsSync(BUILDS_DIR)) return [];
     try {
-      return fs.readdirSync(BUILDS_DIR).filter(uuid => this.getBuildInfo(uuid).exists);
+      return fs.readdirSync(BUILDS_DIR)
+        .filter(entry => UUID_REGEX.test(entry))
+        .filter(uuid => this.getBuildInfo(uuid).exists);
     } catch {
       return [];
     }

@@ -269,6 +269,12 @@ describe('BuildService', () => {
       expect([...result].sort()).toEqual([BUILT_UUID, UPLOADED_UUID].sort());
       expect(result).not.toContain(NO_BINARY_UUID);
     });
+
+    it('returns [] when readdirSync throws (e.g. permission denied)', () => {
+      mockExistsSync.mockImplementation((p: string) => p === BUILDS_DIR);
+      mockReaddirSync.mockImplementation(() => { throw new Error('EACCES: permission denied'); });
+      expect(service.listBuiltUuids()).toEqual([]);
+    });
   });
 
   // ── Group 5: getEmbedDependencies ─────────────────────────
