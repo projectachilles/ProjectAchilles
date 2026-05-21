@@ -275,6 +275,23 @@ describe('BuildService', () => {
       mockReaddirSync.mockImplementation(() => { throw new Error('EACCES: permission denied'); });
       expect(service.listBuiltUuids()).toEqual([]);
     });
+
+    it('ignores non-UUID entries in the builds directory', () => {
+      mockReaddirSync.mockReturnValue([BUILT_UUID, '.DS_Store', 'not-a-uuid', '.build-patched.sh']);
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === BUILDS_DIR) return true;
+        if (p === `${BUILDS_DIR}/${BUILT_UUID}/build-meta.json`) return true;
+        if (p === `${BUILDS_DIR}/${BUILT_UUID}/${BUILT_UUID}.exe`) return true;
+        return false;
+      });
+      mockReadFileSync.mockReturnValue(JSON.stringify({
+        filename: `${BUILT_UUID}.exe`,
+        platform: { os: 'windows', arch: 'amd64' },
+        signed: false, fileSize: 100, builtAt: '2026-05-20T00:00:00Z', source: 'built',
+      }));
+
+      expect(service.listBuiltUuids()).toEqual([BUILT_UUID]);
+    });
   });
 
   // ── Group 5: getEmbedDependencies ─────────────────────────
