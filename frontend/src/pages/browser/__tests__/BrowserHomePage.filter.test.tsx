@@ -140,6 +140,12 @@ describe('BrowserHomePage "Has binary" filter', () => {
     );
 
     await screen.findByText('Built test');
-    expect(screen.queryByLabelText('Has binary')).not.toBeInTheDocument();
+    // The failing builds fetch must actually have been invoked — this proves
+    // we are exercising the rejection path, not just observing initial state.
+    await waitFor(() => expect(getBuiltTestUuidsMock).toHaveBeenCalled());
+    // The toggle stays absent because the rejection leaves builtUuids null.
+    await waitFor(() => {
+      expect(screen.queryByLabelText('Has binary')).not.toBeInTheDocument();
+    });
   });
 });
