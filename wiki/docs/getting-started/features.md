@@ -77,7 +77,7 @@ Quantify your security posture with 30+ query endpoints powered by Elasticsearch
 | **Coverage Treemaps** | Hierarchical category/subcategory coverage visualization |
 | **Execution Table** | Paginated results with advanced filtering (technique, hostname, threat actor, tags) |
 | **Multi-Index** | Switch between Elasticsearch indices, create new ones, view index metadata |
-| **Defender Integration** | Sync Secure Score, alerts, and control profiles with cross-correlation analytics |
+| **Defender Integration** | Dedicated Defender tab — per-execution detection rate, Secure Score, alert correlation, MITRE technique overlap, and opt-in alert auto-resolution |
 | **Risk Acceptance** | Accept risk on individual controls with audit tracking |
 | **Trend Alerting** | Threshold-based Slack and email notifications with in-app notification bell |
 | **Archive Executions** | Archive old execution results to declutter active views |
@@ -139,7 +139,13 @@ Automate test execution across agent pools with flexible scheduling.
 
 ### Microsoft Defender
 
-Sync Secure Score, alerts, and control profiles from Microsoft 365 Defender. Cross-correlate MITRE techniques between your test results and real Defender alerts.
+Sync Secure Score, alerts, and control profiles from Microsoft 365 Defender. A
+dedicated **Defender tab** reports the **per-execution detection rate** — what
+share of your attack simulations Defender actually caught — alongside alert
+drill-downs, control ↔ alert linking, and MITRE technique overlap. The opt-in
+**[auto-resolve](../user-guide/integrations/defender-auto-resolve)** pillar can
+programmatically resolve Achilles-correlated alerts in Defender so
+continuous-validation activity doesn't flood the SOC queue.
 
 ### Alerting
 
@@ -168,4 +174,4 @@ Three selectable themes to match your team's preference:
 | Binary Verification | SHA256 checksum + Ed25519 signature verification |
 | Encrypted Credentials | AES-256-GCM for agent config (machine-bound) |
 | Rate Limiting | Per-endpoint budgets (enrollment, device, download, rotation) |
-| Semgrep SAST | 11 community rulesets + 5 custom rules in CI |
+| Semgrep SAST | 11 community rulesets + 11 custom rules in CI |

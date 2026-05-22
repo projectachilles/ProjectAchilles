@@ -6,20 +6,41 @@ description: "Configure Microsoft 365 Defender integration for Secure Score sync
 
 # Microsoft Defender
 
+## The Three-Pillar Model
+
+The Defender integration is built from three pillars. The first two are
+read-only and active as soon as credentials are saved; the third is an opt-in
+write pillar documented separately.
+
+| Pillar | Direction | Graph permission | Default |
+|--------|-----------|------------------|---------|
+| 1. **Analytics ingest** — Secure Score, alerts, control profiles | Graph → ES | `SecurityAlert.Read.All` | On once credentials are set |
+| 2. **Evidence correlation** — test ↔ alert matching | ES ↔ ES | None extra | Automatic |
+| 3. **[Auto-resolve](./defender-auto-resolve)** — resolve correlated alerts in Defender | ES → Graph | `SecurityAlert.ReadWrite.All` | Opt-in, disabled by default |
+
+This page covers pillars 1 and 2. Pillar 3 has its own setup walkthrough — see
+[Auto-Resolve](./defender-auto-resolve).
+
 ## Prerequisites
 
 - Microsoft 365 with Defender enabled
-- Azure AD App Registration with `SecurityEvents.Read.All` (Application type, admin consent)
+- Azure AD App Registration with `SecurityAlert.Read.All` (Application type, admin consent)
 
 ## Azure AD Setup
 
 1. Go to [Azure Portal](https://portal.azure.com) → App Registrations → New Registration
 2. Name: "ProjectAchilles Defender Integration"
 3. Under **API Permissions**, add:
-   - `SecurityEvents.Read.All` (Application type)
+   - `SecurityAlert.Read.All` (Application type) — covers Secure Score, alerts, and control profiles
    - Click **Grant admin consent**
 4. Under **Certificates & Secrets**, create a client secret
 5. Note the **Application (client) ID**, **Directory (tenant) ID**, and **Client Secret**
+
+:::tip Enabling auto-resolve later
+If you plan to enable [auto-resolve](./defender-auto-resolve), it requires the
+additional `SecurityAlert.ReadWrite.All` scope. You can grant it now or add it
+later — the read-only integration runs fine without it.
+:::
 
 ## Configuration
 
@@ -172,44 +193,63 @@ A single sparse index is used instead of three separate indices because the tota
 
 ### Cross-Correlation Logic
 
-The analytics service provides three types of cross-correlation between Achilles test results and Defender data:
+The analytics service provides four types of cross-correlation between Achilles test results and Defender data:
 
-**1. Detection Rate Analysis**
+**1. Detection Rate (per-execution)**
 
-Correlates attack simulation executions with Defender security alerts using a **three-tier matching strategy** within a **-5 min to +30 min** window relative to test completion:
+The headline metric on the Defender tab. It is the share of attack-simulation
+executions — counted per MITRE technique — that have a temporally-correlated
+Defender alert:
+
+```
+detectionRate = correlatedExecutions / totalExecutions × 100
+```
+
+Correlation is **roll-up aware** (a `T1574.002` test is satisfied by a parent
+`T1574` alert, one-directionally) and **excludes** cyber-hygiene controls and
+skipped bundle stages. The full definition, exclusions, and known
+approximations are documented in
+[Analytics → Microsoft Defender](../analytics/microsoft-defender#detection-rate).
+
+**2. Per-test evidence correlation (alert drawer)**
+
+For a single test execution, the alert drawer correlates against Defender
+alerts using a **three-tier matching strategy** within a **-5 min to +30 min**
+window relative to test completion:
 
 ```mermaid
 graph TB
     A[Test Execution<br/>in achilles-results] --> B{Evidence-based match?<br/>binary filename + hostname<br/>in alert evidence}
-    B -->|Yes| D[Detected<br/>High confidence]
+    B -->|Yes| D[Matched<br/>High confidence]
     B -->|No| C{Technique + hostname match?<br/>via evidence_hostnames}
-    C -->|Yes| E[Detected<br/>Medium confidence]
+    C -->|Yes| E[Matched<br/>Medium confidence]
     C -->|No| F{Technique-only match?<br/>MITRE technique ID}
-    F -->|Yes| G[Detected<br/>Low confidence]
-    F -->|No| H[Undetected]
-    D & E & G --> I[Detection Rate %]
-    H --> I
+    F -->|Yes| G[Matched<br/>Low confidence]
+    F -->|No| H[No match]
 ```
 
-**Tier 1 — Evidence-based (most precise):** Matches `evidence_filenames` containing the test binary's UUID filename (e.g., `<uuid>.exe`) AND `evidence_hostnames` containing the test endpoint's hostname. This proves the specific test execution triggered the alert.
+- **Tier 1 — Evidence-based (most precise):** matches `evidence_filenames`
+  containing the test binary's UUID filename AND `evidence_hostnames`
+  containing the test endpoint's hostname. This proves the specific execution
+  triggered the alert.
+- **Tier 2 — Technique + hostname:** falls back to MITRE technique IDs scoped
+  by `evidence_hostnames`. Used when alerts lack file-level evidence.
+- **Tier 3 — Technique-only:** falls back to MITRE technique ID alone. Used for
+  alerts with no evidence metadata.
 
-**Tier 2 — Technique + hostname:** Falls back to matching MITRE ATT&CK technique IDs with hostname scoping via `evidence_hostnames`. Used when Defender alerts lack file-level evidence.
+The **-5 min to +30 min** window accounts for Defender's real-time telemetry
+generating alerts *during* test execution while excluding unrelated pre-test
+alerts. This per-test correlation also feeds the `f0rtika.achilles_correlated`
+flag that the [auto-resolve](./defender-auto-resolve) pillar reads.
 
-**Tier 3 — Technique-only:** Falls back to matching on MITRE technique ID alone, without hostname scoping. Used for alerts that contain no evidence metadata at all.
-
-The time window of **-5 min to +30 min** accounts for Defender's real-time telemetry generating alerts *during* test execution (before the test's `completed_at` timestamp) while excluding unrelated pre-test alerts.
-
-- Excludes cyber-hygiene bundle controls (configuration checks, not attack simulations)
-- Returns per-technique detection coverage with match confidence tier
-
-**2. Technique Coverage Overlap**
+**3. Technique Coverage Overlap**
 
 Maps MITRE ATT&CK techniques present in both datasets to identify:
 - Techniques tested by Achilles **and** detected by Defender (validated coverage)
 - Techniques tested by Achilles but **not** detected (detection gaps)
 - Techniques detected by Defender but **not** tested (untested detections)
 
-**3. Defense Score vs. Secure Score Trending**
+**4. Defense Score vs. Secure Score Trending**
 
 Compares the internal Defense Score (from test results) with Microsoft Secure Score over time using aligned date histograms, enabling teams to see whether improving their Secure Score configuration also improves real detection effectiveness.
 
@@ -237,7 +277,8 @@ Both variants expose identical API endpoints and analytics capabilities.
 ## Troubleshooting
 
 :::warning Common Issues
-- **"Test Connection" fails with 401**: Verify that admin consent has been granted for the `SecurityEvents.Read.All` permission in Azure AD. Application permissions (not delegated) are required.
+- **"Test Connection" fails with 401**: Verify that admin consent has been granted for the `SecurityAlert.Read.All` permission in Azure AD. Application permissions (not delegated) are required.
 - **No data after saving credentials**: The first sync runs on the next interval (up to 6 hours for scores, 5 minutes for alerts). Click **Sync Now** in the integration settings to trigger an immediate sync.
-- **Missing alerts**: Alerts require `SecurityEvents.Read.All`. The `SecurityActions.Read.All` and `SecurityReports.Read.All` permissions are needed for control profiles and scores respectively.
+- **Missing alerts, scores, or controls**: All three document types — alerts, Secure Score, and control profiles — are read with `SecurityAlert.Read.All`. A 403 on any of them means the permission is missing or admin consent was not granted.
+- **403 when enabling auto-resolve**: Auto-resolve needs the separate `SecurityAlert.ReadWrite.All` scope. See [Auto-Resolve → Troubleshooting](./defender-auto-resolve#troubleshooting).
 :::

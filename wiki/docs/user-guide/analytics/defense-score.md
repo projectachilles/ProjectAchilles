@@ -109,12 +109,18 @@ Risk acceptances can be revoked with a single click, which re-includes those res
 
 ### Defender Tab
 
-When Microsoft Defender is configured, a dedicated **Defender** tab appears with:
+When Microsoft Defender is configured, a dedicated **Defender** tab appears
+with a per-execution detection rate, Secure Score, alert correlation, MITRE
+technique overlap, and an alert drill-down drawer. See
+[Microsoft Defender](./microsoft-defender) for the full tab walkthrough.
 
-- Secure Score metrics and trends
-- Security alert summaries
-- Detection analysis with MITRE technique correlation
-- Top remediation controls
+:::info Detection Rate vs. Defense Score
+These are distinct metrics. The **Defense Score** measures whether a test's
+*exit code* reported it as protected; the Defender tab's **Detection Rate**
+measures whether *Microsoft Defender raised a correlated alert*. The Defense
+Score counts cyber-hygiene controls; the Detection Rate excludes them. Auto-
+resolve never affects either score.
+:::
 
 ## Coverage Treemap
 

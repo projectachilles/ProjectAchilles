@@ -10,11 +10,10 @@ The Test Browser is the primary interface for discovering and managing security 
 
 ## Overview Dashboard
 
-The browser page opens with a 3-tab layout:
+The browser page opens with a 2-tab layout:
 
-1. **Overview** — Category legend and summary statistics
-2. **Overview** — MITRE ATT&CK coverage chart and summary statistics
-3. **List** — Filterable test grid/list
+1. **Overview** — MITRE ATT&CK coverage chart, category legend, and summary statistics
+2. **Browse** — Filterable test grid/list
 
 ![Browser overview — MITRE ATT&CK coverage chart, severity distribution, and category breakdown](/img/screenshots/browser-overview.png)
 
@@ -135,9 +134,18 @@ The search box matches across multiple fields simultaneously:
 | **Platform** | Windows, Linux, macOS, Cloud |
 | **Threat Actor** | Specific threat actor groups |
 | **Not Run Yet** | Tests that have never been executed (requires Elasticsearch connection) |
+| **Has Binary** | Tests that currently have a compiled binary available for download |
 
 :::info "Not Run Yet" Filter
 The "Not Run Yet" filter queries your Elasticsearch analytics data to identify tests that exist in the library but have no recorded executions. This is useful for expanding coverage to untested techniques.
+:::
+
+:::info "Has Binary" Filter
+The **Has Binary** toggle narrows the list to tests that have already been
+built. It loads the set of built test UUIDs once from
+`GET /api/tests/builds` and filters client-side. On serverless (Vercel)
+deployments the build system is stubbed, so the endpoint is unavailable and the
+toggle has no effect — the filter degrades gracefully rather than erroring.
 :::
 
 ### Sorting

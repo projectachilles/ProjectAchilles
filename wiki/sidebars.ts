@@ -84,6 +84,7 @@ const sidebars: SidebarsConfig = {
             'user-guide/integrations/elasticsearch',
             'user-guide/integrations/azure-entra-id',
             'user-guide/integrations/microsoft-defender',
+            'user-guide/integrations/defender-auto-resolve',
             'user-guide/integrations/alerting',
           ],
         },
