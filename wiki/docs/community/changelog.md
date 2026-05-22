@@ -12,6 +12,24 @@ For the full, detailed changelog, see [CHANGELOG.md on GitHub](https://github.co
 
 ## [Unreleased]
 
+### Recent Changes (April–May 2026)
+
+- **Defender tab redesign** — rebuilt the Analytics Defender tab: hero row with
+  Secure Score, alert volume, and detection-rate tiles; a test-vs-alert
+  correlation timeline; an alert drill-down drawer; and control ↔ alert linking.
+- **Per-execution detection rate** — the headline Defender metric is now
+  `correlatedExecutions / totalExecutions`, an organisation-specific KPI, with
+  MITRE parent/sub-technique roll-up and consistent attack-simulation
+  exclusions (cyber-hygiene controls and skipped bundle stages).
+- **Defender auto-resolve** — opt-in third pillar that programmatically
+  resolves Achilles-correlated alerts in Microsoft Defender (`disabled` /
+  `dry_run` / `enabled` modes). Never touches test documents or the Defense
+  Score.
+- **Browser "Has Binary" filter** — toggle to narrow the test list to tests
+  that already have a compiled binary.
+- **Build listing endpoint** — `GET /api/tests/builds` returns the UUIDs of all
+  built tests.
+
 ### Major Additions
 
 - **Agent System** — Custom Go agent with enrollment, heartbeat, task execution, self-updating, cross-platform support (Windows/Linux/macOS), remote uninstall, bundle results fan-out
@@ -19,7 +37,7 @@ For the full, detailed changelog, see [CHANGELOG.md on GitHub](https://github.co
 - **Task Scheduling** — Recurring execution (once/daily/weekly/monthly), timezone-aware, randomized timing, per-task ES index targeting
 - **Analytics** — 30+ query endpoints, Defense Score with breakdowns, heatmaps, treemaps, trend analysis, multi-index management, risk acceptance, archive executions
 - **Alerting** — Threshold-based Slack (Block Kit) and email (Nodemailer) notifications, in-app notification bell
-- **Microsoft Defender** — Secure Score, Alerts v2, Control Profiles via Graph API, cross-correlation analytics
+- **Microsoft Defender** — Secure Score, Alerts v2, Control Profiles via Graph API; dedicated Defender tab with per-execution detection rate, alert drill-down, control ↔ alert linking, and opt-in alert auto-resolution
 - **Browser** — Git-synced test library, MITRE ATT&CK coverage matrix, execution drawer, 3-tab overview dashboard
 - **Deployment** — Docker Compose, Railway, Render, Fly.io, Vercel (serverless) targets with comprehensive guides
 - **Visual Themes** — Default, Neobrutalism, Hacker Terminal (green/amber phosphor variants)
@@ -35,7 +53,7 @@ For the full, detailed changelog, see [CHANGELOG.md on GitHub](https://github.co
 
 - React 19.2.3 (CVE patch)
 - Authenticode code signing for binaries
-- Semgrep SAST in CI (11 community + 5 custom rulesets)
+- Semgrep SAST in CI (11 community + 11 custom rulesets)
 - AES-256-GCM encryption for all stored credentials
 - Resolved all Dependabot advisories
 
