@@ -272,16 +272,151 @@ echo "current creep: ${CREEP}pp"
 # Alert if > 2pp — too many results are being hand-waved via Accept Risk.
 ```
 
-### Recipe — Per-host drill-down
+### Recipe — Full per-host drill-down
 
-For a specific endpoint, list which tests it failed in the last week:
+"Show me every security test that's run on this host and what happened" is the most common operational question. The workflow uses **two endpoints** because the two stores hold different shapes:
+
+- `/api/analytics/*` — Elasticsearch-backed, **filter by hostname** (`hostnames=`), gives enrichment (MITRE techniques, severity, score, Defender detection).
+- `/api/agent/admin/tasks` — SQLite-backed, **filter by agent UUID** (`agent_id=`), gives raw `TaskResult` (stdout/stderr/timing/binary hash).
+
+You'll usually want both. Here's a top-to-bottom workflow.
+
+#### 1. Identify the host
 
 ```bash
-HOST='workstation-01'
-curl -s -H "Authorization: Bearer $PA_KEY" \
-  "$BACKEND/analytics/executions/paginated?hostnames=$HOST&result=unprotected&from=now-7d&pageSize=50" \
-  | jq -r '.groups[] | "\(.representative.test_name)\t\(.representative.severity)\t\(.unprotectedCount)/\(.totalCount)"'
+curl -s -H "Authorization: Bearer $PA_KEY" "$BACKEND/agent/admin/agents" \
+  | jq '.data[] | {id, hostname, status, os, version, last_heartbeat_at}'
 ```
+
+Pick the row you want and save both identifiers:
+
+```bash
+export HOST='workstation-01'           # for /analytics/* filters
+export AGENT_ID='paste-the-uuid-here'  # for /agent/admin/tasks
+```
+
+#### 2. Per-test pass/fail summary
+
+One row per test, restricted to this host, with protected vs. unprotected counts. The cleanest high-level view of what the host's protection looks like:
+
+```bash
+curl -s -H "Authorization: Bearer $PA_KEY" \
+  "$BACKEND/analytics/defense-score/by-test?hostnames=$HOST&from=now-30d" \
+  | jq -r '.[] | [.test_name, .severity, .protectedCount, .unprotectedCount] | @tsv' \
+  | column -t -s $'\t'
+```
+
+#### 3. Every individual run with full enrichment
+
+`/executions/paginated` is the detail view — every run with its MITRE techniques, tactics, severity, error code, Defender flag, and (for bundles) per-control breakdown:
+
+```bash
+curl -s -H "Authorization: Bearer $PA_KEY" \
+  "$BACKEND/analytics/executions/paginated?hostnames=$HOST&from=now-30d&pageSize=100" \
+  | jq '.groups[] | {
+      type,
+      test_name: .representative.test_name,
+      severity: .representative.severity,
+      techniques: .representative.techniques,
+      tactics: .representative.tactics,
+      timestamp: .representative.timestamp,
+      protected_count: .protectedCount,
+      unprotected_count: .unprotectedCount,
+      total_count: .totalCount,
+      defender_detected: .defenderDetected,
+      error_code: .representative.error_code,
+      error_name: .representative.error_name
+    }'
+```
+
+#### 4. Just the failures
+
+```bash
+curl -s -H "Authorization: Bearer $PA_KEY" \
+  "$BACKEND/analytics/executions/paginated?hostnames=$HOST&result=unprotected&from=now-30d&pageSize=100" \
+  | jq -r '.groups[] | [
+      .representative.severity,
+      .representative.test_name,
+      (.representative.techniques // [] | join(",")),
+      "\(.unprotectedCount)/\(.totalCount)"
+    ] | @tsv' \
+  | column -t -s $'\t'
+```
+
+#### 5. Critical-only triage
+
+When a host has hundreds of test runs, start with what actually matters:
+
+```bash
+curl -s -H "Authorization: Bearer $PA_KEY" \
+  "$BACKEND/analytics/executions/paginated?hostnames=$HOST&severities=critical,high&result=unprotected&from=now-30d&pageSize=100" \
+  | jq '.groups[] | {test_name: .representative.test_name, severity: .representative.severity, techniques: .representative.techniques, count: .unprotectedCount}'
+```
+
+#### 6. Filter by MITRE technique
+
+For chasing a specific attack pattern across the host's history (e.g. T1486 = Data Encrypted for Impact):
+
+```bash
+curl -s -H "Authorization: Bearer $PA_KEY" \
+  "$BACKEND/analytics/executions/paginated?hostnames=$HOST&techniques=T1486&from=now-30d" \
+  | jq '.groups[] | {test_name: .representative.test_name, protected: .protectedCount, unprotected: .unprotectedCount, defender: .defenderDetected}'
+```
+
+#### 7. Forensic detail — what the binary actually did
+
+The analytics view drops `stdout` / `stderr` / timing at ingestion. To see them, switch to the admin tasks path:
+
+```bash
+# Recent tasks on this host with a stderr preview
+curl -s -H "Authorization: Bearer $PA_KEY" \
+  "$BACKEND/agent/admin/tasks?agent_id=$AGENT_ID&limit=50" \
+  | jq '.data.tasks[] | {
+      id,
+      test_name: .payload.test_name,
+      status,
+      created_at,
+      completed_at,
+      exit_code: .result.exit_code,
+      duration_ms: .result.execution_duration_ms,
+      stderr_preview: (.result.stderr // "")[0:300]
+    }'
+
+# Full TaskResult for one specific run (paste the task id from above)
+TASK_ID='...'
+curl -s -H "Authorization: Bearer $PA_KEY" "$BACKEND/agent/admin/tasks/$TASK_ID" | jq
+```
+
+:::tip Exit code conventions
+- `100` — **protected**: a defender (EDR or otherwise) blocked the malicious action.
+- `101` — **unprotected**: the test successfully performed the malicious action.
+- Anything else — **inconclusive**: configuration error, missing dependency, validator itself was blocked. The analytics endpoints' `result=unprotected` filter treats only exit code `101` as a real failure; the admin tasks path returns every exit code as-is.
+:::
+
+:::tip Bundle tests
+Bundle tests (cyber-hygiene packs, multi-stage intel-driven tests) fan out into multiple ES documents — one per control or stage. In step 3's grouped output, each `groups[]` entry has a `members[]` array with the per-control results. Expand it with `.members[]` to see, for example, every CIS control that did or didn't pass within a single bundle run on this host.
+:::
+
+#### 8. One-shot: full host report as a single JSON file
+
+For after-action reviews or handing off to a SIEM ingestion pipeline:
+
+```bash
+{
+  echo '{"host":"'$HOST'","generated_at":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","by_test":'
+  curl -s -H "Authorization: Bearer $PA_KEY" \
+    "$BACKEND/analytics/defense-score/by-test?hostnames=$HOST&from=now-30d"
+  echo ',"executions":'
+  curl -s -H "Authorization: Bearer $PA_KEY" \
+    "$BACKEND/analytics/executions/paginated?hostnames=$HOST&from=now-30d&pageSize=500"
+  echo ',"raw_tasks":'
+  curl -s -H "Authorization: Bearer $PA_KEY" \
+    "$BACKEND/agent/admin/tasks?agent_id=$AGENT_ID&limit=500"
+  echo '}'
+} | jq > "host-$HOST-report-$(date +%Y%m%d).json"
+```
+
+One file containing per-test summary, every individual run with enrichment, and the raw `TaskResult` (with stdout/stderr) for each task. Drop it into an evidence locker, attach it to a ticket, or feed it to a SIEM.
 
 ## Rate limits
 
