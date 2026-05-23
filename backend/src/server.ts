@@ -105,6 +105,27 @@ app.use(clerkAuth);
 // inject a Clerk-compatible req.auth so downstream requireClerkAuth() works.
 app.use(acceptCliAuth());
 
+// Rate-limit pa_-prefixed bearer authentication attempts. The acceptApiKey
+// middleware below performs a SHA-256 hash + indexed DB lookup on every
+// request bearing such a header; without an explicit limit, an attacker
+// could hammer that surface before reaching the global /api limiter (which
+// mounts later in the chain). 60 attempts/minute per IP is comfortable for
+// a legitimate polling consumer (~1 req/s) while clamping brute-force and
+// amplification attempts. Other auth schemes (Clerk session, CLI JWT, no
+// auth header) are skipped — only Bearer pa_… traffic is throttled here.
+const apiKeyAuthLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many API key authentication attempts' },
+  skip: (req) => {
+    const h = req.headers.authorization;
+    return !h || !h.startsWith('Bearer pa_');
+  },
+});
+app.use(apiKeyAuthLimiter);
+
 // API key auth — accepts `Authorization: Bearer pa_…` and synthesises req.auth.
 // Runs after acceptCliAuth so Clerk/CLI tokens take precedence.
 app.use(acceptApiKey());
