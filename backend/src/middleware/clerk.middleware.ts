@@ -152,7 +152,7 @@ export function requirePermission(...permissions: Permission[]) {
       apiKeyPermissions?: ReadonlySet<Permission>;
     })?.apiKeyPermissions;
 
-    if (explicit) {
+    if (explicit instanceof Set) {
       if (permissions.every((p) => explicit.has(p))) {
         next();
         return;

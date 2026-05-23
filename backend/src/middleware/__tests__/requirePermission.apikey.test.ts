@@ -45,4 +45,26 @@ describe('requirePermission — explicit apiKeyPermissions branch', () => {
     requirePermission('endpoints:agents:write')(req, res, next);
     expect(next).toHaveBeenCalledOnce();
   });
+
+  it('denies when the explicit set is empty', () => {
+    const req: any = { auth: { apiKeyPermissions: new Set() } };
+    const res = mkRes();
+    const next = vi.fn();
+    requirePermission('analytics:dashboards:read')(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toEqual({ success: false, error: 'Insufficient permissions' });
+  });
+
+  it('denies an unauthenticated request (no req.auth) when required perm exceeds the default', () => {
+    // No req.auth at all — must NOT crash, must fall through to role path,
+    // which defaults to the explorer (read-only) permission set. A permission
+    // outside that set (e.g. endpoints:agents:write) should be denied.
+    const req: any = {};
+    const res = mkRes();
+    const next = vi.fn();
+    requirePermission('endpoints:agents:write')(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+  });
 });
