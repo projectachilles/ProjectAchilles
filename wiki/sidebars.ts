@@ -165,6 +165,7 @@ const sidebars: SidebarsConfig = {
       label: 'API Reference',
       items: [
         'api-reference/overview',
+        'api-reference/programmatic-access',
         'api-reference/browser',
         'api-reference/analytics',
         'api-reference/agent-admin',
