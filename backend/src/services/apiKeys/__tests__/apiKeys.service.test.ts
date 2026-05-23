@@ -70,4 +70,18 @@ describe('apiKeys.service', () => {
     const second = testDb.prepare('SELECT last_used_at FROM api_keys WHERE id = ?').get(k.id) as any;
     expect(second.last_used_at).toBe('2000-01-01 00:00:00');
   });
+
+  it('touchLastUsed does NOT throw when the underlying DB write fails', async () => {
+    const { generateApiKey, touchLastUsed, _resetTouchThrottle } = await import('../apiKeys.service.js');
+    const k = generateApiKey({ name: 'k', scope: 'read', createdBy: 'u', orgId: null });
+    _resetTouchThrottle(); // ensure the next call attempts the write
+
+    // Tear down the DB so the prepare/run throws.
+    testDb.close();
+
+    // Must not throw. console.warn is acceptable noise during this test.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(() => touchLastUsed(k.id)).not.toThrow();
+    warnSpy.mockRestore();
+  });
 });

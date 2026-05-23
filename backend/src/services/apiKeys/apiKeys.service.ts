@@ -131,9 +131,16 @@ export function touchLastUsed(id: string): void {
   const prev = lastTouchMs.get(id) ?? 0;
   if (now - prev < TOUCH_THROTTLE_MS) return;
   lastTouchMs.set(id, now);
-  getDatabase()
-    .prepare("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?")
-    .run(id);
+  // Fire-and-forget bookkeeping write. A transient DB failure must NOT break
+  // the calling request — last_used_at is non-essential metadata, and the
+  // next successful call (60s later) will refresh it.
+  try {
+    getDatabase()
+      .prepare("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?")
+      .run(id);
+  } catch (err) {
+    console.warn('[apiKeys] touchLastUsed failed (non-fatal):', err);
+  }
 }
 
 /** Reset the throttle — for tests only. */
