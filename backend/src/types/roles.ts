@@ -2,7 +2,8 @@
  * Role-Based Access Control (RBAC) definitions.
  *
  * Roles are stored in Clerk publicMetadata and embedded in JWTs via session claims.
- * If a user has no role assigned, they retain full Administrator access (migration safety).
+ * If a user has no role assigned, they default to the `explorer` permission set
+ * (read-only — see getPermissionsForRole).
  */
 
 export type AppRole = 'admin' | 'operator' | 'analyst' | 'explorer';
@@ -94,6 +95,17 @@ const ALL_PERMISSIONS: readonly Permission[] = [
   'integrations:read',
   'integrations:write',
 ] as const;
+
+/**
+ * Read-only permission set used by `read`-scope API keys.
+ *
+ * Defined derivationally — every Permission whose action segment is `:read`.
+ * Any future Permission ending in `:read` is automatically included; any
+ * write / execute / delete is automatically excluded. The naming convention
+ * is the security boundary.
+ */
+export const READ_ONLY_PERMISSIONS: readonly Permission[] =
+  ALL_PERMISSIONS.filter((p) => p.endsWith(':read'));
 
 /**
  * Maps each role to its granted permissions.

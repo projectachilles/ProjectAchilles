@@ -18,6 +18,23 @@ Most endpoints require a Clerk JWT in the Authorization header:
 curl -H 'Authorization: Bearer <clerk-jwt>' https://backend.example.com/api/browser/tests
 ```
 
+### API Keys (Programmatic Access)
+
+For external applications that need long-lived programmatic access to the API, generate an API key in **Settings → API Keys** (admin only). Keys are `pa_`-prefixed bearer tokens:
+
+```bash
+curl -H 'Authorization: Bearer pa_<token>' https://backend.example.com/api/analytics/executions
+```
+
+Two scopes are available:
+
+- **`read`** — every `*:read` permission (analytics, agents, tasks, schedules, test library, integrations status). Cannot mutate any resource.
+- **`read-write`** — the `operator` permission set (create builds, tasks, schedules; no destructive actions, no user or cert management).
+
+Keys are hashed at rest (SHA-256); the full plaintext is shown **once** at creation and is never retrievable again. Revoke a key from the Settings tab at any time — revocation is immediate.
+
+API keys cannot manage other API keys; the management endpoints require `settings:users:manage` which only the `admin` role grants.
+
 ### Agent Device Endpoints
 
 Agent endpoints use an API key issued during enrollment:
@@ -61,6 +78,7 @@ curl -H 'X-Agent-Key: <api-key>' -H 'X-Agent-ID: <agent-id>' https://backend.exa
 | `/api/integrations/*` | Clerk | Defender, alerting config |
 | `/api/analytics/risk-acceptances/*` | Clerk | Risk acceptance management |
 | `/api/users/*` | Clerk | User management, invitations |
+| `/api/api-keys/*` | Clerk (admin) | API key management — create, list, revoke |
 | `/api/auth/*` | None/Clerk | CLI device flow auth |
 
 ## Route Architecture
@@ -178,6 +196,7 @@ Defender credentials saved via Integration Routes enable the Defender sync servi
 |------|-----------|-----------|---------------|
 | **Public** | Rate limiting only | Agent downloads, enrollment | IP address |
 | **Agent device** | `X-Agent-Key` + `X-Agent-ID` headers | Heartbeat, tasks, results | Agent ID |
+| **API key** | `Authorization: Bearer pa_<token>` | Programmatic access (scope-gated) | Per-key UUID |
 | **Clerk JWT** | `Authorization: Bearer <jwt>` | All admin endpoints | User ID |
 | **Cron secret** | `CRON_SECRET` header (Vercel only) | Scheduled jobs | N/A |
 

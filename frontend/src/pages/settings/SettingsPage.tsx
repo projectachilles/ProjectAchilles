@@ -4,6 +4,7 @@ import { IntegrationsTab } from './components/IntegrationsTab';
 import { TestsTab } from './components/TestsTab';
 import { AgentTab } from './components/AgentTab';
 import { UsersTab } from './components/UsersTab';
+import { ApiKeysTab } from './components/ApiKeysTab';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('integrations');
@@ -18,6 +19,8 @@ export default function SettingsPage() {
         return <AgentTab />;
       case 'users':
         return <UsersTab />;
+      case 'apikeys':
+        return <ApiKeysTab />;
       default:
         return <IntegrationsTab />;
     }

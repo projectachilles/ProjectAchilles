@@ -1,8 +1,8 @@
-import { Plug, FlaskConical, Bot, Users } from 'lucide-react';
+import { Plug, FlaskConical, Bot, Users, KeyRound } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useHasPermission } from '@/hooks/useAppRole';
 
-type SettingsTab = 'integrations' | 'tests' | 'agent' | 'users';
+type SettingsTab = 'integrations' | 'tests' | 'agent' | 'users' | 'apikeys';
 
 interface SettingsSidebarProps {
   activeTab: SettingsTab;
@@ -20,13 +20,14 @@ const allTabs: TabItem[] = [
   { id: 'tests', label: 'Tests', icon: FlaskConical },
   { id: 'agent', label: 'Agent', icon: Bot },
   { id: 'users', label: 'Users', icon: Users },
+  { id: 'apikeys', label: 'API Keys', icon: KeyRound },
 ];
 
 export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps) {
   const canManageUsers = useHasPermission('settings:users:manage');
 
   const tabs = allTabs.filter((tab) => {
-    if (tab.id === 'users') return canManageUsers;
+    if (tab.id === 'users' || tab.id === 'apikeys') return canManageUsers;
     return true;
   });
 
