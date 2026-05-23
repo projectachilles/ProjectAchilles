@@ -143,24 +143,38 @@ curl -s -H "Authorization: Bearer $PA_KEY" \
 
 ### Paginated enriched executions with filters
 
-`/executions/paginated` accepts a long filter vocabulary (see [Analytics](./analytics.md) for the full list). Common filters:
+`/executions/paginated` accepts a long filter vocabulary (see [Analytics](./analytics.md) for the full list).
+
+:::warning Two response shapes
+This endpoint returns **different shapes** depending on the `grouped` parameter:
+
+- **Default** (no `grouped`, or `grouped=false`) → `{"data": [...], "pagination": {...}}` — one row per ES document. Bundle tests appear as multiple rows (one per control). Iterate with `.data[]`.
+- **`?grouped=true`** → `{"groups": [...], "pagination": {...}}` — bundle-aware, one row per "run" with a `representative` + `members[]`. Iterate with `.groups[]`.
+
+The examples below use the **default flat shape**. Append `&grouped=true` and switch the jq paths if you want the bundle-aware view.
+:::
 
 ```bash
-# All runs of one specific test in the last 30 days, grouped per host+run
+# All runs of one specific test in the last 30 days (flat, one row per execution)
 TEST_UUID='paste-from-/analytics/executed-test-uuids'
 curl -s -H "Authorization: Bearer $PA_KEY" \
   "$BACKEND/analytics/executions/paginated?tests=$TEST_UUID&from=now-30d&pageSize=25" \
+  | jq '.data[] | {hostname, test_name, is_protected, timestamp, error_code}'
+
+# Same query but grouped (bundle parent + members), good for dashboards
+curl -s -H "Authorization: Bearer $PA_KEY" \
+  "$BACKEND/analytics/executions/paginated?tests=$TEST_UUID&from=now-30d&pageSize=25&grouped=true" \
   | jq '.groups[] | {host: .representative.hostname, protected: .protectedCount, unprotected: .unprotectedCount, total: .totalCount}'
 
-# Only unprotected results of a specific MITRE technique
+# Only unprotected results of a specific MITRE technique (flat)
 curl -s -H "Authorization: Bearer $PA_KEY" \
   "$BACKEND/analytics/executions/paginated?techniques=T1486&result=unprotected&from=now-30d" \
-  | jq '.groups[]'
+  | jq '.data[]'
 
-# Critical-severity tests on a specific host
+# Critical-severity tests on a specific host (flat)
 curl -s -H "Authorization: Bearer $PA_KEY" \
   "$BACKEND/analytics/executions/paginated?hostnames=workstation-01&severities=critical&from=now-30d" \
-  | jq
+  | jq '.data[]'
 ```
 
 ### Raw task results (stdout, stderr, timing)
@@ -251,7 +265,8 @@ page=1
 while :; do
   body=$(curl -fsS -H "Authorization: Bearer $PA_KEY" \
     "$BACKEND/analytics/executions/paginated?from=$FROM&page=$page&pageSize=100")
-  echo "$body" | jq -c '.groups[].members[]'
+  # Flat shape: one EnrichedTestExecution per .data[] entry — emit as NDJSON.
+  echo "$body" | jq -c '.data[]'
   has_next=$(echo "$body" | jq -r '.pagination.hasNext')
   [ "$has_next" = "true" ] || break
   page=$((page + 1))
@@ -308,24 +323,24 @@ curl -s -H "Authorization: Bearer $PA_KEY" \
 
 #### 3. Every individual run with full enrichment
 
-`/executions/paginated` is the detail view — every run with its MITRE techniques, tactics, severity, error code, Defender flag, and (for bundles) per-control breakdown:
+`/executions/paginated` is the detail view — every run with its MITRE techniques, tactics, severity, error code, and Defender flag. The default flat shape returns one row per ES document; append `&grouped=true` for the bundle-aware view (see [§7.b](#paginated-enriched-executions-with-filters) for the shape comparison).
 
 ```bash
 curl -s -H "Authorization: Bearer $PA_KEY" \
   "$BACKEND/analytics/executions/paginated?hostnames=$HOST&from=now-30d&pageSize=100" \
-  | jq '.groups[] | {
-      type,
-      test_name: .representative.test_name,
-      severity: .representative.severity,
-      techniques: .representative.techniques,
-      tactics: .representative.tactics,
-      timestamp: .representative.timestamp,
-      protected_count: .protectedCount,
-      unprotected_count: .unprotectedCount,
-      total_count: .totalCount,
-      defender_detected: .defenderDetected,
-      error_code: .representative.error_code,
-      error_name: .representative.error_name
+  | jq '.data[] | {
+      test_name,
+      hostname,
+      is_protected,
+      severity,
+      techniques,
+      tactics,
+      timestamp,
+      error_code,
+      error_name,
+      bundle_name,
+      control_id,
+      defender_detected
     }'
 ```
 
@@ -334,11 +349,11 @@ curl -s -H "Authorization: Bearer $PA_KEY" \
 ```bash
 curl -s -H "Authorization: Bearer $PA_KEY" \
   "$BACKEND/analytics/executions/paginated?hostnames=$HOST&result=unprotected&from=now-30d&pageSize=100" \
-  | jq -r '.groups[] | [
-      .representative.severity,
-      .representative.test_name,
-      (.representative.techniques // [] | join(",")),
-      "\(.unprotectedCount)/\(.totalCount)"
+  | jq -r '.data[] | [
+      .severity,
+      .test_name,
+      (.techniques // [] | join(",")),
+      .timestamp
     ] | @tsv' \
   | column -t -s $'\t'
 ```
@@ -350,7 +365,7 @@ When a host has hundreds of test runs, start with what actually matters:
 ```bash
 curl -s -H "Authorization: Bearer $PA_KEY" \
   "$BACKEND/analytics/executions/paginated?hostnames=$HOST&severities=critical,high&result=unprotected&from=now-30d&pageSize=100" \
-  | jq '.groups[] | {test_name: .representative.test_name, severity: .representative.severity, techniques: .representative.techniques, count: .unprotectedCount}'
+  | jq '.data[] | {test_name, severity, techniques, timestamp, control_id}'
 ```
 
 #### 6. Filter by MITRE technique
@@ -360,7 +375,7 @@ For chasing a specific attack pattern across the host's history (e.g. T1486 = Da
 ```bash
 curl -s -H "Authorization: Bearer $PA_KEY" \
   "$BACKEND/analytics/executions/paginated?hostnames=$HOST&techniques=T1486&from=now-30d" \
-  | jq '.groups[] | {test_name: .representative.test_name, protected: .protectedCount, unprotected: .unprotectedCount, defender: .defenderDetected}'
+  | jq '.data[] | {test_name, is_protected, defender_detected, timestamp, error_name}'
 ```
 
 #### 7. Forensic detail — what the binary actually did
@@ -394,7 +409,7 @@ curl -s -H "Authorization: Bearer $PA_KEY" "$BACKEND/agent/admin/tasks/$TASK_ID"
 :::
 
 :::tip Bundle tests
-Bundle tests (cyber-hygiene packs, multi-stage intel-driven tests) fan out into multiple ES documents — one per control or stage. In step 3's grouped output, each `groups[]` entry has a `members[]` array with the per-control results. Expand it with `.members[]` to see, for example, every CIS control that did or didn't pass within a single bundle run on this host.
+Bundle tests (cyber-hygiene packs, multi-stage intel-driven tests) fan out into multiple ES documents — one per control or stage, each with `is_bundle_control: true` and its own `control_id`. With the default flat shape, each control appears as its own row in `.data[]` — perfect for per-control inspection. Append `&grouped=true` to collapse them: each bundle run becomes one `groups[]` entry with a `representative` (one control) and `members[]` (all controls of that run). Switch between the two depending on whether you want per-control rows or per-run rollups.
 :::
 
 #### 8. One-shot: full host report as a single JSON file

@@ -128,7 +128,25 @@ Filtered, grouped, paginated execution results. Accepts every shared filter plus
 | `sortOrder` | string | `asc` or `desc`. |
 | `grouped` | boolean | If true, groups results by bundle/standalone identity. |
 
-**Response shape:**
+**Response shape** depends on the `grouped` parameter:
+
+#### Default — flat (`grouped=false` or omitted)
+
+```jsonc
+{
+  "data": [
+    { /* one EnrichedTestExecution per ES document — ~20 fields incl. test_uuid, test_name,
+         hostname, is_protected, timestamp, error_code, error_name, category, severity,
+         techniques, tactics, score, bundle_id, control_id, is_bundle_control,
+         defender_detected, … */ }
+  ],
+  "pagination": { "page": 1, "pageSize": 25, "totalItems": 480, "totalPages": 20, "hasNext": true, "hasPrevious": false }
+}
+```
+
+One row per actual execution. Bundle tests appear as multiple rows (one per control, with `is_bundle_control: true` and a `control_id`). Best for SIEM forwarding, CSV exports, or any per-execution analysis.
+
+#### `?grouped=true` — bundle-aware grouping
 
 ```jsonc
 {
@@ -137,7 +155,7 @@ Filtered, grouped, paginated execution results. Accepts every shared filter plus
       "groupKey": "standalone::<test_uuid>::<hostname>::<event_time_ms>",
       "type": "standalone" | "bundle",
       "representative": { /* one EnrichedTestExecution */ },
-      "members": [ /* all matching docs */ ],
+      "members": [ /* all matching docs in this group */ ],
       "protectedCount": 3,
       "unprotectedCount": 1,
       "totalCount": 4,
@@ -147,6 +165,8 @@ Filtered, grouped, paginated execution results. Accepts every shared filter plus
   "pagination": { "page": 1, "pageSize": 25, "totalGroups": 142, "totalDocuments": 480, "totalPages": 6, "hasNext": true, "hasPrevious": false }
 }
 ```
+
+One row per "run" — bundle tests collapse from N controls into a single entry. Best for dashboards and rollups where you want to count "one bundle run" rather than N control checks.
 
 ### Coverage Aggregates
 
