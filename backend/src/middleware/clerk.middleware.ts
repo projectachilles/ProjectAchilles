@@ -138,11 +138,29 @@ export function getUserRole(auth: any): AppRole | undefined {
 
 /**
  * Middleware factory: require one or more permissions.
- * Extracts the role from the JWT, expands to the permission set, and checks inclusion.
- * If the user has no role set, all permissions are granted (backward-compatible migration).
+ *
+ * Two paths:
+ *   1. If `req.auth` carries an explicit `apiKeyPermissions` Set (attached by
+ *      acceptApiKey() middleware), check membership directly.
+ *   2. Otherwise, fall back to the role-expansion path (Clerk users + CLI
+ *      tokens). If the user has no role assigned, hasPermissions() defaults
+ *      to the explorer set (read-only).
  */
 export function requirePermission(...permissions: Permission[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
+    const explicit = (req.auth as unknown as {
+      apiKeyPermissions?: ReadonlySet<Permission>;
+    })?.apiKeyPermissions;
+
+    if (explicit) {
+      if (permissions.every((p) => explicit.has(p))) {
+        next();
+        return;
+      }
+      res.status(403).json({ success: false, error: 'Insufficient permissions' });
+      return;
+    }
+
     const role = getUserRole(req.auth);
     if (hasPermissions(role, ...permissions)) {
       next();
