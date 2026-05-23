@@ -35,6 +35,10 @@ Keys are hashed at rest (SHA-256); the full plaintext is shown **once** at creat
 
 API keys cannot manage other API keys; the management endpoints require `settings:users:manage` which only the `admin` role grants.
 
+:::tip End-to-end usage walkthrough
+For curl recipes, alerting integrations (CI gates, SIEM forwarders), and explanations of the gotchas you'll hit when scripting against the API, read the [Programmatic Access guide](./programmatic-access.md).
+:::
+
 ### Agent Device Endpoints
 
 Agent endpoints use an API key issued during enrollment:
