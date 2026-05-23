@@ -33,6 +33,8 @@ import defenderRoutes from './api/defender.routes.js';
 import riskAcceptanceRoutes from './api/risk-acceptance.routes.js';
 import cliAuthRoutes from './api/cli-auth.routes.js';
 import { acceptCliAuth } from './middleware/cliAuth.middleware.js';
+import apiKeysRoutes from './api/api-keys.routes.js';
+import { acceptApiKey } from './middleware/apiKeyAuth.middleware.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -102,6 +104,10 @@ app.use(clerkAuth);
 // CLI token auth — if a valid CLI JWT is present and Clerk didn't parse anything,
 // inject a Clerk-compatible req.auth so downstream requireClerkAuth() works.
 app.use(acceptCliAuth());
+
+// API key auth — accepts `Authorization: Bearer pa_…` and synthesises req.auth.
+// Runs after acceptCliAuth so Clerk/CLI tokens take precedence.
+app.use(acceptApiKey());
 
 // Global API rate limiter (dashboard/UI traffic only)
 const apiLimiter = rateLimit({
@@ -280,6 +286,8 @@ async function startServer() {
 
   // CLI auth - device flow for headless CLI authentication
   app.use('/api/cli/auth', cliAuthRoutes);
+
+  app.use('/api/api-keys', apiKeysRoutes);
 
   // ============ ERROR HANDLING ============
   app.use(notFoundHandler);
