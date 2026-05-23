@@ -277,6 +277,23 @@ export function initializeTables(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_cli_refresh_expires ON cli_refresh_tokens(expires_at);
   `);
 
+  // API keys — direct bearer credentials for programmatic API access
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      key_prefix TEXT NOT NULL,
+      scope TEXT NOT NULL DEFAULT 'read' CHECK(scope IN ('read','read-write')),
+      created_by TEXT NOT NULL,
+      org_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT,
+      last_used_at TEXT,
+      revoked_at TEXT
+    );
+  `);
+
   // Periodic cleanup of expired CLI auth codes and refresh tokens
   database.exec(`
     DELETE FROM cli_auth_codes WHERE expires_at < datetime('now', '-1 hour');
