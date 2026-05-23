@@ -26,10 +26,12 @@ describe('apiKeys.service', () => {
     expect(row.token_hash).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it('validateApiKey returns the row for a valid key', async () => {
+  it('validateApiKey returns the row (sans token_hash) for a valid key', async () => {
     const { generateApiKey, validateApiKey } = await import('../apiKeys.service.js');
     const created = generateApiKey({ name: 'k', scope: 'read', createdBy: 'u', orgId: null });
-    expect(validateApiKey(created.key)?.id).toBe(created.id);
+    const result = validateApiKey(created.key);
+    expect(result?.id).toBe(created.id);
+    expect((result as any)?.token_hash).toBeUndefined();
   });
 
   it('validateApiKey rejects unknown / malformed / revoked / expired keys', async () => {

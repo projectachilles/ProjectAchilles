@@ -25,6 +25,15 @@ interface ApiKeyRow {
   revoked_at: string | null;
 }
 
+/**
+ * Result of validating an API key — every column except the hash.
+ *
+ * `validateApiKey` returns this instead of the raw row so the hash never
+ * leaves the service module. The middleware needs `id`, `scope`, and
+ * `org_id`; nothing in the auth path needs the hash again after lookup.
+ */
+export type AuthenticatedApiKey = Omit<ApiKeyRow, 'token_hash'>;
+
 export interface ApiKeyInfo {
   id: string;
   name: string;
@@ -83,7 +92,7 @@ export function generateApiKey(params: GenerateParams): GeneratedApiKey {
   return { ...toApiKeyInfo(row), key: rawKey };
 }
 
-export function validateApiKey(rawKey: string): ApiKeyRow | null {
+export function validateApiKey(rawKey: string): AuthenticatedApiKey | null {
   if (!rawKey.startsWith('pa_')) return null;
   const hash = crypto.createHash('sha256').update(rawKey).digest('hex');
   const row = getDatabase()
@@ -91,8 +100,13 @@ export function validateApiKey(rawKey: string): ApiKeyRow | null {
     .get(hash) as ApiKeyRow | undefined;
   if (!row) return null;
   if (row.revoked_at) return null;
+  // expires_at is an ISO-8601 string from caller input (z.string().datetime()
+  // in the Zod schema), so Date parsing is UTC-correct. Do not pass SQLite
+  // `datetime('now')` strings here — those are TZ-naive.
   if (row.expires_at && new Date(row.expires_at) < new Date()) return null;
-  return row;
+  // Strip token_hash before returning so callers never see it.
+  const { token_hash: _omit, ...safe } = row;
+  return safe;
 }
 
 export function listApiKeys(): ApiKeyInfo[] {
