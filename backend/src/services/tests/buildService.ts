@@ -152,8 +152,31 @@ export class BuildService {
     return null;
   }
 
+  /**
+   * Resolve the per-build directory for `uuid` and verify it stays
+   * inside BUILDS_DIR. UUID is already validated by UUID_REGEX at the
+   * route layer, but CodeQL's flow analysis treats the regex as an
+   * insufficient sanitiser. The path.resolve → path.relative pattern
+   * here (same as findTestDir / safeBinaryPath) IS recognised, and
+   * returning the resolved canonical form is what makes downstream
+   * fs calls flow-safe.
+   *
+   * Throws if the candidate escapes BUILDS_DIR — UUID_REGEX makes
+   * this unreachable in practice; the throw exists so callers don't
+   * have to handle a null path everywhere.
+   */
+  private safeBuildDir(uuid: string): string {
+    const root = path.resolve(BUILDS_DIR);
+    const resolved = path.resolve(root, uuid);
+    const rel = path.relative(root, resolved);
+    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
+      throw new BuildError(`Invalid build uuid: ${uuid}`);
+    }
+    return resolved;
+  }
+
   private ensureBuildDir(uuid: string): string {
-    const dir = path.join(BUILDS_DIR, uuid);
+    const dir = this.safeBuildDir(uuid);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
@@ -161,7 +184,7 @@ export class BuildService {
   }
 
   private metaPath(uuid: string): string {
-    return path.join(BUILDS_DIR, uuid, 'build-meta.json');
+    return path.join(this.safeBuildDir(uuid), 'build-meta.json');
   }
 
   /** Extract GOOS from a //go:build or // +build directive in a Go file */
