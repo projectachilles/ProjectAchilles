@@ -32,7 +32,7 @@ export const CreateTokenSchema = z.object({
   org_id: z.string().min(1, 'org_id is required'),
   ttl_hours: z.number().int().min(1).max(720).optional(),
   max_uses: z.number().int().min(1).max(1000).optional(),
-  metadata: z.record(z.string()).optional(),
+  metadata: z.record(z.string(), z.string()).optional(),
 });
 
 // ── Heartbeat ────────────────────────────────────────────────────────────────
