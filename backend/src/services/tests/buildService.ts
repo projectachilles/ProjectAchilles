@@ -276,6 +276,26 @@ const ARTIFACT_DIR = \`${artifactDir}\`
 
   // ── Public API ────────────────────────────────────────────
 
+  /**
+   * Resolve a binary path inside BUILDS_DIR/<uuid>/ and verify it stays
+   * within that directory. `meta.filename` comes from JSON on disk
+   * written by buildAndSign — trusted in normal operation, but a
+   * defensive boundary check rules out path traversal if the build
+   * metadata is ever tampered with.
+   *
+   * Uses the same path.resolve → path.relative pattern as findTestDir,
+   * which CodeQL's js/path-injection query recognises as a sanitiser.
+   * Returning the resolved value (not the raw join result) is what
+   * makes the data flow recognised as safe downstream.
+   */
+  private safeBinaryPath(uuid: string, filename: string): string | null {
+    const root = path.resolve(BUILDS_DIR, uuid);
+    const resolved = path.resolve(root, filename);
+    const rel = path.relative(root, resolved);
+    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+    return resolved;
+  }
+
   getBuildInfo(uuid: string): BuildInfo {
     const metaFile = this.metaPath(uuid);
     if (!fs.existsSync(metaFile)) {
@@ -283,8 +303,8 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     }
     try {
       const meta: BuildMetadata = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
-      const binaryPath = path.join(BUILDS_DIR, uuid, meta.filename);
-      if (!fs.existsSync(binaryPath)) {
+      const binaryPath = this.safeBinaryPath(uuid, meta.filename);
+      if (!binaryPath || !fs.existsSync(binaryPath)) {
         return { exists: false };
       }
       return {
@@ -316,7 +336,8 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     if (!fs.existsSync(metaFile)) return null;
     try {
       const meta: BuildMetadata = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
-      const binaryPath = path.join(BUILDS_DIR, uuid, meta.filename);
+      const binaryPath = this.safeBinaryPath(uuid, meta.filename);
+      if (!binaryPath) return null;
       return fs.existsSync(binaryPath) ? binaryPath : null;
     } catch {
       return null;
