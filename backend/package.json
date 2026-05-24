@@ -30,12 +30,12 @@
     "multer": "^2.1.1",
     "nodemailer": "^8.0.7",
     "simple-git": "^3.33.0",
-    "uuid": "^9.0.1",
     "ws": "^8.20.1",
     "zod": "^3.22.4"
   },
   "overrides": {
-    "qs": "6.14.2",
+    "qs": "^6.15.2",
+    "js-cookie": "^3.0.7",
     "undici@<6.24.0": "6.24.1",
     "express": {
       "path-to-regexp": "0.1.13"
@@ -51,7 +51,6 @@
     "@types/node": "^25.9.0",
     "@types/nodemailer": "^8.0.0",
     "@types/supertest": "^7.2.0",
-    "@types/uuid": "^9.0.7",
     "@types/ws": "^8.5.10",
     "@vitest/coverage-v8": "^4.1.6",
     "supertest": "^7.2.2",
