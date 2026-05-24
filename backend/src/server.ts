@@ -101,6 +101,25 @@ app.use(express.urlencoded({ extended: true }));
 // Clerk authentication middleware (parses JWT, populates req.auth — does NOT reject)
 app.use(clerkAuth);
 
+// Rate-limit non-pa_ Bearer tokens before acceptCliAuth runs jwt.verify
+// on them. HMAC is fast and not crackable in band, but defense-in-depth
+// against an attacker hammering the CLI JWT verifier (e.g. probing for
+// a weak CLI_AUTH_SECRET). Skips Bearer pa_… (covered by the API-key
+// limiter below), Clerk sessions, and unauthenticated traffic.
+const cliBearerAuthLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many authentication attempts' },
+  skip: (req) => {
+    const h = req.headers.authorization;
+    if (!h || !h.startsWith('Bearer ')) return true;
+    return h.startsWith('Bearer pa_');
+  },
+});
+app.use(cliBearerAuthLimiter);
+
 // CLI token auth — if a valid CLI JWT is present and Clerk didn't parse anything,
 // inject a Clerk-compatible req.auth so downstream requireClerkAuth() works.
 app.use(acceptCliAuth());
