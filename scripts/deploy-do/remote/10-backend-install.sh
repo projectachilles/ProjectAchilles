@@ -264,4 +264,31 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EOF
 chmod 644 /etc/cron.d/projectachilles-sqlite-backup
 
+# ── Initialize ES achilles-results index with proper mappings ──────────────
+# CRITICAL: this MUST happen before any doc is written. ES auto-creates
+# missing indices with default dynamic mappings (text+.keyword subfields),
+# but the backend's analytics aggregations query the BASE field — which
+# requires `keyword` type directly. Auto-created indices fail aggregations
+# with "Fielddata is disabled on [field]".
+#
+# Mapping must stay in sync with:
+#   backend/src/services/analytics/index-management.service.ts → RESULTS_INDEX_MAPPING
+log "initializing achilles-results ES index with explicit mappings"
+ES_API_KEY_VAL=$(grep '^ELASTICSEARCH_API_KEY=' "$SECRETS_FILE" | cut -d= -f2-)
+ES_NODE_VAL=$(grep '^ELASTICSEARCH_NODE=' "$REPO/backend/.env" | cut -d= -f2-)
+INIT_RESPONSE=$(curl -s -X PUT \
+    -H "Authorization: ApiKey ${ES_API_KEY_VAL}" \
+    -H "Content-Type: application/json" \
+    "${ES_NODE_VAL}/achilles-results" \
+    -d '{"mappings":{"properties":{"routing":{"properties":{"event_time":{"type":"date"},"oid":{"type":"keyword"},"hostname":{"type":"keyword"}}},"f0rtika":{"properties":{"test_uuid":{"type":"keyword"},"test_name":{"type":"keyword"},"is_protected":{"type":"boolean"},"error_name":{"type":"keyword"},"category":{"type":"keyword"},"subcategory":{"type":"keyword"},"severity":{"type":"keyword"},"techniques":{"type":"keyword"},"tactics":{"type":"keyword"},"target":{"type":"keyword"},"complexity":{"type":"keyword"},"threat_actor":{"type":"keyword"},"tags":{"type":"keyword"},"score":{"type":"float"},"bundle_id":{"type":"keyword"},"bundle_name":{"type":"keyword"},"control_id":{"type":"keyword"},"control_validator":{"type":"keyword"},"is_bundle_control":{"type":"boolean"},"defender_detected":{"type":"boolean"},"defender_stage_detected":{"type":"boolean"},"tenant_label":{"type":"keyword"}}},"event":{"properties":{"ERROR":{"type":"integer"}}}}}')
+# 200 = created; 400 with resource_already_exists_exception = already there (acceptable)
+if echo "$INIT_RESPONSE" | grep -q '"acknowledged":true'; then
+    log "  ✓ achilles-results created"
+elif echo "$INIT_RESPONSE" | grep -q 'resource_already_exists_exception'; then
+    log "  ✓ achilles-results already exists (preserved)"
+else
+    log "  ⚠ ES index create response: $INIT_RESPONSE"
+    log "  ⚠ continuing — aggregation queries may fail until mapping is fixed"
+fi
+
 log "backend install complete"
