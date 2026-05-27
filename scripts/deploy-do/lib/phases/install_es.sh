@@ -10,6 +10,10 @@ phase_install_es() {
 
     [[ -n "$es_pub" && -n "$es_priv" && -n "$ssh_key" ]] || fail "Missing ES state values"
 
+    # Re-sync remote/ in case scripts were edited between phases.
+    log_info "Syncing remote scripts to ES droplet"
+    rsync_dir "$es_pub" "$ssh_key" "$SCRIPT_DIR/remote/" "/root/deploy-do-remote/"
+
     log_info "Running 20-es-install.sh on ES droplet (this takes ~3-5 minutes)"
     local es_out
     es_out=$(ssh_run "$es_pub" "$ssh_key" root \

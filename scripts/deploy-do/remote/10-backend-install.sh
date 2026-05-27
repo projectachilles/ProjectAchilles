@@ -59,6 +59,10 @@ chown -R achilles:achilles "$REPO"
 mkdir -p "$DATA_DIR"
 chown -R achilles:achilles "$DATA_DIR"
 
+# Default useradd creates /home/achilles as mode 750 — caddy user can't traverse
+# into it, so all SPA requests return 403. Open just the +x bit on the home dir.
+chmod 755 /home/achilles
+
 # ── Backend install + build ─────────────────────────────────────────────────
 log "running npm ci in backend"
 sudo -u achilles -H bash -c "cd $REPO/backend && npm ci --omit=dev=false"

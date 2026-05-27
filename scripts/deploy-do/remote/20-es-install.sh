@@ -28,12 +28,18 @@ log "installing elasticsearch (8.17.x)"
 apt-get install -y -qq "elasticsearch=8.17.*"
 
 # ── elasticsearch.yml ─────────────────────────────────────────────────────
+# IMPORTANT: overwriting elasticsearch.yml drops the apt package's default
+# path.data and path.logs settings. Set them explicitly here, otherwise ES
+# defaults to /usr/share/elasticsearch/{logs,data}/ which the elasticsearch
+# user cannot write to → IOException on RollingFileAppender at startup.
 cat > /etc/elasticsearch/elasticsearch.yml <<EOF
 cluster.name: projectachilles
 node.name: es-1
 network.host: ${PRIVATE_IP}
 http.port: 9200
 discovery.type: single-node
+path.data: /var/lib/elasticsearch
+path.logs: /var/log/elasticsearch
 xpack.security.enabled: true
 xpack.security.enrollment.enabled: false
 # HTTPS off on the binding interface — traffic is on a private VPC; API key still required.
@@ -66,16 +72,19 @@ log "starting elasticsearch (may take 30-90s on first boot)"
 systemctl restart elasticsearch
 
 # ── Wait for ES to be up ──────────────────────────────────────────────────
-elapsed=0; timeout=180
+# xpack.security is on, so an unauth probe returns 401 — that's still "up".
+# Treat any non-000 HTTP code as success.
+elapsed=0; timeout=300
 while (( elapsed < timeout )); do
-    if curl -fsS "http://${PRIVATE_IP}:9200" >/dev/null 2>&1; then
+    code=$(curl -s --max-time 3 -o /dev/null -w '%{http_code}' "http://${PRIVATE_IP}:9200" 2>/dev/null || echo "000")
+    if [[ "$code" != "000" ]]; then
+        log "elasticsearch responding (HTTP $code) on ${PRIVATE_IP}:9200 after ${elapsed}s"
         break
     fi
     sleep 3
     elapsed=$(( elapsed + 3 ))
 done
 (( elapsed < timeout )) || { log "ES did not come up in ${timeout}s"; exit 1; }
-log "elasticsearch responding on ${PRIVATE_IP}:9200"
 
 # ── Reset elastic user password ──────────────────────────────────────────
 elastic_pw=$(

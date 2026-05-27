@@ -12,12 +12,12 @@ phase_verify() {
     clerk_pk=$(state_get "$TENANT" ".clerk_pk")
 
     local failures=0
-    validate_spa            "$spa"                                  || ((failures++))
-    validate_env_config     "$spa" "$agent"                         || ((failures++))
-    validate_backend_health "$agent"                                || ((failures++))
-    validate_es_cluster     "$be_pub" "$ssh_key" "$es_priv" "$es_api" || ((failures++))
-    validate_es_write       "$be_pub" "$ssh_key" "$es_priv" "$es_api" || ((failures++))
-    validate_clerk_jwks     "$clerk_pk"                             || ((failures++))
+    validate_spa            "$spa"                                  || failures=$((failures + 1))
+    validate_env_config     "$spa" "$agent"                         || failures=$((failures + 1))
+    validate_backend_health "$agent"                                || failures=$((failures + 1))
+    validate_es_cluster     "$be_pub" "$ssh_key" "$es_priv" "$es_api" || failures=$((failures + 1))
+    validate_es_write       "$be_pub" "$ssh_key" "$es_priv" "$es_api" || failures=$((failures + 1))
+    validate_clerk_jwks     "$clerk_pk"                             || failures=$((failures + 1))
 
     if (( failures > 0 )); then
         log_error "$failures check(s) failed."

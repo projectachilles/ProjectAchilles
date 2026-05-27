@@ -81,7 +81,10 @@ chmod 440 /etc/sudoers.d/90-achilles
 # ── sshd lockdown ───────────────────────────────────────────────────────────
 sshd_conf=/etc/ssh/sshd_config.d/99-projectachilles.conf
 cat > "$sshd_conf" <<'EOF'
-PermitRootLogin no
+# Root SSH allowed by KEY only (orchestrator uses root for install phases).
+# Password root login is blocked. To revoke automated access entirely after
+# the deploy, swap to PermitRootLogin no and use `ssh achilles@host sudo …`.
+PermitRootLogin prohibit-password
 PasswordAuthentication no
 PubkeyAuthentication yes
 ChallengeResponseAuthentication no
@@ -93,7 +96,14 @@ if ! sshd -t; then
     log "sshd config invalid; aborting before reload"
     exit 1
 fi
-systemctl reload sshd
+# Service is named ssh.service on Ubuntu, sshd.service on Debian/RHEL.
+if systemctl list-unit-files --no-legend ssh.service 2>/dev/null | grep -q '^ssh\.service'; then
+    systemctl reload ssh
+elif systemctl list-unit-files --no-legend sshd.service 2>/dev/null | grep -q '^sshd\.service'; then
+    systemctl reload sshd
+else
+    log "warning: no ssh service unit found; config will take effect on next sshd restart"
+fi
 log "sshd locked down (root login + password auth disabled)"
 
 # ── UFW ─────────────────────────────────────────────────────────────────────

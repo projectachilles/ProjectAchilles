@@ -44,15 +44,24 @@ phase_install_backend() {
     # Ensure target dir exists
     ssh_run "$be_pub" "$ssh_key" root "mkdir -p /home/achilles/ProjectAchilles && chown -R achilles:achilles /home/achilles/ProjectAchilles"
 
+    # Build rsync's -e ssh string from the SSH_OPTS array (IFS-safe).
+    ssh_opts_populate "$ssh_key"
+    local rsync_ssh="ssh"
+    local o
+    for o in "${SSH_OPTS[@]}"; do
+        rsync_ssh+=" $(printf '%q' "$o")"
+    done
+
     rsync -az \
-        -e "ssh $(ssh_opts "$ssh_key" | xargs)" \
+        -e "$rsync_ssh" \
         "${rsync_excludes[@]}" \
         "$REPO_ROOT/" \
         "root@${be_pub}:/home/achilles/ProjectAchilles/"
 
     log_success "Repo synced"
 
-    # Ensure remote scripts are present (already rsynced in bootstrap phase, but be safe)
+    # Always re-sync remote scripts (in case edited between phases).
+    log_info "Syncing remote scripts to backend droplet"
     rsync_dir "$be_pub" "$ssh_key" "$SCRIPT_DIR/remote/" "/root/deploy-do-remote/"
 
     # ── Run backend install ───────────────────────────────────────────────

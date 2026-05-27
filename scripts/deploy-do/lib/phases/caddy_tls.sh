@@ -18,11 +18,15 @@ phase_caddy_tls() {
 
     while (( elapsed < timeout )); do
         local spa_code agent_code
-        spa_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "https://${spa}/" 2>/dev/null || echo "000")
-        agent_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "https://${agent}/api/health" 2>/dev/null || echo "000")
+        # `curl -w '%{http_code}'` already prints "000" on connect/TLS failure,
+        # so we don't need an `|| echo "000"` fallback — that would concatenate
+        # two "000"s and the != "000" check would spuriously pass.
+        spa_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "https://${spa}/" 2>/dev/null)
+        agent_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "https://${agent}/api/health" 2>/dev/null)
+        spa_code="${spa_code:-000}"
+        agent_code="${agent_code:-000}"
 
-        # 200 OK = both alive; 502/504 = backend issue (rare here, backend is local);
-        # SSL handshake failures show as "000".
+        # 200 OK = both alive; 502/504 = backend issue; "000" = TLS handshake failure.
         if [[ "$spa_code" != "000" && "$agent_code" != "000" ]]; then
             log_success "TLS active — SPA HTTP $spa_code, AGENT HTTP $agent_code"
             return 0

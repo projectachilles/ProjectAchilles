@@ -17,11 +17,17 @@ doctl_ensure_vpc() {
 
     if [[ -z "$id" ]]; then
         log_info "Creating VPC '$name' in $region"
-        id=$(doctl vpcs create \
+        # NOTE: `doctl vpcs create` (unlike `compute droplet/firewall create`)
+        # does NOT accept --format/--no-header. Use --output json + jq.
+        # Response is a single-element array of VPC objects.
+        local resp
+        resp=$(doctl vpcs create \
             --name "$name" \
             --region "$region" \
             --description "ProjectAchilles tenant $tenant" \
-            --format ID --no-header 2>/dev/null) || fail "VPC create failed"
+            --output json 2>&1) || { log_error "VPC create failed: $resp"; fail "VPC create"; }
+        id=$(echo "$resp" | jq -r '.[0].id // empty' 2>/dev/null)
+        [[ -n "$id" ]] || { log_error "VPC create returned no ID: $resp"; fail "VPC parse"; }
         sleep 2
     else
         log_info "Reusing VPC '$name' (id=$id)"
