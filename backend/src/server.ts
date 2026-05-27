@@ -35,6 +35,7 @@ import cliAuthRoutes from './api/cli-auth.routes.js';
 import { acceptCliAuth } from './middleware/cliAuth.middleware.js';
 import apiKeysRoutes from './api/api-keys.routes.js';
 import { acceptApiKey } from './middleware/apiKeyAuth.middleware.js';
+import { cliBearerLimiterSkip } from './middleware/cliBearerLimiterSkip.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -101,22 +102,18 @@ app.use(express.urlencoded({ extended: true }));
 // Clerk authentication middleware (parses JWT, populates req.auth — does NOT reject)
 app.use(clerkAuth);
 
-// Rate-limit non-pa_ Bearer tokens before acceptCliAuth runs jwt.verify
+// Rate-limit unverified Bearer tokens before acceptCliAuth runs jwt.verify
 // on them. HMAC is fast and not crackable in band, but defense-in-depth
 // against an attacker hammering the CLI JWT verifier (e.g. probing for
-// a weak CLI_AUTH_SECRET). Skips Bearer pa_… (covered by the API-key
-// limiter below), Clerk sessions, and unauthenticated traffic.
+// a weak CLI_AUTH_SECRET). Skip predicate filters out everything that
+// isn't a CLI-token candidate — see cliBearerLimiterSkip for the rules.
 const cliBearerAuthLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: 'Too many authentication attempts' },
-  skip: (req) => {
-    const h = req.headers.authorization;
-    if (!h || !h.startsWith('Bearer ')) return true;
-    return h.startsWith('Bearer pa_');
-  },
+  skip: cliBearerLimiterSkip,
 });
 app.use(cliBearerAuthLimiter);
 
