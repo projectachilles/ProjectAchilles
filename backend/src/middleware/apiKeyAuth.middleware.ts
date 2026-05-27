@@ -25,6 +25,7 @@ import {
   ROLE_PERMISSIONS,
   type Permission,
 } from '../types/roles.js';
+import { safeClerkAuth } from './clerkAuthHelpers.js';
 
 function permissionsForScope(scope: ApiKeyScope): ReadonlySet<Permission> {
   if (scope === 'read-write') return new Set(ROLE_PERMISSIONS.operator);
@@ -33,11 +34,10 @@ function permissionsForScope(scope: ApiKeyScope): ReadonlySet<Permission> {
 
 export function acceptApiKey() {
   return (req: Request, _res: Response, next: NextFunction): void => {
-    // Precedence — leave existing Clerk/CLI auth untouched.
-    const existingAuth = typeof (req as any).auth === 'function'
-      ? (req as any).auth()
-      : (req as any).auth;
-    if (existingAuth?.userId) {
+    // Precedence — leave existing Clerk/CLI auth untouched. safeClerkAuth
+    // also swallows throws from malformed JWTs so this middleware can't
+    // surface a 500 to the client.
+    if (safeClerkAuth(req)?.userId) {
       next();
       return;
     }

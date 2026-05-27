@@ -8,6 +8,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { safeClerkAuth } from './clerkAuthHelpers.js';
 
 interface CliTokenPayload {
   sub: string;
@@ -53,12 +54,11 @@ export function validateCliToken(req: Request): CliTokenPayload | null {
  */
 export function acceptCliAuth() {
   return (req: Request, _res: Response, next: NextFunction) => {
-    // Only inject CLI auth if Clerk didn't already authenticate.
-    // Clerk's new API uses req.auth() as a function — check if it returns a userId.
-    const existingAuth = typeof (req as any).auth === 'function'
-      ? (req as any).auth()
-      : (req as any).auth;
-    if (existingAuth?.userId) {
+    // Only inject CLI auth if Clerk didn't already authenticate. safeClerkAuth
+    // handles both Clerk's v5 callable form and legacy property form, and
+    // swallows throws from malformed JWTs (which would otherwise escape as a
+    // 500 from this middleware).
+    if (safeClerkAuth(req)?.userId) {
       return next();
     }
 
