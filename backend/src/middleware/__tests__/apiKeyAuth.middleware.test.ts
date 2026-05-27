@@ -82,4 +82,18 @@ describe('acceptApiKey()', () => {
     acceptApiKey()(req, {} as any, vi.fn());
     expect(req.auth).toBe(existing);
   });
+
+  it('regression: does NOT propagate when req.auth() throws (Clerk parse error on malformed JWT)', async () => {
+    // Pre-refactor this 500'd: the unguarded `(req as any).auth()` call
+    // surfaced Clerk's `Unexpected end of data` parse error to the client.
+    const { acceptApiKey } = await import('../apiKeyAuth.middleware.js');
+    const next = vi.fn();
+    const req: any = {
+      headers: { authorization: 'Bearer abc.def.ghi' },
+      auth: () => { throw new Error('Unexpected end of data'); },
+    };
+    expect(() => acceptApiKey()(req, {} as any, next)).not.toThrow();
+    expect(next).toHaveBeenCalledOnce();
+    expect(next.mock.calls[0]).toEqual([]);
+  });
 });
