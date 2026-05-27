@@ -90,6 +90,7 @@ PHASES=(
     dns_wait
     install_backend
     caddy_tls
+    agent_build
     verify
 )
 
@@ -123,6 +124,8 @@ source "$SCRIPT_DIR/lib/phases/dns_wait.sh"
 source "$SCRIPT_DIR/lib/phases/install_backend.sh"
 # shellcheck source=lib/phases/caddy_tls.sh
 source "$SCRIPT_DIR/lib/phases/caddy_tls.sh"
+# shellcheck source=lib/phases/agent_build.sh
+source "$SCRIPT_DIR/lib/phases/agent_build.sh"
 # shellcheck source=lib/phases/verify.sh
 source "$SCRIPT_DIR/lib/phases/verify.sh"
 
