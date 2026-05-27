@@ -59,6 +59,12 @@ chown -R achilles:achilles "$REPO"
 mkdir -p "$DATA_DIR"
 chown -R achilles:achilles "$DATA_DIR"
 
+# Create the in-repo data/ dir for the git-sync test library. It's gitignored
+# locally so rsync skips it; backend's syncService.ts calls fs.mkdir without
+# recursive:true so the first Sync click fails with ENOENT until this exists.
+mkdir -p "$REPO/data"
+chown achilles:achilles "$REPO/data"
+
 # Default useradd creates /home/achilles as mode 750 — caddy user can't traverse
 # into it, so all SPA requests return 403. Open just the +x bit on the home dir.
 chmod 755 /home/achilles
