@@ -39,7 +39,8 @@ fi
 log "node: $(node --version), npm: $(npm --version)"
 
 # ── Build deps ──────────────────────────────────────────────────────────────
-apt-get install -y -qq sqlite3 git ca-certificates
+# osslsigncode: Authenticode signing for Windows .exe validators in test bundles
+apt-get install -y -qq sqlite3 git ca-certificates osslsigncode
 
 # ── Caddy from official repo ────────────────────────────────────────────────
 if ! command -v caddy >/dev/null 2>&1; then
@@ -169,7 +170,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=${DATA_DIR} ${REPO}/backend ${REPO}/data
+ReadWritePaths=${DATA_DIR} ${REPO}/backend ${REPO}/data /home/achilles/.config /home/achilles/.cache /home/achilles/go
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictNamespaces=true
