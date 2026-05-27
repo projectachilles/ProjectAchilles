@@ -62,4 +62,28 @@ describe('cliBearerLimiterSkip()', () => {
       expect(cliBearerLimiterSkip(req)).toBe(true);
     }
   });
+
+  it('regression: does NOT propagate when req.auth() throws (Clerk parse error on malformed JWT)', () => {
+    // Real example from prod: @clerk/express threw `Error: Unexpected end of
+    // data` from its base64 decode when a stale/empty Bearer hit the server.
+    const auth = () => { throw new Error('Unexpected end of data'); };
+    const req = makeReq({ authorization: 'Bearer abc.def.ghi', auth });
+    expect(() => cliBearerLimiterSkip(req)).not.toThrow();
+    // Counted toward the limit — downstream auth will return a clean 401.
+    expect(cliBearerLimiterSkip(req)).toBe(false);
+  });
+
+  it('invokes req.auth as a method so `this` binding is preserved for Clerk SDK impls that rely on it', () => {
+    const calls: Array<unknown> = [];
+    const req = {
+      headers: { authorization: 'Bearer eyJ.clerk.jwt' },
+      auth(this: unknown): { userId: string } {
+        calls.push(this);
+        return { userId: 'user_bound' };
+      },
+    } as unknown as Request;
+    expect(cliBearerLimiterSkip(req)).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toBe(req);
+  });
 });
