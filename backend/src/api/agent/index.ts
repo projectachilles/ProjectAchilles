@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { requireAgentAuth } from '../../middleware/agentAuth.middleware.js';
 import { requireClerkAuth, requireOrgAccess } from '../../middleware/clerk.middleware.js';
 import { agentEnrollmentRouter, adminEnrollmentRouter } from './enrollment.routes.js';
@@ -46,7 +46,11 @@ export function createAgentRouter(options: { testSources: TestSource[]; testsSou
     max: 100,                     // 100 requests per 15min per agent+IP
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => `${req.ip || 'unknown'}:${req.headers['x-agent-id'] || 'none'}`,
+    // Normalize the IP with ipKeyGenerator so IPv6 clients are keyed by their
+    // /56 subnet (express-rate-limit default) — prevents bypass via address
+    // rotation within an allocated IPv6 block. IPv4 passes through unchanged.
+    keyGenerator: (req) =>
+      `${req.ip ? ipKeyGenerator(req.ip) : 'unknown'}:${req.headers['x-agent-id'] || 'none'}`,
     message: { success: false, error: 'Too many agent requests, try again later' },
   });
   router.use(agentDeviceLimiter);
