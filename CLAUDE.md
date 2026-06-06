@@ -249,15 +249,30 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push/PR to main:
 
 ## Deployment
 
-Five deployment targets are supported. The original `backend/` and `frontend/` are used for all targets except Vercel, which uses a purpose-built serverless fork.
+Seven deployment targets are supported. The original `backend/` and `frontend/` are used for all targets except Vercel, which uses a purpose-built serverless fork.
 
 | Target | Backend | DB | File Storage | Builds (Go) | Guide |
 |--------|---------|-----|-------------|-------------|-------|
 | **Docker Compose** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Below |
+| **Public server (VPS/droplet)** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | `docs/deployment/SELF_HOSTED_SERVER.md` |
+| **On-prem server** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | `docs/deployment/ON_PREM_SERVER.md` |
 | **Railway** | `backend/` | SQLite (volume) | Filesystem (volume) | Partial | `docs/deployment/RAILWAY.md` |
 | **Render** | `backend/` | SQLite (persistent disk) | Filesystem (disk) | Partial | `docs/deployment/RENDER.md` |
 | **Fly.io** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | `docs/deployment/FLY.md` |
 | **Vercel** | `backend-serverless/` | Turso (@libsql) | Vercel Blob | No | `docs/deployment/VERCEL.md` |
+
+### Public / On-Prem Server (Caddy + single origin)
+
+A self-contained single-server install behind a [Caddy](https://caddyserver.com) reverse proxy that terminates TLS, exposing one public origin (UI at `/`, API at `/api`, agents on the same host). Defined by `docker-compose.server.yml` + `deploy/caddy/`, driven by the hybrid (config-file or interactive) scripts in `scripts/`:
+
+```bash
+cp deploy.config.env.example deploy.config.env   # fill in domain, Clerk keys, TLS_MODE, ES_MODE
+./scripts/deploy-server.sh        # install on THIS machine
+./scripts/deploy-remote.sh u@host # install on a remote SSH host (on-prem entry point)
+./scripts/deploy-do.sh            # create a DigitalOcean droplet, then install
+```
+
+`TLS_MODE` selects certificate issuance: `acme-http` (public, Let's Encrypt HTTP-01), `acme-dns` (Let's Encrypt DNS-01, no inbound needed — builds a custom Caddy image with the DNS-provider plugin), `internal` (Caddy local CA; root CA exported for browsers + the agent's `ca_cert`), or `byo` (mount cert/key PEM). `ES_MODE` is `self` (bundled ES container, ≥4 GB RAM) or `cloud` (Elastic Cloud). The installer writes `backend/.env` + root `.env` (mode 600, gitignored) and is idempotent. See the two guides above; the public guide holds the shared reference (architecture, backups, day-2).
 
 ### Docker Compose
 
