@@ -212,10 +212,18 @@ export interface AgentMetrics {
 export type ScheduleType = 'once' | 'daily' | 'weekly' | 'monthly';
 export type ScheduleStatus = 'active' | 'paused' | 'completed' | 'deleted';
 
+/**
+ * How the run time is randomized for recurring schedules:
+ * - 'fixed'       — run at the configured time, whole fleet together
+ * - 'fleet'       — one random time-of-day per occurrence, whole fleet together
+ * - 'per_machine' — each agent rolls its own random time-of-day independently
+ */
+export type RandomizeMode = 'fixed' | 'fleet' | 'per_machine';
+
 export interface ScheduleConfigOnce { date: string; time: string; }
-export interface ScheduleConfigDaily { time: string; randomize_time?: boolean; }
-export interface ScheduleConfigWeekly { days: number[]; time: string; randomize_time?: boolean; }
-export interface ScheduleConfigMonthly { dayOfMonth: number; time: string; randomize_time?: boolean; }
+export interface ScheduleConfigDaily { time: string; randomize_time?: boolean; randomize_mode?: RandomizeMode; }
+export interface ScheduleConfigWeekly { days: number[]; time: string; randomize_time?: boolean; randomize_mode?: RandomizeMode; }
+export interface ScheduleConfigMonthly { dayOfMonth: number; time: string; randomize_time?: boolean; randomize_mode?: RandomizeMode; }
 export type ScheduleConfig =
   | ScheduleConfigOnce
   | ScheduleConfigDaily

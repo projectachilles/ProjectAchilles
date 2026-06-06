@@ -118,16 +118,17 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
   }
 
   function buildScheduleConfig(): ScheduleConfig {
-    const rt = config.randomizeTime || undefined;
+    // Omit the mode for plain 'fixed'; the backend treats a missing mode as 'fixed'.
+    const mode = config.randomizeMode !== 'fixed' ? config.randomizeMode : undefined;
     switch (config.scheduleType) {
       case 'once':
         return { date: config.scheduleDate, time: config.scheduleTime };
       case 'daily':
-        return { time: config.scheduleTime, randomize_time: rt };
+        return { time: config.scheduleTime, randomize_mode: mode };
       case 'weekly':
-        return { days: config.scheduleDays, time: config.scheduleTime, randomize_time: rt };
+        return { days: config.scheduleDays, time: config.scheduleTime, randomize_mode: mode };
       case 'monthly':
-        return { dayOfMonth: config.scheduleDayOfMonth, time: config.scheduleTime, randomize_time: rt };
+        return { dayOfMonth: config.scheduleDayOfMonth, time: config.scheduleTime, randomize_mode: mode };
     }
   }
 
@@ -142,7 +143,7 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
 
   const isScheduleValid = (() => {
     if (config.activeTab !== 'schedule') return true;
-    if (!config.randomizeTime && !config.scheduleTime) return false;
+    if (config.randomizeMode === 'fixed' && !config.scheduleTime) return false;
     if (config.scheduleType === 'once' && !config.scheduleDate) return false;
     if (config.scheduleType === 'once' && config.scheduleDate) {
       const target = new Date(`${config.scheduleDate}T${config.scheduleTime}`);
