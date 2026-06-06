@@ -1,5 +1,5 @@
 ---
-sidebar_position: 6
+sidebar_position: 8
 title: Fly.io
 description: Deploy ProjectAchilles to Fly.io — the cheapest always-on option with Docker Machines and persistent volumes.
 ---

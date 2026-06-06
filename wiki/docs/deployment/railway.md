@@ -1,5 +1,5 @@
 ---
-sidebar_position: 4
+sidebar_position: 6
 title: Railway
 description: Deploy ProjectAchilles to Railway with GitHub auto-deploy, private networking, and Elastic Cloud analytics.
 ---

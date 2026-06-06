@@ -1,5 +1,5 @@
 ---
-sidebar_position: 8
+sidebar_position: 10
 title: Production Checklist
 description: Pre-flight checklist for deploying ProjectAchilles to production — security, configuration, testing, and verification.
 ---

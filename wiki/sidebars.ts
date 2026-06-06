@@ -21,6 +21,8 @@ const sidebars: SidebarsConfig = {
         'deployment/overview',
         'deployment/prerequisites',
         'deployment/docker-compose',
+        'deployment/public-server',
+        'deployment/on-prem-server',
         'deployment/railway',
         'deployment/render',
         'deployment/fly-io',
