@@ -9,6 +9,10 @@ export interface AnalyticsSettings {
   username?: string;
   password?: string;
   indexPattern: string;
+  /** Write-side base name; date suffix appended per rollover mode. Default 'achilles-results-'. */
+  writeIndexPrefix?: string;
+  /** Write-index rollover granularity. Default 'none' (single static write index). */
+  writeIndexRollover?: 'none' | 'daily' | 'monthly';
   configured: boolean;
   /** PEM-encoded custom CA for trusting self-signed Elasticsearch certs (direct connections only). */
   caCert?: string;
