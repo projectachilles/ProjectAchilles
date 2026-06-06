@@ -7,6 +7,7 @@ import type {
   ScheduleType,
   ScheduleConfig,
   ScheduleStatus,
+  RandomizeMode,
   ScheduleConfigOnce,
   ScheduleConfigDaily,
   ScheduleConfigWeekly,
@@ -41,6 +42,7 @@ interface ScheduleRow {
   created_at: string;
   updated_at: string;
   target_index: string | null;
+  agent_next_runs: string | null;
 }
 
 function parseScheduleRow(row: ScheduleRow): Schedule {
@@ -51,6 +53,9 @@ function parseScheduleRow(row: ScheduleRow): Schedule {
     schedule_config: JSON.parse(row.schedule_config) as ScheduleConfig,
     schedule_type: row.schedule_type as ScheduleType,
     status: row.status as ScheduleStatus,
+    agent_next_runs: row.agent_next_runs
+      ? (JSON.parse(row.agent_next_runs) as Record<string, string>)
+      : null,
   };
 }
 
@@ -82,6 +87,24 @@ function freshenNextRun(schedule: Schedule): Schedule {
 
   const nextRunDate = new Date(schedule.next_run_at);
   if (nextRunDate > new Date()) return schedule;
+
+  // per_machine: advance each past-due agent to its next occurrence and re-min.
+  // Mirrors the fleet semantics below — missed runs are skipped, not backfilled.
+  if (resolveRandomizeMode(schedule.schedule_config) === 'per_machine' && schedule.agent_next_runs) {
+    const map = { ...schedule.agent_next_runs };
+    const nowIso = new Date().toISOString();
+    for (const id of Object.keys(map)) {
+      if (map[id] > nowIso) continue;
+      const next = computeNextRun(schedule.schedule_type, schedule.schedule_config, schedule.timezone);
+      if (next) map[id] = next.toISOString();
+      else delete map[id];
+    }
+    const freshMin = minNextRun(map);
+    getDatabase()
+      .prepare('UPDATE schedules SET next_run_at = ?, agent_next_runs = ?, updated_at = datetime(\'now\') WHERE id = ?')
+      .run(freshMin, JSON.stringify(map), schedule.id);
+    return { ...schedule, next_run_at: freshMin, agent_next_runs: map };
+  }
 
   const freshNext = computeNextRun(
     schedule.schedule_type,
@@ -209,6 +232,11 @@ export function computeNextRun(
 ): Date | null {
   const now = after ?? new Date();
 
+  // Both 'fleet' and 'per_machine' modes randomize the time-of-day; only 'fixed'
+  // uses the configured `time`. (For 'per_machine', the caller invokes this once
+  // per agent so each agent gets an independent random roll.)
+  const randomize = type !== 'once' && resolveRandomizeMode(config) !== 'fixed';
+
   switch (type) {
     case 'once': {
       const c = config as ScheduleConfigOnce;
@@ -219,11 +247,11 @@ export function computeNextRun(
     case 'daily': {
       const c = config as ScheduleConfigDaily;
       const todayStr = todayInTimezone(timezone, now);
-      const time = c.randomize_time ? randomTimeForDate(todayStr, timezone) : c.time;
+      const time = randomize ? randomTimeForDate(todayStr, timezone) : c.time;
       const candidate = toUTCDate(todayStr, time, timezone);
       if (candidate > now) return candidate;
       const tomorrowStr = addDays(todayStr, 1);
-      const tomorrowTime = c.randomize_time ? randomTimeForDate(tomorrowStr, timezone) : c.time;
+      const tomorrowTime = randomize ? randomTimeForDate(tomorrowStr, timezone) : c.time;
       return toUTCDate(tomorrowStr, tomorrowTime, timezone);
     }
 
@@ -239,7 +267,7 @@ export function computeNextRun(
         const checkDay = (currentDay + offset) % 7;
         if (c.days.includes(checkDay)) {
           const dateStr = addDays(todayStr, offset);
-          const time = c.randomize_time ? randomTimeForDate(dateStr, timezone) : c.time;
+          const time = randomize ? randomTimeForDate(dateStr, timezone) : c.time;
           const candidate = toUTCDate(dateStr, time, timezone);
           if (candidate > now) return candidate;
         }
@@ -255,7 +283,7 @@ export function computeNextRun(
       // Try this month
       const dayStr = String(Math.min(c.dayOfMonth, daysInMonth(year, month))).padStart(2, '0');
       const thisMonthDate = `${year}-${String(month).padStart(2, '0')}-${dayStr}`;
-      const thisTime = c.randomize_time ? randomTimeForDate(thisMonthDate, timezone) : c.time;
+      const thisTime = randomize ? randomTimeForDate(thisMonthDate, timezone) : c.time;
       const candidate = toUTCDate(thisMonthDate, thisTime, timezone);
       if (candidate > now) return candidate;
 
@@ -264,7 +292,7 @@ export function computeNextRun(
       const nextYear = month === 12 ? year + 1 : year;
       const nextDayStr = String(Math.min(c.dayOfMonth, daysInMonth(nextYear, nextMonth))).padStart(2, '0');
       const nextMonthDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${nextDayStr}`;
-      const nextTime = c.randomize_time ? randomTimeForDate(nextMonthDate, timezone) : c.time;
+      const nextTime = randomize ? randomTimeForDate(nextMonthDate, timezone) : c.time;
       return toUTCDate(nextMonthDate, nextTime, timezone);
     }
   }
@@ -272,6 +300,52 @@ export function computeNextRun(
 
 function daysInMonth(year: number, month: number): number {
   return new Date(year, month, 0).getDate();
+}
+
+/**
+ * Resolve the effective randomization mode for a schedule config, bridging the
+ * legacy `randomize_time` boolean to the newer `randomize_mode` enum.
+ * Explicit `randomize_mode` always wins; otherwise legacy `randomize_time:true`
+ * means the whole fleet shared one random time ('fleet'), and anything else is 'fixed'.
+ */
+export function resolveRandomizeMode(config: ScheduleConfig): RandomizeMode {
+  const c = config as { randomize_mode?: RandomizeMode; randomize_time?: boolean };
+  if (c.randomize_mode) return c.randomize_mode;
+  return c.randomize_time ? 'fleet' : 'fixed';
+}
+
+/**
+ * Compute an independent next-run time for each agent. Used by `per_machine`
+ * schedules so every machine executes at its own random time-of-day rather than
+ * the whole fleet firing together. Calls `computeNextRun` once per agent — each
+ * call re-rolls `randomTimeForDate`, yielding distinct times.
+ *
+ * Returns a map of agentId → UTC ISO string. Agents whose schedule has no next
+ * occurrence (should not happen for recurring types) are omitted.
+ */
+export function computePerAgentNextRuns(
+  type: ScheduleType,
+  config: ScheduleConfig,
+  timezone: string,
+  agentIds: string[],
+  after?: Date,
+): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const agentId of agentIds) {
+    const next = computeNextRun(type, config, timezone, after);
+    if (next) map[agentId] = next.toISOString();
+  }
+  return map;
+}
+
+/**
+ * The minimum ISO timestamp among a per-agent map, or null if empty.
+ * Kept as the schedule's `next_run_at` so the cron due-query and UI work unchanged.
+ */
+function minNextRun(map: Record<string, string>): string | null {
+  const values = Object.values(map);
+  if (values.length === 0) return null;
+  return values.reduce((min, v) => (v < min ? v : min));
 }
 
 // ============================================================================
@@ -310,7 +384,18 @@ export function createSchedule(
     throw new AppError('schedule_type and schedule_config are required', 400);
   }
 
-  const nextRun = computeNextRun(schedule_type, schedule_config, timezone);
+  // Per-machine mode (recurring only): each agent gets its own random time.
+  // We store the per-agent map and keep next_run_at as its minimum.
+  const perMachine =
+    schedule_type !== 'once' && resolveRandomizeMode(schedule_config) === 'per_machine';
+  const agentNextRuns = perMachine
+    ? computePerAgentNextRuns(schedule_type, schedule_config, timezone, agent_ids)
+    : null;
+
+  const perMachineMin = perMachine ? minNextRun(agentNextRuns!) : null;
+  const nextRun = perMachine
+    ? (perMachineMin ? new Date(perMachineMin) : null)
+    : computeNextRun(schedule_type, schedule_config, timezone);
   if (!nextRun && schedule_type === 'once') {
     throw new AppError('Scheduled time must be in the future', 400);
   }
@@ -325,8 +410,8 @@ export function createSchedule(
     INSERT INTO schedules (
       id, name, agent_ids, org_id, test_uuid, test_name, binary_name,
       execution_timeout, priority, metadata, schedule_type, schedule_config,
-      timezone, next_run_at, status, created_by, target_index
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+      timezone, next_run_at, status, created_by, target_index, agent_next_runs
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
   `).run(
     id,
     name ?? null,
@@ -344,6 +429,7 @@ export function createSchedule(
     nextRun ? nextRun.toISOString() : null,
     userId,
     target_index ?? null,
+    agentNextRuns ? JSON.stringify(agentNextRuns) : null,
   );
 
   const row = db.prepare('SELECT * FROM schedules WHERE id = ?').get(id) as ScheduleRow;
@@ -427,20 +513,43 @@ export function updateSchedule(
   params.push(id);
   db.prepare(`UPDATE schedules SET ${sets.join(', ')} WHERE id = ?`).run(...params);
 
-  // Recompute next_run_at if config, timezone, or status changed
-  if (updates.schedule_config || updates.timezone || updates.status) {
+  // Recompute next_run_at if config, timezone, status, or the agent list changed.
+  // (agent_ids matters because per_machine schedules track a time per agent.)
+  if (updates.schedule_config || updates.timezone || updates.status || updates.agent_ids) {
     const updated = db.prepare('SELECT * FROM schedules WHERE id = ?').get(id) as ScheduleRow;
     const schedule = parseScheduleRow(updated);
 
     if (schedule.status === 'active') {
-      const nextRun = computeNextRun(
-        schedule.schedule_type,
-        schedule.schedule_config,
-        schedule.timezone,
-      );
-      db.prepare('UPDATE schedules SET next_run_at = ? WHERE id = ?').run(
-        nextRun ? nextRun.toISOString() : null, id
-      );
+      const mode = schedule.schedule_type !== 'once'
+        ? resolveRandomizeMode(schedule.schedule_config)
+        : 'fixed';
+
+      if (mode === 'per_machine') {
+        // Reconcile the per-agent map. When the time basis changed
+        // (schedule_config/timezone/status), recompute every agent; when only
+        // the agent list changed, retain existing times and roll just the new agents.
+        const existingMap = schedule.agent_next_runs ?? {};
+        const recomputeAll =
+          updates.schedule_config !== undefined ||
+          updates.timezone !== undefined ||
+          updates.status !== undefined;
+        const newMap: Record<string, string> = {};
+        for (const agentId of schedule.agent_ids) {
+          if (!recomputeAll && existingMap[agentId]) {
+            newMap[agentId] = existingMap[agentId];
+          } else {
+            const next = computeNextRun(schedule.schedule_type, schedule.schedule_config, schedule.timezone);
+            if (next) newMap[agentId] = next.toISOString();
+          }
+        }
+        db.prepare('UPDATE schedules SET next_run_at = ?, agent_next_runs = ? WHERE id = ?')
+          .run(minNextRun(newMap), JSON.stringify(newMap), id);
+      } else {
+        // fixed / fleet: single next_run_at, and clear any stale per-agent map.
+        const nextRun = computeNextRun(schedule.schedule_type, schedule.schedule_config, schedule.timezone);
+        db.prepare('UPDATE schedules SET next_run_at = ?, agent_next_runs = NULL WHERE id = ?')
+          .run(nextRun ? nextRun.toISOString() : null, id);
+      }
     }
   }
 
@@ -483,6 +592,7 @@ export function processSchedules(): { processed: number; errors: string[] } {
 
   for (const row of dueRows) {
     const schedule = parseScheduleRow(row);
+    const now = new Date();
 
     // Filter out decommissioned agents — they'll never pick up tasks
     const placeholders = schedule.agent_ids.map(() => '?').join(', ');
@@ -490,6 +600,66 @@ export function processSchedules(): { processed: number; errors: string[] } {
       `SELECT id FROM agents WHERE id IN (${placeholders}) AND status != 'decommissioned'`
     ).all(...schedule.agent_ids) as { id: string }[];
     const eligibleAgentIds = activeAgentRows.map(r => r.id);
+
+    const mode = schedule.schedule_type !== 'once'
+      ? resolveRandomizeMode(schedule.schedule_config)
+      : 'fixed';
+
+    // ----- per_machine: each agent fires at its own time -----
+    if (mode === 'per_machine' && schedule.agent_next_runs) {
+      const map = { ...schedule.agent_next_runs };
+      const nowIso = now.toISOString();
+      const eligibleSet = new Set(eligibleAgentIds);
+
+      // Dispatch only agents whose individual time is due AND still eligible.
+      const dueAgentIds = Object.keys(map).filter(
+        (id) => eligibleSet.has(id) && map[id] <= nowIso,
+      );
+
+      if (dueAgentIds.length > 0) {
+        try {
+          createTasks(
+            {
+              agent_ids: dueAgentIds,
+              test_uuid: schedule.test_uuid,
+              test_name: schedule.test_name,
+              binary_name: schedule.binary_name,
+              execution_timeout: schedule.execution_timeout,
+              priority: schedule.priority,
+              metadata: schedule.metadata,
+              target_index: schedule.target_index ?? undefined,
+            },
+            schedule.org_id,
+            schedule.created_by,
+          );
+          processed++;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          errors.push(`Schedule ${schedule.id}: ${msg}`);
+          console.error(`[Scheduler] Failed to create tasks for schedule ${schedule.id}:`, msg);
+        }
+      } else {
+        // Due by minimum, but no eligible agent is actually due (e.g. the due
+        // agent was decommissioned). Still advance below to avoid re-processing.
+        processed++;
+      }
+
+      // Advance every past-due agent (including ineligible ones) to its next
+      // occurrence, so the schedule's minimum moves into the future and the row
+      // is not re-selected on every tick.
+      for (const id of Object.keys(map)) {
+        if (map[id] > nowIso) continue;
+        const next = computeNextRun(schedule.schedule_type, schedule.schedule_config, schedule.timezone, now);
+        if (next) map[id] = next.toISOString();
+        else delete map[id];
+      }
+
+      db.prepare(
+        "UPDATE schedules SET next_run_at = ?, last_run_at = ?, agent_next_runs = ?, updated_at = datetime('now') WHERE id = ?",
+      ).run(minNextRun(map), now.toISOString(), JSON.stringify(map), schedule.id);
+      continue;
+    }
+    // ----- fixed / fleet: whole fleet fires together (original path) -----
 
     if (eligibleAgentIds.length === 0) {
       console.warn(
@@ -521,7 +691,6 @@ export function processSchedules(): { processed: number; errors: string[] } {
     }
 
     // Advance next_run_at regardless of success (avoid retry spam)
-    const now = new Date();
     if (schedule.schedule_type === 'once') {
       db.prepare("UPDATE schedules SET status = 'completed', last_run_at = ?, updated_at = datetime('now') WHERE id = ?")
         .run(now.toISOString(), schedule.id);

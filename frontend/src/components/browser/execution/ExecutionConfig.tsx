@@ -1,11 +1,37 @@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/shared/ui/Tabs';
 import { Input } from '@/components/shared/ui/Input';
-import { Switch } from '@/components/shared/ui/Switch';
 import { Play, Calendar } from 'lucide-react';
-import type { ScheduleType } from '@/types/agent';
+import type { ScheduleType, RandomizeMode } from '@/types/agent';
 import type { IndexInfo } from '@/services/api/analytics';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const RANDOMIZE_HINT = 'Weekdays 09:00–17:00 · Weekends anytime';
+
+/** Labeled dropdown selecting how a recurring schedule's run time is randomized. */
+function TimingModeSelect({ mode, onChange }: { mode: RandomizeMode; onChange: (mode: RandomizeMode) => void }) {
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-1.5">Timing</label>
+      <select
+        className="w-full max-w-xs rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+        value={mode}
+        onChange={(e) => onChange(e.target.value as RandomizeMode)}
+      >
+        <option value="fixed">Fixed time</option>
+        <option value="fleet">Randomized (fleet together)</option>
+        <option value="per_machine">Randomized per machine</option>
+      </select>
+    </div>
+  );
+}
+
+/** Explanatory caption shown beneath the timing selector for randomized modes. */
+function randomizeCaption(mode: RandomizeMode): string | null {
+  if (mode === 'fleet') return `One random time per run, shared by all machines · ${RANDOMIZE_HINT}`;
+  if (mode === 'per_machine') return `Each machine runs at its own random time · ${RANDOMIZE_HINT}`;
+  return null;
+}
 
 const COMMON_TIMEZONES = [
   'UTC',
@@ -34,7 +60,7 @@ export interface ExecutionConfigState {
   scheduleDays: number[];
   scheduleDayOfMonth: number;
   scheduleTimezone: string;
-  randomizeTime: boolean;
+  randomizeMode: RandomizeMode;
 }
 
 export function getDefaultConfigState(): ExecutionConfigState {
@@ -50,7 +76,7 @@ export function getDefaultConfigState(): ExecutionConfigState {
     scheduleDays: [1, 2, 3, 4, 5],
     scheduleDayOfMonth: 1,
     scheduleTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    randomizeTime: false,
+    randomizeMode: 'fixed',
   };
 }
 
@@ -136,7 +162,7 @@ export default function ExecutionConfig({ config, onChange, availableIndices, in
                 <button
                   key={t}
                   type="button"
-                  onClick={() => { onChange({ scheduleType: t }); if (t === 'once') onChange({ randomizeTime: false }); }}
+                  onClick={() => { onChange({ scheduleType: t }); if (t === 'once') onChange({ randomizeMode: 'fixed' }); }}
                   className={`text-xs px-3 py-1.5 rounded-full border transition-colors capitalize ${
                     config.scheduleType === t
                       ? 'bg-primary/10 text-primary border-primary/30'
@@ -174,19 +200,11 @@ export default function ExecutionConfig({ config, onChange, availableIndices, in
             </div>
           )}
 
-          {/* Daily → time or randomize */}
+          {/* Daily → timing mode + time */}
           {config.scheduleType === 'daily' && (
             <div className="space-y-3">
-              <Switch
-                label="Randomize time"
-                checked={config.randomizeTime}
-                onChange={(e) => onChange({ randomizeTime: e.target.checked })}
-              />
-              {config.randomizeTime ? (
-                <p className="text-xs text-muted-foreground">
-                  Weekdays 09:00–17:00 &middot; Weekends anytime
-                </p>
-              ) : (
+              <TimingModeSelect mode={config.randomizeMode} onChange={(m) => onChange({ randomizeMode: m })} />
+              {config.randomizeMode === 'fixed' ? (
                 <div>
                   <label className="block text-sm font-medium mb-1.5">Time</label>
                   <input
@@ -196,6 +214,8 @@ export default function ExecutionConfig({ config, onChange, availableIndices, in
                     onChange={(e) => onChange({ scheduleTime: e.target.value })}
                   />
                 </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">{randomizeCaption(config.randomizeMode)}</p>
               )}
             </div>
           )}
@@ -222,16 +242,8 @@ export default function ExecutionConfig({ config, onChange, availableIndices, in
                   ))}
                 </div>
               </div>
-              <Switch
-                label="Randomize time"
-                checked={config.randomizeTime}
-                onChange={(e) => onChange({ randomizeTime: e.target.checked })}
-              />
-              {config.randomizeTime ? (
-                <p className="text-xs text-muted-foreground">
-                  Weekdays 09:00–17:00 &middot; Weekends anytime
-                </p>
-              ) : (
+              <TimingModeSelect mode={config.randomizeMode} onChange={(m) => onChange({ randomizeMode: m })} />
+              {config.randomizeMode === 'fixed' ? (
                 <div>
                   <label className="block text-sm font-medium mb-1.5">Time</label>
                   <input
@@ -241,6 +253,8 @@ export default function ExecutionConfig({ config, onChange, availableIndices, in
                     onChange={(e) => onChange({ scheduleTime: e.target.value })}
                   />
                 </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">{randomizeCaption(config.randomizeMode)}</p>
               )}
             </div>
           )}
@@ -261,7 +275,7 @@ export default function ExecutionConfig({ config, onChange, availableIndices, in
                     ))}
                   </select>
                 </div>
-                {!config.randomizeTime && (
+                {config.randomizeMode === 'fixed' && (
                   <div>
                     <label className="block text-sm font-medium mb-1.5">Time</label>
                     <input
@@ -273,15 +287,9 @@ export default function ExecutionConfig({ config, onChange, availableIndices, in
                   </div>
                 )}
               </div>
-              <Switch
-                label="Randomize time"
-                checked={config.randomizeTime}
-                onChange={(e) => onChange({ randomizeTime: e.target.checked })}
-              />
-              {config.randomizeTime && (
-                <p className="text-xs text-muted-foreground">
-                  Weekdays 09:00–17:00 &middot; Weekends anytime
-                </p>
+              <TimingModeSelect mode={config.randomizeMode} onChange={(m) => onChange({ randomizeMode: m })} />
+              {config.randomizeMode !== 'fixed' && (
+                <p className="text-xs text-muted-foreground">{randomizeCaption(config.randomizeMode)}</p>
               )}
             </div>
           )}

@@ -1,8 +1,22 @@
 import { Pause, Play, Trash2, Clock, Calendar } from 'lucide-react';
 import { Button } from '@/components/shared/ui/Button';
-import type { Schedule, ScheduleConfigDaily, ScheduleConfigWeekly, ScheduleConfigMonthly, ScheduleConfigOnce } from '@/types/agent';
+import type { Schedule, RandomizeMode, ScheduleConfigDaily, ScheduleConfigWeekly, ScheduleConfigMonthly, ScheduleConfigOnce } from '@/types/agent';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** Resolve effective randomization mode, bridging the legacy randomize_time flag. */
+function resolveMode(c: { randomize_mode?: RandomizeMode; randomize_time?: boolean }): RandomizeMode {
+  if (c.randomize_mode) return c.randomize_mode;
+  return c.randomize_time ? 'fleet' : 'fixed';
+}
+
+/** Time phrase for the schedule description, e.g. "at 09:00 UTC" or a random-mode caption. */
+function timePhrase(c: { time: string; randomize_mode?: RandomizeMode; randomize_time?: boolean }, tz: string): string {
+  const mode = resolveMode(c);
+  if (mode === 'per_machine') return `random time per machine (office hours) ${tz}`;
+  if (mode === 'fleet') return `random time (office hours) ${tz}`;
+  return `at ${c.time} ${tz}`;
+}
 
 function describeSchedule(schedule: Schedule): string {
   const config = schedule.schedule_config;
@@ -15,19 +29,16 @@ function describeSchedule(schedule: Schedule): string {
     }
     case 'daily': {
       const c = config as ScheduleConfigDaily;
-      if (c.randomize_time) return `Daily, random time (office hours) ${tz}`;
-      return `Daily at ${c.time} ${tz}`;
+      return `Daily, ${timePhrase(c, tz)}`;
     }
     case 'weekly': {
       const c = config as ScheduleConfigWeekly;
       const days = c.days.map((d) => DAY_LABELS[d]).join(', ');
-      if (c.randomize_time) return `Weekly ${days}, random time (office hours) ${tz}`;
-      return `Weekly ${days} at ${c.time} ${tz}`;
+      return `Weekly ${days}, ${timePhrase(c, tz)}`;
     }
     case 'monthly': {
       const c = config as ScheduleConfigMonthly;
-      if (c.randomize_time) return `Monthly on day ${c.dayOfMonth}, random time (office hours) ${tz}`;
-      return `Monthly on day ${c.dayOfMonth} at ${c.time} ${tz}`;
+      return `Monthly on day ${c.dayOfMonth}, ${timePhrase(c, tz)}`;
     }
   }
 }

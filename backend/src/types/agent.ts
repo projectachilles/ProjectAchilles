@@ -374,10 +374,21 @@ export interface ListTasksRequest {
 export type ScheduleType = 'once' | 'daily' | 'weekly' | 'monthly';
 export type ScheduleStatus = 'active' | 'paused' | 'completed' | 'deleted';
 
+/**
+ * How the run time is randomized for recurring schedules:
+ * - 'fixed'       — run at the configured `time`, whole fleet together (no randomization)
+ * - 'fleet'       — one random time-of-day per occurrence, whole fleet together
+ * - 'per_machine' — each agent rolls its own random time-of-day independently
+ *
+ * Legacy rows predate this field and carry only `randomize_time`; resolve via
+ * resolveRandomizeMode() (randomize_time === true → 'fleet', else 'fixed').
+ */
+export type RandomizeMode = 'fixed' | 'fleet' | 'per_machine';
+
 export interface ScheduleConfigOnce { date: string; time: string; }
-export interface ScheduleConfigDaily { time: string; randomize_time?: boolean; }
-export interface ScheduleConfigWeekly { days: number[]; time: string; randomize_time?: boolean; }   // 0=Sun..6=Sat
-export interface ScheduleConfigMonthly { dayOfMonth: number; time: string; randomize_time?: boolean; }
+export interface ScheduleConfigDaily { time: string; randomize_time?: boolean; randomize_mode?: RandomizeMode; }
+export interface ScheduleConfigWeekly { days: number[]; time: string; randomize_time?: boolean; randomize_mode?: RandomizeMode; }   // 0=Sun..6=Sat
+export interface ScheduleConfigMonthly { dayOfMonth: number; time: string; randomize_time?: boolean; randomize_mode?: RandomizeMode; }
 export type ScheduleConfig =
   | ScheduleConfigOnce
   | ScheduleConfigDaily
@@ -405,6 +416,11 @@ export interface Schedule {
   created_at: string;
   updated_at: string;
   target_index: string | null;
+  /**
+   * Per-agent next-run times for `per_machine` randomization mode, keyed by agent id.
+   * `null` for fixed/fleet schedules. `next_run_at` is kept as the minimum of these.
+   */
+  agent_next_runs: Record<string, string> | null;
 }
 
 export interface CreateScheduleRequest {

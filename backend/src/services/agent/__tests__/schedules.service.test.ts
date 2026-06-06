@@ -17,6 +17,8 @@ vi.mock('../tasks.service.js', () => ({
 
 const {
   computeNextRun,
+  computePerAgentNextRuns,
+  resolveRandomizeMode,
   createSchedule,
   listSchedules,
   getSchedule,
@@ -688,6 +690,162 @@ describe('schedules.service', () => {
       const row = testDb.prepare('SELECT next_run_at FROM schedules WHERE id = ?')
         .get(schedule.id) as { next_run_at: string };
       expect(row.next_run_at).toBe(futureIso);
+    });
+  });
+
+  // ==========================================================================
+  // Per-machine randomization
+  // ==========================================================================
+
+  describe('resolveRandomizeMode', () => {
+    it('uses explicit randomize_mode when present', () => {
+      expect(resolveRandomizeMode({ time: '10:00', randomize_mode: 'per_machine' })).toBe('per_machine');
+      expect(resolveRandomizeMode({ time: '10:00', randomize_mode: 'fleet' })).toBe('fleet');
+      expect(resolveRandomizeMode({ time: '10:00', randomize_mode: 'fixed' })).toBe('fixed');
+    });
+
+    it('maps legacy randomize_time:true to fleet', () => {
+      expect(resolveRandomizeMode({ time: '10:00', randomize_time: true })).toBe('fleet');
+    });
+
+    it('maps legacy randomize_time absent/false to fixed', () => {
+      expect(resolveRandomizeMode({ time: '10:00' })).toBe('fixed');
+      expect(resolveRandomizeMode({ time: '10:00', randomize_time: false })).toBe('fixed');
+    });
+
+    it('prefers explicit mode over legacy randomize_time', () => {
+      expect(resolveRandomizeMode({ time: '10:00', randomize_time: true, randomize_mode: 'fixed' })).toBe('fixed');
+    });
+  });
+
+  describe('computePerAgentNextRuns', () => {
+    it('returns one entry per agent', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-02-09T08:00:00Z'));
+
+      const map = computePerAgentNextRuns(
+        'daily',
+        { time: '10:00', randomize_mode: 'per_machine' },
+        'UTC',
+        ['agent-a', 'agent-b', 'agent-c'],
+      );
+
+      expect(Object.keys(map).sort()).toEqual(['agent-a', 'agent-b', 'agent-c']);
+      for (const iso of Object.values(map)) {
+        expect(new Date(iso).getTime()).toBeGreaterThan(Date.now());
+      }
+    });
+
+    it('produces independent times so the whole fleet is not synchronized', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-02-09T08:00:00Z'));
+
+      // 30 agents across an 8h weekday window (480 distinct minutes): the
+      // chance all 30 collide on one minute is negligible. Assert >1 distinct.
+      const agentIds = Array.from({ length: 30 }, (_, i) => `agent-${i}`);
+      const map = computePerAgentNextRuns(
+        'daily',
+        { time: '10:00', randomize_mode: 'per_machine' },
+        'UTC',
+        agentIds,
+      );
+
+      const distinct = new Set(Object.values(map));
+      expect(distinct.size).toBeGreaterThan(1);
+    });
+  });
+
+  describe('createSchedule (per_machine)', () => {
+    it('populates agent_next_runs and sets next_run_at to the minimum', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-02-09T08:00:00Z'));
+      insertTestAgent(testDb, { id: 'agent-002' });
+
+      const schedule = createSchedule(baseScheduleRequest({
+        agent_ids: ['agent-001', 'agent-002'],
+        schedule_config: { time: '10:00', randomize_mode: 'per_machine' },
+      }), 'user-001');
+
+      expect(schedule.agent_next_runs).not.toBeNull();
+      expect(Object.keys(schedule.agent_next_runs!).sort()).toEqual(['agent-001', 'agent-002']);
+
+      const minIso = Object.values(schedule.agent_next_runs!).sort()[0];
+      expect(schedule.next_run_at).toBe(minIso);
+    });
+
+    it('leaves agent_next_runs null for fleet schedules', () => {
+      const schedule = createSchedule(baseScheduleRequest({
+        schedule_config: { time: '10:00', randomize_mode: 'fleet' },
+      }), 'user-001');
+      expect(schedule.agent_next_runs).toBeNull();
+    });
+  });
+
+  describe('processSchedules (per_machine)', () => {
+    it('dispatches only agents whose individual time is due and advances only them', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-02-09T12:00:00Z'));
+      insertTestAgent(testDb, { id: 'agent-002' });
+
+      const schedule = createSchedule(baseScheduleRequest({
+        agent_ids: ['agent-001', 'agent-002'],
+        schedule_config: { time: '10:00', randomize_mode: 'per_machine' },
+      }), 'user-001');
+
+      // agent-001 is due (in the past), agent-002 is not (in the future).
+      const dueIso = '2026-02-09T11:00:00.000Z';
+      const pendingIso = '2026-02-09T18:00:00.000Z';
+      testDb.prepare('UPDATE schedules SET agent_next_runs = ?, next_run_at = ? WHERE id = ?')
+        .run(JSON.stringify({ 'agent-001': dueIso, 'agent-002': pendingIso }), dueIso, schedule.id);
+
+      const result = processSchedules();
+
+      expect(result.processed).toBe(1);
+      expect(mockCreateTasks).toHaveBeenCalledTimes(1);
+      // Only the due agent dispatched
+      expect(mockCreateTasks.mock.calls[0][0].agent_ids).toEqual(['agent-001']);
+
+      const row = testDb.prepare('SELECT agent_next_runs FROM schedules WHERE id = ?')
+        .get(schedule.id) as { agent_next_runs: string };
+      const map = JSON.parse(row.agent_next_runs) as Record<string, string>;
+      // agent-001 advanced to the future; agent-002 untouched
+      expect(new Date(map['agent-001']).getTime()).toBeGreaterThan(Date.now());
+      expect(map['agent-002']).toBe(pendingIso);
+    });
+  });
+
+  describe('updateSchedule (per_machine reconciliation)', () => {
+    it('adds map entries for newly added agents and drops removed ones', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-02-09T08:00:00Z'));
+      insertTestAgent(testDb, { id: 'agent-002' });
+      insertTestAgent(testDb, { id: 'agent-003' });
+
+      const schedule = createSchedule(baseScheduleRequest({
+        agent_ids: ['agent-001', 'agent-002'],
+        schedule_config: { time: '10:00', randomize_mode: 'per_machine' },
+      }), 'user-001');
+
+      const updated = updateSchedule(schedule.id, { agent_ids: ['agent-002', 'agent-003'] });
+
+      expect(Object.keys(updated.agent_next_runs!).sort()).toEqual(['agent-002', 'agent-003']);
+      // agent-002 kept its original time
+      expect(updated.agent_next_runs!['agent-002']).toBe(schedule.agent_next_runs!['agent-002']);
+    });
+
+    it('clears agent_next_runs when switching away from per_machine', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-02-09T08:00:00Z'));
+
+      const schedule = createSchedule(baseScheduleRequest({
+        schedule_config: { time: '10:00', randomize_mode: 'per_machine' },
+      }), 'user-001');
+      expect(schedule.agent_next_runs).not.toBeNull();
+
+      const updated = updateSchedule(schedule.id, {
+        schedule_config: { time: '10:00', randomize_mode: 'fleet' },
+      });
+      expect(updated.agent_next_runs).toBeNull();
     });
   });
 });

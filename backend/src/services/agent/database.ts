@@ -134,7 +134,8 @@ export function initializeTables(database: Database.Database): void {
       status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused','completed','deleted')),
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      agent_next_runs TEXT DEFAULT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_schedules_status_next_run ON schedules(status, next_run_at);
@@ -229,6 +230,11 @@ export function initializeTables(database: Database.Database): void {
   const scheduleColNames = new Set(scheduleCols.map((c) => c.name));
   if (!scheduleColNames.has('target_index')) {
     database.exec(`ALTER TABLE schedules ADD COLUMN target_index TEXT DEFAULT NULL`);
+  }
+
+  // Migration: add agent_next_runs (per-machine randomization) to schedules table
+  if (!scheduleColNames.has('agent_next_runs')) {
+    database.exec(`ALTER TABLE schedules ADD COLUMN agent_next_runs TEXT DEFAULT NULL`);
   }
 
   // Migration: add signed column to agent_versions table

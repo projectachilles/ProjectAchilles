@@ -10,7 +10,7 @@ import { agentApi } from '@/services/api/agent';
 import { browserApi } from '@/services/api/browser';
 import { analyticsApi, type IndexInfo } from '@/services/api/analytics';
 import { integrationsApi } from '@/services/api/integrations';
-import type { AgentSummary, TaskTestMetadata, ScheduleType, ScheduleConfig } from '@/types/agent';
+import type { AgentSummary, TaskTestMetadata, ScheduleType, ScheduleConfig, RandomizeMode } from '@/types/agent';
 import type { TestMetadata, BuildInfo } from '@/types/test';
 
 interface AvailableTest {
@@ -56,6 +56,39 @@ const COMMON_TIMEZONES = [
   'Australia/Sydney',
 ];
 
+const RANDOMIZE_HINT = 'Weekdays 09:00–17:00 · Weekends anytime';
+
+/** Labeled dropdown selecting how a recurring schedule's run time is randomized. */
+function TimingModeSelect({
+  mode,
+  onChange,
+}: {
+  mode: RandomizeMode;
+  onChange: (mode: RandomizeMode) => void;
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-1.5">Timing</label>
+      <select
+        className="w-full max-w-xs rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+        value={mode}
+        onChange={(e) => onChange(e.target.value as RandomizeMode)}
+      >
+        <option value="fixed">Fixed time</option>
+        <option value="fleet">Randomized (fleet together)</option>
+        <option value="per_machine">Randomized per machine</option>
+      </select>
+    </div>
+  );
+}
+
+/** Explanatory caption shown beneath the timing selector for randomized modes. */
+function randomizeCaption(mode: RandomizeMode): string | null {
+  if (mode === 'fleet') return `One random time per run, shared by all machines · ${RANDOMIZE_HINT}`;
+  if (mode === 'per_machine') return `Each machine runs at its own random time · ${RANDOMIZE_HINT}`;
+  return null;
+}
+
 export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], onCreated }: TaskCreatorDialogProps) {
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [targetAgentIds, setTargetAgentIds] = useState<string[]>(selectedAgents);
@@ -91,7 +124,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
   const [scheduleTimezone, setScheduleTimezone] = useState(
     Intl.DateTimeFormat().resolvedOptions().timeZone
   );
-  const [randomizeTime, setRandomizeTime] = useState(false);
+  const [randomizeMode, setRandomizeMode] = useState<RandomizeMode>('fixed');
 
   // Target index state
   const [targetIndex, setTargetIndex] = useState('');
@@ -260,7 +293,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
     setScheduleDays([1, 2, 3, 4, 5]);
     setScheduleDayOfMonth(1);
     setScheduleTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
-    setRandomizeTime(false);
+    setRandomizeMode('fixed');
     setTargetIndex('');
   }
 
@@ -270,16 +303,18 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
   }
 
   function buildScheduleConfig(): ScheduleConfig {
-    const rt = randomizeTime || undefined;
+    // Omit the mode for plain 'fixed' to keep stored configs lean; the backend
+    // treats a missing randomize_mode as 'fixed'.
+    const mode = randomizeMode !== 'fixed' ? randomizeMode : undefined;
     switch (scheduleType) {
       case 'once':
         return { date: scheduleDate, time: scheduleTime };
       case 'daily':
-        return { time: scheduleTime, randomize_time: rt };
+        return { time: scheduleTime, randomize_mode: mode };
       case 'weekly':
-        return { days: scheduleDays, time: scheduleTime, randomize_time: rt };
+        return { days: scheduleDays, time: scheduleTime, randomize_mode: mode };
       case 'monthly':
-        return { dayOfMonth: scheduleDayOfMonth, time: scheduleTime, randomize_time: rt };
+        return { dayOfMonth: scheduleDayOfMonth, time: scheduleTime, randomize_mode: mode };
     }
   }
 
@@ -344,7 +379,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
 
   const isScheduleValid = (() => {
     if (activeTab !== 'schedule') return true;
-    if (!randomizeTime && !scheduleTime) return false;
+    if (randomizeMode === 'fixed' && !scheduleTime) return false;
     if (scheduleType === 'once' && !scheduleDate) return false;
     if (scheduleType === 'once' && scheduleDate) {
       const target = new Date(`${scheduleDate}T${scheduleTime}`);
@@ -701,7 +736,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                         <button
                           key={t}
                           type="button"
-                          onClick={() => { setScheduleType(t); if (t === 'once') setRandomizeTime(false); }}
+                          onClick={() => { setScheduleType(t); if (t === 'once') setRandomizeMode('fixed'); }}
                           className={`text-xs px-3 py-1.5 rounded-full border transition-colors capitalize ${
                             scheduleType === t
                               ? 'bg-primary/10 text-primary border-primary/30'
@@ -739,19 +774,11 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                     </div>
                   )}
 
-                  {/* Conditional: Daily → time or randomize */}
+                  {/* Conditional: Daily → timing mode + time */}
                   {scheduleType === 'daily' && (
                     <div className="space-y-3">
-                      <Switch
-                        label="Randomize time"
-                        checked={randomizeTime}
-                        onChange={(e) => setRandomizeTime(e.target.checked)}
-                      />
-                      {randomizeTime ? (
-                        <p className="text-xs text-muted-foreground">
-                          Weekdays 09:00–17:00 &middot; Weekends anytime
-                        </p>
-                      ) : (
+                      <TimingModeSelect mode={randomizeMode} onChange={setRandomizeMode} />
+                      {randomizeMode === 'fixed' ? (
                         <div>
                           <label className="block text-sm font-medium mb-1.5">Time</label>
                           <input
@@ -761,6 +788,8 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                             onChange={(e) => setScheduleTime(e.target.value)}
                           />
                         </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">{randomizeCaption(randomizeMode)}</p>
                       )}
                     </div>
                   )}
@@ -787,16 +816,8 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                           ))}
                         </div>
                       </div>
-                      <Switch
-                        label="Randomize time"
-                        checked={randomizeTime}
-                        onChange={(e) => setRandomizeTime(e.target.checked)}
-                      />
-                      {randomizeTime ? (
-                        <p className="text-xs text-muted-foreground">
-                          Weekdays 09:00–17:00 &middot; Weekends anytime
-                        </p>
-                      ) : (
+                      <TimingModeSelect mode={randomizeMode} onChange={setRandomizeMode} />
+                      {randomizeMode === 'fixed' ? (
                         <div>
                           <label className="block text-sm font-medium mb-1.5">Time</label>
                           <input
@@ -806,6 +827,8 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                             onChange={(e) => setScheduleTime(e.target.value)}
                           />
                         </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">{randomizeCaption(randomizeMode)}</p>
                       )}
                     </div>
                   )}
@@ -826,7 +849,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                             ))}
                           </select>
                         </div>
-                        {!randomizeTime && (
+                        {randomizeMode === 'fixed' && (
                           <div>
                             <label className="block text-sm font-medium mb-1.5">Time</label>
                             <input
@@ -838,15 +861,9 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                           </div>
                         )}
                       </div>
-                      <Switch
-                        label="Randomize time"
-                        checked={randomizeTime}
-                        onChange={(e) => setRandomizeTime(e.target.checked)}
-                      />
-                      {randomizeTime && (
-                        <p className="text-xs text-muted-foreground">
-                          Weekdays 09:00–17:00 &middot; Weekends anytime
-                        </p>
+                      <TimingModeSelect mode={randomizeMode} onChange={setRandomizeMode} />
+                      {randomizeMode !== 'fixed' && (
+                        <p className="text-xs text-muted-foreground">{randomizeCaption(randomizeMode)}</p>
                       )}
                     </div>
                   )}

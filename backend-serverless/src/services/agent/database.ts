@@ -169,7 +169,8 @@ async function initializeTables(c: Client): Promise<void> {
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      target_index TEXT DEFAULT NULL
+      target_index TEXT DEFAULT NULL,
+      agent_next_runs TEXT DEFAULT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS heartbeat_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -228,6 +229,16 @@ async function initializeTables(c: Client): Promise<void> {
   }
   if (!taskColNames.has('last_ingest_attempt_at')) {
     await c.execute('ALTER TABLE tasks ADD COLUMN last_ingest_attempt_at TEXT DEFAULT NULL');
+  }
+
+  // Idempotent ALTER for schedules table on Turso DBs that pre-date per-machine
+  // randomization. agent_next_runs holds the per-agent next-run map (JSON).
+  const scheduleCols = await c.execute('PRAGMA table_info(schedules)');
+  const scheduleColNames = new Set(
+    scheduleCols.rows.map((r) => String((r as { name?: unknown }).name ?? '')),
+  );
+  if (!scheduleColNames.has('agent_next_runs')) {
+    await c.execute('ALTER TABLE schedules ADD COLUMN agent_next_runs TEXT DEFAULT NULL');
   }
 }
 
