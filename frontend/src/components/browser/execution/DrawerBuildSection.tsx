@@ -59,7 +59,7 @@ function SingleBuild({ uuid, buildInfo, onBuildComplete, loading }: SingleBuildP
   if (error) {
     return (
       <div className="space-y-2">
-        <p className="text-xs text-red-500 line-clamp-2">{error}</p>
+        <pre className="text-xs text-red-500 font-mono whitespace-pre-wrap break-words max-h-48 overflow-auto rounded-md bg-red-500/5 p-2 leading-relaxed">{error}</pre>
         <Button variant="outline" size="sm" onClick={handleBuild} className="w-full">
           Retry Build
         </Button>

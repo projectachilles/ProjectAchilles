@@ -249,7 +249,7 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
               </Badge>
             </div>
           )}
-          <p className="text-xs text-red-500 line-clamp-3">{error}</p>
+          <pre className="text-xs text-red-500 font-mono whitespace-pre-wrap break-words max-h-48 overflow-auto rounded-md bg-red-500/5 p-2 leading-relaxed">{error}</pre>
           {canBuild && (
             <Button variant="outline" size="sm" onClick={handleBuild} className="w-full">
               Retry Build
