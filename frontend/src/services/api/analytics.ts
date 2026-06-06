@@ -9,6 +9,8 @@ export interface AnalyticsSettings {
   /** '***' placeholder when a CA cert is saved; undefined otherwise. Real PEM is never echoed. */
   caCert?: string;
   tlsInsecureSkipVerify?: boolean;
+  writeIndexPrefix?: string;
+  writeIndexRollover?: 'none' | 'daily' | 'monthly';
 }
 
 export interface DefenseScore {
@@ -359,6 +361,8 @@ export const analyticsApi = {
     indexPattern?: string;
     caCert?: string;
     tlsInsecureSkipVerify?: boolean;
+    writeIndexPrefix?: string;
+    writeIndexRollover?: 'none' | 'daily' | 'monthly';
   }): Promise<{ success: boolean }> {
     const response = await apiClient.post('/analytics/settings', settings);
     return response.data;

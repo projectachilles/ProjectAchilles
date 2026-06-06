@@ -23,6 +23,8 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [indexPattern, setIndexPattern] = useState('achilles-results-*');
+  const [writeIndexPrefix, setWriteIndexPrefix] = useState('achilles-results-');
+  const [writeIndexRollover, setWriteIndexRollover] = useState<'none' | 'daily' | 'monthly'>('none');
   const [caCert, setCaCert] = useState('');
   const [hasSavedCaCert, setHasSavedCaCert] = useState(false);
   const [tlsInsecureSkipVerify, setTlsInsecureSkipVerify] = useState(false);
@@ -46,6 +48,8 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
         setEditMode(true);
         setConnectionType(settings.connectionType || 'cloud');
         setIndexPattern(settings.indexPattern || 'achilles-results-*');
+        setWriteIndexPrefix(settings.writeIndexPrefix || 'achilles-results-');
+        setWriteIndexRollover(settings.writeIndexRollover || 'none');
         // Backend returns '***' as a presence-only placeholder; the real PEM is never echoed.
         setHasSavedCaCert(settings.caCert === '***');
         setTlsInsecureSkipVerify(!!settings.tlsInsecureSkipVerify);
@@ -117,10 +121,11 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
         });
       }
 
+      const trimmedPrefix = writeIndexPrefix.trim() || undefined;
       const settings =
         connectionType === 'cloud'
-          ? { connectionType, cloudId, apiKey, indexPattern }
-          : { connectionType, node, apiKey, username, password, indexPattern, caCert, tlsInsecureSkipVerify };
+          ? { connectionType, cloudId, apiKey, indexPattern, writeIndexPrefix: trimmedPrefix, writeIndexRollover }
+          : { connectionType, node, apiKey, username, password, indexPattern, caCert, tlsInsecureSkipVerify, writeIndexPrefix: trimmedPrefix, writeIndexRollover };
 
       await analyticsApi.saveSettings(settings);
 
@@ -129,6 +134,8 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
         configured: true,
         connectionType,
         indexPattern,
+        writeIndexPrefix: trimmedPrefix,
+        writeIndexRollover,
       });
 
       setEditMode(true);
@@ -334,6 +341,35 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
         value={indexPattern}
         onChange={(e) => setIndexPattern(e.target.value)}
       />
+
+      {/* Write Index Prefix */}
+      <Input
+        label="Write Index Prefix"
+        placeholder="achilles-results-"
+        value={writeIndexPrefix}
+        onChange={(e) => setWriteIndexPrefix(e.target.value)}
+        helperText="Reads use the Index Pattern above; writes go to <prefix><date> when rollover is enabled. Must be lowercase, no wildcards."
+      />
+
+      {/* Write Index Rollover */}
+      <div>
+        <label htmlFor="write-index-rollover" className="block text-sm font-medium mb-1.5 text-foreground">
+          Write index rollover
+        </label>
+        <select
+          id="write-index-rollover"
+          value={writeIndexRollover}
+          onChange={(e) => setWriteIndexRollover(e.target.value as 'none' | 'daily' | 'monthly')}
+          className="w-full rounded-base border-theme border-border bg-background px-3 py-2.5 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+        >
+          <option value="none">None (single index)</option>
+          <option value="daily">Daily (YYYY.MM.DD)</option>
+          <option value="monthly">Monthly (YYYY.MM)</option>
+        </select>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          Create a new index each day or month to limit index size and simplify retention.
+        </p>
+      </div>
 
       {/* Test Result */}
       {testResult && (

@@ -7,6 +7,8 @@ interface AnalyticsSettings {
   configured: boolean;
   connectionType?: 'cloud' | 'direct';
   indexPattern?: string;
+  writeIndexPrefix?: string;
+  writeIndexRollover?: 'none' | 'daily' | 'monthly';
 }
 
 interface AnalyticsAuthContextType {
