@@ -16,6 +16,8 @@ export const AnalyticsSettingsSchema = z.object({
   indexPattern: z.string().optional(),
   caCert: z.string().optional(),
   tlsInsecureSkipVerify: z.boolean().optional(),
+  writeIndexPrefix: z.string().trim().max(200).optional(),
+  writeIndexRollover: z.enum(['none', 'daily', 'monthly']).optional(),
 });
 
 export const AnalyticsTestSchema = z.object({
