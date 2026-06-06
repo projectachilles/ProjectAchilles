@@ -28,6 +28,7 @@ import './commands/certs.js';
 import './commands/integrations.js';
 import './commands/risk.js';
 import './commands/users.js';
+import './commands/deploy.js';
 import './commands/help.js';
 
 // ─── Main entry ─────────────────────────────────────────────────────────────

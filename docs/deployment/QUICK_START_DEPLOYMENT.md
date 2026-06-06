@@ -4,6 +4,48 @@
 
 ---
 
+## Fastest path: `achilles deploy`
+
+Before following the manual steps below, try the unified deploy wizard — it
+checks prerequisites, collects inputs, and runs (or guides) the deployment for
+every supported target.
+
+```bash
+cd cli
+bun run bin/achilles.ts deploy
+```
+
+The wizard walks you through **mode → target → prerequisites → configuration →
+run**:
+
+| Mode | Targets |
+|------|---------|
+| **Self-host** | Docker Compose · Self-hosted server (Caddy + TLS, on this box / a remote SSH host / a new DO droplet) · Fly.io · Render · Vercel · Railway |
+| **Operator** | DigitalOcean (full multi-droplet automation) |
+
+Automated targets (Docker, the Caddy server installers, DigitalOcean) run
+end-to-end; the PaaS targets (Fly/Render/Vercel/Railway) are *guided* — automated
+where possible, with copy-paste checklists for the dashboard/DNS steps.
+
+**Headless / CI** — the same command runs non-interactively when there's no TTY
+or with `--json`:
+
+```bash
+# Bring up the local Docker stack with bundled Elasticsearch, structured output
+achilles deploy --target docker --elasticsearch true --json
+
+# Stand up a Caddy single-origin server on this machine
+achilles deploy --target server --installTarget this-machine \
+  --achillesDomain achilles.example.com \
+  --clerkPublishableKey pk_live_… --clerkSecretKey sk_live_…
+```
+
+The wizard writes secrets to `deploy.config.env` (mode `0600`) and never echoes
+them to the terminal. The manual runbook below remains the canonical reference
+for the dashboard-only details.
+
+---
+
 ## Step 1: Clerk Production (10 min)
 
 ```
