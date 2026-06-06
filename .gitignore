@@ -10,6 +10,12 @@ build/
 .env.local
 .env.*.local
 
+# Server deployment secrets / generated artifacts
+deploy.config.env
+deploy/caddy/certs/*.crt
+deploy/caddy/certs/*.pem
+deploy/caddy/certs/*.key
+
 # IDE
 .vscode/
 .idea/

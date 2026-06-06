@@ -1,0 +1,6 @@
+# TLS_MODE=acme-http
+# Publicly-trusted certificate via Let's Encrypt HTTP-01 challenge.
+# Requires: the server is reachable from the internet on ports 80 and 443,
+# and ACHILLES_DOMAIN resolves to this server's public IP.
+# This is the default for the public droplet deployment.
+tls {$ACME_EMAIL}

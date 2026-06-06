@@ -1,0 +1,17 @@
+# TLS_MODE=acme-dns
+# Publicly-trusted certificate via Let's Encrypt DNS-01 challenge.
+# Works even when the server has NO inbound 80/443 (internal-only host),
+# because domain ownership is proven via a DNS TXT record instead of HTTP.
+#
+# Requires:
+#   - A public domain (ACHILLES_DOMAIN) whose DNS is hosted by a provider
+#     Caddy has a plugin for (cloudflare, route53, digitalocean, etc.).
+#   - A custom Caddy image built WITH that DNS plugin. deploy-server.sh builds
+#     it from deploy/caddy/Dockerfile when CADDY_DNS_PROVIDER is set.
+#   - The provider API token exposed to the container (see deploy.config.env).
+#
+# CADDY_DNS_PROVIDER selects the plugin module name (e.g. "cloudflare").
+# The {$CADDY_DNS_TOKEN} env var carries the API token.
+tls {$ACME_EMAIL} {
+	dns {$CADDY_DNS_PROVIDER} {$CADDY_DNS_TOKEN}
+}

@@ -1,0 +1,11 @@
+# TLS_MODE=internal
+# Self-signed certificate minted by Caddy's built-in local CA.
+# No public domain or internet required — ideal for isolated / LAN networks.
+#
+# Caddy generates a long-lived root CA on first run, stored in the caddy_data
+# volume at /data/caddy/pki/authorities/local/root.crt. After `up`,
+# deploy-server.sh exports that root to deploy/caddy/certs/root-ca.crt so you
+# can distribute it to:
+#   - Browsers/OS trust stores (to remove the warning), and
+#   - The Go agent via its `ca_cert` config field (already supported).
+tls internal

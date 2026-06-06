@@ -1,0 +1,12 @@
+# TLS_MODE=byo
+# Bring-your-own certificate from an existing/internal PKI.
+# Place your PEM files at deploy/caddy/certs/ before deploying:
+#   - deploy/caddy/certs/cert.pem  (server cert; include the full chain:
+#                                   leaf first, then intermediates)
+#   - deploy/caddy/certs/key.pem   (matching private key, unencrypted)
+# These are mounted read-only into the container at /etc/caddy/certs/.
+#
+# Clients see no warning as long as they already trust the issuing CA. If the
+# cert is from an internal CA, distribute that CA's root to browsers and to the
+# Go agent (ca_cert) just like the internal-CA mode.
+tls /etc/caddy/certs/cert.pem /etc/caddy/certs/key.pem

@@ -1,0 +1,43 @@
+# ProjectAchilles — Caddy reverse proxy (single public origin)
+#
+# This file is intentionally static. The only part that changes between
+# deployments is the TLS strategy, which lives in the imported `tls.caddy`
+# snippet rendered by scripts/deploy-server.sh from your chosen TLS_MODE.
+#
+# Topology: Caddy terminates TLS on :443 and reverse-proxies everything to
+# the frontend container. The frontend (nginx) serves the SPA and proxies
+# /api -> backend:3000 internally, so the whole app lives on one origin.
+#
+# ACHILLES_DOMAIN is injected as an environment variable (see
+# docker-compose.server.yml). Example: achilles.example.com
+
+{
+	# Global options
+	email {$ACME_EMAIL}
+	# admin endpoint stays on loopback inside the container
+	admin off
+}
+
+{$ACHILLES_DOMAIN} {
+	encode zstd gzip
+
+	# Larger uploads (agent binaries, cert bundles) — match the nginx limit.
+	request_body {
+		max_size 50MB
+	}
+
+	# TLS strategy is rendered per-deployment into tls.caddy.
+	import /etc/caddy/tls.caddy
+
+	reverse_proxy frontend:80 {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
