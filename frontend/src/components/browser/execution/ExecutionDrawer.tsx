@@ -54,7 +54,9 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
     if (!open || tests.length === 0) return;
 
     setAgentsLoading(true);
-    agentApi.listAgents({ status: 'active' })
+    // Target picker needs the whole active fleet, not a single page — override the
+    // backend's default limit of 50 (listAgents pagination) so all agents are selectable.
+    agentApi.listAgents({ status: 'active', limit: 1000 })
       .then((result) => setAgents(result.agents))
       .catch(() => {})
       .finally(() => setAgentsLoading(false));

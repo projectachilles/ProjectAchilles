@@ -112,7 +112,9 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
   useEffect(() => {
     if (!open) return;
     setTargetAgentIds(stableSelectedAgents);
-    agentApi.listAgents({ status: 'active' })
+    // Target picker needs the whole active fleet, not a single page — override the
+    // backend's default limit of 50 (listAgents pagination) so all agents are selectable.
+    agentApi.listAgents({ status: 'active', limit: 1000 })
       .then((result) => setAgents(result.agents))
       .catch(() => {});
   }, [open, stableSelectedAgents]);
