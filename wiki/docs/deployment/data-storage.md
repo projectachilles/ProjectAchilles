@@ -1,5 +1,5 @@
 ---
-sidebar_position: 10
+sidebar_position: 12
 title: Data Storage & Clean Reset
 description: Where ProjectAchilles stores runtime state, and how to reset an installation to a clean slate.
 ---

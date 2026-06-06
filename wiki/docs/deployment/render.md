@@ -1,5 +1,5 @@
 ---
-sidebar_position: 5
+sidebar_position: 7
 title: Render
 description: Deploy ProjectAchilles to Render with Blueprint deploy, persistent disk, and Elastic Cloud analytics.
 ---

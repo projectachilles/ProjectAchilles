@@ -1,5 +1,5 @@
 ---
-sidebar_position: 7
+sidebar_position: 9
 title: Vercel (Serverless)
 description: Deploy ProjectAchilles to Vercel with Turso database, Vercel Blob storage, and serverless functions.
 ---
