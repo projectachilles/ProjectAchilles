@@ -23,6 +23,12 @@ vi.mock('../../analytics/client.js', () => ({
   })),
 }));
 
+const mockCreateResultsIndex = vi.fn();
+
+vi.mock('../../analytics/index-management.service.js', () => ({
+  createResultsIndex: (...args: unknown[]) => mockCreateResultsIndex(...args),
+}));
+
 // Import ERROR_CODE_MAP from the real module — it's a static map we don't mock
 const { ERROR_CODE_MAP } = await import('../../analytics/elasticsearch.js');
 
@@ -132,6 +138,8 @@ function configuredSettings() {
     node: 'http://localhost:9200',
     apiKey: 'test-key',
     indexPattern: 'f0rtika-results',
+    writeIndexPrefix: 'f0rtika-results',
+    writeIndexRollover: 'none' as const,
     configured: true,
   };
 }
@@ -146,6 +154,7 @@ describe('results.service', () => {
     mockGetSettings.mockReturnValue(configuredSettings());
     mockEsIndex.mockResolvedValue({});
     mockEsBulk.mockResolvedValue({});
+    mockCreateResultsIndex.mockResolvedValue({ created: true, message: 'ok' });
   });
 
   // ── Group 1: Client Initialization ─────────────────────────
@@ -466,5 +475,55 @@ describe('results.service', () => {
       // f0rtika.test_uuid stays bundle-keyed (same identity for UI grouping)
       expect(opsA[1].f0rtika.test_uuid).toBe(opsB[1].f0rtika.test_uuid);
     });
+  });
+});
+
+// ── Daily-rollover ingestion ─────────────────────────────────────────────────
+
+describe('ingestResult daily rollover', () => {
+  // Uses the module-level mocks (mockGetSettings, mockIsConfigured, mockEsIndex,
+  // mockEsBulk, mockCreateResultsIndex) already declared at the top.  Each test
+  // resets state explicitly so there is no ordering dependency.
+
+  function dailySettings() {
+    return {
+      connectionType: 'direct' as const,
+      node: 'http://localhost:9200',
+      apiKey: 'test-key',
+      indexPattern: 'achilles-results-*',
+      writeIndexPrefix: 'achilles-results-',
+      writeIndexRollover: 'daily' as const,
+      configured: true,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetClient();
+    mockIsConfigured.mockReturnValue(true);
+    mockGetSettings.mockReturnValue(dailySettings());
+    mockEsIndex.mockResolvedValue({});
+    mockEsBulk.mockResolvedValue({ errors: false, items: [] });
+    mockCreateResultsIndex.mockResolvedValue({ created: true, message: 'ok' });
+  });
+
+  const task: Task = makeTask({ target_index: null });
+  const result: TaskResult = makeResult({ completed_at: '2023-01-15T10:00:00Z' });
+
+  it('writes to a dated index and ensures it once across two calls', async () => {
+    await ingestResult(task, result);
+    await ingestResult(task, result);
+
+    expect(mockEsIndex).toHaveBeenCalledWith(
+      expect.objectContaining({ index: 'achilles-results-2023.01.15' }),
+    );
+    // createResultsIndex called exactly once even though ingestResult ran twice
+    expect(mockCreateResultsIndex).toHaveBeenCalledTimes(1);
+    expect(mockCreateResultsIndex).toHaveBeenCalledWith('achilles-results-2023.01.15');
+  });
+
+  it('throws on a wildcard write target', async () => {
+    const wildcardTask = makeTask({ target_index: 'achilles-results-*' });
+    await expect(ingestResult(wildcardTask, result)).rejects.toThrow(/wildcard/);
   });
 });

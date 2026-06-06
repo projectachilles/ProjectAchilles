@@ -7,6 +7,7 @@ import type { AnalyticsSettings } from '../../types/analytics.js';
 import { ERROR_CODE_MAP } from '../analytics/elasticsearch.js';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
+import { createResultsIndex } from '../analytics/index-management.service.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
 
 function pad2(n: number): string { return n < 10 ? `0${n}` : `${n}`; }
@@ -54,14 +55,14 @@ function getErrorName(exitCode: number): string {
   return entry ? entry.name : `Unknown (${exitCode})`;
 }
 
-// Lazy-initialised ES client and index pattern
+// Lazy-initialised ES client and per-index ensure cache
 let esClient: Client | null = null;
-let indexPattern: string | null = null;
+const ensuredIndices = new Set<string>();
 
 /** Initialise (or re-use) the ES client from the current analytics settings. */
-async function getClient(): Promise<{ client: Client; index: string }> {
-  if (esClient && indexPattern) {
-    return { client: esClient, index: indexPattern };
+async function getClient(): Promise<{ client: Client }> {
+  if (esClient) {
+    return { client: esClient };
   }
 
   const settingsService = new SettingsService();
@@ -70,11 +71,20 @@ async function getClient(): Promise<{ client: Client; index: string }> {
     throw new Error('Elasticsearch is not configured — cannot ingest results');
   }
 
-  const settings = settingsService.getSettings();
-  esClient = createEsClient(settings);
-  indexPattern = settings.indexPattern;
+  esClient = createEsClient(settingsService.getSettings());
 
-  return { client: esClient, index: indexPattern };
+  return { client: esClient };
+}
+
+/**
+ * Ensure the dated index exists with the canonical mapping.
+ * Idempotent: calls createResultsIndex (which is a no-op on already-exists)
+ * only once per process lifetime per index name.
+ */
+async function ensureResultsIndex(name: string): Promise<void> {
+  if (ensuredIndices.has(name)) return;
+  await createResultsIndex(name);
+  ensuredIndices.add(name);
 }
 
 /**
@@ -84,8 +94,17 @@ async function getClient(): Promise<{ client: Client; index: string }> {
  * module so dashboards, filters, and aggregations work without changes.
  */
 export async function ingestResult(task: Task, result: TaskResult): Promise<void> {
-  const { client, index: defaultIndex } = await getClient();
-  const index = task.target_index ?? defaultIndex;
+  const { client } = await getClient();
+  const settings = new SettingsService().getSettings();
+  const index = resolveWriteIndex(settings, { target_index: task.target_index ?? undefined }, result.completed_at);
+  if (index.includes('*')) {
+    throw new Error(
+      `Resolved write index contains a wildcard: "${index}" — configure a concrete writeIndexPrefix/indexPattern for writes`,
+    );
+  }
+  // Auto-create the dated index with the canonical mapping on first write of the day.
+  const isGeneratedDated = !task.target_index && (settings.writeIndexRollover ?? 'none') !== 'none';
+  if (isGeneratedDated) await ensureResultsIndex(index);
 
   // Bundle results: fan out to one ES document per control
   if (result.bundle_results?.controls?.length) {
@@ -215,9 +234,9 @@ async function ingestBundleControls(
 }
 
 /**
- * Reset the cached ES client (useful for testing or after settings change).
+ * Reset the cached ES client and index-ensure set (useful for testing or after settings change).
  */
 export function resetClient(): void {
   esClient = null;
-  indexPattern = null;
+  ensuredIndices.clear();
 }
