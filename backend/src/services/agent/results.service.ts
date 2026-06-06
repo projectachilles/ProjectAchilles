@@ -3,10 +3,42 @@
 
 import type { Client } from '@elastic/elasticsearch';
 import type { Task, TaskResult } from '../../types/agent.js';
+import type { AnalyticsSettings } from '../../types/analytics.js';
 import { ERROR_CODE_MAP } from '../analytics/elasticsearch.js';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
+
+function pad2(n: number): string { return n < 10 ? `0${n}` : `${n}`; }
+
+/** UTC index-date suffix: 'YYYY.MM.DD' (daily) or 'YYYY.MM' (monthly). */
+function formatIndexDate(d: Date, mode: 'daily' | 'monthly'): string {
+  const y = d.getUTCFullYear();
+  const m = pad2(d.getUTCMonth() + 1);
+  return mode === 'monthly' ? `${y}.${m}` : `${y}.${m}.${pad2(d.getUTCDate())}`;
+}
+
+/**
+ * Resolve the destination index for a result write.
+ * - explicit `task.target_index` wins (verbatim, no date suffix)
+ * - otherwise `<writeIndexPrefix><date?>` per rollover mode
+ * The date derives from `completedAt` (immutable in the result payload) so a
+ * retry lands in the same dated index as the original — preserving _id overwrite
+ * idempotency across a midnight boundary. Falls back to ingest-time on bad input.
+ */
+export function resolveWriteIndex(
+  settings: Pick<AnalyticsSettings, 'writeIndexPrefix' | 'writeIndexRollover'>,
+  task: { target_index?: string },
+  completedAt: string | undefined,
+): string {
+  if (task.target_index) return task.target_index;
+  const base = settings.writeIndexPrefix || 'achilles-results-';
+  const mode = settings.writeIndexRollover || 'none';
+  if (mode === 'none') return base;
+  const parsed = completedAt ? new Date(completedAt) : new Date();
+  const d = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  return `${base}${formatIndexDate(d, mode)}`;
+}
 
 // Protected exit codes: file quarantined, execution prevented, quarantined on execution
 const PROTECTED_CODES = new Set([105, 126, 127]);
