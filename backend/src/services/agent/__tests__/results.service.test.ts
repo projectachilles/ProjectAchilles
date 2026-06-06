@@ -526,4 +526,16 @@ describe('ingestResult daily rollover', () => {
     const wildcardTask = makeTask({ target_index: 'achilles-results-*' });
     await expect(ingestResult(wildcardTask, result)).rejects.toThrow(/wildcard/);
   });
+
+  it('does not cache the dated index when createResultsIndex fails, so a later call retries', async () => {
+    // First attempt: index creation fails (e.g. ES temporarily down) -> ingest rejects
+    mockCreateResultsIndex.mockRejectedValueOnce(new Error('ES unavailable'));
+    await expect(ingestResult(task, result)).rejects.toThrow('ES unavailable');
+
+    // Second attempt: creation succeeds -> ensure is retried (not skipped due to a poisoned cache) and the write happens
+    await ingestResult(task, result);
+    expect(mockCreateResultsIndex).toHaveBeenCalledTimes(2);            // retried, not cached after failure
+    expect(mockCreateResultsIndex).toHaveBeenCalledWith('achilles-results-2023.01.15');
+    expect(mockEsIndex).toHaveBeenCalledWith(expect.objectContaining({ index: 'achilles-results-2023.01.15' }));
+  });
 });

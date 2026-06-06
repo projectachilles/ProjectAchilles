@@ -103,6 +103,8 @@ export async function ingestResult(task: Task, result: TaskResult): Promise<void
     );
   }
   // Auto-create the dated index with the canonical mapping on first write of the day.
+  // Only auto-create for generated dated indices; an explicit target_index is the
+  // caller's own index whose lifecycle they own, so we don't create it for them.
   const isGeneratedDated = !task.target_index && (settings.writeIndexRollover ?? 'none') !== 'none';
   if (isGeneratedDated) await ensureResultsIndex(index);
 
