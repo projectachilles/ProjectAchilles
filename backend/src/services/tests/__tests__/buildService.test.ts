@@ -897,6 +897,27 @@ var data string
       expect(write).toBeUndefined();
     });
 
+    it('skips injection when LOG_DIR is declared inside a grouped const ( … ) block', async () => {
+      // Regression: real f0_library bundles (e.g. the Entra ID Tenant Security
+      // Hygiene Bundle) declare LOG_DIR as a member of a parenthesised
+      // `const ( … )` group, where the member line carries no `const`/`var`
+      // keyword. The v1 detection regex only matched the single-line form, so
+      // it mis-classified the test as "not declared", injected a SECOND
+      // declaration, and `go build` failed with `LOG_DIR redeclared in this
+      // block`. Injection must be skipped here.
+      stageTest({
+        'main.go': 'package main\n\nconst (\n\tTARGET_DIR = `c:\\F0`\n\tLOG_DIR    = `c:\\F0`\n)\n\nfunc main() {}',
+        'test_logger.go': 'package main\nfunc x() { _ = LOG_DIR }',
+      });
+
+      await service.buildAndSign(VALID_UUID);
+
+      const write = mockWriteFileSync.mock.calls.find(
+        (c) => typeof c[0] === 'string' && c[0] === injectedPath,
+      );
+      expect(write).toBeUndefined();
+    });
+
     it('skips injection when LOG_DIR is not referenced anywhere', async () => {
       stageTest({
         'main.go': 'package main\nfunc main() {}\n',

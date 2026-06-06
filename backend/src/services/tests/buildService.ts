@@ -238,11 +238,15 @@ export class BuildService {
     for (const f of goFiles) {
       const content = fs.readFileSync(path.join(testDir, f), 'utf8');
       if (!referenced && /\bLOG_DIR\b/.test(content)) referenced = true;
-      // Match `const LOG_DIR` or `var LOG_DIR` at start of a line (allow
-      // leading whitespace). Single-line and grouped (parenthesised) decls
-      // are both accepted by Go but we only need the simple form here since
-      // every existing test uses it.
-      if (!declared && /^\s*(const|var)\s+LOG_DIR\b/m.test(content)) declared = true;
+      // Match a LOG_DIR declaration at the start of a line. The optional
+      // `const `/`var ` prefix covers the single-line form
+      // (`const LOG_DIR = …`); making it optional also matches a member of a
+      // grouped, parenthesised block (`const ( … \n  LOG_DIR = … \n )`) where
+      // the member line carries no keyword. The trailing `[^=\n]*=` requires
+      // an assignment on that line, so a bare reference like
+      // `filepath.Join(LOG_DIR, …)` (which never begins a line with LOG_DIR)
+      // is not misread as a declaration — keeping the issue #202 fix intact.
+      if (!declared && /^\s*(const\s+|var\s+)?LOG_DIR\b[^=\n]*=/m.test(content)) declared = true;
       if (referenced && declared) break;
     }
 
