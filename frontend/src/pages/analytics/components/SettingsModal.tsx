@@ -16,6 +16,8 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [indexPattern, setIndexPattern] = useState('achilles-results-*');
+  const [writeIndexPrefix, setWriteIndexPrefix] = useState('achilles-results-');
+  const [writeIndexRollover, setWriteIndexRollover] = useState<'none' | 'daily' | 'monthly'>('none');
   const [caCert, setCaCert] = useState('');
   const [hasSavedCaCert, setHasSavedCaCert] = useState(false);
   const [tlsInsecureSkipVerify, setTlsInsecureSkipVerify] = useState(false);
@@ -38,6 +40,8 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
       if (settings.configured && settings.connectionType) {
         setConnectionType(settings.connectionType);
         setIndexPattern(settings.indexPattern || 'achilles-results-*');
+        setWriteIndexPrefix(settings.writeIndexPrefix || 'achilles-results-');
+        setWriteIndexRollover(settings.writeIndexRollover || 'none');
         setHasSavedCaCert(settings.caCert === '***');
         setTlsInsecureSkipVerify(!!settings.tlsInsecureSkipVerify);
         // Note: Credentials come back masked, so we don't populate them
@@ -86,6 +90,8 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
         indexPattern,
         caCert: connectionType === 'direct' ? caCert : undefined,
         tlsInsecureSkipVerify: connectionType === 'direct' ? tlsInsecureSkipVerify : undefined,
+        writeIndexPrefix: writeIndexPrefix.trim() || undefined,
+        writeIndexRollover,
       });
       onSave?.();
       onClose();
@@ -279,6 +285,41 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
               placeholder="achilles-results-*"
               className="w-full px-3 py-2 bg-secondary border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
             />
+          </div>
+
+          {/* Write Index Prefix */}
+          <div>
+            <label htmlFor="modal-write-index-prefix" className="block text-sm font-medium mb-1">
+              Write Index Prefix
+            </label>
+            <input
+              id="modal-write-index-prefix"
+              type="text"
+              value={writeIndexPrefix}
+              onChange={(e) => setWriteIndexPrefix(e.target.value)}
+              placeholder="achilles-results-"
+              className="w-full px-3 py-2 bg-secondary border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Reads use the Index Pattern above; writes go to &lt;prefix&gt;&lt;date&gt; when rollover is enabled.
+            </p>
+          </div>
+
+          {/* Write Index Rollover */}
+          <div>
+            <label htmlFor="modal-write-index-rollover" className="block text-sm font-medium mb-1">
+              Write index rollover
+            </label>
+            <select
+              id="modal-write-index-rollover"
+              value={writeIndexRollover}
+              onChange={(e) => setWriteIndexRollover(e.target.value as 'none' | 'daily' | 'monthly')}
+              className="w-full px-3 py-2 bg-secondary border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="none">None (single index)</option>
+              <option value="daily">Daily (YYYY.MM.DD)</option>
+              <option value="monthly">Monthly (YYYY.MM)</option>
+            </select>
           </div>
 
           {/* Test Result */}

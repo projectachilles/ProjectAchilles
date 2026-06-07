@@ -503,4 +503,55 @@ describe('SettingsService (analytics)', () => {
       expect(service.isEnvConfigured()).toBe(false);
     });
   });
+
+  // ── Group 6: write-index env settings ────────────────────────
+
+  describe('write-index env settings', () => {
+    afterEach(() => {
+      delete process.env.ELASTICSEARCH_WRITE_INDEX_PREFIX;
+      delete process.env.ELASTICSEARCH_WRITE_INDEX_ROLLOVER;
+    });
+
+    it('defaults writeIndexPrefix to achilles-results- and writeIndexRollover to none when env unset', () => {
+      process.env.ELASTICSEARCH_NODE = 'http://localhost:9200';
+      mockExistsSync.mockReturnValue(false);
+
+      const settings = service.getSettings();
+
+      expect(settings.writeIndexPrefix).toBe('achilles-results-');
+      expect(settings.writeIndexRollover).toBe('none');
+    });
+
+    it('reads ELASTICSEARCH_WRITE_INDEX_PREFIX and clamps unknown rollover value to none', () => {
+      process.env.ELASTICSEARCH_NODE = 'http://localhost:9200';
+      process.env.ELASTICSEARCH_WRITE_INDEX_PREFIX = 'foo-';
+      process.env.ELASTICSEARCH_WRITE_INDEX_ROLLOVER = 'weekly';
+      mockExistsSync.mockReturnValue(false);
+
+      const settings = service.getSettings();
+
+      expect(settings.writeIndexPrefix).toBe('foo-');
+      expect(settings.writeIndexRollover).toBe('none');
+    });
+
+    it('accepts daily as a valid rollover value', () => {
+      process.env.ELASTICSEARCH_NODE = 'http://localhost:9200';
+      process.env.ELASTICSEARCH_WRITE_INDEX_ROLLOVER = 'daily';
+      mockExistsSync.mockReturnValue(false);
+
+      const settings = service.getSettings();
+
+      expect(settings.writeIndexRollover).toBe('daily');
+    });
+
+    it('accepts monthly as a valid rollover value', () => {
+      process.env.ELASTICSEARCH_NODE = 'http://localhost:9200';
+      process.env.ELASTICSEARCH_WRITE_INDEX_ROLLOVER = 'monthly';
+      mockExistsSync.mockReturnValue(false);
+
+      const settings = service.getSettings();
+
+      expect(settings.writeIndexRollover).toBe('monthly');
+    });
+  });
 });

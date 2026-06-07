@@ -15,6 +15,8 @@ const defaultSettings: AnalyticsSettings = {
   cloudId: '',
   apiKey: '',
   indexPattern: 'achilles-results-*',
+  writeIndexPrefix: 'achilles-results-',
+  writeIndexRollover: 'none',
   configured: false,
 };
 
@@ -35,6 +37,11 @@ export class SettingsService {
       username: process.env.ELASTICSEARCH_USERNAME || '',
       password: process.env.ELASTICSEARCH_PASSWORD || '',
       indexPattern: process.env.ELASTICSEARCH_INDEX_PATTERN || 'achilles-results-*',
+      writeIndexPrefix: process.env.ELASTICSEARCH_WRITE_INDEX_PREFIX || 'achilles-results-',
+      writeIndexRollover: ((): 'none' | 'daily' | 'monthly' => {
+        const v = process.env.ELASTICSEARCH_WRITE_INDEX_ROLLOVER;
+        return v === 'daily' || v === 'monthly' ? v : 'none';
+      })(),
       configured: true,
       caCert: process.env.ELASTICSEARCH_CA_CERT || undefined,
       tlsInsecureSkipVerify: process.env.ELASTICSEARCH_TLS_INSECURE_SKIP_VERIFY === 'true',

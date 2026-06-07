@@ -9,6 +9,8 @@ export interface AnalyticsSettings {
   username?: string;
   password?: string;
   indexPattern: string;
+  writeIndexPrefix?: string;
+  writeIndexRollover?: 'none' | 'daily' | 'monthly';
   configured: boolean;
   /** PEM-encoded custom CA for trusting self-signed Elasticsearch certs (direct connections only). */
   caCert?: string;

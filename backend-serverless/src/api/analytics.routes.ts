@@ -59,6 +59,8 @@ router.get('/settings', requirePermission('analytics:settings:read'), asyncHandl
     configured: settings.configured,
     connectionType: settings.connectionType,
     indexPattern: settings.indexPattern,
+    writeIndexPrefix: settings.writeIndexPrefix ?? 'achilles-results-',
+    writeIndexRollover: settings.writeIndexRollover ?? 'none',
     // Mask sensitive fields
     cloudId: settings.cloudId ? '***' : undefined,
     node: settings.node,
@@ -70,7 +72,7 @@ router.get('/settings', requirePermission('analytics:settings:read'), asyncHandl
 
 // POST /api/analytics/settings - Save settings
 router.post('/settings', requirePermission('analytics:settings:write'), validate(AnalyticsSettingsSchema), asyncHandler(async (req, res) => {
-  const { connectionType, cloudId, apiKey, node, username, password, indexPattern, caCert, tlsInsecureSkipVerify } = req.body;
+  const { connectionType, cloudId, apiKey, node, username, password, indexPattern, writeIndexPrefix, writeIndexRollover, caCert, tlsInsecureSkipVerify } = req.body;
 
   // Load existing settings to merge with new values
   // This allows updating settings without providing all credentials
@@ -100,6 +102,8 @@ router.post('/settings', requirePermission('analytics:settings:write'), validate
     username: username || fallback(existingSettings.username),
     password: password || fallback(existingSettings.password),
     indexPattern: indexPattern || existingSettings.indexPattern || 'achilles-results-*',
+    writeIndexPrefix: writeIndexPrefix ?? existingSettings.writeIndexPrefix ?? 'achilles-results-',
+    writeIndexRollover: writeIndexRollover ?? existingSettings.writeIndexRollover ?? 'none',
     configured: true,
     caCert: caCert || fallback(existingSettings.caCert),
     tlsInsecureSkipVerify:

@@ -3,9 +3,11 @@
 
 import type { Client } from '@elastic/elasticsearch';
 import type { Task, TaskResult } from '../../types/agent.js';
+import type { AnalyticsSettings } from '../../types/analytics.js';
 import { ERROR_CODE_MAP } from '../analytics/elasticsearch.js';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
+import { createResultsIndex } from '../analytics/index-management.service.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
 
 // Protected exit codes: file quarantined, execution prevented, quarantined on execution
@@ -22,14 +24,44 @@ function getErrorName(exitCode: number): string {
   return entry ? entry.name : `Unknown (${exitCode})`;
 }
 
-// Lazy-initialised ES client and index pattern
+// ── Write-index resolution helpers ───────────────────────────────────────────
+
+function pad2(n: number): string { return n < 10 ? `0${n}` : `${n}`; }
+
+function formatIndexDate(d: Date, mode: 'daily' | 'monthly'): string {
+  const y = d.getUTCFullYear();
+  const m = pad2(d.getUTCMonth() + 1);
+  return mode === 'monthly' ? `${y}.${m}` : `${y}.${m}.${pad2(d.getUTCDate())}`;
+}
+
+/**
+ * Resolve the write index name (idempotent, pure).
+ * - task.target_index wins verbatim (caller's own index).
+ * - Otherwise: <prefix><date?> derived from completedAt (UTC).
+ */
+export function resolveWriteIndex(
+  settings: Pick<AnalyticsSettings, 'writeIndexPrefix' | 'writeIndexRollover'>,
+  task: { target_index?: string },
+  completedAt: string | undefined,
+): string {
+  if (task.target_index) return task.target_index;
+  const base = settings.writeIndexPrefix || 'achilles-results-';
+  const mode = settings.writeIndexRollover || 'none';
+  if (mode === 'none') return base;
+  const parsed = completedAt ? new Date(completedAt) : new Date();
+  const d = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  return `${base}${formatIndexDate(d, mode)}`;
+}
+
+// ── Lazy-initialised ES client ────────────────────────────────────────────────
+
 let esClient: Client | null = null;
-let indexPattern: string | null = null;
+const ensuredIndices = new Set<string>();
 
 /** Initialise (or re-use) the ES client from the current analytics settings. */
-async function getClient(): Promise<{ client: Client; index: string }> {
-  if (esClient && indexPattern) {
-    return { client: esClient, index: indexPattern };
+async function getClient(): Promise<{ client: Client }> {
+  if (esClient) {
+    return { client: esClient };
   }
 
   const settingsService = new SettingsService();
@@ -40,9 +72,19 @@ async function getClient(): Promise<{ client: Client; index: string }> {
 
   const settings = await settingsService.getSettings();
   esClient = createEsClient(settings);
-  indexPattern = settings.indexPattern ?? 'achilles-results-*';
 
-  return { client: esClient, index: indexPattern };
+  return { client: esClient };
+}
+
+/**
+ * Ensure the named index exists with the canonical mapping.
+ * Caches successful ensures so the mapping call runs at most once per index
+ * name per process lifetime (idempotent on already-exists on the ES side too).
+ */
+async function ensureResultsIndex(name: string): Promise<void> {
+  if (ensuredIndices.has(name)) return;
+  await createResultsIndex(name);
+  ensuredIndices.add(name);
 }
 
 /**
@@ -52,8 +94,16 @@ async function getClient(): Promise<{ client: Client; index: string }> {
  * module so dashboards, filters, and aggregations work without changes.
  */
 export async function ingestResult(task: Task, result: TaskResult): Promise<void> {
-  const { client, index: defaultIndex } = await getClient();
-  const index = task.target_index ?? defaultIndex;
+  const { client } = await getClient();
+  const settings = await new SettingsService().getSettings();
+  const index = resolveWriteIndex(settings, { target_index: task.target_index ?? undefined }, result.completed_at);
+  if (index.includes('*')) {
+    throw new Error(`Resolved write index contains a wildcard: "${index}" — configure a concrete writeIndexPrefix/indexPattern for writes`);
+  }
+  // Auto-create index mapping only for generated dated indices; an explicit
+  // target_index is the caller's own index and is their responsibility.
+  const isGeneratedDated = !task.target_index && (settings.writeIndexRollover ?? 'none') !== 'none';
+  if (isGeneratedDated) await ensureResultsIndex(index);
 
   // Bundle results: fan out to one ES document per control
   if (result.bundle_results?.controls?.length) {
@@ -183,9 +233,9 @@ async function ingestBundleControls(
 }
 
 /**
- * Reset the cached ES client (useful for testing or after settings change).
+ * Reset the cached ES client and index ensure-cache (useful for testing or after settings change).
  */
 export function resetClient(): void {
   esClient = null;
-  indexPattern = null;
+  ensuredIndices.clear();
 }
