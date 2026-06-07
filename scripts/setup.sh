@@ -544,6 +544,7 @@ show_paas_output() {
         echo "# (configure later via dashboard or env vars)"
     fi
     echo "ELASTICSEARCH_WRITE_INDEX_PREFIX=achilles-results-"
+    echo "# ELASTICSEARCH_WRITE_INDEX_ROLLOVER: none | daily | monthly"
     echo "ELASTICSEARCH_WRITE_INDEX_ROLLOVER=none"
     echo ""
     echo "# --- Test Repository ---"
