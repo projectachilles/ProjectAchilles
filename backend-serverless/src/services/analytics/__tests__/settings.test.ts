@@ -478,4 +478,41 @@ describe('SettingsService (analytics)', () => {
       expect(service.isEnvConfigured()).toBe(false);
     });
   });
+
+  // ── Group 6: write-index env settings ────────────────────
+
+  describe('serverless write-index env settings', () => {
+    beforeEach(() => {
+      mockBlobReadText.mockResolvedValue(null);
+    });
+
+    afterEach(() => {
+      delete process.env.ELASTICSEARCH_WRITE_INDEX_PREFIX;
+      delete process.env.ELASTICSEARCH_WRITE_INDEX_ROLLOVER;
+    });
+
+    it('defaults prefix and rollover', async () => {
+      process.env.ELASTICSEARCH_NODE = 'http://localhost:9200';
+      delete process.env.ELASTICSEARCH_WRITE_INDEX_PREFIX;
+      delete process.env.ELASTICSEARCH_WRITE_INDEX_ROLLOVER;
+      const s = await service.getSettings();
+      expect(s.writeIndexPrefix).toBe('achilles-results-');
+      expect(s.writeIndexRollover).toBe('none');
+    });
+
+    it('reads env and clamps unknown rollover', async () => {
+      process.env.ELASTICSEARCH_NODE = 'http://localhost:9200';
+      process.env.ELASTICSEARCH_WRITE_INDEX_PREFIX = 'foo-';
+      process.env.ELASTICSEARCH_WRITE_INDEX_ROLLOVER = 'weekly';
+      const s = await service.getSettings();
+      expect(s.writeIndexPrefix).toBe('foo-');
+      expect(s.writeIndexRollover).toBe('none');
+    });
+
+    it('accepts monthly', async () => {
+      process.env.ELASTICSEARCH_NODE = 'http://localhost:9200';
+      process.env.ELASTICSEARCH_WRITE_INDEX_ROLLOVER = 'monthly';
+      expect((await service.getSettings()).writeIndexRollover).toBe('monthly');
+    });
+  });
 });
