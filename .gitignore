@@ -95,3 +95,8 @@ wiki/build/
 wiki/node_modules/
 .gitnexus/
 .remember/
+
+# Impeccable (local design working docs — strategic/visual context, not source)
+/PRODUCT.md
+/DESIGN.md
+/.impeccable/
