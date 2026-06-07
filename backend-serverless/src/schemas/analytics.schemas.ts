@@ -14,6 +14,10 @@ export const AnalyticsSettingsSchema = z.object({
   username: z.string().optional(),
   password: z.string().optional(),
   indexPattern: z.string().optional(),
+  writeIndexPrefix: z.string().trim().min(1).max(200)
+    .regex(/^[a-z0-9][a-z0-9._-]*$/, 'writeIndexPrefix must be lowercase and contain only letters, digits, dots, hyphens, or underscores (no wildcards)')
+    .optional(),
+  writeIndexRollover: z.enum(['none', 'daily', 'monthly']).optional(),
   caCert: z.string().optional(),
   tlsInsecureSkipVerify: z.boolean().optional(),
 });
