@@ -5,7 +5,7 @@ import { Button } from '@/components/shared/ui/Button';
 import { Input } from '@/components/shared/ui/Input';
 import { Switch } from '@/components/shared/ui/Switch';
 import { Alert } from '@/components/shared/ui/Alert';
-import { Search, Tag, X, Play, Calendar, Terminal, AlertTriangle } from 'lucide-react';
+import { Search, Tag, X, Play, Calendar, Terminal, AlertTriangle, ChevronRight, ChevronDown } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
 import { browserApi } from '@/services/api/browser';
 import { analyticsApi, type IndexInfo } from '@/services/api/analytics';
@@ -130,6 +130,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
   const [targetIndex, setTargetIndex] = useState('');
   const [availableIndices, setAvailableIndices] = useState<IndexInfo[]>([]);
   const [indicesLoading, setIndicesLoading] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Azure integration state (for identity-tenant tests)
   const [azureConfigured, setAzureConfigured] = useState<boolean | null>(null);
@@ -193,9 +194,6 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
     analyticsApi.listIndices()
       .then((indices) => {
         setAvailableIndices(indices);
-        if (indices.length > 0 && !targetIndex) {
-          setTargetIndex(indices[0].name);
-        }
       })
       .catch(() => setAvailableIndices([]))
       .finally(() => setIndicesLoading(false));
@@ -682,39 +680,55 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
               )}
 
               <TabsContent value="run-now">
-                <div className={`grid ${taskMode === 'command' ? 'grid-cols-2' : 'grid-cols-3'} gap-4`}>
-                  <Input
-                    label="Timeout (seconds)"
-                    type="number"
-                    value={timeout}
-                    onChange={(e) => setTimeout_(e.target.value)}
-                  />
-                  <div>
-                    <label className="block text-sm font-medium mb-1.5">Priority</label>
-                    <select
-                      className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
-                      value={priority}
-                      onChange={(e) => setPriority(e.target.value)}
-                    >
-                      <option value="1">Normal (1)</option>
-                      <option value="2">Medium (2)</option>
-                      <option value="3">High (3)</option>
-                    </select>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <Input
+                      label="Timeout (seconds)"
+                      type="number"
+                      value={timeout}
+                      onChange={(e) => setTimeout_(e.target.value)}
+                    />
+                    <div>
+                      <label className="block text-sm font-medium mb-1.5">Priority</label>
+                      <select
+                        className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                        value={priority}
+                        onChange={(e) => setPriority(e.target.value)}
+                      >
+                        <option value="1">Normal (1)</option>
+                        <option value="2">Medium (2)</option>
+                        <option value="3">High (3)</option>
+                      </select>
+                    </div>
                   </div>
                   {taskMode === 'test' && (
                     <div>
-                      <label className="block text-sm font-medium mb-1.5">Target Index</label>
-                      <select
-                        className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
-                        value={targetIndex}
-                        onChange={(e) => setTargetIndex(e.target.value)}
-                        disabled={indicesLoading}
+                      <button
+                        type="button"
+                        aria-expanded={showAdvanced}
+                        onClick={() => setShowAdvanced((v) => !v)}
+                        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
                       >
-                        <option value="">Default (global)</option>
-                        {availableIndices.map((idx) => (
-                          <option key={idx.name} value={idx.name}>{idx.name}</option>
-                        ))}
-                      </select>
+                        {showAdvanced ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                        Advanced
+                      </button>
+                      {showAdvanced && (
+                        <div className="mt-2">
+                          <label className="block text-sm font-medium mb-1.5" htmlFor="task-target-index">Target Index</label>
+                          <select
+                            id="task-target-index"
+                            className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                            value={targetIndex}
+                            onChange={(e) => setTargetIndex(e.target.value)}
+                            disabled={indicesLoading}
+                          >
+                            <option value="">Default (global)</option>
+                            {availableIndices.map((idx) => (
+                              <option key={idx.name} value={idx.name}>{idx.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -887,8 +901,8 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                     </select>
                   </div>
 
-                  {/* Timeout + Priority + Target Index */}
-                  <div className="grid grid-cols-3 gap-4">
+                  {/* Timeout + Priority */}
+                  <div className="grid grid-cols-2 gap-4">
                     <Input
                       label="Timeout (seconds)"
                       type="number"
@@ -907,21 +921,38 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                         <option value="3">High (3)</option>
                       </select>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">Target Index</label>
-                      <select
-                        className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
-                        value={targetIndex}
-                        onChange={(e) => setTargetIndex(e.target.value)}
-                        disabled={indicesLoading}
-                      >
-                        <option value="">Default (global)</option>
-                        {availableIndices.map((idx) => (
-                          <option key={idx.name} value={idx.name}>{idx.name}</option>
-                        ))}
-                      </select>
-                    </div>
                   </div>
+
+                  {taskMode === 'test' && (
+                    <div>
+                      <button
+                        type="button"
+                        aria-expanded={showAdvanced}
+                        onClick={() => setShowAdvanced((v) => !v)}
+                        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+                      >
+                        {showAdvanced ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                        Advanced
+                      </button>
+                      {showAdvanced && (
+                        <div className="mt-2">
+                          <label className="block text-sm font-medium mb-1.5" htmlFor="task-target-index-sched">Target Index</label>
+                          <select
+                            id="task-target-index-sched"
+                            className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                            value={targetIndex}
+                            onChange={(e) => setTargetIndex(e.target.value)}
+                            disabled={indicesLoading}
+                          >
+                            <option value="">Default (global)</option>
+                            {availableIndices.map((idx) => (
+                              <option key={idx.name} value={idx.name}>{idx.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </TabsContent>
             </Tabs>

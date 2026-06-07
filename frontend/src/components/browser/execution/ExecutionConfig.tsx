@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/shared/ui/Tabs';
 import { Input } from '@/components/shared/ui/Input';
-import { Play, Calendar } from 'lucide-react';
+import { Play, Calendar, ChevronRight, ChevronDown } from 'lucide-react';
 import type { ScheduleType, RandomizeMode } from '@/types/agent';
 import type { IndexInfo } from '@/services/api/analytics';
 
@@ -87,7 +88,9 @@ interface ExecutionConfigProps {
   indicesLoading?: boolean;
 }
 
-export default function ExecutionConfig({ config, onChange, availableIndices, indicesLoading }: ExecutionConfigProps) {
+export function ExecutionConfig({ config, onChange, availableIndices, indicesLoading }: ExecutionConfigProps) {
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
   function toggleDay(day: number) {
     const days = config.scheduleDays.includes(day)
       ? config.scheduleDays.filter((d) => d !== day)
@@ -109,38 +112,57 @@ export default function ExecutionConfig({ config, onChange, availableIndices, in
       </TabsList>
 
       <TabsContent value="run-now">
-        <div className="grid grid-cols-3 gap-4">
-          <Input
-            label="Timeout (seconds)"
-            type="number"
-            value={config.timeout}
-            onChange={(e) => onChange({ timeout: e.target.value })}
-          />
-          <div>
-            <label className="block text-sm font-medium mb-1.5">Priority</label>
-            <select
-              className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
-              value={config.priority}
-              onChange={(e) => onChange({ priority: e.target.value })}
-            >
-              <option value="1">Normal (1)</option>
-              <option value="2">Medium (2)</option>
-              <option value="3">High (3)</option>
-            </select>
+        <div className="space-y-4">
+          {/* Timeout + Priority */}
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="Timeout (seconds)"
+              type="number"
+              value={config.timeout}
+              onChange={(e) => onChange({ timeout: e.target.value })}
+            />
+            <div>
+              <label className="block text-sm font-medium mb-1.5">Priority</label>
+              <select
+                className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                value={config.priority}
+                onChange={(e) => onChange({ priority: e.target.value })}
+              >
+                <option value="1">Normal (1)</option>
+                <option value="2">Medium (2)</option>
+                <option value="3">High (3)</option>
+              </select>
+            </div>
           </div>
+
+          {/* Advanced: per-task Target Index override */}
           <div>
-            <label className="block text-sm font-medium mb-1.5">Target Index</label>
-            <select
-              className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
-              value={config.targetIndex}
-              onChange={(e) => onChange({ targetIndex: e.target.value })}
-              disabled={indicesLoading}
+            <button
+              type="button"
+              aria-expanded={showAdvanced}
+              onClick={() => setShowAdvanced((v) => !v)}
+              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
             >
-              <option value="">Default (global)</option>
-              {availableIndices.map((idx) => (
-                <option key={idx.name} value={idx.name}>{idx.name}</option>
-              ))}
-            </select>
+              {showAdvanced ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              Advanced
+            </button>
+            {showAdvanced && (
+              <div className="mt-2">
+                <label className="block text-sm font-medium mb-1.5" htmlFor="exec-target-index">Target Index</label>
+                <select
+                  id="exec-target-index"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                  value={config.targetIndex}
+                  onChange={(e) => onChange({ targetIndex: e.target.value })}
+                  disabled={indicesLoading}
+                >
+                  <option value="">Default (global)</option>
+                  {availableIndices.map((idx) => (
+                    <option key={idx.name} value={idx.name}>{idx.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         </div>
       </TabsContent>
@@ -311,8 +333,8 @@ export default function ExecutionConfig({ config, onChange, availableIndices, in
             </select>
           </div>
 
-          {/* Timeout + Priority + Target Index */}
-          <div className="grid grid-cols-3 gap-4">
+          {/* Timeout + Priority */}
+          <div className="grid grid-cols-2 gap-4">
             <Input
               label="Timeout (seconds)"
               type="number"
@@ -331,23 +353,41 @@ export default function ExecutionConfig({ config, onChange, availableIndices, in
                 <option value="3">High (3)</option>
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">Target Index</label>
-              <select
-                className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
-                value={config.targetIndex}
-                onChange={(e) => onChange({ targetIndex: e.target.value })}
-                disabled={indicesLoading}
-              >
-                <option value="">Default (global)</option>
-                {availableIndices.map((idx) => (
-                  <option key={idx.name} value={idx.name}>{idx.name}</option>
-                ))}
-              </select>
-            </div>
+          </div>
+
+          {/* Advanced: per-task Target Index override */}
+          <div>
+            <button
+              type="button"
+              aria-expanded={showAdvanced}
+              onClick={() => setShowAdvanced((v) => !v)}
+              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+            >
+              {showAdvanced ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              Advanced
+            </button>
+            {showAdvanced && (
+              <div className="mt-2">
+                <label className="block text-sm font-medium mb-1.5" htmlFor="exec-target-index-sched">Target Index</label>
+                <select
+                  id="exec-target-index-sched"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                  value={config.targetIndex}
+                  onChange={(e) => onChange({ targetIndex: e.target.value })}
+                  disabled={indicesLoading}
+                >
+                  <option value="">Default (global)</option>
+                  {availableIndices.map((idx) => (
+                    <option key={idx.name} value={idx.name}>{idx.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         </div>
       </TabsContent>
     </Tabs>
   );
 }
+
+export default ExecutionConfig;

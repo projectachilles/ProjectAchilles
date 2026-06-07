@@ -79,9 +79,6 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
     analyticsApi.listIndices()
       .then((indices) => {
         setAvailableIndices(indices);
-        if (indices.length > 0) {
-          setConfig((prev) => ({ ...prev, targetIndex: prev.targetIndex || indices[0].name }));
-        }
       })
       .catch(() => setAvailableIndices([]))
       .finally(() => setIndicesLoading(false));
