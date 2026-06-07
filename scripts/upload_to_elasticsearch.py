@@ -210,6 +210,8 @@ def get_results_index_mapping():
                         "control_id": kw,
                         "control_validator": kw,
                         "is_bundle_control": {"type": "boolean"},
+                        "defender_detected": {"type": "boolean"},
+                        "defender_stage_detected": {"type": "boolean"},
                         "tenant_label": kw
                     }
                 },
