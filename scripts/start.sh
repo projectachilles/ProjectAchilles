@@ -1288,6 +1288,8 @@ check_and_setup_elasticsearch() {
                     write_env_value "$BACKEND_ENV" "ELASTICSEARCH_NODE" "$es_node"
                     write_env_value "$BACKEND_ENV" "ELASTICSEARCH_API_KEY" "$es_api_key"
                     write_env_value "$BACKEND_ENV" "ELASTICSEARCH_INDEX_PATTERN" "achilles-results-*"
+                    write_env_value "$BACKEND_ENV" "ELASTICSEARCH_WRITE_INDEX_PREFIX" "achilles-results-"
+                    write_env_value "$BACKEND_ENV" "ELASTICSEARCH_WRITE_INDEX_ROLLOVER" "none"
                     echo "  ✓ Elasticsearch credentials saved to backend/.env"
                     ES_JUST_CONFIGURED=true
                     ;;

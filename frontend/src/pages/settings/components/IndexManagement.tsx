@@ -1,13 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Plus, Database } from 'lucide-react';
+import { RefreshCw, Database } from 'lucide-react';
 import { analyticsApi } from '@/services/api/analytics';
 import type { IndexInfo } from '@/services/api/analytics';
 import { Button } from '@/components/shared/ui/Button';
-import { Input } from '@/components/shared/ui/Input';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Spinner } from '@/components/shared/ui/Spinner';
-
-const INDEX_NAME_REGEX = /^[a-z0-9][a-z0-9-]*$/;
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -38,8 +35,6 @@ export function IndexManagement({ onSelectIndex }: IndexManagementProps) {
   const [indices, setIndices] = useState<IndexInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [newIndexName, setNewIndexName] = useState('achilles-results-');
-  const [creating, setCreating] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const fetchIndices = useCallback(async (showRefreshSpinner = false) => {
@@ -58,35 +53,6 @@ export function IndexManagement({ onSelectIndex }: IndexManagementProps) {
   useEffect(() => {
     fetchIndices();
   }, [fetchIndices]);
-
-  const handleCreate = async () => {
-    const name = newIndexName.trim();
-    if (!name || !INDEX_NAME_REGEX.test(name)) {
-      setFeedback({
-        type: 'error',
-        message: 'Invalid index name. Must be lowercase, start with a letter or digit, and contain only letters, digits, and hyphens.',
-      });
-      return;
-    }
-
-    setCreating(true);
-    setFeedback(null);
-    try {
-      const result = await analyticsApi.createIndex(name);
-      setFeedback({ type: result.created ? 'success' : 'error', message: result.message });
-      if (result.created) {
-        setNewIndexName('achilles-results-');
-        await fetchIndices();
-      }
-    } catch (err) {
-      setFeedback({
-        type: 'error',
-        message: err instanceof Error ? err.message : 'Failed to create index',
-      });
-    } finally {
-      setCreating(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -119,7 +85,7 @@ export function IndexManagement({ onSelectIndex }: IndexManagementProps) {
       {indices.length === 0 ? (
         <div className="rounded-lg border border-border p-6 text-center">
           <p className="text-sm text-muted-foreground">
-            No indices found. Create one below to start ingesting results.
+            No indices found. Results will appear here once tests run.
           </p>
         </div>
       ) : (
@@ -155,32 +121,6 @@ export function IndexManagement({ onSelectIndex }: IndexManagementProps) {
           </table>
         </div>
       )}
-
-      {/* Create section */}
-      <div className="flex items-end gap-2">
-        <div className="flex-1">
-          <Input
-            label="Create New Index"
-            placeholder="achilles-results-2025-01"
-            value={newIndexName}
-            onChange={(e) => {
-              setNewIndexName(e.target.value);
-              setFeedback(null);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !creating) handleCreate();
-            }}
-          />
-        </div>
-        <Button onClick={handleCreate} disabled={creating || !newIndexName.trim()} size="sm">
-          {creating ? (
-            <Spinner size="sm" />
-          ) : (
-            <Plus className="w-4 h-4" />
-          )}
-          Create
-        </Button>
-      </div>
 
       {/* Feedback */}
       {feedback && (
