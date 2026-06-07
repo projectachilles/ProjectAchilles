@@ -632,11 +632,6 @@ export const analyticsApi = {
     return response.data.indices;
   },
 
-  async createIndex(indexName: string): Promise<{ created: boolean; message: string }> {
-    const response = await apiClient.post('/analytics/index/create', { index_name: indexName });
-    return response.data;
-  },
-
   // Archive operations
   async archiveExecutions(groupKeys: string[]): Promise<ArchiveResult> {
     const response = await apiClient.post('/analytics/executions/archive', { groupKeys });
