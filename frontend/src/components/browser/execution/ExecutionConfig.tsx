@@ -140,6 +140,7 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
             <button
               type="button"
               aria-expanded={showAdvanced}
+              aria-controls="exec-advanced-run-now"
               onClick={() => setShowAdvanced((v) => !v)}
               className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
             >
@@ -147,7 +148,7 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
               Advanced
             </button>
             {showAdvanced && (
-              <div className="mt-2">
+              <div id="exec-advanced-run-now" className="mt-2">
                 <label className="block text-sm font-medium mb-1.5" htmlFor="exec-target-index">Target Index</label>
                 <select
                   id="exec-target-index"
@@ -360,6 +361,7 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
             <button
               type="button"
               aria-expanded={showAdvanced}
+              aria-controls="exec-advanced-sched"
               onClick={() => setShowAdvanced((v) => !v)}
               className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
             >
@@ -367,7 +369,7 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
               Advanced
             </button>
             {showAdvanced && (
-              <div className="mt-2">
+              <div id="exec-advanced-sched" className="mt-2">
                 <label className="block text-sm font-medium mb-1.5" htmlFor="exec-target-index-sched">Target Index</label>
                 <select
                   id="exec-target-index-sched"

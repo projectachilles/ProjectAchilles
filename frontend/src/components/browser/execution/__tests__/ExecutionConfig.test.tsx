@@ -40,4 +40,12 @@ describe('ExecutionConfig Target Index', () => {
     fireEvent.click(btn);
     expect(btn).toHaveAttribute('aria-expanded', 'true');
   });
+
+  it('Advanced button has aria-controls pointing to its controlled region', () => {
+    renderConfig();
+    const btn = screen.getByRole('button', { name: /advanced/i });
+    expect(btn).toHaveAttribute('aria-controls', 'exec-advanced-run-now');
+    fireEvent.click(btn);
+    expect(document.getElementById('exec-advanced-run-now')).toBeInTheDocument();
+  });
 });

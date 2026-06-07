@@ -706,6 +706,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                       <button
                         type="button"
                         aria-expanded={showAdvanced}
+                        aria-controls="task-advanced-run-now"
                         onClick={() => setShowAdvanced((v) => !v)}
                         className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
                       >
@@ -713,7 +714,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                         Advanced
                       </button>
                       {showAdvanced && (
-                        <div className="mt-2">
+                        <div id="task-advanced-run-now" className="mt-2">
                           <label className="block text-sm font-medium mb-1.5" htmlFor="task-target-index">Target Index</label>
                           <select
                             id="task-target-index"
@@ -928,6 +929,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                       <button
                         type="button"
                         aria-expanded={showAdvanced}
+                        aria-controls="task-advanced-sched"
                         onClick={() => setShowAdvanced((v) => !v)}
                         className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
                       >
@@ -935,7 +937,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                         Advanced
                       </button>
                       {showAdvanced && (
-                        <div className="mt-2">
+                        <div id="task-advanced-sched" className="mt-2">
                           <label className="block text-sm font-medium mb-1.5" htmlFor="task-target-index-sched">Target Index</label>
                           <select
                             id="task-target-index-sched"
