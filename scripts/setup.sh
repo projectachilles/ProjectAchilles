@@ -485,6 +485,10 @@ write_env() {
     env_comment "ELASTICSEARCH_USERNAME"
     env_comment "ELASTICSEARCH_PASSWORD"
     env_comment "ELASTICSEARCH_INDEX_PATTERN"
+    env_comment "ELASTICSEARCH_WRITE_INDEX_PREFIX"
+    env_comment "ELASTICSEARCH_WRITE_INDEX_ROLLOVER"
+    env_set "ELASTICSEARCH_WRITE_INDEX_PREFIX" "achilles-results-"
+    env_set "ELASTICSEARCH_WRITE_INDEX_ROLLOVER" "none"
 
     case "${ES_MODE:-skip}" in
         local)
@@ -539,6 +543,8 @@ show_paas_output() {
     else
         echo "# (configure later via dashboard or env vars)"
     fi
+    echo "ELASTICSEARCH_WRITE_INDEX_PREFIX=achilles-results-"
+    echo "ELASTICSEARCH_WRITE_INDEX_ROLLOVER=none"
     echo ""
     echo "# --- Test Repository ---"
     [[ -n "${TESTS_REPO_URL:-}" ]] && echo "TESTS_REPO_URL=$TESTS_REPO_URL"
