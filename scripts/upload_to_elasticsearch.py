@@ -62,7 +62,7 @@ def upload_with_es_client(file_path, es_client, chunk_size=500):
         doc = json.loads(doc_line)
 
         # Extract index name from action
-        index_name = action.get('index', {}).get('_index', 'achilles-results-synthetic')
+        index_name = action.get('index', {}).get('_index', 'achilles-results-')
 
         actions.append({
             '_index': index_name,
@@ -137,7 +137,7 @@ def upload_with_requests(file_path, host, auth_header=None, chunk_size=5000):
 
         # Extract index from first action
         first_action = json.loads(chunk_lines[0])
-        index_name = first_action.get('index', {}).get('_index', 'achilles-results-synthetic')
+        index_name = first_action.get('index', {}).get('_index', 'achilles-results-')
 
         url = f"{host.rstrip('/')}/{index_name}/_bulk"
 
@@ -490,8 +490,8 @@ def main():
     parser.add_argument(
         "--index",
         type=str,
-        default="achilles-results-synthetic",
-        help="Index name for results (default: achilles-results-synthetic)"
+        default="achilles-results-",
+        help="Index name for results (default: achilles-results-, matching the app's default write prefix)"
     )
 
     args = parser.parse_args()

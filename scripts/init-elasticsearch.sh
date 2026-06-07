@@ -27,7 +27,7 @@ ES_USERNAME=""
 ES_PASSWORD=""
 SEED_DATA=false
 SEED_COUNT=1000
-INDEX_NAME="achilles-results-default"
+INDEX_NAME="achilles-results-"
 
 # Read a value from a .env file (returns empty if not found — doesn't fail pipefail)
 read_env_value() {
@@ -65,7 +65,7 @@ while [ $# -gt 0 ]; do
             echo "Options:"
             echo "  --seed            Also generate and upload synthetic demo data"
             echo "  --count N         Number of synthetic documents (default: 1000)"
-            echo "  --index NAME      Results index name (default: achilles-results-default)"
+            echo "  --index NAME      Results index name (default: achilles-results-)"
             echo "  --help, -h        Show this help"
             exit 0
             ;;
@@ -168,5 +168,9 @@ if $SEED_DATA; then
     echo "  ✓ $SEED_COUNT synthetic results uploaded to $INDEX_NAME"
 fi
 
+echo ""
+echo "Note: with daily/monthly write-index rollover enabled in Settings, the backend"
+echo "auto-creates dated indices (achilles-results-YYYY.MM.DD) with the canonical mapping"
+echo "on first write — no per-day init needed."
 echo ""
 echo "Done. Indices are ready for use."
