@@ -23,6 +23,11 @@ vi.mock('../../analytics/client.js', () => ({
   })),
 }));
 
+const mockCreateResultsIndex = vi.fn();
+vi.mock('../../analytics/index-management.service.js', () => ({
+  createResultsIndex: (...args: unknown[]) => mockCreateResultsIndex(...args),
+}));
+
 // Import ERROR_CODE_MAP from the real module — it's a static map we don't mock
 const { ERROR_CODE_MAP } = await import('../../analytics/elasticsearch.js');
 
@@ -146,6 +151,7 @@ describe('results.service', () => {
     mockGetSettings.mockReturnValue(configuredSettings());
     mockEsIndex.mockResolvedValue({});
     mockEsBulk.mockResolvedValue({});
+    mockCreateResultsIndex.mockResolvedValue({ created: true, message: 'ok' });
   });
 
   // ── Group 1: Client Initialization ─────────────────────────
@@ -271,11 +277,13 @@ describe('results.service', () => {
   // ── Group 5: Index Targeting ───────────────────────────────
 
   describe('index targeting', () => {
-    it('uses default index pattern from settings', async () => {
+    it('uses default write index (prefix, no rollover) from settings', async () => {
+      // configuredSettings() has no writeIndexRollover → resolves to 'none'
+      // → index = writeIndexPrefix default ('achilles-results-')
       await ingestResult(makeTask(), makeResult());
 
       expect(mockEsIndex).toHaveBeenCalledWith(
-        expect.objectContaining({ index: 'f0rtika-results' }),
+        expect.objectContaining({ index: 'achilles-results-' }),
       );
     });
 
@@ -286,6 +294,85 @@ describe('results.service', () => {
 
       expect(mockEsIndex).toHaveBeenCalledWith(
         expect.objectContaining({ index: 'custom-results-2026' }),
+      );
+    });
+  });
+
+  // ── Group 5b: Write-index rollover wiring ──────────────────
+
+  describe('write-index rollover wiring', () => {
+    function dailySettings() {
+      return {
+        connectionType: 'direct' as const,
+        node: 'http://localhost:9200',
+        apiKey: 'test-key',
+        indexPattern: 'achilles-results-*',
+        writeIndexPrefix: 'achilles-results-',
+        writeIndexRollover: 'daily' as const,
+        configured: true,
+      };
+    }
+
+    it('daily rollover: writes to the dated index derived from completed_at', async () => {
+      mockGetSettings.mockReturnValue(dailySettings());
+      const result = makeResult({ completed_at: '2023-01-15T10:00:00Z' });
+
+      await ingestResult(makeTask(), result);
+
+      expect(mockEsIndex).toHaveBeenCalledWith(
+        expect.objectContaining({ index: 'achilles-results-2023.01.15' }),
+      );
+    });
+
+    it('daily rollover: calls createResultsIndex once and caches it (ensure only once per index)', async () => {
+      mockGetSettings.mockReturnValue(dailySettings());
+      const result = makeResult({ completed_at: '2023-01-15T10:00:00Z' });
+
+      // Call twice — same date → same index name → ensure only once
+      await ingestResult(makeTask(), result);
+      await ingestResult(makeTask(), result);
+
+      expect(mockCreateResultsIndex).toHaveBeenCalledTimes(1);
+      expect(mockCreateResultsIndex).toHaveBeenCalledWith('achilles-results-2023.01.15');
+    });
+
+    it('wildcard in resolved index throws with descriptive message', async () => {
+      mockGetSettings.mockReturnValue({
+        ...dailySettings(),
+        writeIndexPrefix: 'achilles-results-*',
+        writeIndexRollover: 'none' as const,
+      });
+
+      await expect(ingestResult(makeTask(), makeResult()))
+        .rejects.toThrow(/wildcard/);
+    });
+
+    it('cache poisoning: createResultsIndex failure prevents caching so next call retries', async () => {
+      mockGetSettings.mockReturnValue(dailySettings());
+      const result = makeResult({ completed_at: '2023-01-15T10:00:00Z' });
+
+      // First ensure fails
+      mockCreateResultsIndex.mockRejectedValueOnce(new Error('ES unavailable'));
+
+      await expect(ingestResult(makeTask(), result)).rejects.toThrow('ES unavailable');
+
+      // Reset mock to succeed — index must NOT be cached from the failed call
+      mockCreateResultsIndex.mockResolvedValue({ created: true, message: 'ok' });
+      await ingestResult(makeTask(), result);
+
+      // createResultsIndex should have been called twice (once failed, once succeeded)
+      expect(mockCreateResultsIndex).toHaveBeenCalledTimes(2);
+    });
+
+    it('target_index skips ensureResultsIndex even with daily rollover', async () => {
+      mockGetSettings.mockReturnValue(dailySettings());
+      const task = makeTask({ target_index: 'my-custom-index' });
+
+      await ingestResult(task, makeResult());
+
+      expect(mockCreateResultsIndex).not.toHaveBeenCalled();
+      expect(mockEsIndex).toHaveBeenCalledWith(
+        expect.objectContaining({ index: 'my-custom-index' }),
       );
     });
   });
