@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { encrypt as sharedEncrypt, decrypt as sharedDecrypt } from '../shared/encryption.js';
-import type { AzureIntegrationSettings, DefenderIntegrationSettings, AlertSettings, IntegrationsSettings, OrgIntegrationSettings } from '../../types/integrations.js';
+import type { AzureIntegrationSettings, DefenderIntegrationSettings, SophosIntegrationSettings, AlertSettings, IntegrationsSettings, OrgIntegrationSettings } from '../../types/integrations.js';
 import type { AutoResolveMode } from '../../types/defender.js';
 
 const AUTO_RESOLVE_MODES: ReadonlyArray<AutoResolveMode> = ['disabled', 'dry_run', 'enabled'] as const;
@@ -109,6 +109,18 @@ export class IntegrationsSettingsService {
         }
         if (settings.defender.client_secret?.startsWith('enc:')) {
           settings.defender.client_secret = this.decrypt(settings.defender.client_secret.slice(4));
+        }
+      }
+
+      // Decrypt sensitive Sophos fields. Note that tenant_id, data_region,
+      // and tier are NOT encrypted — they're discovered via whoami (not
+      // operator-supplied) and don't carry credential material.
+      if (settings.sophos) {
+        if (settings.sophos.client_id?.startsWith('enc:')) {
+          settings.sophos.client_id = this.decrypt(settings.sophos.client_id.slice(4));
+        }
+        if (settings.sophos.client_secret?.startsWith('enc:')) {
+          settings.sophos.client_secret = this.decrypt(settings.sophos.client_secret.slice(4));
         }
       }
 
@@ -450,6 +462,132 @@ export class IntegrationsSettingsService {
 
     // Partial update preserves credentials (encrypted) and existing sync timestamps.
     this.saveDefenderSettings({ auto_resolve_mode: mode });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sophos Central
+  // ---------------------------------------------------------------------------
+  //
+  // Sophos differs from Defender / Azure in three ways worth noting:
+  //   1. Only client_id + client_secret come from the operator. tenant_id,
+  //      data_region, and tier are *discovered* via the Sophos whoami
+  //      endpoint and never sourced from env vars.
+  //   2. Because of (1), the env-var override only sets credentials —
+  //      whoami fills in the rest at bootstrap time.
+  //   3. The shape of partial-update merging is therefore subtly different:
+  //      "discovered" fields can be cleared by Phase 2 sync code re-discovering
+  //      them, but Phase 1 leaves them alone.
+
+  private getEnvSophosSettings(): SophosIntegrationSettings | null {
+    const clientId = process.env.SOPHOS_CLIENT_ID;
+    const clientSecret = process.env.SOPHOS_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) return null;
+
+    return {
+      client_id: clientId,
+      client_secret: clientSecret,
+      configured: true,
+      label: process.env.SOPHOS_TENANT_LABEL || undefined,
+      // tenant_id, data_region, tier intentionally NOT read from env —
+      // they only ever come from a successful whoami call.
+    };
+  }
+
+  /** Check if Sophos credentials are provided via environment variables. */
+  isEnvSophosConfigured(): boolean {
+    return this.getEnvSophosSettings() !== null;
+  }
+
+  /** Returns decrypted Sophos settings. Org-specific > legacy file > env vars. */
+  getSophosSettings(): SophosIntegrationSettings | null {
+    const fileSettings = this.getFileSettings();
+
+    const orgSection = this.getOrgSection(fileSettings);
+    if (orgSection?.sophos?.configured) {
+      return orgSection.sophos;
+    }
+
+    if (fileSettings?.sophos?.configured) {
+      return fileSettings.sophos;
+    }
+
+    return this.getEnvSophosSettings();
+  }
+
+  /** Save Sophos credentials (encrypts client_id + client_secret). Partial update supported. */
+  saveSophosSettings(settings: Partial<SophosIntegrationSettings>): void {
+    this.ensureSettingsDir();
+
+    const existing = this.getRawFileSettings() ?? {};
+    const decrypted = this.getFileSettings() ?? {};
+    const orgSection = this.getOrgSection(decrypted);
+    const current = orgSection?.sophos ?? decrypted.sophos ?? {
+      client_id: '',
+      client_secret: '',
+      configured: false,
+    };
+
+    const merged: SophosIntegrationSettings = {
+      client_id: settings.client_id || current.client_id,
+      client_secret: settings.client_secret || current.client_secret,
+      configured: true,
+      label: settings.label !== undefined ? settings.label : current.label,
+      // Discovered fields — only overwrite if the caller explicitly provided them.
+      tenant_id: settings.tenant_id !== undefined ? settings.tenant_id : current.tenant_id,
+      data_region: settings.data_region !== undefined ? settings.data_region : current.data_region,
+      tier: settings.tier !== undefined ? settings.tier : current.tier,
+      // Phase 2+ fields
+      last_alert_sync: settings.last_alert_sync !== undefined ? settings.last_alert_sync : current.last_alert_sync,
+      last_score_sync: settings.last_score_sync !== undefined ? settings.last_score_sync : current.last_score_sync,
+      auto_resolve_mode: settings.auto_resolve_mode !== undefined ? settings.auto_resolve_mode : current.auto_resolve_mode,
+    };
+
+    const encrypted = {
+      ...merged,
+      client_id: 'enc:' + this.encrypt(merged.client_id),
+      client_secret: 'enc:' + this.encrypt(merged.client_secret),
+    };
+
+    if (this.orgId) {
+      existing.orgs ??= {};
+      existing.orgs[this.orgId] ??= {};
+      existing.orgs[this.orgId].sophos = encrypted;
+    } else {
+      existing.sophos = encrypted;
+    }
+
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2), { mode: 0o600 });
+  }
+
+  /** Check if Sophos integration is configured (file or env). */
+  isSophosConfigured(): boolean {
+    const settings = this.getSophosSettings();
+    if (!settings?.configured) return false;
+    return !!(settings.client_id && settings.client_secret);
+  }
+
+  /** Returns raw decrypted Sophos credentials for injection into the client. */
+  getSophosCredentials(): { client_id: string; client_secret: string } | null {
+    const settings = this.getSophosSettings();
+    if (!settings?.configured) return null;
+    if (!settings.client_id || !settings.client_secret) return null;
+    return { client_id: settings.client_id, client_secret: settings.client_secret };
+  }
+
+  /** Remove Sophos integration credentials from settings file. */
+  deleteSophosSettings(): void {
+    const raw = this.getRawFileSettings();
+    if (!raw) return;
+    if (this.orgId && raw.orgs?.[this.orgId]) {
+      delete raw.orgs[this.orgId].sophos;
+    } else if (raw.sophos) {
+      delete raw.sophos;
+    } else {
+      return;
+    }
+    this.ensureSettingsDir();
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(raw, null, 2), { mode: 0o600 });
   }
 
   // ---------------------------------------------------------------------------

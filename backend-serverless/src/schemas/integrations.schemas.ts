@@ -38,6 +38,19 @@ export const DefenderAutoResolveModeSchema = z.object({
   mode: z.enum(['disabled', 'dry_run', 'enabled']),
 });
 
+// ── Sophos Central ───────────────────────────────────────────────────────────
+
+export const SophosCredentialsSchema = z.object({
+  client_id: z.string().optional(),
+  client_secret: z.string().optional(),
+  label: z.string().optional(),
+});
+
+export const SophosTestSchema = z.object({
+  client_id: z.string().optional(),
+  client_secret: z.string().optional(),
+});
+
 // ── Alert Settings ───────────────────────────────────────────────────────────
 
 const AlertThresholdsSchema = z.object({
