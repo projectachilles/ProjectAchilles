@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
-import { CheckCircle, Info, ExternalLink, Unlink } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { CheckCircle, Info, ExternalLink, Unlink, Upload, FileKey } from 'lucide-react';
 import { integrationsApi } from '@/services/api/integrations';
+import type { DefenderAuthMethod } from '@/services/api/integrations';
 import { Input } from '@/components/shared/ui/Input';
 import { Button } from '@/components/shared/ui/Button';
 import { Alert } from '@/components/shared/ui/Alert';
@@ -15,8 +16,25 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
   const [editMode, setEditMode] = useState(false);
   const [tenantId, setTenantId] = useState('');
   const [clientId, setClientId] = useState('');
-  const [clientSecret, setClientSecret] = useState('');
   const [label, setLabel] = useState('');
+
+  // Auth method
+  const [authMethod, setAuthMethod] = useState<DefenderAuthMethod>('client_secret');
+
+  // Secret auth
+  const [clientSecret, setClientSecret] = useState('');
+
+  // Certificate auth — PEM paste
+  const [certThumbprint, setCertThumbprint] = useState('');
+  const [privateKeyPem, setPrivateKeyPem] = useState('');
+
+  // Certificate auth — PFX upload
+  const [certInputMode, setCertInputMode] = useState<'pfx' | 'pem'>('pfx');
+  const [pfxFile, setPfxFile] = useState<File | null>(null);
+  const [pfxPassphrase, setPfxPassphrase] = useState('');
+  const [pfxParsed, setPfxParsed] = useState<{ subjectCn: string; notAfter: string } | null>(null);
+  const [pfxParsing, setPfxParsing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
@@ -39,6 +57,7 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
         setEditMode(true);
         setLabel(settings.label ?? '');
         setEnvConfigured(settings.env_configured ?? false);
+        if (settings.auth_method) setAuthMethod(settings.auth_method);
         onStatusChange?.(true);
       }
     } catch {
@@ -49,29 +68,44 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
     }
   };
 
+  const handleParsePfx = async () => {
+    if (!pfxFile) return;
+    try {
+      setPfxParsing(true);
+      setError(null);
+      const result = await integrationsApi.parsePfx(pfxFile, pfxPassphrase);
+      setCertThumbprint(result.thumbprint);
+      setPrivateKeyPem(result.private_key_pem);
+      setPfxParsed({ subjectCn: result.subject_cn, notAfter: result.not_after });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to parse PFX file');
+      setPfxParsed(null);
+    } finally {
+      setPfxParsing(false);
+    }
+  };
+
+  const buildTestPayload = () => ({
+    tenant_id: tenantId || undefined,
+    client_id: clientId || undefined,
+    auth_method: authMethod,
+    ...(authMethod === 'certificate'
+      ? { cert_thumbprint: certThumbprint || undefined, private_key_pem: privateKeyPem || undefined }
+      : { client_secret: clientSecret || undefined }),
+  });
+
   const handleTestConnection = async () => {
     try {
       setTesting(true);
       setTestResult(null);
       setError(null);
-
-      const result = await integrationsApi.testDefenderConnection({
-        tenant_id: tenantId || undefined,
-        client_id: clientId || undefined,
-        client_secret: clientSecret || undefined,
-      });
-
+      const result = await integrationsApi.testDefenderConnection(buildTestPayload());
       setTestResult({
         success: result.success,
-        message: result.success
-          ? (result.message ?? 'Connection successful')
-          : (result.error ?? 'Connection test failed'),
+        message: result.success ? (result.message ?? 'Connection successful') : (result.error ?? 'Connection test failed'),
       });
     } catch (err) {
-      setTestResult({
-        success: false,
-        message: err instanceof Error ? err.message : 'Connection test failed',
-      });
+      setTestResult({ success: false, message: err instanceof Error ? err.message : 'Connection test failed' });
     } finally {
       setTesting(false);
     }
@@ -83,44 +117,41 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
       setError(null);
       setSuccessMessage(null);
 
-      // Auto-test if not already tested successfully
       if (!testResult?.success) {
         setTestResult(null);
-        const result = await integrationsApi.testDefenderConnection({
-          tenant_id: tenantId || undefined,
-          client_id: clientId || undefined,
-          client_secret: clientSecret || undefined,
-        });
-
+        const result = await integrationsApi.testDefenderConnection(buildTestPayload());
         if (!result.success) {
-          setTestResult({
-            success: false,
-            message: result.error ?? 'Connection test failed',
-          });
+          setTestResult({ success: false, message: result.error ?? 'Connection test failed' });
           setSaving(false);
           return;
         }
-        setTestResult({
-          success: true,
-          message: result.message ?? 'Connection successful',
-        });
+        setTestResult({ success: true, message: result.message ?? 'Connection successful' });
       }
 
       await integrationsApi.saveDefenderSettings({
         tenant_id: tenantId || undefined,
         client_id: clientId || undefined,
-        client_secret: clientSecret || undefined,
         label: label || undefined,
+        auth_method: authMethod,
+        ...(authMethod === 'certificate'
+          ? { cert_thumbprint: certThumbprint || undefined, private_key_pem: privateKeyPem || undefined }
+          : { client_secret: clientSecret || undefined }),
       });
 
       setEditMode(true);
       setSuccessMessage('Defender credentials saved successfully!');
       onStatusChange?.(true);
 
-      // Clear inputs after save (they're now stored encrypted)
+      // Clear sensitive fields after save
       setTenantId('');
       setClientId('');
       setClientSecret('');
+      setCertThumbprint('');
+      setPrivateKeyPem('');
+      setPfxFile(null);
+      setPfxPassphrase('');
+      setPfxParsed(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save settings');
     } finally {
@@ -137,6 +168,11 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
       setTenantId('');
       setClientId('');
       setClientSecret('');
+      setCertThumbprint('');
+      setPrivateKeyPem('');
+      setPfxFile(null);
+      setPfxPassphrase('');
+      setPfxParsed(null);
       setLabel('');
       setTestResult(null);
       setSuccessMessage(null);
@@ -149,10 +185,11 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
     }
   };
 
-  // Validation: on initial setup, all three are required. On edit, all are optional.
-  const isValid = editMode
-    ? true
-    : !!(tenantId && clientId && clientSecret);
+  const isCertReady = authMethod === 'certificate' && !!(certThumbprint && privateKeyPem);
+  const isSecretReady = authMethod === 'client_secret' && !!clientSecret;
+  const hasCredentials = isCertReady || isSecretReady;
+
+  const isValid = editMode ? true : !!(tenantId && clientId && hasCredentials);
 
   if (loading) {
     return (
@@ -171,8 +208,7 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
           <div>
             <p className="font-medium">Environment variable configuration detected</p>
             <p className="text-sm text-muted-foreground mt-1">
-              Defender credentials are set via DEFENDER_TENANT_ID, DEFENDER_CLIENT_ID, and DEFENDER_CLIENT_SECRET
-              environment variables. Settings saved here will take priority.
+              Defender credentials are set via environment variables. Settings saved here will take priority.
             </p>
           </div>
         </Alert>
@@ -191,7 +227,6 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
         </Alert>
       )}
 
-      {/* Success message */}
       {successMessage && (
         <Alert variant="success">
           <CheckCircle className="w-4 h-4" />
@@ -199,13 +234,13 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
         </Alert>
       )}
 
-      {/* Form fields */}
+      {/* Core identity fields */}
       <Input
         label="Tenant ID"
         placeholder={editMode ? 'Leave blank to keep current' : 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'}
         value={tenantId}
         onChange={(e) => setTenantId(e.target.value)}
-        helperText={editMode ? 'Optional: Only fill in to update' : 'Azure AD / Entra ID tenant ID (same or different from Azure integration)'}
+        helperText={editMode ? 'Optional: Only fill in to update' : 'Azure AD / Entra ID tenant ID'}
       />
       <Input
         label="Client ID (Application ID)"
@@ -214,14 +249,165 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
         onChange={(e) => setClientId(e.target.value)}
         helperText={editMode ? 'Optional: Only fill in to update' : 'App Registration Application (client) ID'}
       />
-      <Input
-        label="Client Secret"
-        type="password"
-        placeholder={editMode ? 'Leave blank to keep current' : 'Client secret value'}
-        value={clientSecret}
-        onChange={(e) => setClientSecret(e.target.value)}
-        helperText={editMode ? 'Optional: Only fill in to update' : undefined}
-      />
+
+      {/* Auth method toggle */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Authentication Method</p>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => { setAuthMethod('client_secret'); setTestResult(null); }}
+            className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+              authMethod === 'client_secret'
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted/60'
+            }`}
+          >
+            Client Secret
+          </button>
+          <button
+            type="button"
+            onClick={() => { setAuthMethod('certificate'); setTestResult(null); }}
+            className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+              authMethod === 'certificate'
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted/60'
+            }`}
+          >
+            Certificate
+          </button>
+        </div>
+      </div>
+
+      {/* Secret auth fields */}
+      {authMethod === 'client_secret' && (
+        <Input
+          label="Client Secret"
+          type="password"
+          placeholder={editMode ? 'Leave blank to keep current' : 'Client secret value'}
+          value={clientSecret}
+          onChange={(e) => setClientSecret(e.target.value)}
+          helperText={editMode ? 'Optional: Only fill in to update' : undefined}
+        />
+      )}
+
+      {/* Certificate auth fields */}
+      {authMethod === 'certificate' && (
+        <div className="space-y-4 rounded-lg border border-border p-4">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <FileKey className="w-4 h-4" />
+            Certificate Credentials
+          </div>
+
+          {/* Input mode tabs */}
+          <div className="flex gap-2 text-xs">
+            <button
+              type="button"
+              onClick={() => setCertInputMode('pfx')}
+              className={`rounded px-2 py-1 font-medium transition-colors ${
+                certInputMode === 'pfx'
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Upload PFX / P12
+            </button>
+            <button
+              type="button"
+              onClick={() => setCertInputMode('pem')}
+              className={`rounded px-2 py-1 font-medium transition-colors ${
+                certInputMode === 'pem'
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Paste PEM
+            </button>
+          </div>
+
+          {certInputMode === 'pfx' ? (
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-sm font-medium">PFX / P12 File</label>
+                <div
+                  className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground hover:border-primary/50 hover:bg-muted/30 transition-colors"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="w-4 h-4 shrink-0" />
+                  {pfxFile ? (
+                    <span className="text-foreground">{pfxFile.name}</span>
+                  ) : (
+                    <span>Click to select .pfx or .p12 file</span>
+                  )}
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pfx,.p12"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] ?? null;
+                    setPfxFile(f);
+                    setPfxParsed(null);
+                    setCertThumbprint('');
+                    setPrivateKeyPem('');
+                  }}
+                />
+              </div>
+              <Input
+                label="PFX Passphrase"
+                type="password"
+                placeholder="Leave blank if no passphrase"
+                value={pfxPassphrase}
+                onChange={(e) => { setPfxPassphrase(e.target.value); setPfxParsed(null); }}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleParsePfx}
+                disabled={!pfxFile || pfxParsing}
+              >
+                {pfxParsing ? <><Spinner size="sm" /> Parsing...</> : 'Extract Certificate'}
+              </Button>
+              {pfxParsed && (
+                <Alert variant="success">
+                  <CheckCircle className="w-4 h-4" />
+                  <div className="text-xs space-y-0.5">
+                    <p className="font-medium">Certificate extracted</p>
+                    <p>Subject: {pfxParsed.subjectCn}</p>
+                    <p>Expires: {new Date(pfxParsed.notAfter).toLocaleDateString()}</p>
+                    <p className="font-mono">Thumbprint: {certThumbprint}</p>
+                  </div>
+                </Alert>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <Input
+                label="Certificate Thumbprint"
+                placeholder={editMode ? 'Leave blank to keep current' : 'A1B2C3... (hex, from Azure portal)'}
+                value={certThumbprint}
+                onChange={(e) => setCertThumbprint(e.target.value.replace(/\s/g, ''))}
+                helperText="SHA-1 fingerprint shown on your App Registration → Certificates & secrets"
+              />
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Private Key (PEM)</label>
+                <textarea
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                  rows={6}
+                  placeholder={editMode ? 'Leave blank to keep current' : '-----BEGIN PRIVATE KEY-----\n...'}
+                  value={privateKeyPem}
+                  onChange={(e) => setPrivateKeyPem(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  The RSA private key corresponding to the certificate uploaded to Azure
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <Input
         label="Tenant Label (optional)"
         placeholder="e.g. Contoso Production"
@@ -237,10 +423,12 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
         <ul className="list-disc list-inside space-y-1 ml-2">
           <li><span className="font-mono text-xs">SecurityEvents.Read.All</span> — Read Secure Score, alerts, and control profiles</li>
         </ul>
-        <p className="mt-2 text-xs">
-          This can use the same App Registration as the Azure / Entra ID integration if it already has this permission,
-          or a separate one with minimal scope.
-        </p>
+        {authMethod === 'certificate' && (
+          <p className="mt-2 text-xs">
+            For certificate auth: upload the public certificate (.cer / .pem) to your App Registration under{' '}
+            <em>Certificates &amp; secrets → Certificates</em>. The thumbprint shown there is what you enter above.
+          </p>
+        )}
         <a
           href="https://learn.microsoft.com/en-us/graph/api/security-list-securescores?view=graph-rest-1.0"
           target="_blank"
@@ -252,46 +440,25 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
         </a>
       </div>
 
-      {/* Test Result */}
       {testResult && (
         <Alert variant={testResult.success ? 'success' : 'destructive'}>
           {testResult.message}
         </Alert>
       )}
 
-      {/* Error */}
       {error && <Alert variant="destructive">{error}</Alert>}
 
-      {/* Actions */}
       <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={handleTestConnection} disabled={!isValid || testing}>
-          {testing ? (
-            <>
-              <Spinner size="sm" />
-              Testing...
-            </>
-          ) : (
-            <>
-              <CheckCircle className="w-4 h-4" />
-              Test Connection
-            </>
-          )}
+          {testing ? <><Spinner size="sm" /> Testing...</> : <><CheckCircle className="w-4 h-4" /> Test Connection</>}
         </Button>
         <Button onClick={handleSave} disabled={!isValid || saving}>
           {saving ? (
-            <>
-              <Spinner size="sm" />
-              {editMode ? 'Updating...' : 'Saving...'}
-            </>
-          ) : editMode ? (
-            'Update Settings'
-          ) : (
-            'Save Settings'
-          )}
+            <><Spinner size="sm" /> {editMode ? 'Updating...' : 'Saving...'}</>
+          ) : editMode ? 'Update Settings' : 'Save Settings'}
         </Button>
       </div>
 
-      {/* Disconnect */}
       {editMode && !envConfigured && (
         <div className="border-t border-border pt-4 mt-2">
           <div className="flex items-center justify-between">
@@ -310,14 +477,10 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
               </Button>
             ) : (
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm"
-                  onClick={() => setShowDisconnectConfirm(false)}
-                  disabled={disconnecting}>
+                <Button variant="ghost" size="sm" onClick={() => setShowDisconnectConfirm(false)} disabled={disconnecting}>
                   Cancel
                 </Button>
-                <Button variant="destructive" size="sm"
-                  onClick={handleDisconnect}
-                  disabled={disconnecting}>
+                <Button variant="destructive" size="sm" onClick={handleDisconnect} disabled={disconnecting}>
                   {disconnecting ? <><Spinner size="sm" /> Disconnecting...</> : 'Confirm Disconnect'}
                 </Button>
               </div>
@@ -326,7 +489,6 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
         </div>
       )}
 
-      {/* Auto-resolve section — only surfaced once Defender is configured */}
       {editMode && <DefenderAutoResolveSection />}
     </div>
   );

@@ -24,11 +24,15 @@ export interface TestAzureResult {
 
 // --- Defender (Graph Security API) ---
 
+export type DefenderAuthMethod = 'client_secret' | 'certificate';
+
 export interface DefenderSettingsMasked {
   configured: boolean;
   tenant_id?: string;
   client_id?: string;
+  auth_method?: DefenderAuthMethod;
   client_secret_set?: boolean;
+  cert_thumbprint_set?: boolean;
   label?: string;
   env_configured?: boolean;
 }
@@ -36,14 +40,35 @@ export interface DefenderSettingsMasked {
 export interface SaveDefenderSettingsRequest {
   tenant_id?: string;
   client_id?: string;
+  // Secret auth
   client_secret?: string;
   label?: string;
+  // Certificate auth
+  auth_method?: DefenderAuthMethod;
+  cert_thumbprint?: string;
+  private_key_pem?: string;
+}
+
+export interface TestDefenderRequest {
+  tenant_id?: string;
+  client_id?: string;
+  client_secret?: string;
+  auth_method?: DefenderAuthMethod;
+  cert_thumbprint?: string;
+  private_key_pem?: string;
 }
 
 export interface TestDefenderResult {
   success: boolean;
   message?: string;
   error?: string;
+}
+
+export interface ParsePfxResult {
+  thumbprint: string;
+  private_key_pem: string;
+  subject_cn: string;
+  not_after: string;
 }
 
 // --- Defender Auto-Resolve (Wave 7) ---
@@ -122,9 +147,19 @@ export const integrationsApi = {
     return response.data;
   },
 
-  async testDefenderConnection(settings: SaveDefenderSettingsRequest): Promise<TestDefenderResult> {
+  async testDefenderConnection(settings: TestDefenderRequest): Promise<TestDefenderResult> {
     const response = await apiClient.post('/integrations/defender/test', settings);
     return response.data;
+  },
+
+  async parsePfx(pfxFile: File, passphrase: string): Promise<ParsePfxResult> {
+    const form = new FormData();
+    form.append('pfx', pfxFile);
+    form.append('passphrase', passphrase);
+    const response = await apiClient.post('/integrations/defender/parse-pfx', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data.data;
   },
 
   async deleteDefenderSettings(): Promise<{ success: boolean }> {

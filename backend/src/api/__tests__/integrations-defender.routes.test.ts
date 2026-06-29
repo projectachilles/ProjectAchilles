@@ -263,6 +263,7 @@ describe('Defender integration routes', () => {
 
     it('falls back to stored credentials', async () => {
       mockGetDefenderCredentials.mockReturnValue({
+        authMethod: 'client_secret',
         tenant_id: 'aabbccdd-1111-2222-3333-444455556666',
         client_id: 'eeff0011-2233-4455-6677-8899aabbccdd',
         client_secret: 'stored-secret',
