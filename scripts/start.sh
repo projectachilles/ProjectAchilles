@@ -141,9 +141,11 @@ if [ -f "$PROJECT_ROOT/backend/.env" ]; then
     eval "$(grep -E '^NGROK_' "$PROJECT_ROOT/backend/.env" 2>/dev/null | sed 's/^/export /')"
 fi
 
-# ngrok custom domains (only used when TUNNEL_PROVIDER=ngrok)
-NGROK_FRONTEND_DOMAIN="${NGROK_FRONTEND_DOMAIN:-projectachilles.ngrok.app}"
-NGROK_BACKEND_DOMAIN="${NGROK_BACKEND_DOMAIN:-achilles-agent.ngrok.app}"
+# ngrok custom domains (only used when TUNNEL_PROVIDER=ngrok).
+# No default — set NGROK_FRONTEND_DOMAIN / NGROK_BACKEND_DOMAIN in backend/.env
+# or the environment. Validated in the ngrok branch below before use.
+NGROK_FRONTEND_DOMAIN="${NGROK_FRONTEND_DOMAIN:-}"
+NGROK_BACKEND_DOMAIN="${NGROK_BACKEND_DOMAIN:-}"
 
 # Cloudflare tunnel state (populated at runtime)
 CF_FRONTEND_URL=""
@@ -1533,6 +1535,13 @@ if [ "$TUNNEL_MODE" = true ] && { [ "$RESTART_SERVERS" != true ] || [ "$START_FR
         if [ ! -f "$NGROK_CONFIG_MAIN" ]; then
             echo "Error: ngrok config not found at $NGROK_CONFIG_MAIN"
             echo "Run: ngrok config add-authtoken YOUR_TOKEN"
+            exit 1
+        fi
+        if [ -z "$NGROK_FRONTEND_DOMAIN" ] || [ -z "$NGROK_BACKEND_DOMAIN" ]; then
+            echo "Error: ngrok requires reserved domains. Set NGROK_FRONTEND_DOMAIN and"
+            echo "NGROK_BACKEND_DOMAIN in backend/.env or the environment."
+            echo "Reserve domains at: https://dashboard.ngrok.com/domains"
+            echo "Or use the free option: TUNNEL_PROVIDER=cloudflare"
             exit 1
         fi
 
