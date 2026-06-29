@@ -1,7 +1,9 @@
 // Lightweight Microsoft Graph API client using fetch — no SDK dependency.
-// Handles OAuth2 client_credentials, token caching, pagination, and rate limiting.
+// Handles OAuth2 client_credentials (secret or certificate), token caching, pagination, and rate limiting.
 
+import { createSign, randomUUID } from 'crypto';
 import type { GraphSecureScore, GraphControlProfile, GraphAlert, GraphAlertPatch } from '../../types/defender.js';
+import type { DefenderCredentials } from '../../types/integrations.js';
 
 /**
  * Distinguishable error class for Graph PATCH failures so callers can
@@ -34,17 +36,45 @@ interface ODataResponse<T> {
   '@odata.nextLink'?: string;
 }
 
+/**
+ * Build a signed JWT client assertion for certificate-based auth.
+ * The JWT header carries x5t (base64url of SHA-1 cert thumbprint) so Azure
+ * can locate the matching public cert on the app registration.
+ * Signed with RS256 using the certificate's private key via Node.js crypto.
+ * Exported so the test endpoint can call it directly without instantiating a client.
+ */
+export function buildClientAssertionForTest(
+  tenantId: string,
+  clientId: string,
+  certThumbprint: string,
+  privateKeyPem: string,
+): string {
+  const now = Math.floor(Date.now() / 1000);
+  // Azure shows thumbprints as uppercase hex, possibly with colons — normalise
+  const x5t = Buffer.from(certThumbprint.replace(/:/g, ''), 'hex').toString('base64url');
+  const header = { alg: 'RS256', typ: 'JWT', x5t };
+  const payload = {
+    aud: `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+    iss: clientId,
+    sub: clientId,
+    exp: now + 600,
+    nbf: now,
+    jti: randomUUID(),
+  };
+  const headerB64 = Buffer.from(JSON.stringify(header)).toString('base64url');
+  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const toSign = `${headerB64}.${payloadB64}`;
+  const sig = createSign('RSA-SHA256').update(toSign).sign(privateKeyPem, 'base64url');
+  return `${toSign}.${sig}`;
+}
+
 export class MicrosoftGraphClient {
   private tokenCache: TokenCache | null = null;
 
-  constructor(
-    private tenantId: string,
-    private clientId: string,
-    private clientSecret: string,
-  ) {}
+  constructor(private config: DefenderCredentials) {}
 
   // ---------------------------------------------------------------------------
-  // Token acquisition (client_credentials grant)
+  // Token acquisition (client_credentials — secret or certificate assertion)
   // ---------------------------------------------------------------------------
 
   private async getAccessToken(): Promise<string> {
@@ -54,13 +84,31 @@ export class MicrosoftGraphClient {
       return this.tokenCache.accessToken;
     }
 
-    const tokenUrl = `https://login.microsoftonline.com/${this.tenantId}/oauth2/v2.0/token`;
-    const body = new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: this.clientId,
-      client_secret: this.clientSecret,
-      scope: 'https://graph.microsoft.com/.default',
-    });
+    const tokenUrl = `https://login.microsoftonline.com/${this.config.tenant_id}/oauth2/v2.0/token`;
+
+    let body: URLSearchParams;
+    if (this.config.authMethod === 'certificate') {
+      const assertion = buildClientAssertionForTest(
+        this.config.tenant_id,
+        this.config.client_id,
+        this.config.cert_thumbprint,
+        this.config.private_key_pem,
+      );
+      body = new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: this.config.client_id,
+        client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+        client_assertion: assertion,
+        scope: 'https://graph.microsoft.com/.default',
+      });
+    } else {
+      body = new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: this.config.client_id,
+        client_secret: this.config.client_secret,
+        scope: 'https://graph.microsoft.com/.default',
+      });
+    }
 
     const res = await fetch(tokenUrl, {
       method: 'POST',

@@ -13,7 +13,7 @@ describe('MicrosoftGraphClient (serverless)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    client = new MicrosoftGraphClient('tenant-id', 'client-id', 'client-secret');
+    client = new MicrosoftGraphClient({ authMethod: 'client_secret', tenant_id: 'tenant-id', client_id: 'client-id', client_secret: 'client-secret' });
   });
 
   function mockTokenResponse() {

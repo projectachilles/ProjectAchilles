@@ -3,6 +3,8 @@
 import type { AutoResolveMode } from './defender.js';
 export type { AutoResolveMode };
 
+export type DefenderAuthMethod = 'client_secret' | 'certificate';
+
 export interface AzureIntegrationSettings {
   tenant_id: string;
   client_id: string;
@@ -16,12 +18,19 @@ export interface DefenderIntegrationSettings {
   client_id: string;
   client_secret: string;
   configured: boolean;
+  auth_method?: DefenderAuthMethod;
+  cert_thumbprint?: string;
+  private_key_pem?: string;
   label?: string;
   last_alert_sync?: string;
   last_score_sync?: string;
   /** Auto-resolve pillar mode. Missing/undefined = 'disabled' (default). */
   auto_resolve_mode?: AutoResolveMode;
 }
+
+export type DefenderCredentials =
+  | { authMethod: 'client_secret'; tenant_id: string; client_id: string; client_secret: string }
+  | { authMethod: 'certificate'; tenant_id: string; client_id: string; cert_thumbprint: string; private_key_pem: string };
 
 // ---------------------------------------------------------------------------
 // Alert & Notification Settings

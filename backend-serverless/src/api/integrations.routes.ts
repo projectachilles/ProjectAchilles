@@ -6,6 +6,11 @@ import { IntegrationsSettingsService } from '../services/integrations/settings.j
 import { DefenderSyncService } from '../services/defender/sync.service.js';
 import { AzureCredentialsSchema, AzureTestSchema, DefenderCredentialsSchema, DefenderTestSchema, DefenderAutoResolveModeSchema } from '../schemas/integrations.schemas.js';
 import { DEFENDER_INDEX } from '../services/defender/index-management.js';
+import { buildClientAssertionForTest } from '../services/defender/graph-client.js';
+import { parsePfx } from '../services/defender/pfx-parser.js';
+import multer from 'multer';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024 } });
 import { SettingsService as AnalyticsSettingsService } from '../services/analytics/settings.js';
 import { createEsClient } from '../services/analytics/client.js';
 
@@ -114,30 +119,57 @@ router.get('/defender', requirePermission('integrations:read'), asyncHandler(asy
   const mask = (val: string) =>
     val.length > 4 ? '****' + val.slice(-4) : '****';
 
+  const authMethod = settings.auth_method ?? 'client_secret';
   res.json({
     configured: true,
     tenant_id: mask(settings.tenant_id),
     client_id: mask(settings.client_id),
-    client_secret_set: !!settings.client_secret,
+    auth_method: authMethod,
+    client_secret_set: authMethod === 'client_secret' && !!settings.client_secret,
+    cert_thumbprint_set: authMethod === 'certificate' && !!settings.cert_thumbprint,
     label: settings.label ?? '',
     env_configured: settingsService.isEnvDefenderConfigured(),
   });
 }));
 
 router.post('/defender', requirePermission('integrations:write'), validate(DefenderCredentialsSchema), asyncHandler(async (req, res) => {
-  const { tenant_id, client_id, client_secret, label } = req.body;
+  const { tenant_id, client_id, client_secret, label, auth_method, cert_thumbprint, private_key_pem } = req.body;
 
   const isEdit = await settingsService.isDefenderConfigured();
+  const effectiveAuthMethod = auth_method ?? 'client_secret';
 
   if (!isEdit) {
-    if (!tenant_id || !client_id || !client_secret) {
-      throw new AppError('tenant_id, client_id, and client_secret are required for initial setup', 400);
+    if (!tenant_id || !client_id) {
+      throw new AppError('tenant_id and client_id are required for initial setup', 400);
+    }
+    if (effectiveAuthMethod === 'certificate') {
+      if (!cert_thumbprint || !private_key_pem) {
+        throw new AppError('cert_thumbprint and private_key_pem are required for certificate auth', 400);
+      }
+    } else {
+      if (!client_secret) {
+        throw new AppError('client_secret is required for initial setup with client secret auth', 400);
+      }
     }
   }
 
-  await settingsService.saveDefenderSettings({ tenant_id, client_id, client_secret, label });
-
+  await settingsService.saveDefenderSettings({ tenant_id, client_id, client_secret, label, auth_method, cert_thumbprint, private_key_pem });
   res.json({ success: true });
+}));
+
+router.post('/defender/parse-pfx', requirePermission('integrations:write'), upload.single('pfx'), asyncHandler(async (req, res) => {
+  if (!req.file) throw new AppError('pfx file is required', 400);
+  const passphrase = (req.body.passphrase as string) ?? '';
+  const result = parsePfx(req.file.buffer, passphrase);
+  res.json({
+    success: true,
+    data: {
+      thumbprint: result.thumbprint,
+      private_key_pem: result.privateKeyPem,
+      subject_cn: result.subjectCn,
+      not_after: result.notAfter,
+    },
+  });
 }));
 
 router.delete('/defender', requirePermission('integrations:write'), asyncHandler(async (_req, res) => {
@@ -152,61 +184,77 @@ router.delete('/defender', requirePermission('integrations:write'), asyncHandler
 }));
 
 router.post('/defender/test', requirePermission('integrations:write'), validate(DefenderTestSchema), asyncHandler(async (req, res) => {
-  const { tenant_id, client_id, client_secret } = req.body;
+  const { tenant_id, client_id, client_secret, auth_method, cert_thumbprint, private_key_pem } = req.body;
 
   const stored = await settingsService.getDefenderCredentials();
   const effectiveTenantId = tenant_id || stored?.tenant_id;
   const effectiveClientId = client_id || stored?.client_id;
-  const effectiveClientSecret = client_secret || stored?.client_secret;
 
-  if (!effectiveTenantId || !effectiveClientId || !effectiveClientSecret) {
-    res.json({
-      success: false,
-      error: 'Missing credentials: tenant_id, client_id, and client_secret are all required',
-    });
+  if (!effectiveTenantId || !effectiveClientId) {
+    res.json({ success: false, error: 'Missing credentials: tenant_id and client_id are required' });
     return;
   }
 
   const uuidPattern = /^[0-9a-f-]{36}$/i;
   if (!uuidPattern.test(effectiveTenantId)) {
-    res.json({
-      success: false,
-      error: 'tenant_id does not look like a valid UUID (expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)',
-    });
+    res.json({ success: false, error: 'tenant_id does not look like a valid UUID' });
     return;
   }
 
-  // Real OAuth2 token acquisition test
-  try {
-    const tokenUrl = `https://login.microsoftonline.com/${effectiveTenantId}/oauth2/v2.0/token`;
-    const body = new URLSearchParams({
+  const effectiveAuthMethod = auth_method ?? stored?.authMethod ?? 'client_secret';
+  let tokenBody: URLSearchParams;
+
+  if (effectiveAuthMethod === 'certificate') {
+    const effectiveThumbprint = cert_thumbprint || (stored?.authMethod === 'certificate' ? stored.cert_thumbprint : undefined);
+    const effectiveKey = private_key_pem || (stored?.authMethod === 'certificate' ? stored.private_key_pem : undefined);
+    if (!effectiveThumbprint || !effectiveKey) {
+      res.json({ success: false, error: 'Missing certificate credentials: cert_thumbprint and private_key_pem are required' });
+      return;
+    }
+    try {
+      const assertion = buildClientAssertionForTest(effectiveTenantId, effectiveClientId, effectiveThumbprint, effectiveKey);
+      tokenBody = new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: effectiveClientId,
+        client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+        client_assertion: assertion,
+        scope: 'https://graph.microsoft.com/.default',
+      });
+    } catch (err) {
+      res.json({ success: false, error: `Failed to build certificate assertion: ${err instanceof Error ? err.message : 'Unknown error'}` });
+      return;
+    }
+  } else {
+    const effectiveClientSecret = client_secret || (stored?.authMethod === 'client_secret' ? stored.client_secret : undefined);
+    if (!effectiveClientSecret) {
+      res.json({ success: false, error: 'Missing credentials: client_secret is required' });
+      return;
+    }
+    tokenBody = new URLSearchParams({
       grant_type: 'client_credentials',
       client_id: effectiveClientId,
       client_secret: effectiveClientSecret,
       scope: 'https://graph.microsoft.com/.default',
     });
+  }
 
+  try {
+    const tokenUrl = `https://login.microsoftonline.com/${effectiveTenantId}/oauth2/v2.0/token`;
     const tokenRes = await fetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
+      body: tokenBody.toString(),
     });
 
     if (!tokenRes.ok) {
       const errBody = await tokenRes.json().catch(() => ({})) as Record<string, string>;
-      res.json({
-        success: false,
-        error: errBody.error_description || `Token endpoint returned HTTP ${tokenRes.status}`,
-      });
+      res.json({ success: false, error: errBody.error_description || `Token endpoint returned HTTP ${tokenRes.status}` });
       return;
     }
 
     res.json({ success: true, message: 'Successfully authenticated with Microsoft Graph' });
   } catch (err) {
-    res.json({
-      success: false,
-      error: `Connection failed: ${err instanceof Error ? err.message : String(err)}`,
-    });
+    res.json({ success: false, error: `Connection failed: ${err instanceof Error ? err.message : String(err)}` });
   }
 }));
 

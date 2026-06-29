@@ -1,7 +1,7 @@
 // Settings service for external integration credentials — Vercel Blob storage version
 
 import * as crypto from 'crypto';
-import type { AzureIntegrationSettings, DefenderIntegrationSettings, IntegrationsSettings } from '../../types/integrations.js';
+import type { AzureIntegrationSettings, DefenderIntegrationSettings, DefenderCredentials, IntegrationsSettings } from '../../types/integrations.js';
 import type { AutoResolveMode } from '../../types/defender.js';
 import { blobReadText, blobWrite } from '../storage.js';
 
@@ -88,6 +88,12 @@ export class IntegrationsSettingsService {
         if (settings.defender.client_secret?.startsWith('enc:')) {
           settings.defender.client_secret = this.decrypt(settings.defender.client_secret.slice(4));
         }
+        if (settings.defender.cert_thumbprint?.startsWith('enc:')) {
+          settings.defender.cert_thumbprint = this.decrypt(settings.defender.cert_thumbprint.slice(4));
+        }
+        if (settings.defender.private_key_pem?.startsWith('enc:')) {
+          settings.defender.private_key_pem = this.decrypt(settings.defender.private_key_pem.slice(4));
+        }
       }
       return settings;
     } catch (error) {
@@ -153,12 +159,31 @@ export class IntegrationsSettingsService {
   private getEnvDefenderSettings(): DefenderIntegrationSettings | null {
     const tenantId = process.env.DEFENDER_TENANT_ID;
     const clientId = process.env.DEFENDER_CLIENT_ID;
+    if (!tenantId || !clientId) return null;
+
+    const certThumbprint = process.env.DEFENDER_CERT_THUMBPRINT;
+    const privateKeyPem = process.env.DEFENDER_PRIVATE_KEY_PEM;
     const clientSecret = process.env.DEFENDER_CLIENT_SECRET;
-    if (!tenantId || !clientId || !clientSecret) return null;
+
+    if (certThumbprint && privateKeyPem) {
+      return {
+        tenant_id: tenantId,
+        client_id: clientId,
+        client_secret: '',
+        auth_method: 'certificate',
+        cert_thumbprint: certThumbprint,
+        private_key_pem: privateKeyPem,
+        configured: true,
+        label: process.env.DEFENDER_TENANT_LABEL || undefined,
+      };
+    }
+
+    if (!clientSecret) return null;
     return {
       tenant_id: tenantId,
       client_id: clientId,
       client_secret: clientSecret,
+      auth_method: 'client_secret',
       configured: true,
       label: process.env.DEFENDER_TENANT_LABEL || undefined,
     };
@@ -189,20 +214,27 @@ export class IntegrationsSettingsService {
       client_id: settings.client_id || current.client_id,
       client_secret: settings.client_secret || current.client_secret,
       configured: true,
+      auth_method: settings.auth_method !== undefined ? settings.auth_method : current.auth_method,
+      cert_thumbprint: settings.cert_thumbprint !== undefined ? settings.cert_thumbprint : current.cert_thumbprint,
+      private_key_pem: settings.private_key_pem !== undefined ? settings.private_key_pem : current.private_key_pem,
       label: settings.label !== undefined ? settings.label : current.label,
       last_alert_sync: settings.last_alert_sync !== undefined ? settings.last_alert_sync : current.last_alert_sync,
       last_score_sync: settings.last_score_sync !== undefined ? settings.last_score_sync : current.last_score_sync,
       auto_resolve_mode: settings.auto_resolve_mode !== undefined ? settings.auto_resolve_mode : current.auto_resolve_mode,
     };
-    const toSave: IntegrationsSettings = {
-      ...existing,
-      defender: {
-        ...merged,
-        tenant_id: 'enc:' + this.encrypt(merged.tenant_id),
-        client_id: 'enc:' + this.encrypt(merged.client_id),
-        client_secret: 'enc:' + this.encrypt(merged.client_secret),
-      },
+    const encryptedDefender: Record<string, unknown> = {
+      ...merged,
+      tenant_id: 'enc:' + this.encrypt(merged.tenant_id),
+      client_id: 'enc:' + this.encrypt(merged.client_id),
+      client_secret: 'enc:' + this.encrypt(merged.client_secret),
     };
+    if (merged.cert_thumbprint) {
+      encryptedDefender.cert_thumbprint = 'enc:' + this.encrypt(merged.cert_thumbprint);
+    }
+    if (merged.private_key_pem) {
+      encryptedDefender.private_key_pem = 'enc:' + this.encrypt(merged.private_key_pem);
+    }
+    const toSave: IntegrationsSettings = { ...existing, defender: encryptedDefender as unknown as DefenderIntegrationSettings };
     await blobWrite(SETTINGS_KEY, JSON.stringify(toSave, null, 2));
   }
 
@@ -244,7 +276,12 @@ export class IntegrationsSettingsService {
   async isDefenderConfigured(): Promise<boolean> {
     const settings = await this.getDefenderSettings();
     if (!settings?.configured) return false;
-    return !!(settings.tenant_id && settings.client_id && settings.client_secret);
+    if (!settings.tenant_id || !settings.client_id) return false;
+    const authMethod = settings.auth_method ?? 'client_secret';
+    if (authMethod === 'certificate') {
+      return !!(settings.cert_thumbprint && settings.private_key_pem);
+    }
+    return !!settings.client_secret;
   }
 
   /** Read raw (still-encrypted) JSON from blob without decrypting any fields. */
@@ -272,11 +309,26 @@ export class IntegrationsSettingsService {
     await blobWrite(SETTINGS_KEY, JSON.stringify(raw, null, 2));
   }
 
-  async getDefenderCredentials(): Promise<{ tenant_id: string; client_id: string; client_secret: string } | null> {
+  async getDefenderCredentials(): Promise<DefenderCredentials | null> {
     const settings = await this.getDefenderSettings();
     if (!settings?.configured) return null;
-    if (!settings.tenant_id || !settings.client_id || !settings.client_secret) return null;
+    if (!settings.tenant_id || !settings.client_id) return null;
+
+    const authMethod = settings.auth_method ?? 'client_secret';
+    if (authMethod === 'certificate') {
+      if (!settings.cert_thumbprint || !settings.private_key_pem) return null;
+      return {
+        authMethod: 'certificate',
+        tenant_id: settings.tenant_id,
+        client_id: settings.client_id,
+        cert_thumbprint: settings.cert_thumbprint,
+        private_key_pem: settings.private_key_pem,
+      };
+    }
+
+    if (!settings.client_secret) return null;
     return {
+      authMethod: 'client_secret',
       tenant_id: settings.tenant_id,
       client_id: settings.client_id,
       client_secret: settings.client_secret,

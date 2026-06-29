@@ -56,7 +56,7 @@ export class DefenderSyncService {
       throw new Error('Defender integration is not configured');
     }
 
-    this.graphClient = new MicrosoftGraphClient(creds.tenant_id, creds.client_id, creds.client_secret);
+    this.graphClient = new MicrosoftGraphClient(creds);
     return this.graphClient;
   }
 

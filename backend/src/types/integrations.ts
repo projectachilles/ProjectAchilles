@@ -3,6 +3,8 @@
 import type { AutoResolveMode } from './defender.js';
 export type { AutoResolveMode };
 
+export type DefenderAuthMethod = 'client_secret' | 'certificate';
+
 export interface AzureIntegrationSettings {
   tenant_id: string;
   client_id: string;
@@ -14,8 +16,14 @@ export interface AzureIntegrationSettings {
 export interface DefenderIntegrationSettings {
   tenant_id: string;
   client_id: string;
+  // Secret auth (kept as required string for backward compat; empty string when cert auth)
   client_secret: string;
   configured: boolean;
+  // Auth method — undefined means 'client_secret' for backward compat
+  auth_method?: DefenderAuthMethod;
+  // Certificate auth fields (encrypted at rest, same as client_secret)
+  cert_thumbprint?: string; // hex SHA-1 of cert DER, e.g. "A1B2C3..." (from Azure portal)
+  private_key_pem?: string; // PEM-encoded RSA private key
   label?: string; // e.g. "Contoso Production"
   /** Persisted sync timestamps so incremental syncs survive process restarts. */
   last_alert_sync?: string;
@@ -27,6 +35,11 @@ export interface DefenderIntegrationSettings {
    */
   auto_resolve_mode?: AutoResolveMode;
 }
+
+/** Discriminated union returned by getDefenderCredentials() — callers always know which auth method is active. */
+export type DefenderCredentials =
+  | { authMethod: 'client_secret'; tenant_id: string; client_id: string; client_secret: string }
+  | { authMethod: 'certificate'; tenant_id: string; client_id: string; cert_thumbprint: string; private_key_pem: string };
 
 // ---------------------------------------------------------------------------
 // Alert & Notification Settings
