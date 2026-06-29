@@ -55,9 +55,12 @@ export function parsePfx(pfxBuffer: Buffer, passphrase: string): ParsedPfx {
 
   const privateKeyPem = forge.pki.privateKeyToPem(privateKey);
 
-  // Derive SHA-1 thumbprint from DER-encoded certificate
+  // Derive SHA-1 thumbprint from DER-encoded certificate.
+  // SHA-1 is required here: RFC 7515 §4.1.8 defines x5t as the base64url of
+  // the SHA-1 hash of the DER cert, and Microsoft's token endpoint enforces it.
+  // lgtm[js/weak-cryptographic-algorithm]
   const certDer = forge.asn1.toDer(forge.pki.certificateToAsn1(certBag.cert)).getBytes();
-  const md = forge.md.sha1.create();
+  const md = forge.md.sha1.create(); // lgtm[js/weak-cryptographic-algorithm]
   md.update(certDer);
   const thumbprint = md.digest().toHex().toUpperCase();
 
