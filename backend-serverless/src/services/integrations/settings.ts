@@ -1,7 +1,7 @@
 // Settings service for external integration credentials — Vercel Blob storage version
 
 import * as crypto from 'crypto';
-import type { AzureIntegrationSettings, DefenderIntegrationSettings, DefenderCredentials, IntegrationsSettings } from '../../types/integrations.js';
+import type { AzureIntegrationSettings, AzureCredentials, DefenderIntegrationSettings, DefenderCredentials, IntegrationsSettings } from '../../types/integrations.js';
 import type { AutoResolveMode } from '../../types/defender.js';
 import { blobReadText, blobWrite } from '../storage.js';
 
@@ -47,12 +47,31 @@ export class IntegrationsSettingsService {
   private getEnvAzureSettings(): AzureIntegrationSettings | null {
     const tenantId = process.env.AZURE_TENANT_ID;
     const clientId = process.env.AZURE_CLIENT_ID;
+    if (!tenantId || !clientId) return null;
+
+    const certThumbprint = process.env.AZURE_CERT_THUMBPRINT;
+    const privateKeyPem = process.env.AZURE_PRIVATE_KEY_PEM;
     const clientSecret = process.env.AZURE_CLIENT_SECRET;
-    if (!tenantId || !clientId || !clientSecret) return null;
+
+    if (certThumbprint && privateKeyPem) {
+      return {
+        tenant_id: tenantId,
+        client_id: clientId,
+        client_secret: '',
+        auth_method: 'certificate',
+        cert_thumbprint: certThumbprint,
+        private_key_pem: privateKeyPem,
+        configured: true,
+        label: process.env.AZURE_TENANT_LABEL || undefined,
+      };
+    }
+
+    if (!clientSecret) return null;
     return {
       tenant_id: tenantId,
       client_id: clientId,
       client_secret: clientSecret,
+      auth_method: 'client_secret',
       configured: true,
       label: process.env.AZURE_TENANT_LABEL || undefined,
     };
@@ -76,6 +95,12 @@ export class IntegrationsSettingsService {
         }
         if (settings.azure.client_secret?.startsWith('enc:')) {
           settings.azure.client_secret = this.decrypt(settings.azure.client_secret.slice(4));
+        }
+        if (settings.azure.cert_thumbprint?.startsWith('enc:')) {
+          settings.azure.cert_thumbprint = this.decrypt(settings.azure.cert_thumbprint.slice(4));
+        }
+        if (settings.azure.private_key_pem?.startsWith('enc:')) {
+          settings.azure.private_key_pem = this.decrypt(settings.azure.private_key_pem.slice(4));
         }
       }
       if (settings.defender) {
@@ -123,31 +148,58 @@ export class IntegrationsSettingsService {
       client_id: settings.client_id || current.client_id,
       client_secret: settings.client_secret || current.client_secret,
       configured: true,
+      auth_method: settings.auth_method !== undefined ? settings.auth_method : current.auth_method,
+      cert_thumbprint: settings.cert_thumbprint !== undefined ? settings.cert_thumbprint : current.cert_thumbprint,
+      private_key_pem: settings.private_key_pem !== undefined ? settings.private_key_pem : current.private_key_pem,
       label: settings.label !== undefined ? settings.label : current.label,
     };
-    const toSave: IntegrationsSettings = {
-      ...existing,
-      azure: {
-        ...merged,
-        tenant_id: 'enc:' + this.encrypt(merged.tenant_id),
-        client_id: 'enc:' + this.encrypt(merged.client_id),
-        client_secret: 'enc:' + this.encrypt(merged.client_secret),
-      },
+    const encryptedAzure: Record<string, unknown> = {
+      ...merged,
+      tenant_id: 'enc:' + this.encrypt(merged.tenant_id),
+      client_id: 'enc:' + this.encrypt(merged.client_id),
+      client_secret: 'enc:' + this.encrypt(merged.client_secret),
     };
+    if (merged.cert_thumbprint) {
+      encryptedAzure.cert_thumbprint = 'enc:' + this.encrypt(merged.cert_thumbprint);
+    }
+    if (merged.private_key_pem) {
+      encryptedAzure.private_key_pem = 'enc:' + this.encrypt(merged.private_key_pem);
+    }
+    const toSave: IntegrationsSettings = { ...existing, azure: encryptedAzure as unknown as AzureIntegrationSettings };
     await blobWrite(SETTINGS_KEY, JSON.stringify(toSave, null, 2));
   }
 
   async isAzureConfigured(): Promise<boolean> {
     const settings = await this.getAzureSettings();
     if (!settings?.configured) return false;
-    return !!(settings.tenant_id && settings.client_id && settings.client_secret);
+    if (!settings.tenant_id || !settings.client_id) return false;
+    const authMethod = settings.auth_method ?? 'client_secret';
+    if (authMethod === 'certificate') {
+      return !!(settings.cert_thumbprint && settings.private_key_pem);
+    }
+    return !!settings.client_secret;
   }
 
-  async getAzureCredentials(): Promise<{ tenant_id: string; client_id: string; client_secret: string } | null> {
+  async getAzureCredentials(): Promise<AzureCredentials | null> {
     const settings = await this.getAzureSettings();
     if (!settings?.configured) return null;
-    if (!settings.tenant_id || !settings.client_id || !settings.client_secret) return null;
+    if (!settings.tenant_id || !settings.client_id) return null;
+
+    const authMethod = settings.auth_method ?? 'client_secret';
+    if (authMethod === 'certificate') {
+      if (!settings.cert_thumbprint || !settings.private_key_pem) return null;
+      return {
+        authMethod: 'certificate',
+        tenant_id: settings.tenant_id,
+        client_id: settings.client_id,
+        cert_thumbprint: settings.cert_thumbprint,
+        private_key_pem: settings.private_key_pem,
+      };
+    }
+
+    if (!settings.client_secret) return null;
     return {
+      authMethod: 'client_secret',
       tenant_id: settings.tenant_id,
       client_id: settings.client_id,
       client_secret: settings.client_secret,

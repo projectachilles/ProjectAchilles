@@ -8,10 +8,21 @@ export type DefenderAuthMethod = 'client_secret' | 'certificate';
 export interface AzureIntegrationSettings {
   tenant_id: string;
   client_id: string;
+  // Secret auth (kept as required string for backward compat; empty string when cert auth)
   client_secret: string;
   configured: boolean;
+  // Auth method — undefined means 'client_secret' for backward compat
+  auth_method?: DefenderAuthMethod;
+  // Certificate auth fields (encrypted at rest)
+  cert_thumbprint?: string;
+  private_key_pem?: string;
   label?: string; // user-friendly name, e.g. "Contoso Production"
 }
+
+/** Discriminated union returned by getAzureCredentials() — callers always know which auth method is active. */
+export type AzureCredentials =
+  | { authMethod: 'client_secret'; tenant_id: string; client_id: string; client_secret: string }
+  | { authMethod: 'certificate'; tenant_id: string; client_id: string; cert_thumbprint: string; private_key_pem: string };
 
 export interface DefenderIntegrationSettings {
   tenant_id: string;

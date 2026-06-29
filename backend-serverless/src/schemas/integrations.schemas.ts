@@ -11,12 +11,18 @@ export const AzureCredentialsSchema = z.object({
   client_id: z.string().optional(),
   client_secret: z.string().optional(),
   label: z.string().optional(),
+  auth_method: z.enum(['client_secret', 'certificate']).optional(),
+  cert_thumbprint: z.string().optional(),
+  private_key_pem: z.string().optional(),
 });
 
 export const AzureTestSchema = z.object({
   tenant_id: z.string().optional(),
   client_id: z.string().optional(),
   client_secret: z.string().optional(),
+  auth_method: z.enum(['client_secret', 'certificate']).optional(),
+  cert_thumbprint: z.string().optional(),
+  private_key_pem: z.string().optional(),
 });
 
 // ── Defender ─────────────────────────────────────────────────────────────────

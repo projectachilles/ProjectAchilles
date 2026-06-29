@@ -1306,6 +1306,7 @@ describe('tasks.service', () => {
   describe('env_vars injection and stripping', () => {
     it('injects Azure env_vars for identity-tenant tests', () => {
       mockGetAzureCredentials.mockReturnValueOnce({
+        authMethod: 'client_secret',
         tenant_id: 'test-tenant-id',
         client_id: 'test-client-id',
         client_secret: 'test-client-secret',
@@ -1359,6 +1360,7 @@ describe('tasks.service', () => {
 
     it('injects Azure env_vars when integrations includes azure (non-identity-tenant subcategory)', () => {
       mockGetAzureCredentials.mockReturnValueOnce({
+        authMethod: 'client_secret',
         tenant_id: 'azure-tid',
         client_id: 'azure-cid',
         client_secret: 'azure-cs',
@@ -1408,6 +1410,7 @@ describe('tasks.service', () => {
 
     it('does not inject env_vars for non-identity-tenant tests', () => {
       mockGetAzureCredentials.mockReturnValueOnce({
+        authMethod: 'client_secret',
         tenant_id: 'test-tenant-id',
         client_id: 'test-client-id',
         client_secret: 'test-client-secret',

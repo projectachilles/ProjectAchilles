@@ -9,14 +9,24 @@ import { z } from 'zod';
 export const AzureCredentialsSchema = z.object({
   tenant_id: z.string().optional(),
   client_id: z.string().optional(),
+  // Secret auth
   client_secret: z.string().optional(),
   label: z.string().optional(),
+  // Certificate auth
+  auth_method: z.enum(['client_secret', 'certificate']).optional(),
+  cert_thumbprint: z.string().optional(),
+  private_key_pem: z.string().optional(),
 });
 
 export const AzureTestSchema = z.object({
   tenant_id: z.string().optional(),
   client_id: z.string().optional(),
+  // Secret auth
   client_secret: z.string().optional(),
+  // Certificate auth
+  auth_method: z.enum(['client_secret', 'certificate']).optional(),
+  cert_thumbprint: z.string().optional(),
+  private_key_pem: z.string().optional(),
 });
 
 // ── Defender ─────────────────────────────────────────────────────────────────

@@ -10,8 +10,15 @@ export interface AzureIntegrationSettings {
   client_id: string;
   client_secret: string;
   configured: boolean;
+  auth_method?: DefenderAuthMethod;
+  cert_thumbprint?: string;
+  private_key_pem?: string;
   label?: string; // user-friendly name, e.g. "Contoso Production"
 }
+
+export type AzureCredentials =
+  | { authMethod: 'client_secret'; tenant_id: string; client_id: string; client_secret: string }
+  | { authMethod: 'certificate'; tenant_id: string; client_id: string; cert_thumbprint: string; private_key_pem: string };
 
 export interface DefenderIntegrationSettings {
   tenant_id: string;

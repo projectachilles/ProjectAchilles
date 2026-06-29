@@ -239,6 +239,7 @@ describe('IntegrationsSettingsService', () => {
 
       const creds = service.getAzureCredentials();
       expect(creds).toEqual({
+        authMethod: 'client_secret',
         tenant_id: 'tid-123',
         client_id: 'cid-456',
         client_secret: 'secret-789',
