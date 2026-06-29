@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { CheckCircle, Info, ExternalLink, Unlink, Upload, KeyRound } from 'lucide-react';
+import { CheckCircle, Info, ExternalLink, Unlink, Upload, FileKey } from 'lucide-react';
 import { integrationsApi } from '@/services/api/integrations';
 import type { AzureAuthMethod } from '@/services/api/integrations';
 import { Input } from '@/components/shared/ui/Input';
@@ -13,24 +13,27 @@ interface AzureConfigProps {
 
 export function AzureConfig({ onStatusChange }: AzureConfigProps) {
   const [editMode, setEditMode] = useState(false);
-  const [authMethod, setAuthMethod] = useState<AzureAuthMethod>('client_secret');
   const [tenantId, setTenantId] = useState('');
   const [clientId, setClientId] = useState('');
-  const [clientSecret, setClientSecret] = useState('');
   const [label, setLabel] = useState('');
 
-  // Certificate — PFX upload sub-tab
-  const [certTab, setCertTab] = useState<'pfx' | 'pem'>('pfx');
-  const [pfxFile, setPfxFile] = useState<File | null>(null);
-  const [pfxPassphrase, setPfxPassphrase] = useState('');
-  const [extracting, setExtracting] = useState(false);
-  const [extractedCn, setExtractedCn] = useState('');
-  const [extractedExpiry, setExtractedExpiry] = useState('');
-  // Certificate — resolved fields (either from PFX extraction or manual PEM paste)
+  // Auth method
+  const [authMethod, setAuthMethod] = useState<AzureAuthMethod>('client_secret');
+
+  // Secret auth
+  const [clientSecret, setClientSecret] = useState('');
+
+  // Certificate auth — PEM paste
   const [certThumbprint, setCertThumbprint] = useState('');
   const [privateKeyPem, setPrivateKeyPem] = useState('');
 
-  const pfxInputRef = useRef<HTMLInputElement>(null);
+  // Certificate auth — PFX upload
+  const [certInputMode, setCertInputMode] = useState<'pfx' | 'pem'>('pfx');
+  const [pfxFile, setPfxFile] = useState<File | null>(null);
+  const [pfxPassphrase, setPfxPassphrase] = useState('');
+  const [pfxParsed, setPfxParsed] = useState<{ subjectCn: string; notAfter: string } | null>(null);
+  const [pfxParsing, setPfxParsing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
@@ -52,8 +55,8 @@ export function AzureConfig({ onStatusChange }: AzureConfigProps) {
       if (settings.configured) {
         setEditMode(true);
         setLabel(settings.label ?? '');
-        setAuthMethod(settings.auth_method ?? 'client_secret');
         setEnvConfigured(settings.env_configured ?? false);
+        if (settings.auth_method) setAuthMethod(settings.auth_method);
         onStatusChange?.(true);
       }
     } catch {
@@ -64,39 +67,31 @@ export function AzureConfig({ onStatusChange }: AzureConfigProps) {
     }
   };
 
-  const handleExtractPfx = async () => {
+  const handleParsePfx = async () => {
     if (!pfxFile) return;
     try {
-      setExtracting(true);
+      setPfxParsing(true);
       setError(null);
       const result = await integrationsApi.parsePfxForAzure(pfxFile, pfxPassphrase);
       setCertThumbprint(result.thumbprint);
       setPrivateKeyPem(result.private_key_pem);
-      setExtractedCn(result.subject_cn);
-      setExtractedExpiry(new Date(result.not_after).toLocaleDateString());
+      setPfxParsed({ subjectCn: result.subject_cn, notAfter: result.not_after });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to parse PFX file');
+      setPfxParsed(null);
     } finally {
-      setExtracting(false);
+      setPfxParsing(false);
     }
   };
 
-  const buildTestPayload = () => {
-    if (authMethod === 'certificate') {
-      return {
-        tenant_id: tenantId || undefined,
-        client_id: clientId || undefined,
-        auth_method: 'certificate' as const,
-        cert_thumbprint: certThumbprint || undefined,
-        private_key_pem: privateKeyPem || undefined,
-      };
-    }
-    return {
-      tenant_id: tenantId || undefined,
-      client_id: clientId || undefined,
-      client_secret: clientSecret || undefined,
-    };
-  };
+  const buildTestPayload = () => ({
+    tenant_id: tenantId || undefined,
+    client_id: clientId || undefined,
+    auth_method: authMethod,
+    ...(authMethod === 'certificate'
+      ? { cert_thumbprint: certThumbprint || undefined, private_key_pem: privateKeyPem || undefined }
+      : { client_secret: clientSecret || undefined }),
+  });
 
   const handleTestConnection = async () => {
     try {
@@ -135,11 +130,11 @@ export function AzureConfig({ onStatusChange }: AzureConfigProps) {
       await integrationsApi.saveAzureSettings({
         tenant_id: tenantId || undefined,
         client_id: clientId || undefined,
-        client_secret: authMethod === 'client_secret' ? (clientSecret || undefined) : undefined,
         label: label || undefined,
         auth_method: authMethod,
-        cert_thumbprint: authMethod === 'certificate' ? (certThumbprint || undefined) : undefined,
-        private_key_pem: authMethod === 'certificate' ? (privateKeyPem || undefined) : undefined,
+        ...(authMethod === 'certificate'
+          ? { cert_thumbprint: certThumbprint || undefined, private_key_pem: privateKeyPem || undefined }
+          : { client_secret: clientSecret || undefined }),
       });
 
       setEditMode(true);
@@ -154,8 +149,8 @@ export function AzureConfig({ onStatusChange }: AzureConfigProps) {
       setPrivateKeyPem('');
       setPfxFile(null);
       setPfxPassphrase('');
-      setExtractedCn('');
-      setExtractedExpiry('');
+      setPfxParsed(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save settings');
     } finally {
@@ -169,13 +164,14 @@ export function AzureConfig({ onStatusChange }: AzureConfigProps) {
       setError(null);
       await integrationsApi.deleteAzureSettings();
       setEditMode(false);
-      setAuthMethod('client_secret');
       setTenantId('');
       setClientId('');
       setClientSecret('');
       setCertThumbprint('');
       setPrivateKeyPem('');
       setPfxFile(null);
+      setPfxPassphrase('');
+      setPfxParsed(null);
       setLabel('');
       setTestResult(null);
       setSuccessMessage(null);
@@ -188,11 +184,11 @@ export function AzureConfig({ onStatusChange }: AzureConfigProps) {
     }
   };
 
-  const isCertReady = !!(certThumbprint && privateKeyPem);
-  const isSecretReady = !!clientSecret;
-  const isValid = editMode
-    ? true
-    : !!(tenantId && clientId && (authMethod === 'certificate' ? isCertReady : isSecretReady));
+  const isCertReady = authMethod === 'certificate' && !!(certThumbprint && privateKeyPem);
+  const isSecretReady = authMethod === 'client_secret' && !!clientSecret;
+  const hasCredentials = isCertReady || isSecretReady;
+
+  const isValid = editMode ? true : !!(tenantId && clientId && hasCredentials);
 
   if (loading) {
     return (
@@ -237,28 +233,7 @@ export function AzureConfig({ onStatusChange }: AzureConfigProps) {
         </Alert>
       )}
 
-      {/* Auth method toggle */}
-      <div>
-        <p className="text-sm font-medium mb-2">Authentication Method</p>
-        <div className="flex gap-2">
-          {(['client_secret', 'certificate'] as AzureAuthMethod[]).map((method) => (
-            <button
-              key={method}
-              type="button"
-              onClick={() => { setAuthMethod(method); setTestResult(null); }}
-              className={`px-4 py-2 rounded-md text-sm font-medium border transition-colors ${
-                authMethod === method
-                  ? 'bg-primary text-primary-foreground border-primary'
-                  : 'bg-background text-muted-foreground border-border hover:border-primary/50'
-              }`}
-            >
-              {method === 'client_secret' ? 'Client Secret' : 'Certificate'}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Common fields */}
+      {/* Core identity fields */}
       <Input
         label="Tenant ID"
         placeholder={editMode ? 'Leave blank to keep current' : 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'}
@@ -274,7 +249,36 @@ export function AzureConfig({ onStatusChange }: AzureConfigProps) {
         helperText={editMode ? 'Optional: Only fill in to update' : 'App Registration Application (client) ID'}
       />
 
-      {/* Secret auth */}
+      {/* Auth method toggle */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Authentication Method</p>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => { setAuthMethod('client_secret'); setTestResult(null); }}
+            className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+              authMethod === 'client_secret'
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted/60'
+            }`}
+          >
+            Client Secret
+          </button>
+          <button
+            type="button"
+            onClick={() => { setAuthMethod('certificate'); setTestResult(null); }}
+            className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+              authMethod === 'certificate'
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted/60'
+            }`}
+          >
+            Certificate
+          </button>
+        </div>
+      </div>
+
+      {/* Secret auth fields */}
       {authMethod === 'client_secret' && (
         <Input
           label="Client Secret"
@@ -286,104 +290,116 @@ export function AzureConfig({ onStatusChange }: AzureConfigProps) {
         />
       )}
 
-      {/* Certificate auth */}
+      {/* Certificate auth fields */}
       {authMethod === 'certificate' && (
-        <div className="space-y-4">
-          {/* Sub-tab selector */}
-          <div className="flex gap-1 border-b border-border">
-            {(['pfx', 'pem'] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setCertTab(tab)}
-                className={`px-3 py-1.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
-                  certTab === tab
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {tab === 'pfx' ? 'Upload PFX / P12' : 'Paste PEM'}
-              </button>
-            ))}
+        <div className="space-y-4 rounded-lg border border-border p-4">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <FileKey className="w-4 h-4" />
+            Certificate Credentials
           </div>
 
-          {certTab === 'pfx' && (
+          {/* Input mode tabs */}
+          <div className="flex gap-2 text-xs">
+            <button
+              type="button"
+              onClick={() => setCertInputMode('pfx')}
+              className={`rounded px-2 py-1 font-medium transition-colors ${
+                certInputMode === 'pfx'
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Upload PFX / P12
+            </button>
+            <button
+              type="button"
+              onClick={() => setCertInputMode('pem')}
+              className={`rounded px-2 py-1 font-medium transition-colors ${
+                certInputMode === 'pem'
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Paste PEM
+            </button>
+          </div>
+
+          {certInputMode === 'pfx' ? (
             <div className="space-y-3">
-              {/* File drop area */}
-              <div
-                className="border-2 border-dashed border-border rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
-                onClick={() => pfxInputRef.current?.click()}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const file = e.dataTransfer.files[0];
-                  if (file) { setPfxFile(file); setExtractedCn(''); setExtractedExpiry(''); setCertThumbprint(''); setPrivateKeyPem(''); }
-                }}
-              >
-                <Upload className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
-                {pfxFile ? (
-                  <p className="text-sm font-medium">{pfxFile.name}</p>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Drop a PFX / P12 file or click to browse</p>
-                )}
+              <div className="space-y-1">
+                <label className="text-sm font-medium">PFX / P12 File</label>
+                <div
+                  className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground hover:border-primary/50 hover:bg-muted/30 transition-colors"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="w-4 h-4 shrink-0" />
+                  {pfxFile ? (
+                    <span className="text-foreground">{pfxFile.name}</span>
+                  ) : (
+                    <span>Click to select .pfx or .p12 file</span>
+                  )}
+                </div>
                 <input
-                  ref={pfxInputRef}
+                  ref={fileInputRef}
                   type="file"
                   accept=".pfx,.p12"
                   className="hidden"
                   onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) { setPfxFile(file); setExtractedCn(''); setExtractedExpiry(''); setCertThumbprint(''); setPrivateKeyPem(''); }
+                    const f = e.target.files?.[0] ?? null;
+                    setPfxFile(f);
+                    setPfxParsed(null);
+                    setCertThumbprint('');
+                    setPrivateKeyPem('');
                   }}
                 />
               </div>
-
               <Input
                 label="PFX Passphrase"
                 type="password"
                 placeholder="Leave blank if no passphrase"
                 value={pfxPassphrase}
-                onChange={(e) => setPfxPassphrase(e.target.value)}
+                onChange={(e) => { setPfxPassphrase(e.target.value); setPfxParsed(null); }}
               />
-
               <Button
                 variant="outline"
-                onClick={handleExtractPfx}
-                disabled={!pfxFile || extracting}
+                size="sm"
+                onClick={handleParsePfx}
+                disabled={!pfxFile || pfxParsing}
               >
-                {extracting ? <><Spinner size="sm" /> Extracting...</> : <><KeyRound className="w-4 h-4" /> Extract Certificate</>}
+                {pfxParsing ? <><Spinner size="sm" /> Parsing...</> : 'Extract Certificate'}
               </Button>
-
-              {extractedCn && (
-                <div className="rounded-md bg-muted/50 p-3 text-sm space-y-1">
-                  <p className="font-medium text-green-600 dark:text-green-400">Certificate extracted</p>
-                  <p className="text-muted-foreground">Subject: {extractedCn}</p>
-                  <p className="text-muted-foreground">Expires: {extractedExpiry}</p>
-                  <p className="text-muted-foreground font-mono text-xs">Thumbprint: {certThumbprint}</p>
-                </div>
+              {pfxParsed && (
+                <Alert variant="success">
+                  <CheckCircle className="w-4 h-4" />
+                  <div className="text-xs space-y-0.5">
+                    <p className="font-medium">Certificate extracted</p>
+                    <p>Subject: {pfxParsed.subjectCn}</p>
+                    <p>Expires: {new Date(pfxParsed.notAfter).toLocaleDateString()}</p>
+                    <p className="font-mono">Thumbprint: {certThumbprint}</p>
+                  </div>
+                </Alert>
               )}
             </div>
-          )}
-
-          {certTab === 'pem' && (
+          ) : (
             <div className="space-y-3">
               <Input
                 label="Certificate Thumbprint"
-                placeholder="SHA-1 hex (e.g. A1B2C3... — as shown in Azure portal)"
+                placeholder={editMode ? 'Leave blank to keep current' : 'A1B2C3... (hex, from Azure portal)'}
                 value={certThumbprint}
-                onChange={(e) => setCertThumbprint(e.target.value.toUpperCase().replace(/[^A-F0-9]/g, ''))}
-                helperText={editMode ? 'Optional: Only fill in to update' : undefined}
+                onChange={(e) => setCertThumbprint(e.target.value.replace(/\s/g, ''))}
+                helperText="SHA-1 fingerprint shown on your App Registration → Certificates & secrets"
               />
-              <div>
-                <label className="block text-sm font-medium mb-1">Private Key (PEM)</label>
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Private Key (PEM)</label>
                 <textarea
-                  className="w-full h-36 rounded-md border border-input bg-background px-3 py-2 text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder={editMode ? 'Leave blank to keep current' : '-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----'}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                  rows={6}
+                  placeholder={editMode ? 'Leave blank to keep current' : '-----BEGIN PRIVATE KEY-----\n...'}
                   value={privateKeyPem}
                   onChange={(e) => setPrivateKeyPem(e.target.value)}
                 />
-                <p className="text-xs text-muted-foreground mt-1">
-                  {editMode ? 'Optional: Only fill in to update' : 'RSA private key corresponding to the uploaded certificate'}
+                <p className="text-xs text-muted-foreground">
+                  The RSA private key corresponding to the certificate uploaded to Azure
                 </p>
               </div>
             </div>
@@ -402,7 +418,7 @@ export function AzureConfig({ onStatusChange }: AzureConfigProps) {
       {/* Required permissions info */}
       <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground space-y-2">
         <p className="font-medium text-card-foreground">Required Azure App Registration Permissions</p>
-        <p>The service principal needs these Microsoft Graph API permissions (Application type):</p>
+        <p>The service principal needs these Microsoft Graph API permissions (Application type, admin consent required):</p>
         <ul className="list-disc list-inside space-y-1 ml-2">
           <li>Directory.Read.All</li>
           <li>Policy.Read.All</li>
@@ -411,9 +427,9 @@ export function AzureConfig({ onStatusChange }: AzureConfigProps) {
           <li>RoleManagement.Read.Directory</li>
         </ul>
         {authMethod === 'certificate' && (
-          <p className="text-xs mt-2">
-            For certificate auth: upload the <strong>public</strong> certificate (.cer/.pem) to the App Registration under{' '}
-            <em>Certificates &amp; secrets → Certificates</em>. The thumbprint shown there must match what you enter here.
+          <p className="mt-2 text-xs">
+            For certificate auth: upload the public certificate (.cer / .pem) to your App Registration under{' '}
+            <em>Certificates &amp; secrets → Certificates</em>. The thumbprint shown there is what you enter above.
           </p>
         )}
         <a
@@ -437,11 +453,7 @@ export function AzureConfig({ onStatusChange }: AzureConfigProps) {
 
       <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={handleTestConnection} disabled={!isValid || testing}>
-          {testing ? (
-            <><Spinner size="sm" /> Validating...</>
-          ) : (
-            <><CheckCircle className="w-4 h-4" /> Validate Credentials</>
-          )}
+          {testing ? <><Spinner size="sm" /> Testing...</> : <><CheckCircle className="w-4 h-4" /> Test Connection</>}
         </Button>
         <Button onClick={handleSave} disabled={!isValid || saving}>
           {saving ? (
@@ -455,7 +467,9 @@ export function AzureConfig({ onStatusChange }: AzureConfigProps) {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-destructive">Disconnect Integration</p>
-              <p className="text-xs text-muted-foreground">Remove stored credentials. Azure data will be preserved.</p>
+              <p className="text-xs text-muted-foreground">
+                Remove stored credentials. Azure data in Elasticsearch will be preserved.
+              </p>
             </div>
             {!showDisconnectConfirm ? (
               <Button variant="outline" size="sm"
