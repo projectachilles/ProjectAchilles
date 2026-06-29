@@ -36,6 +36,7 @@ import { acceptCliAuth } from './middleware/cliAuth.middleware.js';
 import apiKeysRoutes from './api/api-keys.routes.js';
 import { acceptApiKey } from './middleware/apiKeyAuth.middleware.js';
 import { cliBearerLimiterSkip } from './middleware/cliBearerLimiterSkip.js';
+import { uiLimiterKey } from './middleware/rateLimitKeys.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -146,12 +147,18 @@ app.use(apiKeyAuthLimiter);
 // Runs after acceptCliAuth so Clerk/CLI tokens take precedence.
 app.use(acceptApiKey());
 
-// Global API rate limiter (dashboard/UI traffic only)
+// Global API rate limiter (dashboard/UI traffic only).
+// Keyed on the Clerk user id (see uiLimiterKey), NOT the IP: the dashboard
+// polls hard (AgentsPage 15s, TasksPage 10s, NotificationBell, Analytics
+// widgets — see cliBearerLimiterSkip), and every analyst at a customer shares
+// one NAT egress IP. A per-IP budget would make a handful of analysts
+// collectively drain 1000/15min; per-user gives each their own budget.
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000,                 // 1000 requests per 15-minute window
+  max: 1000,                 // 1000 requests per 15-minute window per user
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: uiLimiterKey,
   message: { success: false, error: 'Too many requests, please try again later' },
   skip: (req) => {
     // Agent device endpoints have their own dedicated rate limiter

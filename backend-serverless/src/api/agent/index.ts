@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireAgentAuth } from '../../middleware/agentAuth.middleware.js';
+import { agentDeviceKey } from '../../middleware/rateLimitKeys.js';
 import { requireClerkAuth, requireOrgAccess } from '../../middleware/clerk.middleware.js';
 import { agentEnrollmentRouter, adminEnrollmentRouter } from './enrollment.routes.js';
 import { agentHeartbeatRouter, adminAgentRouter } from './heartbeat.routes.js';
@@ -29,12 +30,18 @@ export function createAgentRouter(options: { testsSourcePath: string }): Router 
   router.use(agentEnrollmentRouter);
 
   // Agent device rate limiter (separate from global UI limiter).
+  // Window/budget matches the Docker backend: a 60s window with 30 requests
+  // gives ~10x headroom over an agent's 3/min idle cadence (poll 30s +
+  // heartbeat 60s) and recovers in <=60s if tripped, instead of locking out
+  // for 15min and triggering the offline cascade. Keyed on IP + Agent-ID via
+  // agentDeviceKey — the old serverless key used x-agent-id ALONE, which was
+  // both spoofable and skipped IPv6 normalization (now re-synced with PR #285).
   const agentDeviceLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,   // 15 minutes
-    max: 100,                     // 100 requests per 15min per agent
+    windowMs: 60 * 1000,        // 1 minute
+    max: 30,                      // 30 requests per minute per agent+IP (~10x idle)
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => (req.headers['x-agent-id'] as string) || req.ip || 'unknown',
+    keyGenerator: agentDeviceKey,
     message: { success: false, error: 'Too many agent requests, try again later' },
   });
   router.use(agentDeviceLimiter);

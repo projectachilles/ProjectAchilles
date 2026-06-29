@@ -1,8 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import { Router } from 'express';
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import rateLimit from 'express-rate-limit';
 import { requireAgentAuth } from '../../middleware/agentAuth.middleware.js';
+import { agentDeviceKey } from '../../middleware/rateLimitKeys.js';
 import { requireClerkAuth, requireOrgAccess } from '../../middleware/clerk.middleware.js';
 import { agentEnrollmentRouter, adminEnrollmentRouter } from './enrollment.routes.js';
 import { agentHeartbeatRouter, adminAgentRouter } from './heartbeat.routes.js';
@@ -39,18 +40,25 @@ export function createAgentRouter(options: { testSources: TestSource[]; testsSou
   router.use(agentEnrollmentRouter);
 
   // Agent device rate limiter (separate from global UI limiter).
-  // Key on IP + Agent-ID composite to prevent bypass via fabricated headers
-  // while still allowing agents behind shared proxies their own budgets.
+  //
+  // Window/budget: a healthy agent's *default* cadence is poll every 30s
+  // (2/min) + heartbeat every 60s (1/min) = 3/min at idle, plus per-task
+  // result POSTs and hourly update checks. The 60s window with a 30-request
+  // budget gives ~10x headroom over idle so normal operation never trips,
+  // and — critically — recovers in <=60s if it ever does. The previous
+  // 100/15min budget (6.6/min) sat barely 2x over baseline and recovered
+  // only after a full 15min; a tripped agent would miss 3+ heartbeats
+  // (HEARTBEAT_TIMEOUT_SECONDS=180) and be marked offline, manufacturing the
+  // exact disconnect cascade this limiter sits next to.
+  //
+  // Keyed on IP + Agent-ID (see agentDeviceKey) so each enrolled agent gets
+  // its own budget even when a whole fleet shares one NAT egress IP.
   const agentDeviceLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,   // 15 minutes
-    max: 100,                     // 100 requests per 15min per agent+IP
+    windowMs: 60 * 1000,        // 1 minute
+    max: 30,                      // 30 requests per minute per agent+IP (~10x idle)
     standardHeaders: true,
     legacyHeaders: false,
-    // Normalize the IP with ipKeyGenerator so IPv6 clients are keyed by their
-    // /56 subnet (express-rate-limit default) — prevents bypass via address
-    // rotation within an allocated IPv6 block. IPv4 passes through unchanged.
-    keyGenerator: (req) =>
-      `${req.ip ? ipKeyGenerator(req.ip) : 'unknown'}:${req.headers['x-agent-id'] || 'none'}`,
+    keyGenerator: agentDeviceKey,
     message: { success: false, error: 'Too many agent requests, try again later' },
   });
   router.use(agentDeviceLimiter);
