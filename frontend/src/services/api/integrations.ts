@@ -1,10 +1,14 @@
 import { apiClient } from '@/hooks/useAuthenticatedApi';
 
+export type AzureAuthMethod = 'client_secret' | 'certificate';
+
 export interface AzureSettingsMasked {
   configured: boolean;
   tenant_id?: string;
   client_id?: string;
+  auth_method?: AzureAuthMethod;
   client_secret_set?: boolean;
+  cert_thumbprint_set?: boolean;
   label?: string;
   env_configured?: boolean;
 }
@@ -14,6 +18,18 @@ export interface SaveAzureSettingsRequest {
   client_id?: string;
   client_secret?: string;
   label?: string;
+  auth_method?: AzureAuthMethod;
+  cert_thumbprint?: string;
+  private_key_pem?: string;
+}
+
+export interface TestAzureRequest {
+  tenant_id?: string;
+  client_id?: string;
+  client_secret?: string;
+  auth_method?: AzureAuthMethod;
+  cert_thumbprint?: string;
+  private_key_pem?: string;
 }
 
 export interface TestAzureResult {
@@ -121,8 +137,18 @@ export const integrationsApi = {
     return response.data;
   },
 
-  async testAzureConnection(settings: SaveAzureSettingsRequest): Promise<TestAzureResult> {
+  async testAzureConnection(settings: TestAzureRequest): Promise<TestAzureResult> {
     const response = await apiClient.post('/integrations/azure/test', settings);
+    return response.data;
+  },
+
+  async parsePfxForAzure(pfxFile: File, passphrase: string): Promise<ParsePfxResult> {
+    const form = new FormData();
+    form.append('pfx', pfxFile);
+    form.append('passphrase', passphrase);
+    const response = await apiClient.post('/integrations/azure/parse-pfx', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
     return response.data;
   },
 

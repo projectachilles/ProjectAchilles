@@ -98,6 +98,14 @@ async function resolveIntegrationEnvVars(metadata: TaskTestMetadata): Promise<Re
     const service = new IntegrationsSettingsService();
     const creds = await service.getAzureCredentials();
     if (!creds) return undefined;
+    if (creds.authMethod === 'certificate') {
+      return {
+        AZURE_TENANT_ID: creds.tenant_id,
+        AZURE_CLIENT_ID: creds.client_id,
+        AZURE_CERT_THUMBPRINT: creds.cert_thumbprint,
+        AZURE_PRIVATE_KEY_PEM: creds.private_key_pem,
+      };
+    }
     return {
       AZURE_TENANT_ID: creds.tenant_id,
       AZURE_CLIENT_ID: creds.client_id,
