@@ -19,9 +19,17 @@ import type { EnrollmentRequest, CreateTokenRequest, AgentOS, AgentArch } from '
 
 export const agentEnrollmentRouter = Router();
 
+// Enrollment is IP-keyed (an agent has no identity yet — enrollment is what
+// grants it one). The budget is deliberately high: enrollment tokens are
+// 256-bit (crypto.randomBytes(32)), so brute-forcing one is infeasible and
+// this limiter is pure abuse/DoS protection, not credential protection. A
+// real mass rollout pushes a whole fleet from behind one corporate NAT IP in
+// a tight window (Intune/SCCM/GPO), so 300/15min comfortably absorbs a
+// few-hundred-endpoint simultaneous deployment while still stopping a runaway
+// enrollment loop.
 const enrollmentLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: 'Too many enrollment attempts, try again later' },
@@ -61,9 +69,13 @@ agentEnrollmentRouter.get('/config', (_req, res) => {
   res.json({ success: true, data: { server_url: serverUrl } });
 });
 
+// Binary download is IP-keyed for the same reason as enrollment. A fleet
+// rollout pulls one binary per endpoint from behind a single NAT IP, so the
+// budget tracks enrollment (300/15min) rather than the old 10/15min that
+// throttled any rollout past ten machines.
 const downloadLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: 'Too many download requests, try again later' },

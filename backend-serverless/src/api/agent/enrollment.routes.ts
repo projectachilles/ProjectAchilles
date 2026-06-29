@@ -19,9 +19,14 @@ import type { EnrollmentRequest, CreateTokenRequest, AgentOS, AgentArch } from '
 
 export const agentEnrollmentRouter = Router();
 
+// Enrollment is IP-keyed (an agent has no identity yet). Budget is high
+// because enrollment tokens are 256-bit (brute-force infeasible), so this is
+// pure abuse/DoS protection, not credential protection — and a real mass
+// rollout pushes a whole fleet from behind one NAT IP. 300/15min absorbs a
+// few-hundred-endpoint simultaneous deployment. Matches the Docker backend.
 const enrollmentLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: 'Too many enrollment attempts, try again later' },
@@ -61,9 +66,11 @@ agentEnrollmentRouter.get('/config', (_req, res) => {
   res.json({ success: true, data: { server_url: serverUrl } });
 });
 
+// Binary download tracks enrollment (300/15min): one pull per endpoint per
+// rollout from behind a single NAT IP. Matches the Docker backend.
 const downloadLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: 'Too many download requests, try again later' },

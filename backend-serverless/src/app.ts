@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 
 import { clerkAuth } from './middleware/clerk.middleware.js';
+import { uiLimiterKey } from './middleware/rateLimitKeys.js';
 import { createBrowserRouter } from './api/browser.routes.js';
 import analyticsRoutes from './api/analytics.routes.js';
 import { createTestsRouter } from './api/tests.routes.js';
@@ -75,12 +76,16 @@ app.use(express.urlencoded({ extended: true }));
 // Clerk authentication middleware
 app.use(clerkAuth);
 
-// Global API rate limiter (dashboard/UI traffic only)
+// Global API rate limiter (dashboard/UI traffic only). Keyed on the Clerk
+// user id (uiLimiterKey), NOT the IP: every analyst at a customer shares one
+// NAT egress IP, and the dashboard polls hard, so a per-IP budget would make
+// a handful of analysts collectively drain 1000/15min. Matches Docker backend.
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: uiLimiterKey,
   message: { success: false, error: 'Too many requests, please try again later' },
   skip: (req) => {
     const p = req.originalUrl;
