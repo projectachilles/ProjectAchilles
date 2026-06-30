@@ -7,6 +7,15 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 10
+    ignore:
+      # Clerk Core 3 (clerk-react v6) is a coordinated cross-SDK migration via the
+      # @clerk/upgrade CLI, not a dep bump — it breaks the frontend test suite
+      # (useAuthenticatedApi + Clerk middleware). Core 2 is actively maintained and
+      # receives security backports, so decline majors; in-major patches still flow.
+      # NOTE: update-types only suppresses *version* updates — *security* update PRs
+      # are unaffected, so a CVE fixable only in a major will still surface.
+      - dependency-name: "@clerk/clerk-react"
+        update-types: ["version-update:semver-major"]
     groups:
       # Group minor/patch updates to reduce PR noise
       npm-minor-patch:
@@ -29,6 +38,14 @@ updates:
       # ES server is 8.17 — v9 client sends incompatible headers (compatible-with=9)
       - dependency-name: "@elastic/elasticsearch"
         update-types: ["version-update:semver-major"]
+      # Clerk Core 3 (backend v3 / express v2) is a coordinated cross-SDK migration,
+      # not a dep bump — it breaks the frontend test suite. Core 2 is actively
+      # maintained with security backports, so decline majors; in-major patches flow.
+      # update-types blocks only *version* updates — *security* update PRs still fire.
+      - dependency-name: "@clerk/backend"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@clerk/express"
+        update-types: ["version-update:semver-major"]
     groups:
       npm-minor-patch:
         patterns:
@@ -48,6 +65,11 @@ updates:
     open-pull-requests-limit: 10
     ignore:
       - dependency-name: "@elastic/elasticsearch"
+        update-types: ["version-update:semver-major"]
+      # Clerk Core 3 majors — see /backend block above for rationale.
+      - dependency-name: "@clerk/backend"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@clerk/express"
         update-types: ["version-update:semver-major"]
     groups:
       npm-minor-patch:
