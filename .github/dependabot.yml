@@ -16,6 +16,10 @@ updates:
       # are unaffected, so a CVE fixable only in a major will still surface.
       - dependency-name: "@clerk/clerk-react"
         update-types: ["version-update:semver-major"]
+      # Pin @types/node to the runtime major (Node 22, see ci.yml). Types ahead of
+      # the runtime typecheck against APIs that don't exist at runtime.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       # Group minor/patch updates to reduce PR noise
       npm-minor-patch:
@@ -46,6 +50,9 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@clerk/express"
         update-types: ["version-update:semver-major"]
+      # Pin @types/node to the runtime major (Node 22) — see /frontend block.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       npm-minor-patch:
         patterns:
@@ -70,6 +77,9 @@ updates:
       - dependency-name: "@clerk/backend"
         update-types: ["version-update:semver-major"]
       - dependency-name: "@clerk/express"
+        update-types: ["version-update:semver-major"]
+      # Pin @types/node to the runtime major (Node 22) — see /frontend block.
+      - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
     groups:
       npm-minor-patch:
