@@ -2,6 +2,7 @@ import { Component } from 'react';
 import type { ReactNode, ErrorInfo } from 'react';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from './ui/Button';
+import { isChunkLoadError, reloadOnceForChunkError } from '../../lib/chunkReload';
 
 interface Props {
   children: ReactNode;
@@ -12,6 +13,7 @@ interface State {
   hasError: boolean;
   error: Error | null;
   errorInfo: ErrorInfo | null;
+  reloading: boolean;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -19,23 +21,53 @@ export class ErrorBoundary extends Component<Props, State> {
     hasError: false,
     error: null,
     errorInfo: null,
+    reloading: false,
   };
 
   public static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error, errorInfo: null };
+    // For a stale-chunk error we expect to reload (see componentDidCatch), so
+    // render the "Updating…" splash instead of flashing the error card first.
+    return {
+      hasError: true,
+      error,
+      errorInfo: null,
+      reloading: isChunkLoadError(error),
+    };
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    if (isChunkLoadError(error)) {
+      // A code-split chunk went missing because a newer bundle was deployed.
+      // Reload once to fetch the fresh index.html + asset hashes. If the reload
+      // is suppressed by the loop guard, fall back to the normal error card.
+      const reloading = reloadOnceForChunkError();
+      this.setState({ errorInfo, reloading });
+      return;
+    }
+
     console.error('ErrorBoundary caught an error:', error, errorInfo);
     this.setState({ errorInfo });
   }
 
   private handleRetry = () => {
-    this.setState({ hasError: false, error: null, errorInfo: null });
+    this.setState({ hasError: false, error: null, errorInfo: null, reloading: false });
   };
 
   public render() {
     if (this.state.hasError) {
+      // A reload is in flight for a stale-chunk error: show a calm splash rather
+      // than the error card, since the page is about to navigate away anyway.
+      if (this.state.reloading) {
+        return (
+          <div className="min-h-[400px] flex items-center justify-center p-8">
+            <div className="flex items-center gap-3 text-muted-foreground">
+              <RefreshCw className="w-5 h-5 animate-spin" />
+              <span>Updating to the latest version…</span>
+            </div>
+          </div>
+        );
+      }
+
       if (this.props.fallback) {
         return this.props.fallback;
       }
