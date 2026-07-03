@@ -6,6 +6,7 @@ import { Input } from '@/components/shared/ui/Input';
 import { Switch } from '@/components/shared/ui/Switch';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Search, Tag, X, Play, Calendar, Terminal, AlertTriangle, ChevronRight, ChevronDown } from 'lucide-react';
+import { useHasPermission } from '@/hooks/useAppRole';
 import { agentApi } from '@/services/api/agent';
 import { browserApi } from '@/services/api/browser';
 import { analyticsApi, type IndexInfo } from '@/services/api/analytics';
@@ -102,6 +103,10 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
 
   const [taskMode, setTaskMode] = useState<'test' | 'command'>('test');
   const [command, setCommand] = useState('');
+  // Command tasks run arbitrary shell on the endpoint — admin-only on the
+  // backend (endpoints:tasks:command). Hide the affordance so lower roles
+  // don't compose a command only to hit a 403 on submit.
+  const canSendCommand = useHasPermission('endpoints:tasks:command');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -509,7 +514,8 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
               </div>
             </div>
 
-            {/* === Task Mode Toggle === */}
+            {/* === Task Mode Toggle (hidden unless the user may send commands) === */}
+            {canSendCommand && (
             <div>
               <label className="block text-sm font-medium mb-1.5">Task Type</label>
               <div className="flex gap-1 p-0.5 bg-muted rounded-lg w-fit">
@@ -539,6 +545,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                 </button>
               </div>
             </div>
+            )}
 
             {/* === Command Input (command mode only) === */}
             {taskMode === 'command' && (
