@@ -299,7 +299,7 @@ function CoverageTreemap({
   // Resolved sequential heat ramp + neutral "aggregate bucket" token — re-reads on
   // theme flips via useChartTokens' MutationObserver, so no manual isDark branching.
   const heatTokens = useChartTokens([
-    '--chart-heat-1', '--chart-heat-2', '--chart-heat-3', '--chart-heat-4', '--chart-heat-5', '--muted',
+    '--chart-heat-1', '--chart-heat-2', '--chart-heat-3', '--chart-heat-4', '--chart-heat-5', '--chart-cat-5',
   ]);
   const HEAT = [
     heatTokens['--chart-heat-1'], heatTokens['--chart-heat-2'], heatTokens['--chart-heat-3'],
@@ -483,7 +483,7 @@ function CoverageTreemap({
         name: `Others (${remainingTests.length} tests)`,
         size: othersSize,
         totalCount: othersSize,
-        fill: heatTokens['--muted'],
+        fill: heatTokens['--chart-cat-5'],
       };
 
       finalTestChildren = [...topTests, othersTestNode];
