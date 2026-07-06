@@ -57,6 +57,15 @@ describe('StatusCommandBar', () => {
     expect(screen.getByText(/0\.2%\s*inconclusive/)).toBeInTheDocument();
   });
 
+  it('renders the inconclusive line neutral (no valence color) — one-valence-color rule', () => {
+    render(<StatusCommandBar {...baseProps} />);
+    const line = screen.getByText(/0\.2%\s*inconclusive/);
+    // The delta chip is the ONLY valence color in the Defense cell; the
+    // inconclusive line must NOT carry the amber --chart-warn signal.
+    expect((line as HTMLElement).style.color).not.toBe('var(--chart-warn)');
+    expect(line.className).toContain('text-muted-foreground');
+  });
+
   it('hides the EDR-only sub-stat when it equals the defense score', () => {
     render(<StatusCommandBar {...baseProps} edrOnlyScore={52} />);
     expect(screen.queryByText(/EDR-only/)).not.toBeInTheDocument();

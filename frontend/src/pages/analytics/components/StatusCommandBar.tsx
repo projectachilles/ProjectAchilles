@@ -130,7 +130,7 @@ function StatusCommandBar({
           )}
 
           {showInconclusive && (
-            <div className="text-xs" style={{ color: 'var(--chart-warn)' }}>
+            <div className="text-xs text-muted-foreground">
               {inconclusiveRate!.toFixed(1)}% inconclusive
             </div>
           )}

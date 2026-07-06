@@ -12,7 +12,9 @@ export interface BulletBarProps {
 
 // Maps a tone/band to its real governed chart token. Note: the "warning" band
 // resolves to `--chart-warn` (the actual token name — there is no `--chart-warning`).
-const TONE_TOKEN = {
+// Exported so any component coloring a score by band (WeakestHosts,
+// StatusCommandBar) resolves tone→token from one shared source.
+export const TONE_TOKEN = {
   protected: 'var(--chart-protected)',
   warning: 'var(--chart-warn)',
   bypassed: 'var(--chart-bypassed)',
