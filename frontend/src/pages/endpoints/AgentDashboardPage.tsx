@@ -60,21 +60,21 @@ const OS_COLORS: Record<string, string> = {
   darwin: 'bg-gray-500',
 };
 
+// Governed chart color tokens (see frontend/src/styles/index.css)
 const STATUS_DONUT_COLORS: Record<string, string> = {
-  active: 'oklch(0.60 0.18 145)',
-  disabled: 'oklch(0.70 0.18 85)',
-  decommissioned: 'oklch(0.55 0.22 25)',
+  active: 'var(--chart-protected)',
+  disabled: 'var(--chart-warn)',
+  decommissioned: 'var(--muted-foreground)',
 };
 
+// Cycled via `% VERSION_PALETTE.length` in buildVersionColorMap — safe to
+// shrink from 8 literals to the 5 governed categorical tokens.
 const VERSION_PALETTE = [
-  'oklch(0.55 0.20 290)',  // violet
-  'oklch(0.65 0.15 200)',  // cyan
-  'oklch(0.65 0.18 85)',   // amber
-  'oklch(0.60 0.18 160)',  // emerald
-  'oklch(0.58 0.22 15)',   // rose
-  'oklch(0.62 0.14 230)',  // sky
-  'oklch(0.68 0.18 130)',  // lime
-  'oklch(0.58 0.22 320)',  // fuchsia
+  'var(--chart-cat-1)',
+  'var(--chart-cat-2)',
+  'var(--chart-cat-3)',
+  'var(--chart-cat-4)',
+  'var(--chart-cat-5)',
 ];
 
 function taskStatusVariant(status: TaskStatus): 'success' | 'warning' | 'destructive' | 'default' | 'primary' {
@@ -211,7 +211,7 @@ function DonutChart({ data, colorMap, label }: DonutChartProps) {
   const chartData = entries.map(([key, count]) => ({
     name: key,
     value: count,
-    fill: colorMap[key] || 'oklch(0.55 0.01 250)',
+    fill: colorMap[key] || 'var(--muted-foreground)',
     percentage: Math.round((count / total) * 100),
   }));
 
