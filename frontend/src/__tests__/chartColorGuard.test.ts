@@ -14,6 +14,7 @@ const CHART_FILES = [
   'pages/analytics/components/AlertsSummaryCard.tsx',
   'pages/analytics/components/TopBypassedTechniques.tsx',
   'pages/analytics/components/WeakestHosts.tsx',
+  'pages/analytics/components/StatusCommandBar.tsx',
   'pages/analytics/utils/defenderChartColors.ts',
   'components/browser/TestLibraryOverview.tsx',
   'components/browser/MitreAttackMatrix.tsx',

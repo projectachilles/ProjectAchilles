@@ -19,6 +19,18 @@ const TONE_TOKEN = {
 } as const;
 
 /**
+ * Derives a score band/tone from a raw 0-100 value: ≥80 protected, 50-79
+ * warning, <50 bypassed. Shared by any component that needs to color a score
+ * consistently with BulletBar's own fill-band logic (e.g. WeakestHosts,
+ * StatusCommandBar) without duplicating the thresholds.
+ */
+export function scoreBandTone(value: number): 'protected' | 'warning' | 'bypassed' {
+  if (value >= 80) return 'protected';
+  if (value >= 50) return 'warning';
+  return 'bypassed';
+}
+
+/**
  * BulletBar — a horizontal value-vs-target indicator.
  *
  * The fill width represents the value (0–100%), and its color band derives from
@@ -37,8 +49,7 @@ export function BulletBar({
   const v = Math.max(0, Math.min(100, value));
 
   // Derive band from value if tone not provided; both paths resolve via TONE_TOKEN.
-  const band: 'protected' | 'warning' | 'bypassed' =
-    tone ?? (v >= 80 ? 'protected' : v >= 50 ? 'warning' : 'bypassed');
+  const band: 'protected' | 'warning' | 'bypassed' = tone ?? scoreBandTone(v);
   const bandColor = TONE_TOKEN[band];
   const shouldShowTarget = showTargetMarker && target !== undefined;
 

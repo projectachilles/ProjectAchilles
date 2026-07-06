@@ -1,6 +1,6 @@
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { BulletBar } from '@/components/shared/ui/BulletBar';
+import { BulletBar, scoreBandTone } from '@/components/shared/ui/BulletBar';
 import { weakestHosts } from '../utils/analyticsDerivations';
 import type { DefenseScoreByHostItem } from '@/services/api/analytics';
 
@@ -12,12 +12,18 @@ interface WeakestHostsProps {
 
 const SKELETON_ROW_COUNT = 5;
 
-// Score-text color derives from the same band thresholds BulletBar uses internally:
-// >=80 protected, 50-79 warn, <50 bypassed.
+// Maps the shared score-band tone (derived via scoreBandTone) to its governed
+// chart token. Note: the "warning" band resolves to `--chart-warn` (there is
+// no `--chart-warning` token).
+const TONE_TOKEN = {
+  protected: 'var(--chart-protected)',
+  warning: 'var(--chart-warn)',
+  bypassed: 'var(--chart-bypassed)',
+} as const;
+
+// Score-text color derives from the same band thresholds BulletBar uses internally.
 function scoreColor(score: number): string {
-  if (score >= 80) return 'var(--chart-protected)';
-  if (score >= 50) return 'var(--chart-warn)';
-  return 'var(--chart-bypassed)';
+  return TONE_TOKEN[scoreBandTone(score)];
 }
 
 function WeakestHosts({ items, target = 80, loading }: WeakestHostsProps) {
