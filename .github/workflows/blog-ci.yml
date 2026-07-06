@@ -1,0 +1,29 @@
+name: Blog
+
+on:
+  push:
+    branches: [main]
+    paths: ['blog/**']
+  pull_request:
+    branches: [main]
+    paths: ['blog/**']
+
+jobs:
+  build:
+    name: Blog
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: blog
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: blog/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
