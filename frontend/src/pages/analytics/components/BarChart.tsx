@@ -1,4 +1,3 @@
-import { Loader2 } from 'lucide-react';
 import {
   BarChart as RechartsBarChart,
   Bar,
@@ -15,6 +14,7 @@ import {
   type ChartConfig
 } from '@/components/ui/chart';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface BarChartProps {
   data: (BreakdownItem | OrgBreakdownItem)[];
@@ -40,8 +40,18 @@ export default function BarChart({ data, title, loading }: BarChartProps) {
   // Return early if loading or no data
   if (loading) {
     return (
-      <Card className="h-full min-h-[300px] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      <Card className="h-full min-h-[300px] flex flex-col overflow-hidden">
+        <CardHeader className="pb-2 flex-shrink-0">
+          <Skeleton className="h-5 w-40" />
+        </CardHeader>
+        <CardContent className="flex-1 pb-4 overflow-hidden flex flex-col justify-center gap-3" aria-busy="true">
+          {Array.from({ length: 6 }).map((_, idx) => (
+            <div key={idx} className="flex items-center gap-2">
+              <Skeleton className="h-3 w-20 shrink-0" />
+              <Skeleton className="h-4 flex-1" />
+            </div>
+          ))}
+        </CardContent>
       </Card>
     );
   }

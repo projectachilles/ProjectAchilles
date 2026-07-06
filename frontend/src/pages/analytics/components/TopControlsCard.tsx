@@ -1,7 +1,8 @@
 import { useState, useEffect, memo } from 'react';
-import { Loader2, ExternalLink, ShieldAlert, Bell } from 'lucide-react';
+import { ExternalLink, ShieldAlert, Bell } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   defenderApi,
   type ControlItem,
@@ -81,8 +82,15 @@ function TopControlsCard({ compact, onSelectControlAlerts }: TopControlsCardProp
       </CardHeader>
       <CardContent className={compact ? 'flex-1 min-h-0 overflow-y-auto' : undefined}>
         {loading ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          <div className="space-y-1" aria-busy="true">
+            {Array.from({ length: 5 }).map((_, idx) => (
+              <div key={idx} className="flex items-center gap-3 px-3 py-2.5">
+                <Skeleton className="h-4 w-5 shrink-0" />
+                <Skeleton className="h-4 flex-1" />
+                <Skeleton className="h-5 w-16 shrink-0" />
+                <Skeleton className="h-4 w-10 shrink-0" />
+              </div>
+            ))}
           </div>
         ) : error ? (
           <div className="text-center text-muted-foreground py-8">
