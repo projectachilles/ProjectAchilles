@@ -5,7 +5,9 @@ import { useLayoutActions } from '@/components/layout';
 import SettingsModal from './components/SettingsModal';
 import FilterBar from './components/FilterBar';
 import DateRangePicker from './components/DateRangePicker';
-import HeroMetricsCard from './components/HeroMetricsCard';
+import StatusCommandBar from './components/StatusCommandBar';
+import TopBypassedTechniques from './components/TopBypassedTechniques';
+import WeakestHosts from './components/WeakestHosts';
 import TrendChart from './components/TrendChart';
 import ErrorTypePieChart from './components/ErrorTypePieChart';
 import StackedBarChart from './components/StackedBarChart';
@@ -19,6 +21,7 @@ import RiskAcceptancesTab from './components/RiskAcceptancesTab';
 import DefenderTab from './components/DefenderTab';
 import SecureScoreCard from './components/SecureScoreCard';
 import TopControlsCard from './components/TopControlsCard';
+import { totalBypassedCount, scoreDelta } from './utils/analyticsDerivations';
 import { useAnalyticsFilters, getWindowDaysForDateRange } from '@/hooks/useAnalyticsFilters';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { useDefenderConfig } from '@/hooks/useDefenderConfig';
@@ -516,6 +519,11 @@ export default function AnalyticsDashboardPage() {
     setExecutionsPage(1); // Reset to first page when page size changes
   };
 
+  // Derived values for the command bar (defense-score trend/delta + bypassed count)
+  const defenseTrendSeries = trendData.map((d) => d.score);
+  const defenseDelta = scoreDelta(defenseTrendSeries);
+  const bypassedCount = totalBypassedCount(techniqueDistData);
+
   return (
     <>
       <div className="container mx-auto px-4 py-6">
@@ -633,31 +641,48 @@ export default function AnalyticsDashboardPage() {
           <RiskAcceptancesTab onActiveCountChange={setActiveRiskCount} />
         ) : activeTab === 'dashboard' ? (
           /* Dashboard Tab */
-          <div className="grid grid-cols-12 auto-rows-[140px] gap-4">
-            {/* Row 1-2: Hero Metrics (1/3) + Trend Overview (2/3) */}
-            <div className="col-span-12 md:col-span-4 row-span-2">
-              <HeroMetricsCard
+          <>
+            {/* Command bar: full-width status band leading the dashboard. Kept outside the
+                fixed auto-rows grid below so its height is dictated by its own content,
+                not clamped to a 140px row track. */}
+            <div className="mb-4">
+              <StatusCommandBar
                 defenseScore={defenseScore?.overall ?? null}
+                defenseDelta={defenseDelta}
+                defenseTrend={defenseTrendSeries}
+                actualScore={defenseScore?.rawScore ?? null}
+                excludedCount={defenseScore?.riskAcceptedCount}
+                edrOnlyScore={defenseScore?.realScore ?? null}
+                inconclusiveRate={errorRate}
+                secureScore={defenderConfigured ? (secureScore?.percentage ?? null) : undefined}
                 uniqueEndpoints={uniqueHostnames}
                 executedTests={uniqueTestCount}
-                errorRate={errorRate}
-                realScore={defenseScore?.realScore ?? null}
-                rawScore={defenseScore?.rawScore ?? null}
-                riskAcceptedCount={defenseScore?.riskAcceptedCount}
+                bypassedCount={bypassedCount}
                 loading={loadingDashboard}
               />
             </div>
-            <div className="col-span-12 md:col-span-8 row-span-2 min-w-0 overflow-hidden">
-              <TrendChart
-                data={trendData}
-                errorRateData={errorRateTrendData}
-                errorRateOverall={errorRate}
-                secureScoreTrendData={secureScoreTrendData}
-                loading={loadingDashboard}
-                title="Trend Overview"
-                windowDays={getWindowDaysForDateRange(filterState.filters.dateRange)}
-              />
-            </div>
+
+            <div className="grid grid-cols-12 auto-rows-[140px] gap-4">
+              {/* Top Bypassed Techniques + Weakest Hosts */}
+              <div className="col-span-12 lg:col-span-6 row-span-2">
+                <TopBypassedTechniques items={techniqueDistData} loading={loadingDashboard} />
+              </div>
+              <div className="col-span-12 lg:col-span-6 row-span-2">
+                <WeakestHosts items={defenseScoreByHost} loading={loadingDashboard} />
+              </div>
+
+              {/* Trend Overview */}
+              <div className="col-span-12 row-span-2 min-w-0 overflow-hidden">
+                <TrendChart
+                  data={trendData}
+                  errorRateData={errorRateTrendData}
+                  errorRateOverall={errorRate}
+                  secureScoreTrendData={secureScoreTrendData}
+                  loading={loadingDashboard}
+                  title="Trend Overview"
+                  windowDays={getWindowDaysForDateRange(filterState.filters.dateRange)}
+                />
+              </div>
 
             {/* Row 3-4 (conditional): Secure Score + Alert Summary */}
             {defenderConfigured && secureScore && (
@@ -736,6 +761,7 @@ export default function AnalyticsDashboardPage() {
               />
             </div>
           </div>
+          </>
         ) : (
           /* All Executions Tab */
           <ExecutionsDataTable
