@@ -12,7 +12,6 @@ import TrendChart from './components/TrendChart';
 import ErrorTypePieChart from './components/ErrorTypePieChart';
 import StackedBarChart from './components/StackedBarChart';
 import CoverageTreemap from './components/CoverageTreemap';
-import DefenseScoreByHostChart from './components/DefenseScoreByHostChart';
 import CategoryBreakdownChart from './components/CategoryBreakdownChart';
 import TestActivityCard from './components/TestActivityCard';
 import ExecutionsDataTable from './components/ExecutionsDataTable';
@@ -83,7 +82,6 @@ export default function AnalyticsDashboardPage() {
 
   // Defender dashboard data (loaded alongside main dashboard when configured)
   const [secureScore, setSecureScore] = useState<SecureScoreSummary | null>(null);
-  const [defenderTechniqueCount, setDefenderTechniqueCount] = useState<number>(0);
   const [secureScoreTrendData, setSecureScoreTrendData] = useState<SecureScoreTrendPoint[]>([]);
 
   // Risk acceptances tab badge count
@@ -313,13 +311,11 @@ export default function AnalyticsDashboardPage() {
         const trendDays = presetDaysMap[filterState.filters.dateRange.preset] ?? 90;
 
         try {
-          const [defScore, defTechniques, defTrend] = await Promise.all([
+          const [defScore, defTrend] = await Promise.all([
             defenderApi.getSecureScore(),
-            defenderApi.getTechniqueOverlap(),
             defenderApi.getSecureScoreTrend(trendDays),
           ]);
           setSecureScore(defScore);
-          setDefenderTechniqueCount(defTechniques.length);
           setSecureScoreTrendData(defTrend);
         } catch {
           // Defender data is supplementary — don't fail the whole dashboard
@@ -671,8 +667,8 @@ export default function AnalyticsDashboardPage() {
                 <WeakestHosts items={defenseScoreByHost} loading={loadingDashboard} />
               </div>
 
-              {/* Trend Overview */}
-              <div className="col-span-12 row-span-2 min-w-0 overflow-hidden">
+              {/* Trend Overview + Score by Category */}
+              <div className="col-span-12 md:col-span-6 row-span-2 min-w-0 overflow-hidden">
                 <TrendChart
                   data={trendData}
                   errorRateData={errorRateTrendData}
@@ -681,6 +677,13 @@ export default function AnalyticsDashboardPage() {
                   loading={loadingDashboard}
                   title="Trend Overview"
                   windowDays={getWindowDaysForDateRange(filterState.filters.dateRange)}
+                />
+              </div>
+              <div className="col-span-12 md:col-span-6 row-span-2">
+                <CategoryBreakdownChart
+                  data={categoryBreakdown}
+                  loading={loadingDashboard}
+                  title="Score by Category"
                 />
               </div>
 
@@ -696,24 +699,7 @@ export default function AnalyticsDashboardPage() {
               </div>
             )}
 
-            {/* Category breakdown + Test Activity */}
-            <div className="col-span-12 md:col-span-6 row-span-2">
-              <CategoryBreakdownChart
-                data={categoryBreakdown}
-                loading={loadingDashboard}
-                title="Score by Category"
-              />
-            </div>
-            <div className="col-span-12 md:col-span-6 row-span-2">
-              <TestActivityCard
-                trendData={trendData}
-                recentTests={recentTests}
-                loading={loadingDashboard}
-                title="Test Activity"
-              />
-            </div>
-
-            {/* Row 6-7: Pie Chart + Technique Distribution (2 rows each) */}
+            {/* Results by Error Type + Test Coverage */}
             <div className="col-span-12 md:col-span-6 row-span-2">
               <ErrorTypePieChart
                 data={errorTypeData}
@@ -723,34 +709,23 @@ export default function AnalyticsDashboardPage() {
             </div>
             <div className="col-span-12 md:col-span-6 row-span-2">
               <StackedBarChart
-                data={techniqueDistData}
-                loading={loadingDashboard}
-                title="ATT&CK Technique Distribution"
-                badge={defenderTechniqueCount > 0 ? (
-                  <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-500/10 text-amber-500">
-                    {defenderTechniqueCount} with Defender alerts
-                  </span>
-                ) : undefined}
-              />
-            </div>
-
-            {/* Row 8-9: Test Coverage + Defense Score by Host (2 rows each, side by side) */}
-            <div className="col-span-12 lg:col-span-6 row-span-2">
-              <StackedBarChart
                 data={testCoverageData}
                 loading={loadingDashboard}
                 title="Test Coverage"
               />
             </div>
-            <div className="col-span-12 lg:col-span-6 row-span-2">
-              <DefenseScoreByHostChart
-                data={defenseScoreByHost}
+
+            {/* Test Activity (full width) */}
+            <div className="col-span-12 row-span-2">
+              <TestActivityCard
+                trendData={trendData}
+                recentTests={recentTests}
                 loading={loadingDashboard}
-                title="Defense Score by Host"
+                title="Test Activity"
               />
             </div>
 
-            {/* Row 10-12: Test Breadth by Host Treemap (full width, 3 rows for better visibility) */}
+            {/* Test Breadth by Host Treemap (full width, 3 rows for better visibility) */}
             <div className="col-span-12 row-span-3">
               <CoverageTreemap
                 data={hostTestMatrix}
