@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Loader2, TrendingUp } from 'lucide-react';
+import { TrendingUp } from 'lucide-react';
 import {
   AreaChart,
   Area,
@@ -23,6 +23,7 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // Helper to parse timestamp - handles both epoch ms strings and ISO strings
 function parseTimestamp(timestamp: string): Date {
@@ -73,6 +74,20 @@ function TrendChart({ data, errorRateData, errorRateOverall, secureScoreTrendDat
   const hasRealScore = data.some(d => d.realScore !== undefined && d.realScore !== d.score);
   const hasExtraData = hasErrorRate || hasSecureScore || hasRealScore;
 
+  if (loading) {
+    return (
+      <Card className="overflow-hidden">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        </CardHeader>
+        <CardContent className="h-[200px] flex flex-col gap-3" aria-busy="true">
+          <Skeleton className="h-3 w-40" />
+          <Skeleton className="h-full w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
   // Return early if no data to prevent rendering issues
   if (!data || data.length === 0) {
     return (
@@ -81,23 +96,7 @@ function TrendChart({ data, errorRateData, errorRateOverall, secureScoreTrendDat
           <CardTitle className="text-sm font-medium">{title}</CardTitle>
         </CardHeader>
         <CardContent className="h-[200px] flex items-center justify-center">
-          {loading
-            ? <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-            : <p className="text-sm text-muted-foreground">No trend data available</p>
-          }
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (loading) {
-    return (
-      <Card className="overflow-hidden">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        </CardHeader>
-        <CardContent className="h-[200px] flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">No trend data available</p>
         </CardContent>
       </Card>
     );

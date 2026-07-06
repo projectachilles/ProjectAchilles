@@ -1,6 +1,7 @@
 import { memo } from 'react';
-import { Loader2, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { Clock, CheckCircle, XCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { TrendDataPoint, EnrichedTestExecution } from '@/services/api/analytics';
 
 interface TestActivityCardProps {
@@ -66,8 +67,25 @@ function TestActivityCard({
 }: TestActivityCardProps) {
   if (loading) {
     return (
-      <Card className="h-full flex items-center justify-center">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      <Card className="h-full flex flex-col overflow-hidden">
+        <CardHeader className="pb-2 flex-shrink-0">
+          <Skeleton className="h-4 w-28" />
+        </CardHeader>
+        <CardContent className="flex-1 overflow-hidden" aria-busy="true">
+          <div className="flex h-full gap-2 sm:gap-4">
+            {/* Left side: big metric */}
+            <div className="flex-shrink-0 w-[100px] sm:w-[120px] md:w-[140px] flex flex-col justify-center items-center gap-2 border-r border-border pr-2 sm:pr-4">
+              <Skeleton className="h-9 w-12" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+            {/* Right side: recent tests list */}
+            <div className="flex-1 flex flex-col gap-1 sm:gap-2 min-w-0">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          </div>
+        </CardContent>
       </Card>
     );
   }
