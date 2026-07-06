@@ -684,13 +684,6 @@ export default function AnalyticsDashboardPage() {
                 />
               </div>
 
-            {/* Row 3-4 (conditional): Alert Summary */}
-            {defenderConfigured && (
-              <div className="col-span-12 row-span-2">
-                <TopControlsCard compact />
-              </div>
-            )}
-
             {/* Results by Error Type + Test Coverage */}
             <div className="col-span-12 md:col-span-6 row-span-2">
               <ErrorTypePieChart
@@ -707,8 +700,9 @@ export default function AnalyticsDashboardPage() {
               />
             </div>
 
-            {/* Trend Overview (full width — better for a time series) */}
-            <div className="col-span-12 row-span-2 min-w-0 overflow-hidden">
+            {/* Trend Overview (paired with Top Remediation Controls when Defender is
+                configured; full width otherwise — better for a time series) */}
+            <div className={`col-span-12 ${defenderConfigured ? 'lg:col-span-6' : ''} row-span-2 min-w-0 overflow-hidden`}>
               <TrendChart
                 data={trendData}
                 errorRateData={errorRateTrendData}
@@ -719,6 +713,11 @@ export default function AnalyticsDashboardPage() {
                 windowDays={getWindowDaysForDateRange(filterState.filters.dateRange)}
               />
             </div>
+            {defenderConfigured && (
+              <div className="col-span-12 lg:col-span-6 row-span-2">
+                <TopControlsCard compact />
+              </div>
+            )}
 
             {/* Test Breadth by Host Treemap (full width, 3 rows for better visibility) */}
             <div className="col-span-12 row-span-3">
