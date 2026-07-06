@@ -18,12 +18,12 @@ function TopBypassedTechniques({ items, loading }: TopBypassedTechniquesProps) {
   const rows = topBypassedTechniques(items);
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="h-full flex flex-col overflow-hidden">
+      <CardHeader className="flex-shrink-0">
         <CardTitle className="text-sm font-medium">Top Bypassed Techniques</CardTitle>
         <p className="text-xs text-muted-foreground">sorted by bypass rate</p>
       </CardHeader>
-      <CardContent aria-busy={loading || undefined}>
+      <CardContent className="flex-1 flex flex-col justify-between" aria-busy={loading || undefined}>
         {loading ? (
           <div className="space-y-3">
             {Array.from({ length: SKELETON_ROW_COUNT }).map((_, i) => (
@@ -37,28 +37,26 @@ function TopBypassedTechniques({ items, loading }: TopBypassedTechniquesProps) {
         ) : rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">No bypassed techniques in range.</p>
         ) : (
-          <div className="space-y-3">
-            {rows.map((row, index) => (
-              <div key={row.technique} className="flex items-center gap-3">
-                <span className="text-xs font-mono text-foreground w-20 shrink-0 truncate">
-                  {row.technique}
-                </span>
-                <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-                  <div
-                    data-testid="bypass-bar"
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${row.bypassRate}%`,
-                      backgroundColor: index === 0 ? 'var(--chart-bypassed)' : DIMMED_BYPASSED,
-                    }}
-                  />
-                </div>
-                <span className="text-xs font-mono tabular-nums text-foreground w-10 shrink-0 text-right">
-                  {row.bypassRate}%
-                </span>
+          rows.map((row, index) => (
+            <div key={row.technique} className="flex items-center gap-3">
+              <span className="text-xs font-mono text-foreground w-20 shrink-0 truncate">
+                {row.technique}
+              </span>
+              <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  data-testid="bypass-bar"
+                  className="h-full rounded-full"
+                  style={{
+                    width: `${row.bypassRate}%`,
+                    backgroundColor: index === 0 ? 'var(--chart-bypassed)' : DIMMED_BYPASSED,
+                  }}
+                />
               </div>
-            ))}
-          </div>
+              <span className="text-xs font-mono tabular-nums text-foreground w-10 shrink-0 text-right">
+                {row.bypassRate}%
+              </span>
+            </div>
+          ))
         )}
       </CardContent>
     </Card>

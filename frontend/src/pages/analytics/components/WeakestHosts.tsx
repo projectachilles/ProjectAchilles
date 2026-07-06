@@ -16,12 +16,12 @@ function WeakestHosts({ items, target = 80, loading }: WeakestHostsProps) {
   const rows = weakestHosts(items);
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="h-full flex flex-col overflow-hidden">
+      <CardHeader className="flex-shrink-0">
         <CardTitle className="text-sm font-medium">Weakest Hosts</CardTitle>
         <p className="text-xs text-muted-foreground">score vs {target}% target</p>
       </CardHeader>
-      <CardContent aria-busy={loading || undefined}>
+      <CardContent className="flex-1 flex flex-col" aria-busy={loading || undefined}>
         {loading ? (
           <div className="space-y-3">
             {Array.from({ length: SKELETON_ROW_COUNT }).map((_, i) => (
@@ -36,7 +36,7 @@ function WeakestHosts({ items, target = 80, loading }: WeakestHostsProps) {
           <p className="text-sm text-muted-foreground">No host data in range.</p>
         ) : (
           <>
-            <div className="space-y-3">
+            <div className="flex-1 flex flex-col justify-center space-y-3">
               {rows.map((row) => (
                 <div key={row.hostname} className="flex items-center gap-3">
                   <span className="text-xs font-mono text-foreground w-24 shrink-0 truncate">
@@ -55,7 +55,7 @@ function WeakestHosts({ items, target = 80, loading }: WeakestHostsProps) {
                 </div>
               ))}
             </div>
-            <div className="mt-4 flex items-center gap-4 text-xs text-muted-foreground">
+            <div className="mt-4 flex-shrink-0 flex items-center gap-4 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <span
                   aria-hidden="true"
