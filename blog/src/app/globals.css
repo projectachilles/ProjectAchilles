@@ -1,0 +1,69 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #fafaf9;
+  --foreground: #16211b;
+  --muted: #5c6b62;
+  --accent: #15803d;
+  --border: #e2e6e2;
+  --card: #ffffff;
+}
+
+.dark {
+  --background: #0a0e0c;
+  --foreground: #e4e9e5;
+  --muted: #8b968e;
+  --accent: #4ade80;
+  --border: #1d2621;
+  --card: #101512;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-border: var(--border);
+  --color-card: var(--card);
+  --font-display: var(--font-space-grotesk), ui-sans-serif, sans-serif;
+  --font-body: var(--font-inter), ui-sans-serif, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/* rehype-pretty-code dual-theme (Shiki emits --shiki-light / --shiki-dark per token) */
+[data-rehype-pretty-code-figure] pre {
+  overflow-x: auto;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  padding: 1rem;
+  font-size: 0.875rem;
+  line-height: 1.7;
+  background-color: var(--card);
+}
+
+[data-rehype-pretty-code-figure] code {
+  display: grid;
+}
+
+[data-rehype-pretty-code-figure] code span {
+  color: var(--shiki-light);
+}
+
+.dark [data-rehype-pretty-code-figure] code span {
+  color: var(--shiki-dark);
+}
+
+[data-rehype-pretty-code-title] {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
