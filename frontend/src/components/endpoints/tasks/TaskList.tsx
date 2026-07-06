@@ -5,6 +5,7 @@ import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
 import { Checkbox } from '@/components/shared/ui/Checkbox';
 import { Dialog, DialogHeader, DialogTitle, DialogContent } from '@/components/shared/ui/Dialog';
+import { TaskStatusBadge } from '@/components/endpoints/tasks/TaskStatusBadge';
 import type { AgentTask, TaskGroup, TaskStatus } from '@/types/agent';
 import { classifyFailure, failureClassLabel, failureClassTooltip, type FailureClass } from '@/utils/taskFailureClassifier';
 
@@ -20,6 +21,10 @@ interface TaskListProps {
   onOpenNotes?: (task: AgentTask) => void;
 }
 
+// NOTE: retained (not deleted per Task 4 brief) — `StatusBadges` below renders
+// a group's aggregate counts-per-raw-status (`TaskGroup.status_counts`), which
+// has no per-task `result` to resolve honesty against. It is a legitimate
+// counts summary, not a duplicate of the single-task honest status badge.
 const statusVariants: Record<TaskStatus, 'default' | 'primary' | 'warning' | 'success' | 'destructive'> = {
   pending: 'default',
   assigned: 'primary',
@@ -280,9 +285,7 @@ export default function TaskList({
             </button>
           </TableCell>
           <TableCell>
-            <Badge variant={statusVariants[task.status]}>
-              {task.status}
-            </Badge>
+            <TaskStatusBadge task={task} />
             <FailureClassBadge task={task} />
           </TableCell>
           <TableCell className="font-medium">
@@ -453,9 +456,7 @@ export default function TaskList({
                               )}
                             </TableCell>
                             <TableCell>
-                              <Badge variant={statusVariants[task.status]}>
-                                {task.status}
-                              </Badge>
+                              <TaskStatusBadge task={task} />
                               <FailureClassBadge task={task} />
                             </TableCell>
                             <TableCell className="text-sm">
