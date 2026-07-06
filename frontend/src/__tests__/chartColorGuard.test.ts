@@ -12,6 +12,7 @@ const CHART_FILES = [
   'pages/analytics/components/CoverageTreemap.tsx',
   'pages/analytics/components/SeverityBreakdownChart.tsx',
   'pages/analytics/components/AlertsSummaryCard.tsx',
+  'pages/analytics/components/TopBypassedTechniques.tsx',
   'pages/analytics/utils/defenderChartColors.ts',
   'components/browser/TestLibraryOverview.tsx',
   'components/browser/MitreAttackMatrix.tsx',
