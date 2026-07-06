@@ -21,10 +21,13 @@ interface TaskListProps {
   onOpenNotes?: (task: AgentTask) => void;
 }
 
-// NOTE: retained (not deleted per Task 4 brief) — `StatusBadges` below renders
-// a group's aggregate counts-per-raw-status (`TaskGroup.status_counts`), which
-// has no per-task `result` to resolve honesty against. It is a legitimate
-// counts summary, not a duplicate of the single-task honest status badge.
+// NOTE: retained (not deleted per Task 4) — `StatusBadges` renders a group's
+// aggregate `status_counts` (the server's tally per raw status). Per-task
+// exit-code honesty (a completed task whose command failed) is surfaced on the
+// individual task rows via `TaskStatusBadge`; this summary intentionally mirrors
+// the server tally. Making the summary exit-code-aware is a deliberate follow-up
+// — it needs `status_counts` vs. the loaded `tasks` array reconciled first
+// (tallying honest counts over a partial `tasks` set would undercount the group).
 const statusVariants: Record<TaskStatus, 'default' | 'primary' | 'warning' | 'success' | 'destructive'> = {
   pending: 'default',
   assigned: 'primary',
