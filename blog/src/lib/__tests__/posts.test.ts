@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   getAllPosts,
   getAllTags,
@@ -53,6 +53,16 @@ describe('getAllPosts', () => {
   it('includes drafts when asked', () => {
     const posts = getAllPosts({ postsDir: POSTS_DIR, includeDrafts: true });
     expect(posts.map((p) => p.slug)).toEqual(['draft-post', 'beta-post', 'alpha-post']);
+  });
+
+  it('excludes drafts by default when NODE_ENV is production', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    try {
+      const posts = getAllPosts({ postsDir: POSTS_DIR });
+      expect(posts.map((p) => p.slug)).toEqual(['beta-post', 'alpha-post']);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
