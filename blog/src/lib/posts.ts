@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import matter from 'gray-matter';
 import { z } from 'zod';
-import { authors, type Author } from '../../content/authors.js';
-import { readingTimeMinutes } from './readingTime.js';
+import { authors, type Author } from '../../content/authors';
+import { readingTimeMinutes } from './readingTime';
 
 const TAG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
