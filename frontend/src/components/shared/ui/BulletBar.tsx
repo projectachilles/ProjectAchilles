@@ -10,6 +10,14 @@ export interface BulletBarProps {
   'aria-label'?: string;
 }
 
+// Maps a tone/band to its real governed chart token. Note: the "warning" band
+// resolves to `--chart-warn` (the actual token name — there is no `--chart-warning`).
+const TONE_TOKEN = {
+  protected: 'var(--chart-protected)',
+  warning: 'var(--chart-warn)',
+  bypassed: 'var(--chart-bypassed)',
+} as const;
+
 /**
  * BulletBar — a horizontal value-vs-target indicator.
  *
@@ -25,23 +33,19 @@ export function BulletBar({
   showTargetMarker = true,
   'aria-label': ariaLabel,
 }: BulletBarProps): React.ReactElement {
-  // Derive band color from value if tone not provided
-  const getBandColor = (): string => {
-    if (tone) {
-      return `var(--chart-${tone})`;
-    }
-    if (value >= 80) return 'var(--chart-protected)';
-    if (value >= 50) return 'var(--chart-warn)';
-    return 'var(--chart-bypassed)';
-  };
+  // Clamp to [0,100] — callers may pass out-of-range values.
+  const v = Math.max(0, Math.min(100, value));
 
-  const bandColor = getBandColor();
+  // Derive band from value if tone not provided; both paths resolve via TONE_TOKEN.
+  const band: 'protected' | 'warning' | 'bypassed' =
+    tone ?? (v >= 80 ? 'protected' : v >= 50 ? 'warning' : 'bypassed');
+  const bandColor = TONE_TOKEN[band];
   const shouldShowTarget = showTargetMarker && target !== undefined;
 
   return (
     <div
       role="meter"
-      aria-valuenow={value}
+      aria-valuenow={v}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-label={ariaLabel}
@@ -49,7 +53,7 @@ export function BulletBar({
         position: 'relative',
         width: '100%',
         height: `${height}px`,
-        backgroundColor: 'var(--track)',
+        backgroundColor: 'var(--muted)',
         borderRadius: '4px',
         overflow: 'hidden',
       }}
@@ -61,7 +65,7 @@ export function BulletBar({
           position: 'absolute',
           top: 0,
           left: 0,
-          width: `${value}%`,
+          width: `${v}%`,
           height: '100%',
           background: bandColor,
           transition: 'width 0.3s ease-out',
