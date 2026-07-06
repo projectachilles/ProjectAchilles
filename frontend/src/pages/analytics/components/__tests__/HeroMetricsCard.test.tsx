@@ -85,6 +85,16 @@ describe('HeroMetricsCard', () => {
     });
   });
 
+  describe('loading state', () => {
+    it('renders skeletons (not a spinner) while loading', () => {
+      const { container } = render(
+        <HeroMetricsCard loading defenseScore={0} uniqueEndpoints={0} executedTests={0} />,
+      );
+      expect(container.querySelectorAll('[data-testid="skeleton"]').length).toBeGreaterThan(0);
+      expect(container.querySelector('.animate-spin')).toBeNull();
+    });
+  });
+
   describe('headline rendering', () => {
     it('shows the defense score and basic stats', () => {
       render(

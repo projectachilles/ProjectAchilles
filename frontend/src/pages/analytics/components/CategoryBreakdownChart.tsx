@@ -1,5 +1,4 @@
 import { memo } from 'react';
-import { Loader2 } from 'lucide-react';
 import { PieChart, Pie, Cell } from 'recharts';
 import type { CategorySubcategoryBreakdownItem, CategoryType } from '@/services/api/analytics';
 import {
@@ -9,6 +8,7 @@ import {
   type ChartConfig
 } from '@/components/ui/chart';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useChartTokens } from '@/lib/chartTokens';
 
 interface CategoryBreakdownChartProps {
@@ -73,8 +73,21 @@ function CategoryBreakdownChart({
 
   if (loading) {
     return (
-      <Card className="h-full flex items-center justify-center">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      <Card className="h-full flex flex-col overflow-hidden">
+        <CardHeader className="pb-0">
+          <Skeleton className="h-4 w-32" />
+        </CardHeader>
+        <CardContent className="flex-1 pb-4 overflow-hidden" aria-busy="true">
+          <div className="flex items-center gap-4 h-full">
+            <Skeleton className="w-[140px] h-[140px] rounded-full flex-shrink-0" />
+            <div className="flex flex-col gap-2 flex-1 min-w-0">
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-4/5" />
+              <Skeleton className="h-3 w-3/5" />
+              <Skeleton className="h-3 w-full" />
+            </div>
+          </div>
+        </CardContent>
       </Card>
     );
   }

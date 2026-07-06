@@ -14,24 +14,15 @@ import {
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
 import { Loading } from '@/components/shared/ui/Spinner';
+import { TaskStatusBadge } from '@/components/endpoints/tasks/TaskStatusBadge';
 import { agentApi } from '@/services/api/agent';
-import type { AgentTask, TaskStatus } from '@/types/agent';
+import type { AgentTask } from '@/types/agent';
 
 interface AgentTaskHistoryTabProps {
   agentId: string;
 }
 
 const PAGE_SIZE = 20;
-
-function taskStatusVariant(status: TaskStatus): 'success' | 'warning' | 'destructive' | 'default' | 'primary' {
-  switch (status) {
-    case 'completed': return 'success';
-    case 'pending': case 'assigned': case 'downloading': return 'warning';
-    case 'failed': case 'expired': return 'destructive';
-    case 'executing': return 'primary';
-    default: return 'default';
-  }
-}
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '-';
@@ -107,9 +98,7 @@ export default function AgentTaskHistoryTab({ agentId }: AgentTaskHistoryTabProp
                 <TableRow key={task.id}>
                   <TableCell>
                     <div className="flex items-center gap-1.5">
-                      <Badge variant={taskStatusVariant(task.status)} className="text-xs">
-                        {task.status}
-                      </Badge>
+                      <TaskStatusBadge task={task} className="text-xs" />
                       {(task.retry_count ?? 0) > 0 && (
                         <Badge variant="warning" className="text-xs">
                           Retry {task.retry_count}/{task.max_retries}

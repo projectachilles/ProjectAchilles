@@ -5,6 +5,7 @@ import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
 import { Checkbox } from '@/components/shared/ui/Checkbox';
 import { Dialog, DialogHeader, DialogTitle, DialogContent } from '@/components/shared/ui/Dialog';
+import { TaskStatusBadge } from '@/components/endpoints/tasks/TaskStatusBadge';
 import type { AgentTask, TaskGroup, TaskStatus } from '@/types/agent';
 import { classifyFailure, failureClassLabel, failureClassTooltip, type FailureClass } from '@/utils/taskFailureClassifier';
 
@@ -20,6 +21,13 @@ interface TaskListProps {
   onOpenNotes?: (task: AgentTask) => void;
 }
 
+// NOTE: retained (not deleted per Task 4) — `StatusBadges` renders a group's
+// aggregate `status_counts` (the server's tally per raw status). Per-task
+// exit-code honesty (a completed task whose command failed) is surfaced on the
+// individual task rows via `TaskStatusBadge`; this summary intentionally mirrors
+// the server tally. Making the summary exit-code-aware is a deliberate follow-up
+// — it needs `status_counts` vs. the loaded `tasks` array reconciled first
+// (tallying honest counts over a partial `tasks` set would undercount the group).
 const statusVariants: Record<TaskStatus, 'default' | 'primary' | 'warning' | 'success' | 'destructive'> = {
   pending: 'default',
   assigned: 'primary',
@@ -280,9 +288,7 @@ export default function TaskList({
             </button>
           </TableCell>
           <TableCell>
-            <Badge variant={statusVariants[task.status]}>
-              {task.status}
-            </Badge>
+            <TaskStatusBadge task={task} />
             <FailureClassBadge task={task} />
           </TableCell>
           <TableCell className="font-medium">
@@ -453,9 +459,7 @@ export default function TaskList({
                               )}
                             </TableCell>
                             <TableCell>
-                              <Badge variant={statusVariants[task.status]}>
-                                {task.status}
-                              </Badge>
+                              <TaskStatusBadge task={task} />
                               <FailureClassBadge task={task} />
                             </TableCell>
                             <TableCell className="text-sm">

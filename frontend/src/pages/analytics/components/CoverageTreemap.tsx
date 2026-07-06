@@ -1,8 +1,9 @@
 import { useState, useMemo, useCallback, memo } from 'react';
 import { Treemap, ResponsiveContainer, Tooltip } from 'recharts';
-import { Loader2, ChevronLeft } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 import type { HostTestMatrixCell } from '../../../services/api/analytics';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useChartTokens } from '@/lib/chartTokens';
 import { pickAccessibleLabel } from '@/lib/contrast';
 
@@ -560,8 +561,19 @@ function CoverageTreemap({
   // Loading state
   if (loading) {
     return (
-      <Card className="h-full min-h-[280px] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      <Card className="h-full min-h-[280px] flex flex-col overflow-hidden">
+        <CardHeader className="pb-2 flex-shrink-0 gap-2">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-3 w-56" />
+        </CardHeader>
+        <CardContent className="flex-1 pb-4 min-h-0" aria-busy="true">
+          <div className="grid grid-cols-3 gap-1.5 h-full">
+            <Skeleton className="col-span-2 row-span-2 h-full w-full" />
+            <Skeleton className="h-full w-full" />
+            <Skeleton className="h-full w-full" />
+            <Skeleton className="col-span-3 h-full w-full" />
+          </div>
+        </CardContent>
       </Card>
     );
   }

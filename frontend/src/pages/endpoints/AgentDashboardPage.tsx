@@ -9,7 +9,6 @@ import { Monitor, Wifi, WifiOff, ClipboardList, CheckCircle, XCircle, Activity, 
 import { PieChart, Pie, Cell } from 'recharts';
 import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/shared/ui/Card';
-import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
 import { Loading } from '@/components/shared/ui/Spinner';
 import {
@@ -26,8 +25,9 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart';
+import { TaskStatusBadge } from '@/components/endpoints/tasks/TaskStatusBadge';
 import { agentApi } from '@/services/api/agent';
-import type { AgentMetrics, AgentTask, TaskStatus, TaskType, FleetHealthMetrics } from '@/types/agent';
+import type { AgentMetrics, AgentTask, TaskType, FleetHealthMetrics } from '@/types/agent';
 
 interface MetricCardProps {
   icon: React.ComponentType<{ className?: string }>;
@@ -76,24 +76,6 @@ const VERSION_PALETTE = [
   'var(--chart-cat-4)',
   'var(--chart-cat-5)',
 ];
-
-function taskStatusVariant(status: TaskStatus): 'success' | 'warning' | 'destructive' | 'default' | 'primary' {
-  switch (status) {
-    case 'completed':
-      return 'success';
-    case 'pending':
-    case 'assigned':
-    case 'downloading':
-      return 'warning';
-    case 'failed':
-    case 'expired':
-      return 'destructive';
-    case 'executing':
-      return 'primary';
-    default:
-      return 'default';
-  }
-}
 
 function formatRelativeTime(dateString: string): string {
   const now = Date.now();
@@ -565,9 +547,7 @@ export default function AgentDashboardPage() {
                   {recentTasks.map((task) => (
                     <TableRow key={task.id}>
                       <TableCell>
-                        <Badge variant={taskStatusVariant(task.status)}>
-                          {task.status}
-                        </Badge>
+                        <TaskStatusBadge task={task} />
                       </TableCell>
                       <TableCell className="max-w-[240px] truncate">
                         {getTaskLabel(task.type, task.payload)}

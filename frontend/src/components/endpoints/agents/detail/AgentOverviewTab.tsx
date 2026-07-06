@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { Monitor, Clock, Tag, Cpu, HardDrive, MemoryStick, Heart } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/shared/ui/Card';
 import { Badge } from '@/components/shared/ui/Badge';
+import { TaskStatusBadge } from '@/components/endpoints/tasks/TaskStatusBadge';
 import { agentApi } from '@/services/api/agent';
 import type { Agent, AgentTask } from '@/types/agent';
 
@@ -24,15 +25,6 @@ function formatDate(dateStr: string | null): string {
   if (!dateStr) return 'N/A';
   const normalized = dateStr.endsWith('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z';
   return new Date(normalized).toLocaleString();
-}
-
-function taskStatusVariant(status: string): 'success' | 'warning' | 'destructive' | 'default' {
-  switch (status) {
-    case 'completed': return 'success';
-    case 'pending': case 'assigned': case 'downloading': return 'warning';
-    case 'failed': case 'expired': return 'destructive';
-    default: return 'default';
-  }
 }
 
 export default function AgentOverviewTab({ agent }: AgentOverviewTabProps) {
@@ -176,9 +168,7 @@ export default function AgentOverviewTab({ agent }: AgentOverviewTabProps) {
                   className="flex items-center justify-between p-2 rounded bg-muted/50 text-sm"
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <Badge variant={taskStatusVariant(task.status)} className="text-xs shrink-0">
-                      {task.status}
-                    </Badge>
+                    <TaskStatusBadge task={task} className="text-xs shrink-0" />
                     <span className="truncate">
                       {task.type === 'execute_command' ? (task.payload.command ?? 'Command') : (task.payload.test_name || task.type)}
                     </span>

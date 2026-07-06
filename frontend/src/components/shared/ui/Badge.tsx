@@ -12,8 +12,8 @@ const variantStyles: Record<BadgeVariant, string> = {
   default: 'bg-muted text-muted-foreground',
   primary: 'bg-primary/10 text-primary',
   secondary: 'bg-secondary text-secondary-foreground',
-  success: 'bg-green-500/10 text-green-500',
-  warning: 'bg-yellow-500/10 text-yellow-500',
+  success: 'bg-[color-mix(in_oklab,var(--success)_12%,transparent)] text-[var(--success)]',
+  warning: 'bg-[color-mix(in_oklab,var(--warning)_14%,transparent)] text-[var(--warning)]',
   destructive: 'bg-destructive/10 text-destructive',
   outline: 'border border-border text-foreground',
 };

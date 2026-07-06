@@ -1,5 +1,4 @@
 import { memo } from 'react';
-import { Loader2 } from 'lucide-react';
 import { PieChart, Pie, Cell } from 'recharts';
 import type { ErrorTypeBreakdown } from '../../../services/api/analytics';
 import {
@@ -9,6 +8,7 @@ import {
   type ChartConfig
 } from '@/components/ui/chart';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface ErrorTypePieChartProps {
   data: ErrorTypeBreakdown[];
@@ -46,15 +46,28 @@ function ErrorTypePieChart({
   loading,
   title = 'Results by Error Type'
 }: ErrorTypePieChartProps) {
+  if (loading) {
+    return (
+      <Card className="h-full min-h-[280px] flex flex-col overflow-hidden">
+        <CardHeader className="pb-2 flex-shrink-0">
+          <Skeleton className="h-4 w-36" />
+        </CardHeader>
+        <CardContent className="flex-1 pb-4 overflow-hidden" aria-busy="true">
+          <div className="flex items-center gap-4 h-full">
+            <Skeleton className="w-[120px] h-[120px] rounded-full flex-shrink-0" />
+            <div className="flex flex-col gap-2 flex-1 min-w-0">
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-4/5" />
+              <Skeleton className="h-3 w-3/5" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   // Return early if no data
   if (!data || data.length === 0) {
-    if (loading) {
-      return (
-        <Card className="h-full min-h-[280px] flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-        </Card>
-      );
-    }
     return (
       <Card className="h-full min-h-[280px] flex items-center justify-center">
         <p className="text-muted-foreground">No data available</p>
@@ -86,14 +99,6 @@ function ErrorTypePieChart({
     };
     return acc;
   }, {} as ChartConfig);
-
-  if (loading) {
-    return (
-      <Card className="h-full min-h-[280px] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </Card>
-    );
-  }
 
   return (
     <Card className="h-full flex flex-col overflow-hidden">

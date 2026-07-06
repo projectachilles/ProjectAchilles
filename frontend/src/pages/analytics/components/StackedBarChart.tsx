@@ -1,6 +1,6 @@
 import { memo, useMemo, useState } from 'react';
-import { Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface StackedBarChartProps {
   data: Array<{
@@ -71,26 +71,27 @@ function StackedBarChart({
     });
   }, [data]);
 
-  // Return early if no data
-  if (!data || data.length === 0) {
-    if (loading) {
-      return (
-        <Card className="h-full min-h-[280px] flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-        </Card>
-      );
-    }
+  if (loading) {
     return (
-      <Card className="h-full min-h-[280px] flex items-center justify-center">
-        <p className="text-muted-foreground">No data available</p>
+      <Card className="h-full min-h-[280px] flex flex-col overflow-hidden">
+        <CardHeader className="pb-2 flex-shrink-0">
+          <Skeleton className="h-4 w-24" />
+        </CardHeader>
+        <CardContent className="flex-1 pb-4 overflow-hidden flex flex-col gap-1.5" aria-busy="true">
+          <Skeleton className="h-[26px] w-full" />
+          <Skeleton className="h-[26px] w-full" />
+          <Skeleton className="h-[26px] w-full" />
+          <Skeleton className="h-[26px] w-full" />
+        </CardContent>
       </Card>
     );
   }
 
-  if (loading) {
+  // Return early if no data
+  if (!data || data.length === 0) {
     return (
-      <Card className="h-full min-h-[280px] flex items-center justify-center overflow-hidden">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      <Card className="h-full min-h-[280px] flex items-center justify-center">
+        <p className="text-muted-foreground">No data available</p>
       </Card>
     );
   }

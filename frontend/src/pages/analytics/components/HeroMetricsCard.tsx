@@ -1,6 +1,7 @@
 import { memo } from 'react';
-import { Loader2, Shield, Monitor, FlaskConical, AlertTriangle } from 'lucide-react';
+import { Shield, Monitor, FlaskConical, AlertTriangle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface HeroMetricsCardProps {
   defenseScore: number | null;
@@ -45,8 +46,26 @@ function HeroMetricsCard({
 
   if (loading) {
     return (
-      <Card className="h-full flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      <Card className="h-full flex flex-col p-0 overflow-hidden" aria-busy="true">
+        {/* Top Section: mirrors the Defense Score headline */}
+        <div className="flex-[3] flex flex-col justify-center items-center px-2 sm:px-4 py-2 sm:py-4 gap-2">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-12 w-32 sm:h-14 sm:w-40" />
+        </div>
+
+        <div className="border-t-[length:var(--theme-border-width)] border-border mx-2 sm:mx-4" />
+
+        {/* Bottom Section: mirrors the Endpoints/Tests stat pair */}
+        <div className="flex-[2] flex divide-x divide-border">
+          <div className="flex-1 flex flex-col justify-center items-center px-1 sm:px-2 py-2 sm:py-3 gap-1">
+            <Skeleton className="h-3 w-14" />
+            <Skeleton className="h-6 w-10" />
+          </div>
+          <div className="flex-1 flex flex-col justify-center items-center px-1 sm:px-2 py-2 sm:py-3 gap-1">
+            <Skeleton className="h-3 w-14" />
+            <Skeleton className="h-6 w-10" />
+          </div>
+        </div>
       </Card>
     );
   }
