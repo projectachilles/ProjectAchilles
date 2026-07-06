@@ -48,6 +48,13 @@ describe('StatusCommandBar', () => {
     expect(screen.getByText(/9\s*tactics/i)).toBeInTheDocument();
   });
 
+  it('captions the bypassed count with a unit — "unprotected runs" when no tactic count', () => {
+    render(<StatusCommandBar {...baseProps} />);
+    expect(screen.getByText(/unprotected runs/i)).toBeInTheDocument();
+    // The tactics caption takes precedence when provided
+    expect(screen.queryByText(/tactics/i)).not.toBeInTheDocument();
+  });
+
   it('preserves the HeroMetricsCard sub-stat wording: actual, EDR-only, inconclusive', () => {
     render(<StatusCommandBar {...baseProps} excludedCount={4} />);
     expect(screen.getByText(/actual/i)).toBeInTheDocument();

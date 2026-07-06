@@ -179,11 +179,11 @@ function StatusCommandBar({
             </span>
             <span className="text-xs text-muted-foreground">bypassed</span>
           </div>
-          {bypassedTacticCount != null && (
-            <div className="text-xs text-muted-foreground">
-              {bypassedTacticCount.toLocaleString()} tactics
-            </div>
-          )}
+          <div className="text-xs text-muted-foreground">
+            {bypassedTacticCount != null
+              ? `${bypassedTacticCount.toLocaleString()} tactics`
+              : 'unprotected runs'}
+          </div>
         </div>
       </div>
     </Card>
