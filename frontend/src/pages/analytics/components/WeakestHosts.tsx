@@ -1,6 +1,6 @@
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { BulletBar, scoreBandTone, TONE_TOKEN } from '@/components/shared/ui/BulletBar';
+import { BulletBar } from '@/components/shared/ui/BulletBar';
 import { weakestHosts } from '../utils/analyticsDerivations';
 import type { DefenseScoreByHostItem } from '@/services/api/analytics';
 
@@ -11,12 +11,6 @@ interface WeakestHostsProps {
 }
 
 const SKELETON_ROW_COUNT = 5;
-
-// Score-text color derives from the same band thresholds BulletBar uses internally,
-// resolving tone→token via the shared TONE_TOKEN map.
-function scoreColor(score: number): string {
-  return TONE_TOKEN[scoreBandTone(score)];
-}
 
 function WeakestHosts({ items, target = 80, loading }: WeakestHostsProps) {
   const rows = weakestHosts(items);
@@ -55,10 +49,7 @@ function WeakestHosts({ items, target = 80, loading }: WeakestHostsProps) {
                       aria-label={`${row.hostname} defense score`}
                     />
                   </div>
-                  <span
-                    className="text-xs font-mono tabular-nums w-10 shrink-0 text-right"
-                    style={{ color: scoreColor(row.score) }}
-                  >
+                  <span className="text-xs font-mono tabular-nums text-foreground w-10 shrink-0 text-right">
                     {row.score}%
                   </span>
                 </div>

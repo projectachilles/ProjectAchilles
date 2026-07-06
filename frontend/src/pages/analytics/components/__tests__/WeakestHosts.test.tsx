@@ -29,26 +29,31 @@ describe('WeakestHosts', () => {
     expect(screen.getAllByRole('meter')).toHaveLength(3);
   });
 
-  it('band-colors the score text: a <50 host uses var(--chart-bypassed)', () => {
+  it('renders the score text in neutral (non-band) color for a <50 host, for AA contrast', () => {
     render(<WeakestHosts items={items} />);
     const weakest = screen.getByText('16%');
-    expect((weakest as HTMLElement).style.color).toBe('var(--chart-bypassed)');
+    expect((weakest as HTMLElement).style.color).not.toBe('var(--chart-bypassed)');
+    expect((weakest as HTMLElement).style.color).not.toBe('var(--chart-warn)');
+    expect((weakest as HTMLElement).style.color).not.toBe('var(--chart-protected)');
+    expect((weakest as HTMLElement).className).toContain('text-foreground');
   });
 
-  it('band-colors a 50-79 host score using var(--chart-warn)', () => {
+  it('renders the score text in neutral (non-band) color for a 50-79 host, for AA contrast', () => {
     render(<WeakestHosts items={items} />);
     const midRange = screen.getByText('55%');
-    expect((midRange as HTMLElement).style.color).toBe('var(--chart-warn)');
+    expect((midRange as HTMLElement).style.color).not.toBe('var(--chart-warn)');
+    expect((midRange as HTMLElement).className).toContain('text-foreground');
   });
 
-  it('band-colors a >=80 host score using var(--chart-protected)', () => {
+  it('renders the score text in neutral (non-band) color for a >=80 host, for AA contrast', () => {
     render(
       <WeakestHosts
         items={[{ hostname: 'host-90', score: 90, protected: 9, unprotected: 1, total: 10 }]}
       />
     );
     const strong = screen.getByText('90%');
-    expect((strong as HTMLElement).style.color).toBe('var(--chart-protected)');
+    expect((strong as HTMLElement).style.color).not.toBe('var(--chart-protected)');
+    expect((strong as HTMLElement).className).toContain('text-foreground');
   });
 
   it('renders a legend with critical/at-risk/target markers', () => {
