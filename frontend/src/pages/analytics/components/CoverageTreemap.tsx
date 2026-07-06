@@ -50,6 +50,29 @@ function getCoverageLabel(coverage: number): string {
   return 'Poor';
 }
 
+// Coverage band → swatch color (used only as a small color-cue dot beside the
+// label; the label TEXT itself always renders in --foreground so it stays
+// legible on --popover/--card regardless of band — --chart-warn (amber) fails
+// WCAG AA as a text color on those surfaces in light mode).
+function getCoverageBandColor(coverage: number): string {
+  if (coverage >= 0.8) return 'var(--chart-protected)';
+  if (coverage >= 0.5) return 'var(--chart-warn)';
+  return 'var(--chart-bypassed)';
+}
+
+// Parse a resolved "oklch(L C H)" fill string and pick a readable label color
+// relative to THAT cell's own lightness (contrast is a function of the cell's
+// background, not the page theme) — mirrors the oklch(...) parse pattern used
+// in CategoryBreakdownChart.tsx's lightenOklch(). Unresolved fills (e.g. jsdom,
+// which never resolves CSS custom properties) fall back to the "on dark" label,
+// which is a safe default against this app's heat ramp (mid-to-low lightness).
+function pickLabelFill(fill: string | undefined, labelOnLight: string, labelOnDark: string): string {
+  const m = fill?.match(/oklch\(\s*([\d.]+)/);
+  const lightness = m ? Number(m[1]) : undefined;
+  if (lightness === undefined) return labelOnDark;
+  return lightness >= 0.6 ? labelOnLight : labelOnDark;
+}
+
 // Custom content renderer for treemap cells
 interface CustomContentProps {
   x?: number;
@@ -63,10 +86,19 @@ interface CustomContentProps {
   onClick?: () => void;
   isClickable?: boolean;
   hideCoverageStats?: boolean;
+  labelOnLight?: string;
+  labelOnDark?: string;
 }
 
 function CustomTreemapContent(props: CustomContentProps) {
-  const { x = 0, y = 0, width = 0, height = 0, name, coverage: rawCoverage, testCount: rawTestCount, fill, isClickable = true, hideCoverageStats = false } = props;
+  const {
+    x = 0, y = 0, width = 0, height = 0, name, coverage: rawCoverage, testCount: rawTestCount, fill,
+    isClickable = true, hideCoverageStats = false, labelOnLight = '', labelOnDark = '',
+  } = props;
+  // Contrast-aware label color: chosen against this cell's own background
+  // lightness, not the surrounding page theme, so text stays legible across
+  // the whole --chart-heat-1..5 range (WCAG 2.2 AA, both theme directions).
+  const textFill = pickLabelFill(fill, labelOnLight, labelOnDark);
   const coverage = hideCoverageStats ? undefined : rawCoverage;
   const testCount = hideCoverageStats ? undefined : rawTestCount;
 
@@ -122,7 +154,7 @@ function CustomTreemapContent(props: CustomContentProps) {
           y={hostnameY}
           textAnchor="start"
           dominantBaseline="auto"
-          fill="var(--card-foreground)"
+          fill={textFill}
           stroke="none"
           fontSize={fontSize}
           fontWeight={500}
@@ -140,7 +172,7 @@ function CustomTreemapContent(props: CustomContentProps) {
           y={statsY}
           textAnchor="start"
           dominantBaseline="auto"
-          fill="var(--muted-foreground)"
+          fill={textFill}
           stroke="none"
           fontSize={detailsFontSize}
           fontWeight={400}
@@ -176,10 +208,11 @@ function CustomTooltip({ active, payload, baselineLabel }: { active?: boolean; p
             {coverage !== undefined && (
               <p>
                 Combined coverage:{' '}
-                <span
-                  className="font-medium"
-                  style={{ color: coverage >= 0.8 ? 'var(--chart-protected)' : coverage >= 0.5 ? 'var(--chart-warn)' : 'var(--chart-bypassed)' }}
-                >
+                <span className="font-medium text-foreground">
+                  <span
+                    className="inline-block w-2 h-2 rounded-full mr-1 align-middle"
+                    style={{ backgroundColor: getCoverageBandColor(coverage) }}
+                  />
                   {(coverage * 100).toFixed(0)}% ({getCoverageLabel(coverage)})
                 </span>
                 {baselineLabel && (
@@ -199,10 +232,11 @@ function CustomTooltip({ active, payload, baselineLabel }: { active?: boolean; p
             {coverage !== undefined && (
               <p>
                 Coverage:{' '}
-                <span
-                  className="font-medium"
-                  style={{ color: coverage >= 0.8 ? 'var(--chart-protected)' : coverage >= 0.5 ? 'var(--chart-warn)' : 'var(--chart-bypassed)' }}
-                >
+                <span className="font-medium text-foreground">
+                  <span
+                    className="inline-block w-2 h-2 rounded-full mr-1 align-middle"
+                    style={{ backgroundColor: getCoverageBandColor(coverage) }}
+                  />
                   {(coverage * 100).toFixed(0)}% ({getCoverageLabel(coverage)})
                 </span>
                 {baselineLabel && (
@@ -255,10 +289,11 @@ function OthersDrillDownTooltip({ active, payload }: { active?: boolean; payload
         {data.coverage !== undefined && (
           <p>
             Coverage:{' '}
-            <span
-              className="font-medium"
-              style={{ color: data.coverage >= 0.8 ? 'var(--chart-protected)' : data.coverage >= 0.5 ? 'var(--chart-warn)' : 'var(--chart-bypassed)' }}
-            >
+            <span className="font-medium text-foreground">
+              <span
+                className="inline-block w-2 h-2 rounded-full mr-1 align-middle"
+                style={{ backgroundColor: getCoverageBandColor(data.coverage) }}
+              />
               {(data.coverage * 100).toFixed(0)}% ({getCoverageLabel(data.coverage)})
             </span>
           </p>
@@ -300,6 +335,7 @@ function CoverageTreemap({
   // theme flips via useChartTokens' MutationObserver, so no manual isDark branching.
   const heatTokens = useChartTokens([
     '--chart-heat-1', '--chart-heat-2', '--chart-heat-3', '--chart-heat-4', '--chart-heat-5', '--chart-cat-5',
+    '--chart-label-on-light', '--chart-label-on-dark',
   ]);
   const HEAT = [
     heatTokens['--chart-heat-1'], heatTokens['--chart-heat-2'], heatTokens['--chart-heat-3'],
@@ -659,6 +695,8 @@ function CoverageTreemap({
               <CustomTreemapContent
                 isClickable={!isSingleHostDrillDown}
                 hideCoverageStats={isSingleHostDrillDown}
+                labelOnLight={heatTokens['--chart-label-on-light']}
+                labelOnDark={heatTokens['--chart-label-on-dark']}
               />
             }
           >

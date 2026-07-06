@@ -80,6 +80,10 @@
   --chart-heat-5: oklch(0.80 0.19 150);
   /* Semantic at-risk band (50–79%) */
   --chart-warn: oklch(0.75 0.15 75);
+  /* Contrast-aware cell-label text — theme-invariant (chosen relative to the
+     cell's own fill lightness, not the page theme), identical in :root/.dark */
+  --chart-label-on-light: oklch(0.22 0 0);
+  --chart-label-on-dark: oklch(0.98 0 0);
   /* Defender overlay series — theme-invariant brand hues */
   --chart-series-exec: oklch(0.62 0.19 250);
   --chart-series-alert: oklch(0.60 0.22 25);
@@ -149,6 +153,9 @@
   --chart-heat-4: oklch(0.72 0.18 150);
   --chart-heat-5: oklch(0.82 0.20 150);
   --chart-warn: oklch(0.78 0.15 75);
+  /* Contrast-aware cell-label text — theme-invariant, same values as :root */
+  --chart-label-on-light: oklch(0.22 0 0);
+  --chart-label-on-dark: oklch(0.98 0 0);
   --chart-series-exec: oklch(0.66 0.19 250);
   --chart-series-alert: oklch(0.64 0.22 25);
   --success: oklch(0.62 0.17 145);
