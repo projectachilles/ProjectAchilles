@@ -106,6 +106,19 @@ describe('StatusCommandBar', () => {
     expect(screen.getByText(/73\.4%/)).toBeInTheDocument();
   });
 
+  it('renders the secure score points caption when securePoints is provided', () => {
+    render(
+      <StatusCommandBar
+        {...baseProps}
+        secureScore={73.8}
+        securePoints={{ current: 1199.5, max: 1625.0 }}
+      />
+    );
+    expect(screen.getByText(/Secure Score/i)).toBeInTheDocument();
+    expect(screen.getByText(/73\.8%/)).toBeInTheDocument();
+    expect(screen.getByText(/1199\.5\s*\/\s*1625\.0\s*pts/)).toBeInTheDocument();
+  });
+
   it('renders a sparkline when defenseTrend is provided', () => {
     render(<StatusCommandBar {...baseProps} defenseTrend={[40, 45, 48, 50, 52]} />);
     expect(screen.getAllByRole('img').length).toBeGreaterThanOrEqual(1);

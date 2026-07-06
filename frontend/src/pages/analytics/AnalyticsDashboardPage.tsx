@@ -18,7 +18,6 @@ import ExecutionsDataTable from './components/ExecutionsDataTable';
 import { Toast } from '@/components/shared/ui/Alert';
 import RiskAcceptancesTab from './components/RiskAcceptancesTab';
 import DefenderTab from './components/DefenderTab';
-import SecureScoreCard from './components/SecureScoreCard';
 import TopControlsCard from './components/TopControlsCard';
 import { totalBypassedCount, scoreDelta } from './utils/analyticsDerivations';
 import { useAnalyticsFilters, getWindowDaysForDateRange } from '@/hooks/useAnalyticsFilters';
@@ -651,6 +650,7 @@ export default function AnalyticsDashboardPage() {
                 edrOnlyScore={defenseScore?.realScore ?? null}
                 inconclusiveRate={errorRate}
                 secureScore={defenderConfigured ? (secureScore?.percentage ?? null) : undefined}
+                securePoints={secureScore ? { current: secureScore.currentScore, max: secureScore.maxScore } : undefined}
                 uniqueEndpoints={uniqueHostnames}
                 executedTests={uniqueTestCount}
                 bypassedCount={bypassedCount}
@@ -667,16 +667,13 @@ export default function AnalyticsDashboardPage() {
                 <WeakestHosts items={defenseScoreByHost} loading={loadingDashboard} />
               </div>
 
-              {/* Trend Overview + Score by Category */}
-              <div className="col-span-12 md:col-span-6 row-span-2 min-w-0 overflow-hidden">
-                <TrendChart
-                  data={trendData}
-                  errorRateData={errorRateTrendData}
-                  errorRateOverall={errorRate}
-                  secureScoreTrendData={secureScoreTrendData}
+              {/* Test Activity + Score by Category */}
+              <div className="col-span-12 md:col-span-6 row-span-2">
+                <TestActivityCard
+                  trendData={trendData}
+                  recentTests={recentTests}
                   loading={loadingDashboard}
-                  title="Trend Overview"
-                  windowDays={getWindowDaysForDateRange(filterState.filters.dateRange)}
+                  title="Test Activity"
                 />
               </div>
               <div className="col-span-12 md:col-span-6 row-span-2">
@@ -687,14 +684,9 @@ export default function AnalyticsDashboardPage() {
                 />
               </div>
 
-            {/* Row 3-4 (conditional): Secure Score + Alert Summary */}
-            {defenderConfigured && secureScore && (
-              <div className="col-span-12 md:col-span-4 row-span-2">
-                <SecureScoreCard data={secureScore} loading={loadingDashboard} />
-              </div>
-            )}
+            {/* Row 3-4 (conditional): Alert Summary */}
             {defenderConfigured && (
-              <div className="col-span-12 md:col-span-8 row-span-2">
+              <div className="col-span-12 row-span-2">
                 <TopControlsCard compact />
               </div>
             )}
@@ -715,13 +707,16 @@ export default function AnalyticsDashboardPage() {
               />
             </div>
 
-            {/* Test Activity (full width) */}
-            <div className="col-span-12 row-span-2">
-              <TestActivityCard
-                trendData={trendData}
-                recentTests={recentTests}
+            {/* Trend Overview (full width — better for a time series) */}
+            <div className="col-span-12 row-span-2 min-w-0 overflow-hidden">
+              <TrendChart
+                data={trendData}
+                errorRateData={errorRateTrendData}
+                errorRateOverall={errorRate}
+                secureScoreTrendData={secureScoreTrendData}
                 loading={loadingDashboard}
-                title="Test Activity"
+                title="Trend Overview"
+                windowDays={getWindowDaysForDateRange(filterState.filters.dateRange)}
               />
             </div>
 

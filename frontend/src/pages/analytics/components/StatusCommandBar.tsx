@@ -12,6 +12,7 @@ interface StatusCommandBarProps {
   edrOnlyScore?: number | null;
   inconclusiveRate?: number | null;
   secureScore?: number | null;
+  securePoints?: { current: number; max: number };
   uniqueEndpoints: number;
   executedTests: number;
   bypassedCount: number;
@@ -49,6 +50,7 @@ function StatusCommandBar({
   edrOnlyScore,
   inconclusiveRate,
   secureScore,
+  securePoints,
   uniqueEndpoints,
   executedTests,
   bypassedCount,
@@ -145,7 +147,11 @@ function StatusCommandBar({
             <div className="text-2xl font-bold tabular-nums text-foreground">
               {secureScore.toFixed(1)}%
             </div>
-            <div className="text-xs text-muted-foreground">Microsoft Defender</div>
+            <div className="text-xs text-muted-foreground">
+              {securePoints
+                ? `${securePoints.current.toFixed(1)} / ${securePoints.max.toFixed(1)} pts`
+                : 'Microsoft Defender'}
+            </div>
           </div>
         )}
 
