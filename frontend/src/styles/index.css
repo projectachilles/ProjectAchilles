@@ -74,7 +74,10 @@
   --chart-cat-5: oklch(0.66 0.03 250);
   /* Sequential coverage/host heat — single hue, low→high */
   --chart-heat-1: oklch(0.48 0.08 150);
-  --chart-heat-2: oklch(0.56 0.11 150);
+  /* heat-2 retuned from 0.56/0.11 → 0.52/0.12 so the mid-ramp cell clears
+     WCAG AA (4.5:1) against --chart-label-on-dark; mirrors the dark-theme
+     value. Ramp stays monotonic in L (0.48 < 0.52 < 0.64). */
+  --chart-heat-2: oklch(0.52 0.12 150);
   --chart-heat-3: oklch(0.64 0.14 150);
   --chart-heat-4: oklch(0.72 0.17 150);
   --chart-heat-5: oklch(0.80 0.19 150);

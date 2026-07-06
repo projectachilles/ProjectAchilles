@@ -4,6 +4,7 @@ import { Loader2, ChevronLeft } from 'lucide-react';
 import type { HostTestMatrixCell } from '../../../services/api/analytics';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useChartTokens } from '@/lib/chartTokens';
+import { pickAccessibleLabel } from '@/lib/contrast';
 
 interface CoverageTreemapProps {
   data: HostTestMatrixCell[];
@@ -60,17 +61,15 @@ function getCoverageBandColor(coverage: number): string {
   return 'var(--chart-bypassed)';
 }
 
-// Parse a resolved "oklch(L C H)" fill string and pick a readable label color
-// relative to THAT cell's own lightness (contrast is a function of the cell's
-// background, not the page theme) — mirrors the oklch(...) parse pattern used
-// in CategoryBreakdownChart.tsx's lightenOklch(). Unresolved fills (e.g. jsdom,
-// which never resolves CSS custom properties) fall back to the "on dark" label,
-// which is a safe default against this app's heat ramp (mid-to-low lightness).
+// Pick a readable label color for a treemap cell by computing the ACTUAL WCAG
+// contrast ratio of each candidate label against the cell's own resolved
+// "oklch(L C H)" fill (contrast depends on the cell background — including its
+// chroma, not just lightness — and NOT on the page theme). Delegates to
+// pickAccessibleLabel, which returns whichever label has the higher computed
+// contrast; unresolved fills (e.g. jsdom, which never resolves CSS custom
+// properties) fall back to candidates[0] without throwing.
 function pickLabelFill(fill: string | undefined, labelOnLight: string, labelOnDark: string): string {
-  const m = fill?.match(/oklch\(\s*([\d.]+)/);
-  const lightness = m ? Number(m[1]) : undefined;
-  if (lightness === undefined) return labelOnDark;
-  return lightness >= 0.6 ? labelOnLight : labelOnDark;
+  return pickAccessibleLabel(fill ?? '', [labelOnDark, labelOnLight]);
 }
 
 // Custom content renderer for treemap cells
