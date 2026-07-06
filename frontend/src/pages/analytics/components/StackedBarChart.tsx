@@ -15,9 +15,10 @@ interface StackedBarChartProps {
   maxVisibleItems?: number; // Items shown before scrolling (default: 8)
 }
 
-// Use oklch colors directly since SVG doesn't resolve CSS variables properly in fill
-const PROTECTED_COLOR = 'oklch(0.65 0.22 145)';
-const BYPASSED_COLOR = 'oklch(0.6 0.22 25)';
+// Governed chart tokens (var(--chart-*)) resolve fine here since these values
+// flow into inline `style` (backgroundColor/color), not raw SVG `fill` attrs.
+const PROTECTED_COLOR = 'var(--chart-protected)';
+const BYPASSED_COLOR = 'var(--chart-bypassed)';
 
 interface ChartItem {
   name: string;

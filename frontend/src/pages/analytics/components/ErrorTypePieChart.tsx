@@ -20,8 +20,8 @@ interface ErrorTypePieChartProps {
 const ERROR_TYPE_COLORS: Record<string, string> = {
   // Protected outcomes (greens)
   'ExecutionPrevented': 'var(--chart-protected)',
-  'FileQuarantinedOnExtraction': 'oklch(0.55 0.18 145)',
-  'QuarantinedOnExecution': 'oklch(0.50 0.16 155)',
+  'FileQuarantinedOnExtraction': 'var(--chart-protected)',
+  'QuarantinedOnExecution': 'var(--chart-real-score)',
   // Failed outcome (red)
   'Unprotected': 'var(--chart-bypassed)',
   // Inconclusive / error outcomes

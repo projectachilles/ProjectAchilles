@@ -2,8 +2,8 @@ import { useState, useMemo, useCallback, memo } from 'react';
 import { Treemap, ResponsiveContainer, Tooltip } from 'recharts';
 import { Loader2, ChevronLeft } from 'lucide-react';
 import type { HostTestMatrixCell } from '../../../services/api/analytics';
-import { useTheme } from '../../../hooks/useTheme';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useChartTokens } from '@/lib/chartTokens';
 
 interface CoverageTreemapProps {
   data: HostTestMatrixCell[];
@@ -31,31 +31,17 @@ interface TooltipPayload {
   payload?: TreemapNode;
 }
 
-// Coverage threshold colors (theme-aware) - oklch for consistency with other dashboard charts
-// Lightness tuned for white text contrast on filled backgrounds
-const COVERAGE_COLORS = {
-  dark: {
-    high: 'oklch(0.50 0.14 155)',    // teal-green ≥80% — matches --chart-protected hue family
-    medium: 'oklch(0.50 0.12 75)',   // warm amber 50-79% — matches --chart-4 hue family
-    low: 'oklch(0.45 0.15 25)',      // muted red <50% — matches --chart-bypassed hue family
-    empty: 'oklch(0.30 0.01 260)',   // neutral zinc — no data
-  },
-  light: {
-    high: 'oklch(0.58 0.16 155)',    // teal-green
-    medium: 'oklch(0.58 0.14 75)',   // warm amber
-    low: 'oklch(0.52 0.17 25)',      // red
-    empty: 'oklch(0.90 0.01 260)',   // light zinc
-  },
-};
-
 const MAX_VISIBLE_HOSTS = 25;
 const MAX_VISIBLE_TESTS = 25;
 
-function getCoverageColor(coverage: number, isDark: boolean): string {
-  const colors = isDark ? COVERAGE_COLORS.dark : COVERAGE_COLORS.light;
-  if (coverage >= 0.8) return colors.high;
-  if (coverage >= 0.5) return colors.medium;
-  return colors.low;
+// Coverage ratio → governed sequential heat ramp (resolved via useChartTokens so the
+// SVG `fill` attribute gets a concrete color, not an unresolved `var(...)` string).
+// heat[4]/[2]/[0] give the high/medium/low contrast steps; theme-awareness comes
+// from the token values themselves (see --chart-heat-* in index.css), not branching here.
+function getCoverageColor(coverage: number, heat: readonly string[]): string {
+  if (coverage >= 0.8) return heat[4];
+  if (coverage >= 0.5) return heat[2];
+  return heat[0];
 }
 
 function getCoverageLabel(coverage: number): string {
@@ -136,7 +122,7 @@ function CustomTreemapContent(props: CustomContentProps) {
           y={hostnameY}
           textAnchor="start"
           dominantBaseline="auto"
-          fill="white"
+          fill="var(--card-foreground)"
           stroke="none"
           fontSize={fontSize}
           fontWeight={500}
@@ -154,7 +140,7 @@ function CustomTreemapContent(props: CustomContentProps) {
           y={statsY}
           textAnchor="start"
           dominantBaseline="auto"
-          fill="rgba(255, 255, 255, 0.75)"
+          fill="var(--muted-foreground)"
           stroke="none"
           fontSize={detailsFontSize}
           fontWeight={400}
@@ -192,7 +178,7 @@ function CustomTooltip({ active, payload, baselineLabel }: { active?: boolean; p
                 Combined coverage:{' '}
                 <span
                   className="font-medium"
-                  style={{ color: coverage >= 0.8 ? 'oklch(0.65 0.22 145)' : coverage >= 0.5 ? 'oklch(0.65 0.18 85)' : 'oklch(0.6 0.22 25)' }}
+                  style={{ color: coverage >= 0.8 ? 'var(--chart-protected)' : coverage >= 0.5 ? 'var(--chart-warn)' : 'var(--chart-bypassed)' }}
                 >
                   {(coverage * 100).toFixed(0)}% ({getCoverageLabel(coverage)})
                 </span>
@@ -215,7 +201,7 @@ function CustomTooltip({ active, payload, baselineLabel }: { active?: boolean; p
                 Coverage:{' '}
                 <span
                   className="font-medium"
-                  style={{ color: coverage >= 0.8 ? 'oklch(0.65 0.22 145)' : coverage >= 0.5 ? 'oklch(0.65 0.18 85)' : 'oklch(0.6 0.22 25)' }}
+                  style={{ color: coverage >= 0.8 ? 'var(--chart-protected)' : coverage >= 0.5 ? 'var(--chart-warn)' : 'var(--chart-bypassed)' }}
                 >
                   {(coverage * 100).toFixed(0)}% ({getCoverageLabel(coverage)})
                 </span>
@@ -271,7 +257,7 @@ function OthersDrillDownTooltip({ active, payload }: { active?: boolean; payload
             Coverage:{' '}
             <span
               className="font-medium"
-              style={{ color: data.coverage >= 0.8 ? 'oklch(0.65 0.22 145)' : data.coverage >= 0.5 ? 'oklch(0.65 0.18 85)' : 'oklch(0.6 0.22 25)' }}
+              style={{ color: data.coverage >= 0.8 ? 'var(--chart-protected)' : data.coverage >= 0.5 ? 'var(--chart-warn)' : 'var(--chart-bypassed)' }}
             >
               {(data.coverage * 100).toFixed(0)}% ({getCoverageLabel(data.coverage)})
             </span>
@@ -310,8 +296,15 @@ function CoverageTreemap({
   canonicalTestCount,
   canonicalTestCount30d
 }: CoverageTreemapProps) {
-  const { theme } = useTheme();
-  const isDark = theme === 'dark';
+  // Resolved sequential heat ramp + neutral "aggregate bucket" token — re-reads on
+  // theme flips via useChartTokens' MutationObserver, so no manual isDark branching.
+  const heatTokens = useChartTokens([
+    '--chart-heat-1', '--chart-heat-2', '--chart-heat-3', '--chart-heat-4', '--chart-heat-5', '--muted',
+  ]);
+  const HEAT = [
+    heatTokens['--chart-heat-1'], heatTokens['--chart-heat-2'], heatTokens['--chart-heat-3'],
+    heatTokens['--chart-heat-4'], heatTokens['--chart-heat-5'],
+  ];
 
   // Drill-down state: null = overview, string = hostname to show tests for
   const [drillDownHost, setDrillDownHost] = useState<string | null>(null);
@@ -364,7 +357,7 @@ function CoverageTreemap({
         totalCount: hostData.totalCount,
         testCount,
         coverage,
-        fill: getCoverageColor(coverage, isDark),
+        fill: getCoverageColor(coverage, HEAT),
         missingTests,
         // NOTE: Don't include children here - Recharts renders them as nested cells
       };
@@ -405,7 +398,7 @@ function CoverageTreemap({
         totalCount: othersTotalCount,
         testCount: othersTestCount,
         coverage: othersCoverage,
-        fill: getCoverageColor(othersCoverage, isDark),
+        fill: getCoverageColor(othersCoverage, HEAT),
         missingTests: othersMissingTests,
       };
 
@@ -418,7 +411,7 @@ function CoverageTreemap({
       effectiveTestCount: baselineCount,
       remainingHostnames: remaining,
     };
-  }, [data, isDark, canonicalTestCount, canonicalTestCount30d, baselineMode]);
+  }, [data, heatTokens, canonicalTestCount, canonicalTestCount30d, baselineMode]);
 
   // Get drill-down data if a host is selected (build test children from original data)
   const drillDownData = useMemo(() => {
@@ -456,7 +449,7 @@ function CoverageTreemap({
             totalCount: hostData.totalCount,
             testCount,
             coverage,
-            fill: getCoverageColor(coverage, isDark),
+            fill: getCoverageColor(coverage, HEAT),
           };
         })
         .sort((a, b) => (b.totalCount || 0) - (a.totalCount || 0));
@@ -475,7 +468,7 @@ function CoverageTreemap({
       .map(test => ({
         name: test.testName,
         size: test.count,
-        fill: getCoverageColor(1, isDark), // Tests shown as "covered"
+        fill: getCoverageColor(1, HEAT), // Tests shown as "covered"
       }))
       .sort((a, b) => (b.size || 0) - (a.size || 0));
 
@@ -490,7 +483,7 @@ function CoverageTreemap({
         name: `Others (${remainingTests.length} tests)`,
         size: othersSize,
         totalCount: othersSize,
-        fill: isDark ? COVERAGE_COLORS.dark.empty : COVERAGE_COLORS.light.empty,
+        fill: heatTokens['--muted'],
       };
 
       finalTestChildren = [...topTests, othersTestNode];
@@ -500,7 +493,7 @@ function CoverageTreemap({
       name: drillDownHost,
       children: finalTestChildren,
     };
-  }, [drillDownHost, data, isDark, remainingHostnames, baselineMode, canonicalTestCount, canonicalTestCount30d]);
+  }, [drillDownHost, data, heatTokens, remainingHostnames, baselineMode, canonicalTestCount, canonicalTestCount30d]);
 
   const handleCellClick = useCallback((node: TreemapNode) => {
     if (!node.name) return;
@@ -579,21 +572,21 @@ function CoverageTreemap({
               <span className="flex items-center gap-1">
                 <span
                   className="w-3 h-3 rounded"
-                  style={{ backgroundColor: COVERAGE_COLORS[isDark ? 'dark' : 'light'].high }}
+                  style={{ backgroundColor: 'var(--chart-heat-5)' }}
                 />
                 ≥80%
               </span>
               <span className="flex items-center gap-1">
                 <span
                   className="w-3 h-3 rounded"
-                  style={{ backgroundColor: COVERAGE_COLORS[isDark ? 'dark' : 'light'].medium }}
+                  style={{ backgroundColor: 'var(--chart-heat-3)' }}
                 />
                 50-79%
               </span>
               <span className="flex items-center gap-1">
                 <span
                   className="w-3 h-3 rounded"
-                  style={{ backgroundColor: COVERAGE_COLORS[isDark ? 'dark' : 'light'].low }}
+                  style={{ backgroundColor: 'var(--chart-heat-1)' }}
                 />
                 &lt;50%
               </span>
