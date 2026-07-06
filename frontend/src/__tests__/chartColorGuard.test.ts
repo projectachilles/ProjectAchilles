@@ -14,6 +14,7 @@ const CHART_FILES = [
   'pages/analytics/components/AlertsSummaryCard.tsx',
   'pages/analytics/utils/defenderChartColors.ts',
   'components/browser/TestLibraryOverview.tsx',
+  'components/browser/MitreAttackMatrix.tsx',
   'pages/endpoints/AgentDashboardPage.tsx',
   'components/endpoints/agents/detail/AgentHeartbeatTab.tsx',
 ];
