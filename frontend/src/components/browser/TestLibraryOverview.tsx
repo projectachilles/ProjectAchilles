@@ -10,22 +10,22 @@ import MitreAttackMatrix from '@/components/browser/MitreAttackMatrix';
 import { Badge } from '@/components/shared/ui/Badge';
 import { formatRelativeDate } from '@/utils/dateFormatters';
 
-// Reuse oklch palette from analytics charts
+// Governed chart color tokens (see frontend/src/styles/index.css)
 const SEVERITY_COLORS: Record<string, string> = {
-  critical: 'oklch(0.63 0.24 25)',
-  high: 'oklch(0.70 0.19 50)',
-  medium: 'oklch(0.80 0.18 85)',
-  low: 'oklch(0.72 0.19 145)',
-  info: 'oklch(0.55 0.01 250)',
+  critical: 'var(--chart-bypassed)',
+  high: 'var(--chart-warn)',
+  medium: 'var(--chart-cat-4)',
+  low: 'var(--chart-protected)',
+  info: 'var(--muted-foreground)',
 };
 
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
 
 const CATEGORY_COLORS: Record<string, string> = {
-  'intel-driven': 'oklch(0.62 0.19 250)',
-  'mitre-top10': 'oklch(0.55 0.22 290)',
-  'cyber-hygiene': 'oklch(0.70 0.15 180)',
-  'phase-aligned': 'oklch(0.55 0.22 270)',
+  'intel-driven': 'var(--chart-cat-1)',
+  'mitre-top10': 'var(--chart-cat-2)',
+  'cyber-hygiene': 'var(--chart-cat-3)',
+  'phase-aligned': 'var(--chart-cat-4)',
 };
 
 const SEVERITY_BADGE_VARIANT: Record<string, 'destructive' | 'warning' | 'default' | 'success'> = {
@@ -76,7 +76,7 @@ export default function TestLibraryOverview({
     const categoryData = Object.entries(categoryCounts).map(([name, count]) => ({
       name,
       count,
-      fill: CATEGORY_COLORS[name] || 'oklch(0.55 0.10 250)',
+      fill: CATEGORY_COLORS[name] || 'var(--muted-foreground)',
     }));
 
     // Top rated

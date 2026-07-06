@@ -66,6 +66,33 @@
   --chart-bypassed: oklch(0.55 0.22 25);
   --chart-primary-line: oklch(0.55 0.22 265);
   --chart-real-score: oklch(0.5 0.12 145);
+  /* Governed categorical ramp — low chroma, calm against dark surfaces */
+  --chart-cat-1: oklch(0.62 0.14 265);
+  --chart-cat-2: oklch(0.68 0.10 190);
+  --chart-cat-3: oklch(0.64 0.13 300);
+  --chart-cat-4: oklch(0.74 0.13 75);
+  --chart-cat-5: oklch(0.66 0.03 250);
+  /* Sequential coverage/host heat — single hue, low→high */
+  --chart-heat-1: oklch(0.48 0.08 150);
+  /* heat-2 retuned from 0.56/0.11 → 0.52/0.12 so the mid-ramp cell clears
+     WCAG AA (4.5:1) against --chart-label-on-dark; mirrors the dark-theme
+     value. Ramp stays monotonic in L (0.48 < 0.52 < 0.64). */
+  --chart-heat-2: oklch(0.52 0.12 150);
+  --chart-heat-3: oklch(0.64 0.14 150);
+  --chart-heat-4: oklch(0.72 0.17 150);
+  --chart-heat-5: oklch(0.80 0.19 150);
+  /* Semantic at-risk band (50–79%) */
+  --chart-warn: oklch(0.75 0.15 75);
+  /* Contrast-aware cell-label text — theme-invariant (chosen relative to the
+     cell's own fill lightness, not the page theme), identical in :root/.dark */
+  --chart-label-on-light: oklch(0.22 0 0);
+  --chart-label-on-dark: oklch(0.98 0 0);
+  /* Defender overlay series — theme-invariant brand hues */
+  --chart-series-exec: oklch(0.62 0.19 250);
+  --chart-series-alert: oklch(0.60 0.22 25);
+  /* Bare status tokens (were undefined → resolved empty) */
+  --success: oklch(0.55 0.16 145);
+  --warning: oklch(0.75 0.15 75);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.145 0 0);
@@ -118,6 +145,24 @@
   --chart-bypassed: oklch(0.6 0.22 25);
   --chart-primary-line: oklch(0.65 0.22 265);
   --chart-real-score: oklch(0.55 0.12 145);
+  --chart-cat-1: oklch(0.68 0.15 265);
+  --chart-cat-2: oklch(0.72 0.11 190);
+  --chart-cat-3: oklch(0.70 0.14 300);
+  --chart-cat-4: oklch(0.78 0.14 75);
+  --chart-cat-5: oklch(0.72 0.03 250);
+  --chart-heat-1: oklch(0.42 0.09 150);
+  --chart-heat-2: oklch(0.52 0.12 150);
+  --chart-heat-3: oklch(0.62 0.15 150);
+  --chart-heat-4: oklch(0.72 0.18 150);
+  --chart-heat-5: oklch(0.82 0.20 150);
+  --chart-warn: oklch(0.78 0.15 75);
+  /* Contrast-aware cell-label text — theme-invariant, same values as :root */
+  --chart-label-on-light: oklch(0.22 0 0);
+  --chart-label-on-dark: oklch(0.98 0 0);
+  --chart-series-exec: oklch(0.66 0.19 250);
+  --chart-series-alert: oklch(0.64 0.22 25);
+  --success: oklch(0.62 0.17 145);
+  --warning: oklch(0.78 0.15 75);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.95 0 0);

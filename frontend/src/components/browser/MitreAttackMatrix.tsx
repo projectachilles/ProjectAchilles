@@ -1,10 +1,33 @@
 import { useMemo, useState } from 'react';
 import type { TestMetadata } from '@/types/test';
-import { useTheme } from '@/hooks/useTheme';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Switch } from '@/components/shared/ui/Switch';
 import { Grid3X3 } from 'lucide-react';
 import { TECHNIQUE_NAMES } from '@/data/mitre-techniques';
+import { useChartTokens } from '@/lib/chartTokens';
+import { pickAccessibleLabel } from '@/lib/contrast';
+
+const HEAT_TOKEN_NAMES = [
+  '--chart-heat-1', '--chart-heat-2', '--chart-heat-3', '--chart-heat-4', '--chart-heat-5',
+  '--chart-label-on-light', '--chart-label-on-dark',
+] as const;
+
+/**
+ * Intensity ratio → governed sequential heat ramp. Shared by cell fills and
+ * bar fills — both previously reimplemented the SAME per-theme ramp branching
+ * (hacker phosphor / neobrutalism pink / default green) with only the
+ * denominator differing (per-technique count vs per-tactic test total).
+ * Zero/no-data stays 'transparent' (unchanged "no coverage" treatment, not a
+ * color literal so it doesn't need tokenizing).
+ */
+function getHeatColor(value: number, max: number, heat: Record<string, string>): string {
+  if (value === 0 || max <= 0) return 'transparent';
+  const intensity = value / max;
+  if (intensity > 0.75) return heat['--chart-heat-5'];
+  if (intensity > 0.5) return heat['--chart-heat-4'];
+  if (intensity > 0.25) return heat['--chart-heat-3'];
+  return heat['--chart-heat-2'];
+}
 
 // ── MITRE ATT&CK Enterprise Tactics (kill-chain order) ──────────────
 
@@ -49,10 +72,12 @@ interface MitreAttackMatrixProps {
 // ── Component ────────────────────────────────────────────────────────
 
 export default function MitreAttackMatrix({ tests, onDrillToTechnique }: MitreAttackMatrixProps) {
-  const { theme, themeStyle } = useTheme();
-  const isDark = theme === 'dark' || themeStyle === 'hackerterminal';
-  const isHacker = themeStyle === 'hackerterminal';
-  const isNeobrut = themeStyle === 'neobrutalism';
+  // Resolved sequential heat ramp + label tokens — re-reads on theme flips via
+  // useChartTokens' MutationObserver, so no manual isDark/isHacker/isNeobrut
+  // branching. Every theme resolves the same governed green ramp (the
+  // Neobrutalism/Hacker Terminal themes intentionally do not override
+  // --chart-*), matching the sibling CoverageTreemap.
+  const heatTokens = useChartTokens(HEAT_TOKEN_NAMES);
 
   const [showEmpty, setShowEmpty] = useState(false);
   const [selectedTactic, setSelectedTactic] = useState<string | null>(null);
@@ -128,96 +153,24 @@ export default function MitreAttackMatrix({ tests, onDrillToTechnique }: MitreAt
 
   // ── Color ramp ─────────────────────────────────────────────────────
 
+  /** Cell fill — technique count intensity relative to the busiest technique. */
   function getIntensityColor(count: number): string {
-    if (count === 0) return 'transparent';
-    const intensity = maxCount > 0 ? count / maxCount : 0;
-
-    if (isHacker) {
-      // Green phosphor shades (hue 142)
-      if (intensity > 0.75) return 'oklch(0.70 0.22 142)';
-      if (intensity > 0.5)  return 'oklch(0.58 0.18 142)';
-      if (intensity > 0.25) return 'oklch(0.45 0.14 142)';
-      return 'oklch(0.35 0.10 142)';
-    }
-
-    if (isNeobrut) {
-      // Hot pink/magenta shades (hue 340, matching --primary)
-      if (isDark) {
-        if (intensity > 0.75) return 'oklch(0.62 0.24 340)';
-        if (intensity > 0.5)  return 'oklch(0.50 0.20 340)';
-        if (intensity > 0.25) return 'oklch(0.40 0.16 340)';
-        return 'oklch(0.32 0.12 340)';
-      }
-      // Neobrutalism light
-      if (intensity > 0.75) return 'oklch(0.58 0.22 340)';
-      if (intensity > 0.5)  return 'oklch(0.68 0.18 340)';
-      if (intensity > 0.25) return 'oklch(0.78 0.14 340)';
-      return 'oklch(0.88 0.10 340)';
-    }
-
-    if (isDark) {
-      if (intensity > 0.75) return 'oklch(0.65 0.20 145)';
-      if (intensity > 0.5)  return 'oklch(0.52 0.16 145)';
-      if (intensity > 0.25) return 'oklch(0.42 0.13 145)';
-      return 'oklch(0.32 0.10 145)';
-    }
-
-    // Default light mode — green
-    if (intensity > 0.75) return 'oklch(0.55 0.18 145)';
-    if (intensity > 0.5)  return 'oklch(0.65 0.15 145)';
-    if (intensity > 0.25) return 'oklch(0.75 0.12 145)';
-    return 'oklch(0.85 0.10 145)';
+    return getHeatColor(count, maxCount, heatTokens);
   }
 
+  /** Bar fill — same governed ramp as getIntensityColor, using maxTacticTests as the denominator. */
+  function getBarColor(totalTests: number): string {
+    return getHeatColor(totalTests, maxTacticTests, heatTokens);
+  }
+
+  /** Cell text — highest-contrast label token against this cell's own resolved fill (WCAG AA both theme directions). */
   function getTextColor(count: number): string {
     if (count === 0) return '';
-    const intensity = maxCount > 0 ? count / maxCount : 0;
-
-    if (isHacker) return 'oklch(0.15 0.02 142)';
-    if (isNeobrut) {
-      if (isDark) return intensity > 0.5 ? 'oklch(0.98 0 0)' : 'oklch(0.92 0.01 340)';
-      return intensity > 0.5 ? 'oklch(0.98 0 0)' : 'oklch(0.20 0.02 340)';
-    }
-    if (isDark) return intensity > 0.5 ? 'oklch(0.98 0 0)' : 'oklch(0.90 0 0)';
-    return intensity > 0.5 ? 'oklch(0.98 0 0)' : 'oklch(0.20 0.02 145)';
-  }
-
-  /** Bar color — same intensity ramp as getIntensityColor but uses maxTacticTests as denominator */
-  function getBarColor(totalTests: number): string {
-    if (totalTests === 0) return 'transparent';
-    const intensity = maxTacticTests > 0 ? totalTests / maxTacticTests : 0;
-
-    if (isHacker) {
-      if (intensity > 0.75) return 'oklch(0.70 0.22 142)';
-      if (intensity > 0.5)  return 'oklch(0.58 0.18 142)';
-      if (intensity > 0.25) return 'oklch(0.45 0.14 142)';
-      return 'oklch(0.35 0.10 142)';
-    }
-
-    if (isNeobrut) {
-      if (isDark) {
-        if (intensity > 0.75) return 'oklch(0.62 0.24 340)';
-        if (intensity > 0.5)  return 'oklch(0.50 0.20 340)';
-        if (intensity > 0.25) return 'oklch(0.40 0.16 340)';
-        return 'oklch(0.32 0.12 340)';
-      }
-      if (intensity > 0.75) return 'oklch(0.58 0.22 340)';
-      if (intensity > 0.5)  return 'oklch(0.68 0.18 340)';
-      if (intensity > 0.25) return 'oklch(0.78 0.14 340)';
-      return 'oklch(0.88 0.10 340)';
-    }
-
-    if (isDark) {
-      if (intensity > 0.75) return 'oklch(0.65 0.20 145)';
-      if (intensity > 0.5)  return 'oklch(0.52 0.16 145)';
-      if (intensity > 0.25) return 'oklch(0.42 0.13 145)';
-      return 'oklch(0.32 0.10 145)';
-    }
-
-    if (intensity > 0.75) return 'oklch(0.55 0.18 145)';
-    if (intensity > 0.5)  return 'oklch(0.65 0.15 145)';
-    if (intensity > 0.25) return 'oklch(0.75 0.12 145)';
-    return 'oklch(0.85 0.10 145)';
+    const cellColor = getIntensityColor(count);
+    return pickAccessibleLabel(cellColor, [
+      heatTokens['--chart-label-on-light'],
+      heatTokens['--chart-label-on-dark'],
+    ]);
   }
 
   // ── Empty state ────────────────────────────────────────────────────
@@ -301,7 +254,7 @@ export default function MitreAttackMatrix({ tests, onDrillToTechnique }: MitreAt
                     height: barHeightPx,
                     backgroundColor: isEmpty ? 'transparent' : getBarColor(totalTests),
                     border: isEmpty
-                      ? '1px dashed var(--color-destructive, #ef4444)'
+                      ? '1px dashed var(--destructive)'
                       : isSelected
                         ? '2px solid var(--color-primary)'
                         : '1px solid transparent',

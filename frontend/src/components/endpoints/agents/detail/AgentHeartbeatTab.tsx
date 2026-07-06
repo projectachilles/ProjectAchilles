@@ -21,12 +21,12 @@ function formatTimestamp(ts: string): string {
   return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
 }
 
-// Colors
-const HOST_CPU_COLOR = 'oklch(0.60 0.18 145)';
-const AGENT_CPU_COLOR = 'oklch(0.75 0.16 145)';
-const HOST_MEM_COLOR = 'oklch(0.55 0.20 290)';
-const AGENT_MEM_COLOR = 'oklch(0.70 0.16 290)';
-const DISK_COLOR = 'oklch(0.65 0.18 85)';
+// Governed chart color tokens (see frontend/src/styles/index.css)
+const HOST_CPU_COLOR = 'var(--chart-cat-1)';
+const AGENT_CPU_COLOR = 'var(--chart-cat-3)';
+const HOST_MEM_COLOR = 'var(--chart-cat-2)';
+const AGENT_MEM_COLOR = 'var(--chart-cat-4)';
+const DISK_COLOR = 'var(--chart-cat-5)';
 
 export default function AgentHeartbeatTab({ agentId }: AgentHeartbeatTabProps) {
   const [history, setHistory] = useState<HeartbeatHistoryPoint[]>([]);
@@ -126,7 +126,7 @@ export default function AgentHeartbeatTab({ agentId }: AgentHeartbeatTabProps) {
                     dataKey="cpu"
                     name="Host CPU"
                     stroke={HOST_CPU_COLOR}
-                    fill={`${HOST_CPU_COLOR} / 0.2)`}
+                    fill={`color-mix(in oklab, ${HOST_CPU_COLOR} 20%, transparent)`}
                     fillOpacity={0.2}
                   />
                   {hasProcessMetrics && (
@@ -170,7 +170,7 @@ export default function AgentHeartbeatTab({ agentId }: AgentHeartbeatTabProps) {
                     dataKey="memory"
                     name="Host Memory"
                     stroke={HOST_MEM_COLOR}
-                    fill={`${HOST_MEM_COLOR} / 0.2)`}
+                    fill={`color-mix(in oklab, ${HOST_MEM_COLOR} 20%, transparent)`}
                     fillOpacity={0.2}
                   />
                   {hasProcessMetrics && (
@@ -202,7 +202,7 @@ export default function AgentHeartbeatTab({ agentId }: AgentHeartbeatTabProps) {
                   <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 10 }} />
                   <Tooltip />
-                  <Area type="monotone" dataKey="disk" stroke={DISK_COLOR} fill={`${DISK_COLOR} / 0.2)`} fillOpacity={0.2} />
+                  <Area type="monotone" dataKey="disk" stroke={DISK_COLOR} fill={`color-mix(in oklab, ${DISK_COLOR} 20%, transparent)`} fillOpacity={0.2} />
                 </AreaChart>
               </ResponsiveContainer>
             </CardContent>

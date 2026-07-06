@@ -9,6 +9,7 @@ import {
   type ChartConfig
 } from '@/components/ui/chart';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { useChartTokens } from '@/lib/chartTokens';
 
 interface CategoryBreakdownChartProps {
   data: CategorySubcategoryBreakdownItem[];
@@ -16,20 +17,12 @@ interface CategoryBreakdownChartProps {
   title?: string;
 }
 
-// Category colors (oklch) — same hue/chroma, used for outer ring
-const CATEGORY_COLORS: Record<CategoryType, string> = {
-  'intel-driven': 'oklch(0.62 0.19 250)',
-  'mitre-top10': 'oklch(0.55 0.22 290)',
-  'cyber-hygiene': 'oklch(0.70 0.15 180)',
-  'phase-aligned': 'oklch(0.55 0.22 270)',
-};
-
-// Parsed oklch values for generating subcategory shades
-const CATEGORY_OKLCH: Record<CategoryType, { l: number; c: number; h: number }> = {
-  'intel-driven': { l: 0.62, c: 0.19, h: 250 },
-  'mitre-top10': { l: 0.55, c: 0.22, h: 290 },
-  'cyber-hygiene': { l: 0.70, c: 0.15, h: 180 },
-  'phase-aligned': { l: 0.55, c: 0.22, h: 270 },
+// Category → governed categorical token, used for outer ring
+const CATEGORY_TOKEN: Record<CategoryType, string> = {
+  'intel-driven': '--chart-cat-1',
+  'mitre-top10': '--chart-cat-2',
+  'cyber-hygiene': '--chart-cat-3',
+  'phase-aligned': '--chart-cat-4',
 };
 
 const CATEGORY_LABELS: Record<CategoryType, string> = {
@@ -41,13 +34,26 @@ const CATEGORY_LABELS: Record<CategoryType, string> = {
 
 const MAX_SUBCATEGORIES = 8;
 
-// Generate lightness-varied shades for subcategories
-function getSubcategoryColor(category: CategoryType, index: number, total: number): string {
-  const base = CATEGORY_OKLCH[category] || { l: 0.55, c: 0.15, h: 250 };
-  // Spread lightness from 0.45 to 0.80 across subcategories
+// Lighten a resolved "oklch(L C H)" token by a step for subcategory shading.
+function lightenOklch(token: string, step: number): string {
+  const m = token.match(/oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
+  if (!m) return token; // token unresolved (jsdom) → passthrough
+  const [, l, c, h] = m;
+  const light = Math.min(0.92, Number(l) + step);
+  return `oklch(${light} ${c} ${h})`;
+}
+
+// Generate lightness-varied shades for subcategories from the parent category's
+// resolved token — spreads lightness across subcategories via lightenOklch steps.
+function getSubcategoryColor(
+  category: CategoryType,
+  index: number,
+  total: number,
+  categoryTokens: Record<string, string>
+): string {
+  const base = categoryTokens[CATEGORY_TOKEN[category]] || categoryTokens['--chart-cat-5'] || '';
   const step = total > 1 ? (0.35 / (total - 1)) : 0;
-  const lightness = Math.min(0.80, Math.max(0.45, 0.45 + step * index));
-  return `oklch(${lightness.toFixed(2)} ${(base.c * 0.8).toFixed(2)} ${base.h})`;
+  return lightenOklch(base, step * index);
 }
 
 function CategoryBreakdownChart({
@@ -55,6 +61,16 @@ function CategoryBreakdownChart({
   loading,
   title = 'Score by Category',
 }: CategoryBreakdownChartProps) {
+  const categoryTokens = useChartTokens([
+    '--chart-cat-1', '--chart-cat-2', '--chart-cat-3', '--chart-cat-4', '--chart-cat-5',
+  ]);
+  const CATEGORY_COLORS: Record<CategoryType, string> = {
+    'intel-driven': `var(${CATEGORY_TOKEN['intel-driven']})`,
+    'mitre-top10': `var(${CATEGORY_TOKEN['mitre-top10']})`,
+    'cyber-hygiene': `var(${CATEGORY_TOKEN['cyber-hygiene']})`,
+    'phase-aligned': `var(${CATEGORY_TOKEN['phase-aligned']})`,
+  };
+
   if (loading) {
     return (
       <Card className="h-full flex items-center justify-center">
@@ -87,7 +103,7 @@ function CategoryBreakdownChart({
     score: item.score,
     protected: item.protected,
     unprotected: item.unprotected,
-    fill: CATEGORY_COLORS[item.category] || 'oklch(0.55 0.01 250)',
+    fill: CATEGORY_COLORS[item.category] || categoryTokens['--chart-cat-5'],
   }));
 
   // Build inner ring data (subcategories, sized by count)
@@ -132,7 +148,7 @@ function CategoryBreakdownChart({
         score: item.score,
         protected: item.protected,
         unprotected: item.unprotected,
-        fill: getSubcategoryColor(item.category, 0, 1),
+        fill: getSubcategoryColor(item.category, 0, 1, categoryTokens),
       });
     } else {
       subs.forEach((sub, idx) => {
@@ -144,7 +160,7 @@ function CategoryBreakdownChart({
           score: sub.score,
           protected: sub.protected,
           unprotected: sub.unprotected,
-          fill: getSubcategoryColor(item.category, idx, subs.length),
+          fill: getSubcategoryColor(item.category, idx, subs.length, categoryTokens),
         });
       });
     }
@@ -259,7 +275,7 @@ function CategoryBreakdownChart({
                     <div key={sub.subcategory} className="flex items-center gap-2 ml-4">
                       <div
                         className="w-2 h-2 rounded-sm flex-shrink-0"
-                        style={{ backgroundColor: getSubcategoryColor(cat.category, idx, Math.min(subs.length, MAX_SUBCATEGORIES)) }}
+                        style={{ backgroundColor: getSubcategoryColor(cat.category, idx, Math.min(subs.length, MAX_SUBCATEGORIES), categoryTokens) }}
                       />
                       <span className="text-[11px] text-muted-foreground whitespace-nowrap truncate">
                         {sub.subcategory}

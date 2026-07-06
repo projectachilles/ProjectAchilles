@@ -10,11 +10,11 @@ interface DefenseScoreByHostChartProps {
   maxVisibleItems?: number;
 }
 
-// Score threshold colors using oklch for consistency with other charts
+// Score threshold colors — governed chart tokens for consistency with other charts
 const SCORE_COLORS = {
-  high: 'oklch(0.65 0.22 145)',    // Green: ≥80%
-  medium: 'oklch(0.65 0.18 85)',   // Yellow: 50-79%
-  low: 'oklch(0.6 0.22 25)',       // Red: <50%
+  high: 'var(--chart-protected)',  // ≥80%
+  medium: 'var(--chart-warn)',     // 50-79%
+  low: 'var(--chart-bypassed)',    // <50%
 };
 
 function getScoreColor(score: number): string {
