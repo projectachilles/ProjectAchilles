@@ -194,6 +194,7 @@ const sidebars: SidebarsConfig = {
       label: 'Community',
       items: [
         'community/contributing',
+        'community/blog-authoring',
         'community/code-of-conduct',
         'community/roadmap',
         'community/changelog',
