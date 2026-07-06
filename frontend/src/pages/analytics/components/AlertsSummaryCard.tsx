@@ -16,14 +16,15 @@ interface AlertsSummaryCardProps {
   loading?: boolean;
 }
 
-// Tailwind palette values mapped to severity. Recharts needs explicit colors
-// (CSS classes don't apply to SVG fill via className), so we hardcode the
-// hex equivalents of red-500 / amber-500 / blue-500 / gray-400.
+// Governed chart tokens mapped to severity. Recharts needs explicit colors
+// (CSS classes don't apply to SVG fill via className), so we pass
+// `var(--chart-*)` strings — resolved by the browser at paint time, so they
+// follow the active theme automatically.
 const SEVERITY_COLORS = {
-  high: '#ef4444',
-  medium: '#f59e0b',
-  low: '#3b82f6',
-  informational: '#9ca3af',
+  high: 'var(--chart-bypassed)',
+  medium: 'var(--chart-warn)',
+  low: 'var(--chart-cat-1)',
+  informational: 'var(--muted-foreground)',
 } as const;
 
 const SEVERITY_LABELS = {

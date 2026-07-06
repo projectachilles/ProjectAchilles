@@ -15,13 +15,14 @@ interface SeverityBreakdownChartProps {
   title?: string;
 }
 
-// Map severity to display colors (oklch values for proper rendering)
+// Map severity to governed chart tokens (resolved by the browser at paint
+// time, so these follow the active theme automatically).
 const SEVERITY_COLORS: Record<SeverityLevel, string> = {
-  critical: 'oklch(0.63 0.24 25)',   // red-500
-  high: 'oklch(0.70 0.19 50)',       // orange-500
-  medium: 'oklch(0.80 0.18 85)',     // yellow-500
-  low: 'oklch(0.72 0.19 145)',       // green-500
-  info: 'oklch(0.55 0.01 250)',      // gray-400
+  critical: 'var(--chart-bypassed)',
+  high: 'var(--chart-warn)',
+  medium: 'var(--chart-cat-4)',
+  low: 'var(--chart-protected)',
+  info: 'var(--muted-foreground)',
 };
 
 const SEVERITY_ORDER: SeverityLevel[] = ['critical', 'high', 'medium', 'low', 'info'];
