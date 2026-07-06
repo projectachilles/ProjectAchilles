@@ -18,6 +18,7 @@ export async function generateMetadata({
   return {
     title: `#${tag}`,
     description: `Posts tagged ${tag} on the ProjectAchilles blog.`,
+    alternates: { canonical: `/tags/${tag}` },
   };
 }
 

@@ -8,6 +8,7 @@ https://blog.projectachilles.io. Not coupled to `frontend/` or `backend/`.
 1. Create `content/posts/YYYY-MM-DD-my-slug.mdx` (filename = URL slug).
 2. Frontmatter (validated at build time — a bad field fails the build):
 
+   ```yaml
    ---
    title: My Post Title
    description: One-sentence summary used in cards and meta tags.
@@ -17,6 +18,7 @@ https://blog.projectachilles.io. Not coupled to `frontend/` or `backend/`.
    author: james        # must exist in content/authors.ts
    draft: true          # optional; drafts never ship to production
    ---
+   ```
 
 3. `npm run dev` to preview (drafts visible in dev), commit and push.
    Vercel rebuilds and deploys automatically on merge to main.

@@ -33,8 +33,8 @@ const coverage = await client.search({
   size: 0,
   aggs: {
     by_technique: {
-      terms: { field: 'f0rtika.techniques', size: 500 },
-      aggs: { protected: { filter: { term: { 'f0rtika.exit_code': 0 } } } },
+      terms: { field: 'achilles.techniques', size: 500 },
+      aggs: { protected: { filter: { term: { 'achilles.exit_code': 0 } } } },
     },
   },
 });

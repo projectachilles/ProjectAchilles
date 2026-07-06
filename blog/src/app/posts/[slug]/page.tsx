@@ -24,17 +24,20 @@ export async function generateMetadata({
   return {
     title: post.title,
     description: post.description,
+    alternates: { canonical: `/posts/${post.slug}` },
     openGraph: {
       title: post.title,
       description: post.description,
       type: 'article',
       publishedTime: post.date,
       authors: [post.author.name],
+      images: ['/og.png'],
     },
     twitter: {
       card: 'summary_large_image',
       title: post.title,
       description: post.description,
+      images: ['/og.png'],
     },
   };
 }

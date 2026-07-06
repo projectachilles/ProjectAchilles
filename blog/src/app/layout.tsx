@@ -18,11 +18,17 @@ export const metadata: Metadata = {
   description:
     'Insights on continuous security validation, purple teaming, and detection engineering from the ProjectAchilles team.',
   alternates: {
+    canonical: '/',
     types: { 'application/rss+xml': '/feed.xml' },
   },
   openGraph: {
     siteName: 'ProjectAchilles Blog',
     type: 'website',
+    images: ['/og.png'],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    images: ['/og.png'],
   },
 };
 
