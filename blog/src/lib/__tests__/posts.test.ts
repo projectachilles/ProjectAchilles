@@ -42,6 +42,12 @@ describe('parsePostFile', () => {
       /unknown-author\.mdx.*author/s,
     );
   });
+
+  it('rejects filenames that produce non-kebab-case slugs', () => {
+    expect(() => parsePostFile(path.join(INVALID_DIR, 'bad_slug.mdx'))).toThrowError(
+      /bad_slug\.mdx.*slug must be kebab-case/s,
+    );
+  });
 });
 
 describe('getAllPosts', () => {

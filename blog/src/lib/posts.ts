@@ -39,7 +39,17 @@ export interface GetPostsOptions {
 
 const DEFAULT_POSTS_DIR = path.join(process.cwd(), 'content', 'posts');
 
+// Slugs become URL path segments verbatim; anything outside kebab-case would
+// ship a broken (or scheme-smuggling) href, so reject it at build time.
+const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
 export function parsePostFile(filePath: string): Post {
+  const slug = path.basename(filePath).replace(/\.mdx$/, '');
+  if (!SLUG_RE.test(slug)) {
+    throw new Error(
+      `Invalid post filename ${path.basename(filePath)} — slug must be kebab-case (a-z, 0-9, hyphens)`,
+    );
+  }
   const raw = fs.readFileSync(filePath, 'utf8');
   const { data, content } = matter(raw);
   const parsed = postFrontmatterSchema.safeParse(data);
@@ -51,7 +61,7 @@ export function parsePostFile(filePath: string): Post {
   }
   const fm = parsed.data;
   return {
-    slug: path.basename(filePath).replace(/\.mdx$/, ''),
+    slug,
     title: fm.title,
     description: fm.description,
     date: fm.date,
