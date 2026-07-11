@@ -1,0 +1,464 @@
+---
+title: "Connect Your First Machine: The Agent in 10 Minutes"
+description: "Install the Achilles agent and make your first machine appear on the dashboard — Windows, Linux, or macOS, in 3 steps."
+date: "2026-07-07"
+tags:
+  - getting-started
+  - agent
+  - tutorial
+author: kendra
+lang: en
+translationKey: qs-02-first-machine
+---
+
+> **Series: Getting Started with Project Achilles — Part 2 of 6**
+
+**Difficulty:** Beginner 🟢
+
+---
+
+## TL;DR
+
+- The "agent" is a small program (~8 MB) you install on every machine you want to monitor
+- One time only, you publish the agent binary on your server (`Settings → Agent → Build Binary`); after that you enroll as many machines as you want
+- Enrollment takes 3 steps: generate a token → copy the command → run it on the machine
+- Works on Windows, Linux, and macOS
+- Once installed, the machine shows up as "online" in the dashboard in under 1 minute
+- No ports to open, no firewalls to configure — the agent connects outbound (like a browser)
+- If your server lives on a remote IP/domain (not `localhost`), the agent **requires HTTPS** — you get it with a domain + Caddy, or with a static-domain tunnel (ngrok/Cloudflare). See the HTTPS section below
+
+---
+
+## What Is the Agent?
+
+The Achilles agent is a small program that lives on every machine you want to protect and validate. It does three things:
+
+1. **Tells Achilles it's alive** (every 60 seconds it sends an "I'm still here")
+2. **Runs the attack simulations** when its turn comes
+3. **Reports the results** back to the dashboard
+
+It's a lightweight program. It doesn't consume noticeable resources. It doesn't affect the machine's performance. And to uninstall it, one command and done.
+
+---
+
+## Prerequisite: Publish the Agent Binary (one time only)
+
+Before you can enroll machines, your Achilles server needs **at least one agent binary published** for each platform you plan to use (Windows, Linux, macOS). The install command downloads that binary from your server — if none is published, the download fails with a `404: "No version available for this platform"` error.
+
+It's an administrator step you do **once** per platform (and repeat only when you release a new agent version). There are two ways to do it — use whichever works for you.
+
+### Option A — Build on the server (recommended)
+
+From the dashboard:
+
+```
+Settings → "Agent" tab → "Build Agent Binary" card
+```
+
+Fill in the three fields and click **Build Binary**:
+
+```
+Version:            0.5.0            ← version number (the form suggests the next one)
+Operating System:   Windows          ← Linux | Windows | macOS
+Architecture:       x86_64 (amd64)   ← x86_64 (amd64) | ARM64
+
+[ 🔨 Build Binary ]
+```
+
+The server cross-compiles the agent from source (it can take up to a minute). When it finishes, the binary appears in the **"Registered Versions"** card on the same page, ready to download.
+
+> **If you deployed with the DigitalOcean installer** (`scripts/deploy-do/`), the droplet already has Go installed automatically (the deployer's Phase 10 does it), so "Build from Source" works out of the box — you don't need to install Go by hand. On servers where you set up Achilles yourself, the build requires Go (≥ the version in `agent/go.mod`) installed on the backend; if it's missing, the build fails with `Command failed: go ... spawn go ENOENT` and you'll have to install it or use Option B.
+
+> **Repeat the build for each platform you plan to enroll.** If you have Windows and Linux machines, build `Windows / amd64` and `Linux / amd64` separately. The ARM64 architecture only applies to servers with ARM CPUs (some cloud VMs, Apple Silicon Macs, Raspberry Pi).
+
+> **Quick check:** in the "Registered Versions" card you should see at least one row with your version, OS, and architecture. If it's empty, the build didn't complete — check the error message in the build card.
+
+### Option B — Build locally and upload (if the server build fails)
+
+The server's "Build from Source" can fail for two reasons: on low-RAM servers (for example, a 1 GB droplet), Go's cross-compilation exhausts memory and the process dies; or if Go isn't installed on the backend (manual setup, without the DigitalOcean deployer) you'll see a `spawn go ENOENT` error. In either case the alternative is to **compile the binary on your machine** and upload it ready-made.
+
+**1) Compile the agent on your machine** (you need [Go](https://go.dev/dl/) installed, version ≥ the one in `agent/go.mod`):
+
+```bash
+cd agent
+
+# Windows (x86_64)
+make build-windows        # produces dist/achilles-agent-windows-amd64.exe
+
+# Other platforms, as needed:
+make build-linux          # dist/achilles-agent-linux-amd64
+make build-darwin-arm64   # dist/achilles-agent-darwin-arm64   (Apple Silicon Mac)
+make build-darwin-amd64   # dist/achilles-agent-darwin-amd64   (Intel Mac)
+make build-all            # all four platforms at once
+```
+
+> The version number comes from the `Makefile` (the `VERSION := ...` line) — write it down, you need it when uploading.
+
+**2) Upload the binary** in the dashboard:
+
+```
+Settings → "Agent" tab → "Upload Agent Binary" card
+
+   Version:            0.6.2            ← the same one from the Makefile
+   Operating System:   Windows          ← Linux | Windows | macOS
+   Architecture:       x86_64 (amd64)   ← x86_64 (amd64) | ARM64
+   File:               achilles-agent-windows-amd64.exe
+
+   [ Upload ]
+```
+
+Just like Option A, it must show up in **"Registered Versions"**.
+
+> **Signing:** a binary built this way ships **unsigned** unless you use `make sign-windows` (requires a configured certificate). An unsigned agent can be blocked by Windows Defender on the target machine — see the troubleshooting at the end of this post.
+
+---
+
+Once the binary is published (via either option), continue with the 3 enrollment steps.
+
+---
+
+## Prerequisite: HTTPS (if your server is not local)
+
+For security, **the agent refuses to enroll against a remote server over plain HTTP**. Enrollment sends credentials (the token and the agent key), and the agent won't send them unencrypted. Its rule is:
+
+```
+http://localhost:3000  or  http://127.0.0.1:3000   → allowed (same-machine testing only)
+http://<remote-IP-or-domain>:3000                   → REJECTED
+https://<your-domain>                               → allowed
+```
+
+If your Achilles server lives on a cloud IP or VM (not your `localhost`), **you need HTTPS** or enrollment fails with:
+
+```
+refusing to enroll: server URL "http://203.0.113.10:3000" uses plaintext HTTP
+to a remote host; use https:// or connect to localhost for development
+```
+
+There are two ways to put HTTPS on your server — choose based on whether you have a domain.
+
+### Option A — Domain + Caddy (recommended for production)
+
+You point an `A` record of your domain (or a subdomain, e.g. `achilles.yourdomain.com`) at the server's IP, and Caddy obtains the Let's Encrypt certificate automatically. This is what the **DigitalOcean deployer** does (`scripts/deploy-do/`, `caddy_tls` phase), so if you deployed with it you already have HTTPS and a stable URL without touching anything. The agent talks to the server directly — no intermediate processes to babysit.
+
+### Option B — Tunnel with a static domain (no domain of your own)
+
+If you don't have a domain, a tunnel gives you a public `https://` URL pointing at your backend (`localhost:3000` inside the server):
+
+- **ngrok** (free): reserve **1 static domain** in your account (`https://something.ngrok-free.dev`) and run it as a **systemd service** on the server so it survives reboots. The URL never changes.
+- **Cloudflare Tunnel**: `cloudflared tunnel --url http://localhost:3000` gives you a `trycloudflare.com` URL instantly (no account), but **it's ephemeral** (changes on every restart) — only useful for a quick test. For something stable use a *named tunnel* (requires a domain on Cloudflare).
+
+> On networks that block UDP, `cloudflared` fails to connect over QUIC — force TCP with `--protocol http2`.
+
+### Important: configure `AGENT_SERVER_URL`
+
+Even if you pass `--server https://...` in the command, **the server hands the agent its own public URL** during enrollment. That URL comes from the backend's `AGENT_SERVER_URL` environment variable. If it still says `http://...`, the agent rejects it with:
+
+```
+server returned insecure URL: server URL "http://203.0.113.10:3000" uses plaintext HTTP...
+```
+
+The fix: on the backend, set `AGENT_SERVER_URL` to your `https://` URL and restart it. With Docker Compose:
+
+```bash
+# on the server, inside the project folder
+sed -i 's|^AGENT_SERVER_URL=.*|AGENT_SERVER_URL=https://your-url|' backend/.env
+docker compose up -d --force-recreate backend
+```
+
+With the DigitalOcean deployer this already points at your domain. The dashboard also uses this variable to **generate the install commands**, so once it's set correctly, the commands you copy from the panel already come with the right `https` URL.
+
+---
+
+## Step 1: Generate an Installation Token
+
+The token is a unique code that tells the agent "you belong to this Achilles account".
+
+From the dashboard:
+
+```
+Endpoints → Agents → "Enroll Agent" button (top right)
+```
+
+A form with two fields unfolds:
+
+```
+TTL (hours):  24      ← how many hours the token lives
+Max Uses:      1      ← how many machines can use it
+
+[ Generate Token ]
+```
+
+Leave the defaults (24 hours, 1 use) and click **Generate Token**.
+
+The dashboard immediately shows the token and ready-to-copy install commands, one per platform. You don't need to download anything separately.
+
+---
+
+## Step 2: Copy and Run the Command
+
+When you generate the token, the dashboard shows the commands with the token and your server URL already filled in. You just copy the one for your platform and run it on the target machine.
+
+### Windows
+
+Open **PowerShell as Administrator** and run the command shown under **"Windows (PowerShell)"**:
+
+```powershell
+Invoke-WebRequest -Uri "http://<your-server>/api/agent/download?os=windows&arch=amd64" `
+  -OutFile achilles-agent.exe; `
+  .\achilles-agent.exe --enroll <TOKEN> --server http://<your-server> --install
+```
+
+> **Not sure what PowerShell as Administrator is?** Right-click the Start menu → "Windows PowerShell (Admin)".
+
+The command downloads the agent, registers it to your account, and installs it as a Windows service with automatic startup, all in one step.
+
+### Linux
+
+Run the command under **"Linux (amd64)"** or **"Linux (arm64)"** depending on your architecture:
+
+```bash
+curl -fSL "http://<your-server>/api/agent/download?os=linux&arch=amd64" \
+  -o achilles-agent && \
+  chmod +x achilles-agent && \
+  sudo ./achilles-agent --enroll <TOKEN> --server http://<your-server> --install
+```
+
+### macOS
+
+Run the command under **"macOS (Apple Silicon)"** or **"macOS (Intel)"**:
+
+```bash
+# Apple Silicon (M1/M2/M3)
+curl -fSL "http://<your-server>/api/agent/download?os=darwin&arch=arm64" \
+  -o achilles-agent && \
+  chmod +x achilles-agent && \
+  sudo ./achilles-agent --enroll <TOKEN> --server http://<your-server> --install
+
+# Intel
+curl -fSL "http://<your-server>/api/agent/download?os=darwin&arch=amd64" \
+  -o achilles-agent && \
+  chmod +x achilles-agent && \
+  sudo ./achilles-agent --enroll <TOKEN> --server http://<your-server> --install
+```
+
+> **`<your-server>`** is the URL you configured in QS-01:
+> - Local install: `http://localhost:3000`
+> - Remote server: `https://<your-domain>` or `https://<your-tunnel-url>` — **it must be `https`** (see the HTTPS section above). Bare `http://<IP>:3000` only works if the agent runs on the same machine as the server.
+>
+> The dashboard fills this in automatically in the commands it shows (from `AGENT_SERVER_URL`) — just copy and paste.
+
+---
+
+## Step 3: Verify It Appeared in the Dashboard
+
+Go back to the dashboard and open **Endpoints → Agents**:
+
+```
+AGENTS                                             1 online
+
+Hostname        System     Version   IP            Status
+─────────────────────────────────────────────────────────
+MY-PC-01        Windows    1.4.2     192.168.1.45  🟢 Online
+```
+
+There it is! The machine shows up less than 60 seconds after installation.
+
+If it doesn't appear within 2 minutes, check the troubleshooting section at the end of this post.
+
+---
+
+## What Information Does Achilles See About My Machine?
+
+A fair question. The agent reports:
+
+```
+✅ Machine name (hostname)
+✅ Operating system and version
+✅ IP address
+✅ Installed agent version
+✅ Results of executed tests (exit code + output)
+
+❌ Does NOT report files or documents
+❌ Does NOT report passwords or credentials
+❌ Does NOT have access to your email or applications
+❌ Does NOT record your screen or keystrokes
+```
+
+The agent only runs the tests you assign to it and reports whether they were detected or not.
+
+---
+
+## Adding More Machines
+
+Once you've seen it work on the first one, the process for the rest is identical:
+
+1. Generate a new token (each token has `Max Uses: 1` by default)
+2. Copy the command for that platform
+3. Run it on the target machine
+4. Repeat
+
+For a large fleet (20+ machines), you can raise `Max Uses` when generating the token — one token then serves several machines without generating one per machine. Handy if you deploy with Ansible, SCCM, or similar.
+
+---
+
+## Managing Your Machines
+
+From **Endpoints → Agents** you can view each machine's detail:
+
+```
+Click on "MY-PC-01"
+
+┌──────────────────────────────────────────────────────┐
+│  MY-PC-01                                🟢 Online   │
+├──────────────────────────────────────────────────────┤
+│  System:    Windows 11 Pro                           │
+│  IP:        192.168.1.45                             │
+│  Agent:     v1.4.2                                   │
+│  Online since: 3 minutes ago                         │
+├──────────────────────────────────────────────────────┤
+│  Test history: (empty — you haven't run any yet)     │
+└──────────────────────────────────────────────────────┘
+```
+
+From here you can also:
+- **Unassign the machine** if you no longer want to monitor it
+- **Force an agent update** when a new version is available
+- **View the history** of every test executed
+
+---
+
+## Troubleshooting: If It Doesn't Show Up
+
+**The machine doesn't appear after 2 minutes:**
+
+```
+Most common cause: the agent can't reach the Achilles server
+
+Windows — check the service:
+  Get-Service AchillesAgent
+  → If Status: Stopped, the service didn't start
+
+  View logs:
+  Get-EventLog -LogName Application -Source AchillesAgent -Newest 10
+
+Linux — check the service:
+  systemctl status achilles-agent
+
+macOS — check the service:
+  sudo launchctl list | grep achilles
+
+Usual cause: the server URL is wrong, or a firewall is blocking
+port 3000 between the machine and the Achilles server.
+```
+
+**The download fails with "404: No version available for this platform":**
+```
+Two possible causes:
+
+1) You haven't published the binary for that platform yet.
+   Go to the prerequisite at the start of this post and publish it.
+
+2) Wrong ARCHITECTURE: you published, say, windows/arm64
+   but the machine requests windows/amd64 (the command carries ?arch=amd64).
+   Most Windows machines/servers are x86_64 (amd64);
+   ARM64 is rare. In "Registered Versions" check that the row
+   matches BOTH the OS and the architecture in the command.
+   To find the target Windows machine's architecture:
+     echo $env:PROCESSOR_ARCHITECTURE   (AMD64 → amd64 ; ARM64 → arm64)
+
+Verify the correct row appears in "Registered Versions" before retrying.
+```
+
+**The server build fails with "504" (timeout) or the process dies:**
+```
+Low-RAM server (e.g. a 1 GB droplet): Go's cross-compilation
+exhausts memory and the reverse proxy cuts off with a timeout (504).
+
+Fix: compile the binary on YOUR machine and upload it (Option B of
+the prerequisite) — it skips the server build entirely:
+  cd agent && make build-windows
+  → Settings → Agent → Upload Agent Binary
+
+(Optional: adding swap to the server lets the server build
+complete, but on 1 GB you're better off with local build + upload.)
+```
+
+**Enrollment fails with "refusing to enroll: ... plaintext HTTP" or "server returned insecure URL":**
+```
+The agent requires HTTPS for remote servers. This is NOT fixed on the
+target machine — it's fixed on the server. See the
+"Prerequisite: HTTPS" section of this post:
+  - Put HTTPS on the server (domain + Caddy, or a static-domain tunnel)
+  - And set AGENT_SERVER_URL=https://... on the backend, then restart it
+
+The --allow-insecure flag does NOT help here (it only relaxes
+certificate verification on https URLs, it does not allow plain http).
+```
+
+**The token says "invalid" or "expired" (HTTP 401):**
+```
+Tokens expire per their TTL and are single-use by default
+(Max Uses: 1). Careful: an attempt that reaches the server but fails
+AFTERWARDS (e.g. the agent rejects the insecure URL) can still consume
+the use. Generate a new one and use it right away:
+  Endpoints → Agents → "Enroll Agent" → Generate Token
+```
+
+**In PowerShell the command "splits" (Missing argument for OutFile / --server, or ".\agent.exe not recognized"):**
+```
+When pasting very long single-line commands, some terminals insert
+a line break in the middle and break it. Fixes:
+
+  - Download with curl.exe (included in Windows 10/11), it's shorter:
+      curl.exe "https://<your-server>/api/agent/download?os=windows&arch=amd64" -o agent.exe
+
+  - And enroll using variables on short lines (they don't split):
+      $token  = "acht_..."
+      $server = "https://<your-server>"
+      .\agent.exe --enroll $token --server $server --install
+```
+
+**The agent was online and suddenly disconnected (after the server URL changed):**
+```
+The agent stores the server URL it received when enrolling. If that URL
+changes (typical with an EPHEMERAL tunnel like trycloudflare, which
+changes on every restart), the agent is left talking to a dead URL.
+
+Fix: use a STABLE URL (domain + Caddy, or an ngrok static domain)
+and re-enroll against the new URL, on the target machine:
+  .\agent.exe --uninstall
+  $token  = "acht_<new-token>"
+  $server = "https://<stable-url>"
+  .\agent.exe --enroll $token --server $server --install
+```
+
+**Windows Defender blocked the executable:**
+```
+This can happen because it's a new binary without a recognized signature.
+
+Options:
+1. Add a Defender exclusion for the folder where you saved the agent
+2. Or use the signed version — requires configuring a certificate in
+   Settings → Tests → Certificates (covered in QS-04)
+
+Note: Defender blocking the unsigned agent is itself useful
+information — it means your defense detects unsigned binaries.
+```
+
+---
+
+## Key Takeaways
+
+✅ 3 steps: generate a token → copy the command from the dashboard → run it on the machine
+✅ The dashboard generates ready-to-copy commands with the token and URL already filled in
+✅ The machine appears in the dashboard in under 60 seconds
+✅ Works the same on Windows, Linux, and macOS
+✅ The agent doesn't access your personal data or files
+
+---
+
+## Next Post
+
+**QS-03: "A First Look at the Dashboard"**
+
+You now have a machine connected. We explore the Achilles dashboard: what each module shows and how to find your way around before running your first test.
