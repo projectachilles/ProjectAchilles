@@ -11,6 +11,7 @@ type Props = {
 
 const GITHUB_URL = 'https://github.com/projectachilles/ProjectAchilles';
 const DOCS_URL = 'https://docs.projectachilles.io';
+const BLOG_URL = 'https://blog.projectachilles.io';
 const GET_STARTED_URL = 'https://docs.projectachilles.io/docs/getting-started/introduction';
 const SIGN_IN_URL = '/sign-in';
 
@@ -46,6 +47,9 @@ export function Nav({ lang, setLang }: Props) {
           <LangToggle lang={lang} onChange={setLang} />
           <a className="lp-btn lp-btn-ghost" href={DOCS_URL} target="_blank" rel="noreferrer">
             {t.docs}
+          </a>
+          <a className="lp-btn lp-btn-ghost" href={BLOG_URL} target="_blank" rel="noreferrer">
+            {t.blog}
           </a>
           <a className="lp-btn lp-btn-secondary" href={GITHUB_URL} target="_blank" rel="noreferrer">
             {I.Github} <span style={{ marginLeft: 4 }}>{t.star}</span>

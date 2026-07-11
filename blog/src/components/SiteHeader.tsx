@@ -14,7 +14,7 @@ export function SiteHeader() {
             docs
           </a>
           <a href="https://projectachilles.io" className="transition-colors hover:text-foreground">
-            product
+            platform
           </a>
           <ThemeToggle />
         </nav>

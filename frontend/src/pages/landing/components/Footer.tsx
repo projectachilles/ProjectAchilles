@@ -4,6 +4,7 @@ import { AchillesLogo } from '../icons';
 const GITHUB_URL = 'https://github.com/projectachilles/ProjectAchilles';
 const DISCORD_URL = 'https://discord.gg/aZ2dx2p4Ef';
 const DOCS_URL = 'https://docs.projectachilles.io';
+const BLOG_URL = 'https://blog.projectachilles.io';
 
 export function Footer({ lang }: { lang: Lang }) {
   const t = COPY[lang].footer;
@@ -42,6 +43,9 @@ export function Footer({ lang }: { lang: Lang }) {
             </a>
             <a className="footer-link" href={DOCS_URL} target="_blank" rel="noreferrer">
               {t.links.docs}
+            </a>
+            <a className="footer-link" href={BLOG_URL} target="_blank" rel="noreferrer">
+              {t.links.blog}
             </a>
             <a className="footer-link" href="#">{t.links.security}</a>
           </div>

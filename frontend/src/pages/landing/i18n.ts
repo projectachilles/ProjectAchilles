@@ -13,6 +13,7 @@ export type LandingCopy = {
     coverage: string;
     compare: string;
     docs: string;
+    blog: string;
     star: string;
     cta: string;
   };
@@ -119,6 +120,7 @@ export type LandingCopy = {
       github: string;
       discord: string;
       docs: string;
+      blog: string;
       security: string;
     };
     copyright: string;
@@ -147,6 +149,7 @@ export const COPY: Record<Lang, LandingCopy> = {
       coverage: 'Coverage',
       compare: 'Compare',
       docs: 'Docs',
+      blog: 'Blog',
       star: 'Star',
       cta: 'Get started',
     },
@@ -288,6 +291,7 @@ export const COPY: Record<Lang, LandingCopy> = {
         github: 'GitHub',
         discord: 'Discord',
         docs: 'Docs',
+        blog: 'Blog',
         security: 'Security policy',
       },
       copyright: '© 2026 PROJECT ACHILLES · APACHE 2.0',
@@ -303,6 +307,7 @@ export const COPY: Record<Lang, LandingCopy> = {
       coverage: 'Cobertura',
       compare: 'Comparativa',
       docs: 'Docs',
+      blog: 'Blog',
       star: 'Estrella',
       cta: 'Comenzar',
     },
@@ -444,6 +449,7 @@ export const COPY: Record<Lang, LandingCopy> = {
         github: 'GitHub',
         discord: 'Discord',
         docs: 'Docs',
+        blog: 'Blog',
         security: 'Política de seguridad',
       },
       copyright: '© 2026 PROJECT ACHILLES · APACHE 2.0',
