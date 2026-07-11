@@ -86,12 +86,50 @@ export function parsePostFile(filePath: string): Post {
 export function getAllPosts(opts: GetPostsOptions = {}): Post[] {
   const dir = opts.postsDir ?? DEFAULT_POSTS_DIR;
   const includeDrafts = opts.includeDrafts ?? process.env.NODE_ENV !== 'production';
-  return fs
+  const posts = fs
     .readdirSync(dir)
     .filter((file) => file.endsWith('.mdx'))
     .map((file) => parsePostFile(path.join(dir, file)))
     .filter((post) => includeDrafts || !post.draft)
     .sort((a, b) => b.date.localeCompare(a.date));
+  const seen = new Map<string, string>();
+  for (const post of posts) {
+    const key = `${post.translationKey}:${post.lang}`;
+    const clash = seen.get(key);
+    if (clash) {
+      throw new Error(
+        `Posts "${clash}" and "${post.slug}" both declare translationKey "${post.translationKey}" with lang "${post.lang}" — a pair must have one file per language`,
+      );
+    }
+    seen.set(key, post.slug);
+  }
+  return posts;
+}
+
+/**
+ * Posts for listing surfaces (homepage, tags, feed): translation pairs are
+ * collapsed to a single entry, preferring the English version.
+ */
+export function getListedPosts(opts: GetPostsOptions = {}): Post[] {
+  const posts = getAllPosts(opts);
+  const groups = new Map<string, Post[]>();
+  for (const post of posts) {
+    const group = groups.get(post.translationKey) ?? [];
+    group.push(post);
+    groups.set(post.translationKey, group);
+  }
+  const listed = new Set<string>();
+  for (const group of groups.values()) {
+    const preferred = group.find((post) => post.lang === 'en') ?? group[0];
+    listed.add(preferred.slug);
+  }
+  return posts.filter((post) => listed.has(post.slug));
+}
+
+export function getTranslation(post: Post, opts: GetPostsOptions = {}): Post | undefined {
+  return getAllPosts(opts).find(
+    (candidate) => candidate.translationKey === post.translationKey && candidate.lang !== post.lang,
+  );
 }
 
 export function getPostBySlug(slug: string, opts: GetPostsOptions = {}): Post | undefined {

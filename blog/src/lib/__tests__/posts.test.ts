@@ -4,14 +4,18 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   getAllPosts,
   getAllTags,
+  getListedPosts,
   getPostBySlug,
   getPostsByTag,
+  getTranslation,
   parsePostFile,
 } from '../posts.js';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url));
 const POSTS_DIR = path.join(FIXTURES, 'posts');
 const INVALID_DIR = path.join(FIXTURES, 'invalid');
+const I18N_DIR = path.join(FIXTURES, 'i18n');
+const COLLISION_DIR = path.join(FIXTURES, 'collision');
 
 describe('parsePostFile', () => {
   it('parses valid frontmatter into a Post', () => {
@@ -100,6 +104,36 @@ describe('getPostBySlug', () => {
 
   it('returns undefined for unknown slug', () => {
     expect(getPostBySlug('nope', { postsDir: POSTS_DIR, includeDrafts: false })).toBeUndefined();
+  });
+});
+
+describe('translation pairing', () => {
+  const opts = { postsDir: I18N_DIR, includeDrafts: true };
+
+  it('getListedPosts dedupes a pair preferring English', () => {
+    const listed = getListedPosts(opts);
+    const pair = listed.filter((p) => p.translationKey === 'hello-world');
+    expect(pair).toHaveLength(1);
+    expect(pair[0].lang).toBe('en');
+  });
+
+  it('getListedPosts keeps an unpaired post regardless of language', () => {
+    const listed = getListedPosts(opts);
+    expect(listed.some((p) => p.slug === 'solo-espanol')).toBe(true);
+  });
+
+  it('getTranslation resolves both directions and is undefined when unpaired', () => {
+    const es = getPostBySlug('hola-mundo', opts)!;
+    const en = getPostBySlug('hello-world', opts)!;
+    expect(getTranslation(es, opts)?.slug).toBe('hello-world');
+    expect(getTranslation(en, opts)?.slug).toBe('hola-mundo');
+    expect(getTranslation(getPostBySlug('solo-espanol', opts)!, opts)).toBeUndefined();
+  });
+
+  it('throws when two posts share translationKey and lang', () => {
+    expect(() => getAllPosts({ postsDir: COLLISION_DIR, includeDrafts: true })).toThrowError(
+      /same-key/,
+    );
   });
 });
 
