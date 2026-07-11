@@ -1,0 +1,159 @@
+---
+title: "Welcome to Project Achilles: What It Is and Where to Find Everything"
+description: "What Project Achilles is, what it is not, and where to find the docs, GitHub, and community — your orientation before installing anything."
+date: "2026-07-07"
+tags:
+  - getting-started
+  - open-source
+  - purple-team
+author: kendra
+lang: en
+translationKey: qs-00-welcome
+---
+
+> **Series: Getting Started with Project Achilles — Introduction**
+
+**Difficulty:** Beginner 🟢
+
+---
+
+## TL;DR
+
+- Project Achilles is an open-source platform that measures whether your security would detect real attacks
+- It is not a SaaS — every organization installs it themselves (free, Apache 2.0)
+- The landing page is informational; the resources that matter are the docs, GitHub, and Discord
+- This post orients you in the ecosystem before you install anything
+- When you finish, head straight to QS-01 for the installation
+
+---
+
+## The Question Achilles Answers
+
+Does this situation sound familiar?
+
+> **Executive:** "Are we protected against ransomware?"
+>
+> **IT/Security:** "Yes, we have Defender, we have the SIEM, we have the firewall..."
+>
+> **Executive:** "But... how do we know?"
+>
+> **IT/Security:** "..."
+
+You have the tools. You paid for them. But nobody can say with certainty whether those tools would actually detect a real attack.
+
+**Project Achilles answers that question.** It installs an agent on your machines, simulates real attack techniques, and measures whether your security detected them. The result is a number: your **Defense Score**.
+
+```
+Defense Score: 73%
+
+→ Of 100 simulated techniques, your defense detected 73.
+→ 27 would go unnoticed in a real attack today.
+```
+
+It is not an opinion. It is a measurement.
+
+---
+
+## What Achilles Is NOT
+
+**It is not a managed SaaS.**
+The `projectachilles.io` page looks like a SaaS product page, and that is intentional as far as presentation goes. But the similarity ends there. Achilles is open-source: every institution or organization installs and operates it themselves.
+
+**It is not an antivirus or a scanner.**
+It does not protect your machines or look for vulnerabilities. It tests whether what you already have installed actually works.
+
+**It does no harm.**
+The simulations are controlled. The agent does not access your data, does not steal credentials, does not move through your network. It is like a fire drill — real enough to measure the response, safe for the building.
+
+---
+
+## The Project's 4 Modules
+
+Achilles has four main components:
+
+```
+1. AI-driven test development
+   → Turns threat intelligence into executable tests
+   → Validated by cybersecurity experts before publication
+
+2. Agent execution framework
+   → Lightweight agents installed on every endpoint to validate
+   → Scalable, frictionless — one command to install and done
+
+3. Analytics and measurement
+   → Defense Score, MITRE ATT&CK heatmaps, trends
+   → Exportable to external platforms (SIEM, dashboards)
+
+4. CLI + AI agent
+   → REST API for integrations
+   → Command-line interface for advanced operations
+```
+
+---
+
+## The Ecosystem: Where to Find Everything
+
+### 1. The landing page — projectachilles.io
+
+```
+https://projectachilles.io
+```
+
+The project's presentation page. It explains what Achilles is, use cases, and how to contribute. From here you reach the three resources that matter:
+
+### 2. The documentation (wiki)
+
+```
+https://docs.projectachilles.io
+```
+
+The most important resource before installing. It covers architecture, components, installation guides, and the API reference. If you have a technical question, start here.
+
+### 3. The GitHub repository
+
+```
+https://github.com/projectachilles/ProjectAchilles
+```
+
+The complete source code. For the technical reader who wants to see how it is built, contribute, or fork it. The README is a detailed technical description of the project.
+
+### 4. The community — Discord
+
+```
+"Join the community" button on projectachilles.io
+```
+
+The direct channel to the team and the community. Available in Spanish and English. If you have questions during installation or day-to-day use, this is where you get a fast answer.
+
+---
+
+## Who Achilles Is For
+
+**"We are a mid-sized company with no budget for an annual pentest."**
+Achilles is free. You install it yourself and get continuous metrics.
+
+**"We need real evidence for audits."**
+Achilles generates technical records of every test — concrete documentation for auditors and regulators (DORA, ISO 27001, TIBER-EU).
+
+**"Our IT team manages security but they are not attack experts."**
+You do not need to know how an attack works to use Achilles. The tool does it for you.
+
+**"We have a security team and we want to measure our controls."**
+Achilles is the continuous benchmarking missing from most security programs.
+
+---
+
+## Key Takeaways
+
+✅ Achilles measures whether your current security would detect real attacks, with a concrete number
+✅ It is open-source (Apache 2.0); every organization installs it themselves — no SaaS
+✅ The simulations are safe and controlled
+✅ Key resources: docs, GitHub, and Discord, all reachable from projectachilles.io
+
+---
+
+## Next Post
+
+**QS-01: "Install Project Achilles: The Platform in 30 Minutes"**
+
+Choose between local Docker (free) or a DigitalOcean VPS (~$8/month) and install the full platform step by step.
