@@ -621,8 +621,14 @@ describe('schedules.service', () => {
 
       const schedule = await createSchedule(baseScheduleRequest(), 'user-001');
 
+      // Far-future ISO timestamp. Note: vi.setSystemTime affects JS Date but
+      // not SQLite's datetime('now') — that reads the OS clock — so the
+      // chosen value must be in the future relative to BOTH the fake JS time
+      // AND real wall-clock time at test execution. Earlier this test used
+      // 2026-05-05, which silently broke as soon as wall-clock crossed that
+      // date (the backend/ mirror was fixed the same way).
       await testDb.run('UPDATE schedules SET next_run_at = ? WHERE id = ?',
-        ['2026-05-05T14:01:00.000Z', schedule.id]);
+        ['2099-12-31T23:59:59.000Z', schedule.id]);
 
       const result = await processSchedules();
 
