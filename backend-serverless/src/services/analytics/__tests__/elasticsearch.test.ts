@@ -190,6 +190,19 @@ describe('elasticsearch.ts', () => {
   // Group 4: getDefenseScore (Pattern 1 — Score Aggregation)
   // ================================================================
   describe('getDefenseScore', () => {
+    it('requests uncapped totals (track_total_hits) so >10k docs do not clamp the denominator', async () => {
+      // Without track_total_hits ES caps hits.total.value at 10,000 while the
+      // combined/strict aggs keep counting — inflating the score past 100%
+      // and driving unprotectedCount negative on large windows.
+      mockSearch.mockResolvedValue(esSearchResponse({
+        total: 23741,
+        aggs: { combined: { doc_count: 12515 }, strict: { doc_count: 12499 } },
+      }));
+      const svc = createService();
+      await svc.getDefenseScore(makeParams());
+      expect(mockSearch.mock.calls[0][0].track_total_hits).toBe(true);
+    });
+
     it('computes 70.0 when 70/100 combined-protected (all via is_protected)', async () => {
       // combined=70 (is_protected OR defender_detected), strict=70 (is_protected only)
       mockSearch.mockResolvedValue(esSearchResponse({

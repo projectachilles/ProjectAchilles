@@ -216,6 +216,9 @@ export class ElasticsearchService {
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: 0,
+      // hits.total caps at 10,000 without this, while the aggs below keep
+      // counting — the score denominator must cover every matching doc.
+      track_total_hits: true,
       query: { bool: { filter: filters } },
       aggs: {
         combined: {
