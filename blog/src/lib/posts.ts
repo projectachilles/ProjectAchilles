@@ -15,6 +15,11 @@ export const postFrontmatterSchema = z.object({
     .array(z.string().regex(TAG_RE, 'tags must be kebab-case (a-z, 0-9, hyphens)'))
     .min(1),
   author: z.string().refine((id) => id in authors, { message: 'unknown author id' }),
+  lang: z.enum(['en', 'es']).default('en'),
+  translationKey: z
+    .string()
+    .regex(TAG_RE, 'translationKey must be kebab-case (a-z, 0-9, hyphens)')
+    .optional(),
   image: z.string().optional(),
   draft: z.boolean().default(false),
 });
@@ -26,6 +31,8 @@ export interface Post {
   date: string;
   tags: string[];
   author: Author;
+  lang: 'en' | 'es';
+  translationKey: string;
   image?: string;
   draft: boolean;
   readingTimeMinutes: number;
@@ -67,6 +74,8 @@ export function parsePostFile(filePath: string): Post {
     date: fm.date,
     tags: fm.tags,
     author: authors[fm.author],
+    lang: fm.lang,
+    translationKey: fm.translationKey ?? slug,
     image: fm.image,
     draft: fm.draft,
     readingTimeMinutes: readingTimeMinutes(content),

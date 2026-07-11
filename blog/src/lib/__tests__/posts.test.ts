@@ -50,6 +50,26 @@ describe('parsePostFile', () => {
   });
 });
 
+describe('language fields', () => {
+  it('defaults lang to en and translationKey to the slug', () => {
+    const post = parsePostFile(path.join(POSTS_DIR, 'alpha-post.mdx'));
+    expect(post.lang).toBe('en');
+    expect(post.translationKey).toBe('alpha-post');
+  });
+
+  it('rejects an invalid lang value', () => {
+    expect(() => parsePostFile(path.join(INVALID_DIR, 'bad-lang.mdx'))).toThrowError(
+      /bad-lang\.mdx.*lang/s,
+    );
+  });
+
+  it('rejects a non-kebab-case translationKey', () => {
+    expect(() => parsePostFile(path.join(INVALID_DIR, 'bad-translation-key.mdx'))).toThrowError(
+      /bad-translation-key\.mdx.*translationKey/s,
+    );
+  });
+});
+
 describe('getAllPosts', () => {
   it('sorts newest first and excludes drafts by default option', () => {
     const posts = getAllPosts({ postsDir: POSTS_DIR, includeDrafts: false });
