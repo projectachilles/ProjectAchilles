@@ -133,7 +133,7 @@ Uses `dev` format for colorized, concise HTTP logs during development.
 
 ### 7. Global API Rate Limiter
 
-Applied to all `/api` routes except agent device endpoints (which have their own dedicated limiter). 1000 requests per 15-minute window per IP.
+Applied to all `/api` routes except agent device endpoints (which have their own dedicated limiter). 1000 requests per 15-minute window, keyed by the authenticated Clerk user (falling back to IP for unauthenticated requests).
 
 ### 8. Error Handlers
 
@@ -196,20 +196,21 @@ The CLI device flow (`cliAuth.middleware.ts`) uses JWT tokens with `type: 'cli'`
 
 ## Rate Limiting Strategy
 
-Rate limiting uses `express-rate-limit` with separate budgets for different endpoint types. Agent device endpoints key on the `X-Agent-ID` header (not IP) so agents behind a shared proxy do not exhaust each other's budgets.
+Rate limiting uses `express-rate-limit` with separate budgets for different endpoint types. Limiters are keyed by **principal** where one exists — the Clerk user for UI traffic, the composite `<ip>:<agent-id>` for agent device traffic — so tenants behind a shared NAT or proxy do not exhaust each other's budgets (see `middleware/rateLimitKeys.ts` and [docs/rate-limiting.md](https://github.com/projectachilles/ProjectAchilles/blob/main/docs/rate-limiting.md) for the full rationale).
 
 | Endpoint Group | Limit | Window | Key | Rationale |
 |---------------|-------|--------|-----|-----------|
-| Global API | 1000 req | 15 min | IP | General UI/dashboard traffic |
-| Enrollment | 5 req | 15 min | IP | Brute-force token protection |
-| Binary download | 10 req | 15 min | IP | Bandwidth protection |
-| Agent device | 100 req | 15 min | `X-Agent-ID` | Per-agent budget (heartbeat + polling) |
+| Global API | 1000 req | 15 min | Clerk user (IP fallback) | General UI/dashboard traffic, per analyst |
+| Enrollment | 300 req | 15 min | IP | Sized for fleet rollouts behind one NAT |
+| Binary download | 300 req | 15 min | IP | Sized for fleet rollouts behind one NAT |
+| Agent device | 30 req | 1 min | `<ip>:<agent-id>` | Per-agent budget (heartbeat + polling) |
 | Key rotation | 3 req | 15 min | IP | Expensive bcrypt operations |
+| CLI bearer / API key | 60 req | 1 min | IP | Programmatic access ceiling |
 | CLI device code | 10 req | 15 min | IP | Device code generation |
 | CLI polling | 60 req | 1 min | IP | Frequent polling during auth flow |
 
 :::tip Agent device rate limiting
-The agent device limiter uses `X-Agent-ID` as the rate-limit key instead of IP. This prevents agents behind a shared reverse proxy (e.g., ngrok) from exhausting a single per-IP bucket with routine heartbeats and task polls, which would starve low-frequency requests like version checks.
+The agent device limiter keys on the composite `<normalized-ip>:<agent-id>`. Each enrolled agent gets its own budget even when a whole fleet shares one NAT IP, while an unauthenticated probe (no `X-Agent-ID`) still cannot escape its IP bucket.
 :::
 
 :::warning Global limiter skips agent routes

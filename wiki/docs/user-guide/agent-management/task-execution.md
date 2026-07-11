@@ -80,7 +80,7 @@ The agent sends failure context for all error types: binary download failures, S
 ## Task Results
 
 Results include:
-- **Exit code** — 0 (unprotected), 1 (protected), other (error)
+- **Exit code** — test-defined outcome code: `101` (attack succeeded — unprotected), `105`/`126`/`127` (blocked or quarantined — protected), `0` (normal exit — inconclusive, varies by test), `1` (binary not recognized / permission denied)
 - **Stdout/Stderr** — Captured output from the test binary
 - **Execution duration**
 - **Timestamp**
@@ -184,9 +184,13 @@ Each task shows a color-coded status badge:
 | Assigned | Blue | Agent picked up the task |
 | Downloading | Blue | Agent downloading binary |
 | Executing | Amber | Binary running on endpoint |
-| Completed | Green | Finished successfully |
-| Failed | Red | Finished with error |
+| Completed | Green | Finished, and the result reported a zero exit code |
+| Failed | Red | Finished with error — including tasks that technically completed but reported a non-zero exit code |
 | Expired | Gray | Agent did not pick up in time |
+
+:::info Honest status
+Task tables render *honest* status: a task the agent marked `completed` whose result carries a non-zero exit code is displayed as **Failed**, not Completed. The stored status is unchanged — only the display tells the truth about the outcome.
+:::
 
 ### Filtering and Search
 

@@ -12,7 +12,7 @@ Deploy ProjectAchilles using Docker Compose for a production-like environment. T
 
 - **Docker** 20.10+ and **Docker Compose** v2+
 - **Git**
-- A [Clerk](https://clerk.com) account with API keys (see [Local Dev Quick Start](./quick-start-local#2-configure-clerk-authentication))
+- A [Clerk](https://clerk.com) account with API keys (see [Local Dev Quick Start](./quick-start-local#2-start-the-development-stack))
 
 ## Linux / macOS
 

@@ -14,7 +14,7 @@ description: "Automate recurring test execution with flexible scheduling options
    - **Test** to execute
    - **Target agents** (specific agents or all)
    - **Frequency** — Once, daily, weekly, monthly
-   - **Time** — Specific time or randomized within office hours
+   - **Time** — Specific time, or randomized within office hours (fleet-wide or per machine)
    - **Platform/Architecture** for the binary
    - **Target ES index** (optional)
 
@@ -29,7 +29,15 @@ description: "Automate recurring test execution with flexible scheduling options
 
 ## Randomized Timing
 
-Enable **randomized timing** to execute within office hours (9 AM - 5 PM) at a random time. This provides more realistic simulation of attacker behavior rather than executing at the same time every day.
+Schedules support three timing modes:
+
+| Mode | Behavior |
+|------|----------|
+| **Fixed time** | Executes at the exact time you set, every run |
+| **Randomized (fleet together)** | One random time within office hours (9 AM – 5 PM) per run, shared by all targeted machines |
+| **Randomized per machine** | Each targeted agent gets its own independent random time within office hours |
+
+Randomization provides more realistic simulation of attacker behavior than executing at the same time every day. **Per-machine** randomization additionally avoids the whole fleet lighting up detection systems at once — useful for staggering load and for realistic dispersed activity.
 
 ## Priority Queue
 

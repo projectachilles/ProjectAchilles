@@ -10,7 +10,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev/)
-[![Go](https://img.shields.io/badge/Go-1.24-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![Bun](https://img.shields.io/badge/Bun-1.3-F9F1E1?logo=bun&logoColor=black)](https://bun.sh/)
 
 **Continuous Security Validation — From Threat Intelligence to Defense Readiness**
@@ -62,7 +62,7 @@ ProjectAchilles is a continuous security validation platform with four core comp
 
 3. **Analytics & Measurement** — An Elasticsearch-backed dashboard that quantifies defense readiness with scores, heatmaps, trend analysis, and MITRE ATT&CK coverage matrices — turning raw test results into actionable intelligence for security teams and leadership.
 
-4. **CLI & AI Agent** — A Bun-powered command-line tool (`achilles`) with 17+ command modules for platform management and an AI conversational agent mode powered by Vercel AI SDK for natural-language fleet operations.
+4. **CLI & AI Agent** — A Bun-powered command-line tool (`achilles`) with 18 command modules for platform management — including a unified `achilles deploy` TUI — and an AI conversational agent mode powered by Vercel AI SDK for natural-language fleet operations.
 
 The platform is open-source, deploys in minutes via Docker Compose, and integrates with Microsoft Defender for cross-correlation between your internal validation results and your EDR's own security posture data.
 
@@ -183,6 +183,7 @@ A Bun-powered command-line interface for managing the entire platform from the t
 - **Build system** — Trigger cross-compilation, manage certificates
 - **Risk acceptance** — Accept/revoke risk on individual controls
 - **User management** — List and inspect Clerk users
+- **Deployment** — Unified `achilles deploy` TUI that walks through multi-target deployments (interactive or headless)
 
 **Key features:**
 - `--json` flag on every command for structured output (scripts, LLM consumption)
@@ -249,9 +250,9 @@ Quantify your security posture with 30+ query endpoints powered by Elasticsearch
 - **Coverage Treemaps** — Hierarchical category/subcategory coverage visualization
 - **Execution Table** — Paginated results with advanced filtering (technique, hostname, threat actor, tags)
 - **Risk Acceptance** — Accept risk on individual controls with audit tracking
-- **Microsoft Defender Integration** — Sync Secure Score, alerts, and control profiles with cross-correlation analytics
+- **Microsoft Defender Integration** — Sync Secure Score, alerts, and control profiles with cross-correlation analytics; dedicated Defender tab with alert drill-down drawer, correlation timeline, per-execution detection rate with MITRE roll-up, and control ↔ alert linking
 - **Trend Alerting** — Threshold-based Slack and email notifications with in-app notification bell
-- **Multi-Index Management** — Per-task index targeting for isolated result sets
+- **Write-Index Rollover** — Results ingest into dated write indices (`achilles-results-YYYY.MM.DD`) with daily, monthly, or static rollover; per-task index targeting for isolated result sets
 - **Visual Themes** — Three selectable themes: Default (light/dark), Neobrutalism (hot pink accent, bold borders), Hacker Terminal (phosphor green/amber scanlines)
 
 ### Build System
@@ -269,9 +270,18 @@ Compile and sign test binaries on demand with Go cross-compilation.
 Automate test execution across agent pools with flexible scheduling.
 
 - **Schedule Types** — Once, daily, weekly (specific days), monthly (specific day)
-- **Randomized Timing** — Optional randomization within office hours for realistic simulation
+- **Randomized Timing** — Optional randomization within office hours, fleet-wide or per-machine (each agent gets an independent next-run time)
 - **Per-Task ES Index** — Target specific Elasticsearch indices per task for result isolation
 - **Priority Queue** — Higher-priority tasks assigned first
+
+### Programmatic Access (API Keys)
+
+Automate the platform from scripts and CI without a browser session.
+
+- **`pa_` Bearer Tokens** — Create and revoke keys in Settings → API Keys; hashed at rest, shown only once at creation
+- **Permission Scoping** — Read-only or read-write permission sets enforced per key
+- **Full Read Coverage** — Query analytics, agents, tasks, and schedules with `Authorization: Bearer pa_...`
+- See the [Programmatic Access guide](wiki/docs/api-reference/programmatic-access.md) for recipes and endpoint reference
 
 ### Agent Communication Security
 
@@ -284,7 +294,7 @@ The agent-server communication channel has been hardened through an internal sec
 | **Replay Protection** | `X-Request-Timestamp` header with 5-minute skew window; payload-level timestamp validation |
 | **Timing Oracle Prevention** | Constant-time bcrypt comparison on enrollment and auth (dummy hash on miss) |
 | **Update Signatures** | Ed25519 detached signatures on agent binaries; verified before applying updates |
-| **Rate Limiting** | Per-endpoint budgets: enrollment (5/15min), device (100/15min), download (10/15min), rotation (3/15min) |
+| **Rate Limiting** | Principal-keyed budgets: agent device (30/min, keyed by agent ID), enrollment & download (300/15min), key rotation (3/15min) — see [Rate Limiting](docs/rate-limiting.md) |
 | **Encrypted Credentials** | Agent API key encrypted at rest with AES-256-GCM; key derived from machine ID (non-portable) |
 | **Least-Privilege Permissions** | Binary `0700` / Windows SYSTEM+Admins ACL; config `0600`; work dirs `0700` |
 
@@ -328,17 +338,17 @@ graph TB
 | Layer | Technology | Version |
 |-------|------------|---------|
 | Frontend | React | 19.2 |
-| Build Tool | Vite | 8.0 |
-| Styling | Tailwind CSS | 4.2 |
-| State Management | Redux Toolkit | 2.11 |
-| Routing | React Router | 7.13 |
+| Build Tool | Vite | 8.1 |
+| Styling | Tailwind CSS | 4.1 |
+| State Management | Redux Toolkit | 2.12 |
+| Routing | React Router | 7.18 |
 | Authentication | Clerk | 5.x |
 | Backend | Express | 4.18 |
 | Language | TypeScript | 5.9 |
 | CLI Runtime | Bun | 1.3 |
 | CLI UI | Ink | 6.8 |
 | AI SDK | Vercel AI SDK | 6.0 |
-| Agent | Go | 1.24 |
+| Agent | Go | 1.25 |
 | Analytics Store | Elasticsearch | 8.x |
 | Agent Database | SQLite | 3.x |
 | Code Signing | osslsigncode | — |
@@ -372,6 +382,8 @@ ProjectAchilles/
 ├── agent/                     # Go agent source
 │   ├── main.go                # CLI entry point (--enroll, --run, --install)
 │   └── internal/              # Agent modules (poller, executor, updater, sysinfo)
+├── blog/                      # Next.js 16 + MDX blog (blog.projectachilles.io, ES/EN i18n)
+├── deploy/                    # Reverse-proxy assets for single-server installs (Caddy)
 ├── scripts/                   # Shell scripts and PowerShell bootstrap
 │   ├── start.sh               # Development startup script
 │   ├── setup.sh               # Interactive setup wizard (Linux/macOS)
@@ -430,7 +442,11 @@ CLERK_SECRET_KEY=sk_test_...
 | `ELASTICSEARCH_CLOUD_ID` | Elastic Cloud deployment ID |
 | `ELASTICSEARCH_API_KEY` | API key for authentication |
 | `ELASTICSEARCH_NODE` | Direct node URL (e.g., `http://localhost:9200`) |
-| `ELASTICSEARCH_INDEX_PATTERN` | Index pattern (default: `achilles-results-*`) |
+| `ELASTICSEARCH_INDEX_PATTERN` | Read index pattern (default: `achilles-results-*`) |
+| `ELASTICSEARCH_WRITE_INDEX_PREFIX` | Write index prefix (default: `achilles-results-`) |
+| `ELASTICSEARCH_WRITE_INDEX_ROLLOVER` | Write index rollover: `none`, `daily`, or `monthly` |
+| `ELASTICSEARCH_USERNAME` / `ELASTICSEARCH_PASSWORD` | Basic auth (alternative to API key) |
+| `ELASTICSEARCH_CA_CERT` | Custom CA certificate for self-signed clusters |
 
 #### Docker
 
@@ -566,6 +582,7 @@ Restart the backend afterwards so it reopens the database cleanly.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| `GET` | `/api/tests/builds` | List test UUIDs with built binaries |
 | `POST` | `/api/tests/builds/:uuid` | Trigger cross-compilation |
 | `GET` | `/api/tests/builds/:uuid/download` | Download built binary |
 | `GET` | `/api/tests/certificates` | List certificates |
@@ -592,6 +609,16 @@ Restart the backend afterwards so it reopens the database cleanly.
 | `GET` | `/api/integrations/alerts/config` | Get alert threshold configuration |
 | `POST` | `/api/integrations/alerts/config` | Save alert thresholds and notification channels |
 
+### API Keys
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/api-keys` | Create a scoped API key (token shown once) |
+| `GET` | `/api/api-keys` | List keys (metadata only, no tokens) |
+| `DELETE` | `/api/api-keys/:id` | Revoke a key |
+
+> API keys are `pa_`-prefixed bearer tokens for programmatic access with per-key permission scoping. Managing keys requires Clerk authentication; using them does not.
+
 ## Documentation
 
 ### Getting Started
@@ -611,11 +638,17 @@ Restart the backend afterwards so it reopens the database cleanly.
 - [Windows Docker Installation](docs/deployment/WINDOWS_DOCKER_INSTALL.md) — Complete guide for Windows with Docker Desktop
 - [Production Deployment Guide](docs/deployment/PRODUCTION_DEPLOYMENT.md) — Comprehensive Railway deployment
 - [Deployment Checklist](docs/deployment/DEPLOYMENT_CHECKLIST.md) — Interactive pre-flight checklist
+- [LAN Development Agents](docs/deployment/LAN_DEV_AGENTS.md) — Running the backend on your LAN for real-device agent testing
+
+### Architecture & Internals
+- [Interactive Architecture Diagrams](docs/architecture/) — System architecture, data model, execution flows, MITRE coverage, and ops timeline (open the HTML files in a browser)
+- [Rate Limiting](docs/rate-limiting.md) — Principal-keyed rate-limiter architecture and tuning rationale
 
 ### Development
 - [CLAUDE.md](CLAUDE.md) — AI-assisted development guidance
 - [Contributing Guide](.github/CONTRIBUTING.md) — Contribution guidelines and code standards
 - [Changelog](docs/CHANGELOG.md) — Version history
+- [Blog](https://blog.projectachilles.io) — Announcements and quick-start series (English/Spanish)
 
 ### Security & Community
 - [Security Policy](.github/SECURITY.md) — Vulnerability reporting and security model

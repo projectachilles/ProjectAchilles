@@ -376,6 +376,8 @@ Slide-out panel component:
 
 ### Chart System
 
+Chart colors are **governed**: all chart fills route through semantic chart tokens (resolved at runtime via the `chartTokens` util/hook) rather than hard-coded hex values. A drift-guard test (`chartColorGuard.test.ts`) fails CI if a chart component reintroduces raw colors, and label contrast is computed for WCAG AA across the heat ramp. When adding a chart, pick from the governed token palette instead of inventing colors.
+
 Recharts integration with theme-aware configuration:
 
 ```typescript

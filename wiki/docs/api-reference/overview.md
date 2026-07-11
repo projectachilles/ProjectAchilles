@@ -199,8 +199,8 @@ Defender credentials saved via Integration Routes enable the Defender sync servi
 | Tier | Mechanism | Endpoints | Key Generator |
 |------|-----------|-----------|---------------|
 | **Public** | Rate limiting only | Agent downloads, enrollment | IP address |
-| **Agent device** | `X-Agent-Key` + `X-Agent-ID` headers | Heartbeat, tasks, results | Agent ID |
-| **API key** | `Authorization: Bearer pa_<token>` | Programmatic access (scope-gated) | Per-key UUID |
+| **Agent device** | `X-Agent-Key` + `X-Agent-ID` headers | Heartbeat, tasks, results | `<ip>:<agent-id>` composite |
+| **API key** | `Authorization: Bearer pa_<token>` | Programmatic access (scope-gated) | IP address |
 | **Clerk JWT** | `Authorization: Bearer <jwt>` | All admin endpoints | User ID |
 | **Cron secret** | `CRON_SECRET` header (Vercel only) | Scheduled jobs | N/A |
 

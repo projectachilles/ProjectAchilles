@@ -11,6 +11,60 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+### Added
+
+#### Platform
+- Blog at [blog.projectachilles.io](https://blog.projectachilles.io) — Next.js 16 + MDX, Spanish/English auto-translation workflow, RSS/sitemap, tag archives; linked from the landing nav and footer
+- API keys v1 for programmatic access — `pa_` bearer tokens with scoped read/read-write permissions, Settings → API Keys tab, `POST`/`GET`/`DELETE /api/api-keys`
+- Unified `achilles deploy` CLI TUI for guided multi-target deployment (interactive or headless)
+- Public and on-prem single-server deployment targets behind Caddy TLS with four certificate modes (`docker-compose.server.yml`, `scripts/deploy-server.sh`, `deploy-remote.sh`, `deploy-do.sh`)
+- DigitalOcean tenant deployer with phased, resumable provisioning (`scripts/deploy-do/`)
+- Interactive architecture diagram suite under `docs/architecture/`
+- Rate-limiting architecture reference (`docs/rate-limiting.md`) and LAN development agents guide (`docs/deployment/LAN_DEV_AGENTS.md`)
+
+#### Analytics
+- Write-index rollover — ingestion routes through dated write indices (`achilles-results-<date>`) with daily/monthly/static modes, configurable in Analytics settings or via `ELASTICSEARCH_WRITE_INDEX_*` env vars
+- Defender tab redesign — hero row, correlation timeline, alert drill-down drawer, per-execution Defender detection rate with MITRE roll-up, control ↔ alert linking, server-side technique filter
+- Defender auto-resolve — programmatic resolution of Achilles-correlated alerts with disabled/dry-run/enabled modes, per-alert receipts, and audit-trail comments
+- Per-stage Defender alert attribution and stage-specific enrichment
+- Certificate authentication (JWT client assertion) for the Microsoft Defender and Azure/Entra ID integrations, as an alternative to client secrets
+- Self-signed Elasticsearch support (custom CA + insecure-skip) and admin endpoint to drain the ingestion backlog
+
+#### Frontend
+- "Has binary" filter on the Browse tab, backed by new `GET /api/tests/builds` endpoint
+- Governed chart color tokens with WCAG AA contrast enforcement and a drift-guard test
+- Honest task status — completed tasks with non-zero exit codes now display as Failed across all task tables
+- Skeleton loaders for dashboard cards; redesigned bilingual landing page
+- Analytics time range defaults to 30 days; test library sorts newest-first; agents page shows total count with full pagination
+
+#### Agent
+- Per-machine schedule randomization mode — each agent gets an independent randomized next-run
+- `--reload` flag for in-place config refresh
+- EDR-block badge for blocked tasks plus WDAC operations runbook
+- Split short-request vs streaming HTTP timeouts (v0.6.1)
+
+### Changed
+- Rate limiters re-keyed from IP to principal (agent ID / Clerk user): agent device 30/min, enrollment/download 300/15min, global UI 1000/15min per user — fixes NAT collapse for real fleets (see `docs/rate-limiting.md`)
+- Manual index creation removed from Analytics settings — write indices are auto-created on first ingest with the canonical mapping
+- Target Index defaults to the global write index; per-task picker moved under Advanced
+- Performance: bcrypt verdict caching on the agent auth hot path (HMAC-SHA256 cache key)
+
+### Fixed
+- SPA self-heals stale code-split chunks after deploys (chunk-reload guard + nginx/Vercel cache headers)
+- Durable result ingestion with bounded retry; idempotent result submissions via deterministic document IDs
+- Scheduler ISO/space datetime mismatch; `expireOverdueTasks` now covers `assigned` tasks
+- Defender alerts whose timestamps drift out of the correlation window after resolution still correlate
+- Executions grouped by exact event time instead of 30-minute buckets; defense-score query requests uncapped totals
+- Full build errors shown instead of clamping to 3 lines; agent target pickers show the full active fleet
+
+### Security
+- Patched Clerk auth bypass (CVE-2026-41248 + GHSA-vqx2-fgx2-5wq9)
+- Closed cross-tenant IDOR in risk-acceptance by-id endpoints; Defense Score risk-acceptance exclusion filter scoped by org
+- Patched axios cluster (prototype pollution, header injection, SSRF) and closed 60+ Dependabot alerts via overrides and direct bumps
+- Closed CodeQL path-injection findings (`fileService.readFileContent`, `findTestDir`, `metaPath`/`ensureBuildDir`)
+- Purged inlined Elasticsearch API keys from docs and added a documentation hygiene rule
+- Rate-limited `pa_` bearer authentication with uniform 401 responses
+
 ## Agent [0.6.0] - 2026-04-03
 
 First tagged release of the Achilles Agent binary.

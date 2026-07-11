@@ -41,11 +41,15 @@ Under **API Permissions**, add the following **Application** (not Delegated) per
 All five permissions require **admin consent**. After adding them, click **Grant admin consent for \<your org\>** on the API Permissions page. Without this, the service principal cannot access any data.
 :::
 
-### Create a Client Secret
+### Create a Client Secret (or Upload a Certificate)
+
+**Client secret:**
 
 1. Under **Certificates & Secrets** → **Client secrets** → **New client secret**
 2. Set a description and expiration (recommended: 12-24 months)
 3. Copy the **Value** immediately — it is shown only once
+
+**Certificate (alternative):** upload a certificate under **Certificates & Secrets** → **Certificates** and keep the private key. ProjectAchilles authenticates by signing an RS256 JWT client assertion with the private key — no secret to rotate on expiry. Select **Certificate** as the authentication method in the settings UI, or set `AZURE_CERT_THUMBPRINT` + `AZURE_PRIVATE_KEY_PEM` env vars (certificate auth takes precedence over `AZURE_CLIENT_SECRET` when both are present).
 
 Note the following values from the App Registration overview page:
 - **Application (client) ID**
@@ -72,6 +76,10 @@ Alternatively, configure credentials via environment variables (useful for CI/CD
 AZURE_TENANT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 AZURE_CLIENT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 AZURE_CLIENT_SECRET=your-client-secret-value
+
+# Or, for certificate auth (takes precedence when both are set):
+AZURE_CERT_THUMBPRINT=<certificate-thumbprint>
+AZURE_PRIVATE_KEY_PEM=<pem-encoded-private-key>
 ```
 
 When env vars are set, the UI shows "Configured via environment variables" and the **Disconnect** button is disabled — remove the env vars to disconnect.
@@ -143,7 +151,7 @@ Credentials share the same encrypted settings file as Defender and Alerting conf
 ## Troubleshooting
 
 :::warning Common Issues
-- **"Validate Credentials" fails**: Verify the Client Secret value has not expired. Azure AD client secrets have expiration dates — check **Certificates & Secrets** in the App Registration.
+- **"Validate Credentials" fails**: Verify the Client Secret value has not expired. Azure AD client secrets have expiration dates — check **Certificates & Secrets** in the App Registration. (Certificate auth avoids this class of failure; certificates also expire, but on a much longer horizon.)
 - **Identity tests fail with "Azure credentials not configured"**: Ensure credentials are saved in Settings → Integrations. The Task Creator shows a warning if Azure is not configured.
 - **Tests run but return errors about permissions**: Verify all five permissions have **admin consent** granted. Individual user consent is not sufficient for Application-type permissions.
 - **Cannot disconnect**: If credentials were set via environment variables (`AZURE_TENANT_ID`, etc.), the Disconnect button is disabled. Remove the env vars to disconnect.

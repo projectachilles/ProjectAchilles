@@ -34,7 +34,9 @@ This page consolidates all environment variables used across all deployment targ
 | `ELASTICSEARCH_CLOUD_ID` | Elastic Cloud deployment ID |
 | `ELASTICSEARCH_API_KEY` | API key for authentication (see required permissions below) |
 | `ELASTICSEARCH_NODE` | Direct node URL (e.g., `http://localhost:9200`) |
-| `ELASTICSEARCH_INDEX_PATTERN` | Index pattern (default: `achilles-results-*`) |
+| `ELASTICSEARCH_INDEX_PATTERN` | Read index pattern (default: `achilles-results-*`) |
+| `ELASTICSEARCH_WRITE_INDEX_PREFIX` | Write index prefix (default: `achilles-results-`) |
+| `ELASTICSEARCH_WRITE_INDEX_ROLLOVER` | Write index rollover mode: `none`, `daily`, or `monthly` |
 
 :::info Elasticsearch API Key Permissions
 When creating an API key manually (Kibana → Stack Management → API Keys), use these role descriptors:

@@ -115,7 +115,7 @@ curl https://<backend-domain>/api/health
 
 - [ ] Health endpoint responds
 - [ ] CORS headers present on cross-origin requests
-- [ ] Rate limiting active (enrollment: 5/15min)
+- [ ] Rate limiting active (enrollment: 300/15min per IP; agent device: 30/min per agent)
 
 ### Browser Console
 

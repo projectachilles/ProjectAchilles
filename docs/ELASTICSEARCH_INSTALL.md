@@ -450,5 +450,5 @@ Items the current setup intentionally does **not** include — track separately 
 
 - **High availability** — single node = single point of failure. For real HA, add at least 2 more master-eligible nodes across failure domains.
 - **Monitoring/alerting** — no Prometheus, Beats, or external uptime monitor. Consider DO's monitoring + a free uptime ping (UptimeRobot, Better Stack) on `https://<hostname>/` returning 401.
-- **Application-level users** — every app currently authenticates as `elastic`. Create per-application users or API keys (see USER_GUIDE.md) before exposing the cluster to other services.
+- **Application-level users** — every app currently authenticates as `elastic`. Create per-application users or API keys (see USER_GUIDE.md) before exposing the cluster to other services. Keys for ProjectAchilles need `write` + `create_index` on `achilles-results-*`: the platform auto-creates dated write indices (`achilles-results-<date>`, daily/monthly/static rollover) on first ingest — see "ProjectAchilles index layout" in [ELASTICSEARCH_USER_GUIDE.md](ELASTICSEARCH_USER_GUIDE.md).
 - **Snapshot drill** — restore from a snapshot has not been rehearsed. Do this at least once before relying on it.

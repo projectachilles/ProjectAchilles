@@ -8,28 +8,31 @@ description: "Manage multiple Elasticsearch indices for isolated test result set
 
 ## Overview
 
-ProjectAchilles supports multiple Elasticsearch indices, allowing you to isolate test results by engagement, environment, or team.
+ProjectAchilles writes test results into **dated write indices** and reads them back through a wildcard pattern (`achilles-results-*` by default). Indices are created automatically — there is no manual index creation step.
 
-## Managing Indices
+## Write-Index Rollover
 
-### Viewing Indices
+Ingestion routes through a write index resolved from a configurable prefix and rollover mode (**Write Index Prefix** and **Write index rollover** in Analytics → Settings):
 
-The index selector dropdown shows all available indices matching the configured pattern (`achilles-results-*` by default). Each index displays:
-- Document count
-- Index size
-- Creation date
+| Rollover mode | Write index |
+|---------------|-------------|
+| **Daily** | `achilles-results-YYYY.MM.DD` |
+| **Monthly** | `achilles-results-YYYY.MM` |
+| **Static** (none) | The prefix as-is |
 
-### Creating Indices
+New dated indices are created automatically on first ingest with the correct field mappings. Because the read pattern (`achilles-results-*`) spans all dated indices, analytics always see the full result history — rollover only affects where new documents land.
 
-Click **Create Index** to create a new Elasticsearch index with the correct field mappings. The index name must follow the pattern `achilles-results-<name>`.
+Rollover keeps individual indices small, which makes retention simple: old dated indices can be snapshotted and deleted without touching the current write index.
 
-### Switching Indices
+Environment variable equivalents: `ELASTICSEARCH_WRITE_INDEX_PREFIX` and `ELASTICSEARCH_WRITE_INDEX_ROLLOVER` (`none` / `daily` / `monthly`).
 
-Select a different index from the dropdown to switch the entire Analytics dashboard to that index. All queries, scores, and visualizations update to reflect the selected index.
+## Viewing Indices
+
+The read-only index list in Analytics settings shows all indices matching the configured pattern, with document count, size, and creation date.
 
 ## Per-Task Index Targeting
 
-When creating a task or schedule, you can specify a target Elasticsearch index. Results from that task are ingested into the specified index instead of the default.
+When creating a task or schedule, you can specify a target Elasticsearch index under **Advanced** (the default is the global write index). Results from that task are ingested into the specified index instead.
 
 This is useful for:
 - **Engagement isolation** — Keep results from different engagements separate
