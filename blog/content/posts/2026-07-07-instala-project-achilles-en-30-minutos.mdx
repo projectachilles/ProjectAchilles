@@ -1,0 +1,586 @@
+---
+title: "Instala Project Achilles en 30 Minutos: Guía Paso a Paso"
+description: "Instala la plataforma Achilles paso a paso — Docker local (gratis) o VPS en DigitalOcean (~$8/mes)."
+date: "2026-07-07"
+tags:
+  - getting-started
+  - docker
+  - installation
+  - tutorial
+author: kendra
+lang: es
+translationKey: qs-01-install
+---
+
+> **Serie: Empezando con Project Achilles — Parte 1 de 6**
+
+**Dificultad:** Principiante 🟢
+
+---
+
+## TL;DR
+
+- Achilles tiene dos partes: la plataforma (dashboard + servidor) y el agente (en cada máquina a validar)
+- Este post cubre solo la plataforma, el agente lo instalamos en QS-02
+- Dos opciones: Docker en tu máquina local (Opción A, gratis) o VPS en la nube como DigitalOcean (Opción B, ~$8/mes)
+- Al terminar tendrás el dashboard corriendo con datos de ejemplo
+- Tiempo estimado: 30 min (local) o 40 min (DigitalOcean)
+
+---
+
+## Lo Que Vas a Instalar
+
+Achilles tiene dos partes:
+
+```
+PARTE 1: La plataforma Achilles
+→ El dashboard web que usas para ver resultados
+→ La base de datos donde se guardan los tests
+→ El servidor al que se conectan los agentes
+
+PARTE 2: El agente (en cada máquina que quieras monitorear)
+→ Un programa pequeño (~8 MB)
+→ Ejecuta las simulaciones de ataque
+→ Reporta los resultados al dashboard
+```
+
+Primero instalas la plataforma. Luego instalas el agente en tus máquinas.
+
+---
+
+## Elige Tu Opción para la Plataforma
+
+### Opción A: Self-hosted con Docker — Gratis 🐳
+
+**Para quién:** Quieres que todo quede en tu infraestructura, o no quieres pagar.
+
+```
+Pros:
+✅ Completamente gratis
+✅ Todos los datos se quedan en tu red
+✅ Control total
+
+Contras:
+→ Necesitas una máquina dedicada (puede ser la misma donde
+   instalas el agente si es un equipo de prueba)
+→ Tú gestionas las actualizaciones
+```
+
+**Requisitos mínimos del servidor:**
+```
+Sistema operativo: Linux, macOS o Windows con Docker Desktop
+RAM: 2 GB mínimo (4 GB recomendado)
+Disco: 10 GB libres
+Docker: versión 24 o superior
+```
+
+**¿Tienes Docker instalado?**
+```bash
+docker --version
+# Docker version 24.x.x — ✓ listo
+
+docker compose version
+# Docker Compose version v2.x.x — ✓ listo
+```
+
+Si no tienes Docker:
+- Windows/Mac: descarga **Docker Desktop** desde https://docker.com/products/docker-desktop
+- Linux: usa el script oficial de Docker (instala la versión más reciente):
+  ```bash
+  curl -fsSL https://get.docker.com | sh
+  ```
+
+---
+
+### Opción B: Servidor en la nube (ej. DigitalOcean) — ~$8/mes ☁️
+
+**Para quién:** Quieres que el dashboard sea accesible desde cualquier lugar y que los agentes puedan conectarse desde fuera de tu red local.
+
+```
+Pros:
+✅ Accesible desde cualquier lugar — URL pública para ti y los agentes
+✅ No consume recursos de tu máquina local
+✅ Los datos se quedan en TU servidor, no en un tercero
+
+Contras:
+→ Cuesta ~$8/mes (droplet básico en DigitalOcean o equivalente)
+→ Tú gestionas el servidor (actualizaciones, backups)
+→ Requiere los mismos pasos de instalación que la opción local
+```
+
+**Cómo empezar:** Sigue la **Sección 1B** de este post.
+
+> **Nota:** Achilles es open-source, no existe una versión "cloud gestionada".
+> Tú instalas, tú controlas. La nube es simplemente dónde eliges correrlo.
+
+---
+
+## Sección 1A: Instalar en Local (Docker en tu propia máquina)
+
+*(Si elegiste la Opción B, DigitalOcean, salta a la Sección 1B)*
+
+### Paso 1: Descargar Achilles
+
+```bash
+git clone https://github.com/projectachilles/ProjectAchilles
+cd ProjectAchilles
+```
+
+Si no tienes git: descarga el ZIP desde GitHub → "Code" → "Download ZIP", extrae y entra a la carpeta.
+
+### Paso 2: Crear tu cuenta de Clerk (autenticación gratuita)
+
+Achilles usa Clerk para el login de usuarios. Necesitas crear una app gratuita:
+
+```
+1. Ve a https://clerk.com → "Start building for free"
+2. Crea una cuenta (es gratis)
+3. Crea una nueva aplicación:
+   Nombre: "Achilles"
+   Sign in options: deja Email activado (los demás son opcionales)
+   → Google activado también funciona, añade el botón
+     "Continuar con Google" al login
+   → Password no aparece aquí, se activa después en el
+     dashboard si lo necesitas (email code funciona igual)
+4. Click "Create application"
+5. En el dashboard de Clerk → Configure → API Keys
+6. Copia estos dos valores:
+   → Publishable key: pk_test_xxxxxxxxxx...
+   → Secret key:      sk_test_xxxxxxxxxx...
+```
+
+### Paso 3: Configurar las variables de entorno
+
+El repo incluye dos archivos de ejemplo (`.env.example`) que sirven como plantilla. El comando `cp` los copia con el nombre `.env`, que es el archivo real que Achilles lee al arrancar. Necesitas crear uno para cada parte:
+
+```bash
+# Para el servidor (backend) — aquí van las Clerk keys, CORS, etc.
+cp backend/.env.example backend/.env
+
+# Para el frontend — Docker Compose lo lee al construir el contenedor
+cp .env.example .env
+```
+
+> Los archivos `.env.example` nunca se modifican — son la plantilla guardada en el repo.
+> Los `.env` son tu copia local con tus valores reales, y están en `.gitignore` para que no se suban a GitHub.
+
+Abre `backend/.env` con `nano backend/.env` y cambia solo estos dos valores:
+
+```bash
+# ── Clerk (obligatorio) ───────────────────────────
+CLERK_SECRET_KEY=sk_test_xxxxxxxxxxxxxxxxxxxx
+CLERK_PUBLISHABLE_KEY=pk_test_xxxxxxxxxxxxxxxxxxxx
+```
+
+> **`CORS_ORIGIN`** — no necesitas cambiarlo si usas Docker. Nginx sirve el frontend en el puerto 80 y hace de proxy hacia el backend internamente, el navegador nunca llama directamente al puerto 3000 y CORS no se dispara. Solo importa si corres Achilles fuera de Docker (modo desarrollo).
+> **`ENCRYPTION_SECRET` y `AGENT_SERVER_URL`** — déjalos como están. `AGENT_SERVER_URL` lo ajustamos en QS-02 cuando instalemos el agente.
+
+Abre `.env` con `nano .env` y añade tu Clerk publishable key al final del archivo — el `.env.example` raíz no trae este campo, hay que añadirlo manualmente:
+
+```bash
+# ============ Clerk (Frontend) ============
+CLERK_PUBLISHABLE_KEY=pk_test_xxxxxxxxxxxxxxxxxxxx
+```
+
+> **¿Por qué dos archivos?**
+> `backend/.env` lo lee el servidor directamente. El `.env` raíz lo lee Docker Compose al arrancar y se lo pasa al contenedor del frontend. Son dos rutas de configuración distintas.
+
+### Paso 4: Arrancar todo
+
+```bash
+docker compose --profile elasticsearch up -d
+```
+
+> **¿Por qué `--profile elasticsearch`?** Achilles guarda los resultados de los tests en Elasticsearch — el módulo de Analytics lo usa para calcular el Defense Score, el heatmap de MITRE ATT&CK y las tendencias. Sin ese flag solo arrancan el backend y el frontend, pero Analytics no tiene datos. El perfil también carga 1,000 resultados de ejemplo automáticamente.
+
+Espera 1-2 minutos mientras los contenedores arrancan. Verifica que todo está corriendo:
+
+```bash
+docker compose ps
+
+# Deberías ver:
+# achilles-backend    Up   0.0.0.0:3000->3000/tcp
+# achilles-frontend   Up   0.0.0.0:80->80/tcp
+# elasticsearch       Up   0.0.0.0:9200->9200/tcp
+```
+
+### Paso 5: Abrir el dashboard
+
+Abre tu navegador en: **http://localhost**
+
+Verás la landing page de Achilles. Click en **SIGN IN** (arriba a la derecha o en el centro de la página).
+
+![Achilles — landing page](/qs-01/achilles-landing.png)
+
+Verás el modal de login de Clerk. Tienes dos opciones:
+
+- **Con Google**: click en "Continue with Google" — Clerk maneja el OAuth automáticamente. Este botón aparece si dejaste Google habilitado en el Paso 2.
+- **Con email**: click en **Sign up** (abajo del todo), rellena tu nombre, email y contraseña, y click **Continue**.
+
+![Clerk — Sign in](/qs-01/clerk-signup.png)
+
+Si vas con email, al hacer click en **Sign up** verás el formulario de creación de cuenta:
+
+![Clerk — Create account](/qs-01/clerk-create-account.png)
+
+### Paso 6: Asignar tu rol de administrador
+
+Después de crear tu cuenta verás el dashboard, pero el módulo **Endpoints** (donde enrolas y gestionas los agentes) estará oculto:
+
+![Dashboard sin Endpoints](/qs-01/dashboard-sin-endpoints-local.png)
+
+Esto es normal — Achilles usa un sistema de roles y la primera cuenta no tiene ningún rol asignado automáticamente. Para activar todos los módulos, asigna el rol `admin` a tu usuario en Clerk:
+
+1. Ve a [dashboard.clerk.com](https://dashboard.clerk.com) → tu aplicación → **Users**
+2. Click en tu usuario
+3. Busca la sección **"Public metadata"** y escribe:
+   ```json
+   {"role": "admin"}
+   ```
+4. Guarda y recarga Achilles
+
+Verás aparecer el módulo **Endpoints** en la barra lateral con Dashboard, Agents y Tasks:
+
+![Dashboard con Endpoints visible](/qs-01/dashboard-endpoints-do.png)
+
+> **¿Por qué hay que hacerlo manualmente?** Achilles no asigna el rol admin automáticamente al primer usuario para evitar que cualquiera que se registre tenga acceso total. Tú controlas quién tiene qué nivel de acceso desde Clerk.
+
+### Paso 7: Configurar el Session Token de Clerk
+
+Este paso es obligatorio — sin él, el rol que acabas de asignar no llega al dashboard y Achilles sigue tratándote como usuario sin permisos.
+
+Clerk emite un JWT (token de sesión) que el frontend lee para saber qué rol tienes. Por defecto ese token no incluye el `publicMetadata` donde guardaste `{"role": "admin"}`. Hay que añadirlo manualmente:
+
+1. Ve a [dashboard.clerk.com](https://dashboard.clerk.com) → tu aplicación → **Configure → Sessions**
+2. Busca la sección **"Customize session token"**
+3. En el editor de Claims (muestra `{}`), reemplaza el contenido con:
+   ```json
+   {
+     "metadata": "{{user.public_metadata}}"
+   }
+   ```
+4. Click **Save**
+5. Cierra sesión en Achilles y vuelve a entrar
+
+Verás aparecer el módulo **Endpoints** en la barra lateral. Si ya tenías la sesión abierta cuando asignaste el rol, cerrar sesión y volver a entrar fuerza a Clerk a emitir un nuevo token con el rol incluido.
+
+> **¿Por qué `{{user.public_metadata}}`?** Es la sintaxis de Clerk para inyectar el campo `publicMetadata` del usuario dentro del JWT. El frontend de Achilles lee `user.publicMetadata.role` del token — si ese campo no está en el token, el rol no existe desde el punto de vista del dashboard, aunque lo hayas guardado en Clerk.
+
+### Paso 8: Verificar Elasticsearch
+
+Ve a **Settings → Integrations**. Deberías ver Analytics (Elasticsearch) en estado **Connected** — Docker conecta Elasticsearch automáticamente al arrancar, no necesitas configurar nada.
+
+![Settings — Integrations](/qs-01/settings-integrations-local.png)
+
+Si por alguna razón aparece "Not configured", expande la tarjeta y pon:
+```
+Elasticsearch URL: http://elasticsearch:9200
+```
+Guarda y debería conectar de inmediato.
+
+![Analytics — Dashboard](/qs-01/analytics-dashboard-local.png)
+
+---
+
+## Sección 1B: Instalar en DigitalOcean (VPS en la nube)
+
+*(Si elegiste la Opción A, Docker local, ya terminaste con la Sección 1A, salta a la Sección 2)*
+
+### Paso 1: Crear el droplet en DigitalOcean
+
+1. Ve a https://digitalocean.com → "Sign Up" (o inicia sesión)
+2. Click **"Create" → "Droplets"**
+3. Elige la configuración:
+   - **Región**: la más cercana a tus máquinas (ej. NYC, AMS, FRA)
+   - **Imagen**: Ubuntu 22.04 LTS x64
+   - **Plan**: Basic → Premium Intel → **$8/mes** (1 vCPU, 1 GB RAM, 35 GB NVMe SSD)
+
+4. **Autenticación con SSH key** (recomendado):
+
+   En tu terminal local genera una clave si no tienes una:
+   ```bash
+   ssh-keygen -t ed25519
+   # Presiona Enter en todo para aceptar los defaults
+   ```
+   Luego copia tu clave pública:
+   ```bash
+   cat ~/.ssh/id_ed25519.pub
+   ```
+   En DigitalOcean click **"Add SSH Key"**, pega el contenido, ponle un nombre (ej. `mi-laptop`) y click **"Add SSH Key"**. Marca el checkbox de la clave para seleccionarla.
+
+   > Si prefieres no usar SSH, selecciona la pestaña **Password** y pon una contraseña segura.
+
+5. Dale un nombre al droplet (ej. `achilles-server`) y click **"Create Droplet"**
+6. Espera ~1 minuto — DigitalOcean te mostrará la IP pública del servidor (ej. `<IP-pública>`)
+
+### Paso 2: Conectarte al servidor
+
+```bash
+# Desde tu terminal local (Mac/Linux) — usa tu IP pública
+ssh root@<IP-pública>
+
+# Windows: usa PuTTY o Windows Terminal con:
+# ssh root@<IP-pública>
+```
+
+### Paso 3: Instalar Docker, Git y preparar el sistema
+
+```bash
+# Actualizar el sistema
+apt update && apt upgrade -y
+
+# Instalar Docker
+curl -fsSL https://get.docker.com | sh
+
+# Verificar que Docker está corriendo
+docker --version
+docker compose version
+
+# Instalar Git
+apt install -y git
+```
+
+Antes de continuar, añade **swap**:
+
+```bash
+fallocate -l 2G /swapfile
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+```
+
+> **¿Por qué?** Docker construye tres imágenes en paralelo (frontend, backend, wiki). En un servidor de 1 GB ese proceso agota la RAM y el sistema mata el proceso a mitad. El swap funciona como RAM de respaldo en disco — no es tan rápido, pero evita que la build falle.
+>
+> **Alternativa:** Si prefieres no lidiar con esto, usa el plan de **$12/mes (2 GB RAM)** — Basic → Premium Intel → $12/mes. La build corre sin problemas y el dashboard responde más rápido con múltiples agentes activos.
+
+### Paso 4: Descargar Achilles
+
+```bash
+git clone https://github.com/projectachilles/ProjectAchilles
+cd ProjectAchilles
+```
+
+### Paso 5: Exponer los puertos al exterior
+
+Por seguridad, el `docker-compose.yml` enlaza los puertos solo a `127.0.0.1` (localhost). Eso está bien para una máquina local donde tú eres el único usuario, pero en un VPS significa que nadie puede acceder desde fuera — ni tú desde tu navegador, ni los agentes para conectarse al backend.
+
+Edita el archivo para abrir los puertos a todas las interfaces:
+
+```bash
+sed -i 's/127.0.0.1:3000/0.0.0.0:3000/g' docker-compose.yml
+sed -i 's/127.0.0.1:80/0.0.0.0:80/g' docker-compose.yml
+```
+
+> Estos dos comandos reemplazan el binding de localhost por `0.0.0.0` (todas las interfaces de red), que es lo que necesitas para que el servidor sea accesible desde internet.
+
+### Paso 6: Crear tu cuenta de Clerk (autenticación gratuita)
+
+Achilles usa Clerk para el login de usuarios. Es gratuito y no requiere tarjeta de crédito.
+
+1. Ve a https://clerk.com → **"Start building for free"** y crea una cuenta
+2. Crea una nueva aplicación:
+   - **Nombre**: `Achilles`
+   - **Sign in options**: deja **Email** activado — es suficiente para empezar
+   - Si activas **Google**, aparecerá el botón "Continue with Google" en el login (opcional)
+3. Click **"Create application"**
+4. Ve a **Configure → API Keys** y copia estos dos valores:
+   - **Publishable key**: empieza con `pk_test_...` — va en el frontend y el backend
+   - **Secret key**: empieza con `sk_test_...` — solo va en el backend, nunca lo expongas
+
+### Paso 7: Configurar las variables de entorno
+
+Primero crea los archivos `.env` a partir de los ejemplos y genera los secrets de seguridad:
+
+```bash
+cp backend/.env.example backend/.env
+
+openssl rand -base64 32   # para SESSION_SECRET (guarda el resultado)
+openssl rand -base64 32   # para ENCRYPTION_SECRET (guarda el resultado)
+```
+
+Luego abre el `.env` del backend:
+
+```bash
+cd backend
+nano .env
+```
+
+Usa **Ctrl+W** para buscar cada campo. Edita solo estos 6 valores:
+
+| Variable | Valor |
+|----------|-------|
+| `CLERK_PUBLISHABLE_KEY` | tu `pk_test_...` de Clerk |
+| `CLERK_SECRET_KEY` | tu `sk_test_...` de Clerk |
+| `SESSION_SECRET` | resultado del primer `openssl rand` |
+| `ENCRYPTION_SECRET` | resultado del segundo `openssl rand` (descomenta la línea quitando el `#`) |
+| `CORS_ORIGIN` | `http://<IP-pública>` — permite al frontend hablar con el backend desde fuera |
+| `AGENT_SERVER_URL` | `http://<IP-pública>:3000` — URL que usarán los agentes para conectarse |
+
+> **¿Por qué `CORS_ORIGIN` y `AGENT_SERVER_URL` con la IP pública?**
+> En local todo corre en la misma máquina y el navegador accede por `localhost`. En DigitalOcean accedes desde otra máquina — el backend necesita saber qué origen permitir (CORS) y los agentes necesitan saber a qué URL conectarse.
+
+Guarda con **Ctrl+X → Y → Enter**.
+
+Ahora configura el `.env` raíz (estando en `~/ProjectAchilles`):
+
+```bash
+cd ..
+cp .env.example .env
+nano .env
+```
+
+Ve al final del archivo y añade esta línea:
+
+```bash
+CLERK_PUBLISHABLE_KEY=pk_test_xxxxxxxxxxxxxxxxxxxx
+```
+
+Guarda con **Ctrl+X → Y → Enter**.
+
+> **¿Por qué este archivo y por qué al final?**
+> El `.env` raíz lo lee Docker Compose al arrancar y se lo pasa al contenedor del frontend como variable de entorno. El frontend (React) necesita la publishable key de Clerk para mostrar el modal de login — sin ella la página carga pero no puedes autenticarte.
+>
+> El `.env.example` raíz no incluye este campo porque en instalaciones locales el frontend suele correr fuera de Docker (con `npm run dev`) y lee las variables de otro lado. En Docker hay que añadirlo manualmente. Es la única línea que necesitas agregar.
+
+### Paso 8: Abrir los puertos en el firewall de DigitalOcean
+
+```
+En el panel de DigitalOcean → tu droplet → "Networking" → "Firewalls"
+→ Create Firewall → añade estas reglas de entrada (Inbound):
+
+  Tipo    Puerto    Origen
+  ─────────────────────────────────────
+  HTTP    80        All IPv4, All IPv6
+  Custom  3000      All IPv4, All IPv6
+
+→ Aplica el firewall al droplet "achilles-server"
+```
+
+> Si prefieres usar `ufw` desde el servidor:
+> ```bash
+> ufw allow 22/tcp    # SSH — añade esto PRIMERO o te quedas sin acceso
+> ufw allow 80/tcp
+> ufw allow 3000/tcp
+> ufw enable
+> ```
+
+### Paso 9: Ajustar la memoria de Elasticsearch
+
+Elasticsearch viene configurado para usar hasta 1 GB de heap — demasiado para un servidor de 1 GB. Antes de arrancar, reduce ese límite:
+
+```bash
+sed -i 's/ES_JAVA_OPTS=-Xms512m -Xmx1024m/ES_JAVA_OPTS=-Xms256m -Xmx256m/' docker-compose.yml
+```
+
+> **¿Por qué?** Elasticsearch es una base de datos Java diseñada para servidores con bastante RAM. En un VPS de 1 GB compite con el backend, el frontend y el sistema operativo. Con 256 MB de heap funciona bien para uso normal — si tienes muchos agentes o consultas intensas, considera el plan de $12/mes (2 GB).
+
+### Paso 10: Arrancar todo
+
+```bash
+docker compose --profile elasticsearch up -d backend frontend elasticsearch es-seed
+```
+
+> **¿Por qué no `docker compose up` a secas?** El servicio `wiki` (documentación) consume demasiada RAM durante la build en un servidor de 1 GB y mata el proceso. No es necesario para usar Achilles — lo excluimos nombrando los servicios explícitamente.
+
+La primera vez tarda **15-20 minutos** porque construye las imágenes desde cero. Las siguientes veces arranca en segundos gracias al caché.
+
+Cuando termine verifica que todo está corriendo:
+
+```bash
+docker compose ps
+```
+
+Deberías ver backend, frontend y elasticsearch en estado `Up` o `Healthy`.
+
+### Paso 11: Abrir el dashboard
+
+Desde tu navegador (en cualquier computadora): **http://`<IP-pública>`**
+
+Verás la landing page de Achilles. Click en **SIGN IN** para continuar.
+
+![Achilles — landing page desde DigitalOcean](/qs-01/achilles-landing-do.png)
+
+El login y la creación de cuenta funcionan igual que en la instalación local — sigue los mismos pasos del **Paso 5** de la Sección 1A.
+
+### Paso 12: Asignar tu rol de administrador
+
+Igual que en la instalación local, después de crear tu cuenta el módulo **Endpoints** estará oculto:
+
+![Dashboard sin Endpoints](/qs-01/dashboard-no-endpoints-do.png)
+
+Sigue los mismos pasos del **Paso 6** de la Sección 1A (`{"role": "admin"}` en Public metadata de Clerk).
+
+Una vez asignado el rol verás el sidebar completo con Tests, Analytics y Endpoints:
+
+![Dashboard con Endpoints visible](/qs-01/dashboard-endpoints-do.png)
+
+### Paso 13: Configurar el Session Token de Clerk
+
+Igual que en la instalación local (Paso 7 de la Sección 1A), hay que añadir el `publicMetadata` al JWT de Clerk. Sin este paso el rol que asignaste en Clerk no llega al dashboard:
+
+1. Ve a [dashboard.clerk.com](https://dashboard.clerk.com) → tu aplicación → **Configure → Sessions**
+2. En la sección **"Customize session token"**, en el editor de Claims, reemplaza `{}` con:
+   ```json
+   {
+     "metadata": "{{user.public_metadata}}"
+   }
+   ```
+3. Click **Save**
+4. Cierra sesión en Achilles y vuelve a entrar para que el nuevo token se emita
+
+### Paso 14: Verificar Elasticsearch
+
+Ve a **Settings → Integrations**. Deberías ver Analytics en estado **Connected** — Docker conecta Elasticsearch automáticamente, no necesitas configurar nada.
+
+![Settings — Integrations](/qs-01/settings-integrations-local.png)
+
+Si aparece "Not configured", pon:
+```
+Elasticsearch URL: http://elasticsearch:9200
+```
+
+![Analytics — Dashboard](/qs-01/analytics-dashboard-local.png)
+
+---
+
+## Resumen: Instalar la Plataforma
+
+```
+OPCIÓN A — Local (gratis):
+  1. Clonar repo + configurar .env            (10 min)
+  2. docker compose up                        (5 min)
+  3. Crear cuenta + asignar rol admin         (5 min)
+  4. Configurar Session Token en Clerk        (2 min)
+  5. Verificar Elasticsearch                  (2 min)
+  Total: ~25 minutos
+
+OPCIÓN B — DigitalOcean (~$8/mes):
+  1. Crear droplet Ubuntu                     (5 min)
+  2. Instalar Docker, Git y swap              (5 min)
+  3. Clonar repo + editar docker-compose.yml  (3 min)
+  4. Crear cuenta de Clerk                    (5 min)
+  5. Configurar .env con IP pública           (5 min)
+  6. Abrir puertos en el firewall (SSH primero) (2 min)
+  7. docker compose up                        (20 min primera vez)
+  8. Asignar rol admin + Session Token        (5 min)
+  9. Verificar Elasticsearch                  (2 min)
+  Total: ~40 minutos (+ 20 min de build en background)
+```
+
+---
+
+## Puntos Clave
+
+✅ Dos opciones: local con Docker (gratis) o VPS como DigitalOcean (~$8/mes)
+✅ La plataforma incluye dashboard, backend y Elasticsearch, todo con un solo comando
+✅ Los datos de ejemplo se cargan automáticamente al arrancar con `--profile elasticsearch`
+✅ Al terminar este post tienes el dashboard corriendo, el agente viene en QS-02
+✅ El agente y el primer test se cubren en **QS-02** y **QS-04**
+
+---
+
+## Próximo Post
+
+**QS-02: "Conectar Tu Primera Máquina"**
+
+Instala el agente paso a paso en Windows, Linux o macOS y haz aparecer tu primera máquina en el dashboard.
