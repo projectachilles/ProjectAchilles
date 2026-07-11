@@ -1,4 +1,4 @@
-import { getAllPosts } from '@/lib/posts';
+import { getListedPosts } from '@/lib/posts';
 
 export const dynamic = 'force-static';
 
@@ -14,7 +14,7 @@ function escapeXml(value: string): string {
 }
 
 export function GET(): Response {
-  const posts = getAllPosts({ includeDrafts: false });
+  const posts = getListedPosts({ includeDrafts: false });
   const items = posts
     .map(
       (post) => `    <item>

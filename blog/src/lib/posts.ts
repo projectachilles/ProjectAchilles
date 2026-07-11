@@ -138,7 +138,7 @@ export function getPostBySlug(slug: string, opts: GetPostsOptions = {}): Post | 
 
 export function getAllTags(opts: GetPostsOptions = {}): { tag: string; count: number }[] {
   const counts = new Map<string, number>();
-  for (const post of getAllPosts(opts)) {
+  for (const post of getListedPosts(opts)) {
     for (const tag of post.tags) {
       counts.set(tag, (counts.get(tag) ?? 0) + 1);
     }
@@ -149,5 +149,5 @@ export function getAllTags(opts: GetPostsOptions = {}): { tag: string; count: nu
 }
 
 export function getPostsByTag(tag: string, opts: GetPostsOptions = {}): Post[] {
-  return getAllPosts(opts).filter((post) => post.tags.includes(tag));
+  return getListedPosts(opts).filter((post) => post.tags.includes(tag));
 }

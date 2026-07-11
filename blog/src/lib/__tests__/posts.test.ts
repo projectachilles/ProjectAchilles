@@ -150,4 +150,10 @@ describe('tags', () => {
     const posts = getPostsByTag('detection', { postsDir: POSTS_DIR, includeDrafts: false });
     expect(posts.map((p) => p.slug)).toEqual(['beta-post']);
   });
+
+  it('tag listings dedupe translation pairs', () => {
+    const posts = getPostsByTag('testing', { postsDir: I18N_DIR, includeDrafts: true });
+    expect(posts.filter((p) => p.translationKey === 'hello-world')).toHaveLength(1);
+    expect(posts.some((p) => p.slug === 'solo-espanol')).toBe(true);
+  });
 });

@@ -1,8 +1,8 @@
 import { PostCard } from '@/components/PostCard';
-import { getAllPosts } from '@/lib/posts';
+import { getListedPosts } from '@/lib/posts';
 
 export default function HomePage() {
-  const posts = getAllPosts();
+  const posts = getListedPosts();
   if (posts.length === 0) {
     return <div className="mx-auto max-w-3xl px-4 py-16 text-muted">No posts yet.</div>;
   }
