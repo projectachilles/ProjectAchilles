@@ -5,7 +5,7 @@ import { MDXRemote } from 'next-mdx-remote/rsc';
 import { Prose } from '@/components/Prose';
 import { TagBadge } from '@/components/TagBadge';
 import { mdxOptions } from '@/lib/mdx';
-import { getAllPosts, getPostBySlug } from '@/lib/posts';
+import { getAllPosts, getListedPosts, getPostBySlug, getTranslation } from '@/lib/posts';
 
 export const dynamicParams = false;
 
@@ -21,10 +21,21 @@ export async function generateMetadata({
   const { slug } = await params;
   const post = getPostBySlug(slug);
   if (!post) return {};
+  const translation = getTranslation(post);
+  const english = post.lang === 'en' ? post : translation;
   return {
     title: post.title,
     description: post.description,
-    alternates: { canonical: `/posts/${post.slug}` },
+    alternates: {
+      canonical: `/posts/${post.slug}`,
+      ...(translation && {
+        languages: {
+          [post.lang]: `/posts/${post.slug}`,
+          [translation.lang]: `/posts/${translation.slug}`,
+          'x-default': `/posts/${(english ?? post).slug}`,
+        },
+      }),
+    },
     openGraph: {
       title: post.title,
       description: post.description,
@@ -47,17 +58,30 @@ export default async function PostPage({ params }: { params: Promise<{ slug: str
   const post = getPostBySlug(slug);
   if (!post) notFound();
 
-  const posts = getAllPosts();
-  const index = posts.findIndex((p) => p.slug === slug);
-  const newer = index > 0 ? posts[index - 1] : undefined;
-  const older = index < posts.length - 1 ? posts[index + 1] : undefined;
+  // Navigate across articles (one entry per translation pair), not across files —
+  // otherwise a post's own translation would show up as its prev/next neighbor.
+  const listed = getListedPosts();
+  const index = listed.findIndex((p) => p.translationKey === post.translationKey);
+  const newer = index > 0 ? listed[index - 1] : undefined;
+  const older = index >= 0 && index < listed.length - 1 ? listed[index + 1] : undefined;
+  const translation = getTranslation(post);
 
   return (
-    <article className="mx-auto max-w-3xl px-4 py-12">
+    <article lang={post.lang} className="mx-auto max-w-3xl px-4 py-12">
       <header>
         <p className="font-mono text-xs text-muted">
           {post.date} · {post.readingTimeMinutes} min read · {post.author.name}
         </p>
+        {translation && (
+          <Link
+            href={`/posts/${translation.slug}`}
+            rel="alternate"
+            hrefLang={translation.lang}
+            className="mt-2 inline-block font-mono text-xs text-accent transition-colors hover:underline"
+          >
+            {post.lang === 'es' ? 'Read in English →' : 'Leer en español →'}
+          </Link>
+        )}
         <h1 className="mt-3 font-display text-4xl font-bold tracking-tight">{post.title}</h1>
         <p className="mt-3 text-lg text-muted">{post.description}</p>
         <div className="mt-4 flex flex-wrap gap-2">

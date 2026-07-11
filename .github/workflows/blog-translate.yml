@@ -1,0 +1,73 @@
+name: Blog Translate
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths: ['blog/content/posts/**']
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  translate:
+    name: Auto-translate Spanish posts
+    # Same-repo branches only: fork PRs have no access to the OAuth secret.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: blog/package-lock.json
+
+      - name: Install blog dependencies
+        working-directory: blog
+        run: npm ci
+
+      - name: Detect untranslated Spanish posts
+        id: detect
+        working-directory: blog
+        run: |
+          MISSING=$(node scripts/find-untranslated.mjs)
+          echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
+          echo "Untranslated posts: $MISSING"
+
+      # Pushes made with GITHUB_TOKEN do not trigger new workflow runs, and the
+      # detect step is idempotent once the English file exists — no loop risk.
+      - name: Translate with Claude
+        if: steps.detect.outputs.missing != '[]'
+        uses: anthropics/claude-code-action@970cf56ff574f7f75cfb3b2394c8b723c3410247 # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are translating blog posts for the ProjectAchilles blog. The following
+            Spanish posts have no English counterpart (JSON):
+
+            ${{ steps.detect.outputs.missing }}
+
+            For EACH entry:
+            1. Read the Spanish .mdx file at `file`.
+            2. Create an English translation in the same directory named
+               `<YYYY-MM-DD>-<english-slug>.mdx`, where the date prefix matches the
+               original filename and <english-slug> is an idiomatic kebab-case English
+               slug for the translated title.
+            3. Frontmatter: translate `title` and `description`; copy `date`, `tags`,
+               `author`, `image` (if present), and `draft` (if present) EXACTLY; set
+               `lang: en`; set `translationKey` to the same value as the original
+               (if the original has none, add `translationKey: <original-slug>` to the
+               ORIGINAL file too, so the pair is linked).
+            4. Translate the body faithfully to natural technical English. Do NOT
+               translate code blocks, shell commands, file paths, or product names.
+               Keep the MDX structure (headings, callouts, components) identical.
+            5. Run `npm test` in the blog/ directory and fix any frontmatter
+               validation errors before committing.
+            6. Commit all new/changed files with message
+               "feat(blog): add English translation (auto-translated)" and push to the
+               current branch.
+          claude_args: '--allowed-tools "Read,Write,Edit,Glob,Grep,Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(npm test:*),Bash(npm ci:*),Bash(cd:*)"'

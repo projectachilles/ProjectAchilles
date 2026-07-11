@@ -4,14 +4,18 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   getAllPosts,
   getAllTags,
+  getListedPosts,
   getPostBySlug,
   getPostsByTag,
+  getTranslation,
   parsePostFile,
 } from '../posts.js';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url));
 const POSTS_DIR = path.join(FIXTURES, 'posts');
 const INVALID_DIR = path.join(FIXTURES, 'invalid');
+const I18N_DIR = path.join(FIXTURES, 'i18n');
+const COLLISION_DIR = path.join(FIXTURES, 'collision');
 
 describe('parsePostFile', () => {
   it('parses valid frontmatter into a Post', () => {
@@ -50,6 +54,26 @@ describe('parsePostFile', () => {
   });
 });
 
+describe('language fields', () => {
+  it('defaults lang to en and translationKey to the slug', () => {
+    const post = parsePostFile(path.join(POSTS_DIR, 'alpha-post.mdx'));
+    expect(post.lang).toBe('en');
+    expect(post.translationKey).toBe('alpha-post');
+  });
+
+  it('rejects an invalid lang value', () => {
+    expect(() => parsePostFile(path.join(INVALID_DIR, 'bad-lang.mdx'))).toThrowError(
+      /bad-lang\.mdx.*lang/s,
+    );
+  });
+
+  it('rejects a non-kebab-case translationKey', () => {
+    expect(() => parsePostFile(path.join(INVALID_DIR, 'bad-translation-key.mdx'))).toThrowError(
+      /bad-translation-key\.mdx.*translationKey/s,
+    );
+  });
+});
+
 describe('getAllPosts', () => {
   it('sorts newest first and excludes drafts by default option', () => {
     const posts = getAllPosts({ postsDir: POSTS_DIR, includeDrafts: false });
@@ -83,6 +107,36 @@ describe('getPostBySlug', () => {
   });
 });
 
+describe('translation pairing', () => {
+  const opts = { postsDir: I18N_DIR, includeDrafts: true };
+
+  it('getListedPosts dedupes a pair preferring English', () => {
+    const listed = getListedPosts(opts);
+    const pair = listed.filter((p) => p.translationKey === 'hello-world');
+    expect(pair).toHaveLength(1);
+    expect(pair[0].lang).toBe('en');
+  });
+
+  it('getListedPosts keeps an unpaired post regardless of language', () => {
+    const listed = getListedPosts(opts);
+    expect(listed.some((p) => p.slug === 'solo-espanol')).toBe(true);
+  });
+
+  it('getTranslation resolves both directions and is undefined when unpaired', () => {
+    const es = getPostBySlug('hola-mundo', opts)!;
+    const en = getPostBySlug('hello-world', opts)!;
+    expect(getTranslation(es, opts)?.slug).toBe('hello-world');
+    expect(getTranslation(en, opts)?.slug).toBe('hola-mundo');
+    expect(getTranslation(getPostBySlug('solo-espanol', opts)!, opts)).toBeUndefined();
+  });
+
+  it('throws when two posts share translationKey and lang', () => {
+    expect(() => getAllPosts({ postsDir: COLLISION_DIR, includeDrafts: true })).toThrowError(
+      /same-key/,
+    );
+  });
+});
+
 describe('tags', () => {
   it('counts tags across published posts, count desc then alpha', () => {
     const tags = getAllTags({ postsDir: POSTS_DIR, includeDrafts: false });
@@ -95,5 +149,11 @@ describe('tags', () => {
   it('filters posts by tag', () => {
     const posts = getPostsByTag('detection', { postsDir: POSTS_DIR, includeDrafts: false });
     expect(posts.map((p) => p.slug)).toEqual(['beta-post']);
+  });
+
+  it('tag listings dedupe translation pairs', () => {
+    const posts = getPostsByTag('testing', { postsDir: I18N_DIR, includeDrafts: true });
+    expect(posts.filter((p) => p.translationKey === 'hello-world')).toHaveLength(1);
+    expect(posts.some((p) => p.slug === 'solo-espanol')).toBe(true);
   });
 });
