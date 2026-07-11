@@ -68,10 +68,32 @@ The block between the `---` markers is the post's metadata. All validation happe
 | `author` | yes | An author id from `blog/content/authors.ts` (see below) |
 | `image` | no | Path to a hero image (place the file in `blog/public/`) |
 | `draft` | no | `true` hides the post from production, the RSS feed, and the sitemap — it stays visible in local dev preview |
+| `lang` | no | `en` (default) or `es` — the language the post is written in |
+| `translationKey` | no | Kebab-case id shared by a Spanish/English pair; defaults to the post's own slug. See [Languages & translations](#languages--translations) |
 
 :::tip Drafts
 Not ready to publish? Add `draft: true` to the frontmatter and merge anyway. The post won't appear anywhere publicly. Remove the line in a follow-up PR when it's ready.
 :::
+
+## Languages & translations
+
+Write your post in Spanish — an English version is generated for you.
+
+1. Add `lang: es` to your post's frontmatter and open the PR as usual.
+2. The **Blog Translate** workflow detects that the post has no English counterpart and commits an auto-generated English translation (`lang: en`, same `translationKey`) to your PR branch.
+3. **Review the machine translation before merging** — it's a regular file in your PR diff. Edit it freely; it's yours.
+
+How the pair behaves once merged:
+
+- Each language keeps its own URL (the English file gets an idiomatic English slug).
+- The home page, tag pages, and RSS feed show **one entry per article**, preferring the English version.
+- Every post in a pair automatically shows a language toggle ("Leer en español" / "Read in English") in its header, and search engines get `hreflang` alternates.
+
+:::note Linking a pair manually
+The two files are linked by an identical `translationKey`. If you write both versions yourself, give them the same key — two files with the same `translationKey` **and** the same `lang` fail the build.
+:::
+
+If the translation workflow fails for any reason, the PR stays mergeable with the Spanish post only — the English version can always be added in a follow-up PR (any push to a PR touching `blog/content/posts/` re-runs the workflow).
 
 ## Writing tips
 
