@@ -98,6 +98,23 @@ updates:
     commit-message:
       prefix: "chore(deps)"
 
+  # Blog dependencies (Next.js static blog, added Jul 2026)
+  - package-ecosystem: "npm"
+    directory: "/blog"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    groups:
+      npm-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "chore(deps)"
+
   # Go agent dependencies
   - package-ecosystem: "gomod"
     directory: "/agent"
