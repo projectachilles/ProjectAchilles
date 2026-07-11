@@ -184,13 +184,15 @@ The audit found that enrollment (5/15min per IP), agent device endpoints (100/15
 
 Added `keyRotationLimiter`: 3 requests per 15 minutes per IP, applied to `POST /admin/agents/:id/rotate-key`. This prevents bcrypt-based CPU exhaustion through rapid rotation attempts.
 
-**Rate limiting inventory:**
+**Rate limiting inventory** (recalibrated June 2026 — budgets re-keyed from IP to principal; see [Rate Limiting](rate-limiting.md) for the current source of truth):
 | Endpoint | Limiter | Budget |
 |----------|---------|--------|
-| `POST /enroll` | `enrollmentLimiter` | 5/15min per IP |
-| `GET /download` | `downloadLimiter` | 10/15min per IP |
-| Agent device endpoints | `agentDeviceLimiter` | 100/15min per agent |
+| `POST /enroll` | `enrollmentLimiter` | 300/15min per IP |
+| `GET /download` | `downloadLimiter` | 300/15min per IP |
+| Agent device endpoints | `agentDeviceLimiter` | 30/min keyed by `IP:agentId` |
 | `POST /rotate-key` | `keyRotationLimiter` | 3/15min per IP |
+
+> The budgets at audit time were 5/15min (enroll), 10/15min (download), and 100/15min per agent (device). They were recalibrated in June 2026 after IP-keyed limits caused NAT collapse for real fleets.
 
 ---
 

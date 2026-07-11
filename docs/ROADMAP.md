@@ -20,7 +20,7 @@ These features shipped since the v1.0.0 release:
 - &check; **Docker Compose Deployment** — Multi-service with optional local Elasticsearch
 - &check; **Setup Wizard** — Interactive TUI for first-time configuration
 - &check; **Git-Synced Test Library** — Automatic repository sync with GitHub
-- &check; **Multi-Index Management** — Per-task ES index targeting, index creation
+- &check; **Multi-Index Management** — Per-task ES index targeting (manual index creation later superseded by write-index rollover)
 - &check; **Favorites & Recent Views** — Browser module localStorage persistence
 - &check; **ngrok Tunnel Support** — Configurable domains for remote agent communication
 - &check; **LimaCharlie Removal** — Replaced with custom agent system
@@ -39,7 +39,26 @@ These features shipped since the v1.0.0 release:
 
 ---
 
-## Near-Term (Q2 2026)
+## Completed (Apr–Jul 2026)
+
+- &check; **CLI (`achilles`) + AI Chat Agent** — 18 command modules, Clerk device-flow login, conversational agent mode
+- &check; **API Keys v1** — `pa_` bearer tokens with scoped permissions for programmatic access
+- &check; **Defender Tab Redesign** — Alert drill-down drawer, correlation timeline, per-execution detection rate with MITRE roll-up, control ↔ alert linking
+- &check; **Defender Auto-Resolve** — Programmatic resolution of Achilles-correlated alerts with dry-run mode and receipts
+- &check; **Public + On-Prem Server Targets** — Single-server installs behind Caddy with four TLS modes (now 7 deployment targets)
+- &check; **DigitalOcean Tenant Deployer** — Phased, resumable droplet provisioning (`scripts/deploy-do/`)
+- &check; **`achilles deploy` TUI** — Unified guided deployment across targets, interactive or headless
+- &check; **Write-Index Rollover** — Dated `achilles-results-<date>` write indices with daily/monthly/static rollover
+- &check; **Per-Machine Schedule Randomization** — Independent randomized next-run per agent
+- &check; **Azure/Entra Certificate Auth** — JWT client assertion as an alternative to client secrets for Defender/Azure integrations
+- &check; **Rate-Limiter Recalibration** — Budgets re-keyed from IP to principal (agent ID / Clerk user)
+- &check; **Blog** — Next.js + MDX blog at [blog.projectachilles.io](https://blog.projectachilles.io) with Spanish/English auto-translation
+- &check; **Chart Color Governance** — Semantic chart tokens with WCAG AA contrast enforcement and drift-guard tests
+- &check; **Honest Task Status** — Completed-but-failed tasks surfaced truthfully across all task tables
+
+---
+
+## Near-Term (Q3 2026)
 
 ### Agent Enhancements
 - &empty; Agent groups with bulk command execution
@@ -63,7 +82,7 @@ These features shipped since the v1.0.0 release:
 
 ### Platform
 - &empty; Multi-tenancy with role-based access control (RBAC)
-- &empty; Public API with OpenAPI specification
+- &cir; Public API — API keys v1 shipped (`pa_` tokens, scoped permissions); OpenAPI specification pending
 - &empty; Kubernetes deployment (Helm charts)
 - &empty; Executive PDF report generation
 

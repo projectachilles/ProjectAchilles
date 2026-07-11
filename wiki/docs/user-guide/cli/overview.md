@@ -96,6 +96,7 @@ bun run build
 | `integrations` | | Configure Azure AD and alerting |
 | `risk` | | Risk acceptance workflow management |
 | `users` | | Team member and invitation management |
+| `deploy` | | Unified deployment TUI — guided multi-target deploys (interactive or headless) |
 | `help` | | Show help |
 | `chat` | | Launch AI conversational agent |
 

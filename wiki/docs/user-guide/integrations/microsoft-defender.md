@@ -33,8 +33,8 @@ This page covers pillars 1 and 2. Pillar 3 has its own setup walkthrough — see
 3. Under **API Permissions**, add:
    - `SecurityAlert.Read.All` (Application type) — covers Secure Score, alerts, and control profiles
    - Click **Grant admin consent**
-4. Under **Certificates & Secrets**, create a client secret
-5. Note the **Application (client) ID**, **Directory (tenant) ID**, and **Client Secret**
+4. Under **Certificates & Secrets**, create a client secret **or** upload a certificate (see [Certificate authentication](#certificate-authentication) below)
+5. Note the **Application (client) ID**, **Directory (tenant) ID**, and **Client Secret** (or certificate thumbprint)
 
 :::tip Enabling auto-resolve later
 If you plan to enable [auto-resolve](./defender-auto-resolve), it requires the
@@ -45,13 +45,21 @@ later — the read-only integration runs fine without it.
 ## Configuration
 
 1. Navigate to **Settings** → **Integrations** → **Microsoft Defender**
-2. Enter:
+2. Choose an authentication method — **Client Secret** or **Certificate**
+3. Enter:
    - **Tenant ID** — Azure AD Directory (tenant) ID
    - **Client ID** — Application (client) ID
-   - **Client Secret** — The secret you created
-3. Click **Save** and then **Test Connection**
+   - **Client Secret** — The secret you created (client-secret method), *or* the certificate + private key (certificate method)
+4. Click **Save** and then **Test Connection**
 
 Credentials are encrypted at rest with AES-256-GCM.
+
+### Certificate Authentication
+
+Instead of a client secret, the integration can authenticate with a certificate uploaded to the App Registration. ProjectAchilles then signs an RS256 JWT **client assertion** with your private key (carrying the certificate thumbprint) for the OAuth2 token request — no shared secret is transmitted or stored in Azure, and there is no secret-expiry churn.
+
+- **UI**: select **Certificate** in the Defender settings card and provide the certificate and private key
+- **Environment variables**: set `DEFENDER_CERT_THUMBPRINT` and `DEFENDER_PRIVATE_KEY_PEM` (certificate auth takes precedence over `DEFENDER_CLIENT_SECRET` when both are present)
 
 ## Sync Behavior
 

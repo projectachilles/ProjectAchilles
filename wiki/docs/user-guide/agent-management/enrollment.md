@@ -43,7 +43,7 @@ During enrollment:
 - Tokens use **constant-time bcrypt comparison** to prevent timing oracles
 - A dummy hash is compared when no matching token exists (prevents distinguishing "no tokens" from "wrong token")
 - Tokens are revocable through the admin UI
-- Enrollment is rate-limited to **5 requests per 15 minutes** per IP
+- Enrollment is rate-limited to **300 requests per 15 minutes** per IP (sized for large fleets enrolling from behind a shared NAT)
 
 ## Revoking Tokens
 

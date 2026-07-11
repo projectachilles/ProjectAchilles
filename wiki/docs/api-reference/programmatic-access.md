@@ -438,7 +438,7 @@ One file containing per-test summary, every individual run with enrichment, and 
 | Surface | Limit | Notes |
 |---|---|---|
 | `Bearer pa_…` authentication | 60 attempts / minute per IP | Counts every request bearing such a header, even unauthenticated probes |
-| Global `/api/*` | 1000 / 15 minutes per IP | Applies after auth attaches |
+| Global `/api/*` | 1000 / 15 minutes per authenticated user (falls back to IP) | Applies after auth attaches |
 | Agent device endpoints (`/api/agent/*`) | Separate (per-agent) limiter | Not relevant for API keys |
 
 A naive polling script at 1 req/s sits right at the API-key auth ceiling. **Drop to one request every 2–3 seconds** for safety, or batch with `pageSize=` to fetch more per call.

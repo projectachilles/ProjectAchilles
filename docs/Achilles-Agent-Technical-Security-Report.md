@@ -76,7 +76,7 @@ Every agent request includes:
 
 The server always executes `bcrypt.compare()` regardless of whether the agent exists, ensuring **constant-time rejection** that reveals no information about registered agent IDs.
 
-**Rate limiting:** Agent endpoints are rate-limited to 100 requests per 15-minute window per agent (not per IP), preventing resource exhaustion even when agents share a network proxy.
+**Rate limiting:** Agent endpoints are rate-limited to 30 requests per minute, keyed by the composite `IP:agentId` (not per IP alone), preventing resource exhaustion even when agents share a network proxy. See [docs/rate-limiting.md](rate-limiting.md) for the full limiter inventory.
 
 ### 3.3 API Key Rotation
 

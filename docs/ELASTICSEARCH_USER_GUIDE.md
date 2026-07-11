@@ -56,6 +56,26 @@ export ES_PW=$(ssh -i <ssh-key> root@<droplet-ip> \
 
 ---
 
+## ProjectAchilles index layout
+
+The platform writes test results into **dated write indices** and reads them back through a wildcard pattern:
+
+| | |
+|---|---|
+| **Write index** | `achilles-results-<date>` — resolved per ingest from the write-index prefix + rollover mode |
+| **Rollover modes** | `daily` (`achilles-results-YYYY.MM.DD`), `monthly` (`achilles-results-YYYY.MM`), or `none` (static prefix) |
+| **Read pattern** | `achilles-results-*` (`ELASTICSEARCH_INDEX_PATTERN`) — spans all dated indices, so analytics see everything |
+| **Configured via** | Analytics → Settings in the UI, or `ELASTICSEARCH_WRITE_INDEX_PREFIX` / `ELASTICSEARCH_WRITE_INDEX_ROLLOVER` env vars |
+
+Two operational consequences:
+
+- New dated indices are **auto-created on first ingest** with the canonical mapping — there is no manual "create index" step (the UI control for it was removed). This is why application API keys scoped to `achilles-results-*` need the `create_index` privilege alongside `write`.
+- Old dated indices can be snapshotted and deleted individually for retention, without touching the current write index.
+
+Defender integration data lives in a separate `achilles-defender` index.
+
+---
+
 ## Kibana
 
 From `<kibana-compose-dir>/`:

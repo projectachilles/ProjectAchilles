@@ -12,7 +12,37 @@ For the full, detailed changelog, see [CHANGELOG.md on GitHub](https://github.co
 
 ## [Unreleased]
 
-### Recent Changes (April–May 2026)
+### Recent Changes (May–July 2026)
+
+- **Blog** — new blog at [blog.projectachilles.io](https://blog.projectachilles.io)
+  (Next.js + MDX) with a Spanish/English auto-translation workflow, RSS, and
+  tag archives; linked from the landing page.
+- **API keys v1** — `pa_` bearer tokens with scoped read/read-write
+  permissions for programmatic access; managed in Settings → API Keys. See the
+  [Programmatic Access guide](../api-reference/programmatic-access).
+- **`achilles deploy`** — unified CLI deployment TUI (interactive or headless)
+  for guided multi-target deploys.
+- **Public + on-prem server targets** — single-server installs behind Caddy
+  with four TLS modes (`acme-http`, `acme-dns`, `internal`, `byo`), bringing
+  the deployment target count to seven.
+- **Write-index rollover** — results now ingest into dated write indices
+  (`achilles-results-YYYY.MM.DD` / `.YYYY.MM` / static) configured in Analytics
+  settings; manual index creation removed.
+- **Certificate auth for Defender / Azure** — JWT client assertion as an
+  alternative to client secrets in both integrations.
+- **Per-machine schedule randomization** — each agent gets an independent
+  random execution time within office hours.
+- **Rate limiter recalibration** — budgets re-keyed from IP to principal
+  (agent ID / Clerk user) so fleets and analyst teams behind one NAT don't
+  starve each other: agent device 30/min, enrollment/download 300/15min.
+- **Honest task status** — completed tasks with non-zero exit codes display
+  as Failed across all task tables.
+- **Chart color governance** — semantic chart tokens with WCAG AA contrast
+  enforcement and a drift-guard test.
+- **SPA self-heal** — the frontend automatically recovers from stale
+  code-split chunks after a deploy.
+
+### Earlier Changes (April–May 2026)
 
 - **Defender tab redesign** — rebuilt the Analytics Defender tab: hero row with
   Secure Score, alert volume, and detection-rate tiles; a test-vs-alert

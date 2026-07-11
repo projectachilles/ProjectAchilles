@@ -21,13 +21,19 @@ description: "ProjectAchilles product roadmap — planned features and developme
 - Risk acceptance tracking
 - 3 visual themes
 
-## Q2 2026 (Planned)
+## Q2 2026 (Shipped)
 
-- Agent groups and tagging
-- Custom dashboard builder
-- Enhanced reporting (PDF/CSV export)
-- CLI tool for headless operations
+- CLI tool for headless operations (`achilles`, with AI chat agent and unified `deploy` TUI)
 - Documentation wiki (this site)
+- API keys for programmatic access (`pa_` bearer tokens with scoped permissions)
+- Write-index rollover (dated `achilles-results-<date>` write indices)
+- Public + on-prem single-server deployment targets (Caddy TLS)
+- Azure/Entra certificate authentication for the Defender integration
+- Defender tab redesign (alert drill-down, correlation timeline, detection rate)
+- Per-machine schedule randomization
+- Blog at [blog.projectachilles.io](https://blog.projectachilles.io) with Spanish/English auto-translation
+
+Carried over to Q3: agent groups and tagging, custom dashboard builder, enhanced reporting (PDF/CSV export).
 
 ## Q3 2026 (Planned)
 

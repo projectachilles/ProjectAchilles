@@ -95,7 +95,7 @@ Key directories:
 - `middleware/` - Auth, error handling, rate limiting
 
 ### Agent (`agent/`)
-- **Go 1.24** — lightweight binary with enrollment, heartbeat, task execution, self-update
+- **Go 1.25** — lightweight binary with enrollment, heartbeat, task execution, self-update
 - **Platforms**: Windows (amd64), Linux (amd64), macOS (amd64 + arm64)
 - Internal packages: `config`, `enrollment`, `executor`, `httpclient`, `poller`, `reporter`, `service`, `store`, `sysinfo`, `updater`
 - Platform-specific files use build tags (`//go:build darwin`, etc.) for service management, sysinfo, and binary updates

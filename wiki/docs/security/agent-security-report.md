@@ -19,7 +19,7 @@ The agent is a statically compiled Go binary that runs as a system service. It c
 ### Enrollment
 - Token-based with configurable TTL and max uses
 - Timing-oracle resistant authentication
-- Rate limited (5 requests / 15 min)
+- Rate limited (300 requests / 15 min per IP)
 
 ### Communication
 - TLS enforced for non-localhost servers
