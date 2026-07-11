@@ -20,6 +20,13 @@ updates:
       # the runtime typecheck against APIs that don't exist at runtime.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # Recharts 3 is a deliberate migration, not a dep bump — breaking changes in
+      # custom content renderers, tooltip/legend APIs hit our dashboard charts
+      # (Treemap renderers, chart-color tokens). Declined 5x as one-off PRs
+      # (#33, #84, #115, #328, #346); scheduled as part of the dashboard redesign
+      # roadmap instead. 2.x minors/patches still flow; security PRs still surface.
+      - dependency-name: "recharts"
+        update-types: ["version-update:semver-major"]
     groups:
       # Group minor/patch updates to reduce PR noise
       npm-minor-patch:
