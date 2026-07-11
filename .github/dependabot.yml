@@ -27,6 +27,13 @@ updates:
       # roadmap instead. 2.x minors/patches still flow; security PRs still surface.
       - dependency-name: "recharts"
         update-types: ["version-update:semver-major"]
+      # TypeScript majors are a toolchain migration, not a dep bump — TS 7 is the
+      # Go-native compiler rewrite and must be adopted deliberately across all four
+      # npm roots at once (tsc -b, tsx watch, vite, next all sit on it). Declined
+      # 5x as one-off PRs (#100, #103, #139, #146, #150, then #359/#361/#363/#365).
+      # 5.x minors/patches still flow; security PRs still surface.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       # Group minor/patch updates to reduce PR noise
       npm-minor-patch:
@@ -60,6 +67,9 @@ updates:
       # Pin @types/node to the runtime major (Node 22) — see /frontend block.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # TypeScript majors — deliberate toolchain migration, see /frontend block.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       npm-minor-patch:
         patterns:
@@ -88,6 +98,9 @@ updates:
       # Pin @types/node to the runtime major (Node 22) — see /frontend block.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # TypeScript majors — deliberate toolchain migration, see /frontend block.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       npm-minor-patch:
         patterns:
@@ -105,6 +118,14 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 10
+    ignore:
+      # Pin @types/node to the runtime major (Node 22) — see /frontend block.
+      # Declined 26.x three times before /blog joined this config (#320/#325/#329).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # TypeScript majors — deliberate toolchain migration, see /frontend block.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       npm-minor-patch:
         patterns:
