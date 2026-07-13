@@ -13,8 +13,8 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@clerk/backend": "^2.33.5",
-    "@clerk/express": "^1.7.81",
+    "@clerk/backend": "^2.33.6",
+    "@clerk/express": "^1.7.82",
     "@elastic/elasticsearch": "^8.19.2",
     "@types/jsonwebtoken": "^9.0.10",
     "axios": "^1.18.1",
@@ -24,7 +24,7 @@
     "dotenv": "^17.3.1",
     "express": "^4.18.2",
     "express-rate-limit": "^8.5.2",
-    "helmet": "^8.2.0",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.11.0",
     "multer": "^2.2.0",
@@ -59,7 +59,7 @@
     "@types/ws": "^8.5.10",
     "@vitest/coverage-v8": "^4.1.10",
     "supertest": "^7.2.2",
-    "tsx": "^4.23.0",
+    "tsx": "^4.23.1",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }
