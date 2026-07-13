@@ -5,20 +5,21 @@ import { useLayoutActions } from '@/components/layout';
 import SettingsModal from './components/SettingsModal';
 import FilterBar from './components/FilterBar';
 import DateRangePicker from './components/DateRangePicker';
-import HeroMetricsCard from './components/HeroMetricsCard';
+import StatusCommandBar from './components/StatusCommandBar';
+import TopBypassedTechniques from './components/TopBypassedTechniques';
+import WeakestHosts from './components/WeakestHosts';
 import TrendChart from './components/TrendChart';
 import ErrorTypePieChart from './components/ErrorTypePieChart';
 import StackedBarChart from './components/StackedBarChart';
 import CoverageTreemap from './components/CoverageTreemap';
-import DefenseScoreByHostChart from './components/DefenseScoreByHostChart';
 import CategoryBreakdownChart from './components/CategoryBreakdownChart';
 import TestActivityCard from './components/TestActivityCard';
 import ExecutionsDataTable from './components/ExecutionsDataTable';
 import { Toast } from '@/components/shared/ui/Alert';
 import RiskAcceptancesTab from './components/RiskAcceptancesTab';
 import DefenderTab from './components/DefenderTab';
-import SecureScoreCard from './components/SecureScoreCard';
 import TopControlsCard from './components/TopControlsCard';
+import { totalBypassedCount, scoreDelta } from './utils/analyticsDerivations';
 import { useAnalyticsFilters, getWindowDaysForDateRange } from '@/hooks/useAnalyticsFilters';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { useDefenderConfig } from '@/hooks/useDefenderConfig';
@@ -80,7 +81,6 @@ export default function AnalyticsDashboardPage() {
 
   // Defender dashboard data (loaded alongside main dashboard when configured)
   const [secureScore, setSecureScore] = useState<SecureScoreSummary | null>(null);
-  const [defenderTechniqueCount, setDefenderTechniqueCount] = useState<number>(0);
   const [secureScoreTrendData, setSecureScoreTrendData] = useState<SecureScoreTrendPoint[]>([]);
 
   // Risk acceptances tab badge count
@@ -310,13 +310,11 @@ export default function AnalyticsDashboardPage() {
         const trendDays = presetDaysMap[filterState.filters.dateRange.preset] ?? 90;
 
         try {
-          const [defScore, defTechniques, defTrend] = await Promise.all([
+          const [defScore, defTrend] = await Promise.all([
             defenderApi.getSecureScore(),
-            defenderApi.getTechniqueOverlap(),
             defenderApi.getSecureScoreTrend(trendDays),
           ]);
           setSecureScore(defScore);
-          setDefenderTechniqueCount(defTechniques.length);
           setSecureScoreTrendData(defTrend);
         } catch {
           // Defender data is supplementary — don't fail the whole dashboard
@@ -516,6 +514,11 @@ export default function AnalyticsDashboardPage() {
     setExecutionsPage(1); // Reset to first page when page size changes
   };
 
+  // Derived values for the command bar (defense-score trend/delta + bypassed count)
+  const defenseTrendSeries = trendData.map((d) => d.score);
+  const defenseDelta = scoreDelta(defenseTrendSeries);
+  const bypassedCount = totalBypassedCount(techniqueDistData);
+
   return (
     <>
       <div className="container mx-auto px-4 py-6">
@@ -633,21 +636,73 @@ export default function AnalyticsDashboardPage() {
           <RiskAcceptancesTab onActiveCountChange={setActiveRiskCount} />
         ) : activeTab === 'dashboard' ? (
           /* Dashboard Tab */
-          <div className="grid grid-cols-12 auto-rows-[140px] gap-4">
-            {/* Row 1-2: Hero Metrics (1/3) + Trend Overview (2/3) */}
-            <div className="col-span-12 md:col-span-4 row-span-2">
-              <HeroMetricsCard
+          <>
+            {/* Command bar: full-width status band leading the dashboard. Kept outside the
+                fixed auto-rows grid below so its height is dictated by its own content,
+                not clamped to a 140px row track. */}
+            <div className="mb-4">
+              <StatusCommandBar
                 defenseScore={defenseScore?.overall ?? null}
+                defenseDelta={defenseDelta}
+                defenseTrend={defenseTrendSeries}
+                actualScore={defenseScore?.rawScore ?? null}
+                excludedCount={defenseScore?.riskAcceptedCount}
+                edrOnlyScore={defenseScore?.realScore ?? null}
+                inconclusiveRate={errorRate}
+                secureScore={defenderConfigured ? (secureScore?.percentage ?? null) : undefined}
+                securePoints={secureScore ? { current: secureScore.currentScore, max: secureScore.maxScore } : undefined}
                 uniqueEndpoints={uniqueHostnames}
                 executedTests={uniqueTestCount}
-                errorRate={errorRate}
-                realScore={defenseScore?.realScore ?? null}
-                rawScore={defenseScore?.rawScore ?? null}
-                riskAcceptedCount={defenseScore?.riskAcceptedCount}
+                bypassedCount={bypassedCount}
                 loading={loadingDashboard}
               />
             </div>
-            <div className="col-span-12 md:col-span-8 row-span-2 min-w-0 overflow-hidden">
+
+            <div className="grid grid-cols-12 auto-rows-[140px] gap-4">
+              {/* Top Bypassed Techniques + Weakest Hosts */}
+              <div className="col-span-12 lg:col-span-6 row-span-2">
+                <TopBypassedTechniques items={techniqueDistData} loading={loadingDashboard} />
+              </div>
+              <div className="col-span-12 lg:col-span-6 row-span-2">
+                <WeakestHosts items={defenseScoreByHost} loading={loadingDashboard} />
+              </div>
+
+              {/* Test Activity + Score by Category */}
+              <div className="col-span-12 md:col-span-6 row-span-2">
+                <TestActivityCard
+                  trendData={trendData}
+                  recentTests={recentTests}
+                  loading={loadingDashboard}
+                  title="Test Activity"
+                />
+              </div>
+              <div className="col-span-12 md:col-span-6 row-span-2">
+                <CategoryBreakdownChart
+                  data={categoryBreakdown}
+                  loading={loadingDashboard}
+                  title="Score by Category"
+                />
+              </div>
+
+            {/* Results by Error Type + Test Coverage */}
+            <div className="col-span-12 md:col-span-6 row-span-2">
+              <ErrorTypePieChart
+                data={errorTypeData}
+                loading={loadingDashboard}
+                title="Results by Error Type"
+              />
+            </div>
+            <div className="col-span-12 md:col-span-6 row-span-2">
+              <StackedBarChart
+                data={testCoverageData}
+                loading={loadingDashboard}
+                title="Test Coverage"
+              />
+            </div>
+
+            {/* Trend Overview (paired with Top Remediation Controls when Defender is
+                configured; full width otherwise — better for a time series) */}
+            <div className={`col-span-12 ${defenderConfigured ? 'lg:col-span-6' : ''} row-span-2 min-w-0 overflow-hidden`}>
               <TrendChart
                 data={trendData}
                 errorRateData={errorRateTrendData}
@@ -658,74 +713,13 @@ export default function AnalyticsDashboardPage() {
                 windowDays={getWindowDaysForDateRange(filterState.filters.dateRange)}
               />
             </div>
-
-            {/* Row 3-4 (conditional): Secure Score + Alert Summary */}
-            {defenderConfigured && secureScore && (
-              <div className="col-span-12 md:col-span-4 row-span-2">
-                <SecureScoreCard data={secureScore} loading={loadingDashboard} />
-              </div>
-            )}
             {defenderConfigured && (
-              <div className="col-span-12 md:col-span-8 row-span-2">
+              <div className="col-span-12 lg:col-span-6 row-span-2">
                 <TopControlsCard compact />
               </div>
             )}
 
-            {/* Category breakdown + Test Activity */}
-            <div className="col-span-12 md:col-span-6 row-span-2">
-              <CategoryBreakdownChart
-                data={categoryBreakdown}
-                loading={loadingDashboard}
-                title="Score by Category"
-              />
-            </div>
-            <div className="col-span-12 md:col-span-6 row-span-2">
-              <TestActivityCard
-                trendData={trendData}
-                recentTests={recentTests}
-                loading={loadingDashboard}
-                title="Test Activity"
-              />
-            </div>
-
-            {/* Row 6-7: Pie Chart + Technique Distribution (2 rows each) */}
-            <div className="col-span-12 md:col-span-6 row-span-2">
-              <ErrorTypePieChart
-                data={errorTypeData}
-                loading={loadingDashboard}
-                title="Results by Error Type"
-              />
-            </div>
-            <div className="col-span-12 md:col-span-6 row-span-2">
-              <StackedBarChart
-                data={techniqueDistData}
-                loading={loadingDashboard}
-                title="ATT&CK Technique Distribution"
-                badge={defenderTechniqueCount > 0 ? (
-                  <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-500/10 text-amber-500">
-                    {defenderTechniqueCount} with Defender alerts
-                  </span>
-                ) : undefined}
-              />
-            </div>
-
-            {/* Row 8-9: Test Coverage + Defense Score by Host (2 rows each, side by side) */}
-            <div className="col-span-12 lg:col-span-6 row-span-2">
-              <StackedBarChart
-                data={testCoverageData}
-                loading={loadingDashboard}
-                title="Test Coverage"
-              />
-            </div>
-            <div className="col-span-12 lg:col-span-6 row-span-2">
-              <DefenseScoreByHostChart
-                data={defenseScoreByHost}
-                loading={loadingDashboard}
-                title="Defense Score by Host"
-              />
-            </div>
-
-            {/* Row 10-12: Test Breadth by Host Treemap (full width, 3 rows for better visibility) */}
+            {/* Test Breadth by Host Treemap (full width, 3 rows for better visibility) */}
             <div className="col-span-12 row-span-3">
               <CoverageTreemap
                 data={hostTestMatrix}
@@ -736,6 +730,7 @@ export default function AnalyticsDashboardPage() {
               />
             </div>
           </div>
+          </>
         ) : (
           /* All Executions Tab */
           <ExecutionsDataTable
