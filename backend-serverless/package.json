@@ -14,8 +14,8 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@clerk/backend": "^2.33.5",
-    "@clerk/express": "^1.7.81",
+    "@clerk/backend": "^2.33.6",
+    "@clerk/express": "^1.7.82",
     "@elastic/elasticsearch": "^8.19.2",
     "@libsql/client": "^0.17.4",
     "@vercel/blob": "^2.6.1",
@@ -24,8 +24,8 @@
     "cors": "^2.8.6",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "express-rate-limit": "^8.5.2",
-    "helmet": "^8.2.0",
+    "express-rate-limit": "^8.6.0",
+    "helmet": "^8.3.0",
     "morgan": "^1.11.0",
     "multer": "^2.2.0",
     "node-forge": "^1.4.0",
@@ -56,10 +56,10 @@
     "@types/node": "^22.20.1",
     "@types/node-forge": "^1.3.14",
     "@types/supertest": "^6.0.3",
-    "@vercel/node": "^5.8.23",
+    "@vercel/node": "^5.8.26",
     "@vitest/coverage-v8": "^4.1.10",
     "supertest": "^7.2.2",
-    "tsx": "^4.23.0",
+    "tsx": "^4.23.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.2"
   }
