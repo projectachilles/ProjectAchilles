@@ -59,8 +59,18 @@ describe('/api/api-keys', () => {
     const app = await makeApp();
     const res = await request(app)
       .post('/api/api-keys')
-      .send({ name: 'bad', scope: 'admin' });
+      .send({ name: 'bad', scope: 'superuser' });
     expect(res.status).toBe(400);
+  });
+
+  it('POST /  creates a key with admin scope', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/api/api-keys')
+      .send({ name: 'admin_key', scope: 'admin' });
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.scope).toBe('admin');
   });
 
   it('GET /  lists keys without exposing token_hash or full key', async () => {

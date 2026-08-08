@@ -31,7 +31,7 @@ router.post(
 
     const { name, scope, expires_at } = req.body as {
       name: string;
-      scope: 'read' | 'read-write';
+      scope: 'read' | 'read-write' | 'admin';
       expires_at?: string;
     };
 
