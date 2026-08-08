@@ -9,7 +9,7 @@
 import crypto from 'crypto';
 import { getDatabase } from '../agent/database.js';
 
-export type ApiKeyScope = 'read' | 'read-write';
+export type ApiKeyScope = 'read' | 'read-write' | 'admin';
 
 interface ApiKeyRow {
   id: string;

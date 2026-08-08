@@ -12,6 +12,11 @@
  * decline to attach auth, so downstream requireClerkAuth() returns the
  * standard 401. (Rationale: a bad key looks like "unauthenticated" rather
  * than leaking whether a key exists.)
+ *
+ * Scopes expand to permission sets: read → every `:read` permission,
+ * read-write → the operator role, admin → the admin role. Only `admin`
+ * carries `endpoints:tasks:command`, which executes an arbitrary shell
+ * command as root/SYSTEM on every named agent.
  */
 
 import type { Request, Response, NextFunction } from 'express';
@@ -28,6 +33,7 @@ import {
 import { safeClerkAuth } from './clerkAuthHelpers.js';
 
 function permissionsForScope(scope: ApiKeyScope): ReadonlySet<Permission> {
+  if (scope === 'admin') return new Set(ROLE_PERMISSIONS.admin);
   if (scope === 'read-write') return new Set(ROLE_PERMISSIONS.operator);
   return new Set(READ_ONLY_PERMISSIONS);
 }

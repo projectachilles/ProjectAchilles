@@ -96,4 +96,39 @@ describe('acceptApiKey()', () => {
     expect(next).toHaveBeenCalledOnce();
     expect(next.mock.calls[0]).toEqual([]);
   });
+
+  it('attaches full admin permissions for an admin-scope key, including tasks:command', async () => {
+    const { generateApiKey } = await import('../../services/apiKeys/apiKeys.service.js');
+    const { acceptApiKey } = await import('../apiKeyAuth.middleware.js');
+    const { ROLE_PERMISSIONS } = await import('../../types/roles.js');
+
+    const created = generateApiKey({
+      name: 'admin key', scope: 'admin', createdBy: 'u', orgId: 'org_x',
+    });
+
+    const req: any = { headers: { authorization: `Bearer ${created.key}` } };
+    const next = vi.fn();
+    acceptApiKey()(req, {} as any, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    const perms = req.auth.apiKeyPermissions as Set<string>;
+    for (const p of ROLE_PERMISSIONS.admin) expect(perms.has(p)).toBe(true);
+    // The permission that motivated this scope — no other scope carries it.
+    expect(perms.has('endpoints:tasks:command')).toBe(true);
+  });
+
+  it('does NOT grant tasks:command to read or read-write scopes', async () => {
+    const { generateApiKey } = await import('../../services/apiKeys/apiKeys.service.js');
+    const { acceptApiKey } = await import('../apiKeyAuth.middleware.js');
+
+    for (const scope of ['read', 'read-write'] as const) {
+      const created = generateApiKey({
+        name: `k-${scope}`, scope, createdBy: 'u', orgId: null,
+      });
+      const req: any = { headers: { authorization: `Bearer ${created.key}` } };
+      acceptApiKey()(req, {} as any, vi.fn());
+      const perms = req.auth.apiKeyPermissions as Set<string>;
+      expect(perms.has('endpoints:tasks:command')).toBe(false);
+    }
+  });
 });
