@@ -129,6 +129,22 @@ SQLite has no `ALTER COLUMN`, so changing CHECK constraints requires recreating 
 | `/api/tests/*` | Clerk | Build system, certificates |
 | `/api/integrations/alerts/*` | Clerk | Alert thresholds, Slack/email config |
 
+### API Key Scopes
+
+| Scope | Permissions | Notable capability |
+|-------|-------------|--------------------|
+| `read` | every `Permission` ending in `:read` | analytics, results, catalog |
+| `read-write` | `ROLE_PERMISSIONS.operator` | dispatch tests, build, schedule |
+| `admin` | `ROLE_PERMISSIONS.admin` | **`endpoints:tasks:command`** — arbitrary shell command as root/SYSTEM on any agent |
+
+Scope → permission mapping lives in one place: `permissionsForScope()` in
+`backend/src/middleware/apiKeyAuth.middleware.ts`. The `read` scope is
+*derivational* — it is computed as "every permission whose name ends in `:read`",
+so the naming convention is the security boundary.
+
+API keys do not exist in `backend-serverless/`; a Vercel-hosted instance has no
+API-key auth path.
+
 ## Code Patterns
 
 ### Backend ES Module Imports

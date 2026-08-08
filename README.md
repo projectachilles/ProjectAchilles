@@ -279,7 +279,7 @@ Automate test execution across agent pools with flexible scheduling.
 Automate the platform from scripts and CI without a browser session.
 
 - **`pa_` Bearer Tokens** — Create and revoke keys in Settings → API Keys; hashed at rest, shown only once at creation
-- **Permission Scoping** — Read-only or read-write permission sets enforced per key
+- **Permission Scoping** — `read`, `read-write`, or `admin` permission sets enforced per key; `admin` is the only scope with remote command execution
 - **Full Read Coverage** — Query analytics, agents, tasks, and schedules with `Authorization: Bearer pa_...`
 - See the [Programmatic Access guide](wiki/docs/api-reference/programmatic-access.md) for recipes and endpoint reference
 
