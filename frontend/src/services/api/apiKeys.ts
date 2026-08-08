@@ -1,6 +1,6 @@
 import { apiClient } from '@/hooks/useAuthenticatedApi';
 
-export type ApiKeyScope = 'read' | 'read-write';
+export type ApiKeyScope = 'read' | 'read-write' | 'admin';
 
 export interface ApiKeyInfo {
   id: string;
