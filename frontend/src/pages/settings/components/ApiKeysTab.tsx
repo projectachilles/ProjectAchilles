@@ -120,7 +120,7 @@ export function ApiKeysTab() {
         >
           <option value="read">read (analytics, results, agents — read-only)</option>
           <option value="read-write">read-write (operator — no destructive actions)</option>
-          <option value="admin">admin (full access — includes remote commands)</option>
+          <option value="admin">admin (broad access, excludes user/key management — includes remote commands)</option>
         </select>
         <Button type="submit" size="sm" disabled={creating || !name.trim()} className="h-[42px]">
           {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Generate'}
@@ -128,11 +128,12 @@ export function ApiKeysTab() {
       </form>
 
       {scope === 'admin' && (
-        <div className="mb-6 p-3 rounded-lg border border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-900/20">
+        <div role="alert" className="mb-6 p-3 rounded-lg border border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-900/20">
           <p className="text-sm text-red-900 dark:text-red-200">
             An admin key can execute arbitrary commands as root/SYSTEM on every
             enrolled endpoint, and can delete agents, builds, and certificates.
-            Issue one only for a trusted automation host, and set an expiry.
+            Issue one only for a trusted automation host, and revoke it
+            immediately from this page if that host is ever compromised.
           </p>
         </div>
       )}
