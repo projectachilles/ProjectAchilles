@@ -611,32 +611,42 @@ export function migrateAdminApiKeyScope(database: Database.Database): void {
 
   if (!needsMigration) return;
 
-  database.pragma('foreign_keys = OFF');
-
   const cols = database.prepare(`PRAGMA table_info(api_keys)`).all() as { name: string }[];
   const selectCols = cols.map((c) => c.name).join(', ');
 
-  database.exec(`DROP TABLE IF EXISTS api_keys_new`);
-  database.exec(`
-    CREATE TABLE api_keys_new (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      token_hash TEXT NOT NULL UNIQUE,
-      key_prefix TEXT NOT NULL,
-      scope TEXT NOT NULL DEFAULT 'read' CHECK(scope IN ('read','read-write','admin')),
-      created_by TEXT NOT NULL,
-      org_id TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      expires_at TEXT,
-      last_used_at TEXT,
-      revoked_at TEXT
-    );
-    INSERT INTO api_keys_new (${selectCols}) SELECT ${selectCols} FROM api_keys;
-    DROP TABLE api_keys;
-    ALTER TABLE api_keys_new RENAME TO api_keys;
-  `);
-
-  database.pragma('foreign_keys = ON');
+  // Unlike the other table-recreate migrations in this file, this one runs
+  // as a single atomic transaction instead of the FK-off/DROP/RENAME/FK-on
+  // sequence. That sequence exists to make `DROP TABLE` legal on tables
+  // referenced by a foreign key — `PRAGMA foreign_keys` only works outside
+  // a transaction, so those migrations can't be wrapped. api_keys has no
+  // foreign keys and no indexes, so neither constraint applies here: no
+  // pragma toggle is needed, and wrapping in a transaction closes the crash
+  // window between `DROP TABLE api_keys` and the `RENAME` that would
+  // otherwise orphan real rows in `api_keys_new` (with `CREATE TABLE IF NOT
+  // EXISTS api_keys` on restart then fabricating an empty table whose probe
+  // passes, silently skipping the migration forever).
+  const recreate = database.transaction(() => {
+    database.exec(`DROP TABLE IF EXISTS api_keys_new`);
+    database.exec(`
+      CREATE TABLE api_keys_new (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        key_prefix TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT 'read' CHECK(scope IN ('read','read-write','admin')),
+        created_by TEXT NOT NULL,
+        org_id TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        expires_at TEXT,
+        last_used_at TEXT,
+        revoked_at TEXT
+      );
+      INSERT INTO api_keys_new (${selectCols}) SELECT ${selectCols} FROM api_keys;
+      DROP TABLE api_keys;
+      ALTER TABLE api_keys_new RENAME TO api_keys;
+    `);
+  });
+  recreate();
 }
 
 export function closeDatabase(): void {
