@@ -30,7 +30,7 @@ Three scopes are available:
 
 - **`read`** — every `*:read` permission (analytics, agents, tasks, schedules, test library, integrations status). Cannot mutate any resource.
 - **`read-write`** — the `operator` permission set (create builds, tasks, schedules; no destructive actions, no user or cert management).
-- **`admin`** — the full `admin` permission set, including `endpoints:tasks:command` (arbitrary shell command execution as root/SYSTEM on any enrolled agent). The only scope with remote command execution; use with caution.
+- **`admin`** — the `admin` permission set minus user/key management, including `endpoints:tasks:command` (arbitrary shell command execution as root/SYSTEM on any enrolled agent). The only scope with remote command execution; use with caution.
 
 Keys are hashed at rest (SHA-256); the full plaintext is shown **once** at creation and is never retrievable again. Revoke a key from the Settings tab at any time — revocation is immediate.
 

@@ -28,7 +28,7 @@ For an endpoint catalog see the per-module references ([Analytics](./analytics.m
 3. Click **Generate**, give it a descriptive name (e.g. `splunk-exporter`, `ci-gate`), and choose a scope:
    - **`read`** — all `*:read` permissions. Read analytics, executions, agents, tasks, schedules, test library. Cannot mutate anything. **Pick this by default** — least privilege.
    - **`read-write`** — operator-equivalent. Can create builds, dispatch tasks, manage schedules. **No** destructive actions, **no** user or cert management.
-   - **`admin`** — full admin-equivalent permissions, including `endpoints:tasks:command` (arbitrary shell command execution as root/SYSTEM on any enrolled agent). This is the highest-privilege scope available to an API key — reserve it for trusted automation that genuinely needs remote command execution.
+   - **`admin`** — admin-equivalent permissions minus user/key management, including `endpoints:tasks:command` (arbitrary shell command execution as root/SYSTEM on any enrolled agent). This is the highest-privilege scope available to an API key — reserve it for trusted automation that genuinely needs remote command execution. It deliberately cannot create/revoke API keys or manage human accounts (see below) — a leaked key can't self-escalate.
 4. **Copy the key immediately.** The full plaintext (a `pa_…` string) is shown exactly once. You cannot retrieve it again — only its short prefix.
 
 API keys cannot create or revoke other API keys — that requires a human admin via the UI.

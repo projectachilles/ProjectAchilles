@@ -135,7 +135,14 @@ SQLite has no `ALTER COLUMN`, so changing CHECK constraints requires recreating 
 |-------|-------------|--------------------|
 | `read` | every `Permission` ending in `:read` | analytics, results, catalog |
 | `read-write` | `ROLE_PERMISSIONS.operator` | dispatch tests, build, schedule |
-| `admin` | `ROLE_PERMISSIONS.admin` | **`endpoints:tasks:command`** — arbitrary shell command as root/SYSTEM on any agent |
+| `admin` | `ROLE_PERMISSIONS.admin` **minus `settings:users:manage`** | **`endpoints:tasks:command`** — arbitrary shell command as root/SYSTEM on any agent |
+
+The admin scope's carve-out is deliberate: an API key is a bearer credential
+with no MFA/session step-up, so granting it `settings:users:manage` would let
+a leaked key mint further API keys and create/promote human Clerk admins —
+meaning revoking the leaked key would no longer contain the incident. User and
+key management (`/api/api-keys/*`, `/api/users/*`) stay Clerk-session-only,
+even for `admin`-scope keys.
 
 Scope → permission mapping lives in one place: `permissionsForScope()` in
 `backend/src/middleware/apiKeyAuth.middleware.ts`. The `read` scope is
