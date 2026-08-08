@@ -97,7 +97,7 @@ describe('acceptApiKey()', () => {
     expect(next.mock.calls[0]).toEqual([]);
   });
 
-  it('attaches full admin permissions for an admin-scope key, including tasks:command', async () => {
+  it('attaches the exact filtered admin permission set for an admin-scope key (not a superset check)', async () => {
     const { generateApiKey } = await import('../../services/apiKeys/apiKeys.service.js');
     const { acceptApiKey } = await import('../apiKeyAuth.middleware.js');
     const { ROLE_PERMISSIONS } = await import('../../types/roles.js');
@@ -112,8 +112,42 @@ describe('acceptApiKey()', () => {
 
     expect(next).toHaveBeenCalledOnce();
     const perms = req.auth.apiKeyPermissions as Set<string>;
-    for (const p of ROLE_PERMISSIONS.admin) expect(perms.has(p)).toBe(true);
-    // The permission that motivated this scope — no other scope carries it.
+
+    // Exact equality, not a superset check: an admin-scope key must get
+    // ROLE_PERMISSIONS.admin minus settings:users:manage — nothing more,
+    // nothing less. A superset-only assertion would not catch a future
+    // ALL_PERMISSIONS addition leaking into the key's grant unfiltered, or
+    // the carve-out over-filtering and silently dropping a legitimate
+    // admin permission.
+    const expected = new Set(ROLE_PERMISSIONS.admin.filter((p) => p !== 'settings:users:manage'));
+    expect(perms).toEqual(expected);
+  });
+
+  it('admin-scope key does NOT carry settings:users:manage (containment: a leaked key cannot mint keys or manage humans)', async () => {
+    const { generateApiKey } = await import('../../services/apiKeys/apiKeys.service.js');
+    const { acceptApiKey } = await import('../apiKeyAuth.middleware.js');
+
+    const created = generateApiKey({
+      name: 'admin key', scope: 'admin', createdBy: 'u', orgId: 'org_x',
+    });
+
+    const req: any = { headers: { authorization: `Bearer ${created.key}` } };
+    acceptApiKey()(req, {} as any, vi.fn());
+    const perms = req.auth.apiKeyPermissions as Set<string>;
+    expect(perms.has('settings:users:manage')).toBe(false);
+  });
+
+  it('admin-scope key DOES carry endpoints:tasks:command (the motivating capability survives the filter)', async () => {
+    const { generateApiKey } = await import('../../services/apiKeys/apiKeys.service.js');
+    const { acceptApiKey } = await import('../apiKeyAuth.middleware.js');
+
+    const created = generateApiKey({
+      name: 'admin key', scope: 'admin', createdBy: 'u', orgId: 'org_x',
+    });
+
+    const req: any = { headers: { authorization: `Bearer ${created.key}` } };
+    acceptApiKey()(req, {} as any, vi.fn());
+    const perms = req.auth.apiKeyPermissions as Set<string>;
     expect(perms.has('endpoints:tasks:command')).toBe(true);
   });
 

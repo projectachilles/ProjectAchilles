@@ -14,9 +14,10 @@
  * than leaking whether a key exists.)
  *
  * Scopes expand to permission sets: read → every `:read` permission,
- * read-write → the operator role, admin → the admin role. Only `admin`
- * carries `endpoints:tasks:command`, which executes an arbitrary shell
- * command as root/SYSTEM on every named agent.
+ * read-write → the operator role, admin → the admin role minus
+ * `settings:users:manage` (see ADMIN_API_KEY_PERMISSIONS below). Only
+ * `admin` carries `endpoints:tasks:command`, which executes an arbitrary
+ * shell command as root/SYSTEM on every named agent.
  */
 
 import type { Request, Response, NextFunction } from 'express';
@@ -32,8 +33,26 @@ import {
 } from '../types/roles.js';
 import { safeClerkAuth } from './clerkAuthHelpers.js';
 
+/**
+ * Admin-scope API key permission set.
+ *
+ * An API key is a bearer credential, not a human session — whoever holds
+ * it holds everything it grants, for as long as it's valid, with no
+ * MFA or step-up to fall back on. Granting it `settings:users:manage`
+ * (part of `ROLE_PERMISSIONS.admin`) would let the key mint further API
+ * keys and create/promote human Clerk admins, so a single leaked key could
+ * plant persistent access that outlives the key itself — revoking it would
+ * no longer contain the incident. This set is `ROLE_PERMISSIONS.admin`
+ * with that one permission carved out; user and key management stay a
+ * human-only, Clerk-session action (see `api-keys.routes.ts`,
+ * `users.routes.ts`).
+ */
+const ADMIN_API_KEY_PERMISSIONS: ReadonlySet<Permission> = new Set(
+  ROLE_PERMISSIONS.admin.filter((p) => p !== 'settings:users:manage'),
+);
+
 function permissionsForScope(scope: ApiKeyScope): ReadonlySet<Permission> {
-  if (scope === 'admin') return new Set(ROLE_PERMISSIONS.admin);
+  if (scope === 'admin') return new Set(ADMIN_API_KEY_PERMISSIONS);
   if (scope === 'read-write') return new Set(ROLE_PERMISSIONS.operator);
   return new Set(READ_ONLY_PERMISSIONS);
 }
