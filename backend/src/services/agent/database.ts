@@ -290,7 +290,7 @@ export function initializeTables(database: Database.Database): void {
       name TEXT NOT NULL,
       token_hash TEXT NOT NULL UNIQUE,
       key_prefix TEXT NOT NULL,
-      scope TEXT NOT NULL DEFAULT 'read' CHECK(scope IN ('read','read-write')),
+      scope TEXT NOT NULL DEFAULT 'read' CHECK(scope IN ('read','read-write','admin')),
       created_by TEXT NOT NULL,
       org_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -299,6 +299,11 @@ export function initializeTables(database: Database.Database): void {
       revoked_at TEXT
     );
   `);
+
+  // Migration: expand api_keys.scope CHECK constraint to include 'admin'.
+  // Must run after the CREATE TABLE IF NOT EXISTS api_keys above — on a fresh
+  // database the table doesn't exist until that statement runs.
+  migrateAdminApiKeyScope(database);
 
   // Periodic cleanup of expired CLI auth codes and refresh tokens
   database.exec(`
@@ -580,6 +585,58 @@ function migrateUninstalledStatus(database: Database.Database): void {
   database.pragma('foreign_keys = ON');
 
   console.log(`[db] Migration complete: added 'uninstalled' status. Backup at ${DB_PATH}.bak`);
+}
+
+/**
+ * Widen api_keys.scope to admit 'admin'.
+ *
+ * SQLite has no ALTER COLUMN, so a CHECK-constraint change means recreating the
+ * table. api_keys has no indexes and no foreign keys, so nothing needs restoring
+ * after the rename.
+ */
+export function migrateAdminApiKeyScope(database: Database.Database): void {
+  // Probe: does the table already accept 'admin'?
+  let needsMigration = false;
+  try {
+    database.exec(`SAVEPOINT admin_scope_check`);
+    database.exec(`INSERT INTO api_keys (id, name, token_hash, key_prefix, scope, created_by)
+                    VALUES ('__scope_check__', '__t__', '__scope_check_hash__', 'pa_check', 'admin', '__t__')`);
+    database.exec(`DELETE FROM api_keys WHERE id = '__scope_check__'`);
+    database.exec(`RELEASE admin_scope_check`);
+  } catch {
+    database.exec(`ROLLBACK TO admin_scope_check`);
+    database.exec(`RELEASE admin_scope_check`);
+    needsMigration = true;
+  }
+
+  if (!needsMigration) return;
+
+  database.pragma('foreign_keys = OFF');
+
+  const cols = database.prepare(`PRAGMA table_info(api_keys)`).all() as { name: string }[];
+  const selectCols = cols.map((c) => c.name).join(', ');
+
+  database.exec(`DROP TABLE IF EXISTS api_keys_new`);
+  database.exec(`
+    CREATE TABLE api_keys_new (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      key_prefix TEXT NOT NULL,
+      scope TEXT NOT NULL DEFAULT 'read' CHECK(scope IN ('read','read-write','admin')),
+      created_by TEXT NOT NULL,
+      org_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT,
+      last_used_at TEXT,
+      revoked_at TEXT
+    );
+    INSERT INTO api_keys_new (${selectCols}) SELECT ${selectCols} FROM api_keys;
+    DROP TABLE api_keys;
+    ALTER TABLE api_keys_new RENAME TO api_keys;
+  `);
+
+  database.pragma('foreign_keys = ON');
 }
 
 export function closeDatabase(): void {
