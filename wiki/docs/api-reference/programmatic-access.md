@@ -28,6 +28,7 @@ For an endpoint catalog see the per-module references ([Analytics](./analytics.m
 3. Click **Generate**, give it a descriptive name (e.g. `splunk-exporter`, `ci-gate`), and choose a scope:
    - **`read`** — all `*:read` permissions. Read analytics, executions, agents, tasks, schedules, test library. Cannot mutate anything. **Pick this by default** — least privilege.
    - **`read-write`** — operator-equivalent. Can create builds, dispatch tasks, manage schedules. **No** destructive actions, **no** user or cert management.
+   - **`admin`** — admin-equivalent permissions minus user/key management, including `endpoints:tasks:command` (arbitrary shell command execution as root/SYSTEM on any enrolled agent). This is the highest-privilege scope available to an API key — reserve it for trusted automation that genuinely needs remote command execution. It deliberately cannot create/revoke API keys or manage human accounts (see below) — a leaked key can't self-escalate.
 4. **Copy the key immediately.** The full plaintext (a `pa_…` string) is shown exactly once. You cannot retrieve it again — only its short prefix.
 
 API keys cannot create or revoke other API keys — that requires a human admin via the UI.
@@ -477,6 +478,7 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 ## Security best practices
 
 - **Pick `read` scope** unless you genuinely need writes. Most automations need only reads.
+- **Reserve `admin` scope for command-execution automation only.** It grants `endpoints:tasks:command` — the ability to run an arbitrary shell command as root/SYSTEM on any enrolled agent. Treat an `admin` key with the same care as a domain admin credential.
 - **Use a distinct name per consumer.** "Splunk forwarder (prod)", "CI defense-gate", etc. Makes the `last_used_at` audit column meaningful.
 - **Never commit a key.** The `pa_` prefix is intentionally chosen to be greppable in git history scanners — but the right answer is not to commit in the first place. Store in a secret manager (GitHub Actions secrets, Vercel env vars, HashiCorp Vault, AWS Secrets Manager, etc.).
 - **Rotate keys when staff churn.** A key outlives its creator's tenure — revoke and regenerate when team members leave or roles change.

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const CreateApiKeySchema = z.object({
   name: z.string().min(1).max(100),
-  scope: z.enum(['read', 'read-write']),
+  scope: z.enum(['read', 'read-write', 'admin']),
   /** Optional ISO-8601 expiry. */
   expires_at: z.string().datetime().optional(),
 });

@@ -16,6 +16,7 @@ This project uses two version streams:
 #### Platform
 - Blog at [blog.projectachilles.io](https://blog.projectachilles.io) — Next.js 16 + MDX, Spanish/English auto-translation workflow, RSS/sitemap, tag archives; linked from the landing nav and footer
 - API keys v1 for programmatic access — `pa_` bearer tokens with scoped read/read-write permissions, Settings → API Keys tab, `POST`/`GET`/`DELETE /api/api-keys`
+- `admin` scope for API keys, for headless automation (an upcoming MCP server) that needs `endpoints:tasks:command` — remote command execution as root/SYSTEM on any enrolled agent. Deliberately excludes `settings:users:manage`, so an admin-scope key can never create/revoke other API keys or manage human accounts; that stays a Clerk-session-only action
 - Unified `achilles deploy` CLI TUI for guided multi-target deployment (interactive or headless)
 - Public and on-prem single-server deployment targets behind Caddy TLS with four certificate modes (`docker-compose.server.yml`, `scripts/deploy-server.sh`, `deploy-remote.sh`, `deploy-do.sh`)
 - DigitalOcean tenant deployer with phased, resumable provisioning (`scripts/deploy-do/`)
