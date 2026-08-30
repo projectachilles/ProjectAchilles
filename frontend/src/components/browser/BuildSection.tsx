@@ -306,7 +306,7 @@ export default function BuildSection({ uuid }: BuildSectionProps) {
           {/* Filename — clickable for download */}
           <button
             onClick={handleDownload}
-            className="w-full text-left text-sm font-mono px-3 py-2 rounded-md hover:bg-accent transition-colors truncate"
+            className="w-full text-left text-sm font-mono px-3 py-2 rounded-md hover:bg-raised transition-colors truncate"
           >
             {buildInfo.filename}
           </button>

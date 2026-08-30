@@ -244,7 +244,7 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
                     <span className="font-medium uppercase">{tests[0].severity}</span>
                   )}
                   {tests[0]?.techniques.slice(0, 2).map((t) => (
-                    <span key={t} className="bg-muted rounded px-1.5 py-0.5 font-mono">{t}</span>
+                    <span key={t} className="bg-raised rounded px-1.5 py-0.5 font-mono">{t}</span>
                   ))}
                   {(tests[0]?.techniques.length ?? 0) > 2 && (
                     <span>+{tests[0].techniques.length - 2}</span>

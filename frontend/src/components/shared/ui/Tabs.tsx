@@ -70,7 +70,7 @@ export function TabsTrigger({ value, children, className = '', disabled }: TabsT
         transition-colors border-b-2 -mb-px
         ${isActive
           ? 'border-primary text-primary bg-background'
-          : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50'
+          : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-raised/50'
         }
         ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
         ${className}

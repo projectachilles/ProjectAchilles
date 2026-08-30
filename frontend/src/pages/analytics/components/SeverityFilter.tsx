@@ -79,7 +79,7 @@ export default function SeverityFilter({
         className={`
           flex items-center gap-2 px-3 py-1.5
           bg-secondary border border-border rounded-lg text-sm
-          hover:bg-accent transition-colors
+          hover:bg-raised transition-colors
           focus:outline-none focus:ring-2 focus:ring-primary
           disabled:opacity-50 disabled:cursor-not-allowed
           min-w-[160px]
@@ -131,8 +131,8 @@ export default function SeverityFilter({
                     onClick={() => toggleOption(option.value)}
                     className={`
                       w-full flex items-center gap-3 px-3 py-2 text-sm text-left
-                      hover:bg-accent transition-colors
-                      ${isSelected ? 'bg-accent/50' : ''}
+                      hover:bg-raised transition-colors
+                      ${isSelected ? 'bg-raised/50' : ''}
                     `}
                   >
                     {/* Checkbox */}

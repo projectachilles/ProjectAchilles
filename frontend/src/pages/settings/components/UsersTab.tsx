@@ -172,7 +172,7 @@ export function UsersTab() {
         </div>
         <button
           onClick={() => { fetchUsers(); fetchInvitations(); }}
-          className="p-2 rounded-lg hover:bg-accent text-muted-foreground"
+          className="p-2 rounded-lg hover:bg-raised text-muted-foreground"
         >
           <RefreshCw className="w-4 h-4" />
         </button>
@@ -328,7 +328,7 @@ export function UsersTab() {
       <div className="mt-8 border border-border rounded-lg">
         <button
           onClick={() => setPermRefOpen(!permRefOpen)}
-          className="flex items-center justify-between w-full px-4 py-3 text-left hover:bg-accent/50 rounded-lg transition-colors"
+          className="flex items-center justify-between w-full px-4 py-3 text-left hover:bg-raised/50 rounded-lg transition-colors"
         >
           <span className="text-sm font-medium">Role Permissions Reference</span>
           <ChevronDown className={cn('w-4 h-4 text-muted-foreground transition-transform', permRefOpen && 'rotate-180')} />
@@ -339,7 +339,7 @@ export function UsersTab() {
             {/* Role summary */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
               {VALID_ROLES.map((role) => (
-                <div key={role} className="text-xs p-2 rounded-lg bg-muted/50">
+                <div key={role} className="text-xs p-2 rounded-lg bg-raised/50">
                   <span className={cn('font-medium px-1.5 py-0.5 rounded-full', ROLE_COLORS[role])}>
                     {ROLE_LABELS[role]}
                   </span>

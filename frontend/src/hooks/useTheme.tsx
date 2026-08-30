@@ -1,22 +1,20 @@
 import type { ReactNode } from 'react';
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect } from 'react';
 
-type Theme = 'light' | 'dark';
-type ThemeStyle = 'default' | 'neobrutalism' | 'hackerterminal';
-type PhosphorVariant = 'green' | 'amber';
-
-const THEME_STYLES: ThemeStyle[] = ['default', 'neobrutalism', 'hackerterminal'];
+/**
+ * Single-theme provider — the f0 dark theme is the only registered theme.
+ *
+ * The theme-switching infrastructure (provider + hook API) is intentionally
+ * preserved so existing consumers and test mocks keep working, but the type
+ * space is narrowed: `theme` is always 'dark' and the style/phosphor
+ * dimensions are gone along with their localStorage persistence.
+ */
+type Theme = 'dark';
 
 interface ThemeContextType {
   theme: Theme;
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
-  themeStyle: ThemeStyle;
-  setThemeStyle: (style: ThemeStyle) => void;
-  toggleThemeStyle: () => void;
-  phosphorVariant: PhosphorVariant;
-  setPhosphorVariant: (variant: PhosphorVariant) => void;
-  togglePhosphorVariant: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -24,141 +22,31 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 interface ThemeProviderProps {
   children: ReactNode;
   defaultTheme?: Theme;
-  defaultThemeStyle?: ThemeStyle;
-  storageKey?: string;
-  styleStorageKey?: string;
-  phosphorStorageKey?: string;
 }
 
-export function ThemeProvider({
-  children,
-  defaultTheme = 'dark',
-  defaultThemeStyle = 'default',
-  storageKey = 'project-achilles-theme',
-  styleStorageKey = 'project-achilles-theme-style',
-  phosphorStorageKey = 'project-achilles-phosphor-variant',
-}: ThemeProviderProps) {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem(storageKey);
-      if (stored === 'light' || stored === 'dark') {
-        return stored;
-      }
-    }
-    return defaultTheme;
-  });
+const LEGACY_STORAGE_KEYS = [
+  'project-achilles-theme',
+  'project-achilles-theme-style',
+  'project-achilles-phosphor-variant',
+];
 
-  const [themeStyle, setThemeStyleState] = useState<ThemeStyle>(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem(styleStorageKey);
-      if (THEME_STYLES.includes(stored as ThemeStyle)) {
-        return stored as ThemeStyle;
-      }
-    }
-    return defaultThemeStyle;
-  });
+const noop = () => {};
 
-  const [phosphorVariant, setPhosphorVariantState] = useState<PhosphorVariant>(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem(phosphorStorageKey);
-      if (stored === 'green' || stored === 'amber') {
-        return stored;
-      }
-    }
-    return 'green';
-  });
+const contextValue: ThemeContextType = {
+  theme: 'dark',
+  setTheme: noop,
+  toggleTheme: noop,
+};
 
-  // Track the user's preferred theme before hackerterminal forced dark mode
-  const preferredThemeRef = useRef<Theme>(theme);
-
-  // Manage .dark class — hackerterminal forces dark mode
+export function ThemeProvider({ children }: ThemeProviderProps) {
   useEffect(() => {
     const root = window.document.documentElement;
-    const effectiveTheme = themeStyle === 'hackerterminal' ? 'dark' : theme;
-    root.classList.remove('light', 'dark');
-    root.classList.add(effectiveTheme);
-    // Only persist the user's actual preference, not the forced dark
-    if (themeStyle !== 'hackerterminal') {
-      localStorage.setItem(storageKey, theme);
+    root.classList.remove('light', 'neobrutalism', 'hackerterminal', 'phosphor-amber');
+    root.classList.add('dark');
+    for (const key of LEGACY_STORAGE_KEYS) {
+      localStorage.removeItem(key);
     }
-  }, [theme, themeStyle, storageKey]);
-
-  // Manage style classes (.neobrutalism / .hackerterminal)
-  useEffect(() => {
-    const root = window.document.documentElement;
-    // Remove all style classes, then add the active one
-    root.classList.remove('neobrutalism', 'hackerterminal');
-    if (themeStyle !== 'default') {
-      root.classList.add(themeStyle);
-    }
-    localStorage.setItem(styleStorageKey, themeStyle);
-  }, [themeStyle, styleStorageKey]);
-
-  // Manage phosphor variant class (.phosphor-amber)
-  useEffect(() => {
-    const root = window.document.documentElement;
-    if (themeStyle === 'hackerterminal' && phosphorVariant === 'amber') {
-      root.classList.add('phosphor-amber');
-    } else {
-      root.classList.remove('phosphor-amber');
-    }
-    localStorage.setItem(phosphorStorageKey, phosphorVariant);
-  }, [themeStyle, phosphorVariant, phosphorStorageKey]);
-
-  const setTheme = (newTheme: Theme) => {
-    preferredThemeRef.current = newTheme;
-    setThemeState(newTheme);
-  };
-
-  const toggleTheme = () => {
-    setThemeState(prev => {
-      const next = prev === 'dark' ? 'light' : 'dark';
-      preferredThemeRef.current = next;
-      return next;
-    });
-  };
-
-  const setThemeStyle = (style: ThemeStyle) => {
-    // When leaving hackerterminal, restore the user's preferred theme
-    if (themeStyle === 'hackerterminal' && style !== 'hackerterminal') {
-      setThemeState(preferredThemeRef.current);
-    }
-    // When entering hackerterminal, save current preference
-    if (style === 'hackerterminal' && themeStyle !== 'hackerterminal') {
-      preferredThemeRef.current = theme;
-    }
-    setThemeStyleState(style);
-  };
-
-  const toggleThemeStyle = () => {
-    setThemeStyleState(prev => {
-      const currentIndex = THEME_STYLES.indexOf(prev);
-      const next = THEME_STYLES[(currentIndex + 1) % THEME_STYLES.length];
-      // When leaving hackerterminal, restore preferred theme
-      if (prev === 'hackerterminal' && next !== 'hackerterminal') {
-        setThemeState(preferredThemeRef.current);
-      }
-      // When entering hackerterminal, save current preference
-      if (next === 'hackerterminal' && prev !== 'hackerterminal') {
-        preferredThemeRef.current = theme;
-      }
-      return next;
-    });
-  };
-
-  const setPhosphorVariant = (variant: PhosphorVariant) => {
-    setPhosphorVariantState(variant);
-  };
-
-  const togglePhosphorVariant = () => {
-    setPhosphorVariantState(prev => prev === 'green' ? 'amber' : 'green');
-  };
-
-  const contextValue = useMemo(() => ({
-    theme, setTheme, toggleTheme,
-    themeStyle, setThemeStyle, toggleThemeStyle,
-    phosphorVariant, setPhosphorVariant, togglePhosphorVariant,
-  }), [theme, themeStyle, phosphorVariant]);
+  }, []);
 
   return (
     <ThemeContext.Provider value={contextValue}>

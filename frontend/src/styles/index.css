@@ -1,323 +1,165 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* ═══════════════════════════════════════════════════════════════
-   HERO PAGE FONTS - Tactical Command Center Aesthetic
-   ═══════════════════════════════════════════════════════════════ */
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+/* App fonts — self-hosted variable fonts (f0 design language) */
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
 
 /* ═══════════════════════════════════════════════════════════════
-   NEOBRUTALISM FONT - DM Sans
+   LANDING PAGE FONTS (Orbitron / Rajdhani / static Inter+JBM)
+   remain on the Google Fonts <link> in index.html — landing.css
+   references the static family names, not the variable ones.
    ═══════════════════════════════════════════════════════════════ */
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
 
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  /* Light mode colors */
-  --color-background: oklch(100% 0 0);
-  --color-foreground: oklch(20% 0.04 265);
-  --color-card: oklch(100% 0 0);
-  --color-primary: oklch(55% 0.24 265);
-  --color-primary-foreground: oklch(98% 0.01 265);
-  --color-secondary: oklch(96% 0.01 265);
-  --color-secondary-foreground: oklch(20% 0.04 265);
-  --color-accent: oklch(96% 0.01 265);
-  --color-accent-foreground: oklch(20% 0.04 265);
-  --color-muted: oklch(96% 0.01 265);
-  --color-muted-foreground: oklch(50% 0.01 265);
-  --color-border: oklch(92% 0.01 265);
-  --color-destructive: oklch(55% 0.22 25);
-  --color-destructive-foreground: oklch(98% 0.01 265);
-  --color-success: oklch(55% 0.16 145);
-  --color-success-foreground: oklch(98% 0.01 265);
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, monospace;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   DEFAULT THEME - Light mode base values
+   f0 THEME — single dark theme (f0_hpot design language)
+
+   One palette, exposed two ways:
+   · Layer A: the pre-existing shadcn-style runtime tokens
+     (--background/--card/--popover/--muted/…) remapped so every
+     legacy component wears the palette unchanged.
+   · Layer B: f0's own semantic names (--surface/--raised/--overlay/
+     --faint/--accent-dim/…) so new components can use the design
+     handoff recipes verbatim (bg-surface, text-faint, …).
    ═══════════════════════════════════════════════════════════════ */
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  /* Analytics semantic colors */
-  --chart-protected: oklch(0.6 0.2 145);
-  --chart-bypassed: oklch(0.55 0.22 25);
-  --chart-primary-line: oklch(0.55 0.22 265);
-  --chart-real-score: oklch(0.5 0.12 145);
-  /* Governed categorical ramp — low chroma, calm against dark surfaces */
-  --chart-cat-1: oklch(0.62 0.14 265);
-  --chart-cat-2: oklch(0.68 0.10 190);
-  --chart-cat-3: oklch(0.64 0.13 300);
-  --chart-cat-4: oklch(0.74 0.13 75);
-  --chart-cat-5: oklch(0.66 0.03 250);
-  /* Sequential coverage/host heat — single hue, low→high */
-  --chart-heat-1: oklch(0.48 0.08 150);
-  /* heat-2 retuned from 0.56/0.11 → 0.52/0.12 so the mid-ramp cell clears
-     WCAG AA (4.5:1) against --chart-label-on-dark; mirrors the dark-theme
-     value. Ramp stays monotonic in L (0.48 < 0.52 < 0.64). */
-  --chart-heat-2: oklch(0.52 0.12 150);
-  --chart-heat-3: oklch(0.64 0.14 150);
-  --chart-heat-4: oklch(0.72 0.17 150);
-  --chart-heat-5: oklch(0.80 0.19 150);
-  /* Semantic at-risk band (50–79%) */
-  --chart-warn: oklch(0.75 0.15 75);
-  /* Contrast-aware cell-label text — theme-invariant (chosen relative to the
-     cell's own fill lightness, not the page theme), identical in :root/.dark */
-  --chart-label-on-light: oklch(0.22 0 0);
-  --chart-label-on-dark: oklch(0.98 0 0);
-  /* Defender overlay series — theme-invariant brand hues */
-  --chart-series-exec: oklch(0.62 0.19 250);
-  --chart-series-alert: oklch(0.60 0.22 25);
-  /* Bare status tokens (were undefined → resolved empty) */
-  --success: oklch(0.55 0.16 145);
-  --warning: oklch(0.75 0.15 75);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.145 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  color-scheme: dark;
+  /* radius-md (buttons/inputs) = 6px, radius-lg (cards) = 8px */
+  --radius: 0.5rem;
 
-  /* ── Structural theme tokens (default) ── */
-  --theme-border-width: 1px;
-  --theme-border-radius: 0.625rem;
-  --theme-shadow: none;
-  --theme-hover-translate: 0px;
-  --theme-hover-shadow: none;
-  --theme-font-body: system-ui, -apple-system, sans-serif;
-  --theme-font-weight-base: 400;
-  --theme-font-weight-heading: 600;
-}
+  /* ── Layer B: f0 palette ── */
+  --surface: #0b100c;
+  --raised: #101713;
+  --overlay: #162019;
+  --border-strong: #2c3a30;
+  --faint: #5f7268;
+  --accent-hover: #6cf5a8;
+  --accent-dim: #12271a;
+  --danger: #f87171;
+  --danger-dim: #2b1214;
+  --warning-dim: #2b2110;
+  --info: #38bdf8;
+  --info-dim: #0e1f2b;
 
-/* ═══════════════════════════════════════════════════════════════
-   DEFAULT THEME - Dark mode overrides
-   ═══════════════════════════════════════════════════════════════ */
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  /* Analytics semantic colors - dark mode */
-  --chart-protected: oklch(0.65 0.22 145);
-  --chart-bypassed: oklch(0.6 0.22 25);
-  --chart-primary-line: oklch(0.65 0.22 265);
-  --chart-real-score: oklch(0.55 0.12 145);
-  --chart-cat-1: oklch(0.68 0.15 265);
-  --chart-cat-2: oklch(0.72 0.11 190);
-  --chart-cat-3: oklch(0.70 0.14 300);
-  --chart-cat-4: oklch(0.78 0.14 75);
-  --chart-cat-5: oklch(0.72 0.03 250);
+  /* ── Layer A: shadcn-style runtime tokens ── */
+  --background: #060906;
+  --foreground: #dce8de;
+  --card: var(--surface);
+  --card-foreground: var(--foreground);
+  --popover: var(--overlay);
+  --popover-foreground: var(--foreground);
+  --primary: #3ef08a;
+  --primary-foreground: #03170b;
+  --secondary: var(--raised);
+  --secondary-foreground: var(--foreground);
+  --muted: #8fa598;
+  --muted-foreground: #8fa598;
+  --accent: #3ef08a;
+  --accent-foreground: #03170b;
+  --destructive: var(--danger);
+  --destructive-foreground: var(--danger-dim);
+  --border: #1c261f;
+  --input: #1c261f;
+  --ring: #3ef08a;
+
+  --sidebar: var(--surface);
+  --sidebar-foreground: var(--foreground);
+  /* Sidebar active state = accent-dim wash with accent text (f0 nav recipe) */
+  --sidebar-primary: var(--accent-dim);
+  --sidebar-primary-foreground: #3ef08a;
+  --sidebar-accent: var(--raised);
+  --sidebar-accent-foreground: #3ef08a;
+  --sidebar-border: var(--border);
+  --sidebar-ring: #3ef08a;
+
+  /* ── Governed chart tokens (PR #339) — values restyled to the f0
+     palette; names are load-bearing (chartColorGuard/chartTokens
+     tests + chartTokens.ts resolver). Chart code must reference
+     these via var(--…), never literals. ── */
+  --chart-1: #3ef08a;
+  --chart-2: #38bdf8;
+  --chart-3: #fbbf24;
+  --chart-4: #f87171;
+  --chart-5: #8fa598;
+  --chart-protected: #3ef08a;
+  --chart-bypassed: #f87171;
+  --chart-primary-line: #3ef08a;
+  --chart-real-score: #6cf5a8;
+  /* Governed categorical ramp — f0 palette order: accent, info,
+     warning, danger, neutral */
+  --chart-cat-1: #3ef08a;
+  --chart-cat-2: #38bdf8;
+  --chart-cat-3: #fbbf24;
+  --chart-cat-4: #f87171;
+  --chart-cat-5: #8fa598;
+  /* Sequential coverage/host heat — single green hue (150), kept in
+     oklch: contrast.test.ts parses these live and asserts AA ≥4.5
+     against the label tokens. Ramp monotonic in L. */
   --chart-heat-1: oklch(0.42 0.09 150);
   --chart-heat-2: oklch(0.52 0.12 150);
   --chart-heat-3: oklch(0.62 0.15 150);
   --chart-heat-4: oklch(0.72 0.18 150);
-  --chart-heat-5: oklch(0.82 0.20 150);
-  --chart-warn: oklch(0.78 0.15 75);
-  /* Contrast-aware cell-label text — theme-invariant, same values as :root */
+  --chart-heat-5: oklch(0.82 0.2 150);
+  --chart-warn: #fbbf24;
+  /* Contrast-aware cell-label text — chosen against the cell's own
+     fill lightness, theme-invariant */
   --chart-label-on-light: oklch(0.22 0 0);
   --chart-label-on-dark: oklch(0.98 0 0);
-  --chart-series-exec: oklch(0.66 0.19 250);
-  --chart-series-alert: oklch(0.64 0.22 25);
-  --success: oklch(0.62 0.17 145);
-  --warning: oklch(0.78 0.15 75);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.95 0 0);
-  --sidebar-primary-foreground: oklch(0.145 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-}
+  --chart-series-exec: #3ef08a;
+  --chart-series-alert: #38bdf8;
+  --success: #3ef08a;
+  --warning: #fbbf24;
 
-/* ═══════════════════════════════════════════════════════════════
-   NEOBRUTALISM THEME - Structural + color overrides (light)
-   ═══════════════════════════════════════════════════════════════ */
-.neobrutalism {
-  /* Structural overrides */
-  --theme-border-width: 2px;
-  --theme-border-radius: 5px;
-  --theme-shadow: 4px 4px 0px 0px var(--border);
-  --theme-hover-translate: 4px;
-  --theme-hover-shadow: none;
-  --theme-font-body: 'DM Sans', sans-serif;
-  --theme-font-weight-base: 500;
-  --theme-font-weight-heading: 700;
-
-  /* Color overrides — neobrutalism light (hot pink / magenta) */
-  --background: oklch(0.9500 0.0200 335);
-  --foreground: oklch(0 0 0);
-  --card: oklch(0.9850 0.008 335);
-  --card-foreground: oklch(0 0 0);
-  --popover: oklch(0.9850 0.008 335);
-  --popover-foreground: oklch(0 0 0);
-  --primary: oklch(0.62 0.26 340);
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.9650 0.015 335);
-  --secondary-foreground: oklch(0 0 0);
-  --muted: oklch(0.9300 0.018 335);
-  --muted-foreground: oklch(0.40 0.02 335);
-  --accent: oklch(0.62 0.26 340);
-  --accent-foreground: oklch(1 0 0);
-  --destructive: oklch(0.6728 0.2147 24.22);
-  --border: oklch(0 0 0);
-  --input: oklch(1 0 0);
-  --ring: oklch(0 0 0);
-
-  /* Sidebar - neobrutalism light */
-  --sidebar: oklch(0.9850 0.008 335);
-  --sidebar-foreground: oklch(0 0 0);
-  --sidebar-primary: oklch(0.62 0.26 340);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.9300 0.018 335);
-  --sidebar-accent-foreground: oklch(0 0 0);
-  --sidebar-border: oklch(0 0 0);
-  --sidebar-ring: oklch(0 0 0);
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   NEOBRUTALISM THEME - Dark mode
-   ═══════════════════════════════════════════════════════════════ */
-.dark.neobrutalism {
-  --background: oklch(0.2200 0.0400 330);
-  --foreground: oklch(0.9400 0.01 335);
-  --card: oklch(0.2800 0.0500 330);
-  --card-foreground: oklch(0.9400 0.01 335);
-  --popover: oklch(0.2800 0.0500 330);
-  --popover-foreground: oklch(0.9400 0.01 335);
-  --primary: oklch(0.62 0.26 340);
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.3000 0.0550 330);
-  --secondary-foreground: oklch(0.9400 0.01 335);
-  --muted: oklch(0.2500 0.0450 330);
-  --muted-foreground: oklch(0.6000 0.03 335);
-  --accent: oklch(0.62 0.26 340);
-  --accent-foreground: oklch(1 0 0);
-  --destructive: oklch(0.7049 0.1869 22.23);
-  --border: oklch(0 0 0);
-  --input: oklch(0.1800 0.0300 330);
-  --ring: oklch(1 0 0);
-
-  /* Sidebar - neobrutalism dark */
-  --sidebar: oklch(0.1800 0.0350 330);
-  --sidebar-foreground: oklch(0.9400 0.01 335);
-  --sidebar-primary: oklch(0.62 0.26 340);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.3000 0.0550 330);
-  --sidebar-accent-foreground: oklch(0.9400 0.01 335);
-  --sidebar-border: oklch(0 0 0);
-  --sidebar-ring: oklch(1 0 0);
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   HACKER TERMINAL THEME - Phosphor CRT (dark only)
-   Green phosphor (P1) by default, amber (P3) via .phosphor-amber
-   ═══════════════════════════════════════════════════════════════ */
-.hackerterminal {
-  /* Phosphor hue — green P1 default, overridden by .phosphor-amber */
-  --phosphor-hue: 142;
-
-  /* Structural overrides */
+  /* ── Structural tokens — pinned to fixed f0 values. Legacy
+     components still reference border-theme/rounded-base/
+     shadow-theme utilities; the tokens and utilities are excised
+     together in the final cleanup phase. ── */
   --theme-border-width: 1px;
-  --theme-border-radius: 2px;
-  --theme-shadow: 0 0 8px oklch(0.75 0.27 var(--phosphor-hue) / 25%);
+  --theme-border-radius: 0.5rem;
+  --theme-shadow: none;
   --theme-hover-translate: 0px;
-  --theme-hover-shadow: 0 0 12px oklch(0.75 0.27 var(--phosphor-hue) / 40%);
-  --theme-font-body: 'JetBrains Mono', ui-monospace, monospace;
+  --theme-hover-shadow: none;
+  --theme-font-body: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --theme-font-weight-base: 400;
-  --theme-font-weight-heading: 500;
-
-  /* Color overrides — phosphor on deep black */
-  --background: oklch(0.10 0.02 var(--phosphor-hue));
-  --foreground: oklch(0.85 0.25 var(--phosphor-hue));
-  --card: oklch(0.14 0.03 var(--phosphor-hue));
-  --card-foreground: oklch(0.85 0.25 var(--phosphor-hue));
-  --popover: oklch(0.14 0.03 var(--phosphor-hue));
-  --popover-foreground: oklch(0.85 0.25 var(--phosphor-hue));
-  --primary: oklch(0.75 0.27 var(--phosphor-hue));
-  --primary-foreground: oklch(0.10 0.02 var(--phosphor-hue));
-  --secondary: oklch(0.18 0.04 var(--phosphor-hue));
-  --secondary-foreground: oklch(0.85 0.25 var(--phosphor-hue));
-  --muted: oklch(0.16 0.03 var(--phosphor-hue));
-  --muted-foreground: oklch(0.50 0.12 var(--phosphor-hue));
-  --accent: oklch(0.75 0.27 var(--phosphor-hue));
-  --accent-foreground: oklch(0.10 0.02 var(--phosphor-hue));
-  --destructive: oklch(0.65 0.22 25);
-  --border: oklch(0.35 0.10 var(--phosphor-hue));
-  --input: oklch(0.08 0.02 var(--phosphor-hue));
-  --ring: oklch(0.75 0.27 var(--phosphor-hue));
-
-  /* Sidebar - hacker terminal */
-  --sidebar: oklch(0.08 0.02 var(--phosphor-hue));
-  --sidebar-foreground: oklch(0.85 0.25 var(--phosphor-hue));
-  --sidebar-primary: oklch(0.75 0.27 var(--phosphor-hue));
-  --sidebar-primary-foreground: oklch(0.10 0.02 var(--phosphor-hue));
-  --sidebar-accent: oklch(0.18 0.04 var(--phosphor-hue));
-  --sidebar-accent-foreground: oklch(0.85 0.25 var(--phosphor-hue));
-  --sidebar-border: oklch(0.35 0.10 var(--phosphor-hue));
-  --sidebar-ring: oklch(0.75 0.27 var(--phosphor-hue));
+  --theme-font-weight-heading: 600;
 }
 
-/* Amber phosphor variant (warm amber, ~P3 / Wyse / IBM terminals) */
-/* Alt: --phosphor-hue: 90 for golden-yellow — try both in browser */
-.hackerterminal.phosphor-amber {
-  --phosphor-hue: 85;
-}
-
-/* Phosphor text glow — applied globally when hacker terminal is active */
-.hackerterminal body {
-  text-shadow: 0 0 3px oklch(0.75 0.27 var(--phosphor-hue) / 40%);
+/* The single f0 theme is dark; <html class="dark"> stays (FOUC guard
+   + legacy dark: variants). This block exists because
+   chartTokens.css.test.ts requires every governed chart token to be
+   defined in BOTH :root and .dark — values are identical. */
+.dark {
+  --chart-cat-1: #3ef08a;
+  --chart-cat-2: #38bdf8;
+  --chart-cat-3: #fbbf24;
+  --chart-cat-4: #f87171;
+  --chart-cat-5: #8fa598;
+  --chart-heat-1: oklch(0.42 0.09 150);
+  --chart-heat-2: oklch(0.52 0.12 150);
+  --chart-heat-3: oklch(0.62 0.15 150);
+  --chart-heat-4: oklch(0.72 0.18 150);
+  --chart-heat-5: oklch(0.82 0.2 150);
+  --chart-warn: #fbbf24;
+  --chart-label-on-light: oklch(0.22 0 0);
+  --chart-label-on-dark: oklch(0.98 0 0);
+  --chart-series-exec: #3ef08a;
+  --chart-series-alert: #38bdf8;
+  --success: #3ef08a;
+  --warning: #fbbf24;
 }
 
 /* ═══════════════════════════════════════════════════════════════
    CUSTOM UTILITIES
    ═══════════════════════════════════════════════════════════════ */
 
-/* Tailwind v4 doesn't support variable border-width via @theme,
-   so we need a custom utility */
+/* Tailwind v4 doesn't support variable border-width via @theme */
 @utility border-theme {
   border-width: var(--theme-border-width);
 }
@@ -333,30 +175,37 @@ body {
   font-family: var(--theme-font-body);
   font-weight: var(--theme-font-weight-base);
   font-feature-settings: "rlig" 1, "calt" 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 h1, h2, h3, h4, h5, h6 {
   font-weight: var(--theme-font-weight-heading);
 }
 
-/* Custom scrollbar */
+::selection {
+  background-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* Thin scrollbars (f0 base layer) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background-color: var(--color-muted);
+  background-color: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: var(--color-muted-foreground);
-  opacity: 0.3;
+  background-color: var(--border-strong);
   border-radius: 6px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  opacity: 0.5;
 }
 
 /* Code block styling */
@@ -368,7 +217,7 @@ pre {
 
 code {
   font-size: 0.875rem;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 @theme inline {
@@ -380,7 +229,7 @@ code {
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
 
-  /* Theme-aware structural utilities */
+  /* Structural utilities (pinned; removed in final cleanup phase) */
   --radius-base: var(--theme-border-radius);
   --shadow-theme: var(--theme-shadow);
 
@@ -399,9 +248,28 @@ code {
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: #03170b;
+
+  /* f0 semantic names (Layer B) */
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-overlay: var(--overlay);
+  --color-border-strong: var(--border-strong);
+  --color-faint: var(--faint);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-dim: var(--accent-dim);
+  --color-danger: var(--danger);
+  --color-danger-dim: var(--danger-dim);
+  --color-warning: var(--warning);
+  --color-warning-dim: var(--warning-dim);
+  --color-info: var(--info);
+  --color-info-dim: var(--info-dim);
+
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);

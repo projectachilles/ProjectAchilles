@@ -12,9 +12,9 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 const variantStyles: Record<ButtonVariant, string> = {
   primary: 'bg-primary text-primary-foreground border-theme border-border shadow-theme hover:translate-x-[var(--theme-hover-translate)] hover:translate-y-[var(--theme-hover-translate)] hover:shadow-[var(--theme-hover-shadow)]',
   secondary: 'bg-secondary text-secondary-foreground border-theme border-border shadow-theme hover:bg-secondary/80 hover:translate-x-[var(--theme-hover-translate)] hover:translate-y-[var(--theme-hover-translate)] hover:shadow-[var(--theme-hover-shadow)]',
-  ghost: 'text-foreground hover:bg-accent hover:text-accent-foreground',
+  ghost: 'text-foreground hover:bg-raised hover:text-foreground',
   destructive: 'bg-destructive text-destructive-foreground border-theme border-border shadow-theme hover:translate-x-[var(--theme-hover-translate)] hover:translate-y-[var(--theme-hover-translate)] hover:shadow-[var(--theme-hover-shadow)]',
-  outline: 'border-theme border-border bg-transparent text-foreground shadow-theme hover:bg-accent hover:text-accent-foreground hover:translate-x-[var(--theme-hover-translate)] hover:translate-y-[var(--theme-hover-translate)] hover:shadow-[var(--theme-hover-shadow)]',
+  outline: 'border-theme border-border bg-transparent text-foreground shadow-theme hover:bg-raised hover:text-foreground hover:translate-x-[var(--theme-hover-translate)] hover:translate-y-[var(--theme-hover-translate)] hover:shadow-[var(--theme-hover-shadow)]',
 };
 
 const sizeStyles: Record<ButtonSize, string> = {

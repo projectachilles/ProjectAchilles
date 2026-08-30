@@ -97,7 +97,7 @@ export function ApiKeysTab() {
             Long-lived credentials for programmatic API access. Use as <code>Authorization: Bearer pa_…</code>.
           </p>
         </div>
-        <button onClick={fetchKeys} className="p-2 rounded-lg hover:bg-accent text-muted-foreground" aria-label="Refresh">
+        <button onClick={fetchKeys} className="p-2 rounded-lg hover:bg-raised text-muted-foreground" aria-label="Refresh">
           <RefreshCw className="w-4 h-4" />
         </button>
       </div>

@@ -84,7 +84,7 @@ export default function TechniqueOverlapChart({
             const alertPct = maxCount > 0 ? (item.defenderAlerts / maxCount) * 100 : 0;
             const clickable = !!onSelectTechnique;
             const rowClass = clickable
-              ? 'flex items-start gap-2 text-xs cursor-pointer rounded px-1 -mx-1 hover:bg-muted/40 transition-colors'
+              ? 'flex items-start gap-2 text-xs cursor-pointer rounded px-1 -mx-1 hover:bg-raised/40 transition-colors'
               : 'flex items-start gap-2 text-xs';
 
             return (
@@ -115,7 +115,7 @@ export default function TechniqueOverlapChart({
                 </span>
                 <div className="flex-1 space-y-1 min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <div className="flex-1 h-3 bg-muted/30 rounded overflow-hidden">
+                    <div className="flex-1 h-3 bg-raised/30 rounded overflow-hidden">
                       <div
                         className="h-full rounded transition-all"
                         style={{ width: `${testPct}%`, backgroundColor: TEST_COLOR }}
@@ -126,7 +126,7 @@ export default function TechniqueOverlapChart({
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <div className="flex-1 h-3 bg-muted/30 rounded overflow-hidden">
+                    <div className="flex-1 h-3 bg-raised/30 rounded overflow-hidden">
                       <div
                         className="h-full rounded transition-all"
                         style={{ width: `${alertPct}%`, backgroundColor: ALERT_COLOR }}

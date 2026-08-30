@@ -65,7 +65,7 @@ export default function ExecutionsTable({ data, loading }: ExecutionsTableProps)
             {data.map((execution, index) => (
               <tr
                 key={`${execution.test_uuid}-${execution.timestamp}-${index}`}
-                className="border-b border-border/50 last:border-0 hover:bg-accent/50 transition-colors"
+                className="border-b border-border/50 last:border-0 hover:bg-raised/50 transition-colors"
               >
                 <td className="py-3 px-3">
                   <span className="font-medium">{execution.test_name}</span>

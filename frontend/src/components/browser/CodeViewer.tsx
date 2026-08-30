@@ -134,7 +134,7 @@ export default function CodeViewer({ content, language, filename }: CodeViewerPr
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-muted/50">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-raised/50">
         <div className="flex items-center gap-2 text-sm">
           <Code className="w-4 h-4 text-muted-foreground" />
           <span className="font-mono text-foreground">{filename || 'Code'}</span>
@@ -142,7 +142,7 @@ export default function CodeViewer({ content, language, filename }: CodeViewerPr
         </div>
         <button
           onClick={copyToClipboard}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-md hover:bg-accent text-sm transition-colors"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-md hover:bg-raised text-sm transition-colors"
         >
           {copied ? (
             <>

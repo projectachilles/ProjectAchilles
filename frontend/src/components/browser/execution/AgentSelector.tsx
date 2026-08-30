@@ -98,7 +98,7 @@ export default function AgentSelector({ agents, targetAgentIds, onSelectionChang
               className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
                 selectedTags.includes(tag)
                   ? 'bg-primary/10 text-primary border-primary/30'
-                  : 'bg-muted text-muted-foreground border-border hover:border-primary/20'
+                  : 'bg-raised text-muted-foreground border-border hover:border-primary/20'
               }`}
             >
               {tag}
@@ -136,7 +136,7 @@ export default function AgentSelector({ agents, targetAgentIds, onSelectionChang
               {agent.tags.length > 0 && (
                 <span className="ml-auto flex gap-1 shrink-0">
                   {agent.tags.slice(0, 2).map((t) => (
-                    <span key={t} className="text-[10px] bg-muted rounded px-1 py-0.5">{t}</span>
+                    <span key={t} className="text-[10px] bg-raised rounded px-1 py-0.5">{t}</span>
                   ))}
                   {agent.tags.length > 2 && (
                     <span className="text-[10px] text-muted-foreground">+{agent.tags.length - 2}</span>

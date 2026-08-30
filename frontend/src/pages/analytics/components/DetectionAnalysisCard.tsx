@@ -82,7 +82,7 @@ export default function DetectionAnalysisCard({
             const barWidth = maxTests > 0 ? (item.testExecutions / maxTests) * 100 : 0;
             const clickable = !!onSelectTechnique;
             const rowClass = clickable
-              ? 'flex items-center gap-2 text-xs cursor-pointer rounded px-1 -mx-1 hover:bg-muted/40 transition-colors'
+              ? 'flex items-center gap-2 text-xs cursor-pointer rounded px-1 -mx-1 hover:bg-raised/40 transition-colors'
               : 'flex items-center gap-2 text-xs';
             return (
               <div
@@ -108,7 +108,7 @@ export default function DetectionAnalysisCard({
                 </span>
 
                 {/* Bar */}
-                <div className="flex-1 h-4 bg-muted/30 rounded overflow-hidden">
+                <div className="flex-1 h-4 bg-raised/30 rounded overflow-hidden">
                   <div
                     className="h-full rounded transition-all"
                     style={{

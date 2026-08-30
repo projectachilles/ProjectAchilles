@@ -585,7 +585,7 @@ export default function AnalyticsDashboardPage() {
                 border-theme border-border rounded-base text-sm transition-colors
                 ${filterState.isExpanded || filterState.activeFilterCount > 0
                   ? 'bg-primary/10 border-primary text-primary'
-                  : 'bg-secondary border-border text-foreground hover:bg-accent'
+                  : 'bg-secondary border-border text-foreground hover:bg-raised'
                 }
               `}
             >

@@ -119,7 +119,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
           <h2 className="text-xl font-semibold">Elasticsearch Connection</h2>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-accent transition-colors"
+            className="p-1 rounded hover:bg-raised transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -357,7 +357,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
           <button
             onClick={handleTest}
             disabled={testing || loading}
-            className="px-4 py-2 rounded-lg border border-border hover:bg-accent transition-colors disabled:opacity-50 flex items-center gap-2"
+            className="px-4 py-2 rounded-lg border border-border hover:bg-raised transition-colors disabled:opacity-50 flex items-center gap-2"
           >
             {testing && <Loader2 className="w-4 h-4 animate-spin" />}
             Test Connection

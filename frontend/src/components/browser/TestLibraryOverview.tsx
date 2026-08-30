@@ -281,7 +281,7 @@ export default function TestLibraryOverview({
                   <button
                     key={test.uuid}
                     onClick={() => onNavigateToTest(test.uuid)}
-                    className="flex items-center justify-between w-full px-3 py-2 rounded-base hover:bg-accent/50 transition-colors text-left"
+                    className="flex items-center justify-between w-full px-3 py-2 rounded-base hover:bg-raised/50 transition-colors text-left"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="text-sm truncate">{test.name}</span>
@@ -319,7 +319,7 @@ export default function TestLibraryOverview({
                   <button
                     key={test.uuid}
                     onClick={() => onNavigateToTest(test.uuid)}
-                    className="flex items-center justify-between w-full px-3 py-2 rounded-base hover:bg-accent/50 transition-colors text-left"
+                    className="flex items-center justify-between w-full px-3 py-2 rounded-base hover:bg-raised/50 transition-colors text-left"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="text-sm truncate">{test.name}</span>

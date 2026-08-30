@@ -13,23 +13,23 @@ interface AlertProps {
 
 const variantStyles: Record<AlertVariant, { container: string; icon: ReactNode }> = {
   default: {
-    container: 'bg-muted border-border',
+    container: 'bg-raised border-border',
     icon: <Info className="w-5 h-5" />,
   },
   success: {
-    container: 'bg-green-500/10 border-green-500/30 text-green-500',
+    container: 'bg-accent-dim border-accent/30 text-accent',
     icon: <CheckCircle2 className="w-5 h-5" />,
   },
   warning: {
-    container: 'bg-yellow-500/10 border-yellow-500/30 text-yellow-500',
+    container: 'bg-warning-dim border-warning/40 text-warning',
     icon: <AlertTriangle className="w-5 h-5" />,
   },
   destructive: {
-    container: 'bg-destructive/10 border-destructive/30 text-destructive',
+    container: 'bg-danger-dim border-danger/30 text-danger',
     icon: <AlertCircle className="w-5 h-5" />,
   },
   info: {
-    container: 'bg-blue-500/10 border-blue-500/30 text-blue-500',
+    container: 'bg-info-dim border-info/30 text-info',
     icon: <Info className="w-5 h-5" />,
   },
 };

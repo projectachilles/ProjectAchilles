@@ -9,7 +9,7 @@ describe('Skeleton', () => {
     const el = screen.getByTestId('skeleton');
     expect(el).toBeInTheDocument();
     expect(el.className).toContain('animate-pulse');
-    expect(el.className).toContain('bg-muted');
+    expect(el.className).toContain('bg-raised');
     expect(el.className).toContain('h-4');
     expect(el.className).toContain('w-12');
     expect(el.getAttribute('aria-hidden')).toBe('true');

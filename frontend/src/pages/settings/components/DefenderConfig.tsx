@@ -260,7 +260,7 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
             className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
               authMethod === 'client_secret'
                 ? 'border-primary bg-primary/10 text-primary'
-                : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted/60'
+                : 'border-border bg-raised/30 text-muted-foreground hover:bg-raised/60'
             }`}
           >
             Client Secret
@@ -271,7 +271,7 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
             className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
               authMethod === 'certificate'
                 ? 'border-primary bg-primary/10 text-primary'
-                : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted/60'
+                : 'border-border bg-raised/30 text-muted-foreground hover:bg-raised/60'
             }`}
           >
             Certificate
@@ -330,7 +330,7 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
               <div className="space-y-1">
                 <label className="text-sm font-medium">PFX / P12 File</label>
                 <div
-                  className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground hover:border-primary/50 hover:bg-muted/30 transition-colors"
+                  className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground hover:border-primary/50 hover:bg-raised/30 transition-colors"
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <Upload className="w-4 h-4 shrink-0" />
@@ -417,7 +417,7 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
       />
 
       {/* Required permissions info */}
-      <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground space-y-2">
+      <div className="rounded-lg bg-raised/50 p-4 text-sm text-muted-foreground space-y-2">
         <p className="font-medium text-card-foreground">Required Azure App Registration Permissions</p>
         <p>The service principal needs this Microsoft Graph API permission (Application type, admin consent required):</p>
         <ul className="list-disc list-inside space-y-1 ml-2">

@@ -30,7 +30,7 @@ interface TableHeaderProps extends HTMLAttributes<HTMLTableSectionElement> {
 export const TableHeader = forwardRef<HTMLTableSectionElement, TableHeaderProps>(
   ({ className = '', children, ...props }, ref) => {
     return (
-      <thead ref={ref} className={`bg-muted/50 ${className}`} {...props}>
+      <thead ref={ref} className={`bg-raised/50 ${className}`} {...props}>
         {children}
       </thead>
     );
@@ -64,7 +64,7 @@ export const TableRow = forwardRef<HTMLTableRowElement, TableRowProps>(
     return (
       <tr
         ref={ref}
-        className={`border-b-[length:var(--theme-border-width)] border-border transition-colors hover:bg-muted/50 ${className}`}
+        className={`border-b-[length:var(--theme-border-width)] border-border transition-colors hover:bg-raised/50 ${className}`}
         {...props}
       >
         {children}

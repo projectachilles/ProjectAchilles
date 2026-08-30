@@ -106,7 +106,7 @@ export default function RotateKeyDialog({
             </DialogDescription>
           </DialogHeader>
           <DialogContent>
-            <div className="rounded-lg border border-border bg-muted/50 p-3">
+            <div className="rounded-lg border border-border bg-raised/50 p-3">
               <code className="text-sm font-mono break-all select-all">
                 {newKey}
               </code>

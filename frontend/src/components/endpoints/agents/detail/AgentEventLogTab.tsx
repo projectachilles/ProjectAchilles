@@ -230,7 +230,7 @@ export default function AgentEventLogTab({ agentId }: AgentEventLogTabProps) {
             return (
               <div
                 key={event.id}
-                className="flex items-center gap-3 p-3 rounded-base bg-muted/30 border-theme border-border"
+                className="flex items-center gap-3 p-3 rounded-base bg-raised/30 border-theme border-border"
               >
                 <Badge variant={EVENT_TYPE_VARIANT[event.event_type]} className="text-xs shrink-0">
                   {EVENT_TYPE_LABELS[event.event_type]}

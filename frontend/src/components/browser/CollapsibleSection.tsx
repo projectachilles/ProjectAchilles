@@ -54,7 +54,7 @@ export default function CollapsibleSection({
         <Icon className="w-3 h-3" />
         <span className="flex-1 text-left">{label}</span>
         {itemCount != null && (
-          <span className="text-[10px] font-normal bg-muted px-1.5 py-0.5 rounded-full">
+          <span className="text-[10px] font-normal bg-raised px-1.5 py-0.5 rounded-full">
             {itemCount}
           </span>
         )}

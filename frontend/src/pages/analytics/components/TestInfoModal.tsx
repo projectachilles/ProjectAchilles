@@ -79,8 +79,8 @@ export default function TestInfoModal({
         for (const h of headings) {
           if (h.textContent?.includes(scrollToValidator)) {
             h.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            h.classList.add('bg-accent/50', 'rounded', 'transition-colors');
-            setTimeout(() => h.classList.remove('bg-accent/50'), 2000);
+            h.classList.add('bg-raised/50', 'rounded', 'transition-colors');
+            setTimeout(() => h.classList.remove('bg-raised/50'), 2000);
             break;
           }
         }

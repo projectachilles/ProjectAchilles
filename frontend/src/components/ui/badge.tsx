@@ -5,19 +5,21 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const badgeVariants = cva(
-  "inline-flex items-center justify-center rounded-base border-theme border-transparent px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden",
+  "inline-flex items-center justify-center rounded border px-1.5 py-0.5 text-[11px] font-medium tracking-wide w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent transition-colors overflow-hidden",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground [a&]:hover:bg-primary/90",
-        secondary:
-          "bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90",
-        destructive:
-          "bg-destructive text-white [a&]:hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
-        outline:
-          "border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
-        ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 [a&]:hover:underline",
+        default: "border-border bg-raised text-muted",
+        accent: "border-accent/30 bg-accent-dim text-accent",
+        high: "border-danger/30 bg-danger-dim text-danger",
+        medium: "border-warning/30 bg-warning-dim text-warning",
+        low: "border-info/30 bg-info-dim text-info",
+        outline: "border-border text-muted",
+        /* Legacy aliases retained for existing call sites */
+        secondary: "border-border bg-raised text-muted",
+        destructive: "border-danger/30 bg-danger-dim text-danger",
+        ghost: "border-transparent text-muted [a&]:hover:bg-raised [a&]:hover:text-foreground",
+        link: "border-transparent text-accent underline-offset-4 [a&]:hover:underline",
       },
     },
     defaultVariants: {
@@ -25,6 +27,9 @@ const badgeVariants = cva(
     },
   }
 )
+
+/** Severity badges add mono + uppercase per the design recipe. */
+const severityBadgeClass = "font-mono uppercase"
 
 function Badge({
   className,
@@ -45,4 +50,4 @@ function Badge({
   )
 }
 
-export { Badge, badgeVariants }
+export { Badge, badgeVariants, severityBadgeClass }
