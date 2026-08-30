@@ -58,13 +58,13 @@ export default function TestCard({ test, onClick, isFavorite, onToggleFavorite, 
           </h3>
           <div className="flex items-center gap-1 shrink-0">
             {onToggleFavorite && (
-              <button onClick={onToggleFavorite} className="p-1 rounded-md hover:bg-accent transition-colors"
+              <button onClick={onToggleFavorite} className="p-1 rounded-md hover:bg-raised transition-colors"
                 title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}>
                 <Heart className={`w-4 h-4 transition-colors ${isFavorite ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
               </button>
             )}
             {onExecute && !selectMode && (
-              <button onClick={onExecute} className="p-1 rounded-md hover:bg-accent transition-colors" title="Execute test">
+              <button onClick={onExecute} className="p-1 rounded-md hover:bg-raised transition-colors" title="Execute test">
                 <Play className="w-4 h-4 text-primary" />
               </button>
             )}

@@ -267,11 +267,11 @@ export function GlobalSearch() {
       {/* Trigger button (replaces the old non-functional search input) */}
       <button
         onClick={() => setOpen(true)}
-        className="flex-1 max-w-md mx-4 flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted/50 border border-transparent hover:border-border text-muted-foreground text-sm transition-colors cursor-pointer"
+        className="flex-1 max-w-md mx-4 flex items-center gap-2 px-3 py-1.5 rounded-md bg-raised/50 border border-transparent hover:border-border text-muted-foreground text-sm transition-colors cursor-pointer"
       >
         <Search className="h-4 w-4 shrink-0" />
         <span className="flex-1 text-left truncate">Search tests, agents, tasks...</span>
-        <kbd className="hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+        <kbd className="hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-raised px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
           <Command className="h-3 w-3" />K
         </kbd>
       </button>
@@ -303,7 +303,7 @@ export function GlobalSearch() {
                 />
                 {loading && <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />}
                 <kbd
-                  className="text-[10px] font-mono text-muted-foreground border border-border rounded px-1.5 py-0.5 cursor-pointer hover:bg-muted"
+                  className="text-[10px] font-mono text-muted-foreground border border-border rounded px-1.5 py-0.5 cursor-pointer hover:bg-raised"
                   onClick={handleClose}
                 >
                   ESC
@@ -326,7 +326,7 @@ export function GlobalSearch() {
 
                 {results.map(group => (
                   <div key={group.label}>
-                    <div className="px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-muted/30">
+                    <div className="px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-raised/30">
                       {group.label}
                     </div>
                     {group.results.map(result => {
@@ -340,7 +340,7 @@ export function GlobalSearch() {
                           onMouseEnter={() => setSelectedIndex(currentIndex)}
                           className={cn(
                             'w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors',
-                            isSelected ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/50'
+                            isSelected ? 'bg-raised text-foreground' : 'text-foreground hover:bg-raised/50'
                           )}
                         >
                           <result.icon className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -360,7 +360,7 @@ export function GlobalSearch() {
                                     badge === 'CRITICAL' ? 'bg-red-500/20 text-red-400' :
                                     badge === 'HIGH' ? 'bg-orange-500/20 text-orange-400' :
                                     badge.startsWith('T1') ? 'bg-primary/10 text-primary' :
-                                    'bg-muted text-muted-foreground'
+                                    'bg-raised text-muted-foreground'
                                   )}
                                 >
                                   {badge}

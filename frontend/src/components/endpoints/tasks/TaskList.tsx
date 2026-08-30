@@ -158,7 +158,7 @@ function TaskDetailRow({ task, colSpan }: { task: AgentTask; colSpan: number }):
   return (
     <TableRow>
       <TableCell colSpan={colSpan}>
-        <div className="bg-muted/50 rounded-lg p-4 space-y-3 text-sm">
+        <div className="bg-raised/50 rounded-lg p-4 space-y-3 text-sm">
           {task.result?.error && (
             <div className="flex items-center gap-2 p-2 rounded bg-destructive/10 text-destructive text-sm">
               <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -205,7 +205,7 @@ function TaskDetailRow({ task, colSpan }: { task: AgentTask; colSpan: number }):
                   <span className="font-medium">Stdout:</span>
                   {task.result.stdout && <CopyButton text={task.result.stdout} />}
                 </div>
-                <pre className="p-3 bg-muted rounded text-xs overflow-auto max-h-[50vh] whitespace-pre-wrap break-words">
+                <pre className="p-3 bg-raised rounded text-xs overflow-auto max-h-[50vh] whitespace-pre-wrap break-words">
                   {task.result.stdout || '(empty)'}
                 </pre>
               </div>
@@ -214,7 +214,7 @@ function TaskDetailRow({ task, colSpan }: { task: AgentTask; colSpan: number }):
                   <span className="font-medium">Stderr:</span>
                   {task.result.stderr && <CopyButton text={task.result.stderr} />}
                 </div>
-                <pre className="p-3 bg-muted rounded text-xs overflow-auto max-h-[50vh] whitespace-pre-wrap break-words">
+                <pre className="p-3 bg-raised rounded text-xs overflow-auto max-h-[50vh] whitespace-pre-wrap break-words">
                   {task.result.stderr || '(empty)'}
                 </pre>
               </div>
@@ -351,7 +351,7 @@ export default function TaskList({
 
     return (
       <Fragment key={group.batch_id}>
-        <TableRow className={allGroupSelected ? 'bg-primary/5' : 'bg-muted/20'}>
+        <TableRow className={allGroupSelected ? 'bg-primary/5' : 'bg-raised/20'}>
           {onToggleGroupSelect && (
             <TableCell>
               <Checkbox

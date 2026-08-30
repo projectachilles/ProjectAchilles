@@ -189,7 +189,7 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
                   className={`text-xs px-3 py-1.5 rounded-full border transition-colors capitalize ${
                     config.scheduleType === t
                       ? 'bg-primary/10 text-primary border-primary/30'
-                      : 'bg-muted text-muted-foreground border-border hover:border-primary/20'
+                      : 'bg-raised text-muted-foreground border-border hover:border-primary/20'
                   }`}
                 >
                   {t}
@@ -257,7 +257,7 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
                       className={`text-xs w-10 py-1.5 rounded-full border transition-colors ${
                         config.scheduleDays.includes(idx)
                           ? 'bg-primary/10 text-primary border-primary/30'
-                          : 'bg-muted text-muted-foreground border-border hover:border-primary/20'
+                          : 'bg-raised text-muted-foreground border-border hover:border-primary/20'
                       }`}
                     >
                       {label}

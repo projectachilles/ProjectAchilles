@@ -92,7 +92,7 @@ export function IndexManagement({ onSelectIndex }: IndexManagementProps) {
         <div className="rounded-lg border border-border overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-muted/50">
+              <tr className="border-b border-border bg-raised/50">
                 <th className="text-left px-3 py-2 font-medium text-muted-foreground">Name</th>
                 <th className="text-right px-3 py-2 font-medium text-muted-foreground">Docs</th>
                 <th className="text-right px-3 py-2 font-medium text-muted-foreground">Size</th>
@@ -101,7 +101,7 @@ export function IndexManagement({ onSelectIndex }: IndexManagementProps) {
             </thead>
             <tbody>
               {indices.map((idx) => (
-                <tr key={idx.name} className="border-b border-border last:border-b-0 hover:bg-muted/30">
+                <tr key={idx.name} className="border-b border-border last:border-b-0 hover:bg-raised/30">
                   <td
                     className={`px-3 py-2 font-mono text-xs text-card-foreground ${onSelectIndex ? 'cursor-pointer hover:text-primary hover:underline' : ''}`}
                     onClick={() => onSelectIndex?.(idx.name)}

@@ -264,7 +264,7 @@ export default function TestDetailPage() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => toggleFavorite(test.uuid)}
-                className="p-1.5 rounded-md hover:bg-accent transition-colors"
+                className="p-1.5 rounded-md hover:bg-raised transition-colors"
                 title={isFavorite(test.uuid) ? 'Remove from favorites' : 'Add to favorites'}
               >
                 <Heart className={`w-4 h-4 transition-colors ${isFavorite(test.uuid) ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
@@ -272,7 +272,7 @@ export default function TestDetailPage() {
               {canCreateTasks && (
                 <button
                   onClick={() => setExecutionDrawerOpen(true)}
-                  className="p-1.5 rounded-md hover:bg-accent transition-colors"
+                  className="p-1.5 rounded-md hover:bg-raised transition-colors"
                   title="Execute test"
                 >
                   <Play className="w-4 h-4 text-primary" />
@@ -286,7 +286,7 @@ export default function TestDetailPage() {
               )}
               <button
                 onClick={handleExitCompactMode}
-                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-accent transition-colors"
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-raised transition-colors"
                 title="Exit fullscreen view"
               >
                 <Minimize2 className="w-4 h-4" />
@@ -370,7 +370,7 @@ export default function TestDetailPage() {
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => toggleFavorite(test.uuid)}
-                  className="p-2 rounded-lg hover:bg-accent transition-colors"
+                  className="p-2 rounded-lg hover:bg-raised transition-colors"
                   title={isFavorite(test.uuid) ? 'Remove from favorites' : 'Add to favorites'}
                 >
                   <Heart className={`w-5 h-5 transition-colors ${isFavorite(test.uuid) ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
@@ -378,7 +378,7 @@ export default function TestDetailPage() {
                 {canCreateTasks && (
                   <button
                     onClick={() => setExecutionDrawerOpen(true)}
-                    className="p-2 rounded-lg hover:bg-accent transition-colors"
+                    className="p-2 rounded-lg hover:bg-raised transition-colors"
                     title="Execute test"
                   >
                     <Play className="w-5 h-5 text-primary" />
@@ -414,7 +414,7 @@ export default function TestDetailPage() {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar - File Browser */}
-        <div className="w-80 border-r border-border bg-muted/30 overflow-y-auto">
+        <div className="w-80 border-r border-border bg-raised/30 overflow-y-auto">
           <div className="p-4 space-y-4">
             {/* Documentation */}
             {documentationFiles.length > 0 && (
@@ -426,7 +426,7 @@ export default function TestDetailPage() {
                       className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
-                          : 'text-foreground hover:bg-accent'
+                          : 'text-foreground hover:bg-raised'
                       }`}>
                       {file.name === 'SAFETY.md' && <AlertTriangle className="w-3 h-3 inline mr-2 text-orange-500" />}
                       {file.name}
@@ -452,7 +452,7 @@ export default function TestDetailPage() {
                   {test.hasAttackFlow && (
                     <button onClick={handleAttackFlowClick}
                       className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                        activeView === 'attack-flow' ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent'
+                        activeView === 'attack-flow' ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-raised'
                       }`}>
                       Attack Flow Diagram
                     </button>
@@ -460,7 +460,7 @@ export default function TestDetailPage() {
                   {test.hasKillChain && (
                     <button onClick={handleKillChainClick}
                       className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                        activeView === 'kill-chain' ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent'
+                        activeView === 'kill-chain' ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-raised'
                       }`}>
                       Kill Chain Diagram
                     </button>
@@ -479,7 +479,7 @@ export default function TestDetailPage() {
                       className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center gap-2 ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
-                          : 'text-foreground hover:bg-accent'
+                          : 'text-foreground hover:bg-raised'
                       }`}>
                       {file.name.includes('DEFENSE_GUIDANCE') && <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />}
                       {file.name.includes('_dr_rules') && <span className="w-2 h-2 rounded-full bg-cyan-500 flex-shrink-0" />}
@@ -502,7 +502,7 @@ export default function TestDetailPage() {
                       className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
-                          : 'text-foreground hover:bg-accent'
+                          : 'text-foreground hover:bg-raised'
                       }`}>
                       {file.name}
                     </button>
@@ -521,7 +521,7 @@ export default function TestDetailPage() {
                       className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
-                          : 'text-foreground hover:bg-accent'
+                          : 'text-foreground hover:bg-raised'
                       }`}>
                       {file.name}
                     </button>
@@ -540,7 +540,7 @@ export default function TestDetailPage() {
                       className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
-                          : 'text-foreground hover:bg-accent'
+                          : 'text-foreground hover:bg-raised'
                       }`}>
                       {file.type === 'kql' && <span className="text-xs text-blue-500 mr-2">KQL</span>}
                       {file.type === 'yara' && <span className="text-xs text-purple-500 mr-2">YARA</span>}
@@ -563,7 +563,7 @@ export default function TestDetailPage() {
                       className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
                         selectedFile === file.name && activeView === 'file'
                           ? 'bg-primary text-primary-foreground'
-                          : 'text-foreground hover:bg-accent'
+                          : 'text-foreground hover:bg-raised'
                       }`}>
                       {file.name}
                     </button>

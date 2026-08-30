@@ -82,7 +82,7 @@ export default function DefenseDashboard({ test }: DefenseDashboardProps) {
       {/* Header */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-accent/50 transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-raised/50 transition-colors"
       >
         <div className="flex items-center gap-2">
           <Shield className="w-5 h-5 text-green-500" />
@@ -197,7 +197,7 @@ function CopyButton({ label, onClick, copied, disabled }: CopyButtonProps) {
     <button
       onClick={onClick}
       disabled={disabled}
-      className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border hover:bg-accent text-sm transition-colors disabled:opacity-50"
+      className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border hover:bg-raised text-sm transition-colors disabled:opacity-50"
     >
       {copied ? (
         <>

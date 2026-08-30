@@ -11,7 +11,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { NotificationBell } from '@/components/layout/NotificationBell';
-import { ThemeSelector } from '@/components/layout/ThemeSelector';
 import { GlobalSearch } from '@/components/layout/GlobalSearch';
 import { cn } from '@/lib/utils';
 
@@ -125,7 +124,6 @@ export function TopBar({
         <NotificationBell />
 
         {/* Theme Selector */}
-        <ThemeSelector />
 
         {/* User - Last item */}
         {isLoaded && user && (

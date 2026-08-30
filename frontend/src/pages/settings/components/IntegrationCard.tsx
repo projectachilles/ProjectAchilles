@@ -66,13 +66,13 @@ export function IntegrationCard({
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-4 p-4 hover:bg-accent/50 transition-colors text-left"
+        className="w-full flex items-center gap-4 p-4 hover:bg-raised/50 transition-colors text-left"
       >
         <div
           className={cn(
             'flex items-center justify-center w-10 h-10 rounded-base shrink-0',
             status === 'connected' && 'bg-primary/10',
-            status === 'not-configured' && 'bg-muted',
+            status === 'not-configured' && 'bg-raised',
             status === 'error' && 'bg-destructive/10'
           )}
         >

@@ -36,19 +36,19 @@ export default function MarkdownViewer({ content }: MarkdownViewerProps) {
                 const isInline = !className;
                 if (isInline) {
                   return (
-                    <code className="px-1.5 py-0.5 rounded bg-muted text-sm font-mono text-foreground">
+                    <code className="px-1.5 py-0.5 rounded bg-raised text-sm font-mono text-foreground">
                       {children}
                     </code>
                   );
                 }
                 return (
-                  <code className="block p-4 rounded-lg bg-muted text-sm font-mono overflow-x-auto text-foreground">
+                  <code className="block p-4 rounded-lg bg-raised text-sm font-mono overflow-x-auto text-foreground">
                     {children}
                   </code>
                 );
               },
               pre: ({ children }) => (
-                <pre className="mb-4 p-4 rounded-lg bg-muted overflow-x-auto text-foreground">
+                <pre className="mb-4 p-4 rounded-lg bg-raised overflow-x-auto text-foreground">
                   {children}
                 </pre>
               ),
@@ -75,7 +75,7 @@ export default function MarkdownViewer({ content }: MarkdownViewerProps) {
                 </div>
               ),
               thead: ({ children }) => (
-                <thead className="bg-muted">{children}</thead>
+                <thead className="bg-raised">{children}</thead>
               ),
               th: ({ children }) => (
                 <th className="px-4 py-2 text-left font-semibold border border-border text-foreground">

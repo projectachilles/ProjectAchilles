@@ -182,7 +182,7 @@ export default function MitreAttackMatrix({ tests, onDrillToTechnique }: MitreAt
           <Grid3X3 className="w-10 h-10 opacity-30" />
           <p className="text-sm">No tests have MITRE ATT&CK tactic data yet.</p>
           <p className="text-xs opacity-60">
-            Add <code className="px-1 py-0.5 rounded bg-muted font-mono text-[11px]">TACTICS:</code> to test headers to map tests to the ATT&CK matrix.
+            Add <code className="px-1 py-0.5 rounded bg-raised font-mono text-[11px]">TACTICS:</code> to test headers to map tests to the ATT&CK matrix.
           </p>
         </div>
       </div>
@@ -279,7 +279,7 @@ export default function MitreAttackMatrix({ tests, onDrillToTechnique }: MitreAt
         >
           <div className="overflow-hidden">
             {selectedTacticInfo && (
-              <div className="mt-4 rounded-lg border border-border bg-muted/30 p-4">
+              <div className="mt-4 rounded-lg border border-border bg-raised/30 p-4">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-sm font-semibold">
                     {selectedTacticInfo.name}

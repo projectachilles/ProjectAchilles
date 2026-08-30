@@ -178,35 +178,35 @@ export default function AgentList({
                     {openMenu === agent.id && (
                       <div className="absolute right-0 top-8 z-50 w-40 rounded-base border-theme border-border bg-card shadow-theme py-1">
                         <button
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-raised flex items-center gap-2"
                           onClick={() => { onSelectAgent(agent); setOpenMenu(null); }}
                         >
                           <Eye className="w-4 h-4" /> Quick View
                         </button>
                         {agent.status === 'active' ? (
                           <button
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2"
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-raised flex items-center gap-2"
                             onClick={() => { onAction(agent.id, 'disable'); setOpenMenu(null); }}
                           >
                             <PowerOff className="w-4 h-4" /> Disable
                           </button>
                         ) : (
                           <button
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2"
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-raised flex items-center gap-2"
                             onClick={() => { onAction(agent.id, 'enable'); setOpenMenu(null); }}
                           >
                             <Power className="w-4 h-4" /> Enable
                           </button>
                         )}
                         <button
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-raised flex items-center gap-2"
                           onClick={() => { onAction(agent.id, 'update'); setOpenMenu(null); }}
                         >
                           <Download className="w-4 h-4" /> Update
                         </button>
                         {canDelete && (
                           <button
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2"
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-raised flex items-center gap-2"
                             onClick={() => { onAction(agent.id, 'rotate-key'); setOpenMenu(null); }}
                           >
                             <KeyRound className="w-4 h-4" /> Rotate API Key
@@ -214,7 +214,7 @@ export default function AgentList({
                         )}
                         {canDelete && (
                           <button
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-muted text-destructive flex items-center gap-2"
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-raised text-destructive flex items-center gap-2"
                             onClick={() => { onAction(agent.id, 'uninstall'); setOpenMenu(null); }}
                           >
                             <Unplug className="w-4 h-4" /> Uninstall
@@ -222,7 +222,7 @@ export default function AgentList({
                         )}
                         {canDelete && (
                           <button
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-muted text-destructive flex items-center gap-2"
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-raised text-destructive flex items-center gap-2"
                             onClick={() => { onAction(agent.id, 'delete'); setOpenMenu(null); }}
                           >
                             <Trash2 className="w-4 h-4" /> Delete

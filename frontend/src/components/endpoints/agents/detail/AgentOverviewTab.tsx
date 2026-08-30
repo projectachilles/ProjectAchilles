@@ -165,7 +165,7 @@ export default function AgentOverviewTab({ agent }: AgentOverviewTabProps) {
               {recentTasks.map((task) => (
                 <div
                   key={task.id}
-                  className="flex items-center justify-between p-2 rounded bg-muted/50 text-sm"
+                  className="flex items-center justify-between p-2 rounded bg-raised/50 text-sm"
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <TaskStatusBadge task={task} className="text-xs shrink-0" />

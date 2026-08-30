@@ -26,7 +26,7 @@ export default function TestListRow({ test, onClick, isFavorite, onToggleFavorit
   return (
     <div
       onClick={selectMode ? onToggleSelect : onClick}
-      className={`group cursor-pointer px-4 py-3 border-b border-border hover:bg-accent/50 transition-colors relative ${selectMode ? 'pl-10' : ''} ${selected ? 'bg-primary/5' : ''}`}
+      className={`group cursor-pointer px-4 py-3 border-b border-border hover:bg-raised/50 transition-colors relative ${selectMode ? 'pl-10' : ''} ${selected ? 'bg-primary/5' : ''}`}
     >
       {/* Select mode checkbox */}
       {selectMode && (
@@ -60,13 +60,13 @@ export default function TestListRow({ test, onClick, isFavorite, onToggleFavorit
         {/* Hover actions */}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
           {onToggleFavorite && (
-            <button onClick={onToggleFavorite} className="p-1 rounded-md hover:bg-accent transition-colors"
+            <button onClick={onToggleFavorite} className="p-1 rounded-md hover:bg-raised transition-colors"
               title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}>
               <Heart className={`w-3.5 h-3.5 transition-colors ${isFavorite ? 'fill-red-500 text-red-500' : 'text-muted-foreground hover:text-red-400'}`} />
             </button>
           )}
           {onExecute && !selectMode && (
-            <button onClick={onExecute} className="p-1 rounded-md hover:bg-accent transition-colors" title="Execute test">
+            <button onClick={onExecute} className="p-1 rounded-md hover:bg-raised transition-colors" title="Execute test">
               <Play className="w-3.5 h-3.5 text-primary" />
             </button>
           )}

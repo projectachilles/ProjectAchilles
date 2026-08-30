@@ -210,7 +210,7 @@ export default function AlertDetailsDrawer({
               {alerts.map((alert) => {
                 const tokens = getSeverityTokens(alert.severity);
                 return (
-                  <li key={alert.alert_id} className="p-3 hover:bg-muted/30 transition-colors">
+                  <li key={alert.alert_id} className="p-3 hover:bg-raised/30 transition-colors">
                     <div className="flex items-start gap-2">
                       <span className={`shrink-0 w-2 h-2 mt-1.5 rounded-full ${tokens.bar}`} />
                       <div className="flex-1 min-w-0">
@@ -222,7 +222,7 @@ export default function AlertDetailsDrawer({
                             href={`${DEFENDER_PORTAL_BASE}/${alert.alert_id}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="shrink-0 p-1 -m-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                            className="shrink-0 p-1 -m-1 rounded hover:bg-raised text-muted-foreground hover:text-foreground transition-colors"
                             aria-label="Open in Microsoft Defender"
                             title="Open in Microsoft Defender"
                           >
@@ -263,7 +263,7 @@ export default function AlertDetailsDrawer({
                             {alert.mitre_techniques.slice(0, 6).map((t) => (
                               <span
                                 key={t}
-                                className="text-[10px] font-mono px-1.5 py-0.5 bg-muted text-muted-foreground rounded"
+                                className="text-[10px] font-mono px-1.5 py-0.5 bg-raised text-muted-foreground rounded"
                               >
                                 {t}
                               </span>

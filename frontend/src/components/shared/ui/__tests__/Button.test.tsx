@@ -29,7 +29,7 @@ describe('Button', () => {
     render(<Button variant="ghost">Ghost</Button>);
 
     const btn = screen.getByRole('button');
-    expect(btn.className).toContain('hover:bg-accent');
+    expect(btn.className).toContain('hover:bg-raised');
     expect(btn.className).not.toContain('bg-primary');
   });
 

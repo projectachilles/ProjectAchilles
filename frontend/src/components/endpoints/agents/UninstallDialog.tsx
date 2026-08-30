@@ -81,7 +81,7 @@ export default function UninstallDialog({
               next poll cycle (~30s).
             </Alert>
 
-            <div className="mt-3 max-h-32 overflow-y-auto rounded-lg border border-border bg-muted/50 p-2">
+            <div className="mt-3 max-h-32 overflow-y-auto rounded-lg border border-border bg-raised/50 p-2">
               {agents.map((a) => (
                 <div key={a.id} className="text-sm py-0.5 font-mono">
                   {a.hostname} <span className="text-muted-foreground">({a.os})</span>

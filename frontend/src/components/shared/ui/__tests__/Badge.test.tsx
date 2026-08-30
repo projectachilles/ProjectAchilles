@@ -3,11 +3,11 @@ import { render } from '@testing-library/react';
 import { Badge } from '../Badge';
 
 describe('Badge success/warning use tokens, not raw tailwind colors', () => {
-  it('success variant references the --success token', () => {
+  it('success variant references a theme token (f0 maps success to the accent set)', () => {
     const { container } = render(<Badge variant="success">ok</Badge>);
     const cls = container.firstElementChild?.className ?? '';
     expect(cls).not.toMatch(/green-500/);
-    expect(cls).toMatch(/\[var\(--success\)\]|text-success|bg-success/);
+    expect(cls).toMatch(/\[var\(--success\)\]|text-success|bg-success|text-accent|bg-accent-dim/);
   });
 
   it('warning variant references the --warning token', () => {

@@ -135,7 +135,7 @@ export default function TabbedViewer({ test }: TabbedViewerProps) {
   return (
     <div className="h-full flex flex-col">
       {/* Tab Bar */}
-      <div className="flex border-b border-border bg-muted/30">
+      <div className="flex border-b border-border bg-raised/30">
         {tabs.map(tab => (
           <button
             key={tab.id}
@@ -143,7 +143,7 @@ export default function TabbedViewer({ test }: TabbedViewerProps) {
             className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 ${
               activeTab === tab.id
                 ? 'border-primary text-primary bg-background'
-                : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-raised/50'
             }`}
           >
             {tab.icon}

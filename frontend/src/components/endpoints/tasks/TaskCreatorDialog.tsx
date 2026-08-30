@@ -455,7 +455,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                       className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
                         selectedTags.includes(tag)
                           ? 'bg-primary/10 text-primary border-primary/30'
-                          : 'bg-muted text-muted-foreground border-border hover:border-primary/20'
+                          : 'bg-raised text-muted-foreground border-border hover:border-primary/20'
                       }`}
                     >
                       {tag}
@@ -501,7 +501,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                       {agent.tags.length > 0 && (
                         <span className="ml-auto flex gap-1 shrink-0">
                           {agent.tags.slice(0, 2).map((t) => (
-                            <span key={t} className="text-[10px] bg-muted rounded px-1 py-0.5">{t}</span>
+                            <span key={t} className="text-[10px] bg-raised rounded px-1 py-0.5">{t}</span>
                           ))}
                           {agent.tags.length > 2 && (
                             <span className="text-[10px] text-muted-foreground">+{agent.tags.length - 2}</span>
@@ -518,7 +518,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
             {canSendCommand && (
             <div>
               <label className="block text-sm font-medium mb-1.5">Task Type</label>
-              <div className="flex gap-1 p-0.5 bg-muted rounded-lg w-fit">
+              <div className="flex gap-1 p-0.5 bg-raised rounded-lg w-fit">
                 <button
                   type="button"
                   onClick={() => setTaskMode('test')}
@@ -619,13 +619,13 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                         <button
                           key={test.uuid}
                           type="button"
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors flex items-center gap-2"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-raised/50 transition-colors flex items-center gap-2"
                           onMouseDown={(e) => e.preventDefault()}
                           onClick={() => handleTestSelect(test.uuid)}
                         >
                           <span className="truncate">{test.name}</span>
                           {test.category && (
-                            <span className="ml-auto text-[10px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground shrink-0">
+                            <span className="ml-auto text-[10px] bg-raised rounded px-1.5 py-0.5 text-muted-foreground shrink-0">
                               {test.category}
                             </span>
                           )}
@@ -639,7 +639,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
 
             {/* === Test Info Card (test mode only) === */}
             {taskMode === 'test' && testUuid && (
-              <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm space-y-1.5">
+              <div className="rounded-lg border border-border bg-raised/30 p-3 text-sm space-y-1.5">
                 <div className="flex gap-2">
                   <span className="text-muted-foreground shrink-0 w-20">Test UUID</span>
                   <span className="font-mono text-xs break-all">{testUuid}</span>
@@ -764,7 +764,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                           className={`text-xs px-3 py-1.5 rounded-full border transition-colors capitalize ${
                             scheduleType === t
                               ? 'bg-primary/10 text-primary border-primary/30'
-                              : 'bg-muted text-muted-foreground border-border hover:border-primary/20'
+                              : 'bg-raised text-muted-foreground border-border hover:border-primary/20'
                           }`}
                         >
                           {t}
@@ -832,7 +832,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                               className={`text-xs w-10 py-1.5 rounded-full border transition-colors ${
                                 scheduleDays.includes(idx)
                                   ? 'bg-primary/10 text-primary border-primary/30'
-                                  : 'bg-muted text-muted-foreground border-border hover:border-primary/20'
+                                  : 'bg-raised text-muted-foreground border-border hover:border-primary/20'
                               }`}
                             >
                               {label}

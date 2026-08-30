@@ -9,13 +9,13 @@ interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
 }
 
 const variantStyles: Record<BadgeVariant, string> = {
-  default: 'bg-muted text-muted-foreground',
-  primary: 'bg-primary/10 text-primary',
-  secondary: 'bg-secondary text-secondary-foreground',
-  success: 'bg-[color-mix(in_oklab,var(--success)_12%,transparent)] text-[var(--success)]',
-  warning: 'bg-[color-mix(in_oklab,var(--warning)_14%,transparent)] text-[var(--warning)]',
-  destructive: 'bg-destructive/10 text-destructive',
-  outline: 'border border-border text-foreground',
+  default: 'border-border bg-raised text-muted',
+  primary: 'border-accent/30 bg-accent-dim text-accent',
+  secondary: 'border-border bg-raised text-muted',
+  success: 'border-accent/30 bg-accent-dim text-accent',
+  warning: 'border-warning/30 bg-warning-dim text-warning',
+  destructive: 'border-danger/30 bg-danger-dim text-danger',
+  outline: 'border-border text-muted',
 };
 
 export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
@@ -24,7 +24,7 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
       <span
         ref={ref}
         className={`
-          inline-flex items-center rounded-base border-theme border-border px-2 py-1 text-xs font-medium
+          inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] font-medium tracking-wide whitespace-nowrap
           ${variantStyles[variant]}
           ${className}
         `}
@@ -44,17 +44,11 @@ interface PlatformBadgeProps {
 }
 
 export function PlatformBadge({ platform }: PlatformBadgeProps) {
-  const platformColors: Record<string, string> = {
-    windows: 'bg-blue-500/10 text-blue-500',
-    linux: 'bg-orange-500/10 text-orange-500',
-    macos: 'bg-gray-500/10 text-gray-400',
-    darwin: 'bg-gray-500/10 text-gray-400',
-  };
-
-  const color = platformColors[platform.toLowerCase()] || 'bg-muted text-muted-foreground';
+  // Platform chips use the info badge set per the f0 design language
+  const color = 'border-info/30 bg-info-dim text-info';
 
   return (
-    <span className={`inline-flex items-center rounded-base border-theme border-border px-2 py-1 text-xs font-medium ${color}`}>
+    <span className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[11px] font-medium tracking-wide whitespace-nowrap ${color}`}>
       {platform}
     </span>
   );
@@ -68,9 +62,9 @@ interface StatusDotProps {
 
 export function StatusDot({ status, className = '' }: StatusDotProps) {
   const colors: Record<string, string> = {
-    online: 'bg-green-500',
-    offline: 'bg-red-500',
-    unknown: 'bg-gray-500',
+    online: 'bg-accent',
+    offline: 'bg-danger',
+    unknown: 'bg-faint',
   };
 
   return (

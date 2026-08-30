@@ -71,7 +71,7 @@ export default function TaskNotesDialog({ open, onClose, task, onSaved }: TaskNo
             {historyOpen && (
               <div className="mt-2 space-y-2 max-h-48 overflow-y-auto">
                 {[...history].reverse().map((entry, i) => (
-                  <div key={i} className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
+                  <div key={i} className="rounded-md border border-border bg-raised/30 px-3 py-2 text-xs">
                     <div className="flex justify-between text-muted-foreground mb-1">
                       <span>{entry.editedBy.slice(0, 12)}</span>
                       <span>{new Date(entry.editedAt).toLocaleString()}</span>

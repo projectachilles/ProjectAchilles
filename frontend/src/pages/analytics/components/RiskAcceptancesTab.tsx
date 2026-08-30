@@ -180,7 +180,7 @@ export default function RiskAcceptancesTab({ onActiveCountChange }: RiskAcceptan
                   </thead>
                   <tbody>
                     {acceptances.map((acc) => (
-                      <tr key={acc.acceptance_id} className="border-b border-border/50 hover:bg-accent/50">
+                      <tr key={acc.acceptance_id} className="border-b border-border/50 hover:bg-raised/50">
                         <td className="py-2.5 pr-3">
                           <span className="font-medium text-foreground">{acc.test_name}</span>
                         </td>
@@ -268,14 +268,14 @@ export default function RiskAcceptancesTab({ onActiveCountChange }: RiskAcceptan
                     <button
                       onClick={() => setPage((p) => Math.max(1, p - 1))}
                       disabled={page <= 1}
-                      className="p-1.5 rounded-md hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="p-1.5 rounded-md hover:bg-raised transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <ChevronLeft className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                       disabled={page >= totalPages}
-                      className="p-1.5 rounded-md hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="p-1.5 rounded-md hover:bg-raised transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <ChevronRight className="w-4 h-4" />
                     </button>
@@ -326,7 +326,7 @@ export default function RiskAcceptancesTab({ onActiveCountChange }: RiskAcceptan
               <button
                 onClick={() => { setRevokeTarget(null); setRevokeReason(''); }}
                 disabled={revoking}
-                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
+                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-raised transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>

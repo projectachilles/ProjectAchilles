@@ -47,8 +47,8 @@ export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps
               className={cn(
                 'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left',
                 isActive
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                  ? 'bg-accent-dim text-accent border border-accent/25'
+                  : 'text-muted-foreground hover:bg-raised hover:text-foreground'
               )}
             >
               <Icon className="w-4 h-4" />

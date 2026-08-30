@@ -882,7 +882,7 @@ export default function ExecutionsDataTable({
         <div className="col-span-full min-w-0">
           <span className="text-muted-foreground">Description</span>
           {isLoadingDesc ? (
-            <div className="h-4 w-64 bg-muted animate-pulse rounded mt-1" />
+            <div className="h-4 w-64 bg-raised animate-pulse rounded mt-1" />
           ) : (
             <p className="mt-1 text-foreground break-words overflow-hidden">{descData?.description?.replace(/:$/, '')}</p>
           )}
@@ -1162,7 +1162,7 @@ export default function ExecutionsDataTable({
           {onArchiveByDate && (
             <button
               onClick={() => setShowDatePurge(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm hover:bg-accent transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm hover:bg-raised transition-colors"
             >
               <Calendar className="w-4 h-4" />
               Archive by Date
@@ -1173,7 +1173,7 @@ export default function ExecutionsDataTable({
           <div className="relative">
             <button
               onClick={() => setShowColumnMenu(!showColumnMenu)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm hover:bg-accent transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm hover:bg-raised transition-colors"
             >
               <Columns className="w-4 h-4" />
               Columns
@@ -1195,7 +1195,7 @@ export default function ExecutionsDataTable({
                     <button
                       key={col.key}
                       onClick={() => toggleColumn(col.key)}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-accent transition-colors"
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-raised transition-colors"
                     >
                       <div className={`
                         w-4 h-4 rounded border flex items-center justify-center
@@ -1213,7 +1213,7 @@ export default function ExecutionsDataTable({
 
           {/* Export Dropdown */}
           <div className="relative group">
-            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm hover:bg-accent transition-colors">
+            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm hover:bg-raised transition-colors">
               <Download className="w-4 h-4" />
               Export
               <ChevronDown className="w-3 h-3" />
@@ -1221,13 +1221,13 @@ export default function ExecutionsDataTable({
             <div className="absolute right-0 z-50 mt-1 w-32 bg-card text-card-foreground border border-border rounded-lg shadow-lg overflow-hidden opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
               <button
                 onClick={exportToCsv}
-                className="w-full px-3 py-2 text-sm text-left hover:bg-accent transition-colors"
+                className="w-full px-3 py-2 text-sm text-left hover:bg-raised transition-colors"
               >
                 Export CSV
               </button>
               <button
                 onClick={exportToJson}
-                className="w-full px-3 py-2 text-sm text-left hover:bg-accent transition-colors"
+                className="w-full px-3 py-2 text-sm text-left hover:bg-raised transition-colors"
               >
                 Export JSON
               </button>
@@ -1240,7 +1240,7 @@ export default function ExecutionsDataTable({
       <CardContent className="p-0 overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow className="bg-muted/50">
+            <TableRow className="bg-raised/50">
               {/* Checkbox column header */}
               {actionsEnabled && (
                 <TableHead className="w-10">
@@ -1298,7 +1298,7 @@ export default function ExecutionsDataTable({
                   return (
                     <Fragment key={detailKey}>
                       <TableRow
-                        className={`cursor-pointer group/row ${expandedDetail === detailKey ? 'bg-accent/30' : ''}`}
+                        className={`cursor-pointer group/row ${expandedDetail === detailKey ? 'bg-raised/30' : ''}`}
                         onClick={() => toggleDetail(detailKey, exec)}
                       >
                         {/* Checkbox */}
@@ -1357,7 +1357,7 @@ export default function ExecutionsDataTable({
                       </TableRow>
 
                       {expandedDetail === detailKey && (
-                        <TableRow className="bg-accent/20">
+                        <TableRow className="bg-raised/20">
                           <TableCell colSpan={totalColSpan} className="py-4 px-6 whitespace-normal">
                             {renderDetailPanel(exec)}
                           </TableCell>
@@ -1375,7 +1375,7 @@ export default function ExecutionsDataTable({
                   <Fragment key={group.key}>
                     {/* Bundle parent row */}
                     <TableRow
-                      className={`cursor-pointer group/row bg-muted/30 hover:bg-muted/50 ${isExpanded ? 'border-b-0' : ''}`}
+                      className={`cursor-pointer group/row bg-raised/30 hover:bg-raised/50 ${isExpanded ? 'border-b-0' : ''}`}
                       onClick={() => toggleBundle(group.key, group.controls)}
                     >
                       {/* Checkbox */}
@@ -1496,7 +1496,7 @@ export default function ExecutionsDataTable({
                       return (
                         <Fragment key={ctrlDetailKey}>
                           <TableRow
-                            className={`cursor-pointer group/row bg-card/50 border-l-2 border-l-blue-500/30 ${expandedDetail === ctrlDetailKey ? 'bg-accent/30' : 'hover:bg-accent/10'}`}
+                            className={`cursor-pointer group/row bg-card/50 border-l-2 border-l-blue-500/30 ${expandedDetail === ctrlDetailKey ? 'bg-raised/30' : 'hover:bg-raised/10'}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               toggleDetail(ctrlDetailKey, ctrl);
@@ -1540,7 +1540,7 @@ export default function ExecutionsDataTable({
                           </TableRow>
 
                           {expandedDetail === ctrlDetailKey && (
-                            <TableRow className="bg-accent/20 border-l-2 border-l-blue-500/30">
+                            <TableRow className="bg-raised/20 border-l-2 border-l-blue-500/30">
                               <TableCell colSpan={totalColSpan} className="py-4 px-6 whitespace-normal">
                                 {renderDetailPanel(ctrl)}
                               </TableCell>
@@ -1578,14 +1578,14 @@ export default function ExecutionsDataTable({
             <button
               onClick={() => onPageChange(1)}
               disabled={!pagination.hasPrevious}
-              className="p-1.5 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed text-foreground"
+              className="p-1.5 rounded hover:bg-raised disabled:opacity-30 disabled:cursor-not-allowed text-foreground"
             >
               <ChevronsLeft className="w-4 h-4" />
             </button>
             <button
               onClick={() => onPageChange(pagination.page - 1)}
               disabled={!pagination.hasPrevious}
-              className="p-1.5 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed text-foreground"
+              className="p-1.5 rounded hover:bg-raised disabled:opacity-30 disabled:cursor-not-allowed text-foreground"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -1597,14 +1597,14 @@ export default function ExecutionsDataTable({
             <button
               onClick={() => onPageChange(pagination.page + 1)}
               disabled={!pagination.hasNext}
-              className="p-1.5 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed text-foreground"
+              className="p-1.5 rounded hover:bg-raised disabled:opacity-30 disabled:cursor-not-allowed text-foreground"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
             <button
               onClick={() => onPageChange(pagination.totalPages)}
               disabled={!pagination.hasNext}
-              className="p-1.5 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed text-foreground"
+              className="p-1.5 rounded hover:bg-raised disabled:opacity-30 disabled:cursor-not-allowed text-foreground"
             >
               <ChevronsRight className="w-4 h-4" />
             </button>
@@ -1629,7 +1629,7 @@ export default function ExecutionsDataTable({
               <button
                 onClick={() => setConfirmArchiveKeys(null)}
                 disabled={archiving}
-                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
+                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-raised transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -1671,7 +1671,7 @@ export default function ExecutionsDataTable({
               <button
                 onClick={() => { setShowDatePurge(false); setPurgeDate(''); }}
                 disabled={archiving}
-                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
+                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-raised transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -1704,7 +1704,7 @@ export default function ExecutionsDataTable({
               Accepting risk for <span className="font-medium text-foreground">{riskAcceptItems.length}</span> control{riskAcceptItems.length !== 1 ? 's' : ''}.
               Accepted controls will be excluded from the Defense Score.
             </p>
-            <div className="mb-4 max-h-32 overflow-y-auto text-xs font-mono bg-muted/30 rounded-lg p-2 border border-border">
+            <div className="mb-4 max-h-32 overflow-y-auto text-xs font-mono bg-raised/30 rounded-lg p-2 border border-border">
               {riskAcceptItems.slice(0, 10).map((item, i) => (
                 <div key={i} className="text-muted-foreground truncate">
                   {item.test_name}{item.control_id ? `::${item.control_id}` : ''}
@@ -1720,14 +1720,14 @@ export default function ExecutionsDataTable({
                 <button
                   type="button"
                   onClick={() => setRiskScope('global')}
-                  className={`flex-1 px-3 py-1.5 text-sm transition-colors ${riskScope === 'global' ? 'bg-amber-600 text-white' : 'bg-background text-muted-foreground hover:bg-accent'}`}
+                  className={`flex-1 px-3 py-1.5 text-sm transition-colors ${riskScope === 'global' ? 'bg-amber-600 text-white' : 'bg-background text-muted-foreground hover:bg-raised'}`}
                 >
                   All Hosts
                 </button>
                 <button
                   type="button"
                   onClick={() => setRiskScope('host')}
-                  className={`flex-1 px-3 py-1.5 text-sm transition-colors border-l border-border ${riskScope === 'host' ? 'bg-amber-600 text-white' : 'bg-background text-muted-foreground hover:bg-accent'}`}
+                  className={`flex-1 px-3 py-1.5 text-sm transition-colors border-l border-border ${riskScope === 'host' ? 'bg-amber-600 text-white' : 'bg-background text-muted-foreground hover:bg-raised'}`}
                 >
                   This Host Only
                 </button>
@@ -1757,7 +1757,7 @@ export default function ExecutionsDataTable({
               <button
                 onClick={() => { setRiskAcceptItems(null); setRiskJustification(''); }}
                 disabled={acceptingRisk}
-                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
+                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-raised transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -1810,7 +1810,7 @@ export default function ExecutionsDataTable({
               <button
                 onClick={() => { setRevokeTarget(null); setRevokeReason(''); }}
                 disabled={acceptingRisk}
-                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
+                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-raised transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>

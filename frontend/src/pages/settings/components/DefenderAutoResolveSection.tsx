@@ -150,7 +150,7 @@ function ModeSelector({ currentMode, onChange, disabled }: ModeSelectorProps) {
       {modes.map((m) => (
         <label
           key={m.value}
-          className="flex items-start gap-3 p-3 border border-border rounded cursor-pointer hover:bg-muted/30"
+          className="flex items-start gap-3 p-3 border border-border rounded cursor-pointer hover:bg-raised/30"
         >
           <input
             type="radio"

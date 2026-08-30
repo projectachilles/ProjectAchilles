@@ -26,7 +26,7 @@ export const Switch = forwardRef<HTMLInputElement, SwitchProps>(
           <div
             className={`
               w-11 h-6 rounded-full
-              bg-muted peer-checked:bg-primary
+              bg-raised peer-checked:bg-primary
               transition-colors
               peer-focus:ring-2 peer-focus:ring-primary/50 peer-focus:ring-offset-2 peer-focus:ring-offset-background
               peer-disabled:opacity-50 peer-disabled:cursor-not-allowed

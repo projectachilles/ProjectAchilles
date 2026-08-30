@@ -512,7 +512,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
           </select>
           <button
             onClick={() => setSortDirection(d => d === 'asc' ? 'desc' : 'asc')}
-            className="p-1.5 rounded-base border border-border hover:bg-accent text-foreground"
+            className="p-1.5 rounded-base border border-border hover:bg-raised text-foreground"
             title={sortDirection === 'asc' ? 'Ascending' : 'Descending'}
           >
             {sortDirection === 'asc'
@@ -528,14 +528,14 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
           <div className="flex items-center border border-border rounded-base overflow-hidden">
             <button
               onClick={() => handleViewModeChange('grid')}
-              className={`p-1.5 transition-colors ${viewMode === 'grid' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50'}`}
+              className={`p-1.5 transition-colors ${viewMode === 'grid' ? 'bg-raised text-foreground' : 'text-muted-foreground hover:bg-raised/50'}`}
               title="Grid view"
             >
               <LayoutGrid className="w-4 h-4" />
             </button>
             <button
               onClick={() => handleViewModeChange('list')}
-              className={`p-1.5 transition-colors ${viewMode === 'list' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/50'}`}
+              className={`p-1.5 transition-colors ${viewMode === 'list' ? 'bg-raised text-foreground' : 'text-muted-foreground hover:bg-raised/50'}`}
               title="List view"
             >
               <List className="w-4 h-4" />
@@ -559,7 +559,7 @@ export default function BrowserHomePage({ mode = 'browse' }: BrowserHomePageProp
                 className={`flex items-center gap-1.5 px-2 py-1.5 text-sm rounded-lg transition-colors ${
                   selectMode
                     ? 'bg-primary text-primary-foreground'
-                    : 'border border-border text-foreground hover:bg-accent'
+                    : 'border border-border text-foreground hover:bg-raised'
                 }`}
                 title={selectMode ? 'Exit select mode' : 'Select tests for batch execution'}
               >

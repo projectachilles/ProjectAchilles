@@ -96,7 +96,7 @@ export default function ScheduleList({ schedules, onTogglePause, onDelete }: Sch
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${STATUS_STYLES[schedule.status] ?? ''}`}>
                 {schedule.status}
               </span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground border border-border capitalize">
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-raised text-muted-foreground border border-border capitalize">
                 {schedule.schedule_type}
               </span>
             </div>

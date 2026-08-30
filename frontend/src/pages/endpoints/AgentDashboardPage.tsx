@@ -41,7 +41,7 @@ function MetricCard({ icon: Icon, label, value, color }: MetricCardProps) {
     <Card>
       <CardContent className="pt-6">
         <div className="flex items-center gap-4">
-          <div className={`p-3 rounded-lg bg-muted ${color}`}>
+          <div className={`p-3 rounded-lg bg-raised ${color}`}>
             <Icon className="w-6 h-6" />
           </div>
           <div>
@@ -100,7 +100,7 @@ function getTaskLabel(type: TaskType, payload: AgentTask['payload']): React.Reac
     case 'execute_test':
       return payload.test_name;
     case 'execute_command':
-      return <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{payload.command ?? 'command'}</code>;
+      return <code className="text-xs bg-raised px-1.5 py-0.5 rounded">{payload.command ?? 'command'}</code>;
     case 'update_agent':
       return <span className="italic">Agent Update</span>;
     case 'uninstall':
@@ -151,7 +151,7 @@ function DistributionBar({ data, colorMap, label }: DistributionBarProps) {
                       {count} ({percentage}%)
                     </span>
                   </div>
-                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div className="h-2 rounded-full bg-raised overflow-hidden">
                     <div
                       className={`h-full rounded-full ${barColor}`}
                       style={{ width: `${percentage}%` }}
