@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet, useLocation, useParams } from 'react-router-dom';
 import { useAnalyticsAuth } from '../hooks/useAnalyticsAuth';
 import { useCanAccessModule } from '../hooks/useAppRole';
 import { RequireAuth } from '../components/auth/RequireAuth';
@@ -20,7 +20,6 @@ const BrowserHomePage = lazy(() => import('../pages/browser/BrowserHomePage'));
 const TestDetailPage = lazy(() => import('../pages/browser/TestDetailPage'));
 const AnalyticsDashboardPage = lazy(() => import('../pages/analytics/AnalyticsDashboardPage'));
 const SettingsPage = lazy(() => import('../pages/settings/SettingsPage'));
-const AgentDashboardPage = lazy(() => import('../pages/endpoints/AgentDashboardPage'));
 const AgentsPage = lazy(() => import('../pages/endpoints/AgentsPage'));
 const AgentDetailPage = lazy(() => import('../pages/endpoints/AgentDetailPage'));
 const TasksPage = lazy(() => import('../pages/endpoints/TasksPage'));
@@ -54,6 +53,23 @@ function AnalyticsProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Query-preserving redirect (e.g. /endpoints/agents?stale=true → /agents?stale=true)
+function RedirectWithSearch({ to }: { to: string }) {
+  const { search } = useLocation();
+  return <Navigate to={`${to}${search}`} replace />;
+}
+
+// Param-preserving redirects for legacy routes
+function LegacyTestRedirect() {
+  const { uuid } = useParams();
+  return <Navigate to={`/tests/${uuid}`} replace />;
+}
+
+function LegacyAgentRedirect() {
+  const { agentId } = useParams();
+  return <Navigate to={`/agents/${agentId}`} replace />;
+}
+
 // Single persistent layout for all authenticated routes
 function AppLayout() {
   return (
@@ -78,18 +94,22 @@ export default function AppRouter() {
       {/* CLI device flow authorization — authenticated but no app layout */}
       <Route path="/cli-auth" element={<RequireAuth><CliAuthPage /></RequireAuth>} />
 
-      {/* All authenticated routes share a single persistent AppLayout */}
+      {/* All authenticated routes share a single persistent AppLayout.
+          Flat f0 nav: /dashboard /tests /analytics /agents /tasks /settings */}
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
-        {/* Browser Module */}
+        {/* Dashboard — interim: Tests overview until the unified Security
+            Dashboard lands in the next phase */}
         <Route path="dashboard" element={<BrowserHomePage />} />
+
+        {/* Tests */}
+        <Route path="tests" element={<BrowserHomePage />} />
+        <Route path="tests/:uuid" element={<TestDetailPage />} />
+        {/* Legacy favorites/recent routes still render until the Tests
+            restyle converts them to /tests?view=… */}
         <Route path="favorites" element={<BrowserHomePage mode="favorites" />} />
         <Route path="recent" element={<BrowserHomePage mode="recent" />} />
-        <Route path="browser">
-          <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="test/:uuid" element={<TestDetailPage />} />
-        </Route>
 
-        {/* Analytics Module */}
+        {/* Analytics */}
         <Route path="analytics">
           <Route path="setup" element={<Navigate to="/settings" replace />} />
           <Route index element={
@@ -99,10 +119,8 @@ export default function AppRouter() {
           } />
         </Route>
 
-        {/* Endpoints Module */}
-        <Route path="endpoints" element={<RequireModule module="endpoints"><Outlet /></RequireModule>}>
-          <Route index element={<Navigate to="/endpoints/dashboard" replace />} />
-          <Route path="dashboard" element={<AgentDashboardPage />} />
+        {/* Fleet (endpoints module) */}
+        <Route element={<RequireModule module="endpoints"><Outlet /></RequireModule>}>
           <Route path="agents" element={<AgentsPage />} />
           <Route path="agents/:agentId" element={<AgentDetailPage />} />
           <Route path="tasks" element={<TasksPage />} />
@@ -110,6 +128,19 @@ export default function AppRouter() {
 
         {/* Settings */}
         <Route path="settings" element={<RequireModule module="settings"><SettingsPage /></RequireModule>} />
+
+        {/* Legacy route redirects */}
+        <Route path="browser">
+          <Route index element={<Navigate to="/tests" replace />} />
+          <Route path="test/:uuid" element={<LegacyTestRedirect />} />
+        </Route>
+        <Route path="endpoints">
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard" element={<Navigate to="/dashboard" replace />} />
+          <Route path="agents" element={<RedirectWithSearch to="/agents" />} />
+          <Route path="agents/:agentId" element={<LegacyAgentRedirect />} />
+          <Route path="tasks" element={<RedirectWithSearch to="/tasks" />} />
+        </Route>
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

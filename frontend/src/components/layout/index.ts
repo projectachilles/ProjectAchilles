@@ -1,4 +1,4 @@
-export { AppSidebar } from './AppSidebar';
-export { TopBar } from './TopBar';
-export { SidebarLayout, useLayoutActions } from './SidebarLayout';
-export { default } from './SidebarLayout';
+export { AppShell } from './AppShell';
+export { PageHeader } from './PageHeader';
+export { useLayoutActions } from './SidebarLayout';
+export { default } from './AppShell';

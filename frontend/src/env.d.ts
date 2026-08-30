@@ -5,3 +5,12 @@ interface Window {
     VITE_SITE_MODE?: string;
   };
 }
+
+interface ImportMetaEnv {
+  readonly VITE_BRAND_WORDMARK?: string;
+  readonly VITE_BRAND_TAGLINE?: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}

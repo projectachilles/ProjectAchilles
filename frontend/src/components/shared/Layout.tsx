@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
-import { SidebarLayout } from '@/components/layout';
+import { AppShell } from '@/components/layout';
 
 interface LayoutProps {
   children: ReactNode;
 }
 
 export default function Layout({ children }: LayoutProps) {
-  return <SidebarLayout>{children}</SidebarLayout>;
+  return <AppShell>{children}</AppShell>;
 }

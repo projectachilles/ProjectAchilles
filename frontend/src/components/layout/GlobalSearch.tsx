@@ -89,7 +89,7 @@ function useGlobalSearch(query: string, isOpen: boolean) {
           title: t.name,
           subtitle: t.uuid.slice(0, 8) + '...',
           category: 'test' as const,
-          path: `/browser/test/${t.uuid}`,
+          path: `/tests/${t.uuid}`,
           icon: Shield,
           badges: [
             t.severity?.toUpperCase(),
@@ -111,7 +111,7 @@ function useGlobalSearch(query: string, isOpen: boolean) {
           title: a.hostname,
           subtitle: `${a.os} / ${a.arch} — ${a.status}`,
           category: 'agent' as const,
-          path: `/endpoints/agents/${a.id}`,
+          path: `/agents/${a.id}`,
           icon: Monitor,
           badges: [a.status, a.os].filter(Boolean),
         }));
@@ -131,7 +131,7 @@ function useGlobalSearch(query: string, isOpen: boolean) {
           title: t.payload?.test_name || `Task ${t.id.slice(0, 8)}`,
           subtitle: `${t.agent_hostname || 'unassigned'} — ${t.status}`,
           category: 'task' as const,
-          path: `/endpoints/tasks?search=${encodeURIComponent(t.payload?.test_name || t.id)}`,
+          path: `/tasks?search=${encodeURIComponent(t.payload?.test_name || t.id)}`,
           icon: ListTodo,
           badges: [t.status, t.type].filter(Boolean),
         }));
@@ -177,8 +177,16 @@ function useGlobalSearch(query: string, isOpen: boolean) {
 /*  Component: GlobalSearch                                            */
 /* ------------------------------------------------------------------ */
 
-export function GlobalSearch() {
-  const [open, setOpen] = useState(false);
+interface GlobalSearchProps {
+  /** 'sidebar' renders only the docked trigger row; 'overlay-only' renders only the palette. */
+  variant: 'sidebar' | 'overlay-only';
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Trigger click handler (sidebar variant). */
+  onOpen?: () => void;
+}
+
+export function GlobalSearch({ variant, open = false, onOpenChange, onOpen }: GlobalSearchProps) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const navigate = useNavigate();
@@ -192,18 +200,6 @@ export function GlobalSearch() {
     () => results.flatMap(g => g.results),
     [results]
   );
-
-  // Keyboard shortcut: Cmd+K / Ctrl+K
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setOpen(prev => !prev);
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
   // Focus input when overlay opens
   useEffect(() => {
@@ -227,7 +223,7 @@ export function GlobalSearch() {
   }, [selectedIndex]);
 
   function handleClose() {
-    setOpen(false);
+    onOpenChange?.(false);
     setQuery('');
   }
 
@@ -262,20 +258,23 @@ export function GlobalSearch() {
   // Track flat index across groups for rendering
   let flatIndex = 0;
 
-  return (
-    <>
-      {/* Trigger button (replaces the old non-functional search input) */}
+  if (variant === 'sidebar') {
+    return (
       <button
-        onClick={() => setOpen(true)}
-        className="flex-1 max-w-md mx-4 flex items-center gap-2 px-3 py-1.5 rounded-md bg-raised/50 border border-transparent hover:border-border text-muted-foreground text-sm transition-colors cursor-pointer"
+        onClick={onOpen}
+        className="flex flex-1 items-center gap-2 rounded-md border border-border bg-raised px-2.5 py-2 text-xs text-muted transition-colors hover:bg-overlay hover:text-foreground"
       >
-        <Search className="h-4 w-4 shrink-0" />
-        <span className="flex-1 text-left truncate">Search tests, agents, tasks...</span>
-        <kbd className="hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-raised px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+        <Search className="h-3.5 w-3.5 shrink-0" />
+        <span className="flex-1 truncate text-left">Search…</span>
+        <kbd className="inline-flex items-center gap-0.5 rounded border border-border bg-surface px-1.5 py-0.5 font-mono text-[10px] text-faint">
           <Command className="h-3 w-3" />K
         </kbd>
       </button>
+    );
+  }
 
+  return (
+    <>
       {/* Overlay — portaled to body to escape stacking contexts */}
       {open && createPortal(
         <div className="fixed inset-0 z-[9999]" onKeyDown={handleKeyDown}>
@@ -287,7 +286,7 @@ export function GlobalSearch() {
 
           {/* Search Panel */}
           <div className="relative mx-auto mt-[15vh] w-full max-w-xl px-4">
-            <div className="rounded-xl border border-border bg-card shadow-2xl overflow-hidden">
+            <div className="rounded-xl border border-border bg-overlay shadow-2xl overflow-hidden">
               {/* Search Input */}
               <div className="flex items-center gap-3 px-4 border-b border-border">
                 <Search className="h-5 w-5 text-muted-foreground shrink-0" />
@@ -357,9 +356,9 @@ export function GlobalSearch() {
                                   key={badge}
                                   className={cn(
                                     'text-[10px] font-mono px-1.5 py-0.5 rounded',
-                                    badge === 'CRITICAL' ? 'bg-red-500/20 text-red-400' :
-                                    badge === 'HIGH' ? 'bg-orange-500/20 text-orange-400' :
-                                    badge.startsWith('T1') ? 'bg-primary/10 text-primary' :
+                                    badge === 'CRITICAL' ? 'bg-danger-dim text-danger' :
+                                    badge === 'HIGH' ? 'bg-warning-dim text-warning' :
+                                    badge.startsWith('T1') ? 'bg-accent-dim text-accent' :
                                     'bg-raised text-muted-foreground'
                                   )}
                                 >
