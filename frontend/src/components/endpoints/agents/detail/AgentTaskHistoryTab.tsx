@@ -74,7 +74,7 @@ export default function AgentTaskHistoryTab({ agentId }: AgentTaskHistoryTabProp
 
   return (
     <div className="mt-4">
-      <div className="border-theme border-border rounded-base shadow-theme overflow-hidden">
+      <div className="border border-border rounded-lg overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">

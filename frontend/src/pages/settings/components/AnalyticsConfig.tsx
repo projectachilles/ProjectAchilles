@@ -360,7 +360,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
           id="write-index-rollover"
           value={writeIndexRollover}
           onChange={(e) => setWriteIndexRollover(e.target.value as 'none' | 'daily' | 'monthly')}
-          className="w-full rounded-base border-theme border-border bg-background px-3 py-2.5 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+          className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
         >
           <option value="none">None (single index)</option>
           <option value="daily">Daily (YYYY.MM.DD)</option>

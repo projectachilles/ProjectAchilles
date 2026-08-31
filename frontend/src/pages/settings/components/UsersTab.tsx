@@ -219,7 +219,7 @@ export function UsersTab() {
                   {inv.role && (
                     <span className={cn(
                       'text-xs font-medium px-2 py-0.5 rounded-full shrink-0',
-                      ROLE_COLORS[inv.role as AppRole] ?? 'text-zinc-700 bg-zinc-100 dark:text-zinc-300 dark:bg-zinc-800/50'
+                      ROLE_COLORS[inv.role as AppRole] ?? 'text-muted bg-raised border border-border'
                     )}>
                       {ROLE_LABELS[inv.role as AppRole] ?? inv.role}
                     </span>
@@ -280,7 +280,7 @@ export function UsersTab() {
                 {/* Current role badge */}
                 <span className={cn(
                   'text-xs font-medium px-2 py-0.5 rounded-full',
-                  u.role ? ROLE_COLORS[u.role] : 'text-amber-700 bg-amber-100 dark:text-amber-300 dark:bg-amber-900/30'
+                  u.role ? ROLE_COLORS[u.role] : 'text-warning bg-warning-dim border border-warning/30'
                 )}>
                   {u.role ? ROLE_LABELS[u.role] : 'No role'}
                 </span>

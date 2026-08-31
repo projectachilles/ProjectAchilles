@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Database, Cloud, ShieldCheck, Bell } from 'lucide-react';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
-import { IntegrationCard, type IntegrationStatus } from './IntegrationCard';
+import type { IntegrationStatus } from './IntegrationCard';
+import { IntegrationGridCard } from './IntegrationGridCard';
 import { AnalyticsConfig } from './AnalyticsConfig';
 import { AzureConfig } from './AzureConfig';
 import { DefenderConfig } from './DefenderConfig';
@@ -17,11 +18,8 @@ export function IntegrationsTab() {
     analyticsConfigured ? 'connected' : 'not-configured'
   );
   const [azureStatus, setAzureStatus] = useState<IntegrationStatus>('not-configured');
-  const [azureLoaded, setAzureLoaded] = useState(false);
   const [defenderStatus, setDefenderStatus] = useState<IntegrationStatus>('not-configured');
-  const [defenderLoaded, setDefenderLoaded] = useState(false);
   const [alertsStatus, setAlertsStatus] = useState<IntegrationStatus>('not-configured');
-  const [alertsLoaded, setAlertsLoaded] = useState(false);
 
   const handleAnalyticsStatusChange = useCallback((configured: boolean) => {
     setAnalyticsStatus(configured ? 'connected' : 'not-configured');
@@ -43,74 +41,54 @@ export function IntegrationsTab() {
   useEffect(() => {
     integrationsApi.getAzureSettings().then((settings) => {
       setAzureStatus(settings.configured ? 'connected' : 'not-configured');
-      setAzureLoaded(true);
-    }).catch(() => {
-      setAzureLoaded(true);
-    });
+    }).catch(() => {});
 
     integrationsApi.getDefenderSettings().then((settings) => {
       setDefenderStatus(settings.configured ? 'connected' : 'not-configured');
-      setDefenderLoaded(true);
-    }).catch(() => {
-      setDefenderLoaded(true);
-    });
+    }).catch(() => {});
 
     alertsApi.getAlertSettings().then((settings) => {
       setAlertsStatus(settings.configured ? 'connected' : 'not-configured');
-      setAlertsLoaded(true);
-    }).catch(() => {
-      setAlertsLoaded(true);
-    });
+    }).catch(() => {});
   }, []);
 
   return (
-    <div className="space-y-4">
-      <div className="mb-6">
-        <h2 className="text-xl font-semibold">Integrations</h2>
-        <p className="text-muted-foreground text-sm mt-1">
-          Connect external services to enable additional features
-        </p>
-      </div>
-
-      <IntegrationCard
+    <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
+      <IntegrationGridCard
         icon={Database}
         title="Analytics (Elasticsearch)"
         description="Elasticsearch cluster connection for test results and analytics"
         status={analyticsStatus}
-        defaultExpanded={!analyticsConfigured}
       >
         <AnalyticsConfig onStatusChange={handleAnalyticsStatusChange} />
-      </IntegrationCard>
+      </IntegrationGridCard>
 
-      <IntegrationCard
+      <IntegrationGridCard
         icon={Cloud}
         title="Azure / Entra ID"
         description="Service principal for cloud identity tenant security assessments"
         status={azureStatus}
-        defaultExpanded={azureLoaded && azureStatus === 'not-configured'}
       >
         <AzureConfig onStatusChange={handleAzureStatusChange} />
-      </IntegrationCard>
+      </IntegrationGridCard>
 
-      <IntegrationCard
+      <IntegrationGridCard
         icon={ShieldCheck}
         title="Microsoft Defender"
         description="Secure Score, alerts, and security controls via Microsoft Graph"
         status={defenderStatus}
-        defaultExpanded={defenderLoaded && defenderStatus === 'not-configured'}
       >
         <DefenderConfig onStatusChange={handleDefenderStatusChange} />
-      </IntegrationCard>
+      </IntegrationGridCard>
 
-      <IntegrationCard
+      <IntegrationGridCard
         icon={Bell}
         title="Alerts & Notifications"
         description="Threshold-based alerting via Slack and email on score changes"
         status={alertsStatus}
-        defaultExpanded={alertsLoaded && alertsStatus === 'not-configured'}
       >
         <AlertsConfig onStatusChange={handleAlertsStatusChange} />
-      </IntegrationCard>
+      </IntegrationGridCard>
     </div>
   );
 }

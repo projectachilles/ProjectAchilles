@@ -53,7 +53,7 @@ function HeroMetricsCard({
           <Skeleton className="h-12 w-32 sm:h-14 sm:w-40" />
         </div>
 
-        <div className="border-t-[length:var(--theme-border-width)] border-border mx-2 sm:mx-4" />
+        <div className="border-t border-border mx-2 sm:mx-4" />
 
         {/* Bottom Section: mirrors the Endpoints/Tests stat pair */}
         <div className="flex-[2] flex divide-x divide-border">
@@ -110,7 +110,7 @@ function HeroMetricsCard({
       </div>
 
       {/* Horizontal Divider */}
-      <div className="border-t-[length:var(--theme-border-width)] border-border mx-2 sm:mx-4" />
+      <div className="border-t border-border mx-2 sm:mx-4" />
 
       {/* Bottom Section: Two compact metrics side-by-side - ~40% height */}
       <div className="flex-[2] flex divide-x divide-border min-w-0 min-h-0">
