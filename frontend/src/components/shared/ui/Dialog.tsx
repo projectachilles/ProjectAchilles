@@ -43,13 +43,13 @@ export function Dialog({ open, onClose, children, className = '' }: DialogProps)
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+        className="fixed inset-0 bg-background/70"
         onClick={onClose}
       />
       {/* Dialog content */}
       <div
         ref={dialogRef}
-        className={`relative z-50 w-full max-w-lg max-h-[90vh] overflow-auto rounded-base border-theme border-border bg-card p-6 shadow-theme ${className}`}
+        className={`relative z-50 w-full max-w-lg max-h-[90vh] overflow-auto rounded-[10px] border border-border-strong bg-surface p-5 shadow-[0_24px_60px_rgba(0,0,0,0.55)] ${className}`}
       >
         {children}
       </div>
@@ -81,7 +81,7 @@ interface DialogTitleProps {
 
 export function DialogTitle({ children }: DialogTitleProps) {
   return (
-    <h2 className="text-xl font-semibold">{children}</h2>
+    <h2 className="text-sm font-semibold tracking-tight">{children}</h2>
   );
 }
 
@@ -91,7 +91,7 @@ interface DialogDescriptionProps {
 
 export function DialogDescription({ children }: DialogDescriptionProps) {
   return (
-    <p className="text-sm text-muted-foreground mt-1">{children}</p>
+    <p className="text-xs text-muted mt-1">{children}</p>
   );
 }
 

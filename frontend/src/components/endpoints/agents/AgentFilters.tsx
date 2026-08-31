@@ -3,9 +3,16 @@
  */
 
 import { Filter, RefreshCw } from 'lucide-react';
-import { Input } from '../../shared/ui/Input';
-import { Button } from '../../shared/ui/Button';
-import { Switch } from '../../shared/ui/Switch';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type { ListAgentsRequest } from '@/types/agent';
 
 interface AgentFiltersProps {
@@ -20,10 +27,10 @@ export default function AgentFilters({
   onRefresh,
 }: AgentFiltersProps) {
   return (
-    <div className="border border-border rounded-lg bg-card p-4 mb-4">
+    <div className="border border-border rounded-lg bg-surface p-4 mb-4">
       <div className="flex flex-wrap gap-4 items-end">
         <div className="flex items-center gap-2 text-muted-foreground">
-          <Filter className="w-5 h-5" />
+          <Filter className="w-4 h-4" />
         </div>
 
         {/* Hostname Filter */}
@@ -38,54 +45,54 @@ export default function AgentFilters({
         </div>
 
         {/* OS Filter */}
-        <div className="min-w-36">
-          <select
-            className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-            value={filters.os || ''}
-            onChange={(e) =>
-              onFilterChange({
-                os: e.target.value ? (e.target.value as ListAgentsRequest['os']) : undefined,
-              })
-            }
-          >
-            <option value="">All OS</option>
-            <option value="windows">Windows</option>
-            <option value="linux">Linux</option>
-          </select>
-        </div>
+        <Select
+          value={filters.os || 'all'}
+          onValueChange={(value) =>
+            onFilterChange({ os: value === 'all' ? undefined : (value as ListAgentsRequest['os']) })
+          }
+        >
+          <SelectTrigger className="min-w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All OS</SelectItem>
+            <SelectItem value="windows">Windows</SelectItem>
+            <SelectItem value="linux">Linux</SelectItem>
+          </SelectContent>
+        </Select>
 
         {/* Status Filter */}
-        <div className="min-w-36">
-          <select
-            className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-            value={filters.status || ''}
-            onChange={(e) =>
-              onFilterChange({
-                status: e.target.value ? (e.target.value as ListAgentsRequest['status']) : undefined,
-              })
-            }
-          >
-            <option value="">All Status</option>
-            <option value="active">Active</option>
-            <option value="disabled">Disabled</option>
-            <option value="decommissioned">Decommissioned</option>
-            <option value="uninstalled">Uninstalled</option>
-          </select>
-        </div>
+        <Select
+          value={filters.status || 'all'}
+          onValueChange={(value) =>
+            onFilterChange({ status: value === 'all' ? undefined : (value as ListAgentsRequest['status']) })
+          }
+        >
+          <SelectTrigger className="min-w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All status</SelectItem>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="disabled">Disabled</SelectItem>
+            <SelectItem value="decommissioned">Decommissioned</SelectItem>
+            <SelectItem value="uninstalled">Uninstalled</SelectItem>
+          </SelectContent>
+        </Select>
 
         {/* Online Only Switch */}
-        <div className="flex items-center">
+        <label className="flex items-center gap-2 text-sm text-muted">
           <Switch
-            label="Online Only"
             checked={filters.online_only || false}
-            onChange={(e) => onFilterChange({ online_only: e.target.checked })}
+            onCheckedChange={(checked) => onFilterChange({ online_only: checked })}
           />
-        </div>
+          Online only
+        </label>
 
         <div className="flex-grow" />
 
-        <Button variant="outline" onClick={onRefresh}>
-          <RefreshCw className="w-4 h-4 mr-2" />
+        <Button variant="secondary" onClick={onRefresh}>
+          <RefreshCw />
           Refresh
         </Button>
       </div>

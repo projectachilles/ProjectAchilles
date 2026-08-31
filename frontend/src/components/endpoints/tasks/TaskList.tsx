@@ -160,30 +160,30 @@ function TaskDetailRow({ task, colSpan }: { task: AgentTask; colSpan: number }):
       <TableCell colSpan={colSpan}>
         <div className="bg-raised/50 rounded-lg p-4 space-y-3 text-sm">
           {task.result?.error && (
-            <div className="flex items-center gap-2 p-2 rounded bg-destructive/10 text-destructive text-sm">
+            <div className="flex items-center gap-2 p-2 rounded bg-danger-dim text-danger text-sm">
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>{task.result.error}</span>
             </div>
           )}
           <div>
             <div className="flex items-center gap-1">
-              <span className="font-medium">Stdout:</span>
+              <span className="text-[10px] font-medium uppercase tracking-wider text-faint">stdout</span>
               {task.result.stdout && <CopyButton text={task.result.stdout} />}
               <Button variant="ghost" size="sm" className="h-6 px-1.5"
                 onClick={() => setOutputExpanded(true)} title="Expand output">
                 <Maximize className="w-3.5 h-3.5" />
               </Button>
             </div>
-            <pre className="mt-1 p-2 bg-background rounded text-xs overflow-x-auto max-h-40">
+            <pre className="mt-1 p-2 bg-background border border-border rounded-md font-mono text-xs overflow-x-auto max-h-40">
               {task.result.stdout || '(empty)'}
             </pre>
           </div>
           <div>
             <div className="flex items-center">
-              <span className="font-medium">Stderr:</span>
+              <span className="text-[10px] font-medium uppercase tracking-wider text-faint">stderr</span>
               {task.result.stderr && <CopyButton text={task.result.stderr} />}
             </div>
-            <pre className="mt-1 p-2 bg-background rounded text-xs overflow-x-auto max-h-40">
+            <pre className="mt-1 p-2 bg-background border border-border rounded-md font-mono text-xs overflow-x-auto max-h-40">
               {task.result.stderr || '(empty)'}
             </pre>
           </div>
@@ -202,19 +202,19 @@ function TaskDetailRow({ task, colSpan }: { task: AgentTask; colSpan: number }):
             <div className="space-y-4">
               <div>
                 <div className="flex items-center gap-1 mb-1">
-                  <span className="font-medium">Stdout:</span>
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-faint">stdout</span>
                   {task.result.stdout && <CopyButton text={task.result.stdout} />}
                 </div>
-                <pre className="p-3 bg-raised rounded text-xs overflow-auto max-h-[50vh] whitespace-pre-wrap break-words">
+                <pre className="p-3 bg-raised border border-border rounded-md font-mono text-xs overflow-auto max-h-[50vh] whitespace-pre-wrap break-words">
                   {task.result.stdout || '(empty)'}
                 </pre>
               </div>
               <div>
                 <div className="flex items-center gap-1 mb-1">
-                  <span className="font-medium">Stderr:</span>
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-faint">stderr</span>
                   {task.result.stderr && <CopyButton text={task.result.stderr} />}
                 </div>
-                <pre className="p-3 bg-raised rounded text-xs overflow-auto max-h-[50vh] whitespace-pre-wrap break-words">
+                <pre className="p-3 bg-raised border border-border rounded-md font-mono text-xs overflow-auto max-h-[50vh] whitespace-pre-wrap break-words">
                   {task.result.stderr || '(empty)'}
                 </pre>
               </div>
@@ -269,7 +269,7 @@ export default function TaskList({
 
     return (
       <Fragment key={task.id}>
-        <TableRow className={isSelected ? 'bg-primary/5' : ''}>
+        <TableRow className={isSelected ? 'bg-accent-dim/40' : ''}>
           {onToggleSelect && (
             <TableCell>
               <Checkbox
@@ -351,7 +351,7 @@ export default function TaskList({
 
     return (
       <Fragment key={group.batch_id}>
-        <TableRow className={allGroupSelected ? 'bg-primary/5' : 'bg-raised/20'}>
+        <TableRow className={allGroupSelected ? 'bg-accent-dim/40' : 'bg-raised/20'}>
           {onToggleGroupSelect && (
             <TableCell>
               <Checkbox
@@ -410,7 +410,7 @@ export default function TaskList({
         {isExpanded && (
           <TableRow>
             <TableCell colSpan={colSpan} className="p-0">
-              <div className="border-l-2 border-primary/20 ml-6">
+              <div className="border-l-2 border-accent/25 ml-6">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -432,7 +432,7 @@ export default function TaskList({
 
                       return (
                         <Fragment key={task.id}>
-                          <TableRow className={isSelected ? 'bg-primary/5' : ''}>
+                          <TableRow className={isSelected ? 'bg-accent-dim/40' : ''}>
                             {onToggleSelect && (
                               <TableCell>
                                 <Checkbox
