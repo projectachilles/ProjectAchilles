@@ -298,6 +298,7 @@ function TrendChart({ data, errorRateData, errorRateOverall, secureScoreTrendDat
             />
             <Area
               type="monotone"
+                isAnimationActive={false}
               dataKey="score"
               stroke="var(--color-score)"
               strokeWidth={2}
@@ -309,6 +310,7 @@ function TrendChart({ data, errorRateData, errorRateOverall, secureScoreTrendDat
             {hasRealScore && (
               <Area
                 type="monotone"
+                isAnimationActive={false}
                 dataKey="realScore"
                 stroke="var(--color-realScore)"
                 strokeWidth={1.5}
@@ -321,6 +323,7 @@ function TrendChart({ data, errorRateData, errorRateOverall, secureScoreTrendDat
             {hasSecureScore && (
               <Area
                 type="monotone"
+                isAnimationActive={false}
                 dataKey="secureScore"
                 stroke="var(--color-secureScore)"
                 strokeWidth={2}
@@ -331,6 +334,7 @@ function TrendChart({ data, errorRateData, errorRateOverall, secureScoreTrendDat
             {hasErrorRate && (
               <Area
                 type="monotone"
+                isAnimationActive={false}
                 dataKey="errorRate"
                 stroke="var(--color-errorRate)"
                 strokeWidth={2}
