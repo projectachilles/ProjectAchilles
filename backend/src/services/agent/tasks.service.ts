@@ -954,6 +954,57 @@ export function cancelTask(taskId: string): Task {
 }
 
 /**
+ * Manually retry a terminal task by cloning it as a new pending task —
+ * same shape the automatic retries in expireStaleTasks/expireOverdueTasks
+ * create: same agent/payload/batch, retry_count+1, original_task_id chain.
+ *
+ * Restricted to execute_test: re-dispatching an execute_command task must
+ * stay behind the stricter endpoints:tasks:command permission, and
+ * update/uninstall tasks have their own creation endpoints. Unlike the
+ * automatic retries, a manual retry is NOT gated on max_retries — a human
+ * clicking Retry overrides the automatic budget (and since retry_count
+ * then exceeds max_retries, the clone won't auto-retry further).
+ */
+export function retryTask(taskId: string, retriedBy: string): Task {
+  const db = getDatabase();
+
+  const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as TaskRow | undefined;
+
+  if (!row) {
+    throw new AppError('Task not found', 404);
+  }
+
+  if (row.type !== 'execute_test') {
+    throw new AppError('Only test execution tasks can be retried', 400);
+  }
+
+  if (row.status !== 'completed' && row.status !== 'failed' && row.status !== 'expired') {
+    throw new AppError(`Cannot retry task in status: ${row.status}`, 400);
+  }
+
+  const retryId = crypto.randomUUID();
+  const originalId = row.original_task_id || row.id;
+
+  db.prepare(`
+    INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload,
+      created_at, ttl, created_by, target_index, batch_id,
+      retry_count, max_retries, original_task_id, notes, notes_history)
+    VALUES (?, ?, ?, ?, ?, 'pending', ?, datetime('now'), ?, ?, ?, ?,
+      ?, ?, ?, NULL, '[]')
+  `).run(
+    retryId, row.agent_id, row.org_id, row.type,
+    row.priority, row.payload, row.ttl, retriedBy,
+    row.target_index, row.batch_id,
+    (row.retry_count ?? 0) + 1, row.max_retries ?? 2, originalId,
+  );
+
+  console.log(`[tasks] Manual retry of task ${taskId} by ${retriedBy} → ${retryId}`);
+
+  const inserted = db.prepare('SELECT * FROM tasks WHERE id = ?').get(retryId) as TaskRow;
+  return parseTaskRow(inserted);
+}
+
+/**
  * Delete a task in any status. Admin-only action behind Clerk auth.
  */
 export function deleteTask(taskId: string): void {

@@ -882,6 +882,56 @@ export async function cancelTask(taskId: string): Promise<Task> {
 }
 
 /**
+ * Manually retry a terminal task by cloning it as a new pending task:
+ * same agent/payload/batch, retry_count+1, original_task_id chain.
+ *
+ * Restricted to execute_test: re-dispatching an execute_command task must
+ * stay behind the stricter endpoints:tasks:command permission, and
+ * update/uninstall tasks have their own creation endpoints. A manual retry
+ * is NOT gated on max_retries — a human clicking Retry overrides the
+ * automatic budget.
+ */
+export async function retryTask(taskId: string, retriedBy: string): Promise<Task> {
+  const db = await getDb();
+
+  const row = await db.get('SELECT * FROM tasks WHERE id = ?', [taskId]) as unknown as TaskRow | undefined;
+
+  if (!row) {
+    throw new AppError('Task not found', 404);
+  }
+
+  if (row.type !== 'execute_test') {
+    throw new AppError('Only test execution tasks can be retried', 400);
+  }
+
+  if (row.status !== 'completed' && row.status !== 'failed' && row.status !== 'expired') {
+    throw new AppError(`Cannot retry task in status: ${row.status}`, 400);
+  }
+
+  const retryId = crypto.randomUUID();
+  const originalId = row.original_task_id || row.id;
+
+  await db.run(
+    `INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload,
+       created_at, ttl, created_by, target_index, batch_id,
+       retry_count, max_retries, original_task_id, notes, notes_history)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, datetime('now'), ?, ?, ?, ?,
+       ?, ?, ?, NULL, '[]')`,
+    [
+      retryId, row.agent_id, row.org_id, row.type,
+      row.priority, row.payload, row.ttl, retriedBy,
+      row.target_index ?? null, row.batch_id ?? null,
+      (row.retry_count ?? 0) + 1, row.max_retries ?? 2, originalId,
+    ]
+  );
+
+  console.log(`[tasks] Manual retry of task ${taskId} by ${retriedBy} → ${retryId}`);
+
+  const inserted = await db.get('SELECT * FROM tasks WHERE id = ?', [retryId]) as unknown as TaskRow;
+  return parseTaskRow(inserted);
+}
+
+/**
  * Delete a task in any status. Admin-only action behind Clerk auth.
  */
 export async function deleteTask(taskId: string): Promise<void> {
