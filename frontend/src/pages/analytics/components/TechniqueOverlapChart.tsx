@@ -9,6 +9,7 @@ const ALERT_COLOR = DEFENDER_CHART_COLORS.missed;
 
 interface TechniqueOverlapChartProps {
   onSelectTechnique?: (technique: string) => void;
+  className?: string;
 }
 
 /**
@@ -20,6 +21,7 @@ interface TechniqueOverlapChartProps {
  */
 export default function TechniqueOverlapChart({
   onSelectTechnique,
+  className,
 }: TechniqueOverlapChartProps = {}) {
   const [data, setData] = useState<TechniqueOverlapItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,7 +35,7 @@ export default function TechniqueOverlapChart({
 
   if (loading) {
     return (
-      <Card className="h-full flex items-center justify-center">
+      <Card className={`h-full flex items-center justify-center ${className ?? ''}`}>
         <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </Card>
     );
@@ -41,7 +43,7 @@ export default function TechniqueOverlapChart({
 
   if (data.length === 0) {
     return (
-      <Card className="h-full flex items-center justify-center">
+      <Card className={`h-full flex items-center justify-center ${className ?? ''}`}>
         <span className="text-sm text-muted-foreground">No overlapping techniques found</span>
       </Card>
     );
@@ -51,7 +53,7 @@ export default function TechniqueOverlapChart({
   const topItems = data.slice(0, 10);
 
   return (
-    <Card className="h-full flex flex-col">
+    <Card className={`h-full flex flex-col ${className ?? ''}`}>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium">
           MITRE Technique Overlap

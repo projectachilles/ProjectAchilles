@@ -235,14 +235,19 @@ export default function DefenderTab() {
 
       {/* Detection analysis + Technique overlap side-by-side — both are
           per-technique horizontal-bar charts and share visual rhythm at
-          half width. Same max-h pattern as the row above. */}
-      <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-12 lg:col-span-6 max-h-[480px]">
-          <DetectionAnalysisCard onSelectTechnique={openDrawerForTechnique} />
-        </div>
-        <div className="col-span-12 lg:col-span-6 max-h-[480px]">
-          <TechniqueOverlapChart onSelectTechnique={openDrawerForTechnique} />
-        </div>
+          half width. The cards are DIRECT grid children (no wrapper divs):
+          DetectionAnalysisCard returns null when it has no data, and the
+          only-child rule lets the overlap card take the full row instead
+          of sitting beside an invisible half-width hole. */}
+      <div className="grid grid-cols-12 gap-4 [&>:only-child]:col-span-12">
+        <DetectionAnalysisCard
+          className="col-span-12 max-h-[480px] lg:col-span-6"
+          onSelectTechnique={openDrawerForTechnique}
+        />
+        <TechniqueOverlapChart
+          className="col-span-12 max-h-[480px] lg:col-span-6"
+          onSelectTechnique={openDrawerForTechnique}
+        />
       </div>
 
       <AlertDetailsDrawer

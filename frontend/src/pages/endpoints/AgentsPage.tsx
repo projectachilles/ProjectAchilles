@@ -319,10 +319,6 @@ export default function AgentsPage() {
           );
         })()}
 
-        <AvailableBinaries />
-
-        {canWriteAgent && <AutoRotationSettings />}
-
         {error && (
           <Alert variant="destructive" className="mb-4">
             {error}
@@ -457,6 +453,13 @@ export default function AgentsPage() {
           </>
         )}
           </div>
+        </div>
+
+        {/* Admin utilities — collapsed cards below the fleet, so they don't
+            take protagonism from the agents themselves */}
+        <div className="mt-5">
+          <AvailableBinaries />
+          {canWriteAgent && <AutoRotationSettings />}
         </div>
 
         <AgentDetailPanel

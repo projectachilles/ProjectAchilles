@@ -9,10 +9,12 @@ const MISSED_COLOR = DEFENDER_CHART_COLORS.missed;
 
 interface DetectionAnalysisCardProps {
   onSelectTechnique?: (technique: string) => void;
+  className?: string;
 }
 
 export default function DetectionAnalysisCard({
   onSelectTechnique,
+  className,
 }: DetectionAnalysisCardProps = {}) {
   const [data, setData] = useState<DetectionRateResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,7 +36,7 @@ export default function DetectionAnalysisCard({
   const maxTests = Math.max(...data.byTechnique.map((t) => t.testExecutions));
 
   return (
-    <Card className="h-full flex flex-col">
+    <Card className={`h-full flex flex-col ${className ?? ''}`}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium">Detection Analysis</CardTitle>

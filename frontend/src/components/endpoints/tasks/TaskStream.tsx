@@ -7,7 +7,8 @@
  */
 
 import { Fragment, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, FileText, RotateCcw, Trash2, XCircle } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, Maximize2, RotateCcw, Trash2, XCircle } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { AgentTask, TaskGroup } from '@/types/agent';
 import { resolveTaskStatusDisplay, type TaskStatusVariant } from '@/utils/taskStatusDisplay';
 import { Checkbox } from '../../shared/ui/Checkbox';
@@ -85,6 +86,40 @@ function taskName(task: AgentTask): string {
   return task.payload?.test_name || task.type.replace(/_/g, ' ');
 }
 
+/** stdout/stderr box — click (or the corner icon) opens the expanded viewer. */
+function OutputBlock({
+  label,
+  text,
+  maxHeightClass,
+  onExpand,
+}: {
+  label: string;
+  text: string | undefined;
+  maxHeightClass: string;
+  onExpand: () => void;
+}) {
+  return (
+    <div className="group">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-[10px] font-medium uppercase tracking-wider text-faint">{label}</span>
+        <Maximize2 className="h-3 w-3 text-faint opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
+      </div>
+      <pre
+        role="button"
+        tabIndex={0}
+        title="Click to expand"
+        onClick={onExpand}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onExpand();
+        }}
+        className={`${maxHeightClass} cursor-zoom-in overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background p-2.5 font-mono text-[11px] leading-relaxed transition-colors group-hover:border-border-strong`}
+      >
+        {text || '(empty)'}
+      </pre>
+    </div>
+  );
+}
+
 export default function TaskStream({
   groups,
   loading,
@@ -99,6 +134,7 @@ export default function TaskStream({
 }: TaskStreamProps) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [collapsedBatches, setCollapsedBatches] = useState<Set<string>>(new Set());
+  const [outputView, setOutputView] = useState<{ label: string; task: string; text: string } | null>(null);
 
   const allTasks = useMemo(() => groups.flatMap((g) => g.tasks), [groups]);
   const selectedTask = useMemo(
@@ -313,18 +349,22 @@ export default function TaskStream({
             )}
             {selectedTask.result ? (
               <>
-                <div>
-                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-faint">stdout</div>
-                  <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background p-2.5 font-mono text-[11px] leading-relaxed">
-                    {selectedTask.result.stdout || '(empty)'}
-                  </pre>
-                </div>
-                <div>
-                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-faint">stderr</div>
-                  <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background p-2.5 font-mono text-[11px] leading-relaxed">
-                    {selectedTask.result.stderr || '(empty)'}
-                  </pre>
-                </div>
+                <OutputBlock
+                  label="stdout"
+                  text={selectedTask.result.stdout}
+                  maxHeightClass="max-h-44"
+                  onExpand={() =>
+                    setOutputView({ label: 'stdout', task: taskName(selectedTask), text: selectedTask.result?.stdout ?? '' })
+                  }
+                />
+                <OutputBlock
+                  label="stderr"
+                  text={selectedTask.result.stderr}
+                  maxHeightClass="max-h-32"
+                  onExpand={() =>
+                    setOutputView({ label: 'stderr', task: taskName(selectedTask), text: selectedTask.result?.stderr ?? '' })
+                  }
+                />
               </>
             ) : (
               <div className="flex h-20 items-center justify-center text-sm text-faint">
@@ -369,6 +409,21 @@ export default function TaskStream({
           Select a task to see its detail.
         </div>
       )}
+
+      {/* Expanded output viewer */}
+      <Dialog open={outputView !== null} onOpenChange={(open) => !open && setOutputView(null)}>
+        <DialogContent className="sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle className="font-mono text-sm">
+              <span className="uppercase text-faint">{outputView?.label}</span>
+              <span className="ml-2 font-sans text-foreground">{outputView?.task}</span>
+            </DialogTitle>
+          </DialogHeader>
+          <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background p-4 font-mono text-xs leading-relaxed">
+            {outputView?.text || '(empty)'}
+          </pre>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

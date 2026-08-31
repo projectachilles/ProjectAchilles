@@ -40,7 +40,8 @@ export default function TasksPage() {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [schedulesCollapsed, setSchedulesCollapsed] = useState(false);
+  // Collapsed by default — schedules are configuration, the stream is the page
+  const [schedulesCollapsed, setSchedulesCollapsed] = useState(true);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [searchTerm, setSearchTerm] = useState(initialSearch);
