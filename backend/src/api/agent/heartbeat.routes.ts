@@ -14,6 +14,7 @@ import {
   addTag,
   removeTag,
   getHeartbeatHistory,
+  getBulkHeartbeatBuckets,
   getFleetHealthMetrics,
 } from '../../services/agent/heartbeat.service.js';
 import { listAgentEvents } from '../../services/agent/events.service.js';
@@ -120,6 +121,26 @@ adminAgentRouter.get(
         total: result.total,
       },
     });
+  })
+);
+
+/**
+ * GET /admin/agents/heartbeats?hours=24&org_id=
+ * Bulk hourly heartbeat buckets for the fleet sparklines — one request for
+ * the whole fleet instead of one per agent. Registered before /agents/:id
+ * so "heartbeats" isn't captured as an agent id.
+ */
+adminAgentRouter.get(
+  '/agents/heartbeats',
+  requirePermission('endpoints:agents:read'),
+  asyncHandler(async (req: Request, res: Response) => {
+    const hours = req.query.hours ? parseInt(req.query.hours as string, 10) : 24;
+    if (isNaN(hours) || hours < 1 || hours > 168) {
+      throw new AppError('hours must be between 1 and 168', 400);
+    }
+    const orgId = req.query.org_id as string | undefined;
+
+    res.json({ success: true, data: getBulkHeartbeatBuckets(hours, orgId) });
   })
 );
 

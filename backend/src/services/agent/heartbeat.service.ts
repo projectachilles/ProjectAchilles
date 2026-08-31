@@ -613,6 +613,42 @@ export function getHeartbeatHistory(agentId: string, days: number = 7): Heartbea
 }
 
 /**
+ * Hourly heartbeat counts for the whole fleet in one query, shaped for the
+ * agent-list sparklines: `hours` buckets per agent, last index = current
+ * hour. Aggregating in SQL keeps the payload at ~`hours` integers per agent
+ * instead of one row per heartbeat (~1,440/agent/day at 60s cadence).
+ * Agents with no heartbeats in the window are simply absent from the map.
+ */
+export function getBulkHeartbeatBuckets(hours: number = 24, orgId?: string): Record<string, number[]> {
+  const db = getDatabase();
+
+  const params: (string | number)[] = [`-${hours} hours`];
+  let orgFilter = '';
+  if (orgId) {
+    orgFilter = 'AND agent_id IN (SELECT id FROM agents WHERE org_id = ?)';
+    params.push(orgId);
+  }
+
+  const rows = db.prepare(`
+    SELECT agent_id,
+           CAST((julianday('now') - julianday(timestamp)) * 24 AS INTEGER) AS age_hours,
+           COUNT(*) AS n
+    FROM heartbeat_history
+    WHERE timestamp > datetime('now', ?)
+      ${orgFilter}
+    GROUP BY agent_id, age_hours
+  `).all(...params) as { agent_id: string; age_hours: number; n: number }[];
+
+  const buckets: Record<string, number[]> = {};
+  for (const row of rows) {
+    const arr = buckets[row.agent_id] ?? (buckets[row.agent_id] = new Array(hours).fill(0));
+    const idx = hours - 1 - row.age_hours;
+    if (idx >= 0 && idx < hours) arr[idx] += row.n;
+  }
+  return buckets;
+}
+
+/**
  * Delete heartbeat history rows older than 30 days.
  * Uses batched deletes (1000 rows per iteration) to avoid holding the
  * write lock for seconds when the table has accumulated many rows.
