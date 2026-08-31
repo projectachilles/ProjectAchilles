@@ -30,7 +30,7 @@ export const CardHeader = forwardRef<HTMLDivElement, CardHeaderProps>(
     return (
       <div
         ref={ref}
-        className={`mb-4 ${className}`}
+        className={`mb-4 last:mb-0 ${className}`}
         {...props}
       >
         {children}
