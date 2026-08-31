@@ -12,24 +12,24 @@
   },
   "dependencies": {
     "gray-matter": "^4.0.3",
-    "next": "^16.0.0",
+    "next": "^16.3.3",
     "next-mdx-remote": "^6.0.0",
     "next-themes": "^0.4.6",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "rehype-pretty-code": "^0.14.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "rehype-pretty-code": "^0.14.5",
     "remark-gfm": "^4.0.1",
-    "shiki": "^4.3.1",
-    "zod": "^4.0.0"
+    "shiki": "^4.4.3",
+    "zod": "^4.5.1"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.0",
+    "@tailwindcss/postcss": "^4.3.3",
     "@tailwindcss/typography": "^0.5.16",
     "@types/node": "^22.20.1",
-    "@types/react": "^19.1.0",
-    "@types/react-dom": "^19.1.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.8.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }
