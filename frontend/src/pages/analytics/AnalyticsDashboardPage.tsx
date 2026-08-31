@@ -670,10 +670,12 @@ export default function AnalyticsDashboardPage() {
               </div>
 
               {/* Columns 2–3 — trend (+ remediation controls with Defender).
-                  Without Defender the trend is height-capped to pair with
-                  the Defense ledger instead of towering over it. */}
+                  The trend is height-capped in both states: recharts'
+                  default aspect at 2-column width otherwise renders a
+                  ~590px plot of flat lines and unbalances the whole row
+                  (per-design height from the approved artboards). */}
               <div className="flex min-w-0 flex-col gap-4 md:col-span-2">
-                <div className={`min-w-0 overflow-hidden ${defenderConfigured ? '' : 'h-[340px]'}`}>
+                <div className="h-[340px] min-w-0 overflow-hidden">
                   <TrendChart
                     data={trendData}
                     errorRateData={errorRateTrendData}
