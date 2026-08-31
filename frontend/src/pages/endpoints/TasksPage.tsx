@@ -5,7 +5,7 @@ import { Plus, RefreshCw, Search, X, Trash2, ChevronsLeft, ChevronLeft, ChevronR
 import { agentApi } from '@/services/api/agent';
 import type { AgentMetrics, AgentTask, TaskGroup, TaskStatus, Schedule } from '@/types/agent';
 import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
-import TaskList from '@/components/endpoints/tasks/TaskList';
+import TaskStream from '@/components/endpoints/tasks/TaskStream';
 import ScheduleList from '@/components/endpoints/tasks/ScheduleList';
 import TaskCreatorDialog from '@/components/endpoints/tasks/TaskCreatorDialog';
 import TaskNotesDialog from '@/components/endpoints/tasks/TaskNotesDialog';
@@ -399,7 +399,7 @@ export default function TasksPage() {
         {loading ? (
           <Loading message="Loading tasks..." />
         ) : (
-          <TaskList
+          <TaskStream
             groups={groups}
             loading={loading}
             selectedTasks={canSelectTasks ? selectedTasks : []}
@@ -429,19 +429,23 @@ export default function TasksPage() {
             </div>
             <div className="flex items-center gap-1">
               <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(1)}>
-                <ChevronsLeft className="w-4 h-4" />
+                <ChevronsLeft className="w-4 h-4 mr-1" />
+                Newest
               </Button>
               <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                <ChevronLeft className="w-4 h-4" />
+                <ChevronLeft className="w-4 h-4 mr-1" />
+                Newer
               </Button>
-              <span className="px-3 text-foreground">
+              <span className="px-3 font-mono text-xs text-faint">
                 {page} / {totalPages}
               </span>
               <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
-                <ChevronRight className="w-4 h-4" />
+                Older
+                <ChevronRight className="w-4 h-4 ml-1" />
               </Button>
               <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(totalPages)}>
-                <ChevronsRight className="w-4 h-4" />
+                Oldest
+                <ChevronsRight className="w-4 h-4 ml-1" />
               </Button>
             </div>
           </div>
