@@ -1,4 +1,6 @@
 import { Activity, FlaskConical, Server, ShieldAlert, ShieldCheck, Star } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { useHasPermission } from '@/hooks/useAppRole';
 import { AttentionBanner } from './components/AttentionBanner';
@@ -11,18 +13,39 @@ import { SeverityDonut } from './components/SeverityDonut';
 import { SyncChip } from './components/SyncChip';
 import { TopControlsCard } from './components/TopControlsCard';
 import { TrendOverviewChart } from './components/TrendOverviewChart';
-import { useDashboardData } from './useDashboardData';
+import {
+  DASHBOARD_RANGES,
+  DEFAULT_DASHBOARD_RANGE,
+  normalizeDashboardRange,
+  useDashboardData,
+  type DashboardRange,
+} from './useDashboardData';
 
 const DEFENSE_DANGER_THRESHOLD = 60;
 
 export default function DashboardPage() {
-  const data = useDashboardData();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const range = normalizeDashboardRange(searchParams.get('range'));
+  const data = useDashboardData(range);
   const canSync = useHasPermission('tests:sync:execute');
+
+  const setRange = (next: DashboardRange) => {
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        // The default stays out of the URL, matching the Analytics filter convention
+        if (next === DEFAULT_DASHBOARD_RANGE) params.delete('range');
+        else params.set('range', next);
+        return params;
+      },
+      { replace: true },
+    );
+  };
 
   const kpis: KpiCardProps[] = [
     {
-      label: 'Defense score',
-      value: data.defense30 ? `${data.defense30.score.toFixed(1)}%` : '—',
+      label: `Defense score (${range})`,
+      value: data.defenseScore ? `${data.defenseScore.score.toFixed(1)}%` : '—',
       sub: data.analyticsConfigured
         ? data.errorRate
           ? `${data.errorRate.errorRate.toFixed(1)}% inconclusive`
@@ -31,7 +54,7 @@ export default function DashboardPage() {
       icon: ShieldAlert,
       to: '/analytics',
       tone:
-        data.defense30 && data.defense30.score < DEFENSE_DANGER_THRESHOLD ? 'danger' : 'default',
+        data.defenseScore && data.defenseScore.score < DEFENSE_DANGER_THRESHOLD ? 'danger' : 'default',
     },
     {
       label: 'Secure score',
@@ -120,6 +143,23 @@ export default function DashboardPage() {
         description="Posture across tests, endpoints, and analytics"
         className="mb-0"
       >
+        <div className="flex items-center gap-1" role="group" aria-label="Time range">
+          {DASHBOARD_RANGES.map((r) => (
+            <button
+              key={r}
+              onClick={() => setRange(r)}
+              aria-pressed={range === r}
+              className={cn(
+                'inline-flex h-7 items-center rounded-md border px-2.5 font-mono text-[11px] transition-colors',
+                range === r
+                  ? 'border-accent/25 bg-accent-dim text-accent'
+                  : 'border-border bg-raised text-muted hover:bg-overlay',
+              )}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
         <SyncChip
           branch={data.syncStatus?.branch}
           commit={data.syncStatus?.commitHash ?? undefined}
@@ -146,6 +186,7 @@ export default function DashboardPage() {
             data={data.trend}
             description={data.trendDescription}
             hasSecureScore={data.defenderConfigured}
+            rangeLabel={range}
             loading={data.loading}
           />
         </div>

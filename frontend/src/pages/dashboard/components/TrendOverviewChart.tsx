@@ -20,6 +20,8 @@ interface TrendOverviewChartProps {
   data: TrendPoint[];
   description: string;
   hasSecureScore: boolean;
+  /** Selected time window label, e.g. "90d". */
+  rangeLabel: string;
   loading?: boolean;
 }
 
@@ -29,7 +31,7 @@ const SERIES = [
   { key: 'errorRate', label: 'error rate', color: 'var(--chart-bypassed)' },
 ] as const;
 
-export function TrendOverviewChart({ data, description, hasSecureScore, loading }: TrendOverviewChartProps) {
+export function TrendOverviewChart({ data, description, hasSecureScore, rangeLabel, loading }: TrendOverviewChartProps) {
   if (loading) {
     return <div className="h-72 animate-pulse rounded-lg border border-border bg-raised" aria-hidden="true" />;
   }
@@ -39,7 +41,7 @@ export function TrendOverviewChart({ data, description, hasSecureScore, loading 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Trend overview — last 30 days</CardTitle>
+        <CardTitle>Trend overview — last {rangeLabel}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent>
