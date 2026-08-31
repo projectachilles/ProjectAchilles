@@ -10,11 +10,11 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantStyles: Record<ButtonVariant, string> = {
-  primary: 'bg-primary text-primary-foreground border-theme border-border shadow-theme hover:translate-x-[var(--theme-hover-translate)] hover:translate-y-[var(--theme-hover-translate)] hover:shadow-[var(--theme-hover-shadow)]',
-  secondary: 'bg-secondary text-secondary-foreground border-theme border-border shadow-theme hover:bg-secondary/80 hover:translate-x-[var(--theme-hover-translate)] hover:translate-y-[var(--theme-hover-translate)] hover:shadow-[var(--theme-hover-shadow)]',
+  primary: 'bg-primary text-primary-foreground border border-border',
+  secondary: 'bg-secondary text-secondary-foreground border border-border hover:bg-secondary/80',
   ghost: 'text-foreground hover:bg-raised hover:text-foreground',
-  destructive: 'bg-destructive text-destructive-foreground border-theme border-border shadow-theme hover:translate-x-[var(--theme-hover-translate)] hover:translate-y-[var(--theme-hover-translate)] hover:shadow-[var(--theme-hover-shadow)]',
-  outline: 'border-theme border-border bg-transparent text-foreground shadow-theme hover:bg-raised hover:text-foreground hover:translate-x-[var(--theme-hover-translate)] hover:translate-y-[var(--theme-hover-translate)] hover:shadow-[var(--theme-hover-shadow)]',
+  destructive: 'bg-destructive text-destructive-foreground border border-border',
+  outline: 'border border-border bg-transparent text-foreground hover:bg-raised hover:text-foreground',
 };
 
 const sizeStyles: Record<ButtonSize, string> = {
@@ -30,7 +30,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         className={`
-          inline-flex items-center justify-center gap-2 rounded-base font-medium
+          inline-flex items-center justify-center gap-2 rounded-lg font-medium
           transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
           disabled:pointer-events-none disabled:opacity-50
           ${variantStyles[variant]}

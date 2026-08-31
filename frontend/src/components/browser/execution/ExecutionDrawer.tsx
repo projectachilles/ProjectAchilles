@@ -232,7 +232,7 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
       {/* Drawer panel */}
       <div className="fixed inset-y-0 right-0 w-[420px] bg-card border-l border-border shadow-xl z-50 flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b-[length:var(--theme-border-width)] border-border shrink-0">
+        <div className="flex items-center justify-between p-4 border-b border-border shrink-0">
           <div className="min-w-0">
             {isBatch ? (
               <h2 className="text-lg font-semibold">{tests.length} tests selected</h2>
@@ -311,7 +311,7 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
 
         {/* Footer */}
         {!result && (
-          <div className="flex items-center justify-end gap-2 p-4 border-t-[length:var(--theme-border-width)] border-border shrink-0">
+          <div className="flex items-center justify-end gap-2 p-4 border-t border-border shrink-0">
             <Button variant="outline" onClick={handleClose}>Cancel</Button>
             <Button onClick={handleExecute} disabled={creating || !isFormValid}>
               {creating

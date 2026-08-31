@@ -184,7 +184,7 @@ export default function HeroStatTile(props: HeroStatTileProps) {
       <button
         type="button"
         onClick={onClick}
-        className="block h-full w-full text-left appearance-none bg-transparent border-0 p-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-base"
+        className="block h-full w-full text-left appearance-none bg-transparent border-0 p-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-lg"
       >
         {tile}
       </button>

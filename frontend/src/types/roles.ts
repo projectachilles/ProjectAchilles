@@ -114,10 +114,10 @@ export const ROLE_LABELS: Record<AppRole, string> = {
 };
 
 export const ROLE_COLORS: Record<AppRole, string> = {
-  admin: 'text-red-700 bg-red-100 dark:text-red-300 dark:bg-red-900/30',
-  operator: 'text-blue-700 bg-blue-100 dark:text-blue-300 dark:bg-blue-900/30',
-  analyst: 'text-green-700 bg-green-100 dark:text-green-300 dark:bg-green-900/30',
-  explorer: 'text-zinc-700 bg-zinc-100 dark:text-zinc-300 dark:bg-zinc-800/50',
+  admin: 'text-warning bg-warning-dim border border-warning/30',
+  operator: 'text-info bg-info-dim border border-info/30',
+  analyst: 'text-accent bg-accent-dim border border-accent/30',
+  explorer: 'text-muted bg-raised border border-border',
 };
 
 export const VALID_ROLES: readonly AppRole[] = ['admin', 'operator', 'analyst', 'explorer'];

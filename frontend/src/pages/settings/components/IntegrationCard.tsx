@@ -18,18 +18,18 @@ interface IntegrationCardProps {
 function StatusBadge({ status, message }: { status: IntegrationStatus; message?: string }) {
   const statusConfig = {
     connected: {
-      bg: 'bg-green-500/10',
-      text: 'text-green-500',
+      bg: 'bg-accent-dim border border-accent/30',
+      text: 'text-accent',
       label: message || 'Connected',
     },
     'not-configured': {
-      bg: '',
-      text: 'text-muted-foreground',
+      bg: 'bg-raised border border-border',
+      text: 'text-muted',
       label: message || 'Not configured',
     },
     error: {
-      bg: 'bg-destructive/10',
-      text: 'text-destructive',
+      bg: 'bg-danger-dim border border-danger/30',
+      text: 'text-danger',
       label: message || 'Error',
     },
   };
@@ -61,7 +61,7 @@ export function IntegrationCard({
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
-    <div className="rounded-base border-theme border-border bg-card text-card-foreground shadow-theme overflow-hidden">
+    <div className="rounded-lg border border-border bg-card text-card-foreground overflow-hidden">
       {/* Header - always visible */}
       <button
         type="button"
@@ -70,18 +70,18 @@ export function IntegrationCard({
       >
         <div
           className={cn(
-            'flex items-center justify-center w-10 h-10 rounded-base shrink-0',
-            status === 'connected' && 'bg-primary/10',
+            'flex items-center justify-center w-10 h-10 rounded-lg shrink-0',
+            status === 'connected' && 'bg-accent-dim',
             status === 'not-configured' && 'bg-raised',
-            status === 'error' && 'bg-destructive/10'
+            status === 'error' && 'bg-danger-dim'
           )}
         >
           <Icon
             className={cn(
               'w-5 h-5',
-              status === 'connected' && 'text-primary',
+              status === 'connected' && 'text-accent',
               status === 'not-configured' && 'text-muted-foreground',
-              status === 'error' && 'text-destructive'
+              status === 'error' && 'text-danger'
             )}
           />
         </div>
@@ -105,7 +105,7 @@ export function IntegrationCard({
           expanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'
         )}
       >
-        <div className="border-t-[length:var(--theme-border-width)] border-border p-4">{children}</div>
+        <div className="border-t border-border p-4">{children}</div>
       </div>
     </div>
   );

@@ -116,19 +116,6 @@
   --chart-series-alert: #38bdf8;
   --success: #3ef08a;
   --warning: #fbbf24;
-
-  /* ── Structural tokens — pinned to fixed f0 values. Legacy
-     components still reference border-theme/rounded-base/
-     shadow-theme utilities; the tokens and utilities are excised
-     together in the final cleanup phase. ── */
-  --theme-border-width: 1px;
-  --theme-border-radius: 0.5rem;
-  --theme-shadow: none;
-  --theme-hover-translate: 0px;
-  --theme-hover-shadow: none;
-  --theme-font-body: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
-  --theme-font-weight-base: 400;
-  --theme-font-weight-heading: 600;
 }
 
 /* The single f0 theme is dark; <html class="dark"> stays (FOUC guard
@@ -159,11 +146,6 @@
    CUSTOM UTILITIES
    ═══════════════════════════════════════════════════════════════ */
 
-/* Tailwind v4 doesn't support variable border-width via @theme */
-@utility border-theme {
-  border-width: var(--theme-border-width);
-}
-
 /* Base styles */
 * {
   border-color: var(--color-border);
@@ -172,15 +154,15 @@
 body {
   background-color: var(--color-background);
   color: var(--color-foreground);
-  font-family: var(--theme-font-body);
-  font-weight: var(--theme-font-weight-base);
+  font-family: var(--font-sans);
+  font-weight: 400;
   font-feature-settings: "rlig" 1, "calt" 1;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-weight: var(--theme-font-weight-heading);
+  font-weight: 600;
 }
 
 ::selection {
@@ -228,10 +210,6 @@ code {
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
-
-  /* Structural utilities (pinned; removed in final cleanup phase) */
-  --radius-base: var(--theme-border-radius);
-  --shadow-theme: var(--theme-shadow);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
