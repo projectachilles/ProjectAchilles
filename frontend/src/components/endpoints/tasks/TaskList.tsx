@@ -333,7 +333,7 @@ export default function TaskList({
               )}
               {isDeletable(task.status) && onDelete && (
                 <Button variant="ghost" size="icon" onClick={() => onDelete(task.id)}>
-                  <Trash2 className="w-4 h-4 text-red-400" />
+                  <Trash2 className="w-4 h-4 text-danger" />
                 </Button>
               )}
             </div>
@@ -401,7 +401,7 @@ export default function TaskList({
                     if (isDeletable(t.status)) onDelete(t.id);
                   }
                 }}>
-                  <Trash2 className="w-4 h-4 text-red-400" />
+                  <Trash2 className="w-4 h-4 text-danger" />
                 </Button>
               )}
             </div>
@@ -490,7 +490,7 @@ export default function TaskList({
                                 )}
                                 {isDeletable(task.status) && onDelete && (
                                   <Button variant="ghost" size="icon" onClick={() => onDelete(task.id)}>
-                                    <Trash2 className="w-4 h-4 text-red-400" />
+                                    <Trash2 className="w-4 h-4 text-danger" />
                                   </Button>
                                 )}
                               </div>

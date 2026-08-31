@@ -3,7 +3,7 @@ import { usePolling } from '@/hooks/usePolling';
 import { useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCw, Search, X, Trash2, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, ChevronDown } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
-import type { AgentTask, TaskGroup, TaskStatus, Schedule } from '@/types/agent';
+import type { AgentMetrics, AgentTask, TaskGroup, TaskStatus, Schedule } from '@/types/agent';
 import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
 import TaskList from '@/components/endpoints/tasks/TaskList';
 import ScheduleList from '@/components/endpoints/tasks/ScheduleList';
@@ -32,6 +32,7 @@ export default function TasksPage() {
   }, []);
 
   const [groups, setGroups] = useState<TaskGroup[]>([]);
+  const [metrics, setMetrics] = useState<AgentMetrics | null>(null);
   const [totalGroups, setTotalGroups] = useState(0);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -98,13 +99,15 @@ export default function TasksPage() {
   const poll = useCallback(async () => {
     try {
       const filters = buildFilters();
-      const [taskResult, scheduleResult] = await Promise.all([
+      const [taskResult, scheduleResult, metricsResult] = await Promise.all([
         agentApi.listTasksGrouped(filters),
         agentApi.listSchedules(),
+        agentApi.getMetrics().catch(() => null),
       ]);
       setGroups(taskResult.groups);
       setTotalGroups(taskResult.total);
       setSchedules(scheduleResult);
+      if (metricsResult) setMetrics(metricsResult);
     } catch {
       // Silent — don't surface transient poll failures
     }
@@ -112,6 +115,11 @@ export default function TasksPage() {
   }, [statusFilter, debouncedSearch, page, pageSize]);
 
   usePolling(poll, 10_000);
+
+  // Initial 24h KPI load (poll keeps it fresh afterwards)
+  useEffect(() => {
+    agentApi.getMetrics().then(setMetrics).catch(() => {});
+  }, []);
 
   // --- Search ---
 
@@ -273,7 +281,7 @@ export default function TasksPage() {
       <PageContainer>
         <PageHeader
           title="Tasks"
-          description="Create and monitor security test tasks"
+          description="Task activity across the fleet — last 24 hours"
           actions={canCreateTask ? (
             <Button onClick={() => setDialogOpen(true)}>
               <Plus className="w-4 h-4 mr-2" />
@@ -281,6 +289,23 @@ export default function TasksPage() {
             </Button>
           ) : undefined}
         />
+
+        {/* 24h task-activity KPI mini-row */}
+        {metrics && (
+          <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+            {([
+              { label: 'Completed', value: metrics.task_activity_24h.completed, cls: 'text-accent' },
+              { label: 'Failed', value: metrics.task_activity_24h.failed, cls: metrics.task_activity_24h.failed > 0 ? 'text-danger' : '' },
+              { label: 'In progress', value: metrics.task_activity_24h.in_progress, cls: '' },
+              { label: 'Success rate', value: `${Math.round(metrics.task_activity_24h.success_rate)}%`, cls: '' },
+            ] as const).map((kpi) => (
+              <div key={kpi.label} className="rounded-lg border border-border bg-surface p-4">
+                <div className="text-[11px] uppercase tracking-wider text-faint">{kpi.label}</div>
+                <div className={`mt-2 text-2xl font-semibold tracking-tight ${kpi.cls}`}>{kpi.value}</div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Schedules section (collapsible) */}
         {schedules.length > 0 && (

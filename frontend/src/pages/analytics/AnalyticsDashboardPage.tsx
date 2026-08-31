@@ -518,7 +518,7 @@ export default function AnalyticsDashboardPage() {
 
   return (
     <>
-      <div className="container mx-auto px-4 py-6">
+      <div>
         <PageHeader
           title="Analytics"
           description="Detection depth across error types, techniques, and categories"
