@@ -63,8 +63,8 @@ function DefenseScoreByHostChart({
           </div>
         ) : (
           <div
-            className="flex flex-col gap-2.5 overflow-y-auto"
-            style={{ maxHeight: rows.length > maxVisibleItems ? `${maxVisibleItems * ROW_HEIGHT}px` : undefined }}
+            className="flex min-h-0 grow flex-col gap-2.5 overflow-y-auto"
+            style={{ flexBasis: `${Math.min(rows.length, maxVisibleItems) * ROW_HEIGHT}px` }}
           >
             {rows.map((item) => (
               <div
