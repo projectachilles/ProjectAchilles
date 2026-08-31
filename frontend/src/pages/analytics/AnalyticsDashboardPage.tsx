@@ -634,14 +634,15 @@ export default function AnalyticsDashboardPage() {
               />
             </div>
 
-            {/* Posture section — every row shares the same 3-column grid so
-                the rail (column 1) aligns with the trio above. Defender
-                slots collapse when unconfigured; the trend then stretches
-                to match the Defense ledger's height. */}
+            {/* Posture section — a true two-row 3-column grid so the
+                horizontal seams align across columns:
+                · row 1: ledger (+ Secure with Defender) | trend — the trend
+                  cell is position:absolute-filled so it ADOPTS the rail's
+                  height instead of contributing recharts' own ~590px
+                  aspect height; trend bottom === Secure card bottom.
+                · row 2 (Defender only): Test activity | Top Controls —
+                  activity stretches to the controls' height. */}
             <div className="grid items-stretch gap-4 md:grid-cols-3">
-              {/* Rail — column 1. With Defender: ledger + secure + activity
-                  (activity flexes to close the rail). Without: the ledger
-                  alone, stretched by the grid to match the trend row. */}
               <div className="flex min-w-0 flex-col gap-4">
                 <HeroMetricsCard
                   defenseScore={defenseScore?.overall ?? null}
@@ -658,24 +659,10 @@ export default function AnalyticsDashboardPage() {
                 {defenderConfigured && secureScore && (
                   <SecureScoreCard data={secureScore} loading={loadingDashboard} />
                 )}
-                {defenderConfigured && (
-                  <TestActivityCard
-                    trendData={trendData}
-                    recentTests={recentTests}
-                    loading={loadingDashboard}
-                    title="Test activity"
-                    className="flex-1"
-                  />
-                )}
               </div>
 
-              {/* Columns 2–3 — trend (+ remediation controls with Defender).
-                  The trend is height-capped in both states: recharts'
-                  default aspect at 2-column width otherwise renders a
-                  ~590px plot of flat lines and unbalances the whole row
-                  (per-design height from the approved artboards). */}
-              <div className="flex min-w-0 flex-col gap-4 md:col-span-2">
-                <div className="h-[340px] min-w-0 overflow-hidden">
+              <div className="relative h-[340px] min-w-0 md:col-span-2 md:h-auto">
+                <div className="h-full min-w-0 overflow-hidden md:absolute md:inset-0">
                   <TrendChart
                     data={trendData}
                     errorRateData={errorRateTrendData}
@@ -686,12 +673,22 @@ export default function AnalyticsDashboardPage() {
                     windowDays={getWindowDaysForDateRange(filterState.filters.dateRange)}
                   />
                 </div>
-                {defenderConfigured && (
-                  <div className="min-h-0 flex-1">
+              </div>
+
+              {defenderConfigured && (
+                <>
+                  <TestActivityCard
+                    trendData={trendData}
+                    recentTests={recentTests}
+                    loading={loadingDashboard}
+                    title="Test activity"
+                    className="h-full"
+                  />
+                  <div className="min-w-0 md:col-span-2">
                     <TopControlsCard compact />
                   </div>
-                )}
-              </div>
+                </>
+              )}
             </div>
 
             {/* Coverage + by-host: last full-width row with Defender, or a

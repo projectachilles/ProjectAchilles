@@ -1,5 +1,5 @@
-import { memo, useMemo, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { memo, useMemo } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface StackedBarChartProps {
@@ -11,297 +11,104 @@ interface StackedBarChartProps {
   }>;
   loading?: boolean;
   title?: string;
-  badge?: React.ReactNode; // Optional badge rendered next to the title
-  maxVisibleItems?: number; // Items shown before scrolling (default: 8)
+  description?: string;
+  maxVisibleItems?: number;
 }
 
-// Governed chart tokens (var(--chart-*)) resolve fine here since these values
-// flow into inline `style` (backgroundColor/color), not raw SVG `fill` attrs.
-const PROTECTED_COLOR = 'var(--chart-protected)';
-const BYPASSED_COLOR = 'var(--chart-bypassed)';
-
-interface ChartItem {
-  name: string;
-  protected: number;
-  unprotected: number;
-  total: number;
-  percentage: number;
-}
-
-interface TooltipData {
-  item: ChartItem;
-  x: number;
-  y: number;
-}
+const ROW_HEIGHT = 44; // label line + bar + gap
 
 /**
- * Horizontal stacked bar chart showing Protected vs Unprotected counts.
- *
- * Layout:
- * ┌─────────────────────────────────────────────┐
- * │  Category Name ████████████████░░░░░░  65%  │
- * │  Another Item  ██████████████████░░░  82%   │
- * └─────────────────────────────────────────────┘
- *   ████ = Protected (green)    ░░░░ = Unprotected (red)
- *
- * Uses custom SVG rendering to avoid Recharts stacking bugs.
+ * Flat protected-vs-unprotected bar list (approved Analyst Columns
+ * artboard style): mono label + count, full-width split bar with a
+ * 2px surface gap between the segments. Replaces the old SVG chart.
  */
 function StackedBarChart({
   data,
   loading,
-  title = 'Coverage',
-  badge,
-  maxVisibleItems = 8
+  title = 'Test Coverage',
+  description = 'Protected vs unprotected executions',
+  maxVisibleItems = 8,
 }: StackedBarChartProps) {
-  const [tooltip, setTooltip] = useState<TooltipData | null>(null);
-
-  // Normalize data and calculate percentages
-  const chartData = useMemo(() => {
-    if (!data || data.length === 0) return [];
-    return data.map(item => {
-      const total = item.protected + item.unprotected;
-      const percentage = total > 0 ? Math.round((item.protected / total) * 100) : 0;
-      return {
-        name: item.name || item.technique || 'Unknown',
-        protected: item.protected,
-        unprotected: item.unprotected,
-        total,
-        percentage
-      };
-    });
+  const rows = useMemo(() => {
+    return (data ?? [])
+      .map((d) => {
+        const total = d.protected + d.unprotected;
+        return {
+          label: d.name ?? d.technique ?? '—',
+          protected: d.protected,
+          unprotected: d.unprotected,
+          total,
+          pct: total > 0 ? (d.protected / total) * 100 : 0,
+        };
+      })
+      .sort((a, b) => b.total - a.total);
   }, [data]);
 
   if (loading) {
     return (
-      <Card className="h-full min-h-[280px] flex flex-col overflow-hidden">
-        <CardHeader className="pb-2 flex-shrink-0">
-          <Skeleton className="h-4 w-24" />
-        </CardHeader>
-        <CardContent className="flex-1 pb-4 overflow-hidden flex flex-col gap-1.5" aria-busy="true">
-          <Skeleton className="h-[26px] w-full" />
-          <Skeleton className="h-[26px] w-full" />
-          <Skeleton className="h-[26px] w-full" />
-          <Skeleton className="h-[26px] w-full" />
-        </CardContent>
+      <Card className="flex h-full flex-col gap-3 p-5" aria-busy="true">
+        <Skeleton className="h-3 w-40" />
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-6 w-full" />
+        ))}
       </Card>
     );
   }
-
-  // Return early if no data
-  if (!data || data.length === 0) {
-    return (
-      <Card className="h-full min-h-[280px] flex items-center justify-center">
-        <p className="text-muted-foreground">No data available</p>
-      </Card>
-    );
-  }
-
-  // Truncate long names for inside-bar labels (responsive)
-  const truncateName = (name: string, maxLength: number = 16) => {
-    if (name.length <= maxLength) return name;
-    return name.substring(0, maxLength - 1) + '…';
-  };
-
-  // Chart dimensions (responsive-friendly)
-  const barHeight = 26;
-  const barGap = 6;
-  const leftPadding = 8;
-  const rightPadding = 45; // Space for percentage labels
-  const topPadding = 5;
-  const chartHeight = chartData.length * (barHeight + barGap) + topPadding;
-
-  // Find max total for scaling
-  const maxTotal = Math.max(...chartData.map(d => d.total), 1);
-
-  // Calculate scroll container max height (items * row height + padding)
-  const scrollMaxHeight = maxVisibleItems * (barHeight + barGap) + topPadding;
-  const needsScroll = chartData.length > maxVisibleItems;
 
   return (
-    <Card className="h-full flex flex-col overflow-hidden">
-      <CardHeader className="pb-2 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <CardTitle className="text-sm font-medium">{title}</CardTitle>
-          {badge}
-        </div>
+    <Card className="flex h-full flex-col overflow-hidden">
+      <CardHeader className="flex-shrink-0">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent className="flex-1 pb-4 overflow-hidden relative flex flex-col">
-        {/* Scrollable chart area */}
-        <div
-          className={needsScroll ? 'overflow-y-auto' : 'overflow-hidden'}
-          style={{ maxHeight: needsScroll ? `${scrollMaxHeight}px` : undefined }}
-        >
-          <svg
-          width="100%"
-          height={chartHeight}
-          className="overflow-visible"
-          onMouseLeave={() => setTooltip(null)}
-        >
-          {chartData.map((item, index) => {
-            const y = topPadding + index * (barHeight + barGap);
-            const barWidth = `calc(100% - ${leftPadding + rightPadding}px)`;
-            const protectedRatio = item.total > 0 ? item.protected / item.total : 0;
-            const bypassedRatio = item.total > 0 ? item.unprotected / item.total : 0;
-            // Scale bar to max value
-            const scaleFactor = item.total / maxTotal;
-
-            return (
-              <g
-                key={item.name}
-                onMouseEnter={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  setTooltip({
-                    item,
-                    x: rect.left + rect.width / 2,
-                    y: rect.top
-                  });
-                }}
-                onMouseLeave={() => setTooltip(null)}
-                style={{ cursor: 'pointer' }}
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-3">
+        {rows.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center text-sm text-faint">
+            No data available
+          </div>
+        ) : (
+          <div
+            className="flex flex-col gap-2.5 overflow-y-auto"
+            style={{ maxHeight: rows.length > maxVisibleItems ? `${maxVisibleItems * ROW_HEIGHT}px` : undefined }}
+          >
+            {rows.map((row) => (
+              <div
+                key={row.label}
+                className="flex flex-col gap-1"
+                title={`${row.protected.toLocaleString()} protected · ${row.unprotected.toLocaleString()} unprotected`}
               >
-                {/* Container for the bar using foreignObject for percentage width */}
-                <foreignObject
-                  x={leftPadding}
-                  y={y}
-                  width={barWidth}
-                  height={barHeight}
-                  style={{ overflow: 'visible' }}
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="truncate font-mono text-[11px] text-foreground">{row.label}</span>
+                  <span className="shrink-0 font-mono text-[11px] text-muted">
+                    {row.total.toLocaleString()}
+                  </span>
+                </div>
+                <div
+                  className="h-2.5 overflow-hidden rounded"
+                  style={{ backgroundColor: 'var(--chart-bypassed)' }}
                 >
                   <div
+                    className="h-full"
                     style={{
-                      width: `${scaleFactor * 100}%`,
-                      height: '100%',
-                      display: 'flex',
-                      borderRadius: '4px',
-                      overflow: 'hidden'
+                      width: `${row.pct}%`,
+                      backgroundColor: 'var(--chart-protected)',
+                      borderRight: row.pct > 0 && row.pct < 100 ? '2px solid var(--surface)' : undefined,
                     }}
-                  >
-                    {/* Protected segment (green) */}
-                    {protectedRatio > 0 && (
-                      <div
-                        style={{
-                          width: `${protectedRatio * 100}%`,
-                          height: '100%',
-                          backgroundColor: PROTECTED_COLOR,
-                          display: 'flex',
-                          alignItems: 'center',
-                          paddingLeft: '8px',
-                          minWidth: protectedRatio > 0.15 ? 'auto' : '0'
-                        }}
-                      >
-                        {protectedRatio > 0.25 && (
-                          <span
-                            style={{
-                              color: 'white',
-                              fontSize: '12px',
-                              fontWeight: 500,
-                              textShadow: '0 1px 2px rgba(0,0,0,0.3)',
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis'
-                            }}
-                          >
-                            {truncateName(item.name)}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {/* Unprotected segment (red) */}
-                    {bypassedRatio > 0 && (
-                      <div
-                        style={{
-                          width: `${bypassedRatio * 100}%`,
-                          height: '100%',
-                          backgroundColor: BYPASSED_COLOR,
-                          display: 'flex',
-                          alignItems: 'center',
-                          paddingLeft: protectedRatio <= 0.25 ? '8px' : '0'
-                        }}
-                      >
-                        {/* Show label in red section if green is too small */}
-                        {protectedRatio <= 0.25 && bypassedRatio > 0.25 && (
-                          <span
-                            style={{
-                              color: 'white',
-                              fontSize: '12px',
-                              fontWeight: 500,
-                              textShadow: '0 1px 2px rgba(0,0,0,0.3)',
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis'
-                            }}
-                          >
-                            {truncateName(item.name)}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </foreignObject>
-
-                {/* Percentage label on the right */}
-                <text
-                  x="100%"
-                  y={y + barHeight / 2}
-                  dx={-rightPadding + 8}
-                  dy="0.35em"
-                  fill="var(--foreground)"
-                  fontSize="12px"
-                  fontWeight={500}
-                >
-                  {item.percentage}%
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-        </div>
-
-        {/* Tooltip */}
-        {tooltip && (
-          <div
-            className="fixed z-50 pointer-events-none"
-            style={{
-              left: tooltip.x,
-              top: tooltip.y - 10,
-              transform: 'translate(-50%, -100%)'
-            }}
-          >
-            <div
-              className="px-3 py-2 rounded-lg text-xs"
-              style={{
-                backgroundColor: 'var(--background)',
-                border: '1px solid var(--border)',
-                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-              }}
-            >
-              <div className="font-medium mb-1">{tooltip.item.name}</div>
-              <div style={{ color: PROTECTED_COLOR }}>
-                Protected: {tooltip.item.protected.toLocaleString()}
+                  />
+                </div>
               </div>
-              <div style={{ color: BYPASSED_COLOR }}>
-                Unprotected: {tooltip.item.unprotected.toLocaleString()}
-              </div>
-            </div>
+            ))}
           </div>
         )}
-
-        {/* Legend (fixed outside scroll area) */}
-        <div className="flex items-center justify-center gap-3 sm:gap-6 mt-2 sm:mt-3 text-[10px] sm:text-xs text-muted-foreground flex-shrink-0">
-          <div className="flex items-center gap-1 sm:gap-1.5">
-            <div
-              className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm"
-              style={{ backgroundColor: PROTECTED_COLOR }}
-            />
-            <span>Protected</span>
-          </div>
-          <div className="flex items-center gap-1 sm:gap-1.5">
-            <div
-              className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-sm"
-              style={{ backgroundColor: BYPASSED_COLOR }}
-            />
-            <span>Unprotected</span>
-          </div>
+        <div className="mt-auto flex flex-shrink-0 items-center gap-3 text-[11px] text-muted">
+          <span className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: 'var(--chart-protected)' }} />
+            protected
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: 'var(--chart-bypassed)' }} />
+            unprotected
+          </span>
         </div>
       </CardContent>
     </Card>
