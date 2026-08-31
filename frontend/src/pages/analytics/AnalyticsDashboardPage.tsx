@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown, ShieldCheck, ShieldOff } from 'lucide-react';
-import { useLayoutActions } from '@/components/layout';
+import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown, RefreshCw, Settings, ShieldCheck, ShieldOff } from 'lucide-react';
+import { PageHeader } from '@/components/layout/PageHeader';
+import { Button } from '@/components/ui/button';
 import SettingsModal from './components/SettingsModal';
 import FilterBar from './components/FilterBar';
 import DateRangePicker from './components/DateRangePicker';
@@ -60,11 +61,10 @@ export default function AnalyticsDashboardPage() {
     }
   }, []);
 
-  const { setTopBarActions } = useLayoutActions();
-
   // URL state for tab
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab') as TabType | null;
+  const expandedFromUrl = searchParams.get('expanded');
 
   // Defender integration status (Approach A: hidden when not configured)
   const { configured: defenderConfigured } = useDefenderConfig();
@@ -106,6 +106,16 @@ export default function AnalyticsDashboardPage() {
     }
     setSearchParams(newParams, { replace: true });
   }, [searchParams, setSearchParams]);
+
+  // Master-detail selection deep link (?expanded=<groupKey>)
+  const handleExpandedChange = useCallback((key: string | null) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (key) next.set('expanded', key);
+      else next.delete('expanded');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
 
   // Filter state (with URL sync)
   const filterState = useAnalyticsFilters(true);
@@ -488,16 +498,6 @@ export default function AnalyticsDashboardPage() {
     setIsRefreshing(false);
   }, [activeTab, loadDashboardData, loadExecutionsData]);
 
-  // Register TopBar actions for this page
-  useEffect(() => {
-    setTopBarActions({
-      onSettingsClick: () => setSettingsOpen(true),
-      onRefreshClick: handleRefresh,
-      isRefreshing,
-    });
-    return () => setTopBarActions({});
-  }, [setTopBarActions, handleRefresh, isRefreshing]);
-
   // Handle sort change
   const handleSort = (field: string, order: 'asc' | 'desc') => {
     setExecutionsSortField(field);
@@ -519,91 +519,60 @@ export default function AnalyticsDashboardPage() {
   return (
     <>
       <div className="container mx-auto px-4 py-6">
-        {/* Tab Navigation + Date Range Picker */}
-        <div className="flex items-center gap-1 mb-6 border-b-[length:var(--theme-border-width)] border-border">
-          <button
-            onClick={() => handleTabChange('dashboard')}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              activeTab === 'dashboard'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
+        <PageHeader
+          title="Analytics"
+          description="Detection depth across error types, techniques, and categories"
+        >
+          <Button
+            variant={filterState.isExpanded || filterState.activeFilterCount > 0 ? 'secondary' : 'outline'}
+            size="sm"
+            onClick={filterState.toggleExpanded}
           >
-            <LayoutDashboard className="w-4 h-4" />
-            Dashboard
-          </button>
-          <button
-            onClick={() => handleTabChange('executions')}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              activeTab === 'executions'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Table className="w-4 h-4" />
-            All Executions
-            {executionsData?.pagination && (
-              <span className="ml-1 px-1.5 py-0.5 text-xs bg-secondary rounded">
-                {executionsData.pagination.totalDocuments.toLocaleString()}
+            <Filter />
+            Filters
+            {filterState.activeFilterCount > 0 && (
+              <span className="rounded border border-accent/30 bg-accent-dim px-1.5 font-mono text-[10px] text-accent">
+                {filterState.activeFilterCount}
               </span>
             )}
-          </button>
-          <button
-            onClick={() => handleTabChange('risk-acceptances')}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              activeTab === 'risk-acceptances'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <ShieldOff className="w-4 h-4" />
-            Risk Acceptances
-            {activeRiskCount > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded">
-                {activeRiskCount}
-              </span>
-            )}
-          </button>
-          {defenderConfigured && (
+            {filterState.isExpanded ? <ChevronUp className="!size-3" /> : <ChevronDown className="!size-3" />}
+          </Button>
+          <DateRangePicker value={filterState.filters.dateRange} onChange={filterState.setDateRange} />
+          <Button variant="secondary" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
+            <RefreshCw className={isRefreshing ? 'animate-spin' : ''} />
+            Refresh
+          </Button>
+          <Button variant="ghost" size="icon-sm" onClick={() => setSettingsOpen(true)} title="Analytics settings">
+            <Settings />
+          </Button>
+        </PageHeader>
+
+        {/* Pill sub-tabs */}
+        <div className="mb-6 flex flex-wrap items-center gap-2">
+          {([
+            { id: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard, badge: null },
+            { id: 'executions' as const, label: 'All Executions', icon: Table, badge: executionsData?.pagination ? executionsData.pagination.totalDocuments.toLocaleString() : null },
+            { id: 'risk-acceptances' as const, label: 'Risk Acceptances', icon: ShieldOff, badge: activeRiskCount > 0 ? String(activeRiskCount) : null },
+            ...(defenderConfigured ? [{ id: 'defender' as const, label: 'Defender', icon: ShieldCheck, badge: null }] : []),
+          ]).map(tab => (
             <button
-              onClick={() => handleTabChange('defender')}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
-                activeTab === 'defender'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              key={tab.id}
+              onClick={() => handleTabChange(tab.id)}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-3.5 text-[13px] font-medium transition-colors ${
+                activeTab === tab.id
+                  ? 'border-accent/25 bg-accent-dim text-accent'
+                  : 'border-border bg-raised text-muted hover:bg-overlay'
               }`}
             >
-              <ShieldCheck className="w-4 h-4" />
-              Defender
-            </button>
-          )}
-          <div className="ml-auto flex items-center gap-2 pb-2">
-            <button
-              onClick={filterState.toggleExpanded}
-              className={`
-                flex items-center gap-1.5 px-3 py-1.5
-                border-theme border-border rounded-base text-sm transition-colors
-                ${filterState.isExpanded || filterState.activeFilterCount > 0
-                  ? 'bg-primary/10 border-primary text-primary'
-                  : 'bg-secondary border-border text-foreground hover:bg-raised'
-                }
-              `}
-            >
-              <Filter className="w-4 h-4" />
-              Filters
-              {filterState.activeFilterCount > 0 && (
-                <span className="px-1.5 py-0.5 bg-primary text-primary-foreground text-xs rounded-full">
-                  {filterState.activeFilterCount}
+              <tab.icon className="h-4 w-4" />
+              {tab.label}
+              {tab.badge && (
+                <span className="rounded border border-border bg-surface px-1.5 font-mono text-[10px] text-faint">
+                  {tab.badge}
                 </span>
               )}
-              {filterState.isExpanded ? (
-                <ChevronUp className="w-3 h-3" />
-              ) : (
-                <ChevronDown className="w-3 h-3" />
-              )}
             </button>
-            <DateRangePicker value={filterState.filters.dateRange} onChange={filterState.setDateRange} />
-          </div>
+          ))}
         </div>
 
         {/* Shared Filters (visible on both tabs) */}
@@ -753,6 +722,8 @@ export default function AnalyticsDashboardPage() {
             onRevokeRisk={handleRevokeRisk}
             riskAcceptances={riskAcceptances}
             acceptingRisk={acceptingRisk}
+            selectedKey={expandedFromUrl}
+            onSelectedKeyChange={handleExpandedChange}
           />
         )}
       </div>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { GroupedPaginatedResponse, EnrichedTestExecution } from '@/services/api/analytics';
 import type { DefenderAlertItem, RelatedAlertsResponse } from '@/services/api/defender';
@@ -145,7 +145,7 @@ describe('ExecutionsDataTable — per-stage Defender detection', () => {
 
     renderTable(makeData([plainStage, detectedStage], { defenderDetected: true }));
 
-    await userEvent.click(screen.getByText(plainStage.bundle_name!));
+    await userEvent.click(screen.getAllByText(plainStage.bundle_name!)[0]);
 
     // Both stages are unprotected by EDR. Only one was Defender-detected.
     // After PR-B parent badge agrees with stage badges (same "Detected"
@@ -165,7 +165,7 @@ describe('ExecutionsDataTable — per-stage Defender detection', () => {
     const stage = makeStage({ defender_detected: false });
     renderTable(makeData([stage], { defenderDetected: false }));
 
-    await userEvent.click(screen.getByText(stage.bundle_name!));
+    await userEvent.click(screen.getAllByText(stage.bundle_name!)[0]);
 
     // 2 "Unprotected" rows: parent rollup + the one stage. No "Detected"
     // anywhere because group.defenderDetected is false.
@@ -204,8 +204,7 @@ describe('ExecutionsDataTable — bundle-level alert callout dedupe', () => {
     renderTable(makeData([stage1, stage2], { defenderDetected: true }));
 
     // Expand the bundle to trigger per-stage prefetches.
-    const expandRow = screen.getByText(stage1.bundle_name!);
-    await userEvent.click(expandRow);
+    await userEvent.click(screen.getAllByText(stage1.bundle_name!)[0]);
 
     // Wait for both stages' fetches to resolve and the callout to render.
     await waitFor(() => {
@@ -238,7 +237,7 @@ describe('ExecutionsDataTable — bundle-level alert callout dedupe', () => {
     const stage2 = makeStage({ test_uuid: `${BUNDLE_UUID}::T1562.001`, control_id: 'T1562.001', techniques: ['T1562.001'] });
     renderTable(makeData([stage1, stage2], { defenderDetected: true }));
 
-    await userEvent.click(screen.getByText(stage1.bundle_name!));
+    await userEvent.click(screen.getAllByText(stage1.bundle_name!)[0]);
 
     await waitFor(() => {
       expect(getAlertsForTestMock).toHaveBeenCalledTimes(2);
@@ -284,7 +283,7 @@ describe('ExecutionsDataTable — variant-suffix attribution matching', () => {
     });
     renderTable(makeData([stage1, stage2], { defenderDetected: true }));
 
-    await userEvent.click(screen.getByText(stage1.bundle_name!));
+    await userEvent.click(screen.getAllByText(stage1.bundle_name!)[0]);
     await waitFor(() => {
       expect(getAlertsForTestMock).toHaveBeenCalledTimes(2);
     });
@@ -319,7 +318,7 @@ describe('ExecutionsDataTable — variant-suffix attribution matching', () => {
     });
     renderTable(makeData([stage], { defenderDetected: true }));
 
-    await userEvent.click(screen.getByText(stage.bundle_name!));
+    await userEvent.click(screen.getAllByText(stage.bundle_name!)[0]);
     await userEvent.click(screen.getByText(stage.test_name));
 
     await waitFor(() => {
@@ -351,11 +350,13 @@ describe('ExecutionsDataTable — stage-flag preference (per-stage truth)', () =
     });
     renderTable(makeData([stage], { defenderDetected: true }));
 
-    await userEvent.click(screen.getByText(stage.bundle_name!));
+    await userEvent.click(screen.getAllByText(stage.bundle_name!)[0]);
     await waitFor(() => {
       expect(screen.getAllByText('Unprotected').length).toBeGreaterThanOrEqual(1);
     });
-    expect(screen.getAllByText('Detected')).toHaveLength(1); // parent only
+    // Parent label renders twice in master-detail (run list + panel header);
+    // the stage control row itself must NOT add a third.
+    expect(screen.getAllByText('Detected')).toHaveLength(2);
   });
 
   it('renders Detected when defender_stage_detected is true', async () => {
@@ -366,7 +367,7 @@ describe('ExecutionsDataTable — stage-flag preference (per-stage truth)', () =
     });
     renderTable(makeData([stage], { defenderDetected: true }));
 
-    await userEvent.click(screen.getByText(stage.bundle_name!));
+    await userEvent.click(screen.getAllByText(stage.bundle_name!)[0]);
     // Parent rolls up Detected AND stage row shows Detected (per-stage flag).
     await waitFor(() => {
       expect(screen.getAllByText('Detected').length).toBeGreaterThanOrEqual(2);
@@ -384,7 +385,7 @@ describe('ExecutionsDataTable — stage-flag preference (per-stage truth)', () =
     });
     renderTable(makeData([stage], { defenderDetected: true }));
 
-    await userEvent.click(screen.getByText(stage.bundle_name!));
+    await userEvent.click(screen.getAllByText(stage.bundle_name!)[0]);
     await waitFor(() => {
       expect(screen.getAllByText('Detected').length).toBeGreaterThanOrEqual(2);
     });
@@ -428,12 +429,12 @@ describe('ExecutionsDataTable — toggle removal + parent rollup', () => {
       makeData([protectedStage, detectedStage, unprotectedStage], { defenderDetected: true }),
     );
 
-    // Parent row badge is the FIRST 'Protected' in the DOM (the table
-    // renders parent before stage sub-rows). Without expanding, only the
-    // parent is visible — so any Protected text we find is the parent.
-    expect(screen.getByText('Protected')).toBeInTheDocument();
+    // Master-detail: control rows are visible in the auto-selected panel,
+    // so scope the parent-badge assertions to the run list.
+    const list = screen.getByRole('listbox');
+    expect(within(list).getByText('Protected')).toBeInTheDocument();
     // Parent should NOT badge Detected when there's a Protected stage
-    expect(screen.queryByText('Detected')).toBeNull();
+    expect(within(list).queryByText('Detected')).toBeNull();
   });
 
   it('parent bundle badge: Detected when no stage is Protected but one is Detected', () => {
@@ -450,7 +451,7 @@ describe('ExecutionsDataTable — toggle removal + parent rollup', () => {
       makeData([detectedStage, unprotectedStage], { defenderDetected: true }),
     );
 
-    expect(screen.getByText('Detected')).toBeInTheDocument();
+    expect(within(screen.getByRole('listbox')).getByText('Detected')).toBeInTheDocument();
   });
 
   it('cyber-hygiene bundles keep their per-control ratio badge', () => {
@@ -472,7 +473,7 @@ describe('ExecutionsDataTable — toggle removal + parent rollup', () => {
     });
     renderTable(makeData([chStage1, chStage2], { defenderDetected: false }));
 
-    // Ratio badge format: "1/2 Protected"
-    expect(screen.getByText('1/2 Protected')).toBeInTheDocument();
+    // Ratio badge format: "1/2 Protected" (run list + panel header)
+    expect(screen.getAllByText('1/2 Protected').length).toBeGreaterThanOrEqual(1);
   });
 });
