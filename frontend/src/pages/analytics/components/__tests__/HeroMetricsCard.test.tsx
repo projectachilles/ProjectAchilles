@@ -1,13 +1,20 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import HeroMetricsCard from '../HeroMetricsCard';
 
-describe('HeroMetricsCard', () => {
-  describe('"actual: X% (N excluded)" line', () => {
+function ledgerRow(label: string): HTMLElement {
+  // Each ledger row is "label ... value"; scope value lookups to the row.
+  const el = screen.getByText(label).parentElement;
+  if (!el) throw new Error(`row for ${label} not found`);
+  return el;
+}
+
+describe('HeroMetricsCard (Defense ledger)', () => {
+  describe('"Actual" row (pre-risk-acceptance score)', () => {
     it('REGRESSION: shows rawScore (without RA exclusion), not realScore (EDR-only with RA)', () => {
       // Reproduces the tpsgl bug shape: defenseScore == realScore (no Defender boost)
-      // but rawScore is meaningfully different because risk acceptance excluded unprotected docs.
-      // The "actual:" label must reflect rawScore, the un-filtered score.
+      // but rawScore is meaningfully different because risk acceptance excluded
+      // unprotected docs. The Actual row must reflect rawScore, the un-filtered score.
       render(
         <HeroMetricsCard
           defenseScore={54.5}
@@ -19,15 +26,13 @@ describe('HeroMetricsCard', () => {
         />,
       );
 
-      expect(screen.getByText(/actual:\s*53\.0%/)).toBeInTheDocument();
-      expect(screen.getByText(/\(44 excluded\)/)).toBeInTheDocument();
-      // The 54.5 number should appear once (the headline) — not twice
-      // (i.e. it must NOT also appear next to "actual:")
-      const allMatches = screen.getAllByText(/54\.5%/);
-      expect(allMatches).toHaveLength(1);
+      expect(within(ledgerRow('Actual')).getByText('53.0%')).toBeInTheDocument();
+      expect(within(ledgerRow('Risk-accepted')).getByText('44 excluded')).toBeInTheDocument();
+      // The 54.5 headline appears once (the ring) — not also in the Actual row
+      expect(screen.getAllByText('54.5%')).toHaveLength(1);
     });
 
-    it('hides the "actual" line when no risk acceptances are active', () => {
+    it('shows a dash when no risk acceptances are active (no misleading duplicate)', () => {
       render(
         <HeroMetricsCard
           defenseScore={75.0}
@@ -39,11 +44,11 @@ describe('HeroMetricsCard', () => {
         />,
       );
 
-      expect(screen.queryByText(/actual:/)).not.toBeInTheDocument();
-      expect(screen.queryByText(/excluded/)).not.toBeInTheDocument();
+      expect(within(ledgerRow('Actual')).getByText('—')).toBeInTheDocument();
+      expect(within(ledgerRow('Risk-accepted')).getByText('none')).toBeInTheDocument();
     });
 
-    it('hides the "actual" line when rawScore is missing', () => {
+    it('shows a dash when rawScore is missing', () => {
       render(
         <HeroMetricsCard
           defenseScore={80.0}
@@ -52,11 +57,11 @@ describe('HeroMetricsCard', () => {
           executedTests={10}
         />,
       );
-      expect(screen.queryByText(/actual:/)).not.toBeInTheDocument();
+      expect(within(ledgerRow('Actual')).getByText('—')).toBeInTheDocument();
     });
   });
 
-  describe('"EDR-only" sub-stat', () => {
+  describe('"EDR-only" row', () => {
     it('shows EDR-only when realScore differs from defenseScore (Defender boost active)', () => {
       render(
         <HeroMetricsCard
@@ -67,10 +72,10 @@ describe('HeroMetricsCard', () => {
           executedTests={50}
         />,
       );
-      expect(screen.getByText(/EDR-only:\s*75\.0%/)).toBeInTheDocument();
+      expect(within(ledgerRow('EDR-only')).getByText('75.0%')).toBeInTheDocument();
     });
 
-    it('hides EDR-only when realScore equals defenseScore (no Defender boost)', () => {
+    it('shows a dash when realScore equals defenseScore (no Defender boost)', () => {
       render(
         <HeroMetricsCard
           defenseScore={54.5}
@@ -81,7 +86,7 @@ describe('HeroMetricsCard', () => {
           executedTests={72}
         />,
       );
-      expect(screen.queryByText(/EDR-only/)).not.toBeInTheDocument();
+      expect(within(ledgerRow('EDR-only')).getByText('—')).toBeInTheDocument();
     });
   });
 
@@ -95,21 +100,25 @@ describe('HeroMetricsCard', () => {
     });
   });
 
-  describe('headline rendering', () => {
-    it('shows the defense score and basic stats', () => {
+  describe('headline and fleet facts', () => {
+    it('shows the defense score, stats, and compacted results count', () => {
       render(
         <HeroMetricsCard
           defenseScore={92.3}
           uniqueEndpoints={42}
           executedTests={123}
+          totalResults={17055}
+          windowLabel="90d window"
         />,
       );
       expect(screen.getByText('92.3%')).toBeInTheDocument();
       expect(screen.getByText('42')).toBeInTheDocument();
       expect(screen.getByText('123')).toBeInTheDocument();
+      expect(screen.getByText('17k')).toBeInTheDocument();
+      expect(screen.getByText('90d window')).toBeInTheDocument();
     });
 
-    it('renders em-dash placeholder when defenseScore is null', () => {
+    it('renders em-dash placeholders when defenseScore is null', () => {
       render(
         <HeroMetricsCard
           defenseScore={null}
@@ -117,7 +126,7 @@ describe('HeroMetricsCard', () => {
           executedTests={0}
         />,
       );
-      expect(screen.getByText('—')).toBeInTheDocument();
+      expect(screen.getAllByText('—').length).toBeGreaterThan(0);
     });
   });
 });

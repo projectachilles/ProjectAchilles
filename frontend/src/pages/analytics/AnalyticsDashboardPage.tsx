@@ -517,6 +517,11 @@ export default function AnalyticsDashboardPage() {
     setExecutionsPage(1); // Reset to first page when page size changes
   };
 
+  // Active-range label for the Defense ledger, e.g. "90d window"
+  const rangePreset = filterState.filters.dateRange.preset;
+  const windowLabel =
+    rangePreset === 'custom' ? 'custom window' : rangePreset === 'all' ? 'all time' : `${rangePreset} window`;
+
   return (
     <>
       <div>
@@ -604,8 +609,10 @@ export default function AnalyticsDashboardPage() {
         ) : activeTab === 'dashboard' ? (
           /* Dashboard Tab */
           <div className="flex flex-col gap-4">
-            {/* Handoff §3 chart grid (2×2 at desktop) */}
-            <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
+            {/* Analytic trio — a clean full row (Test activity lives below,
+                in the posture section per the approved Analyst Columns
+                redesign, so this grid can never orphan a card) */}
+            <div className="grid gap-4 md:grid-cols-3">
               <ErrorTypePieChart
                 data={errorTypeData}
                 loading={loadingDashboard}
@@ -625,60 +632,102 @@ export default function AnalyticsDashboardPage() {
                 loading={loadingDashboard}
                 title="Score by category"
               />
-              <TestActivityCard
-                trendData={trendData}
-                recentTests={recentTests}
-                loading={loadingDashboard}
-                title="Test activity"
-              />
             </div>
 
-            {/* Deep-dive rows — beyond the handoff grid, unique value kept */}
-            <div className="grid gap-4 md:grid-cols-3">
-              <HeroMetricsCard
-                defenseScore={defenseScore?.overall ?? null}
-                uniqueEndpoints={uniqueHostnames}
-                executedTests={uniqueTestCount}
-                errorRate={errorRate}
-                realScore={defenseScore?.realScore ?? null}
-                rawScore={defenseScore?.rawScore ?? null}
-                riskAcceptedCount={defenseScore?.riskAcceptedCount}
-                loading={loadingDashboard}
-              />
-              <div className="min-w-0 overflow-hidden md:col-span-2">
-                <TrendChart
-                  data={trendData}
-                  errorRateData={errorRateTrendData}
-                  errorRateOverall={errorRate}
-                  secureScoreTrendData={secureScoreTrendData}
+            {/* Posture section — every row shares the same 3-column grid so
+                the rail (column 1) aligns with the trio above. Defender
+                slots collapse when unconfigured; the trend then stretches
+                to match the Defense ledger's height. */}
+            <div className="grid items-stretch gap-4 md:grid-cols-3">
+              {/* Rail — column 1. With Defender: ledger + secure + activity
+                  (activity flexes to close the rail). Without: the ledger
+                  alone, stretched by the grid to match the trend row. */}
+              <div className="flex min-w-0 flex-col gap-4">
+                <HeroMetricsCard
+                  defenseScore={defenseScore?.overall ?? null}
+                  uniqueEndpoints={uniqueHostnames}
+                  executedTests={uniqueTestCount}
+                  totalResults={defenseScore?.total ?? null}
+                  errorRate={errorRate}
+                  realScore={defenseScore?.realScore ?? null}
+                  rawScore={defenseScore?.rawScore ?? null}
+                  riskAcceptedCount={defenseScore?.riskAcceptedCount}
+                  windowLabel={windowLabel}
                   loading={loadingDashboard}
-                  title="Trend Overview"
-                  windowDays={getWindowDaysForDateRange(filterState.filters.dateRange)}
+                />
+                {defenderConfigured && secureScore && (
+                  <SecureScoreCard data={secureScore} loading={loadingDashboard} />
+                )}
+                {defenderConfigured && (
+                  <TestActivityCard
+                    trendData={trendData}
+                    recentTests={recentTests}
+                    loading={loadingDashboard}
+                    title="Test activity"
+                    className="flex-1"
+                  />
+                )}
+              </div>
+
+              {/* Columns 2–3 — trend (+ remediation controls with Defender).
+                  Without Defender the trend is height-capped to pair with
+                  the Defense ledger instead of towering over it. */}
+              <div className="flex min-w-0 flex-col gap-4 md:col-span-2">
+                <div className={`min-w-0 overflow-hidden ${defenderConfigured ? '' : 'h-[340px]'}`}>
+                  <TrendChart
+                    data={trendData}
+                    errorRateData={errorRateTrendData}
+                    errorRateOverall={errorRate}
+                    secureScoreTrendData={secureScoreTrendData}
+                    loading={loadingDashboard}
+                    title="Trend Overview"
+                    windowDays={getWindowDaysForDateRange(filterState.filters.dateRange)}
+                  />
+                </div>
+                {defenderConfigured && (
+                  <div className="min-h-0 flex-1">
+                    <TopControlsCard compact />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Coverage + by-host: last full-width row with Defender, or a
+                3-up row alongside Test activity without it */}
+            {defenderConfigured ? (
+              <div className="grid gap-4 lg:grid-cols-2">
+                <StackedBarChart
+                  data={testCoverageData}
+                  loading={loadingDashboard}
+                  title="Test Coverage"
+                />
+                <DefenseScoreByHostChart
+                  data={defenseScoreByHost}
+                  loading={loadingDashboard}
+                  title="Defense Score by Host"
                 />
               </div>
-            </div>
-
-            {defenderConfigured && (
-              <div className="grid gap-4 md:grid-cols-3">
-                {secureScore && <SecureScoreCard data={secureScore} loading={loadingDashboard} />}
-                <div className="md:col-span-2">
-                  <TopControlsCard compact />
-                </div>
+            ) : (
+              <div className="grid items-stretch gap-4 md:grid-cols-3">
+                <TestActivityCard
+                  trendData={trendData}
+                  recentTests={recentTests}
+                  loading={loadingDashboard}
+                  title="Test activity"
+                  className="h-full"
+                />
+                <StackedBarChart
+                  data={testCoverageData}
+                  loading={loadingDashboard}
+                  title="Test Coverage"
+                />
+                <DefenseScoreByHostChart
+                  data={defenseScoreByHost}
+                  loading={loadingDashboard}
+                  title="Defense Score by Host"
+                />
               </div>
             )}
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <StackedBarChart
-                data={testCoverageData}
-                loading={loadingDashboard}
-                title="Test Coverage"
-              />
-              <DefenseScoreByHostChart
-                data={defenseScoreByHost}
-                loading={loadingDashboard}
-                title="Defense Score by Host"
-              />
-            </div>
 
             <CoverageTreemap
               data={hostTestMatrix}

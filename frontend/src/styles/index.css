@@ -91,7 +91,10 @@
   --chart-protected: #3ef08a;
   --chart-bypassed: #f87171;
   --chart-primary-line: #3ef08a;
-  --chart-real-score: #6cf5a8;
+  /* "Actual score" renders as a neutral dashed REFERENCE line hugging the
+     defense series — a competing green here made 3 of 4 trend series
+     indistinguishable (approved Analytics posture redesign). */
+  --chart-real-score: #dce8de;
   /* Governed categorical ramp — f0 palette order: accent, info,
      warning, danger, neutral */
   --chart-cat-1: #3ef08a;

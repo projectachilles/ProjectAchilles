@@ -1,5 +1,4 @@
 import { memo } from 'react';
-import { Shield, Monitor, FlaskConical, AlertTriangle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -7,133 +6,164 @@ interface HeroMetricsCardProps {
   defenseScore: number | null;
   uniqueEndpoints: number;
   executedTests: number;
+  /** Total executions in the window, shown compacted (e.g. "17k"). */
+  totalResults?: number | null;
   errorRate?: number | null;
-  /** EDR-only score (strict, on the same exclusion-filtered base as defenseScore). Used for the "EDR-only" sub-stat when Defender is boosting the headline. */
+  /** EDR-only score (strict, on the same exclusion-filtered base as defenseScore). */
   realScore?: number | null;
-  /** Combined score against the unfiltered (pre-risk-acceptance) base. Used for the "actual: X% (N excluded)" line. */
+  /** Combined score against the unfiltered (pre-risk-acceptance) base — the "Actual" row. */
   rawScore?: number | null;
   riskAcceptedCount?: number;
+  /** Active date-range label, e.g. "90d window". */
+  windowLabel?: string;
   loading?: boolean;
 }
 
+// Score-based semantic color: accent (≥80%), warning (≥60%), danger (<60%)
+function scoreColorClass(score: number | null): string {
+  if (score === null) return 'text-muted';
+  if (score >= 80) return 'text-accent';
+  if (score >= 60) return 'text-warning';
+  return 'text-danger';
+}
+
+const RING_RADIUS = 38;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+function formatCount(n: number | null | undefined): string {
+  if (n == null) return '—';
+  if (n >= 10_000) return `${Math.round(n / 1000)}k`;
+  return n.toLocaleString();
+}
+
+function LedgerRow({ label, value, valueClass, last }: { label: string; value: string; valueClass?: string; last?: boolean }) {
+  return (
+    <div className={`flex items-center justify-between py-[7px] ${last ? '' : 'border-b border-raised'}`}>
+      <span className="text-xs text-muted">{label}</span>
+      <span className={`font-mono text-xs ${valueClass ?? 'text-foreground'}`}>{value}</span>
+    </div>
+  );
+}
+
 /**
- * A composite hero card that prominently displays the Defense Score
- * with Unique Endpoints and Executed Tests in a compact bottom section.
- * Designed to occupy 1/3 width alongside the Defense Score Trend chart.
+ * Defense Score ledger — ring gauge + score-breakdown rows + fleet facts.
+ * Column-1 posture card of the Analytics dashboard tab (approved
+ * "Analyst Columns" redesign): every row is data the API already returns,
+ * replacing the old centered-number card's dead air.
  */
 function HeroMetricsCard({
   defenseScore,
   uniqueEndpoints,
   executedTests,
+  totalResults,
   errorRate,
   realScore,
   rawScore,
   riskAcceptedCount,
+  windowLabel,
   loading,
 }: HeroMetricsCardProps) {
-  // Score-based color: green (≥80%), yellow (≥60%), red (<60%)
-  const getScoreColor = (score: number | null): string => {
-    if (score === null) return 'text-muted-foreground';
-    if (score >= 80) return 'text-green-500';
-    if (score >= 60) return 'text-yellow-500';
-    return 'text-red-500';
-  };
-
-  const formatScore = (score: number | null): string => {
-    if (score === null) return '—';
-    return `${score.toFixed(1)}%`;
-  };
-
   if (loading) {
     return (
-      <Card className="h-full flex flex-col p-0 overflow-hidden" aria-busy="true">
-        {/* Top Section: mirrors the Defense Score headline */}
-        <div className="flex-[3] flex flex-col justify-center items-center px-2 sm:px-4 py-2 sm:py-4 gap-2">
-          <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-12 w-32 sm:h-14 sm:w-40" />
-        </div>
-
-        <div className="border-t border-border mx-2 sm:mx-4" />
-
-        {/* Bottom Section: mirrors the Endpoints/Tests stat pair */}
-        <div className="flex-[2] flex divide-x divide-border">
-          <div className="flex-1 flex flex-col justify-center items-center px-1 sm:px-2 py-2 sm:py-3 gap-1">
-            <Skeleton className="h-3 w-14" />
-            <Skeleton className="h-6 w-10" />
-          </div>
-          <div className="flex-1 flex flex-col justify-center items-center px-1 sm:px-2 py-2 sm:py-3 gap-1">
-            <Skeleton className="h-3 w-14" />
-            <Skeleton className="h-6 w-10" />
+      <Card className="flex flex-col gap-3 p-5" aria-busy="true">
+        <Skeleton className="h-3 w-28" />
+        <div className="flex items-center gap-4">
+          <Skeleton className="h-[92px] w-[92px] rounded-full" />
+          <div className="flex flex-1 flex-col gap-2">
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-full" />
           </div>
         </div>
+        <Skeleton className="h-12 w-full" />
       </Card>
     );
   }
 
+  // "Actual" is the raw (pre-risk-acceptance) score — only meaningful when
+  // exclusions are active; otherwise it would just repeat the headline.
+  const showActual = riskAcceptedCount != null && riskAcceptedCount > 0 && rawScore != null;
+  // EDR-only differs from the headline only when Defender detections boost it.
+  const showEdrOnly = defenseScore != null && realScore != null && realScore !== defenseScore;
+
+  const ringClass = scoreColorClass(defenseScore);
+  const ringFill = defenseScore != null ? Math.max(0, Math.min(100, defenseScore)) / 100 : 0;
+
   return (
-    <Card className="h-full flex flex-col p-0 overflow-hidden">
-      {/* Top Section: Defense Score (prominent) - ~60% height */}
-      <div className="flex-[3] flex flex-col justify-center items-center px-2 sm:px-4 py-2 sm:py-4 min-w-0 min-h-0">
-        <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-2">
-          <Shield className="w-4 h-4 sm:w-5 md:w-6 sm:h-5 md:h-6 text-primary flex-shrink-0" />
-          <span className="text-xs sm:text-sm md:text-base font-medium text-muted-foreground whitespace-nowrap">
-            Defense Score
-          </span>
-        </div>
-        <div className={`text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight ${getScoreColor(defenseScore)}`}>
-          {formatScore(defenseScore)}
-        </div>
-        {riskAcceptedCount != null && riskAcceptedCount > 0 && rawScore != null && (
-          <div className="flex items-center gap-1.5 mt-1">
-            <span className={`text-sm font-medium ${getScoreColor(rawScore)}`}>
-              actual: {rawScore.toFixed(1)}%
-            </span>
-            <span className="text-xs text-amber-500">
-              ({riskAcceptedCount} excluded)
-            </span>
-          </div>
-        )}
-        {/* EDR-only sub-stat: shown when Defender detections boost the headline score */}
-        {defenseScore != null && realScore != null && realScore !== defenseScore && (
-          <div className="text-xs text-muted-foreground mt-1">
-            EDR-only: {realScore.toFixed(1)}%
-          </div>
-        )}
-        {errorRate !== null && errorRate !== undefined && errorRate > 0 && (
-          <div className="flex items-center gap-1 mt-1">
-            <AlertTriangle className="w-3 h-3 text-amber-500 flex-shrink-0" />
-            <span className="text-xs text-amber-500">
-              {errorRate.toFixed(1)}% inconclusive
-            </span>
-          </div>
-        )}
+    <Card className="flex flex-col gap-3 p-5">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-faint">Defense Score</span>
+        {windowLabel && <span className="font-mono text-[11px] text-muted">{windowLabel}</span>}
       </div>
 
-      {/* Horizontal Divider */}
-      <div className="border-t border-border mx-2 sm:mx-4" />
-
-      {/* Bottom Section: Two compact metrics side-by-side - ~40% height */}
-      <div className="flex-[2] flex divide-x divide-border min-w-0 min-h-0">
-        {/* Unique Endpoints */}
-        <div className="flex-1 flex flex-col justify-center items-center px-1 sm:px-2 py-2 sm:py-3 min-w-0">
-          <div className="flex items-center gap-1 sm:gap-1.5 mb-0.5 sm:mb-1">
-            <Monitor className="w-3 h-3 sm:w-4 sm:h-4 text-primary flex-shrink-0" />
-            <span className="text-xs sm:text-sm text-muted-foreground truncate">Endpoints</span>
-          </div>
-          <div className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground">
-            {uniqueEndpoints.toLocaleString()}
-          </div>
+      <div className="flex items-center gap-4">
+        <div className={`shrink-0 ${ringClass}`}>
+          <svg width="92" height="92" viewBox="0 0 92 92" role="img" aria-label={`Defense score ${defenseScore != null ? defenseScore.toFixed(1) : 'unavailable'}%`}>
+            <circle cx="46" cy="46" r={RING_RADIUS} fill="none" className="stroke-raised" strokeWidth="8" />
+            <circle
+              cx="46"
+              cy="46"
+              r={RING_RADIUS}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="8"
+              strokeLinecap="round"
+              strokeDasharray={`${(ringFill * RING_CIRCUMFERENCE).toFixed(1)} ${RING_CIRCUMFERENCE.toFixed(1)}`}
+              transform="rotate(-90 46 46)"
+            />
+            <text
+              x="46"
+              y="51"
+              textAnchor="middle"
+              fill="currentColor"
+              stroke="none"
+              className="font-mono text-[16px] font-semibold"
+            >
+              {defenseScore != null ? `${defenseScore.toFixed(1)}%` : '—'}
+            </text>
+          </svg>
         </div>
 
-        {/* Executed Tests */}
-        <div className="flex-1 flex flex-col justify-center items-center px-1 sm:px-2 py-2 sm:py-3 min-w-0">
-          <div className="flex items-center gap-1 sm:gap-1.5 mb-0.5 sm:mb-1">
-            <FlaskConical className="w-3 h-3 sm:w-4 sm:h-4 text-primary flex-shrink-0" />
-            <span className="text-xs sm:text-sm text-muted-foreground truncate">Tests</span>
-          </div>
-          <div className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground">
-            {executedTests.toLocaleString()}
-          </div>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <LedgerRow
+            label="Actual"
+            value={showActual ? `${rawScore.toFixed(1)}%` : '—'}
+            valueClass={showActual ? scoreColorClass(rawScore) : 'text-faint'}
+          />
+          <LedgerRow
+            label="EDR-only"
+            value={showEdrOnly ? `${realScore.toFixed(1)}%` : '—'}
+            valueClass={showEdrOnly ? undefined : 'text-faint'}
+          />
+          <LedgerRow
+            label="Risk-accepted"
+            value={riskAcceptedCount != null && riskAcceptedCount > 0 ? `${riskAcceptedCount} excluded` : 'none'}
+            valueClass={riskAcceptedCount != null && riskAcceptedCount > 0 ? undefined : 'text-faint'}
+          />
+          <LedgerRow
+            label="Inconclusive"
+            value={errorRate != null && errorRate > 0 ? `${errorRate.toFixed(1)}%` : '—'}
+            valueClass={errorRate != null && errorRate > 0 ? 'text-warning' : 'text-faint'}
+            last
+          />
+        </div>
+      </div>
+
+      <div className="flex border-t border-border pt-3">
+        <div className="flex flex-1 flex-col items-center gap-0.5">
+          <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-faint">Endpoints</span>
+          <span className="font-mono text-xl font-semibold">{uniqueEndpoints.toLocaleString()}</span>
+        </div>
+        <div className="w-px bg-border" />
+        <div className="flex flex-1 flex-col items-center gap-0.5">
+          <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-faint">Tests</span>
+          <span className="font-mono text-xl font-semibold">{executedTests.toLocaleString()}</span>
+        </div>
+        <div className="w-px bg-border" />
+        <div className="flex flex-1 flex-col items-center gap-0.5">
+          <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-faint">Results</span>
+          <span className="font-mono text-xl font-semibold">{formatCount(totalResults)}</span>
         </div>
       </div>
     </Card>
