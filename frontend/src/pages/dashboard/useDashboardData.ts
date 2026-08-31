@@ -18,6 +18,7 @@ import type { AgentMetrics, AgentTask, FleetHealthMetrics } from '@/types/agent'
 import { browserApi, type SyncStatus } from '@/services/api/browser';
 import type { TestMetadata } from '@/types/test';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
+import { getWindowDaysForDateRange } from '@/hooks/useAnalyticsFilters';
 import { useDefenderConfig } from '@/hooks/useDefenderConfig';
 import { useOutdatedAgentCount } from '@/hooks/useOutdatedAgentCount';
 import { useScoringMode } from '@/hooks/useScoringMode';
@@ -32,6 +33,19 @@ import type { RecentExecution } from './components/RecentExecutionsCard';
 const TOP_CONTROLS = 5;
 const RECENT_TASKS = 6;
 const AGENT_POLL_MS = 15_000;
+
+/** Selectable dashboard time window; drives the analytics + Defender slices. */
+export type DashboardRange = '7d' | '30d' | '90d';
+export const DASHBOARD_RANGES: DashboardRange[] = ['7d', '30d', '90d'];
+export const DEFAULT_DASHBOARD_RANGE: DashboardRange = '90d';
+
+const RANGE_DAYS: Record<DashboardRange, number> = { '7d': 7, '30d': 30, '90d': 90 };
+
+export function normalizeDashboardRange(value: string | null): DashboardRange {
+  return (DASHBOARD_RANGES as string[]).includes(value ?? '')
+    ? (value as DashboardRange)
+    : DEFAULT_DASHBOARD_RANGE;
+}
 
 function settle<T>(result: PromiseSettledResult<T>): T | null {
   return result.status === 'fulfilled' ? result.value : null;
@@ -61,7 +75,8 @@ export interface DashboardData {
   // banner
   attentionItems: AttentionItem[];
   // KPIs + cards
-  defense30: DefenseScore | null;
+  /** Defense score over the selected range. */
+  defenseScore: DefenseScore | null;
   defense7: DefenseScore | null;
   errorRate: ErrorRateResponse | null;
   secureScore: SecureScoreSummary | null;
@@ -76,7 +91,7 @@ export interface DashboardData {
   defenderConfigured: boolean;
 }
 
-export function useDashboardData(): DashboardData {
+export function useDashboardData(range: DashboardRange = DEFAULT_DASHBOARD_RANGE): DashboardData {
   const { configured: analyticsConfigured, loading: analyticsAuthLoading } = useAnalyticsAuth();
   const { configured: defenderConfigured, loading: defenderConfigLoading } = useDefenderConfig();
   const { scoringMode } = useScoringMode();
@@ -87,7 +102,7 @@ export function useDashboardData(): DashboardData {
 
   const [tests, setTests] = useState<TestMetadata[] | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
-  const [defense30, setDefense30] = useState<DefenseScore | null>(null);
+  const [defenseScore, setDefenseScore] = useState<DefenseScore | null>(null);
   const [defense7, setDefense7] = useState<DefenseScore | null>(null);
   const [errorRate, setErrorRate] = useState<ErrorRateResponse | null>(null);
   const [defenseTrend, setDefenseTrend] = useState<TrendDataPoint[] | null>(null);
@@ -121,35 +136,38 @@ export function useDashboardData(): DashboardData {
     setSyncStatus(settle(sync));
   }, []);
 
-  // Analytics slice — Elasticsearch queries, loaded once per mount/sync
+  // Analytics slice — Elasticsearch queries, reloaded on mount/sync/range change.
+  // The rolling window follows the same range→window mapping Analytics uses.
   const loadAnalyticsData = useCallback(async () => {
     if (!analyticsConfigured) return;
-    const [d30, d7, er, dTrend, eTrend] = await Promise.allSettled([
-      analyticsApi.getDefenseScore({ from: 'now-30d', scoringMode }),
+    const from = `now-${range}`;
+    const windowDays = getWindowDaysForDateRange({ preset: range });
+    const [dRange, d7, er, dTrend, eTrend] = await Promise.allSettled([
+      analyticsApi.getDefenseScore({ from, scoringMode }),
       analyticsApi.getDefenseScore({ from: 'now-7d', scoringMode }),
-      analyticsApi.getErrorRate({ from: 'now-30d' }),
-      analyticsApi.getDefenseScoreTrend({ from: 'now-30d', interval: 'day', windowDays: 7, scoringMode }),
-      analyticsApi.getErrorRateTrend({ from: 'now-30d', interval: 'day', windowDays: 7 }),
+      analyticsApi.getErrorRate({ from }),
+      analyticsApi.getDefenseScoreTrend({ from, interval: 'day', windowDays, scoringMode }),
+      analyticsApi.getErrorRateTrend({ from, interval: 'day', windowDays }),
     ]);
-    setDefense30(settle(d30));
+    setDefenseScore(settle(dRange));
     setDefense7(settle(d7));
     setErrorRate(settle(er));
     setDefenseTrend(settle(dTrend));
     setErrorTrend(settle(eTrend));
-  }, [analyticsConfigured, scoringMode]);
+  }, [analyticsConfigured, scoringMode, range]);
 
   // Defender slice
   const loadDefenderData = useCallback(async () => {
     if (!defenderConfigured) return;
     const [score, trend, controls] = await Promise.allSettled([
       defenderApi.getSecureScore(),
-      defenderApi.getSecureScoreTrend(30),
+      defenderApi.getSecureScoreTrend(RANGE_DAYS[range]),
       defenderApi.getControls({ deprecated: false }),
     ]);
     setSecureScore(settle(score));
     setSecureTrend(settle(trend));
     setRawControls(settle(controls));
-  }, [defenderConfigured]);
+  }, [defenderConfigured, range]);
 
   useEffect(() => {
     // Wait for config checks so we don't render "not configured" flashes
@@ -201,12 +219,12 @@ export function useDashboardData(): DashboardData {
 
   const trendDescription = useMemo(() => {
     const parts: string[] = [];
-    if (defense30) parts.push(`Defense ${defense30.score.toFixed(1)}%`);
+    if (defenseScore) parts.push(`Defense ${defenseScore.score.toFixed(1)}%`);
     if (secureScore) parts.push(`Secure ${secureScore.percentage.toFixed(1)}%`);
     if (errorRate) parts.push(`Error rate ${errorRate.errorRate.toFixed(1)}%`);
-    parts.push('(7-day rolling)');
+    parts.push(`(${getWindowDaysForDateRange({ preset: range })}-day rolling)`);
     return parts.join(' · ');
-  }, [defense30, secureScore, errorRate]);
+  }, [defenseScore, secureScore, errorRate, range]);
 
   const controls = useMemo<RemediationControl[]>(() => {
     if (!rawControls) return [];
@@ -258,7 +276,7 @@ export function useDashboardData(): DashboardData {
     handleSync,
     lastSyncedAgo: syncStatus?.lastSyncTime ? relativeTime(syncStatus.lastSyncTime) : undefined,
     attentionItems,
-    defense30,
+    defenseScore,
     defense7,
     errorRate,
     secureScore,

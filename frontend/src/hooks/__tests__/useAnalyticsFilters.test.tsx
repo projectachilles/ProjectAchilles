@@ -99,7 +99,7 @@ describe('useAnalyticsFilters', () => {
       const { result } = renderHook(() => useAnalyticsFilters(), { wrapper });
 
       expect(result.current.filters.org).toBeNull();
-      expect(result.current.filters.dateRange).toEqual({ preset: '30d' });
+      expect(result.current.filters.dateRange).toEqual({ preset: '90d' });
       expect(result.current.filters.result).toBe('all');
       expect(result.current.filters.hostnames).toEqual([]);
       expect(result.current.filters.tests).toEqual([]);
@@ -250,7 +250,7 @@ describe('useAnalyticsFilters', () => {
       const { result } = renderHook(() => useAnalyticsFilters(), { wrapper });
 
       const params = result.current.getApiParams();
-      expect(params.from).toBe('now-30d');
+      expect(params.from).toBe('now-90d');
       expect(params.result).toBeUndefined(); // 'all' is omitted
       expect(params.org).toBeUndefined();
     });
@@ -307,7 +307,7 @@ describe('useAnalyticsFilters', () => {
 
       act(() => {
         result.current.setOrg('org-001');
-        result.current.setDateRange({ preset: '90d' });
+        result.current.setDateRange({ preset: '30d' });
         result.current.setResult('protected');
         result.current.setHostnames(['h1']);
       });
@@ -315,7 +315,7 @@ describe('useAnalyticsFilters', () => {
       act(() => result.current.clearAllFilters());
 
       expect(result.current.filters.org).toBeNull();
-      expect(result.current.filters.dateRange).toEqual({ preset: '30d' });
+      expect(result.current.filters.dateRange).toEqual({ preset: '90d' });
       expect(result.current.filters.result).toBe('all');
       expect(result.current.filters.hostnames).toEqual([]);
     });
@@ -353,7 +353,7 @@ describe('useAnalyticsFilters', () => {
 
       // With all defaults, getApiParams should return minimal params
       const params = result.current.getApiParams();
-      expect(params.from).toBe('now-30d');
+      expect(params.from).toBe('now-90d');
       expect(params.result).toBeUndefined();
       expect(params.hostnames).toBeUndefined();
     });
@@ -361,10 +361,10 @@ describe('useAnalyticsFilters', () => {
     it('non-default date range appears in serialized output', () => {
       const { result } = renderHook(() => useAnalyticsFilters(), { wrapper });
 
-      act(() => result.current.setDateRange({ preset: '90d' }));
+      act(() => result.current.setDateRange({ preset: '30d' }));
 
       const params = result.current.getApiParams();
-      expect(params.from).toBe('now-90d');
+      expect(params.from).toBe('now-30d');
     });
   });
 });

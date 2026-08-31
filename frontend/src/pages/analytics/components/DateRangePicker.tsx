@@ -59,7 +59,7 @@ export default function DateRangePicker({ value, onChange }: DateRangePickerProp
 
   const clearCustom = () => {
     setShowCustom(false);
-    onChange({ preset: '30d' });
+    onChange({ preset: '90d' });
   };
 
   // Format dates for display
