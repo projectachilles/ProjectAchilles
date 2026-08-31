@@ -1,197 +1,52 @@
-import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   Loader2,
-  ShieldCheck,
-  ShieldX,
-  ShieldQuestion,
   ChevronDown,
-  ChevronUp,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   Download,
-  Columns,
-  Check,
-  Package,
-  SkipForward,
   Archive,
+  ArrowDownNarrowWide,
+  ArrowUpNarrowWide,
   Calendar,
   X,
-  Info,
   ShieldOff,
   ShieldAlert,
 } from 'lucide-react';
-import { formatDistanceToNow, isValid, format } from 'date-fns';
-import type { EnrichedTestExecution, SeverityLevel, CategoryType, GroupedPaginatedResponse, ExecutionGroup, RiskAcceptance } from '@/services/api/analytics';
+import type {
+  EnrichedTestExecution,
+  GroupedPaginatedResponse,
+  RiskAcceptance,
+} from '@/services/api/analytics';
 import { findAcceptanceForExec } from '../utils/riskAcceptanceLookup';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Card, CardContent, CardHeader, CardFooter } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/shared/ui/Checkbox';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { browserApi } from '@/services/api/browser';
 import { defenderApi, type RelatedAlertsResponse } from '@/services/api/defender';
 import { useDefenderConfig } from '@/hooks/useDefenderConfig';
 import TestInfoModal from './TestInfoModal';
-
-// Parse timestamp - handles both epoch ms strings and ISO strings
-function parseTimestamp(timestamp: string): Date {
-  if (/^\d+$/.test(timestamp)) {
-    return new Date(parseInt(timestamp, 10));
-  }
-  return new Date(timestamp);
-}
-
-// Safe date formatting
-function formatTimestamp(timestamp: string, relative = true): string {
-  if (!timestamp) return 'Unknown';
-  try {
-    const date = parseTimestamp(timestamp);
-    if (!isValid(date)) return 'Unknown';
-    if (relative) {
-      return formatDistanceToNow(date, { addSuffix: true });
-    }
-    return format(date, 'yyyy-MM-dd HH:mm:ss');
-  } catch {
-    return 'Unknown';
-  }
-}
-
-// Severity badge variants
-const SEVERITY_VARIANTS: Record<SeverityLevel, string> = {
-  critical: 'bg-red-500/10 text-red-500 border-red-500/30',
-  high: 'bg-orange-500/10 text-orange-500 border-orange-500/30',
-  medium: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30',
-  low: 'bg-green-500/10 text-green-500 border-green-500/30',
-  info: 'bg-gray-500/10 text-gray-500 border-gray-500/30',
-};
-
-// Error code → category mapping (mirrors backend ERROR_CODE_MAP)
-const ERROR_CODE_CATEGORIES: Record<number, string> = {
-  0:   'inconclusive',
-  1:   'contextual',
-  101: 'failed',
-  105: 'protected',
-  126: 'protected',
-  127: 'protected',
-  200: 'inconclusive',
-  259: 'inconclusive',
-  999: 'error',
-};
-
-const ERROR_CATEGORY_COLORS: Record<string, string> = {
-  protected:    'text-green-600 dark:text-green-400',
-  failed:       'text-red-600 dark:text-red-400',
-  inconclusive: 'text-yellow-600 dark:text-yellow-400',
-  contextual:   'text-yellow-600 dark:text-yellow-400',
-  error:        'text-orange-600 dark:text-orange-400',
-};
-
-// Derive result from error code (three-state: protected/unprotected/inconclusive)
-const PROTECTED_CODES = new Set([105, 126, 127]);
-const UNPROTECTED_CODES = new Set([101]);
-
-function getResultFromErrorCode(errorCode: number | undefined): 'protected' | 'unprotected' | 'inconclusive' {
-  if (errorCode === undefined || errorCode === null) return 'inconclusive';
-  if (UNPROTECTED_CODES.has(errorCode)) return 'unprotected';
-  if (PROTECTED_CODES.has(errorCode)) return 'protected';
-  return 'inconclusive';
-}
-
-// ── Bundle grouping types ─────────────────────────────────────────
-
-interface BundleGroup {
-  type: 'bundle';
-  key: string;
-  bundle_id: string;
-  bundle_name: string;
-  hostname: string;
-  timestamp: string;
-  controls: EnrichedTestExecution[];
-  protectedCount: number;
-  unprotectedCount: number;
-  totalCount: number;
-  category?: CategoryType;
-  defenderDetected?: boolean;
-}
-
-interface StandaloneRow {
-  type: 'standalone';
-  key: string;
-  execution: EnrichedTestExecution;
-}
-
-type DisplayRow = BundleGroup | StandaloneRow;
-
-/** Map server-provided ExecutionGroups to DisplayRows for rendering. */
-function mapGroupsToDisplayRows(groups: ExecutionGroup[]): DisplayRow[] {
-  return groups.map((group) => {
-    if (group.type === 'bundle') {
-      const rep = group.representative;
-      return {
-        type: 'bundle' as const,
-        key: group.groupKey,
-        bundle_id: rep.bundle_id || '',
-        bundle_name: rep.bundle_name || 'Bundle',
-        hostname: rep.hostname,
-        timestamp: rep.timestamp,
-        controls: group.members,
-        protectedCount: group.protectedCount,
-        unprotectedCount: group.unprotectedCount,
-        totalCount: group.totalCount,
-        category: rep.category,
-        defenderDetected: group.defenderDetected,
-      };
-    }
-    return {
-      type: 'standalone' as const,
-      key: group.groupKey,
-      execution: group.representative,
-    };
-  });
-}
-
-// Column definitions
-interface ColumnDef {
-  key: string;
-  label: string;
-  sortable?: boolean;
-  defaultVisible?: boolean;
-  sortField?: string;
-}
-
-const COLUMNS: ColumnDef[] = [
-  { key: 'test_name', label: 'Test Name', sortable: true, defaultVisible: true, sortField: 'f0rtika.test_name' },
-  { key: 'hostname', label: 'Hostname', sortable: true, defaultVisible: true, sortField: 'routing.hostname' },
-  { key: 'result', label: 'Result', sortable: true, defaultVisible: true, sortField: 'f0rtika.is_protected' },
-  { key: 'severity', label: 'Severity', sortable: true, defaultVisible: false, sortField: 'f0rtika.severity' },
-  { key: 'category', label: 'Category', sortable: true, defaultVisible: true, sortField: 'f0rtika.category' },
-  { key: 'subcategory', label: 'Subcategory', sortable: false, defaultVisible: false },
-  { key: 'threat_actor', label: 'Threat Actor', sortable: true, defaultVisible: false, sortField: 'f0rtika.threat_actor' },
-  { key: 'techniques', label: 'Techniques', sortable: false, defaultVisible: true },
-  { key: 'tactics', label: 'Tactics', sortable: false, defaultVisible: false },
-  { key: 'tags', label: 'Tags', sortable: false, defaultVisible: false },
-  { key: 'complexity', label: 'Complexity', sortable: true, defaultVisible: false, sortField: 'f0rtika.complexity' },
-  { key: 'target', label: 'Target', sortable: false, defaultVisible: false },
-  { key: 'score', label: 'Score', sortable: true, defaultVisible: false, sortField: 'f0rtika.score' },
-  { key: 'error', label: 'Result Code', sortable: false, defaultVisible: true },
-  { key: 'org', label: 'Organization', sortable: false, defaultVisible: false },
-  { key: 'timestamp', label: 'Time', sortable: true, defaultVisible: true, sortField: 'routing.event_time' },
-];
-
-interface AcceptRiskItem {
-  test_name: string;
-  control_id?: string;
-  hostname?: string;
-  scope?: 'host' | 'global';
-}
+import {
+  EXPORT_COLUMNS,
+  SORT_FIELDS,
+  getCellValue,
+  mapGroupsToDisplayRows,
+} from './executions/shared';
+import { RunList } from './executions/RunList';
+import {
+  RunDetailPanel,
+  type AcceptRiskItem,
+  type InfoModalRequest,
+} from './executions/RunDetailPanel';
 
 interface ExecutionsDataTableProps {
   data: GroupedPaginatedResponse | null;
@@ -204,10 +59,13 @@ interface ExecutionsDataTableProps {
   onArchive?: (groupKeys: string[]) => Promise<void>;
   onArchiveByDate?: (before: string) => Promise<void>;
   archiving?: boolean;
-  onAcceptRisk?: (items: (AcceptRiskItem & { scope?: 'host' | 'global' })[], justification: string) => Promise<void>;
+  onAcceptRisk?: (items: AcceptRiskItem[], justification: string) => Promise<void>;
   onRevokeRisk?: (acceptanceId: string, reason: string) => Promise<void>;
   riskAcceptances?: Map<string, RiskAcceptance[]>;
   acceptingRisk?: boolean;
+  /** Master-detail selection, controllable for ?expanded= deep links. */
+  selectedKey?: string | null;
+  onSelectedKeyChange?: (key: string | null) => void;
 }
 
 export default function ExecutionsDataTable({
@@ -225,17 +83,24 @@ export default function ExecutionsDataTable({
   onRevokeRisk,
   riskAcceptances,
   acceptingRisk,
+  selectedKey: selectedKeyProp,
+  onSelectedKeyChange,
 }: ExecutionsDataTableProps) {
   const { configured: defenderConfigured } = useDefenderConfig();
 
-  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
-    new Set(COLUMNS.filter(c => c.defaultVisible).map(c => c.key))
+  // Master-detail selection (controlled when the parent passes props)
+  const [internalSelectedKey, setInternalSelectedKey] = useState<string | null>(null);
+  const selectedKey = selectedKeyProp !== undefined ? selectedKeyProp : internalSelectedKey;
+  const setSelectedKey = useCallback(
+    (key: string | null) => {
+      setInternalSelectedKey(key);
+      onSelectedKeyChange?.(key);
+    },
+    [onSelectedKeyChange],
   );
-  const [expandedBundles, setExpandedBundles] = useState<Set<string>>(new Set());
-  const [expandedDetail, setExpandedDetail] = useState<string | null>(null);
-  const [showColumnMenu, setShowColumnMenu] = useState(false);
+  const [expandedControlIndex, setExpandedControlIndex] = useState<number | null>(null);
 
-  // Selection state
+  // Bulk selection state
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
   // Dialog state
@@ -250,14 +115,7 @@ export default function ExecutionsDataTable({
   const [descriptionMap, setDescriptionMap] = useState<Map<string, DescriptionData | null>>(new Map());
 
   // Info modal state
-  const [infoModal, setInfoModal] = useState<{
-    open: boolean;
-    testUuid: string;
-    testName: string;
-    hasInfoCard: boolean;
-    hasReadme: boolean;
-    scrollToValidator?: string;
-  } | null>(null);
+  const [infoModal, setInfoModal] = useState<(InfoModalRequest & { open: boolean }) | null>(null);
 
   const fetchDescription = useCallback(async (exec: EnrichedTestExecution) => {
     const isBundleCtrl = exec.is_bundle_control && exec.bundle_id;
@@ -291,15 +149,13 @@ export default function ExecutionsDataTable({
   const [alertsLoading, setAlertsLoading] = useState<Set<string>>(new Set());
   const [alertsMap, setAlertsMap] = useState<Map<string, RelatedAlertsResponse | null>>(new Map());
 
-  // Per-stage cache key. The previous bundle-level collapse (one cache entry
-  // shared by all stages) caused enrichment/drill-down divergence: when stages
-  // ran tens of minutes apart, the bundle-wide query was anchored at stage 1's
-  // timestamp with stage 1's techniques and missed alerts correlated to later
-  // stages. Each stage now queries with its own routing.event_time + techniques;
-  // the bundle-level callout (parent row) aggregates `attribution === 'bundle'`
+  // Per-stage cache key. Each stage queries with its own routing.event_time +
+  // techniques; the bundle-level callout aggregates `attribution === 'bundle'`
   // alerts across every stage cache and dedupes by alert_id.
-  const stageAlertsCacheKey = (exec: EnrichedTestExecution) =>
-    `${exec.test_uuid}::${exec.hostname}::stage-alerts`;
+  const stageAlertsCacheKey = useCallback(
+    (exec: EnrichedTestExecution) => `${exec.test_uuid}::${exec.hostname}::stage-alerts`,
+    [],
+  );
 
   const fetchRelatedAlerts = useCallback(async (exec: EnrichedTestExecution) => {
     if (!defenderConfigured) return;
@@ -337,12 +193,12 @@ export default function ExecutionsDataTable({
         return next;
       });
     }
-  }, [defenderConfigured]);
+  }, [defenderConfigured, stageAlertsCacheKey]);
 
   const groups = data?.groups || [];
   const pagination = data?.pagination;
 
-  // Clear selection when data changes (page, sort, filter)
+  // Clear bulk selection when data changes (page, sort, filter)
   useEffect(() => {
     setSelectedKeys(new Set());
   }, [data]);
@@ -352,11 +208,64 @@ export default function ExecutionsDataTable({
 
   // Map server-provided groups to DisplayRows for rendering
   const displayRows = useMemo(() => mapGroupsToDisplayRows(groups), [groups]);
-
-  // All group keys on current page
   const allGroupKeys = useMemo(() => displayRows.map(r => r.key), [displayRows]);
 
-  // Selection helpers
+  const selectedRow = useMemo(
+    () => displayRows.find((r) => r.key === selectedKey) ?? null,
+    [displayRows, selectedKey],
+  );
+
+  // Trigger fetches for a row's detail data
+  const primeRow = useCallback(
+    (key: string) => {
+      const row = displayRows.find((r) => r.key === key);
+      if (!row) return;
+      if (row.type === 'standalone') {
+        void fetchDescription(row.execution);
+        void fetchRelatedAlerts(row.execution);
+      } else {
+        for (const ctrl of row.controls) void fetchRelatedAlerts(ctrl);
+      }
+    },
+    [displayRows, fetchDescription, fetchRelatedAlerts],
+  );
+
+  const handleSelect = useCallback(
+    (key: string) => {
+      setSelectedKey(key);
+      setExpandedControlIndex(null);
+      primeRow(key);
+    },
+    [setSelectedKey, primeRow],
+  );
+
+  // Auto-select: honor a deep-linked key when it exists on this page,
+  // otherwise fall back to the first row so the panel is never empty.
+  useEffect(() => {
+    if (displayRows.length === 0) return;
+    if (selectedKey && displayRows.some((r) => r.key === selectedKey)) {
+      primeRow(selectedKey);
+      return;
+    }
+    setInternalSelectedKey(displayRows[0].key);
+    onSelectedKeyChange?.(displayRows[0].key);
+    primeRow(displayRows[0].key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayRows]);
+
+  const handleToggleControl = useCallback(
+    (index: number, ctrl: EnrichedTestExecution) => {
+      setExpandedControlIndex((prev) => {
+        if (prev === index) return null;
+        void fetchDescription(ctrl);
+        void fetchRelatedAlerts(ctrl);
+        return index;
+      });
+    },
+    [fetchDescription, fetchRelatedAlerts],
+  );
+
+  // Bulk selection helpers
   const toggleSelect = (key: string) => {
     setSelectedKeys(prev => {
       const next = new Set(prev);
@@ -375,12 +284,9 @@ export default function ExecutionsDataTable({
   };
 
   const isAllSelected = allGroupKeys.length > 0 && selectedKeys.size === allGroupKeys.length;
-  const isIndeterminate = selectedKeys.size > 0 && selectedKeys.size < allGroupKeys.length;
 
-  // Archive enabled
   const archiveEnabled = !!onArchive;
 
-  // Handle archive confirmation
   const handleArchiveConfirm = async () => {
     if (!confirmArchiveKeys || !onArchive) return;
     await onArchive(confirmArchiveKeys);
@@ -388,7 +294,6 @@ export default function ExecutionsDataTable({
     setSelectedKeys(new Set());
   };
 
-  // Handle date purge confirmation
   const handleDatePurgeConfirm = async () => {
     if (!purgeDate || !onArchiveByDate) return;
     await onArchiveByDate(purgeDate);
@@ -434,38 +339,29 @@ export default function ExecutionsDataTable({
     setRevokeReason('');
   };
 
-  // Toggle column visibility
-  const toggleColumn = (key: string) => {
-    setVisibleColumns(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
+  // Bulk risk accept: collect items from checked groups
+  const handleBulkAcceptRisk = () => {
+    const items: AcceptRiskItem[] = [];
+    for (const key of selectedKeys) {
+      const row = displayRows.find(r => r.key === key);
+      if (!row) continue;
+      if (row.type === 'standalone') {
+        items.push({ test_name: row.execution.test_name, hostname: row.execution.hostname });
       } else {
-        next.add(key);
+        for (const ctrl of row.controls) {
+          items.push({ test_name: ctrl.test_name, control_id: ctrl.control_id, hostname: ctrl.hostname });
+        }
       }
-      return next;
-    });
+    }
+    if (items.length > 0) setRiskAcceptItems(items);
   };
 
-  // Reset to default columns
-  const resetColumns = () => {
-    setVisibleColumns(new Set(COLUMNS.filter(c => c.defaultVisible).map(c => c.key)));
-  };
-
-  // Handle sort click
-  const handleSort = (column: ColumnDef) => {
-    if (!column.sortable || !column.sortField) return;
-    const newOrder = sortField === column.sortField && sortOrder === 'desc' ? 'asc' : 'desc';
-    onSort(column.sortField, newOrder);
-  };
-
-  // Export to CSV
+  // ── Export ───────────────────────────────────────────────────────
   const exportToCsv = () => {
     if (!allExecutions.length) return;
-    const visibleColumnsList = COLUMNS.filter(c => visibleColumns.has(c.key));
-    const headers = visibleColumnsList.map(c => c.label);
+    const headers = EXPORT_COLUMNS.map(c => c.label);
     const rows = allExecutions.map(exec => {
-      return visibleColumnsList.map(col => {
+      return EXPORT_COLUMNS.map(col => {
         const value = getCellValue(exec, col.key);
         const strValue = String(value ?? '');
         if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
@@ -478,14 +374,12 @@ export default function ExecutionsDataTable({
     downloadFile(csv, 'executions.csv', 'text/csv');
   };
 
-  // Export to JSON
   const exportToJson = () => {
     if (!allExecutions.length) return;
     const json = JSON.stringify(allExecutions, null, 2);
     downloadFile(json, 'executions.json', 'application/json');
   };
 
-  // Download file helper
   const downloadFile = (content: string, filename: string, type: string) => {
     const blob = new Blob([content], { type });
     const url = URL.createObjectURL(blob);
@@ -498,1149 +392,227 @@ export default function ExecutionsDataTable({
     URL.revokeObjectURL(url);
   };
 
-  // Get cell value for a column
-  const getCellValue = (exec: EnrichedTestExecution, key: string): string | number | undefined => {
-    switch (key) {
-      case 'test_name': return exec.test_name;
-      case 'hostname': return exec.hostname;
-      case 'result': {
-        const r = getResultFromErrorCode(exec.error_code);
-        return r === 'protected' ? 'Protected' : r === 'unprotected' ? 'Unprotected' : 'Inconclusive';
-      }
-      case 'severity': return exec.severity;
-      case 'category': return exec.category;
-      case 'subcategory': return exec.subcategory;
-      case 'threat_actor': return exec.threat_actor;
-      case 'techniques': return exec.tactics?.join(', ');
-      case 'tactics': return exec.tactics?.join(', ');
-      case 'tags': return exec.tags?.join(', ');
-      case 'complexity': return exec.complexity;
-      case 'target': return exec.target;
-      case 'score': return exec.score;
-      case 'error': {
-        if (!exec.error_name && !exec.error_code) return '';
-        if (exec.error_name && exec.error_code) return `${exec.error_name} (${exec.error_code})`;
-        return exec.error_name || String(exec.error_code ?? '');
-      }
-      case 'org': return exec.org;
-      case 'timestamp': return formatTimestamp(exec.timestamp);
-      default: return '';
-    }
-  };
-
-  // Render cell content
-  const renderCell = (exec: EnrichedTestExecution, key: string, indent = false) => {
-    switch (key) {
-      case 'test_name':
-        return (
-          <span className={`font-medium text-foreground ${indent ? 'pl-6' : ''}`}>
-            {indent && <span className="text-muted-foreground mr-1.5">&#x2514;</span>}
-            {exec.test_name}
-          </span>
-        );
-
-      case 'hostname':
-        return (
-          <span
-            className="text-muted-foreground font-mono text-sm block max-w-[220px] truncate"
-            title={exec.hostname}
-          >
-            {exec.hostname}
-          </span>
-        );
-
-      case 'result': {
-        // Skipped bundle stages (non-cyber-hygiene with exit code 0) show "Skipped"
-        if (exec.is_bundle_control && exec.error_code === 0 && exec.category !== 'cyber-hygiene') {
-          return (
-            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-              <SkipForward className="w-4 h-4" />
-              <span className="text-sm font-medium">Skipped</span>
-            </span>
-          );
-        }
-        const result = getResultFromErrorCode(exec.error_code);
-        const acceptance = getAcceptanceForExec(exec);
-        let resultElement: React.ReactNode;
-        if (result === 'protected') {
-          resultElement = (
-            <span className="inline-flex items-center gap-1.5 text-green-600 dark:text-green-400">
-              <ShieldCheck className="w-4 h-4" />
-              <span className="text-sm font-medium">Protected</span>
-            </span>
-          );
-        } else if (result === 'unprotected') {
-          // EDR failed (error_code 101) but the Defender enrichment pass
-          // correlated this doc to a Defender alert. The cloud SIEM caught
-          // what the endpoint missed; we surface "Detected" to keep the
-          // parent's bundle-level badge consistent with what the user sees
-          // at the stage row, and to point them at the right stage to expand.
-          //
-          // Prefer the stage-specific flag (set only when alert evidence
-          // contains THIS stage's binary). Fall back to the bundle-level
-          // flag for docs predating the stage-specific enrichment write —
-          // the fallback over-detects (whole bundle badged when any stage
-          // matched), but is strictly safer than silently showing
-          // Unprotected. Stage-flag backfill happens automatically once
-          // PR-A's enrichment pass re-evaluates eligible docs.
-          const isDetected = exec.defender_stage_detected ?? exec.defender_detected;
-          if (isDetected) {
-            resultElement = (
-              <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
-                <ShieldAlert className="w-4 h-4" />
-                <span className="text-sm font-medium">Detected</span>
-              </span>
-            );
-          } else {
-            resultElement = (
-              <span className="inline-flex items-center gap-1.5 text-red-600 dark:text-red-400">
-                <ShieldX className="w-4 h-4" />
-                <span className="text-sm font-medium">Unprotected</span>
-              </span>
-            );
-          }
-        } else {
-          resultElement = (
-            <span className="inline-flex items-center gap-1.5 text-yellow-600 dark:text-yellow-400">
-              <ShieldQuestion className="w-4 h-4" />
-              <span className="text-sm font-medium">Inconclusive</span>
-            </span>
-          );
-        }
-
-        if (acceptance) {
-          return (
-            <div className="flex items-center gap-2">
-              {resultElement}
-              <span
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30"
-                title={`Risk Accepted — ${acceptance.justification.substring(0, 100)} — by ${acceptance.accepted_by_name} on ${formatTimestamp(acceptance.accepted_at, false)}`}
-              >
-                <ShieldOff className="w-3 h-3" />
-                Accepted
-              </span>
-            </div>
-          );
-        }
-        return resultElement;
-      }
-
-      case 'severity':
-        if (!exec.severity) return <span className="text-muted-foreground">—</span>;
-        return (
-          <Badge variant="outline" className={`uppercase text-xs ${SEVERITY_VARIANTS[exec.severity]}`}>
-            {exec.severity}
-          </Badge>
-        );
-
-      case 'category':
-        if (!exec.category) return <span className="text-muted-foreground">—</span>;
-        return (
-          <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-500 border-blue-500/30">
-            {exec.category}
-          </Badge>
-        );
-
-      case 'threat_actor':
-        if (!exec.threat_actor) return <span className="text-muted-foreground">—</span>;
-        return (
-          <Badge variant="outline" className="text-xs bg-purple-500/10 text-purple-500 border-purple-500/30">
-            {exec.threat_actor}
-          </Badge>
-        );
-
-      case 'tags':
-        if (!exec.tags?.length) return <span className="text-muted-foreground">—</span>;
-        return (
-          <div className="flex flex-wrap gap-1">
-            {exec.tags.slice(0, 3).map(tag => (
-              <Badge key={tag} variant="secondary" className="text-xs">
-                {tag}
-              </Badge>
-            ))}
-            {exec.tags.length > 3 && (
-              <span className="text-xs text-muted-foreground">+{exec.tags.length - 3}</span>
-            )}
-          </div>
-        );
-
-      case 'complexity':
-        if (!exec.complexity) return <span className="text-muted-foreground">—</span>;
-        {
-          const complexityColors: Record<string, string> = {
-            low: 'text-green-500',
-            medium: 'text-yellow-500',
-            high: 'text-red-500',
-          };
-          return (
-            <span className={`text-sm capitalize ${complexityColors[exec.complexity] || 'text-foreground'}`}>
-              {exec.complexity}
-            </span>
-          );
-        }
-
-      case 'score':
-        if (exec.score === undefined || exec.score === null) return <span className="text-muted-foreground">—</span>;
-        return <span className="text-sm font-medium text-foreground">{exec.score.toFixed(1)}</span>;
-
-      case 'org':
-        return (
-          <Badge variant="outline" className="text-xs bg-primary/10 text-primary">
-            {exec.org}
-          </Badge>
-        );
-
-      case 'error': {
-        if (!exec.error_name && !exec.error_code) return <span className="text-muted-foreground">—</span>;
-        const errorText = exec.error_name && exec.error_code
-          ? `${exec.error_name} (${exec.error_code})`
-          : exec.error_name || String(exec.error_code ?? '');
-        const errorCategory = exec.error_code != null
-          ? ERROR_CODE_CATEGORIES[exec.error_code]
-          : undefined;
-        const errorColor = errorCategory
-          ? ERROR_CATEGORY_COLORS[errorCategory]
-          : 'text-muted-foreground';
-        return (
-          <span className={`text-sm font-mono ${errorColor}`}>
-            {errorText}
-          </span>
-        );
-      }
-
-      case 'timestamp':
-        return <span className="text-sm text-muted-foreground">{formatTimestamp(exec.timestamp)}</span>;
-
-      default: {
-        const value = getCellValue(exec, key);
-        return <span className="text-sm text-foreground">{value || '—'}</span>;
-      }
-    }
-  };
-
-  // Render a bundle parent row cell
-  const renderBundleCell = (group: BundleGroup, key: string, isExpanded: boolean) => {
-    switch (key) {
-      case 'test_name': {
-        const itemLabel = group.category === 'cyber-hygiene' ? 'controls' : 'stages';
-        return (
-          <span className="inline-flex items-center gap-2 font-medium text-foreground">
-            {isExpanded ? (
-              <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
-            ) : (
-              <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-            )}
-            <Package className="w-4 h-4 text-blue-500 shrink-0" />
-            <span>{group.bundle_name}</span>
-            <Badge variant="secondary" className="text-xs ml-1">
-              {group.totalCount} {itemLabel}
-            </Badge>
-          </span>
-        );
-      }
-
-      case 'hostname':
-        return (
-          <span
-            className="text-muted-foreground font-mono text-sm block max-w-[220px] truncate"
-            title={group.hostname}
-          >
-            {group.hostname}
-          </span>
-        );
-
-      case 'result': {
-        // Any-stage rollup with three-tier priority: Protected > Detected >
-        // Unprotected. Matches kill-chain semantic — breaking one link breaks
-        // the chain, so "any stage protected" is success and "any stage
-        // detected" is fallback. Cyber-hygiene bundles keep their per-control
-        // ratio scoring; flipping the whole bundle to a single verdict
-        // wouldn't make sense when each control is meant to be evaluated
-        // independently.
-        const isProtected = group.protectedCount > 0;
-        const isDetected = !isProtected && group.defenderDetected;
-
-        if (group.category === 'cyber-hygiene') {
-          // Per-control ratio badge (preserved from the old all-stages path).
-          if (isDetected) {
-            return (
-              <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
-                <ShieldAlert className="w-4 h-4" />
-                <span className="text-sm font-medium">
-                  {group.protectedCount}/{group.totalCount} Detected
-                </span>
-              </span>
-            );
-          }
-          const ratio = group.totalCount > 0 ? group.protectedCount / group.totalCount : 0;
-          const color = ratio >= 0.8 ? 'text-green-600 dark:text-green-400'
-            : ratio >= 0.5 ? 'text-yellow-600 dark:text-yellow-400'
-            : 'text-red-600 dark:text-red-400';
-          return (
-            <span className={`inline-flex items-center gap-1.5 ${color}`}>
-              <ShieldCheck className="w-4 h-4" />
-              <span className="text-sm font-medium">
-                {group.protectedCount}/{group.totalCount} Protected
-              </span>
-            </span>
-          );
-        }
-
-        // Non-cyber-hygiene bundles (intel-driven, phase-aligned, mitre-top10):
-        // single verdict per bundle.
-        const label = isProtected ? 'Protected' : isDetected ? 'Detected' : 'Unprotected';
-        const cls = isProtected ? 'text-green-600 dark:text-green-400'
-          : isDetected ? 'text-amber-600 dark:text-amber-400'
-          : 'text-red-600 dark:text-red-400';
-        const Icon = isProtected ? ShieldCheck : isDetected ? ShieldAlert : ShieldX;
-        return (
-          <span className={`inline-flex items-center gap-1.5 ${cls}`}>
-            <Icon className="w-4 h-4" />
-            <span className="text-sm font-medium">{label}</span>
-          </span>
-        );
-      }
-
-      case 'category':
-        if (!group.category) return <span className="text-muted-foreground">—</span>;
-        return (
-          <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-500 border-blue-500/30">
-            {group.category}
-          </Badge>
-        );
-
-      case 'techniques': {
-        // Collect unique techniques from all controls
-        const allTechniques = new Set<string>();
-        for (const ctrl of group.controls) {
-          if (ctrl.tactics) ctrl.tactics.forEach(t => allTechniques.add(t));
-        }
-        if (allTechniques.size === 0) return <span className="text-muted-foreground">—</span>;
-        const techniqueArr = [...allTechniques];
-        return (
-          <div className="flex flex-wrap gap-1">
-            {techniqueArr.slice(0, 2).map(t => (
-              <Badge key={t} variant="secondary" className="text-xs">{t}</Badge>
-            ))}
-            {techniqueArr.length > 2 && (
-              <span className="text-xs text-muted-foreground">+{techniqueArr.length - 2}</span>
-            )}
-          </div>
-        );
-      }
-
-      case 'error':
-        return (
-          <span className="text-sm text-muted-foreground font-mono">
-            {group.protectedCount}P / {group.unprotectedCount}F
-          </span>
-        );
-
-      case 'timestamp':
-        return <span className="text-sm text-muted-foreground">{formatTimestamp(group.timestamp)}</span>;
-
-      default:
-        return <span className="text-muted-foreground">—</span>;
-    }
-  };
-
-  // Render the detail panel for a single execution
-  const renderDetailPanel = (exec: EnrichedTestExecution) => {
-    const isBundleCtrl = exec.is_bundle_control && exec.bundle_id;
-    const descKey = isBundleCtrl
-      ? `${exec.bundle_id}::${exec.control_validator ?? ''}`
-      : exec.test_uuid;
-    const descData = descriptionMap.get(descKey);
-    const isLoadingDesc = descriptionLoading === descKey;
-    const hasDocumentation = descData && (descData.hasInfoCard || descData.hasReadme);
-
-    return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm w-full min-w-0 overflow-hidden">
-      {!isLoadingDesc && hasDocumentation && (
-        <div className="col-span-full">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              const uuid = isBundleCtrl ? exec.bundle_id! : exec.test_uuid;
-              setInfoModal({
-                open: true,
-                testUuid: uuid,
-                testName: exec.test_name || exec.bundle_name || 'Test Details',
-                hasInfoCard: descData!.hasInfoCard,
-                hasReadme: descData!.hasReadme,
-                scrollToValidator: isBundleCtrl ? exec.control_validator : undefined,
-              });
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary border border-primary/30 bg-primary/5 hover:bg-primary/10 rounded-md transition-colors"
-          >
-            <Info className="w-3.5 h-3.5" />
-            View Details
-          </button>
-        </div>
-      )}
-      {(isLoadingDesc || descData?.description) && (
-        <div className="col-span-full min-w-0">
-          <span className="text-muted-foreground">Description</span>
-          {isLoadingDesc ? (
-            <div className="h-4 w-64 bg-raised animate-pulse rounded mt-1" />
-          ) : (
-            <p className="mt-1 text-foreground break-words overflow-hidden">{descData?.description?.replace(/:$/, '')}</p>
-          )}
-        </div>
-      )}
-      <div>
-        <span className="text-muted-foreground">Test UUID:</span>
-        <p className="font-mono text-xs mt-1 text-foreground">{exec.test_uuid}</p>
-      </div>
-      {exec.is_bundle_control && exec.bundle_name && (
-        <div>
-          <span className="text-muted-foreground">Bundle:</span>
-          <p className="mt-1 text-foreground">{exec.bundle_name}</p>
-        </div>
-      )}
-      {exec.is_bundle_control && exec.control_validator && (
-        <div>
-          <span className="text-muted-foreground">
-            {exec.category === 'cyber-hygiene' ? 'Validator:' : 'Stage:'}
-          </span>
-          <p className="mt-1 text-foreground">{exec.control_validator}</p>
-        </div>
-      )}
-      {exec.is_bundle_control && exec.control_id && exec.category !== 'cyber-hygiene' && (
-        <div>
-          <span className="text-muted-foreground">Technique:</span>
-          <p className="mt-1 font-mono text-foreground">{exec.control_id}</p>
-        </div>
-      )}
-      {exec.tactics?.length ? (
-        <div>
-          <span className="text-muted-foreground">Tactics:</span>
-          <p className="mt-1 text-foreground">{exec.tactics.join(', ')}</p>
-        </div>
-      ) : null}
-      {exec.target && (
-        <div>
-          <span className="text-muted-foreground">Target:</span>
-          <p className="mt-1 text-foreground">{exec.target}</p>
-        </div>
-      )}
-      {exec.complexity && (
-        <div>
-          <span className="text-muted-foreground">Complexity:</span>
-          <p className="mt-1 capitalize text-foreground">{exec.complexity}</p>
-        </div>
-      )}
-      {exec.tags?.length ? (
-        <div className="col-span-2">
-          <span className="text-muted-foreground">Tags:</span>
-          <div className="flex flex-wrap gap-1 mt-1">
-            {exec.tags.map(tag => (
-              <Badge key={tag} variant="secondary" className="text-xs">
-                {tag}
-              </Badge>
-            ))}
-          </div>
-        </div>
-      ) : null}
-      {exec.score !== undefined && (
-        <div>
-          <span className="text-muted-foreground">Score:</span>
-          <p className="mt-1 text-foreground">{exec.score}/10</p>
-        </div>
-      )}
-      <div>
-        <span className="text-muted-foreground">Full Timestamp:</span>
-        <p className="mt-1 text-foreground">{formatTimestamp(exec.timestamp, false)}</p>
-      </div>
-      {/* Related Defender Alerts — STAGE-ATTRIBUTABLE only.
-          Bundle-level alerts (those whose evidence doesn't carry a
-          per-stage binary discriminator) render once at the bundle
-          parent row instead of being duplicated under every stage. */}
-      {defenderConfigured && exec.techniques && exec.techniques.length > 0 && (() => {
-        const alertKey = stageAlertsCacheKey(exec);
-        const alertData = alertsMap.get(alertKey);
-        const isLoadingAlerts = alertsLoading.has(alertKey);
-
-        // Filter to alerts whose evidence binary is THIS specific stage's
-        // technique. The classifier captures the full token between the
-        // bundle UUID and `.exe`, including an optional `-<variant>` suffix
-        // (e.g. evidence `...t1562.001-svcnotify.exe` → attributed_control_id
-        // `t1562.001-svcnotify`). The test doc's `control_id` is only the
-        // MITRE technique (`T1562.001`), so an exact-equality match would
-        // drop the variant rows entirely. Accept exact match OR a
-        // `<control_id>-` prefix; the `-` boundary prevents `T108` from
-        // accidentally matching `T1083`.
-        const stageControlId = exec.control_id?.toLowerCase();
-        const stageAlerts = alertData && stageControlId
-          ? alertData.alerts.filter((a) => {
-              if (a.attribution !== 'stage') return false;
-              const att = a.attributed_control_id?.toLowerCase();
-              if (!att) return false;
-              return att === stageControlId || att.startsWith(`${stageControlId}-`);
-            })
-          : [];
-
-        return (
-          <div className="col-span-full border-t border-border pt-3 mt-1">
-            <span className="text-muted-foreground font-medium text-xs uppercase tracking-wide">Defender Alerts</span>
-            {isLoadingAlerts ? (
-              <div className="flex items-center gap-2 mt-2">
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">Checking for related alerts...</span>
-              </div>
-            ) : stageAlerts.length > 0 ? (
-              <div className="mt-2 space-y-2">
-                {stageAlerts.map((alert) => {
-                  const testTime = parseTimestamp(exec.timestamp).getTime();
-                  const alertTime = new Date(alert.created_at).getTime();
-                  const deltaMin = Math.round(Math.abs(alertTime - testTime) / 60000);
-                  const deltaLabel = deltaMin < 60
-                    ? `${deltaMin}m ${alertTime > testTime ? 'after' : 'before'}`
-                    : `${Math.round(deltaMin / 60)}h ${alertTime > testTime ? 'after' : 'before'}`;
-
-                  const severityClass: Record<string, string> = {
-                    high: 'bg-red-500/10 text-red-500 border-red-500/30',
-                    medium: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30',
-                    low: 'bg-green-500/10 text-green-500 border-green-500/30',
-                    informational: 'bg-blue-500/10 text-blue-500 border-blue-500/30',
-                  };
-
-                  return (
-                    <div key={alert.alert_id} className="flex items-center gap-2 text-xs">
-                      <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${severityClass[alert.severity] ?? ''}`}>
-                        {alert.severity}
-                      </Badge>
-                      <span className="text-foreground truncate flex-1">{alert.alert_title}</span>
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                        {alert.status}
-                      </Badge>
-                      <span className="text-muted-foreground whitespace-nowrap">{deltaLabel}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="mt-2 text-xs text-muted-foreground">
-                {alertData && alertData.alerts.some((a) => a.attribution === 'bundle')
-                  ? 'No stage-specific Defender alerts. See bundle-level alerts at the top of this bundle.'
-                  : 'No related Defender alerts within the time window'}
-              </p>
-            )}
-          </div>
-        );
-      })()}
-    </div>
-    );
-  };
-
-  // Visible columns for rendering
-  const visibleColumnsList = useMemo(
-    () => COLUMNS.filter(c => visibleColumns.has(c.key)),
-    [visibleColumns]
-  );
-
-  // Total columns including checkbox and actions
-  const actionsEnabled = archiveEnabled || riskEnabled;
-  const totalColSpan = visibleColumnsList.length + (actionsEnabled ? 2 : 0);
-
-  // Toggle bundle expand/collapse. On expand, eagerly fetch the related
-  // Defender alerts for EACH stage independently so the bundle-level callout
-  // (parent row) can aggregate `attribution === 'bundle'` alerts across all
-  // stages, and each stage's detail panel can find its own stage-attributed
-  // alert without re-fetching. Stages share results: if multiple stages
-  // overlap in time, their queries return overlapping alert sets, deduped
-  // by alert_id in the callout.
-  const toggleBundle = (key: string, controls?: EnrichedTestExecution[]) => {
-    setExpandedBundles(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-        // Also close any detail panel for controls in this bundle
-        setExpandedDetail(current => {
-          if (current?.startsWith(key)) return null;
-          return current;
-        });
-      } else {
-        next.add(key);
-        if (controls) {
-          for (const ctrl of controls) fetchRelatedAlerts(ctrl);
-        }
-      }
-      return next;
-    });
-  };
-
-  // Toggle detail panel for a specific row, triggering description + alerts fetch
-  const toggleDetail = (key: string, exec?: EnrichedTestExecution) => {
-    setExpandedDetail(prev => {
-      if (prev === key) return null;
-      if (exec) {
-        fetchDescription(exec);
-        fetchRelatedAlerts(exec);
-      }
-      return key;
-    });
-  };
-
   if (loading && !data) {
     return (
       <Card className="min-h-[400px] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+        <Loader2 className="w-8 h-8 animate-spin text-muted" />
       </Card>
     );
   }
 
+  const actionsEnabled = archiveEnabled || riskEnabled;
+
   return (
-    <Card className="overflow-hidden">
-      {/* Bulk Actions Bar */}
-      {actionsEnabled && selectedKeys.size > 0 && (
-        <div className="flex items-center gap-3 px-4 py-2 bg-primary/5 border-b border-primary/20">
-          <span className="text-sm font-medium text-foreground">
-            {selectedKeys.size} selected
-          </span>
-          {archiveEnabled && (
-            <button
-              onClick={() => setConfirmArchiveKeys([...selectedKeys])}
-              disabled={archiving}
-              className="flex items-center gap-1.5 px-3 py-1 bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30 rounded-lg text-sm hover:bg-red-500/20 transition-colors disabled:opacity-50"
-            >
-              {archiving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}
-              Archive Selected
-            </button>
-          )}
-          {riskEnabled && (
-            <button
-              onClick={() => {
-                // Collect AcceptRiskItems from selected groups
-                const items: AcceptRiskItem[] = [];
-                for (const key of selectedKeys) {
-                  const row = displayRows.find(r => r.key === key);
-                  if (!row) continue;
-                  if (row.type === 'standalone') {
-                    items.push({ test_name: row.execution.test_name, hostname: row.execution.hostname });
-                  } else {
-                    for (const ctrl of row.controls) {
-                      items.push({ test_name: ctrl.test_name, control_id: ctrl.control_id, hostname: ctrl.hostname });
-                    }
-                  }
-                }
-                if (items.length > 0) setRiskAcceptItems(items);
-              }}
-              disabled={acceptingRisk}
-              className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 rounded-lg text-sm hover:bg-amber-500/20 transition-colors disabled:opacity-50"
-            >
-              {acceptingRisk ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldOff className="w-3.5 h-3.5" />}
-              Accept Risk
-            </button>
-          )}
-          <button
-            onClick={() => setSelectedKeys(new Set())}
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Clear
-          </button>
-        </div>
-      )}
-
-      {/* Table Header */}
-      <CardHeader className="flex flex-row items-center justify-between py-3 border-b">
-        <div className="text-sm text-muted-foreground">
-          {pagination ? (
-            <>
-              Showing {((pagination.page - 1) * pagination.pageSize) + 1}–
-              {Math.min(pagination.page * pagination.pageSize, pagination.totalGroups)} of{' '}
-              {pagination.totalGroups.toLocaleString()} groups
-              {' '}({pagination.totalDocuments.toLocaleString()} documents)
-            </>
-          ) : (
-            'Loading...'
-          )}
-        </div>
-
+    <div>
+      {/* Section header + toolbar */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-2">
-          {/* Archive by Date */}
-          {onArchiveByDate && (
-            <button
-              onClick={() => setShowDatePurge(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm hover:bg-raised transition-colors"
-            >
-              <Calendar className="w-4 h-4" />
-              Archive by Date
-            </button>
+          {actionsEnabled && (
+            <Checkbox
+              checked={isAllSelected}
+              onCheckedChange={toggleSelectAll}
+              aria-label="Select all on this page"
+            />
           )}
-
-          {/* Column Visibility Toggle */}
-          <div className="relative">
-            <button
-              onClick={() => setShowColumnMenu(!showColumnMenu)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm hover:bg-raised transition-colors"
-            >
-              <Columns className="w-4 h-4" />
-              Columns
-            </button>
-
-            {showColumnMenu && (
-              <div className="absolute right-0 z-50 mt-1 w-56 bg-card text-card-foreground border border-border rounded-lg shadow-lg overflow-hidden">
-                <div className="px-3 py-2 border-b border-border flex justify-between items-center">
-                  <span className="text-sm font-medium">Columns</span>
-                  <button
-                    onClick={resetColumns}
-                    className="text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    Reset
-                  </button>
-                </div>
-                <div className="max-h-64 overflow-y-auto py-1">
-                  {COLUMNS.map(col => (
-                    <button
-                      key={col.key}
-                      onClick={() => toggleColumn(col.key)}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-raised transition-colors"
-                    >
-                      <div className={`
-                        w-4 h-4 rounded border flex items-center justify-center
-                        ${visibleColumns.has(col.key) ? 'bg-primary border-primary' : 'border-border'}
-                      `}>
-                        {visibleColumns.has(col.key) && <Check className="w-3 h-3 text-primary-foreground" />}
-                      </div>
-                      <span className="text-foreground">{col.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+          <span className="text-[13px] text-muted">
+            {pagination ? (
+              <>
+                Showing {((pagination.page - 1) * pagination.pageSize) + 1}–
+                {Math.min(pagination.page * pagination.pageSize, pagination.totalGroups)} of{' '}
+                {pagination.totalGroups.toLocaleString()} groups
+                {' '}({pagination.totalDocuments.toLocaleString()} documents)
+              </>
+            ) : (
+              'Loading…'
             )}
-          </div>
+          </span>
+        </div>
 
-          {/* Export Dropdown */}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Select
+            value={sortField ?? 'routing.event_time'}
+            onValueChange={(field) => onSort(field, sortOrder)}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SORT_FIELDS.map((f) => (
+                <SelectItem key={f.field} value={f.field}>
+                  {f.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() => onSort(sortField ?? 'routing.event_time', sortOrder === 'desc' ? 'asc' : 'desc')}
+            title={sortOrder === 'desc' ? 'Descending' : 'Ascending'}
+          >
+            {sortOrder === 'desc' ? <ArrowDownNarrowWide /> : <ArrowUpNarrowWide />}
+          </Button>
+          {onArchiveByDate && (
+            <Button variant="secondary" size="sm" onClick={() => setShowDatePurge(true)}>
+              <Calendar />
+              Archive by date
+            </Button>
+          )}
           <div className="relative group">
-            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary text-foreground border border-border rounded-lg text-sm hover:bg-raised transition-colors">
-              <Download className="w-4 h-4" />
+            <Button variant="secondary" size="sm">
+              <Download />
               Export
-              <ChevronDown className="w-3 h-3" />
-            </button>
-            <div className="absolute right-0 z-50 mt-1 w-32 bg-card text-card-foreground border border-border rounded-lg shadow-lg overflow-hidden opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+              <ChevronDown className="!size-3" />
+            </Button>
+            <div className="invisible absolute right-0 z-50 mt-1 w-32 overflow-hidden rounded-md border border-border bg-overlay opacity-0 shadow-lg transition-all group-hover:visible group-hover:opacity-100">
               <button
                 onClick={exportToCsv}
-                className="w-full px-3 py-2 text-sm text-left hover:bg-raised transition-colors"
+                className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-raised hover:text-accent"
               >
                 Export CSV
               </button>
               <button
                 onClick={exportToJson}
-                className="w-full px-3 py-2 text-sm text-left hover:bg-raised transition-colors"
+                className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-raised hover:text-accent"
               >
                 Export JSON
               </button>
             </div>
           </div>
         </div>
-      </CardHeader>
+      </div>
 
-      {/* Table */}
-      <CardContent className="p-0 overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-raised/50">
-              {/* Checkbox column header */}
-              {actionsEnabled && (
-                <TableHead className="w-10">
-                  <div onClick={(e) => e.stopPropagation()}>
-                    <Checkbox
-                      checked={isAllSelected}
-                      indeterminate={isIndeterminate}
-                      onChange={toggleSelectAll}
-                    />
-                  </div>
-                </TableHead>
-              )}
-              {/* Actions column header (after checkbox, before data columns) */}
-              {actionsEnabled && <TableHead className="w-10" />}
-              {visibleColumnsList.map(col => (
-                <TableHead
-                  key={col.key}
-                  className={col.sortable ? 'cursor-pointer hover:text-foreground select-none' : ''}
-                  onClick={() => col.sortable && handleSort(col)}
-                >
-                  <div className="flex items-center gap-1">
-                    {col.label}
-                    {col.sortable && col.sortField && (
-                      <span className="text-xs">
-                        {sortField === col.sortField ? (
-                          sortOrder === 'desc' ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4 opacity-30" />
-                        )}
-                      </span>
-                    )}
-                  </div>
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading && groups.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={totalColSpan} className="py-12 text-center">
-                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground mx-auto" />
-                </TableCell>
-              </TableRow>
-            ) : groups.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={totalColSpan} className="py-12 text-center text-muted-foreground">
-                  No executions found
-                </TableCell>
-              </TableRow>
-            ) : (
-              displayRows.map((row) => {
-                if (row.type === 'standalone') {
-                  const exec = row.execution;
-                  const detailKey = row.key;
-                  return (
-                    <Fragment key={detailKey}>
-                      <TableRow
-                        className={`cursor-pointer group/row ${expandedDetail === detailKey ? 'bg-raised/30' : ''}`}
-                        onClick={() => toggleDetail(detailKey, exec)}
-                      >
-                        {/* Checkbox */}
-                        {actionsEnabled && (
-                          <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
-                            <Checkbox
-                              checked={selectedKeys.has(detailKey)}
-                              onChange={() => toggleSelect(detailKey)}
-                            />
-                          </TableCell>
-                        )}
-                        {/* Action buttons (after checkbox, before data columns) */}
-                        {actionsEnabled && (
-                          <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center gap-1">
-                              {riskEnabled && (() => {
-                                const acc = getAcceptanceForExec(exec);
-                                if (acc) {
-                                  return (
-                                    <button
-                                      onClick={() => setRevokeTarget({ id: acc.acceptance_id, testName: exec.test_name })}
-                                      className="p-1.5 rounded opacity-0 group-hover/row:opacity-100 hover:!opacity-100 text-amber-500 hover:bg-amber-500/10 transition-all"
-                                      title="Revoke Risk Acceptance"
-                                    >
-                                      <ShieldAlert className="w-4 h-4" />
-                                    </button>
-                                  );
-                                }
-                                return (
-                                  <button
-                                    onClick={() => setRiskAcceptItems([{ test_name: exec.test_name, hostname: exec.hostname }])}
-                                    className="p-1.5 rounded opacity-0 group-hover/row:opacity-100 hover:!opacity-100 text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 transition-all"
-                                    title="Accept Risk"
-                                  >
-                                    <ShieldOff className="w-4 h-4" />
-                                  </button>
-                                );
-                              })()}
-                              {archiveEnabled && (
-                                <button
-                                  onClick={() => setConfirmArchiveKeys([detailKey])}
-                                  className="p-1.5 rounded opacity-0 group-hover/row:opacity-100 hover:!opacity-100 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-all"
-                                  title="Archive"
-                                >
-                                  <Archive className="w-4 h-4" />
-                                </button>
-                              )}
-                            </div>
-                          </TableCell>
-                        )}
-                        {visibleColumnsList.map(col => (
-                          <TableCell key={col.key}>
-                            {renderCell(exec, col.key)}
-                          </TableCell>
-                        ))}
-                      </TableRow>
+      {/* Bulk actions bar */}
+      {actionsEnabled && selectedKeys.size > 0 && (
+        <div className="mb-3 flex items-center gap-3 rounded-md border border-accent/25 bg-accent-dim px-3 py-2">
+          <span className="text-sm font-medium text-accent">{selectedKeys.size} selected</span>
+          {riskEnabled && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={acceptingRisk}
+              onClick={handleBulkAcceptRisk}
+              className="border-warning/40 text-warning hover:bg-warning-dim"
+            >
+              {acceptingRisk ? <Loader2 className="animate-spin" /> : <ShieldOff />}
+              Accept risk
+            </Button>
+          )}
+          {archiveEnabled && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={archiving}
+              onClick={() => setConfirmArchiveKeys([...selectedKeys])}
+              className="border-danger/40 text-danger hover:bg-danger-dim"
+            >
+              {archiving ? <Loader2 className="animate-spin" /> : <Archive />}
+              Archive selected
+            </Button>
+          )}
+        </div>
+      )}
 
-                      {expandedDetail === detailKey && (
-                        <TableRow className="bg-raised/20">
-                          <TableCell colSpan={totalColSpan} className="py-4 px-6 whitespace-normal">
-                            {renderDetailPanel(exec)}
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </Fragment>
-                  );
-                }
-
-                // Bundle group
-                const group = row;
-                const isExpanded = expandedBundles.has(group.key);
-
-                return (
-                  <Fragment key={group.key}>
-                    {/* Bundle parent row */}
-                    <TableRow
-                      className={`cursor-pointer group/row bg-raised/30 hover:bg-raised/50 ${isExpanded ? 'border-b-0' : ''}`}
-                      onClick={() => toggleBundle(group.key, group.controls)}
-                    >
-                      {/* Checkbox */}
-                      {actionsEnabled && (
-                        <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
-                          <Checkbox
-                            checked={selectedKeys.has(group.key)}
-                            onChange={() => toggleSelect(group.key)}
-                          />
-                        </TableCell>
-                      )}
-                      {/* Action buttons (after checkbox, before data columns) */}
-                      {actionsEnabled && (
-                        <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center gap-1">
-                            {archiveEnabled && (
-                              <button
-                                onClick={() => setConfirmArchiveKeys([group.key])}
-                                className="p-1.5 rounded opacity-0 group-hover/row:opacity-100 hover:!opacity-100 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-all"
-                                title="Archive"
-                              >
-                                <Archive className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                        </TableCell>
-                      )}
-                      {visibleColumnsList.map(col => (
-                        <TableCell key={col.key}>
-                          {renderBundleCell(group, col.key, isExpanded)}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-
-                    {/* Bundle-level Defender alerts callout. Renders alerts whose
-                        evidence doesn't carry a per-stage discriminator (e.g. AV
-                        detections that surface only the dropped file's path under
-                        a bundle-named sandbox dir). Stage detail panels filter
-                        these out so the same alert isn't shown N times under N
-                        stages. Aggregates `attribution === 'bundle'` alerts
-                        across all per-stage caches and dedupes by alert_id —
-                        overlapping stage time windows naturally produce
-                        duplicate hits of the same bundle alert. */}
-                    {isExpanded && defenderConfigured && (() => {
-                      if (group.controls.length === 0) return null;
-                      const isLoadingAlerts = group.controls.some(
-                        (ctrl) => alertsLoading.has(stageAlertsCacheKey(ctrl)),
-                      );
-                      // Union bundle-attribution alerts across every stage's
-                      // cache. Dedupe by alert_id; later inserts win, which
-                      // means the alert version from the stage whose query
-                      // window most tightly bounded the alert's `timestamp`
-                      // is preferred (the underlying ES doc is the same, but
-                      // Defender can mutate fields like `status` between sync
-                      // passes — using the latest cached version is safest).
-                      const seen = new Map<string, RelatedAlertsResponse['alerts'][number]>();
-                      for (const ctrl of group.controls) {
-                        const entry = alertsMap.get(stageAlertsCacheKey(ctrl));
-                        if (!entry) continue;
-                        for (const a of entry.alerts) {
-                          if (a.attribution === 'bundle') seen.set(a.alert_id, a);
-                        }
-                      }
-                      const bundleAlerts = Array.from(seen.values());
-                      if (!isLoadingAlerts && bundleAlerts.length === 0) return null;
-                      return (
-                        <TableRow className="bg-amber-500/5 border-l-2 border-l-amber-500/40">
-                          {actionsEnabled && <TableCell className="w-10" />}
-                          {actionsEnabled && <TableCell className="w-10" />}
-                          <TableCell colSpan={visibleColumnsList.length} className="py-2">
-                            <div className="flex items-start gap-2">
-                              <ShieldAlert className="w-4 h-4 mt-0.5 text-amber-500 flex-shrink-0" />
-                              <div className="flex-1 min-w-0">
-                                <span className="text-amber-600 dark:text-amber-400 text-xs font-medium uppercase tracking-wide">
-                                  Bundle-level Defender alerts
-                                </span>
-                                <span className="text-muted-foreground text-xs ml-2">
-                                  (evidence doesn't identify a specific stage)
-                                </span>
-                                {isLoadingAlerts ? (
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
-                                    <span className="text-xs text-muted-foreground">Checking…</span>
-                                  </div>
-                                ) : (
-                                  <div className="mt-1 space-y-1">
-                                    {bundleAlerts.map((alert) => {
-                                      const severityClass: Record<string, string> = {
-                                        high: 'bg-red-500/10 text-red-500 border-red-500/30',
-                                        medium: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30',
-                                        low: 'bg-green-500/10 text-green-500 border-green-500/30',
-                                        informational: 'bg-blue-500/10 text-blue-500 border-blue-500/30',
-                                      };
-                                      return (
-                                        <div key={alert.alert_id} className="flex items-center gap-2 text-xs">
-                                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${severityClass[alert.severity] ?? ''}`}>
-                                            {alert.severity}
-                                          </Badge>
-                                          <span className="text-foreground truncate flex-1">{alert.alert_title}</span>
-                                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                                            {alert.status}
-                                          </Badge>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })()}
-
-                    {/* Expanded control sub-rows */}
-                    {isExpanded && group.controls.map((ctrl, ctrlIdx) => {
-                      const ctrlDetailKey = `${group.key}::ctrl-${ctrlIdx}`;
-                      return (
-                        <Fragment key={ctrlDetailKey}>
-                          <TableRow
-                            className={`cursor-pointer group/row bg-card/50 border-l-2 border-l-blue-500/30 ${expandedDetail === ctrlDetailKey ? 'bg-raised/30' : 'hover:bg-raised/10'}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleDetail(ctrlDetailKey, ctrl);
-                            }}
-                          >
-                            {/* Empty checkbox space for sub-rows */}
-                            {actionsEnabled && <TableCell className="w-10" />}
-                            {/* Risk accept/revoke for sub-controls (after checkbox, before data columns) */}
-                            {actionsEnabled && (
-                              <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
-                                {riskEnabled && (() => {
-                                  const acc = getAcceptanceForExec(ctrl);
-                                  if (acc) {
-                                    return (
-                                      <button
-                                        onClick={() => setRevokeTarget({ id: acc.acceptance_id, testName: ctrl.test_name })}
-                                        className="p-1.5 rounded opacity-0 group-hover/row:opacity-100 hover:!opacity-100 text-amber-500 hover:bg-amber-500/10 transition-all"
-                                        title="Revoke Risk Acceptance"
-                                      >
-                                        <ShieldAlert className="w-4 h-4" />
-                                      </button>
-                                    );
-                                  }
-                                  return (
-                                    <button
-                                      onClick={() => setRiskAcceptItems([{ test_name: ctrl.test_name, control_id: ctrl.control_id, hostname: ctrl.hostname }])}
-                                      className="p-1.5 rounded opacity-0 group-hover/row:opacity-100 hover:!opacity-100 text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 transition-all"
-                                      title="Accept Risk"
-                                    >
-                                      <ShieldOff className="w-4 h-4" />
-                                    </button>
-                                  );
-                                })()}
-                              </TableCell>
-                            )}
-                            {visibleColumnsList.map(col => (
-                              <TableCell key={col.key}>
-                                {renderCell(ctrl, col.key, col.key === 'test_name')}
-                              </TableCell>
-                            ))}
-                          </TableRow>
-
-                          {expandedDetail === ctrlDetailKey && (
-                            <TableRow className="bg-raised/20 border-l-2 border-l-blue-500/30">
-                              <TableCell colSpan={totalColSpan} className="py-4 px-6 whitespace-normal">
-                                {renderDetailPanel(ctrl)}
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                  </Fragment>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </CardContent>
+      {/* Master-detail */}
+      {groups.length === 0 ? (
+        <Card className="flex h-40 items-center justify-center text-sm text-faint">
+          No executions found
+        </Card>
+      ) : (
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+          <Card className="overflow-hidden">
+            <RunList
+              rows={displayRows}
+              selectedKey={selectedKey}
+              onSelect={handleSelect}
+              checkedKeys={actionsEnabled ? selectedKeys : null}
+              onToggleChecked={toggleSelect}
+            />
+          </Card>
+          <RunDetailPanel
+            row={selectedRow}
+            defenderConfigured={defenderConfigured}
+            descriptionMap={descriptionMap}
+            descriptionLoadingKey={descriptionLoading}
+            alertsMap={alertsMap}
+            alertsLoading={alertsLoading}
+            stageAlertsCacheKey={stageAlertsCacheKey}
+            getAcceptanceForExec={getAcceptanceForExec}
+            riskEnabled={riskEnabled}
+            archiveEnabled={archiveEnabled}
+            onRequestAcceptRisk={setRiskAcceptItems}
+            onRequestRevoke={setRevokeTarget}
+            onRequestArchive={setConfirmArchiveKeys}
+            onOpenInfo={(request) => setInfoModal({ ...request, open: true })}
+            expandedControlIndex={expandedControlIndex}
+            onToggleControl={handleToggleControl}
+          />
+        </div>
+      )}
 
       {/* Pagination */}
       {pagination && pagination.totalPages > 0 && (
-        <CardFooter className="flex items-center justify-between py-3 border-t">
+        <div className="mt-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Rows per page:</span>
-            <select
-              value={pagination.pageSize}
-              onChange={(e) => onPageSizeChange(Number(e.target.value))}
-              className="px-2 py-1 bg-secondary text-foreground border border-border rounded text-sm"
+            <span className="text-xs text-muted">Rows per page:</span>
+            <Select
+              value={String(pagination.pageSize)}
+              onValueChange={(v) => onPageSizeChange(Number(v))}
             >
-              <option value={10}>10</option>
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
-            </select>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[10, 25, 50, 100].map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex items-center gap-1">
-            <button
-              onClick={() => onPageChange(1)}
-              disabled={!pagination.hasPrevious}
-              className="p-1.5 rounded hover:bg-raised disabled:opacity-30 disabled:cursor-not-allowed text-foreground"
-            >
-              <ChevronsLeft className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => onPageChange(pagination.page - 1)}
-              disabled={!pagination.hasPrevious}
-              className="p-1.5 rounded hover:bg-raised disabled:opacity-30 disabled:cursor-not-allowed text-foreground"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-
-            <span className="px-3 text-sm text-foreground">
+            <Button variant="ghost" size="icon-sm" onClick={() => onPageChange(1)} disabled={!pagination.hasPrevious}>
+              <ChevronsLeft />
+            </Button>
+            <Button variant="ghost" size="icon-sm" onClick={() => onPageChange(pagination.page - 1)} disabled={!pagination.hasPrevious}>
+              <ChevronLeft />
+            </Button>
+            <span className="px-3 text-sm">
               Page {pagination.page} of {pagination.totalPages}
             </span>
-
-            <button
-              onClick={() => onPageChange(pagination.page + 1)}
-              disabled={!pagination.hasNext}
-              className="p-1.5 rounded hover:bg-raised disabled:opacity-30 disabled:cursor-not-allowed text-foreground"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => onPageChange(pagination.totalPages)}
-              disabled={!pagination.hasNext}
-              className="p-1.5 rounded hover:bg-raised disabled:opacity-30 disabled:cursor-not-allowed text-foreground"
-            >
-              <ChevronsRight className="w-4 h-4" />
-            </button>
+            <Button variant="ghost" size="icon-sm" onClick={() => onPageChange(pagination.page + 1)} disabled={!pagination.hasNext}>
+              <ChevronRight />
+            </Button>
+            <Button variant="ghost" size="icon-sm" onClick={() => onPageChange(pagination.totalPages)} disabled={!pagination.hasNext}>
+              <ChevronsRight />
+            </Button>
           </div>
-        </CardFooter>
+        </div>
       )}
 
       {/* Confirmation Dialog (individual + bulk archive) */}
       {confirmArchiveKeys && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => !archiving && setConfirmArchiveKeys(null)}>
-          <div className="bg-card border border-border rounded-xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-foreground">Archive Executions</h3>
-              <button onClick={() => !archiving && setConfirmArchiveKeys(null)} className="text-muted-foreground hover:text-foreground">
-                <X className="w-5 h-5" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70" onClick={() => !archiving && setConfirmArchiveKeys(null)}>
+          <div className="mx-4 w-full max-w-md rounded-[10px] border border-border-strong bg-surface p-6 shadow-[0_24px_60px_rgba(0,0,0,0.55)]" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-sm font-semibold tracking-tight">Archive Executions</h3>
+              <button onClick={() => !archiving && setConfirmArchiveKeys(null)} className="text-muted hover:text-foreground">
+                <X className="h-5 w-5" />
               </button>
             </div>
-            <p className="text-sm text-muted-foreground mb-6">
+            <p className="mb-6 text-sm text-muted">
               This will move <span className="font-medium text-foreground">{confirmArchiveKeys.length}</span> execution group{confirmArchiveKeys.length !== 1 ? 's' : ''} to the archive. This is reversible.
             </p>
             <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setConfirmArchiveKeys(null)}
-                disabled={archiving}
-                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-raised transition-colors disabled:opacity-50"
-              >
+              <Button variant="ghost" onClick={() => setConfirmArchiveKeys(null)} disabled={archiving}>
                 Cancel
-              </button>
-              <button
-                onClick={handleArchiveConfirm}
-                disabled={archiving}
-                className="flex items-center gap-2 px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
-              >
-                {archiving && <Loader2 className="w-4 h-4 animate-spin" />}
+              </Button>
+              <Button variant="destructive" onClick={handleArchiveConfirm} disabled={archiving}>
+                {archiving && <Loader2 className="animate-spin" />}
                 Archive
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1648,127 +620,117 @@ export default function ExecutionsDataTable({
 
       {/* Date Purge Dialog */}
       {showDatePurge && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => !archiving && setShowDatePurge(false)}>
-          <div className="bg-card border border-border rounded-xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-foreground">Archive by Date</h3>
-              <button onClick={() => !archiving && setShowDatePurge(false)} className="text-muted-foreground hover:text-foreground">
-                <X className="w-5 h-5" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70" onClick={() => !archiving && setShowDatePurge(false)}>
+          <div className="mx-4 w-full max-w-md rounded-[10px] border border-border-strong bg-surface p-6 shadow-[0_24px_60px_rgba(0,0,0,0.55)]" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-sm font-semibold tracking-tight">Archive by Date</h3>
+              <button onClick={() => !archiving && setShowDatePurge(false)} className="text-muted hover:text-foreground">
+                <X className="h-5 w-5" />
               </button>
             </div>
             <div className="mb-6">
-              <label className="block text-sm font-medium text-foreground mb-2">
+              <label className="mb-2 block text-[11px] uppercase tracking-wider text-faint">
                 Archive all executions before:
               </label>
               <input
                 type="date"
                 value={purgeDate}
                 onChange={(e) => setPurgeDate(e.target.value)}
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground"
+                className="w-full rounded-md border border-border bg-raised px-3 py-2 text-sm outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
               />
             </div>
             <div className="flex justify-end gap-3">
-              <button
-                onClick={() => { setShowDatePurge(false); setPurgeDate(''); }}
-                disabled={archiving}
-                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-raised transition-colors disabled:opacity-50"
-              >
+              <Button variant="ghost" onClick={() => { setShowDatePurge(false); setPurgeDate(''); }} disabled={archiving}>
                 Cancel
-              </button>
-              <button
-                onClick={handleDatePurgeConfirm}
-                disabled={!purgeDate || archiving}
-                className="flex items-center gap-2 px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
-              >
-                {archiving && <Loader2 className="w-4 h-4 animate-spin" />}
+              </Button>
+              <Button variant="destructive" onClick={handleDatePurgeConfirm} disabled={!purgeDate || archiving}>
+                {archiving && <Loader2 className="animate-spin" />}
                 Archive
-              </button>
+              </Button>
             </div>
           </div>
         </div>
       )}
+
       {/* Risk Acceptance Dialog */}
       {riskAcceptItems && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => !acceptingRisk && setRiskAcceptItems(null)}>
-          <div className="bg-card border border-border rounded-xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
-                <ShieldOff className="w-5 h-5 text-amber-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70" onClick={() => !acceptingRisk && setRiskAcceptItems(null)}>
+          <div className="mx-4 w-full max-w-md rounded-[10px] border border-border-strong bg-surface p-6 shadow-[0_24px_60px_rgba(0,0,0,0.55)]" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-sm font-semibold tracking-tight">
+                <ShieldOff className="h-5 w-5 text-warning" />
                 Accept Risk
               </h3>
-              <button onClick={() => !acceptingRisk && setRiskAcceptItems(null)} className="text-muted-foreground hover:text-foreground">
-                <X className="w-5 h-5" />
+              <button onClick={() => !acceptingRisk && setRiskAcceptItems(null)} className="text-muted hover:text-foreground">
+                <X className="h-5 w-5" />
               </button>
             </div>
-            <p className="text-sm text-muted-foreground mb-3">
+            <p className="mb-3 text-sm text-muted">
               Accepting risk for <span className="font-medium text-foreground">{riskAcceptItems.length}</span> control{riskAcceptItems.length !== 1 ? 's' : ''}.
               Accepted controls will be excluded from the Defense Score.
             </p>
-            <div className="mb-4 max-h-32 overflow-y-auto text-xs font-mono bg-raised/30 rounded-lg p-2 border border-border">
+            <div className="mb-4 max-h-32 overflow-y-auto rounded-md border border-border bg-raised p-2 font-mono text-xs">
               {riskAcceptItems.slice(0, 10).map((item, i) => (
-                <div key={i} className="text-muted-foreground truncate">
+                <div key={i} className="truncate text-muted">
                   {item.test_name}{item.control_id ? `::${item.control_id}` : ''}
                 </div>
               ))}
               {riskAcceptItems.length > 10 && (
-                <div className="text-muted-foreground">...and {riskAcceptItems.length - 10} more</div>
+                <div className="text-muted">...and {riskAcceptItems.length - 10} more</div>
               )}
             </div>
             <div className="mb-4">
-              <label className="block text-sm font-medium text-foreground mb-1.5">Scope</label>
-              <div className="flex rounded-lg border border-border overflow-hidden">
+              <label className="mb-1.5 block text-[11px] uppercase tracking-wider text-faint">Scope</label>
+              <div className="flex overflow-hidden rounded-md border border-border">
                 <button
                   type="button"
                   onClick={() => setRiskScope('global')}
-                  className={`flex-1 px-3 py-1.5 text-sm transition-colors ${riskScope === 'global' ? 'bg-amber-600 text-white' : 'bg-background text-muted-foreground hover:bg-raised'}`}
+                  className={`flex-1 px-3 py-1.5 text-sm transition-colors ${riskScope === 'global' ? 'bg-warning-dim text-warning' : 'bg-transparent text-muted hover:bg-raised'}`}
                 >
                   All Hosts
                 </button>
                 <button
                   type="button"
                   onClick={() => setRiskScope('host')}
-                  className={`flex-1 px-3 py-1.5 text-sm transition-colors border-l border-border ${riskScope === 'host' ? 'bg-amber-600 text-white' : 'bg-background text-muted-foreground hover:bg-raised'}`}
+                  className={`flex-1 border-l border-border px-3 py-1.5 text-sm transition-colors ${riskScope === 'host' ? 'bg-warning-dim text-warning' : 'bg-transparent text-muted hover:bg-raised'}`}
                 >
                   This Host Only
                 </button>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="mt-1 text-xs text-faint">
                 {riskScope === 'global'
                   ? 'Excluded from Defense Score across all hosts in the organization.'
                   : 'Excluded from Defense Score only for the specific host(s) where it was observed.'}
               </p>
             </div>
             <div className="mb-4">
-              <label className="block text-sm font-medium text-foreground mb-1.5">
-                Justification <span className="text-red-500">*</span>
+              <label className="mb-1.5 block text-[11px] uppercase tracking-wider text-faint">
+                Justification <span className="text-danger">*</span>
               </label>
               <textarea
                 value={riskJustification}
                 onChange={(e) => setRiskJustification(e.target.value)}
                 placeholder="Describe why this risk is being accepted (min 10 characters)..."
                 rows={3}
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground resize-none placeholder:text-muted-foreground"
+                className="w-full resize-none rounded-md border border-border bg-raised px-3 py-2 text-sm placeholder:text-faint outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
               />
               {riskJustification.length > 0 && riskJustification.trim().length < 10 && (
-                <p className="text-xs text-red-500 mt-1">Minimum 10 characters required</p>
+                <p className="mt-1 text-xs text-danger">Minimum 10 characters required</p>
               )}
             </div>
             <div className="flex justify-end gap-3">
-              <button
-                onClick={() => { setRiskAcceptItems(null); setRiskJustification(''); }}
-                disabled={acceptingRisk}
-                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-raised transition-colors disabled:opacity-50"
-              >
+              <Button variant="ghost" onClick={() => { setRiskAcceptItems(null); setRiskJustification(''); }} disabled={acceptingRisk}>
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="outline"
+                className="border-warning/40 text-warning hover:bg-warning-dim"
                 onClick={handleAcceptRiskConfirm}
                 disabled={acceptingRisk || riskJustification.trim().length < 10}
-                className="flex items-center gap-2 px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50"
               >
-                {acceptingRisk && <Loader2 className="w-4 h-4 animate-spin" />}
+                {acceptingRisk && <Loader2 className="animate-spin" />}
                 Accept Risk
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1776,52 +738,49 @@ export default function ExecutionsDataTable({
 
       {/* Revoke Risk Acceptance Dialog */}
       {revokeTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => !acceptingRisk && setRevokeTarget(null)}>
-          <div className="bg-card border border-border rounded-xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
-                <ShieldAlert className="w-5 h-5 text-amber-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70" onClick={() => !acceptingRisk && setRevokeTarget(null)}>
+          <div className="mx-4 w-full max-w-md rounded-[10px] border border-border-strong bg-surface p-6 shadow-[0_24px_60px_rgba(0,0,0,0.55)]" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-sm font-semibold tracking-tight">
+                <ShieldAlert className="h-5 w-5 text-warning" />
                 Revoke Risk Acceptance
               </h3>
-              <button onClick={() => !acceptingRisk && setRevokeTarget(null)} className="text-muted-foreground hover:text-foreground">
-                <X className="w-5 h-5" />
+              <button onClick={() => !acceptingRisk && setRevokeTarget(null)} className="text-muted hover:text-foreground">
+                <X className="h-5 w-5" />
               </button>
             </div>
-            <p className="text-sm text-muted-foreground mb-3">
+            <p className="mb-3 text-sm text-muted">
               Revoking acceptance for <span className="font-medium text-foreground">{revokeTarget.testName}</span>.
               This control will be included in the Defense Score again.
             </p>
             <div className="mb-4">
-              <label className="block text-sm font-medium text-foreground mb-1.5">
-                Reason <span className="text-red-500">*</span>
+              <label className="mb-1.5 block text-[11px] uppercase tracking-wider text-faint">
+                Reason <span className="text-danger">*</span>
               </label>
               <textarea
                 value={revokeReason}
                 onChange={(e) => setRevokeReason(e.target.value)}
                 placeholder="Describe why this acceptance is being revoked (min 10 characters)..."
                 rows={3}
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground resize-none placeholder:text-muted-foreground"
+                className="w-full resize-none rounded-md border border-border bg-raised px-3 py-2 text-sm placeholder:text-faint outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
               />
               {revokeReason.length > 0 && revokeReason.trim().length < 10 && (
-                <p className="text-xs text-red-500 mt-1">Minimum 10 characters required</p>
+                <p className="mt-1 text-xs text-danger">Minimum 10 characters required</p>
               )}
             </div>
             <div className="flex justify-end gap-3">
-              <button
-                onClick={() => { setRevokeTarget(null); setRevokeReason(''); }}
-                disabled={acceptingRisk}
-                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-raised transition-colors disabled:opacity-50"
-              >
+              <Button variant="ghost" onClick={() => { setRevokeTarget(null); setRevokeReason(''); }} disabled={acceptingRisk}>
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="outline"
+                className="border-warning/40 text-warning hover:bg-warning-dim"
                 onClick={handleRevokeConfirm}
                 disabled={acceptingRisk || revokeReason.trim().length < 10}
-                className="flex items-center gap-2 px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50"
               >
-                {acceptingRisk && <Loader2 className="w-4 h-4 animate-spin" />}
+                {acceptingRisk && <Loader2 className="animate-spin" />}
                 Revoke Acceptance
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1839,6 +798,6 @@ export default function ExecutionsDataTable({
           scrollToValidator={infoModal.scrollToValidator}
         />
       )}
-    </Card>
+    </div>
   );
 }
