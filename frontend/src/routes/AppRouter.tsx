@@ -17,6 +17,7 @@ const Landing = lazy(() => import('../pages/landing/Landing'));
 const UserProfilePage = lazy(() => import('../pages/auth/UserProfilePage'));
 const CliAuthPage = lazy(() => import('../pages/auth/CliAuthPage'));
 const BrowserHomePage = lazy(() => import('../pages/browser/BrowserHomePage'));
+const DashboardPage = lazy(() => import('../pages/dashboard/DashboardPage'));
 const TestDetailPage = lazy(() => import('../pages/browser/TestDetailPage'));
 const AnalyticsDashboardPage = lazy(() => import('../pages/analytics/AnalyticsDashboardPage'));
 const SettingsPage = lazy(() => import('../pages/settings/SettingsPage'));
@@ -97,9 +98,8 @@ export default function AppRouter() {
       {/* All authenticated routes share a single persistent AppLayout.
           Flat f0 nav: /dashboard /tests /analytics /agents /tasks /settings */}
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
-        {/* Dashboard — interim: Tests overview until the unified Security
-            Dashboard lands in the next phase */}
-        <Route path="dashboard" element={<BrowserHomePage />} />
+        {/* Unified Security Dashboard */}
+        <Route path="dashboard" element={<DashboardPage />} />
 
         {/* Tests */}
         <Route path="tests" element={<BrowserHomePage />} />
