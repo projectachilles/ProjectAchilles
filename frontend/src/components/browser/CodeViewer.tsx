@@ -1,101 +1,7 @@
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import type { CSSProperties } from 'react';
-import { useTheme } from '@/hooks/useTheme';
 import { Copy, Check, Code } from 'lucide-react';
 import { useState } from 'react';
-
-// GitHub Light theme - official Primer colors for maximum readability
-const githubLight: { [key: string]: CSSProperties } = {
-  // Base styles - ensure all text defaults to dark
-  'code[class*="language-"]': {
-    color: '#1f2328',  // GitHub's darkest text color
-    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-    textAlign: 'left',
-    whiteSpace: 'pre',
-    wordSpacing: 'normal',
-    wordBreak: 'normal',
-    wordWrap: 'normal',
-    lineHeight: '1.5',
-    tabSize: 4,
-    hyphens: 'none',
-  },
-  'pre[class*="language-"]': {
-    color: '#1f2328',
-    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-    textAlign: 'left',
-    whiteSpace: 'pre',
-    wordSpacing: 'normal',
-    wordBreak: 'normal',
-    wordWrap: 'normal',
-    lineHeight: '1.5',
-    tabSize: 4,
-    hyphens: 'none',
-    padding: '1em',
-    margin: '0',
-    overflow: 'auto',
-  },
-  // Comments - gray italic
-  'comment': { color: '#57606a', fontStyle: 'italic' },
-  'prolog': { color: '#57606a' },
-  'doctype': { color: '#57606a' },
-  'cdata': { color: '#57606a' },
-  'block-comment': { color: '#57606a', fontStyle: 'italic' },
-  // Punctuation - dark
-  'punctuation': { color: '#1f2328' },
-  // Keywords - red (if, else, func, type, return, etc.)
-  'keyword': { color: '#cf222e' },
-  'control-flow': { color: '#cf222e' },
-  'directive': { color: '#cf222e' },
-  'important': { color: '#cf222e', fontWeight: 'bold' },
-  'atrule': { color: '#cf222e' },
-  // Strings - dark blue
-  'string': { color: '#0a3069' },
-  'char': { color: '#0a3069' },
-  'template-string': { color: '#0a3069' },
-  'attr-value': { color: '#0a3069' },
-  'regex': { color: '#0a3069' },
-  // Functions - purple
-  'function': { color: '#8250df' },
-  'function-name': { color: '#8250df' },
-  'method': { color: '#8250df' },
-  'builtin': { color: '#8250df' },
-  'entity': { color: '#8250df' },
-  // Types and classes - orange/brown
-  'class-name': { color: '#953800' },
-  'type': { color: '#953800' },
-  'namespace': { color: '#953800' },
-  'maybe-class-name': { color: '#953800' },
-  // Constants, numbers, booleans - blue
-  'boolean': { color: '#0550ae' },
-  'number': { color: '#0550ae' },
-  'constant': { color: '#0550ae' },
-  'symbol': { color: '#0550ae' },
-  'property': { color: '#0550ae' },
-  'attr-name': { color: '#0550ae' },
-  // Variables and parameters - dark (readable!)
-  'variable': { color: '#1f2328' },
-  'parameter': { color: '#1f2328' },
-  'property-access': { color: '#1f2328' },
-  'plain-text': { color: '#1f2328' },
-  'plain': { color: '#1f2328' },
-  // Operators - red
-  'operator': { color: '#cf222e' },
-  // Tags (HTML/XML) - green
-  'tag': { color: '#116329' },
-  'selector': { color: '#116329' },
-  'inserted': { color: '#116329', backgroundColor: '#dafbe1' },
-  // Deleted - red with background
-  'deleted': { color: '#82071e', backgroundColor: '#ffebe9' },
-  // URL
-  'url': { color: '#0550ae', textDecoration: 'underline' },
-  // Formatting
-  'bold': { fontWeight: 'bold' },
-  'italic': { fontStyle: 'italic' },
-  // Go-specific tokens
-  'package': { color: '#cf222e' },
-  'imports': { color: '#0a3069' },
-};
 
 interface CodeViewerProps {
   content: string;
@@ -104,7 +10,6 @@ interface CodeViewerProps {
 }
 
 export default function CodeViewer({ content, language, filename }: CodeViewerProps) {
-  const { theme } = useTheme();
   const [copied, setCopied] = useState(false);
 
   const languageMap: Record<string, string> = {
@@ -162,7 +67,7 @@ export default function CodeViewer({ content, language, filename }: CodeViewerPr
       <div className="flex-1 overflow-auto">
         <SyntaxHighlighter
           language={syntaxLanguage}
-          style={theme === 'dark' ? vscDarkPlus : githubLight}
+          style={vscDarkPlus}
           customStyle={{
             margin: 0,
             padding: '1.5rem',
@@ -174,7 +79,7 @@ export default function CodeViewer({ content, language, filename }: CodeViewerPr
           lineNumberStyle={{
             minWidth: '3em',
             paddingRight: '1em',
-            color: theme === 'dark' ? '#858585' : '#57606a',
+            color: '#858585',
             userSelect: 'none',
           }}
           wrapLines

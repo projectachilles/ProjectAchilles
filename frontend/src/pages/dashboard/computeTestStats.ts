@@ -3,23 +3,7 @@ import type { TacticCoverage } from './components/MitreCoverageBars';
 import type { SeverityMix } from './components/SeverityDonut';
 import type { CategoryRow } from './components/CategoryBreakdownCard';
 
-/** Enterprise tactics in kill-chain order; the dashboard bars show the 12 from initial-access on. */
-const ENTERPRISE_TACTICS = [
-  { slug: 'reconnaissance', code: 'RE', name: 'Reconnaissance', shown: false },
-  { slug: 'resource-development', code: 'RD', name: 'Resource Development', shown: false },
-  { slug: 'initial-access', code: 'IA', name: 'Initial Access', shown: true },
-  { slug: 'execution', code: 'EX', name: 'Execution', shown: true },
-  { slug: 'persistence', code: 'PE', name: 'Persistence', shown: true },
-  { slug: 'privilege-escalation', code: 'PR', name: 'Privilege Escalation', shown: true },
-  { slug: 'defense-evasion', code: 'DE', name: 'Defense Evasion', shown: true },
-  { slug: 'credential-access', code: 'CA', name: 'Credential Access', shown: true },
-  { slug: 'discovery', code: 'DI', name: 'Discovery', shown: true },
-  { slug: 'lateral-movement', code: 'LM', name: 'Lateral Movement', shown: true },
-  { slug: 'collection', code: 'CO', name: 'Collection', shown: true },
-  { slug: 'command-and-control', code: 'C2', name: 'Command and Control', shown: true },
-  { slug: 'exfiltration', code: 'EF', name: 'Exfiltration', shown: true },
-  { slug: 'impact', code: 'IM', name: 'Impact', shown: true },
-] as const;
+import { ENTERPRISE_TACTICS } from '@/lib/mitreTactics';
 
 export interface MitreCoverage {
   tactics: TacticCoverage[];

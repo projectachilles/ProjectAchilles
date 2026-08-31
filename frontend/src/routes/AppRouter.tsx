@@ -16,8 +16,8 @@ import SignUpPage from '../pages/auth/SignUpPage';
 const Landing = lazy(() => import('../pages/landing/Landing'));
 const UserProfilePage = lazy(() => import('../pages/auth/UserProfilePage'));
 const CliAuthPage = lazy(() => import('../pages/auth/CliAuthPage'));
-const BrowserHomePage = lazy(() => import('../pages/browser/BrowserHomePage'));
 const DashboardPage = lazy(() => import('../pages/dashboard/DashboardPage'));
+const TestsPage = lazy(() => import('../pages/tests/TestsPage'));
 const TestDetailPage = lazy(() => import('../pages/browser/TestDetailPage'));
 const AnalyticsDashboardPage = lazy(() => import('../pages/analytics/AnalyticsDashboardPage'));
 const SettingsPage = lazy(() => import('../pages/settings/SettingsPage'));
@@ -102,12 +102,10 @@ export default function AppRouter() {
         <Route path="dashboard" element={<DashboardPage />} />
 
         {/* Tests */}
-        <Route path="tests" element={<BrowserHomePage />} />
+        <Route path="tests" element={<TestsPage />} />
         <Route path="tests/:uuid" element={<TestDetailPage />} />
-        {/* Legacy favorites/recent routes still render until the Tests
-            restyle converts them to /tests?view=… */}
-        <Route path="favorites" element={<BrowserHomePage mode="favorites" />} />
-        <Route path="recent" element={<BrowserHomePage mode="recent" />} />
+        <Route path="favorites" element={<Navigate to="/tests?view=favorites" replace />} />
+        <Route path="recent" element={<Navigate to="/tests?view=recent" replace />} />
 
         {/* Analytics */}
         <Route path="analytics">
