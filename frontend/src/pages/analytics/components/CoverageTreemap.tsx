@@ -690,11 +690,16 @@ function CoverageTreemap({
           </div>
         )}
       </CardHeader>
-      <CardContent className="flex-1 pb-4 min-h-0">
-        <ResponsiveContainer width="100%" height="100%">
+      {/* Numeric plot height: the page places this card in an auto-height
+          flex column, so percentage heights (height="100%" against flex-1)
+          resolve to 0 and the treemap silently vanishes — the header/legend
+          keep intrinsic height, which is why only they survived. */}
+      <CardContent className="flex-1 pb-4">
+        <ResponsiveContainer width="100%" height={400}>
           <Treemap
             data={currentData.children}
             dataKey="size"
+            isAnimationActive={false}
             aspectRatio={4 / 3}
             stroke="var(--background)"
             onClick={isSingleHostDrillDown ? undefined : (node) => {
