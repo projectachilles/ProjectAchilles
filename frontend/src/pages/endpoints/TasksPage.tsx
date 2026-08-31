@@ -365,9 +365,9 @@ export default function TasksPage() {
 
         {/* Bulk actions bar */}
         {canSelectTasks && selectedTasks.length > 0 && (
-          <div className="bg-primary/5 border border-primary/20 rounded-lg px-4 py-3 mb-4 flex items-center justify-between">
+          <div className="mb-4 flex items-center justify-between rounded-md border border-accent/25 bg-accent-dim px-4 py-3">
             <span className="text-sm font-medium">
-              {selectedTasks.length} task(s) selected
+              <span className="text-accent">{selectedTasks.length} selected</span>
             </span>
             <div className="flex items-center gap-2">
               {canCancelTask && (

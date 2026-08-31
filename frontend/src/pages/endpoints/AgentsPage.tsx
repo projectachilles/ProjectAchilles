@@ -6,7 +6,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { usePolling } from '@/hooks/usePolling';
 import { useSearchParams } from 'react-router-dom';
-import { UserPlus, ChevronDown, ChevronUp, Download, Unplug, Ban, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { UserPlus, Download, Unplug, Ban, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useHasPermission } from '@/hooks/useAppRole';
 import { useAppDispatch, useAppSelector } from '../../store';
 import {
@@ -34,6 +34,13 @@ import UninstallDialog from '../../components/endpoints/agents/UninstallDialog';
 import BulkDeleteDialog from '../../components/endpoints/agents/BulkDeleteDialog';
 import TagManager from '../../components/endpoints/sensors/TagManager';
 import EnrollmentSection from '@/components/endpoints/enrollment/EnrollmentSection';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import AvailableBinaries from '@/components/endpoints/agents/AvailableBinaries';
 import AutoRotationSettings from '@/components/endpoints/agents/AutoRotationSettings';
 import { Alert, Toast } from '../../components/shared/ui/Alert';
@@ -242,27 +249,25 @@ export default function AgentsPage() {
           </div>
           {canEnroll && (
             <div className="flex items-center gap-2">
-              <Button
-                variant={showEnrollment ? 'secondary' : 'primary'}
-                onClick={() => setShowEnrollment((v) => !v)}
-              >
+              <Button variant="primary" onClick={() => setShowEnrollment(true)}>
                 <UserPlus className="w-4 h-4 mr-2" />
-                Enroll Agent
-                {showEnrollment ? (
-                  <ChevronUp className="w-4 h-4 ml-2" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 ml-2" />
-                )}
+                Enroll agent
               </Button>
             </div>
           )}
         </div>
 
-        {showEnrollment && (
-          <div className="mb-6">
+        <Dialog open={showEnrollment} onOpenChange={setShowEnrollment}>
+          <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Enroll agent</DialogTitle>
+              <DialogDescription>
+                Generate enrollment tokens and per-platform install commands
+              </DialogDescription>
+            </DialogHeader>
             <EnrollmentSection orgId="default" />
-          </div>
-        )}
+          </DialogContent>
+        </Dialog>
 
         {(() => {
           const outdated = agents.filter((a) => {

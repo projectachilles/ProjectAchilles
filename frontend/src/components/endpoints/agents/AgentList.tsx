@@ -60,7 +60,7 @@ export default function AgentList({
     agents.length > 0 && agents.every((a) => selectedAgents.includes(a.id));
 
   return (
-    <div className="border-theme border-border rounded-base shadow-theme overflow-hidden">
+    <div className="rounded-lg border border-border bg-surface overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
@@ -107,8 +107,8 @@ export default function AgentList({
                 </TableCell>
                 <TableCell>
                   <button
-                    className="text-left hover:text-primary transition-colors font-medium"
-                    onClick={() => navigate(`/endpoints/agents/${agent.id}`)}
+                    className="text-left font-mono text-sm hover:text-accent transition-colors"
+                    onClick={() => navigate(`/agents/${agent.id}`)}
                   >
                     {agent.hostname}
                   </button>
@@ -116,7 +116,7 @@ export default function AgentList({
                 <TableCell>
                   <PlatformBadge platform={agent.os} />
                 </TableCell>
-                <TableCell className="text-muted-foreground">{agent.arch}</TableCell>
+                <TableCell className="font-mono text-xs text-muted">{agent.arch}</TableCell>
                 <TableCell>
                   <span className="font-mono text-xs">{agent.agent_version}</span>
                   {(() => {
@@ -133,16 +133,16 @@ export default function AgentList({
                   )}
                 </TableCell>
                 <TableCell>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-xs text-faint">
                     {timeAgo(agent.last_heartbeat)}
                   </span>
                 </TableCell>
                 <TableCell>
                   {agent.health_score != null ? (
-                    <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                      agent.health_score >= 80
+                    <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded font-mono text-xs font-medium ${
+                      agent.health_score >= 70
                         ? 'bg-accent-dim text-accent'
-                        : agent.health_score >= 50
+                        : agent.health_score >= 40
                           ? 'bg-warning-dim text-warning'
                           : 'bg-danger-dim text-danger'
                     }`}>
@@ -176,37 +176,37 @@ export default function AgentList({
                       <MoreHorizontal className="w-4 h-4" />
                     </Button>
                     {openMenu === agent.id && (
-                      <div className="absolute right-0 top-8 z-50 w-40 rounded-base border-theme border-border bg-card shadow-theme py-1">
+                      <div className="absolute right-0 top-8 z-50 w-40 rounded-md border border-border bg-overlay shadow-lg py-1">
                         <button
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-raised flex items-center gap-2"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-raised hover:text-accent flex items-center gap-2"
                           onClick={() => { onSelectAgent(agent); setOpenMenu(null); }}
                         >
                           <Eye className="w-4 h-4" /> Quick View
                         </button>
                         {agent.status === 'active' ? (
                           <button
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-raised flex items-center gap-2"
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-raised hover:text-accent flex items-center gap-2"
                             onClick={() => { onAction(agent.id, 'disable'); setOpenMenu(null); }}
                           >
                             <PowerOff className="w-4 h-4" /> Disable
                           </button>
                         ) : (
                           <button
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-raised flex items-center gap-2"
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-raised hover:text-accent flex items-center gap-2"
                             onClick={() => { onAction(agent.id, 'enable'); setOpenMenu(null); }}
                           >
                             <Power className="w-4 h-4" /> Enable
                           </button>
                         )}
                         <button
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-raised flex items-center gap-2"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-raised hover:text-accent flex items-center gap-2"
                           onClick={() => { onAction(agent.id, 'update'); setOpenMenu(null); }}
                         >
                           <Download className="w-4 h-4" /> Update
                         </button>
                         {canDelete && (
                           <button
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-raised flex items-center gap-2"
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-raised hover:text-accent flex items-center gap-2"
                             onClick={() => { onAction(agent.id, 'rotate-key'); setOpenMenu(null); }}
                           >
                             <KeyRound className="w-4 h-4" /> Rotate API Key
@@ -214,7 +214,7 @@ export default function AgentList({
                         )}
                         {canDelete && (
                           <button
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-raised text-destructive flex items-center gap-2"
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-raised text-danger flex items-center gap-2"
                             onClick={() => { onAction(agent.id, 'uninstall'); setOpenMenu(null); }}
                           >
                             <Unplug className="w-4 h-4" /> Uninstall
@@ -222,7 +222,7 @@ export default function AgentList({
                         )}
                         {canDelete && (
                           <button
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-raised text-destructive flex items-center gap-2"
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-raised text-danger flex items-center gap-2"
                             onClick={() => { onAction(agent.id, 'delete'); setOpenMenu(null); }}
                           >
                             <Trash2 className="w-4 h-4" /> Delete

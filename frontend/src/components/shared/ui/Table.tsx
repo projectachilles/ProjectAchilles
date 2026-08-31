@@ -30,7 +30,7 @@ interface TableHeaderProps extends HTMLAttributes<HTMLTableSectionElement> {
 export const TableHeader = forwardRef<HTMLTableSectionElement, TableHeaderProps>(
   ({ className = '', children, ...props }, ref) => {
     return (
-      <thead ref={ref} className={`bg-raised/50 ${className}`} {...props}>
+      <thead ref={ref} className={`border-b border-border ${className}`} {...props}>
         {children}
       </thead>
     );
@@ -64,7 +64,7 @@ export const TableRow = forwardRef<HTMLTableRowElement, TableRowProps>(
     return (
       <tr
         ref={ref}
-        className={`border-b-[length:var(--theme-border-width)] border-border transition-colors hover:bg-raised/50 ${className}`}
+        className={`border-b border-border transition-colors last:border-b-0 hover:bg-raised/60 ${className}`}
         {...props}
       >
         {children}
@@ -84,7 +84,7 @@ export const TableHead = forwardRef<HTMLTableCellElement, TableHeadProps>(
     return (
       <th
         ref={ref}
-        className={`h-12 px-4 text-left align-middle font-medium text-muted-foreground ${className}`}
+        className={`h-9 px-3 text-left align-middle text-[11px] font-medium uppercase tracking-wider text-faint ${className}`}
         {...props}
       >
         {children}
@@ -104,7 +104,7 @@ export const TableCell = forwardRef<HTMLTableCellElement, TableCellProps>(
     return (
       <td
         ref={ref}
-        className={`p-4 align-middle ${className}`}
+        className={`px-3 py-2.5 align-middle ${className}`}
         {...props}
       >
         {children}
