@@ -7,7 +7,7 @@
  */
 
 import { Fragment, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, FileText, Trash2, XCircle } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, RotateCcw, Trash2, XCircle } from 'lucide-react';
 import type { AgentTask, TaskGroup } from '@/types/agent';
 import { resolveTaskStatusDisplay, type TaskStatusVariant } from '@/utils/taskStatusDisplay';
 import { Checkbox } from '../../shared/ui/Checkbox';
@@ -24,11 +24,18 @@ interface TaskStreamProps {
   onToggleSelectAll?: () => void;
   onToggleGroupSelect?: (batchId: string) => void;
   onCancel?: (taskId: string) => void;
+  onRetry?: (taskId: string) => void;
   onDelete?: (taskId: string) => void;
   onOpenNotes?: (task: AgentTask) => void;
 }
 
 const ACTIVE_STATUSES = new Set(['pending', 'assigned', 'downloading', 'executing']);
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'expired']);
+
+/** Mirror of the backend gate: only terminal execute_test tasks can be retried. */
+function isRetryable(task: AgentTask): boolean {
+  return task.type === 'execute_test' && TERMINAL_STATUSES.has(task.status);
+}
 
 function Glyph({ variant }: { variant: TaskStatusVariant }) {
   switch (variant) {
@@ -86,6 +93,7 @@ export default function TaskStream({
   onToggleSelectAll,
   onToggleGroupSelect,
   onCancel,
+  onRetry,
   onDelete,
   onOpenNotes,
 }: TaskStreamProps) {
@@ -262,6 +270,9 @@ export default function TaskStream({
             </div>
             <div className="mt-1 font-mono text-[11px] text-faint">
               {selectedTask.type} · batch {selectedTask.batch_id.slice(0, 8)}
+              {(selectedTask.retry_count ?? 0) > 0 && (
+                <span className="text-warning"> · retry {selectedTask.retry_count}/{selectedTask.max_retries ?? 2}</span>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 border-b border-border p-4 md:grid-cols-4">
@@ -321,6 +332,12 @@ export default function TaskStream({
               </div>
             )}
             <div className="flex gap-2">
+              {onRetry && isRetryable(selectedTask) && (
+                <Button variant="secondary" size="sm" onClick={() => onRetry(selectedTask.id)}>
+                  <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                  Retry
+                </Button>
+              )}
               {onCancel && ACTIVE_STATUSES.has(selectedTask.status) && (
                 <Button variant="secondary" size="sm" onClick={() => onCancel(selectedTask.id)}>
                   <XCircle className="mr-1 h-3.5 w-3.5" />

@@ -195,6 +195,16 @@ export default function TasksPage() {
     }
   }
 
+  async function handleRetry(taskId: string): Promise<void> {
+    try {
+      await agentApi.retryTask(taskId);
+      showToast('Retry dispatched');
+      fetchTasks();
+    } catch (err) {
+      console.error('Failed to retry task:', err);
+    }
+  }
+
   async function handleDelete(taskId: string): Promise<void> {
     try {
       await agentApi.deleteTask(taskId);
@@ -407,6 +417,7 @@ export default function TasksPage() {
             onToggleSelectAll={canSelectTasks ? handleToggleSelectAll : undefined}
             onToggleGroupSelect={canSelectTasks ? handleToggleGroupSelect : undefined}
             onCancel={canCancelTask ? handleCancel : undefined}
+            onRetry={canCreateTask ? handleRetry : undefined}
             onDelete={canDeleteTask ? handleDelete : undefined}
             onOpenNotes={setNotesTask}
           />

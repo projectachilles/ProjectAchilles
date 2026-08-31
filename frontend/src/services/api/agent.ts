@@ -143,6 +143,12 @@ export const agentApi = {
     return response.data.data;
   },
 
+  /** Re-dispatch a terminal execute_test task; returns the new pending task. */
+  async retryTask(taskId: string): Promise<AgentTask> {
+    const response = await apiClient.post(`/agent/admin/tasks/${taskId}/retry`);
+    return response.data.data;
+  },
+
   async deleteTask(taskId: string): Promise<void> {
     await apiClient.delete(`/agent/admin/tasks/${taskId}`);
   },

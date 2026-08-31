@@ -13,6 +13,7 @@ import {
   listTasksGrouped,
   getTask,
   cancelTask,
+  retryTask,
   deleteTask,
   updateTaskNotes,
   sanitizeTaskForAdmin,
@@ -357,6 +358,28 @@ adminTasksRouter.post(
     const task = cancelTask(req.params.id);
 
     res.json({ success: true, data: task });
+  })
+);
+
+/**
+ * POST /tasks/:id/retry
+ * Re-dispatch a terminal execute_test task as a new pending task.
+ * Requires the task-creation permission (it creates a task); command tasks
+ * are rejected by the service so this route can't sidestep the stricter
+ * endpoints:tasks:command permission.
+ */
+adminTasksRouter.post(
+  '/tasks/:id/retry',
+  requirePermission('endpoints:tasks:create'),
+  asyncHandler(async (req, res) => {
+    const userId = getUserId(req.auth);
+    if (!userId) {
+      throw new AppError('Unable to determine user identity', 401);
+    }
+
+    const task = retryTask(req.params.id, userId);
+
+    res.status(201).json({ success: true, data: sanitizeTaskForAdmin(task) });
   })
 );
 

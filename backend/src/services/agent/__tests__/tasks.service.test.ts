@@ -70,6 +70,7 @@ const {
   listTasksGrouped,
   getTask,
   cancelTask,
+  retryTask,
   deleteTask,
   expireOldTasks,
   expireStaleTasks,
@@ -384,6 +385,76 @@ describe('tasks.service', () => {
       insertTestTask(testDb, { id: 't1', status: 'failed' });
 
       expect(() => cancelTask('t1')).toThrow('Cannot cancel task');
+    });
+  });
+
+  describe('retryTask', () => {
+    it('clones a failed task as a new pending task', () => {
+      insertTestTask(testDb, { id: 't1', status: 'failed', batch_id: 'batch-1' });
+
+      const retry = retryTask('t1', 'user-retry');
+
+      expect(retry.id).not.toBe('t1');
+      expect(retry.status).toBe('pending');
+      expect(retry.agent_id).toBe('agent-001');
+      expect(retry.batch_id).toBe('batch-1');
+      expect(retry.retry_count).toBe(1);
+      expect(retry.original_task_id).toBe('t1');
+      expect(retry.created_by).toBe('user-retry');
+      expect(retry.payload.test_uuid).toBe('test-uuid-001');
+
+      // Original is untouched
+      expect(getTask('t1').status).toBe('failed');
+    });
+
+    it('keeps the original_task_id chain pointing at the root task', () => {
+      insertTestTask(testDb, { id: 't-retry-1', status: 'failed' });
+      testDb.prepare(
+        `UPDATE tasks SET retry_count = 1, original_task_id = 't-root' WHERE id = 't-retry-1'`
+      ).run();
+
+      const retry = retryTask('t-retry-1', 'user-retry');
+
+      expect(retry.original_task_id).toBe('t-root');
+      expect(retry.retry_count).toBe(2);
+    });
+
+    it('allows retrying expired and completed tasks', () => {
+      insertTestTask(testDb, { id: 't-expired', status: 'expired' });
+      insertTestTask(testDb, { id: 't-completed', status: 'completed' });
+
+      expect(retryTask('t-expired', 'u').status).toBe('pending');
+      expect(retryTask('t-completed', 'u').status).toBe('pending');
+    });
+
+    it('allows manual retry even when the automatic retry budget is spent', () => {
+      insertTestTask(testDb, { id: 't1', status: 'failed' });
+      testDb.prepare(`UPDATE tasks SET retry_count = 2, max_retries = 2 WHERE id = 't1'`).run();
+
+      const retry = retryTask('t1', 'u');
+      expect(retry.retry_count).toBe(3);
+    });
+
+    it('rejects retry of active tasks', () => {
+      for (const status of ['pending', 'assigned', 'downloading', 'executing']) {
+        insertTestTask(testDb, { id: `t-${status}`, status });
+        expect(() => retryTask(`t-${status}`, 'u')).toThrow('Cannot retry task');
+      }
+    });
+
+    it('rejects retry of non-test task types', () => {
+      insertTestTask(testDb, {
+        id: 't-cmd',
+        status: 'failed',
+        type: 'execute_command',
+        payload: JSON.stringify({ command: 'whoami', execution_timeout: 60 }),
+      });
+
+      expect(() => retryTask('t-cmd', 'u')).toThrow('Only test execution tasks can be retried');
+    });
+
+    it('throws for nonexistent task', () => {
+      expect(() => retryTask('nonexistent', 'u')).toThrow('Task not found');
     });
   });
 

@@ -38,6 +38,7 @@ const {
   listTasksGrouped,
   getTask,
   cancelTask,
+  retryTask,
   deleteTask,
   expireOldTasks,
   expireStaleTasks,
@@ -313,6 +314,77 @@ describe('tasks.service', () => {
       await insertTestTask(testDb, { id: 't1', status: 'failed' });
 
       await expect(cancelTask('t1')).rejects.toThrow('Cannot cancel task');
+    });
+  });
+
+  describe('retryTask', () => {
+    it('clones a failed task as a new pending task', async () => {
+      await insertTestTask(testDb, { id: 't1', status: 'failed', batch_id: 'batch-1' });
+
+      const retry = await retryTask('t1', 'user-retry');
+
+      expect(retry.id).not.toBe('t1');
+      expect(retry.status).toBe('pending');
+      expect(retry.agent_id).toBe('agent-001');
+      expect(retry.batch_id).toBe('batch-1');
+      expect(retry.retry_count).toBe(1);
+      expect(retry.original_task_id).toBe('t1');
+      expect(retry.created_by).toBe('user-retry');
+      expect(retry.payload.test_uuid).toBe('test-uuid-001');
+
+      // Original is untouched
+      expect((await getTask('t1')).status).toBe('failed');
+    });
+
+    it('keeps the original_task_id chain pointing at the root task', async () => {
+      await insertTestTask(testDb, {
+        id: 't-retry-1',
+        status: 'failed',
+        retry_count: 1,
+        original_task_id: 't-root',
+      });
+
+      const retry = await retryTask('t-retry-1', 'user-retry');
+
+      expect(retry.original_task_id).toBe('t-root');
+      expect(retry.retry_count).toBe(2);
+    });
+
+    it('allows retrying expired and completed tasks', async () => {
+      await insertTestTask(testDb, { id: 't-expired', status: 'expired' });
+      await insertTestTask(testDb, { id: 't-completed', status: 'completed' });
+
+      expect((await retryTask('t-expired', 'u')).status).toBe('pending');
+      expect((await retryTask('t-completed', 'u')).status).toBe('pending');
+    });
+
+    it('allows manual retry even when the automatic retry budget is spent', async () => {
+      await insertTestTask(testDb, { id: 't1', status: 'failed', retry_count: 2, max_retries: 2 });
+
+      const retry = await retryTask('t1', 'u');
+      expect(retry.retry_count).toBe(3);
+    });
+
+    it('rejects retry of active tasks', async () => {
+      for (const status of ['pending', 'assigned', 'downloading', 'executing']) {
+        await insertTestTask(testDb, { id: `t-${status}`, status });
+        await expect(retryTask(`t-${status}`, 'u')).rejects.toThrow('Cannot retry task');
+      }
+    });
+
+    it('rejects retry of non-test task types', async () => {
+      await insertTestTask(testDb, {
+        id: 't-cmd',
+        status: 'failed',
+        type: 'execute_command',
+        payload: JSON.stringify({ command: 'whoami', execution_timeout: 60 }),
+      });
+
+      await expect(retryTask('t-cmd', 'u')).rejects.toThrow('Only test execution tasks can be retried');
+    });
+
+    it('throws for nonexistent task', async () => {
+      await expect(retryTask('nonexistent', 'u')).rejects.toThrow('Task not found');
     });
   });
 
