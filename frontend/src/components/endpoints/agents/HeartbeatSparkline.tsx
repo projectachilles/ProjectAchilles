@@ -2,33 +2,32 @@ import { useEffect, useState } from 'react';
 import { agentApi } from '@/services/api/agent';
 
 /**
- * 24h heartbeat-cadence sparkline for one agent: heartbeat timestamps are
- * bucketed per hour and plotted as a polyline. Results are cached
- * module-wide for 5 minutes so the 15s fleet poll doesn't refetch, and so
- * navigating away/back stays cheap.
- *
- * Follow-up (noted in the PR): a bulk `/agents/heartbeats` endpoint would
- * collapse the per-agent requests; at current fleet sizes (~tens of agents,
- * one cheap SQLite query each) this is acceptable.
+ * 24h heartbeat-cadence sparkline for one agent: server-bucketed hourly
+ * counts plotted as a polyline. All visible sparklines share ONE bulk
+ * request (`GET /agents/heartbeats`), cached module-wide for 5 minutes so
+ * the 15s fleet poll doesn't refetch and navigating away/back stays cheap.
  */
-const cache = new Map<string, { at: number; buckets: number[] }>();
 const CACHE_TTL_MS = 5 * 60_000;
 const BUCKETS = 24;
 
-async function loadBuckets(agentId: string): Promise<number[]> {
-  const cached = cache.get(agentId);
-  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.buckets;
+let bulkCache: { at: number; buckets: Record<string, number[]> } | null = null;
+let inflight: Promise<Record<string, number[]>> | null = null;
 
-  const points = await agentApi.getHeartbeatHistory(agentId, 1);
-  const now = Date.now();
-  const buckets = new Array(BUCKETS).fill(0);
-  for (const point of points) {
-    const age = now - new Date(point.timestamp).getTime();
-    const bucket = BUCKETS - 1 - Math.floor(age / 3_600_000);
-    if (bucket >= 0 && bucket < BUCKETS) buckets[bucket] += 1;
+async function loadBuckets(agentId: string): Promise<number[]> {
+  if (!bulkCache || Date.now() - bulkCache.at >= CACHE_TTL_MS) {
+    inflight ??= agentApi
+      .getBulkHeartbeatBuckets(BUCKETS)
+      .then((buckets) => {
+        bulkCache = { at: Date.now(), buckets };
+        return buckets;
+      })
+      .finally(() => {
+        inflight = null;
+      });
+    await inflight;
   }
-  cache.set(agentId, { at: Date.now(), buckets });
-  return buckets;
+  // Agents with no heartbeats in the window are absent from the map → flat line.
+  return bulkCache?.buckets[agentId] ?? new Array(BUCKETS).fill(0);
 }
 
 interface HeartbeatSparklineProps {

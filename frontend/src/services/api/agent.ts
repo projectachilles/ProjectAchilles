@@ -203,6 +203,12 @@ export const agentApi = {
     return response.data.data;
   },
 
+  /** Hourly heartbeat counts per agent for the whole fleet; last index = current hour. */
+  async getBulkHeartbeatBuckets(hours: number = 24): Promise<Record<string, number[]>> {
+    const response = await apiClient.get('/agent/admin/agents/heartbeats', { params: { hours } });
+    return response.data.data;
+  },
+
   async getAgentEvents(agentId: string, params?: { limit?: number; offset?: number; event_type?: AgentEventType }): Promise<{ events: AgentEvent[]; total: number }> {
     const response = await apiClient.get(`/agent/admin/agents/${agentId}/events`, { params });
     return response.data.data;

@@ -25,6 +25,7 @@ vi.mock('../events.service.js', async () => {
 const {
   recordHeartbeatHistory,
   getHeartbeatHistory,
+  getBulkHeartbeatBuckets,
   pruneHeartbeatHistory,
   detectOfflineAgents,
   getFleetHealthMetrics,
@@ -122,6 +123,67 @@ describe('heartbeat history', () => {
     it('returns empty array for agent with no history', () => {
       const history = getHeartbeatHistory('agent-002', 7);
       expect(history).toHaveLength(0);
+    });
+  });
+
+  describe('getBulkHeartbeatBuckets', () => {
+    const insertAt = (agentId: string, modifier: string) => {
+      testDb.prepare(`
+        INSERT INTO heartbeat_history (agent_id, timestamp, cpu_percent)
+        VALUES (?, datetime('now', ?), 10.0)
+      `).run(agentId, modifier);
+    };
+
+    it('buckets heartbeats hourly per agent, newest hour last', () => {
+      // agent-001: two in the current hour, one ~90min ago, one ~3.5h ago
+      insertAt('agent-001', '-10 minutes');
+      insertAt('agent-001', '-30 minutes');
+      insertAt('agent-001', '-90 minutes');
+      insertAt('agent-001', '-210 minutes');
+      // agent-002: one in the current hour
+      insertAt('agent-002', '-5 minutes');
+
+      const buckets = getBulkHeartbeatBuckets(24);
+
+      expect(Object.keys(buckets).sort()).toEqual(['agent-001', 'agent-002']);
+      expect(buckets['agent-001']).toHaveLength(24);
+      expect(buckets['agent-001'][23]).toBe(2); // current hour
+      expect(buckets['agent-001'][22]).toBe(1); // 1–2h ago
+      expect(buckets['agent-001'][20]).toBe(1); // 3–4h ago
+      expect(buckets['agent-002'][23]).toBe(1);
+      // Sum sanity: nothing lost or duplicated
+      expect(buckets['agent-001'].reduce((a, b) => a + b, 0)).toBe(4);
+    });
+
+    it('excludes heartbeats older than the window', () => {
+      insertAt('agent-001', '-25 hours');
+      insertAt('agent-001', '-30 minutes');
+
+      const buckets = getBulkHeartbeatBuckets(24);
+
+      expect(buckets['agent-001'].reduce((a, b) => a + b, 0)).toBe(1);
+    });
+
+    it('omits agents with no recent heartbeats', () => {
+      insertAt('agent-001', '-30 minutes');
+
+      const buckets = getBulkHeartbeatBuckets(24);
+
+      expect(buckets['agent-001']).toBeDefined();
+      expect(buckets['agent-002']).toBeUndefined();
+    });
+
+    it('filters by org when orgId is provided', () => {
+      insertTestAgent(testDb, { id: 'agent-other-org', hostname: 'other', org_id: 'org-002' });
+      insertAt('agent-001', '-30 minutes');
+      insertAt('agent-other-org', '-30 minutes');
+
+      const scoped = getBulkHeartbeatBuckets(24, 'org-001');
+      expect(scoped['agent-001']).toBeDefined();
+      expect(scoped['agent-other-org']).toBeUndefined();
+
+      const all = getBulkHeartbeatBuckets(24);
+      expect(all['agent-other-org']).toBeDefined();
     });
   });
 
