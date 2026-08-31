@@ -1,7 +1,6 @@
 import { memo } from 'react';
-import { Clock, CheckCircle, XCircle } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+import { CheckCircle2, XCircle } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { TrendDataPoint, EnrichedTestExecution } from '@/services/api/analytics';
 
 interface TestActivityCardProps {
@@ -24,189 +23,76 @@ function isValidDate(date: Date): boolean {
   return date instanceof Date && !isNaN(date.getTime());
 }
 
-function formatDate(date: Date): string {
-  return date.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-function getDaysSinceLastTest(date: Date): number {
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
-}
-
 function getRelativeTime(timestamp: string): string {
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMinutes = Math.floor(diffMs / (1000 * 60));
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const date = parseTimestamp(timestamp);
+  const diffMs = Date.now() - date.getTime();
+  const diffMinutes = Math.floor(diffMs / 60_000);
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
 
   if (diffMinutes < 1) return 'now';
   if (diffMinutes < 60) return `${diffMinutes}m ago`;
   if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays === 1) return '1d ago';
   if (diffDays < 7) return `${diffDays}d ago`;
   return `${Math.floor(diffDays / 7)}w ago`;
-}
-
-function truncateText(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text;
-  return text.substring(0, maxLength - 1) + '…';
 }
 
 function TestActivityCard({
   trendData,
   recentTests,
   loading,
-  title = 'Test Activity',
+  title = 'Test activity',
 }: TestActivityCardProps) {
   if (loading) {
-    return (
-      <Card className="h-full flex flex-col overflow-hidden">
-        <CardHeader className="pb-2 flex-shrink-0">
-          <Skeleton className="h-4 w-28" />
-        </CardHeader>
-        <CardContent className="flex-1 overflow-hidden" aria-busy="true">
-          <div className="flex h-full gap-2 sm:gap-4">
-            {/* Left side: big metric */}
-            <div className="flex-shrink-0 w-[100px] sm:w-[120px] md:w-[140px] flex flex-col justify-center items-center gap-2 border-r border-border pr-2 sm:pr-4">
-              <Skeleton className="h-9 w-12" />
-              <Skeleton className="h-3 w-16" />
-            </div>
-            {/* Right side: recent tests list */}
-            <div className="flex-1 flex flex-col gap-1 sm:gap-2 min-w-0">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
+    return <div className="h-72 animate-pulse rounded-lg border border-border bg-raised" aria-hidden="true" />;
   }
 
-  // Find the most recent data point with activity (for the "days ago" metric)
-  const validData = trendData.filter(d => d.total > 0);
-  const lastActivity = validData.length > 0
-    ? validData.reduce((latest, current) => {
-        const currentDate = parseTimestamp(current.timestamp);
-        const latestDate = parseTimestamp(latest.timestamp);
-        return currentDate > latestDate ? current : latest;
-      })
-    : null;
-
+  const totalTests = trendData.reduce((sum, d) => sum + (d.total ?? 0), 0);
+  const validData = trendData.filter((d) => d.total > 0);
+  const lastActivity =
+    validData.length > 0
+      ? validData.reduce((latest, current) =>
+          parseTimestamp(current.timestamp) > parseTimestamp(latest.timestamp) ? current : latest,
+        )
+      : null;
   const lastDate = lastActivity ? parseTimestamp(lastActivity.timestamp) : null;
-  const daysSince = lastDate && isValidDate(lastDate) ? getDaysSinceLastTest(lastDate) : null;
 
-  const hasNoData = !lastActivity && (!recentTests || recentTests.length === 0);
-
-  if (hasNoData) {
-    return (
-      <Card className="h-full flex flex-col">
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-medium">{title}</CardTitle>
-            <Clock className="w-4 h-4 text-muted-foreground" />
-          </div>
-        </CardHeader>
-        <CardContent className="flex-1 flex items-center justify-center">
-          <p className="text-muted-foreground text-sm">No test activity recorded</p>
-        </CardContent>
-      </Card>
-    );
-  }
+  const description =
+    lastDate && isValidDate(lastDate)
+      ? `${totalTests.toLocaleString()} tests · last run ${lastDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`
+      : 'Latest executions in window';
 
   return (
-    <Card className="h-full flex flex-col overflow-hidden">
-      <CardHeader className="pb-2 flex-shrink-0">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium">{title}</CardTitle>
-          <Clock className="w-4 h-4 text-muted-foreground" />
-        </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent className="flex-1 overflow-hidden">
-        <div className="flex h-full gap-2 sm:gap-4">
-          {/* Left side: Big metric */}
-          <div className="flex-shrink-0 w-[100px] sm:w-[120px] md:w-[140px] flex flex-col justify-center items-center border-r border-border pr-2 sm:pr-4">
-            {daysSince !== null ? (
-              <>
-                <div className="text-2xl sm:text-3xl md:text-4xl font-bold text-foreground">
-                  {daysSince}
-                </div>
-                <div className="text-xs sm:text-sm text-muted-foreground">
-                  {daysSince === 1 ? 'day ago' : 'days ago'}
-                </div>
-                {lastDate && isValidDate(lastDate) && (
-                  <div className="mt-1 sm:mt-2 text-center">
-                    <div className="text-[10px] sm:text-xs text-muted-foreground">
-                      {formatDate(lastDate)}
-                    </div>
-                    {lastActivity && (
-                      <div className="text-[10px] sm:text-xs text-foreground font-medium">
-                        {lastActivity.total.toLocaleString()} test{lastActivity.total !== 1 ? 's' : ''}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="text-xs sm:text-sm text-muted-foreground text-center">
-                No activity data
-              </div>
-            )}
+      <CardContent className="flex flex-col gap-2">
+        {recentTests.length === 0 ? (
+          <div className="flex h-32 items-center justify-center text-sm text-faint">
+            Nothing recorded yet.
           </div>
-
-          {/* Right side: Recent tests list */}
-          <div className="flex-1 flex flex-col gap-1 sm:gap-2 overflow-hidden min-w-0">
-            {recentTests && recentTests.length > 0 ? (
-              recentTests.slice(0, 3).map((execution, index) => {
-                const isProtected = execution.is_protected;
-                const testName = execution.test_name || 'Unknown Test';
-                const hostname = execution.hostname || 'Unknown Host';
-                const timestamp = execution.timestamp;
-
-                return (
-                  <div
-                    key={`${execution.test_uuid}-${timestamp}-${index}`}
-                    className="flex flex-col gap-0.5 p-1.5 sm:p-2 rounded-md bg-secondary/50 border border-border/50"
-                  >
-                    {/* Test name and status */}
-                    <div className="flex items-center justify-between gap-1 sm:gap-2">
-                      <span
-                        className="text-xs sm:text-sm font-medium text-foreground truncate"
-                        title={testName}
-                      >
-                        {truncateText(testName, 32)}
-                      </span>
-                      {isProtected ? (
-                        <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-green-500 flex-shrink-0" />
-                      ) : (
-                        <XCircle className="w-3 h-3 sm:w-4 sm:h-4 text-red-500 flex-shrink-0" />
-                      )}
-                    </div>
-
-                    {/* Hostname and time */}
-                    <div className="flex items-center justify-between text-[10px] sm:text-xs text-muted-foreground">
-                      <span className="truncate" title={hostname}>
-                        {truncateText(hostname, 24)}
-                      </span>
-                      <span className="flex-shrink-0">{getRelativeTime(timestamp)}</span>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="flex-1 flex items-center justify-center">
-                <p className="text-muted-foreground text-sm">No recent executions</p>
-              </div>
-            )}
-          </div>
-        </div>
+        ) : (
+          recentTests.slice(0, 4).map((execution, index) => (
+            <div
+              key={`${execution.test_uuid}-${execution.timestamp}-${index}`}
+              className="flex items-center gap-2.5 rounded-md border border-border bg-raised px-3 py-2.5 text-xs"
+            >
+              <span className="min-w-0 flex-1 truncate" title={execution.test_name}>
+                {execution.test_name || 'Unknown Test'}
+              </span>
+              {execution.is_protected ? (
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-accent" />
+              ) : (
+                <XCircle className="h-3.5 w-3.5 shrink-0 text-danger" />
+              )}
+              <span className="shrink-0 whitespace-nowrap text-faint">
+                {getRelativeTime(execution.timestamp)}
+              </span>
+            </div>
+          ))
+        )}
       </CardContent>
     </Card>
   );

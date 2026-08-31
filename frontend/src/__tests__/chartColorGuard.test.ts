@@ -14,6 +14,8 @@ const CHART_FILES = [
   'pages/analytics/components/AlertsSummaryCard.tsx',
   'pages/analytics/utils/defenderChartColors.ts',
   'components/endpoints/agents/detail/AgentHeartbeatTab.tsx',
+  'pages/analytics/components/TechniqueDistributionCard.tsx',
+  'pages/analytics/components/TestActivityCard.tsx',
   'pages/dashboard/components/TrendOverviewChart.tsx',
   'pages/dashboard/components/SeverityDonut.tsx',
   'pages/dashboard/components/MitreCoverageBars.tsx',
