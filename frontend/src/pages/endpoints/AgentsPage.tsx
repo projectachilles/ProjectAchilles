@@ -27,6 +27,7 @@ import {
 import { PageContainer } from '../../components/endpoints/Layout';
 import { Badge } from '../../components/shared/ui/Badge';
 import AgentFilters from '../../components/endpoints/agents/AgentFilters';
+import { FleetPulseRail } from '../../components/endpoints/agents/FleetPulseRail';
 import AgentList from '../../components/endpoints/agents/AgentList';
 import AgentDetailPanel from '../../components/endpoints/agents/AgentDetailPanel';
 import RotateKeyDialog from '../../components/endpoints/agents/RotateKeyDialog';
@@ -48,7 +49,7 @@ import { Button } from '../../components/shared/ui/Button';
 import { Loading } from '../../components/shared/ui/Spinner';
 import { agentApi } from '@/services/api/agent';
 import { getLatestVersionMap } from '@/pages/endpoints/utils/versionHelpers';
-import type { AgentSummary, ListAgentsRequest, Agent } from '@/types/agent';
+import type { AgentMetrics, FleetHealthMetrics, AgentSummary, ListAgentsRequest, Agent } from '@/types/agent';
 
 export default function AgentsPage() {
   const dispatch = useAppDispatch();
@@ -105,8 +106,21 @@ export default function AgentsPage() {
     }
   }, []);
 
-  // Fetch latest binary versions on mount
-  useEffect(() => { refreshVersions(); }, [refreshVersions]);
+  // Fleet-pulse rail data
+  const [metrics, setMetrics] = useState<AgentMetrics | null>(null);
+  const [fleetHealth, setFleetHealth] = useState<FleetHealthMetrics | null>(null);
+
+  const refreshFleetStats = useCallback(async () => {
+    const [m, fh] = await Promise.allSettled([
+      agentApi.getMetrics(),
+      agentApi.getFleetHealthMetrics(),
+    ]);
+    if (m.status === 'fulfilled') setMetrics(m.value);
+    if (fh.status === 'fulfilled') setFleetHealth(fh.value);
+  }, []);
+
+  // Fetch latest binary versions + fleet stats on mount
+  useEffect(() => { refreshVersions(); refreshFleetStats(); }, [refreshVersions, refreshFleetStats]);
 
   // Silent poll — refresh agent list and versions without loading spinner
   const pollAgents = useCallback(async () => {
@@ -117,9 +131,20 @@ export default function AgentsPage() {
       // Silent — don't surface transient poll failures
     }
     refreshVersions();
-  }, [filters, dispatch, refreshVersions]);
+    refreshFleetStats();
+  }, [filters, dispatch, refreshVersions, refreshFleetStats]);
 
   usePolling(pollAgents, 15_000);
+
+  const groupCounts = (() => {
+    const counts = new Map<string, number>();
+    for (const agent of agents) {
+      for (const tag of agent.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+  })();
 
   function handleFilterChange(newFilters: Partial<ListAgentsRequest>): void {
     dispatch(setFilters(newFilters));
@@ -304,6 +329,17 @@ export default function AgentsPage() {
           </Alert>
         )}
 
+        <div className="flex items-start gap-5">
+          <FleetPulseRail
+            metrics={metrics}
+            staleCount={fleetHealth?.stale_agent_count ?? null}
+            groups={groupCounts}
+            activeTag={filters.tag}
+            staleActive={!!filters.stale_only}
+            onTagFilter={(tag) => handleFilterChange({ tag })}
+            onStaleFilter={() => handleFilterChange({ stale_only: !filters.stale_only })}
+          />
+          <div className="min-w-0 flex-1">
         <AgentFilters
           filters={filters}
           onFilterChange={handleFilterChange}
@@ -420,6 +456,8 @@ export default function AgentsPage() {
             })()}
           </>
         )}
+          </div>
+        </div>
 
         <AgentDetailPanel
           agent={detailAgent}
