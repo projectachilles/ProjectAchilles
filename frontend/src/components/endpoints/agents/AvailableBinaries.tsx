@@ -1,17 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Download, ChevronDown, Package } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/shared/ui/Card';
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from '@/components/shared/ui/Table';
+import { Download } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
 import type { AgentVersion } from '@/types/agent';
-import { cn } from '@/lib/utils';
 import { getLatestPerPlatform } from '@/pages/endpoints/utils/versionHelpers';
 
 function formatSize(bytes: number): string {
@@ -22,15 +12,20 @@ function formatSize(bytes: number): string {
 
 const apiBaseUrl = window.__env__?.VITE_API_URL || import.meta.env.VITE_API_URL || '';
 
+/**
+ * Binaries rail card (approved rail-utilities design): the latest agent
+ * binary per platform with a direct download per row — the old collapsible
+ * table's payload was exactly this list, so it lives in the rail as a
+ * plain card now. Size and build date ride in the row tooltip.
+ */
 export default function AvailableBinaries() {
   const [versions, setVersions] = useState<AgentVersion[]>([]);
-  const [expanded, setExpanded] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     agentApi.listVersions()
       .then((v) => setVersions(v))
-      .catch(() => {/* silent – section just won't show */})
+      .catch(() => {/* silent – card just won't show */})
       .finally(() => setLoaded(true));
   }, []);
 
@@ -39,64 +34,27 @@ export default function AvailableBinaries() {
   const latest = getLatestPerPlatform(versions);
 
   return (
-    <Card className="mb-6">
-      <CardHeader>
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="w-full flex items-center justify-between"
-        >
-          <CardTitle className="flex items-center gap-2">
-            <Package className="w-5 h-5" />
-            Available Binaries
-          </CardTitle>
-          <ChevronDown
-            className={cn(
-              'w-5 h-5 text-muted-foreground transition-transform duration-200',
-              expanded && 'rotate-180'
-            )}
-          />
-        </button>
-      </CardHeader>
-      {expanded && (
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Version</TableHead>
-                <TableHead>OS</TableHead>
-                <TableHead>Arch</TableHead>
-                <TableHead>Size</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead className="w-24">Download</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {latest.map((v) => (
-                <TableRow key={`${v.os}-${v.arch}`}>
-                  <TableCell className="font-mono text-sm">{v.version}</TableCell>
-                  <TableCell>{v.os}</TableCell>
-                  <TableCell>{v.arch}</TableCell>
-                  <TableCell>{formatSize(v.binary_size)}</TableCell>
-                  <TableCell className="text-sm">
-                    {new Date(v.created_at).toLocaleDateString()}
-                  </TableCell>
-                  <TableCell>
-                    <a
-                      href={`${apiBaseUrl}/api/agent/download?os=${v.os}&arch=${v.arch}`}
-                      download
-                      className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-                    >
-                      <Download className="w-4 h-4" />
-                      Download
-                    </a>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      )}
-    </Card>
+    <div className="rounded-lg border border-border bg-surface p-4">
+      <div className="mb-2.5 text-[11px] uppercase tracking-wider text-faint">binaries</div>
+      <div className="flex flex-col gap-1.5">
+        {latest.map((v) => (
+          <a
+            key={`${v.os}-${v.arch}`}
+            href={`${apiBaseUrl}/api/agent/download?os=${v.os}&arch=${v.arch}`}
+            download
+            title={`${formatSize(v.binary_size)} · ${new Date(v.created_at).toLocaleDateString()}`}
+            className="group -mx-1.5 flex items-center justify-between rounded px-1.5 py-1 transition-colors hover:bg-raised"
+          >
+            <span className="font-mono text-[11px] text-muted">
+              {v.os} · {v.arch}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="font-mono text-[11px] text-foreground">{v.version}</span>
+              <Download className="h-3 w-3 text-accent opacity-70 transition-opacity group-hover:opacity-100" />
+            </span>
+          </a>
+        ))}
+      </div>
+    </div>
   );
 }

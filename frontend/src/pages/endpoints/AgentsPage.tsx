@@ -326,15 +326,21 @@ export default function AgentsPage() {
         )}
 
         <div className="flex items-start gap-5">
-          <FleetPulseRail
-            metrics={metrics}
-            staleCount={fleetHealth?.stale_agent_count ?? null}
-            groups={groupCounts}
-            activeTag={filters.tag}
-            staleActive={!!filters.stale_only}
-            onTagFilter={(tag) => handleFilterChange({ tag })}
-            onStaleFilter={() => handleFilterChange({ stale_only: !filters.stale_only })}
-          />
+          {/* Rail: fleet state + navigation, then utilities (approved
+              rail-utilities design — key rotation before binaries) */}
+          <div className="flex w-60 shrink-0 flex-col gap-4">
+            <FleetPulseRail
+              metrics={metrics}
+              staleCount={fleetHealth?.stale_agent_count ?? null}
+              groups={groupCounts}
+              activeTag={filters.tag}
+              staleActive={!!filters.stale_only}
+              onTagFilter={(tag) => handleFilterChange({ tag })}
+              onStaleFilter={() => handleFilterChange({ stale_only: !filters.stale_only })}
+            />
+            {canWriteAgent && <AutoRotationSettings />}
+            <AvailableBinaries />
+          </div>
           <div className="min-w-0 flex-1">
         <AgentFilters
           filters={filters}
@@ -453,13 +459,6 @@ export default function AgentsPage() {
           </>
         )}
           </div>
-        </div>
-
-        {/* Admin utilities — collapsed cards below the fleet, so they don't
-            take protagonism from the agents themselves */}
-        <div className="mt-5">
-          <AvailableBinaries />
-          {canWriteAgent && <AutoRotationSettings />}
         </div>
 
         <AgentDetailPanel

@@ -37,7 +37,7 @@ export function FleetPulseRail({
   const maxVersionCount = Math.max(1, ...versions.map(([, count]) => count));
 
   return (
-    <div className="flex w-60 shrink-0 flex-col gap-4">
+    <div className="flex w-full flex-col gap-4">
       {/* Fleet pulse donut */}
       <div className="rounded-lg border border-border bg-surface p-4">
         <div className="mb-3 text-[11px] uppercase tracking-wider text-faint">fleet pulse</div>
