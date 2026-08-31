@@ -17,6 +17,11 @@ const CHART_FILES = [
   'components/browser/MitreAttackMatrix.tsx',
   'pages/endpoints/AgentDashboardPage.tsx',
   'components/endpoints/agents/detail/AgentHeartbeatTab.tsx',
+  'pages/dashboard/components/TrendOverviewChart.tsx',
+  'pages/dashboard/components/SeverityDonut.tsx',
+  'pages/dashboard/components/MitreCoverageBars.tsx',
+  'pages/dashboard/components/CategoryBreakdownCard.tsx',
+  'pages/dashboard/components/FleetHealthCard.tsx',
 ];
 
 // Raw color literals we forbid inside chart files. `var(--token)` and
