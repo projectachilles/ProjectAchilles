@@ -1,7 +1,6 @@
 import { useState, useEffect, memo } from 'react';
 import { ExternalLink, ShieldAlert, Bell } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   defenderApi,
@@ -70,11 +69,16 @@ function TopControlsCard({ compact, onSelectControlAlerts }: TopControlsCardProp
     };
   }, []);
 
+  // Impact bars are relative to the strongest control in the list
+  const maxImpact = controls.length > 0 ? Math.max(...controls.map((c) => c.max_score)) : 0;
+
   return (
     <Card className={compact ? 'h-full flex flex-col' : undefined}>
-      <CardHeader>
+      <CardHeader className={compact ? 'flex flex-row items-baseline justify-between space-y-0' : undefined}>
         <CardTitle className="text-sm font-medium">Top Remediation Controls</CardTitle>
-        {!compact && (
+        {compact ? (
+          <span className="text-xs text-faint">ranked by Secure Score impact</span>
+        ) : (
           <CardDescription>
             Highest impact actions to improve your Secure Score
           </CardDescription>
@@ -102,35 +106,38 @@ function TopControlsCard({ compact, onSelectControlAlerts }: TopControlsCardProp
             <p className="text-sm">No controls data — sync Defender first</p>
           </div>
         ) : (
-          <div className="space-y-1">
+          <div className="flex flex-col">
             {controls.map((ctrl, idx) => {
               const corr = correlations.get(ctrl.control_name);
               const showCorrelation =
                 !!corr && corr.alertCount > 0 && !!onSelectControlAlerts;
+              const isIdentity = /identity/i.test(ctrl.control_category);
               return (
                 <div
                   key={ctrl.control_name}
-                  className="flex items-start gap-3 px-3 py-2.5 rounded-md hover:bg-raised/50 transition-colors"
+                  className={`flex items-center gap-3 py-2 transition-colors hover:bg-raised/40 ${
+                    idx < controls.length - 1 ? 'border-b border-raised' : ''
+                  }`}
                 >
                   {/* Rank */}
-                  <span className="text-sm font-medium text-muted-foreground tabular-nums w-5 shrink-0 pt-0.5">
+                  <span className="w-4 shrink-0 font-mono text-[11px] text-faint">
                     {idx + 1}
                   </span>
 
                   {/* Title + correlation sub-line */}
-                  <div className="flex-1 min-w-0">
+                  <div className="min-w-0 flex-1">
                     {ctrl.action_url ? (
                       <a
                         href={ctrl.action_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-sm font-medium hover:underline inline-flex items-center gap-1 max-w-full"
+                        className="inline-flex max-w-full items-center gap-1 text-[13px] hover:underline"
                       >
                         <span className="truncate">{ctrl.title}</span>
-                        <ExternalLink className="w-3 h-3 shrink-0 text-muted-foreground" />
+                        <ExternalLink className="h-3 w-3 shrink-0 text-faint" />
                       </a>
                     ) : (
-                      <span className="text-sm font-medium truncate block">
+                      <span className="block truncate text-[13px]">
                         {ctrl.title}
                       </span>
                     )}
@@ -140,10 +147,10 @@ function TopControlsCard({ compact, onSelectControlAlerts }: TopControlsCardProp
                         onClick={() =>
                           onSelectControlAlerts!(corr!.coveredTechniques, ctrl.title)
                         }
-                        className="mt-0.5 inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
+                        className="mt-0.5 inline-flex items-center gap-1 rounded text-xs text-warning hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         aria-label={`View ${corr!.alertCount} Defender alerts addressed by this control`}
                       >
-                        <Bell className="w-3 h-3" />
+                        <Bell className="h-3 w-3" />
                         <span>
                           {corr!.alertCount.toLocaleString()}{' '}
                           {corr!.alertCount === 1 ? 'alert' : 'alerts'} addressed in last{' '}
@@ -153,13 +160,25 @@ function TopControlsCard({ compact, onSelectControlAlerts }: TopControlsCardProp
                     )}
                   </div>
 
-                  {/* Category badge */}
-                  <Badge variant="secondary" className="shrink-0 text-xs mt-0.5">
+                  {/* Category chip — Identity gets the info tint, device stays neutral */}
+                  <span
+                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${
+                      isIdentity ? 'bg-info-dim text-info' : 'bg-raised text-muted'
+                    }`}
+                  >
                     {ctrl.control_category}
-                  </Badge>
+                  </span>
+
+                  {/* Relative impact bar */}
+                  <div className="h-[5px] w-[72px] shrink-0 rounded-full bg-raised">
+                    <div
+                      className="h-full rounded-full bg-accent"
+                      style={{ width: `${maxImpact > 0 ? (ctrl.max_score / maxImpact) * 100 : 0}%` }}
+                    />
+                  </div>
 
                   {/* Score gain */}
-                  <span className="text-sm font-semibold tabular-nums text-green-500 shrink-0 w-14 text-right mt-0.5">
+                  <span className="w-12 shrink-0 text-right font-mono text-xs text-accent">
                     +{ctrl.max_score.toFixed(2)}
                   </span>
                 </div>
