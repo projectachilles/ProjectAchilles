@@ -8,6 +8,7 @@ interface TestActivityCardProps {
   recentTests: EnrichedTestExecution[];
   loading?: boolean;
   title?: string;
+  className?: string;
 }
 
 // Parse timestamp - handles both epoch ms strings and ISO strings
@@ -42,6 +43,7 @@ function TestActivityCard({
   recentTests,
   loading,
   title = 'Test activity',
+  className,
 }: TestActivityCardProps) {
   if (loading) {
     return <div className="h-72 animate-pulse rounded-lg border border-border bg-raised" aria-hidden="true" />;
@@ -63,7 +65,7 @@ function TestActivityCard({
       : 'Latest executions in window';
 
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>

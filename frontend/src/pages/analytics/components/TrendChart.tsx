@@ -64,7 +64,7 @@ const chartConfig = {
   },
   secureScore: {
     label: 'Secure Score',
-    color: 'var(--chart-primary-line)',
+    color: 'var(--chart-series-alert)',
   },
 } satisfies ChartConfig;
 
@@ -226,30 +226,6 @@ function TrendChart({ data, errorRateData, errorRateOverall, secureScoreTrendDat
                   stopOpacity={0.1}
                 />
               </linearGradient>
-              <linearGradient id="fillSecureScore" x1="0" y1="0" x2="0" y2="1">
-                <stop
-                  offset="5%"
-                  stopColor="var(--color-secureScore)"
-                  stopOpacity={0.8}
-                />
-                <stop
-                  offset="95%"
-                  stopColor="var(--color-secureScore)"
-                  stopOpacity={0.1}
-                />
-              </linearGradient>
-              <linearGradient id="fillRealScore" x1="0" y1="0" x2="0" y2="1">
-                <stop
-                  offset="5%"
-                  stopColor="var(--color-realScore)"
-                  stopOpacity={0.3}
-                />
-                <stop
-                  offset="95%"
-                  stopColor="var(--color-realScore)"
-                  stopOpacity={0.05}
-                />
-              </linearGradient>
             </defs>
             <CartesianGrid vertical={false} />
             <XAxis
@@ -327,14 +303,18 @@ function TrendChart({ data, errorRateData, errorRateOverall, secureScoreTrendDat
               strokeWidth={2}
               fill="url(#fillScore)"
             />
+            {/* Actual score is a neutral dashed REFERENCE line (no fill) —
+                it hugs the defense series, so a filled area of its own only
+                muddied the plot. Secure Score is a line in the alert blue. */}
             {hasRealScore && (
               <Area
                 type="monotone"
                 dataKey="realScore"
                 stroke="var(--color-realScore)"
-                strokeWidth={2}
+                strokeWidth={1.5}
+                strokeOpacity={0.75}
                 strokeDasharray="6 3"
-                fill="url(#fillRealScore)"
+                fill="none"
                 connectNulls
               />
             )}
@@ -344,7 +324,7 @@ function TrendChart({ data, errorRateData, errorRateOverall, secureScoreTrendDat
                 dataKey="secureScore"
                 stroke="var(--color-secureScore)"
                 strokeWidth={2}
-                fill="url(#fillSecureScore)"
+                fill="none"
                 connectNulls
               />
             )}
