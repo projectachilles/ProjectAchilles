@@ -231,12 +231,12 @@ export default function AgentsPage() {
         <div className="flex items-start justify-between mb-6">
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold">Agents</h1>
+              <h1 className="text-xl font-semibold tracking-tight">Agents</h1>
               <Badge variant="default" className="text-xs">
                 {pagination.total} {pagination.total === 1 ? 'agent' : 'agents'}
               </Badge>
             </div>
-            <p className="text-muted-foreground mt-1">
+            <p className="mt-1 text-sm text-muted">
               Manage and monitor your Achilles agents
             </p>
           </div>
@@ -271,16 +271,16 @@ export default function AgentsPage() {
           });
           if (outdated.length === 0 || latestVersions.size === 0) return null;
           return (
-            <div className="mb-4 flex items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
-              <AlertTriangle className="h-5 w-5 shrink-0 text-amber-500" />
-              <p className="flex-1 text-sm text-amber-200">
+            <div className="mb-4 flex items-center gap-3 rounded-lg border border-warning/40 bg-warning-dim px-4 py-3">
+              <AlertTriangle className="h-5 w-5 shrink-0 text-warning" />
+              <p className="flex-1 text-sm text-warning">
                 <span className="font-semibold">{outdated.length} of {agents.length} agent{agents.length !== 1 ? 's' : ''}</span>{' '}
                 running outdated versions
               </p>
               {canWriteAgent && (
                 <button
                   onClick={() => handleTriggerUpdate(outdated.map((a) => a.id))}
-                  className="rounded-md bg-amber-500/20 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/30 transition-colors"
+                  className="rounded-md border border-warning/40 bg-transparent px-3 py-1.5 text-xs font-medium text-warning transition-colors hover:bg-warning-dim"
                 >
                   Update All ({outdated.length})
                 </button>

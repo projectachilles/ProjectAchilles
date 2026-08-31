@@ -63,9 +63,9 @@ function relativeTime(iso: string | null): string {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  active: 'bg-green-500/10 text-green-400 border-green-500/20',
-  paused: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-  completed: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20',
+  active: 'bg-accent-dim text-accent border-accent/30',
+  paused: 'bg-warning-dim text-warning border-warning/30',
+  completed: 'bg-raised text-muted border-border',
 };
 
 interface ScheduleListProps {
@@ -133,7 +133,7 @@ export default function ScheduleList({ schedules, onTogglePause, onDelete }: Sch
             {onDelete && (
               <Button
                 variant="outline"
-                className="px-2 py-1 h-8 text-red-400 hover:text-red-300 hover:border-red-500/30"
+                className="px-2 py-1 h-8 text-danger hover:text-danger hover:border-danger/30"
                 onClick={() => onDelete(schedule.id)}
                 title="Delete"
               >

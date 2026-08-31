@@ -13,7 +13,6 @@ const CHART_FILES = [
   'pages/analytics/components/SeverityBreakdownChart.tsx',
   'pages/analytics/components/AlertsSummaryCard.tsx',
   'pages/analytics/utils/defenderChartColors.ts',
-  'pages/endpoints/AgentDashboardPage.tsx',
   'components/endpoints/agents/detail/AgentHeartbeatTab.tsx',
   'pages/dashboard/components/TrendOverviewChart.tsx',
   'pages/dashboard/components/SeverityDonut.tsx',

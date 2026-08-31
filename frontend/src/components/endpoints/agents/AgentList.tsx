@@ -141,10 +141,10 @@ export default function AgentList({
                   {agent.health_score != null ? (
                     <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium ${
                       agent.health_score >= 80
-                        ? 'bg-emerald-500/20 text-emerald-400'
+                        ? 'bg-accent-dim text-accent'
                         : agent.health_score >= 50
-                          ? 'bg-amber-500/20 text-amber-400'
-                          : 'bg-red-500/20 text-red-400'
+                          ? 'bg-warning-dim text-warning'
+                          : 'bg-danger-dim text-danger'
                     }`}>
                       {agent.health_score}
                     </span>

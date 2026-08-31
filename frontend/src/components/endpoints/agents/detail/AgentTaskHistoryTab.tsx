@@ -127,7 +127,7 @@ export default function AgentTaskHistoryTab({ agentId }: AgentTaskHistoryTabProp
                   </TableCell>
                   <TableCell className="font-mono text-xs">
                     {task.result?.exit_code != null ? (
-                      <span className={task.result.exit_code === 0 ? 'text-green-500' : 'text-red-500'}>
+                      <span className={task.result.exit_code === 0 ? 'text-accent' : 'text-danger'}>
                         {task.result.exit_code}
                       </span>
                     ) : '-'}

@@ -493,7 +493,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                         checked={targetAgentIds.includes(agent.id)}
                         onChange={(e) => toggleAgent(agent.id, e.target.checked)}
                       />
-                      <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${agent.is_online ? 'bg-green-500' : 'bg-zinc-500'}`} />
+                      <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${agent.is_online ? 'bg-accent' : 'bg-faint'}`} />
                       <span className={`truncate ${agent.is_online ? '' : 'text-muted-foreground'}`}>
                         {agent.hostname} ({agent.os}/{agent.arch})
                       </span>
