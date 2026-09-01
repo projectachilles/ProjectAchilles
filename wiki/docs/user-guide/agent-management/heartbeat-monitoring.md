@@ -58,6 +58,11 @@ recent tasks), **Task History**, **Heartbeat** charts, and the **Event Log**.
 
 ![Agent detail — system information, metadata, health score, tags, and recent tasks](/img/screenshots/agent-detail.png)
 
+**Task History** lists everything this endpoint has run, with type, duration,
+exit code, and retry chips:
+
+![Agent task history — per-agent task list with type, command, duration, and exit codes](/img/screenshots/agent-task-history.png)
+
 ![Agent heartbeat — CPU usage, memory usage, and disk free charts over 7 days](/img/screenshots/agent-heartbeat.png)
 
 ## Stale Task Detection

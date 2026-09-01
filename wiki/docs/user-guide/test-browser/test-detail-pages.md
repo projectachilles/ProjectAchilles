@@ -10,7 +10,15 @@ Clicking any test in the browser opens its detail page with comprehensive metada
 
 ## Page Layout
 
-The test detail page is organized into tabs:
+A header strip carries severity, stage count, author, platform, threat actor,
+and test score; the MITRE technique chips sit beneath it. Below that, a file
+tree on the left drives a viewer on the right.
+
+![Test detail — header with severity, stages and test score, the file tree, and the rendered README](/img/screenshots/test-detail.png)
+
+The tree groups a test's artifacts into **Documentation**, **Build**,
+**Visualization**, **Defense Guidance**, **References**, and **Source Code**.
+Selecting an entry renders it in place:
 
 ![Test detail page — kill chain diagram with stage progression, file tree, and build artifacts](/img/screenshots/test-detail-killchain.png)
 

@@ -91,6 +91,8 @@ graph TB
 
 ### Dashboard Tab
 
+![Analytics dashboard — results by error type, ATT&CK technique distribution, score by category, Defense Score ledger, and trend overview](/img/screenshots/analytics-dashboard.png)
+
 The **Dashboard** tab is the primary visualization hub. Since 2.1 it is laid out
 in analyst columns: a narrow left column carrying the numbers you quote, and a
 wide right column carrying the shapes you read.
