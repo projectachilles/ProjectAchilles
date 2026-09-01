@@ -665,10 +665,9 @@ func sendHeartbeat(ctx context.Context, client *httpclient.Client, cfg *config.C
 	if err := json.NewDecoder(resp.Body).Decode(&hbResp); err != nil {
 		log.Printf("heartbeat response decode error: %v", err)
 	} else if hbResp.Data.NewAPIKey != "" {
-		// Server is delivering a rotated key — update in-memory and persist
-		cfg.AgentKey = hbResp.Data.NewAPIKey
-		if persistErr := cfg.Persist(); persistErr != nil {
-			log.Printf("warning: failed to persist rotated key to config: %v", persistErr)
+		if err := adoptRotatedKey(cfg, hbResp.Data.NewAPIKey); err != nil {
+			log.Printf("error: rotated key could not be saved (%v); keeping the previous key. "+
+				"The server will cancel this rotation and retry it later.", err)
 		} else {
 			log.Println("API key rotated automatically via heartbeat")
 		}
@@ -684,6 +683,30 @@ func sendHeartbeat(ctx context.Context, client *httpclient.Client, cfg *config.C
 
 	log.Println("heartbeat sent")
 	return true, nil
+}
+
+// adoptRotatedKey switches the agent to a server-delivered rotated key, but
+// only once that key is durably on disk. On any write failure the in-memory key
+// is rolled back so memory and disk never disagree.
+//
+// Ordering is the whole point. Adopting first and merely warning on a failed
+// write bricks the endpoint: the running process authenticates with the new
+// key, the server takes that as proof of possession and promotes it — dropping
+// the old key — while the config on disk still holds the old one. The next
+// service restart loads that stale key and 401s forever, and no server-side
+// change can recover it, because the promotion was correct given the evidence.
+//
+// Rolling back is safe: the server reads a continued old-key login after the
+// delivery window as "never collected", cancels the rotation, and re-arms it
+// when the agent is reliably online.
+func adoptRotatedKey(cfg *config.Config, newKey string) error {
+	previousKey := cfg.AgentKey
+	cfg.AgentKey = newKey
+	if err := cfg.Persist(); err != nil {
+		cfg.AgentKey = previousKey
+		return err
+	}
+	return nil
 }
 
 // fetchTask polls the server for a pending task and returns it, or nil if none available.
