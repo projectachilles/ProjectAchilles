@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { getDb } from '../services/agent/database.js';
-import { promotePendingKey, ROTATION_GRACE_PERIOD_SECONDS } from '../services/agent/enrollment.service.js';
+import { cancelPendingKey, promotePendingKey, ROTATION_GRACE_PERIOD_SECONDS } from '../services/agent/enrollment.service.js';
 import type { AuthenticatedAgent, AgentStatus, AgentOS, AgentArch } from '../types/agent.js';
 
 const MAX_TIMESTAMP_SKEW_SECONDS = 300; // 5 minutes
@@ -64,35 +64,40 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
       [agentId]
     ) as unknown as AgentRow | undefined;
 
-    // If grace period has expired, promote pending → primary before auth check
-    if (row?.pending_api_key_hash && row.key_rotation_initiated_at) {
-      const initiatedAt = new Date(row.key_rotation_initiated_at + 'Z').getTime();
-      const elapsed = (Date.now() - initiatedAt) / 1000;
-      if (elapsed > ROTATION_GRACE_PERIOD_SECONDS) {
-        await promotePendingKey(row.id);
-        // Re-read the row to get the promoted hash
-        const updatedRow = await db.get(
-          'SELECT api_key_hash, pending_api_key_hash, key_rotation_initiated_at FROM agents WHERE id = ?',
-          [agentId]
-        ) as unknown as Pick<AgentRow, 'api_key_hash' | 'pending_api_key_hash' | 'key_rotation_initiated_at'> | undefined;
-        if (updatedRow) {
-          row.api_key_hash = updatedRow.api_key_hash;
-          row.pending_api_key_hash = updatedRow.pending_api_key_hash;
-          row.key_rotation_initiated_at = updatedRow.key_rotation_initiated_at;
-        }
-      }
-    }
+    // NOTE: the rotation is deliberately NOT resolved here based on elapsed
+    // time. At expiry the server cannot know which key the agent actually
+    // holds, and guessing bricks an agent either way — see the branches below.
 
     // M2: Always run bcrypt.compare to prevent timing oracle — use dummy hash if agent not found
     const hashToCompare = row?.api_key_hash ?? DUMMY_HASH;
 
     let match = await bcrypt.compare(token, hashToCompare);
 
-    // If primary key didn't match, try pending key (within grace period)
-    if (!match && row?.pending_api_key_hash) {
+    // A rotation is resolved by which key the agent presents, never by a clock.
+    // Both keys stay acceptable until then, because at grace expiry the server
+    // genuinely cannot tell the two cases apart, and either guess permanently
+    // locks out one of them:
+    //
+    //   - promote  → an agent offline through the whole window never received
+    //                the new key; its old key stops working
+    //   - cancel   → an agent that DID receive the new key and then went
+    //                offline comes back holding a key the server discarded
+    if (match && row?.pending_api_key_hash && row.key_rotation_initiated_at) {
+      // Old key still in use. Only abandon the rotation once the DELIVERY
+      // window has closed — within the grace period the agent is expected to
+      // still be on the old key, because the heartbeat *response* to this very
+      // request is what hands the new key over. Cancelling here
+      // unconditionally would kill every rotation at the first heartbeat.
+      const initiatedAt = new Date(row.key_rotation_initiated_at + 'Z').getTime();
+      if ((Date.now() - initiatedAt) / 1000 > ROTATION_GRACE_PERIOD_SECONDS) {
+        await cancelPendingKey(row.id);
+      }
+    } else if (!match && row?.pending_api_key_hash) {
       const pendingMatch = await bcrypt.compare(token, row.pending_api_key_hash);
       if (pendingMatch) {
-        // Agent is using the new key — promote it
+        // Agent has proven it holds the new key — the only safe moment to make
+        // it primary. No grace-period check: an agent that adopted the key and
+        // then slept for a week is still the agent we want to keep.
         await promotePendingKey(row.id);
         match = true;
       }

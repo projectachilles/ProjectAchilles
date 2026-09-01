@@ -1,5 +1,5 @@
 import { getDb } from './database.js';
-import { decryptPendingKey, promotePendingKey, ROTATION_GRACE_PERIOD_SECONDS } from './enrollment.service.js';
+import { cancelPendingKey, decryptPendingKey, ROTATION_GRACE_PERIOD_SECONDS } from './enrollment.service.js';
 import type {
   HeartbeatPayload,
   AgentSummary,
@@ -84,11 +84,14 @@ export async function getPendingRotationKey(agentId: string): Promise<string | n
     return null;
   }
 
-  // Check if grace period has expired
+  // Grace expired without the agent claiming the key — abandon the rotation
+  // rather than promoting a key this agent has never held. Reaching here means
+  // the agent is only now heartbeating, i.e. it was offline for the whole
+  // window, which is exactly the case promotion used to brick.
   const initiatedAt = new Date(row.key_rotation_initiated_at + 'Z').getTime();
   const elapsed = (Date.now() - initiatedAt) / 1000;
   if (elapsed > ROTATION_GRACE_PERIOD_SECONDS) {
-    await promotePendingKey(agentId);
+    await cancelPendingKey(agentId);
     return null;
   }
 

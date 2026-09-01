@@ -24,9 +24,19 @@ vi.mock('../../services/agent/agentAuthCache.js', () => ({
 }));
 
 // Mock the enrollment service exports used by the auth middleware.
-// promotePendingKey needs to operate on the real test database.
+// Both key-resolution helpers operate on the real test database.
 vi.mock('../../services/agent/enrollment.service.js', () => ({
   ROTATION_GRACE_PERIOD_SECONDS: 300,
+  cancelPendingKey: (agentId: string) => {
+    testDb.prepare(`
+      UPDATE agents
+      SET pending_api_key_hash = NULL,
+          pending_api_key_encrypted = NULL,
+          key_rotation_initiated_at = NULL,
+          updated_at = ?
+      WHERE id = ? AND pending_api_key_hash IS NOT NULL
+    `).run(new Date().toISOString(), agentId);
+  },
   promotePendingKey: (agentId: string) => {
     const now = new Date().toISOString();
     testDb.prepare(`
@@ -347,14 +357,51 @@ describe('requireAgentAuth', () => {
       expect(await bcrypt.compare(pendingKeyPlain, row.api_key_hash)).toBe(true);
     });
 
-    it('promotes pending key when grace period expires then authenticates with promoted key', async () => {
-      // Set pending key with expired grace period (6 min ago)
+    // A rotation must be resolved by which key the agent presents, never by a
+    // clock. The next two tests pin both directions of the lockout that
+    // timer-based resolution caused.
+
+    it('an agent offline through the whole grace period keeps working on its OLD key', async () => {
+      // Rotation armed 6 minutes ago; the agent was asleep and never received
+      // the pending key via heartbeat.
       const expiredTime = new Date(Date.now() - 6 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
       testDb.prepare(`
         UPDATE agents SET pending_api_key_hash = ?, pending_api_key_encrypted = 'encrypted_data', key_rotation_initiated_at = ? WHERE id = ?
       `).run(pendingKeyHash, expiredTime, 'agent-001');
 
-      // Try to auth with the pending (now promoted) key
+      // It comes back holding the only key it ever had.
+      const req = mockReq({
+        authorization: `Bearer ${apiKeyPlain}`,
+        'x-agent-id': 'agent-001',
+        'x-request-timestamp': new Date().toISOString(),
+      }) as any;
+      const res = mockRes();
+      const next = vi.fn();
+
+      requireAgentAuth(req, res, next);
+
+      // Previously this 401'd forever: the undelivered key had been promoted on
+      // expiry, so the agent's own key no longer matched anything.
+      await vi.waitFor(() => {
+        expect(next).toHaveBeenCalled();
+      });
+      expect(res.status).not.toHaveBeenCalledWith(401);
+
+      // The rotation is abandoned and the original key remains primary.
+      const row = testDb.prepare('SELECT api_key_hash, pending_api_key_hash, key_rotation_initiated_at FROM agents WHERE id = ?').get('agent-001') as any;
+      expect(row.pending_api_key_hash).toBeNull();
+      expect(row.key_rotation_initiated_at).toBeNull();
+      expect(await bcrypt.compare(apiKeyPlain, row.api_key_hash)).toBe(true);
+    });
+
+    it('an agent that DID adopt the new key still authenticates after the grace period', async () => {
+      // Rotation armed 6 minutes ago; this agent picked the key up via
+      // heartbeat inside the window, then went offline.
+      const expiredTime = new Date(Date.now() - 6 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+      testDb.prepare(`
+        UPDATE agents SET pending_api_key_hash = ?, pending_api_key_encrypted = 'encrypted_data', key_rotation_initiated_at = ? WHERE id = ?
+      `).run(pendingKeyHash, expiredTime, 'agent-001');
+
       const req = mockReq({
         authorization: `Bearer ${pendingKeyPlain}`,
         'x-agent-id': 'agent-001',
@@ -365,14 +412,18 @@ describe('requireAgentAuth', () => {
 
       requireAgentAuth(req, res, next);
 
+      // Cancelling on expiry — the naive fix for the case above — would have
+      // discarded this key and locked this agent out instead.
       await vi.waitFor(() => {
         expect(next).toHaveBeenCalled();
       });
+      expect(res.status).not.toHaveBeenCalledWith(401);
 
-      // Pending columns should be cleared after promotion
-      const row = testDb.prepare('SELECT pending_api_key_hash, key_rotation_initiated_at FROM agents WHERE id = ?').get('agent-001') as any;
+      // Proven possession promotes it.
+      const row = testDb.prepare('SELECT api_key_hash, pending_api_key_hash, key_rotation_initiated_at FROM agents WHERE id = ?').get('agent-001') as any;
       expect(row.pending_api_key_hash).toBeNull();
       expect(row.key_rotation_initiated_at).toBeNull();
+      expect(await bcrypt.compare(pendingKeyPlain, row.api_key_hash)).toBe(true);
     });
 
     it('rejects wrong key even when pending key exists', async () => {

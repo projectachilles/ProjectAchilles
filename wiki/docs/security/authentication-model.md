@@ -23,7 +23,7 @@ Agents authenticate with unique keys issued during enrollment.
 
 - Separate from Clerk — agents do not need web credentials
 - Keys bound to specific agent ID
-- **Zero-downtime rotation** — new key delivered via heartbeat, old key valid for 5-minute grace period
+- **Zero-downtime rotation** — new key delivered via heartbeat; the rotation resolves on which key the agent presents, not on a timer, so an agent that was offline through the grace period is never locked out
 - Stored encrypted at rest (AES-256-GCM with machine-bound key derivation)
 
 ### Tier 3: Enrollment Tokens

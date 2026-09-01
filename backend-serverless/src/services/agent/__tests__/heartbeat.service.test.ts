@@ -12,22 +12,19 @@ vi.mock('../database.js', async (importOriginal) => {
   };
 });
 
-// Mock the enrollment service — getPendingRotationKey calls decrypt/promote
+// Mock the enrollment service — getPendingRotationKey calls decrypt/cancel
 vi.mock('../enrollment.service.js', () => ({
   ROTATION_GRACE_PERIOD_SECONDS: 300,
   decryptPendingKey: (encrypted: string) => `decrypted_${encrypted}`,
-  promotePendingKey: async (agentId: string) => {
-    const now = new Date().toISOString();
+  cancelPendingKey: async (agentId: string) => {
     await testDb.run(`
       UPDATE agents
-      SET api_key_hash = pending_api_key_hash,
-          pending_api_key_hash = NULL,
+      SET pending_api_key_hash = NULL,
           pending_api_key_encrypted = NULL,
           key_rotation_initiated_at = NULL,
-          api_key_rotated_at = ?,
           updated_at = ?
-      WHERE id = ?
-    `, [now, now, agentId]);
+      WHERE id = ? AND pending_api_key_hash IS NOT NULL
+    `, [new Date().toISOString(), agentId]);
   },
 }));
 
@@ -333,9 +330,12 @@ describe('heartbeat.service', () => {
       expect(key).toBeNull();
     });
 
-    it('auto-promotes and returns null when grace period expired', async () => {
+    it('cancels the rotation and returns null when the grace period expired', async () => {
+      // Reaching this branch means the agent is only now heartbeating, i.e. it
+      // was offline for the whole window and never received the pending key.
       const expiredTime = new Date(Date.now() - 6 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
       await insertTestAgent(testDb, { id: 'a1' });
+      const before = await testDb.get('SELECT api_key_hash FROM agents WHERE id = ?', ['a1']) as unknown as any;
       await testDb.run(`
         UPDATE agents SET pending_api_key_hash = 'hash', pending_api_key_encrypted = 'enc', key_rotation_initiated_at = ? WHERE id = ?
       `, [expiredTime, 'a1']);
@@ -343,10 +343,13 @@ describe('heartbeat.service', () => {
       const key = await getPendingRotationKey('a1');
       expect(key).toBeNull();
 
-      // Should have promoted
-      const row = await testDb.get('SELECT pending_api_key_hash, key_rotation_initiated_at FROM agents WHERE id = ?', ['a1']) as unknown as any;
+      // Rotation abandoned — pending cleared, and crucially the agent's own key
+      // is untouched. Promoting here used to make the undelivered key primary
+      // and lock the agent out permanently.
+      const row = await testDb.get('SELECT api_key_hash, pending_api_key_hash, key_rotation_initiated_at FROM agents WHERE id = ?', ['a1']) as unknown as any;
       expect(row.pending_api_key_hash).toBeNull();
       expect(row.key_rotation_initiated_at).toBeNull();
+      expect(row.api_key_hash).toBe(before.api_key_hash);
     });
 
     it('returns null for nonexistent agent', async () => {

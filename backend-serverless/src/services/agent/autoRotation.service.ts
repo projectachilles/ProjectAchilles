@@ -64,6 +64,16 @@ interface AgentRow {
   hostname: string;
 }
 
+/**
+ * How recently an agent must have checked in to be eligible for rotation.
+ *
+ * Rotation is only safe for an agent that will heartbeat again inside the
+ * 300 s grace period — that heartbeat is how the new key is delivered. Agents
+ * beat every 60 s, so one seen within 120 s has roughly three more chances to
+ * collect the key before the window closes.
+ */
+const ROTATION_ELIGIBILITY_HEARTBEAT_SECONDS = 120;
+
 export async function processAutoRotation(): Promise<void> {
   try {
     const settings = await getAutoRotationSettings();
@@ -72,18 +82,34 @@ export async function processAutoRotation(): Promise<void> {
     const db = await getDb();
     const days = settings.intervalDays;
 
-    // Find active agents whose key is older than the configured interval
-    // and that don't already have a pending rotation in progress.
+    // Find agents whose key is older than the configured interval, that don't
+    // already have a pending rotation, AND that are currently online.
+    //
+    // The liveness gate is a safety requirement, not an optimisation: arming a
+    // rotation on an offline agent means the new key is never delivered.
+    //
+    // The cutoff is built in JS as an ISO string, matching how last_heartbeat
+    // is written. Comparing against SQLite's datetime('now', …) would be a
+    // silent bug: that returns 'YYYY-MM-DD HH:MM:SS' while last_heartbeat is
+    // 'YYYY-MM-DDTHH:MM:SS.sssZ', and 'T' (0x54) sorts above ' ' (0x20) — so
+    // *any* heartbeat from the same UTC day would compare as newer than the
+    // cutoff, letting a laptop that checked in twelve hours ago through.
+    const heartbeatCutoff = new Date(
+      Date.now() - ROTATION_ELIGIBILITY_HEARTBEAT_SECONDS * 1000,
+    ).toISOString();
+
     const agents = await db.all(`
       SELECT id, hostname FROM agents
       WHERE status = 'active'
         AND key_rotation_initiated_at IS NULL
+        AND last_heartbeat IS NOT NULL
+        AND last_heartbeat > ?
         AND (
           (api_key_rotated_at IS NULL AND julianday('now') - julianday(created_at) > ?)
           OR (api_key_rotated_at IS NOT NULL AND julianday('now') - julianday(api_key_rotated_at) > ?)
         )
       LIMIT 5
-    `, [days, days]) as unknown as AgentRow[];
+    `, [heartbeatCutoff, days, days]) as unknown as AgentRow[];
 
     for (const agent of agents) {
       try {

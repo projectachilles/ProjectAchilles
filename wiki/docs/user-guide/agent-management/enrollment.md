@@ -151,7 +151,37 @@ The detail view refreshes automatically every 30 seconds.
 
 ### Key Rotation
 
-Rotate an agent's API key from the agent detail page. The rotation uses a two-phase process with a configurable grace period, allowing the old key to remain valid briefly while the agent picks up the new one.
+Rotate an agent's API key from the agent detail page, or let **automatic
+rotation** do it on an interval (Agents → Key Rotation in the utility rail).
+
+Rotation is two-phase. The new key is stored as *pending* and handed to the
+agent in a heartbeat response; both keys authenticate until the agent shows
+which one it holds.
+
+**A rotation is resolved by evidence, never by a timer:**
+
+| The agent presents | What happens |
+|--------------------|--------------|
+| The **new** key | Promoted to primary — the agent has proven it holds it |
+| The **old** key, grace period still open | Nothing; the agent simply hasn't collected the new key yet |
+| The **old** key, grace period expired | Rotation cancelled, current key kept, `key_rotation_cancelled` recorded in the event log |
+
+The grace period (5 minutes) bounds *delivery* — how long a heartbeat will hand
+the pending key out — not how long either key is accepted.
+
+:::info Why not decide at expiry
+When the grace period lapses the server cannot tell whether the agent received
+the new key or was simply offline, and either guess locks an agent out for good.
+Promoting strands an agent that was asleep through the window: the key it holds
+is no longer valid. Cancelling strands the opposite case: an agent that did
+collect the key, then went offline, returns holding one the server discarded.
+Waiting for the agent to present a key resolves both correctly.
+:::
+
+**Automatic rotation only targets online agents.** An agent that hasn't
+heartbeat in the last two minutes is skipped and picked up by a later sweep,
+because the heartbeat is the delivery channel — arming a rotation on a sleeping
+laptop just creates a pending key nobody can collect.
 
 ### Uninstall
 

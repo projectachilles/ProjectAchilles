@@ -167,7 +167,7 @@ export function initializeTables(database: Database.Database): void {
       event_type TEXT NOT NULL CHECK(event_type IN (
         'enrolled','went_offline','came_online','task_failed',
         'task_completed','version_updated','key_rotated',
-        'status_changed','decommissioned'
+        'key_rotation_cancelled','status_changed','decommissioned'
       )),
       details TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -256,6 +256,10 @@ export function initializeTables(database: Database.Database): void {
 
   // Migration: expand agents.status CHECK constraint to include 'uninstalled'.
   migrateUninstalledStatus(database);
+
+  // Migration: expand agent_events.event_type CHECK to include
+  // 'key_rotation_cancelled'.
+  migrateKeyRotationCancelledEvent(database);
 
   // CLI auth tables — device authorization flow for headless CLI login
   database.exec(`
@@ -510,6 +514,54 @@ function migrateExecuteCommandType(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
     CREATE INDEX IF NOT EXISTS idx_tasks_org ON tasks(org_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_batch ON tasks(batch_id);
+  `);
+
+  database.pragma('foreign_keys = ON');
+}
+
+/**
+ * Expand `agent_events.event_type` to accept 'key_rotation_cancelled'.
+ *
+ * Written when an armed rotation expires without the agent ever picking the
+ * new key up (see `cancelPendingKey`). SQLite has no ALTER COLUMN, so a CHECK
+ * change means recreating the table.
+ *
+ * The probe reads `sqlite_master` rather than attempting a throwaway INSERT:
+ * `agent_events.agent_id` carries a foreign key to `agents`, so an insert probe
+ * with a synthetic id fails on the FK and would re-run this migration on every
+ * startup.
+ */
+function migrateKeyRotationCancelledEvent(database: Database.Database): void {
+  const existing = database
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'agent_events'`)
+    .get() as { sql: string | null } | undefined;
+
+  // Fresh databases get the value from CREATE TABLE above; nothing to do.
+  if (!existing?.sql || existing.sql.includes('key_rotation_cancelled')) return;
+
+  database.pragma('foreign_keys = OFF');
+
+  const cols = database.prepare(`PRAGMA table_info(agent_events)`).all() as { name: string }[];
+  const selectCols = cols.map((c) => c.name).join(', ');
+
+  database.exec(`DROP TABLE IF EXISTS agent_events_new`);
+  database.exec(`
+    CREATE TABLE agent_events_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id TEXT NOT NULL,
+      event_type TEXT NOT NULL CHECK(event_type IN (
+        'enrolled','went_offline','came_online','task_failed',
+        'task_completed','version_updated','key_rotated',
+        'key_rotation_cancelled','status_changed','decommissioned'
+      )),
+      details TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (agent_id) REFERENCES agents(id)
+    );
+    INSERT INTO agent_events_new (${selectCols}) SELECT ${selectCols} FROM agent_events;
+    DROP TABLE agent_events;
+    ALTER TABLE agent_events_new RENAME TO agent_events;
+    CREATE INDEX IF NOT EXISTS idx_agent_events_agent_ts ON agent_events(agent_id, created_at);
   `);
 
   database.pragma('foreign_keys = ON');

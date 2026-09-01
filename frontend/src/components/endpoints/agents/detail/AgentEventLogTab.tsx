@@ -25,6 +25,7 @@ const EVENT_TYPE_LABELS: Record<AgentEventType, string> = {
   task_completed: 'Task Completed',
   version_updated: 'Version Updated',
   key_rotated: 'Key Rotated',
+  key_rotation_cancelled: 'Rotation Cancelled',
   status_changed: 'Status Changed',
   decommissioned: 'Decommissioned',
 };
@@ -37,13 +38,14 @@ const EVENT_TYPE_VARIANT: Record<AgentEventType, 'success' | 'warning' | 'destru
   task_completed: 'success',
   version_updated: 'default',
   key_rotated: 'warning',
+  key_rotation_cancelled: 'default',
   status_changed: 'warning',
   decommissioned: 'destructive',
 };
 
 const ALL_EVENT_TYPES: AgentEventType[] = [
   'enrolled', 'came_online', 'went_offline', 'task_completed', 'task_failed',
-  'version_updated', 'key_rotated', 'status_changed', 'decommissioned',
+  'version_updated', 'key_rotated', 'key_rotation_cancelled', 'status_changed', 'decommissioned',
 ];
 
 function formatEventDate(dateStr: string): string {

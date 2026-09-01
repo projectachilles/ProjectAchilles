@@ -21,7 +21,7 @@ The agent-server communication channel has been hardened through a dedicated int
 
 | Protection | Implementation |
 |------------|---------------|
-| **API Key Rotation** | Zero-downtime via heartbeat; 5-minute dual-key grace period |
+| **API Key Rotation** | Zero-downtime via heartbeat; 5-minute delivery window, resolved by which key the agent presents rather than by elapsed time |
 | **Timing Oracle Prevention** | Constant-time bcrypt comparison; dummy hash when no match |
 | **Encrypted Credentials** | AES-256-GCM; key from machine ID (non-portable) |
 
