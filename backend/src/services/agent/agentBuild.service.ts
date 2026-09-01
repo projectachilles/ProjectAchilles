@@ -130,6 +130,9 @@ export class AgentBuildService {
     let signed = false;
     if (targetOs === 'windows') {
       const activeCert = this.settingsService.getActiveCertPfxPath();
+      if (!activeCert) {
+        console.warn(`[agent build] ${version} ${targetOs}/${arch} is UNSIGNED — no active certificate configured`);
+      }
       if (activeCert) {
         const signedPath = outputPath + '.signed';
         // L1: Pass password via temp file to avoid /proc/PID/cmdline exposure
@@ -146,8 +149,13 @@ export class AgentBuildService {
 
           fs.renameSync(signedPath, outputPath);
           signed = true;
-        } catch {
-          // Signing failed — continue with unsigned binary
+        } catch (err) {
+          // Signing failure is deliberately non-fatal here: the build still
+          // produced a working binary. But say so loudly — a silently unsigned
+          // binary is how an unsigned agent release once shipped unnoticed.
+          console.warn(
+            `[agent build] ${version} ${targetOs}/${arch} is UNSIGNED — osslsigncode failed: ${err instanceof Error ? err.message : err}`,
+          );
           if (fs.existsSync(signedPath)) {
             fs.unlinkSync(signedPath);
           }

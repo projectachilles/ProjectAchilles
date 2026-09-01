@@ -164,14 +164,15 @@ describe('update.service', () => {
   // ── Group 2: registerVersionFromUpload ────────────────────
 
   describe('registerVersionFromUpload', () => {
-    it('saves uploaded buffer and computes SHA-256 hash', () => {
+    it('saves uploaded buffer and computes SHA-256 hash', async () => {
       const buffer = Buffer.from('uploaded-agent-binary');
       // existsSync: true for the file we just wrote, true for statSync
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: buffer.length });
       mockReadFileSync.mockReturnValue(buffer);
 
-      const result = registerVersionFromUpload('1.0.0', 'linux', 'amd64', buffer, 'Upload notes', false);
+      // linux: no signing path, so this exercises storage + registration only
+      const result = await registerVersionFromUpload('1.0.0', 'linux', 'amd64', buffer, 'Upload notes', false);
 
       expect(result.version).toBe('1.0.0');
       expect(result.binary_sha256).toMatch(/^[a-f0-9]{64}$/);
@@ -185,13 +186,17 @@ describe('update.service', () => {
       );
     });
 
-    it('creates DB record with platform and arch', () => {
+    it('creates DB record with platform and arch', async () => {
       const buffer = Buffer.from('binary');
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: 6 });
       mockReadFileSync.mockReturnValue(buffer);
 
-      registerVersionFromUpload('2.0.0', 'windows', 'arm64', buffer, 'notes', true);
+      // No certificate exists in the test environment, so signing cannot
+      // succeed; this test is about the DB record, not the signature.
+      await registerVersionFromUpload('2.0.0', 'windows', 'arm64', buffer, 'notes', true, {
+        allowUnsigned: true,
+      });
 
       const row = testDb.prepare('SELECT * FROM agent_versions WHERE version = ?').get('2.0.0') as Record<string, unknown>;
       expect(row).toBeDefined();
@@ -199,26 +204,74 @@ describe('update.service', () => {
       expect(row.arch).toBe('arm64');
     });
 
-    it('rejects upload for invalid version string', () => {
+    it('rejects upload for invalid version string', async () => {
       const buffer = Buffer.from('binary');
 
-      expect(() =>
+      await expect(
         registerVersionFromUpload('bad version!', 'linux', 'amd64', buffer, 'notes', false),
-      ).toThrow('Invalid version string');
+      ).rejects.toThrow('Invalid version string');
     });
 
-    it('adds .exe extension for Windows uploads', () => {
+    it('adds .exe extension for Windows uploads', async () => {
       const buffer = Buffer.from('win-binary');
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: 10 });
       mockReadFileSync.mockReturnValue(buffer);
 
-      registerVersionFromUpload('1.0.0', 'windows', 'amd64', buffer, 'notes', false);
+      await registerVersionFromUpload('1.0.0', 'windows', 'amd64', buffer, 'notes', false, {
+        allowUnsigned: true,
+      });
 
       expect(mockWriteFileSync).toHaveBeenCalledWith(
         expect.stringContaining('achilles-agent-1.0.0.exe'),
         buffer,
       );
+    });
+
+    // Signing is fatal by default on this path — an upload exists so the
+    // operator can attach their certificate, and silently registering an
+    // unsigned binary would push something a WDAC-hardened fleet refuses to
+    // execute. That silent-fallback behaviour on the *build* path is how an
+    // unsigned agent release shipped unnoticed.
+    it('refuses a Windows upload when no certificate is available', async () => {
+      const buffer = Buffer.from('win-binary');
+      mockExistsSync.mockReturnValue(true);
+      mockStatSync.mockReturnValue({ size: 10 });
+      mockReadFileSync.mockReturnValue(buffer);
+
+      await expect(
+        registerVersionFromUpload('3.0.0', 'windows', 'amd64', buffer, 'notes', false),
+      ).rejects.toThrow(/certificate/i);
+
+      const row = testDb.prepare('SELECT * FROM agent_versions WHERE version = ?').get('3.0.0');
+      expect(row).toBeUndefined();
+    });
+
+    it('registers unsigned only when explicitly allowed', async () => {
+      const buffer = Buffer.from('win-binary');
+      mockExistsSync.mockReturnValue(true);
+      mockStatSync.mockReturnValue({ size: 10 });
+      mockReadFileSync.mockReturnValue(buffer);
+
+      const result = await registerVersionFromUpload('3.1.0', 'windows', 'amd64', buffer, 'notes', false, {
+        allowUnsigned: true,
+      });
+
+      expect(result.signed).toBe(false);
+      expect(result.signer_subject).toBeNull();
+    });
+
+    // Linux has no signing ecosystem equivalent, so it must not be blocked by
+    // the certificate requirement.
+    it('registers a Linux upload without requiring a certificate', async () => {
+      const buffer = Buffer.from('linux-binary');
+      mockExistsSync.mockReturnValue(true);
+      mockStatSync.mockReturnValue({ size: 12 });
+      mockReadFileSync.mockReturnValue(buffer);
+
+      const result = await registerVersionFromUpload('3.2.0', 'linux', 'amd64', buffer, 'notes', false);
+
+      expect(result.signed).toBe(false);
     });
   });
 

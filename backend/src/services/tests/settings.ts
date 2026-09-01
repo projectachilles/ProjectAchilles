@@ -273,6 +273,23 @@ export class TestsSettingsService {
 
   // ── Active Cert PFX Path (for build service) ───────────────
 
+  /**
+   * Resolve a specific certificate's PFX path and password.
+   * Falls back to the active certificate when no id is given, so callers can
+   * offer "use the active one" without branching.
+   */
+  getCertPfxPathById(certId?: string): { pfxPath: string; password: string } | null {
+    if (!certId) return this.getActiveCertPfxPath();
+
+    const pfxPath = path.join(CERTS_DIR, certId, 'cert.pfx');
+    if (!fs.existsSync(pfxPath)) return null;
+
+    const password = this.getCertificatePassword(certId);
+    if (!password) return null;
+
+    return { pfxPath, password };
+  }
+
   getActiveCertPfxPath(): { pfxPath: string; password: string } | null {
     const activeId = this.getActiveCertificateId();
     if (!activeId) return null;

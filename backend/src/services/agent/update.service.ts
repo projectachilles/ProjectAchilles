@@ -3,6 +3,8 @@ import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
 import { getDatabase } from './database.js';
+import { TestsSettingsService } from '../tests/settings.js';
+import { SigningError, signDarwinBinaryAdHoc, signWindowsBinary } from './binarySigning.service.js';
 import type { Response } from 'express';
 import type { AgentVersion, VersionCheckResponse, AgentOS, AgentArch } from '../../types/agent.js';
 import { signHash } from './signing.service.js';
@@ -19,6 +21,7 @@ interface VersionRow {
   release_notes: string;
   mandatory: number;
   signed: number;
+  signer_subject: string | null;
   binary_signature: string | null;
   created_at: string;
 }
@@ -28,6 +31,7 @@ function toAgentVersion(row: VersionRow): AgentVersion {
     ...row,
     mandatory: row.mandatory === 1,
     signed: row.signed === 1,
+    signer_subject: row.signer_subject ?? null,
     binary_signature: row.binary_signature,
   };
 }
@@ -44,6 +48,8 @@ export function registerVersion(
   releaseNotes: string,
   mandatory: boolean,
   signed: boolean = false,
+  /** Certificate subject the binary was signed with, for display and audit. */
+  signerSubject: string | null = null,
 ): AgentVersion {
   if (!fs.existsSync(binaryPath)) {
     throw new Error(`Binary not found: ${binaryPath}`);
@@ -58,9 +64,9 @@ export function registerVersion(
 
   const db = getDatabase();
   db.prepare(`
-    INSERT OR REPLACE INTO agent_versions (version, os, arch, binary_path, binary_sha256, binary_size, release_notes, mandatory, signed, binary_signature)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(version, os, arch, binaryPath, sha256, stat.size, releaseNotes, mandatory ? 1 : 0, signed ? 1 : 0, binarySignature);
+    INSERT OR REPLACE INTO agent_versions (version, os, arch, binary_path, binary_sha256, binary_size, release_notes, mandatory, signed, binary_signature, signer_subject)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(version, os, arch, binaryPath, sha256, stat.size, releaseNotes, mandatory ? 1 : 0, signed ? 1 : 0, binarySignature, signerSubject);
 
   return {
     version,
@@ -72,6 +78,7 @@ export function registerVersion(
     release_notes: releaseNotes,
     mandatory,
     signed,
+    signer_subject: signerSubject,
     binary_signature: binarySignature,
     created_at: new Date().toISOString(),
   };
@@ -162,14 +169,38 @@ export function listVersions(): AgentVersion[] {
  * Writes the binary to ~/.projectachilles/binaries/{os}-{arch}/ and
  * delegates to registerVersion() for SHA-256 computation and DB insert.
  */
-export function registerVersionFromUpload(
+export interface UploadSigningOptions {
+  /** Certificate to sign with. Omitted means "the active certificate". */
+  certId?: string;
+  /** Register the binary unsigned instead of failing when signing is impossible. */
+  allowUnsigned?: boolean;
+}
+
+/**
+ * Store an uploaded agent binary and register it as a distributable version,
+ * signing it with a tenant certificate on the way through.
+ *
+ * Signing here is deliberately FATAL by default, unlike the build path. A build
+ * that cannot sign still produced a working binary, so it degrades to unsigned;
+ * an upload exists precisely so the operator can attach *their* certificate, and
+ * silently registering an unsigned binary would push something a WDAC-hardened
+ * fleet will refuse to execute. Callers that genuinely want an unsigned binary
+ * must say so with `allowUnsigned`.
+ *
+ * This is the recommended path for a release binary: the artifact comes from a
+ * tagged CI build, so its provenance is fixed, while the signature comes from
+ * the tenant's own certificate, which is what their endpoints actually trust.
+ * Nothing depends on which agent source happens to be deployed on this server.
+ */
+export async function registerVersionFromUpload(
   version: string,
   agentOs: AgentOS,
   arch: AgentArch,
   fileBuffer: Buffer,
   releaseNotes: string,
-  mandatory: boolean
-): AgentVersion {
+  mandatory: boolean,
+  signing: UploadSigningOptions = {}
+): Promise<AgentVersion> {
   if (!VERSION_REGEX.test(version)) {
     throw new Error('Invalid version string');
   }
@@ -183,7 +214,38 @@ export function registerVersionFromUpload(
 
   fs.writeFileSync(binaryPath, fileBuffer);
 
-  return registerVersion(version, agentOs, arch, binaryPath, releaseNotes, mandatory);
+  let signed = false;
+  let signerSubject: string | null = null;
+
+  try {
+    if (agentOs === 'windows') {
+      const settingsService = new TestsSettingsService();
+      const cert = settingsService.getCertPfxPathById(signing.certId);
+      if (!cert) {
+        throw new SigningError(
+          signing.certId
+            ? `Certificate ${signing.certId} was not found, or its password is unavailable.`
+            : 'No active code signing certificate is configured. Add one under Settings → Tests, or upload unsigned.'
+        );
+      }
+      ({ signed, signerSubject } = await signWindowsBinary(binaryPath, cert));
+    } else if (agentOs === 'darwin') {
+      ({ signed, signerSubject } = await signDarwinBinaryAdHoc(binaryPath));
+    }
+    // Linux binaries are not signed — there is no ecosystem equivalent.
+  } catch (err) {
+    if (!signing.allowUnsigned) {
+      // Do not leave a half-processed binary behind for the next upload to
+      // collide with; the caller gets the reason and can retry or opt out.
+      if (fs.existsSync(binaryPath)) fs.unlinkSync(binaryPath);
+      throw err;
+    }
+    console.warn(
+      `[agent upload] registering ${agentOs}/${arch} ${version} UNSIGNED: ${err instanceof Error ? err.message : err}`
+    );
+  }
+
+  return registerVersion(version, agentOs, arch, binaryPath, releaseNotes, mandatory, signed, signerSubject);
 }
 
 /**

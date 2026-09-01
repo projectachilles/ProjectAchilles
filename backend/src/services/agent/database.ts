@@ -246,6 +246,9 @@ export function initializeTables(database: Database.Database): void {
   if (!versionColNames.has('binary_signature')) {
     database.exec(`ALTER TABLE agent_versions ADD COLUMN binary_signature TEXT DEFAULT NULL`);
   }
+  if (!versionColNames.has('signer_subject')) {
+    database.exec(`ALTER TABLE agent_versions ADD COLUMN signer_subject TEXT DEFAULT NULL`);
+  }
 
   // Migration: expand os CHECK constraint to include 'darwin' for agents and agent_versions.
   // SQLite doesn't support ALTER COLUMN, so recreate tables if constraint rejects 'darwin'.

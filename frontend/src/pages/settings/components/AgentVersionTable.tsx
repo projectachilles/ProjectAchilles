@@ -83,7 +83,27 @@ export function AgentVersionTable({ versions, canDelete = true, onDeleted }: Age
               </TableCell>
               <TableCell>
                 {v.signed ? (
-                  <ShieldCheck className="w-4 h-4 text-green-500" />
+                  <span
+                    className="inline-flex items-center gap-1.5"
+                    title={v.signer_subject ? `Signed by ${v.signer_subject}` : 'Signed'}
+                  >
+                    <ShieldCheck className="w-4 h-4 text-green-500" />
+                    {v.signer_subject && v.signer_subject !== 'ad-hoc' && (
+                      <span className="max-w-[14rem] truncate font-mono text-[11px] text-muted-foreground">
+                        {v.signer_subject}
+                      </span>
+                    )}
+                    {v.signer_subject === 'ad-hoc' && (
+                      <span className="font-mono text-[11px] text-muted-foreground">ad-hoc</span>
+                    )}
+                  </span>
+                ) : v.os === 'windows' ? (
+                  <span
+                    className="font-mono text-[11px] text-warning"
+                    title="Endpoints enforcing WDAC or application control will refuse to run this binary"
+                  >
+                    unsigned
+                  </span>
                 ) : (
                   <span className="text-muted-foreground text-sm">—</span>
                 )}
