@@ -99,6 +99,42 @@ write-index rollover, Defender auto-resolve, and a rate-limiter recalibration.
 - Purged inlined Elasticsearch API keys from docs and added a documentation hygiene rule
 - Rate-limited `pa_` bearer authentication with uniform 401 responses
 
+## Agent [0.6.3] - 2026-09-01
+
+Reliability release. Closes two ways an endpoint could lose its credential and
+be locked out permanently, plus the resilience and transport work accumulated
+since 0.6.0.
+
+### Fixed
+- **A rotated key is adopted only once it is durably on disk.** The heartbeat
+  handler switched the in-memory key first and merely logged a warning if the
+  write failed, so the agent authenticated with a key its config did not hold.
+  The server saw proof of possession, promoted it, and dropped the old key —
+  then the next service restart loaded the stale key and 401'd forever. On a
+  failed write the agent now keeps its previous key; the server cancels the
+  unclaimed rotation and re-arms it later
+- **Config writes are atomic.** `os.WriteFile` truncated the file before
+  writing, so a crash, power loss, or full disk mid-write left a truncated
+  config and an agent with no loadable key. Now written to a temp file in the
+  same directory, fsynced, permissions applied before it is reachable at its
+  final name, then renamed into place
+- `agent/main.go` reported version `0.6.0` regardless of the Makefile, which
+  had drifted to `0.6.2`. The LDFLAGS stamp masked this for `make` builds but
+  a plain `go build` produced a binary that misreported itself
+- Typed errors in the reporter; `queue.Drain` deletes permanently-rejected
+  results instead of retrying them forever
+- `bundle_id` mismatches are logged rather than silently dropping the data
+
+### Added
+- `--reload` flag for in-place config refresh
+- Split short-request vs streaming HTTP timeouts — `httpQuick` (30 s) for JSON
+  calls, `httpStream` (no overall timeout, 30 s response-header timeout) for
+  binary downloads, so a large test binary on a slow link is no longer killed
+  by the JSON budget (0.6.1)
+
+### Changed
+- Go toolchain to 1.25.9; `golang.org/x/sys` 0.40.0 → 0.47.0
+
 ## Agent [0.6.0] - 2026-04-03
 
 First tagged release of the Achilles Agent binary.
@@ -381,11 +417,13 @@ Complete platform overhaul — custom agent system, multi-deployment support, Mi
 |---------|------|-------------|
 | 2.1.0 | 2026-09-01 | f0 console restyle, unified Security Dashboard, flat navigation, API keys, self-hosted targets |
 | 2.0.0 | 2026-04-03 | Custom agent, multi-deployment, Defender integration, release tooling |
+| Agent 0.6.3 | 2026-09-01 | Key-rotation and config-write durability fixes; HTTP timeout split |
 | Agent 0.6.0 | 2026-04-03 | First tagged agent binary release |
 | 1.0.0 | 2024-12-10 | Initial release |
 
 [Unreleased]: https://github.com/F0RT1KA/ProjectAchilles/compare/v2.1.0...HEAD
 [2.1.0]: https://github.com/F0RT1KA/ProjectAchilles/compare/v2.0.0...v2.1.0
+[Agent 0.6.3]: https://github.com/F0RT1KA/ProjectAchilles/compare/agent-v0.6.0...agent-v0.6.3
 [Agent 0.6.0]: https://github.com/F0RT1KA/ProjectAchilles/releases/tag/agent-v0.6.0
 [2.0.0]: https://github.com/F0RT1KA/ProjectAchilles/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/F0RT1KA/ProjectAchilles/releases/tag/v1.0.0
