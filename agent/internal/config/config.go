@@ -171,13 +171,53 @@ func (c *Config) Save(path string) error {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		return fmt.Errorf("write config %s: %w", path, err)
+	// Write to a temp file in the same directory, then rename into place.
+	//
+	// os.WriteFile truncates the target before writing, so a crash, power loss,
+	// or a full disk partway through left the agent with a truncated config and
+	// no usable key. That is unrecoverable from the server side — a bricked
+	// endpoint needs someone to visit it — so the write is made atomic instead.
+	// Same directory matters: rename is only atomic within a filesystem.
+	tmp, err := os.CreateTemp(dir, ".config-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp config in %s: %w", dir, err)
+	}
+	tmpPath := tmp.Name()
+	// Removed on every failure path below; cleared once the rename succeeds.
+	defer func() {
+		if tmpPath != "" {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write temp config %s: %w", tmpPath, err)
+	}
+	// fsync before the rename, otherwise the rename can land while the file's
+	// contents are still only in the page cache — the exact crash window this
+	// is meant to close.
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("sync temp config %s: %w", tmpPath, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp config %s: %w", tmpPath, err)
 	}
 
-	if err := secureFilePermissions(path); err != nil {
-		log.Printf("warning: could not set file permissions on %s: %v", path, err)
+	// Tighten permissions before the file is reachable at its final name, so the
+	// key is never briefly readable at the real path. os.CreateTemp already
+	// creates 0600 on Unix; this also applies the Windows ACL.
+	if err := secureFilePermissions(tmpPath); err != nil {
+		log.Printf("warning: could not set file permissions on %s: %v", tmpPath, err)
 	}
+
+	// os.Rename replaces an existing destination on both Unix and Windows
+	// (MoveFileEx with MOVEFILE_REPLACE_EXISTING).
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replace config %s: %w", path, err)
+	}
+	tmpPath = "" // renamed away; nothing left to clean up
 
 	return nil
 }

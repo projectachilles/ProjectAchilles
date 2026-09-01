@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -244,5 +245,123 @@ func TestSaveNeverWritesPlaintextKey(t *testing.T) {
 	// Runtime struct should still have the key
 	if cfg.AgentKey != "ak_should-not-appear" {
 		t.Error("Save should not modify in-memory AgentKey")
+	}
+}
+
+// Save must be atomic: the config either has its previous contents or the new
+// ones, never a truncated in-between. os.WriteFile truncates the target before
+// writing, so a crash or a full disk mid-write left the agent with no usable
+// key — a brick that no server-side change can undo, because the credential is
+// simply gone from the endpoint.
+func TestSaveIsAtomicAndLeavesNoTempFiles(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+
+	content := `server_url: https://example.com
+agent_id: agent-001
+agent_key: ak_original
+`
+	if err := os.WriteFile(cfgPath, []byte(content), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	for _, key := range []string{"ak_a", "ak_b", "ak_c"} {
+		cfg.AgentKey = key
+		if err := cfg.Save(cfgPath); err != nil {
+			t.Fatalf("Save(%s): %v", key, err)
+		}
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "config.yaml" {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("directory contains %v, want only config.yaml — a leaked temp file holds the agent key", names)
+	}
+
+	reloaded, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if reloaded.AgentKey != "ak_c" {
+		t.Errorf("AgentKey = %q, want ak_c", reloaded.AgentKey)
+	}
+}
+
+// A failed Save must leave the previous config intact and loadable, rather than
+// destroying the agent's only credential.
+func TestSaveFailureLeavesExistingConfigIntact(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: directory permissions are not enforced")
+	}
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+
+	content := `server_url: https://example.com
+agent_id: agent-001
+agent_key: ak_original
+`
+	if err := os.WriteFile(cfgPath, []byte(content), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if err := os.Chmod(dir, 0500); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0700) })
+
+	cfg.AgentKey = "ak_replacement"
+	if err := cfg.Save(cfgPath); err == nil {
+		t.Fatal("expected Save to fail in an unwritable directory")
+	}
+
+	_ = os.Chmod(dir, 0700)
+	reloaded, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("config unreadable after a failed Save: %v", err)
+	}
+	if reloaded.AgentKey != "ak_original" {
+		t.Errorf("AgentKey = %q, want ak_original", reloaded.AgentKey)
+	}
+}
+
+// The key is written encrypted, and the file must never be readable by others.
+func TestSaveKeepsRestrictivePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX mode bits do not apply on Windows")
+	}
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	cfg := DefaultConfig()
+	cfg.ServerURL = "https://example.com"
+	cfg.AgentID = "agent-001"
+	cfg.AgentKey = "ak_secret"
+
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	info, err := os.Stat(cfgPath)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0600 {
+		t.Errorf("config mode = %o, want 600", perm)
 	}
 }
