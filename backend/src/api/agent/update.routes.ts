@@ -11,6 +11,7 @@ import {
   deleteVersion,
 } from '../../services/agent/update.service.js';
 import { validate } from '../../middleware/validation.js';
+import { SigningError } from '../../services/agent/binarySigning.service.js';
 import { RegisterVersionSchema, BuildVersionSchema } from '../../schemas/admin.schemas.js';
 import type { AgentBuildService } from '../../services/agent/agentBuild.service.js';
 import type { AgentOS, AgentArch } from '../../types/agent.js';
@@ -158,6 +159,11 @@ export function createAdminUpdateRouter(buildService: AgentBuildService | null):
         mandatory?: string;
       };
 
+      const { cert_id, allow_unsigned } = req.body as {
+        cert_id?: string;
+        allow_unsigned?: string;
+      };
+
       if (!version || !os || !arch) {
         throw new AppError('Missing required fields: version, os, arch', 400);
       }
@@ -174,16 +180,30 @@ export function createAdminUpdateRouter(buildService: AgentBuildService | null):
         throw new AppError('Missing binary file', 400);
       }
 
-      const result = registerVersionFromUpload(
-        version,
-        os as AgentOS,
-        arch as AgentArch,
-        req.file.buffer,
-        release_notes ?? '',
-        mandatory === 'true'
-      );
+      // Signing is fatal by default: an upload exists so the operator can
+      // attach their certificate, so quietly registering an unsigned binary
+      // would push something a WDAC-hardened fleet refuses to run.
+      try {
+        const result = await registerVersionFromUpload(
+          version,
+          os as AgentOS,
+          arch as AgentArch,
+          req.file.buffer,
+          release_notes ?? '',
+          mandatory === 'true',
+          { certId: cert_id || undefined, allowUnsigned: allow_unsigned === 'true' }
+        );
 
-      res.status(201).json({ success: true, data: result });
+        res.status(201).json({ success: true, data: result });
+      } catch (err) {
+        if (err instanceof SigningError) {
+          throw new AppError(err.message, 422);
+        }
+        if (err instanceof Error && /certificate/i.test(err.message)) {
+          throw new AppError(err.message, 422);
+        }
+        throw err;
+      }
     })
   );
 

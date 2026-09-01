@@ -273,6 +273,38 @@ export class TestsSettingsService {
 
   // ── Active Cert PFX Path (for build service) ───────────────
 
+  /**
+   * Resolve a specific certificate's PFX path and password.
+   * Falls back to the active certificate when no id is given, so callers can
+   * offer "use the active one" without branching.
+   */
+  getCertPfxPathById(certId?: string): { pfxPath: string; password: string } | null {
+    if (!certId) return this.getActiveCertPfxPath();
+
+    // certId arrives from the API, so it is only ever accepted when it matches
+    // a directory that actually exists under CERTS_DIR. An allowlist rather
+    // than sanitisation: no traversal sequence can reach path.join, and the
+    // check cannot be defeated by encoding tricks the way a blocklist can.
+    let knownCertIds: string[];
+    try {
+      knownCertIds = this.getCertSubdirs();
+    } catch {
+      // Certificate store unreadable or absent — treat as "no such certificate"
+      // so the caller returns a clean 422 rather than surfacing an ENOENT as a
+      // 500 from deep inside the upload path.
+      return null;
+    }
+    if (!knownCertIds.includes(certId)) return null;
+
+    const pfxPath = path.join(CERTS_DIR, certId, 'cert.pfx');
+    if (!fs.existsSync(pfxPath)) return null;
+
+    const password = this.getCertificatePassword(certId);
+    if (!password) return null;
+
+    return { pfxPath, password };
+  }
+
   getActiveCertPfxPath(): { pfxPath: string; password: string } | null {
     const activeId = this.getActiveCertificateId();
     if (!activeId) return null;

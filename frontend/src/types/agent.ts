@@ -288,6 +288,8 @@ export interface AgentVersion {
   release_notes: string;
   mandatory: boolean;
   signed?: boolean;
+  /** Certificate subject the binary was signed with; 'ad-hoc' for macOS. */
+  signer_subject?: string | null;
   created_at: string;
 }
 

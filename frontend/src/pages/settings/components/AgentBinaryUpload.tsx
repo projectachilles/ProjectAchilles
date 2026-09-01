@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Upload } from 'lucide-react';
 import { Button } from '@/components/shared/ui/Button';
 import { Input } from '@/components/shared/ui/Input';
@@ -6,6 +6,7 @@ import { Select } from '@/components/shared/ui/Select';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Spinner } from '@/components/shared/ui/Spinner';
 import { agentApi } from '@/services/api/agent';
+import { testsApi, type CertificateInfo } from '@/services/api/tests';
 import { pushFlashNotification } from '@/lib/flashNotifications';
 
 const OS_OPTIONS = [
@@ -19,6 +20,11 @@ const ARCH_OPTIONS = [
   { value: 'arm64', label: 'ARM64' },
 ];
 
+function certLabel(certs: CertificateInfo[], id: string): string {
+  const c = certs.find((x) => x.id === id);
+  return c?.label || c?.subject?.commonName || id;
+}
+
 interface AgentBinaryUploadProps {
   onUploaded: () => void;
 }
@@ -31,7 +37,26 @@ export function AgentBinaryUpload({ onUploaded }: AgentBinaryUploadProps) {
   const [mandatory, setMandatory] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [certificates, setCertificates] = useState<CertificateInfo[]>([]);
+  const [activeCertId, setActiveCertId] = useState<string | null>(null);
+  // '' means "use the active certificate" — the default, so the common case
+  // needs no decision from the operator.
+  const [certId, setCertId] = useState('');
+  const [allowUnsigned, setAllowUnsigned] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Only Windows uploads take a certificate. macOS is ad-hoc signed (no cert
+  // needed) and Linux has no signing ecosystem equivalent.
+  const signable = os === 'windows';
+
+  useEffect(() => {
+    testsApi.listCertificates()
+      .then((res) => {
+        setCertificates(res.certificates.filter((c) => c.exists));
+        setActiveCertId(res.activeCertId ?? null);
+      })
+      .catch(() => { /* picker just stays empty; the server still validates */ });
+  }, []);
 
   async function handleUpload() {
     const file = fileInputRef.current?.files?.[0];
@@ -46,6 +71,8 @@ export function AgentBinaryUpload({ onUploaded }: AgentBinaryUploadProps) {
     formData.append('arch', arch);
     formData.append('release_notes', releaseNotes);
     formData.append('mandatory', String(mandatory));
+    if (signable && certId) formData.append('cert_id', certId);
+    if (allowUnsigned) formData.append('allow_unsigned', 'true');
     formData.append('binary', file);
 
     try {
@@ -108,6 +135,62 @@ export function AgentBinaryUpload({ onUploaded }: AgentBinaryUploadProps) {
             file:cursor-pointer cursor-pointer"
         />
       </div>
+
+      {/* Signing — Windows only. The upload is the point where a CI-built
+          binary gets the tenant's own certificate, which is what the fleet's
+          WDAC/EDR policy actually trusts. */}
+      {signable && (
+        <div className="rounded-lg border border-border bg-surface p-3 space-y-2.5">
+          <div className="text-[11px] uppercase tracking-wider text-faint">code signing</div>
+          {certificates.length === 0 ? (
+            <Alert variant="warning">
+              No code signing certificate is configured. Add one under Settings &rarr; Tests,
+              or tick &ldquo;register unsigned&rdquo; below.
+            </Alert>
+          ) : (
+            <Select
+              label="Certificate"
+              options={[
+                {
+                  value: '',
+                  label: activeCertId
+                    ? `Active certificate (${certLabel(certificates, activeCertId)})`
+                    : 'Active certificate',
+                },
+                ...certificates.map((c) => ({
+                  value: c.id,
+                  label: `${c.label || c.subject?.commonName || c.id}${c.expiry ? ` — expires ${new Date(c.expiry).toLocaleDateString()}` : ''}`,
+                })),
+              ]}
+              value={certId}
+              onChange={(e) => setCertId(e.target.value)}
+            />
+          )}
+          <label className="flex items-center gap-2 text-sm text-muted">
+            <input
+              type="checkbox"
+              checked={allowUnsigned}
+              onChange={(e) => setAllowUnsigned(e.target.checked)}
+              className="rounded border-border"
+            />
+            Register unsigned if signing fails
+          </label>
+          {allowUnsigned && (
+            <p className="text-[11px] text-warning">
+              Endpoints enforcing WDAC or application control will refuse to run an unsigned agent.
+            </p>
+          )}
+        </div>
+      )}
+
+      {os === 'darwin' && (
+        <p className="text-xs text-faint">
+          macOS binaries are ad-hoc signed automatically; no certificate is required.
+        </p>
+      )}
+      {os === 'linux' && (
+        <p className="text-xs text-faint">Code signing is not available for Linux binaries.</p>
+      )}
 
       <div>
         <label className="block text-sm font-medium mb-1.5 text-foreground">
