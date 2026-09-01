@@ -1,75 +1,112 @@
 import type {ReactNode} from 'react';
 import Link from '@docusaurus/Link';
-import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
 
-const features = [
+type Feature = {
+  label: string;
+  title: string;
+  description: string;
+  link: string;
+};
+
+const features: Feature[] = [
   {
-    title: 'AI-Powered Test Development',
-    icon: '\uD83E\uDDE0',
+    label: 'dashboard',
+    title: 'Unified Security Dashboard',
     description:
-      'A multi-agent AI pipeline transforms threat intelligence into complete test packages — binaries, detection rules (5 formats), hardening scripts, and kill chain diagrams.',
+      'One command centre for posture across tests, endpoints, and analytics — KPI strip, attention banner, trend overview, and ATT&CK coverage, with a 7d/30d/90d range selector.',
     link: '/docs/getting-started/features',
   },
   {
-    title: 'Test Browser',
-    icon: '\uD83D\uDD0D',
+    label: 'authoring',
+    title: 'AI-Powered Test Development',
     description:
-      'Browse the full test library with MITRE ATT&CK mapping. Filter by technique, platform, and severity. Build, sign, and execute tests directly from the UI.',
+      'A multi-agent pipeline turns threat intelligence into complete test packages — binaries, detection rules in five formats, hardening scripts, and kill chain diagrams.',
+    link: '/docs/getting-started/features',
+  },
+  {
+    label: 'library',
+    title: 'Test Browser',
+    description:
+      'Browse the git-synced library with MITRE ATT&CK mapping. Facet by category, severity, platform, and threat actor. Build, sign, and dispatch straight from the UI.',
     link: '/docs/user-guide/test-browser/browsing-filtering',
   },
   {
-    title: 'Execution Framework',
-    icon: '\uD83D\uDEE1\uFE0F',
+    label: 'execution',
+    title: 'Endpoint Agent Fleet',
     description:
-      'Deploy a lightweight Go agent to Windows, Linux, and macOS endpoints. Token-based enrollment, heartbeat monitoring, secure execution, and self-updating.',
+      'A lightweight Go agent for Windows, Linux, and macOS. Token enrollment, heartbeat monitoring, self-update, dual-key rotation, and a live task stream with retry.',
     link: '/docs/user-guide/agent-management/enrollment',
   },
   {
-    title: 'Analytics & Measurement',
-    icon: '\uD83D\uDCCA',
+    label: 'measurement',
+    title: 'Analytics & Defense Score',
     description:
-      'Quantify defense readiness with 30+ Elasticsearch query endpoints. Defense scores, heatmaps, treemaps, trend analysis, and risk acceptance tracking.',
+      'Thirty-plus Elasticsearch endpoints behind a Defense Score ledger, per-host coverage treemaps, technique distribution, and executions master-detail with risk acceptance.',
     link: '/docs/user-guide/analytics/defense-score',
   },
   {
-    title: 'Integrations',
-    icon: '\uD83D\uDD17',
+    label: 'integrations',
+    title: 'Microsoft Defender & Alerting',
     description:
-      'Connect Microsoft 365 Defender for Secure Score and alert cross-correlation. Set up Slack and email alerting with configurable thresholds.',
-    link: '/docs/user-guide/integrations/elasticsearch',
+      'Secure Score correlation, alert cross-matching, and opt-in auto-resolve for Achilles-generated alerts. Slack and email alerting on score thresholds.',
+    link: '/docs/user-guide/integrations/microsoft-defender',
   },
   {
-    title: '5 Deployment Targets',
-    icon: '\uD83D\uDE80',
+    label: 'automation',
+    title: 'CLI & API Keys',
     description:
-      'Deploy anywhere: Docker Compose, Railway, Render, Fly.io, or Vercel (serverless). Each target has a dedicated guide with production hardening steps.',
+      'The `achilles` CLI plus scoped API keys for read, read-write, and admin automation — dispatch tests, pull analytics, and wire results into your own pipelines.',
+    link: '/docs/api-reference/programmatic-access',
+  },
+  {
+    label: 'deployment',
+    title: 'Seven Deployment Targets',
+    description:
+      'Docker Compose, self-hosted or on-prem server behind Caddy, Railway, Render, Fly.io, or Vercel serverless — each with a dedicated hardening guide.',
     link: '/docs/deployment/overview',
   },
 ];
 
-function HomepageHeader(): ReactNode {
-  const {siteConfig} = useDocusaurusContext();
+const stats = [
+  {value: '30+', label: 'Elasticsearch analytics endpoints'},
+  {value: '4', label: 'Agent platform targets'},
+  {value: '7', label: 'Supported deployment targets'},
+  {value: '5', label: 'Detection rule output formats'},
+];
+
+function Hero(): ReactNode {
   return (
-    <header className="hero hero--achilles">
-      <div className="container" style={{textAlign: 'center'}}>
-        <Heading as="h1" className="hero__subtitle" style={{marginBottom: 0}}>
-          {siteConfig.tagline}
+    <header className="f0-hero">
+      <div className="f0-hero__inner">
+        <div className="f0-hero__mark">
+          <span className="f0-brand__prefix">f0</span>
+          <span className="f0-brand__suffix">_csv</span>
+          <span className="f0-brand__cursor" aria-hidden="true" />
+        </div>
+        <p className="f0-hero__eyebrow">projectachilles documentation</p>
+        <Heading as="h1" className="f0-hero__title">
+          Continuous security validation — from threat intelligence to defense
+          readiness
         </Heading>
-        <p className="hero__sub-tagline">
-          Stop hoping your defenses work. Start proving it.
+        <p className="f0-hero__subtitle">
+          Stop hoping your defenses work. Deploy the agent, run the library,
+          and measure what your stack actually blocks.
         </p>
-        <div style={{display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '2rem', flexWrap: 'wrap'}}>
+        <div className="f0-hero__actions">
           <Link
-            className="button button--secondary button--lg"
+            className="f0-btn f0-btn--primary"
             to="/docs/getting-started/introduction">
-            Get Started
+            Get started
+          </Link>
+          <Link className="f0-btn f0-btn--ghost" to="/docs/deployment/overview">
+            Deploy
           </Link>
           <Link
-            className="button button--outline button--lg"
-            to="/docs/deployment/overview">
-            Deploy
+            className="f0-btn f0-btn--ghost"
+            to="/docs/api-reference/overview">
+            API reference
           </Link>
         </div>
       </div>
@@ -77,17 +114,13 @@ function HomepageHeader(): ReactNode {
   );
 }
 
-function FeatureCard({title, icon, description, link}: (typeof features)[0]): ReactNode {
+function FeatureCard({label, title, description, link}: Feature): ReactNode {
   return (
-    <div className="col col--4" style={{marginBottom: '1.5rem'}}>
-      <Link to={link} style={{textDecoration: 'none', color: 'inherit'}}>
-        <div className="feature-card" style={{height: '100%'}}>
-          <span style={{fontSize: '2rem'}}>{icon}</span>
-          <h3>{title}</h3>
-          <p>{description}</p>
-        </div>
-      </Link>
-    </div>
+    <Link to={link} className="f0-card">
+      <div className="f0-card__label">{label}</div>
+      <div className="f0-card__title">{title}</div>
+      <p className="f0-card__body">{description}</p>
+    </Link>
   );
 }
 
@@ -95,16 +128,27 @@ export default function Home(): ReactNode {
   return (
     <Layout
       title="Documentation"
-      description="ProjectAchilles — Continuous Security Validation. Turn threat intelligence into executable tests, measure defense readiness, and close the gaps.">
-      <HomepageHeader />
+      description="ProjectAchilles — continuous security validation. Turn threat intelligence into executable tests, measure defense readiness, and close the gaps.">
+      <Hero />
       <main>
-        <section style={{padding: '3rem 0'}}>
-          <div className="container">
-            <div className="row">
-              {features.map((feature) => (
-                <FeatureCard key={feature.title} {...feature} />
-              ))}
-            </div>
+        <section className="f0-section">
+          <div className="f0-section__label">what you get</div>
+          <div className="f0-grid">
+            {features.map((feature) => (
+              <FeatureCard key={feature.title} {...feature} />
+            ))}
+          </div>
+        </section>
+
+        <section className="f0-section" style={{paddingTop: 0}}>
+          <div className="f0-section__label">at a glance</div>
+          <div className="f0-stats">
+            {stats.map((stat) => (
+              <div className="f0-stat" key={stat.label}>
+                <div className="f0-stat__value">{stat.value}</div>
+                <div className="f0-stat__label">{stat.label}</div>
+              </div>
+            ))}
           </div>
         </section>
       </main>

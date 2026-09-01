@@ -22,7 +22,7 @@ Stop hoping your defenses work. Start proving it.
 </div>
 
 <p align="center">
-  <img src="docs/screenshots/analytics-dashboard.png" alt="ProjectAchilles Analytics Dashboard — Defense Score, trend analysis, Secure Score correlation, and technique distribution" width="800">
+  <img src="docs/screenshots/security-dashboard.png" alt="ProjectAchilles Security Dashboard — attention banner, KPI strip, trend overview, severity mix, ATT&CK coverage, and category breakdown" width="800">
 </p>
 
 ---
@@ -63,6 +63,8 @@ ProjectAchilles is a continuous security validation platform with four core comp
 3. **Analytics & Measurement** — An Elasticsearch-backed dashboard that quantifies defense readiness with scores, heatmaps, trend analysis, and MITRE ATT&CK coverage matrices — turning raw test results into actionable intelligence for security teams and leadership.
 
 4. **CLI & AI Agent** — A Bun-powered command-line tool (`achilles`) with 18 command modules for platform management — including a unified `achilles deploy` TUI — and an AI conversational agent mode powered by Vercel AI SDK for natural-language fleet operations.
+
+All four are driven from one console: a flat six-destination interface — Dashboard, Tests, Analytics, Agents, Tasks, Settings — with a single unified Security Dashboard as the landing page.
 
 The platform is open-source, deploys in minutes via Docker Compose, and integrates with Microsoft Defender for cross-correlation between your internal validation results and your EDR's own security posture data.
 
@@ -119,6 +121,35 @@ The PowerShell script checks prerequisites, fixes line endings, configures `back
 | **Vercel** | `backend-serverless/` | Turso (libSQL) | No | [Vercel Guide](docs/deployment/VERCEL.md) |
 
 ## Features
+
+### Unified Security Dashboard
+
+One landing page for posture across the test library, the endpoint fleet, and Elasticsearch analytics — replacing the three separate module dashboards.
+
+<p align="center">
+  <img src="docs/screenshots/security-dashboard.png" alt="Security Dashboard — attention banner, KPI strip, trend overview, severity mix, ATT&CK coverage, and category breakdown" width="800">
+</p>
+
+- **Attention banner** — derived, never stored: offline agents, stale agents, failed tasks in the last 24 h, outdated binaries, and git sync failures, each linking to the page that resolves it
+- **KPI strip** — Defense Score, Secure Score, total tests, average score, agents online, executions in the window
+- **Cards** — trend overview, severity mix, MITRE ATT&CK coverage, category breakdown, fleet health, recent executions
+- **7d / 30d / 90d range selector**, defaulting to 90 days
+- **Per-card degradation** — an unconfigured integration greys out its own card with a "Configure →" link; the dashboard never redirects you away
+
+### Console & Navigation
+
+A single dark **f0 design language** across every screen — terminal-green accent on near-black surfaces, Inter for prose, JetBrains Mono for anything machine-shaped (hostnames, versions, exit codes, IDs).
+
+| Destination | What lives there |
+|-------------|------------------|
+| **Dashboard** | Unified posture across tests, endpoints, and analytics |
+| **Tests** | The test library with a faceted browse rail |
+| **Analytics** | Defense Score, executions, risk acceptances, Defender |
+| **Agents** | Fleet table plus the fleet-pulse utility rail |
+| **Tasks** | Live task stream, scheduled tasks, task detail |
+| **Settings** | Integrations, tests, agent binaries, users, API keys |
+
+Keyboard shortcuts: `1`–`6` jump between destinations, `/` focuses page search, `⌘K` opens global search, `?` lists every shortcut. Every pre-2.1 URL (`/browser`, `/endpoints/*`, `/favorites`, …) redirects, so existing bookmarks keep working.
 
 ### AI-Powered Test Development
 
@@ -197,14 +228,14 @@ A Bun-powered command-line interface for managing the entire platform from the t
 Browse the full test library with rich metadata and execute tests directly from the UI.
 
 <p align="center">
-  <img src="docs/screenshots/test-browser.png" alt="Test browser — card grid with severity badges, MITRE techniques, platform tags, and defense scores" width="800">
+  <img src="docs/screenshots/tests.png" alt="Tests — facet rail with category, severity, platform and threat-actor filters beside grouped test cards" width="800">
 </p>
 
-- Filter by MITRE ATT&CK technique, platform, category, and severity
+- **Facet rail** — category, severity, platform, threat actor, and a "not run yet" toggle, with live counts and client-side filtering
+- Tests grouped by category, each card carrying severity, platform, stage count, and test score
 - View source code, detection rules, hardening scripts, and attack flow diagrams
 - Build, sign, and download test binaries directly from test detail pages
-- MITRE ATT&CK coverage matrix with visual technique heatmap
-- Execution drawer — assign and run tests directly from the browse page
+- Dispatch a test to selected agents, now or on a schedule
 - Favorite tests, track recent views, view version history and Git modification dates
 
 ### Execution Framework
@@ -212,7 +243,7 @@ Browse the full test library with rich metadata and execute tests directly from 
 Deploy a lightweight Go agent to endpoints for remote test execution with full lifecycle management.
 
 <p align="center">
-  <img src="docs/screenshots/agent-dashboard.png" alt="Agent dashboard — fleet overview with online/offline status, health metrics, version and OS distribution" width="800">
+  <img src="docs/screenshots/agents.png" alt="Agents — fleet pulse rail with online/offline ring, version rollout, groups, key rotation and binaries beside the grouped agent table" width="800">
 </p>
 
 - **Enrollment** — Token-based registration with configurable TTL and max uses
@@ -225,14 +256,17 @@ Deploy a lightweight Go agent to endpoints for remote test execution with full l
 - **Encrypted Config** — Agent credentials encrypted at rest with AES-256-GCM using machine-bound keys
 - **Remote Uninstall** — Two-phase agent removal (stop service + cleanup) initiated from admin UI
 
+- **Fleet utility rail** — online/offline/stale ring, version rollout, groups, key-rotation settings, and per-platform binary downloads beside the agent table
+- **Live task stream** — chronological view with date markers, collapsible batch rows, a detail panel, an expanded stdout/stderr view, and one-click retry for failed test tasks
+
 <details>
-<summary>More: Fleet management &amp; heartbeat monitoring</summary>
+<summary>More: heartbeat monitoring &amp; task stream</summary>
 <br>
 <p align="center">
-  <img src="docs/screenshots/agent-fleet.png" alt="Agent fleet — full table with health scores, version management, OS badges, and tags" width="800">
+  <img src="docs/screenshots/agent-heartbeat.png" alt="Agent heartbeat — CPU usage, memory usage, and disk free charts over 7 days" width="800">
 </p>
 <p align="center">
-  <img src="docs/screenshots/agent-heartbeat.png" alt="Agent heartbeat — CPU usage, memory usage, and disk free charts over 7 days" width="800">
+  <img src="docs/screenshots/tasks.png" alt="Tasks — KPI strip above the live task stream, with a selected task's detail panel showing agent, duration, exit code and stdout" width="800">
 </p>
 </details>
 
@@ -241,19 +275,32 @@ Deploy a lightweight Go agent to endpoints for remote test execution with full l
 Quantify your security posture with 30+ query endpoints powered by Elasticsearch.
 
 <p align="center">
-  <img src="docs/screenshots/executions-table.png" alt="Executions table — bundle results with per-control Protected/Unprotected badges, techniques, and category filters" width="800">
+  <img src="docs/screenshots/analytics-dashboard.png" alt="Analytics dashboard — results by error type, ATT&CK technique distribution, score by category, Defense Score ledger, and trend overview" width="800">
 </p>
 
 - **Defense Score** — Aggregate score with breakdowns by test, technique, category, hostname, and severity
 - **Trend Analysis** — Rolling-window defense score and error rate trends over time
 - **MITRE ATT&CK Heatmaps** — Host-test matrix showing protection status across your fleet
 - **Coverage Treemaps** — Hierarchical category/subcategory coverage visualization
-- **Execution Table** — Paginated results with advanced filtering (technique, hostname, threat actor, tags)
+- **Executions Master-Detail** — grouped runs on the left, per-control Protected/Unprotected results on the right; keyboard selection, bulk archive / accept-risk, CSV + JSON export, and a deep-linkable `?expanded=<id>`
 - **Risk Acceptance** — Accept risk on individual controls with audit tracking
 - **Microsoft Defender Integration** — Sync Secure Score, alerts, and control profiles with cross-correlation analytics; dedicated Defender tab with alert drill-down drawer, correlation timeline, per-execution detection rate with MITRE roll-up, and control ↔ alert linking
 - **Trend Alerting** — Threshold-based Slack and email notifications with in-app notification bell
 - **Write-Index Rollover** — Results ingest into dated write indices (`achilles-results-YYYY.MM.DD`) with daily, monthly, or static rollover; per-task index targeting for isolated result sets
-- **Visual Themes** — Three selectable themes: Default (light/dark), Neobrutalism (hot pink accent, bold borders), Hacker Terminal (phosphor green/amber scanlines)
+- **90-day default window** — weekly and monthly bundle schedules produced empty charts on a 30-day default
+
+<details>
+<summary>More: the posture section</summary>
+<br>
+<p align="center">
+  <img src="docs/screenshots/analytics-posture.png" alt="Analytics posture row — Defense Score ledger and Secure Score beside the trend overview, with test activity and top remediation controls" width="800">
+</p>
+<p align="center">
+  <img src="docs/screenshots/executions-table.png" alt="Executions — master-detail view with grouped bundle runs on the left and per-control Protected/Unprotected results on the right" width="800">
+</p>
+
+The Defense Score renders as a **ledger** — a ring gauge beside four reconciling lines (Actual, EDR-only, Risk-accepted, Inconclusive) — rather than one big number with the reconciliation left implicit. Secure Score and Top Remediation Controls appear only when Microsoft Defender is configured; without it the remaining cards reflow to fill the row.
+</details>
 
 ### Build System
 

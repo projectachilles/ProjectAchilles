@@ -23,14 +23,40 @@ Each enrolled agent sends a heartbeat to the backend every **60 seconds** (±5s 
 
 ## Agent Management UI
 
-The Agents page displays:
-- Agent hostname and IP
+The Agents page pairs a fleet-pulse rail with the agent table.
+
+![Agents — grouped fleet table with status dots, hostnames, health bars, 24 h heartbeat sparklines, versions and last-seen times](/img/screenshots/agents.png)
+
+The **rail** on the left carries, top to bottom: an online/offline/stale ring,
+the attention strip, version rollout, groups, key-rotation settings, and
+downloadable binaries per platform.
+
+The **table** groups agents by tag and shows, per row:
+
+- Status dot (accent = online, danger = offline) and hostname in mono
 - Operating system and architecture
-- Current status (online/offline)
-- Last heartbeat timestamp
-- CPU, memory, and disk usage meters
-- Agent version
-- Custom tags
+- Health score with a proportional bar
+- A **24-hour heartbeat sparkline**
+- Agent version, plus `outdated` / `stale` / `key rotating` chips
+- Last-seen, coloured by staleness
+
+### Heartbeat sparklines
+
+Every row's sparkline comes from a single fleet-wide request —
+`GET /api/agent/admin/agents/heartbeats?hours=24` — introduced in 2.1. Before
+that the page issued one request per agent, which meant a 200-agent fleet fired
+200 requests on every load. See
+**[Bulk Heartbeat Buckets](../../api-reference/agent-admin)**.
+
+A flat line means the agent has not checked in during the window; gaps show
+exactly when it dropped.
+
+### Agent detail
+
+Click a hostname for the per-agent view: **Overview** (system info, metadata,
+recent tasks), **Task History**, **Heartbeat** charts, and the **Event Log**.
+
+![Agent detail — system information, metadata, health score, tags, and recent tasks](/img/screenshots/agent-detail.png)
 
 ![Agent heartbeat — CPU usage, memory usage, and disk free charts over 7 days](/img/screenshots/agent-heartbeat.png)
 

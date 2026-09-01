@@ -15,7 +15,7 @@ The browser page opens with a 2-tab layout:
 1. **Overview** — MITRE ATT&CK coverage chart, category legend, and summary statistics
 2. **Browse** — Filterable test grid/list
 
-![Browser overview — MITRE ATT&CK coverage chart, severity distribution, and category breakdown](/img/screenshots/browser-overview.png)
+![Security Dashboard — ATT&CK coverage, severity mix and category breakdown across the whole library](/img/screenshots/security-dashboard.png)
 
 ## Views
 
@@ -24,7 +24,7 @@ Toggle between **Grid** and **List** views using the view selector in the top-ri
 - **Grid view** — Card-based layout showing test name, category, severity, and platform badges
 - **List view** — Compact table with sortable columns
 
-![Test browser — card grid view with severity badges, platform tags, and defense scores](/img/screenshots/test-browser-cards.png)
+![Tests — facet rail beside category-grouped test cards with severity badges, platform tags and test scores](/img/screenshots/tests.png)
 
 ## Filtering
 
@@ -107,7 +107,8 @@ The **Overview** tab features an interactive MITRE ATT&CK Enterprise coverage ch
 - From the detail panel, click a technique to filter the Browse tab to tests covering that technique
 - Use the **empty tactic toggle** to show or hide tactics that have no mapped tests
 
-The chart adapts its color scheme to the active visual theme (Default, Neobrutalism, or Hacker Terminal).
+Coverage density is rendered with the governed chart tokens — accent green at
+varying opacity — so it stays legible against the console's dark surfaces.
 
 :::tip Drill-Down Navigation
 Click a technique in the coverage chart to jump directly to the Browse tab with that technique pre-filtered. This is the fastest way to find tests for a specific ATT&CK technique.

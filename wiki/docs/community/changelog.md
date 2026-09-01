@@ -10,6 +10,60 @@ All notable changes to ProjectAchilles are documented here. The format is based 
 
 For the full, detailed changelog, see [CHANGELOG.md on GitHub](https://github.com/projectachilles/ProjectAchilles/blob/main/docs/CHANGELOG.md).
 
+## [2.1.0] — 2026-09-01
+
+Interface release. The console was rebuilt on the **f0 design language**, the
+three module dashboards were replaced by one unified Security Dashboard, and
+navigation flattened to six destinations.
+
+### Added
+
+- **Unified Security Dashboard** at `/dashboard` — attention banner, six-KPI
+  strip, trend overview, severity mix, ATT&CK coverage, category breakdown,
+  fleet health, and recent executions, with a 7d/30d/90d range selector and
+  per-card degradation instead of redirects.
+- **Console & Navigation** — flat six-item sidebar (Dashboard, Tests,
+  Analytics, Agents, Tasks, Settings) with docked global search and
+  notifications, and keyboard shortcuts (`1`–`6`, `/`, `⌘K`, `?`).
+- **Tests** — faceted browse rail (category, severity, platform, threat actor,
+  "not run yet") beside grouped test cards.
+- **Executions master-detail** — grouped runs on the left, per-control results
+  on the right, keyboard selection, and a deep-linkable `?expanded=<id>`.
+- **Agents utility rail** — fleet-pulse ring, attention strip, version rollout,
+  groups, key rotation, and per-platform binary downloads as native rail cards.
+- **Task stream** — chronological stream with date markers, status glyphs,
+  collapsible batch rows, and a detail panel; failed test tasks can be
+  **retried** in place.
+- **Expanded output view** — click `STDOUT` / `STDERR` to open the full output
+  in a scrollable dialog.
+- **`GET /api/agent/admin/agents/heartbeats`** — bulk hourly heartbeat buckets
+  for the whole fleet in one request, replacing one request per agent behind
+  the sparkline column.
+- **`POST /api/agent/admin/tasks/:id/retry`** — re-dispatch a terminal
+  `execute_test` task, linked to the original through `original_task_id`.
+
+### Changed
+
+- **Analytics defaults to a 90-day window** (was 30). Weekly and monthly bundle
+  schedules produced empty 30-day charts on healthy programmes.
+- **Analytics posture section** rebuilt in analyst columns — a Defense Score
+  ledger (Actual / EDR-only / Risk-accepted / Inconclusive) and Secure Score on
+  the left, trend overview on the right. Actual Score renders as a neutral
+  dashed reference line so it no longer competes with the green series.
+- **Coverage and by-host charts** flattened to bar lists; the Test Breadth by
+  Host treemap renders at a fixed height again.
+- **Scheduled Tasks** on the Tasks page is collapsed by default.
+- **Routes flattened** to `/dashboard`, `/tests`, `/analytics`, `/agents`,
+  `/tasks`, `/settings`. Every pre-2.1 path redirects, so existing bookmarks
+  keep working.
+
+### Removed
+
+- **Theme selector and the Default / Neobrutalism / Hacker Terminal themes.**
+  The console ships a single dark theme; stored theme preferences are ignored.
+- The per-module Browser, Analytics, and Agent dashboards, superseded by the
+  unified Security Dashboard.
+
 ## [Unreleased]
 
 ### Recent Changes (May–July 2026)

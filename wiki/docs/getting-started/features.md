@@ -8,6 +8,27 @@ description: A comprehensive overview of all ProjectAchilles features — AI-pow
 
 ProjectAchilles is built around three pillars — **develop tests**, **execute them**, and **measure the results** — each accessible from a unified web interface with Clerk authentication.
 
+## Unified Security Dashboard
+
+`/dashboard` is the console's landing page — one view of posture across the
+test library, the endpoint fleet, and Elasticsearch analytics. It replaced the
+three separate module dashboards in 2.1.
+
+![Security Dashboard — attention banner, KPI strip, trend overview, severity mix, ATT&CK coverage and category breakdown](/img/screenshots/security-dashboard.png)
+
+- **Attention banner** — derived, not stored: offline agents, stale agents,
+  failed tasks in the last 24 h, outdated binaries, and git sync failures, each
+  linking to the page that resolves it
+- **KPI strip** — Defense Score, Secure Score, total tests, average score,
+  agents online, and executions in the window
+- **Trend overview**, **severity mix**, **ATT&CK coverage**, **category
+  breakdown**, **fleet health**, and **recent executions**
+- **7d / 30d / 90d** range selector, defaulting to 90 days
+- **Per-card degradation** — an unconfigured integration greys out its own card
+  and offers a "Configure →" link; the dashboard never redirects you away
+
+See **[Security Dashboard](../user-guide/console/security-dashboard)**.
+
 ## AI-Powered Test Development
 
 Security tests are built by a multi-agent AI pipeline that converts threat intelligence into complete test packages. Each test includes ~19 artifacts generated autonomously.
@@ -59,7 +80,7 @@ Browse the full test library with rich metadata and execute tests directly from 
 - **Execution drawer** — assign and run tests directly from the browse page
 - **Favorite tests**, track recent views, view version history and Git modification dates
 
-![Test browser — card grid with severity badges, MITRE techniques, platform tags, and defense scores](/img/screenshots/test-browser-cards.png)
+![Tests — facet rail with category, severity, platform and threat-actor filters beside grouped test cards showing severity badges and test scores](/img/screenshots/tests.png)
 
 :::tip Hybrid Test Library
 Tests can come from an upstream Git repository (auto-synced) or from custom local directories. Both sources are indexed with collision-free UUIDs. See [Custom Tests](../user-guide/test-browser/custom-tests) for details.
@@ -86,7 +107,7 @@ Quantify your security posture with 30+ query endpoints powered by Elasticsearch
 
 Deploy a lightweight Go agent to endpoints for remote test execution with full lifecycle management.
 
-![Agent dashboard — fleet overview with online/offline status, health metrics, version and OS distribution](/img/screenshots/agent-dashboard.png)
+![Agents — fleet pulse rail with online/offline ring, version rollout, groups, key rotation and binaries beside the grouped agent table](/img/screenshots/agents.png)
 
 - **Enrollment** — Token-based registration with configurable TTL and max uses
 - **Heartbeat Monitoring** — Real-time online/offline status with CPU, memory, disk, and uptime metrics
@@ -154,15 +175,29 @@ Threshold-based alerting when defense scores drop below configured levels:
 - **Email** — Nodemailer with SMTP configuration
 - **In-App** — Notification bell with recent alert history
 
-## Visual Themes
+## Console & Navigation
 
-Three selectable themes to match your team's preference:
+A single dark **f0 design language** across every screen — terminal-green
+accent on near-black surfaces, Inter for prose and JetBrains Mono for anything
+machine-shaped (hostnames, versions, exit codes, IDs).
 
-| Theme | Description |
-|-------|-------------|
-| **Default** | Clean light/dark mode with purple accent |
-| **Neobrutalism** | Hot pink accent, bold borders, high contrast |
-| **Hacker Terminal** | Phosphor green/amber with scanline effects |
+Navigation is flat: six destinations in a fixed sidebar, with global search and
+notifications docked under the wordmark.
+
+| Destination | What lives there |
+|-------------|------------------|
+| **Dashboard** | Unified posture across tests, endpoints, and analytics |
+| **Tests** | The test library with a faceted browse rail |
+| **Analytics** | Defense Score, executions, risk acceptances, Defender |
+| **Agents** | Fleet table plus the fleet-pulse utility rail |
+| **Tasks** | Live task stream, scheduled tasks, and task detail |
+| **Settings** | Integrations, tests, agent binaries, users, API keys |
+
+Keyboard shortcuts: `1`–`6` jump between destinations, `/` focuses the page
+search, `⌘K` / `Ctrl+K` opens global search, and `?` lists every shortcut.
+
+See **[Console & Navigation](../user-guide/console/navigation)** for the full
+tour.
 
 ## Security Hardening
 

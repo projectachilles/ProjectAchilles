@@ -25,7 +25,7 @@ Rendered markdown documentation describing the test's purpose, behavior, and exp
 ### Detection Rules Tab
 KQL (Kusto Query Language) and YARA rules for detecting the test's activity. Copy individual rules to clipboard for use in your SIEM.
 
-![Detection rules — KQL query with syntax highlighting and file tree](/img/screenshots/test-detail-detection.png)
+![Detection rules — LimaCharlie D&R YAML with syntax highlighting beside the test's file tree](/img/screenshots/test-detail-detection.png)
 
 ### References Tab
 External references and documentation links related to the technique.

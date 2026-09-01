@@ -213,19 +213,18 @@ if (isFavorite(testUuid)) {
 
 ### useTheme
 
-Multi-theme system with style variants:
+Compatibility shim for the single f0 dark theme:
 
 ```typescript
-const { theme, themeStyle, phosphorVariant, setTheme, setThemeStyle, toggleThemeStyle } = useTheme();
+const { theme } = useTheme(); // always 'dark'
 ```
 
-| Property | Type | Values |
-|----------|------|--------|
-| `theme` | Base | `'light'` \| `'dark'` |
-| `themeStyle` | Variant | `'default'` \| `'neobrutalism'` \| `'hackerterminal'` |
-| `phosphorVariant` | Terminal color | `'green'` \| `'amber'` |
+The provider API is kept so existing consumers and tests keep compiling, but
+`theme` is pinned to `'dark'`, the style/phosphor variants are gone, and nothing
+is written to `localStorage`. `<html>` carries `class="dark"` permanently.
 
-The hook manages CSS classes on `<html>`: `.dark`/`.light` for base themes, `.neobrutalism`/`.hackerterminal` for variants, `.phosphor-amber` for terminal color.
+Prefer reading design tokens (`bg-surface`, `text-faint`, `var(--accent)`) over
+branching on `theme` in new code.
 
 ### useCapabilities
 

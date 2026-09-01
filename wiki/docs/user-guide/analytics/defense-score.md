@@ -45,9 +45,19 @@ A downward trend indicates deteriorating security posture and may trigger [thres
 
 The dashboard overlays the real-time score with a trend line, making it easy to see both the current state and the trajectory.
 
+## Time window
+
+Analytics defaults to a **90-day** window. Most fleets run scheduled bundles
+weekly or monthly, so a 30-day default showed empty charts for healthy
+programmes. Change it from the range selector in the page header; the choice is
+carried in the URL, so a filtered view is shareable.
+
+The Security Dashboard has its own independent **7d / 30d / 90d** selector,
+also defaulting to 90 days.
+
 ## Dashboard Layout
 
-![Analytics dashboard — Defense Score, trend overview, Secure Score, category breakdown, and technique distribution](/img/screenshots/analytics-dashboard.png)
+![Analytics posture row — Defense Score ledger and Secure Score beside the trend overview, with test activity and top remediation controls](/img/screenshots/analytics-posture.png)
 
 The Analytics Dashboard uses a multi-tab interface with four main areas:
 
@@ -69,32 +79,69 @@ graph TB
     ADP --> RT
     ADP --> DefT
 
-    DT --> HMC[Hero Metrics Card]
-    DT --> TC[Trend Chart]
-    DT --> EPC[Error Type Breakdown]
-    DT --> CT[Coverage Treemap]
-    DT --> CBC[Category Breakdown]
+    DT --> TRIO[Error Types · ATT&CK Distribution · Score by Category]
+    DT --> LED[Defense Score Ledger]
+    DT --> SEC[Secure Score]
+    DT --> TREND[Trend Overview]
+    DT --> ACT[Test Activity]
+    DT --> TOP[Top Remediation Controls]
+    DT --> COV[Test Coverage · Defense Score by Host]
+    DT --> TREE[Test Breadth by Host]
 ```
 
 ### Dashboard Tab
 
-The **Dashboard** tab is the primary visualization hub. It contains the following components:
+The **Dashboard** tab is the primary visualization hub. Since 2.1 it is laid out
+in analyst columns: a narrow left column carrying the numbers you quote, and a
+wide right column carrying the shapes you read.
 
-- **Hero Metrics Card** -- Displays the Defense Score with a trend indicator (up/down arrow), total unique endpoints, executed test count, error rate percentage, and risk-accepted count.
-- **Trend Chart** -- Multi-series time chart plotting Defense Score and error rate over time. When Microsoft Defender is configured, the Secure Score trend is overlaid for cross-platform comparison.
-- **Error Type Breakdown** -- Pie chart showing the distribution of error types across executions.
-- **Coverage Treemap** -- Interactive hierarchical visualization of per-host test coverage (see below).
-- **Category Breakdown** -- Nested donut chart with an outer ring for test categories and an inner ring for subcategories, sized by execution count.
+**Top row — three cards**
+
+- **Results by error type** — donut plus a legend list of `name · count · pct`
+- **ATT&CK technique distribution** — one row per technique with a stacked
+  protected/unprotected bar and a percentage; a warning chip counts techniques
+  that also raised Defender alerts
+- **Score by category** — bar list of defense score per category, with
+  subcategories nested underneath
+
+**Posture row — left column**
+
+- **Defense Score ledger** — a ring gauge beside four reconciling lines:
+  *Actual* (raw protected share), *EDR-only*, *Risk-accepted* (how many results
+  are excluded), and *Inconclusive*. A footer strip carries endpoints, tests,
+  and result counts. The ledger replaced the old hero card, which showed one
+  big number and left the reconciliation implicit.
+- **Secure Score** — Microsoft Defender's score and raw points, when configured
+
+**Posture row — right column**
+
+- **Trend Overview** — Defense Score, Actual Score, error rate, and (when
+  configured) Secure Score on one 30-day-rolling axis. Actual Score renders as a
+  neutral dashed reference line rather than a fourth green series.
+
+**Lower rows** — Test activity, Top Remediation Controls (ranked by Secure Score
+impact), Test Coverage and Defense Score by Host as flat bar lists, and the
+Test Breadth by Host treemap.
+
+:::note Without Microsoft Defender
+The Secure Score and Top Remediation Controls cards are Defender-only. When the
+integration is not configured they are omitted and the remaining cards reflow to
+fill the row — the layout stays balanced rather than leaving a gap.
+:::
 
 ### Executions Tab
 
 The **Executions** tab provides a full data table of individual test executions. Features include:
 
-- Configurable column visibility and sortable columns
-- Multi-select with bulk operations (archive, accept risk)
+- **Master-detail layout** — grouped runs on the left, the selected run's
+  per-control results on the right; `↑` / `↓` move the selection
 - Bundle grouping -- related bundle controls are grouped under collapsible parent rows showing a "X/Y Protected" summary badge
+- Multi-select with bulk operations (archive, accept risk)
 - CSV and JSON export with consistent timestamp formatting
-- Expandable detail panels for each execution
+- Deep-linkable — the selected run rides in `?expanded=<id>`, so a dashboard
+  "recent executions" row or a shared link opens straight to that result
+
+![Executions — master-detail view with grouped bundle runs on the left and per-control Protected/Unprotected results on the right](/img/screenshots/executions-table.png)
 
 ### Risk Acceptances Tab
 
@@ -132,6 +179,9 @@ The Coverage Treemap provides a drill-down view of test coverage per endpoint:
   - **Amber** (50--79%) -- Partial coverage
   - **Red** (below 50%) -- Low coverage
 - Click a host cell to drill down to individual test results on that endpoint
+
+![Test Coverage and Defense Score by Host bar lists above the Test Breadth by Host treemap](/img/screenshots/analytics-coverage.png)
+
 - Three baseline comparison modes control how "100% coverage" is defined:
   - **90-day baseline** -- Uses the total distinct tests seen in the last 90 days
   - **30-day baseline** -- Uses the total distinct tests seen in the last 30 days
