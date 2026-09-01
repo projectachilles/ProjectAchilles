@@ -261,6 +261,25 @@ describe('update.service', () => {
       expect(result.signer_subject).toBeNull();
     });
 
+    // cert_id arrives from the request body. It is matched against the
+    // directories that actually exist under the certs root rather than
+    // sanitised, so a traversal sequence never reaches path.join.
+    it('rejects a certificate id containing a traversal sequence', async () => {
+      const buffer = Buffer.from('win-binary');
+      mockExistsSync.mockReturnValue(true);
+      mockStatSync.mockReturnValue({ size: 10 });
+      mockReadFileSync.mockReturnValue(buffer);
+
+      await expect(
+        registerVersionFromUpload('3.3.0', 'windows', 'amd64', buffer, 'notes', false, {
+          certId: '../../../../etc/ssl',
+        }),
+      ).rejects.toThrow(/not found/i);
+
+      const row = testDb.prepare('SELECT * FROM agent_versions WHERE version = ?').get('3.3.0');
+      expect(row).toBeUndefined();
+    });
+
     // Linux has no signing ecosystem equivalent, so it must not be blocked by
     // the certificate requirement.
     it('registers a Linux upload without requiring a certificate', async () => {

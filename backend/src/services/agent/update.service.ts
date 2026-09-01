@@ -212,7 +212,17 @@ export async function registerVersionFromUpload(
   const filename = `achilles-agent-${version}${ext}`;
   const binaryPath = path.join(dir, filename);
 
-  fs.writeFileSync(binaryPath, fileBuffer);
+  // VERSION_REGEX excludes path separators, so `version` cannot traverse today.
+  // Assert containment anyway: this path is later written, signed, and deleted,
+  // and relaxing that regex in future should not silently turn those into
+  // arbitrary-file operations.
+  const binariesDir = path.resolve(dir);
+  const resolvedBinary = path.resolve(binaryPath);
+  if (!resolvedBinary.startsWith(binariesDir + path.sep)) {
+    throw new Error('Refusing to write the binary outside the binaries directory');
+  }
+
+  fs.writeFileSync(resolvedBinary, fileBuffer);
 
   let signed = false;
   let signerSubject: string | null = null;
@@ -228,16 +238,16 @@ export async function registerVersionFromUpload(
             : 'No active code signing certificate is configured. Add one under Settings → Tests, or upload unsigned.'
         );
       }
-      ({ signed, signerSubject } = await signWindowsBinary(binaryPath, cert));
+      ({ signed, signerSubject } = await signWindowsBinary(resolvedBinary, cert));
     } else if (agentOs === 'darwin') {
-      ({ signed, signerSubject } = await signDarwinBinaryAdHoc(binaryPath));
+      ({ signed, signerSubject } = await signDarwinBinaryAdHoc(resolvedBinary));
     }
     // Linux binaries are not signed — there is no ecosystem equivalent.
   } catch (err) {
     if (!signing.allowUnsigned) {
       // Do not leave a half-processed binary behind for the next upload to
       // collide with; the caller gets the reason and can retry or opt out.
-      if (fs.existsSync(binaryPath)) fs.unlinkSync(binaryPath);
+      if (fs.existsSync(resolvedBinary)) fs.unlinkSync(resolvedBinary);
       throw err;
     }
     console.warn(
@@ -245,7 +255,7 @@ export async function registerVersionFromUpload(
     );
   }
 
-  return registerVersion(version, agentOs, arch, binaryPath, releaseNotes, mandatory, signed, signerSubject);
+  return registerVersion(version, agentOs, arch, resolvedBinary, releaseNotes, mandatory, signed, signerSubject);
 }
 
 /**
