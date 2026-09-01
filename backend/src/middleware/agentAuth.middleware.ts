@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { getDatabase } from '../services/agent/database.js';
-import { promotePendingKey, ROTATION_GRACE_PERIOD_SECONDS } from '../services/agent/enrollment.service.js';
+import { cancelPendingKey, promotePendingKey, ROTATION_GRACE_PERIOD_SECONDS } from '../services/agent/enrollment.service.js';
 import {
   getCachedAgent,
   setCachedAgent,
@@ -27,11 +27,23 @@ const DUMMY_HASH = bcrypt.hashSync('dummy-value-for-timing', 12);
  *   - Authorization: Bearer ak_<token>
  *   - X-Agent-ID: <agent_id>
  *
- * Supports dual-key authentication during rotation grace periods:
- *   1. If a pending key exists and the grace period has expired, promote it first
- *   2. Try the current api_key_hash
- *   3. If no match and a pending key exists (within grace), try the pending hash
- *   4. If the pending hash matches, promote it (agent has adopted the new key)
+ * Supports dual-key authentication during rotations. A rotation is resolved by
+ * which key the agent presents, never by elapsed time — both keys stay
+ * acceptable until the agent proves which one it holds:
+ *   1. Try the current api_key_hash
+ *   2. If it matches and a pending key exists whose grace period has already
+ *      expired, the agent never picked the new key up — cancel the rotation and
+ *      keep the current key. Within the grace period the pending key is left
+ *      alone: the agent is *expected* to still be on the old key, because the
+ *      heartbeat response is what delivers the new one
+ *   3. If it does not match and a pending key exists, try the pending hash
+ *   4. If the pending hash matches, promote it — the agent has proven it holds
+ *      the new key, which is the only safe moment to make it primary
+ *
+ * The grace period governs *delivery* (how long a heartbeat will hand out the
+ * pending key), not acceptance. Resolving on a timer instead would lock out
+ * whichever agent guessed wrong: promoting strands one that was offline through
+ * the window, cancelling strands one that adopted the key and then slept.
  *
  * On success, attaches `req.agent` as AuthenticatedAgent.
  * On failure, returns 401 with uniform error message for all failure modes.
@@ -66,24 +78,10 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
     if (row) setCachedAgent(agentId, row);
   }
 
-  // If grace period has expired, promote pending → primary before auth check
-  if (row?.pending_api_key_hash && row.key_rotation_initiated_at) {
-    const initiatedAt = new Date(row.key_rotation_initiated_at + 'Z').getTime();
-    const elapsed = (Date.now() - initiatedAt) / 1000;
-    if (elapsed > ROTATION_GRACE_PERIOD_SECONDS) {
-      promotePendingKey(row.id);
-      invalidateAgentCache(row.id);
-      // Re-read the row to get the promoted hash
-      const db = getDatabase();
-      const updatedRow = db.prepare(
-        'SELECT id, org_id, hostname, os, arch, status, api_key_hash, pending_api_key_hash, key_rotation_initiated_at FROM agents WHERE id = ?'
-      ).get(agentId) as AgentRow | undefined;
-      if (updatedRow) {
-        row = updatedRow;
-        setCachedAgent(agentId, row);
-      }
-    }
-  }
+  // NOTE: the rotation is deliberately NOT resolved here based on elapsed time.
+  // At expiry the server cannot know which key the agent actually holds, and
+  // guessing bricks an agent either way — see the comment on the bcrypt branches
+  // below. Both keys stay acceptable until the agent proves which one it has.
 
   // Verdict-cache fast path: if this exact tokenHash recently passed bcrypt
   // for this agent, skip the cost-12 bcrypt.compare entirely. The verdict
@@ -100,11 +98,35 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
 
   bcrypt.compare(token, hashToCompare)
     .then(async (match) => {
-      // If primary key didn't match, try pending key (within grace period)
-      if (!match && row?.pending_api_key_hash) {
+      // A rotation is resolved by which key the agent presents, never by a
+      // clock. Both keys stay acceptable until then, because at grace expiry
+      // the server genuinely cannot tell the two cases apart, and either guess
+      // permanently locks out one of them:
+      //
+      //   - promote  → an agent that was offline through the whole window
+      //                never received the new key; its old key stops working
+      //   - cancel   → an agent that DID receive the new key and then went
+      //                offline comes back holding a key the server discarded
+      //
+      // Both were real: promote-on-expiry is the bug this replaces, and
+      // cancel-on-expiry is the mirror image it would have introduced.
+      if (match && row?.pending_api_key_hash && row.key_rotation_initiated_at) {
+        // Old key still in use. Only abandon the rotation once the DELIVERY
+        // window has closed — within the grace period the agent is expected to
+        // still be on the old key, because the heartbeat *response* to this
+        // very request is what hands the new key over. Cancelling here
+        // unconditionally would kill every rotation at the first heartbeat.
+        const initiatedAt = new Date(row.key_rotation_initiated_at + 'Z').getTime();
+        if ((Date.now() - initiatedAt) / 1000 > ROTATION_GRACE_PERIOD_SECONDS) {
+          cancelPendingKey(row.id);
+          invalidateAgentCache(row.id);
+        }
+      } else if (!match && row?.pending_api_key_hash) {
         const pendingMatch = await bcrypt.compare(token, row.pending_api_key_hash);
         if (pendingMatch) {
-          // Agent is using the new key — promote it
+          // Agent has proven it holds the new key — the only safe moment to
+          // make it primary. No grace-period check: an agent that adopted the
+          // key and then slept for a week is still the agent we want to keep.
           promotePendingKey(row.id);
           invalidateAgentCache(row.id);
           match = true;

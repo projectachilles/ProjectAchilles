@@ -190,7 +190,7 @@ async function initializeTables(c: Client): Promise<void> {
       event_type TEXT NOT NULL CHECK(event_type IN (
         'enrolled','went_offline','came_online','task_failed',
         'task_completed','version_updated','key_rotated',
-        'status_changed','decommissioned'
+        'key_rotation_cancelled','status_changed','decommissioned'
       )),
       details TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),

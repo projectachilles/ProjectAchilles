@@ -1,5 +1,5 @@
 import { getDatabase } from './database.js';
-import { decryptPendingKey, promotePendingKey, ROTATION_GRACE_PERIOD_SECONDS } from './enrollment.service.js';
+import { cancelPendingKey, decryptPendingKey, ROTATION_GRACE_PERIOD_SECONDS } from './enrollment.service.js';
 import { recordEvent } from './events.service.js';
 import { invalidateAgentCache } from './agentAuthCache.js';
 import { computeAgentHealthScore, computeAgentHealthScores } from './health.service.js';
@@ -138,7 +138,8 @@ export function processHeartbeat(agentId: string, payload: HeartbeatPayload): vo
 /**
  * Check if the agent has a pending rotation key that should be delivered via heartbeat.
  * Returns the plaintext key if within grace period, or null.
- * If the grace period has expired, promotes the pending key and returns null.
+ * If the grace period has expired, cancels the rotation and returns null — the
+ * agent keeps its existing key and the sweep re-arms once it is reliably online.
  */
 export function getPendingRotationKey(agentId: string): string | null {
   const db = getDatabase();
@@ -150,11 +151,14 @@ export function getPendingRotationKey(agentId: string): string | null {
     return null;
   }
 
-  // Check if grace period has expired
+  // Grace expired without the agent claiming the key — abandon the rotation
+  // rather than promoting a key this agent has never held. Reaching here means
+  // the agent is only now heartbeating, i.e. it was offline for the whole
+  // window, which is exactly the case promotion used to brick.
   const initiatedAt = new Date(row.key_rotation_initiated_at + 'Z').getTime();
   const elapsed = (Date.now() - initiatedAt) / 1000;
   if (elapsed > ROTATION_GRACE_PERIOD_SECONDS) {
-    promotePendingKey(agentId);
+    cancelPendingKey(agentId);
     return null;
   }
 

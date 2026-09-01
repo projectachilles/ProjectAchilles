@@ -266,6 +266,40 @@ export function promotePendingKey(agentId: string): void {
 }
 
 /**
+ * Abandon an armed-but-unclaimed rotation, keeping the agent's current key.
+ *
+ * The dual-key grace period only protects agents that heartbeat within
+ * ROTATION_GRACE_PERIOD_SECONDS. An agent that was asleep for the whole window
+ * never receives the pending key — promoting it on expiry would make the only
+ * key the agent holds invalid, locking it out permanently and forcing a manual
+ * re-enrollment. Cancelling instead is always recoverable: the agent keeps
+ * working, and the sweep re-arms a rotation the next time it is genuinely
+ * online.
+ *
+ * Deliberately leaves `api_key_hash` and `api_key_rotated_at` untouched, so the
+ * key-age clock keeps running and the agent stays eligible for the next sweep.
+ */
+export function cancelPendingKey(agentId: string, reason = 'grace_period_expired'): void {
+  const db = getDatabase();
+  const result = db.prepare(`
+    UPDATE agents
+    SET pending_api_key_hash = NULL,
+        pending_api_key_encrypted = NULL,
+        key_rotation_initiated_at = NULL,
+        updated_at = ?
+    WHERE id = ? AND pending_api_key_hash IS NOT NULL
+  `).run(new Date().toISOString(), agentId);
+
+  // Only record an event when this call actually cleared something — the
+  // expiry check runs on every request, so an unguarded write would spam the
+  // event log for as long as the agent keeps talking.
+  if (result.changes > 0) {
+    recordEvent(agentId, 'key_rotation_cancelled', { reason });
+  }
+  invalidateAgentCache(agentId);
+}
+
+/**
  * Rotate an agent's API key using a grace-period model.
  * The new key is stored as "pending" — both old and new keys work during
  * the grace period. The agent receives the new key via its next heartbeat

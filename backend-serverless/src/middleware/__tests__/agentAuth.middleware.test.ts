@@ -12,9 +12,19 @@ vi.mock('../../services/agent/database.js', async (importOriginal) => {
 });
 
 // Mock the enrollment service exports used by the auth middleware.
-// promotePendingKey needs to operate on the real test database.
+// Both key-resolution helpers operate on the real test database.
 vi.mock('../../services/agent/enrollment.service.js', () => ({
   ROTATION_GRACE_PERIOD_SECONDS: 300,
+  cancelPendingKey: async (agentId: string) => {
+    await testDb.run(`
+      UPDATE agents
+      SET pending_api_key_hash = NULL,
+          pending_api_key_encrypted = NULL,
+          key_rotation_initiated_at = NULL,
+          updated_at = ?
+      WHERE id = ? AND pending_api_key_hash IS NOT NULL
+    `, [new Date().toISOString(), agentId]);
+  },
   promotePendingKey: async (agentId: string) => {
     const now = new Date().toISOString();
     await testDb.run(`

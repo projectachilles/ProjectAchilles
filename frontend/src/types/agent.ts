@@ -301,6 +301,8 @@ export type AgentEventType =
   | 'task_completed'
   | 'version_updated'
   | 'key_rotated'
+  /** A rotation was armed but the agent never picked the key up; the old key was kept. */
+  | 'key_rotation_cancelled'
   | 'status_changed'
   | 'decommissioned';
 
