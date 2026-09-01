@@ -55,6 +55,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      # Consumed by the release job so an unsigned binary is called out in the
+      # release notes, not just in a log line nobody reads.
+      windows_signed: ${{ steps.sign_windows.outputs.windows_signed }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-go@v6
@@ -75,32 +79,80 @@ jobs:
         run: make build-all VERSION="$BUILD_VERSION"
 
       - name: Sign Windows binary
+        id: sign_windows
         working-directory: agent
         env:
           WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
           WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          # Set the repository variable REQUIRE_SIGNED_AGENT_RELEASE to 'true'
+          # to make an unsigned Windows binary fail the release outright.
+          REQUIRE_SIGNED: ${{ vars.REQUIRE_SIGNED_AGENT_RELEASE }}
         run: |
+          set -euo pipefail
+          BIN=dist/achilles-agent-windows-amd64.exe
+
+          # Skipping used to print one line and exit 0, which is how
+          # agent-v0.6.3 shipped an unsigned .exe without anyone noticing.
+          # Every path out of this step now records windows_signed, annotates
+          # the run, and writes to the job summary.
+          fail_or_warn() {
+            echo "windows_signed=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### :warning: Windows binary is UNSIGNED"
+              echo ""
+              echo "$1"
+              echo ""
+              echo "Endpoints enforcing WDAC or application control will refuse to run it."
+              echo "Sign it per-tenant via Settings → Agent → Upload Agent Binary, or configure"
+              echo "the \`WINDOWS_CERT_PFX\` / \`WINDOWS_CERT_PASSWORD\` secrets."
+            } >> "$GITHUB_STEP_SUMMARY"
+            if [ "${REQUIRE_SIGNED:-}" = "true" ]; then
+              echo "::error::Windows binary is unsigned and REQUIRE_SIGNED_AGENT_RELEASE is set. $1"
+              exit 1
+            fi
+            echo "::warning::Windows binary is UNSIGNED. $1"
+          }
+
           if [ -z "$WINDOWS_CERT_PFX" ]; then
-            echo "No Windows certificate configured, skipping signing"
+            fail_or_warn "No WINDOWS_CERT_PFX secret is configured, so signing was skipped."
             exit 0
           fi
 
           sudo apt-get update -qq && sudo apt-get install -y -qq osslsigncode > /dev/null
 
           echo "$WINDOWS_CERT_PFX" | base64 -d > /tmp/cert.pfx
+          trap 'rm -f /tmp/cert.pfx' EXIT
 
-          osslsigncode sign \
+          if ! osslsigncode sign \
             -pkcs12 /tmp/cert.pfx \
             -pass "$WINDOWS_CERT_PASSWORD" \
             -n "Achilles Agent" \
             -t http://timestamp.digicert.com \
-            -in dist/achilles-agent-windows-amd64.exe \
-            -out dist/achilles-agent-windows-amd64-signed.exe
+            -in "$BIN" \
+            -out dist/achilles-agent-windows-amd64-signed.exe; then
+            fail_or_warn "osslsigncode failed."
+            exit 0
+          fi
 
-          mv dist/achilles-agent-windows-amd64-signed.exe \
-             dist/achilles-agent-windows-amd64.exe
+          mv dist/achilles-agent-windows-amd64-signed.exe "$BIN"
 
-          rm -f /tmp/cert.pfx
+          # Confirm the signature actually landed rather than trusting the exit
+          # code. osslsigncode exits NON-ZERO for a signed-but-untrusted chain
+          # too, so this greps the output text; the exact wording is
+          # osslsigncode 2.x and must be re-checked against the tool if the
+          # pinned version changes.
+          # Capture first, then grep. Piping directly would be wrong under
+          # `set -o pipefail`: osslsigncode exits non-zero for a signed-but-
+          # untrusted chain, so the pipeline fails even when grep matched, and
+          # a correctly signed binary is reported as unsigned.
+          VERIFY_OUT=$(osslsigncode verify "$BIN" 2>&1 || true)
+          if printf '%s' "$VERIFY_OUT" |
+               grep -qiE 'Number of verified signatures|Signature Index:'; then
+            echo "windows_signed=true" >> "$GITHUB_OUTPUT"
+            echo "### :lock: Windows binary signed" >> "$GITHUB_STEP_SUMMARY"
+          else
+            fail_or_warn "osslsigncode reported success but the binary carries no signature."
+          fi
 
       - name: Sign macOS binaries (ad-hoc)
         run: |
@@ -150,6 +202,7 @@ jobs:
       - name: Build release notes
         env:
           AGENT_VERSION: ${{ steps.version.outputs.version }}
+          WINDOWS_SIGNED: ${{ needs.build.outputs.windows_signed }}
         run: |
           # Look for ## Agent [X.Y.Z] section in changelog
           NOTES=$(awk -v ver="$AGENT_VERSION" '
@@ -165,8 +218,25 @@ jobs:
             NOTES="Agent release ${AGENT_VERSION}. See [CHANGELOG.md](docs/CHANGELOG.md) for details."
           fi
 
+          # Lead with the signing status when the Windows binary is unsigned —
+          # someone downloading the .exe needs to know before they deploy it.
+          : > /tmp/release-notes.md
+          if [ "$WINDOWS_SIGNED" != "true" ]; then
+            cat >> /tmp/release-notes.md << 'UNSIGNED'
+          > [!WARNING]
+          > **The Windows binary in this release is not code-signed.**
+          > Endpoints enforcing WDAC or application control will refuse to run it.
+          >
+          > Sign it with your own certificate at **Settings → Agent → Upload Agent
+          > Binary**, which signs on upload and is the recommended path anyway:
+          > the artifact's provenance comes from this tagged build, the signature
+          > from the certificate your fleet actually trusts.
+
+          UNSIGNED
+          fi
+
           # Write release notes with installation header
-          cat > /tmp/release-notes.md << 'HEADER'
+          cat >> /tmp/release-notes.md << 'HEADER'
           ## Installation
 
           Download the binary for your platform and enroll:
