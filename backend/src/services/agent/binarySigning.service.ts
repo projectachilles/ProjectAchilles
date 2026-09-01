@@ -43,18 +43,33 @@ export class SigningError extends Error {
  * self-signed tenant certificate — so the exit code alone cannot answer this.
  * The output text can.
  */
+/**
+ * The only definitive "this PE is unsigned" marker osslsigncode emits.
+ */
+const UNSIGNED_MARKER = /No signature found/i;
+
+/**
+ * Markers that appear when a signature IS present, whether or not the chain
+ * verifies. Taken from real osslsigncode 2.x output for a self-signed
+ * certificate, which prints "Signature verification: failed" and
+ * "Number of verified signatures: 1" while exiting non-zero.
+ */
+const SIGNED_MARKERS =
+  /Signature Index:|Signer's certificate|Number of verified signatures|Signature verification/i;
+
 export async function hasWindowsSignature(binaryPath: string): Promise<boolean> {
+  let out: string;
   try {
-    const { stdout } = await execFileAsync('osslsigncode', ['verify', binaryPath], {
+    const { stdout, stderr } = await execFileAsync('osslsigncode', ['verify', binaryPath], {
       timeout: SIGN_TIMEOUT_MS,
     });
-    return !/No signature found/i.test(stdout);
+    out = `${stdout}${stderr}`;
   } catch (err) {
-    const out = `${(err as { stdout?: string }).stdout ?? ''}${(err as { stderr?: string }).stderr ?? ''}`;
-    if (/No signature found/i.test(out)) return false;
-    // Present but unverifiable (untrusted chain, expired, …) still counts as signed.
-    return /Signature (verification|is) |Number of signatures/i.test(out);
+    out = `${(err as { stdout?: string }).stdout ?? ''}${(err as { stderr?: string }).stderr ?? ''}`;
   }
+
+  if (UNSIGNED_MARKER.test(out)) return false;
+  return SIGNED_MARKERS.test(out);
 }
 
 /** Reads the signer subject from a signed PE, or null if it cannot be determined. */
