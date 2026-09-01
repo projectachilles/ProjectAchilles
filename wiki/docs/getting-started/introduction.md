@@ -54,10 +54,11 @@ Threat intelligence reports pile up unread. Compliance checklists are checked on
 - **Build & Sign From UI** — Cross-compile test binaries and sign with Authenticode (Windows) or ad-hoc signing (macOS)
 - **Microsoft Defender Integration** — Sync Secure Score, alerts, and control profiles with cross-correlation analytics
 - **Trend Alerting** — Threshold-based Slack and email notifications with in-app notification bell
-- **5 Deployment Targets** — Docker Compose, Railway, Render, Fly.io, and Vercel (serverless)
+- **7 Deployment Targets** — Docker Compose, self-hosted server, on-prem server, Railway, Render, Fly.io, and Vercel (serverless)
 - **Risk Acceptance** — Accept risk for individual controls with audit tracking
+- **Unified Security Dashboard** — One landing page for posture across tests, endpoints, and analytics, with a 7d/30d/90d range selector and an attention banner that links straight to whatever needs a human
 
-![ProjectAchilles Analytics Dashboard — Defense Score, trend analysis, Secure Score correlation, and technique distribution](/img/screenshots/analytics-dashboard.png)
+![Security Dashboard — attention banner, KPI strip, trend overview, severity mix, ATT&CK coverage and category breakdown](/img/screenshots/security-dashboard.png)
 
 ## What's Next?
 

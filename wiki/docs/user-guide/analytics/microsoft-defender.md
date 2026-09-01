@@ -16,6 +16,8 @@ If the integration is not configured the tab is hidden entirely — the
 empty panels. To set the integration up, see
 [Integrations → Microsoft Defender](../integrations/microsoft-defender).
 
+![Defender tab — Secure Score, Defender Alerts, Detection Rate and Auto-Resolve cards above the test execution vs alert volume chart](/img/screenshots/analytics-defender.png)
+
 ## Tab Header
 
 The header shows when Defender data was last synced and provides a **Sync Now**

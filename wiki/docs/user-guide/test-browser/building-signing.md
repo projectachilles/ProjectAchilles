@@ -124,7 +124,7 @@ Some tests use a multi-binary architecture where each validator is a separate em
 
 The **Execution Drawer** is a slide-out panel that appears when you click **Execute** on a test (or select multiple tests and choose batch execution). It orchestrates the full path from agent selection to task creation.
 
-![Execution drawer — agent selection with schedule configuration over the test browser](/img/screenshots/execution-drawer.png)
+![Create Task dialog — target agent selection, task type, security test picker, and run-now or schedule options](/img/screenshots/create-task-modal.png)
 
 ### Agent Selector
 

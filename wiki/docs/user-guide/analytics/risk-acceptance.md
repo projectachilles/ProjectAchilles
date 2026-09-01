@@ -20,7 +20,7 @@ Risk Acceptance allows you to formally acknowledge that certain security control
 4. Provide a justification (required)
 5. The control is marked as "Risk Accepted" and excluded from the Defense Score calculation
 
-![Risk acceptance dialog — justification form with scope selection over the executions table](/img/screenshots/risk-acceptance-modal.png)
+![Risk Acceptances tab — accepted controls with scope, justification, who accepted them, and a revoke action](/img/screenshots/risk-acceptances.png)
 
 ## Audit Trail
 

@@ -108,12 +108,19 @@ The two-tier structure (`App` handles auth providers, `AppContent` handles theme
 
 **Protected Routes** (all share persistent `AppLayout`):
 
-| Module | Routes | Access Control |
-|--------|--------|----------------|
-| **Browser** | `/dashboard`, `/favorites`, `/recent`, `/browser/test/:uuid` | `RequireAuth` |
-| **Analytics** | `/analytics/*` | `RequireAuth` + `AnalyticsProtectedRoute` |
-| **Endpoints** | `/endpoints/*` | `RequireAuth` + `RequireModule` |
+| Destination | Routes | Access Control |
+|-------------|--------|----------------|
+| **Dashboard** | `/dashboard` | `RequireAuth` (per-card degradation, never redirects) |
+| **Tests** | `/tests`, `/tests/:uuid` | `RequireAuth` |
+| **Analytics** | `/analytics` (`?tab=`, `?expanded=`) | `RequireAuth` + `AnalyticsProtectedRoute` |
+| **Agents** | `/agents`, `/agents/:agentId` | `RequireAuth` + `RequireModule module="endpoints"` |
+| **Tasks** | `/tasks` | `RequireAuth` + `RequireModule module="endpoints"` |
 | **Settings** | `/settings` | `RequireAuth` + `RequireModule` |
+
+Pre-2.1 paths still resolve — `AppRouter.tsx` keeps `<Navigate replace>` entries
+for `/browser`, `/browser/test/:uuid`, `/endpoints/dashboard`,
+`/endpoints/agents(/:id)`, `/endpoints/tasks`, `/favorites`, `/recent`, and
+`/analytics/setup`, so bookmarks and older links keep working.
 
 ### Route Guards
 
@@ -151,17 +158,16 @@ Runtime variables take precedence when both are present.
 
 ## Theme System
 
-Three selectable visual styles, each with light/dark variants:
+One registered theme — the f0 dark palette. `<html>` carries `class="dark"`
+permanently and there is no theme selector.
 
-| Style | Description | CSS Class |
-|-------|-------------|-----------|
-| **Default** | Standard light/dark | `.light` / `.dark` |
-| **Neobrutalism** | Hot pink accent, bold borders | `.neobrutalism` |
-| **Hacker Terminal** | Phosphor green or amber scanlines | `.hackerterminal` + optional `.phosphor-amber` |
+The `useTheme` provider survives as a compatibility shim so existing consumers
+keep compiling: `theme` is always `'dark'`, and the style/phosphor state and its
+`localStorage` writes are gone. New code should read design tokens directly
+rather than branching on `theme`.
 
-:::warning
-The `hackerterminal` style forces dark mode regardless of the user's theme preference. The original light/dark choice is remembered and restored when switching away.
-:::
+See **[UI Components → Theming](./ui-components)** for the token layers and the
+chart-colour guard tests.
 
 Theme CSS variables are defined in Tailwind CSS v4 `@theme` blocks and drive all component styling. The `useTheme` hook manages the `<html>` element classes:
 

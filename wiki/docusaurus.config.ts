@@ -4,7 +4,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'ProjectAchilles',
-  tagline: 'Continuous Security Validation — From Threat Intelligence to Defense Readiness',
+  tagline: 'Continuous security validation — from threat intelligence to defense readiness',
   favicon: 'img/favicon.ico',
 
   future: {
@@ -73,11 +73,8 @@ const config: Config = {
       respectPrefersColorScheme: false,
     },
     navbar: {
-      title: 'ACHILLES',
-      logo: {
-        alt: 'ProjectAchilles',
-        src: 'img/logo-achilles.svg',
-      },
+      // Brand block is rendered by src/theme/Navbar/Logo — the console
+      // wordmark (f0 + _csv accent + pulsing cursor), not a title/logo pair.
       items: [
         {
           type: 'docSidebar',
@@ -136,12 +133,51 @@ const config: Config = {
       copyright: `Measure your defenses. Close the gaps. Prove the investment.<br/>Copyright \u00a9 ${new Date().getFullYear()} ProjectAchilles Contributors. Licensed under Apache 2.0.`,
     },
     prism: {
-      theme: prismThemes.github,
-      darkTheme: prismThemes.dracula,
+      // Single dark theme site — both slots point at the dark palette.
+      theme: prismThemes.vsDark,
+      darkTheme: prismThemes.vsDark,
       additionalLanguages: ['bash', 'go', 'typescript', 'powershell', 'json', 'toml', 'yaml', 'sql'],
     },
     mermaid: {
-      theme: {light: 'default', dark: 'dark'},
+      theme: {light: 'dark', dark: 'dark'},
+      options: {
+        themeVariables: {
+          background: '#0b100c',
+          primaryColor: '#101713',
+          primaryTextColor: '#dce8de',
+          primaryBorderColor: '#2c3a30',
+          secondaryColor: '#12271a',
+          tertiaryColor: '#162019',
+          lineColor: '#5f7268',
+          textColor: '#dce8de',
+          mainBkg: '#101713',
+          nodeBorder: '#2c3a30',
+          // Subgraph containers default to a light grey — pin them to surface.
+          clusterBkg: '#0b100c',
+          clusterBorder: '#1c261f',
+          edgeLabelBackground: '#0b100c',
+          titleColor: '#8fa598',
+          // Sequence diagrams
+          actorBkg: '#101713',
+          actorBorder: '#2c3a30',
+          actorTextColor: '#dce8de',
+          actorLineColor: '#2c3a30',
+          signalColor: '#8fa598',
+          signalTextColor: '#dce8de',
+          labelBoxBkg: '#12271a',
+          labelBoxBorderColor: '#2c3a30',
+          labelTextColor: '#dce8de',
+          loopTextColor: '#dce8de',
+          noteBkgColor: '#162019',
+          noteBorderColor: '#2c3a30',
+          noteTextColor: '#dce8de',
+          activationBkgColor: '#12271a',
+          activationBorderColor: '#3ef08a',
+          sequenceNumberColor: '#03170b',
+          fontFamily:
+            '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace',
+        },
+      },
     },
   } satisfies Preset.ThemeConfig,
 };

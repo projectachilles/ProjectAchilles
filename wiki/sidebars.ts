@@ -46,6 +46,14 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'category',
+          label: 'Console',
+          items: [
+            'user-guide/console/navigation',
+            'user-guide/console/security-dashboard',
+          ],
+        },
+        {
+          type: 'category',
           label: 'Test Browser',
           items: [
             'user-guide/test-browser/browsing-filtering',
@@ -95,7 +103,6 @@ const sidebars: SidebarsConfig = {
           label: 'Settings',
           items: [
             'user-guide/settings/certificates',
-            'user-guide/settings/visual-themes',
             'user-guide/settings/notifications',
           ],
         },

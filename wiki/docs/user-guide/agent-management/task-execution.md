@@ -164,15 +164,47 @@ Before submitting, the dialog checks for required integrations:
 
 The Tasks page is the central control panel for all task activity.
 
-![Tasks page — scheduled tasks and execution table with status badges, agents, and exit codes](/img/screenshots/tasks-page.png)
+![Tasks — KPI strip above the live task stream, with a selected task's detail panel showing agent, duration, exit code and stdout](/img/screenshots/tasks.png)
 
-### Task List
+### Task stream
 
-Tasks are displayed in a hierarchical table:
+Tasks render as a chronological stream rather than a paginated grid:
 
-- **Grouped tasks** -- When a task targets multiple agents, all sub-tasks are grouped under a collapsible parent row with an aggregated status summary
-- **Single tasks** -- Direct display for single-agent operations
-- **Expandable details** -- Click any task row to reveal stdout/stderr output with a copy-to-clipboard button
+- **Date markers** separate days, so "when did this run" is answerable at a glance
+- **Status glyphs** (`✓` / `✕` / spinner) replace badges in the row itself, keeping each line to one dense mono row: time, type, agent, duration or exit code
+- **Batch rows** — a task targeting multiple agents collapses into one parent row with an aggregated `n✓` summary; expand it to see each agent's outcome
+- **Single tasks** render as flat rows
+
+Selecting a row opens the **detail panel** on the right: status, agent,
+duration, exit code, created time, batch id, and the full `STDOUT` / `STDERR`.
+
+### Expanded output view
+
+Click either output block — or focus it and press `Enter` — to open it in a
+full-width dialog with a `70vh` scroll area. Long bundle output (a
+cyber-hygiene run can emit hundreds of lines) is readable without scrolling a
+200-pixel box.
+
+![Expanded STDOUT dialog — full-width scrollable output for a completed task](/img/screenshots/task-output-expanded.png)
+
+### Retrying a failed task
+
+Failed `execute_test` tasks carry a **Retry** action in the detail panel. It
+re-dispatches the same test to the same agent as a new pending task and links
+the two through `original_task_id`, so the retry chain stays auditable. The
+stream marks retried tasks with a `Retry n/m` chip.
+
+Manual retries are not capped by the task's `max_retries` budget — that governs
+automatic retries only. Command tasks cannot be retried this way; re-issue them
+from **Create Task** instead.
+
+### Scheduled tasks
+
+The **Scheduled Tasks** section sits above the stream, collapsed by default so
+the day's activity is what you see first. Expand it for each schedule's
+cadence, next and last run, agent count, and run-now / delete actions.
+
+![Scheduled tasks expanded — weekly and monthly bundle schedules with cadence, next run, and agent counts](/img/screenshots/tasks-scheduled.png)
 
 ### Status Badges
 

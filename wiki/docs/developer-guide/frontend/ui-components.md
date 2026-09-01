@@ -35,27 +35,46 @@ import { Badge } from '@/components/shared/ui/Badge';
 
 ## Theming
 
-All components respect the active visual theme (Default, Neobrutalism, Hacker Terminal) via CSS variables defined in Tailwind CSS v4 `@theme` blocks.
+One dark theme — the f0 design language. All tokens live in
+`frontend/src/styles/index.css`; there is no Tailwind config file (Tailwind v4
+declares theme values in `@theme` / `@theme inline` blocks).
 
-### CSS Custom Properties
+The palette is exposed in two layers so both component families wear it:
 
-Components use a consistent set of theme-aware CSS variables:
+| Layer | Names | Used by |
+|-------|-------|---------|
+| **A — runtime tokens** | `--background`, `--card`, `--popover`, `--muted`, `--border`, `--primary`, `--destructive`, `--ring`, `--sidebar-*` | shadcn/cva primitives in `components/ui/` and every legacy component |
+| **B — f0 semantics** | `--surface`, `--raised`, `--overlay`, `--faint`, `--border-strong`, `--accent`, `--accent-hover`, `--accent-dim`, `--danger`, `--warning`, `--info` (+ `-dim` variants) | new components, written straight from the design recipes (`bg-surface`, `text-faint`, `border-border-strong`) |
 
-| Variable | Purpose |
-|----------|---------|
-| `border-theme` | Consistent border styling across themes |
-| `shadow-theme` | Unified shadow effects |
-| `rounded-base` | Standard border radius |
-| `--theme-hover-translate` | Hover animation offset |
-| `--theme-hover-shadow` | Hover shadow effect |
+Overlapping names alias the same custom property, so `bg-card` and `bg-surface`
+resolve identically.
 
-### Theme Options
+### Core palette
 
-| Style | Description | Special Behavior |
-|-------|-------------|------------------|
-| **Default** | Standard light/dark | Follows system preference |
-| **Neobrutalism** | Hot pink accent, bold borders, high contrast | Works in both light and dark |
-| **Hacker Terminal** | Phosphor green or amber with CRT scanlines | Forces dark mode |
+| Token | Value | Role |
+|-------|-------|------|
+| `--background` | `#060906` | Page ground |
+| `--surface` | `#0b100c` | Cards, sidebar |
+| `--raised` | `#101713` | Inputs, hover wash, code blocks |
+| `--overlay` | `#162019` | Popovers, dialogs |
+| `--border` | `#1c261f` | Hairlines |
+| `--border-strong` | `#2c3a30` | Emphasised edges |
+| `--foreground` | `#dce8de` | Body text |
+| `--muted` | `#8fa598` | Secondary text |
+| `--faint` | `#5f7268` | Section labels, metadata |
+| `--accent` | `#3ef08a` | Primary action, active nav, protected |
+| `--danger` | `#f87171` | Failures, unprotected |
+| `--warning` | `#fbbf24` | Stale, degraded |
+| `--info` | `#38bdf8` | Secure Score, informational badges |
+
+### Chart tokens are governed
+
+Chart colours must be referenced as `var(--chart-*)` — never as hex or `oklch`
+literals. `chartColorGuard.test.ts` fails the build on a literal in any file
+listed in `CHART_FILES`; `chartTokens.css.test.ts` asserts every governed token
+is declared; `contrast.test.ts` parses `index.css` live and enforces WCAG AA
+(≥ 4.5:1) for label-on-fill pairs. Add new chart files to `CHART_FILES` in the
+same commit that creates them.
 
 ---
 

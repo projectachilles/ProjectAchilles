@@ -165,14 +165,8 @@ Located in the **Tests** tab alongside certificates:
 - Architecture options adjust based on OS compatibility (e.g., macOS does not support 386)
 - Changes auto-save with visual confirmation
 
-## Visual Themes
+## Interface
 
-The platform supports three visual themes, selectable from the Settings page:
-
-| Theme | Description |
-|-------|-------------|
-| **Default** | Clean light/dark mode with neutral tones |
-| **Neobrutalism** | Hot pink accent color, bold borders, high contrast |
-| **Hacker Terminal** | Phosphor green and amber text with CRT scanline effects |
-
-The selected theme applies globally across all pages, including chart visualizations and code viewers.
+The console ships a single dark theme (the f0 design language) — there is no
+theme selector. See **[Console & Navigation](../console/navigation)** for the
+layout, keyboard shortcuts, and how the palette is defined.
