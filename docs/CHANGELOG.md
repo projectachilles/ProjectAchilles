@@ -11,7 +11,28 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-01
+
+Interface release. The console was rebuilt on the **f0 design language** — a
+single dark theme replacing three selectable ones — the three module dashboards
+were replaced by one unified Security Dashboard, and navigation flattened to six
+destinations. Alongside it: API keys, two new self-hosted deployment targets,
+write-index rollover, Defender auto-resolve, and a rate-limiter recalibration.
+
 ### Added
+
+#### Console & Navigation
+- **f0 design language** as the single theme — one dark palette (`#060906` ground, `#3ef08a` accent), Inter for prose and JetBrains Mono for machine-shaped values, self-hosted as variable fonts
+- **Unified Security Dashboard** at `/dashboard` — attention banner (offline agents, stale agents, 24 h task failures, outdated binaries, sync failures), six-KPI strip, trend overview, severity mix, ATT&CK coverage, category breakdown, fleet health, recent executions
+- **7d/30d/90d range selector** on the dashboard, independent of the Analytics window
+- **Flat six-destination navigation** — Dashboard, Tests, Analytics, Agents, Tasks, Settings — with global search and notifications docked in the sidebar; the top bar is gone
+- **Keyboard shortcuts** — `1`–`6` for destinations, `/` for page search, `⌘K` for global search, `?` for the reference; guarded against firing inside inputs and dialogs
+- **Tests page** rebuilt as a facet rail (category, severity, platform, threat actor, "not run yet") beside category-grouped cards
+- **Executions master-detail** — grouped runs beside per-control results, keyboard selection, and a deep-linkable `?expanded=<id>`
+- **Agents utility rail** — fleet-pulse ring, attention strip, version rollout, groups, key rotation, and per-platform binary downloads as native cards
+- **Task stream** — chronological view with date markers, status glyphs, collapsible batch rows, and a detail panel; stdout/stderr open in a full-width dialog
+- **Configurable wordmark** via `VITE_BRAND_WORDMARK` / `VITE_BRAND_TAGLINE`, rendered two-tone with a cursor
+- Legacy route redirects for every pre-2.1 path (`/browser`, `/browser/test/:uuid`, `/endpoints/*`, `/favorites`, `/recent`, `/analytics/setup`)
 
 #### Platform
 - Blog at [blog.projectachilles.io](https://blog.projectachilles.io) — Next.js 16 + MDX, Spanish/English auto-translation workflow, RSS/sitemap, tag archives; linked from the landing nav and footer
@@ -21,6 +42,8 @@ This project uses two version streams:
 - Public and on-prem single-server deployment targets behind Caddy TLS with four certificate modes (`docker-compose.server.yml`, `scripts/deploy-server.sh`, `deploy-remote.sh`, `deploy-do.sh`)
 - DigitalOcean tenant deployer with phased, resumable provisioning (`scripts/deploy-do/`)
 - Interactive architecture diagram suite under `docs/architecture/`
+- `GET /api/agent/admin/agents/heartbeats` — bulk hourly heartbeat buckets for the whole fleet in one request, replacing one request per agent behind the sparkline column
+- `POST /api/agent/admin/tasks/:id/retry` — re-dispatch a terminal `execute_test` task, linked to the original through `original_task_id`; not capped by `max_retries`, and command tasks are rejected so it can't sidestep `endpoints:tasks:command`
 - Rate-limiting architecture reference (`docs/rate-limiting.md`) and LAN development agents guide (`docs/deployment/LAN_DEV_AGENTS.md`)
 
 #### Analytics
@@ -36,7 +59,7 @@ This project uses two version streams:
 - Governed chart color tokens with WCAG AA contrast enforcement and a drift-guard test
 - Honest task status — completed tasks with non-zero exit codes now display as Failed across all task tables
 - Skeleton loaders for dashboard cards; redesigned bilingual landing page
-- Analytics time range defaults to 30 days; test library sorts newest-first; agents page shows total count with full pagination
+- Test library sorts newest-first; agents page shows total count with full pagination
 
 #### Agent
 - Per-machine schedule randomization mode — each agent gets an independent randomized next-run
@@ -45,6 +68,11 @@ This project uses two version streams:
 - Split short-request vs streaming HTTP timeouts (v0.6.1)
 
 ### Changed
+- **Analytics defaults to a 90-day window** (was 30) — weekly and monthly bundle schedules produced empty 30-day charts on healthy programmes
+- **Analytics posture section** rebuilt in analyst columns: a Defense Score ledger (Actual / EDR-only / Risk-accepted / Inconclusive) and Secure Score on the left, trend overview on the right. Actual Score renders as a neutral dashed reference line instead of a fourth green series
+- Coverage and by-host charts flattened to bar lists; the Test Breadth by Host treemap renders at a fixed height again
+- Scheduled Tasks on the Tasks page is collapsed by default
+- Documentation site restyled to the f0 design language and reorganised around the new navigation
 - Rate limiters re-keyed from IP to principal (agent ID / Clerk user): agent device 30/min, enrollment/download 300/15min, global UI 1000/15min per user — fixes NAT collapse for real fleets (see `docs/rate-limiting.md`)
 - Manual index creation removed from Analytics settings — write indices are auto-created on first ingest with the canonical mapping
 - Target Index defaults to the global write index; per-task picker moved under Advanced
@@ -57,6 +85,11 @@ This project uses two version streams:
 - Defender alerts whose timestamps drift out of the correlation window after resolution still correlate
 - Executions grouped by exact event time instead of 30-minute buckets; defense-score query requests uncapped totals
 - Full build errors shown instead of clamping to 3 lines; agent target pickers show the full active fleet
+
+### Removed
+- Theme selector and the Default / Neobrutalism / Hacker Terminal themes — the console ships a single dark theme and stored preferences are ignored
+- The per-module Browser, Analytics, and Agent dashboards, superseded by the unified Security Dashboard
+- The top bar — search, notifications, and sign-out moved into the sidebar
 
 ### Security
 - Patched Clerk auth bypass (CVE-2026-41248 + GHSA-vqx2-fgx2-5wq9)
@@ -346,11 +379,13 @@ Complete platform overhaul — custom agent system, multi-deployment support, Mi
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 2.1.0 | 2026-09-01 | f0 console restyle, unified Security Dashboard, flat navigation, API keys, self-hosted targets |
 | 2.0.0 | 2026-04-03 | Custom agent, multi-deployment, Defender integration, release tooling |
 | Agent 0.6.0 | 2026-04-03 | First tagged agent binary release |
 | 1.0.0 | 2024-12-10 | Initial release |
 
-[Unreleased]: https://github.com/F0RT1KA/ProjectAchilles/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/F0RT1KA/ProjectAchilles/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/F0RT1KA/ProjectAchilles/compare/v2.0.0...v2.1.0
 [Agent 0.6.0]: https://github.com/F0RT1KA/ProjectAchilles/releases/tag/agent-v0.6.0
 [2.0.0]: https://github.com/F0RT1KA/ProjectAchilles/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/F0RT1KA/ProjectAchilles/releases/tag/v1.0.0
