@@ -70,12 +70,16 @@ jobs:
         run: |
           VERSION="${TAG_NAME#v}"
 
-          # Extract section between ## [VERSION] and the next ## [
+          # Extract the section between ## [VERSION] and the next ## heading.
+          # The second rule is load-bearing: `## Agent [0.6.0]` does not match
+          # /^## \[/, so without it the notes bleed into the agent changelog.
+          # Mirrors the extraction in release-agent.yml.
           NOTES=$(awk -v ver="$VERSION" '
             /^## \[/ {
               if (found) exit
               if ($0 ~ "\\[" ver "\\]") { found=1; next }
             }
+            found && /^## / { exit }
             found { print }
           ' docs/CHANGELOG.md)
 
