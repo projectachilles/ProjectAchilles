@@ -27,12 +27,15 @@ let settings = { enabled: true, intervalDays: 90 };
 // so the patched functions must be on the DEFAULT export too — returning
 // `default: actual` would silently hand back the real fs and every test would
 // read whatever is (or isn't) on the developer's disk.
+// When null, the settings file is treated as absent so DEFAULTS applies.
+let settingsFilePresent = true;
+
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();
   const isSettings = (p: unknown) => String(p).endsWith('agent-settings.json');
   const patched = {
     ...actual,
-    existsSync: (p: string) => (isSettings(p) ? true : actual.existsSync(p)),
+    existsSync: (p: string) => (isSettings(p) ? settingsFilePresent : actual.existsSync(p)),
     readFileSync: (p: string, enc?: unknown) =>
       isSettings(p)
         ? JSON.stringify({ autoRotation: settings })
@@ -56,6 +59,7 @@ describe('autoRotation.processAutoRotation', () => {
     testDb = createTestDatabase();
     rotated.length = 0;
     settings = { enabled: true, intervalDays: 90 };
+    settingsFilePresent = true;
   });
 
   afterEach(() => testDb.close());
@@ -67,6 +71,30 @@ describe('autoRotation.processAutoRotation', () => {
     await processAutoRotation();
 
     expect(rotated).toEqual(['online-1']);
+  });
+
+  // Rotation defaults to ON now that the sweep cannot brick an offline agent.
+  // A fresh install should rotate stale credentials without anyone opting in.
+  it('rotates by default when no settings file exists', async () => {
+    settingsFilePresent = false;
+    insertTestAgent(testDb, { id: 'online-1' });
+    withOldKey('online-1', new Date(Date.now() - 30 * 1000).toISOString());
+
+    await processAutoRotation();
+
+    expect(rotated).toEqual(['online-1']);
+  });
+
+  // …but an operator who deliberately turned it off must stay off across
+  // upgrades. An explicitly saved preference always beats the default.
+  it('respects an explicit opt-out over the default', async () => {
+    settings = { enabled: false, intervalDays: 90 };
+    insertTestAgent(testDb, { id: 'online-1' });
+    withOldKey('online-1', new Date(Date.now() - 30 * 1000).toISOString());
+
+    await processAutoRotation();
+
+    expect(rotated).toEqual([]);
   });
 
   it('does nothing when auto-rotation is disabled', async () => {
