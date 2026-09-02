@@ -178,10 +178,15 @@ collect the key, then went offline, returns holding one the server discarded.
 Waiting for the agent to present a key resolves both correctly.
 :::
 
-**Automatic rotation only targets online agents.** An agent that hasn't
-heartbeat in the last two minutes is skipped and picked up by a later sweep,
-because the heartbeat is the delivery channel — arming a rotation on a sleeping
-laptop just creates a pending key nobody can collect.
+**Automatic rotation is on by default**, every 90 days, and can be turned off
+or re-intervalled from the Key Rotation card in the Agents utility rail. An
+explicit choice is remembered: if you switch it off, upgrades will not turn it
+back on.
+
+**It only targets online agents.** An agent that hasn't heartbeat in the last
+two minutes is skipped and picked up by a later sweep, because the heartbeat is
+the delivery channel — arming a rotation on a sleeping laptop just creates a
+pending key nobody can collect.
 
 ### Uninstall
 

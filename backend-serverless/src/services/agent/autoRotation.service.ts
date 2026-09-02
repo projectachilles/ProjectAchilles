@@ -13,7 +13,25 @@ export interface AutoRotationSettings {
   intervalDays: number;
 }
 
-const DEFAULTS: AutoRotationSettings = { enabled: false, intervalDays: 90 };
+/**
+ * Auto-rotation is ON by default.
+ *
+ * It was off because the sweep could brick an endpoint: it armed rotations on
+ * agents that were offline, so the new key was never delivered, and grace
+ * expiry then promoted the undelivered key and locked the agent out for good.
+ * That is fixed — the sweep only targets agents with a recent heartbeat, and a
+ * rotation is resolved by which key the agent actually presents rather than by
+ * a timer, so an unclaimed rotation is cancelled instead of promoted.
+ *
+ * A 90-day-old credential on every endpoint in a fleet is a real risk that
+ * someone has to remember to act on; defaulting to on makes the safe behaviour
+ * the one you get without deciding.
+ *
+ * An explicitly saved preference still wins — getAutoRotationSettings only
+ * falls back to this when the settings file has no `autoRotation.enabled`, so
+ * an operator who deliberately turned it off stays off across upgrades.
+ */
+const DEFAULTS: AutoRotationSettings = { enabled: true, intervalDays: 90 };
 
 export async function getAutoRotationSettings(): Promise<AutoRotationSettings> {
   try {
