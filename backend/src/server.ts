@@ -10,6 +10,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { fileURLToPath } from 'url';
+import { getBuildInfo } from './lib/buildInfo.js';
 
 import { clerkAuth } from './middleware/clerk.middleware.js';
 import { createBrowserRouter } from './api/browser.routes.js';
@@ -273,10 +274,14 @@ async function startServer() {
 
   // Health check
   app.get('/api/health', (_req, res) => {
+    const build = getBuildInfo();
     res.json({
       status: 'ok',
       service: 'ProjectAchilles',
-      version: '1.0.0',
+      version: build.version,
+      commit: build.commit,
+      commit_short: build.commitShort,
+      branch: build.branch,
       timestamp: new Date().toISOString(),
     });
   });
