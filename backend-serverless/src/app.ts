@@ -1,4 +1,5 @@
 import express from 'express';
+import { getBuildInfo } from './lib/buildInfo.js';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -111,11 +112,15 @@ initCatalog(testsSourcePath);
 
 // Health check
 app.get('/api/health', (_req, res) => {
+  const build = getBuildInfo();
   res.json({
     status: 'ok',
     service: 'ProjectAchilles',
     platform: 'vercel',
-    version: '1.0.0',
+    version: build.version,
+    commit: build.commit,
+    commit_short: build.commitShort,
+    branch: build.branch,
     timestamp: new Date().toISOString(),
   });
 });

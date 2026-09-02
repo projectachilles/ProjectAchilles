@@ -50,6 +50,13 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./package.json
 
+# Commit stamped into the image so GET /api/health can report exactly what is
+# running. Managed platforms (Render, Vercel, Railway) inject their own variable
+# and take precedence; this is the fallback for Docker Compose, VPS and on-prem:
+#   docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) ...
+ARG GIT_COMMIT=""
+ENV GIT_COMMIT=$GIT_COMMIT
+
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \

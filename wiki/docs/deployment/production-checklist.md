@@ -142,3 +142,37 @@ curl https://<backend-domain>/api/health
 - [ ] Store API keys securely (password manager or vault)
 - [ ] Schedule post-deployment review
 - [ ] Test agent enrollment and task execution end-to-end
+
+## Verify what is deployed
+
+`GET /api/health` reports the build identity, so "did this deploy pick up that
+fix?" is answerable without logging into the hosting provider:
+
+```bash
+curl -s https://<tenant>.agent.projectachilles.io/api/health
+```
+
+```json
+{
+  "status": "ok",
+  "service": "ProjectAchilles",
+  "version": "2.1.0",
+  "commit": "6085fd7abcdef...",
+  "commit_short": "6085fd7",
+  "branch": "main",
+  "timestamp": "2026-09-01T23:00:00.000Z"
+}
+```
+
+Compare `commit_short` against `git log --oneline -5 origin/main`.
+
+`commit` is populated automatically on Render, Vercel and Railway, which each
+inject their own variable. For Docker Compose, VPS and on-prem installs, stamp
+it at build time:
+
+```bash
+docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t achilles-backend backend/
+```
+
+Without it the endpoint still reports the correct `version`; `commit` is simply
+`null`.
