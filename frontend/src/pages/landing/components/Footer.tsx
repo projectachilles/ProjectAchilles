@@ -1,58 +1,38 @@
 import { COPY, type Lang } from '../i18n';
-import { AchillesLogo } from '../icons';
-
-const GITHUB_URL = 'https://github.com/projectachilles/ProjectAchilles';
-const DISCORD_URL = 'https://discord.gg/aZ2dx2p4Ef';
-const DOCS_URL = 'https://docs.projectachilles.io';
-const BLOG_URL = 'https://blog.projectachilles.io';
+import { FOOTER_REPOS, URLS } from '../content';
+import { AchillesMark } from './Logo';
 
 export function Footer({ lang }: { lang: Lang }) {
   const t = COPY[lang].footer;
   return (
-    <footer>
-      <div className="lp-container">
-        <div className="footer-grid">
-          <div>
-            <div className="nav-logo" style={{ marginBottom: '1rem' }}>
-              <AchillesLogo />
-              <span>ACHILLES</span>
-            </div>
-            <p className="footer-tagline">{t.tagline}</p>
+    <footer className="lp-footer">
+      <div className="lp-container lp-stack lp-footer-inner">
+        <div className="lp-footer-cols">
+          <div className="lp-footer-col">
+            <span className="h">{t.repos}</span>
+            {FOOTER_REPOS.map((r) => (
+              <a key={r.url} href={r.url} target="_blank" rel="noreferrer">{r.label}</a>
+            ))}
           </div>
-          <div>
-            <div className="footer-col-title">{t.colPlatform}</div>
-            <a className="footer-link" href="#features">{t.links.features}</a>
-            <a className="footer-link" href="#how">{t.links.how}</a>
-            <a className="footer-link" href="#mitre">{t.links.coverage}</a>
-            <a className="footer-link" href="#compare">{t.links.compare}</a>
+          <div className="lp-footer-col">
+            <span className="h">{t.community}</span>
+            <a href={URLS.discussions} target="_blank" rel="noreferrer">{t.discussions}</a>
+            <a href={URLS.blog} target="_blank" rel="noreferrer">{t.blog}</a>
+            <a href={URLS.contributing} target="_blank" rel="noreferrer">{t.contributing}</a>
+            <a href={URLS.security} target="_blank" rel="noreferrer">{t.security}</a>
           </div>
-          <div>
-            <div className="footer-col-title">{t.colCompliance}</div>
-            <a className="footer-link" href="#regulatory">DORA</a>
-            <a className="footer-link" href="#regulatory">TIBER-EU</a>
-            <a className="footer-link" href="#regulatory">ISO 27001</a>
-            <a className="footer-link" href="#regulatory">CIS Controls</a>
-          </div>
-          <div>
-            <div className="footer-col-title">{t.colCommunity}</div>
-            <a className="footer-link" href={GITHUB_URL} target="_blank" rel="noreferrer">
-              {t.links.github}
-            </a>
-            <a className="footer-link" href={DISCORD_URL} target="_blank" rel="noreferrer">
-              {t.links.discord}
-            </a>
-            <a className="footer-link" href={DOCS_URL} target="_blank" rel="noreferrer">
-              {t.links.docs}
-            </a>
-            <a className="footer-link" href={BLOG_URL} target="_blank" rel="noreferrer">
-              {t.links.blog}
-            </a>
-            <a className="footer-link" href="#">{t.links.security}</a>
+          <div className="lp-footer-col start">
+            <span className="h">{t.license}</span>
+            <span className="lic">{t.licenseName}</span>
+            <span className="note">{t.licenseNote}</span>
           </div>
         </div>
-        <div className="footer-bottom">
-          <span>{t.copyright}</span>
-          <span>{t.bottomTag}</span>
+        <div className="lp-footer-bottom">
+          <span className="brand">
+            <AchillesMark size={16} />
+            {t.copyright}
+          </span>
+          <span>{t.tagline}</span>
         </div>
       </div>
     </footer>

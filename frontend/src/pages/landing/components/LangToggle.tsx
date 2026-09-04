@@ -7,17 +7,14 @@ type Props = {
 
 export function LangToggle({ lang, onChange }: Props) {
   return (
-    <div className="lang-toggle" role="group" aria-label="Language">
-      {(['en', 'es'] as const).map((l) => (
-        <button
-          key={l}
-          type="button"
-          onClick={() => onChange(l)}
-          className={lang === l ? 'active' : ''}
-          aria-pressed={lang === l}
-        >
-          {l}
-        </button>
+    <div className="lp-lang" role="group" aria-label="Language">
+      {(['en', 'es'] as const).map((l, i) => (
+        <span key={l} style={{ display: 'contents' }}>
+          {i > 0 && <span aria-hidden="true">/</span>}
+          <button type="button" onClick={() => onChange(l)} aria-pressed={lang === l}>
+            {l}
+          </button>
+        </span>
       ))}
     </div>
   );

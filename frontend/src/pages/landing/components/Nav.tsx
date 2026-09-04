@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
 import { COPY, type Lang } from '../i18n';
-import { AchillesLogo, I } from '../icons';
+import { URLS } from '../content';
+import { AchillesMark } from './Logo';
 import { LangToggle } from './LangToggle';
 import { isAppMode } from '@/lib/siteMode';
 
@@ -9,59 +9,36 @@ type Props = {
   setLang: (lang: Lang) => void;
 };
 
-const GITHUB_URL = 'https://github.com/projectachilles/ProjectAchilles';
-const DOCS_URL = 'https://docs.projectachilles.io';
-const BLOG_URL = 'https://blog.projectachilles.io';
-const GET_STARTED_URL = 'https://docs.projectachilles.io/docs/getting-started/introduction';
-const SIGN_IN_URL = '/sign-in';
-
 export function Nav({ lang, setLang }: Props) {
-  const [scrolled, setScrolled] = useState(false);
   const t = COPY[lang].nav;
+  // On a deployed instance the landing sits at "/" in front of the app, so the
+  // primary CTA becomes "sign in"; the marketing site keeps the community CTA.
   const ctaLabel = isAppMode ? COPY[lang].signIn : t.cta;
-  const ctaHref = isAppMode ? SIGN_IN_URL : GET_STARTED_URL;
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 40);
-    window.addEventListener('scroll', onScroll, { passive: true });
-    onScroll();
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
+  const ctaHref = isAppMode ? URLS.signIn : URLS.discussions;
 
   return (
-    <nav className={`nav ${scrolled ? 'scrolled' : ''}`}>
-      <div className="nav-inner">
-        <a className="nav-logo" href="#top">
-          <AchillesLogo />
-          <span>ACHILLES</span>
+    <nav className="lp-nav" data-anim="in">
+      <a href="#top" className="lp-nav-brand">
+        <AchillesMark size={26} />
+        <span>PROJECTACHILLES</span>
+      </a>
+      <div className="lp-nav-links">
+        <a href="#why">{t.why}</a>
+        <a href="#map">{t.ecosystem}</a>
+        <a href="#tools">{t.tools}</a>
+        <a href="#local">{t.local}</a>
+        <a href="#contribute">{t.contribute}</a>
+        <a href="#roadmap">{t.roadmap}</a>
+      </div>
+      <div className="lp-nav-right">
+        <LangToggle lang={lang} onChange={setLang} />
+        <a
+          className="lp-nav-cta"
+          href={ctaHref}
+          {...(isAppMode ? {} : { target: '_blank', rel: 'noreferrer' })}
+        >
+          {ctaLabel}
         </a>
-        <div className="nav-links">
-          <a className="nav-link" href="#problem">{t.whyCST}</a>
-          <a className="nav-link" href="#regulatory">{t.compliance}</a>
-          <a className="nav-link" href="#features">{t.platform}</a>
-          <a className="nav-link" href="#how">{t.how}</a>
-          <a className="nav-link" href="#mitre">{t.coverage}</a>
-          <a className="nav-link" href="#compare">{t.compare}</a>
-        </div>
-        <div className="nav-right">
-          <LangToggle lang={lang} onChange={setLang} />
-          <a className="lp-btn lp-btn-ghost" href={DOCS_URL} target="_blank" rel="noreferrer">
-            {t.docs}
-          </a>
-          <a className="lp-btn lp-btn-ghost" href={BLOG_URL} target="_blank" rel="noreferrer">
-            {t.blog}
-          </a>
-          <a className="lp-btn lp-btn-secondary" href={GITHUB_URL} target="_blank" rel="noreferrer">
-            {I.Github} <span style={{ marginLeft: 4 }}>{t.star}</span>
-          </a>
-          <a
-            className="lp-btn lp-btn-primary"
-            href={ctaHref}
-            {...(isAppMode ? {} : { target: '_blank', rel: 'noreferrer' })}
-          >
-            {ctaLabel} {I.Arrow}
-          </a>
-        </div>
       </div>
     </nav>
   );
