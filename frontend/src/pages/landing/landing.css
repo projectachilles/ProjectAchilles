@@ -286,7 +286,7 @@ html:has(.landing-page) {
 .lp-manifesto { display: grid; grid-template-columns: 320px 1fr; gap: 80px; }
 .lp-manifesto-body { display: flex; flex-direction: column; gap: 56px; }
 .lp-statement {
-  font-family: var(--lp-display); font-weight: 300;
+  font-family: var(--lp-display); font-weight: 500;
   font-size: clamp(28px, 3.2vw, 48px);
   line-height: 1.2; letter-spacing: -0.02em; text-wrap: pretty;
 }
