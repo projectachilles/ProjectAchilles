@@ -6,9 +6,9 @@
 @import "@fontsource-variable/jetbrains-mono";
 
 /* ═══════════════════════════════════════════════════════════════
-   LANDING PAGE FONTS (Orbitron / Rajdhani / static Inter+JBM)
-   remain on the Google Fonts <link> in index.html — landing.css
-   references the static family names, not the variable ones.
+   LANDING PAGE FONTS (Sora / IBM Plex Mono / IBM Plex Sans)
+   remain on the Google Fonts <link> in index.html — the public
+   landing (src/pages/landing) references those family names.
    ═══════════════════════════════════════════════════════════════ */
 
 @custom-variant dark (&:is(.dark *));
