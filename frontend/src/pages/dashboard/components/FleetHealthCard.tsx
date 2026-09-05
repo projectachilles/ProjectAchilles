@@ -31,7 +31,7 @@ export function FleetHealthCard({ stats, rows, loading }: FleetHealthCardProps) 
         <CardDescription>Endpoint agents</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        <div className="grid grid-cols-3 gap-2 [&>*]:min-w-0">
+        <div className="grid grid-cols-3 gap-2 max-lg:[&>*]:min-w-0">
           {stats.map((stat) => (
             <div key={stat.label} className="rounded-md border border-border bg-raised p-2">
               <div className={cn('truncate text-sm font-semibold tracking-tight', stat.accent && 'text-accent')}>
