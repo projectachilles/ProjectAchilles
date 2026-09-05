@@ -4,6 +4,7 @@ import {
   ArrowDownNarrowWide,
   ArrowUpNarrowWide,
   CheckSquare,
+  Filter,
   Play,
   X,
 } from 'lucide-react';
@@ -24,6 +25,10 @@ import { ExecutionDrawer } from '@/components/browser/execution';
 import { useTestPreferences } from '@/hooks/useTestPreferences';
 import { useHasPermission } from '@/hooks/useAppRole';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
+import { useIsDesktop } from '@/hooks/useMediaQuery';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { targetLabel } from '@/utils/platformLabels';
+import { cn } from '@/lib/utils';
 import { tacticLabel, tacticToSlug } from '@/lib/mitreTactics';
 import { CompactTestCard } from './components/CompactTestCard';
 import { FacetRail } from './components/FacetRail';
@@ -45,6 +50,19 @@ const SORT_OPTIONS: Array<{ value: SortField; label: string }> = [
   { value: 'createdDate', label: 'Created' },
   { value: 'lastModifiedDate', label: 'Modified' },
 ];
+
+function FacetChip({ label, onClear }: { label: string; onClear: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClear}
+      className="inline-flex items-center gap-1.5 rounded border border-accent/30 bg-accent-dim px-2 py-1 font-mono text-xs text-accent hover:bg-accent-dim/70"
+    >
+      {label}
+      <X className="h-3 w-3" />
+    </button>
+  );
+}
 
 export default function TestsPage() {
   const navigate = useNavigate();
@@ -71,6 +89,8 @@ export default function TestsPage() {
   const [selectedUuids, setSelectedUuids] = useState<Set<string>>(new Set());
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTests, setDrawerTests] = useState<TestMetadata[]>([]);
+  const isDesktop = useIsDesktop();
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Deep-linkable facets live in the URL (?category= &severity= &tactic= &view=)
   const view = (searchParams.get('view') as ViewFilter) || 'all';
@@ -118,6 +138,16 @@ export default function TestsPage() {
     }),
     [query, category, severities, tacticSlug, searchParams, notRunYet, hasBinary, view, sortField, sortDirection],
   );
+
+  const activeFacetCount =
+    (filters.view !== 'all' ? 1 : 0) +
+    (filters.category ? 1 : 0) +
+    filters.severities.size +
+    (filters.target ? 1 : 0) +
+    (filters.threatActor ? 1 : 0) +
+    (filters.tacticSlug ? 1 : 0) +
+    (filters.notRunYet ? 1 : 0) +
+    (filters.hasBinary ? 1 : 0);
 
   const handleFilterChange = useCallback(
     (patch: Partial<TestFilters>) => {
@@ -228,7 +258,7 @@ export default function TestsPage() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search by name, UUID, technique, or description…"
-          className="min-w-0 flex-1"
+          className="min-w-0 basis-full sm:flex-1 sm:basis-auto"
           autoComplete="off"
         />
         <Select
@@ -258,6 +288,20 @@ export default function TestsPage() {
         >
           {sortDirection === 'asc' ? <ArrowUpNarrowWide /> : <ArrowDownNarrowWide />}
         </Button>
+        {!isDesktop && (
+          <Button
+            variant={activeFacetCount > 0 ? 'secondary' : 'outline'}
+            onClick={() => setFiltersOpen(true)}
+          >
+            <Filter />
+            Filters
+            {activeFacetCount > 0 && (
+              <span className="rounded border border-accent/30 bg-accent-dim px-1.5 font-mono text-[10px] text-accent">
+                {activeFacetCount}
+              </span>
+            )}
+          </Button>
+        )}
         {canCreateTasks && (
           <>
             {selectMode && selectedUuids.size > 0 && (
@@ -282,24 +326,54 @@ export default function TestsPage() {
         )}
       </div>
 
-      {tacticSlug && (
-        <button
-          onClick={() => setUrlFacets({ tacticSlug: null })}
-          className="mb-4 inline-flex items-center gap-1.5 rounded border border-accent/30 bg-accent-dim px-2 py-1 font-mono text-xs text-accent hover:bg-accent-dim/70"
-        >
-          tactic: {tacticLabel(tacticSlug)}
-          <X className="h-3 w-3" />
-        </button>
+      {(tacticSlug || (!isDesktop && activeFacetCount > 0)) && (
+        <div className="mb-4 flex flex-wrap gap-1.5">
+          {tacticSlug && (
+            <FacetChip label={`tactic: ${tacticLabel(tacticSlug)}`} onClear={() => setUrlFacets({ tacticSlug: null })} />
+          )}
+          {!isDesktop && filters.view !== 'all' && (
+            <FacetChip label={filters.view} onClear={() => handleFilterChange({ view: 'all' })} />
+          )}
+          {!isDesktop && filters.category && (
+            <FacetChip label={filters.category} onClear={() => handleFilterChange({ category: null })} />
+          )}
+          {!isDesktop &&
+            [...filters.severities].map((s) => (
+              <FacetChip
+                key={s}
+                label={s}
+                onClear={() => {
+                  const next = new Set(filters.severities);
+                  next.delete(s);
+                  handleFilterChange({ severities: next });
+                }}
+              />
+            ))}
+          {!isDesktop && filters.target && (
+            <FacetChip label={targetLabel(filters.target)} onClear={() => handleFilterChange({ target: null })} />
+          )}
+          {!isDesktop && filters.threatActor && (
+            <FacetChip label={filters.threatActor} onClear={() => handleFilterChange({ threatActor: null })} />
+          )}
+          {!isDesktop && filters.notRunYet && (
+            <FacetChip label="not run yet" onClear={() => handleFilterChange({ notRunYet: false })} />
+          )}
+          {!isDesktop && filters.hasBinary && (
+            <FacetChip label="has binary" onClear={() => handleFilterChange({ hasBinary: false })} />
+          )}
+        </div>
       )}
 
-      <div className="grid items-start gap-4 lg:grid-cols-[200px_minmax(0,1fr)]">
-        <FacetRail
-          counts={counts}
-          filters={filters}
-          showNotRunYet={esConfigured && executedUuids != null}
-          showHasBinary={builtUuids != null}
-          onChange={handleFilterChange}
-        />
+      <div className={cn('grid items-start gap-4', isDesktop && 'lg:grid-cols-[200px_minmax(0,1fr)]')}>
+        {isDesktop && (
+          <FacetRail
+            counts={counts}
+            filters={filters}
+            showNotRunYet={esConfigured && executedUuids != null}
+            showHasBinary={builtUuids != null}
+            onChange={handleFilterChange}
+          />
+        )}
 
         <div className="flex flex-col gap-6">
           {loading ? (
@@ -344,6 +418,41 @@ export default function TestsPage() {
           )}
         </div>
       </div>
+
+      {!isDesktop && (
+
+        <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+
+          <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto border-border bg-background p-4">
+
+            <SheetTitle className="mb-3 text-sm font-semibold">Filters</SheetTitle>
+
+            <FacetRail
+
+              counts={counts}
+
+              filters={filters}
+
+              showNotRunYet={esConfigured && executedUuids != null}
+
+              showHasBinary={builtUuids != null}
+
+              onChange={handleFilterChange}
+
+            />
+
+            <Button className="mt-4 w-full" onClick={() => setFiltersOpen(false)}>
+
+              Show {filtered.length} tests
+
+            </Button>
+
+          </SheetContent>
+
+        </Sheet>
+
+      )}
+
 
       <ExecutionDrawer
         open={drawerOpen}
