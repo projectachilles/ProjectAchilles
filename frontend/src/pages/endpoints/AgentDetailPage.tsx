@@ -117,7 +117,7 @@ export default function AgentDetailPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="overview">
-        <TabsList className="max-w-full flex-nowrap overflow-x-auto">
+        <TabsList className="max-lg:max-w-full max-lg:flex-nowrap max-lg:overflow-x-auto max-lg:overflow-y-hidden max-lg:[scrollbar-width:none] max-lg:[&>*]:whitespace-nowrap">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="tasks">Task History</TabsTrigger>
           <TabsTrigger value="heartbeat">Heartbeat</TabsTrigger>

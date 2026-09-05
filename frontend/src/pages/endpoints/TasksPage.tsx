@@ -426,7 +426,7 @@ export default function TasksPage() {
 
         {/* Pagination controls */}
         {!loading && totalGroups > 0 && (
-          <div className="flex items-center justify-between mt-4 text-sm text-muted-foreground">
+          <div className="flex flex-wrap gap-y-2 items-center justify-between mt-4 text-sm text-muted-foreground">
             <div className="flex items-center gap-3">
               <span>Showing {rangeStart}&ndash;{rangeEnd} of {totalGroups}</span>
               <select
@@ -439,7 +439,7 @@ export default function TasksPage() {
                 ))}
               </select>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
               <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(1)}>
                 <ChevronsLeft className="w-4 h-4 mr-1" />
                 Newest
