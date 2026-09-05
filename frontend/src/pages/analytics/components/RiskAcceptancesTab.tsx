@@ -108,7 +108,7 @@ export default function RiskAcceptancesTab({ onActiveCountChange }: RiskAcceptan
     <>
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle className="flex items-center gap-2 text-base font-semibold">
               <ShieldOff className="w-5 h-5 text-amber-500" />
               Risk Acceptances

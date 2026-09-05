@@ -612,7 +612,7 @@ export default function AnalyticsDashboardPage() {
             {/* Analytic trio — a clean full row (Test activity lives below,
                 in the posture section per the approved Analyst Columns
                 redesign, so this grid can never orphan a card) */}
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-3 [&>*]:min-w-0">
               <ErrorTypePieChart
                 data={errorTypeData}
                 loading={loadingDashboard}
@@ -642,7 +642,7 @@ export default function AnalyticsDashboardPage() {
                   aspect height; trend bottom === Secure card bottom.
                 · row 2 (Defender only): Test activity | Top Controls —
                   activity stretches to the controls' height. */}
-            <div className="grid items-stretch gap-4 md:grid-cols-3">
+            <div className="grid items-stretch gap-4 md:grid-cols-3 [&>*]:min-w-0">
               <div className="flex min-w-0 flex-col gap-4">
                 <HeroMetricsCard
                   defenseScore={defenseScore?.overall ?? null}
@@ -694,7 +694,7 @@ export default function AnalyticsDashboardPage() {
             {/* Coverage + by-host: last full-width row with Defender, or a
                 3-up row alongside Test activity without it */}
             {defenderConfigured ? (
-              <div className="grid gap-4 lg:grid-cols-2">
+              <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
                 <StackedBarChart
                   data={testCoverageData}
                   loading={loadingDashboard}
@@ -707,7 +707,7 @@ export default function AnalyticsDashboardPage() {
                 />
               </div>
             ) : (
-              <div className="grid items-stretch gap-4 md:grid-cols-3">
+              <div className="grid items-stretch gap-4 md:grid-cols-3 [&>*]:min-w-0">
                 <TestActivityCard
                   trendData={trendData}
                   recentTests={recentTests}

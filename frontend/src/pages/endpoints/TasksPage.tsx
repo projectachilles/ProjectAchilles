@@ -341,8 +341,8 @@ export default function TasksPage() {
 
         {/* Filter bar */}
         <div className="border border-border rounded-lg bg-card p-4 mb-4">
-          <div className="flex gap-4 items-center">
-            <div className="min-w-40">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="min-w-0 flex-1 basis-40">
               <select
                 className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={statusFilter}
@@ -358,7 +358,7 @@ export default function TasksPage() {
                 <option value="expired">Expired</option>
               </select>
             </div>
-            <div className="flex-grow max-w-sm">
+            <div className="min-w-0 flex-1 basis-48 sm:max-w-sm">
               <Input
                 placeholder="Search tasks..."
                 value={searchTerm}

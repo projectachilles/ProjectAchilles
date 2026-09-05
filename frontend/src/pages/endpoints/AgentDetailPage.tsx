@@ -93,13 +93,13 @@ export default function AgentDetailPage() {
   return (
     <PageContainer>
       {/* Header */}
-      <div className="flex items-center gap-4 mb-6">
+      <div className="mb-6 flex items-start gap-3 sm:items-center sm:gap-4">
         <Button variant="ghost" size="icon" onClick={() => navigate('/endpoints/agents')}>
           <ArrowLeft className="w-5 h-5" />
         </Button>
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">{agent.hostname}</h1>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h1 className="break-all text-xl font-bold sm:text-2xl">{agent.hostname}</h1>
             <StatusDot status={online ? 'online' : 'offline'} />
             <Badge variant={agent.status === 'active' ? 'success' : 'warning'}>
               {agent.status}
@@ -109,7 +109,7 @@ export default function AgentDetailPage() {
               {agent.arch} &middot; v{agent.agent_version}
             </span>
           </div>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="mt-1 break-all text-sm text-muted-foreground">
             ID: <span className="font-mono">{agent.id}</span>
           </p>
         </div>
@@ -117,7 +117,7 @@ export default function AgentDetailPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="overview">
-        <TabsList>
+        <TabsList className="max-w-full flex-nowrap overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="tasks">Task History</TabsTrigger>
           <TabsTrigger value="heartbeat">Heartbeat</TabsTrigger>

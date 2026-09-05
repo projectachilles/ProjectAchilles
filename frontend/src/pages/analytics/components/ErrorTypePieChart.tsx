@@ -46,7 +46,8 @@ function ErrorTypePieChart({ data, loading, title = 'Results by error type' }: E
             Nothing recorded yet.
           </div>
         ) : (
-          <div className="flex items-center gap-4">
+          <div className="@container">
+          <div className="flex flex-col items-center gap-4 @sm:flex-row">
             <div className="relative h-44 w-44 shrink-0">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -70,7 +71,7 @@ function ErrorTypePieChart({ data, loading, title = 'Results by error type' }: E
                 <span className="text-[10px] uppercase tracking-wider text-faint">results</span>
               </div>
             </div>
-            <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <div className="flex w-full min-w-0 flex-1 flex-col gap-2">
               {slices.map((entry) => (
                 <div key={entry.name} className="flex items-center justify-between gap-2">
                   <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted">
@@ -86,6 +87,7 @@ function ErrorTypePieChart({ data, loading, title = 'Results by error type' }: E
                 </div>
               ))}
             </div>
+          </div>
           </div>
         )}
       </CardContent>
