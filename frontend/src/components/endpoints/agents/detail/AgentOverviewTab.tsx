@@ -7,6 +7,7 @@ import { Monitor, Clock, Tag, Cpu, HardDrive, MemoryStick, Heart } from 'lucide-
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/shared/ui/Card';
 import { Badge } from '@/components/shared/ui/Badge';
 import { TaskStatusBadge } from '@/components/endpoints/tasks/TaskStatusBadge';
+import { StreamRow } from '@/components/shared/ui/StreamRow';
 import { agentApi } from '@/services/api/agent';
 import type { Agent, AgentTask } from '@/types/agent';
 
@@ -163,20 +164,17 @@ export default function AgentOverviewTab({ agent }: AgentOverviewTabProps) {
           ) : (
             <div className="space-y-2">
               {recentTasks.map((task) => (
-                <div
+                <StreamRow
                   key={task.id}
-                  className="flex items-center justify-between p-2 rounded bg-raised/50 text-sm"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <TaskStatusBadge task={task} className="text-xs shrink-0" />
-                    <span className="truncate">
-                      {task.type === 'execute_command' ? (task.payload.command ?? 'Command') : (task.payload.test_name || task.type)}
+                  className="rounded bg-raised/50 p-2 text-sm"
+                  leading={<TaskStatusBadge task={task} className="text-xs shrink-0" />}
+                  name={task.type === 'execute_command' ? (task.payload.command ?? 'Command') : (task.payload.test_name || task.type)}
+                  meta={
+                    <span className="text-xs text-muted-foreground md:ml-auto">
+                      {formatDate(task.created_at)}
                     </span>
-                  </div>
-                  <span className="text-xs text-muted-foreground shrink-0 ml-2">
-                    {formatDate(task.created_at)}
-                  </span>
-                </div>
+                  }
+                />
               ))}
             </div>
           )}

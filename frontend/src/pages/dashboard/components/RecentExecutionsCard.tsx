@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { StreamRow } from '@/components/shared/ui/StreamRow';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
@@ -40,25 +41,30 @@ export function RecentExecutionsCard({ executions, configured, loading }: Recent
           </div>
         ) : (
           executions.map((execution) => (
-            <Link
+            <StreamRow
               key={execution.id}
+              as={Link}
               to={execution.to}
-              className="group flex items-center gap-2.5 rounded-md px-1 py-1.5 text-xs hover:bg-raised"
-            >
-              <Badge
-                variant={execution.status === 'completed' ? 'accent' : 'high'}
-                className="font-mono uppercase"
-              >
-                {execution.status}
-              </Badge>
-              <span className="min-w-0 flex-1 truncate group-hover:text-accent">{execution.testName}</span>
-              {execution.hostname && (
-                <span className="hidden max-w-[110px] truncate font-mono text-muted sm:inline">
-                  {execution.hostname}
-                </span>
-              )}
-              <span className="shrink-0 whitespace-nowrap text-faint">{execution.timeAgo}</span>
-            </Link>
+              className="group rounded-md px-1 py-1.5 text-xs hover:bg-raised"
+              leading={
+                <Badge
+                  variant={execution.status === 'completed' ? 'accent' : 'high'}
+                  className="font-mono uppercase"
+                >
+                  {execution.status}
+                </Badge>
+              }
+              name={execution.testName}
+              nameClassName="group-hover:text-accent"
+              meta={
+                execution.hostname ? (
+                  <span className="max-w-[160px] truncate font-mono text-muted md:max-w-[110px]">
+                    {execution.hostname}
+                  </span>
+                ) : undefined
+              }
+              trailing={<span className="whitespace-nowrap text-faint">{execution.timeAgo}</span>}
+            />
           ))
         )}
       </CardContent>
