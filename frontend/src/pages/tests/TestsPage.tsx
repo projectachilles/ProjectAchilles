@@ -258,7 +258,7 @@ export default function TestsPage() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search by name, UUID, technique, or description…"
-          className="min-w-0 basis-full sm:flex-1 sm:basis-auto"
+          className="min-w-0 basis-full sm:flex-1"
           autoComplete="off"
         />
         <Select
