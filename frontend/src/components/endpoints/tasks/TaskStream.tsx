@@ -16,6 +16,7 @@ import { Button } from '../../shared/ui/Button';
 import { Loading } from '../../shared/ui/Spinner';
 import TaskStatusBadge from './TaskStatusBadge';
 import { cn } from '@/lib/utils';
+import { StreamRow } from '../../shared/ui/StreamRow';
 
 interface TaskStreamProps {
   groups: TaskGroup[];
@@ -170,7 +171,7 @@ export default function TaskStream({
     const isSelected = selectedTask?.id === task.id;
     const failed = display.variant === 'destructive';
     return (
-      <div
+      <StreamRow
         key={task.id}
         role="button"
         tabIndex={0}
@@ -179,34 +180,38 @@ export default function TaskStream({
           if (e.key === 'Enter') setSelectedTaskId(task.id);
         }}
         className={cn(
-          'flex w-full cursor-pointer items-center gap-2.5 px-4 py-[5px] text-left font-mono text-xs transition-colors',
+          'w-full cursor-pointer px-4 py-[5px] text-left font-mono text-xs transition-colors',
           indent && 'pl-9',
           isSelected ? 'bg-raised' : 'hover:bg-raised/60',
           checkedClass(task.id),
         )}
-      >
-        {selectable && (
-          <span onClick={(e) => e.stopPropagation()}>
-            <Checkbox
-              checked={selectedTasks.includes(task.id)}
-              onChange={() => onToggleSelect?.(task.id)}
-            />
-          </span>
-        )}
-        <span className="shrink-0 text-faint">{clockTime(task.created_at)}</span>
-        <Glyph variant={display.variant} />
-        <span className="min-w-0 flex-1 truncate font-sans text-[13px] text-foreground">
-          {taskName(task)}
-        </span>
-        <span className="shrink-0 text-muted">{task.agent_hostname ?? '—'}</span>
-        {failed && task.result ? (
-          <span className="shrink-0 text-danger">exit {task.result.exit_code}</span>
-        ) : ACTIVE_STATUSES.has(task.status) ? (
-          <span className="shrink-0 text-info">{display.label.toLowerCase()}…</span>
-        ) : (
-          <span className="shrink-0 text-faint">{formatDuration(task.result?.execution_duration_ms)}</span>
-        )}
-      </div>
+        leading={
+          <>
+            {selectable && (
+              <span onClick={(e) => e.stopPropagation()}>
+                <Checkbox
+                  checked={selectedTasks.includes(task.id)}
+                  onChange={() => onToggleSelect?.(task.id)}
+                />
+              </span>
+            )}
+            <span className="shrink-0 text-faint">{clockTime(task.created_at)}</span>
+            <Glyph variant={display.variant} />
+          </>
+        }
+        name={taskName(task)}
+        nameClassName="font-sans text-[13px] text-foreground"
+        meta={<span className="text-muted">{task.agent_hostname ?? '—'}</span>}
+        trailing={
+          failed && task.result ? (
+            <span className="text-danger">exit {task.result.exit_code}</span>
+          ) : ACTIVE_STATUSES.has(task.status) ? (
+            <span className="text-info">{display.label.toLowerCase()}…</span>
+          ) : (
+            <span className="text-faint">{formatDuration(task.result?.execution_duration_ms)}</span>
+          )
+        }
+      />
     );
   };
 
@@ -270,24 +275,32 @@ export default function TaskStream({
                       onChange={() => onToggleGroupSelect(group.batch_id)}
                     />
                   )}
-                  <button
+                  <StreamRow
+                    as="button"
+                    type="button"
                     onClick={() => toggleBatch(group.batch_id)}
-                    className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
-                  >
-                    {collapsed ? (
-                      <ChevronRight className="h-3 w-3 shrink-0 text-faint" />
-                    ) : (
-                      <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
-                    )}
-                    <span className="shrink-0 text-faint">{clockTime(group.created_at)}</span>
-                    <span className="min-w-0 flex-1 truncate font-sans text-[13px]">
-                      batch · {group.payload?.test_name || group.type.replace(/_/g, ' ')}{' '}
-                      <span className="text-faint">· {group.agent_count} agents</span>
-                    </span>
-                    {completed > 0 && <span className="shrink-0 text-accent">{completed}✓</span>}
-                    {failedCount > 0 && <span className="shrink-0 text-danger">{failedCount}✕</span>}
-                    {hasActive && <span className="shrink-0 text-info">▶&#xFE0E;</span>}
-                  </button>
+                    className="min-w-0 flex-1 text-left"
+                    leading={
+                      <>
+                        {collapsed ? (
+                          <ChevronRight className="h-3 w-3 shrink-0 text-faint" />
+                        ) : (
+                          <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
+                        )}
+                        <span className="shrink-0 text-faint">{clockTime(group.created_at)}</span>
+                      </>
+                    }
+                    name={`batch · ${group.payload?.test_name || group.type.replace(/_/g, ' ')}`}
+                    nameClassName="font-sans text-[13px]"
+                    meta={<span className="text-faint">· {group.agent_count} agents</span>}
+                    trailing={
+                      <>
+                        {completed > 0 && <span className="text-accent">{completed}✓</span>}
+                        {failedCount > 0 && <span className="text-danger">{failedCount}✕</span>}
+                        {hasActive && <span className="text-info">▶&#xFE0E;</span>}
+                      </>
+                    }
+                  />
                 </div>
                 {!collapsed && group.tasks.map((task) => renderTaskRow(task, true))}
               </div>

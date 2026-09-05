@@ -73,7 +73,7 @@ export function RunList({ rows, selectedKey, onSelect, checkedKeys, onToggleChec
               {row.type === 'bundle' && <Package className="h-3.5 w-3.5 shrink-0 text-info" />}
               <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{name}</span>
               {row.type === 'bundle' && (
-                <Badge variant="default" className="shrink-0">
+                <Badge variant="default" className="hidden shrink-0 md:inline-flex">
                   {row.totalCount} {row.category === 'cyber-hygiene' ? 'controls' : 'stages'}
                 </Badge>
               )}
@@ -82,11 +82,18 @@ export function RunList({ rows, selectedKey, onSelect, checkedKeys, onToggleChec
               </span>
             </div>
             <div className="mt-1 flex items-center justify-between gap-2 pl-0">
-              {row.type === 'bundle' ? (
-                <BundleResultLabel group={row} compact />
-              ) : (
-                <ExecResultLabel exec={row.execution} compact />
-              )}
+              <span className="flex min-w-0 items-center gap-2">
+                {row.type === 'bundle' ? (
+                  <BundleResultLabel group={row} compact />
+                ) : (
+                  <ExecResultLabel exec={row.execution} compact />
+                )}
+                {row.type === 'bundle' && (
+                  <Badge variant="default" className="shrink-0 md:hidden">
+                    {row.totalCount} {row.category === 'cyber-hygiene' ? 'controls' : 'stages'}
+                  </Badge>
+                )}
+              </span>
               <span className="truncate font-mono text-[11px] text-faint" title={hostname}>
                 {hostname}
               </span>

@@ -341,8 +341,8 @@ export default function TasksPage() {
 
         {/* Filter bar */}
         <div className="border border-border rounded-lg bg-card p-4 mb-4">
-          <div className="flex gap-4 items-center">
-            <div className="min-w-40">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="min-w-40 max-lg:min-w-0 max-lg:flex-1 max-lg:basis-40">
               <select
                 className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={statusFilter}
@@ -358,7 +358,7 @@ export default function TasksPage() {
                 <option value="expired">Expired</option>
               </select>
             </div>
-            <div className="flex-grow max-w-sm">
+            <div className="flex-grow max-w-sm max-lg:min-w-0 max-lg:basis-48">
               <Input
                 placeholder="Search tasks..."
                 value={searchTerm}
@@ -426,7 +426,7 @@ export default function TasksPage() {
 
         {/* Pagination controls */}
         {!loading && totalGroups > 0 && (
-          <div className="flex items-center justify-between mt-4 text-sm text-muted-foreground">
+          <div className="flex flex-wrap gap-y-2 items-center justify-between mt-4 text-sm text-muted-foreground">
             <div className="flex items-center gap-3">
               <span>Showing {rangeStart}&ndash;{rangeEnd} of {totalGroups}</span>
               <select
@@ -439,7 +439,7 @@ export default function TasksPage() {
                 ))}
               </select>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
               <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(1)}>
                 <ChevronsLeft className="w-4 h-4 mr-1" />
                 Newest

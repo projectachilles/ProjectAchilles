@@ -8,6 +8,9 @@ import { usePolling } from '@/hooks/usePolling';
 import { useSearchParams } from 'react-router-dom';
 import { UserPlus, Download, Unplug, Ban, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useHasPermission } from '@/hooks/useAppRole';
+import { useIsDesktop } from '@/hooks/useMediaQuery';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { FleetSummaryBar } from '@/components/endpoints/agents/FleetSummaryBar';
 import { useAppDispatch, useAppSelector } from '../../store';
 import {
   fetchAgents,
@@ -66,6 +69,8 @@ export default function AgentsPage() {
   const [uninstallAgents, setUninstallAgents] = useState<AgentSummary[]>([]);
   const [deleteAgents, setDeleteAgents] = useState<AgentSummary[]>([]);
   const [showEnrollment, setShowEnrollment] = useState(false);
+  const isDesktop = useIsDesktop();
+  const [railOpen, setRailOpen] = useState(false);
   const [latestVersions, setLatestVersions] = useState<Map<string, string>>(new Map());
   const isInitialMount = useRef(true);
   const canEnroll = useHasPermission('endpoints:tokens:create');
@@ -260,7 +265,7 @@ export default function AgentsPage() {
   return (
     <>
       <PageContainer>
-        <div className="flex items-start justify-between mb-6">
+        <div className="mb-6 flex items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-semibold tracking-tight">Agents</h1>
@@ -276,7 +281,8 @@ export default function AgentsPage() {
             <div className="flex items-center gap-2">
               <Button variant="primary" onClick={() => setShowEnrollment(true)}>
                 <UserPlus className="w-4 h-4 mr-2" />
-                Enroll agent
+                <span className="hidden sm:inline">Enroll agent</span>
+                <span className="sm:hidden">Enroll</span>
               </Button>
             </div>
           )}
@@ -301,9 +307,9 @@ export default function AgentsPage() {
           });
           if (outdated.length === 0 || latestVersions.size === 0) return null;
           return (
-            <div className="mb-4 flex items-center gap-3 rounded-lg border border-warning/40 bg-warning-dim px-4 py-3">
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning-dim px-4 py-3">
               <AlertTriangle className="h-5 w-5 shrink-0 text-warning" />
-              <p className="flex-1 text-sm text-warning">
+              <p className="min-w-0 flex-1 basis-40 text-sm text-warning">
                 <span className="font-semibold">{outdated.length} of {agents.length} agent{agents.length !== 1 ? 's' : ''}</span>{' '}
                 running outdated versions
               </p>
@@ -325,22 +331,44 @@ export default function AgentsPage() {
           </Alert>
         )}
 
-        <div className="flex items-start gap-5">
-          {/* Rail: fleet state + navigation, then utilities (approved
-              rail-utilities design — key rotation before binaries) */}
-          <div className="flex w-60 shrink-0 flex-col gap-4">
-            <FleetPulseRail
-              metrics={metrics}
-              staleCount={fleetHealth?.stale_agent_count ?? null}
-              groups={groupCounts}
-              activeTag={filters.tag}
-              staleActive={!!filters.stale_only}
-              onTagFilter={(tag) => handleFilterChange({ tag })}
-              onStaleFilter={() => handleFilterChange({ stale_only: !filters.stale_only })}
-            />
-            {canWriteAgent && <AutoRotationSettings />}
-            <AvailableBinaries />
-          </div>
+        {/* Rail: fleet state + navigation, then utilities (approved
+            rail-utilities design — key rotation before binaries).
+            Below lg the rail lives in a bottom sheet behind FleetSummaryBar. */}
+        {(() => {
+          const rail = (
+            <>
+              <FleetPulseRail
+                metrics={metrics}
+                staleCount={fleetHealth?.stale_agent_count ?? null}
+                groups={groupCounts}
+                activeTag={filters.tag}
+                staleActive={!!filters.stale_only}
+                onTagFilter={(tag) => { handleFilterChange({ tag }); setRailOpen(false); }}
+                onStaleFilter={() => { handleFilterChange({ stale_only: !filters.stale_only }); setRailOpen(false); }}
+              />
+              {canWriteAgent && <AutoRotationSettings />}
+              <AvailableBinaries />
+            </>
+          );
+          return (
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-5">
+          {isDesktop ? (
+            <div className="flex w-60 shrink-0 flex-col gap-4">{rail}</div>
+          ) : (
+            <>
+              <FleetSummaryBar
+                metrics={metrics}
+                staleCount={fleetHealth?.stale_agent_count ?? null}
+                onOpenDetails={() => setRailOpen(true)}
+              />
+              <Sheet open={railOpen} onOpenChange={setRailOpen}>
+                <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto border-border bg-background p-4">
+                  <SheetTitle className="mb-3 text-sm font-semibold">Fleet details</SheetTitle>
+                  <div className="flex flex-col gap-4">{rail}</div>
+                </SheetContent>
+              </Sheet>
+            </>
+          )}
           <div className="min-w-0 flex-1">
         <AgentFilters
           filters={filters}
@@ -460,6 +488,8 @@ export default function AgentsPage() {
         )}
           </div>
         </div>
+          );
+        })()}
 
         <AgentDetailPanel
           agent={detailAgent}

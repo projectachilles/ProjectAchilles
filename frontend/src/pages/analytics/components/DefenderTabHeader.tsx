@@ -9,7 +9,7 @@ interface DefenderTabHeaderProps {
 
 export default function DefenderTabHeader({ lastSync, syncing, onSync }: DefenderTabHeaderProps) {
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h2 className="text-lg font-semibold">Microsoft Defender</h2>
         <p className="text-sm text-muted-foreground">

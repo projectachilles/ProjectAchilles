@@ -278,3 +278,13 @@ code {
     @apply bg-background text-foreground;
   }
 }
+
+/* Touch devices: comfortable hit areas without changing pointer layouts. */
+@media (pointer: coarse) {
+  @layer components {
+    button:not([class*='h-']):not([class*='size-']),
+    [role='button']:not([class*='h-']):not([class*='size-']) {
+      min-height: 2.5rem;
+    }
+  }
+}
