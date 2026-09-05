@@ -166,7 +166,7 @@ export default function AgentOverviewTab({ agent }: AgentOverviewTabProps) {
               {recentTasks.map((task) => (
                 <StreamRow
                   key={task.id}
-                  className="rounded bg-raised/50 p-2 text-sm"
+                  className="gap-x-2 rounded bg-raised/50 p-2 text-sm"
                   leading={<TaskStatusBadge task={task} className="text-xs shrink-0" />}
                   name={task.type === 'execute_command' ? (task.payload.command ?? 'Command') : (task.payload.test_name || task.type)}
                   meta={
