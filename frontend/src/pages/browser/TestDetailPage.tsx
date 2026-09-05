@@ -14,6 +14,9 @@ import { ArrowLeft, Calendar, Layers, Star, Loader2, FileText, Code, Shield, Ale
 import { formatRelativeDate, formatFullDate } from '@/utils/dateFormatters';
 import { targetLabel } from '@/utils/platformLabels';
 import { ExecutionDrawer } from '@/components/browser/execution';
+import { useIsDesktop } from '@/hooks/useMediaQuery';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { cn } from '@/lib/utils';
 
 export default function TestDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
@@ -35,6 +38,8 @@ export default function TestDetailPage() {
   const canBuild = useHasPermission('tests:builds:create');
   const canCreateTasks = useHasPermission('endpoints:tasks:create');
   const [executionDrawerOpen, setExecutionDrawerOpen] = useState(false);
+  const isDesktop = useIsDesktop();
+  const [filesOpen, setFilesOpen] = useState(false);
 
   // Sync theme to visualization iframes via postMessage
   const syncThemeToIframe = useCallback(() => {
@@ -151,10 +156,12 @@ export default function TestDetailPage() {
     setSelectedFile(filename);
     setActiveView('file');
     setHasUserInteracted(true); // User clicked a file
+    setFilesOpen(false);
   }
 
   function handleAttackFlowClick() {
     setHasUserInteracted(true); // User clicked attack flow
+    setFilesOpen(false);
     if (!attackFlowHtml) {
       loadAttackFlow();
     } else {
@@ -164,6 +171,7 @@ export default function TestDetailPage() {
 
   function handleKillChainClick() {
     setHasUserInteracted(true);
+    setFilesOpen(false);
     if (!killChainHtml) {
       loadKillChain();
     } else {
@@ -240,6 +248,166 @@ export default function TestDetailPage() {
     setHasUserInteracted(false);
   }
 
+  const railBody = (
+    <div className="p-4 space-y-4">
+      {/* Documentation */}
+      {documentationFiles.length > 0 && (
+        <CollapsibleSection icon={FileText} label="Documentation" sectionKey="docs"
+          itemCount={documentationFiles.length} defaultOpen isActive={isDocActive}>
+          <div className="space-y-1">
+            {documentationFiles.map(file => (
+              <button key={file.name} onClick={() => handleFileSelect(file.name)}
+                className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                  selectedFile === file.name && activeView === 'file'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-foreground hover:bg-raised'
+                }`}>
+                {file.name === 'SAFETY.md' && <AlertTriangle className="w-3 h-3 inline mr-2 text-orange-500" />}
+                {file.name}
+              </button>
+            ))}
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {/* Build */}
+      {canBuild && sourceFiles.length > 0 && uuid && (
+        <CollapsibleSection icon={Hammer} label="Build" sectionKey="build" defaultOpen>
+          <BuildSection uuid={uuid} />
+        </CollapsibleSection>
+      )}
+
+      {/* Visualization */}
+      {(test.hasAttackFlow || test.hasKillChain) && (
+        <CollapsibleSection icon={Workflow} label="Visualization" sectionKey="visuals"
+          itemCount={(test.hasAttackFlow ? 1 : 0) + (test.hasKillChain ? 1 : 0)}
+          isActive={isVisualsActive}>
+          <div className="space-y-1">
+            {test.hasAttackFlow && (
+              <button onClick={handleAttackFlowClick}
+                className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                  activeView === 'attack-flow' ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-raised'
+                }`}>
+                Attack Flow Diagram
+              </button>
+            )}
+            {test.hasKillChain && (
+              <button onClick={handleKillChainClick}
+                className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                  activeView === 'kill-chain' ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-raised'
+                }`}>
+                Kill Chain Diagram
+              </button>
+            )}
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {/* Defense Guidance */}
+      {defenseFiles.length > 0 && (
+        <CollapsibleSection icon={ShieldCheck} label="Defense Guidance" sectionKey="defense"
+          itemCount={defenseFiles.length} isActive={isDefenseActive}>
+          <div className="space-y-1">
+            {defenseFiles.map(file => (
+              <button key={file.name} onClick={() => handleFileSelect(file.name)}
+                className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center gap-2 ${
+                  selectedFile === file.name && activeView === 'file'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-foreground hover:bg-raised'
+                }`}>
+                {file.name.includes('DEFENSE_GUIDANCE') && <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />}
+                {file.name.includes('_dr_rules') && <span className="w-2 h-2 rounded-full bg-cyan-500 flex-shrink-0" />}
+                {file.name.includes('_hardening') && <span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />}
+                {getDefenseFileDisplayName(file.name)}
+              </button>
+            ))}
+          </div>
+        </CollapsibleSection>
+      )}
+
+
+      {/* References & Sources */}
+      {referenceFiles.length > 0 && (
+        <CollapsibleSection icon={BookOpen} label="References" sectionKey="references"
+          itemCount={referenceFiles.length} isActive={isReferencesActive}>
+          <div className="space-y-1">
+            {referenceFiles.map(file => (
+              <button key={file.name} onClick={() => handleFileSelect(file.name)}
+                className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                  selectedFile === file.name && activeView === 'file'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-foreground hover:bg-raised'
+                }`}>
+                {file.name}
+              </button>
+            ))}
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {/* Source Code */}
+      {sourceFiles.length > 0 && (
+        <CollapsibleSection icon={Code} label="Source Code" sectionKey="source"
+          itemCount={sourceFiles.length} isActive={isSourceActive}>
+          <div className="space-y-1">
+            {sourceFiles.map(file => (
+              <button key={file.name} onClick={() => handleFileSelect(file.name)}
+                className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
+                  selectedFile === file.name && activeView === 'file'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-foreground hover:bg-raised'
+                }`}>
+                {file.name}
+              </button>
+            ))}
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {/* Detection Rules */}
+      {detectionFiles.length > 0 && (
+        <CollapsibleSection icon={Shield} label="Detection Rules" sectionKey="rules"
+          itemCount={detectionFiles.length} isActive={isRulesActive}>
+          <div className="space-y-1">
+            {detectionFiles.map(file => (
+              <button key={file.name} onClick={() => handleFileSelect(file.name)}
+                className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
+                  selectedFile === file.name && activeView === 'file'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-foreground hover:bg-raised'
+                }`}>
+                {file.type === 'kql' && <span className="text-xs text-blue-500 mr-2">KQL</span>}
+                {file.type === 'yara' && <span className="text-xs text-purple-500 mr-2">YARA</span>}
+                {file.type === 'sigma' && <span className="text-xs text-yellow-500 mr-2">SIGMA</span>}
+                {file.type === 'ndjson' && <span className="text-xs text-green-500 mr-2">ELASTIC</span>}
+                {file.name}
+              </button>
+            ))}
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {/* Configuration */}
+      {configFiles.length > 0 && (
+        <CollapsibleSection icon={Shield} label="Configuration" sectionKey="config"
+          itemCount={configFiles.length} isActive={isConfigActive}>
+          <div className="space-y-1">
+            {configFiles.map(file => (
+              <button key={file.name} onClick={() => handleFileSelect(file.name)}
+                className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
+                  selectedFile === file.name && activeView === 'file'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-foreground hover:bg-raised'
+                }`}>
+                {file.name}
+              </button>
+            ))}
+          </div>
+        </CollapsibleSection>
+      )}
+    </div>
+  );
+
   return (
     <div className="h-full flex flex-col">
       {/* Header - Compact or Full */}
@@ -309,7 +477,7 @@ export default function TestDetailPage() {
 
             <div className="flex items-start justify-between gap-4 mb-3">
               <div className="flex-1">
-                <h1 className="text-2xl font-bold mb-2 text-foreground">{test.name}</h1>
+                <h1 className="mb-2 break-words text-xl font-bold text-foreground sm:text-2xl">{test.name}</h1>
                 <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
                   {test.severity && (
                     <span className="font-medium uppercase text-orange-500">
@@ -367,7 +535,7 @@ export default function TestDetailPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex shrink-0 items-center gap-2 sm:gap-3">
                 <button
                   onClick={() => toggleFavorite(test.uuid)}
                   className="p-2 rounded-lg hover:bg-raised transition-colors"
@@ -412,172 +580,23 @@ export default function TestDetailPage() {
       )}
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar - File Browser */}
-        <div className="w-80 border-r border-border bg-raised/30 overflow-y-auto">
-          <div className="p-4 space-y-4">
-            {/* Documentation */}
-            {documentationFiles.length > 0 && (
-              <CollapsibleSection icon={FileText} label="Documentation" sectionKey="docs"
-                itemCount={documentationFiles.length} defaultOpen isActive={isDocActive}>
-                <div className="space-y-1">
-                  {documentationFiles.map(file => (
-                    <button key={file.name} onClick={() => handleFileSelect(file.name)}
-                      className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                        selectedFile === file.name && activeView === 'file'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-foreground hover:bg-raised'
-                      }`}>
-                      {file.name === 'SAFETY.md' && <AlertTriangle className="w-3 h-3 inline mr-2 text-orange-500" />}
-                      {file.name}
-                    </button>
-                  ))}
-                </div>
-              </CollapsibleSection>
-            )}
-
-            {/* Build */}
-            {canBuild && sourceFiles.length > 0 && uuid && (
-              <CollapsibleSection icon={Hammer} label="Build" sectionKey="build" defaultOpen>
-                <BuildSection uuid={uuid} />
-              </CollapsibleSection>
-            )}
-
-            {/* Visualization */}
-            {(test.hasAttackFlow || test.hasKillChain) && (
-              <CollapsibleSection icon={Workflow} label="Visualization" sectionKey="visuals"
-                itemCount={(test.hasAttackFlow ? 1 : 0) + (test.hasKillChain ? 1 : 0)}
-                isActive={isVisualsActive}>
-                <div className="space-y-1">
-                  {test.hasAttackFlow && (
-                    <button onClick={handleAttackFlowClick}
-                      className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                        activeView === 'attack-flow' ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-raised'
-                      }`}>
-                      Attack Flow Diagram
-                    </button>
-                  )}
-                  {test.hasKillChain && (
-                    <button onClick={handleKillChainClick}
-                      className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                        activeView === 'kill-chain' ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-raised'
-                      }`}>
-                      Kill Chain Diagram
-                    </button>
-                  )}
-                </div>
-              </CollapsibleSection>
-            )}
-
-            {/* Defense Guidance */}
-            {defenseFiles.length > 0 && (
-              <CollapsibleSection icon={ShieldCheck} label="Defense Guidance" sectionKey="defense"
-                itemCount={defenseFiles.length} isActive={isDefenseActive}>
-                <div className="space-y-1">
-                  {defenseFiles.map(file => (
-                    <button key={file.name} onClick={() => handleFileSelect(file.name)}
-                      className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center gap-2 ${
-                        selectedFile === file.name && activeView === 'file'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-foreground hover:bg-raised'
-                      }`}>
-                      {file.name.includes('DEFENSE_GUIDANCE') && <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />}
-                      {file.name.includes('_dr_rules') && <span className="w-2 h-2 rounded-full bg-cyan-500 flex-shrink-0" />}
-                      {file.name.includes('_hardening') && <span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />}
-                      {getDefenseFileDisplayName(file.name)}
-                    </button>
-                  ))}
-                </div>
-              </CollapsibleSection>
-            )}
-
-
-            {/* References & Sources */}
-            {referenceFiles.length > 0 && (
-              <CollapsibleSection icon={BookOpen} label="References" sectionKey="references"
-                itemCount={referenceFiles.length} isActive={isReferencesActive}>
-                <div className="space-y-1">
-                  {referenceFiles.map(file => (
-                    <button key={file.name} onClick={() => handleFileSelect(file.name)}
-                      className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                        selectedFile === file.name && activeView === 'file'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-foreground hover:bg-raised'
-                      }`}>
-                      {file.name}
-                    </button>
-                  ))}
-                </div>
-              </CollapsibleSection>
-            )}
-
-            {/* Source Code */}
-            {sourceFiles.length > 0 && (
-              <CollapsibleSection icon={Code} label="Source Code" sectionKey="source"
-                itemCount={sourceFiles.length} isActive={isSourceActive}>
-                <div className="space-y-1">
-                  {sourceFiles.map(file => (
-                    <button key={file.name} onClick={() => handleFileSelect(file.name)}
-                      className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
-                        selectedFile === file.name && activeView === 'file'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-foreground hover:bg-raised'
-                      }`}>
-                      {file.name}
-                    </button>
-                  ))}
-                </div>
-              </CollapsibleSection>
-            )}
-
-            {/* Detection Rules */}
-            {detectionFiles.length > 0 && (
-              <CollapsibleSection icon={Shield} label="Detection Rules" sectionKey="rules"
-                itemCount={detectionFiles.length} isActive={isRulesActive}>
-                <div className="space-y-1">
-                  {detectionFiles.map(file => (
-                    <button key={file.name} onClick={() => handleFileSelect(file.name)}
-                      className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
-                        selectedFile === file.name && activeView === 'file'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-foreground hover:bg-raised'
-                      }`}>
-                      {file.type === 'kql' && <span className="text-xs text-blue-500 mr-2">KQL</span>}
-                      {file.type === 'yara' && <span className="text-xs text-purple-500 mr-2">YARA</span>}
-                      {file.type === 'sigma' && <span className="text-xs text-yellow-500 mr-2">SIGMA</span>}
-                      {file.type === 'ndjson' && <span className="text-xs text-green-500 mr-2">ELASTIC</span>}
-                      {file.name}
-                    </button>
-                  ))}
-                </div>
-              </CollapsibleSection>
-            )}
-
-            {/* Configuration */}
-            {configFiles.length > 0 && (
-              <CollapsibleSection icon={Shield} label="Configuration" sectionKey="config"
-                itemCount={configFiles.length} isActive={isConfigActive}>
-                <div className="space-y-1">
-                  {configFiles.map(file => (
-                    <button key={file.name} onClick={() => handleFileSelect(file.name)}
-                      className={`w-full text-left px-3 py-2 rounded-md text-sm font-mono transition-colors ${
-                        selectedFile === file.name && activeView === 'file'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-foreground hover:bg-raised'
-                      }`}>
-                      {file.name}
-                    </button>
-                  ))}
-                </div>
-              </CollapsibleSection>
-            )}
-          </div>
-        </div>
+      <div className={cn('flex-1', isDesktop ? 'flex overflow-hidden' : 'flex flex-col')}>
+        {/* Left Sidebar - File Browser (bottom sheet below lg) */}
+        {isDesktop ? (
+          <div className="w-80 border-r border-border bg-raised/30 overflow-y-auto">{railBody}</div>
+        ) : (
+          <Sheet open={filesOpen} onOpenChange={setFilesOpen}>
+            <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto border-border bg-background p-0">
+              <SheetTitle className="px-4 pt-4 text-sm font-semibold">Files and build</SheetTitle>
+              {railBody}
+            </SheetContent>
+          </Sheet>
+        )}
 
         {/* Right Panel - Content Viewer */}
-        <div className="flex-1 overflow-hidden flex flex-col">
+        <div className={cn('flex flex-1 flex-col', isDesktop ? 'overflow-hidden' : 'min-h-[60vh]')}>
           {/* Main Content Area */}
-          <div className="flex-1 overflow-hidden">
+          <div className={cn('flex-1', isDesktop && 'overflow-hidden')}>
             {fileLoading ? (
               <div className="flex items-center justify-center h-full">
                 <div className="flex items-center gap-2 text-muted-foreground">
@@ -589,7 +608,7 @@ export default function TestDetailPage() {
               <iframe
                 ref={attackFlowIframeRef}
                 srcDoc={attackFlowHtml}
-                className="w-full h-full border-0"
+                className="w-full h-full min-h-[60vh] border-0 lg:min-h-0"
                 title="Attack Flow Diagram"
                 sandbox=""
                 onLoad={syncThemeToIframe}
@@ -598,7 +617,7 @@ export default function TestDetailPage() {
               <iframe
                 ref={killChainIframeRef}
                 srcDoc={killChainHtml}
-                className="w-full h-full border-0"
+                className="w-full h-full min-h-[60vh] border-0 lg:min-h-0"
                 title="Kill Chain Diagram"
                 sandbox="allow-scripts"
                 onLoad={syncThemeToIframe}
@@ -613,6 +632,17 @@ export default function TestDetailPage() {
           </div>
         </div>
       </div>
+
+      {!isDesktop && (
+        <button
+          type="button"
+          onClick={() => setFilesOpen(true)}
+          className="fixed bottom-4 right-4 z-30 flex h-11 items-center gap-2 rounded-full border border-border-strong bg-raised px-4 text-sm font-medium text-foreground shadow-lg"
+        >
+          <FileText className="h-4 w-4" />
+          Files and build
+        </button>
+      )}
 
       {test && (
         <ExecutionDrawer
