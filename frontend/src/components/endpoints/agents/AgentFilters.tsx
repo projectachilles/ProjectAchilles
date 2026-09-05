@@ -34,7 +34,7 @@ export default function AgentFilters({
         </div>
 
         {/* Hostname Filter */}
-        <div className="min-w-48">
+        <div className="w-full sm:w-auto sm:min-w-48">
           <Input
             placeholder="Filter by hostname"
             value={filters.hostname || ''}
