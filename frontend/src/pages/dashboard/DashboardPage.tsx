@@ -173,14 +173,14 @@ export default function DashboardPage() {
       <AttentionBanner items={data.attentionItems} loading={data.loading} />
 
       {/* KPI row */}
-      <div className="grid auto-rows-fr grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+      <div className="grid auto-rows-fr grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6 [&>*]:min-w-0">
         {kpis.map((kpi) => (
           <KpiCard key={kpi.label} {...kpi} loading={data.loading} />
         ))}
       </div>
 
       {/* Trend + severity */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-3 [&>*]:min-w-0">
         <div className="lg:col-span-2">
           <TrendOverviewChart
             data={data.trend}
@@ -197,7 +197,7 @@ export default function DashboardPage() {
       </div>
 
       {/* MITRE + categories */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-3 [&>*]:min-w-0">
         <div className="lg:col-span-2">
           <MitreCoverageBars
             tactics={data.testStats?.mitre.tactics ?? []}
@@ -222,7 +222,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Bottom row */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-3 [&>*]:min-w-0">
         <TopControlsCard
           controls={data.controls}
           configured={data.defenderConfigured}
