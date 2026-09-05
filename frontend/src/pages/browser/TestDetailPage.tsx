@@ -475,7 +475,7 @@ export default function TestDetailPage() {
               Back to tests
             </button>
 
-            <div className="flex items-start justify-between gap-4 mb-3">
+            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
               <div className="flex-1">
                 <h1 className="mb-2 break-words text-xl font-bold text-foreground sm:text-2xl">{test.name}</h1>
                 <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
