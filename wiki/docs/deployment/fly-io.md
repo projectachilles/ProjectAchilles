@@ -116,6 +116,8 @@ flyctl apps restart achilles-backend        # Restart
 
 Full Go build support (Docker image includes Go 1.24.3). Set `AGENT_REPO_URL` and `AGENT_REPO_BRANCH`.
 
+Before **every build**, the backend fetches the latest commit of `AGENT_REPO_BRANCH` (`git fetch --depth 1` + hard reset), so a build always compiles the current branch, even when an agent-only merge didn't trigger a redeploy. The commit is recorded in the version's release notes (`Built from source (windows/amd64) at 1bbe749`). If the fetch fails, the build fails rather than compiling stale code.
+
 ## Cost Estimate
 
 | Service | Est. Monthly Cost |

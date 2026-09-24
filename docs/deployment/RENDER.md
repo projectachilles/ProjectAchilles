@@ -261,6 +261,10 @@ When you're ready to use custom domains instead of `*.onrender.com`:
 
 The backend Docker image includes Go 1.24.3, so agent cross-compilation works on Render — same as Railway. Set `AGENT_REPO_URL` to your ProjectAchilles repo and the backend will git-clone the `agent/` subdirectory at startup (sparse checkout), then use it for Go cross-compilation.
 
+Before **every build**, the backend fetches the latest commit of `AGENT_REPO_BRANCH` (`git fetch --depth 1` + hard reset), so a build always compiles the current branch, even when an agent-only merge didn't trigger a redeploy. The commit is recorded in the version's release notes (`Built from source (windows/amd64) at 1bbe749`). If the fetch fails, the build fails rather than compiling stale code.
+
+> **Why this matters on Render:** `render.yaml`'s `buildFilter` only redeploys on backend paths (`src/**`, `package*.json`, `tsconfig.json`, `Dockerfile`), so merging an agent-only change does **not** restart the service. Before this refresh existed, clicking Build after such a merge compiled the old agent code under the new version number.
+
 | Variable | Value | Notes |
 |----------|-------|-------|
 | `AGENT_REPO_URL` | `https://github.com/your-org/ProjectAchilles.git` | Required for agent builds |
@@ -343,7 +347,7 @@ The `AGENT_REPO_URL` environment variable is not set, or the Git clone failed at
 - `GITHUB_TOKEN` is set if the repo is private (the token is injected into the clone URL)
 - The container logs for git clone errors (e.g., authentication failures, branch not found)
 
-The agent source is cloned once at startup via sparse checkout (only the `agent/` subdirectory). If the clone fails, the build feature is disabled and the Agent tab shows "Agent build from source is not available."
+The agent source is cloned at startup via sparse checkout (only the `agent/` subdirectory) and refreshed before each build. If the initial clone fails, the build feature is disabled and the Agent tab shows "Agent build from source is not available." If only the refresh fails, that build fails with "Could not refresh agent source from git".
 
 ### Build times are slow
 Render caches Docker layers between builds. The first build takes 3-5 minutes; subsequent builds with only source code changes take ~1-2 minutes. If builds are consistently slow, check that `buildFilter.paths` is configured correctly so unrelated changes don't trigger rebuilds.

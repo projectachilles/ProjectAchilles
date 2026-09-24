@@ -301,6 +301,8 @@ When you're ready to use custom domains instead of `*.fly.dev`:
 
 The backend Docker image includes Go 1.24.3, so agent cross-compilation works on Fly.io — same as Railway and Render. Set `AGENT_REPO_URL` and the backend clones the `agent/` subdirectory at startup (sparse checkout), then uses it for Go cross-compilation.
 
+Before **every build**, the backend fetches the latest commit of `AGENT_REPO_BRANCH` (`git fetch --depth 1` + hard reset), so a build always compiles the current branch, even when an agent-only merge didn't trigger a redeploy. The commit is recorded in the version's release notes (`Built from source (windows/amd64) at 1bbe749`). If the fetch fails, the build fails rather than compiling stale code.
+
 | Variable | Value | Notes |
 |----------|-------|-------|
 | `AGENT_REPO_URL` | `https://github.com/your-org/ProjectAchilles.git` | Required for agent builds |
@@ -429,7 +431,7 @@ The `AGENT_REPO_URL` environment variable is not set, or the Git clone failed at
 - `GITHUB_TOKEN` is set if the repo is private
 - The container logs for git clone errors: `flyctl logs --app achilles-backend`
 
-The agent source is cloned once at startup via sparse checkout (only the `agent/` subdirectory). If the clone fails, the build feature is disabled.
+The agent source is cloned at startup via sparse checkout (only the `agent/` subdirectory) and refreshed before each build. If the initial clone fails, the build feature is disabled. If only the refresh fails, that build fails with "Could not refresh agent source from git"; check network access to the repo and `GITHUB_TOKEN`.
 
 ### Build times are slow
 

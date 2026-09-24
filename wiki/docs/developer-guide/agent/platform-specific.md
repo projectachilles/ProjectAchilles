@@ -94,7 +94,7 @@ Key behaviors:
 - Creates a Windows service registered with the SCM
 - Implements the full SCM lifecycle (start, stop, interrogate)
 - Configures automatic restart on failure with exponential backoff
-- Uses Task Scheduler as a fallback restart mechanism after updates
+- Uses Task Scheduler as a fallback restart mechanism after updates (see below)
 - Hardens the binary with `icacls` (SYSTEM + Administrators only, inherited permissions removed)
 
 ```bash
@@ -107,6 +107,8 @@ icacls "C:\path\to\achilles-agent.exe" /inheritance:r /grant:r "SYSTEM:(F)" "Adm
 :::info
 On Windows, `RunService()` enters the SCM handler loop. The SCM sends control signals (stop, shutdown, interrogate) which the handler translates into context cancellation for the poller.
 :::
+
+**Restart after an update.** The handler exits with code 1. `sc failureflag 1` makes the SCM treat that as a failure, so its recovery actions restart the service. SCM recovery covers a service that **exits**, not one that **fails to start** (event 7000), so the agent also registers a one-time scheduled task, `AchillesAgentRestart`, that runs `sc.exe start` about two minutes later and then deletes itself. `fallbackRestartArgs()` (`internal/service/restart_task.go`) registers the task with PowerShell `Register-ScheduledTask`, using a `[DateTime]` trigger and passing the script as `-EncodedCommand`. Don't switch back to `schtasks /Create /SD <date>`: `/SD` parses dates in the machine's locale, so a US-formatted date fails on `dd/MM` locales ("Incorrect Start Date") or silently schedules the wrong month.
 
 ### Linux -- systemd
 
@@ -202,25 +204,33 @@ Without a configured `update_public_key`, the agent will accept any update that 
 
 ```go
 func CheckAndUpdate(ctx context.Context, client *httpclient.Client,
-                   currentVersion string, cfg *config.Config) (bool, error)
+                   currentVersion string, cfg *config.Config, st *store.Store) (bool, error)
 ```
 
 Steps:
 
-1. **Version check** -- query the server for the latest version metadata (version string, download URL, SHA256 hash, signature).
-2. **Download** -- fetch the new binary to a temporary file.
-3. **Hash verification** -- compute SHA256 of the downloaded file and compare against the server-provided hash.
-4. **Signature verification** -- verify the Ed25519 signature over the SHA256 hash bytes.
-5. **Platform-specific replacement** -- replace the running binary (see below).
-6. **Restart** -- return `(true, nil)` to signal the poller to exit. The service manager restarts the process, which loads the new binary.
+1. **Version check** -- query `GET /api/agent/version` for the latest version metadata (version, SHA256 hash, size, signature). A `204` means up to date. Downgrades are refused unless the version is marked mandatory.
+2. **Repeat-install guard** -- if the server offers the same artifact (version *and* SHA256) that was already installed while running the current version, and the agent still reports the old version, return `ErrRepeatedUpdate` without downloading. This stops a restart loop when a binary's embedded version doesn't match its registered version. The record lives in `state.json` (`last_applied_update`) so it survives the restart.
+3. **Download** -- stream the new binary to a temporary file next to the current one.
+4. **Hash verification** -- compute SHA256 of the downloaded file and compare against the server-provided hash (and size).
+5. **Signature verification** -- verify the Ed25519 signature over the SHA256 hash bytes.
+6. **Platform-specific replacement** -- swap the new binary into place and keep the previous one as `<path>.old` (see below).
+7. **Launch check** (`installAndVerify`) -- run `<final path> --version` (30 s timeout). The binary must start and print `achilles-agent v<advertised version>`. On failure, `rollbackUpdate` moves the rejected binary aside, restores `<path>.old`, and returns `ErrLaunchCheckFailed`. The agent keeps running and the update task fails with the reason. The check runs at the **final path** so that path-scoped allowlists (e.g. a Defender ASR per-rule exclusion for the agent binary) apply to it.
+8. **Restart** -- record the applied update, then return `(true, nil)` to signal the poller to exit. The service manager restarts the process, which loads the new binary.
+
+:::tip Why the launch check exists
+Endpoint security can refuse to execute a freshly built binary. The Defender ASR rule "block executables unless they meet a prevalence, age, or trusted list criterion" returns `ERROR_ACCESS_DENIED` to the service manager. Without the check, the agent exits for a restart that can never succeed and the endpoint goes dark. On Windows, an Access Denied failure message names the ASR rule and Defender event 1121.
+:::
 
 ### Platform-Specific Binary Replacement
 
 | Platform | Strategy | Reason |
 |----------|----------|--------|
-| Windows | Write to temp file, rename over original | Running `.exe` files are locked by the OS |
-| Linux | Direct atomic rename | POSIX allows overwriting running executables |
-| macOS | Direct atomic rename + ad-hoc code signing | POSIX rename works; ad-hoc signing satisfies macOS Launch Constraints |
+| Windows | Rename running `.exe` to `.exe.old`, rename temp file into place, harden ACL with `icacls` | Running `.exe` files can be renamed but not overwritten |
+| Linux | Copy current to `.old`, atomic rename of temp file into place | POSIX allows replacing running executables |
+| macOS | Ad-hoc code sign, copy current to `.old`, atomic rename | POSIX rename works; ad-hoc signing satisfies macOS Launch Constraints |
+
+Every platform leaves the previous binary at `<path>.old`. `rollbackUpdate` (`internal/updater/verify_install.go`) relies on it and is cross-platform. Renaming works even when endpoint security blocks *executing* or *reading* the rejected file: this was checked on a Windows endpoint with ASR rule `01443614` in Block mode.
 
 :::info
 On macOS, the updated binary is re-signed with an ad-hoc signature using `rcodesign sign --code-signature-flags adhoc`. This is required because macOS Launch Constraints reject unsigned binaries loaded from `/Library/LaunchDaemons/`.
