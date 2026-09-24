@@ -54,6 +54,15 @@ vi.mock('../../services/agent/enrollment.service.js', () => ({
 
 const { requireAgentAuth } = await import('../agentAuth.middleware.js');
 
+// The middleware answers from inside a cost-12 bcryptjs compare (pure JS, and
+// it runs against a dummy hash even for unknown agents, to avoid a timing
+// oracle). That takes ~0.3 s idle but can pass vi.waitFor's 1 s default when
+// the whole suite runs in parallel, which made these tests flaky in the
+// pre-commit hook. Only the ceiling is raised: a passing check returns as
+// soon as the response is sent.
+const waitForResponse = (assertion: () => void) =>
+  vi.waitFor(assertion, { timeout: 10_000, interval: 25 });
+
 function mockReq(headers: Record<string, string> = {}): Request {
   return { headers } as unknown as Request;
 }
@@ -122,7 +131,7 @@ describe('requireAgentAuth', () => {
     requireAgentAuth(req, res, next);
 
     // bcrypt.compare runs against dummy hash to prevent timing oracle
-    await vi.waitFor(() => {
+    await waitForResponse(() => {
       expect(res.status).toHaveBeenCalledWith(401);
     });
   });
@@ -144,7 +153,7 @@ describe('requireAgentAuth', () => {
     requireAgentAuth(req, res, next);
 
     // Timing oracle fix: disabled agents return 401 with same message as not-found
-    await vi.waitFor(() => {
+    await waitForResponse(() => {
       expect(res.status).toHaveBeenCalledWith(401);
     });
     expect(res.json).toHaveBeenCalledWith(
@@ -164,7 +173,7 @@ describe('requireAgentAuth', () => {
     requireAgentAuth(req, res, next);
 
     // bcrypt.compare is async, wait for it
-    await vi.waitFor(() => {
+    await waitForResponse(() => {
       expect(next).toHaveBeenCalled();
     });
 
@@ -185,7 +194,7 @@ describe('requireAgentAuth', () => {
 
       requireAgentAuth(req, res, next);
 
-      await vi.waitFor(() => {
+      await waitForResponse(() => {
         expect(res.status).toHaveBeenCalledWith(401);
       });
       expect(next).not.toHaveBeenCalled();
@@ -204,7 +213,7 @@ describe('requireAgentAuth', () => {
 
       requireAgentAuth(req, res, next);
 
-      await vi.waitFor(() => {
+      await waitForResponse(() => {
         expect(next).toHaveBeenCalled();
       });
     });
@@ -221,7 +230,7 @@ describe('requireAgentAuth', () => {
 
       requireAgentAuth(req, res, next);
 
-      await vi.waitFor(() => {
+      await waitForResponse(() => {
         expect(res.status).toHaveBeenCalledWith(401);
       });
       expect(next).not.toHaveBeenCalled();
@@ -239,7 +248,7 @@ describe('requireAgentAuth', () => {
 
       requireAgentAuth(req, res, next);
 
-      await vi.waitFor(() => {
+      await waitForResponse(() => {
         expect(res.status).toHaveBeenCalledWith(401);
       });
       expect(next).not.toHaveBeenCalled();
@@ -256,7 +265,7 @@ describe('requireAgentAuth', () => {
 
       requireAgentAuth(req, res, next);
 
-      await vi.waitFor(() => {
+      await waitForResponse(() => {
         expect(res.status).toHaveBeenCalledWith(401);
       });
       expect(next).not.toHaveBeenCalled();
@@ -273,7 +282,7 @@ describe('requireAgentAuth', () => {
 
     requireAgentAuth(req, res, next);
 
-    await vi.waitFor(() => {
+    await waitForResponse(() => {
       expect(res.status).toHaveBeenCalledWith(401);
     });
 
@@ -300,7 +309,7 @@ describe('requireAgentAuth', () => {
 
       requireAgentAuth(req, res, next);
 
-      await vi.waitFor(() => {
+      await waitForResponse(() => {
         expect(next).toHaveBeenCalled();
       });
       expect(req.agent.id).toBe('agent-001');
@@ -323,7 +332,7 @@ describe('requireAgentAuth', () => {
 
       requireAgentAuth(req, res, next);
 
-      await vi.waitFor(() => {
+      await waitForResponse(() => {
         expect(next).toHaveBeenCalled();
       });
       expect(req.agent.id).toBe('agent-001');
@@ -346,7 +355,7 @@ describe('requireAgentAuth', () => {
 
       requireAgentAuth(req, res, next);
 
-      await vi.waitFor(() => {
+      await waitForResponse(() => {
         expect(next).toHaveBeenCalled();
       });
 
@@ -382,7 +391,7 @@ describe('requireAgentAuth', () => {
 
       // Previously this 401'd forever: the undelivered key had been promoted on
       // expiry, so the agent's own key no longer matched anything.
-      await vi.waitFor(() => {
+      await waitForResponse(() => {
         expect(next).toHaveBeenCalled();
       });
       expect(res.status).not.toHaveBeenCalledWith(401);
@@ -414,7 +423,7 @@ describe('requireAgentAuth', () => {
 
       // Cancelling on expiry — the naive fix for the case above — would have
       // discarded this key and locked this agent out instead.
-      await vi.waitFor(() => {
+      await waitForResponse(() => {
         expect(next).toHaveBeenCalled();
       });
       expect(res.status).not.toHaveBeenCalledWith(401);
@@ -441,7 +450,7 @@ describe('requireAgentAuth', () => {
 
       requireAgentAuth(req, res, next);
 
-      await vi.waitFor(() => {
+      await waitForResponse(() => {
         expect(res.status).toHaveBeenCalledWith(401);
       });
       expect(next).not.toHaveBeenCalled();
