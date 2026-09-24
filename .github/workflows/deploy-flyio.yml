@@ -48,10 +48,13 @@ jobs:
 
       - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # master
 
-      - run: flyctl deploy --remote-only
+      # GIT_COMMIT is stamped into the image so GET /api/health reports the
+      # running commit (Fly, unlike Render/Vercel/Railway, injects none).
+      - run: flyctl deploy --remote-only --build-arg GIT_COMMIT="$GIT_COMMIT"
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           FLY_APP: achilles-backend
+          GIT_COMMIT: ${{ github.sha }}
 
   deploy-frontend:
     name: Deploy frontend to Fly.io
