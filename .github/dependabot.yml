@@ -1,129 +1,63 @@
 version: 2
+
+# Noise vs. security, by design:
+# - VERSION updates (routine bumps) are batched: one grouped PR per ecosystem
+#   per month, and only for releases older than the cooldown below.
+# - SECURITY updates are unaffected by schedule, grouping limits and cooldown:
+#   GitHub raises them as soon as an advisory has a fix. Majors ignored below
+#   still surface as security PRs when a CVE is only fixed in a major.
+# The cooldown is itself a supply-chain control: malicious or broken releases
+# are usually yanked within days, before Dependabot would propose them.
+
 updates:
-  # Frontend dependencies
+  # All npm roots in one entry, so the minor/patch group lands as ONE PR across
+  # directories instead of one PR per directory.
   - package-ecosystem: "npm"
-    directory: "/frontend"
+    directories:
+      - "/frontend"
+      - "/backend"
+      - "/backend-serverless"
+      - "/blog"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
+    cooldown:
+      semver-patch-days: 3
+      semver-minor-days: 7
+      semver-major-days: 30
     open-pull-requests-limit: 10
     ignore:
-      # Clerk Core 3 (clerk-react v6) is a coordinated cross-SDK migration via the
-      # @clerk/upgrade CLI, not a dep bump — it breaks the frontend test suite
-      # (useAuthenticatedApi + Clerk middleware). Core 2 is actively maintained and
-      # receives security backports, so decline majors; in-major patches still flow.
-      # NOTE: update-types only suppresses *version* updates — *security* update PRs
-      # are unaffected, so a CVE fixable only in a major will still surface.
+      # Majors that are deliberate migrations, not dependency bumps. Each entry
+      # blocks only VERSION updates; security PRs still fire. An ignore for a
+      # package a directory doesn't use is a no-op there.
+
+      # Clerk Core 3 (clerk-react v6 / backend v3 / express v2) is a coordinated
+      # cross-SDK migration via the @clerk/upgrade CLI — it breaks the frontend
+      # test suite (useAuthenticatedApi + Clerk middleware). Core 2 is actively
+      # maintained with security backports; in-major patches still flow.
       - dependency-name: "@clerk/clerk-react"
         update-types: ["version-update:semver-major"]
+      - dependency-name: "@clerk/backend"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@clerk/express"
+        update-types: ["version-update:semver-major"]
+      # ES server is 8.17 — the v9 client sends incompatible headers
+      # (compatible-with=9). Backend + backend-serverless.
+      - dependency-name: "@elastic/elasticsearch"
+        update-types: ["version-update:semver-major"]
       # Pin @types/node to the runtime major (Node 22, see ci.yml). Types ahead of
-      # the runtime typecheck against APIs that don't exist at runtime.
+      # the runtime typecheck against APIs that don't exist at runtime. Declined
+      # 26.x three times in /blog alone (#320/#325/#329).
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
-      # Recharts 3 is a deliberate migration, not a dep bump — breaking changes in
-      # custom content renderers, tooltip/legend APIs hit our dashboard charts
-      # (Treemap renderers, chart-color tokens). Declined 5x as one-off PRs
-      # (#33, #84, #115, #328, #346); scheduled as part of the dashboard redesign
-      # roadmap instead. 2.x minors/patches still flow; security PRs still surface.
+      # Recharts 3 is a deliberate migration — breaking changes in custom content
+      # renderers and tooltip/legend APIs hit the dashboard charts. Declined 5x
+      # (#33, #84, #115, #328, #346); scheduled with the dashboard redesign.
       - dependency-name: "recharts"
         update-types: ["version-update:semver-major"]
-      # TypeScript majors are a toolchain migration, not a dep bump — TS 7 is the
-      # Go-native compiler rewrite and must be adopted deliberately across all four
-      # npm roots at once (tsc -b, tsx watch, vite, next all sit on it). Declined
-      # 5x as one-off PRs (#100, #103, #139, #146, #150, then #359/#361/#363/#365).
-      # 5.x minors/patches still flow; security PRs still surface.
-      - dependency-name: "typescript"
-        update-types: ["version-update:semver-major"]
-    groups:
-      # Group minor/patch updates to reduce PR noise
-      npm-minor-patch:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-    commit-message:
-      prefix: "chore(deps)"
-
-  # Backend dependencies
-  - package-ecosystem: "npm"
-    directory: "/backend"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 10
-    ignore:
-      # ES server is 8.17 — v9 client sends incompatible headers (compatible-with=9)
-      - dependency-name: "@elastic/elasticsearch"
-        update-types: ["version-update:semver-major"]
-      # Clerk Core 3 (backend v3 / express v2) is a coordinated cross-SDK migration,
-      # not a dep bump — it breaks the frontend test suite. Core 2 is actively
-      # maintained with security backports, so decline majors; in-major patches flow.
-      # update-types blocks only *version* updates — *security* update PRs still fire.
-      - dependency-name: "@clerk/backend"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "@clerk/express"
-        update-types: ["version-update:semver-major"]
-      # Pin @types/node to the runtime major (Node 22) — see /frontend block.
-      - dependency-name: "@types/node"
-        update-types: ["version-update:semver-major"]
-      # TypeScript majors — deliberate toolchain migration, see /frontend block.
-      - dependency-name: "typescript"
-        update-types: ["version-update:semver-major"]
-    groups:
-      npm-minor-patch:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-    commit-message:
-      prefix: "chore(deps)"
-
-  # Backend serverless dependencies (Vercel/Turso fork)
-  - package-ecosystem: "npm"
-    directory: "/backend-serverless"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 10
-    ignore:
-      - dependency-name: "@elastic/elasticsearch"
-        update-types: ["version-update:semver-major"]
-      # Clerk Core 3 majors — see /backend block above for rationale.
-      - dependency-name: "@clerk/backend"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "@clerk/express"
-        update-types: ["version-update:semver-major"]
-      # Pin @types/node to the runtime major (Node 22) — see /frontend block.
-      - dependency-name: "@types/node"
-        update-types: ["version-update:semver-major"]
-      # TypeScript majors — deliberate toolchain migration, see /frontend block.
-      - dependency-name: "typescript"
-        update-types: ["version-update:semver-major"]
-    groups:
-      npm-minor-patch:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-    commit-message:
-      prefix: "chore(deps)"
-
-  # Blog dependencies (Next.js static blog, added Jul 2026)
-  - package-ecosystem: "npm"
-    directory: "/blog"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 10
-    ignore:
-      # Pin @types/node to the runtime major (Node 22) — see /frontend block.
-      # Declined 26.x three times before /blog joined this config (#320/#325/#329).
-      - dependency-name: "@types/node"
-        update-types: ["version-update:semver-major"]
-      # TypeScript majors — deliberate toolchain migration, see /frontend block.
+      # TypeScript majors are a toolchain migration — TS 7 is the Go-native
+      # compiler rewrite and must be adopted across all npm roots at once (tsc -b,
+      # tsx watch, vite, next). Declined repeatedly (#100, #103, #139, #146, #150,
+      # #359/#361/#363/#365).
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
     groups:
@@ -140,8 +74,18 @@ updates:
   - package-ecosystem: "gomod"
     directory: "/agent"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
+    cooldown:
+      semver-patch-days: 3
+      semver-minor-days: 7
+      semver-major-days: 30
+    groups:
+      go-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
     commit-message:
       prefix: "chore(deps)"
 
@@ -149,7 +93,18 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
+    cooldown:
+      semver-patch-days: 3
+      semver-minor-days: 7
+      semver-major-days: 30
+    groups:
+      # Majors stay as individual PRs so each gets a deliberate look.
+      actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
     commit-message:
       prefix: "chore(deps)"
