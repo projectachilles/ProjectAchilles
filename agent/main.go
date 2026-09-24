@@ -15,7 +15,7 @@ import (
 	"github.com/f0rt1ka/achilles-agent/internal/store"
 )
 
-var version = "0.6.3"
+var version = "0.6.7"
 
 func main() {
 	enroll := flag.String("enroll", "", "Enrollment token")
