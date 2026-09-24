@@ -11,11 +11,22 @@ import (
 
 // State represents the persisted agent state.
 type State struct {
-	AgentID                string     `json:"agent_id"`
-	LastTaskID             string     `json:"last_task_id,omitempty"`
-	LastHeartbeat          *time.Time `json:"last_heartbeat,omitempty"`
-	Version                string     `json:"version"`
-	LastSuccessfulHeartbeat *time.Time `json:"last_successful_heartbeat,omitempty"`
+	AgentID                 string         `json:"agent_id"`
+	LastTaskID              string         `json:"last_task_id,omitempty"`
+	LastHeartbeat           *time.Time     `json:"last_heartbeat,omitempty"`
+	Version                 string         `json:"version"`
+	LastSuccessfulHeartbeat *time.Time     `json:"last_successful_heartbeat,omitempty"`
+	LastAppliedUpdate       *AppliedUpdate `json:"last_applied_update,omitempty"`
+}
+
+// AppliedUpdate records the most recent self-update the agent installed, so
+// that after the restart it can tell whether the binary it installed actually
+// reports the version it was advertised as.
+type AppliedUpdate struct {
+	Version     string    `json:"version"`      // version the server advertised
+	SHA256      string    `json:"sha256"`       // digest of the installed artifact
+	FromVersion string    `json:"from_version"` // version running when it was installed
+	AppliedAt   time.Time `json:"applied_at"`
 }
 
 // Store manages reading and writing agent state to disk.
