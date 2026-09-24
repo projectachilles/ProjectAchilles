@@ -55,6 +55,7 @@ const {
   streamUpdate,
   deleteVersion,
 } = await import('../update.service.js');
+const { EmbeddedVersionError } = await import('../binaryVersion.js');
 
 // ── Tests ────────────────────────────────────────────────────────────
 
@@ -149,9 +150,14 @@ describe('update.service', () => {
 
   // ── Group 2: registerVersionFromUpload ────────────────────
 
+  // Uploads must carry the Go build-info stamp for the version they are
+  // registered under (see binaryVersion.ts), so fixtures include one.
+  const agentBinary = (version: string) =>
+    Buffer.from(`\x00MZ\x90build\t-ldflags="-s -w -X main.version=${version}"\n\x00`);
+
   describe('registerVersionFromUpload', () => {
     it('saves uploaded buffer and computes SHA-256 hash', async () => {
-      const buffer = Buffer.from('uploaded-agent-binary');
+      const buffer = agentBinary('1.0.0');
       // existsSync: true for the file we just wrote, true for statSync
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: buffer.length });
@@ -172,7 +178,7 @@ describe('update.service', () => {
     });
 
     it('creates DB record with platform and arch', async () => {
-      const buffer = Buffer.from('binary');
+      const buffer = agentBinary('2.0.0');
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: 6 });
       mockReadFileSync.mockReturnValue(buffer);
@@ -193,8 +199,28 @@ describe('update.service', () => {
       ).rejects.toThrow('Invalid version string');
     });
 
+    // The Sep 2026 incident: a 0.6.3 build registered as 0.6.4 put every agent
+    // into an install → restart → "still 0.6.3" → install loop.
+    it('rejects a binary whose embedded version differs, before writing anything', async () => {
+      await expect(
+        registerVersionFromUpload('0.6.4', 'linux', 'amd64', agentBinary('0.6.3'), 'notes', false),
+      ).rejects.toThrow(EmbeddedVersionError);
+
+      expect(mockWriteFileSync).not.toHaveBeenCalled();
+      const row = await testDb.get('SELECT * FROM agent_versions WHERE version = ?', ['0.6.4']);
+      expect(row).toBeUndefined();
+    });
+
+    it('rejects a binary with no version stamp', async () => {
+      await expect(
+        registerVersionFromUpload('0.6.4', 'linux', 'amd64', Buffer.from('no build info'), 'notes', false),
+      ).rejects.toThrow(/Cannot verify this binary's version/);
+
+      expect(mockWriteFileSync).not.toHaveBeenCalled();
+    });
+
     it('adds .exe extension for Windows uploads', async () => {
-      const buffer = Buffer.from('win-binary');
+      const buffer = agentBinary('1.0.0');
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: 10 });
       mockReadFileSync.mockReturnValue(buffer);

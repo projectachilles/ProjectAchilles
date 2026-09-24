@@ -12,6 +12,7 @@ import {
 } from '../../services/agent/update.service.js';
 import { validate } from '../../middleware/validation.js';
 import { SigningError } from '../../services/agent/binarySigning.service.js';
+import { EmbeddedVersionError } from '../../services/agent/binaryVersion.js';
 import { RegisterVersionSchema, BuildVersionSchema } from '../../schemas/admin.schemas.js';
 import type { AgentBuildService } from '../../services/agent/agentBuild.service.js';
 import type { AgentOS, AgentArch } from '../../types/agent.js';
@@ -196,7 +197,7 @@ export function createAdminUpdateRouter(buildService: AgentBuildService | null):
 
         res.status(201).json({ success: true, data: result });
       } catch (err) {
-        if (err instanceof SigningError) {
+        if (err instanceof SigningError || err instanceof EmbeddedVersionError) {
           throw new AppError(err.message, 422);
         }
         if (err instanceof Error && /certificate/i.test(err.message)) {

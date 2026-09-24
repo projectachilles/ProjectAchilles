@@ -31,6 +31,7 @@ const {
   createTasks,
   createCommandTasks,
   createUninstallTasks,
+  createUpdateTasks,
   getNextTask,
   updateTaskStatus,
   submitResult,
@@ -1136,6 +1137,60 @@ describe('tasks.service', () => {
 
       const rows = await testDb.all('SELECT status FROM agents WHERE id = ?', ['agent-001']);
       expect((rows[0] as unknown as { status: string }).status).toBe('active');
+    });
+  });
+
+  describe('createUpdateTasks', () => {
+    const openUpdateTasks = async (agentId: string) =>
+      testDb.all(
+        `SELECT id FROM tasks WHERE agent_id = ? AND type = 'update_agent'
+           AND status IN ('pending','assigned','downloading','executing')`,
+        [agentId]
+      );
+
+    it('creates one pending update task per agent', async () => {
+      await insertTestAgent(testDb, { id: 'agent-002' });
+
+      const ids = await createUpdateTasks(['agent-001', 'agent-002'], 'org-001', 'user-1');
+
+      expect(ids).toHaveLength(2);
+      expect(await openUpdateTasks('agent-001')).toHaveLength(1);
+      expect(await openUpdateTasks('agent-002')).toHaveLength(1);
+    });
+
+    // Clicking "Update All" again while updates were in flight used to queue
+    // another task per agent each time; they piled up for the 7-day TTL.
+    it.each(['pending', 'assigned', 'downloading', 'executing'])(
+      'reuses an open %s update task instead of queueing another',
+      async (status) => {
+        await insertTestTask(testDb, { id: 'existing', agent_id: 'agent-001', type: 'update_agent', status });
+
+        const ids = await createUpdateTasks(['agent-001'], 'org-001', 'user-1');
+
+        expect(ids).toEqual(['existing']);
+        expect(await openUpdateTasks('agent-001')).toHaveLength(1);
+      }
+    );
+
+    it.each(['completed', 'failed', 'expired'])(
+      'creates a new task when the previous update task is %s',
+      async (status) => {
+        await insertTestTask(testDb, { id: 'old', agent_id: 'agent-001', type: 'update_agent', status });
+
+        const ids = await createUpdateTasks(['agent-001'], 'org-001', 'user-1');
+
+        expect(ids).toHaveLength(1);
+        expect(ids[0]).not.toBe('old');
+      }
+    );
+
+    it('does not reuse an open task of another type', async () => {
+      await insertTestTask(testDb, { id: 'test-task', agent_id: 'agent-001', type: 'execute_test', status: 'pending' });
+
+      const ids = await createUpdateTasks(['agent-001'], 'org-001', 'user-1');
+
+      expect(ids[0]).not.toBe('test-task');
+      expect(await openUpdateTasks('agent-001')).toHaveLength(1);
     });
   });
 });

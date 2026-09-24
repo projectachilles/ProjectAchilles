@@ -408,7 +408,7 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 				// Run initial update check after the first successful heartbeat.
 				if !initialUpdateDone && updateC != nil {
 					initialUpdateDone = true
-					updated, err := updater.CheckAndUpdate(ctx, client, version, cfg)
+					updated, err := updater.CheckAndUpdate(ctx, client, version, cfg, st)
 					if err != nil {
 						log.Printf("initial update check error: %v", err)
 					} else if updated {
@@ -480,7 +480,7 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, version strin
 			if atomic.LoadInt32(&taskBusy) == 1 {
 				continue // skip periodic update check while a task is executing
 			}
-			updated, err := updater.CheckAndUpdate(ctx, client, version, cfg)
+			updated, err := updater.CheckAndUpdate(ctx, client, version, cfg, st)
 			if err != nil {
 				log.Printf("update check error: %v", err)
 			} else if updated {
@@ -786,7 +786,8 @@ func executeAndReport(
 		if patchErr := patchTaskStatus(ctx, client, task.ID, "executing"); patchErr != nil {
 			log.Printf("failed to mark task %s as executing: %v", task.ID, patchErr)
 		}
-		updated, updateErr := updater.CheckAndUpdate(ctx, client, version, cfg)
+		updateStartedAt := time.Now()
+		updated, updateErr := updater.CheckAndUpdate(ctx, client, version, cfg, st)
 		if updateErr != nil {
 			log.Printf("admin-triggered update failed: %v", updateErr)
 			if patchErr := patchTaskFailed(ctx, client, task.ID, updateErr.Error()); patchErr != nil {
@@ -796,12 +797,11 @@ func executeAndReport(
 			return
 		}
 		updateApplied = updated
-		result = &executor.Result{ExitCode: 0}
+		stdout := "already up to date"
 		if updated {
-			result.Stdout = "update applied, restart pending"
-		} else {
-			result.Stdout = "already up to date"
+			stdout = "update applied, restart pending"
 		}
+		result = updateTaskResult(task.ID, updateStartedAt, stdout)
 	case "uninstall":
 		if patchErr := patchTaskStatus(ctx, client, task.ID, "executing"); patchErr != nil {
 			log.Printf("failed to mark task %s as executing: %v", task.ID, patchErr)
@@ -859,6 +859,25 @@ func executeAndReport(
 		case updateAppliedCh <- struct{}{}:
 		default:
 		}
+	}
+}
+
+// updateTaskResult builds the result reported for an update_agent task. The
+// server validates os/arch against its enum and requires the timestamp and
+// hostname fields, so a bare Result{ExitCode: 0} is rejected with a 400.
+func updateTaskResult(taskID string, startedAt time.Time, stdout string) *executor.Result {
+	completedAt := time.Now()
+	hostname, _ := os.Hostname()
+	return &executor.Result{
+		TaskID:              taskID,
+		ExitCode:            0,
+		Stdout:              stdout,
+		StartedAt:           startedAt.UTC().Format(time.RFC3339),
+		CompletedAt:         completedAt.UTC().Format(time.RFC3339),
+		ExecutionDurationMs: completedAt.Sub(startedAt).Milliseconds(),
+		Hostname:            hostname,
+		OS:                  runtime.GOOS,
+		Arch:                runtime.GOARCH,
 	}
 }
 

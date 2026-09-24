@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex" // used by both downloadAndVerify and CheckAndUpdate
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -12,9 +13,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/f0rt1ka/achilles-agent/internal/config"
 	"github.com/f0rt1ka/achilles-agent/internal/httpclient"
+	"github.com/f0rt1ka/achilles-agent/internal/store"
 )
 
 // VersionInfo represents the server's response to a version check.
@@ -26,16 +29,31 @@ type VersionInfo struct {
 	Signature string `json:"signature,omitempty"`
 }
 
+// ErrRepeatedUpdate is returned when the server offers the exact artifact the
+// agent already installed from its current version. The install "succeeded"
+// but the agent restarted reporting the old version, so the binary's embedded
+// version does not match the version it was registered under. Installing it
+// again would restart the agent in a download loop.
+var ErrRepeatedUpdate = errors.New("refusing to reinstall an update that did not change the agent version")
+
 // CheckAndUpdate checks for a newer agent version and applies the update if available.
 // Returns (true, nil) if an update was applied and the agent should restart.
 // Returns (false, nil) if no update is needed.
-func CheckAndUpdate(ctx context.Context, client *httpclient.Client, currentVersion string, cfg *config.Config) (bool, error) {
+// st records applied updates so a mislabelled binary cannot cause a restart
+// loop; it may be nil, which disables that guard.
+func CheckAndUpdate(ctx context.Context, client *httpclient.Client, currentVersion string, cfg *config.Config, st *store.Store) (bool, error) {
 	info, err := fetchVersionInfo(ctx, client, currentVersion)
 	if err != nil {
 		return false, err
 	}
 	if info == nil {
 		return false, nil
+	}
+
+	if st != nil && isRepeatedUpdate(st.Get().LastAppliedUpdate, currentVersion, info) {
+		return false, fmt.Errorf("%w: server advertises %s (sha256 %s), which was already installed while running %s, "+
+			"and the agent still reports %s after the restart — the binary's embedded version does not match its registered version",
+			ErrRepeatedUpdate, info.Version, shortSHA(info.SHA256), currentVersion, currentVersion)
 	}
 
 	log.Printf("Update available: %s -> %s (mandatory=%v)", currentVersion, info.Version, info.Mandatory)
@@ -77,9 +95,47 @@ func CheckAndUpdate(ctx context.Context, client *httpclient.Client, currentVersi
 	if err := applyUpdate(currentBin, tmpPath); err != nil {
 		return false, fmt.Errorf("apply update: %w", err)
 	}
+	recordAppliedUpdate(st, info, currentVersion)
 
 	log.Printf("Update applied successfully. Agent should restart.")
 	return true, nil
+}
+
+// isRepeatedUpdate reports whether info is the same artifact the agent last
+// installed while running currentVersion. Keyed on the SHA256 rather than the
+// version label, so a corrected upload under the same version is still taken.
+func isRepeatedUpdate(last *store.AppliedUpdate, currentVersion string, info *VersionInfo) bool {
+	return last != nil &&
+		last.Version == info.Version &&
+		last.SHA256 == info.SHA256 &&
+		last.FromVersion == currentVersion
+}
+
+// recordAppliedUpdate persists the update just installed. Called only after
+// applyUpdate succeeds, so a failed install never blocks a retry. A write
+// failure is logged, not returned: the binary is already in place.
+func recordAppliedUpdate(st *store.Store, info *VersionInfo, fromVersion string) {
+	if st == nil {
+		return
+	}
+	err := st.Update(func(s *store.State) {
+		s.LastAppliedUpdate = &store.AppliedUpdate{
+			Version:     info.Version,
+			SHA256:      info.SHA256,
+			FromVersion: fromVersion,
+			AppliedAt:   time.Now().UTC(),
+		}
+	})
+	if err != nil {
+		log.Printf("WARNING: could not record applied update %s: %v", info.Version, err)
+	}
+}
+
+func shortSHA(sha string) string {
+	if len(sha) > 12 {
+		return sha[:12]
+	}
+	return sha
 }
 
 // versionResponse wraps the server's JSON envelope for a version check.
