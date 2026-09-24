@@ -60,6 +60,21 @@ updates:
       # #359/#361/#363/#365).
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # Express 5 needs a deliberate migration, not a bump (declined #459, Sep
+      # 2026; ~half a day as a dedicated PR, backend + backend-serverless):
+      # (1) backend/package.json `overrides.express.path-to-regexp: 0.1.13` is
+      #     an Express-4 CVE pin; it breaks Express 5's router at startup
+      #     ("pathRegexp.match is not a function"). Remove it together with the
+      #     upgrade, not before.
+      # (2) @types/express 5 types req.params as string | string[] — 68 tsc
+      #     errors across 11 route files; fix with Request<{ id: string }>.
+      # (3) req.body is undefined (not {}) when no parser matched — audit POST
+      #     handlers. No wildcard/optional-param routes or removed APIs in use.
+      # With (1) removed, all 1428 backend tests already pass at runtime.
+      - dependency-name: "express"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/express"
+        update-types: ["version-update:semver-major"]
     groups:
       npm-minor-patch:
         patterns:
@@ -67,6 +82,13 @@ updates:
         update-types:
           - "minor"
           - "patch"
+      # Majors not ignored above arrive as ONE monthly PR for review instead of
+      # one PR per package. Never auto-merged (the workflow skips majors).
+      npm-majors:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
     commit-message:
       prefix: "chore(deps)"
 
