@@ -23,4 +23,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
-        run: gh pr merge --auto --squash "$PR_URL"
+        # Queues the merge; it only happens once the main ruleset is satisfied
+        # (required "Test backend"/"Test frontend" checks + 1 human approval).
+        # --merge: the org "Branch Protection" ruleset allows merge commits only.
+        run: gh pr merge --auto --merge "$PR_URL"
