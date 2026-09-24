@@ -92,8 +92,8 @@ func CheckAndUpdate(ctx context.Context, client *httpclient.Client, currentVersi
 		log.Printf("Update signature verified (Ed25519)")
 	}
 
-	if err := applyUpdate(currentBin, tmpPath); err != nil {
-		return false, fmt.Errorf("apply update: %w", err)
+	if err := installAndVerify(ctx, currentBin, tmpPath, info.Version); err != nil {
+		return false, err
 	}
 	recordAppliedUpdate(st, info, currentVersion)
 
