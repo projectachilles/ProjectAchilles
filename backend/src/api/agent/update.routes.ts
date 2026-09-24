@@ -116,14 +116,22 @@ export function createAdminUpdateRouter(buildService: AgentBuildService | null):
         mandatory?: boolean;
       };
 
-      const result = registerVersion(
-        version,
-        os,
-        arch,
-        binary_path,
-        release_notes ?? '',
-        mandatory ?? false
-      );
+      let result;
+      try {
+        result = registerVersion(
+          version,
+          os,
+          arch,
+          binary_path,
+          release_notes ?? '',
+          mandatory ?? false
+        );
+      } catch (err) {
+        if (err instanceof EmbeddedVersionError) {
+          throw new AppError(err.message, 422);
+        }
+        throw err;
+      }
 
       res.status(201).json({ success: true, data: result });
     })

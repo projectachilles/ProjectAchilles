@@ -58,6 +58,11 @@ export function registerVersion(
 
   const stat = fs.statSync(binaryPath);
   const fileBuffer = fs.readFileSync(binaryPath);
+
+  // Every registration path (register-by-path, upload, build) ends here, so
+  // this is the one check that covers them all, on the final (signed) file.
+  assertEmbeddedVersionMatches(version, fileBuffer);
+
   const sha256 = crypto.createHash('sha256').update(fileBuffer).digest('hex');
 
   // Ed25519-sign the binary hash for update signature verification (M5)

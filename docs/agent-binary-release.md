@@ -46,7 +46,7 @@ make sign-windows
 
 > **Prefer the UI:** Settings → Agent → **Build Agent Binary** (compiles the latest `AGENT_REPO_URL` commit and records it in the release notes) or **Upload Agent Binary**. See [Agent Self-Updates](../wiki/docs/user-guide/agent-management/self-updates.md). The options below are for automation and development.
 
-> **⚠️ The registered version must equal the version compiled into the binary.** If they differ, every agent that installs it restarts still reporting the old version, is offered the "new" one again, and reinstalls it in a loop. **Upload Agent Binary** enforces this and returns 422 on a mismatch. **Options A and B below do not**, so check first:
+> **⚠️ The registered version must equal the version compiled into the binary.** If they differ, every agent that installs it restarts still reporting the old version, is offered the "new" one again, and reinstalls it in a loop. The backend enforces this for **Upload Agent Binary** and for **Option A** (both return 422 on a mismatch or an unstamped binary). **Option B (direct SQLite) bypasses it**, so check first:
 >
 > ```bash
 > go version -m build/achilles-agent-windows-amd64.exe | grep ldflags

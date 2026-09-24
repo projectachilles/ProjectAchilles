@@ -112,14 +112,22 @@ export function createAdminUpdateRouter(_buildService: unknown): Router {
         mandatory?: boolean;
       };
 
-      const result = await registerVersion(
-        version,
-        os,
-        arch,
-        binary_path,
-        release_notes ?? '',
-        mandatory ?? false
-      );
+      let result;
+      try {
+        result = await registerVersion(
+          version,
+          os,
+          arch,
+          binary_path,
+          release_notes ?? '',
+          mandatory ?? false
+        );
+      } catch (err) {
+        if (err instanceof EmbeddedVersionError) {
+          throw new AppError(err.message, 422);
+        }
+        throw err;
+      }
 
       res.status(201).json({ success: true, data: result });
     })

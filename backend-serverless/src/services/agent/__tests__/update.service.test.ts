@@ -57,6 +57,12 @@ const {
 } = await import('../update.service.js');
 const { EmbeddedVersionError } = await import('../binaryVersion.js');
 
+// Registered binaries must carry the Go build-info stamp for the version they
+// are registered under (see binaryVersion.ts), so fixtures include one. The
+// filler keeps fixtures that must differ (e.g. old vs new binary) distinct.
+const agentBinary = (version: string, filler = '') =>
+  Buffer.from(`\x00MZ${filler}\x90build\t-ldflags="-s -w -X main.version=${version}"\n\x00`);
+
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe('update.service', () => {
@@ -70,7 +76,7 @@ describe('update.service', () => {
 
   describe('registerVersion', () => {
     it('inserts version record with correct hash and metadata', async () => {
-      const binaryData = Buffer.from('test-binary-content');
+      const binaryData = agentBinary('1.0.0', 'test-binary-content');
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: binaryData.length });
       mockReadFileSync.mockReturnValue(binaryData);
@@ -87,6 +93,29 @@ describe('update.service', () => {
       expect(result.release_notes).toBe('Initial release');
     });
 
+    it('rejects a binary whose embedded version differs from the registered one', async () => {
+      mockExistsSync.mockReturnValue(true);
+      mockStatSync.mockReturnValue({ size: 64 });
+      mockReadFileSync.mockReturnValue(agentBinary('0.6.3'));
+
+      await expect(
+        registerVersion('0.6.4', 'windows', 'amd64', '/path/agent.exe', 'notes', false),
+      ).rejects.toThrow(EmbeddedVersionError);
+
+      const row = await testDb.get('SELECT * FROM agent_versions WHERE version = ?', ['0.6.4']);
+      expect(row).toBeUndefined();
+    });
+
+    it('rejects a binary with no version stamp', async () => {
+      mockExistsSync.mockReturnValue(true);
+      mockStatSync.mockReturnValue({ size: 10 });
+      mockReadFileSync.mockReturnValue(Buffer.from('not stamped'));
+
+      await expect(
+        registerVersion('0.6.4', 'linux', 'amd64', '/path/agent', 'notes', false),
+      ).rejects.toThrow(/Cannot verify this binary's version/);
+    });
+
     it('throws when binary file does not exist', async () => {
       mockExistsSync.mockReturnValue(false);
 
@@ -96,7 +125,7 @@ describe('update.service', () => {
     });
 
     it('persists version to DB', async () => {
-      const binaryData = Buffer.from('binary');
+      const binaryData = agentBinary('2.0.0', 'binary');
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: 6 });
       mockReadFileSync.mockReturnValue(binaryData);
@@ -112,14 +141,14 @@ describe('update.service', () => {
     });
 
     it('replaces existing version (upsert behavior)', async () => {
-      const binaryData = Buffer.from('old-binary');
+      const binaryData = agentBinary('1.0.0', 'old-binary');
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: 10 });
       mockReadFileSync.mockReturnValue(binaryData);
 
       await registerVersion('1.0.0', 'linux', 'amd64', '/path/old', 'old notes', false);
 
-      const newBinary = Buffer.from('new-binary-content');
+      const newBinary = agentBinary('1.0.0', 'new-binary-content');
       mockStatSync.mockReturnValue({ size: newBinary.length });
       mockReadFileSync.mockReturnValue(newBinary);
 
@@ -134,7 +163,7 @@ describe('update.service', () => {
     });
 
     it('computes correct SHA-256 hash', async () => {
-      const binaryData = Buffer.from('deterministic-content');
+      const binaryData = agentBinary('1.0.0', 'deterministic-content');
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: binaryData.length });
       mockReadFileSync.mockReturnValue(binaryData);
@@ -149,11 +178,6 @@ describe('update.service', () => {
   });
 
   // ── Group 2: registerVersionFromUpload ────────────────────
-
-  // Uploads must carry the Go build-info stamp for the version they are
-  // registered under (see binaryVersion.ts), so fixtures include one.
-  const agentBinary = (version: string) =>
-    Buffer.from(`\x00MZ\x90build\t-ldflags="-s -w -X main.version=${version}"\n\x00`);
 
   describe('registerVersionFromUpload', () => {
     it('saves uploaded buffer and computes SHA-256 hash', async () => {
@@ -262,7 +286,7 @@ describe('update.service', () => {
     });
 
     it('filters by platform and arch correctly', async () => {
-      const buf = Buffer.from('binary');
+      const buf = agentBinary('1.0.0', 'binary');
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: 6 });
       mockReadFileSync.mockReturnValue(buf);
@@ -280,10 +304,11 @@ describe('update.service', () => {
 
   describe('listVersions', () => {
     it('returns all versions sorted by created_at desc', async () => {
-      const buf = Buffer.from('binary');
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: 6 });
-      mockReadFileSync.mockReturnValue(buf);
+      mockReadFileSync
+        .mockReturnValueOnce(agentBinary('1.0.0'))
+        .mockReturnValueOnce(agentBinary('2.0.0'));
 
       await registerVersion('1.0.0', 'linux', 'amd64', '/v1', 'v1', false);
       await registerVersion('2.0.0', 'windows', 'amd64', '/v2', 'v2', true);
@@ -302,7 +327,7 @@ describe('update.service', () => {
     });
 
     it('includes all metadata fields', async () => {
-      const buf = Buffer.from('binary');
+      const buf = agentBinary('3.0.0', 'binary');
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: 6 });
       mockReadFileSync.mockReturnValue(buf);
@@ -336,7 +361,7 @@ describe('update.service', () => {
     }
 
     it('sets correct headers and streams binary file', async () => {
-      const buf = Buffer.from('binary');
+      const buf = agentBinary('1.0.0', 'binary');
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: 6 });
       mockReadFileSync.mockReturnValue(buf);
@@ -359,7 +384,7 @@ describe('update.service', () => {
     });
 
     it('includes .exe extension for Windows filename', async () => {
-      const buf = Buffer.from('binary');
+      const buf = agentBinary('1.0.0', 'binary');
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: 6 });
       mockReadFileSync.mockReturnValue(buf);
@@ -390,7 +415,7 @@ describe('update.service', () => {
     });
 
     it('returns 404 when binary file missing from disk', async () => {
-      const buf = Buffer.from('binary');
+      const buf = agentBinary('1.0.0', 'binary');
       // existsSync: true for registerVersion, then false for the stream check
       let callCount = 0;
       mockExistsSync.mockImplementation(() => {
@@ -413,7 +438,7 @@ describe('update.service', () => {
     });
 
     it('sets Content-Length header from file stats', async () => {
-      const buf = Buffer.from('binary-data-12345');
+      const buf = agentBinary('1.0.0', 'binary-data-12345');
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: buf.length });
       mockReadFileSync.mockReturnValue(buf);
@@ -434,7 +459,7 @@ describe('update.service', () => {
 
   describe('deleteVersion', () => {
     it('removes DB record and binary file', async () => {
-      const buf = Buffer.from('binary');
+      const buf = agentBinary('1.0.0', 'binary');
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: 6 });
       mockReadFileSync.mockReturnValue(buf);
@@ -452,7 +477,7 @@ describe('update.service', () => {
     });
 
     it('handles missing binary file gracefully (DB-only cleanup)', async () => {
-      const buf = Buffer.from('binary');
+      const buf = agentBinary('1.0.0', 'binary');
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: 6 });
       mockReadFileSync.mockReturnValue(buf);
@@ -480,7 +505,7 @@ describe('update.service', () => {
     });
 
     it('removes correct platform-specific record only', async () => {
-      const buf = Buffer.from('binary');
+      const buf = agentBinary('1.0.0', 'binary');
       mockExistsSync.mockReturnValue(true);
       mockStatSync.mockReturnValue({ size: 6 });
       mockReadFileSync.mockReturnValue(buf);
