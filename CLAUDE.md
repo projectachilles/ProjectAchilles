@@ -385,6 +385,16 @@ When writing custom `content` renderers for Recharts components (Treemap, etc.),
 - Both agent builds (`agentBuild.service.ts`) and test builds (`buildService.ts`) follow the same signing logic
 - Signing failures are non-fatal — builds continue unsigned
 
+### Agent Self-Update Safety
+An agent update that goes wrong can knock the whole fleet offline, so several layers of protection exist. Don't remove any of them (user doc: `wiki/docs/user-guide/agent-management/self-updates.md`):
+- **Registered version must equal the embedded `-X main.version`**, or agents install → restart reporting the old version → reinstall in a loop. `binaryVersion.ts` (both backend forks) reads the Go build info and rejects uploads with 422, including unstamped binaries (they report `main.go`'s default, which can't be verified). The register-by-path admin API (`POST /api/agent/admin/versions`) does **not** check this yet.
+- **Agent launch check** (`updater/verify_install.go`): after swapping the binary in, run `<final path> --version`. If it fails or reports the wrong version, restore `<path>.old` and fail the update. Run it at the *final* path so path-scoped allowlists apply. Agent-side fixes protect only updates *from* the release that contains them.
+- **Repeat-install guard**: `state.json` `last_applied_update` (version + SHA256 + from-version) stops the agent reinstalling the same artifact.
+- **Windows restart**: SCM recovery doesn't cover *start* failures (event 7000). The fallback `AchillesAgentRestart` task is registered via PowerShell `Register-ScheduledTask` with a `[DateTime]` trigger (`service/restart_task.go`). Never use `schtasks /SD`: it's locale-dependent and broke on `en-GB`.
+- **`update_agent` task results** must include `os`/`arch`/`hostname`/timestamps, or `TaskResultSchema` returns 400 and the task stays in `executing` forever.
+- **Build from source** refreshes the `AGENT_REPO_URL` clone before every build (`AgentBuildService` + `GitSyncService.sync()`), because `ensureRepo()` never pulls and Render's `buildFilter` doesn't redeploy on agent-only merges. The commit goes into the release notes.
+- **Defender ASR** rule `01443614` (prevalence/age) blocks every fresh build. Customers need a **per-rule** exclusion for exactly `C:\F0\achilles-agent.exe`: never the `C:\F0` folder (tests must stay subject to ASR), and never a cert Allow indicator. The agent and all test binaries share the active signing cert, so trusting it whitelists every test.
+
 ### Source-Built vs External Embed Dependencies
 `EmbedDependency` has a `sourceBuilt: boolean` flag distinguishing binaries compiled from Go source by `build_all.sh` from external pre-compiled binaries. Detection uses four heuristics in `isSourceBuiltBinary()` (`buildService.ts`):
 1. **Direct match** — `foo.exe` → `foo.go` exists

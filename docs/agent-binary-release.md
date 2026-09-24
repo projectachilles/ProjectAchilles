@@ -44,6 +44,15 @@ make sign-windows
 
 ## 2. Register Binaries with the Backend
 
+> **Prefer the UI:** Settings → Agent → **Build Agent Binary** (compiles the latest `AGENT_REPO_URL` commit and records it in the release notes) or **Upload Agent Binary**. See [Agent Self-Updates](../wiki/docs/user-guide/agent-management/self-updates.md). The options below are for automation and development.
+
+> **⚠️ The registered version must equal the version compiled into the binary.** If they differ, every agent that installs it restarts still reporting the old version, is offered the "new" one again, and reinstalls it in a loop. **Upload Agent Binary** enforces this and returns 422 on a mismatch. **Options A and B below do not**, so check first:
+>
+> ```bash
+> go version -m build/achilles-agent-windows-amd64.exe | grep ldflags
+> #   build   -ldflags="-s -w -X main.version=0.2.0"   ← must equal "version" below
+> ```
+
 The backend stores a reference to the binary file on disk (not a copy). The file must remain at the registered path.
 
 ### Option A: Admin API (production)
@@ -155,8 +164,9 @@ The frontend fetches this from `GET /api/agent/config` and substitutes it into t
    ```bash
    make clean && make build-all VERSION=0.2.0
    ```
-2. Register the new binaries (same commands as step 2 — `INSERT OR REPLACE` overwrites per version+os+arch).
-3. Connected agents will pick up the update on their next poll cycle via the `GET /api/agent/version` check endpoint.
+2. Verify the embedded version (`go version -m … | grep ldflags`), then register the new binaries (same commands as step 2; `INSERT OR REPLACE` overwrites per version+os+arch).
+3. Connected agents pick up the update on their next check of `GET /api/agent/version`: at startup, every `update_interval` (default 1 h), or immediately via **Update** on the Agents page.
+4. Roll out one platform first and watch one or two online agents keep heartbeating on the new version. To stop a rollout, delete the version. On Windows endpoints with Defender ASR in Block mode, add the per-rule exclusion for `C:\F0\achilles-agent.exe` first (see [Agent Self-Updates → Endpoint security](../wiki/docs/user-guide/agent-management/self-updates.md#endpoint-security-microsoft-defender-asr)).
 
 Set `"mandatory": true` to force agents to update before executing any further tasks.
 
