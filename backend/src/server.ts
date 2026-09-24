@@ -241,6 +241,8 @@ async function startServer() {
 
   // ============ AGENT SOURCE GIT SYNC ============
   let agentSourcePath: string;
+  // Set only when the source is a git clone, so builds can refresh it first.
+  let agentSourceSync: GitSyncService | undefined;
 
   const agentRepoUrl = process.env.AGENT_REPO_URL;
   if (agentRepoUrl) {
@@ -259,6 +261,7 @@ async function startServer() {
     try {
       await agentGitSync.ensureRepo();
       agentSourcePath = agentGitSync.getSourcePath();
+      agentSourceSync = agentGitSync;
       console.log(`✓ Agent source ready at: ${agentSourcePath}`);
     } catch (error) {
       console.warn('⚠ Failed to sync agent source:', error instanceof Error ? error.message : error);
@@ -319,7 +322,7 @@ async function startServer() {
   app.use('/api/tests', testsRouter);
 
   // Agent module - Achilles Agent management
-  app.use('/api/agent', createAgentRouter({ testSources, testsSourcePath, agentSourcePath }));
+  app.use('/api/agent', createAgentRouter({ testSources, testsSourcePath, agentSourcePath, agentSourceSync }));
 
   // User management - RBAC role assignment (admin-only)
   app.use('/api/users', usersRoutes);

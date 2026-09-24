@@ -554,4 +554,103 @@ describe('AgentBuildService', () => {
       expect(signedUnlink).toBeDefined();
     });
   });
+
+  // ── Group: agent source refresh ────────────────────────────
+  //
+  // On Fly/Render the build compiles a git clone of AGENT_REPO_URL made at
+  // server start. That clone was never pulled, so an agent-only merge that
+  // did not trigger a redeploy (Render's buildFilter excludes agent/) was
+  // built under a new version number from old code.
+
+  describe('agent source refresh', () => {
+    const makeSync = (commitHash: string | null = 'abc1234def5678') => {
+      const calls: string[] = [];
+      const sync = {
+        sync: vi.fn(async () => { calls.push('sync'); }),
+        getStatus: vi.fn(() => ({ commitHash })),
+      };
+      return { sync, calls };
+    };
+
+    beforeEach(() => {
+      mockExistsSync.mockImplementation((p: string) => p === `${AGENT_SOURCE}/go.mod`);
+    });
+
+    it('pulls the latest agent source before copying it into the build dir', async () => {
+      const { sync, calls } = makeSync();
+      mockCpSync.mockImplementation(() => { calls.push('copy'); });
+      const svc = new AgentBuildService(createMockSettingsService(), AGENT_SOURCE, sync);
+
+      await svc.buildAndSign('0.6.6', 'linux', 'amd64');
+
+      expect(calls).toEqual(['sync', 'copy']);
+    });
+
+    it('refuses to build when the source cannot be refreshed, instead of compiling stale code', async () => {
+      const { sync } = makeSync();
+      sync.sync.mockRejectedValueOnce(new Error('could not resolve host: github.com'));
+      const svc = new AgentBuildService(createMockSettingsService(), AGENT_SOURCE, sync);
+
+      await expect(svc.buildAndSign('0.6.6', 'linux', 'amd64'))
+        .rejects.toThrow(/refresh agent source.*github\.com/i);
+
+      expect(mockCpSync).not.toHaveBeenCalled();
+      expect(mockExecFileAsync).not.toHaveBeenCalled();
+      expect(mockRegisterVersion).not.toHaveBeenCalled();
+    });
+
+    it('records the source commit in the release notes', async () => {
+      const { sync } = makeSync('abc1234def5678');
+      const svc = new AgentBuildService(createMockSettingsService(), AGENT_SOURCE, sync);
+
+      await svc.buildAndSign('0.6.6', 'linux', 'amd64');
+
+      expect(mockRegisterVersion).toHaveBeenCalledWith(
+        '0.6.6', 'linux', 'amd64', expect.any(String),
+        'Built from source (linux/amd64) at abc1234',
+        false, expect.any(Boolean),
+      );
+    });
+
+    it('serializes refresh+copy so concurrent builds never touch the checkout at once', async () => {
+      const { sync, calls } = makeSync();
+      let release!: () => void;
+      const firstSyncGate = new Promise<void>((r) => { release = r; });
+      sync.sync
+        .mockImplementationOnce(async () => { calls.push('sync1-start'); await firstSyncGate; calls.push('sync1-end'); })
+        .mockImplementationOnce(async () => { calls.push('sync2'); });
+      mockCpSync.mockImplementation(() => { calls.push('copy'); });
+      const svc = new AgentBuildService(createMockSettingsService(), AGENT_SOURCE, sync);
+
+      const a = svc.buildAndSign('0.6.6', 'linux', 'amd64');
+      const b = svc.buildAndSign('0.6.6', 'darwin', 'arm64');
+      await new Promise((r) => setTimeout(r, 10));
+      expect(calls).toEqual(['sync1-start']); // second build waits
+
+      release();
+      await Promise.all([a, b]);
+      expect(calls).toEqual(['sync1-start', 'sync1-end', 'copy', 'sync2', 'copy']);
+    });
+
+    it('a failed refresh does not block the next build', async () => {
+      const { sync } = makeSync();
+      sync.sync.mockRejectedValueOnce(new Error('network down'));
+      const svc = new AgentBuildService(createMockSettingsService(), AGENT_SOURCE, sync);
+
+      await expect(svc.buildAndSign('0.6.6', 'linux', 'amd64')).rejects.toThrow();
+      await expect(svc.buildAndSign('0.6.6', 'linux', 'amd64')).resolves.toBeDefined();
+    });
+
+    it('keeps the existing behaviour when no source sync is configured (local checkout)', async () => {
+      const svc = new AgentBuildService(createMockSettingsService(), AGENT_SOURCE);
+
+      await svc.buildAndSign('0.6.6', 'linux', 'amd64');
+
+      expect(mockRegisterVersion).toHaveBeenCalledWith(
+        '0.6.6', 'linux', 'amd64', expect.any(String),
+        'Built from source (linux/amd64)',
+        false, expect.any(Boolean),
+      );
+    });
+  });
 });
