@@ -38,13 +38,69 @@ async function runBuildCommand(
   }
 }
 
+/**
+ * Keeps a git-synced agent source current. Satisfied by GitSyncService.
+ */
+export interface AgentSourceSync {
+  /** Clone if missing, otherwise fetch and hard-reset to the tracked branch. */
+  sync(): Promise<void>;
+  getStatus(): { commitHash: string | null };
+}
+
 export class AgentBuildService {
   private settingsService: TestsSettingsService;
   private agentSourcePath: string;
+  private sourceSync: AgentSourceSync | undefined;
+  // Serializes refresh+copy: concurrent builds must not run git on the same
+  // checkout, or copy files out of it while another build is pulling.
+  private sourceLock: Promise<unknown> = Promise.resolve();
 
-  constructor(settingsService: TestsSettingsService, agentSourcePath: string) {
+  /**
+   * @param sourceSync When the agent source is a git clone (AGENT_REPO_URL),
+   *   refresh it before every build. The clone is made once at server start,
+   *   so without this an agent-only merge that did not trigger a redeploy
+   *   (Render's buildFilter excludes agent/) was compiled from old code under
+   *   a new version number.
+   */
+  constructor(settingsService: TestsSettingsService, agentSourcePath: string, sourceSync?: AgentSourceSync) {
     this.settingsService = settingsService;
     this.agentSourcePath = agentSourcePath;
+    this.sourceSync = sourceSync;
+  }
+
+  /**
+   * Refresh the source (if git-synced) and copy it to a fresh work dir, under
+   * the source lock. Returns the work dir and the commit it was built from.
+   */
+  private prepareSource(): Promise<{ workDir: string; commit: string | null }> {
+    const run = async () => {
+      let commit: string | null = null;
+      if (this.sourceSync) {
+        try {
+          await this.sourceSync.sync();
+        } catch (err) {
+          throw new BuildError(
+            `Could not refresh agent source from git, refusing to build possibly stale code: ${(err as Error).message}`,
+          );
+        }
+        commit = this.sourceSync.getStatus().commitHash;
+      }
+
+      // Copy to a writable temp directory. The source may be on a read-only
+      // mount (Docker `:ro`), and `go mod tidy` needs to write go.mod/go.sum.
+      const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-build-'));
+      try {
+        fs.cpSync(this.agentSourcePath, workDir, { recursive: true });
+      } catch (err) {
+        throw new Error(`Failed to copy agent source to temp dir: ${(err as Error).message}`);
+      }
+      return { workDir, commit };
+    };
+
+    const result = this.sourceLock.then(run, run);
+    // Keep the chain alive past failures so one bad refresh can't wedge builds.
+    this.sourceLock = result.catch(() => undefined);
+    return result;
   }
 
   async buildAndSign(
@@ -63,15 +119,8 @@ export class AgentBuildService {
       throw new Error(`Agent source not found: missing go.mod at ${this.agentSourcePath}`);
     }
 
-    // 3. Copy source to a writable temp directory.
-    //    The source may be on a read-only mount (Docker `:ro`), and
-    //    `go mod tidy` needs to write go.mod/go.sum.
-    const buildWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-build-'));
-    try {
-      fs.cpSync(this.agentSourcePath, buildWorkDir, { recursive: true });
-    } catch (err) {
-      throw new Error(`Failed to copy agent source to temp dir: ${(err as Error).message}`);
-    }
+    // 3. Refresh (if git-synced) and copy the source to a writable work dir.
+    const { workDir: buildWorkDir, commit: sourceCommit } = await this.prepareSource();
 
     // 4. Prepare output directory
     const binDir = path.join(os.homedir(), '.projectachilles', 'binaries', `${targetOs}-${arch}`);
@@ -185,7 +234,7 @@ export class AgentBuildService {
       targetOs,
       arch,
       outputPath,
-      `Built from source (${targetOs}/${arch})`,
+      `Built from source (${targetOs}/${arch})${sourceCommit ? ` at ${sourceCommit.slice(0, 7)}` : ''}`,
       false, // not mandatory by default
       signed,
     );

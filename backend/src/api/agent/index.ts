@@ -14,16 +14,22 @@ import { createAdminCatalogRouter } from './catalog.routes.js';
 import binaryRouter from './binary.routes.js';
 import { TestsSettingsService } from '../../services/tests/settings.js';
 import { AgentBuildService } from '../../services/agent/agentBuild.service.js';
+import type { AgentSourceSync } from '../../services/agent/agentBuild.service.js';
 import type { TestSource } from '../../types/test.js';
 
-export function createAgentRouter(options: { testSources: TestSource[]; testsSourcePath: string; agentSourcePath: string }): Router {
+export function createAgentRouter(options: {
+  testSources: TestSource[];
+  testsSourcePath: string;
+  agentSourcePath: string;
+  agentSourceSync?: AgentSourceSync;
+}): Router {
   const router = Router();
 
   // Instantiate build service if agent source is available
   let buildService: AgentBuildService | null = null;
   if (options.agentSourcePath && fs.existsSync(path.join(options.agentSourcePath, 'go.mod'))) {
     const settingsService = new TestsSettingsService();
-    buildService = new AgentBuildService(settingsService, options.agentSourcePath);
+    buildService = new AgentBuildService(settingsService, options.agentSourcePath, options.agentSourceSync);
     console.log(`  Agent build-from-source enabled (source: ${options.agentSourcePath})`);
   }
 
