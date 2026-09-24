@@ -11,6 +11,114 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-09-24
+
+Reliability and reach release. The agent update pipeline was hardened end to
+end after a fleet outage: a mislabelled binary put agents into an install
+loop, and Defender ASR then blocked freshly built updates, taking endpoints
+offline. Also: the console works on phones and tablets, a new public landing,
+`/api/health` reports what is actually deployed, and Dependabot noise is down
+from ~5 PRs a week to ~3 a month without weakening security updates.
+
+### Added
+
+#### Console
+- **Responsive layout for phones and tablets.** Below `lg`: the Tests facet
+  rail becomes a filter sheet, test detail goes content-first with a files
+  sheet, the Agents page stacks with row cards, stream rows use a two-line
+  layout, toolbars and headers wrap, and controls are at least 40 px on
+  coarse pointers. Desktop layouts are unchanged (`useMediaQuery` /
+  `useIsDesktop` hooks)
+- **New public landing**: the open-source ecosystem page (six tools across
+  Validate / Deceive / Test with local AI agents), English and Spanish
+
+#### Agents
+- **Upload Agent Binary signs with a tenant certificate**, the active one or
+  any stored certificate picked from a dropdown. Signing is fatal by default;
+  unsigned registration needs an explicit opt-in
+- **Automatic key rotation is on by default** for new installs, now that the
+  sweep only targets agents with a recent heartbeat and rotations resolve on
+  the key the agent presents. An explicitly saved preference still wins
+- **Build Agent Binary records its source commit** in the version's release
+  notes (`Built from source (windows/amd64) at 1bbe749`)
+
+#### Platform
+- **`/api/health` reports the real version and commit** of the running
+  deployment (both backend forks), instead of a hardcoded `1.0.0`
+
+### Fixed
+
+#### Agent updates
+- **Uploads are rejected (422) when the binary's embedded version differs**
+  from the version entered, or the binary has no version stamp. A 0.6.3 build
+  registered as 0.6.4 made every agent install it, restart still reporting
+  0.6.3, and reinstall it in a loop. The check runs in `registerVersion()`, so
+  it covers upload, register-by-path and build, on the final signed file
+- **Build Agent Binary fetches the latest agent source before every build.**
+  The clone was made once at startup and never pulled, so after an agent-only
+  merge that didn't redeploy the backend (Render's `buildFilter`), Build
+  compiled old code under a new version number. A failed refresh now fails
+  the build
+- **Update All no longer queues duplicate update tasks**: an agent with an
+  open `update_agent` task reuses it
+- Uploaded Windows binaries were reported unsigned because the signature check
+  misread `osslsigncode` output
+
+### Changed
+- **Render**: both Blueprint services deploy only after the commit's GitHub
+  checks pass (`autoDeployTrigger: checksPass`), matching Fly's test-first
+  deploy. Applies to Blueprint-managed services; dashboard-created services
+  keep their own setting
+- **Dependabot**: one grouped PR per ecosystem per month (npm across all four
+  roots, Go, Actions) with a cooldown (npm/Go: patch 3 d, minor 7 d, major
+  30 d; Actions 7 d). Security updates are unaffected. Auto-merge now works:
+  it queues minor/patch PRs, which merge after a human approval and the
+  required `Test backend` / `Test frontend` checks
+- The agent release workflow now reports clearly when it publishes an unsigned
+  Windows binary instead of printing a single easy-to-miss line
+
+### Security
+- **All GitHub Actions are pinned to commit SHAs**; the last seven mutable tags
+  (`setup-node`, `setup-go`, `checkout`, `upload-artifact`,
+  `download-artifact`) are gone
+- **`main` requires `Test backend` and `Test frontend` to pass**, pinned to the
+  GitHub Actions app so another app can't satisfy them
+- `cert_id` on binary upload is validated against the certificate store rather
+  than sanitised (CodeQL `js/path-injection`)
+
+## Agent [0.6.7] - 2026-09-24
+
+Update-safety release. After this version, an update that can't run is rolled
+back and reported, and the agent stays online. Numbered 0.6.7 because tenants
+built 0.6.4–0.6.6 from source during the incident, so a lower official
+version would be refused as a downgrade.
+
+> **The update to 0.6.7 still runs the previous version's updater**, which
+> doesn't have the launch check. On Windows endpoints with the Defender ASR
+> rule "block executables unless they meet a prevalence, age, or trusted list
+> criterion" (`01443614-cd74-433a-b99e-2ecdc07bfc25`) in Block mode, add a
+> per-rule exclusion for exactly `C:\F0\achilles-agent.exe` **before** agents
+> pick up this version. See Agent Self-Updates → Endpoint security.
+
+### Fixed
+- **Launch check with rollback**: after swapping in a new binary the agent runs
+  `<final path> --version`. If Windows refuses to run it (Defender ASR returns
+  Access Denied) or it reports a different version than advertised, the agent
+  restores `<path>.old`, keeps running, and fails the update task with the
+  reason. Previously it exited for a restart that could never succeed
+- **Fallback restart works on non-US locales**: the Windows `AchillesAgentRestart`
+  task is registered with a `[DateTime]` trigger via `Register-ScheduledTask`.
+  `schtasks /SD` parsed a US date in the machine locale, failing on `en-GB`
+  with "Incorrect Start Date" for day > 12 and scheduling the wrong month
+  otherwise
+- **Repeat-install guard**: the agent won't reinstall the same artifact
+  (version + SHA256) that didn't change its version, stopping an install loop
+  caused by a mislabelled binary
+- **Update task results are accepted**: they now carry `os`, `arch`, hostname
+  and timestamps. Before, the server rejected them (400) and every
+  admin-triggered update stayed "Executing"
+- Go dependency: `golang.org/x/sys` 0.47.0 → 0.48.0
+
 ## [2.1.0] - 2026-09-01
 
 Interface release. The console was rebuilt on the **f0 design language** — a
@@ -415,13 +523,17 @@ Complete platform overhaul — custom agent system, multi-deployment support, Mi
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 2.2.0 | 2026-09-24 | Agent update hardening, responsive console, new landing, real `/api/health` version, Dependabot and CI supply-chain hardening |
+| Agent 0.6.7 | 2026-09-24 | Launch check with rollback, locale-safe fallback restart, repeat-install guard, update task results accepted |
 | 2.1.0 | 2026-09-01 | f0 console restyle, unified Security Dashboard, flat navigation, API keys, self-hosted targets |
 | 2.0.0 | 2026-04-03 | Custom agent, multi-deployment, Defender integration, release tooling |
 | Agent 0.6.3 | 2026-09-01 | Key-rotation and config-write durability fixes; HTTP timeout split |
 | Agent 0.6.0 | 2026-04-03 | First tagged agent binary release |
 | 1.0.0 | 2024-12-10 | Initial release |
 
-[Unreleased]: https://github.com/F0RT1KA/ProjectAchilles/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/F0RT1KA/ProjectAchilles/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/F0RT1KA/ProjectAchilles/compare/v2.1.0...v2.2.0
+[Agent 0.6.7]: https://github.com/F0RT1KA/ProjectAchilles/compare/agent-v0.6.3...agent-v0.6.7
 [2.1.0]: https://github.com/F0RT1KA/ProjectAchilles/compare/v2.0.0...v2.1.0
 [Agent 0.6.3]: https://github.com/F0RT1KA/ProjectAchilles/compare/agent-v0.6.0...agent-v0.6.3
 [Agent 0.6.0]: https://github.com/F0RT1KA/ProjectAchilles/releases/tag/agent-v0.6.0
