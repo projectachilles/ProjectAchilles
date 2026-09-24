@@ -372,8 +372,25 @@ export async function createUpdateTasks(
   const batchId = crypto.randomUUID();
   const taskIds: string[] = [];
 
+  // An agent runs one task at a time, and an update task only asks it to check
+  // for the latest version, so a second open one can never do anything the
+  // first won't. Reuse it: repeated "Update All" clicks otherwise pile up
+  // tasks that sit in the queue for the full 7-day TTL.
   await db.transaction(async (tx) => {
     for (const agentId of agentIds) {
+      const open = await tx.execute({
+        sql: `SELECT id FROM tasks
+              WHERE agent_id = ? AND type = 'update_agent'
+                AND status IN ('pending', 'assigned', 'downloading', 'executing')
+              ORDER BY created_at ASC
+              LIMIT 1`,
+        args: [agentId],
+      });
+      const openId = open.rows[0]?.id as string | undefined;
+      if (openId) {
+        taskIds.push(openId);
+        continue;
+      }
       const taskId = crypto.randomUUID();
       await tx.execute({
         sql: `INSERT INTO tasks (id, agent_id, org_id, type, priority, status, payload, created_at, ttl, created_by, batch_id)

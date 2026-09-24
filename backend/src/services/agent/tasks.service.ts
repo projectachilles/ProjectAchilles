@@ -403,10 +403,27 @@ export function createUpdateTasks(
     VALUES (?, ?, ?, 'update_agent', 10, 'pending', ?, datetime('now'), 604800, ?, ?)
   `);
 
+  // An agent runs one task at a time, and an update task only asks it to check
+  // for the latest version, so a second open one can never do anything the
+  // first won't. Reuse it: repeated "Update All" clicks otherwise pile up
+  // tasks that sit in the queue for the full 7-day TTL.
+  const openUpdateStmt = db.prepare(`
+    SELECT id FROM tasks
+    WHERE agent_id = ? AND type = 'update_agent'
+      AND status IN ('pending', 'assigned', 'downloading', 'executing')
+    ORDER BY created_at ASC
+    LIMIT 1
+  `);
+
   const taskIds: string[] = [];
 
   const insertAll = db.transaction(() => {
     for (const agentId of agentIds) {
+      const open = openUpdateStmt.get(agentId) as { id: string } | undefined;
+      if (open) {
+        taskIds.push(open.id);
+        continue;
+      }
       const taskId = crypto.randomUUID();
       insertStmt.run(taskId, agentId, orgId, payloadJson, createdBy, batchId);
       taskIds.push(taskId);

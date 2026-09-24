@@ -12,6 +12,7 @@ import {
   deleteVersion,
 } from '../../services/agent/update.service.js';
 import { RegisterVersionSchema, BuildVersionSchema } from '../../schemas/admin.schemas.js';
+import { EmbeddedVersionError } from '../../services/agent/binaryVersion.js';
 import type { AgentOS, AgentArch } from '../../types/agent.js';
 
 const upload = multer({
@@ -171,14 +172,22 @@ export function createAdminUpdateRouter(_buildService: unknown): Router {
         throw new AppError('Missing binary file', 400);
       }
 
-      const result = await registerVersionFromUpload(
-        version,
-        os as AgentOS,
-        arch as AgentArch,
-        req.file.buffer,
-        release_notes ?? '',
-        mandatory === 'true'
-      );
+      let result;
+      try {
+        result = await registerVersionFromUpload(
+          version,
+          os as AgentOS,
+          arch as AgentArch,
+          req.file.buffer,
+          release_notes ?? '',
+          mandatory === 'true'
+        );
+      } catch (err) {
+        if (err instanceof EmbeddedVersionError) {
+          throw new AppError(err.message, 422);
+        }
+        throw err;
+      }
 
       res.status(201).json({ success: true, data: result });
     })

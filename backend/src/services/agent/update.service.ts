@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { getDatabase } from './database.js';
 import { TestsSettingsService } from '../tests/settings.js';
 import { SigningError, signDarwinBinaryAdHoc, signWindowsBinary } from './binarySigning.service.js';
+import { assertEmbeddedVersionMatches } from './binaryVersion.js';
 import type { Response } from 'express';
 import type { AgentVersion, VersionCheckResponse, AgentOS, AgentArch } from '../../types/agent.js';
 import { signHash } from './signing.service.js';
@@ -204,6 +205,10 @@ export async function registerVersionFromUpload(
   if (!VERSION_REGEX.test(version)) {
     throw new Error('Invalid version string');
   }
+
+  // Before anything touches disk: a binary whose embedded version differs from
+  // the declared one puts every agent that installs it into an update loop.
+  assertEmbeddedVersionMatches(version, fileBuffer);
 
   const dir = path.join(os.homedir(), '.projectachilles', 'binaries', `${agentOs}-${arch}`);
   fs.mkdirSync(dir, { recursive: true });
