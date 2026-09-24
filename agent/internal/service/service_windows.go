@@ -135,24 +135,14 @@ func ensureRecoveryActions() {
 // If SCM recovery already restarted the service, the "sc start" is a harmless
 // no-op on an already-running service.
 func scheduleFallbackRestart() {
-	when := time.Now().Add(2 * time.Minute)
-	taskName := "AchillesAgentRestart"
-	// The /TR command restarts the service and then deletes the scheduled task.
-	tr := fmt.Sprintf(`cmd.exe /C "sc start %s & schtasks /Delete /TN %s /F"`, serviceName, taskName)
+	const delay = 2 * time.Minute
+	args := fallbackRestartArgs(serviceName, "AchillesAgentRestart", delay)
 
-	cmd := exec.Command("schtasks", "/Create",
-		"/TN", taskName,
-		"/TR", tr,
-		"/SC", "ONCE",
-		"/SD", when.Format("01/02/2006"),
-		"/ST", when.Format("15:04"),
-		"/F",
-		"/RU", "SYSTEM",
-	)
+	cmd := exec.Command(args[0], args[1:]...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("warning: failed to schedule fallback restart: %v: %s", err, out)
 	} else {
-		log.Printf("fallback restart scheduled via Task Scheduler at %s", when.Format("15:04"))
+		log.Printf("fallback restart scheduled via Task Scheduler in %s", delay)
 	}
 }
 
