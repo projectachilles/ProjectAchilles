@@ -94,10 +94,10 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    # github-actions supports only default-days (Dependabot rejects the
+    # semver-*-days keys for this ecosystem, which invalidates the whole file).
     cooldown:
-      semver-patch-days: 3
-      semver-minor-days: 7
-      semver-major-days: 30
+      default-days: 7
     groups:
       # Majors stay as individual PRs so each gets a deliberate look.
       actions-minor-patch:
