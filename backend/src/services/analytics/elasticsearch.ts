@@ -49,6 +49,7 @@ export const ERROR_CODE_MAP: Record<number, { name: string; description: string;
   127: { name: 'QuarantinedOnExecution',     description: 'Quarantined on execution attempt',            category: 'protected' },
   200: { name: 'NoOutput',                   description: 'No output - quick AV block before execution', category: 'inconclusive' },
   259: { name: 'StillActive',               description: 'Windows STILL_ACTIVE - process timeout',      category: 'inconclusive' },
+  260: { name: 'BlockedPreExecution',      description: 'Blocked before execution by ASR/app-control - technique not evaluated', category: 'inconclusive' },
   999: { name: 'UnexpectedTestError',        description: 'Test error - prerequisites not met',          category: 'error' },
 };
 

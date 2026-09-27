@@ -11,6 +11,20 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+### Fixed
+
+#### Agents
+- **Defender ASR pre-execution blocks are recorded as a result, not a failed
+  task.** When ASR rule `01443614` (or an application-control policy) denies
+  launch of a fresh, low-prevalence test binary (`ACCESS_DENIED` at process
+  creation), the agent now reports exit code `260` (`BlockedPreExecution`) with
+  a reason naming the rule and the `C:\F0\tasks` per-rule exclusion remedy,
+  instead of returning a bare error that failed the task and left it stuck in
+  `executing`. The backend classifies `260` as `inconclusive` — excluded from
+  both the Defense Score and the Error Rate — so a reputation-gate block neither
+  inflates the score nor counts as a test error; the technique simply was not
+  evaluated (both backend forks).
+
 ## [2.2.0] - 2026-09-24
 
 Reliability and reach release. The agent update pipeline was hardened end to

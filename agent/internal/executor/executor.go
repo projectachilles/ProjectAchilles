@@ -30,6 +30,15 @@ const (
 
 	// exitCodeUnexpected is returned on unexpected execution errors.
 	exitCodeUnexpected = 999
+
+	// exitCodeBlockedPreExec is reported when the OS denies process creation
+	// before the binary runs — the fingerprint of Microsoft Defender ASR rule
+	// 01443614 (or an application-control policy) blocking a fresh, low-prevalence
+	// binary. The technique is never evaluated, so this is a distinct, non-scoring
+	// outcome: not "protected" (nothing detected the technique) and not a test
+	// error (the endpoint deliberately blocked launch). The backend maps it to
+	// the "inconclusive" category, excluded from both Defense Score and Error Rate.
+	exitCodeBlockedPreExec = 260
 )
 
 // allowedEnvPrefixes defines the permitted prefixes for environment variables
@@ -240,6 +249,14 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 		if job != nil {
 			job.close()
 		}
+		// A pre-execution block (Defender ASR 01443614 / app-control) denies
+		// launch with ACCESS_DENIED. Report it as a first-class, non-scoring
+		// result — the task completes honestly instead of failing with a bare
+		// "access is denied" and zombieing in "executing".
+		if code, reason, blocked := classifyStartError(err, runtime.GOOS); blocked {
+			log.Printf("task %s: test binary %s blocked before execution: %v", task.ID, task.Payload.TestUUID, err)
+			return newBlockedResult(task.ID, task.Payload.TestUUID, digest, startedAt, code, reason), nil
+		}
 		return nil, fmt.Errorf("start binary: %w", err)
 	}
 	if job != nil {
@@ -399,6 +416,12 @@ func ExecuteCommand(ctx context.Context, client *httpclient.Client, task Task, c
 	if err := cmd.Start(); err != nil {
 		if job != nil {
 			job.close()
+		}
+		// Same pre-execution block handling as Execute: an ASR/app-control
+		// denial becomes a first-class result rather than a failed task.
+		if code, reason, blocked := classifyStartError(err, runtime.GOOS); blocked {
+			log.Printf("task %s: command blocked before execution: %v", task.ID, err)
+			return newBlockedResult(task.ID, "", "", startedAt, code, reason), nil
 		}
 		return nil, fmt.Errorf("start command: %w", err)
 	}
