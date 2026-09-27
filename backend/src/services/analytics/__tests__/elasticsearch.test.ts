@@ -125,9 +125,9 @@ describe('elasticsearch.ts', () => {
   // Group 1: Pure exports
   // ================================================================
   describe('ERROR_CODE_MAP', () => {
-    it('contains all 9 expected error codes', () => {
+    it('contains all 10 expected error codes', () => {
       expect(Object.keys(ERROR_CODE_MAP).map(Number).sort((a, b) => a - b))
-        .toEqual([0, 1, 101, 105, 126, 127, 200, 259, 999]);
+        .toEqual([0, 1, 101, 105, 126, 127, 200, 259, 260, 999]);
     });
 
     it('has correct categories for each code', () => {
@@ -138,11 +138,22 @@ describe('elasticsearch.ts', () => {
       expect(ERROR_CODE_MAP[0].category).toBe('inconclusive');
       expect(ERROR_CODE_MAP[999].category).toBe('error');
     });
+
+    it('maps 260 (ASR pre-execution block) to a non-scoring inconclusive bucket', () => {
+      // The agent reports 260 when the OS denies process creation before the
+      // binary runs (Defender ASR 01443614). The technique was never evaluated,
+      // so it must not count as protected or as a test error.
+      expect(ERROR_CODE_MAP[260].category).toBe('inconclusive');
+    });
   });
 
   describe('resolveErrorName', () => {
     it('resolves known code to canonical name', () => {
       expect(resolveErrorName(126)).toBe('ExecutionPrevented');
+    });
+
+    it('resolves 260 to BlockedPreExecution', () => {
+      expect(resolveErrorName(260)).toBe('BlockedPreExecution');
     });
 
     it('falls back to storedName for unknown code', () => {
