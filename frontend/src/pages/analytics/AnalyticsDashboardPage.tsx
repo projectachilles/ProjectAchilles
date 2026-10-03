@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown, RefreshCw, Settings, ShieldCheck, ShieldOff } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -26,6 +26,7 @@ import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { useDefenderConfig } from '@/hooks/useDefenderConfig';
 import { useScoringMode } from '@/hooks/useScoringMode';
 import { analyticsApi } from '../../services/api/analytics';
+import { reportsApi } from '../../services/api/reports';
 import { defenderApi, type SecureScoreSummary, type SecureScoreTrendPoint } from '../../services/api/defender';
 import type {
   TrendDataPoint,
@@ -172,6 +173,8 @@ export default function AnalyticsDashboardPage() {
   // Archive state
   const [archiving, setArchiving] = useState(false);
   const [archiveToast, setArchiveToast] = useState<{ message: string; variant: 'success' | 'destructive' } | null>(null);
+  const [sbReportExporting, setSbReportExporting] = useState(false);
+  const [sbReportToast, setSbReportToast] = useState<{ message: string; variant: 'success' | 'destructive' } | null>(null);
   // Ref to latest loadExecutionsData so archive handlers always call the current version
   const loadExecutionsDataRef = useRef<() => Promise<void>>(undefined);
 
@@ -428,6 +431,74 @@ export default function AnalyticsDashboardPage() {
     const timer = globalThis.setTimeout(() => setArchiveToast(null), 8000);
     return () => globalThis.clearTimeout(timer);
   }, [archiveToast]);
+
+  // ── SB-PC-2026-001 report export ─────────────────────────────────
+  // The report endpoint validates from/to as concrete ISO datetimes, so the
+  // date-range filter (which may be ES date math like 'now-90d') is resolved
+  // to an absolute window here. The 'all' preset maps to the last 90 days,
+  // matching the trend-window convention used elsewhere on this page.
+  const sbReportWindow = useMemo((): { from: string; to: string } | null => {
+    const { dateRange } = filterState.filters;
+    const now = new Date();
+
+    if (dateRange.preset === 'custom' && dateRange.from && dateRange.to) {
+      const from = new Date(dateRange.from);
+      const to = new Date(dateRange.to);
+      // A date-only 'to' bound should include that whole day
+      if (!dateRange.to.includes('T')) to.setHours(23, 59, 59, 999);
+      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) return null;
+      return { from: from.toISOString(), to: to.toISOString() };
+    }
+
+    const preset = dateRange.preset === 'all' ? '90d' : dateRange.preset;
+    const match = preset.match(/^(\d+)([dhw])$/);
+    if (!match) return null;
+    const unitMs: Record<string, number> = { d: 86_400_000, h: 3_600_000, w: 604_800_000 };
+    const from = new Date(now.getTime() - parseInt(match[1], 10) * unitMs[match[2]]);
+    return { from: from.toISOString(), to: now.toISOString() };
+  }, [filterState.filters.dateRange]);
+
+  const handleExportSbReport = useCallback(async () => {
+    if (!sbReportWindow) {
+      setSbReportToast({
+        message: 'SB report needs a concrete date range — pick a custom range or a relative preset.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setSbReportExporting(true);
+    try {
+      const report = await reportsApi.getSbPc2026001Report({
+        ...sbReportWindow,
+        org: filterState.filters.org || undefined,
+      });
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sb-pc-2026-001_${sbReportWindow.from.slice(0, 10)}_${sbReportWindow.to.slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setSbReportToast({
+        message: `SB-PC-2026-001 report downloaded (${report.executions.length} execution rows).`,
+        variant: 'success',
+      });
+    } catch (error) {
+      const detail = (error as { message?: string })?.message || 'Unknown error';
+      console.error('Failed to export SB report:', error);
+      setSbReportToast({ message: `SB report export failed: ${detail}`, variant: 'destructive' });
+    } finally {
+      setSbReportExporting(false);
+    }
+  }, [sbReportWindow, filterState.filters.org]);
+
+  useEffect(() => {
+    if (!sbReportToast) return;
+    const timer = globalThis.setTimeout(() => setSbReportToast(null), 8000);
+    return () => globalThis.clearTimeout(timer);
+  }, [sbReportToast]);
 
   // Risk acceptance handlers
   const loadRiskAcceptances = useCallback(async (groups: GroupedPaginatedResponse | null) => {
@@ -755,6 +826,8 @@ export default function AnalyticsDashboardPage() {
             acceptingRisk={acceptingRisk}
             selectedKey={expandedFromUrl}
             onSelectedKeyChange={handleExpandedChange}
+            onExportSbReport={handleExportSbReport}
+            sbReportExporting={sbReportExporting}
           />
         )}
       </div>
@@ -773,6 +846,15 @@ export default function AnalyticsDashboardPage() {
             variant={archiveToast.variant}
             message={archiveToast.message}
             onClose={() => setArchiveToast(null)}
+          />
+        </div>
+      )}
+      {sbReportToast && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-md">
+          <Toast
+            variant={sbReportToast.variant}
+            message={sbReportToast.message}
+            onClose={() => setSbReportToast(null)}
           />
         </div>
       )}

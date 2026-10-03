@@ -66,6 +66,9 @@ interface ExecutionsDataTableProps {
   /** Master-detail selection, controllable for ?expanded= deep links. */
   selectedKey?: string | null;
   onSelectedKeyChange?: (key: string | null) => void;
+  /** SB-PC-2026-001 compliance report export (server-generated for the current window). */
+  onExportSbReport?: () => Promise<void>;
+  sbReportExporting?: boolean;
 }
 
 export default function ExecutionsDataTable({
@@ -85,6 +88,8 @@ export default function ExecutionsDataTable({
   acceptingRisk,
   selectedKey: selectedKeyProp,
   onSelectedKeyChange,
+  onExportSbReport,
+  sbReportExporting,
 }: ExecutionsDataTableProps) {
   const { configured: defenderConfigured } = useDefenderConfig();
 
@@ -477,6 +482,15 @@ export default function ExecutionsDataTable({
               >
                 Export JSON
               </button>
+              {onExportSbReport && (
+                <button
+                  onClick={() => { void onExportSbReport(); }}
+                  disabled={sbReportExporting}
+                  className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-raised hover:text-accent disabled:opacity-50"
+                >
+                  {sbReportExporting ? 'Exporting SB Report…' : 'SB Report (SB-PC-2026-001)'}
+                </button>
+              )}
             </div>
           </div>
         </div>
