@@ -18,6 +18,7 @@ import usersRoutes from './api/users.routes.js';
 import integrationsRoutes from './api/integrations.routes.js';
 import defenderRoutes from './api/defender.routes.js';
 import riskAcceptanceRoutes from './api/risk-acceptance.routes.js';
+import reportsRoutes from './api/reports.routes.js';
 import cronRoutes from './api/cron.routes.js';
 import { initCatalog } from './services/agent/test-catalog.service.js';
 
@@ -169,6 +170,9 @@ app.use('/api/analytics/defender', defenderRoutes);
 
 // Risk acceptance management
 app.use('/api/risk-acceptances', riskAcceptanceRoutes);
+
+// Compliance reports (SB-PC-2026-001 etc.) — read-only ES projections
+app.use('/api/reports', reportsRoutes);
 
 // ============ ERROR HANDLING ============
 app.use(notFoundHandler);

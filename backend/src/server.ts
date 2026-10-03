@@ -32,6 +32,7 @@ import { IntegrationsSettingsService } from './services/integrations/settings.js
 import { defenderSyncService } from './api/integrations.routes.js';
 import defenderRoutes from './api/defender.routes.js';
 import riskAcceptanceRoutes from './api/risk-acceptance.routes.js';
+import reportsRoutes from './api/reports.routes.js';
 import cliAuthRoutes from './api/cli-auth.routes.js';
 import { acceptCliAuth } from './middleware/cliAuth.middleware.js';
 import apiKeysRoutes from './api/api-keys.routes.js';
@@ -335,6 +336,9 @@ async function startServer() {
 
   // Risk acceptance - formal risk acceptance for security controls
   app.use('/api/risk-acceptances', riskAcceptanceRoutes);
+
+  // Compliance reports (SB-PC-2026-001 etc.) - read-only ES projections
+  app.use('/api/reports', reportsRoutes);
 
   // CLI auth - device flow for headless CLI authentication
   app.use('/api/cli/auth', cliAuthRoutes);

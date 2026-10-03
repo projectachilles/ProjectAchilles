@@ -75,7 +75,7 @@ function getField(source: any, path: string): any {
 }
 
 // Organization UUID → short-name mapping
-const ORG_NAMES: Record<string, string> = {
+export const ORG_NAMES: Record<string, string> = {
   '09b59276-9efb-4d3d-bbdd-4b4663ef0c42': 'SB',
   'b2f8dccb-6d23-492e-aa87-a0a8a6103189': 'TPSGL',
   '9634119d-fa6b-42b8-9b9b-90ad8f22e482': 'RGA',

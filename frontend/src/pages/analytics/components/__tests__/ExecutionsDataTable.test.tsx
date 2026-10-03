@@ -121,6 +121,60 @@ beforeEach(() => {
   getAlertsForTestMock.mockReset();
 });
 
+describe('ExecutionsDataTable — SB report export', () => {
+  it('offers the SB Report menu item when onExportSbReport is provided and invokes it on click', async () => {
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    const onExportSbReport = vi.fn().mockResolvedValue(undefined);
+    const stage = makeStage({});
+    render(
+      <ExecutionsDataTable
+        data={makeData([stage], { defenderDetected: false })}
+        loading={false}
+        onPageChange={vi.fn()}
+        onPageSizeChange={vi.fn()}
+        onSort={vi.fn()}
+        sortField="routing.event_time"
+        sortOrder="desc"
+        onExportSbReport={onExportSbReport}
+        sbReportExporting={false}
+      />,
+    );
+
+    await userEvent.click(screen.getByText('SB Report (SB-PC-2026-001)'));
+    expect(onExportSbReport).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the SB Report menu item when no handler is provided', () => {
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    const stage = makeStage({});
+    renderTable(makeData([stage], { defenderDetected: false }));
+
+    expect(screen.queryByText('SB Report (SB-PC-2026-001)')).toBeNull();
+    // The local CSV/JSON exports are always available
+    expect(screen.getByText('Export CSV')).toBeInTheDocument();
+  });
+
+  it('disables the SB Report item and shows progress wording while exporting', () => {
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    const stage = makeStage({});
+    render(
+      <ExecutionsDataTable
+        data={makeData([stage], { defenderDetected: false })}
+        loading={false}
+        onPageChange={vi.fn()}
+        onPageSizeChange={vi.fn()}
+        onSort={vi.fn()}
+        sortField="routing.event_time"
+        sortOrder="desc"
+        onExportSbReport={vi.fn()}
+        sbReportExporting={true}
+      />,
+    );
+
+    expect(screen.getByText('Exporting SB Report…')).toBeDisabled();
+  });
+});
+
 describe('ExecutionsDataTable — per-stage Defender detection', () => {
   // Stage sub-rows only render when the bundle row is expanded — the parent
   // alone shows the rollup badge. These tests assert behavior at the
