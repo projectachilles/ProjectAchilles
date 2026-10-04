@@ -466,11 +466,19 @@ export default function AnalyticsDashboardPage() {
       });
       return;
     }
+    // Forward the active analytics filter-bar scope filters so the export
+    // matches what the operator is looking at. Outcome/result filters are
+    // deliberately NOT forwarded — they would falsify a compliance report.
+    const joinOrUndefined = (values: string[]) => (values.length > 0 ? values.join(',') : undefined);
     setSbReportExporting(true);
     try {
       const report = await reportsApi.getSbPc2026001Report({
         ...sbReportWindow,
         org: filterState.filters.org || undefined,
+        tags: joinOrUndefined(filterState.filters.tags),
+        hostnames: joinOrUndefined(filterState.filters.hostnames),
+        tests: joinOrUndefined(filterState.filters.tests),
+        bundleNames: joinOrUndefined(filterState.filters.bundleNames),
       });
       const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -492,7 +500,7 @@ export default function AnalyticsDashboardPage() {
     } finally {
       setSbReportExporting(false);
     }
-  }, [sbReportWindow, filterState.filters.org]);
+  }, [sbReportWindow, filterState.filters.org, filterState.filters.tags, filterState.filters.hostnames, filterState.filters.tests, filterState.filters.bundleNames]);
 
   useEffect(() => {
     if (!sbReportToast) return;

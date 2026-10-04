@@ -111,6 +111,14 @@ export interface SbReportParams {
   vendor?: string;
   /** Optional f0rtika.bundle_id (bundle UUID) filter. */
   bundleUuid?: string;
+  /** Comma-separated f0rtika.tags scope filter (OR semantics). */
+  tags?: string;
+  /** Comma-separated routing.hostname scope filter (OR semantics). */
+  hostnames?: string;
+  /** Comma-separated f0rtika.test_name scope filter (OR semantics). */
+  tests?: string;
+  /** Comma-separated f0rtika.bundle_name scope filter (OR semantics). */
+  bundleNames?: string;
 }
 
 /** Get field value from ES _source — handles both flattened (dot-key) and nested formats. */
@@ -153,6 +161,27 @@ function parseStageFromValidator(validator: unknown): number | undefined {
   return m ? parseInt(m[1], 10) : undefined;
 }
 
+/**
+ * Build a scope filter for a comma-separated value list, mirroring the
+ * analytics filter-bar semantics (buildTagsFilter et al. in
+ * services/analytics/elasticsearch.ts): single value → term clause,
+ * multiple values → bool should of terms with minimum_should_match 1.
+ */
+function buildScopeFilter(csv: string | undefined, field: string): any | null {
+  if (!csv) return null;
+  const values = csv.split(',').map((v) => v.trim()).filter(Boolean);
+  if (values.length === 0) return null;
+  if (values.length === 1) {
+    return { term: { [field]: values[0] } };
+  }
+  return {
+    bool: {
+      should: values.map((v) => ({ term: { [field]: v } })),
+      minimum_should_match: 1,
+    },
+  };
+}
+
 /** Normalize a timestamp to ISO 8601 with an explicit timezone (SB requires the zone). */
 function isoWithTz(ts: unknown): string {
   if (typeof ts !== 'string' || !ts.trim()) return '';
@@ -186,16 +215,38 @@ export class SbReportService {
   async generateSbReport(params: SbReportParams): Promise<SbReport> {
     const filters: any[] = [
       { term: { 'f0rtika.is_bundle_control': true } },
+      // Same test-data parity filter the analytics query uses (excludes
+      // incomplete records such as cleanup operations).
+      {
+        bool: {
+          must: [
+            { exists: { field: 'f0rtika.test_uuid' } },
+            { exists: { field: 'f0rtika.test_name' } },
+          ],
+        },
+      },
       { range: { 'routing.event_time': { gte: params.from, lte: params.to } } },
     ];
     if (params.org) filters.push({ term: { 'routing.oid': params.org } });
     if (params.bundleUuid) filters.push({ term: { 'f0rtika.bundle_id': params.bundleUuid } });
 
+    // Scope filters only — outcome/result filters would falsify a compliance report.
+    const scopeFilters = [
+      buildScopeFilter(params.tags, 'f0rtika.tags'),
+      buildScopeFilter(params.hostnames, 'routing.hostname'),
+      buildScopeFilter(params.tests, 'f0rtika.test_name'),
+      buildScopeFilter(params.bundleNames, 'f0rtika.bundle_name'),
+    ];
+    for (const f of scopeFilters) {
+      if (f) filters.push(f);
+    }
+
     const response = await this.client.search({
       index: this.settings.indexPattern,
       size: MAX_REPORT_DOCS,
       query: { bool: { filter: filters } },
-      sort: [{ 'routing.event_time': 'asc' }],
+      // Newest first: if the 10k cap ever truncates, recent runs survive.
+      sort: [{ 'routing.event_time': 'desc' }],
     });
 
     const total = typeof response.hits.total === 'number'
@@ -204,7 +255,19 @@ export class SbReportService {
     if (total > MAX_REPORT_DOCS) {
       console.warn(
         `[sb-report] window ${params.from}..${params.to} matched ${total} docs; ` +
-        `report truncated to first ${MAX_REPORT_DOCS}`,
+        `report truncated to the newest ${MAX_REPORT_DOCS}`,
+      );
+    }
+
+    // SB reports are per-bulletin: a single export must not mix bundles.
+    const distinctBundles = new Set(
+      response.hits.hits.map((hit: any) => getField(hit._source ?? {}, 'f0rtika.bundle_id')).filter(Boolean),
+    );
+    if (distinctBundles.size > 1) {
+      console.warn(
+        `[sb-report] WARNING: export mixes ${distinctBundles.size} distinct bundles ` +
+        `(${[...distinctBundles].join(', ')}). SB reports are per-bulletin — ` +
+        `narrow the export with the bundle filter or bundle_uuid.`,
       );
     }
 
