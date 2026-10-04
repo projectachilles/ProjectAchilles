@@ -87,6 +87,28 @@ export interface ParsePfxResult {
   not_after: string;
 }
 
+// --- Defender sync ---
+
+export interface DefenderSyncStageResult {
+  synced: number;
+  errors: string[];
+}
+
+export interface DefenderSyncRunResult {
+  scores: DefenderSyncStageResult;
+  controls: DefenderSyncStageResult;
+  alerts: DefenderSyncStageResult;
+  timestamp: string;
+}
+
+export interface DefenderSyncStatus {
+  lastScoreSync: string | null;
+  lastControlSync: string | null;
+  lastAlertSync: string | null;
+  lastAttemptAt?: string | null;
+  lastError?: { stage: 'scores' | 'controls' | 'alerts'; message: string; at: string } | null;
+}
+
 // --- Defender Auto-Resolve (Wave 7) ---
 
 export type AutoResolveMode = 'disabled' | 'dry_run' | 'enabled';
@@ -191,6 +213,18 @@ export const integrationsApi = {
   async deleteDefenderSettings(): Promise<{ success: boolean }> {
     const response = await apiClient.delete('/integrations/defender');
     return response.data;
+  },
+
+  // --- Defender sync ---
+
+  async getDefenderSyncStatus(): Promise<DefenderSyncStatus> {
+    const response = await apiClient.get('/integrations/defender/sync/status');
+    return response.data;
+  },
+
+  async triggerDefenderSync(): Promise<DefenderSyncRunResult> {
+    const response = await apiClient.post('/integrations/defender/sync');
+    return response.data.data;
   },
 
   // --- Defender Auto-Resolve ---

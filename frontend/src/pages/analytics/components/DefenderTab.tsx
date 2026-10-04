@@ -8,6 +8,7 @@ import {
   type AlertTrendPoint,
   type DetectionRateResponse,
 } from '@/services/api/defender';
+import { integrationsApi } from '@/services/api/integrations';
 import DefenderTabHeader from './DefenderTabHeader';
 import HeroStatTile, { type DeltaTone } from './HeroStatTile';
 import AutoResolveStatTile from './AutoResolveStatTile';
@@ -50,6 +51,7 @@ export default function DefenderTab() {
   const [alertTrend, setAlertTrend] = useState<AlertTrendPoint[]>([]);
   const [detectionRate, setDetectionRate] = useState<DetectionRateResponse | null>(null);
   const [lastSync, setLastSync] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTechniques, setDrawerTechniques] = useState<string[] | undefined>(undefined);
   const [drawerTitle, setDrawerTitle] = useState<string | undefined>(undefined);
@@ -113,31 +115,29 @@ export default function DefenderTab() {
 
   async function loadSyncStatus() {
     try {
-      const res = await fetch('/api/integrations/defender/sync/status', {
-        headers: { Authorization: `Bearer ${document.cookie}` },
-      }).catch(() => null);
-      if (res?.ok) {
-        const syncStatus = await res.json();
-        setLastSync(syncStatus.lastScoreSync || syncStatus.lastAlertSync || null);
-      }
-    } catch {
-      // Ignore sync status errors
+      const status = await integrationsApi.getDefenderSyncStatus();
+      const times = [status.lastScoreSync, status.lastControlSync, status.lastAlertSync]
+        .filter((t): t is string => !!t)
+        .sort();
+      setLastSync(times.at(-1) ?? null);
+      setSyncError(status.lastError ? `${status.lastError.stage}: ${status.lastError.message}` : null);
+    } catch (err) {
+      console.error('Failed to load Defender sync status:', err);
     }
   }
 
   async function handleSync() {
     setSyncing(true);
+    setSyncError(null);
     try {
-      const response = await fetch('/api/integrations/defender/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (response.ok) {
-        await loadData();
-        await loadSyncStatus();
-      }
+      const result = await integrationsApi.triggerDefenderSync();
+      const failed = (['scores', 'controls', 'alerts'] as const).find((s) => result[s].errors.length > 0);
+      if (failed) setSyncError(`${failed}: ${result[failed].errors[0]}`);
+      await loadData();
+      await loadSyncStatus();
     } catch (err) {
-      console.error('Sync failed:', err);
+      const apiError = (err as { response?: { data?: { error?: string } } }).response?.data?.error;
+      setSyncError(apiError ?? (err instanceof Error ? err.message : 'Sync failed'));
     } finally {
       setSyncing(false);
     }
@@ -151,7 +151,7 @@ export default function DefenderTab() {
 
   return (
     <div className="space-y-6">
-      <DefenderTabHeader lastSync={lastSync} syncing={syncing} onSync={handleSync} />
+      <DefenderTabHeader lastSync={lastSync} syncing={syncing} syncError={syncError} onSync={handleSync} />
 
       {/* Hero row: 4 tiles */}
       <div className="grid grid-cols-12 gap-4">
