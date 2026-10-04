@@ -432,7 +432,7 @@ export default function AnalyticsDashboardPage() {
     return () => globalThis.clearTimeout(timer);
   }, [archiveToast]);
 
-  // ── SB-PC-2026-001 report export ─────────────────────────────────
+  // ── SB report export ─────────────────────────────────────────────
   // The report endpoint validates from/to as concrete ISO datetimes, so the
   // date-range filter (which may be ES date math like 'now-90d') is resolved
   // to an absolute window here. The 'all' preset maps to the last 90 days,
@@ -476,13 +476,13 @@ export default function AnalyticsDashboardPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `sb-pc-2026-001_${sbReportWindow.from.slice(0, 10)}_${sbReportWindow.to.slice(0, 10)}.json`;
+      a.download = `sb_export_${sbReportWindow.from.slice(0, 10)}_${sbReportWindow.to.slice(0, 10)}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       setSbReportToast({
-        message: `SB-PC-2026-001 report downloaded (${report.executions.length} execution rows).`,
+        message: `SB Export downloaded (${report.executions.length} execution rows).`,
         variant: 'success',
       });
     } catch (error) {

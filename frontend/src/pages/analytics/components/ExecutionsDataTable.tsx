@@ -66,7 +66,7 @@ interface ExecutionsDataTableProps {
   /** Master-detail selection, controllable for ?expanded= deep links. */
   selectedKey?: string | null;
   onSelectedKeyChange?: (key: string | null) => void;
-  /** SB-PC-2026-001 compliance report export (server-generated for the current window). */
+  /** SB-format compliance report export (server-generated for the current window). */
   onExportSbReport?: () => Promise<void>;
   sbReportExporting?: boolean;
 }
@@ -488,7 +488,7 @@ export default function ExecutionsDataTable({
                   disabled={sbReportExporting}
                   className="w-full px-3 py-2 text-left text-sm transition-colors hover:bg-raised hover:text-accent disabled:opacity-50"
                 >
-                  {sbReportExporting ? 'Exporting SB Report…' : 'SB Report (SB-PC-2026-001)'}
+                  {sbReportExporting ? 'Exporting SB Export…' : 'SB Export'}
                 </button>
               )}
             </div>
