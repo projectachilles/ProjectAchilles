@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://projectachilles.github.io/ProjectAchilles/schemas/sb-export.schema.json",
+  "title": "SB Compliance Report Export",
+  "description": "JSON Schema for SB bulletin compliance reports exported by ProjectAchilles (Analytics > All Executions > SB Export, GET /api/reports/sb-pc-2026-001). The format follows SB bulletin section 04: one flat row per technique/stage per endpoint. Both producers conform to this schema: the ProjectAchilles reports endpoint (primary) and the offline fallback converter f0_library/utils/sb_report.py. A report is per-bulletin: bundleId/bundleName are a single literal for the whole file and stage labels belong to that bulletin's kill chain.",
+  "type": "object",
+  "required": ["meta", "executions"],
+  "additionalProperties": false,
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": ["organization", "vendor", "window", "generatedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "organization": {
+          "type": "string",
+          "description": "SB entity code for the reporting organization (e.g. \"SB\"), from the org_code parameter or the org short-name mapping."
+        },
+        "vendor": {
+          "type": "string",
+          "description": "Reporting vendor/platform. Default \"ProjectAchilles\"."
+        },
+        "window": {
+          "type": "object",
+          "required": ["from", "to"],
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Window start, ISO 8601 with timezone. Applied to routing.event_time (inclusive)."
+            },
+            "to": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Window end, ISO 8601 with timezone. Applied to routing.event_time (inclusive)."
+            }
+          }
+        },
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Report generation time, ISO 8601 UTC."
+        }
+      }
+    },
+    "executions": {
+      "type": "array",
+      "description": "Flat rows, one per technique/stage per endpoint per run. Sorted by hostname, then timestamp, then stage. A five-stage bundle run on three hosts yields 15 rows; there is no per-host grouping level.",
+      "items": {
+        "type": "object",
+        "required": [
+          "sourceEventId",
+          "timestamp",
+          "bundleId",
+          "bundleName",
+          "testName",
+          "hostname",
+          "stage",
+          "stageLabel",
+          "techniques",
+          "tactics",
+          "outcome",
+          "isProtected",
+          "preventedBy",
+          "detectedBy",
+          "evidenceRef"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "sourceEventId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Elasticsearch document _id of the bundle-control result, \"<task_id>::<control_id>\". Filterable in ES via an ids query or term on _id."
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Run completion time (routing.event_time), ISO 8601 with timezone. Per-stage timestamps are not available in the results index; all rows of one run share the run timestamp."
+          },
+          "bundleId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "SB bulletin identifier, a single literal for the whole report (e.g. \"SB-PC-2026-001\")."
+          },
+          "bundleName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Bulletin bundle display name (e.g. \"Ransomware con doble extorsión — LockBit 3.0\")."
+          },
+          "testName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Name of the executed test/bundle as ingested (f0rtika.test_name)."
+          },
+          "hostname": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Endpoint hostname (routing.hostname). Coverage across the representative endpoint set is demonstrated via this field."
+          },
+          "stage": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Kill-chain stage number (1-5 for SB-PC-2026-001). Parsed from f0rtika.control_validator, falling back to control order within the run."
+          },
+          "stageLabel": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Bulletin objective label for the stage (bulletin section 02)."
+          },
+          "techniques": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^T\\d{4}(\\.\\d{3})?$"
+            },
+            "description": "MITRE ATT&CK technique IDs (e.g. T1059.001)."
+          },
+          "tactics": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^TA\\d{4}$"
+            },
+            "description": "MITRE ATT&CK tactic IDs in TA-code form (e.g. TA0002)."
+          },
+          "outcome": {
+            "type": "string",
+            "enum": ["PREVENTED", "DETECTED", "MISSED", "EXPOSED", "NOT_RUN", "ERROR"],
+            "description": "Stage outcome. Mapping: exit 126/105/127 -> PREVENTED; exit 101/0 + Defender detection -> DETECTED; exit 101/0 on exfiltration/impact tactics -> EXPOSED; exit 101/0 otherwise -> MISSED; skipped control -> NOT_RUN (never emitted server-side: skipped controls are not ingested); exit 999/inconclusive 200/259/260/unknown -> ERROR."
+          },
+          "isProtected": {
+            "type": "boolean",
+            "description": "true iff outcome is PREVENTED or DETECTED."
+          },
+          "preventedBy": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Controls credited with prevention (e.g. [\"Microsoft Defender for Endpoint\"] when Defender telemetry confirms the block)."
+          },
+          "detectedBy": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Controls credited with detection, data-driven from Defender integration fields (f0rtika.defender_detected / defender_stage_detected)."
+          },
+          "evidenceRef": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Export-time composite, not a stored ES field: \"<_id> (<error name>)\" or \"<_id> (inconclusive: <error name>)\". The id part is the ES document _id (see sourceEventId); the suffix is display text derived from event.ERROR."
+          }
+        }
+      }
+    }
+  }
+}
