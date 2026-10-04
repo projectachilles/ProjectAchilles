@@ -348,8 +348,119 @@ describe('sbReport.service.ts', () => {
       const report = await createService().generateSbReport({ ...WINDOW });
 
       const searchArgs = mockSearch.mock.calls[0][0];
-      expect(searchArgs.query.bool.filter).toHaveLength(2);
+      // Base filters only: is_bundle_control, test-data parity, event_time range
+      expect(searchArgs.query.bool.filter).toHaveLength(3);
       expect(report.meta.organization).toBe('unknown');
+    });
+
+    it('applies the analytics test-data parity filter (exists test_uuid + test_name)', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse([]));
+
+      await createService().generateSbReport({ ...WINDOW });
+
+      const filters = mockSearch.mock.calls[0][0].query.bool.filter;
+      expect(filters).toContainEqual({
+        bool: {
+          must: [
+            { exists: { field: 'f0rtika.test_uuid' } },
+            { exists: { field: 'f0rtika.test_name' } },
+          ],
+        },
+      });
+    });
+
+    it('sorts by routing.event_time desc so truncation keeps the newest runs', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse([]));
+
+      await createService().generateSbReport({ ...WINDOW });
+
+      expect(mockSearch.mock.calls[0][0].sort).toEqual([{ 'routing.event_time': 'desc' }]);
+    });
+
+    it('maps scope filters to the same ES fields and semantics as the analytics filter bar', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse([]));
+
+      await createService().generateSbReport({
+        ...WINDOW,
+        tags: 'sb-bulletin',
+        hostnames: 'HOST-A',
+        tests: 'LockBit Stage 1',
+        bundleNames: 'LockBit 3.0 Double Extortion Kill Chain (SB-PC-2026-001)',
+      });
+
+      const filters = mockSearch.mock.calls[0][0].query.bool.filter;
+      // Single values collapse to plain term clauses
+      expect(filters).toContainEqual({ term: { 'f0rtika.tags': 'sb-bulletin' } });
+      expect(filters).toContainEqual({ term: { 'routing.hostname': 'HOST-A' } });
+      expect(filters).toContainEqual({ term: { 'f0rtika.test_name': 'LockBit Stage 1' } });
+      expect(filters).toContainEqual({ term: { 'f0rtika.bundle_name': 'LockBit 3.0 Double Extortion Kill Chain (SB-PC-2026-001)' } });
+    });
+
+    it('uses bool should + minimum_should_match for multi-value scope filters', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse([]));
+
+      await createService().generateSbReport({
+        ...WINDOW,
+        tags: 'sb-bulletin, quarterly',
+        hostnames: 'HOST-A, HOST-B ,,',
+      });
+
+      const filters = mockSearch.mock.calls[0][0].query.bool.filter;
+      expect(filters).toContainEqual({
+        bool: {
+          should: [
+            { term: { 'f0rtika.tags': 'sb-bulletin' } },
+            { term: { 'f0rtika.tags': 'quarterly' } },
+          ],
+          minimum_should_match: 1,
+        },
+      });
+      expect(filters).toContainEqual({
+        bool: {
+          should: [
+            { term: { 'routing.hostname': 'HOST-A' } },
+            { term: { 'routing.hostname': 'HOST-B' } },
+          ],
+          minimum_should_match: 1,
+        },
+      });
+    });
+
+    it('ignores empty scope filter values', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse([]));
+
+      await createService().generateSbReport({ ...WINDOW, tags: ' , ', hostnames: '' });
+
+      // No extra filters beyond the base three
+      expect(mockSearch.mock.calls[0][0].query.bool.filter).toHaveLength(3);
+    });
+
+    it('warns loudly when the export mixes more than one bundle', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const hits = [
+        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 101, techniques: ['T1059.001'], tactics: ['execution'] }),
+        makeBundleHit({ control_id: 'T1083', validator: 'Stage 1', exit_code: 101, techniques: ['T1083'], tactics: ['discovery'], bundle_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' }),
+      ];
+      mockSearch.mockResolvedValue(esSearchResponse(hits));
+
+      try {
+        await createService().generateSbReport({ ...WINDOW });
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('mixes 2 distinct bundles'));
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('does not warn when the export covers a single bundle', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mockSearch.mockResolvedValue(esSearchResponse(makeLabFixtureHits()));
+
+      try {
+        await createService().generateSbReport({ ...WINDOW });
+        expect(warnSpy).not.toHaveBeenCalled();
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
   });
 });

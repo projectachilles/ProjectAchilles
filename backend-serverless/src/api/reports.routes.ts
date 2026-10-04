@@ -13,7 +13,9 @@ const settingsService = new SettingsService();
 
 // GET /api/reports/sb-pc-2026-001 - SB-PC-2026-001 compliance report (LockBit 3.0 bundle)
 // Query params: from, to (ISO dates, required), org (UUID), org_code (SB entity
-// code for meta.organization), bundle_uuid (f0rtika.bundle_id filter), vendor.
+// code for meta.organization), bundle_uuid (f0rtika.bundle_id filter), vendor,
+// plus optional analytics scope filters: tags, hostnames, tests, bundle_names
+// (comma-separated, OR semantics — same fields as the analytics filter bar).
 router.get('/sb-pc-2026-001', requirePermission('analytics:dashboards:read'), asyncHandler(async (req, res) => {
   const settings = await settingsService.getSettings();
   if (!settings.configured) {
@@ -34,6 +36,10 @@ router.get('/sb-pc-2026-001', requirePermission('analytics:dashboards:read'), as
     orgCode: req.query.org_code as string | undefined,
     vendor: req.query.vendor as string | undefined,
     bundleUuid: req.query.bundle_uuid as string | undefined,
+    tags: req.query.tags as string | undefined,
+    hostnames: req.query.hostnames as string | undefined,
+    tests: req.query.tests as string | undefined,
+    bundleNames: req.query.bundle_names as string | undefined,
   });
 
   res.json(report);

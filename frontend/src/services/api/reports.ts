@@ -43,6 +43,14 @@ export interface SbReportParams {
   orgCode?: string;
   /** Bundle UUID (f0rtika.bundle_id filter). */
   bundleUuid?: string;
+  /** Comma-separated f0rtika.tags scope filter. */
+  tags?: string;
+  /** Comma-separated routing.hostname scope filter. */
+  hostnames?: string;
+  /** Comma-separated f0rtika.test_name scope filter. */
+  tests?: string;
+  /** Comma-separated f0rtika.bundle_name scope filter. */
+  bundleNames?: string;
 }
 
 export const reportsApi = {
@@ -55,6 +63,10 @@ export const reportsApi = {
         org: params.org,
         org_code: params.orgCode,
         bundle_uuid: params.bundleUuid,
+        tags: params.tags,
+        hostnames: params.hostnames,
+        tests: params.tests,
+        bundle_names: params.bundleNames,
       },
     });
     return response.data;
