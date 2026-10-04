@@ -91,6 +91,7 @@ vi.mock('../auto-resolve.service.js', () => ({
 }));
 
 const { DefenderSyncService } = await import('../sync.service.js');
+const { ensureDefenderIndex } = await import('../index-management.js');
 
 // ── Tests ────────────────────────────────────────────────────────────
 
@@ -428,6 +429,60 @@ describe('DefenderSyncService', () => {
 
       const statusAfter = service.getSyncStatus();
       expect(statusAfter.lastScoreSync).not.toBeNull();
+    });
+  });
+
+  // ── Setup failures (ES privileges, missing creds) ──────────────
+  // Regression: an ES key without create_index made ensureDefenderIndex()
+  // throw before the try block, so every sync rejected, the timers'
+  // .catch(() => {}) swallowed it, and /sync/status stayed all-null for months.
+
+  describe('setup failures', () => {
+    const PRIV_ERROR = 'security_exception: action [indices:admin/create] is unauthorized for API key id [abc]';
+
+    it('syncAlerts returns an index-setup failure as a result error instead of throwing', async () => {
+      vi.mocked(ensureDefenderIndex).mockRejectedValueOnce(new Error(PRIV_ERROR));
+
+      const result = await service.syncAlerts();
+
+      expect(result.synced).toBe(0);
+      expect(result.errors[0]).toContain('indices:admin/create');
+      expect(mockGetAlerts).not.toHaveBeenCalled();
+    });
+
+    it('records lastError and lastAttemptAt for the failing stage', async () => {
+      vi.mocked(ensureDefenderIndex).mockRejectedValueOnce(new Error(PRIV_ERROR));
+
+      await service.syncAlerts();
+      const status = service.getSyncStatus();
+
+      expect(status.lastAttemptAt).not.toBeNull();
+      expect(status.lastError).toMatchObject({ stage: 'alerts' });
+      expect(status.lastError?.message).toContain('indices:admin/create');
+      expect(status.lastAlertSync).toBeNull();
+    });
+
+    it('clears lastError once the same stage succeeds', async () => {
+      vi.mocked(ensureDefenderIndex).mockRejectedValueOnce(new Error(PRIV_ERROR));
+      await service.syncAlerts();
+      expect(service.getSyncStatus().lastError).not.toBeNull();
+
+      mockGetAlerts.mockResolvedValue([]);
+      await service.syncAlerts();
+      expect(service.getSyncStatus().lastError).toBeNull();
+    });
+
+    it('syncAll resolves and records lastSyncResult even when every stage fails setup', async () => {
+      vi.mocked(ensureDefenderIndex).mockRejectedValue(new Error(PRIV_ERROR));
+
+      const result = await service.syncAll();
+
+      expect(result.scores.errors).toHaveLength(1);
+      expect(result.controls.errors).toHaveLength(1);
+      expect(result.alerts.errors).toHaveLength(1);
+      expect(service.getSyncStatus().lastSyncResult).toEqual(result);
+
+      vi.mocked(ensureDefenderIndex).mockResolvedValue(undefined);
     });
   });
 });

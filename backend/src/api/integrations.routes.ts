@@ -253,6 +253,12 @@ router.post('/defender', requirePermission('integrations:write'), validate(Defen
 
   svc.saveDefenderSettings({ tenant_id, client_id, client_secret, label, auth_method, cert_thumbprint, private_key_pem });
 
+  // Kick off a sync with the new credentials rather than waiting for the
+  // next timer tick (up to 6h for scores). Outcome lands in /sync/status.
+  defenderSyncService.syncAll().catch((err) => {
+    console.warn('⚠ Defender sync after credential save failed:', err instanceof Error ? err.message : err);
+  });
+
   res.json({ success: true });
 }));
 

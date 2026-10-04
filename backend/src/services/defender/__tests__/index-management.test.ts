@@ -28,6 +28,7 @@ vi.mock('../../analytics/client.js', () => ({
 
 const {
   createDefenderIndex,
+  ensureDefenderIndex,
   listDefenderIndices,
   ensureDefenderIndexMappings,
   DEFENDER_INDEX,
@@ -74,6 +75,36 @@ describe('Defender index management', () => {
       mockIndicesCreate.mockRejectedValue(new Error('cluster down'));
 
       await expect(createDefenderIndex()).rejects.toThrow('cluster down');
+    });
+  });
+
+  describe('ensureDefenderIndex', () => {
+    it('does not attempt to create an index that already exists', async () => {
+      // A least-privilege API key (read/write on the index, no create_index)
+      // gets a 403 from indices.create even when the index exists — ES checks
+      // privileges before existence. That 403 used to abort every sync.
+      mockIndicesExists.mockResolvedValueOnce(true);
+      mockIndicesCreate.mockRejectedValue({ statusCode: 403 });
+
+      await expect(ensureDefenderIndex()).resolves.toBeUndefined();
+      expect(mockIndicesCreate).not.toHaveBeenCalled();
+    });
+
+    it('creates the index when it is missing', async () => {
+      mockIndicesExists.mockResolvedValueOnce(false);
+      mockIndicesCreate.mockResolvedValueOnce({ acknowledged: true });
+
+      await ensureDefenderIndex();
+      expect(mockIndicesCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ index: DEFENDER_INDEX }),
+      );
+    });
+
+    it('tolerates a create race (400 already exists)', async () => {
+      mockIndicesExists.mockResolvedValueOnce(false);
+      mockIndicesCreate.mockRejectedValueOnce({ statusCode: 400 });
+
+      await expect(ensureDefenderIndex()).resolves.toBeUndefined();
     });
   });
 

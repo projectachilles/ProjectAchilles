@@ -116,8 +116,21 @@ export async function createDefenderIndex(): Promise<{ created: boolean; message
   }
 }
 
-/** Ensure the Defender index exists (create if missing, no-op if exists). */
+/**
+ * Ensure the Defender index exists (create if missing, no-op if exists).
+ *
+ * Checks existence first: ES evaluates privileges before existence, so an
+ * API key with read/write but no `create_index` on achilles-defender gets a
+ * 403 (not the tolerated 400) from an unconditional indices.create — which
+ * used to abort every sync on least-privilege keys.
+ */
 export async function ensureDefenderIndex(): Promise<void> {
+  const settings = await new SettingsService().getSettings();
+  if (!settings.configured) {
+    throw new Error('Elasticsearch is not configured');
+  }
+  const exists = await createEsClient(settings).indices.exists({ index: DEFENDER_INDEX });
+  if (exists) return;
   await createDefenderIndex();
 }
 

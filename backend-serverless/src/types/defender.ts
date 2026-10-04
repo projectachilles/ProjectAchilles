@@ -233,9 +233,19 @@ export interface DefenderSyncResult {
   timestamp: string;
 }
 
+export interface DefenderSyncError {
+  stage: 'scores' | 'controls' | 'alerts';
+  message: string;
+  at: string;
+}
+
 export interface DefenderSyncStatus {
   lastScoreSync: string | null;
   lastControlSync: string | null;
   lastAlertSync: string | null;
   lastSyncResult: DefenderSyncResult | null;
+  /** When any stage last ran, successful or not. */
+  lastAttemptAt: string | null;
+  /** Most recent stage failure; cleared when that stage next succeeds. */
+  lastError: DefenderSyncError | null;
 }
