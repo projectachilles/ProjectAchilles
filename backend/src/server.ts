@@ -417,30 +417,38 @@ function startBackgroundJobs(httpServer?: http.Server) {
   let defenderScoreInterval: ReturnType<typeof setInterval> | undefined;
   let defenderAlertInterval: ReturnType<typeof setInterval> | undefined;
 
-  const integrationsSettings = new IntegrationsSettingsService();
-  if (integrationsSettings.isDefenderConfigured()) {
+  // Timers always run and check configuration on each tick, so Defender
+  // configured (or repaired) through the UI after boot starts syncing
+  // without a restart. Sync methods report failures via getSyncStatus();
+  // the catches below only guard against unexpected throws.
+  const isDefenderConfigured = () => new IntegrationsSettingsService().isDefenderConfigured();
+  const logDefenderError = (step: string) => (err: unknown) => {
+    console.warn(`⚠ Defender ${step} failed:`, err instanceof Error ? err.message : err);
+  };
+
+  if (isDefenderConfigured()) {
     console.log('🛡  Defender integration configured — starting background sync');
-    defenderSyncService.syncAll().catch((err) => {
-      console.warn('⚠ Initial Defender sync failed:', err instanceof Error ? err.message : err);
-    });
-    defenderScoreInterval = setInterval(() => {
-      defenderSyncService.syncSecureScores().catch(() => {});
-      defenderSyncService.syncControlProfiles().catch(() => {});
-    }, 6 * 60 * 60 * 1000); // 6 hours
-    defenderAlertInterval = setInterval(async () => {
-      // Order matters and each step swallows its own errors so one failure
-      // doesn't silence the others:
-      //   1. syncAlerts   — pull fresh alerts from Graph into ES
-      //   2. enrichment   — tag freshly-arrived alerts that match Achilles tests
-      //                     (without this on the 5-min cadence, correlation
-      //                     would only update on boot)
-      //   3. auto-resolve — PATCH correlated alerts to status=resolved
-      //                     when the customer has opted in (mode != 'disabled')
-      await defenderSyncService.syncAlerts().catch(() => {});
-      await defenderSyncService.runEnrichmentPass().catch(() => {});
-      await defenderSyncService.runAutoResolvePass().catch(() => {});
-    }, 5 * 60 * 1000); // 5 minutes
+    defenderSyncService.syncAll().catch(logDefenderError('initial sync'));
   }
+  defenderScoreInterval = setInterval(() => {
+    if (!isDefenderConfigured()) return;
+    defenderSyncService.syncSecureScores().catch(logDefenderError('score sync'));
+    defenderSyncService.syncControlProfiles().catch(logDefenderError('control sync'));
+  }, 6 * 60 * 60 * 1000); // 6 hours
+  defenderAlertInterval = setInterval(async () => {
+    if (!isDefenderConfigured()) return;
+    // Order matters and each step catches its own errors so one failure
+    // doesn't silence the others:
+    //   1. syncAlerts   — pull fresh alerts from Graph into ES
+    //   2. enrichment   — tag freshly-arrived alerts that match Achilles tests
+    //                     (without this on the 5-min cadence, correlation
+    //                     would only update on boot)
+    //   3. auto-resolve — PATCH correlated alerts to status=resolved
+    //                     when the customer has opted in (mode != 'disabled')
+    await defenderSyncService.syncAlerts().catch(logDefenderError('alert sync'));
+    await defenderSyncService.runEnrichmentPass().catch(logDefenderError('enrichment'));
+    await defenderSyncService.runAutoResolvePass().catch(logDefenderError('auto-resolve'));
+  }, 5 * 60 * 1000); // 5 minutes
 
   const shutdown = () => {
     clearInterval(schedulerInterval);

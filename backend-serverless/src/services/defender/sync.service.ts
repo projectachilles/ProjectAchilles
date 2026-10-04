@@ -20,6 +20,7 @@ import type {
   SyncResult,
   DefenderSyncResult,
   DefenderSyncStatus,
+  DefenderSyncError,
   EnrichmentPassResult,
   AutoResolvePassResult,
 } from '../../types/defender.js';
@@ -40,6 +41,8 @@ export class DefenderSyncService {
     lastControlSync: null,
     lastAlertSync: null,
     lastSyncResult: null,
+    lastAttemptAt: null,
+    lastError: null,
   };
   private syncStatusLoaded = false;
 
@@ -201,14 +204,17 @@ export class DefenderSyncService {
   async syncSecureScores(): Promise<SyncResult> {
     await this.loadPersistedSyncStatus();
 
-    const client = await this.ensureGraphClient();
-    const es = await this.getEsClient();
-    await ensureDefenderIndex();
-
     const errors: string[] = [];
     let synced = 0;
 
     try {
+      // Setup lives inside the try so a missing credential or an ES
+      // privilege error is reported as a result error, not thrown past
+      // callers that discard rejections.
+      const client = await this.ensureGraphClient();
+      const es = await this.getEsClient();
+      await ensureDefenderIndex();
+
       const scores = await client.getSecureScores(90);
 
       if (scores.length > 0) {
@@ -241,19 +247,20 @@ export class DefenderSyncService {
       errors.push(err instanceof Error ? err.message : String(err));
     }
 
+    this.recordOutcome('scores', errors);
     return { synced, errors };
   }
 
   /** Sync Control Profiles (full replace). */
   async syncControlProfiles(): Promise<SyncResult> {
-    const client = await this.ensureGraphClient();
-    const es = await this.getEsClient();
-    await ensureDefenderIndex();
-
     const errors: string[] = [];
     let synced = 0;
 
     try {
+      const client = await this.ensureGraphClient();
+      const es = await this.getEsClient();
+      await ensureDefenderIndex();
+
       const profiles = await client.getControlProfiles();
 
       const integrationsService = new IntegrationsSettingsService();
@@ -289,11 +296,12 @@ export class DefenderSyncService {
 
         synced = profiles.length - errors.length;
       }
+      this.syncStatus.lastControlSync = new Date().toISOString();
     } catch (err) {
       errors.push(err instanceof Error ? err.message : String(err));
     }
 
-    this.syncStatus.lastControlSync = new Date().toISOString();
+    this.recordOutcome('controls', errors);
     return { synced, errors };
   }
 
@@ -301,14 +309,14 @@ export class DefenderSyncService {
   async syncAlerts(): Promise<SyncResult> {
     await this.loadPersistedSyncStatus();
 
-    const client = await this.ensureGraphClient();
-    const es = await this.getEsClient();
-    await ensureDefenderIndex();
-
     const errors: string[] = [];
     let synced = 0;
 
     try {
+      const client = await this.ensureGraphClient();
+      const es = await this.getEsClient();
+      await ensureDefenderIndex();
+
       // Build filter: incremental if we have a checkpoint, otherwise 90-day lookback
       let filter: string;
       if (this.syncStatus.lastAlertSync) {
@@ -361,6 +369,7 @@ export class DefenderSyncService {
       errors.push(err instanceof Error ? err.message : String(err));
     }
 
+    this.recordOutcome('alerts', errors);
     return { synced, errors };
   }
 
@@ -474,6 +483,22 @@ export class DefenderSyncService {
 
     this.syncStatus.lastSyncResult = result;
     return result;
+  }
+
+  /**
+   * Stamp the attempt and keep lastError current: set it when a stage fails,
+   * clear it when the stage that last failed succeeds. Logged here so failures
+   * are visible even when the caller discards the result.
+   */
+  private recordOutcome(stage: DefenderSyncError['stage'], errors: string[]): void {
+    const now = new Date().toISOString();
+    this.syncStatus.lastAttemptAt = now;
+    if (errors.length > 0) {
+      this.syncStatus.lastError = { stage, message: errors[0], at: now };
+      console.error(`[Defender] ${stage} sync failed: ${errors[0]}`);
+    } else if (this.syncStatus.lastError?.stage === stage) {
+      this.syncStatus.lastError = null;
+    }
   }
 
   /** Get the current sync status for the UI. */

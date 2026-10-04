@@ -64,6 +64,16 @@ vi.mock('../../services/analytics/client.js', () => ({
   createEsClient: () => ({ count: mockEsCount, search: mockEsSearch }),
 }));
 
+// Mock the sync service — saving credentials kicks off a background sync,
+// which must not reach Graph/ES from tests.
+const mockSyncAll = vi.fn();
+vi.mock('../../services/defender/sync.service.js', () => ({
+  DefenderSyncService: class MockDefenderSyncService {
+    syncAll = mockSyncAll;
+    getSyncStatus = () => ({ lastSyncResult: null });
+  },
+}));
+
 // Mock global fetch for the /test endpoint
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -88,6 +98,7 @@ describe('Defender integration routes', () => {
     mockIsEnvDefenderConfigured.mockReturnValue(false);
     mockGetAutoResolveMode.mockReturnValue('disabled');
     mockGetAnalyticsSettings.mockReturnValue({ configured: false });
+    mockSyncAll.mockResolvedValue({});
   });
 
   // ── GET /api/integrations/defender ───────────────────────────
@@ -134,6 +145,7 @@ describe('Defender integration routes', () => {
         .send({ tenant_id: 'tid' });
 
       expect(res.status).toBe(400);
+      expect(mockSyncAll).not.toHaveBeenCalled();
     });
 
     it('saves when all fields provided', async () => {
@@ -155,6 +167,22 @@ describe('Defender integration routes', () => {
         client_secret: 'my-secret',
         label: 'Test',
       });
+      expect(mockSyncAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('still responds 200 when the post-save sync rejects', async () => {
+      mockSyncAll.mockRejectedValueOnce(new Error('graph down'));
+
+      const app = createApp();
+      const res = await request(app)
+        .post('/api/integrations/defender')
+        .send({
+          tenant_id: 'aaaabbbb-cccc-dddd-eeee-ffffffffffff',
+          client_id: '11112222-3333-4444-5555-666677778888',
+          client_secret: 'my-secret',
+        });
+
+      expect(res.status).toBe(200);
     });
 
     it('allows partial update on edit', async () => {
