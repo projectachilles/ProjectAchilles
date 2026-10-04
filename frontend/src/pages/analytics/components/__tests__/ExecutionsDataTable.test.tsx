@@ -122,7 +122,7 @@ beforeEach(() => {
 });
 
 describe('ExecutionsDataTable — SB report export', () => {
-  it('offers the SB Report menu item when onExportSbReport is provided and invokes it on click', async () => {
+  it('offers the SB Export menu item when onExportSbReport is provided and invokes it on click', async () => {
     getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
     const onExportSbReport = vi.fn().mockResolvedValue(undefined);
     const stage = makeStage({});
@@ -140,21 +140,21 @@ describe('ExecutionsDataTable — SB report export', () => {
       />,
     );
 
-    await userEvent.click(screen.getByText('SB Report (SB-PC-2026-001)'));
+    await userEvent.click(screen.getByText('SB Export'));
     expect(onExportSbReport).toHaveBeenCalledTimes(1);
   });
 
-  it('hides the SB Report menu item when no handler is provided', () => {
+  it('hides the SB Export menu item when no handler is provided', () => {
     getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
     const stage = makeStage({});
     renderTable(makeData([stage], { defenderDetected: false }));
 
-    expect(screen.queryByText('SB Report (SB-PC-2026-001)')).toBeNull();
+    expect(screen.queryByText('SB Export')).toBeNull();
     // The local CSV/JSON exports are always available
     expect(screen.getByText('Export CSV')).toBeInTheDocument();
   });
 
-  it('disables the SB Report item and shows progress wording while exporting', () => {
+  it('disables the SB Export item and shows progress wording while exporting', () => {
     getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
     const stage = makeStage({});
     render(
@@ -171,7 +171,7 @@ describe('ExecutionsDataTable — SB report export', () => {
       />,
     );
 
-    expect(screen.getByText('Exporting SB Report…')).toBeDisabled();
+    expect(screen.getByText('Exporting SB Export…')).toBeDisabled();
   });
 });
 
