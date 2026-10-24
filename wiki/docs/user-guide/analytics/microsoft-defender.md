@@ -16,7 +16,7 @@ If the integration is not configured the tab is hidden entirely — the
 empty panels. To set the integration up, see
 [Integrations → Microsoft Defender](../integrations/microsoft-defender).
 
-![Defender tab — Secure Score, Defender Alerts, Detection Rate and Auto-Resolve cards above the test execution vs alert volume chart](/img/screenshots/analytics-defender.png)
+![Defender tab — Secure Score, Defender Alerts, Detected / Prevented and Auto-Resolve cards above the test execution vs alert volume chart](/img/screenshots/analytics-defender.png)
 
 ## Tab Header
 
@@ -32,7 +32,7 @@ Four tiles summarize posture at a glance:
 |------|---------------|
 | **Secure Score** | Current Microsoft Secure Score as a percentage, raw `current / max` points, the change versus the trend window, and a sparkline. |
 | **Defender Alerts** | Total alert count in the window, how many are high-severity, and the change versus the previous 7 days. Click the tile to open the alert drawer for all alerts. |
-| **Detection Rate** | The headline metric — the share of attack simulations in the selected window that Defender detected (evidence-based, see [Detection Rate](#detection-rate)), with prevented, detected-only and missed counts. |
+| **Detected / Prevented** | The headline metric — the share of attack simulations in the selected window that Defender detected (the [Detection Rate](#detection-rate), evidence-based), the share it prevented, how many executions raised an alert and how many were stopped, plus one pip per technique showing whether it drew an alert. |
 | **Auto-Resolve** | Current auto-resolve mode (`disabled` / `dry-run` / `enabled`) and recent receipt counts. See [Auto-Resolve](../integrations/defender-auto-resolve). |
 
 :::info Detection Rate is evidence-based
@@ -78,7 +78,7 @@ Per-technique table for the window, split into **prevented**, **detected only**
 and **missed** executions, with an **Alerts (in window)** column: the number of
 distinct Defender alerts in the window tagged with that technique or one of its
 sub-techniques, so it matches the drawer the row opens. Detected techniques are listed first. The header total equals the
-Detection Rate tile's denominator, because both come from the same response.
+Detected / Prevented tile's denominator, because both come from the same response.
 
 ## Top Remediation Controls
 

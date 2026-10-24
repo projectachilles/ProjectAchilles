@@ -15,13 +15,13 @@ The browser page opens with a 2-tab layout:
 1. **Overview** — MITRE ATT&CK coverage chart, category legend, and summary statistics
 2. **Browse** — Filterable test list
 
-![Security Dashboard — ATT&CK coverage, severity mix and category breakdown across the whole library](/img/screenshots/security-dashboard.png)
+![Security Dashboard — KPI strip, trend overview, testing cadence, threat actor readiness and the ATT&CK outcome matrix](/img/screenshots/security-dashboard.png)
 
 ## Test Library List
 
 The Tests page is a list with a filter rail on the left. Each row shows the test name, then `actor · subcategory` (or "No attributed actor" when the test has none), the fleet result, the test score, and the favorite and run actions. The score shows "—" when it is missing or zero.
 
-![Tests — facet rail beside the test list (screenshot predates the list view)](/img/screenshots/tests.png)
+![Tests — facet rail beside the test list, with techniques, platform, stages, fleet result and score per row](/img/screenshots/tests.png)
 
 Columns appear as the window gets wider:
 

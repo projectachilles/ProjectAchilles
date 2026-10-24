@@ -18,7 +18,7 @@ The Execution Table provides a paginated, filterable view of all test execution 
 
 The Execution Table shares its filter bar with other Analytics dashboard tabs, providing a unified filtering experience.
 
-![Executions — master-detail view with grouped bundle runs on the left and per-control Protected/Unprotected results on the right](/img/screenshots/executions-table.png)
+![Executions — master-detail view with grouped bundle runs on the left and the selected run's attack chain and per-stage results on the right](/img/screenshots/executions-table.png)
 
 ## Bundle Results
 

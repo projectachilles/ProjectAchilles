@@ -28,6 +28,8 @@ The settings apply to your organization. Each organization has its own recipient
 
 ## Settings
 
+![Pre-execution notices settings — enable switch, recipients, lead time, max wait for delivery, pickup window and the finished-email option](/img/screenshots/settings-notices.png)
+
 | Setting | Default | Range | What it does |
 |---------|---------|-------|--------------|
 | **Lead time** | 5 minutes | 0 to 5 | Delay between the mail server accepting the notice and tests starting. The countdown starts at acceptance, so the engineers always get the full lead time. |

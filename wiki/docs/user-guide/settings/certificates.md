@@ -137,7 +137,7 @@ Manages connections to external services through a card-based interface:
 
 Each integration card shows a status indicator: **Connected**, **Not Configured**, or **Error**.
 
-![Settings integrations page — Elasticsearch, Azure/Entra ID, Microsoft Defender, and Alerting cards](/img/screenshots/settings-integrations.png)
+![Settings integrations page — Elasticsearch, Azure/Entra ID, Microsoft Defender, CrowdStrike Falcon, Alerts & Notifications and Pre-execution notices cards](/img/screenshots/settings-integrations.png)
 
 ### Agent Tab
 
@@ -155,7 +155,7 @@ User and role management (visible only to users with the `settings:users:manage`
 - **Invitation system** for onboarding new team members via email
 - **Permission reference** showing the full permission matrix for each role
 
-![Settings users page — user roles with RBAC permission reference matrix](/img/screenshots/settings-users.png)
+![Settings users page — invite form, per-user role selectors and the collapsible role permissions reference](/img/screenshots/settings-users.png)
 
 ### Platform Config
 

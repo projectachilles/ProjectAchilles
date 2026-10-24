@@ -61,7 +61,7 @@ Threat intelligence reports pile up unread. Compliance checklists are checked on
 - **Risk Acceptance** — Accept risk for individual controls with audit tracking
 - **Unified Security Dashboard** — One landing page for posture across tests, endpoints, and analytics, with a time range selector shared with Analytics and an attention banner that links straight to whatever needs a human
 
-![Security Dashboard — attention banner, KPI strip, trend overview, severity mix, ATT&CK coverage and category breakdown](/img/screenshots/security-dashboard.png)
+![Security Dashboard — attention banner, KPI strip, trend overview, testing cadence, threat actor readiness and ATT&CK outcome matrix](/img/screenshots/security-dashboard.png)
 
 ## What's Next?
 

@@ -9,7 +9,7 @@ description: "The ProjectAchilles console — flat six-destination navigation, g
 The console is a fixed sidebar plus a single content column. Six destinations,
 no nested module dashboards, and one dark theme throughout.
 
-![Security Dashboard — attention banner, KPI strip, trend overview, severity mix, ATT&CK coverage and category breakdown](/img/screenshots/security-dashboard.png)
+![Security Dashboard — attention banner, KPI strip, trend overview, testing cadence, threat actor readiness and ATT&CK outcome matrix](/img/screenshots/security-dashboard.png)
 
 ## The sidebar
 

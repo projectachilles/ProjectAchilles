@@ -90,7 +90,7 @@ runs.
 
 ## Dashboard Layout
 
-![Analytics posture row — Defense Score ledger and Secure Score beside the trend overview, with test activity and top remediation controls](/img/screenshots/analytics-posture.png)
+![Analytics posture row — Defense Score ledger, Secure Score and ZTA Score beside the trend overview, with test activity and top remediation controls](/img/screenshots/analytics-posture.png)
 
 The Analytics Dashboard uses a multi-tab interface with four main areas:
 
@@ -194,7 +194,7 @@ The **Executions** tab provides a full data table of individual test executions.
 - Deep-linkable — the selected run rides in `?expanded=<id>`, so a dashboard
   "recent executions" row or a shared link opens straight to that result
 
-![Executions — master-detail view with grouped bundle runs on the left and per-control Protected/Unprotected results on the right](/img/screenshots/executions-table.png)
+![Executions — master-detail view with grouped bundle runs on the left and the selected run's attack chain and per-stage results on the right](/img/screenshots/executions-table.png)
 
 ### Risk Acceptances Tab
 
