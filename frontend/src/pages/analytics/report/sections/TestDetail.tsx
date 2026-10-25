@@ -31,7 +31,7 @@ function ControlTable({ test, edr, alertsIncomplete }: { test: ReportTest; edr: 
             <td className="rp-mono rp-id">{s.controlId ?? s.techniques.join(', ')}</td>
             <td style={{ width: '28%' }}><OutcomeBar counts={s.outcomes} legend={false} height={6} /></td>
             <td className="rp-num">{fmtPct(protectionRate(s.outcomes))}</td>
-            {edr && <td className="rp-num">{fmtAlertCount(s.alerts.defender + s.alerts.crowdstrike, alertsIncomplete)}</td>}
+            {edr && <td className="rp-num">{fmtAlertCount(s.alerts.defender + s.alerts.crowdstrike + (s.alerts.sentinelone ?? 0), alertsIncomplete)}</td>}
           </tr>
         ))}
       </tbody>

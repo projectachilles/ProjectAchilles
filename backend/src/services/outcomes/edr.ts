@@ -6,6 +6,7 @@
 import type { Client } from '@elastic/elasticsearch';
 import { createEsClient } from '../analytics/client.js';
 import { SettingsService } from '../analytics/settings.js';
+import { EDR_VENDORS } from './vendors.js';
 
 export type EdrStatus = 'ok' | 'unavailable' | 'not_configured';
 
@@ -18,18 +19,16 @@ export interface EdrDocs {
 const CHUNK = 1000;
 const TIMEOUT_MS = 8_000;
 
-const SOURCE_FIELDS = [
+export const SOURCE_FIELDS = [
   'event.ERROR',
   'f0rtika.category',
   'f0rtika.is_bundle_control',
-  'f0rtika.defender_detected',
-  'f0rtika.defender_stage_detected',
-  'f0rtika.defender_prevented',
-  'f0rtika.defender_prevention_action',
-  'f0rtika.crowdstrike_detected',
-  'f0rtika.crowdstrike_stage_detected',
-  'f0rtika.crowdstrike_prevented',
-  'f0rtika.crowdstrike_prevention_action',
+  ...EDR_VENDORS.flatMap(({ key }) => [
+    `f0rtika.${key}_detected`,
+    `f0rtika.${key}_stage_detected`,
+    `f0rtika.${key}_prevented`,
+    `f0rtika.${key}_prevention_action`,
+  ]),
 ];
 
 let cached: { key: string; client: Client } | null = null;

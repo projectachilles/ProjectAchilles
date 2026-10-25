@@ -23,7 +23,7 @@ import { getTestDirectory, getTestMetadata } from '../agent/test-catalog.service
 import { AppError } from '../../middleware/error.middleware.js';
 import { getRunStartTimes } from './taskTiming.js';
 import { readDefenseGuidance } from './guidanceExcerpt.js';
-import { correlateRuns, CROWDSTRIKE_ADAPTER, DEFENDER_ADAPTER, type CorrelationRun, type VendorAdapter } from './alertCorrelation.js';
+import { correlateRuns, CROWDSTRIKE_ADAPTER, DEFENDER_ADAPTER, SENTINELONE_ADAPTER, type CorrelationRun, type VendorAdapter } from './alertCorrelation.js';
 import { computeTimeAxis, resolveReportWindow, validateTimeZone } from './reportWindow.js';
 import {
   LANES_CAP, OTHER_LANE, RUN_STRIP_MAX_RUNS, TESTS_CAP,
@@ -72,7 +72,7 @@ export interface ExecutionReportParams extends FilterParams {
 export interface ExecutionReportDeps {
   client: Client;
   es: Pick<ElasticsearchService, 'buildExtendedFilters' | 'getDefenseScore'>;
-  vendors: { defender: boolean; crowdstrike: boolean };
+  vendors: { defender: boolean; crowdstrike: boolean; sentinelone?: boolean };
   getTestMetadata: (uuid: string) => TestMetadata | null;
   readGuidance: (testKey: string) => string | null;
   getRunStartTimes: (taskIds: string[]) => Promise<Map<string, string>>;
@@ -95,6 +95,7 @@ interface Correlation {
 const VENDOR_LABEL: Record<ReportAlert['vendor'], string> = {
   defender: 'Microsoft Defender',
   crowdstrike: 'CrowdStrike Falcon',
+  sentinelone: 'SentinelOne Singularity',
 };
 
 const PARTIAL_WARNING = 'Some indices could not be read; totals may be incomplete';
@@ -554,6 +555,7 @@ export class ExecutionReportService {
     return [
       ...(this.deps.vendors.defender ? [DEFENDER_ADAPTER] : []),
       ...(this.deps.vendors.crowdstrike ? [CROWDSTRIKE_ADAPTER] : []),
+      ...(this.deps.vendors.sentinelone ? [SENTINELONE_ADAPTER] : []),
     ];
   }
 

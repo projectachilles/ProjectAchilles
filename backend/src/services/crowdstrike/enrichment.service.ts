@@ -6,6 +6,7 @@ import {
 } from './evidence-correlation.js';
 import { CROWDSTRIKE_INDEX } from './index-management.js';
 import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/crowdstrike.js';
+import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS } from '../shared/achillesMitigation.js';
 import { enrichmentEligibleClauses } from '../analytics/enrichment-eligibility.js';
 
 const DEFAULT_LOOKBACK_DAYS = 90;
@@ -42,10 +43,30 @@ const ALERT_HITS_PER_SUBQUERY = 5;
  */
 const PREVENTION_ACTIONS = new Set(['quarantined', 'process_killed', 'blocked']);
 
+/**
+ * Which vendor's alert index to read and which `f0rtika.<vendor>_*` flags to
+ * write. Defaults to CrowdStrike; SentinelOne reuses the same pass because its
+ * normalized alert docs share the evidence_* / prevention_action shape.
+ */
+export interface EnrichmentVendorTarget {
+  alertIndex: string;
+  flagPrefix: 'crowdstrike' | 'sentinelone';
+  /**
+   * Ignore the prevention action of alerts that ProjectAchilles itself
+   * mitigated (SentinelOne automatic mitigation writes an
+   * `f0rtika.auto_mitigated` receipt). Our own kill / quarantine is not the
+   * EDR preventing the test, so it must never turn into `<vendor>_prevented`.
+   */
+  ignoreAchillesMitigated?: boolean;
+}
+
+const CROWDSTRIKE_TARGET: EnrichmentVendorTarget = { alertIndex: CROWDSTRIKE_INDEX, flagPrefix: 'crowdstrike' };
+
 export class CrowdStrikeEnrichmentService {
   constructor(
     private readonly client: Client,
     private readonly resultsIndexPattern: string,
+    private readonly target: EnrichmentVendorTarget = CROWDSTRIKE_TARGET,
   ) {}
 
   async runEnrichmentPass(
@@ -135,8 +156,11 @@ export class CrowdStrikeEnrichmentService {
       if (queries.length > 0) {
         const searches: unknown[] = [];
         for (const q of queries) {
-          searches.push({ index: CROWDSTRIKE_INDEX });
-          searches.push({ size: ALERT_HITS_PER_SUBQUERY, _source: ['prevention_action'], query: q.body });
+          searches.push({ index: this.target.alertIndex });
+          const source = this.target.ignoreAchillesMitigated
+            ? ['prevention_action', ...ACHILLES_MITIGATION_FIELDS]
+            : ['prevention_action'];
+          searches.push({ size: ALERT_HITS_PER_SUBQUERY, _source: source, query: q.body });
         }
 
         let msearchResponse;
@@ -191,6 +215,7 @@ export class CrowdStrikeEnrichmentService {
           //     alert that killed a later stage (prod: Falcon killed T1486 while
           //     stages 1–4 had already exited 101).
           const preventionActions = alertHits
+            .filter((h) => !(this.target.ignoreAchillesMitigated && isAchillesMitigated(h._source)))
             .map((h) => h._source?.prevention_action)
             .filter((a): a is string => typeof a === 'string' && PREVENTION_ACTIONS.has(a));
 
@@ -232,15 +257,16 @@ export class CrowdStrikeEnrichmentService {
           for (const u of updatesByHitId.values()) {
             // Test-doc update: only set the fields that flipped to true.
             const f0rtika: Record<string, unknown> = {};
-            if (u.wideMatched)  f0rtika.crowdstrike_detected       = true;
-            if (u.stageMatched) f0rtika.crowdstrike_stage_detected = true;
+            const v = this.target.flagPrefix;
+            if (u.wideMatched)  f0rtika[`${v}_detected`]       = true;
+            if (u.stageMatched) f0rtika[`${v}_stage_detected`] = true;
             // Vendor-confirmed prevention — rides alongside the detected flags.
             // preventionActions is already qualification-filtered above
             // (stage matches always; wide matches only for non-conclusive docs).
             // Prevention ⊆ detection: a prevention flag implies a matched alert.
             if (u.preventionActions.length > 0) {
-              f0rtika.crowdstrike_prevented = true;
-              f0rtika.crowdstrike_prevention_action = u.preventionActions[0];
+              f0rtika[`${v}_prevented`] = true;
+              f0rtika[`${v}_prevention_action`] = u.preventionActions[0];
             }
             operations.push({ update: { _index: u.hit._index, _id: u.hit._id } });
             operations.push({ doc: { f0rtika } });
@@ -250,7 +276,7 @@ export class CrowdStrikeEnrichmentService {
             for (const alertId of u.alertIds) {
               if (alertIdsEmitted.has(alertId)) continue;
               alertIdsEmitted.add(alertId);
-              operations.push({ update: { _index: CROWDSTRIKE_INDEX, _id: alertId } });
+              operations.push({ update: { _index: this.target.alertIndex, _id: alertId } });
               operations.push({
                 doc: {
                   f0rtika: {
@@ -319,8 +345,8 @@ export class CrowdStrikeEnrichmentService {
           {
             bool: {
               should: [
-                missingFlag('f0rtika.crowdstrike_detected'),
-                missingFlag('f0rtika.crowdstrike_stage_detected'),
+                missingFlag(`f0rtika.${this.target.flagPrefix}_detected`),
+                missingFlag(`f0rtika.${this.target.flagPrefix}_stage_detected`),
               ],
               minimum_should_match: 1,
             },

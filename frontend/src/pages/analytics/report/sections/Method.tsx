@@ -14,6 +14,7 @@ const DEFINITIONS: [StageOutcome, string][] = [
 const VENDOR_SOURCE: Record<ExecutionReport['meta']['edrVendors'][number], string> = {
   defender: 'Microsoft Defender for Endpoint',
   crowdstrike: 'CrowdStrike Falcon',
+  sentinelone: 'SentinelOne Singularity',
 };
 
 /** `edrVendors` is meta.edrVendors: the sources and alert-window text name only configured vendors, and are omitted when there are none. */

@@ -16,6 +16,9 @@ export interface AlertSettingsMasked {
     defense_score_min?: number;
     error_rate_max?: number;
     secure_score_min?: number;
+    s1_infected_agents_max?: number;
+    s1_detect_only_agents_max?: number;
+    s1_outdated_agents_max?: number;
     enabled: boolean;
   };
   cooldown_minutes?: number;
@@ -39,10 +42,14 @@ export interface AlertSettingsMasked {
 }
 
 export interface SaveAlertSettingsRequest {
+  /** null clears a saved threshold. */
   thresholds?: {
-    defense_score_min?: number;
-    error_rate_max?: number;
-    secure_score_min?: number;
+    defense_score_min?: number | null;
+    error_rate_max?: number | null;
+    secure_score_min?: number | null;
+    s1_infected_agents_max?: number | null;
+    s1_detect_only_agents_max?: number | null;
+    s1_outdated_agents_max?: number | null;
     enabled?: boolean;
   };
   cooldown_minutes?: number;

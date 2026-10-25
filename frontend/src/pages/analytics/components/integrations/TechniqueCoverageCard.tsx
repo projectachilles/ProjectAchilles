@@ -61,7 +61,7 @@ function CountCell({ value, className = '' }: { value: number; className?: strin
 
 export default function TechniqueCoverageCard({ vendor, data, loading, error, onSelectTechnique }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const product = vendor.id === 'crowdstrike' ? 'Falcon' : 'Defender';
+  const product = vendor.product;
   const overall = data?.overall;
   const rows = data?.byTechnique ?? [];
   const shown = expanded ? rows : rows.slice(0, VISIBLE_ROWS);

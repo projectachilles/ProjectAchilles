@@ -66,7 +66,7 @@ ProjectAchilles is a continuous security validation platform with four core comp
 
 All four are driven from one console: a flat six-destination interface — Dashboard, Tests, Analytics, Agents, Tasks, Settings — with a single unified Security Dashboard as the landing page.
 
-The platform is open-source and installs on a Linux server with one command: a terminal wizard handles DNS, certificates, and agent enrollment for LAN deployments. It also runs anywhere Docker Compose does, and integrates with Microsoft Defender and CrowdStrike Falcon for cross-correlation between your internal validation results and your EDR's own security posture data.
+The platform is open-source and installs on a Linux server with one command: a terminal wizard handles DNS, certificates, and agent enrollment for LAN deployments. It also runs anywhere Docker Compose does, and integrates with Microsoft Defender, CrowdStrike Falcon and SentinelOne for cross-correlation between your internal validation results and your EDR's own security posture data.
 
 ## Quick Start
 
@@ -198,7 +198,7 @@ A single dark **f0 design language** across every screen — terminal-green acce
 |-------------|------------------|
 | **Dashboard** | Unified posture across tests, endpoints, and analytics |
 | **Tests** | The test library with a faceted browse rail |
-| **Analytics** | Defense Score, executions, risk acceptances, Defender, CrowdStrike |
+| **Analytics** | Defense Score, executions, risk acceptances, Defender, CrowdStrike, SentinelOne |
 | **Agents** | Fleet table plus the fleet-pulse utility rail |
 | **Tasks** | Live task stream, scheduled tasks, task detail |
 | **Settings** | Integrations, tests, agent binaries, users, API keys |
@@ -348,7 +348,8 @@ Quantify your security posture with 30+ query endpoints powered by Elasticsearch
 - **Risk Acceptance** — Accept risk on individual controls with audit tracking
 - **Microsoft Defender Integration** — Sync Secure Score, alerts, and control profiles with cross-correlation analytics; dedicated Defender tab with alert drill-down drawer, correlation timeline, per-execution detection rate with MITRE roll-up, and control ↔ alert linking
 - **CrowdStrike Falcon Integration** — Sync ZTA posture score and alerts with cross-correlation analytics; dedicated CrowdStrike tab with alert drill-down drawer (Falcon console links), correlation timeline, and per-execution detection rate; optional auto-resolve closes correlated alerts with an audit-trail comment
-- **Vendor-Confirmed Prevention** — a stage that CrowdStrike or Defender reports as prevented is credited as protected; both EDR tabs share one layout with source/severity filters and evidence-based technique coverage (prevented / detected only / missed)
+- **SentinelOne Integration** — Sync threats and detection alerts (read-only by default) with cross-correlation analytics; dedicated SentinelOne tab with agent health, policy and path-exclusion gap views; opt-in auto-resolve (re-checks the console before acting) and opt-in automatic kill / quarantine of unmitigated test threats, never counted as SentinelOne prevention. Docker-style backends only (not Vercel)
+- **Vendor-Confirmed Prevention** — a stage that CrowdStrike, SentinelOne or Defender reports as prevented is credited as protected; the EDR tabs share one layout with source/severity filters and evidence-based technique coverage (prevented / detected only / missed)
 - **Trend Alerting** — Threshold-based Slack and email notifications with in-app notification bell
 - **Write-Index Rollover** — Results ingest into dated write indices (`achilles-results-YYYY.MM.DD`) with daily, monthly, or static rollover; per-task index targeting for isolated result sets
 
@@ -449,6 +450,7 @@ graph TB
         BDS[Build Service]
         DFS[Defender Service]
         CSF[CrowdStrike Service]
+        S1S[SentinelOne Service]
         ALS[Alerting Service]
     end
 
@@ -458,6 +460,7 @@ graph TB
     BDS --> GO[Go Toolchain + Code Signing]
     DFS --> GRAPH[Microsoft Graph API]
     CSF --> FALCON[CrowdStrike Falcon API]
+    S1S --> S1API[SentinelOne Management API]
     ALS --> NOTIFY[Slack · Email]
 
     AGS <-->|Agent API Key| AGENT
@@ -774,6 +777,37 @@ Restart the backend afterwards so it reopens the database cleanly.
 | `GET` | `/api/integrations/crowdstrike/auto-resolve/status` | Auto-resolve mode and receipt counts |
 | `PUT` | `/api/integrations/crowdstrike/auto-resolve/mode` | Set auto-resolve mode (`disabled`/`dry_run`/`enabled`) |
 | `GET` | `/api/integrations/crowdstrike/auto-resolve/receipts` | Paginated auto-resolve receipt history |
+
+### SentinelOne Integration
+
+Backend (Docker-style deployments) only; `GET /api/capabilities` reports `sentinelone: false` on Vercel.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/analytics/sentinelone/alerts` | Threats and detection alerts with filtering (`sourceType=threats\|cloud_detection_alerts`) |
+| `GET` | `/api/analytics/sentinelone/alerts/summary` | Alert counts by severity and status |
+| `GET` | `/api/analytics/sentinelone/alerts/trend` | Alert volume over time |
+| `GET` | `/api/analytics/sentinelone/correlation/scores` | Defense Score series (no vendor posture score) |
+| `GET` | `/api/analytics/sentinelone/correlation/techniques` | MITRE technique overlap |
+| `GET` | `/api/analytics/sentinelone/correlation/technique-coverage` | Evidence-based technique coverage |
+| `GET` | `/api/analytics/sentinelone/correlation/detection-rate` | Per-execution detection rate |
+| `GET` | `/api/analytics/sentinelone/correlation/alerts-for-test` | Alerts matched to a test execution |
+| `GET` | `/api/analytics/sentinelone/posture/policies` | Account / site / group policy snapshot |
+| `GET` | `/api/analytics/sentinelone/posture/agent-health` | Agent health counts and trend |
+| `GET` | `/api/analytics/sentinelone/posture/exclusion-gaps` | Missed tests on hosts covered by a path exclusion |
+| `GET` | `/api/integrations/sentinelone` | SentinelOne configuration (token masked) |
+| `POST` | `/api/integrations/sentinelone` | Save SentinelOne settings |
+| `DELETE` | `/api/integrations/sentinelone` | Remove SentinelOne configuration |
+| `POST` | `/api/integrations/sentinelone/test` | Validate the token against the console |
+| `POST` | `/api/integrations/sentinelone/sync` | Start a background sync (202); poll `/sync/status` |
+| `GET` | `/api/integrations/sentinelone/sync/status` | Checkpoints, last result and error |
+| `GET` | `/api/integrations/sentinelone/auto-resolve/status` | Auto-resolve mode and receipt counts |
+| `PUT` | `/api/integrations/sentinelone/auto-resolve/mode` | Set auto-resolve mode (`disabled`/`dry_run`/`enabled`) |
+| `GET` | `/api/integrations/sentinelone/auto-resolve/receipts` | Paginated auto-resolve receipt history |
+| `GET` | `/api/integrations/sentinelone/auto-mitigation/status` | Automatic-mitigation settings and receipt counts |
+| `PUT` | `/api/integrations/sentinelone/auto-mitigation` | Set automatic-mitigation mode / action (Response mode only) |
+| `GET` | `/api/integrations/sentinelone/auto-mitigation/receipts` | Paginated automatic-mitigation receipts |
+| `GET` | `/api/integrations/sentinelone/actions/history` | Automatic-mitigation audit trail |
 
 ### Reports
 

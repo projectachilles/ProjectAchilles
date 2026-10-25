@@ -159,7 +159,7 @@ describe('ExecutionReportService.generate', () => {
     const test = report.tests[0];
     expect(test).toMatchObject({ name: 'LockBit 3.0 Double Extortion Kill Chain', description: 'Emulates the LockBit 3.0 playbook.', score: 8.8 });
     expect(test.stages.map((s) => s.controlId)).toEqual(['T1567.002', 'T1486']);
-    expect(test.stages[0].alerts).toEqual({ defender: 1, crowdstrike: 0 });
+    expect(test.stages[0].alerts).toEqual({ defender: 1, crowdstrike: 0, sentinelone: 0 });
 
     expect(report.timeline.lanes).toEqual([{ testKey: BUNDLE, name: 'LockBit 3.0 Double Extortion Kill Chain', runs: 1 }]);
     expect(report.timeline.buckets[0].lanes[0]).toMatchObject({ testKey: BUNDLE, runs: 1 });
@@ -288,7 +288,7 @@ describe('ExecutionReportService.generate', () => {
     expect(report.tests[0].stages.map((s) => s.controlId)).toEqual(['T1486']);
     // The alert's evidence binary names T1567.002, a stage outside this report's filter.
     expect(report.runs[0].alerts[0].stageControlId).toBe('t1567.002');
-    expect(report.tests[0].stages[0].alerts).toEqual({ defender: 0, crowdstrike: 0 });
+    expect(report.tests[0].stages[0].alerts).toEqual({ defender: 0, crowdstrike: 0, sentinelone: 0 });
   });
 
   it('echoes filters and flags outcome filtering', async () => {
@@ -430,6 +430,15 @@ describe('ExecutionReportService.generate', () => {
     expect(report.runs[0].alertsChecked).toBe(false);
     expect(report.meta.warnings).toEqual(['Microsoft Defender alerts unavailable']);
     expect(report.meta.unavailable).toEqual(['alerts']);
+  });
+
+  it('correlates SentinelOne alerts from achilles-sentinelone when SentinelOne is configured', async () => {
+    const deps = makeDeps({ vendors: { defender: false, crowdstrike: false, sentinelone: true } });
+    deps.client.msearch.mockImplementation(msearchHits({ 'achilles-sentinelone': 'S1Threat' }));
+    const report = await new ExecutionReportService(settings, deps).generate(params(), NOW);
+    expect(report.meta.edrVendors).toEqual(['sentinelone']);
+    expect(deps.client.msearch.mock.calls[0][0].searches[0].index).toBe('achilles-sentinelone');
+    expect(report.runs[0].alerts[0]).toMatchObject({ vendor: 'sentinelone', title: 'S1Threat' });
   });
 
   it('flags alerts unavailable when every configured vendor fails', async () => {

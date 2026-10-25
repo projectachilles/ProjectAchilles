@@ -54,6 +54,15 @@ describe('correlateRuns', () => {
     });
   });
 
+  it('an alert Achilles mitigated itself carries no prevention action (same rule as Analytics)', async () => {
+    const mitigated = alertHit('Killed by Achilles');
+    (mitigated._source as Record<string, unknown>).f0rtika = { auto_mitigated: true, auto_mitigation_mode: 'enabled' };
+    msearch.mockResolvedValueOnce({ responses: [{ hits: { hits: [mitigated] } }] });
+    const res = await correlateRuns(client, DEFENDER_ADAPTER, [run(1)], { deadline: far() });
+    expect(msearch.mock.calls[0][0].searches[1]._source).toEqual(expect.arrayContaining(['f0rtika.auto_mitigated']));
+    expect(res.alerts.get(run(1).key)?.[0].preventionAction).toBeNull();
+  });
+
   it('runs the technique+host fallback only for runs with no evidence match', async () => {
     msearch
       .mockResolvedValueOnce({ responses: [{ hits: { hits: [] } }, { hits: { hits: [alertHit('Matched')] } }] })

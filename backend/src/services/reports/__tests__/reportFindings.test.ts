@@ -10,7 +10,7 @@ function makeTest(testKey: string, name: string, runs: number, stages: { control
   return {
     testKey, name, isBundle: true, category: null, subcategory: null, severity: null, score: null, target: [], complexity: null,
     threatActor: null, tags: [], description: null, runs, endpoints: 1, lastRun: null, outcomes: emptyCounts(),
-    stages: stages.map((s, i) => ({ ...s, order: i + 1, tactics: [], outcomes: emptyCounts(), alerts: { defender: 0, crowdstrike: 0 } })),
+    stages: stages.map((s, i) => ({ ...s, order: i + 1, tactics: [], outcomes: emptyCounts(), alerts: { defender: 0, crowdstrike: 0, sentinelone: 0 } })),
   };
 }
 

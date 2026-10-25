@@ -10,6 +10,8 @@ export interface Capabilities {
   agentBuild: boolean;
   preExecutionNotices: boolean;
   campaigns: boolean;
+  /** SentinelOne integration routes (backend-only; backend-serverless has none) */
+  sentinelone: boolean;
   platform: string;
   /** false until /api/capabilities has resolved (or failed); values are defaults before then */
   loaded?: boolean;
@@ -25,6 +27,7 @@ const DEFAULT_CAPABILITIES: Capabilities = {
   agentBuild: true,
   preExecutionNotices: false,
   campaigns: false,
+  sentinelone: false,
   platform: 'docker',
 };
 

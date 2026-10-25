@@ -3,7 +3,7 @@
 import type { ReportAlert, ReportRun, ReportRunStage, ReportTest, StageOutcome } from '@/services/api/reports';
 import { COUNTED_OUTCOMES, emptyCounts } from '../lib/outcomes';
 import { fmtLatency, plural, timeOf } from '../lib/format';
-import { stageForAlert } from '../lib/runs';
+import { stageForAlert, vendorName } from '../lib/runs';
 import { Glyph } from './StageGlyph';
 
 const W = 680;
@@ -104,7 +104,7 @@ export function RunStrip({ run, edrVendors = ['defender', 'crowdstrike'], test }
     .map(({ a, t }) => {
       const ax = x(t);
       const during = start !== null && t >= start && t <= end;
-      const vendor = a.vendor === 'defender' ? 'Defender' : 'Falcon';
+      const vendor = vendorName(a.vendor);
       const text = [`${vendor} ${during ? 'during run' : fmtLatency((t - end) / 1000)}`, stageLabelFor(run, a.stageControlId, test)]
         .filter(Boolean)
         .join(' · ');

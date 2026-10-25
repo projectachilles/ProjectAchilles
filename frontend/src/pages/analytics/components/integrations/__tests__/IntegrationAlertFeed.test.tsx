@@ -10,7 +10,7 @@ const win = { from: '2026-09-21T00:00:00.000Z', to: '2026-10-21T00:00:00.000Z' }
 
 const { default: IntegrationAlertFeed } = await import('../IntegrationAlertFeed');
 
-const mk = (v: 'crowdstrike' | 'defender'): IntegrationVendor => ({
+const mk = (v: 'crowdstrike' | 'defender' | 'sentinelone'): IntegrationVendor => ({
   ...VENDORS[v],
   api: { ...VENDORS[v].api, getAlerts: (...a: unknown[]) => getAlerts(...a) } as IntegrationVendor['api'],
 });
@@ -57,6 +57,29 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('IntegrationAlertFeed', () => {
+  it('SentinelOne: threats vs detection alerts filter sends sourceType and resets to page 1', async () => {
+    getAlerts.mockResolvedValue(page([item()], { total: 40 }));
+    renderFeed(mk('sentinelone'));
+    await screen.findByText('Suspicious thing');
+    expect(getAlerts.mock.calls[0][0]).not.toHaveProperty('sourceType');
+    fireEvent.click(screen.getByRole('button', { name: /next/i }));
+    await waitFor(() => expect(getAlerts).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 })));
+    fireEvent.click(screen.getByRole('button', { name: 'Detection alerts' }));
+    await waitFor(() =>
+      expect(getAlerts).toHaveBeenLastCalledWith(expect.objectContaining({ sourceType: 'cloud_detection_alerts', page: 1 })),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Threats' }));
+    await waitFor(() => expect(getAlerts).toHaveBeenLastCalledWith(expect.objectContaining({ sourceType: 'threats' })));
+    fireEvent.click(screen.getByRole('button', { name: 'All types' }));
+    await waitFor(() => expect(getAlerts.mock.calls.at(-1)![0]).not.toHaveProperty('sourceType'));
+  });
+
+  it('CrowdStrike and Defender have no alert type filter', async () => {
+    renderFeed(mk('defender'));
+    await screen.findByText('Suspicious thing');
+    expect(screen.queryByRole('group', { name: 'Alert type' })).toBeNull();
+  });
+
   it('sends from/to and the default severity segment on first load', async () => {
     renderFeed(mk('defender'));
     await waitFor(() => expect(getAlerts).toHaveBeenCalled());

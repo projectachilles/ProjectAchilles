@@ -9,9 +9,10 @@
 //   exit 126/105/127                                  -> PREVENTED
 //   *_prevented flag (vendor-confirmed)               -> PREVENTED
 //      (defender_prevented: remediationStatus on the correlated alert;
-//       crowdstrike_prevented: pattern_disposition on the correlated alert)
+//       crowdstrike_prevented: pattern_disposition on the correlated alert;
+//       sentinelone_prevented: mitigation status on the correlated threat)
 //   exit 101 (or 0) + EDR stage/detected flag         -> DETECTED
-//      (defender_* or crowdstrike_* — either vendor qualifies)
+//      (defender_*, crowdstrike_* or sentinelone_* — any vendor qualifies)
 //   exit 101 (or 0), exfiltration/impact tactics      -> EXPOSED
 //   exit 101 (or 0), other tactics                    -> MISSED
 //   exit 200/259/260 (inconclusive)                   -> ERROR ("inconclusive: <name>")
@@ -72,6 +73,7 @@ const MAX_REPORT_DOCS = 10000;
 
 const MICROSOFT_DEFENDER = 'Microsoft Defender for Endpoint';
 const CROWDSTRIKE_FALCON = 'CrowdStrike Falcon';
+const SENTINELONE_SINGULARITY = 'SentinelOne Singularity';
 
 export type SbOutcome = 'PREVENTED' | 'DETECTED' | 'MISSED' | 'EXPOSED' | 'NOT_RUN' | 'ERROR';
 
@@ -203,6 +205,7 @@ function mapOutcome(
   edrDetected: boolean,
   defenderPrevented: boolean,
   crowdstrikePrevented: boolean,
+  sentinelonePrevented = false,
 ): SbOutcome {
   if (exitCode !== undefined && PREVENTED_EXIT_CODES.has(exitCode)) return 'PREVENTED';
   // Vendor-confirmed prevention (prevention disposition/remediationStatus on
@@ -213,7 +216,7 @@ function mapOutcome(
   // same rule (stage matches always qualify; wide matches only for
   // non-conclusive docs), so a 101 + flag combo shouldn't occur — the guard
   // is belt-and-braces.
-  if ((defenderPrevented || crowdstrikePrevented) && exitCode !== 101) return 'PREVENTED';
+  if ((defenderPrevented || crowdstrikePrevented || sentinelonePrevented) && exitCode !== 101) return 'PREVENTED';
   if (exitCode !== undefined && EXECUTED_EXIT_CODES.has(exitCode)) {
     if (edrDetected) return 'DETECTED';
     if (rawTactics.some((t) => EXPOSED_TACTICS.has(t))) return 'EXPOSED';
@@ -353,10 +356,15 @@ export class SbReportService {
       // pattern_disposition), not inference.
       const defenderPrevented = Boolean(getField(source, 'f0rtika.defender_prevented'));
       const crowdstrikePrevented = Boolean(getField(source, 'f0rtika.crowdstrike_prevented'));
+      const sentineloneDetected = Boolean(
+        getField(source, 'f0rtika.sentinelone_stage_detected') ?? getField(source, 'f0rtika.sentinelone_detected'),
+      );
+      const sentinelonePrevented = Boolean(getField(source, 'f0rtika.sentinelone_prevented'));
       // Vendor attribution — when both vendors detected the stage, list both.
       const detectingVendors = [
         ...(defenderDetected ? [MICROSOFT_DEFENDER] : []),
         ...(crowdstrikeDetected ? [CROWDSTRIKE_FALCON] : []),
+        ...(sentineloneDetected ? [SENTINELONE_SINGULARITY] : []),
       ];
       // preventedBy lists each vendor whose prevented flag is set. Defender
       // keeps its pre-flag exit-code attribution too (a Defender-detected
@@ -364,13 +372,14 @@ export class SbReportService {
       const preventingVendors = [
         ...(defenderDetected || defenderPrevented ? [MICROSOFT_DEFENDER] : []),
         ...(crowdstrikePrevented ? [CROWDSTRIKE_FALCON] : []),
+        ...(sentinelonePrevented ? [SENTINELONE_SINGULARITY] : []),
       ];
       const edrDetected = detectingVendors.length > 0;
 
       const stage = parseStageFromValidator(getField(source, 'f0rtika.control_validator'))
         ?? fallbackStage.get(hit)
         ?? 0;
-      const outcome = mapOutcome(exitCode, rawTactics, edrDetected, defenderPrevented, crowdstrikePrevented);
+      const outcome = mapOutcome(exitCode, rawTactics, edrDetected, defenderPrevented, crowdstrikePrevented, sentinelonePrevented);
       const sourceEventId = String(hit._id ?? '');
 
       const inconclusive = exitCode !== undefined && INCONCLUSIVE_EXIT_CODES.has(exitCode);

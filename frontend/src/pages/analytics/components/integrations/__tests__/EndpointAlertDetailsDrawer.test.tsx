@@ -16,13 +16,22 @@ vi.mock('@/services/api/crowdstrike', async (importOriginal) => {
   };
 });
 
+const mockS1GetAlerts = vi.fn();
+vi.mock('@/services/api/sentineloneAnalytics', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/api/sentineloneAnalytics')>();
+  return {
+    ...actual,
+    sentineloneAnalyticsApi: { ...actual.sentineloneAnalyticsApi, getAlerts: (params: unknown) => mockS1GetAlerts(params) },
+  };
+});
+
 vi.mock('@/services/api/integrations', () => ({
   integrationsApi: {
     getCrowdStrikeSettings: () => mockGetSettings(),
   },
 }));
 
-const { default: CrowdStrikeAlertDetailsDrawer } = await import('../CrowdStrikeAlertDetailsDrawer');
+const { default: EndpointAlertDetailsDrawer } = await import('../EndpointAlertDetailsDrawer');
 
 interface PartialAlert {
   alert_id: string;
@@ -50,14 +59,14 @@ function makeAlert(overrides: Partial<PartialAlert> = {}): PartialAlert {
   };
 }
 
-describe('CrowdStrikeAlertDetailsDrawer', () => {
+describe('EndpointAlertDetailsDrawer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetSettings.mockResolvedValue({ configured: true, region: 'us-1' });
   });
 
   it('renders nothing when open=false', () => {
-    const { container } = render(<CrowdStrikeAlertDetailsDrawer open={false} onClose={() => {}} />);
+    const { container } = render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open={false} onClose={() => {}} />);
     expect(container).toBeEmptyDOMElement();
     expect(mockGetAlerts).not.toHaveBeenCalled();
   });
@@ -73,7 +82,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
       pageSize: 100,
     });
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} />);
 
     await waitFor(() => expect(screen.getByText('PSH abuse')).toBeInTheDocument());
     expect(screen.getByText('Recent CrowdStrike Alerts')).toBeInTheDocument();
@@ -92,7 +101,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
       pageSize: 100,
     });
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} technique="T1059" />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} technique="T1059" />);
 
     await waitFor(() => expect(screen.getByText('PSH parent')).toBeInTheDocument());
     expect(mockGetAlerts).toHaveBeenCalledWith(
@@ -105,7 +114,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
   it('passes a multi-technique array straight through to the backend', async () => {
     mockGetAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 100 });
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} techniques={['T1078', 'T1110']} />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} techniques={['T1078', 'T1110']} />);
 
     await waitFor(() => expect(mockGetAlerts).toHaveBeenCalled());
     expect(mockGetAlerts).toHaveBeenCalledWith(
@@ -119,7 +128,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
     mockGetAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 100 });
     const window = { from: '2026-09-01T00:00:00.000Z', to: '2026-10-01T00:00:00.000Z' };
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} technique="T1059" window={window} />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} technique="T1059" window={window} />);
 
     await waitFor(() => expect(mockGetAlerts).toHaveBeenCalled());
     expect(mockGetAlerts).toHaveBeenCalledWith(
@@ -130,7 +139,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
   it('sends no from/to when no window is given (unbounded, as before)', async () => {
     mockGetAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 100 });
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} />);
 
     await waitFor(() => expect(mockGetAlerts).toHaveBeenCalled());
     const callArgs = mockGetAlerts.mock.calls[0][0] as Record<string, unknown>;
@@ -141,7 +150,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
   it('does not pass techniques when neither prop is set (recent-all view)', async () => {
     mockGetAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 100 });
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} />);
 
     await waitFor(() => expect(mockGetAlerts).toHaveBeenCalled());
     const callArgs = mockGetAlerts.mock.calls[0][0] as { techniques?: string[] };
@@ -163,7 +172,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
       pageSize: 100,
     });
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} />);
 
     await waitFor(() => expect(screen.getByText('PSH auto-handled')).toBeInTheDocument());
     expect(screen.getByText(/Auto-resolved by Achilles/)).toBeInTheDocument();
@@ -180,7 +189,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
       pageSize: 100,
     });
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} />);
 
     await waitFor(() => expect(screen.getByText('Critical one')).toBeInTheDocument());
     const criticalLabel = screen.getByText('critical');
@@ -195,7 +204,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
   it('shows the technique-specific empty state when the backend returns no matches', async () => {
     mockGetAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 100 });
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} technique="T1486" />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} technique="T1486" />);
 
     await waitFor(() =>
       expect(screen.getByText('No alerts found for T1486')).toBeInTheDocument()
@@ -205,7 +214,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
   it('shows the error state when the API rejects', async () => {
     mockGetAlerts.mockRejectedValue(new Error('500 server error'));
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} />);
 
     await waitFor(() =>
       expect(screen.getByText('500 server error')).toBeInTheDocument()
@@ -216,7 +225,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
     mockGetAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 100 });
     const onClose = vi.fn();
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={onClose} />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={onClose} />);
 
     await waitFor(() => expect(screen.getByText('No recent alerts')).toBeInTheDocument());
     await userEvent.click(screen.getByLabelText('Close'));
@@ -231,7 +240,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
       pageSize: 100,
     });
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} />);
 
     await waitFor(() => expect(screen.getByText('PSH abuse')).toBeInTheDocument());
     const link = screen.getByLabelText('Open in Falcon console');
@@ -249,7 +258,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
       pageSize: 100,
     });
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} />);
 
     await waitFor(() => expect(screen.getByText('PSH abuse')).toBeInTheDocument());
     await waitFor(() =>
@@ -263,7 +272,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
   it('marks the dialog with role + aria-modal + aria-label for assistive tech', async () => {
     mockGetAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 100 });
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} technique="T1059" />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} technique="T1059" />);
 
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveAttribute('aria-modal', 'true');
@@ -274,7 +283,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
     mockGetAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 100 });
     const onClose = vi.fn();
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={onClose} />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={onClose} />);
     await waitFor(() => expect(screen.getByText('No recent alerts')).toBeInTheDocument());
 
     await userEvent.keyboard('{Escape}');
@@ -295,7 +304,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
       pageSize: 100,
     });
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} />);
 
     await waitFor(() => expect(screen.getByText('Killed stage')).toBeInTheDocument());
     expect(screen.getByLabelText('Open in Falcon console')).toHaveAttribute(
@@ -313,7 +322,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
       pageSize: 100,
     });
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} />);
 
     await waitFor(() => expect(screen.getByText('Gov alert')).toBeInTheDocument());
     await waitFor(() =>
@@ -339,7 +348,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
       pageSize: 100,
     });
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} />);
 
     await waitFor(() => expect(screen.getByText('process killed')).toBeInTheDocument());
     expect(screen.getByText('process killed')).toHaveAttribute(
@@ -363,7 +372,7 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
       pageSize: 100,
     });
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} />);
 
     await waitFor(() => expect(screen.getByText('kill failed')).toBeInTheDocument());
     const badge = screen.getByText('kill failed');
@@ -379,9 +388,27 @@ describe('CrowdStrikeAlertDetailsDrawer', () => {
       pageSize: 100,
     });
 
-    render(<CrowdStrikeAlertDetailsDrawer open onClose={() => {}} />);
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} />);
 
     await waitFor(() => expect(screen.getByText('Detection only')).toBeInTheDocument());
     expect(screen.queryByText(/process killed|quarantined|kill failed/)).not.toBeInTheDocument();
+  });
+
+  it('SentinelOne: lists from the SentinelOne analytics API, links the stored console URL, never resolves a Falcon region', async () => {
+    mockS1GetAlerts.mockResolvedValue({
+      data: [
+        makeAlert({ alert_id: 's1', alert_title: 'LSASS access', portal_url: 'https://acme.sentinelone.net/incidents/threats/1/overview' }),
+        makeAlert({ alert_id: 's2', alert_title: 'No link' }),
+      ],
+      total: 2, page: 1, pageSize: 100,
+    });
+    render(<EndpointAlertDetailsDrawer vendor="sentinelone" open onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByText('LSASS access')).toBeInTheDocument());
+    expect(screen.getByText('Recent SentinelOne Alerts')).toBeInTheDocument();
+    expect(mockGetAlerts).not.toHaveBeenCalled();
+    expect(mockGetSettings).not.toHaveBeenCalled();
+    const links = screen.getAllByRole('link', { name: 'Open in SentinelOne console' });
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute('href', 'https://acme.sentinelone.net/incidents/threats/1/overview');
   });
 });

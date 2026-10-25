@@ -183,6 +183,11 @@ export interface EnrichedTestExecution extends TestExecution {
   crowdstrike_prevented?: boolean;
   /** The matched alert's derived prevention action (quarantined / process_killed / blocked). */
   crowdstrike_prevention_action?: string;
+  /** SentinelOne equivalents of the crowdstrike_* flags, written by the SentinelOne enrichment pass. */
+  sentinelone_detected?: boolean;
+  sentinelone_stage_detected?: boolean;
+  sentinelone_prevented?: boolean;
+  sentinelone_prevention_action?: string;
 }
 
 // Pagination support
@@ -253,6 +258,10 @@ export interface ExecutionGroup {
   crowdstrikeDetected?: boolean;
   /** True when a matched CrowdStrike alert carried a prevention disposition for any member of this group. */
   crowdstrikePrevented?: boolean;
+  /** True when a correlated SentinelOne alert exists for this group's binary + hostname. */
+  sentineloneDetected?: boolean;
+  /** True when a matched SentinelOne alert carried a prevention action for any member of this group. */
+  sentinelonePrevented?: boolean;
 }
 
 // Response shape for grouped/collapsed pagination

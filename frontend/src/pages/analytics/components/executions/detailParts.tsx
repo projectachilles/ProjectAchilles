@@ -50,6 +50,10 @@ export interface RunDetailPanelProps {
   alertsLoading: Set<string>;
   csAlertsMap: Map<string, RelatedCrowdStrikeAlertsResponse | null>;
   csAlertsLoading: Set<string>;
+  /** SentinelOne (optional so existing callers keep compiling; absent = not configured). */
+  sentineloneConfigured?: boolean;
+  s1AlertsMap?: Map<string, RelatedCrowdStrikeAlertsResponse | null>;
+  s1AlertsLoading?: Set<string>;
   stageAlertsCacheKey: (exec: EnrichedTestExecution) => string;
   getAcceptanceForExec: (exec: EnrichedTestExecution) => RiskAcceptance | undefined;
   riskEnabled: boolean;
@@ -164,12 +168,15 @@ export function stageAlertState(
     alertsLoading,
     csAlertsMap,
     csAlertsLoading,
+    s1AlertsMap,
+    s1AlertsLoading,
     stageAlertsCacheKey,
-  }: Pick<RunDetailPanelProps, 'alertsMap' | 'alertsLoading' | 'csAlertsMap' | 'csAlertsLoading' | 'stageAlertsCacheKey'>,
+  }: Pick<RunDetailPanelProps, 'alertsMap' | 'alertsLoading' | 'csAlertsMap' | 'csAlertsLoading' | 's1AlertsMap' | 's1AlertsLoading' | 'stageAlertsCacheKey'>,
 ) {
   const key = stageAlertsCacheKey(exec);
   const def = alertsMap.get(key);
   const cs = csAlertsMap.get(key);
+  const s1 = s1AlertsMap?.get(key);
   return {
     defender: {
       loading: alertsLoading.has(key),
@@ -180,6 +187,11 @@ export function stageAlertState(
       loading: csAlertsLoading.has(key),
       alerts: cs ? filterStageAlerts(cs.alerts, exec.control_id) : [],
       hasBundleAlerts: Boolean(cs?.alerts.some((a) => a.attribution === 'bundle')),
+    },
+    sentinelone: {
+      loading: Boolean(s1AlertsLoading?.has(key)),
+      alerts: s1 ? filterStageAlerts(s1.alerts, exec.control_id) : [],
+      hasBundleAlerts: Boolean(s1?.alerts.some((a) => a.attribution === 'bundle')),
     },
   };
 }
@@ -248,6 +260,33 @@ export function CrowdStrikeAlertRow({
       </Badge>
       <span className="whitespace-nowrap text-faint">{alertRunTimeAnnotation(runTimestamp, alert)}</span>
       <AlertRowLink href={falconAlertUrl(alert.portal_url)} label="Open in Falcon console" />
+    </div>
+  );
+}
+
+/** SentinelOne alert row (same normalized shape as CrowdStrike). Links only when the doc carries a console URL. */
+export function SentinelOneAlertRow({
+  alert,
+  runTimestamp,
+  vendor,
+}: {
+  alert: CrowdStrikeAlertItem;
+  runTimestamp: string;
+  vendor?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      {vendor && <span className="w-20 shrink-0 text-muted">{vendor}</span>}
+      <Badge variant="outline" className={cn('px-1.5 py-0 text-[10px]', ALERT_SEVERITY_CLASSES[alert.severity])}>
+        {alert.severity}
+      </Badge>
+      <PreventionBadge action={alert.prevention_action} />
+      <span className="flex-1 truncate text-foreground">{alert.alert_title}</span>
+      <Badge variant="default" className="px-1.5 py-0 text-[10px]">
+        {alert.status}
+      </Badge>
+      <span className="whitespace-nowrap text-faint">{alertRunTimeAnnotation(runTimestamp, alert)}</span>
+      {alert.portal_url && <AlertRowLink href={alert.portal_url} label="Open in SentinelOne console" />}
     </div>
   );
 }

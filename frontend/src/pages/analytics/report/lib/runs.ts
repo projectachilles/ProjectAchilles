@@ -24,7 +24,7 @@ export function firstAlert(run: ReportRun): ReportAlert | null {
 }
 
 export function vendorName(vendor: ReportAlert['vendor']): string {
-  return vendor === 'defender' ? 'Defender' : 'Falcon';
+  return vendor === 'defender' ? 'Defender' : vendor === 'sentinelone' ? 'SentinelOne' : 'Falcon';
 }
 
 /** What labelling an alert's stage needs: a run stage, or the test's stage when the run did not fetch it. */

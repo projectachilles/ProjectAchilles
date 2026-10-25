@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, type ComponentType, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,7 +13,8 @@ import { cn } from '@/lib/utils';
 import type { IntegrationStatus } from './IntegrationCard';
 
 interface IntegrationGridCardProps {
-  icon: LucideIcon;
+  /** A lucide icon, or a brand logo component taking the same className sizing. */
+  icon: LucideIcon | ComponentType<{ className?: string }>;
   title: string;
   description: string;
   status: IntegrationStatus;

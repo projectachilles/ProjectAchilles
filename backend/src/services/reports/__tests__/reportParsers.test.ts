@@ -113,14 +113,14 @@ describe('parseTests', () => {
 
   it('orders bundle stages by "Stage N"', () => {
     expect(tests[0].stages.map((s) => [s.order, s.controlId, s.name])).toEqual([[1, 'T1003.001', 'Credential access'], [2, 'T1486', 'Impact']]);
-    expect(tests[0].stages[0].alerts).toEqual({ defender: 0, crowdstrike: 0 });
+    expect(tests[0].stages[0].alerts).toEqual({ defender: 0, crowdstrike: 0, sentinelone: 0 });
   });
 
   it('synthesizes one stage for standalone tests and normalizes metadata', () => {
     const s = tests[1];
     expect(s.stages).toEqual([{
       controlId: null, name: 'Mimikatz', order: 1, techniques: ['T1003.001'], tactics: ['credential-access'],
-      outcomes: counts({ unprotected: 2 }), alerts: { defender: 0, crowdstrike: 0 },
+      outcomes: counts({ unprotected: 2 }), alerts: { defender: 0, crowdstrike: 0, sentinelone: 0 },
     }]);
     expect(s).toMatchObject({ target: ['windows-endpoint'], score: 7.5, tags: ['creds'], description: null, lastRun: '2026-10-12T12:47:49.000Z' });
   });

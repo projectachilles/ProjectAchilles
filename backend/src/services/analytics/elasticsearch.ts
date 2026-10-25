@@ -513,6 +513,7 @@ export class ElasticsearchService {
                 { term: { 'f0rtika.is_protected': true } },
                 { term: { 'f0rtika.defender_detected': true } },
                 { term: { 'f0rtika.crowdstrike_detected': true } },
+                { term: { 'f0rtika.sentinelone_detected': true } },
               ],
               minimum_should_match: 1,
             },
@@ -551,6 +552,7 @@ export class ElasticsearchService {
                     { term: { 'f0rtika.is_protected': true } },
                     { term: { 'f0rtika.defender_detected': true } },
                     { term: { 'f0rtika.crowdstrike_detected': true } },
+                    { term: { 'f0rtika.sentinelone_detected': true } },
                   ],
                   minimum_should_match: 1,
                 },
@@ -572,6 +574,7 @@ export class ElasticsearchService {
                         { term: { 'f0rtika.is_protected': true } },
                         { term: { 'f0rtika.defender_detected': true } },
                         { term: { 'f0rtika.crowdstrike_detected': true } },
+                        { term: { 'f0rtika.sentinelone_detected': true } },
                       ],
                       minimum_should_match: 1,
                     },
@@ -611,7 +614,8 @@ export class ElasticsearchService {
    * Build the "has_detected" filter for per-bundle scoring. A stage is
    * "detected" if the agent reported is_protected:true OR the Defender
    * enrichment pass marked defender_detected:true OR the CrowdStrike
-   * enrichment pass marked crowdstrike_detected:true.
+   * enrichment pass marked crowdstrike_detected:true OR the SentinelOne
+   * enrichment pass marked sentinelone_detected:true.
    */
   private buildDetectedFilter(): Record<string, any> {
     return {
@@ -621,6 +625,7 @@ export class ElasticsearchService {
             { term: { 'f0rtika.is_protected': true } },
             { term: { 'f0rtika.defender_detected': true } },
             { term: { 'f0rtika.crowdstrike_detected': true } },
+            { term: { 'f0rtika.sentinelone_detected': true } },
           ],
           minimum_should_match: 1,
         },
@@ -1203,6 +1208,7 @@ export class ElasticsearchService {
               'f0rtika.is_protected',
               'f0rtika.defender_detected',
               'f0rtika.crowdstrike_detected',
+              'f0rtika.sentinelone_detected',
               'event.ERROR',
               'f0rtika.error_name',
             ].map(field => ({ field })),
@@ -1225,7 +1231,7 @@ export class ElasticsearchService {
         runs.push({
           pairKey: `${b.key.oid ?? ''}|${testUuid}|${hostname}`,
           ts,
-          protected: isProtected || esBool(m['f0rtika.defender_detected']) || esBool(m['f0rtika.crowdstrike_detected']),
+          protected: isProtected || esBool(m['f0rtika.defender_detected']) || esBool(m['f0rtika.crowdstrike_detected']) || esBool(m['f0rtika.sentinelone_detected']),
           strictProtected: isProtected,
           errorCodes: codes,
           errorNames: errorNamesFor(codes, typeof m['f0rtika.error_name'] === 'string' ? [m['f0rtika.error_name']] : []),
@@ -1318,6 +1324,7 @@ export class ElasticsearchService {
               should: [
                 { term: { 'f0rtika.defender_detected': true } },
                 { term: { 'f0rtika.crowdstrike_detected': true } },
+                { term: { 'f0rtika.sentinelone_detected': true } },
               ],
               minimum_should_match: 1,
               must_not: [{ term: { 'f0rtika.is_protected': true } }],
@@ -2533,6 +2540,8 @@ export class ElasticsearchService {
       group.crowdstrikeDetected = group.members.some((m) => m.crowdstrike_detected === true);
       group.defenderPrevented = group.members.some((m) => m.defender_prevented === true);
       group.crowdstrikePrevented = group.members.some((m) => m.crowdstrike_prevented === true);
+      group.sentineloneDetected = group.members.some((m) => m.sentinelone_detected === true);
+      group.sentinelonePrevented = group.members.some((m) => m.sentinelone_prevented === true);
     }
 
     return {
@@ -2587,6 +2596,10 @@ export class ElasticsearchService {
       crowdstrike_stage_detected: getField(source, 'f0rtika.crowdstrike_stage_detected') ?? false,
       crowdstrike_prevented: getField(source, 'f0rtika.crowdstrike_prevented') ?? false,
       crowdstrike_prevention_action: getField(source, 'f0rtika.crowdstrike_prevention_action'),
+      sentinelone_detected: getField(source, 'f0rtika.sentinelone_detected') ?? false,
+      sentinelone_stage_detected: getField(source, 'f0rtika.sentinelone_stage_detected') ?? false,
+      sentinelone_prevented: getField(source, 'f0rtika.sentinelone_prevented') ?? false,
+      sentinelone_prevention_action: getField(source, 'f0rtika.sentinelone_prevention_action'),
     };
   }
 
@@ -3505,6 +3518,7 @@ export class ElasticsearchService {
           { term: { 'f0rtika.is_protected': true } },
           { term: { 'f0rtika.defender_detected': true } },
           { term: { 'f0rtika.crowdstrike_detected': true } },
+          { term: { 'f0rtika.sentinelone_detected': true } },
         ],
         minimum_should_match: 1,
       },

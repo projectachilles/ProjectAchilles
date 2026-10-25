@@ -5,6 +5,8 @@ import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { SettingsService } from '../analytics/settings.js';
 import { ElasticsearchService } from '../analytics/elasticsearch.js';
 import { DefenderAnalyticsService } from '../defender/analytics.service.js';
+import { SentinelOnePostureService } from '../sentinelone/posture.service.js';
+import { createEsClient } from '../analytics/client.js';
 import { sendSlackAlert } from './slack.service.js';
 import { sendEmailAlert, buildAlertEmailHtml } from './email.service.js';
 
@@ -136,6 +138,29 @@ export class AlertsService {
         }
       } catch {
         // Defender query failure should not block alerting
+      }
+    }
+
+    // 7b. SentinelOne agent health (latest posture snapshot of /agents/count).
+    // Counts, not a score: alert when infected / detect-only / outdated agents exceed the max.
+    const t = alertSettings.thresholds;
+    const s1Checks: Array<[number | undefined, 'infected' | 'detect_only' | 'outdated', string]> = [
+      [t.s1_infected_agents_max, 'infected', 'SentinelOne infected agents'],
+      [t.s1_detect_only_agents_max, 'detect_only', 'SentinelOne detect-only agents'],
+      [t.s1_outdated_agents_max, 'outdated', 'SentinelOne outdated agents'],
+    ];
+    if (s1Checks.some(([max]) => max != null) && new IntegrationsSettingsService().isSentinelOneConfigured()) {
+      try {
+        const counts = await new SentinelOnePostureService(createEsClient(esSettings), {} as never).getLatestAgentHealth();
+        for (const [max, key, metric] of s1Checks) {
+          const current = counts?.[key];
+          if (max == null || current == null) continue;
+          const status: MetricStatus = { metric, current, threshold: max, unit: ' agents', direction: 'above' };
+          if (current > max) breaches.push(status);
+          else passing.push(status);
+        }
+      } catch {
+        // SentinelOne query failure should not block alerting
       }
     }
 

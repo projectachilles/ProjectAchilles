@@ -41,6 +41,8 @@ interface FixtureControl {
   defender_prevented?: boolean;
   crowdstrike_detected?: boolean;
   crowdstrike_prevented?: boolean;
+  sentinelone_detected?: boolean;
+  sentinelone_prevented?: boolean;
   hostname?: string;
   event_time?: string;
   bundle_id?: string;
@@ -85,6 +87,12 @@ function makeBundleHit(control: FixtureControl) {
   }
   if (control.crowdstrike_prevented !== undefined) {
     source['f0rtika.crowdstrike_prevented'] = control.crowdstrike_prevented;
+  }
+  if (control.sentinelone_detected !== undefined) {
+    source['f0rtika.sentinelone_detected'] = control.sentinelone_detected;
+  }
+  if (control.sentinelone_prevented !== undefined) {
+    source['f0rtika.sentinelone_prevented'] = control.sentinelone_prevented;
   }
   return { _id: `${TASK_ID}::${control.control_id}`, _source: source };
 }
@@ -264,6 +272,30 @@ describe('sbReport.service.ts', () => {
       expect(report.executions[0].outcome).toBe('PREVENTED');
       expect(report.executions[0].isProtected).toBe(true);
       expect(report.executions[0].preventedBy).toEqual(['CrowdStrike Falcon']);
+    });
+
+    it('maps a killed stage with sentinelone_prevented to PREVENTED with preventedBy SentinelOne', async () => {
+      const hits = [
+        makeBundleHit({ control_id: 'T1486', validator: 'Stage 5', exit_code: 999, techniques: ['T1486'], tactics: ['impact'], sentinelone_prevented: true, sentinelone_detected: true }),
+      ];
+      mockSearch.mockResolvedValue(esSearchResponse(hits));
+
+      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+
+      expect(report.executions[0].outcome).toBe('PREVENTED');
+      expect(report.executions[0].preventedBy).toEqual(['SentinelOne Singularity']);
+    });
+
+    it('maps an executed stage with a SentinelOne detection to DETECTED', async () => {
+      const hits = [
+        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 101, techniques: ['T1059.001'], tactics: ['execution'], sentinelone_detected: true }),
+      ];
+      mockSearch.mockResolvedValue(esSearchResponse(hits));
+
+      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+
+      expect(report.executions[0].outcome).toBe('DETECTED');
+      expect(report.executions[0].detectedBy).toEqual(['SentinelOne Singularity']);
     });
 
     it('does NOT upgrade a conclusive-executed stage (exit 101) to PREVENTED on the flag', async () => {

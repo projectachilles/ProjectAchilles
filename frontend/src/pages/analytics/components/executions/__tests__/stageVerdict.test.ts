@@ -223,4 +223,28 @@ describe('stageVendors', () => {
       short: 'MDE + CS',
     });
   });
+  it('labels SentinelOne alone and alongside other vendors', () => {
+    expect(stageVendors(mk({ sentinelone_stage_detected: true }))).toEqual({ label: 'SentinelOne', short: 'S1' });
+    expect(stageVendors(mk({ sentinelone_detected: true }))).toEqual({ label: 'SentinelOne', short: 'S1' });
+    expect(
+      stageVendors(mk({ defender_detected: true, crowdstrike_detected: true, sentinelone_stage_detected: true }))?.short,
+    ).toBe('MDE + CS + S1');
+  });
+});
+
+describe('stageVerdict with SentinelOne', () => {
+  it('prevented names SentinelOne and its action', () => {
+    expect(
+      stageVerdict(mk({ sentinelone_stage_detected: true, sentinelone_prevention_action: 'process_killed' }), []),
+    ).toMatchObject({ kind: 'prevented', body: expect.stringMatching(/^SentinelOne reports it /) });
+  });
+  it('detected-only names SentinelOne', () => {
+    expect(stageVerdict(mk({ sentinelone_stage_detected: true }), [])).toMatchObject({
+      kind: 'detected',
+      body: expect.stringContaining('SentinelOne'),
+    });
+  });
+  it('boolean-only prevention names SentinelOne', () => {
+    expect(stageVerdict(mk({ sentinelone_prevented: true }), []).body).toBe('SentinelOne reports it stopped it.');
+  });
 });

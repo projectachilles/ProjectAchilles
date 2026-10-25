@@ -24,10 +24,11 @@ interface GoldenCase {
   category?: string;
   flags?: Partial<Record<
     | 'defender_detected' | 'defender_stage_detected' | 'defender_prevented'
-    | 'crowdstrike_detected' | 'crowdstrike_stage_detected' | 'crowdstrike_prevented',
+    | 'crowdstrike_detected' | 'crowdstrike_stage_detected' | 'crowdstrike_prevented'
+    | 'sentinelone_detected' | 'sentinelone_stage_detected' | 'sentinelone_prevented',
     boolean
   >>;
-  actions?: Partial<Record<'defender_prevention_action' | 'crowdstrike_prevention_action', string>>;
+  actions?: Partial<Record<'defender_prevention_action' | 'crowdstrike_prevention_action' | 'sentinelone_prevention_action', string>>;
   expected: StageOutcome;
 }
 
@@ -80,6 +81,17 @@ const GOLDEN: GoldenCase[] = [
   { name: 'exit 999 → inconclusive', exit: 999, expected: 'inconclusive' },
   { name: 'exit 999 + Defender prevented → inconclusive (unlike SB Export)', exit: 999, flags: { defender_prevented: true }, expected: 'inconclusive' },
   { name: 'missing exit code → inconclusive', expected: 'inconclusive' },
+  { name: 'exit 101 + SentinelOne stage alert → detected', exit: 101, flags: { sentinelone_stage_detected: true }, expected: 'detected' },
+  {
+    name: 'exit 101 + SentinelOne stage alert + process_killed → prevented', exit: 101,
+    flags: { sentinelone_stage_detected: true }, actions: { sentinelone_prevention_action: 'process_killed' }, expected: 'prevented',
+  },
+  {
+    name: 'exit 101 + SentinelOne stage alert + kill_failed → detected', exit: 101,
+    flags: { sentinelone_stage_detected: true }, actions: { sentinelone_prevention_action: 'kill_failed' }, expected: 'detected',
+  },
+  { name: 'exit 101 + SentinelOne prevented → prevented', exit: 101, flags: { sentinelone_prevented: true }, expected: 'prevented' },
+  { name: 'exit 101 + SentinelOne bundle-level flag only → unprotected', exit: 101, flags: { sentinelone_detected: true }, expected: 'unprotected' },
 ];
 
 function toSource(c: GoldenCase): Record<string, unknown> {

@@ -62,6 +62,12 @@ export const RESULTS_INDEX_MAPPING = {
           // a matched alert carried a prevention disposition.
           crowdstrike_prevented: { type: 'boolean' as const },
           crowdstrike_prevention_action: { type: 'keyword' as const },
+          // SentinelOne equivalents, written by the SentinelOne enrichment
+          // pass (same correlation rules as CrowdStrike).
+          sentinelone_detected: { type: 'boolean' as const },
+          sentinelone_stage_detected: { type: 'boolean' as const },
+          sentinelone_prevented: { type: 'boolean' as const },
+          sentinelone_prevention_action: { type: 'keyword' as const },
           tenant_label: { type: 'keyword' as const },
         },
       },

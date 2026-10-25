@@ -2,6 +2,7 @@
 
 import type { AutoResolveMode } from './defender.js';
 import type { CrowdStrikeRegion, CrowdStrikeZtaStatus } from './crowdstrike.js';
+import type { SentinelOneIntegrationSettings, SentinelOneSyncState } from './sentinelone.js';
 export type { AutoResolveMode };
 export type { CrowdStrikeRegion };
 
@@ -104,6 +105,10 @@ export interface AlertThresholds {
   defense_score_min?: number;    // Alert if Defense Score < this (e.g., 70)
   error_rate_max?: number;       // Alert if Error Rate > this (e.g., 20)
   secure_score_min?: number;     // Alert if Secure Score < this (e.g., 60)
+  // SentinelOne agent health — alert if the latest /agents/count snapshot exceeds these.
+  s1_infected_agents_max?: number;
+  s1_detect_only_agents_max?: number;
+  s1_outdated_agents_max?: number;
   enabled: boolean;
 }
 
@@ -148,6 +153,7 @@ export interface OrgIntegrationSettings {
   azure?: AzureIntegrationSettings;
   defender?: DefenderIntegrationSettings;
   crowdstrike?: CrowdStrikeIntegrationSettings;
+  sentinelone?: SentinelOneIntegrationSettings;
   alerts?: AlertSettings;
   pre_execution_notices?: PreExecutionNoticeSettings;
 }
@@ -180,6 +186,9 @@ export interface IntegrationsSettings {
   azure?: AzureIntegrationSettings;
   defender?: DefenderIntegrationSettings;
   crowdstrike?: CrowdStrikeIntegrationSettings;
+  sentinelone?: SentinelOneIntegrationSettings;
+  /** SentinelOne checkpoints and toggles when the credentials come from env vars. */
+  sentinelone_sync?: SentinelOneSyncState;
   alerts?: AlertSettings;
   pre_execution_notices?: PreExecutionNoticeSettings;
   /** Per-org overrides. Key is the Clerk org_id. */

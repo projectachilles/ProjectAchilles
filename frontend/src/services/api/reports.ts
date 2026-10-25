@@ -144,7 +144,7 @@ export interface ReportMeta {
   /** Set when part of the data in scope could not be read (partial shard failure); the cover shows a banner. */
   partial: { failedShards: number; totalShards: number } | null;
   /** EDR vendors configured for this report; empty means EDR content is omitted silently (matching the console). */
-  edrVendors: Array<'defender' | 'crowdstrike'>;
+  edrVendors: Array<'defender' | 'crowdstrike' | 'sentinelone'>;
 }
 
 export interface ReportTotals {
@@ -193,7 +193,8 @@ export interface ReportStage {
   tactics: string[];
   outcomes: OutcomeCounts;
   /** Correlated alert counts from the runs list (the newest RUNS_CAP runs). */
-  alerts: { defender: number; crowdstrike: number };
+  /** `sentinelone` is absent from backends without the SentinelOne integration. */
+  alerts: { defender: number; crowdstrike: number; sentinelone?: number };
 }
 
 export interface ReportTest {
@@ -274,7 +275,7 @@ export interface ReportRunStage {
 }
 
 export interface ReportAlert {
-  vendor: 'defender' | 'crowdstrike';
+  vendor: 'defender' | 'crowdstrike' | 'sentinelone';
   title: string;
   severity: string;
   status: string;

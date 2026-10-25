@@ -147,8 +147,10 @@ html:has(.report-print) body {
 .report-print .rp-conn { stroke: var(--rp-ink-3); }
 .report-print .rp-al-defender { fill: var(--rp-ink); }
 .report-print .rp-al-crowdstrike { fill: var(--rp-paper); stroke: var(--rp-ink); stroke-width: 1.4; }
+.report-print .rp-al-sentinelone { fill: var(--rp-ink-3); stroke: var(--rp-ink); stroke-width: 1.4; }
 .report-print .rp-dot-defender { fill: var(--rp-ink); }
 .report-print .rp-dot-crowdstrike { fill: var(--rp-paper); stroke: var(--rp-ink); stroke-width: 1.2; }
+.report-print .rp-dot-sentinelone { fill: var(--rp-ink-3); stroke: var(--rp-ink); stroke-width: 1.2; }
 .report-print .rp-dot-any { fill: var(--rp-ink-2); }
 .report-print .rp-median { stroke: var(--rp-ink); stroke-width: 2; }
 .report-print .rp-kc { stroke: var(--rp-paper); stroke-width: 3; }

@@ -63,10 +63,12 @@ export function classifyStage(source: Record<string, unknown>): StageOutcome {
 
   const prevented = flag(source, 'crowdstrike_prevented')
     || flag(source, 'defender_prevented')
+    || flag(source, 'sentinelone_prevented')
     || (flag(source, 'crowdstrike_stage_detected') && confirmedAction(source, 'crowdstrike_prevention_action'))
+    || (flag(source, 'sentinelone_stage_detected') && confirmedAction(source, 'sentinelone_prevention_action'))
     || (flag(source, 'defender_stage_detected') && confirmedAction(source, 'defender_prevention_action'));
   if (prevented) return 'prevented';
-  if (flag(source, 'defender_stage_detected') || flag(source, 'crowdstrike_stage_detected')) return 'detected';
+  if (flag(source, 'defender_stage_detected') || flag(source, 'crowdstrike_stage_detected') || flag(source, 'sentinelone_stage_detected')) return 'detected';
   return 'unprotected';
 }
 
@@ -93,8 +95,10 @@ const PREVENTION_SIGNAL: Clause = {
     should: [
       term('f0rtika.crowdstrike_prevented', true),
       term('f0rtika.defender_prevented', true),
+      term('f0rtika.sentinelone_prevented', true),
       { bool: { filter: [term('f0rtika.crowdstrike_stage_detected', true), { terms: { 'f0rtika.crowdstrike_prevention_action': CONFIRMED_PREVENTION_ACTIONS } }] } },
       { bool: { filter: [term('f0rtika.defender_stage_detected', true), { terms: { 'f0rtika.defender_prevention_action': CONFIRMED_PREVENTION_ACTIONS } }] } },
+      { bool: { filter: [term('f0rtika.sentinelone_stage_detected', true), { terms: { 'f0rtika.sentinelone_prevention_action': CONFIRMED_PREVENTION_ACTIONS } }] } },
     ],
     minimum_should_match: 1,
   },
@@ -102,7 +106,11 @@ const PREVENTION_SIGNAL: Clause = {
 
 const STAGE_DETECTED: Clause = {
   bool: {
-    should: [term('f0rtika.defender_stage_detected', true), term('f0rtika.crowdstrike_stage_detected', true)],
+    should: [
+      term('f0rtika.defender_stage_detected', true),
+      term('f0rtika.crowdstrike_stage_detected', true),
+      term('f0rtika.sentinelone_stage_detected', true),
+    ],
     minimum_should_match: 1,
   },
 };

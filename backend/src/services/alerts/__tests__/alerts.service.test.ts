@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockGetAlertSettings = vi.fn().mockReturnValue(null);
 const mockIsAlertingConfigured = vi.fn().mockReturnValue(false);
 const mockIsDefenderConfigured = vi.fn().mockReturnValue(false);
+const mockS1Configured = vi.fn().mockReturnValue(false);
 const mockSaveAlertSettings = vi.fn();
 
 vi.mock('../../integrations/settings.js', () => ({
@@ -14,6 +15,7 @@ vi.mock('../../integrations/settings.js', () => ({
       getAlertSettings: mockGetAlertSettings,
       isAlertingConfigured: mockIsAlertingConfigured,
       isDefenderConfigured: mockIsDefenderConfigured,
+      isSentinelOneConfigured: mockS1Configured,
       saveAlertSettings: mockSaveAlertSettings,
     };
   },
@@ -92,6 +94,17 @@ vi.mock('../email.service.js', () => ({
   sendEmailAlert: mockSendEmailAlert,
   buildAlertEmailHtml: mockBuildAlertEmailHtml,
 }));
+
+// ---------------------------------------------------------------------------
+// Mock: SentinelOne settings + posture snapshot (agent health counts)
+// ---------------------------------------------------------------------------
+const mockGetLatestAgentHealth = vi.fn().mockResolvedValue(null);
+vi.mock('../../sentinelone/posture.service.js', () => ({
+  SentinelOnePostureService: function () {
+    return { getLatestAgentHealth: mockGetLatestAgentHealth };
+  },
+}));
+vi.mock('../../analytics/client.js', () => ({ createEsClient: () => ({}) }));
 
 // ---------------------------------------------------------------------------
 // Import after mocks
@@ -425,5 +438,56 @@ describe('AlertsService', () => {
     expect(
       data.breaches.find((b: { metric: string }) => b.metric === 'Secure Score'),
     ).toBeUndefined();
+  });
+});
+
+describe('AlertsService — SentinelOne agent health thresholds', () => {
+  const service = () => new AlertsService();
+  const settings = (thresholds: Record<string, unknown>) => ({
+    thresholds: { enabled: true, ...thresholds },
+    cooldown_minutes: 15,
+    slack: { webhook_url: 'https://hooks.slack.com/test', configured: true, enabled: true },
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsAlertingConfigured.mockReturnValue(true);
+    mockIsDefenderConfigured.mockReturnValue(false);
+    mockS1Configured.mockReturnValue(true);
+    mockGetLatestAgentHealth.mockResolvedValue({ total: 50, active: 48, infected: 2, outdated: 10, detect_only: 0, disconnected: 2 });
+  });
+
+  it('breaches when a count exceeds its max (counts only, no score)', async () => {
+    mockGetAlertSettings.mockReturnValue(settings({ s1_infected_agents_max: 0, s1_outdated_agents_max: 20, s1_detect_only_agents_max: 0 }));
+    await service().evaluateAndNotify('test-1', 'agent-1');
+    expect(mockSendSlackAlert).toHaveBeenCalledOnce();
+    const data = mockSendSlackAlert.mock.calls[0][1];
+    expect(data.breaches).toEqual([
+      { metric: 'SentinelOne infected agents', current: 2, threshold: 0, unit: ' agents', direction: 'above' },
+    ]);
+    expect(data.passing.map((p: { metric: string }) => p.metric)).toEqual(
+      expect.arrayContaining(['SentinelOne outdated agents', 'SentinelOne detect-only agents']),
+    );
+  });
+
+  it('is skipped when no S1 threshold is set or S1 is not configured', async () => {
+    mockGetAlertSettings.mockReturnValue(settings({}));
+    await service().evaluateAndNotify('test-1', 'agent-1');
+    expect(mockGetLatestAgentHealth).not.toHaveBeenCalled();
+
+    mockS1Configured.mockReturnValue(false);
+    mockGetAlertSettings.mockReturnValue(settings({ s1_infected_agents_max: 0 }));
+    await service().evaluateAndNotify('test-1', 'agent-1');
+    expect(mockGetLatestAgentHealth).not.toHaveBeenCalled();
+    expect(mockSendSlackAlert).not.toHaveBeenCalled();
+  });
+
+  it('no snapshot yet, or a query failure, does not alert or block', async () => {
+    mockGetAlertSettings.mockReturnValue(settings({ s1_infected_agents_max: 0 }));
+    mockGetLatestAgentHealth.mockResolvedValueOnce(null);
+    await service().evaluateAndNotify('test-1', 'agent-1');
+    mockGetLatestAgentHealth.mockRejectedValueOnce(new Error('es down'));
+    await service().evaluateAndNotify('test-1', 'agent-1');
+    expect(mockSendSlackAlert).not.toHaveBeenCalled();
   });
 });

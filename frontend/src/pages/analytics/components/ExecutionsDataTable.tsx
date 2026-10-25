@@ -36,6 +36,8 @@ import { defenderApi, type RelatedAlertsResponse } from '@/services/api/defender
 import { crowdstrikeApi, type RelatedCrowdStrikeAlertsResponse } from '@/services/api/crowdstrike';
 import { useDefenderConfig } from '@/hooks/useDefenderConfig';
 import { useCrowdStrikeConfig } from '@/hooks/useCrowdStrikeConfig';
+import { useSentinelOneConfig } from '@/hooks/useSentinelOneConfig';
+import { sentineloneAnalyticsApi } from '@/services/api/sentineloneAnalytics';
 import TestInfoModal from './TestInfoModal';
 import {
   EXPORT_COLUMNS,
@@ -98,6 +100,7 @@ export default function ExecutionsDataTable({
 }: ExecutionsDataTableProps) {
   const { configured: defenderConfigured } = useDefenderConfig();
   const { configured: crowdstrikeConfigured } = useCrowdStrikeConfig();
+  const { configured: sentineloneConfigured } = useSentinelOneConfig();
 
   // Master-detail selection (controlled when the parent passes props)
   const [internalSelectedKey, setInternalSelectedKey] = useState<string | null>(null);
@@ -248,6 +251,43 @@ export default function ExecutionsDataTable({
     }
   }, [crowdstrikeConfigured, stageAlertsCacheKey]);
 
+  // Related SentinelOne alerts — same per-stage pattern and cache key as CrowdStrike.
+  const s1AlertsCache = useRef<Map<string, RelatedCrowdStrikeAlertsResponse | null>>(new Map());
+  const [s1AlertsLoading, setS1AlertsLoading] = useState<Set<string>>(new Set());
+  const [s1AlertsMap, setS1AlertsMap] = useState<Map<string, RelatedCrowdStrikeAlertsResponse | null>>(new Map());
+
+  const fetchRelatedSentinelOneAlerts = useCallback(async (exec: EnrichedTestExecution) => {
+    if (!sentineloneConfigured) return;
+    const techniques = exec.techniques;
+    if (!techniques || techniques.length === 0) return;
+
+    const cacheKey = stageAlertsCacheKey(exec);
+    if (s1AlertsCache.current.has(cacheKey)) return;
+
+    const baseUuid = exec.test_uuid.includes('::')
+      ? exec.test_uuid.split('::')[0]
+      : exec.test_uuid;
+    const binaryName = `${baseUuid}.exe`;
+
+    setS1AlertsLoading(prev => new Set(prev).add(cacheKey));
+    try {
+      const result = await sentineloneAnalyticsApi.getAlertsForTest(
+        techniques, exec.timestamp, 30, exec.hostname, binaryName, exec.bundle_name,
+      );
+      s1AlertsCache.current.set(cacheKey, result);
+      setS1AlertsMap(prev => new Map(prev).set(cacheKey, result));
+    } catch {
+      s1AlertsCache.current.set(cacheKey, null);
+      setS1AlertsMap(prev => new Map(prev).set(cacheKey, null));
+    } finally {
+      setS1AlertsLoading(prev => {
+        const next = new Set(prev);
+        next.delete(cacheKey);
+        return next;
+      });
+    }
+  }, [sentineloneConfigured, stageAlertsCacheKey]);
+
   const groups = data?.groups || [];
   const pagination = data?.pagination;
 
@@ -277,14 +317,16 @@ export default function ExecutionsDataTable({
         void fetchDescription(row.execution);
         void fetchRelatedAlerts(row.execution);
         void fetchRelatedCrowdStrikeAlerts(row.execution);
+        void fetchRelatedSentinelOneAlerts(row.execution);
       } else {
         for (const ctrl of row.controls) {
           void fetchRelatedAlerts(ctrl);
           void fetchRelatedCrowdStrikeAlerts(ctrl);
+          void fetchRelatedSentinelOneAlerts(ctrl);
         }
       }
     },
-    [displayRows, fetchDescription, fetchRelatedAlerts, fetchRelatedCrowdStrikeAlerts],
+    [displayRows, fetchDescription, fetchRelatedAlerts, fetchRelatedCrowdStrikeAlerts, fetchRelatedSentinelOneAlerts],
   );
 
   const handleSelect = useCallback(
@@ -317,10 +359,11 @@ export default function ExecutionsDataTable({
         void fetchDescription(ctrl);
         void fetchRelatedAlerts(ctrl);
         void fetchRelatedCrowdStrikeAlerts(ctrl);
+        void fetchRelatedSentinelOneAlerts(ctrl);
         return index;
       });
     },
-    [fetchDescription, fetchRelatedAlerts, fetchRelatedCrowdStrikeAlerts],
+    [fetchDescription, fetchRelatedAlerts, fetchRelatedCrowdStrikeAlerts, fetchRelatedSentinelOneAlerts],
   );
 
   // Bulk selection helpers
@@ -613,12 +656,15 @@ export default function ExecutionsDataTable({
             row={selectedRow}
             defenderConfigured={defenderConfigured}
             crowdstrikeConfigured={crowdstrikeConfigured}
+            sentineloneConfigured={sentineloneConfigured}
             descriptionMap={descriptionMap}
             descriptionLoadingKey={descriptionLoading}
             alertsMap={alertsMap}
             alertsLoading={alertsLoading}
             csAlertsMap={csAlertsMap}
             csAlertsLoading={csAlertsLoading}
+            s1AlertsMap={s1AlertsMap}
+            s1AlertsLoading={s1AlertsLoading}
             stageAlertsCacheKey={stageAlertsCacheKey}
             getAcceptanceForExec={getAcceptanceForExec}
             riskEnabled={riskEnabled}

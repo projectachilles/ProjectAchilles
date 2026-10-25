@@ -10,11 +10,11 @@ import {
 import { integrationsApi, type CrowdStrikeZtaStatus } from '@/services/api/integrations';
 import type { TechniqueCoverageResponse } from '@/services/api/integrationTypes';
 import type { DateRangeValue } from '@/lib/timeRange';
-import CrowdStrikeTabHeader from './CrowdStrikeTabHeader';
+import IntegrationTabHeader from './integrations/IntegrationTabHeader';
 import HeroStatTile from './HeroStatTile';
 import Sparkline from './Sparkline';
 import CrowdStrikeAutoResolveStatTile from './CrowdStrikeAutoResolveStatTile';
-import CrowdStrikeAlertDetailsDrawer from './CrowdStrikeAlertDetailsDrawer';
+import EndpointAlertDetailsDrawer from './integrations/EndpointAlertDetailsDrawer';
 import IntegrationTimelineCard from './integrations/IntegrationTimelineCard';
 import IntegrationAlertFeed from './integrations/IntegrationAlertFeed';
 import TechniqueCoverageCard from './integrations/TechniqueCoverageCard';
@@ -170,7 +170,7 @@ export default function CrowdStrikeTab({ dateRange }: CrowdStrikeTabProps) {
 
   return (
     <div className="space-y-6">
-      <CrowdStrikeTabHeader lastSync={lastSync} syncing={syncing} syncError={syncError} onSync={handleSync} />
+      <IntegrationTabHeader vendor={vendor} lastSync={lastSync} syncing={syncing} syncError={syncError} onSync={handleSync} />
 
       {/* Hero row: 4 tiles */}
       <div className="grid grid-cols-12 gap-4">
@@ -242,7 +242,8 @@ export default function CrowdStrikeTab({ dateRange }: CrowdStrikeTabProps) {
         onSelectTechnique={openDrawerForTechnique}
       />
 
-      <CrowdStrikeAlertDetailsDrawer
+      <EndpointAlertDetailsDrawer
+        vendor="crowdstrike"
         open={drawerOpen}
         onClose={closeDrawer}
         techniques={drawerTechniques}

@@ -88,6 +88,16 @@ const AlertThresholdsSchema = z.object({
   enabled: z.boolean().optional(),
   score_drop_percent: z.number().min(0).max(100).optional(),
   score_floor: z.number().min(0).max(100).optional(),
+  // The metric thresholds AlertsService evaluates. They were missing here, so
+  // validate() stripped them and saved thresholds never persisted.
+  // null clears a saved threshold (saveAlertSettings deletes null keys).
+  defense_score_min: z.number().min(0).max(100).nullable().optional(),
+  error_rate_max: z.number().min(0).max(100).nullable().optional(),
+  secure_score_min: z.number().min(0).max(100).nullable().optional(),
+  // SentinelOne agent health (latest /agents/count snapshot). Alert when the count exceeds the max.
+  s1_infected_agents_max: z.number().int().min(0).nullable().optional(),
+  s1_detect_only_agents_max: z.number().int().min(0).nullable().optional(),
+  s1_outdated_agents_max: z.number().int().min(0).nullable().optional(),
 }).optional();
 
 const SlackChannelSchema = z.object({

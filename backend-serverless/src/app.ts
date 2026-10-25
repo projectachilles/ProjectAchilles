@@ -143,6 +143,7 @@ app.get('/api/capabilities', (_req, res) => {
     agentBuild: false,
     preExecutionNotices: false,
     campaigns: false,
+    sentinelone: false,
     platform: 'vercel',
   });
 });

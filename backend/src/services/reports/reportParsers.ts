@@ -159,7 +159,7 @@ export function parseTests(response: Agg): ReportTest[] {
       techniques: s.techniques,
       tactics: s.tactics,
       outcomes: s.outcomes,
-      alerts: { defender: 0, crowdstrike: 0 },
+      alerts: { defender: 0, crowdstrike: 0, sentinelone: 0 },
     }));
 
     return {

@@ -70,9 +70,11 @@ function LinkedTestCell({ alert }: { alert: IntegrationAlertItem }) {
 }
 
 export default function IntegrationAlertFeed({ vendor, window, windowLabel, refreshKey = 0 }: Props) {
-  const isCs = vendor.id === 'crowdstrike';
+  // Endpoint-EDR layout (host column, prevention facet).
+  const isCs = vendor.endpointEdr;
   const [source, setSource] = useState<AlertSource>('all');
   const [severityKey, setSeverityKey] = useState(vendor.defaultSeverityKey);
+  const [alertTypeKey, setAlertTypeKey] = useState('all');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -101,6 +103,7 @@ export default function IntegrationAlertFeed({ vendor, window, windowLabel, refr
 
   const segment =
     vendor.severitySegments.find((s) => s.key === severityKey) ?? vendor.severitySegments[0];
+  const sourceType = vendor.alertTypeSegments?.find((s) => s.key === alertTypeKey)?.sourceType ?? undefined;
 
   useEffect(() => {
     let cancelled = false;
@@ -112,6 +115,7 @@ export default function IntegrationAlertFeed({ vendor, window, windowLabel, refr
         pageSize: PAGE_SIZE,
         source,
         severities: segment.severities ?? undefined,
+        ...(sourceType ? { sourceType } : {}),
         search,
         from: window.from,
         to: window.to,
@@ -136,7 +140,7 @@ export default function IntegrationAlertFeed({ vendor, window, windowLabel, refr
     return () => {
       cancelled = true;
     };
-  }, [vendor, page, source, segment, search, window.from, window.to, reloadKey, refreshKey]);
+  }, [vendor, page, source, segment, sourceType, search, window.from, window.to, reloadKey, refreshKey]);
 
   const changeSource = (s: AlertSource) => {
     setSource(s);
@@ -144,6 +148,10 @@ export default function IntegrationAlertFeed({ vendor, window, windowLabel, refr
   };
   const changeSeverity = (k: string) => {
     setSeverityKey(k);
+    setPage(1);
+  };
+  const changeAlertType = (k: string) => {
+    setAlertTypeKey(k);
     setPage(1);
   };
 
@@ -235,6 +243,22 @@ export default function IntegrationAlertFeed({ vendor, window, windowLabel, refr
                 </Button>
               ))}
             </div>
+            {vendor.alertTypeSegments && (
+              <div className="flex flex-wrap gap-1" role="group" aria-label="Alert type">
+                {vendor.alertTypeSegments.map((s) => (
+                  <Button
+                    key={s.key}
+                    type="button"
+                    size="sm"
+                    variant={alertTypeKey === s.key ? 'default' : 'outline'}
+                    aria-pressed={alertTypeKey === s.key}
+                    onClick={() => changeAlertType(s.key)}
+                  >
+                    {s.label}
+                  </Button>
+                ))}
+              </div>
+            )}
             <div className="relative ml-auto w-full sm:w-64">
               <Search
                 className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-faint"

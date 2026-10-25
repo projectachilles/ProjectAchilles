@@ -27,7 +27,9 @@ import {
 } from '../crowdstrike/evidence-correlation.js';
 import { DEFENDER_INDEX } from '../defender/index-management.js';
 import { CROWDSTRIKE_INDEX } from '../crowdstrike/index-management.js';
+import { SENTINELONE_INDEX } from '../sentinelone/index-management.js';
 import { projectAlertHit } from '../alerts/alertHit.js';
+import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS } from '../shared/achillesMitigation.js';
 import type { ReportAlert } from '../../types/reports.js';
 
 /** Same lead and default post-window the console uses. */
@@ -39,7 +41,7 @@ const ALERT_SOURCE_FIELDS = [
   'alert_id', 'alert_title', 'description', 'severity', 'status', 'category', 'service_source',
   'mitre_techniques', 'created_at', 'updated_at', 'resolved_at', 'recommended_actions',
   'evidence_filenames', 'prevention_action', 'portal_url', 'f0rtika.auto_resolved_at',
-  'f0rtika.auto_resolve_mode', 'f0rtika.auto_resolve_error',
+  'f0rtika.auto_resolve_mode', 'f0rtika.auto_resolve_error', ...ACHILLES_MITIGATION_FIELDS,
 ];
 
 export interface VendorAdapter {
@@ -59,6 +61,14 @@ export const DEFENDER_ADAPTER: VendorAdapter = {
 export const CROWDSTRIKE_ADAPTER: VendorAdapter = {
   vendor: 'crowdstrike',
   index: CROWDSTRIKE_INDEX,
+  buildEvidenceQuery: buildCrowdStrikeEvidenceQuery,
+  buildTimeWindowQuery: crowdstrikeTimeWindow,
+};
+
+/** SentinelOne docs share the CrowdStrike evidence shape and correlation rules. */
+export const SENTINELONE_ADAPTER: VendorAdapter = {
+  vendor: 'sentinelone',
+  index: SENTINELONE_INDEX,
   buildEvidenceQuery: buildCrowdStrikeEvidenceQuery,
   buildTimeWindowQuery: crowdstrikeTimeWindow,
 };
@@ -128,7 +138,8 @@ function toReportAlert(adapter: VendorAdapter, source: Record<string, unknown>, 
     status: p.status,
     createdAt: p.created_at,
     stageControlId: p.attribution === 'stage' ? p.attributed_control_id ?? null : null,
-    preventionAction: p.prevention_action ?? null,
+    // Achilles' own automatic mitigation is not the EDR's prevention (same rule as Analytics).
+    preventionAction: isAchillesMitigated(source) ? null : p.prevention_action ?? null,
     portalUrl: p.portal_url ?? null,
     autoResolvedAt: p.auto_resolved_at ?? null,
   };

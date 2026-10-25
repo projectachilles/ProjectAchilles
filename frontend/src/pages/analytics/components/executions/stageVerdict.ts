@@ -25,29 +25,45 @@ function stageEdr(exec: EnrichedTestExecution) {
   return {
     defender: Boolean(exec.defender_stage_detected ?? exec.defender_detected),
     crowdstrike: Boolean(exec.crowdstrike_stage_detected ?? exec.crowdstrike_detected),
+    sentinelone: Boolean(exec.sentinelone_stage_detected ?? exec.sentinelone_detected),
   };
 }
 
-function vendorLabel(defender: boolean, crowdstrike: boolean): string | null {
-  if (defender && crowdstrike) return 'Defender and CrowdStrike';
-  if (defender) return 'Defender';
-  if (crowdstrike) return 'CrowdStrike';
-  return null;
+/** "A", "A and B", "A, B and C". */
+function joinNames(names: string[]): string | null {
+  if (names.length === 0) return null;
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+function vendorLabel(defender: boolean, crowdstrike: boolean, sentinelone = false): string | null {
+  return joinNames([
+    ...(defender ? ['Defender'] : []),
+    ...(crowdstrike ? ['CrowdStrike'] : []),
+    ...(sentinelone ? ['SentinelOne'] : []),
+  ]);
 }
 
 /** Vendor(s) that reported on this stage; null when none did. */
 export function stageVendors(exec: EnrichedTestExecution): { label: string; short: string } | null {
-  const { defender, crowdstrike } = stageEdr(exec);
-  const label = vendorLabel(defender, crowdstrike);
+  const { defender, crowdstrike, sentinelone } = stageEdr(exec);
+  const label = vendorLabel(defender, crowdstrike, sentinelone);
   if (!label) return null;
-  return { label, short: defender && crowdstrike ? 'MDE + CS' : defender ? 'MDE' : 'CS' };
+  const short = [
+    ...(defender ? ['MDE'] : []),
+    ...(crowdstrike ? ['CS'] : []),
+    ...(sentinelone ? ['S1'] : []),
+  ].join(' + ');
+  return { label, short };
 }
 
-/** "<vendor> reports it <action>." naming only the vendor whose action is used (CrowdStrike wins). */
+/** "<vendor> reports it <action>." naming only the vendor whose action is used (CrowdStrike, then SentinelOne, then Defender). */
 function preventionSentence(exec: EnrichedTestExecution): string | null {
-  const { defender, crowdstrike } = stageEdr(exec);
+  const { defender, crowdstrike, sentinelone } = stageEdr(exec);
   const csAction = crowdstrike ? ACTION_COPY[exec.crowdstrike_prevention_action ?? ''] : undefined;
   if (csAction) return `CrowdStrike reports it ${csAction}.`;
+  const s1Action = sentinelone ? ACTION_COPY[exec.sentinelone_prevention_action ?? ''] : undefined;
+  if (s1Action) return `SentinelOne reports it ${s1Action}.`;
   const defAction = defender ? ACTION_COPY[exec.defender_prevention_action ?? ''] : undefined;
   if (defAction) return `Defender reports it ${defAction}.`;
   return null;
@@ -55,12 +71,9 @@ function preventionSentence(exec: EnrichedTestExecution): string | null {
 
 /** Boolean-only fallback: name the vendor(s) whose *_prevented flag is set. */
 function preventedFallback(exec: EnrichedTestExecution): string {
-  const def = Boolean(exec.defender_prevented);
-  const cs = Boolean(exec.crowdstrike_prevented);
-  if (def && cs) return 'Defender and CrowdStrike report it stopped it.';
-  if (def) return 'Defender reports it stopped it.';
-  if (cs) return 'CrowdStrike reports it stopped it.';
-  return 'An EDR reports it stopped it.';
+  const names = vendorLabel(Boolean(exec.defender_prevented), Boolean(exec.crowdstrike_prevented), Boolean(exec.sentinelone_prevented));
+  if (!names) return 'An EDR reports it stopped it.';
+  return `${names} ${names.includes(' and ') ? 'report' : 'reports'} it stopped it.`;
 }
 
 /**
@@ -109,11 +122,11 @@ export function stageVerdict(exec: EnrichedTestExecution, siblings: EnrichedTest
       };
     }
     case 'detected': {
-      const { defender, crowdstrike } = stageEdr(exec);
+      const { defender, crowdstrike, sentinelone } = stageEdr(exec);
       return {
         kind,
         title: 'Ran to completion. An EDR alerted but did not stop it.',
-        body: `${vendorLabel(defender, crowdstrike) ?? 'An EDR'} raised an alert naming this stage's binary; nothing was blocked.`,
+        body: `${vendorLabel(defender, crowdstrike, sentinelone) ?? 'An EDR'} raised an alert naming this stage's binary; nothing was blocked.`,
       };
     }
     case 'unprotected':

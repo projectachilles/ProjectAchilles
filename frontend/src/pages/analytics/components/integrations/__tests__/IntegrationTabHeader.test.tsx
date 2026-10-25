@@ -1,12 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import CrowdStrikeTabHeader from '../CrowdStrikeTabHeader';
+import IntegrationTabHeader from '../IntegrationTabHeader';
+import { VENDORS } from '../vendorConfig';
 
-describe('CrowdStrikeTabHeader', () => {
+describe('IntegrationTabHeader', () => {
   it('shows the sync failure so a broken sync is not silent', () => {
     render(
-      <CrowdStrikeTabHeader
+      <IntegrationTabHeader vendor={VENDORS.crowdstrike}
         lastSync={null}
         syncing={false}
         syncError="alerts: security_exception: action [indices:admin/create] is unauthorized"
@@ -20,7 +21,7 @@ describe('CrowdStrikeTabHeader', () => {
 
   it('renders no error banner when the last sync was clean', () => {
     render(
-      <CrowdStrikeTabHeader lastSync="2026-10-04T03:40:00.000Z" syncing={false} onSync={() => {}} />
+      <IntegrationTabHeader vendor={VENDORS.crowdstrike} lastSync="2026-10-04T03:40:00.000Z" syncing={false} onSync={() => {}} />
     );
 
     expect(screen.queryByText('CrowdStrike sync failed')).not.toBeInTheDocument();
@@ -29,9 +30,15 @@ describe('CrowdStrikeTabHeader', () => {
 
   it('calls onSync when Sync Now is clicked', async () => {
     const onSync = vi.fn();
-    render(<CrowdStrikeTabHeader lastSync={null} syncing={false} onSync={onSync} />);
+    render(<IntegrationTabHeader vendor={VENDORS.crowdstrike} lastSync={null} syncing={false} onSync={onSync} />);
 
     await userEvent.click(screen.getByRole('button', { name: /Sync Now/ }));
     expect(onSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes its copy from the vendor config (SentinelOne)', () => {
+    render(<IntegrationTabHeader vendor={VENDORS.sentinelone} lastSync={null} syncing={false} syncError="boom" onSync={() => {}} />);
+    expect(screen.getByText('SentinelOne Singularity')).toBeInTheDocument();
+    expect(screen.getByText('SentinelOne sync failed')).toBeInTheDocument();
   });
 });

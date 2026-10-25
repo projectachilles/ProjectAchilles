@@ -11,6 +11,7 @@ import { classifyOutcome } from '../notices/render.js';
 import type { StageOutcome } from '../../types/reports.js';
 import type { TaskResult } from '../../types/agent.js';
 import type { EdrDocs } from './edr.js';
+import { EDR_VENDORS } from './vendors.js';
 
 export type VerdictState = 'protected' | 'prevented' | 'detected' | 'unprotected' | 'error';
 
@@ -80,11 +81,6 @@ const EXIT_MEANING: Record<number, string> = {
   999: 'test error, prerequisites not met',
 };
 
-const VENDORS = [
-  { key: 'defender', name: 'Defender' },
-  { key: 'crowdstrike', name: 'CrowdStrike' },
-] as const;
-
 const ACTION_TEXT: Record<string, string> = { process_killed: 'process killed', quarantined: 'quarantined', blocked: 'blocked' };
 
 const flag = (src: Record<string, unknown>, field: string) => getSourceField(src, `f0rtika.${field}`) === true;
@@ -101,7 +97,7 @@ interface Signal { vendor: string; action: string | null; stage: number | null }
 function edrSignals(docs: Array<Record<string, unknown> | undefined>, isBundle: boolean) {
   const prevented: Signal[] = [];
   const detected: Signal[] = [];
-  for (const v of VENDORS) {
+  for (const v of EDR_VENDORS) {
     docs.forEach((src, i) => {
       if (!src) return;
       const action = String(getSourceField(src, `f0rtika.${v.key}_prevention_action`) ?? '') || null;

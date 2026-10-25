@@ -85,6 +85,7 @@ router.get('/executions', requirePermission('analytics:dashboards:read'), asyncH
     vendors: {
       defender: integrations.isDefenderConfigured(),
       crowdstrike: integrations.isCrowdStrikeConfigured(),
+      sentinelone: integrations.isSentinelOneConfigured(),
     },
   });
 

@@ -30,6 +30,7 @@ import {
 import {
   CrowdStrikeAlertRow,
   DefenderAlertRow,
+  SentinelOneAlertRow,
   MetaCell,
   ResultCode,
   RiskActions,
@@ -61,12 +62,18 @@ function ExecDetailBody({
   alertsLoading,
   csAlertsMap,
   csAlertsLoading,
+  sentineloneConfigured,
+  s1AlertsMap,
+  s1AlertsLoading,
   stageAlertsCacheKey,
   onOpenInfo,
 }: Pick<
   RunDetailPanelProps,
   | 'defenderConfigured'
   | 'crowdstrikeConfigured'
+  | 'sentineloneConfigured'
+  | 's1AlertsMap'
+  | 's1AlertsLoading'
   | 'descriptionMap'
   | 'descriptionLoadingKey'
   | 'alertsMap'
@@ -82,11 +89,13 @@ function ExecDetailBody({
   const isLoadingDesc = descriptionLoadingKey === descKey;
   const hasDocumentation = descData && (descData.hasInfoCard || descData.hasReadme);
 
-  const { defender, crowdstrike } = stageAlertState(exec, {
+  const { defender, crowdstrike, sentinelone } = stageAlertState(exec, {
     alertsMap,
     alertsLoading,
     csAlertsMap,
     csAlertsLoading,
+    s1AlertsMap,
+    s1AlertsLoading,
     stageAlertsCacheKey,
   });
 
@@ -205,6 +214,33 @@ function ExecDetailBody({
               {crowdstrike.hasBundleAlerts
                 ? 'No stage-specific CrowdStrike alerts. See the bundle-level alerts above.'
                 : 'No related CrowdStrike alerts within the time window'}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Related SentinelOne Alerts — STAGE-ATTRIBUTABLE only (same rule as CrowdStrike). */}
+      {sentineloneConfigured && exec.techniques && exec.techniques.length > 0 && (
+        <div className="border-t border-border pt-3">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
+            SentinelOne Alerts
+          </span>
+          {sentinelone.loading ? (
+            <div className="mt-2 flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />
+              <span className="text-xs text-muted">Checking for related alerts...</span>
+            </div>
+          ) : sentinelone.alerts.length > 0 ? (
+            <div className="mt-2 space-y-2">
+              {sentinelone.alerts.map((alert) => (
+                <SentinelOneAlertRow key={alert.alert_id} alert={alert} runTimestamp={exec.timestamp} />
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-faint">
+              {sentinelone.hasBundleAlerts
+                ? 'No stage-specific SentinelOne alerts. See the bundle-level alerts above.'
+                : 'No related SentinelOne alerts within the time window'}
             </p>
           )}
         </div>
@@ -367,6 +403,9 @@ function BundleBody({
     alertsLoading,
     csAlertsMap,
     csAlertsLoading,
+    sentineloneConfigured,
+    s1AlertsMap,
+    s1AlertsLoading,
     stageAlertsCacheKey,
   } = props;
 
@@ -396,6 +435,18 @@ function BundleBody({
     }
   }
   const csBundleAlerts = Array.from(csSeen.values());
+
+  // Bundle-level SentinelOne alerts — same union/dedupe pattern.
+  const isLoadingS1Alerts = group.controls.some((ctrl) => Boolean(s1AlertsLoading?.has(stageAlertsCacheKey(ctrl))));
+  const s1Seen = new Map<string, RelatedCrowdStrikeAlertsResponse['alerts'][number]>();
+  for (const ctrl of group.controls) {
+    const entry = s1AlertsMap?.get(stageAlertsCacheKey(ctrl));
+    if (!entry) continue;
+    for (const a of entry.alerts) {
+      if (a.attribution === 'bundle') s1Seen.set(a.alert_id, a);
+    }
+  }
+  const s1BundleAlerts = Array.from(s1Seen.values());
 
 
   return (
@@ -498,6 +549,34 @@ function BundleBody({
                         <ExternalLink className="h-3 w-3" />
                       </a>
                     </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sentineloneConfigured && (isLoadingS1Alerts || s1BundleAlerts.length > 0) && (
+        <div className="rounded-md border border-warning/40 bg-warning-dim p-3">
+          <div className="flex items-start gap-2">
+            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+            <div className="min-w-0 flex-1">
+              <span className="text-xs font-medium uppercase tracking-wide text-warning">
+                Bundle-level SentinelOne alerts
+              </span>
+              <span className="ml-2 text-xs text-muted">
+                (evidence doesn't identify a specific stage)
+              </span>
+              {isLoadingS1Alerts ? (
+                <div className="mt-1 flex items-center gap-2">
+                  <Loader2 className="h-3 w-3 animate-spin text-muted" />
+                  <span className="text-xs text-muted">Checking…</span>
+                </div>
+              ) : (
+                <div className="mt-1 space-y-1">
+                  {s1BundleAlerts.map((alert) => (
+                    <SentinelOneAlertRow key={alert.alert_id} alert={alert} runTimestamp={group.controls[0]?.timestamp ?? ''} />
                   ))}
                 </div>
               )}

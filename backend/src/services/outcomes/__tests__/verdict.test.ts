@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { cellVerdict, type VerdictInput } from '../verdict.js';
-import type { EdrDocs } from '../edr.js';
+import { SOURCE_FIELDS, type EdrDocs } from '../edr.js';
+import { EDR_VENDORS } from '../vendors.js';
+import { classifyStage } from '../../reports/stageOutcome.js';
 
 const stage = (control_id: string, exit_code: number, skipped = false) =>
   ({ control_id, exit_code, skipped, techniques: [control_id], compliant: exit_code === 126 });
@@ -119,5 +121,37 @@ describe('cellVerdict: rules', () => {
     const v = cellVerdict(base({ exitCode: 999, controls: [stage('T1105', 101), stage('T1572', 999), stage('T1005', 0, true)] }));
     expect(v.stagesText).toBe('1:101 2:999 3:skip');
     expect(cellVerdict(base({})).stagesText).toBe('');
+  });
+});
+
+describe('cellVerdict: every EDR vendor counts, like Analytics', () => {
+  it('SentinelOne prevention and detection are named', () => {
+    const p = cellVerdict(base({ edr: edr({ t1: { event: { ERROR: 101 }, f0rtika: { sentinelone_detected: true, sentinelone_stage_detected: true, sentinelone_prevented: true, sentinelone_prevention_action: 'process_killed' } } }) }));
+    expect(p.state).toBe('prevented');
+    expect(p.reason).toBe('SentinelOne prevented it (process killed).');
+    const d = cellVerdict(base({ controls: [stage('T1105', 101)], edr: edr({ 't1::T1105': doc(101, { sentinelone_stage_detected: true }) }) }));
+    expect(d.state).toBe('detected');
+  });
+
+  it('the fetched fields cover every vendor the verdict reads', () => {
+    for (const { key } of EDR_VENDORS) {
+      for (const f of ['detected', 'stage_detected', 'prevented', 'prevention_action']) {
+        expect(SOURCE_FIELDS).toContain(`f0rtika.${key}_${f}`);
+      }
+    }
+  });
+
+  it.each(EDR_VENDORS.map((v) => v.key))('%s: same outcome as classifyStage (Analytics) for prevented and detected stages', (key) => {
+    const cases: Array<Record<string, unknown>> = [
+      { [`${key}_prevented`]: true },
+      { [`${key}_stage_detected`]: true, [`${key}_prevention_action`]: 'quarantined' },
+      { [`${key}_stage_detected`]: true },
+    ];
+    for (const flags of cases) {
+      const src = doc(101, flags);
+      const v = cellVerdict(base({ controls: [stage('T1', 101)], edr: edr({ 't1::T1': src }) }));
+      expect(v.stages[0].outcome, JSON.stringify(flags)).toBe(classifyStage(src));
+      expect(v.state, JSON.stringify(flags)).toBe(classifyStage(src));
+    }
   });
 });

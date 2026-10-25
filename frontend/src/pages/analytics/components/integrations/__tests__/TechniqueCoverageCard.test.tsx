@@ -4,7 +4,7 @@ import type { TechniqueCoverageItem, TechniqueCoverageResponse } from '@/service
 import type { IntegrationVendor } from '../vendorConfig';
 import TechniqueCoverageCard from '../TechniqueCoverageCard';
 
-const vendor = { id: 'crowdstrike', alertsTitle: 'Falcon Alerts' } as unknown as IntegrationVendor;
+const vendor = { id: 'crowdstrike', alertsTitle: 'Falcon Alerts', product: 'Falcon' } as unknown as IntegrationVendor;
 
 function item(i: number, over: Partial<TechniqueCoverageItem> = {}): TechniqueCoverageItem {
   return {
@@ -54,7 +54,7 @@ describe('TechniqueCoverageCard', () => {
   });
 
   it('uses Defender wording for the defender vendor', () => {
-    const d = { id: 'defender' } as unknown as IntegrationVendor;
+    const d = { id: 'defender', product: 'Defender' } as unknown as IntegrationVendor;
     render(<TechniqueCoverageCard vendor={d} data={makeData([item(1)])} loading={false} onSelectTechnique={noop} />);
     expect(screen.getByText(/what Defender did about it/)).toBeInTheDocument();
   });

@@ -34,6 +34,7 @@ export function median(values: number[]): number | null {
 const ROWS: { key: ReportAlert['vendor'] | 'any'; label: string }[] = [
   { key: 'defender', label: 'Microsoft Defender' },
   { key: 'crowdstrike', label: 'CrowdStrike Falcon' },
+  { key: 'sentinelone', label: 'SentinelOne Singularity' },
   { key: 'any', label: 'First alert, any EDR' },
 ];
 

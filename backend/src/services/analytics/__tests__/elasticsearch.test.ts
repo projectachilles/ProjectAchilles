@@ -3763,6 +3763,7 @@ describe('elasticsearch.ts', () => {
               should: [
                 { term: { 'f0rtika.defender_detected': true } },
                 { term: { 'f0rtika.crowdstrike_detected': true } },
+                { term: { 'f0rtika.sentinelone_detected': true } },
               ],
               minimum_should_match: 1,
               must_not: [{ term: { 'f0rtika.is_protected': true } }],

@@ -124,6 +124,8 @@ SQLite has no `ALTER COLUMN`, so changing CHECK constraints requires recreating 
 | `/api/analytics/*` | Clerk | Elasticsearch analytics |
 | `/api/analytics/defender/*` | Clerk | Defender Secure Score, alerts, controls, cross-correlation |
 | `/api/integrations/defender/*` | Clerk | Defender credentials, sync trigger |
+| `/api/analytics/sentinelone/*` | Clerk | SentinelOne alerts, correlation, posture (policies, agent health, exclusion gaps); backend-only |
+| `/api/integrations/sentinelone/*` | Clerk | SentinelOne settings, background sync, auto-resolve / automatic mitigation; backend-only |
 | `/api/agent/admin/*` | Clerk | Agent management (tokens, tasks, schedules) |
 | `/api/agent/*` | Agent key | Device endpoints (enroll, heartbeat, tasks) |
 | `/api/campaigns/*` | Clerk | Saved test campaigns (tests x agents), one-click runs, evidence matrix, CSV export; backend-only |
@@ -458,6 +460,19 @@ Programmatically resolves Achilles-correlated alerts in Microsoft Defender so co
 - **UI**: Collapsed `DefenderAutoResolveSection` inside the existing Defender settings card, shown only once Defender is configured
 - **Key files**: `services/defender/auto-resolve.service.ts`, `graph-client.ts` (`updateAlert` + `GraphPatchError`), `enrichment.service.ts` (alert-side writes), `sync.service.ts` (wiring)
 - **Customer setup guide**: `docs/defender-auto-resolve.md` (permission grant, dry-run audit, enable flow, troubleshooting)
+
+### SentinelOne Integration
+Pulls threats (`/threats`) and detection alerts (`/cloud-detection/alerts`) from the SentinelOne Management API v2.1 into `achilles-sentinelone`, in the same normalized alert shape as CrowdStrike, plus a 6-hourly posture pass (exclusions, policies, agents) into a separate posture index. Contributed in PR #566. User docs: `wiki/docs/user-guide/integrations/sentinelone.md`, `sentinelone-auto-resolve.md`, `wiki/docs/api-reference/sentinelone.md`.
+
+- **Backend-only.** `backend-serverless/` has no SentinelOne code; `GET /api/capabilities` reports `sentinelone: false` there and the Settings card is hidden.
+- **Settings live in `IntegrationsSettingsService`** (`getSentinelOneSettings`, `saveSentinelOneSettings`, `getSentinelOneSyncTimestamps`, ...), like Defender and CrowdStrike, with env fallback `SENTINELONE_BASE_URL` / `SENTINELONE_API_TOKEN` and the standalone `sentinelone_sync` key for env-var installs. An org caller only writes its own section (never copies or patches the legacy one). Don't give S1 its own file I/O again: writers go through `getRawFileSettingsForWrite()`, which refuses to overwrite an unparseable `integrations.json`.
+- **Client** (`services/sentinelone/s1-client.ts`): `Authorization: ApiToken`, cursor pagination, 429 back-off, console host allowlist (`*.sentinelone.net`, `*.s1gov.net`) plus the SSRF check. A `read_only` client refuses every non-GET; writes are limited to a closed allowlist: incident status/notes (auto-resolve) and `threats/mitigate/{kill,quarantine}` (automatic mitigation). There are **no manual response-action routes**; they need their own permission, Clerk-session-only access, scope filtering and confirmation before they come back.
+- **Sync**: threats incremental on `updatedAt__gte`; detection alerts only support `createdAt__gte`, so their local status can be stale. `sync_version` is recorded only after every enabled source re-synced cleanly; permanent per-doc bulk 4xx errors don't pin the checkpoint (429/5xx do); missing dates are `null`, never `''`; items that stop passing the severity/status filters are deleted. `POST /sync` returns 202 and runs in the background.
+- **Auto-resolve** re-reads each candidate's live incident status from the console (`?ids=`) and only resolves what is still `unresolved`, failing closed. Never writes a verdict or mitigation, never test docs.
+- **Automatic mitigation** (off by default, Response mode only, kill/quarantine of `not_mitigated` test-matched threats, live re-check first) is audited as `doc_type: response_action`. Its result must never count as SentinelOne prevention. The `f0rtika.auto_mitigated` receipt is written **before** the kill (no receipt, no kill), and every reader of `prevention_action` honours it via `services/shared/achillesMitigation.ts`: the enrichment pass (`ignoreAchillesMitigated: true`), the analytics facet and rows (`SentinelOneAnalyticsService`), and the execution report.
+- **S1 prevention = its own immediate response**: `threatPreventionAction` (`sentinelone/normalize.ts`) ignores mitigation entries that started more than 15 minutes after detection (later analyst / STAR / Achilles actions).
+- **Verdicts**: `f0rtika.sentinelone_*` flags count in Analytics (`reports/stageOutcome.ts`), the frontend `stageVerdict.ts`, and campaigns / notice emails via `services/outcomes/vendors.ts` `EDR_VENDORS` (the single list `edr.ts` and `verdict.ts` read). Adding an EDR means adding it to all of these.
+- **Frontend** reuses the vendor-neutral `pages/analytics/components/integrations/` pieces (`vendorConfig.ts`, `IntegrationTabHeader`, `EndpointAlertDetailsDrawer`, feed, coverage). Put vendor differences in `vendorConfig`, not `vendor.id ===` branches.
 
 ### Pre-execution notices
 Emails the security engineers before every `execute_test` run and holds the tests until the mail server accepts the notice for every recipient, plus a 0-5 minute lead. Off by default. User doc: `wiki/docs/user-guide/integrations/pre-execution-notices.md`.

@@ -6,6 +6,7 @@ vi.mock('@/hooks/useAuthenticatedApi', () => ({ apiClient: { get: getMock } }));
 const { VENDORS } = await import('../vendorConfig');
 const { crowdstrikeApi } = await import('@/services/api/crowdstrike');
 const { defenderApi } = await import('@/services/api/defender');
+const { sentineloneAnalyticsApi } = await import('@/services/api/sentineloneAnalytics');
 
 beforeEach(() => {
   getMock.mockReset();
@@ -28,11 +29,22 @@ describe('VENDORS', () => {
     expect(VENDORS.crowdstrike.api.getAlerts).toBe(crowdstrikeApi.getAlerts);
     expect(VENDORS.defender.api.getTechniqueCoverage).toBe(defenderApi.getTechniqueCoverage);
   });
+
+  it('SentinelOne vendor defaults to all severities and uses its own analytics API', () => {
+    const v = VENDORS.sentinelone;
+    expect(v.id).toBe('sentinelone');
+    expect(v.alertsTitle).toBe('SentinelOne Alerts');
+    expect(v.defaultSeverityKey).toBe('all');
+    expect(v.severitySegments.some((s) => s.key === v.defaultSeverityKey)).toBe(true);
+    expect(v.api.getAlerts).toBe(sentineloneAnalyticsApi.getAlerts);
+    expect(v.api.getTechniqueCoverage).toBe(sentineloneAnalyticsApi.getTechniqueCoverage);
+  });
 });
 
 describe.each([
   ['crowdstrikeApi', 'crowdstrike', crowdstrikeApi],
   ['defenderApi', 'defender', defenderApi],
+  ['sentineloneAnalyticsApi', 'sentinelone', sentineloneAnalyticsApi],
 ] as const)('%s', (_n, slug, api) => {
   const from = '2026-10-01T00:00:00.000Z';
   const to = '2026-10-20T00:00:00.000Z';

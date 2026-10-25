@@ -1,4 +1,4 @@
-// Evidence-based technique coverage for the Defender and CrowdStrike tabs.
+// Evidence-based technique coverage for the Defender, CrowdStrike and SentinelOne tabs.
 //
 // One response drives both the Detection hero tile and the Technique Coverage
 // table, so they can never disagree. Detection comes from the flags the
@@ -18,7 +18,7 @@ import { enrichmentEligibleClauses } from './enrichment-eligibility.js';
 import { windowRange } from './integration-window.js';
 import type { TimeWindow } from './integration-window.js';
 
-export type CoverageVendor = 'crowdstrike' | 'defender';
+export type CoverageVendor = 'crowdstrike' | 'defender' | 'sentinelone';
 
 export interface TechniqueCoverageItem {
   technique: string;

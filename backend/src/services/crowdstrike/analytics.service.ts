@@ -12,11 +12,12 @@ import { alertDocs, alertFacets, allOf, LINKED, firstString, severityFilter, sou
 import type { AlertFacetCounts, AlertSource, TimeWindow } from '../analytics/integration-window.js';
 import { resolveTestNames } from '../analytics/test-name-lookup.js';
 import { getTechniqueCoverage } from '../analytics/technique-coverage.js';
-import type { TechniqueCoverageResponse } from '../analytics/technique-coverage.js';
+import type { CoverageVendor, TechniqueCoverageResponse } from '../analytics/technique-coverage.js';
 import type { Client } from '@elastic/elasticsearch';
 import type {
   QueryDslQueryContainer,
 } from '@elastic/elasticsearch/lib/api/types.js';
+import { isAchillesMitigated, ACHILLES_MITIGATED_QUERY } from '../shared/achillesMitigation.js';
 import type { DetectionRateResponse, RelatedAlertsResponse } from '../../types/crowdstrike.js';
 
 // ---------------------------------------------------------------------------
@@ -132,11 +133,25 @@ export interface PaginatedAlerts {
 /** prevention_action values meaning Falcon stopped the activity. */
 const PREVENTED_ACTIONS = ['quarantined', 'process_killed', 'blocked'];
 
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
 
 export class CrowdStrikeAnalyticsService {
+  /**
+   * `alertIndex` / `vendor` default to CrowdStrike. SentinelOne reuses this
+   * service over achilles-sentinelone, whose alert docs share the same shape
+   * (see services/sentinelone/analytics.service.ts).
+   */
+  /** Treat alerts carrying an Achilles auto-mitigation receipt as detected only. */
+  protected readonly ignoreAchillesMitigated: boolean = false;
+
+  constructor(
+    protected readonly alertIndex: string = CROWDSTRIKE_INDEX,
+    protected readonly vendor: CoverageVendor = 'crowdstrike',
+  ) {}
+
   private getEsContext() {
     const settingsService = new SettingsService();
     const settings = settingsService.getSettings();
@@ -160,9 +175,23 @@ export class CrowdStrikeAnalyticsService {
         agg: {
           filters: {
             filters: {
-              prevented: { terms: { prevention_action: PREVENTED_ACTIONS } },
-              detected_only: { bool: { must_not: [{ exists: { field: 'prevention_action' } }] } },
-              kill_failed: { term: { prevention_action: 'kill_failed' } },
+              ...(this.ignoreAchillesMitigated
+                ? {
+                  prevented: { bool: { filter: [{ terms: { prevention_action: PREVENTED_ACTIONS } }], must_not: [ACHILLES_MITIGATED_QUERY] } },
+                  detected_only: {
+                    bool: {
+                      should: [{ bool: { must_not: [{ exists: { field: 'prevention_action' } }] } }, ACHILLES_MITIGATED_QUERY],
+                      minimum_should_match: 1,
+                    },
+                  },
+                  // Keeps the buckets disjoint: a receipt-carrying alert counts only as detected_only.
+                  kill_failed: { bool: { filter: [{ term: { prevention_action: 'kill_failed' } }], must_not: [ACHILLES_MITIGATED_QUERY] } },
+                }
+                : {
+                  prevented: { terms: { prevention_action: PREVENTED_ACTIONS } },
+                  detected_only: { bool: { must_not: [{ exists: { field: 'prevention_action' } }] } },
+                  kill_failed: { term: { prevention_action: 'kill_failed' } },
+                }),
             },
           },
         },
@@ -186,7 +215,7 @@ export class CrowdStrikeAnalyticsService {
     const client = this.getEsClient();
 
     const result = await client.search({
-      index: CROWDSTRIKE_INDEX,
+      index: this.alertIndex,
       size: 1,
       query: { term: { doc_type: 'zta_score' } },
       sort: [{ timestamp: { order: 'desc' } }],
@@ -222,7 +251,7 @@ export class CrowdStrikeAnalyticsService {
     const client = this.getEsClient();
 
     const result = await client.search({
-      index: CROWDSTRIKE_INDEX,
+      index: this.alertIndex,
       size: days,
       query: {
         bool: {
@@ -256,7 +285,7 @@ export class CrowdStrikeAnalyticsService {
     const facets = this.alertFacets({ window });
 
     const result = await client.search({
-      index: CROWDSTRIKE_INDEX,
+      index: this.alertIndex,
       size: 0,
       query: alertDocs(window),
       aggs: {
@@ -301,7 +330,7 @@ export class CrowdStrikeAnalyticsService {
 
     const recentBySeverity = async (severities: string[], size: number) => {
       const resp = await client.search({
-        index: CROWDSTRIKE_INDEX,
+        index: this.alertIndex,
         size,
         query: {
           bool: {
@@ -348,11 +377,13 @@ export class CrowdStrikeAnalyticsService {
     severities?: string[];
     /** created_at window; null or absent = all time. */
     window?: TimeWindow | null;
+    /** Exact `source_type` (SentinelOne: threats | cloud_detection_alerts). CrowdStrike docs don't carry it. */
+    sourceType?: string;
   }): Promise<PaginatedAlerts> {
     const { client, settings } = this.getEsContext();
     const {
       page = 1, pageSize = 25, severity, status, search, techniques,
-      sortField = 'created_at', sortOrder = 'desc', source, severities, window = null,
+      sortField = 'created_at', sortOrder = 'desc', source, severities, window = null, sourceType,
     } = params;
 
     const must: QueryDslQueryContainer[] = [{ term: { doc_type: 'alert' } }];
@@ -360,6 +391,7 @@ export class CrowdStrikeAnalyticsService {
     if (range) must.push(range);
     if (severity) must.push({ term: { severity } });
     if (status) must.push({ term: { status } });
+    if (sourceType) must.push({ term: { source_type: sourceType } });
     if (search) must.push({ multi_match: { query: search, fields: ['alert_title', 'description', 'category'] } });
     if (techniques && techniques.length > 0) {
       // Match exact technique (e.g. T1059) and any sub-technique (T1059.001, T1059.003 …)
@@ -378,7 +410,7 @@ export class CrowdStrikeAnalyticsService {
     const facets = this.alertFacets({ source, window });
 
     const result = await client.search({
-      index: CROWDSTRIKE_INDEX,
+      index: this.alertIndex,
       from: (page - 1) * pageSize,
       size: pageSize,
       query: { bool: { must } },
@@ -419,7 +451,7 @@ export class CrowdStrikeAnalyticsService {
         resolved_at: s.resolved_at ? String(s.resolved_at) : null,
         recommended_actions: String(s.recommended_actions ?? ''),
         hostname: firstString(s.evidence_hostnames),
-        ...(s.prevention_action ? { prevention_action: String(s.prevention_action) } : {}),
+        ...(s.prevention_action && !(this.ignoreAchillesMitigated && isAchillesMitigated({ f0rtika })) ? { prevention_action: String(s.prevention_action) } : {}),
         ...(s.pattern_disposition_description
           ? { pattern_disposition_description: String(s.pattern_disposition_description) }
           : {}),
@@ -447,7 +479,7 @@ export class CrowdStrikeAnalyticsService {
     const interval = window ? trendInterval(window) : 'day';
 
     const result = await client.search({
-      index: CROWDSTRIKE_INDEX,
+      index: this.alertIndex,
       size: 0,
       query: window
         ? alertDocs(window)
@@ -576,7 +608,7 @@ export class CrowdStrikeAnalyticsService {
 
     // Get MITRE techniques from CrowdStrike alerts
     const alertResult = await client.search({
-      index: CROWDSTRIKE_INDEX,
+      index: this.alertIndex,
       size: 0,
       query: { term: { doc_type: 'alert' } },
       aggs: {
@@ -616,9 +648,9 @@ export class CrowdStrikeAnalyticsService {
   async getTechniqueCoverage(window: TimeWindow): Promise<TechniqueCoverageResponse> {
     const { client, settings } = this.getEsContext();
     return getTechniqueCoverage(client, {
-      vendor: 'crowdstrike',
+      vendor: this.vendor,
       resultsIndex: settings.indexPattern,
-      alertIndex: CROWDSTRIKE_INDEX,
+      alertIndex: this.alertIndex,
       window,
     });
   }
@@ -660,7 +692,7 @@ export class CrowdStrikeAnalyticsService {
 
     // Query 2: CrowdStrike alerts by technique with hourly buckets
     const alertResult = await client.search({
-      index: CROWDSTRIKE_INDEX,
+      index: this.alertIndex,
       size: 0,
       query: {
         bool: {
@@ -855,7 +887,7 @@ export class CrowdStrikeAnalyticsService {
 
       if (evidenceQuery) {
         const evidenceResult = await client.search({
-          index: CROWDSTRIKE_INDEX,
+          index: this.alertIndex,
           size: 50,
           query: evidenceQuery as QueryDslQueryContainer,
           sort: [{ created_at: { order: 'asc' } }],
@@ -875,7 +907,7 @@ export class CrowdStrikeAnalyticsService {
     // --- Fallback 1: technique + hostname (via evidence) ---
     if (hostname) {
       const hostFallbackResult = await client.search({
-        index: CROWDSTRIKE_INDEX,
+        index: this.alertIndex,
         size: 50,
         query: {
           bool: {
@@ -932,7 +964,7 @@ export class CrowdStrikeAnalyticsService {
     }
 
     const techniqueFallbackResult = await client.search({
-      index: CROWDSTRIKE_INDEX,
+      index: this.alertIndex,
       size: 50,
       query: {
         bool: {
