@@ -31,7 +31,7 @@ Four tiles summarize posture at a glance:
 | Tile | What it shows |
 |------|---------------|
 | **Secure Score** | Current Microsoft Secure Score as a percentage, raw `current / max` points, the change versus the trend window, and a sparkline. |
-| **Defender Alerts** | Total alert count in the window, how many are high-severity, and the change versus the previous 7 days. Click the tile to open the alert drawer for all alerts. |
+| **Defender Alerts** | Total alert count in the window, how many are high-severity, and the change versus the previous 7 days. Click the tile to jump to the alert feed below. |
 | **Detected / Prevented** | The headline metric — the share of attack simulations in the selected window that Defender detected (the [Detection Rate](#detection-rate), evidence-based), the share it prevented, how many executions raised an alert and how many were stopped, plus one pip per technique showing whether it drew an alert. |
 | **Auto-Resolve** | Current auto-resolve mode (`disabled` / `dry-run` / `enabled`) and recent receipt counts. See [Auto-Resolve](../integrations/defender-auto-resolve). |
 
@@ -70,7 +70,9 @@ stable as you filter, and the "All" count equals the Alerts tile total. The
 summary strip above the feed follows the source you pick but not the severity;
 severity only narrows the rows and the page count. A linked alert's **Linked
 test** opens the Executions view filtered to that test, or to the bundle when
-the alert was matched to a bundle. Click a row to open the alert drawer.
+the alert was matched to a bundle. Rows aren't clickable; the link icon opens
+the alert in the Defender portal. To open the alert drawer, click a technique in
+Technique Coverage below.
 
 ## Technique Coverage
 
