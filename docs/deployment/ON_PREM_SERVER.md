@@ -41,7 +41,7 @@ images and repos internally first — not covered here.)
 - Clerk **roles**: the session token claim `{"metadata": "{{user.public_metadata}}"}`
   (Clerk Dashboard → **Configure → Sessions → Customize session token**) and,
   after your first sign-in, `{"role": "admin"}` in your user's public metadata.
-  Without a role every user is read-only. Steps: [Clerk roles](https://docs.projectachilles.io/docs/deployment/prerequisites#session-token-claim).
+  Without a role every user is read-only. Steps: [Clerk roles](https://docs.projectachilles.io/docs/deployment/clerk-setup#session-token-claim).
 - On your workstation: `bash`, `ssh`, `rsync`, and a clone of this repo.
 
 ## Choose a certificate strategy

@@ -110,8 +110,8 @@ Outputs `SESSION_SECRET`, `ENCRYPTION_SECRET`, `CLI_AUTH_SECRET`, and Ed25519 si
 Every user without a role is read-only. In the Clerk Dashboard, add the
 `metadata` claim to the session token, then give your own account
 `{"role": "admin"}` in its public metadata and sign in again:
-[session token claim](./prerequisites#session-token-claim) and
-[first admin](./prerequisites#first-admin). Invite everyone else from
+[session token claim](./clerk-setup#session-token-claim) and
+[first admin](./clerk-setup#first-admin). Invite everyone else from
 **Settings → Users**.
 :::
 

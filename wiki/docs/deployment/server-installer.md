@@ -188,7 +188,8 @@ Every person signs in through Clerk. What they may do comes from a **role** in
 their Clerk user's **public metadata**, for example `{"role": "admin"}`. The
 roles are `admin`, `operator`, `analyst` and `explorer`; a signed-in user with
 no role gets read-only (`explorer`) access. Two settings in the Clerk app make
-this work, on LAN and cloud installs alike. Set the first before you install
+this work, on LAN and cloud installs alike ([Clerk Setup](./clerk-setup) shows
+every Clerk Dashboard step with screenshots). Set the first before you install
 (required on servers older than v2.5.0, and still the recommended setup); the
 installer does the second for you.
 
@@ -242,7 +243,7 @@ Anyone who can reach `https://<hostname>/sign-up` can create an account, and an
 account with no role can still read the dashboards. On a server reachable from
 the internet, set Clerk's sign-up mode to **Invite-only** under **Configure →
 Access mode**; the installer's invitation and **Settings → Users** still work.
-See [Restrict sign-ups](./prerequisites#restrict-sign-ups).
+See [Restrict sign-ups](./clerk-setup#restrict-sign-ups).
 :::
 
 ## Install
@@ -1063,4 +1064,4 @@ All notes except the last apply to on-prem LAN installs.
   publish no ports. Restrict the provider firewall to known source ranges when you
   can: a host firewall (ufw) does not filter Docker-published ports. Set Clerk's
   sign-up mode to **Invite-only** so strangers can't create read-only accounts
-  ([Restrict sign-ups](./prerequisites#restrict-sign-ups)).
+  ([Restrict sign-ups](./clerk-setup#restrict-sign-ups)).

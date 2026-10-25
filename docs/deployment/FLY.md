@@ -24,7 +24,7 @@ Both Machines run always-on (`auto_stop_machines = 'off'`) — agents send heart
 - Clerk **roles**: the session token claim `{"metadata": "{{user.public_metadata}}"}`
   (Clerk Dashboard → **Configure → Sessions → Customize session token**) and,
   after your first sign-in, `{"role": "admin"}` in your user's public metadata.
-  Without a role every user is read-only. Steps: [Clerk roles](https://docs.projectachilles.io/docs/deployment/prerequisites#session-token-claim).
+  Without a role every user is read-only. Steps: [Clerk roles](https://docs.projectachilles.io/docs/deployment/clerk-setup#session-token-claim).
 - Elastic Cloud deployment ([cloud.elastic.co](https://cloud.elastic.co))
 - GitHub Personal Access Token (if using a private test repo)
 

@@ -94,8 +94,8 @@ In Docker Compose mode, the frontend is served by nginx on port **80** (bound to
 A new account has no role, so it's read-only. In the Clerk Dashboard, add the
 `metadata` claim to the session token, then set `{"role": "admin"}` in your
 user's public metadata and sign in again. See
-[session token claim](../deployment/prerequisites#session-token-claim) and
-[first admin](../deployment/prerequisites#first-admin).
+[session token claim](../deployment/clerk-setup#session-token-claim) and
+[first admin](../deployment/clerk-setup#first-admin).
 
 ## Windows
 

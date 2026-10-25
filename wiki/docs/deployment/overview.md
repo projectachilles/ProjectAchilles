@@ -8,7 +8,7 @@ description: Compare all ProjectAchilles deployment targets — Docker Compose, 
 
 ProjectAchilles supports eight deployment targets. Choose based on your requirements for database, storage, agent build capability, and budget.
 
-Every target signs users in through Clerk. Set up the Clerk app first, including the session token claim and the first admin's role: see [Prerequisites](./prerequisites#clerk-authentication-required).
+Every target signs users in through Clerk. Set up the Clerk app first, including the session token claim and the first admin's role: see [Clerk Setup](./clerk-setup).
 
 ## Comparison Matrix
 
