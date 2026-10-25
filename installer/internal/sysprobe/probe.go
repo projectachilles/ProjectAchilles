@@ -4,6 +4,7 @@ package sysprobe
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -27,6 +28,10 @@ func (s Status) String() string {
 		return "fail"
 	}
 }
+
+// ErrNotInstalled is what System.DockerVersion returns when there is no
+// docker binary at all, as opposed to a daemon that does not answer.
+var ErrNotInstalled = errors.New("not installed")
 
 // Check is one preflight result.
 type Check struct {
@@ -190,11 +195,17 @@ func checkEgress(ctx context.Context, s System, id, title, url, host string) Che
 func checkDocker(s System) Check {
 	c := Check{ID: "docker", Title: "Docker"}
 	v, err := s.DockerVersion()
-	if err != nil {
-		c.Status, c.Detail = Warn, "Docker not found: will be installed"
-		return c
+	switch {
+	case errors.Is(err, ErrNotInstalled):
+		// deploy-server.sh installs it from get.docker.com: nothing to fix.
+		c.Detail = "not installed yet: the install adds it"
+	case err != nil:
+		// deploy-server.sh skips the install when the binary exists, so a
+		// stopped daemon makes it fail at the Docker step.
+		c.Status, c.Detail = Warn, "installed, but the daemon is not answering: run systemctl start docker"
+	default:
+		c.Detail = "Docker " + v
 	}
-	c.Detail = "Docker " + v
 	return c
 }
 

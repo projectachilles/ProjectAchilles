@@ -3,6 +3,7 @@ package sysprobe
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -128,6 +129,26 @@ func TestPreflightRootDiskDockerTimeEgress(t *testing.T) {
 	}
 	if d := find(t, cs, "egress-github").Detail; d == "" {
 		t.Error("egress detail should name host")
+	}
+}
+
+// A fresh server has no Docker yet and the install adds it, so that is not
+// a warning. Docker present but not answering is: the install would fail.
+func TestPreflightDocker(t *testing.T) {
+	s := good()
+	s.dockerErr = ErrNotInstalled
+	c := find(t, Preflight(context.Background(), s, PreflightOptions{}), "docker")
+	if c.Status != Pass || !strings.Contains(c.Detail, "the install adds it") {
+		t.Errorf("not installed: got %+v", c)
+	}
+	s.dockerErr = errors.New("Cannot connect to the Docker daemon")
+	c = find(t, Preflight(context.Background(), s, PreflightOptions{}), "docker")
+	if c.Status != Warn || !strings.Contains(c.Detail, "systemctl start docker") {
+		t.Errorf("daemon down: got %+v", c)
+	}
+	s.dockerErr = nil
+	if c = find(t, Preflight(context.Background(), s, PreflightOptions{}), "docker"); c.Status != Pass || c.Detail != "Docker 27.1" {
+		t.Errorf("present: got %+v", c)
 	}
 }
 

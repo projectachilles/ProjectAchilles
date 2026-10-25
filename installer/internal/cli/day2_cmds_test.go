@@ -31,6 +31,37 @@ func TestStatusExitsOneWhenUnhealthy(t *testing.T) {
 	}
 }
 
+// recordCmd remembers whether any command ran.
+type recordCmd struct{ ran *bool }
+
+func (c recordCmd) Run(context.Context, string, ...string) ([]byte, error) {
+	*c.ran = true
+	return nil, nil
+}
+
+// The config files and the Docker socket are root-only: without root the
+// day-2 commands would report a healthy install as broken.
+func TestDay2CommandsNeedRoot(t *testing.T) {
+	for _, name := range []string{"status", "upgrade", "backup", "restore"} {
+		var out, errb bytes.Buffer
+		ran := false
+		r := NewRegistry("test")
+		registerDay2(r, day2IO{stdin: strings.NewReader(""), stdout: &out, stderr: &errb,
+			cmd: recordCmd{&ran}, isRoot: func() bool { return false }})
+		code := r.Run([]string{name, "--repo", t.TempDir()}, &out, &errb)
+		if code == 0 || ran {
+			t.Errorf("%s: exit %d, ran=%v; want a failure before any command", name, code, ran)
+		}
+		if !strings.Contains(errb.String(), "sudo ") || !strings.Contains(errb.String(), name+" --repo") {
+			t.Errorf("%s: stderr %q should say how to re-run it with sudo", name, errb.String())
+		}
+		errb.Reset()
+		if code := r.Run([]string{name, "-h"}, &out, &errb); code != 0 {
+			t.Errorf("%s -h: exit %d, want 0 without root; stderr=%s", name, code, errb.String())
+		}
+	}
+}
+
 func TestRestoreNeedsFile(t *testing.T) {
 	var out, errb bytes.Buffer
 	r := NewRegistry("test")

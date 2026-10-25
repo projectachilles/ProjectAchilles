@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
+	"strings"
 	"syscall"
 
 	"github.com/projectachilles/ProjectAchilles/installer/internal/config"
@@ -24,13 +26,15 @@ type day2IO struct {
 	cmd            day2.Cmd
 	newRunner      func(root, cfgPath, caDir string) (engine.Starter, error)
 	tty            func() bool
+	isRoot         func() bool // nil: no check (tests)
 }
 
 func init() {
 	registerDay2(defaultRegistry, day2IO{
 		stdin: os.Stdin, stdout: os.Stdout, stderr: os.Stderr,
 		cmd: day2.ExecCmd{}, newRunner: engineRunner,
-		tty: func() bool { return term.IsTerminal(os.Stdout.Fd()) },
+		tty:    func() bool { return term.IsTerminal(os.Stdout.Fd()) },
+		isRoot: func() bool { return os.Geteuid() == 0 },
 	})
 }
 
@@ -45,11 +49,26 @@ func withSignals(h Handler) Handler {
 	}
 }
 
+// asRoot refuses to run h without root. deploy.config.env, the .env files
+// and the Docker socket are root-only, so as another user status reports a
+// healthy install as broken and the other commands fail half-way.
+func asRoot(dio day2IO, name string, h Handler) Handler {
+	return func(ctx context.Context, args []string) error {
+		help := slices.ContainsFunc(args, func(a string) bool {
+			return a == "-h" || a == "-help" || a == "--help"
+		})
+		if dio.isRoot != nil && !dio.isRoot() && !help {
+			return fmt.Errorf("needs root: sudo %s %s", os.Args[0], strings.Join(append([]string{name}, args...), " "))
+		}
+		return h(ctx, args)
+	}
+}
+
 func registerDay2(r *Registry, dio day2IO) {
-	r.Register("status", statusCmd(dio))
-	r.Register("upgrade", withSignals(upgradeCmd(r, dio)))
-	r.Register("backup", withSignals(backupCmd(dio)))
-	r.Register("restore", withSignals(restoreCmd(dio)))
+	r.Register("status", asRoot(dio, "status", statusCmd(dio)))
+	r.Register("upgrade", asRoot(dio, "upgrade", withSignals(upgradeCmd(r, dio))))
+	r.Register("backup", asRoot(dio, "backup", withSignals(backupCmd(dio))))
+	r.Register("restore", asRoot(dio, "restore", withSignals(restoreCmd(dio))))
 }
 
 // day2Deps builds the shared dependencies for the checkout at root. A missing

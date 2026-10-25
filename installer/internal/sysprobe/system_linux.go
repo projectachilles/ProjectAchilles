@@ -72,6 +72,9 @@ func (RealSystem) HTTPReachable(ctx context.Context, url string) error {
 }
 
 func (RealSystem) DockerVersion() (string, error) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		return "", ErrNotInstalled
+	}
 	out, err := exec.Command("docker", "version", "--format", "{{.Server.Version}}").Output()
 	if err != nil {
 		return "", err
