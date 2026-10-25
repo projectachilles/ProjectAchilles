@@ -178,6 +178,23 @@ describe('EndpointAlertDetailsDrawer', () => {
     expect(screen.getByText(/Auto-resolved by Achilles/)).toBeInTheDocument();
   });
 
+  it('a skip-forever receipt (alert gone from the console) is not shown as resolved', async () => {
+    mockGetAlerts.mockResolvedValue({
+      data: [{
+        ...makeAlert({ alert_id: 'a404', alert_title: 'Deleted upstream' }),
+        auto_resolved: true,
+        auto_resolved_at: new Date().toISOString(),
+        auto_resolve_mode: 'enabled',
+        auto_resolve_error: 'not_found',
+      }],
+      total: 1, page: 1, pageSize: 100,
+    });
+    render(<EndpointAlertDetailsDrawer vendor="crowdstrike" open onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByText('Deleted upstream')).toBeInTheDocument());
+    expect(screen.getByText(/Auto-resolve skipped: alert not found in the console/)).toBeInTheDocument();
+    expect(screen.queryByText(/Auto-resolved by Achilles/)).not.toBeInTheDocument();
+  });
+
   it('renders the critical severity tier distinctly from high', async () => {
     mockGetAlerts.mockResolvedValue({
       data: [
