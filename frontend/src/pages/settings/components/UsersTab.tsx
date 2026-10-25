@@ -80,7 +80,7 @@ export function UsersTab() {
     try {
       if (value === '') {
         await usersApi.removeRole(userId);
-        setToast({ message: 'Role removed — user has full access', variant: 'success' });
+        setToast({ message: 'Role removed — user is now read-only', variant: 'success' });
       } else {
         await usersApi.setRole(userId, value as AppRole);
         setToast({ message: `Role updated to ${ROLE_LABELS[value as AppRole]}`, variant: 'success' });
@@ -292,7 +292,7 @@ export function UsersTab() {
                   onChange={(e) => handleRoleChange(u.id, e.target.value)}
                   className="text-sm rounded-lg border border-border bg-background px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/50"
                 >
-                  <option value="">No role (full access)</option>
+                  <option value="">No role (read-only)</option>
                   {VALID_ROLES.map((r) => (
                     <option key={r} value={r}>{ROLE_LABELS[r]}</option>
                   ))}

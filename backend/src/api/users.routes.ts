@@ -112,7 +112,7 @@ router.put('/:userId/role', validate(SetRoleSchema), asyncHandler(async (req, re
 
 /**
  * DELETE /api/users/:userId/role
- * Remove a user's role (returns to full-access fallback).
+ * Remove a user's role. Without one the user is read-only (explorer).
  */
 router.delete('/:userId/role', asyncHandler(async (req, res) => {
   const { userId } = req.params;

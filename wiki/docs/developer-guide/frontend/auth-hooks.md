@@ -100,7 +100,7 @@ Roles are stored in Clerk's public metadata and exposed through three hooks:
 | Hook | Purpose | Example |
 |------|---------|---------|
 | `useAppRole()` | Get current role | `'admin'`, `'operator'`, `'analyst'`, `'explorer'`, or `undefined` |
-| `useHasPermission(perm)` | Check specific permission | `useHasPermission('agent:write')` |
+| `useHasPermission(perm)` | Check specific permission | `useHasPermission('endpoints:agents:write')` |
 | `useCanAccessModule(mod)` | Check module access | `useCanAccessModule('analytics')` |
 
 ```typescript
@@ -108,14 +108,14 @@ Roles are stored in Clerk's public metadata and exposed through three hooks:
 const canViewAnalytics = useCanAccessModule('analytics');
 
 // Check for specific permissions
-const canManageAgents = useHasPermission('agent:write');
+const canManageAgents = useHasPermission('endpoints:agents:write');
 
 // Get current role
 const role = useAppRole();
 ```
 
-:::tip
-Users without explicit roles get full access. This ensures smooth transitions during role system deployment -- no one is locked out before roles are assigned.
+:::note
+Users without a role get the `explorer` permission set (read-only), in the frontend hooks and in the backend alike. Every deployment needs one admin; see [Make the first admin](../../deployment/prerequisites#first-admin).
 :::
 
 ### Route Protection Pattern
