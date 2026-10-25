@@ -148,10 +148,29 @@ describe('SentinelOneAnalyticsService', () => {
     expect(mockSearch).not.toHaveBeenCalled();
   });
 
-  it('score comparison carries the Defense Score with ztaScore null', async () => {
-    mockSearch.mockResolvedValueOnce({
-      aggregations: { by_day: { buckets: [{ key_as_string: '2026-10-20T00:00:00.000Z', doc_count: 4, protected: { doc_count: 3 } }] } },
-    });
+  it('score comparison pairs the Defense Score with the Endpoint Protection score', async () => {
+    // 1st search: Endpoint Protection snapshots; 2nd: the Defense Score by day.
+    mockSearch
+      .mockResolvedValueOnce({ hits: { hits: [
+        { _source: { timestamp: '2026-10-20T06:00:00.000Z', protection: { score: 80 } } },
+        { _source: { timestamp: '2026-10-20T12:00:00.000Z', protection: { score: 82.5 } } },
+        { _source: { timestamp: '2026-10-21T00:00:00.000Z', protection: { score: null } } },
+      ] } })
+      .mockResolvedValueOnce({
+        aggregations: { by_day: { buckets: [{ key_as_string: '2026-10-20T00:00:00.000Z', doc_count: 4, protected: { doc_count: 3 } }] } },
+      });
+    const res = await new SentinelOneAnalyticsService().getScoreComparison(30);
+    expect(mockSearch.mock.calls[0][0]).toMatchObject({ index: 'achilles-sentinelone-posture' });
+    // The day's last snapshot wins; a null score (no agents) adds no point.
+    expect(res).toEqual([{ date: '2026-10-20', defenseScore: 75, ztaScore: 82.5 }]);
+  });
+
+  it('score comparison still works when the posture index is unreadable', async () => {
+    mockSearch
+      .mockRejectedValueOnce(new Error('index_not_found_exception'))
+      .mockResolvedValueOnce({
+        aggregations: { by_day: { buckets: [{ key_as_string: '2026-10-20T00:00:00.000Z', doc_count: 4, protected: { doc_count: 3 } }] } },
+      });
     const res = await new SentinelOneAnalyticsService().getScoreComparison(30);
     expect(res).toEqual([{ date: '2026-10-20', defenseScore: 75, ztaScore: null }]);
   });

@@ -38,6 +38,7 @@ vi.mock('../../services/sentinelone/analytics.service.js', () => ({
 const posture = {
   getPolicies: vi.fn(),
   getAgentHealth: vi.fn(),
+  getProtectionScore: vi.fn(),
   getExclusionGaps: vi.fn(),
 };
 let esConfigured = true;
@@ -45,6 +46,7 @@ vi.mock('../../services/sentinelone/posture.service.js', () => ({
   SentinelOnePostureService: class {
     getPolicies = posture.getPolicies;
     getAgentHealth = posture.getAgentHealth;
+    getProtectionScore = posture.getProtectionScore;
     getExclusionGaps = posture.getExclusionGaps;
   },
 }));
@@ -136,6 +138,11 @@ describe('SentinelOne analytics — source type filter and posture', () => {
     expect((await request(app()).get('/api/analytics/sentinelone/posture/policies')).body).toEqual({ items: [{ level: 'site', mitigation_mode: 'protect' }] });
     await request(app()).get('/api/analytics/sentinelone/posture/agent-health?days=9999');
     expect(posture.getAgentHealth).toHaveBeenCalledWith(365);
+    posture.getProtectionScore.mockResolvedValue({ latest: { score: 80, protected: 4, scored: 5, total: 5, checks: [], timestamp: 't' }, trend: [] });
+    expect((await request(app()).get('/api/analytics/sentinelone/posture/protection-score?days=0')).body).toMatchObject({ latest: { score: 80 } });
+    expect(posture.getProtectionScore).toHaveBeenLastCalledWith(30);
+    await request(app()).get('/api/analytics/sentinelone/posture/protection-score?days=90');
+    expect(posture.getProtectionScore).toHaveBeenLastCalledWith(90);
     await request(app()).get('/api/analytics/sentinelone/posture/exclusion-gaps?from=2026-10-01&to=2026-10-22');
     expect(posture.getExclusionGaps).toHaveBeenCalledWith('achilles-results-*', expect.objectContaining({ from: '2026-10-01T00:00:00.000Z' }));
   });
@@ -144,6 +151,7 @@ describe('SentinelOne analytics — source type filter and posture', () => {
     esConfigured = false;
     expect((await request(app()).get('/api/analytics/sentinelone/posture/policies')).body).toEqual({ items: [] });
     expect((await request(app()).get('/api/analytics/sentinelone/posture/agent-health')).body).toEqual({ latest: null, trend: [] });
+    expect((await request(app()).get('/api/analytics/sentinelone/posture/protection-score')).body).toEqual({ latest: null, trend: [] });
     expect((await request(app()).get('/api/analytics/sentinelone/posture/exclusion-gaps')).body).toMatchObject({ flagged: [], exclusionsTotal: 0 });
   });
 });

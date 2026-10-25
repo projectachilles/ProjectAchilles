@@ -11,6 +11,7 @@ import { integrationsApi, type CrowdStrikeZtaStatus } from '@/services/api/integ
 import type { TechniqueCoverageResponse } from '@/services/api/integrationTypes';
 import type { DateRangeValue } from '@/lib/timeRange';
 import IntegrationTabHeader from './integrations/IntegrationTabHeader';
+import ScoreBar from './integrations/ScoreBar';
 import HeroStatTile from './HeroStatTile';
 import Sparkline from './Sparkline';
 import AutoResolveStatTile from './AutoResolveStatTile';
@@ -33,28 +34,6 @@ interface TabData {
   trend: CrowdStrikeAlertTrendPoint[];
   coverage: TechniqueCoverageResponse | null;
   coverageFailed: boolean;
-}
-
-/** One labelled 0-100 bar on the ZTA tile. Nothing for a non-finite score. */
-function ScoreBar({ label, value }: { label: string; value: number }) {
-  if (!Number.isFinite(value)) return null;
-  const pct = Math.min(100, Math.max(0, value));
-  return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-      <span className="w-11 shrink-0">{label}</span>
-      <div
-        role="meter"
-        aria-label={`${label} score`}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={value}
-        className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
-      >
-        <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="w-8 shrink-0 text-right font-mono text-foreground">{formatScore(value)}</span>
-    </div>
-  );
 }
 
 interface CrowdStrikeTabProps {

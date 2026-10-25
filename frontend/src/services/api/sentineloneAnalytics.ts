@@ -58,6 +58,30 @@ export interface SentinelOneAgentHealthResponse {
   trend: Array<{ timestamp: string; counts: SentinelOneAgentHealthCounts }>;
 }
 
+/** One check of the Achilles Endpoint Protection score (backend protection-score.ts). */
+export interface SentinelOneProtectionCheck {
+  id: string;
+  label: string;
+  /** Agents the check could be evaluated for. */
+  evaluated: number;
+  passed: number;
+}
+
+export interface SentinelOneProtectionScore {
+  /** 0-100; null when no agent could be scored. */
+  score: number | null;
+  protected: number;
+  scored: number;
+  total: number;
+  checks: SentinelOneProtectionCheck[];
+  timestamp: string;
+}
+
+export interface SentinelOneProtectionScoreResponse {
+  latest: SentinelOneProtectionScore | null;
+  trend: Array<{ timestamp: string; score: number | null }>;
+}
+
 export interface SentinelOneExclusionGapReport {
   exclusionsTotal: number;
   byType: Record<string, number>;
@@ -154,6 +178,12 @@ export const sentineloneAnalyticsApi = {
   async getPosturePolicies(): Promise<SentinelOnePolicyRow[]> {
     const res = await apiClient.get(`${BASE}/posture/policies`);
     return res.data.items ?? [];
+  },
+
+  /** Achilles Endpoint Protection score (latest snapshot) and its trend over `days`. */
+  async getProtectionScore(days = 30): Promise<SentinelOneProtectionScoreResponse> {
+    const res = await apiClient.get(`${BASE}/posture/protection-score`, { params: { days } });
+    return res.data;
   },
 
   async getAgentHealth(days = 30): Promise<SentinelOneAgentHealthResponse> {
