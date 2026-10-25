@@ -127,6 +127,19 @@ describe('SentinelOneAnalyticsService', () => {
     expect(facet).toContain('"f0rtika.auto_mitigation_mode":"enabled"');
   });
 
+  it('the Threats / Detection alerts filter narrows the rows AND the facet counts', async () => {
+    // sourceType is a query clause (not a post_filter like source / severity),
+    // so every facet aggregation runs inside it. Only linkedOpen is global by
+    // design ("over the window only").
+    mockSearch.mockResolvedValue({ hits: { total: { value: 0 }, hits: [] }, aggregations: {} });
+    await new SentinelOneAnalyticsService().getAlerts({ sourceType: 'threats', source: 'test', severities: ['high'] });
+    const req = mockSearch.mock.calls[0][0];
+    expect(req.query.bool.must).toContainEqual({ term: { source_type: 'threats' } });
+    expect(JSON.stringify(req.post_filter)).not.toContain('source_type');
+    const globals = Object.entries(req.aggs as Record<string, { global?: object }>).filter(([, a]) => a.global).map(([k]) => k);
+    expect(globals).toEqual(['facet_linked_open']);
+  });
+
   it('has no ZTA-style posture score (empty, not invented)', async () => {
     const svc = new SentinelOneAnalyticsService();
     expect(await svc.getZtaScoreTrend(90)).toEqual([]);
