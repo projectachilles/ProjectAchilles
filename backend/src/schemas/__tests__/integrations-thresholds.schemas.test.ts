@@ -22,3 +22,20 @@ describe('AlertThresholdsSchema', () => {
     expect(AlertThresholdsSchema.safeParse({ enabled: true, s1_outdated_agents_max: 1.5 }).success).toBe(false);
   });
 });
+
+describe('AlertSettingsSchema slack.webhook_url', () => {
+  const parseSlack = (webhook_url: string | undefined) =>
+    AlertSettingsSchema.safeParse({ slack: { webhook_url, enabled: true } });
+
+  it('accepts a Slack webhook, an empty value (keep the saved one) and no value', () => {
+    expect(parseSlack('https://hooks.slack.com/services/T000/B000/XXXX').success).toBe(true);
+    expect(parseSlack('').success).toBe(true);
+    expect(parseSlack(undefined).success).toBe(true);
+  });
+
+  it('rejects a webhook URL that is not on hooks.slack.com', () => {
+    const result = parseSlack('http://169.254.169.254/latest/meta-data/');
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error?.issues)).toMatch(/Invalid Slack webhook URL/);
+  });
+});

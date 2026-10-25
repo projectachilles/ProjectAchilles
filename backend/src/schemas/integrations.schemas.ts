@@ -3,6 +3,7 @@
  */
 
 import { z } from 'zod';
+import { INVALID_SLACK_WEBHOOK_MESSAGE, slackWebhookEndpoint } from '../services/alerts/slack.service.js';
 
 // ── Azure / Entra ID ─────────────────────────────────────────────────────────
 
@@ -101,7 +102,11 @@ const AlertThresholdsSchema = z.object({
 }).optional();
 
 const SlackChannelSchema = z.object({
-  webhook_url: z.string().optional(),
+  // Empty keeps the saved webhook (the UI never receives it back).
+  webhook_url: z.string().optional().refine(
+    (url) => !url || slackWebhookEndpoint(url) !== null,
+    { message: INVALID_SLACK_WEBHOOK_MESSAGE },
+  ),
   configured: z.boolean().optional(),
   enabled: z.boolean().optional(),
 }).optional();
