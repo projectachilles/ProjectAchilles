@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math/rand"
+	"math/rand" // nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used -- only heartbeat jitter (+-5s), not security-relevant
 	"net"
 	"net/http"
 	"os"

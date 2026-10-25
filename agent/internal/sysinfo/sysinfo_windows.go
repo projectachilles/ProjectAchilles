@@ -10,10 +10,10 @@ import (
 )
 
 var (
-	modkernel32                = windows.NewLazySystemDLL("kernel32.dll")
-	procGetSystemTimes         = modkernel32.NewProc("GetSystemTimes")
-	procGetTickCount64         = modkernel32.NewProc("GetTickCount64")
-	procGlobalMemoryStatusEx   = modkernel32.NewProc("GlobalMemoryStatusEx")
+	modkernel32                 = windows.NewLazySystemDLL("kernel32.dll")
+	procGetSystemTimes          = modkernel32.NewProc("GetSystemTimes")
+	procGetTickCount64          = modkernel32.NewProc("GetTickCount64")
+	procGlobalMemoryStatusEx    = modkernel32.NewProc("GlobalMemoryStatusEx")
 	procK32GetProcessMemoryInfo = modkernel32.NewProc("K32GetProcessMemoryInfo")
 )
 
@@ -94,8 +94,8 @@ func Collect() Info {
 
 	// Memory via GlobalMemoryStatusEx.
 	var mem memoryStatusEx
-	mem.Length = uint32(unsafe.Sizeof(mem))
-	ret, _, _ = procGlobalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&mem)))
+	mem.Length = uint32(unsafe.Sizeof(mem))                                  // nosemgrep: go.lang.security.audit.unsafe.use-of-unsafe-block -- Win32 FFI: pointer/size of a fixed struct passed to the syscall
+	ret, _, _ = procGlobalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&mem))) // nosemgrep: go.lang.security.audit.unsafe.use-of-unsafe-block -- Win32 FFI: pointer/size of a fixed struct passed to the syscall
 	if ret != 0 {
 		info.TotalMemoryMB = int(mem.TotalPhys / (1024 * 1024))
 		usedBytes := mem.TotalPhys - mem.AvailPhys
@@ -128,10 +128,10 @@ func getProcessTimes() (kernel, user uint64) {
 // getProcessMemoryMB returns the working set size (RSS equivalent) in MB.
 func getProcessMemoryMB() int {
 	var pmc processMemoryCounters
-	pmc.CB = uint32(unsafe.Sizeof(pmc))
+	pmc.CB = uint32(unsafe.Sizeof(pmc)) // nosemgrep: go.lang.security.audit.unsafe.use-of-unsafe-block -- Win32 FFI: pointer/size of a fixed struct passed to the syscall
 	ret, _, _ := procK32GetProcessMemoryInfo.Call(
 		uintptr(windows.CurrentProcess()),
-		uintptr(unsafe.Pointer(&pmc)),
+		uintptr(unsafe.Pointer(&pmc)), // nosemgrep: go.lang.security.audit.unsafe.use-of-unsafe-block -- Win32 FFI: pointer/size of a fixed struct passed to the syscall
 		uintptr(pmc.CB),
 	)
 	if ret == 0 {
@@ -144,9 +144,9 @@ func getProcessMemoryMB() int {
 func getSystemTimes() (idle, kernel, user uint64) {
 	var idleFt, kernelFt, userFt windows.Filetime
 	procGetSystemTimes.Call(
-		uintptr(unsafe.Pointer(&idleFt)),
-		uintptr(unsafe.Pointer(&kernelFt)),
-		uintptr(unsafe.Pointer(&userFt)),
+		uintptr(unsafe.Pointer(&idleFt)),   // nosemgrep: go.lang.security.audit.unsafe.use-of-unsafe-block -- Win32 FFI: pointer/size of a fixed struct passed to the syscall
+		uintptr(unsafe.Pointer(&kernelFt)), // nosemgrep: go.lang.security.audit.unsafe.use-of-unsafe-block -- Win32 FFI: pointer/size of a fixed struct passed to the syscall
+		uintptr(unsafe.Pointer(&userFt)),   // nosemgrep: go.lang.security.audit.unsafe.use-of-unsafe-block -- Win32 FFI: pointer/size of a fixed struct passed to the syscall
 	)
 	idle = uint64(idleFt.HighDateTime)<<32 | uint64(idleFt.LowDateTime)
 	kernel = uint64(kernelFt.HighDateTime)<<32 | uint64(kernelFt.LowDateTime)

@@ -69,7 +69,7 @@ func Collect() Info {
 // getUptime reads kern.boottime via sysctl and computes seconds since boot.
 func getUptime() int64 {
 	raw, err := syscall.Sysctl("kern.boottime")
-	if err != nil || len(raw) < int(unsafe.Sizeof(syscall.Timeval{})) {
+	if err != nil || len(raw) < int(unsafe.Sizeof(syscall.Timeval{})) { // nosemgrep: go.lang.security.audit.unsafe.use-of-unsafe-block -- sysctl FFI: bounds check before reading kern.boottime as a Timeval
 		return 0
 	}
 	// kern.boottime is a timeval: {sec int64, usec int32} on darwin/amd64

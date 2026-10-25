@@ -37,8 +37,8 @@ func newJobObject() (*jobObject, error) {
 	_, err = windows.SetInformationJobObject(
 		h,
 		windows.JobObjectExtendedLimitInformation,
-		uintptr(unsafe.Pointer(&info)),
-		uint32(unsafe.Sizeof(info)),
+		uintptr(unsafe.Pointer(&info)), // nosemgrep: go.lang.security.audit.unsafe.use-of-unsafe-block -- Win32 FFI: pointer/size of a fixed struct passed to the syscall
+		uint32(unsafe.Sizeof(info)),    // nosemgrep: go.lang.security.audit.unsafe.use-of-unsafe-block -- Win32 FFI: pointer/size of a fixed struct passed to the syscall
 	)
 	if err != nil {
 		windows.CloseHandle(h)

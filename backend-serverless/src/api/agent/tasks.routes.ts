@@ -45,7 +45,7 @@ export const agentTasksRouter = Router();
  * Fetch the next pending task for the authenticated agent.
  * Returns 204 if no tasks are available.
  */
-agentTasksRouter.get(
+agentTasksRouter.get( // nosemgrep: semgrep.rules.projectachilles-clerk-auth-missing -- agent device route: mounted behind requireAgentAuth in api/agent/index.ts
   '/tasks',
   asyncHandler(async (req, res) => {
     const agent = req.agent;

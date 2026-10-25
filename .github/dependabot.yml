@@ -135,7 +135,7 @@ updates:
     schedule:
       interval: "weekly"
     cooldown:
-      default-days: 3
+      default-days: 3 # nosemgrep: package_managers.dependabot.dependabot-missing-cooldown.dependabot-missing-cooldown -- 3 days on purpose: images get no security updates (see comment above)
     ignore:
       # Node majors are a runtime migration (CI, @types/node and the lockfile
       # npm version all track Node 22), not an image bump. Digest refreshes of

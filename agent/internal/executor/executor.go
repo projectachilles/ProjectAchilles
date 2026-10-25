@@ -238,7 +238,7 @@ func Execute(ctx context.Context, client *httpclient.Client, task Task, cfg *con
 	if cmd.Env == nil {
 		cmd.Env = os.Environ()
 	}
-	cmd.Env = append(cmd.Env, "F0_BUNDLE_DIR="+bundleDir)
+	cmd.Env = append(cmd.Env, "F0_BUNDLE_DIR="+bundleDir) // nosemgrep: semgrep.rules.projectachilles-env-var-injection -- agent-computed temp path, not payload data; payload vars go through applyEnvVars allowlist above
 
 	// Create a Job Object (Windows) to kill all child processes on timeout.
 	// On Linux/macOS this returns (nil, nil) — a no-op.

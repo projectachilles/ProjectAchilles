@@ -129,7 +129,7 @@ router.post('/azure/test', requirePermission('integrations:write'), validate(Azu
       });
       if (!tokenRes.ok) {
         const errBody = await tokenRes.json().catch(() => ({}));
-        const errorDesc = (errBody as Record<string, string>).error_description || `HTTP ${tokenRes.status}`;
+        const errorDesc = (errBody as Record<string, string>).error_description || `HTTP ${tokenRes.status}`; // nosemgrep: javascript.express.security.injection.raw-html-format.raw-html-format -- sent with res.json(), never rendered as HTML
         res.json({ success: false, error: `Authentication failed: ${errorDesc}` });
         return;
       }
