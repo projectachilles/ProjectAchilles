@@ -35,7 +35,80 @@ Create separate Clerk applications for each deployment target (local dev, stagin
 **Exception:** If you move from one hosting provider to another with the same custom domain, you can reuse the same Clerk production app.
 :::
 
-### 3. Configure OAuth Providers
+### 3. Add the role to the session token \{#session-token-claim}
+
+ProjectAchilles reads each user's role from their Clerk **public metadata**
+(step 4). Put it in the session token so the backend can read it from every
+request:
+
+1. In the Clerk Dashboard, open **Configure → Sessions**.
+2. Under **Customize session token**, leave the name as it is (`__session`) and
+   set the **Claims** to:
+
+   ```json
+   {
+     "metadata": "{{user.public_metadata}}"
+   }
+   ```
+
+   If the claims already hold other keys, add `metadata` next to them.
+3. Select **Save**.
+
+Clerk keeps this setting **per instance**: a development and a production
+instance each need it, and so does every Clerk app you create for another
+deployment.
+
+:::info What happens without it
+From v2.5.0, the backend looks up the role of a signed-in browser session whose token has
+no `metadata` claim in Clerk instead (cached for a minute per user), so
+permissions still work, at the cost of a Clerk API call per user per minute.
+Before v2.5.0, every user without the claim was read-only, admins included: every
+admin action failed with **Insufficient permissions** (403). Clerk has no API for
+this setting, so no installer can set it for you.
+:::
+
+### 4. Make the first admin \{#first-admin}
+
+A role is a `role` key in the user's public metadata: `admin`, `operator`,
+`analyst` or `explorer`. A signed-in user with no role gets `explorer`
+(read-only), so every new deployment needs one admin, who then manages everyone
+else from the web UI.
+
+1. Sign up at `https://<your-domain>/sign-up` (or create the user in the Clerk
+   Dashboard under **Users → Create user**).
+2. In the Clerk Dashboard, open **Users →** the user **→ Metadata**, select
+   **Edit** next to **Public**, set it to the following, and save:
+
+   ```json
+   {
+     "role": "admin"
+   }
+   ```
+
+   Leave other keys, such as `org_id`, in place.
+3. Sign out of ProjectAchilles and sign in again (or wait a minute) so the
+   session picks up the role.
+
+Two installers do this for you: the [Server Installer](./server-installer)
+invites or promotes the **first admin email** you give it, and
+`./scripts/start.sh` (local development) sets the role for the email you enter.
+
+**More people:** an admin invites them, with a role, from **Settings → Users** in
+the web UI.
+
+### 5. Restrict sign-ups \{#restrict-sign-ups}
+
+Anyone who can reach the sign-up page can create an account, and an account with
+no role can still read the dashboards and the test library. Unless the app is
+only reachable from your own network, open **Configure → Access mode** in the
+Clerk Dashboard and either:
+
+- set the sign-up mode to **Invite-only**. Invitations from **Settings → Users**
+  and from the Server Installer still work; or
+- keep **Open** and enable the **allowlist** with your email domain (a paid Clerk
+  feature on production instances).
+
+### 6. Configure OAuth Providers
 
 For each OAuth provider you want to support:
 

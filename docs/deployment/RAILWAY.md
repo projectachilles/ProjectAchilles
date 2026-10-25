@@ -18,6 +18,10 @@ Services communicate over Railway's [private network](https://docs.railway.com/g
 - Railway account ([railway.com](https://railway.com)) — Hobby plan ($5/month) or above
 - GitHub repo with this project pushed
 - Clerk application keys ([dashboard.clerk.com](https://dashboard.clerk.com))
+- Clerk **roles**: the session token claim `{"metadata": "{{user.public_metadata}}"}`
+  (Clerk Dashboard → **Configure → Sessions → Customize session token**) and,
+  after your first sign-in, `{"role": "admin"}` in your user's public metadata.
+  Without a role every user is read-only. Steps: [Clerk roles](https://docs.projectachilles.io/docs/deployment/prerequisites#session-token-claim).
 - Elastic Cloud deployment ([cloud.elastic.co](https://cloud.elastic.co))
 - GitHub Personal Access Token (if using a private test repo)
 

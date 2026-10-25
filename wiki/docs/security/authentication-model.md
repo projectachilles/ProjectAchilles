@@ -17,6 +17,12 @@ All web routes require Clerk JWT authentication.
 - Short-lived tokens with automatic refresh
 - Session isolation per user
 
+Permissions come from a role (`admin`, `operator`, `analyst` or `explorer`) in
+each user's Clerk public metadata, which the session token carries as the
+`metadata` claim. A user with no role is read-only (`explorer`). When the claim
+isn't configured, the backend looks the role up in Clerk for browser sessions
+only (cached for a minute). Setup: [Prerequisites](../deployment/prerequisites#session-token-claim).
+
 ### Tier 2: Agent API Keys
 
 Agents authenticate with unique keys issued during enrollment.

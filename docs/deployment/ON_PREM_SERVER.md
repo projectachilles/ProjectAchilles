@@ -1,7 +1,7 @@
 # Deploying ProjectAchilles On-Premises
 
 > **Installing on a LAN with Windows agents?** See
-> [`ON_PREM_LAN.md`](./ON_PREM_LAN.md): the `achilles-installer` wizard, a
+> [`SERVER_INSTALLER.md`](./SERVER_INSTALLER.md): the `achilles-installer` wizard, a
 > name-constrained ProjectAchilles CA, and GPO-based trust for Windows endpoints.
 
 This guide deploys a **fully functional on-prem** ProjectAchilles install on a
@@ -38,6 +38,10 @@ images and repos internally first — not covered here.)
   your network to the server's (private) IP — via your internal DNS, split-horizon
   zone, or `/etc/hosts` on clients.
 - Clerk keys; optionally Elastic Cloud and a GitHub token (private repos).
+- Clerk **roles**: the session token claim `{"metadata": "{{user.public_metadata}}"}`
+  (Clerk Dashboard → **Configure → Sessions → Customize session token**) and,
+  after your first sign-in, `{"role": "admin"}` in your user's public metadata.
+  Without a role every user is read-only. Steps: [Clerk roles](https://docs.projectachilles.io/docs/deployment/prerequisites#session-token-claim).
 - On your workstation: `bash`, `ssh`, `rsync`, and a clone of this repo.
 
 ## Choose a certificate strategy
@@ -54,7 +58,7 @@ Set `TLS_MODE` in `deploy.config.env`. All three on-prem options produce a
 > **Recommendation:** if you own a public domain, `acme-dns` is the smoothest —
 > publicly-trusted certs with zero client configuration and no inbound exposure.
 > Use `internal` for truly isolated networks (for a LAN with Windows endpoints,
-> prefer the [Server Installer guide](./ON_PREM_LAN.md)'s name-constrained CA,
+> prefer the [Server Installer guide](./SERVER_INSTALLER.md)'s name-constrained CA,
 > `TLS_MODE=achilles-ca`), or `byo` to plug into an existing enterprise PKI.
 
 ## Step 1 — Configure

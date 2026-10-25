@@ -8,14 +8,16 @@ description: Compare all ProjectAchilles deployment targets — Docker Compose, 
 
 ProjectAchilles supports eight deployment targets. Choose based on your requirements for database, storage, agent build capability, and budget.
 
+Every target signs users in through Clerk. Set up the Clerk app first, including the session token claim and the first admin's role: see [Prerequisites](./prerequisites#clerk-authentication-required).
+
 ## Comparison Matrix
 
 | Target | Backend | Database | File Storage | Agent Builds | Cost | Best For |
 |--------|---------|----------|-------------|-------------|------|----------|
 | **Docker Compose** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Free | Local dev, self-hosted, air-gapped |
-| **Public server** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | VPS cost | Public single-server install with auto-TLS |
-| **On-prem server** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Your hardware | Private/internal networks, own PKI |
-| **Server installer (on-prem or cloud)** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Your hardware or VPS cost | One-command wizard: LAN server with a managed CA and GPO trust, or a cloud server with Let's Encrypt |
+| **Server installer (on-prem or cloud)** — recommended for self-hosting | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Your hardware or VPS cost | One-command wizard on one Linux server: a LAN with a managed CA and GPO trust, or a cloud server (DigitalOcean, Hetzner) with Let's Encrypt |
+| **Public server** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | VPS cost | Scripted install on a VPS (or a droplet it creates) with auto-TLS, no wizard |
+| **On-prem server** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | Your hardware | Scripted install over SSH on a private network, own PKI, no wizard |
 | **Railway** | `backend/` | SQLite (volume) | Filesystem (volume) | Partial | ~$10-13/mo | Simplicity, auto-deploy from GitHub |
 | **Render** | `backend/` | SQLite (persistent disk) | Filesystem (disk) | Partial | ~$14/mo | Flat-rate pricing, Blueprint deploy |
 | **Fly.io** | `backend/` | SQLite (volume) | Filesystem (volume) | Yes | ~$8/mo | Cheapest always-on, custom domains |
@@ -28,6 +30,12 @@ ProjectAchilles supports eight deployment targets. Choose based on your requirem
 - Optional local Elasticsearch with synthetic seed data
 - Best for development, testing, and on-premises deployment
 - Requires managing your own infrastructure
+
+### Server Installer (On-Prem or Cloud)
+- `install-onprem.sh` downloads a checksum-verified `achilles-installer` and starts a ten-screen terminal wizard
+- Detects a LAN or a public IP and adapts: a name-constrained ProjectAchilles CA with GPO trust for Windows fleets, or Let's Encrypt on a cloud server
+- Invites the first admin through Clerk; day-2 `status`, `upgrade`, `backup` and `restore` commands; unattended mode from a config file
+- Same engine and stack as the two scripted installs below
 
 ### Public Server (VPS/Droplet)
 - Single-server install behind a [Caddy](https://caddyserver.com) reverse proxy with one public origin
@@ -69,10 +77,8 @@ ProjectAchilles supports eight deployment targets. Choose based on your requirem
 
 :::tip Which Should I Choose?
 - **Just evaluating?** Use [Docker Compose](./docker-compose) or [Local Dev](../getting-started/quick-start-local)
-- **Want your own public server with a domain?** Use [Public Server](./public-server) (Caddy auto-TLS, DigitalOcean or any VPS)
-- **Running on a private/internal network?** Use [On-Prem Server](./on-prem-server) (internal CA, DNS-01, or your own cert)
-- **Windows fleet on a LAN, no public IP?** Use the [Server Installer](./on-prem-lan) (TUI wizard, managed CA, GPO trust)
-- **A DigitalOcean or Hetzner server?** The same wizard handles a public IP with Let's Encrypt: [Cloud servers](./on-prem-lan#cloud-servers-digitalocean-hetzner)
+- **Self-hosting on one Linux server, on your LAN or in the cloud?** Use the [Server Installer](./server-installer): a LAN with a managed CA and GPO trust, or a DigitalOcean/Hetzner server with Let's Encrypt
+- **Prefer to script it yourself, or need DigitalOcean provisioning?** Use [Public Server](./public-server) (any VPS, or `deploy-do.sh` creates the droplet) or [On-Prem Server](./on-prem-server) (over SSH; internal CA, DNS-01 or your own cert)
 - **Need the cheapest managed always-on?** Use [Fly.io](./fly-io) (~$8/mo)
 - **Want the simplest managed deploy?** Use [Railway](./railway) (GitHub auto-deploy)
 - **Need serverless scale?** Use [Vercel](./vercel) (requires Turso + Blob)

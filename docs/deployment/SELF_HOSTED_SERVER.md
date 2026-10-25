@@ -43,6 +43,10 @@ differ.
 - A domain you control (e.g. `example.com`) and the ability to create an A record.
 - A server (or a DigitalOcean account + `doctl` to create one).
 - Clerk application keys — [dashboard.clerk.com](https://dashboard.clerk.com) → API Keys.
+- Clerk **roles**: the session token claim `{"metadata": "{{user.public_metadata}}"}`
+  (Clerk Dashboard → **Configure → Sessions → Customize session token**) and,
+  after your first sign-in, `{"role": "admin"}` in your user's public metadata.
+  Without a role every user is read-only. Steps: [Clerk roles](https://docs.projectachilles.io/docs/deployment/prerequisites#session-token-claim).
 - (Optional) Elastic Cloud deployment if you don't want to self-host Elasticsearch.
 - (Optional) A GitHub token if your test library / agent repo is private.
 

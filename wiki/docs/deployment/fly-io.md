@@ -78,6 +78,15 @@ curl https://achilles-backend.fly.dev/api/health
 
 Visit `https://achilles-frontend.fly.dev` and verify Clerk login works.
 
+:::warning Set up roles in Clerk
+Every user without a role is read-only. In the Clerk Dashboard, add the
+`metadata` claim to the session token, then give your own account
+`{"role": "admin"}` in its public metadata and sign in again:
+[session token claim](./prerequisites#session-token-claim) and
+[first admin](./prerequisites#first-admin). Invite everyone else from
+**Settings → Users**.
+:::
+
 ## Custom Domains
 
 Fly.io uses **A/AAAA records** (not CNAME like Render/Vercel):
