@@ -100,6 +100,8 @@ export interface DefenderAlertItem {
    */
   auto_resolved_at?: string | null;
   auto_resolve_mode?: 'disabled' | 'dry_run' | 'enabled' | null;
+  /** Receipt error (not_found, not_applied, ...): Achilles did NOT resolve the alert. */
+  auto_resolve_error?: string | null;
   /**
    * Alerts list only (the related-alerts path shares this type and omits them).
    * First of evidence_hostnames, or null.
@@ -469,6 +471,7 @@ export class DefenderAnalyticsService {
         const mode = f0rtika.auto_resolve_mode;
         item.auto_resolve_mode =
           mode === 'disabled' || mode === 'dry_run' || mode === 'enabled' ? mode : null;
+        item.auto_resolve_error = f0rtika.auto_resolve_error ? String(f0rtika.auto_resolve_error) : null;
       }
       return item;
     });

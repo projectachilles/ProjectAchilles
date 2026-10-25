@@ -282,6 +282,19 @@ describe('DefenderAnalyticsService', () => {
       expect(result.data[0].auto_resolved).toBe(true);
       expect(result.data[0].auto_resolved_at).toBe('2026-05-13T10:05:00Z');
       expect(result.data[0].auto_resolve_mode).toBe('enabled');
+      expect(result.data[0].auto_resolve_error).toBeNull();
+    });
+
+    it('passes the receipt error through, so a skip-forever receipt is not shown as resolved', async () => {
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 1 }, hits: [{ _source: {
+          alert_id: 'a404', alert_title: 'Deleted upstream', severity: 'high', status: 'new', mitre_techniques: [],
+          created_at: '2026-05-12T10:00:00Z', updated_at: '2026-05-12T10:00:00Z', resolved_at: null,
+          f0rtika: { auto_resolved: true, auto_resolved_at: '2026-05-13T10:05:00Z', auto_resolve_mode: 'enabled', auto_resolve_error: 'not_found' },
+        } }] },
+      });
+      const result = await service.getAlerts({});
+      expect(result.data[0]).toMatchObject({ auto_resolved: true, auto_resolve_mode: 'enabled', auto_resolve_error: 'not_found' });
     });
 
     it('omits auto-resolve fields when the f0rtika object is absent', async () => {

@@ -105,6 +105,8 @@ export interface CrowdStrikeAlertItem {
   auto_resolved?: boolean;
   auto_resolved_at?: string | null;
   auto_resolve_mode?: 'disabled' | 'dry_run' | 'enabled' | null;
+  /** Set when Achilles shelved the alert without resolving it (not_found, not_applied, ...). */
+  auto_resolve_error?: string | null;
 }
 
 export interface PaginatedCrowdStrikeAlerts {
