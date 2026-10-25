@@ -3,8 +3,8 @@ name: Claude Code Review
 # Fork PRs get no secrets on `pull_request`, and claude-code-action only runs
 # for users with write access, so fork PRs are reviewed when a maintainer adds
 # the `claude-review` label after reading the diff (`pull_request_target`).
-# That run checks out the BASE branch and the PR head only as data in
-# ./pr-head, and never runs PR code. Same pattern as security-review.yml.
+# That run checks out only the BASE branch and reads the PR through the API
+# (`gh pr diff`): no PR code is on disk or run. Same as security-review.yml.
 
 on:
   pull_request:
@@ -41,18 +41,11 @@ jobs:
           # Full history, so review subagents can use git log/show/diff (auto-approved
           # as read-only) without git fetch. Don't add Bash(git ...) allow rules: they
           # bypass that read-only check and allow --output and --no-index.
-          # On pull_request_target this is the BASE branch (checkout's default).
+          # On pull_request_target this is the BASE branch (checkout's default):
+          # no PR file is ever checked out.
           fetch-depth: 0
           persist-credentials: false
 
-      # Fork PRs: the PR's files, as data only. Nothing in this job runs them.
-      - name: Check out the fork PR head as data
-        if: github.event_name == 'pull_request_target'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: pr-head
-          persist-credentials: false
 
       - name: Run Claude Code Review
         id: claude-review
@@ -67,7 +60,6 @@ jobs:
           claude_args: |
             --model claude-opus-5-5
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*)"
-            ${{ github.event_name == 'pull_request_target' && '--add-dir pr-head' || '' }}
 
       # Full output stays hidden (public repo); list only which tool calls were denied
       - name: Report denied tool calls
