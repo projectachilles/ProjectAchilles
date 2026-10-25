@@ -661,7 +661,7 @@ func TestDoneShowsFingerprintsAndNoToken(t *testing.T) {
 		"sudo bash bootstrap-unix.sh <TOKEN>",
 		"Push root.cer via GPO (Computer Configuration → Policies → Windows Settings → Security Settings → Public Key Policies → Trusted Root Certification Authorities). Never put enrollment tokens in GPO/SYSVOL.",
 		"Register an agent version in the web UI before enrolling",
-		"achilles-installer status", "achilles-installer upgrade", "achilles-installer backup", "achilles-installer restore",
+		"sudo ./achilles-installer status", "sudo ./achilles-installer upgrade", "sudo ./achilles-installer backup", "sudo ./achilles-installer restore",
 	} {
 		if !strings.Contains(full, want) {
 			t.Errorf("done content missing %q:\n%s", want, full)

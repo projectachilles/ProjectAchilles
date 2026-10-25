@@ -150,14 +150,16 @@ func (d *doneScreen) build() []string {
 		add(fmt.Sprintf("  %d. ", i+1) + strings.ReplaceAll(wrap(step, w-5), "\n", "\n     "))
 	}
 	add("")
-	add(t.Title.Render("Day-2 commands") + t.Muted.Render(" (as root)"))
+	// sudo + ./ so the commands paste as they are: the binary is not on PATH
+	// and its files are root-only.
+	add(t.Title.Render("Day-2 commands") + t.Muted.Render(" (in "+d.s.deps.RepoRoot+")"))
 	for _, row := range [][2]string{
 		{"status", "health, certificates, last backup"},
 		{"upgrade", "move to a newer ProjectAchilles release"},
 		{"backup", "back up data, the CA and settings"},
 		{"restore", "restore a backup file"},
 	} {
-		add("  " + t.Code.Render(fmt.Sprintf("achilles-installer %-8s", row[0])) + " " + t.Muted.Render(row[1]))
+		add("  " + t.Code.Render(fmt.Sprintf("sudo ./achilles-installer %-8s", row[0])) + " " + t.Muted.Render(row[1]))
 	}
 	return out
 }

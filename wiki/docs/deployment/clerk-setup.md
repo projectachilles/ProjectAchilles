@@ -64,12 +64,19 @@ Open **Configure**, then **API keys** under **Instance** in the left menu.
 | **Secret key** | `sk_test_` or `sk_live_` | Server Installer: **Clerk secret key**. Other targets: `CLERK_SECRET_KEY` (backend only). |
 
 - **Publishable key:** the copy button next to it.
-- **Secret key:** the field shows the key shortened. Click into it and copy
-  (Ctrl+C, or ⌘C on macOS): Clerk copies the whole key.
-- **Add new key** creates another secret key. One per server (for example
-  `installer` or `prod-server`) lets you revoke one without touching the others.
-  The lock icon next to a secret key adds an IP allowlist; it doesn't reveal the
-  key.
+- **Secret key:** create a new one for this deployment. Clerk shows a secret key
+  in full only once, when it's created. The keys already listed may not copy:
+  selecting one can open **Edit IP allowlist** (a Business-plan feature)
+  instead.
+  1. Select **Add new key**.
+  2. Enter a name that says where the key is used, for example
+     `projectachilles-prod`, and select **Create key**.
+  3. In **Secret key created successfully**, select **Copy key and close**, and
+     paste the key into the installer (or your secret store) straight away.
+     Clerk can't show it again: if you lose it, create another key and delete
+     this one.
+
+  One key per server lets you revoke one without touching the others.
 - Ignore the **Quick copy** box at the top of the page: it shows variable names
   for other frameworks (such as Next.js), not the ones ProjectAchilles uses.
 
@@ -238,4 +245,5 @@ screenshots for these steps; the pages look like the ones above.
 | Google, Microsoft or GitHub sign-in fails with a 404 and an empty `client_id` | A Production instance without your own OAuth credentials (production step 4). |
 | Sign-in fails right after switching to production keys | Clerk's DNS records aren't verified yet (production step 3). |
 | Server Installer: `This production key belongs to …` | The production app's domain doesn't fit the hostname (production step 2). |
+| Selecting the secret key opens **Edit IP allowlist** | Existing secret keys can't always be copied. Create a new one with **Add new key** and copy it from the dialog (step 2). |
 | No invitation email | Check spam, then **Users → Invitations** in Clerk for a pending invitation. |

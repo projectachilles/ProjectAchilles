@@ -312,7 +312,7 @@ secrets are kept).
 | Free disk space | < 20 GiB fresh; < 5 GiB existing | < 20 GiB existing |
 | Port 80 / 443 available | in use (our own Caddy is accepted on an existing install) | |
 | Docker registry, GitHub, Clerk API reachable | | unreachable |
-| Docker | | not found (installed from get.docker.com) |
+| Docker | | installed, but the daemon isn't answering (`systemctl start docker`). Not installed yet passes: the install adds it from get.docker.com |
 | Clock synchronised | | not NTP-synchronised |
 
 ![Preflight checks screen (2/10): PASS for root, OS, memory, disk, ports 80/443 and egress; WARN for Docker not found and clock sync](/img/screenshots/onprem-preflight.png)
@@ -856,7 +856,9 @@ their own store; import `root.crt` there if they show a warning.
 
 ## Day-2
 
-Run the installer as root from the checkout:
+Run the installer as root from the checkout. Without root, `status`, `upgrade`,
+`backup` and `restore` stop and print the `sudo` command to use: the
+configuration files and the Docker socket are root-only.
 
 ```bash
 cd /opt/projectachilles
