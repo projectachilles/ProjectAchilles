@@ -5,6 +5,9 @@ import { MemoryRouter } from 'react-router-dom';
 import { NotificationBell } from '../NotificationBell';
 
 // Mock the alerts API
+const caps = vi.hoisted(() => ({ alerting: true, loaded: true }));
+vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => caps }));
+
 vi.mock('@/services/api/alerts', () => ({
   alertsApi: {
     getAlertSettings: vi.fn(),
@@ -38,12 +41,30 @@ function renderBell() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  caps.alerting = true;
+  caps.loaded = true;
   for (const k of Object.keys(localStorageStore)) delete localStorageStore[k];
   mockGetAlertSettings.mockResolvedValue({ configured: false });
   mockGetAlertHistory.mockResolvedValue([]);
 });
 
 describe('NotificationBell', () => {
+  it('on a backend without alerting (Vercel) it never calls the alert API and still renders', async () => {
+    caps.alerting = false;
+    renderBell();
+    await userEvent.click(screen.getByRole('button', { name: /notifications/i }));
+    await waitFor(() => expect(screen.getByText(/aren't available on this deployment/i)).toBeInTheDocument());
+    expect(screen.queryByText(/alerts not configured/i)).not.toBeInTheDocument();
+    expect(mockGetAlertSettings).not.toHaveBeenCalled();
+    expect(mockGetAlertHistory).not.toHaveBeenCalled();
+  });
+
+  it('waits for the real capabilities before calling the alert API', () => {
+    caps.loaded = false;
+    renderBell();
+    expect(mockGetAlertSettings).not.toHaveBeenCalled();
+  });
+
   it('renders a button with Notifications label', async () => {
     renderBell();
     expect(screen.getByRole('button', { name: /notifications/i })).toBeInTheDocument();

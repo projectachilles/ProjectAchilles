@@ -13,6 +13,8 @@ This project uses two version streams:
 
 ### Documentation
 
+- **Wiki callouts render again.** Since the Docusaurus 3.10.2 upgrade, every titled callout (`:::warning Title`, 160 on 61 pages) showed as raw text; they now use the `:::warning[Title]` syntax.
+- **Clerk Setup guide.** A new wiki page, Deployment → Clerk Setup, walks through the Clerk Dashboard with screenshots: create the app, copy the keys, the session token claim, Invite-only sign-ups, the first admin, and the production instance (text). Prerequisites now summarises it, and every deployment guide links to it.
 - **Clerk roles in every deployment guide.** The session token claim (`{"metadata": "{{user.public_metadata}}"}`), the first admin's `{"role": "admin"}` and an invite-only sign-up mode are now one section in the wiki's Prerequisites, and every deployment guide (Docker Compose, Server Installer, Public and On-Prem Server, Fly.io, Render, Railway, Vercel, the production checklists) points to it. Before, only the Server Installer and local quick start mentioned them.
 - **Server Installer page for on-prem and cloud.** The wiki page moved to `deployment/server-installer` and comes first among the server guides; sections are shared or marked *On-prem LAN* / *Cloud server* instead of cloud being appended at the end. The full reference is now `docs/deployment/SERVER_INSTALLER.md` (`ON_PREM_LAN.md` points to it).
 

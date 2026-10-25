@@ -66,13 +66,13 @@ Services communicate over Railway's [private network](https://docs.railway.com/g
    ELASTICSEARCH_API_KEY=<from Elastic Cloud console>
    ```
 
-   :::tip Generate Secrets
+   :::tip[Generate Secrets]
    ```bash
    ./scripts/generate-secrets.sh --target railway
    ```
    :::
 
-:::danger ENCRYPTION_SECRET is Required
+:::danger[ENCRYPTION_SECRET is Required]
 Without `ENCRYPTION_SECRET`, the backend falls back to a machine-derived key (hostname + username) that changes across deploys, corrupting encrypted settings.
 :::
 
@@ -90,7 +90,7 @@ Without `ENCRYPTION_SECRET`, the backend falls back to a machine-derived key (ho
    BACKEND_PORT=3000
    ```
 
-   :::info Private Networking
+   :::info[Private Networking]
    `BACKEND_HOST` triggers an nginx config rewrite at container start, pointing the API proxy to the backend's private network address.
    :::
 
@@ -112,12 +112,12 @@ AGENT_SERVER_URL=https://${{ backend.RAILWAY_PUBLIC_DOMAIN }}
 3. Check backend health: `curl https://<backend-domain>/api/health`
 4. After logging in, verify the Elastic Cloud connection at **Analytics → Setup**
 
-:::warning Set up roles in Clerk
+:::warning[Set up roles in Clerk]
 Every user without a role is read-only. In the Clerk Dashboard, add the
 `metadata` claim to the session token, then give your own account
 `{"role": "admin"}` in its public metadata and sign in again:
-[session token claim](./prerequisites#session-token-claim) and
-[first admin](./prerequisites#first-admin). Invite everyone else from
+[session token claim](./clerk-setup#session-token-claim) and
+[first admin](./clerk-setup#first-admin). Invite everyone else from
 **Settings → Users**.
 :::
 

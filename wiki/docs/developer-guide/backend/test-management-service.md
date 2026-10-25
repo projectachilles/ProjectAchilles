@@ -129,7 +129,7 @@ Some tests use a multi-binary architecture with a `build_all.sh` orchestrator sc
 2. Executes `build_all.sh` which compiles and signs each validator binary
 3. The password file uses mode `0o600` and is deleted in a `finally` block
 
-:::warning Signing certificate required for bundle builds
+:::warning[Signing certificate required for bundle builds]
 Multi-binary bundles that include Windows validators need an active signing certificate. Without one, `build_all.sh` will produce unsigned binaries, which may be quarantined by endpoint protection during testing.
 :::
 
@@ -141,7 +141,7 @@ Multi-binary bundles that include Windows validators need an active signing cert
 | macOS | `rcodesign` | Ad-hoc (`--code-signature-flags adhoc`) | No |
 | Linux | -- | No signing | -- |
 
-:::info Signing failures are non-fatal
+:::info[Signing failures are non-fatal]
 If the signing tool is not installed or the certificate is unavailable, the build completes with an unsigned binary. The build result metadata includes a `signed: false` flag so the UI can display a warning.
 :::
 
@@ -209,7 +209,7 @@ On the Docker backend, certificates stored in the old flat-file layout (`~/.proj
 | Key generation time | Sub-second (native OpenSSL) | 2-8 seconds (pure JS RSA-4096) |
 | External dependencies | `openssl`, `osslsigncode`, `rcodesign` | None (pure JS) |
 
-:::tip node-forge compatibility
+:::tip[node-forge compatibility]
 `node-forge` uses `3des` (not AES) for PKCS#12 encoding to maintain compatibility with OpenSSL's default PFX parsing. X.509 validity times have second precision only -- always truncate milliseconds before setting `notAfter`.
 :::
 

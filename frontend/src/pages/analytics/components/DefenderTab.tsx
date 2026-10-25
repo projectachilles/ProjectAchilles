@@ -10,7 +10,7 @@ import {
 import { integrationsApi } from '@/services/api/integrations';
 import type { TechniqueCoverageResponse, TimeWindow } from '@/services/api/integrationTypes';
 import type { DateRangeValue } from '@/lib/timeRange';
-import DefenderTabHeader from './DefenderTabHeader';
+import IntegrationTabHeader from './integrations/IntegrationTabHeader';
 import HeroStatTile from './HeroStatTile';
 import AutoResolveStatTile from './AutoResolveStatTile';
 import TopControlsCard from './TopControlsCard';
@@ -155,7 +155,7 @@ export default function DefenderTab({ dateRange }: DefenderTabProps) {
 
   return (
     <div className="space-y-6">
-      <DefenderTabHeader lastSync={lastSync} syncing={syncing} syncError={syncError} onSync={handleSync} />
+      <IntegrationTabHeader vendor={vendor} lastSync={lastSync} syncing={syncing} syncError={syncError} onSync={handleSync} />
 
       {/* Hero row: 4 tiles */}
       <div className="grid grid-cols-12 gap-4">

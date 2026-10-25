@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-const caps = vi.hoisted(() => ({ sentinelone: false }));
+const caps = vi.hoisted(() => ({ sentinelone: false, alerting: true }));
 const getS1Settings = vi.hoisted(() => vi.fn());
 
-vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ preExecutionNotices: false, sentinelone: caps.sentinelone }) }));
+vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ preExecutionNotices: false, sentinelone: caps.sentinelone, alerting: caps.alerting }) }));
 vi.mock('@/hooks/useAnalyticsAuth', () => ({ useAnalyticsAuth: () => ({ configured: false }) }));
 vi.mock('@/services/api/integrations', () => ({
   integrationsApi: {
@@ -13,7 +13,8 @@ vi.mock('@/services/api/integrations', () => ({
     getCrowdStrikeSettings: () => Promise.resolve({ configured: false }),
   },
 }));
-vi.mock('@/services/api/alerts', () => ({ alertsApi: { getAlertSettings: () => Promise.resolve({ configured: false }) } }));
+const getAlertSettings = vi.hoisted(() => vi.fn());
+vi.mock('@/services/api/alerts', () => ({ alertsApi: { getAlertSettings } }));
 vi.mock('@/services/api/sentinelone', () => ({ sentinelOneApi: { getSettings: getS1Settings } }));
 // The config forms render only when a card is opened; stub them to keep this test about the grid.
 vi.mock('../AnalyticsConfig', () => ({ AnalyticsConfig: () => null }));
@@ -29,6 +30,8 @@ import { IntegrationsTab } from '../IntegrationsTab';
 describe('IntegrationsTab SentinelOne card', () => {
   beforeEach(() => {
     getS1Settings.mockReset().mockResolvedValue({ configured: false });
+    getAlertSettings.mockReset().mockResolvedValue({ configured: false });
+    caps.alerting = true;
   });
 
   it('is hidden, and its settings never requested, when the backend lacks the capability (Vercel)', () => {
@@ -45,4 +48,18 @@ describe('IntegrationsTab SentinelOne card', () => {
     expect(screen.getByText('SentinelOne')).toBeTruthy();
     expect(getS1Settings).toHaveBeenCalled();
   });
+
+  it('the Alerts & Notifications card is hidden, and its settings never requested, without alerting (Vercel)', () => {
+    caps.alerting = false;
+    render(<IntegrationsTab />);
+    expect(screen.queryByText('Alerts & Notifications')).toBeNull();
+    expect(getAlertSettings).not.toHaveBeenCalled();
+  });
+
+  it('the Alerts & Notifications card is shown when the backend has alerting', () => {
+    render(<IntegrationsTab />);
+    expect(screen.getByText('Alerts & Notifications')).toBeTruthy();
+    expect(getAlertSettings).toHaveBeenCalled();
+  });
 });
+

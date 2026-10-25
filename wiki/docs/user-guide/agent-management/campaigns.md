@@ -12,7 +12,7 @@ A **campaign** is a saved test plan: a set of tests crossed with a set of agents
 
 Use campaigns when you need repeatable, auditable proof of what was tested and what the controls did, for example for a compliance review or a quarterly validation. A campaign is also optionally labelled with a **framework label** (for example `ISO 27001 A.8`) that is carried onto the evidence page.
 
-:::info Availability
+:::info[Availability]
 Campaigns are available on self-hosted deployments (Docker, Render, Fly.io, Railway, public and on-prem servers). They are not available on Vercel; the **Campaigns** menu entry is hidden when the deployment does not support them.
 :::
 
@@ -50,7 +50,7 @@ Some test and host pairs cannot run. They are listed in the dialog with the reas
 | `agent <status>` | The agent is not `active` (for example `agent disabled` or `agent decommissioned`) |
 | `removed from library` | The test is no longer in the test library |
 
-:::warning Deleted or moved agents block the run
+:::warning[Deleted or moved agents block the run]
 If an agent in the campaign was deleted, or now belongs to a different organization, the launch fails with `Agent <id> does not belong to your organization`. This is not a skip: **Run the rest** cannot run around it. The dry-run preview may list such an agent as `agent deleted` or `agent not in organization`, but you must edit the campaign and remove the agent before you can run it. (Without organizations, only a deleted agent blocks.)
 :::
 

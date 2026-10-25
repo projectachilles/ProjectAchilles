@@ -36,7 +36,7 @@ This page covers pillars 1 and 2. Pillar 3 has its own setup walkthrough — see
 4. Under **Certificates & Secrets**, create a client secret **or** upload a certificate (see [Certificate authentication](#certificate-authentication) below)
 5. Note the **Application (client) ID**, **Directory (tenant) ID**, and **Client Secret** (or certificate thumbprint)
 
-:::tip Enabling auto-resolve later
+:::tip[Enabling auto-resolve later]
 If you plan to enable [auto-resolve](./defender-auto-resolve), it requires the
 additional `SecurityAlert.ReadWrite.All` scope. You can grant it now or add it
 later — the read-only integration runs fine without it.
@@ -195,7 +195,7 @@ All Defender data is stored in a single index (`achilles-defender`) using a **sp
 | `evidence_hostnames` | keyword[] | alert | Hostnames extracted from alert evidence metadata |
 | `evidence_filenames` | keyword[] | alert | Filenames extracted from alert evidence metadata |
 
-:::info Index Design Rationale
+:::info[Index Design Rationale]
 A single sparse index is used instead of three separate indices because the total document volume is low (typically hundreds, not millions) and it simplifies cross-document queries and index lifecycle management.
 :::
 
@@ -324,7 +324,7 @@ Both variants expose identical API endpoints and analytics capabilities.
 
 ## Troubleshooting
 
-:::warning Common Issues
+:::warning[Common Issues]
 - **"Test Connection" fails with 401**: Verify that admin consent has been granted for the `SecurityAlert.Read.All` permission in Azure AD. Application permissions (not delegated) are required.
 - **No data after saving credentials**: The first sync runs on the next interval (up to 6 hours for scores, 5 minutes for alerts). Click **Sync Now** in the integration settings to trigger an immediate sync.
 - **Missing alerts, scores, or controls**: All three document types — alerts, Secure Score, and control profiles — are read with `SecurityAlert.Read.All`. A 403 on any of them means the permission is missing or admin consent was not granted.

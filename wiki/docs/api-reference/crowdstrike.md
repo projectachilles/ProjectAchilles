@@ -190,7 +190,7 @@ with that technique id or any of its sub-techniques (`T1574` counts `T1574.002`
 alerts), the same rule as the alert drawer, so a row's count matches what its
 drawer lists. Parent-technique alerts are not counted on a sub-technique row.
 
-:::note Not the same as /correlation/detection-rate
+:::note[Not the same as /correlation/detection-rate]
 [`/correlation/detection-rate`](#detection-rate) (below) is the older technique plus time-window
 heuristic and is kept for the CLI. The Analytics tab now uses
 `technique-coverage`, so its numbers can differ from the heuristic.

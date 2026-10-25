@@ -37,7 +37,7 @@ Under **API Permissions**, add the following **Application** (not Delegated) per
 | `UserAuthenticationMethod.Read.All` | Application | Read user MFA enrollment status |
 | `RoleManagement.Read.Directory` | Application | Read role assignments and definitions |
 
-:::warning Admin Consent Required
+:::warning[Admin Consent Required]
 All five permissions require **admin consent**. After adding them, click **Grant admin consent for \<your org\>** on the API Permissions page. Without this, the service principal cannot access any data.
 :::
 
@@ -150,7 +150,7 @@ Credentials share the same encrypted settings file as Defender and Alerting conf
 
 ## Troubleshooting
 
-:::warning Common Issues
+:::warning[Common Issues]
 - **"Validate Credentials" fails**: Verify the Client Secret value has not expired. Azure AD client secrets have expiration dates — check **Certificates & Secrets** in the App Registration. (Certificate auth avoids this class of failure; certificates also expire, but on a much longer horizon.)
 - **Identity tests fail with "Azure credentials not configured"**: Ensure credentials are saved in Settings → Integrations. The Task Creator shows a warning if Azure is not configured.
 - **Tests run but return errors about permissions**: Verify all five permissions have **admin consent** granted. Individual user consent is not sufficient for Application-type permissions.

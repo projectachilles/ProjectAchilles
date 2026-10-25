@@ -22,7 +22,7 @@ available. Used by the **Has Binary** filter in the Test Browser.
 { "success": true, "data": ["uuid-1", "uuid-2", "..."] }
 ```
 
-:::info Serverless
+:::info[Serverless]
 On Vercel deployments the Go build system is stubbed, so this endpoint is
 unavailable and the Test Browser's "Has Binary" toggle has no effect.
 :::

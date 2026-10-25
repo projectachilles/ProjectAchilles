@@ -45,7 +45,7 @@ An alert is a candidate only when **all** of these hold:
 | `status == "new"` | Defender hasn't acted on the alert, and no human has acknowledged it. |
 | `f0rtika.auto_resolved != true` | The alert hasn't already been processed by a previous pass (idempotency). |
 
-:::info Fail-closed by design
+:::info[Fail-closed by design]
 The candidate query is a **whitelist** on `status: "new"`, not a denylist on
 `status: "resolved"`. Alerts that are `inProgress` (a SOC analyst is actively
 triaging) or `resolved` (already closed) are left untouched, and any *future*
@@ -133,7 +133,7 @@ curl -H "Authorization: Bearer $CLERK_JWT" \
   skip-forever receipt; transient errors skip the receipt so the next pass
   retries.
 
-:::warning Defense Score invariant
+:::warning[Defense Score invariant]
 **Auto-resolve never changes the [Defense Score](../analytics/defense-score).**
 It operates only on alert documents in the `achilles-defender` index. Test
 documents in `achilles-results-*` (which feed the Defense Score) are untouched

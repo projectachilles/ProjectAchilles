@@ -46,7 +46,7 @@ differ.
 - Clerk **roles**: the session token claim `{"metadata": "{{user.public_metadata}}"}`
   (Clerk Dashboard → **Configure → Sessions → Customize session token**) and,
   after your first sign-in, `{"role": "admin"}` in your user's public metadata.
-  Without a role every user is read-only. Steps: [Clerk roles](https://docs.projectachilles.io/docs/deployment/prerequisites#session-token-claim).
+  Without a role every user is read-only. Steps: [Clerk roles](https://docs.projectachilles.io/docs/deployment/clerk-setup#session-token-claim).
 - (Optional) Elastic Cloud deployment if you don't want to self-host Elasticsearch.
 - (Optional) A GitHub token if your test library / agent repo is private.
 

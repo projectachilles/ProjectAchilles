@@ -41,7 +41,7 @@ The settings apply to your organization. Each organization has its own recipient
 
 Every test run is covered: **Run Now**, a **manual retry**, every **schedule**, and every **campaign run**. Only test runs are covered. **Run Command**, agent updates and uninstalls never send a notice and never wait for one.
 
-:::caution Run Command is not announced
+:::caution[Run Command is not announced]
 A command runs immediately as root/SYSTEM on the host, and no email is sent. Commands such as PowerShell one-liners or `whoami /priv` can look like attacker activity to your EDR. If you run commands on monitored hosts, tell your SOC yourself.
 :::
 

@@ -22,7 +22,7 @@ In Clerk development mode (`pk_test_` keys), social login works immediately with
 
 ## Production Mode
 
-:::danger Custom Credentials Required
+:::danger[Custom Credentials Required]
 Clerk production instances (`pk_live_` keys) require your own OAuth app credentials for each provider. Without them, social login buttons redirect with an empty `client_id`, resulting in a 404 error.
 :::
 

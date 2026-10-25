@@ -162,7 +162,9 @@ Every person signs in through Clerk. What they may do comes from a **role** in
 their Clerk user's **public metadata**, for example `{"role": "admin"}`. The
 roles are `admin`, `operator`, `analyst` and `explorer`; a signed-in user with
 no role gets read-only (`explorer`) access. Two settings in the Clerk app make
-this work, on LAN and cloud installs alike. Set the first before you install
+this work, on LAN and cloud installs alike (the wiki's
+[Clerk Setup](https://docs.projectachilles.io/docs/deployment/clerk-setup) guide
+shows every Clerk Dashboard step with screenshots). Set the first before you install
 (required on servers older than v2.5.0, and still the recommended setup); the
 installer does the second for you.
 

@@ -44,7 +44,7 @@ hamburger button.
 | 5 | **Tasks** | `/tasks` | "What ran, what failed, what's queued?" |
 | 6 | **Settings** | `/settings` | "How is this instance wired up?" |
 
-:::note Older links still work
+:::note[Older links still work]
 Pre-2.1 paths redirect automatically: `/browser` → `/tests`,
 `/browser/test/:uuid` → `/tests/:uuid`, `/endpoints/dashboard` → `/dashboard`,
 `/endpoints/agents` → `/agents`, `/endpoints/tasks` → `/tasks`,
@@ -99,7 +99,7 @@ air-gapped installs.
 The wordmark is configurable per deployment through `VITE_BRAND_WORDMARK` (and
 `VITE_BRAND_TAGLINE`); it renders two-tone, splitting at the first underscore.
 
-:::info Upgrading from 2.0
+:::info[Upgrading from 2.0]
 The Default, Neobrutalism, and Hacker Terminal themes were retired in 2.1 along
 with the theme selector. Any stored theme preference is ignored — every user
 now sees the same console.

@@ -36,7 +36,7 @@ Keys are hashed at rest (SHA-256); the full plaintext is shown **once** at creat
 
 API keys cannot manage other API keys; the management endpoints require `settings:users:manage` which only the `admin` role grants.
 
-:::tip End-to-end usage walkthrough
+:::tip[End-to-end usage walkthrough]
 For curl recipes, alerting integrations (CI gates, SIEM forwarders), and explanations of the gotchas you'll hit when scripting against the API, read the [Programmatic Access guide](./programmatic-access.md).
 :::
 
@@ -250,7 +250,7 @@ All routes validate inputs before passing to services:
 
 HTTP status codes follow standard conventions: `400` for validation errors, `401` for authentication failures, `403` for authorization failures, `404` for missing resources, `429` for rate limits, and `500` for server errors.
 
-:::tip Error Handling Pattern
+:::tip[Error Handling Pattern]
 All async route handlers are wrapped with `asyncHandler()`, which catches rejected promises and forwards them to the global error middleware. Throw `AppError` with an HTTP status code for structured error responses:
 ```typescript
 throw new AppError('Resource not found', 404);

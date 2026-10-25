@@ -38,7 +38,7 @@ This page consolidates all environment variables used across all deployment targ
 | `ELASTICSEARCH_WRITE_INDEX_PREFIX` | Write index prefix (default: `achilles-results-`) |
 | `ELASTICSEARCH_WRITE_INDEX_ROLLOVER` | Write index rollover mode: `none`, `daily`, or `monthly` |
 
-:::info Elasticsearch API Key Permissions
+:::info[Elasticsearch API Key Permissions]
 When creating an API key manually (Kibana → Stack Management → API Keys), use these role descriptors:
 
 ```json

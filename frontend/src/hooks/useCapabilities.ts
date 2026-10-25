@@ -12,6 +12,8 @@ export interface Capabilities {
   campaigns: boolean;
   /** SentinelOne integration routes (backend-only; backend-serverless has none) */
   sentinelone: boolean;
+  /** Threshold alerting (/api/integrations/alerts; backend-only; backend-serverless has none) */
+  alerting: boolean;
   platform: string;
   /** false until /api/capabilities has resolved (or failed); values are defaults before then */
   loaded?: boolean;
@@ -28,6 +30,9 @@ const DEFAULT_CAPABILITIES: Capabilities = {
   preExecutionNotices: false,
   campaigns: false,
   sentinelone: false,
+  // Alerting predates /api/capabilities: a Docker backend that doesn't report
+  // the flag still has it.
+  alerting: true,
   platform: 'docker',
 };
 

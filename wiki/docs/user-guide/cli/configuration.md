@@ -252,7 +252,7 @@ The `~/.achilles/config.json` file structure:
 }
 ```
 
-:::info Legacy Migration
+:::info[Legacy Migration]
 If you have an older config file with a top-level `server_url` instead of `profiles`, the CLI automatically migrates it to the profile-based format on first load.
 :::
 

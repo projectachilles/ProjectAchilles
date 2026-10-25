@@ -13,7 +13,7 @@ require `integrations:read` or `integrations:write`.
 All analytics endpoints return `400 {"success": false, "error": "SentinelOne integration is not configured"}`
 until the integration is configured.
 
-:::info Docker-style backends only
+:::info[Docker-style backends only]
 The SentinelOne integration exists only in `backend/` (Docker Compose, the
 public / on-prem server, Railway, Render, Fly.io). `GET /api/capabilities`
 reports `sentinelone: true` there and `sentinelone: false` on Vercel, where
@@ -411,7 +411,7 @@ at the API) is stored as a `doc_type: response_action` document in
 When Elasticsearch is not configured, the last 200 records are kept in memory
 instead.
 
-:::note No manual response actions
+:::note[No manual response actions]
 There are no routes to kill, quarantine, remediate or isolate on demand. The
 only writes to the console come from the opt-in auto-resolve and automatic
 mitigation passes, which require Response mode. In read-only mode the API

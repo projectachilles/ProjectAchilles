@@ -218,7 +218,7 @@ Steps:
 7. **Launch check** (`installAndVerify`) -- run `<final path> --version` (30 s timeout). The binary must start and print `achilles-agent v<advertised version>`. On failure, `rollbackUpdate` moves the rejected binary aside, restores `<path>.old`, and returns `ErrLaunchCheckFailed`. The agent keeps running and the update task fails with the reason. The check runs at the **final path** so that path-scoped allowlists (e.g. a Defender ASR per-rule exclusion for the agent binary) apply to it.
 8. **Restart** -- record the applied update, then return `(true, nil)` to signal the poller to exit. The service manager restarts the process, which loads the new binary.
 
-:::tip Why the launch check exists
+:::tip[Why the launch check exists]
 Endpoint security can refuse to execute a freshly built binary. The Defender ASR rule "block executables unless they meet a prevalence, age, or trusted list criterion" returns `ERROR_ACCESS_DENIED` to the service manager. Without the check, the agent exits for a restart that can never succeed and the endpoint goes dark. On Windows, an Access Denied failure message names the ASR rule and Defender event 1121.
 :::
 

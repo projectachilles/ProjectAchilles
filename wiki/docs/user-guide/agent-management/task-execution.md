@@ -149,7 +149,7 @@ The agent selector provides filtering and bulk operations:
 
 All schedule types support timezone selection. Randomized scheduling distributes execution times across business hours on weekdays to avoid predictable patterns.
 
-:::tip Randomized Schedules
+:::tip[Randomized Schedules]
 Use randomized daily schedules for production environments. This prevents defenses from learning a predictable test execution pattern, giving you a more realistic measure of detection capability.
 :::
 
@@ -228,7 +228,7 @@ When [pre-execution notices](../integrations/pre-execution-notices) are on, a te
 | Starting soon | Green | The notice was accepted; the task is waiting out the lead time (0–5 minutes) |
 | Not run | Gray | The task ended without running. Hover for the reason: `Not run: notice not delivered` (the email was never accepted within the max wait) or `Not run: host offline during notice window` (the host didn't pick the task up before the pickup window closed) |
 
-:::info Honest status
+:::info[Honest status]
 Task tables render *honest* status: a task the agent marked `completed` whose result carries a non-zero exit code is displayed as **Failed**, not Completed. The stored status is unchanged — only the display tells the truth about the outcome.
 :::
 
@@ -263,7 +263,7 @@ Below the task list, the **Schedules** section displays all recurring schedules:
 - Agent count per schedule
 - Actions: **Pause/Resume** and **Delete** (with confirmation)
 
-:::warning Pausing vs. Deleting
+:::warning[Pausing vs. Deleting]
 Pausing a schedule stops future executions but preserves the configuration. Deleting is permanent. Pause first if you are unsure.
 :::
 

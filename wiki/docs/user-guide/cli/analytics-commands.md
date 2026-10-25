@@ -54,7 +54,7 @@ achilles analytics score [flags]
 
 The defense score is a percentage (0-100%) representing how well your defenses blocked simulated attacks. Higher is better.
 
-:::note CLI numbers vs the dashboard
+:::note[CLI numbers vs the dashboard]
 The CLI requests the API's default **executions basis**, which counts every conclusive execution in the window. The Dashboard and Analytics headline use the **latest-result** score instead, which counts each test × endpoint pair once, by its most recent result (see [Defense Score](../analytics/defense-score.md#latest-result-score)). The two can differ for the same range. In `analytics trend`, a day with no results in its window prints as `—`, not `0.0%`.
 :::
 

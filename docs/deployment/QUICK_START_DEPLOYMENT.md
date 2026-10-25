@@ -59,7 +59,7 @@ for the dashboard-only details.
 8. After your first sign-in: Users → you → Metadata → Public: {"role": "admin"}
 ```
 
-Without a role every user is read-only. Details: [Clerk roles](https://docs.projectachilles.io/docs/deployment/prerequisites#session-token-claim).
+Without a role every user is read-only. Details: [Clerk roles](https://docs.projectachilles.io/docs/deployment/clerk-setup#session-token-claim).
 
 **OAuth Setup Summary:**
 - **Google:** console.cloud.google.com → Create OAuth client → Add Clerk redirect URI

@@ -41,4 +41,12 @@ describe('IntegrationTabHeader', () => {
     expect(screen.getByText('SentinelOne Singularity')).toBeInTheDocument();
     expect(screen.getByText('SentinelOne sync failed')).toBeInTheDocument();
   });
+
+  it('takes its copy from the vendor config (Defender)', () => {
+    render(<IntegrationTabHeader vendor={VENDORS.defender} lastSync={null} syncing={false} syncError="alerts: security_exception" onSync={() => {}} />);
+    expect(screen.getByText('Microsoft Defender')).toBeInTheDocument();
+    expect(screen.getByText(/Secure Score, security alerts, and remediation controls/)).toBeInTheDocument();
+    expect(screen.getByText('Defender sync failed')).toBeInTheDocument();
+  });
 });
+

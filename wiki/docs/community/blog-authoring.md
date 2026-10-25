@@ -71,7 +71,7 @@ The block between the `---` markers is the post's metadata. All validation happe
 | `lang` | no | `en` (default) or `es` — the language the post is written in |
 | `translationKey` | no | Kebab-case id shared by a Spanish/English pair; defaults to the post's own slug. See [Languages & translations](#languages--translations) |
 
-:::tip Drafts
+:::tip[Drafts]
 Not ready to publish? Add `draft: true` to the frontmatter and merge anyway. The post won't appear anywhere publicly. Remove the line in a follow-up PR when it's ready.
 :::
 
@@ -89,7 +89,7 @@ How the pair behaves once merged:
 - The home page, tag pages, and RSS feed show **one entry per article**, preferring the English version.
 - Every post in a pair automatically shows a language toggle ("Leer en español" / "Read in English") in its header, and search engines get `hreflang` alternates.
 
-:::note Linking a pair manually
+:::note[Linking a pair manually]
 The two files are linked by an identical `translationKey`. If you write both versions yourself, give them the same key — two files with the same `translationKey` **and** the same `lang` fail the build.
 :::
 
@@ -140,7 +140,7 @@ npm run build      # the same validation gate the PR check runs
 
 The blog deploys as its own Vercel project, completely independent of the platform frontend/backend — a blog post PR can never affect the product.
 
-:::note Deployment
+:::note[Deployment]
 Once the Vercel git integration is connected for the `blog` project (Root Directory = `blog`), every merge to `main` that touches `blog/` deploys automatically. Until then, a maintainer publishes merged posts with `cd blog && vercel deploy --prod`.
 :::
 

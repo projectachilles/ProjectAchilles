@@ -50,7 +50,7 @@ Cross-compiles on the server and signs Windows output with the **active**
 certificate. Available where the Go toolchain is present (Docker Compose,
 self-hosted and on-prem servers, Fly.io, Render).
 
-:::warning The version field and the source are independent
+:::warning[The version field and the source are independent]
 The build compiles whatever `agent/` source is deployed **on that server**, and
 stamps the version string from the form field. Nothing cross-checks them — so
 building "0.6.3" on a server still running 0.6.2 source produces a binary that

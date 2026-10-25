@@ -17,7 +17,7 @@ Deploy ProjectAchilles to [Render](https://render.com) using the included Bluepr
 
 The frontend calls the backend directly via CORS (using `VITE_API_URL`).
 
-:::info Starter Plan Networking
+:::info[Starter Plan Networking]
 Render's private network DNS is only available on Standard plan and above. On Starter plan, services cannot resolve each other by name, so the frontend uses `VITE_API_URL` to call the backend's public URL directly.
 :::
 
@@ -63,12 +63,12 @@ Render's private network DNS is only available on Standard plan and above. On St
 2. **Root Directory**: `frontend`, **Runtime**: Docker, **Plan**: Starter
 3. Set `CLERK_PUBLISHABLE_KEY` and `VITE_API_URL`
 
-:::warning Set up roles in Clerk
+:::warning[Set up roles in Clerk]
 Every user without a role is read-only. In the Clerk Dashboard, add the
 `metadata` claim to the session token, then give your own account
 `{"role": "admin"}` in its public metadata and sign in again:
-[session token claim](./prerequisites#session-token-claim) and
-[first admin](./prerequisites#first-admin). Invite everyone else from
+[session token claim](./clerk-setup#session-token-claim) and
+[first admin](./clerk-setup#first-admin). Invite everyone else from
 **Settings → Users**.
 :::
 
@@ -84,7 +84,7 @@ The backend uses a 1 GB persistent disk at `/root/.projectachilles`:
 | `binaries/` | Built agent binaries |
 | `go-cache/` | Go module cache (the compiler cache stays in `/tmp` to keep the 1 GB disk free) |
 
-:::warning Disk Disables Zero-Downtime Deploys
+:::warning[Disk Disables Zero-Downtime Deploys]
 Persistent disks disable Render's zero-downtime deploys. There will be brief downtime during deploys while the new container starts.
 :::
 
