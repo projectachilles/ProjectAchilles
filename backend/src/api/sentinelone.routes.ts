@@ -15,6 +15,7 @@ import { Router } from 'express';
 import type { Request } from 'express';
 import { requireClerkAuth, requirePermission, getUserOrgId, getUserId } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
+import { requireDeploymentScopeForEdrWrite } from '../middleware/edrScope.middleware.js';
 import { validateUrlForSSRF } from '../middleware/urlValidation.js';
 import { validate } from '../middleware/validation.js';
 import {
@@ -73,7 +74,7 @@ router.get('/', requirePermission('integrations:read'), (req, res) => {
 });
 
 /** POST /api/integrations/sentinelone — save settings (partial update). */
-router.post('/', requirePermission('integrations:write'), validate(SentinelOneSettingsSchema), asyncHandler(async (req, res) => {
+router.post('/', requirePermission('integrations:write'), requireDeploymentScopeForEdrWrite, validate(SentinelOneSettingsSchema), asyncHandler(async (req, res) => {
   const svc = getSettingsService(req);
   const body = req.body as Record<string, any>;
   const isEdit = svc.isSentinelOneConfigured();
@@ -97,7 +98,7 @@ router.post('/', requirePermission('integrations:write'), validate(SentinelOneSe
 }));
 
 /** DELETE /api/integrations/sentinelone — remove stored settings. */
-router.delete('/', requirePermission('integrations:write'), asyncHandler(async (req, res) => {
+router.delete('/', requirePermission('integrations:write'), requireDeploymentScopeForEdrWrite, asyncHandler(async (req, res) => {
   try {
     getSettingsService(req).deleteSentinelOneSettings();
   } catch (err) {
@@ -152,6 +153,10 @@ router.post('/sync', requirePermission('integrations:write'), validate(SentinelO
   if (sentinelOneSyncService.getSyncStatus().inProgress) {
     res.status(202).json({ success: true, data: { started: false, inProgress: true } });
     return;
+  }
+  if (req.body?.reset && process.env.REQUIRE_ORG_ISOLATION === 'true') {
+    // Resetting the shared checkpoints re-backfills for every tenant.
+    throw new AppError('A SentinelOne re-backfill affects every organization; it is not available when REQUIRE_ORG_ISOLATION=true.', 403);
   }
   if (req.body?.reset) sentinelOneSyncService.resetCheckpoints();
   sentinelOneSyncService.syncAll().catch((err) => {
@@ -249,7 +254,7 @@ router.get('/auto-resolve/status', requirePermission('integrations:read'), async
 }));
 
 /** PUT /api/integrations/sentinelone/auto-resolve/mode — { mode }; 'enabled' requires Response mode */
-router.put('/auto-resolve/mode', requirePermission('integrations:write'), validate(SentinelOneAutoResolveModeSchema), asyncHandler(async (req, res) => {
+router.put('/auto-resolve/mode', requirePermission('integrations:write'), requireDeploymentScopeForEdrWrite, validate(SentinelOneAutoResolveModeSchema), asyncHandler(async (req, res) => {
   const { mode } = req.body as { mode: 'disabled' | 'dry_run' | 'enabled' };
   try {
     getSettingsService(req).setSentinelOneAutoResolveMode(mode);
@@ -283,7 +288,7 @@ router.get('/auto-mitigation/status', requirePermission('integrations:read'), as
  * Turning it on (dry_run or enabled) is refused unless the integration is in
  * Response mode; only kill / quarantine are accepted.
  */
-router.put('/auto-mitigation', requirePermission('integrations:write'), validate(SentinelOneAutoMitigationSchema), asyncHandler(async (req, res) => {
+router.put('/auto-mitigation', requirePermission('integrations:write'), requireDeploymentScopeForEdrWrite, validate(SentinelOneAutoMitigationSchema), asyncHandler(async (req, res) => {
   let data;
   try {
     data = getSettingsService(req).setSentinelOneAutoMitigation(req.body);

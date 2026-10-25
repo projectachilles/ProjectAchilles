@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 
@@ -134,6 +134,25 @@ describe('CrowdStrike integration routes', () => {
     mockCrowdStrikeSyncAll.mockResolvedValue({});
     mockCrowdStrikeGetSyncStatus.mockReturnValue({ lastSyncResult: null });
     mockDefenderSyncAll.mockResolvedValue({});
+  });
+
+  // ── Multi-tenant mode: the shared EDR config can't be changed by an org ──
+
+  describe('REQUIRE_ORG_ISOLATION=true', () => {
+    beforeEach(() => { process.env.REQUIRE_ORG_ISOLATION = 'true'; });
+    afterEach(() => { delete process.env.REQUIRE_ORG_ISOLATION; });
+
+    it('refuses writes to the deployment-wide CrowdStrike and Defender settings (403), reads still work', async () => {
+      const app = createApp();
+      const save = await request(app).post('/api/integrations/crowdstrike').send({ client_id: 'id', client_secret: 'secret-secret' });
+      expect(save.status).toBe(403);
+      expect(save.body.error).toMatch(/shared by every organization/);
+      expect(mockSaveCrowdStrikeSettings).not.toHaveBeenCalled();
+      expect((await request(app).delete('/api/integrations/crowdstrike')).status).toBe(403);
+      expect((await request(app).put('/api/integrations/crowdstrike/auto-resolve/mode').send({ mode: 'enabled' })).status).toBe(403);
+      expect((await request(app).delete('/api/integrations/defender')).status).toBe(403);
+      expect((await request(app).get('/api/integrations/crowdstrike')).status).toBe(200);
+    });
   });
 
   // ── GET /api/integrations/crowdstrike ──────────────────────────
