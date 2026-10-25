@@ -13,6 +13,7 @@ vi.mock('../../analytics/client.js', () => ({ createEsClient: () => ({ search: m
 vi.mock('../../analytics/test-name-lookup.js', () => ({ resolveTestNames: async () => new Map() }));
 
 const { CrowdStrikeEnrichmentService } = await import('../../crowdstrike/enrichment.service.js');
+const { SentinelOneEnrichmentService } = await import('../enrichment.service.js');
 const { SentinelOneAnalyticsService } = await import('../analytics.service.js');
 
 describe('SentinelOne enrichment (shared pass, sentinelone target)', () => {
@@ -44,7 +45,7 @@ describe('SentinelOne enrichment (shared pass, sentinelone target)', () => {
     });
     bulk.mockResolvedValueOnce({ items: [{ update: {} }, { update: {} }] });
 
-    const svc = new CrowdStrikeEnrichmentService(client, 'achilles-results-*', { alertIndex: 'achilles-sentinelone', flagPrefix: 'sentinelone' });
+    const svc = new SentinelOneEnrichmentService(client, 'achilles-results-*');
     const result = await svc.runEnrichmentPass({ batchSize: 200 });
 
     expect(result).toMatchObject({ scanned: 1, detected: 1, stageDetected: 1, alertsMarkedCorrelated: 1, errors: [] });
@@ -71,7 +72,7 @@ describe('SentinelOne enrichment (shared pass, sentinelone target)', () => {
     msearch.mockResolvedValueOnce({ responses: [{ hits: { total: { value: 1 }, hits } }, { hits: { total: { value: 1 }, hits } }] });
     bulk.mockResolvedValueOnce({ items: [{ update: {} }, { update: {} }] });
 
-    const svc = new CrowdStrikeEnrichmentService(client, 'achilles-results-*', { alertIndex: 'achilles-sentinelone', flagPrefix: 'sentinelone', ignoreAchillesMitigated: true });
+    const svc = new SentinelOneEnrichmentService(client, 'achilles-results-*');
     await svc.runEnrichmentPass({ batchSize: 200 });
 
     expect(msearch.mock.calls[0][0].searches[1]._source).toContain('f0rtika.auto_mitigated');
@@ -84,13 +85,13 @@ describe('SentinelOne enrichment (shared pass, sentinelone target)', () => {
     msearch.mockResolvedValueOnce({ responses: [{ hits: { total: { value: 1 }, hits } }, { hits: { total: { value: 1 }, hits } }] });
     bulk.mockResolvedValueOnce({ items: [{ update: {} }, { update: {} }] });
 
-    const svc = new CrowdStrikeEnrichmentService(client, 'achilles-results-*', { alertIndex: 'achilles-sentinelone', flagPrefix: 'sentinelone', ignoreAchillesMitigated: true });
+    const svc = new SentinelOneEnrichmentService(client, 'achilles-results-*');
     await svc.runEnrichmentPass({ batchSize: 200 });
 
     expect(bulk.mock.calls[0][0].operations[1].doc.f0rtika).toMatchObject({ sentinelone_prevented: true, sentinelone_prevention_action: 'quarantined' });
   });
 
-  it('keeps CrowdStrike as the default target', async () => {
+  it('the CrowdStrike subclass targets achilles-crowdstrike with crowdstrike_* flags', async () => {
     search.mockResolvedValueOnce({ hits: { hits: [] } });
     await new CrowdStrikeEnrichmentService(client, 'achilles-results-*').runEnrichmentPass();
     expect(JSON.stringify(search.mock.calls[0][0].query)).toContain('f0rtika.crowdstrike_detected');
@@ -127,10 +128,10 @@ describe('SentinelOneAnalyticsService', () => {
     expect(facet).toContain('"f0rtika.auto_mitigation_mode":"enabled"');
   });
 
-  it('has no ZTA-style posture score (empty, not invented)', async () => {
+  it('has no ZTA-style posture score: no ZTA methods at all (not invented zeros)', () => {
     const svc = new SentinelOneAnalyticsService();
-    expect(await svc.getZtaScoreTrend(90)).toEqual([]);
-    expect((await svc.getZtaScoreSummary()).timestamp).toBeNull();
+    expect('getZtaScoreTrend' in svc).toBe(false);
+    expect('getZtaScoreSummary' in svc).toBe(false);
     expect(mockSearch).not.toHaveBeenCalled();
   });
 

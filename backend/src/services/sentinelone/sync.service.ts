@@ -15,7 +15,7 @@ import { ensureSentinelOneIndex, SENTINELONE_INDEX } from './index-management.js
 import { normalizeToken, threatPreventionAction } from './normalize.js';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
-import { CrowdStrikeEnrichmentService } from '../crowdstrike/enrichment.service.js';
+import { SentinelOneEnrichmentService } from './enrichment.service.js';
 import { SentinelOneAutoResolveService } from './auto-resolve.service.js';
 import { SentinelOneAutoMitigationService } from './auto-mitigation.service.js';
 import { SentinelOneResponseService } from './response.service.js';
@@ -467,11 +467,7 @@ export class SentinelOneSyncService {
       if (!this.settingsService().getSentinelOneSettings()?.configured) return empty();
       const client = es ?? this.getEsClient();
       const indexPattern = new SettingsService().getSettings().indexPattern;
-      const service = new CrowdStrikeEnrichmentService(client, indexPattern, {
-        alertIndex: SENTINELONE_INDEX,
-        flagPrefix: 'sentinelone',
-        ignoreAchillesMitigated: true,
-      });
+      const service = new SentinelOneEnrichmentService(client, indexPattern);
       const result = await service.runEnrichmentPass({ lookbackDays: 90 });
       console.log(
         `[SentinelOne-Enrichment] scanned=${result.scanned} detected=${result.detected} ` +
