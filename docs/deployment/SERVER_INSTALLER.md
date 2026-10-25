@@ -313,7 +313,7 @@ Read-only checks, all shown at once as PASS / WARN / FAIL. A FAIL blocks
 | Free disk space (`/var/lib/docker`, else `/`) | < 20 GiB on a fresh install; < 5 GiB on an existing one | < 20 GiB on an existing install |
 | Port 80 available / Port 443 available | in use (on an existing install, our own Caddy is accepted) | |
 | Docker registry reachable, GitHub reachable, Clerk API reachable | | unreachable |
-| Docker | | not found (the engine installs it from get.docker.com) |
+| Docker | | installed, but the daemon isn't answering (`systemctl start docker`). Not installed yet passes: the engine installs it from get.docker.com |
 | Clock synchronised | | not NTP-synchronised |
 
 #### 3/10 Network & name
@@ -929,7 +929,9 @@ and sends heartbeats.
 
 ## 10. Day-2
 
-Run the installer as root from the checkout:
+Run the installer as root from the checkout. Without root, `status`, `upgrade`,
+`backup` and `restore` stop and print the `sudo` command to use: the
+configuration files and the Docker socket are root-only.
 
 ```bash
 cd /opt/projectachilles

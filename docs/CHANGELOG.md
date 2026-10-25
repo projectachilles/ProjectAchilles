@@ -11,7 +11,14 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+### Fixed
+
+- **installer:** `status`, `upgrade`, `backup` and `restore` now refuse to run without root and print the `sudo` command to use. Before, `status` as a normal user reported a healthy install as broken (`Containers unavailable`, `no AchillesDomain in deploy.config.env`), because the configuration files and the Docker socket are root-only. The wizard's Done screen now shows the commands as `sudo ./achilles-installer …`.
+- **installer:** the preflight no longer warns on a fresh server because Docker isn't installed yet (the install adds it). It now warns only when Docker is installed but its daemon isn't answering, which would make the install fail.
+
 ### Documentation
+
+- **Clerk secret key.** The Clerk Setup guide now says to create a new secret key (**Add new key** → **Copy key and close**): Clerk shows a key in full only when it's created, and selecting an existing one can open the paid IP-allowlist dialog instead of copying it.
 
 - **Wiki callouts render again.** Since the Docusaurus 3.10.2 upgrade, every titled callout (`:::warning Title`, 160 on 61 pages) showed as raw text; they now use the `:::warning[Title]` syntax.
 - **Clerk Setup guide.** A new wiki page, Deployment → Clerk Setup, walks through the Clerk Dashboard with screenshots: create the app, copy the keys, the session token claim, Invite-only sign-ups, the first admin, and the production instance (text). Prerequisites now summarises it, and every deployment guide links to it.
