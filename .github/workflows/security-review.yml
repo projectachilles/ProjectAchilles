@@ -293,8 +293,11 @@ jobs:
       # The job is green whether or not Claude posted, so check: a run that
       # posts nothing (e.g. a comment Claude Code's Bash check refused) fails
       # here instead of passing silently. Only the bots' comments count, so a
-      # PR author can't satisfy it with a fake marker.
+      # PR author can't satisfy it with a fake marker. Skipped when Claude
+      # didn't run (no execution file): the action skips PRs that edit this
+      # workflow, because the file must match the default branch.
       - name: Verify the review posted
+        if: steps.claude-security-review.outputs.execution_file != ''
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
