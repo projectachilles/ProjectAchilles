@@ -185,6 +185,14 @@ jobs:
         uses: anthropics/claude-code-action@374f254f5efaf968abfe15d399fd90972e8138b9 # v1.0.251
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # pull_request_target (fork PRs): the Claude GitHub App rejects the
+          # OIDC token exchange for this event (401 Invalid OIDC token), so use
+          # the job's own short-lived GITHUB_TOKEN, scoped to the permissions
+          # above, as claude-code-action's docs/security.md recommends for
+          # base-repo-context events. The write-access check on the actor (the
+          # maintainer who added the label) still applies. Same-repo PRs keep
+          # the app token (empty input = not set).
+          github_token: ${{ github.event_name == 'pull_request_target' && secrets.GITHUB_TOKEN || '' }}
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
