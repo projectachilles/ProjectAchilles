@@ -9,7 +9,7 @@ vi.mock('../../agent/database.js', async (importOriginal) => ({
 }));
 vi.mock('../../outcomes/edr.js', () => ({ fetchEdrDocs: async () => ({ status: 'not_configured', docs: new Map() }) }));
 vi.mock('../../integrations/settings.js', () => ({
-  IntegrationsSettingsService: class { isDefenderConfigured() { return false; } isCrowdStrikeConfigured() { return false; } },
+  IntegrationsSettingsService: class { isDefenderConfigured() { return false; } isCrowdStrikeConfigured() { return false; } isSentinelOneConfigured() { return false; } },
 }));
 vi.mock('../../agent/test-catalog.service.js', () => ({
   getTestMetadata: (uuid: string) => (uuid.startsWith('bad-') ? null : { uuid, name: `Test ${uuid}` }),

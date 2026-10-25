@@ -525,6 +525,16 @@ function startBackgroundJobs(httpServer?: http.Server) {
     await crowdstrikeSyncService.runAutoResolvePass().catch(logCrowdStrikeError('auto-resolve'));
   }, 5 * 60 * 1000); // 5 minutes
 
+  // EDR integrations are deployment-wide; sections saved under an org never
+  // synced. Say so once instead of leaving them silently dormant.
+  try {
+    for (const { orgId, integrations } of new IntegrationsSettingsService().listDormantOrgEdrSections()) {
+      console.warn(`⚠ ${integrations.join(', ')} settings saved for org ${orgId} are not used: EDR integrations are deployment-wide. Re-enter them in Settings → Integrations.`);
+    }
+  } catch (err) {
+    console.warn('⚠ Could not check for org-scoped EDR settings:', err instanceof Error ? err.message : err);
+  }
+
   // --- SentinelOne sync: poll at the integration's configured interval ---
   // A 1-minute tick checks configuration and whether poll_interval_minutes
   // has elapsed, so settings changed in the UI apply without a restart.

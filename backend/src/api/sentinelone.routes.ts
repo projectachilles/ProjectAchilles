@@ -38,8 +38,12 @@ router.use(requireClerkAuth());
 export const sentinelOneSyncService = new SentinelOneSyncService();
 export const sentinelOneResponseService = new SentinelOneResponseService();
 
-function getSettingsService(req: Request): IntegrationsSettingsService {
-  return new IntegrationsSettingsService(getUserOrgId((req as any).auth));
+/**
+ * Deployment-wide, like Defender and CrowdStrike: the background sync,
+ * enrichment and automation read only these settings.
+ */
+function getSettingsService(_req: Request): IntegrationsSettingsService {
+  return new IntegrationsSettingsService();
 }
 
 function actorOf(req: Request): { userId: string; orgId?: string } {

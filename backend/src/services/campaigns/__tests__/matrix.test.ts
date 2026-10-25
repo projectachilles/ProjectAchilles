@@ -11,6 +11,7 @@ vi.mock('../../agent/database.js', async (importOriginal) => ({
 vi.mock('../../agent/test-catalog.service.js', () => ({
   getTestMetadata: (uuid: string) => ({ uuid, name: `Test ${uuid}`, techniques: [] }),
 }));
+const s1Configured = vi.hoisted(() => ({ value: false }));
 const { mockFetchEdrDocs } = vi.hoisted(() => ({
   mockFetchEdrDocs: vi.fn(async (_ids: string[]): Promise<{ status: 'ok' | 'unavailable' | 'not_configured'; docs: Map<string, Record<string, unknown>> }> =>
     ({ status: 'not_configured', docs: new Map() })),
@@ -20,6 +21,7 @@ vi.mock('../../integrations/settings.js', () => ({
   IntegrationsSettingsService: class {
     isDefenderConfigured() { return true; }
     isCrowdStrikeConfigured() { return false; }
+    isSentinelOneConfigured() { return s1Configured.value; }
   },
 }));
 vi.mock('../../notices/userLabel.js', () => ({
@@ -322,6 +324,13 @@ describe('campaign run matrix', () => {
       // Prevented and detected count as protected, like the Defense Score.
       expect(m.totals).toMatchObject({ prevented: 1, detected: 1, percent_protected: 100 });
       expect(m.edr).toEqual({ status: 'ok', sources: ['Microsoft Defender'] });
+      // EDR integrations are deployment-wide, and SentinelOne counts like the others.
+      s1Configured.value = true;
+      try {
+        expect((await getRunMatrix('e1', ORG)).edr.sources).toEqual(['Microsoft Defender', 'SentinelOne']);
+      } finally {
+        s1Configured.value = false;
+      }
       const csv = runMatrixCsv(m).trimEnd().split('\r\n');
       expect(csv[1].endsWith(',1:101 2:999,Defender: prevented (process killed)')).toBe(true);
     });

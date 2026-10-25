@@ -186,11 +186,13 @@ async function startedByName(row: CampaignRunRow, snap: RunSnapshot): Promise<st
   return name.startsWith('user_') ? resolveUserLabel(name) : name;
 }
 
-function edrSources(orgId: string): string[] {
-  const svc = new IntegrationsSettingsService(orgId);
+/** EDR integrations are deployment-wide (their sync ignores org sections). */
+function edrSources(): string[] {
+  const svc = new IntegrationsSettingsService();
   return [
     ...(svc.isDefenderConfigured() ? ['Microsoft Defender'] : []),
     ...(svc.isCrowdStrikeConfigured() ? ['CrowdStrike Falcon'] : []),
+    ...(svc.isSentinelOneConfigured() ? ['SentinelOne'] : []),
   ];
 }
 
@@ -229,7 +231,7 @@ async function build(row: CampaignRunRow): Promise<RunMatrix> {
       started_at: row.started_at,
       notice: row.notice_id ? getNoticeRecord(row.notice_id, scope) : null,
     },
-    edr: { status: edr.status, sources: edrSources(row.org_id) },
+    edr: { status: edr.status, sources: edrSources() },
     tests: snap.tests,
     agents: snap.agents,
     cells,
