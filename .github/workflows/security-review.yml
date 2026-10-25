@@ -246,9 +246,13 @@ jobs:
             - Post each finding as an inline comment on the relevant line using
               `mcp__github_inline_comment__create_inline_comment` with `confirmed: true`.
               One comment per unique issue.
-            - Then post one top-level summary with `gh pr comment`, starting with the line
-              `<!-- claude-security-review -->` followed by a `## Claude Security Review` heading
-              and a severity table of the findings.
+            - Then post one top-level summary with a single
+              `gh pr comment <number> --repo <repo> --body '...'` command. Start the body with the
+              line `<!-- claude-security-review -->`, then the HTML heading
+              `<h2>Claude Security Review</h2>`, then a severity table of the findings.
+            - Never start a line of a comment body with `#`, and run every `gh` command plainly:
+              no variables, `$(...)`, pipes or redirection. Claude Code's Bash check refuses
+              those shapes, and nobody is there to approve them, so the comment would be lost.
             - If no security issues are found: check `gh pr view --comments` for an existing
               comment containing `<!-- claude-security-review -->`. If none exists, post one
               confirming the PR passes security review. If one exists, post nothing.
@@ -285,6 +289,28 @@ jobs:
           ' "$EXECUTION_FILE" | sort | uniq -c | sort -rn)
           { echo "### Denied tool calls"; echo '```'; echo "${denials:-none}"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           echo "${denials:-No denied tool calls}"
+
+      # The job is green whether or not Claude posted, so check: a run that
+      # posts nothing (e.g. a comment Claude Code's Bash check refused) fails
+      # here instead of passing silently. Only the bots' comments count, so a
+      # PR author can't satisfy it with a fake marker. Skipped when Claude
+      # didn't run (no execution file): the action skips PRs that edit this
+      # workflow, because the file must match the default branch.
+      - name: Verify the review posted
+        if: steps.claude-security-review.outputs.execution_file != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          n=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --jq '
+            [.[] | select(.user.login == "github-actions[bot]" or .user.login == "claude[bot]")
+                 | select(.body | contains("<!-- claude-security-review -->"))] | length' \
+            | awk '{ s += $1 } END { print s + 0 }')
+          if [ "$n" -eq 0 ]; then
+            echo "::error::Claude finished without posting the security review comment. See 'Denied tool calls' in the job summary."
+            exit 1
+          fi
+          echo "Security review comment present ($n)."
 
       # One review per label: the next push needs a fresh look and a new label.
       - name: Remove the review label
