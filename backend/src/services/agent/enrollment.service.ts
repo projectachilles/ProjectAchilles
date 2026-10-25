@@ -241,7 +241,11 @@ export function decryptPendingKey(encryptedBase64: string): string {
   const iv = data.subarray(0, 12);
   const authTag = data.subarray(12, 28);
   const ciphertext = data.subarray(28);
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  // Pin the tag length: GCM verifies a tag's leading bytes, and Node 22 accepts
+  // 4..16-byte tags unless told otherwise, so a short blob would authenticate
+  // with as little as 32 bits of tag. encryptPendingKey always writes 16.
+  if (authTag.length !== 16) throw new Error('Invalid pending key: authentication tag must be 16 bytes');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
   decipher.setAuthTag(authTag);
   return decipher.update(ciphertext) + decipher.final('utf8');
 }

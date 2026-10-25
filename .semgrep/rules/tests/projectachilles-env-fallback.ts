@@ -18,3 +18,10 @@ const host = process.env.HOST ?? "localhost";
 
 // ok: projectachilles-env-fallback-insecure
 const indexPattern = process.env.ELASTICSEARCH_INDEX_PATTERN || "achilles-results-*";
+
+// An empty fallback means "not set" (no credential), not a default credential.
+// ok: projectachilles-env-fallback-insecure
+const esApiKey = process.env.ELASTICSEARCH_API_KEY || '';
+
+// ok: projectachilles-env-fallback-insecure
+const esPassword = process.env.ELASTICSEARCH_PASSWORD ?? "";

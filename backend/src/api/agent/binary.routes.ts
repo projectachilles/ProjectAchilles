@@ -14,7 +14,7 @@ const router = Router();
  * Download a test binary. The agent provides the binary name (from the task
  * payload) and the test_uuid as a query parameter.
  */
-router.get(
+router.get( // nosemgrep: semgrep.rules.projectachilles-clerk-auth-missing -- agent device route: mounted behind requireAgentAuth in api/agent/index.ts
   '/binary/:name',
   asyncHandler(async (req, res) => {
     const binaryName = req.params.name;

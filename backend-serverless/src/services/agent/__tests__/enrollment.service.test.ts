@@ -388,6 +388,14 @@ describe('enrollment.service', () => {
       expect(decrypted).toBe(original);
     });
 
+    it('rejects a truncated authentication tag (GCM tag length is pinned to 16 bytes)', () => {
+      // GCM verifies a tag's leading bytes, so without a pinned length the first
+      // 4 bytes of a valid tag would authenticate: 2^32 forgery work, not 2^128.
+      const full = Buffer.from(encryptPendingKey(''), 'base64');
+      const truncated = Buffer.concat([full.subarray(0, 12), full.subarray(12, 16)]).toString('base64');
+      expect(() => decryptPendingKey(truncated)).toThrow();
+    });
+
     it('produces different ciphertext each time (unique IV)', () => {
       const key = 'ak_same_key';
       const enc1 = encryptPendingKey(key);

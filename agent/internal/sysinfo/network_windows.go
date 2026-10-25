@@ -21,7 +21,7 @@ func CheckNetworkState() string {
 	}
 
 	buf := make([]byte, size)
-	addr := (*windows.IpAdapterAddresses)(unsafe.Pointer(&buf[0]))
+	addr := (*windows.IpAdapterAddresses)(unsafe.Pointer(&buf[0])) // nosemgrep: go.lang.security.audit.unsafe.use-of-unsafe-block -- Win32 FFI: GetAdaptersAddresses fills buf (sized by its own first call)
 	ret = windows.GetAdaptersAddresses(windows.AF_UNSPEC, 0, 0, addr, &size)
 	if ret != nil {
 		return "check_failed"

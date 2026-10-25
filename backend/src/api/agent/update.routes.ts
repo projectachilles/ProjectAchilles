@@ -37,7 +37,7 @@ export const agentUpdateRouter = Router();
  * Check if a newer agent version is available.
  * Returns version info or 204 if the agent is already up to date.
  */
-agentUpdateRouter.get(
+agentUpdateRouter.get( // nosemgrep: semgrep.rules.projectachilles-clerk-auth-missing -- agent device route: mounted behind requireAgentAuth in api/agent/index.ts
   '/version',
   asyncHandler(async (req, res) => {
     const agent = req.agent;
@@ -66,7 +66,7 @@ agentUpdateRouter.get(
  * GET /update?os=<os>&arch=<arch>
  * Download the latest agent binary for the given platform.
  */
-agentUpdateRouter.get(
+agentUpdateRouter.get( // nosemgrep: semgrep.rules.projectachilles-clerk-auth-missing -- agent device route: mounted behind requireAgentAuth in api/agent/index.ts
   '/update',
   asyncHandler(async (req, res) => {
     const os = (req.query.os || req.agent?.os) as AgentOS | undefined;

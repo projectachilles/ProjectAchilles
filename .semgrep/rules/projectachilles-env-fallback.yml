@@ -16,6 +16,9 @@ rules:
       - pattern-either:
           - pattern: process.env.$ENVVAR || "..."
           - pattern: process.env.$ENVVAR ?? "..."
+      # An empty fallback means "not set" (no credential), not a default one.
+      - pattern-not: process.env.$ENVVAR || ""
+      - pattern-not: process.env.$ENVVAR ?? ""
       - metavariable-regex:
           metavariable: $ENVVAR
           regex: ".*(SECRET|KEY|PASSWORD|TOKEN|CREDENTIAL|AUTH).*"
