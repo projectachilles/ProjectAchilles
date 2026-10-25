@@ -161,7 +161,7 @@ describe('AlertDetailsDrawer', () => {
     expect(screen.getByText(/Auto-resolved by Achilles/)).toBeInTheDocument();
   });
 
-  it('marks the auto-resolve mode when not the default "enabled"', async () => {
+  it('a dry-run receipt says "would resolve", never "Auto-resolved by Achilles"', async () => {
     mockGetAlerts.mockResolvedValue({
       data: [
         {
@@ -178,7 +178,8 @@ describe('AlertDetailsDrawer', () => {
 
     render(<AlertDetailsDrawer open onClose={() => {}} />);
 
-    await waitFor(() => expect(screen.getByText(/dry-run/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Auto-resolve dry run: would resolve/)).toBeInTheDocument());
+    expect(screen.queryByText(/Auto-resolved by Achilles/)).not.toBeInTheDocument();
   });
 
   it('shows the technique-specific empty state when the backend returns no matches', async () => {

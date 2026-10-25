@@ -75,6 +75,8 @@ export interface CrowdStrikeAlertItem {
   auto_resolved?: boolean;
   auto_resolved_at?: string | null;
   auto_resolve_mode?: 'disabled' | 'dry_run' | 'enabled' | null;
+  /** Receipt error (not_found, not_applied, ...): Achilles did NOT resolve the alert. */
+  auto_resolve_error?: string | null;
   /** First of evidence_hostnames, or null. */
   hostname: string | null;
   /** quarantined | process_killed | blocked | kill_failed; absent when Falcon only detected. */
@@ -384,6 +386,7 @@ export class EdrAlertAnalyticsService {
         const mode = f0rtika.auto_resolve_mode;
         item.auto_resolve_mode =
           mode === 'disabled' || mode === 'dry_run' || mode === 'enabled' ? mode : null;
+        item.auto_resolve_error = f0rtika.auto_resolve_error ? String(f0rtika.auto_resolve_error) : null;
       }
       return item;
     });

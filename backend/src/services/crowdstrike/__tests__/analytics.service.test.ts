@@ -244,6 +244,7 @@ describe('CrowdStrikeAnalyticsService', () => {
       expect(result.data[0].severity).toBe('critical');
       expect(result.data[0].auto_resolved).toBe(true);
       expect(result.data[0].auto_resolve_mode).toBe('enabled');
+      expect(result.data[0].auto_resolve_error).toBeNull();
     });
 
     it('OR-filters techniques with sub-technique prefix matching', async () => {

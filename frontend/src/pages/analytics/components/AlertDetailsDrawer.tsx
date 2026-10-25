@@ -7,6 +7,7 @@ import { getSeverityTokens } from '../utils/defenderSeverityTokens';
 import { formatServiceSource } from '../utils/defenderServiceSource';
 import { defenderAlertUrl } from '../utils/defenderPortal';
 import PreventionBadge from './PreventionBadge';
+import { describeAutoResolveReceipt } from './integrations/autoResolveReceipt';
 
 import type { TimeWindow } from '@/services/api/integrationTypes';
 
@@ -215,6 +216,7 @@ export default function AlertDetailsDrawer({
             <ul className="divide-y divide-border">
               {alerts.map((alert) => {
                 const tokens = getSeverityTokens(alert.severity);
+                const receipt = describeAutoResolveReceipt(alert);
                 return (
                   <li key={alert.alert_id} className="p-3 hover:bg-raised/30 transition-colors">
                     <div className="flex items-start gap-2">
@@ -254,16 +256,13 @@ export default function AlertDetailsDrawer({
                             rawStatus={alert.remediation_status}
                           />
                         </div>
-                        {alert.auto_resolved && (
-                          <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400">
+                        {receipt && (
+                          <div className={`mt-1 inline-flex items-center gap-1 text-[11px] ${receipt.tone === 'resolved' ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
                             <ShieldCheck className="w-3 h-3" />
                             <span>
-                              Auto-resolved by Achilles
+                              {receipt.label}
                               {alert.auto_resolved_at && (
                                 <> · {formatTimeAgo(alert.auto_resolved_at)}</>
-                              )}
-                              {alert.auto_resolve_mode && alert.auto_resolve_mode !== 'enabled' && (
-                                <> · {alert.auto_resolve_mode === 'dry_run' ? 'dry-run' : alert.auto_resolve_mode}</>
                               )}
                             </span>
                           </div>

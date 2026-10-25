@@ -84,6 +84,8 @@ export interface DefenderAlertItem {
   auto_resolved?: boolean;
   auto_resolved_at?: string | null;
   auto_resolve_mode?: 'disabled' | 'dry_run' | 'enabled' | null;
+  /** Receipt error (not_found, not_applied, ...): Achilles did NOT resolve the alert. */
+  auto_resolve_error?: string | null;
   /** First of evidence_hostnames, or null. */
   hostname: string | null;
   /** Normalised prevention outcome (process_killed | blocked | quarantined); absent when Defender only detected. */
@@ -434,6 +436,7 @@ export class DefenderAnalyticsService {
         const mode = f0rtika.auto_resolve_mode;
         item.auto_resolve_mode =
           mode === 'disabled' || mode === 'dry_run' || mode === 'enabled' ? mode : null;
+        item.auto_resolve_error = f0rtika.auto_resolve_error ? String(f0rtika.auto_resolve_error) : null;
       }
       return item;
     });
