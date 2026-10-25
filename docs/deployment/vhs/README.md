@@ -1,7 +1,7 @@
 # On-prem installer screenshots (VHS)
 
 The eight `wiki/static/img/screenshots/onprem-*.png` images used by
-`wiki/docs/deployment/on-prem-lan.md` are recorded from the real
+`wiki/docs/deployment/server-installer.md` are recorded from the real
 `achilles-installer` wizard with [Charm VHS](https://github.com/charmbracelet/vhs).
 Nothing is mocked and the installer code has no demo mode: the wizard runs as
 root in a throwaway Ubuntu 24.04 container that plays the server.

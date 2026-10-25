@@ -11,7 +11,7 @@ provide** (reachable over SSH), on your own network, with **working TLS** —
 including options that need no public internet exposure.
 
 :::tip Windows fleet on a LAN with no public IP?
-The [Server Installer guide](./on-prem-lan) covers the interactive `achilles-installer` wizard: a managed name-constrained CA and GPO-based trust for Windows endpoints on a LAN, or Let's Encrypt on a cloud server.
+The [Server Installer guide](./server-installer) covers the interactive `achilles-installer` wizard: a managed name-constrained CA and GPO-based trust for Windows endpoints on a LAN, or Let's Encrypt on a cloud server.
 :::
 
 This shares the same automation as the [Public Server](./public-server) install;
@@ -47,7 +47,7 @@ endpoint; they differ in what (if anything) clients must trust.
 If you own a public domain, `acme-dns` is smoothest — publicly-trusted certs,
 zero client setup, no inbound exposure. Use `internal` for truly isolated
 networks (for a LAN with Windows endpoints, prefer the
-[Server Installer](./on-prem-lan) guide's name-constrained CA, `TLS_MODE=achilles-ca`),
+[Server Installer](./server-installer) guide's name-constrained CA, `TLS_MODE=achilles-ca`),
 or `byo` to plug into an existing enterprise PKI.
 :::
 
@@ -183,6 +183,15 @@ curl -sk https://achilles.corp.example.com/api/health   # -k tolerates internal 
 ```
 
 Then open `https://achilles.corp.example.com/` from a client on the network.
+
+:::warning Set up roles in Clerk
+Every user without a role is read-only. In the Clerk Dashboard, add the
+`metadata` claim to the session token, then give your own account
+`{"role": "admin"}` in its public metadata and sign in again:
+[session token claim](./prerequisites#session-token-claim) and
+[first admin](./prerequisites#first-admin). Invite everyone else from
+**Settings → Users**.
+:::
 
 ## Troubleshooting
 

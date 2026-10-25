@@ -112,6 +112,15 @@ AGENT_SERVER_URL=https://${{ backend.RAILWAY_PUBLIC_DOMAIN }}
 3. Check backend health: `curl https://<backend-domain>/api/health`
 4. After logging in, verify the Elastic Cloud connection at **Analytics → Setup**
 
+:::warning Set up roles in Clerk
+Every user without a role is read-only. In the Clerk Dashboard, add the
+`metadata` claim to the session token, then give your own account
+`{"role": "admin"}` in its public metadata and sign in again:
+[session token claim](./prerequisites#session-token-claim) and
+[first admin](./prerequisites#first-admin). Invite everyone else from
+**Settings → Users**.
+:::
+
 ## Auto-Deploy
 
 Railway uses `watchPatterns` from `railway.toml` for selective rebuilds:

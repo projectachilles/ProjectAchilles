@@ -4,7 +4,7 @@ Static Next.js blog deployed as an independent Vercel project at
 https://blog.projectachilles.io. Not coupled to `frontend/` or `backend/`.
 
 > **Full authoring guide** (incl. publishing from the GitHub web UI, no local
-> setup): https://docs.projectachilles.io/community/blog-authoring
+> setup): https://docs.projectachilles.io/docs/community/blog-authoring
 
 ## Writing a post
 

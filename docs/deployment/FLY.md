@@ -21,6 +21,10 @@ Both Machines run always-on (`auto_stop_machines = 'off'`) — agents send heart
 - `flyctl` CLI installed (`curl -L https://fly.io/install.sh | sh`)
 - GitHub repo with this project pushed
 - Clerk application keys ([dashboard.clerk.com](https://dashboard.clerk.com)) — create a new app or re-assign an existing one
+- Clerk **roles**: the session token claim `{"metadata": "{{user.public_metadata}}"}`
+  (Clerk Dashboard → **Configure → Sessions → Customize session token**) and,
+  after your first sign-in, `{"role": "admin"}` in your user's public metadata.
+  Without a role every user is read-only. Steps: [Clerk roles](https://docs.projectachilles.io/docs/deployment/prerequisites#session-token-claim).
 - Elastic Cloud deployment ([cloud.elastic.co](https://cloud.elastic.co))
 - GitHub Personal Access Token (if using a private test repo)
 

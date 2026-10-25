@@ -110,7 +110,7 @@ The wizard automates every step of an install, on a LAN server or a cloud server
 
 **Needs:** 2 GiB RAM (4 GiB with the bundled Elasticsearch), 20 GiB free disk, outbound internet, and a terminal. A public IP is not required, and works too: on a cloud server the wizard switches to Let's Encrypt. Installer options: `--ref vX.Y.Z` to pin a release, `--dir` to change the install directory, and `--no-run` to install the binary only. For automation, use `achilles-installer install --config deploy.config.env --yes`.
 
-The full walkthrough covers DNS and Clerk choices, the first admin, the CA model, GPO rollout to Windows endpoints, cloud servers, backups and troubleshooting: **[Server installer guide (on-prem LAN or cloud)](docs/deployment/ON_PREM_LAN.md)**.
+The full walkthrough covers DNS and Clerk choices, the first admin, the CA model, GPO rollout to Windows endpoints, cloud servers, backups and troubleshooting: **[Server installer guide (on-prem LAN or cloud)](docs/deployment/SERVER_INSTALLER.md)**.
 
 > Prefer a script to a wizard? [`scripts/deploy-server.sh`](docs/deployment/SELF_HOSTED_SERVER.md) is the engine the wizard drives (and `scripts/deploy-do.sh` creates a DigitalOcean droplet first).
 
@@ -162,7 +162,7 @@ The PowerShell script checks prerequisites, fixes line endings, configures `back
 
 | Target | Install with | Database | Agent Builds | Guide |
 |--------|--------------|----------|-------------|-------|
-| **On-prem LAN or cloud server (recommended for self-hosting)** | `install-onprem.sh` → `achilles-installer` wizard | SQLite (volume) | Yes | [Server Installer Guide](docs/deployment/ON_PREM_LAN.md) |
+| **On-prem LAN or cloud server (recommended for self-hosting)** | `install-onprem.sh` → `achilles-installer` wizard | SQLite (volume) | Yes | [Server Installer Guide](docs/deployment/SERVER_INSTALLER.md) |
 | **Public server (VPS/droplet)** | `scripts/deploy-server.sh` or `scripts/deploy-do.sh` | SQLite (volume) | Yes | [Public Server Guide](docs/deployment/SELF_HOSTED_SERVER.md) |
 | **On-prem server over SSH** | `scripts/deploy-remote.sh user@host` | SQLite (volume) | Yes | [On-Prem Guide](docs/deployment/ON_PREM_SERVER.md) |
 | **Docker Compose** | `scripts/setup.sh` + `docker compose up -d` | SQLite (volume) | Yes | [docker-compose.yml](docker-compose.yml) |
@@ -802,7 +802,7 @@ Restart the backend afterwards so it reopens the database cleanly.
 ## Documentation
 
 ### Getting Started
-- **[Server Installer: On-Prem LAN or Cloud](docs/deployment/ON_PREM_LAN.md)** — the one-command Linux install: `achilles-installer` wizard, first admin through Clerk, name-constrained ProjectAchilles CA with GPO trust for Windows agents on a LAN, or Let's Encrypt on a cloud server, backups and day-2
+- **[Server Installer: On-Prem LAN or Cloud](docs/deployment/SERVER_INSTALLER.md)** — the one-command Linux install: `achilles-installer` wizard, first admin through Clerk, name-constrained ProjectAchilles CA with GPO trust for Windows agents on a LAN, or Let's Encrypt on a cloud server, backups and day-2
 - [Quick Start Deployment](docs/deployment/QUICK_START_DEPLOYMENT.md) — 50-minute production deployment
 - [Windows Docker Installation](docs/deployment/WINDOWS_DOCKER_INSTALL.md) — Complete guide for Windows with Docker Desktop
 - [Docker Compose guide](docker-compose.yml) — Local deployment with optional Elasticsearch

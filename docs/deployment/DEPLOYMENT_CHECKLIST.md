@@ -21,6 +21,9 @@
 - [ ] Switched "Project Achilles" to production mode
 - [ ] Added authorized domains: `projectachilles.io`, `api.projectachilles.io`
 - [ ] Added redirect URLs: `https://projectachilles.io/*`
+- [ ] Added `{"metadata": "{{user.public_metadata}}"}` to the session token claims (**Configure → Sessions → Customize session token**) ([steps](https://docs.projectachilles.io/docs/deployment/prerequisites#session-token-claim))
+- [ ] Set **Configure → Access mode** to **Invite-only** (or enabled the allowlist)
+- [ ] After the first sign-in: set `{"role": "admin"}` in the first admin's public metadata ([steps](https://docs.projectachilles.io/docs/deployment/prerequisites#first-admin))
 
 ### Google OAuth Production
 - [ ] Created OAuth client at Google Cloud Console

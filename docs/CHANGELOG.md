@@ -11,6 +11,11 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+### Documentation
+
+- **Clerk roles in every deployment guide.** The session token claim (`{"metadata": "{{user.public_metadata}}"}`), the first admin's `{"role": "admin"}` and an invite-only sign-up mode are now one section in the wiki's Prerequisites, and every deployment guide (Docker Compose, Server Installer, Public and On-Prem Server, Fly.io, Render, Railway, Vercel, the production checklists) points to it. Before, only the Server Installer and local quick start mentioned them.
+- **Server Installer page for on-prem and cloud.** The wiki page moved to `deployment/server-installer` and comes first among the server guides; sections are shared or marked *On-prem LAN* / *Cloud server* instead of cloud being appended at the end. The full reference is now `docs/deployment/SERVER_INSTALLER.md` (`ON_PREM_LAN.md` points to it).
+
 ## [2.5.0] - 2026-10-24
 
 ### Added

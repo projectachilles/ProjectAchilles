@@ -165,6 +165,13 @@ ProjectAchilles uses [Clerk](https://clerk.com) for authentication. You need a f
    | **Publishable key** | `pk_test_abc123...` | Public key (safe to expose in frontend) |
    | **Secret key** | `sk_test_xyz789...` | Private key (backend only, keep secret) |
 
+5. Still in the Clerk dashboard, open **Configure → Sessions**, and under
+   **Customize session token** set the claims to
+   `{"metadata": "{{user.public_metadata}}"}` and save. After your first sign-in to
+   ProjectAchilles, set `{"role": "admin"}` in your user's public metadata
+   (**Users →** you **→ Metadata → Public**) and sign in again: a user with no
+   role is read-only. Details: [Clerk roles](https://docs.projectachilles.io/docs/deployment/prerequisites#session-token-claim).
+
 ---
 
 ## 6. Configure Environment

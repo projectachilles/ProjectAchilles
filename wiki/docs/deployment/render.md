@@ -63,6 +63,15 @@ Render's private network DNS is only available on Standard plan and above. On St
 2. **Root Directory**: `frontend`, **Runtime**: Docker, **Plan**: Starter
 3. Set `CLERK_PUBLISHABLE_KEY` and `VITE_API_URL`
 
+:::warning Set up roles in Clerk
+Every user without a role is read-only. In the Clerk Dashboard, add the
+`metadata` claim to the session token, then give your own account
+`{"role": "admin"}` in its public metadata and sign in again:
+[session token claim](./prerequisites#session-token-claim) and
+[first admin](./prerequisites#first-admin). Invite everyone else from
+**Settings → Users**.
+:::
+
 ## Persistent Disk
 
 The backend uses a 1 GB persistent disk at `/root/.projectachilles`:

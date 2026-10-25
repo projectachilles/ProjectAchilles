@@ -105,6 +105,15 @@ curl -s https://achilles.example.com/api/health
 
 Then open `https://achilles.example.com/` and confirm Clerk login works.
 
+:::warning Set up roles in Clerk
+Every user without a role is read-only. In the Clerk Dashboard, add the
+`metadata` claim to the session token, then give your own account
+`{"role": "admin"}` in its public metadata and sign in again:
+[session token claim](./prerequisites#session-token-claim) and
+[first admin](./prerequisites#first-admin). Invite everyone else from
+**Settings → Users**.
+:::
+
 ## Enrolling agents
 
 Agents connect to the same public host over HTTPS. In **Endpoints → enrollment**,

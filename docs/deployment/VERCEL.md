@@ -28,6 +28,10 @@ Unlike the Docker-based deployments (Railway, Render, Docker Compose), the Verce
 - Turso database ([turso.tech](https://turso.tech)) — free tier is sufficient
 - GitHub repo with this project pushed
 - Clerk application keys ([dashboard.clerk.com](https://dashboard.clerk.com)) — create a **separate** Clerk app for Vercel
+- Clerk **roles**: the session token claim `{"metadata": "{{user.public_metadata}}"}`
+  (Clerk Dashboard → **Configure → Sessions → Customize session token**) and,
+  after your first sign-in, `{"role": "admin"}` in your user's public metadata.
+  Without a role every user is read-only. Steps: [Clerk roles](https://docs.projectachilles.io/docs/deployment/prerequisites#session-token-claim).
 - Elastic Cloud deployment ([cloud.elastic.co](https://cloud.elastic.co))
 - GitHub Personal Access Token (if using a private test repo)
 

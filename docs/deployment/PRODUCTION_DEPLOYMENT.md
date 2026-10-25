@@ -180,6 +180,22 @@ https://projectachilles.io
 
 ---
 
+### 1.6 Roles: Session Token Claim and First Admin
+
+1. In Clerk Dashboard, go to **Configure** → **Sessions**. Under **Customize session token**, set the **Claims** to the following and save:
+   ```json
+   {
+     "metadata": "{{user.public_metadata}}"
+   }
+   ```
+2. Go to **Configure** → **Access mode** and set the sign-up mode to **Invite-only**.
+3. After your first sign-in to ProjectAchilles, open **Users** → your user → **Metadata**, edit **Public** to `{"role": "admin"}`, then sign out and in again.
+4. Invite everyone else, with a role, from **Settings → Users** in ProjectAchilles.
+
+Without a role every user is read-only. Details: [Clerk roles](https://docs.projectachilles.io/docs/deployment/prerequisites#session-token-claim).
+
+---
+
 ## Phase 2: Railway Setup
 
 ### 2.1 Create Railway Account & Project

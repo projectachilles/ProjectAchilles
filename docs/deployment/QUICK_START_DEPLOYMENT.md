@@ -54,7 +54,12 @@ for the dashboard-only details.
 3. Add domains: projectachilles.io, api.projectachilles.io
 4. Configure OAuth (Google, Microsoft, GitHub) for production
 5. Copy: pk_live_... and sk_live_...
+6. Sessions → Customize session token → claims: {"metadata": "{{user.public_metadata}}"}
+7. Access mode → Invite-only
+8. After your first sign-in: Users → you → Metadata → Public: {"role": "admin"}
 ```
+
+Without a role every user is read-only. Details: [Clerk roles](https://docs.projectachilles.io/docs/deployment/prerequisites#session-token-claim).
 
 **OAuth Setup Summary:**
 - **Google:** console.cloud.google.com → Create OAuth client → Add Clerk redirect URI

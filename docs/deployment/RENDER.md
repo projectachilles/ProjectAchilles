@@ -20,6 +20,10 @@ The frontend calls the backend directly via CORS (using `VITE_API_URL`). Elastic
 - Render account ([render.com](https://render.com)) — Starter plan or above (required for persistent disks)
 - GitHub repo with this project pushed
 - Clerk application keys ([dashboard.clerk.com](https://dashboard.clerk.com)) — create a **separate** Clerk app for Render
+- Clerk **roles**: the session token claim `{"metadata": "{{user.public_metadata}}"}`
+  (Clerk Dashboard → **Configure → Sessions → Customize session token**) and,
+  after your first sign-in, `{"role": "admin"}` in your user's public metadata.
+  Without a role every user is read-only. Steps: [Clerk roles](https://docs.projectachilles.io/docs/deployment/prerequisites#session-token-claim).
 - Elastic Cloud deployment ([cloud.elastic.co](https://cloud.elastic.co))
 - GitHub Personal Access Token (if using a private test repo)
 

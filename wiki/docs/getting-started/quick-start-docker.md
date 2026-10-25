@@ -89,6 +89,14 @@ The output should contain `VITE_CLERK_PUBLISHABLE_KEY: "pk_test_..."`. If the va
 In Docker Compose mode, the frontend is served by nginx on port **80** (bound to `127.0.0.1`), not 5173. The backend runs on port **3000** internally but is proxied through nginx.
 :::
 
+### 6. Make Yourself Admin
+
+A new account has no role, so it's read-only. In the Clerk Dashboard, add the
+`metadata` claim to the session token, then set `{"role": "admin"}` in your
+user's public metadata and sign in again. See
+[session token claim](../deployment/prerequisites#session-token-claim) and
+[first admin](../deployment/prerequisites#first-admin).
+
 ## Windows
 
 ### Prerequisites

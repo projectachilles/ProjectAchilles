@@ -1,6 +1,6 @@
 # Walks the real achilles-installer wizard (in a throwaway container, see
 # sandbox.sh) through all ten screens and saves the eight screenshots used by
-# wiki/docs/deployment/on-prem-lan.md. Run from the repository root:
+# wiki/docs/deployment/server-installer.md. Run from the repository root:
 #
 #   SANDBOX_DNS=1.1.1.1 vhs docs/deployment/vhs/onprem-wizard.tape
 #
