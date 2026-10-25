@@ -1,5 +1,11 @@
 name: Claude Code Review
 
+# Fork PRs get no secrets on `pull_request`, and claude-code-action only runs
+# for users with write access, so fork PRs are reviewed when a maintainer adds
+# the `claude-review` label after reading the diff (`pull_request_target`).
+# That run checks out only the BASE branch and reads the PR through the API
+# (`gh pr diff`): no PR code is on disk or run. Same as security-review.yml.
+
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
@@ -9,10 +15,18 @@ on:
     #   - "src/**/*.tsx"
     #   - "src/**/*.js"
     #   - "src/**/*.jsx"
+  pull_request_target: # zizmor: ignore[dangerous-triggers] label-gated by a maintainer; base checkout, PR head as data only, no PR code runs
+    types: [labeled]
 
 jobs:
   claude-review:
-    if: github.actor != 'dependabot[bot]'
+    if: >-
+      github.actor != 'dependabot[bot]' && (
+        (github.event_name == 'pull_request' &&
+         github.event.pull_request.head.repo.full_name == github.repository) ||
+        (github.event_name == 'pull_request_target' &&
+         github.event.label.name == 'claude-review' &&
+         github.event.pull_request.head.repo.full_name != github.repository))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -27,7 +41,11 @@ jobs:
           # Full history, so review subagents can use git log/show/diff (auto-approved
           # as read-only) without git fetch. Don't add Bash(git ...) allow rules: they
           # bypass that read-only check and allow --output and --no-index.
+          # On pull_request_target this is the BASE branch (checkout's default):
+          # no PR file is ever checked out.
           fetch-depth: 0
+          persist-credentials: false
+
 
       - name: Run Claude Code Review
         id: claude-review
@@ -74,3 +92,11 @@ jobs:
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
 
+      # One review per label: the next push needs a fresh look and a new label.
+      - name: Remove the review label
+        if: always() && github.event_name == 'pull_request_target'
+        continue-on-error: true # the security-review workflow may have removed it already
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --remove-label claude-review

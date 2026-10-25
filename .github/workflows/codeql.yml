@@ -1,0 +1,63 @@
+name: CodeQL
+
+# Advanced setup, replacing CodeQL default setup. Default setup does not scan
+# pull requests from forks, so an external contribution reached main with no
+# CodeQL analysis at all (PR #566) and the main ruleset's code-scanning rule
+# could only be bypassed. A `pull_request` workflow runs on fork PRs too.
+#
+# Mirrors the former default setup exactly (languages, build modes, `default`
+# query suite, `remote` threat model, categories, weekly schedule) so main's
+# existing alerts keep matching and are not reported again as new.
+# Default setup must stay disabled while this workflow exists: GitHub rejects
+# advanced-setup uploads when default setup is enabled.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '27 4 * * 1' # weekly, like default setup
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      security-events: write # upload results
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: go
+            build-mode: autobuild
+          - language: javascript-typescript
+            build-mode: none
+          - language: python
+            build-mode: none
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # No `queries:` and no threat-model config: the defaults are the
+          # `default` suite and the `remote` threat model, as in default setup.
+          # (security-extended would re-flag dozens of existing lines on main.)
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          category: /language:${{ matrix.language }}
