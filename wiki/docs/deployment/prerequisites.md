@@ -29,7 +29,7 @@ From the Clerk Dashboard → **API Keys**:
 | **Publishable Key** | Frontend + Backend | `pk_test_abc123...` |
 | **Secret Key** | Backend only | `sk_test_xyz789...` |
 
-:::warning Separate Clerk Apps Per Environment
+:::warning[Separate Clerk Apps Per Environment]
 Create separate Clerk applications for each deployment target (local dev, staging, production). Keys are not interchangeable between environments.
 
 **Exception:** If you move from one hosting provider to another with the same custom domain, you can reuse the same Clerk production app.
@@ -58,7 +58,7 @@ Clerk keeps this setting **per instance**: a development and a production
 instance each need it, and so does every Clerk app you create for another
 deployment.
 
-:::info What happens without it
+:::info[What happens without it]
 From v2.5.0, the backend looks up the role of a signed-in browser session whose token has
 no `metadata` claim in Clerk instead (cached for a minute per user), so
 permissions still work, at the cost of a Clerk API call per user per minute.
@@ -149,7 +149,7 @@ docker compose --profile elasticsearch up -d
 
 Or connect to an existing cluster with `ELASTICSEARCH_NODE=http://your-es-host:9200`.
 
-:::danger Client Version Must Match Server
+:::danger[Client Version Must Match Server]
 The `@elastic/elasticsearch` client must stay on version 8.x to match the Elasticsearch 8.x server. Version 9.x sends `compatible-with=9` headers that ES 8.x rejects with HTTP 400.
 :::
 

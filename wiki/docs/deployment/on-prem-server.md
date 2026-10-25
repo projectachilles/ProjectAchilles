@@ -10,7 +10,7 @@ Deploy a **fully functional on-prem** ProjectAchilles install on a server **you
 provide** (reachable over SSH), on your own network, with **working TLS** —
 including options that need no public internet exposure.
 
-:::tip Windows fleet on a LAN with no public IP?
+:::tip[Windows fleet on a LAN with no public IP?]
 The [Server Installer guide](./server-installer) covers the interactive `achilles-installer` wizard: a managed name-constrained CA and GPO-based trust for Windows endpoints on a LAN, or Let's Encrypt on a cloud server.
 :::
 
@@ -43,7 +43,7 @@ endpoint; they differ in what (if anything) clients must trust.
 | `acme-dns` | You own a public domain (host may be internal) | Yes | No (DNS TXT) | **None** — publicly trusted |
 | `byo` | Your org has its own PKI / a cert already | Optional | No | None if clients already trust your CA |
 
-:::tip Recommendation
+:::tip[Recommendation]
 If you own a public domain, `acme-dns` is smoothest — publicly-trusted certs,
 zero client setup, no inbound exposure. Use `internal` for truly isolated
 networks (for a LAN with Windows endpoints, prefer the
@@ -184,7 +184,7 @@ curl -sk https://achilles.corp.example.com/api/health   # -k tolerates internal 
 
 Then open `https://achilles.corp.example.com/` from a client on the network.
 
-:::warning Set up roles in Clerk
+:::warning[Set up roles in Clerk]
 Every user without a role is read-only. In the Clerk Dashboard, add the
 `metadata` claim to the session token, then give your own account
 `{"role": "admin"}` in its public metadata and sign in again:
@@ -203,7 +203,7 @@ Every user without a role is read-only. In the Clerk Dashboard, add the
 | `acme-dns` cert never issues | Wrong `CADDY_DNS_MODULE`/provider or token lacks zone-edit permission: `logs -f caddy`. |
 | Can't reach the host | Internal DNS resolves `ACHILLES_DOMAIN`? Firewall allows 443 from your subnet? |
 
-:::info Full reference
+:::info[Full reference]
 The complete guide is in
 [`docs/deployment/ON_PREM_SERVER.md`](https://github.com/projectachilles/ProjectAchilles/blob/main/docs/deployment/ON_PREM_SERVER.md).
 :::

@@ -52,7 +52,7 @@ Manages Git repository cloning and synchronization with support for sparse check
 | `getStatus()` | Returns last sync time, test count, and sync state |
 | `getTestsSourcePath()` | Resolves the absolute path to the test source directory |
 
-:::info Serverless difference
+:::info[Serverless difference]
 On Vercel, the test library is cloned at build time via the `vercel-build` script (not at runtime). The `GitSyncService` is not used in `backend-serverless/`. Instead, tests are included via the `includeFiles` directive in `vercel.json`.
 :::
 
@@ -118,7 +118,7 @@ UNIT: test-unit-001
 
 **Multi-stage detection:** Automatically identifies multi-stage tests by scanning for `stage-T*.go` files and extracts per-stage information including technique mappings and execution order.
 
-:::tip Agent integration
+:::tip[Agent integration]
 The agent service reuses `MetadataExtractor` directly via the `test-catalog.service.ts` at startup to build a UUID-keyed metadata cache. This ensures metadata parsing is consistent between the browser UI and the task creation pipeline.
 :::
 

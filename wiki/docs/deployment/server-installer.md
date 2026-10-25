@@ -26,7 +26,7 @@ the wizard, see [Public Server](./public-server) (a VPS, or a DigitalOcean
 droplet created for you) and [On-Prem Server](./on-prem-server) (over SSH,
 Let's Encrypt DNS-01 or your own certificate).
 
-:::info Full reference
+:::info[Full reference]
 The complete guide, with every screen, flag and troubleshooting row, is
 [`docs/deployment/SERVER_INSTALLER.md`](https://github.com/projectachilles/ProjectAchilles/blob/main/docs/deployment/SERVER_INSTALLER.md).
 :::
@@ -143,7 +143,7 @@ Droplets and Hetzner Cloud servers (for providers that NAT it, see
   before v2.5.0, see [Clerk: roles and the first admin](#the-first-admin-and-roles)).
 - The **email of the first admin**, whom the installer invites.
 
-:::warning Defender ASR
+:::warning[Defender ASR]
 If attack surface reduction rule `01443614` runs in block mode, add a per-rule
 exclusion for exactly `C:\F0\achilles-agent.exe` before rollout. See
 [Self-updates](../user-guide/agent-management/self-updates).
@@ -170,12 +170,12 @@ installer checks that the Frontend API host is reachable from the server.
 A **cloud server** is always in the first column, except that its own A record
 is in public DNS too.
 
-:::tip Keep the internal hostname out of public DNS
+:::tip[Keep the internal hostname out of public DNS]
 Clerk's CNAMEs reveal the label D in your public zone. Create the Clerk app on a
 parent domain (e.g. `clerk.example.com`) if `achilles.corp` must not appear there.
 :::
 
-:::warning Avoid `.local`
+:::warning[Avoid `.local`]
 It is reserved for multicast DNS: macOS and many Linux clients resolve `.local`
 names over mDNS instead of your DNS server, which breaks browsers and agents. The
 installer warns about it. Prefer a name under a domain you own, or `.lan` /
@@ -237,7 +237,7 @@ Then sign out of ProjectAchilles and in again, so the session picks up the role.
 **More people:** an admin invites them, with a role, from **Settings → Users**
 in the web UI.
 
-:::tip Restrict sign-ups on a cloud server
+:::tip[Restrict sign-ups on a cloud server]
 Anyone who can reach `https://<hostname>/sign-up` can create an account, and an
 account with no role can still read the dashboards. On a server reachable from
 the internet, set Clerk's sign-up mode to **Invite-only** under **Configure →
@@ -249,7 +249,7 @@ See [Restrict sign-ups](./prerequisites#restrict-sign-ups).
 
 ### Get the installer onto the server
 
-:::note The installer ships with v2.3.0 and later
+:::note[The installer ships with v2.3.0 and later]
 Releases up to and including v2.2.0 have no `installer/` directory, so `--ref`
 must name v2.3.0 or newer (or a branch such as `main`, which builds from source
 and needs Go 1.26 or later and `make` on the server).
@@ -421,7 +421,7 @@ invitation (or what to do by hand).
 
 *Example from a render-only run with placeholder values; the fingerprints belong to a throwaway CA and differ on every install.*
 
-:::tip Save the SHA-256 and the thumbprint
+:::tip[Save the SHA-256 and the thumbprint]
 The GPO team uses them to verify the file they import.
 `sudo /opt/projectachilles/achilles-installer ca export --out <dir>` prints both
 again at any time.
@@ -453,7 +453,7 @@ ProjectAchilles CA is listed first on a private address).
 3. Create an enrollment token in the web UI with a short TTL and a **Max Uses**
    that matches the batch you are enrolling.
 
-:::info On-prem LAN: use the bootstrap scripts, not the UI one-liners
+:::info[On-prem LAN: use the bootstrap scripts, not the UI one-liners]
 The web UI's enrollment one-liners download the agent over HTTPS from the start,
 so they fail on an endpoint that doesn't trust the root yet.
 :::
@@ -531,7 +531,7 @@ IP address unless you allowed the LAN IP.
 
 ### What they don't cover
 
-:::warning Limits of the constraints
+:::warning[Limits of the constraints]
 - **Anything inside the zone.** Whoever holds the intermediate or root key can
   mint a valid server certificate for **any** name in the zone (for example
   `mail.corp.example.com`) for every client that trusts the root. Pick the
@@ -573,7 +573,7 @@ sudo systemctl start achilles-ca-renew.service        # run the check now
 journalctl -u achilles-ca-renew.service               # its output
 ```
 
-:::tip Renewal troubleshooting
+:::tip[Renewal troubleshooting]
 A manual `ca renew` does not restart Caddy, and a plain
 `docker compose restart caddy` is not enough: Caddy keeps serving its cached leaf,
 which chains to the old intermediate, for up to about 12 hours. Run
@@ -586,7 +586,7 @@ which chains to the old intermediate, for up to about 12 hours. Run
 Rotation is never automatic. A new root means every endpoint must re-trust it;
 until it does, its agent stays offline.
 
-:::warning Record the old root's thumbprint before you rotate
+:::warning[Record the old root's thumbprint before you rotate]
 Rotation overwrites the old root on the server, and you need its Windows
 thumbprint (SHA-1) to remove it from endpoints. `status` prints only the
 SHA-256; `ca export` prints both and keeps a copy of the old root:
@@ -658,7 +658,7 @@ replace a root with the same constraints, rotate by hand. As root, in
 Rotating the CA changes nothing on endpoints: every copy of the old root stays
 trusted until you remove it, and each way of adding the root needs its own removal.
 
-:::warning Removing the root from a GPO removes only the Group Policy copy
+:::warning[Removing the root from a GPO removes only the Group Policy copy]
 It does not remove the copies that `bootstrap-windows.ps1` (which adds the root to
 `LocalMachine\Root` directly when it is not already trusted) or a manual
 `Import-Certificate` added.
@@ -698,7 +698,7 @@ Two separate jobs:
   skips it when the root is already there).
 - **Enrollment:** the bootstrap script, run per machine with an enrollment token.
 
-:::warning GPO distributes the root only
+:::warning[GPO distributes the root only]
 Never put enrollment tokens, or a script that contains one, in a GPO, a startup
 script or SYSVOL: every domain computer and user can read SYSVOL.
 :::
@@ -746,7 +746,7 @@ folder that holds it:
 powershell -ExecutionPolicy Bypass -File .\bootstrap-windows.ps1 -Token "<enrollment-token>"
 ```
 
-:::warning Use double quotes around the token
+:::warning[Use double quotes around the token]
 `powershell.exe -File` started from `cmd.exe`, SCCM or an RMM tool passes single
 quotes through literally, and enrollment then fails with HTTP 401.
 :::
@@ -771,7 +771,7 @@ It runs these steps, aborting at the first failure:
 Nothing is staged in `%TEMP%` or any folder the user's unelevated token can write
 to.
 
-:::warning Existing `C:\F0` content becomes SYSTEM + Administrators only
+:::warning[Existing `C:\F0` content becomes SYSTEM + Administrators only]
 Anything already in `C:\F0` (earlier test artifacts, logs, `bundle_results.json`)
 loses its own permissions and inherits the locked DACL; non-administrators can no
 longer list or read the folder. The agent runs as SYSTEM, so it is unaffected. A
@@ -876,7 +876,7 @@ sudo ./achilles-installer <command>
 
 ### Upgrading
 
-:::warning Upgrade order, and re-run the engine after any pull
+:::warning[Upgrade order, and re-run the engine after any pull]
 Caddy's configuration is rendered into `deploy/caddy/rendered/` from the checkout,
 so after any `git pull` re-run `./scripts/deploy-server.sh` (or use
 `achilles-installer upgrade`) to apply it.
@@ -893,7 +893,7 @@ sudo /opt/projectachilles/achilles-installer install --config /opt/projectachill
 ```
 :::
 
-:::warning Backups hold every secret and the CA private keys
+:::warning[Backups hold every secret and the CA private keys]
 Anyone who reads a backup can impersonate your CA within its zone. Store it
 encrypted and off the server.
 :::
@@ -994,7 +994,7 @@ the wizard's Clerk key and DNS checks: check the key fit yourself.
 
 ## Troubleshooting
 
-:::info Docker-published ports bypass ufw and firewalld
+:::info[Docker-published ports bypass ufw and firewalld]
 Docker publishes container ports through its own iptables NAT chains, so a ufw
 "deny" does not stop a published port. That is why the installer binds Caddy to the
 LAN IP (`CADDY_BIND_IP`). The firewall phase still adds allow rules for 80/tcp,

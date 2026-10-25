@@ -84,7 +84,7 @@ echo "What's our current defense score?" | achilles chat
 # └─────────────────────┴───────┘
 ```
 
-:::info Piped stdin handling
+:::info[Piped stdin handling]
 When input is piped (`echo "..." | achilles chat`), the readline `close` event fires immediately after the line is read. The chat defers `process.exit()` until the streaming AI response completes, preventing truncated output.
 :::
 
@@ -125,11 +125,11 @@ achilles config set ai.api_key ollama   # Required by SDK but ignored by Ollama
 
 Works with any Ollama model: `llama3`, `qwen3`, `mistral`, `codellama`, etc.
 
-:::tip LM Studio and other local servers
+:::tip[LM Studio and other local servers]
 Any OpenAI-compatible local server works — just set `ai.provider ollama` and point `ai.base_url` to your server (e.g., `http://localhost:1234/v1` for LM Studio).
 :::
 
-:::note Technical detail
+:::note[Technical detail]
 The provider factory uses `openai.chat(modelId)` (Chat Completions API) instead of the default `openai(modelId)` (Responses API) because Ollama and local servers don't support OpenAI's newer Responses API (`/v1/responses`) which uses `item_reference` message types.
 :::
 

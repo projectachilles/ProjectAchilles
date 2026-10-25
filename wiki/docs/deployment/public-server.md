@@ -105,7 +105,7 @@ curl -s https://achilles.example.com/api/health
 
 Then open `https://achilles.example.com/` and confirm Clerk login works.
 
-:::warning Set up roles in Clerk
+:::warning[Set up roles in Clerk]
 Every user without a role is read-only. In the Clerk Dashboard, add the
 `metadata` claim to the session token, then give your own account
 `{"role": "admin"}` in its public metadata and sign in again:
@@ -152,7 +152,7 @@ name; for a second stack on one host, set a different `COMPOSE_PROJECT_NAME` in
 | Agents can't connect | `AGENT_SERVER_URL` matches the public URL; firewall allows 443. |
 | ES errors | `ES_MODE=self` needs ≥4 GB RAM, or switch to `cloud`. |
 
-:::info Full reference
+:::info[Full reference]
 The complete guide — including the configuration reference, backups, and
 security notes — is in
 [`docs/deployment/SELF_HOSTED_SERVER.md`](https://github.com/projectachilles/ProjectAchilles/blob/main/docs/deployment/SELF_HOSTED_SERVER.md).

@@ -15,7 +15,7 @@ Deploy ProjectAchilles to [Vercel](https://vercel.com) using the serverless back
 | **backend** | `backend-serverless/` | `@vercel/node` (serverless) |
 | **frontend** | `frontend/` | Vite (static SPA) |
 
-:::warning Different Backend
+:::warning[Different Backend]
 The Vercel deployment uses `backend-serverless/` — a purpose-built fork that replaces SQLite with Turso, filesystem with Vercel Blob, and process scheduling with Vercel Cron.
 :::
 
@@ -71,7 +71,7 @@ Create **two separate Vercel projects** linked to the same GitHub repo:
 
 ## Step 5: Set Environment Variables
 
-:::tip Generate Secrets
+:::tip[Generate Secrets]
 ```bash
 ./scripts/generate-secrets.sh --target vercel
 ```
@@ -106,7 +106,7 @@ Outputs `SESSION_SECRET`, `ENCRYPTION_SECRET`, `CLI_AUTH_SECRET`, and Ed25519 si
 | `VITE_CLERK_PUBLISHABLE_KEY` | `pk_live_...` (must have `VITE_` prefix) |
 | `VITE_API_URL` | `https://<backend>.vercel.app` |
 
-:::warning Set up roles in Clerk
+:::warning[Set up roles in Clerk]
 Every user without a role is read-only. In the Clerk Dashboard, add the
 `metadata` claim to the session token, then give your own account
 `{"role": "admin"}` in its public metadata and sign in again:
@@ -136,7 +136,7 @@ Cron jobs require the **Pro plan** and only run in Production.
 
 ## Gotchas
 
-:::danger Always Use printf for Environment Variables
+:::danger[Always Use printf for Environment Variables]
 `echo` appends a trailing newline that corrupts env var values:
 
 ```bash
@@ -150,11 +150,11 @@ echo "libsql://..." | vercel env add TURSO_DATABASE_URL production
 **Symptoms:** `TURSO_DATABASE_URL` newline → "Invalid URL" on all database endpoints. `CORS_ORIGIN` newline → HTTP 500 on cross-origin requests.
 :::
 
-:::warning Frontend Clerk Key Prefix
+:::warning[Frontend Clerk Key Prefix]
 Vite only exposes env vars with `VITE_` prefix. Use `VITE_CLERK_PUBLISHABLE_KEY` on the frontend project, not `CLERK_PUBLISHABLE_KEY`.
 :::
 
-:::info __dirname is Unreliable
+:::info[__dirname is Unreliable]
 `@vercel/node` bundles with ncc/esbuild. Use `process.cwd()` (always `/var/task`) instead of `__dirname` for path resolution.
 :::
 

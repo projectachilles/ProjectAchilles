@@ -59,7 +59,7 @@ Docker Compose reads this file to fill in the variables it passes to the contain
 - **`CLERK_PUBLISHABLE_KEY`**: the frontend container reads it when it starts and writes it to `/env-config.js`. Without it, the UI loads a black page and the browser console shows `@clerk/clerk-react: Missing publishableKey`.
 - **`CORS_ORIGIN`**: must be the exact URL you open in the browser, including the port if it isn't 80 (for example `http://localhost:9090` or `http://<server-ip>`). `docker-compose.yml` sets this value on the backend container, so it overrides any `CORS_ORIGIN` in `backend/.env`.
 
-:::warning `frontend/.env` is not used by Docker
+:::warning[`frontend/.env` is not used by Docker]
 `frontend/.env` is only for the local Vite dev server (`npm run dev`). `frontend/.dockerignore` keeps it out of the image, and the Clerk key isn't baked in at build time. Rebuilding the image won't pick it up; set the key in the root `.env` instead.
 :::
 
@@ -85,7 +85,7 @@ curl -s http://localhost/env-config.js
 
 The output should contain `VITE_CLERK_PUBLISHABLE_KEY: "pk_test_..."`. If the value is `""`, see [Missing publishableKey](#missing-publishablekey-black-page).
 
-:::info Port Mapping
+:::info[Port Mapping]
 In Docker Compose mode, the frontend is served by nginx on port **80** (bound to `127.0.0.1`), not 5173. The backend runs on port **3000** internally but is proxied through nginx.
 :::
 
@@ -106,7 +106,7 @@ user's public metadata and sign in again. See
 3. **Docker Desktop** for Windows
 4. **Git for Windows** with Unix line endings
 
-:::warning Line Endings
+:::warning[Line Endings]
 Git must be configured to preserve Unix line endings for shell scripts inside Docker containers:
 
 ```powershell

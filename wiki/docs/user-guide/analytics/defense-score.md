@@ -176,7 +176,7 @@ wide right column carrying the shapes you read.
 impact), Test Coverage and Defense Score by Host as flat bar lists, and the
 Test Breadth by Host treemap.
 
-:::note Without Microsoft Defender
+:::note[Without Microsoft Defender]
 The Secure Score and Top Remediation Controls cards are Defender-only. When the
 integration is not configured they are omitted and the remaining cards reflow to
 fill the row — the layout stays balanced rather than leaving a gap.
@@ -219,7 +219,7 @@ with the same shape — evidence-based detection rate, ZTA posture score, alert
 correlation, technique overlap, and an alert drawer with Falcon console links.
 See [CrowdStrike Falcon](./crowdstrike).
 
-:::info Detection Rate vs. Defense Score
+:::info[Detection Rate vs. Defense Score]
 These are distinct metrics. The **Defense Score** measures whether a test's
 *exit code* reported it as protected; the EDR tabs' **Detection Rate**
 measures whether *Microsoft Defender or CrowdStrike detected the run*,
@@ -263,7 +263,7 @@ The filter bar runs across the top of every tab and supports multiple simultaneo
 
 Filters are additive -- selecting multiple values in the same dropdown narrows results. Each dropdown shows a count badge when filters are active. The filter bar is collapsible to save screen space.
 
-:::tip Date Range Shortcuts
+:::tip[Date Range Shortcuts]
 Use the preset date range buttons (24h, 7d, 30d, 90d) for quick time-window changes. The trend chart automatically adjusts its time axis granularity to match the selected range.
 :::
 
@@ -285,6 +285,6 @@ The dashboard automatically reloads data when you:
 - Modify Elasticsearch settings (index pattern changes)
 - Toggle Defender or CrowdStrike integrations on or off
 
-:::info Conditional Loading
+:::info[Conditional Loading]
 Only the active tab's data is fetched, so switching tabs triggers a fresh load for that tab while keeping others cached.
 :::

@@ -44,7 +44,7 @@ The Accept Risk dialog provides a scope toggle with two options:
 
 The hostname is always stored for audit trail regardless of scope. When choosing scope, prefer **This Host Only** unless the business justification applies organization-wide.
 
-:::info Legacy Records
+:::info[Legacy Records]
 Risk acceptances created before the scope toggle was added fall back to current behavior: records with a hostname are treated as host-scoped, records without are treated as global.
 :::
 
@@ -71,7 +71,7 @@ The exclusion filter generates Elasticsearch `must_not` clauses that match the `
 - **Heatmap cells** for accepted risks show a distinct visual state
 - **Treemap tiles** for accepted controls are grouped separately
 
-:::info Performance
+:::info[Performance]
 Active acceptances are cached in memory for 60 seconds to avoid hitting Elasticsearch on every Defense Score query. The cache is automatically invalidated when a new acceptance is created or revoked.
 :::
 
@@ -144,7 +144,7 @@ Each risk acceptance is stored as an immutable document in the `achilles-risk-ac
 | `revoked_by_name` | keyword | Revoker display name (if revoked) |
 | `revocation_reason` | text | Reason for revocation (if revoked) |
 
-:::warning Immutable Records
+:::warning[Immutable Records]
 Revoking an acceptance does **not** delete the original record. Instead, the document is updated with `status: 'revoked'` and the revocation metadata fields are populated. This preserves the complete audit trail for compliance reporting.
 :::
 

@@ -25,7 +25,7 @@ Score and SB compliance report relate to each other.
 | `999` | UnexpectedTestError | Process died unexpectedly — crash, missing prereqs, **or EDR kill** | error |
 | `> 2³¹−1` (e.g. `0xE0000027`) | *(unsigned NTSTATUS-style)* | EDR kill codes and similar — **coerced to `999` at ingestion**, original preserved in `event.ERROR_raw` | error |
 
-:::info Exit codes never prove prevention
+:::info[Exit codes never prove prevention]
 `999` is ambiguous by itself — it means "something killed the process or it
 broke." Attribution only ever comes from EDR alert evidence (§2), never from
 the exit code. This is the "evidence, not exit codes" principle.

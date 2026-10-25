@@ -8,7 +8,7 @@ description: Where ProjectAchilles stores runtime state, and how to reset an ins
 
 Runtime state (agents, tokens, settings, certificates, compiled binaries) is stored **outside the repository** — in the user's home directory or a persistent volume. This is intentional: it protects your data from `git pull`, re-clones, or accidental deletion of the repo folder.
 
-:::info Why this matters
+:::info[Why this matters]
 Deleting or renaming the `/ProjectAchilles` repo folder and doing a fresh `git clone` does **not** reset your installation. The backend starts up against the same `agents.db` and shows the same agents, tokens, schedules, and settings as before.
 
 If that surprises you, this page is the page you need.
@@ -41,7 +41,7 @@ If that surprises you, this page is the page you need.
 
 Additionally, test results and Defender alerts are stored in **Elasticsearch** (`achilles-results-*`, `achilles-defender` indices) — that data lives in your ES cluster, not on the local filesystem.
 
-:::tip Design rationale
+:::tip[Design rationale]
 Storing runtime state outside the repo means `git pull`, re-clones, or even `rm -rf` on the repo folder can never destroy production data. That's a safety feature, not an oversight.
 :::
 
@@ -123,7 +123,7 @@ SQL
 
 Restart the backend afterwards so it reopens the database cleanly.
 
-:::warning Foreign keys
+:::warning[Foreign keys]
 The `tasks` table references `agents` via FK. Delete in the order above (tasks → schedules → agents → enrollment_tokens) or disable foreign keys first with `PRAGMA foreign_keys = OFF;`.
 :::
 

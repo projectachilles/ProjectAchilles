@@ -10,7 +10,7 @@ This guide walks you through using ProjectAchilles **API keys** to read and act 
 
 For an endpoint catalog see the per-module references ([Analytics](./analytics.md), [Agent Admin](./agent-admin.md), [Defender](./defender.md), etc.). This page is the **how-to-actually-use-them** complement.
 
-:::tip Reference vs. guide
+:::tip[Reference vs. guide]
 - The per-module pages answer *"what does this endpoint do?"* — use them as a lookup.
 - This page answers *"how do I build X using these endpoints?"* — read it top-to-bottom the first time, then jump to the cookbook for recipes.
 :::
@@ -162,7 +162,7 @@ curl -s -H "Authorization: Bearer $PA_KEY" \
 
 `/executions/paginated` accepts a long filter vocabulary (see [Analytics](./analytics.md) for the full list).
 
-:::warning Two response shapes
+:::warning[Two response shapes]
 This endpoint returns **different shapes** depending on the `grouped` parameter:
 
 - **Default** (no `grouped`, or `grouped=false`) → `{"data": [...], "pagination": {...}}` — one row per ES document. Bundle tests appear as multiple rows (one per control). Iterate with `.data[]`.
@@ -423,13 +423,13 @@ TASK_ID='...'
 curl -s -H "Authorization: Bearer $PA_KEY" "$BACKEND/agent/admin/tasks/$TASK_ID" | jq
 ```
 
-:::tip Exit code conventions
+:::tip[Exit code conventions]
 - `100` — **protected**: a defender (EDR or otherwise) blocked the malicious action.
 - `101` — **unprotected**: the test successfully performed the malicious action.
 - Anything else — **inconclusive**: configuration error, missing dependency, validator itself was blocked. The analytics endpoints' `result=unprotected` filter treats only exit code `101` as a real failure; the admin tasks path returns every exit code as-is.
 :::
 
-:::tip Bundle tests
+:::tip[Bundle tests]
 Bundle tests (cyber-hygiene packs, multi-stage intel-driven tests) fan out into multiple ES documents — one per control or stage, each with `is_bundle_control: true` and its own `control_id`. With the default flat shape, each control appears as its own row in `.data[]` — perfect for per-control inspection. Append `&grouped=true` to collapse them: each bundle run becomes one `groups[]` entry with a `representative` (one control) and `members[]` (all controls of that run). Switch between the two depending on whether you want per-control rows or per-run rollups.
 :::
 

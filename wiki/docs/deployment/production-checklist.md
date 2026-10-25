@@ -30,7 +30,7 @@ Use this checklist before going live with any deployment target.
 
 ### OAuth Providers (Production Requires Custom Credentials)
 
-:::danger OAuth Configuration Required
+:::danger[OAuth Configuration Required]
 Clerk development instances use shared OAuth credentials. **Production instances require your own.** Without them, social login buttons redirect with an empty `client_id`, resulting in a 404 error.
 :::
 

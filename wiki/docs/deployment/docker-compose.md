@@ -18,7 +18,7 @@ cd ProjectAchilles
 docker compose up -d        # Start services
 ```
 
-:::warning Set up roles in Clerk
+:::warning[Set up roles in Clerk]
 Every user without a role is read-only. In the Clerk Dashboard, add the
 `metadata` claim to the session token, then give your own account
 `{"role": "admin"}` in its public metadata and sign in again:
@@ -54,7 +54,7 @@ CLI_AUTH_SECRET=$(openssl rand -hex 32)
 # AGENT_SERVER_URL=https://your-backend.ngrok-free.app
 ```
 
-:::tip Generate All Secrets
+:::tip[Generate All Secrets]
 Use the helper script to generate all secrets at once:
 ```bash
 ./scripts/generate-secrets.sh --env-file backend/.env
@@ -75,7 +75,7 @@ CORS_ORIGIN=http://localhost
 
 See `.env.example` in the project root for the other optional overrides.
 
-:::warning `frontend/.env` is not used by Docker
+:::warning[`frontend/.env` is not used by Docker]
 `frontend/.env` is only for the local Vite dev server. `frontend/.dockerignore` keeps it out of the image, and the Clerk key isn't baked in at build time, so rebuilding won't pick it up. After changing the root `.env`, recreate the containers. No rebuild is needed:
 
 ```bash
@@ -128,7 +128,7 @@ Go's compiler cache lives in the separate `go-cache` volume (`/root/go`, via `GO
 
 Windows requires WSL2 and Docker Desktop. Key considerations:
 
-:::warning Line Endings
+:::warning[Line Endings]
 Git must use Unix line endings for shell scripts:
 
 ```powershell

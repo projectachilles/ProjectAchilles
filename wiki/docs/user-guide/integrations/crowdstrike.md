@@ -45,7 +45,7 @@ This page covers pillars 1 and 2. Pillar 3 has its own setup walkthrough — see
 5. Click **Create** and note the **Client ID** and **Client Secret** — the
    secret is shown only once.
 
-:::tip Enabling auto-resolve later
+:::tip[Enabling auto-resolve later]
 If you plan to enable [auto-resolve](./crowdstrike-auto-resolve), it requires
 the additional `Alerts: write` scope. You can grant it now or edit the API
 client later — the read-only integration runs fine without it.
@@ -216,7 +216,7 @@ sequenceDiagram
   per-item `errors[]` array; the client inspects `errors[]` and
   `meta.writes.resources_affected`, not just the HTTP status
 
-:::warning Do not use the legacy Detects API
+:::warning[Do not use the legacy Detects API]
 The legacy `/detects/*` endpoints were decommissioned on 2025-09-30. All alert
 reads use `POST /alerts/combined/alerts/v1` (FQL filter, `created_timestamp`
 sorting, after-token pagination); alert updates use
@@ -247,7 +247,7 @@ discriminator:
 
 ZTA snapshots are keyed `score-<YYYY-MM-DD>` — one document per day.
 
-:::warning Elasticsearch API key privileges
+:::warning[Elasticsearch API key privileges]
 If you connect to Elasticsearch with a scoped API key (rather than a
 superuser), the key must include `read`, `write`, and `create_index` on the
 `achilles-crowdstrike` index — the same grants you gave `achilles-defender`
@@ -388,7 +388,7 @@ Both variants expose identical API endpoints and analytics capabilities.
 
 ## Troubleshooting
 
-:::warning Common Issues
+:::warning[Common Issues]
 - **"Test Connection" fails with 401**: Verify the Client ID / Client Secret,
   and that the selected **cloud region** matches the tenant where the API
   client was created. CrowdStrike scopes take effect per client — no admin

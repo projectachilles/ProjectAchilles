@@ -10,7 +10,7 @@ description: "Connect ProjectAchilles to Elasticsearch for analytics — Elastic
 
 Elasticsearch powers the Analytics dashboard. ProjectAchilles requires Elasticsearch **8.x** — the client version must match the server major version.
 
-:::danger Client Version Must Match Server
+:::danger[Client Version Must Match Server]
 The `@elastic/elasticsearch` client must stay on version 8.x. Version 9.x sends `compatible-with=9` headers that ES 8.x rejects with HTTP 400.
 :::
 

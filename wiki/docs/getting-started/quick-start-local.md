@@ -75,7 +75,7 @@ Checking Clerk authentication...
 
 The script opens Clerk's dashboard in your browser, prompts you for both keys, validates them against Clerk's API, and writes them to both `backend/.env` and `frontend/.env` automatically.
 
-:::tip Already Have Clerk Keys?
+:::tip[Already Have Clerk Keys?]
 If you've set up Clerk before, just add `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` to `backend/.env` before running the script — it will detect them and skip the interactive setup.
 :::
 
@@ -144,11 +144,11 @@ Registering tunnel with Clerk allowed_origins...
 
 Open the Dashboard URL in your browser to access the platform. Use the Agent API URL when enrolling agents — the one-liner install commands on the Agents page will use it automatically.
 
-:::warning Ephemeral URLs
+:::warning[Ephemeral URLs]
 Cloudflare quick tunnel URLs change every time the server restarts. For persistent URLs, use a [named Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (free, requires a Cloudflare account) or deploy with [Docker](./quick-start-docker) behind a reverse proxy.
 :::
 
-:::tip ngrok users
+:::tip[ngrok users]
 If you prefer ngrok, set your custom domains in `backend/.env` and the script will auto-detect it:
 ```bash
 NGROK_FRONTEND_DOMAIN=your-app.ngrok.app
@@ -183,7 +183,7 @@ Checking Elasticsearch...
 
 Both values are shown on the Elastic Cloud **"Getting Started"** page after creating a deployment — two copy-pastes from one page.
 
-:::tip Already configured?
+:::tip[Already configured?]
 Pre-set `ELASTICSEARCH_NODE` and `ELASTICSEARCH_API_KEY` in `backend/.env` to skip the interactive prompt entirely.
 :::
 
@@ -222,7 +222,7 @@ Checking test library...
 
 Get a read-only token from the project maintainer and paste it when prompted. The token is saved to `backend/.env` (gitignored) and never committed.
 
-:::tip Custom Test Library
+:::tip[Custom Test Library]
 To use a different test repository, set it in `backend/.env`:
 ```bash
 TESTS_REPO_URL=https://github.com/your-org/your-test-library.git
@@ -241,7 +241,7 @@ GITHUB_TOKEN=ghp_your_pat_here  # only for private repos
 # or: ./scripts/start.sh -r
 ```
 
-:::tip Restart After Config Changes
+:::tip[Restart After Config Changes]
 Changed Clerk keys, Elasticsearch credentials, or `.env` settings? Use `--restart-servers` (`-r`) to reload without generating new tunnel URLs. The backend re-reads `backend/.env` on startup.
 :::
 

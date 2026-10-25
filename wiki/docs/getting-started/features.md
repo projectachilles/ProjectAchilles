@@ -67,7 +67,7 @@ Threat Intelligence Article
 | **MITRE Top 10** | Most common ransomware techniques from MITRE ATT&CK | Process injection, defense evasion, lateral movement |
 | **Cyber-Hygiene** | Configuration validation for endpoint, identity, and cloud security | Defender settings, ASR rules, LSASS protection, MFA |
 
-:::info Companion Repository
+:::info[Companion Repository]
 The test development pipeline lives in a companion repository. Tests are synced to ProjectAchilles via Git for browsing, building, and execution.
 :::
 
@@ -84,7 +84,7 @@ Browse the full test library with rich metadata and execute tests directly from 
 
 ![Tests — the test library list with category, platform and threat-actor filters, and each test's fleet result](/img/screenshots/tests.png)
 
-:::tip Hybrid Test Library
+:::tip[Hybrid Test Library]
 Tests can come from an upstream Git repository (auto-synced) or from custom local directories. Both sources are indexed with collision-free UUIDs. See [Custom Tests](../user-guide/test-browser/custom-tests) for details.
 :::
 

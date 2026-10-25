@@ -8,7 +8,7 @@ description: "REST API endpoints for ProjectAchilles analytics — defense score
 
 Endpoints under `/api/analytics/*` query the Elasticsearch-backed view of test results. All require `analytics:dashboards:read` permission (or higher); the configuration endpoints require `analytics:settings:read` / `analytics:settings:write`.
 
-:::tip Use the Programmatic Access guide for examples
+:::tip[Use the Programmatic Access guide for examples]
 This page is the **parameter reference**. For curl examples, common recipes (CI gates, SIEM forwarders, drift detection), and a walkthrough of the three score variants, read the [Programmatic Access guide](./programmatic-access.md).
 :::
 
@@ -35,7 +35,7 @@ Most endpoints accept the same filter vocabulary. Pass any combination:
 | `basis` | string | `executions` (default) or `latest`. Selects how the Defense Score endpoints count; see [Score basis](#score-basis). Anything else returns `400 Invalid basis`. |
 | `scoringMode` | string | `all-stages` (default — bundle protected only if every stage protected) or `any-stage` (bundle protected if any stage protected). |
 
-:::warning Default time window is 7 days
+:::warning[Default time window is 7 days]
 If you don't pass `from`/`to`, every endpoint applies a **`now-7d`** date filter. The dashboard UI defaults to **Last 30 days** — so the same query that fills the UI may return zero rows when called from the API without explicit dates. Always pass `from` (and optionally `to`) when scripting against the API.
 :::
 

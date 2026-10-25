@@ -75,7 +75,7 @@ Every target signs users in through Clerk. Set up the Clerk app first, including
 - Test library cloned at build time, not runtime
 - Vercel Cron for scheduling and key rotation
 
-:::tip Which Should I Choose?
+:::tip[Which Should I Choose?]
 - **Just evaluating?** Use [Docker Compose](./docker-compose) or [Local Dev](../getting-started/quick-start-local)
 - **Self-hosting on one Linux server, on your LAN or in the cloud?** Use the [Server Installer](./server-installer): a LAN with a managed CA and GPO trust, or a DigitalOcean/Hetzner server with Let's Encrypt
 - **Prefer to script it yourself, or need DigitalOcean provisioning?** Use [Public Server](./public-server) (any VPS, or `deploy-do.sh` creates the droplet) or [On-Prem Server](./on-prem-server) (over SSH; internal CA, DNS-01 or your own cert)

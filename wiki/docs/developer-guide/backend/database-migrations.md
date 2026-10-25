@@ -30,7 +30,7 @@ Tables are created via `CREATE TABLE IF NOT EXISTS` in `database.ts` with increm
 
 SQLite has no `ALTER COLUMN`, so changing CHECK constraints requires recreating the table:
 
-:::danger Follow This Exact Pattern
+:::danger[Follow This Exact Pattern]
 
 ```typescript
 // 1. Drop leftover temp tables (previous crash may leave them)
@@ -141,7 +141,7 @@ The `SettingsService` resolves Elasticsearch connection config in this order:
 2. **Environment variables** -- `ELASTICSEARCH_CLOUD_ID`, `ELASTICSEARCH_NODE`, `ELASTICSEARCH_API_KEY`, etc.
 3. **Default settings** -- last resort
 
-:::warning Always set ENCRYPTION_SECRET in production
+:::warning[Always set ENCRYPTION_SECRET in production]
 Without `ENCRYPTION_SECRET`, the backend falls back to a machine-derived key. This means encrypted settings become unreadable if the application moves to a different machine or container. Always set a stable `ENCRYPTION_SECRET` for any deployment.
 :::
 
@@ -166,6 +166,6 @@ Without `ENCRYPTION_SECRET`, the backend falls back to a machine-derived key. Th
 | Caching | None (reads from disk) | None (reads from Blob API) |
 | Access model | Process-local file access | Public URLs with `BLOB_READ_WRITE_TOKEN` |
 
-:::info Blob storage error handling
+:::info[Blob storage error handling]
 The serverless storage module follows a "fail-safe" philosophy: read operations return `null` on any error (network, missing file, permission), and delete operations silently succeed even for non-existent keys. This prevents cascading failures in calling services.
 :::

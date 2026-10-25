@@ -45,7 +45,7 @@ func Stop(code int)
 | **Error** | 1 | `UnexpectedTestError` | Runtime error |
 | | 102 | `TimeoutExceeded` | Test exceeded 30-second timeout |
 
-:::info Exit Code Interpretation
+:::info[Exit Code Interpretation]
 The Achilles backend maps these exit codes to protection status when ingesting results into Elasticsearch. Codes 100, 105, and 126 count as "Protected" in the Defense Score. Code 101 counts as "Unprotected". All others are treated as inconclusive.
 :::
 
@@ -192,7 +192,7 @@ info := cert_installer.GetCertificateInfo()
 
 The package embeds the F0RT1KA certificate and uses PowerShell to install it in the `LocalMachine\Root` certificate store. This is required for signed test binaries to execute without SmartScreen warnings.
 
-:::warning Windows Only
+:::warning[Windows Only]
 Certificate installation is a Windows-specific operation. On Linux and macOS, `EnsureCertificateInstalled()` is a no-op.
 :::
 
