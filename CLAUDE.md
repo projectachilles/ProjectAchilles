@@ -285,6 +285,15 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push/PR to main:
 
 `.github/workflows/dependency-audit.yml` runs `npm audit --omit=dev` for all five npm roots (backend, backend-serverless, frontend, blog, wiki) on lockfile changes, on pushes to main, and weekly. It fails on high/critical advisories unless they're accepted in `.github/audit-allowlist.json`. Every entry needs a `reason` and an `expires` date (about 3 months out); an expired entry fails the job, so "no fix available" gets re-checked. Only allow-list advisories with no fixed release; otherwise upgrade.
 
+**Code scanning and reviews.**
+- **CodeQL** runs from `.github/workflows/codeql.yml` (advanced setup), because default setup skips fork PRs. It mirrors the former default setup: actions/go/js-ts/python, `default` suite, `remote` threat model, weekly. Keep default setup **disabled**: GitHub rejects advanced uploads while it is on.
+- **Semgrep** (`security-review.yml`) fails when the scan didn't really run: a config error, or 0 files scanned. A removed registry pack (`p/express` → `p/expressjs`) once made it scan nothing while reporting "no findings". Findings stay non-blocking. On fork PRs the report is in the job summary, because the comment needs a write token.
+- **Claude reviews on fork PRs.** Fork `pull_request` runs get no secrets, and claude-code-action needs a write-access actor. So `claude-review` and `claude-security-review` skip fork PRs on `pull_request`, and run when a maintainer adds the **`claude-review` label** after reading the diff (`pull_request_target`).
+  - Those runs check out the base branch, put the PR head in `./pr-head` as data only, and never run PR code.
+  - The label is removed after the run, so re-label after each new push.
+  - Never check out the PR head at the workspace root in these jobs, and never add steps that run PR code.
+- **Vercel previews of fork PRs** need a team member to click "Authorization required to deploy" in the PR checks. Keep Git Fork Protection on: it guards the projects' environment variables.
+
 ## Deployment
 
 Seven deployment targets are supported. The original `backend/` and `frontend/` are used for all targets except Vercel, which uses a purpose-built serverless fork.
