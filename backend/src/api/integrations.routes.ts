@@ -45,6 +45,17 @@ function getSettingsService(req: Request): IntegrationsSettingsService {
   return new IntegrationsSettingsService(orgId);
 }
 
+/**
+ * EDR integrations (Defender, CrowdStrike, SentinelOne) are deployment-wide:
+ * their background sync, enrichment and auto-resolve read the deployment-wide
+ * settings only, so saving them per org would store credentials that never
+ * sync. Alerts, notices and Azure stay per org (getSettingsService above).
+ * backend-serverless already works this way.
+ */
+function edrSettingsService(): IntegrationsSettingsService {
+  return new IntegrationsSettingsService();
+}
+
 // Legacy singleton for backward-compatible call sites (alertsService, sync)
 const settingsService = new IntegrationsSettingsService();
 const alertsService = new AlertsService();
@@ -211,8 +222,8 @@ router.post('/azure/parse-pfx', requirePermission('integrations:write'), upload.
 // ---------------------------------------------------------------------------
 
 /** GET /api/integrations/defender — Returns masked settings */
-router.get('/defender', requirePermission('integrations:read'), (req, res) => {
-  const settings = getSettingsService(req).getDefenderSettings();
+router.get('/defender', requirePermission('integrations:read'), (_req, res) => {
+  const settings = edrSettingsService().getDefenderSettings();
 
   if (!settings?.configured) {
     res.json({ configured: false });
@@ -237,7 +248,7 @@ router.get('/defender', requirePermission('integrations:read'), (req, res) => {
 
 /** POST /api/integrations/defender — Save credentials (partial update supported) */
 router.post('/defender', requirePermission('integrations:write'), validate(DefenderCredentialsSchema), asyncHandler(async (req, res) => {
-  const svc = getSettingsService(req);
+  const svc = edrSettingsService();
   const { tenant_id, client_id, client_secret, label, auth_method, cert_thumbprint, private_key_pem } = req.body;
 
   const isEdit = svc.isDefenderConfigured();
@@ -292,14 +303,14 @@ router.post('/defender/parse-pfx', requirePermission('integrations:write'), uplo
 }));
 
 /** DELETE /api/integrations/defender — Remove Defender credentials */
-router.delete('/defender', requirePermission('integrations:write'), asyncHandler(async (req, res) => {
+router.delete('/defender', requirePermission('integrations:write'), asyncHandler(async (_req, res) => {
   if (settingsService.isEnvDefenderConfigured()) {
     throw new AppError(
       'Cannot disconnect: Defender credentials are set via environment variables (DEFENDER_TENANT_ID, DEFENDER_CLIENT_ID, DEFENDER_CLIENT_SECRET). Remove these env vars to disconnect.',
       400
     );
   }
-  getSettingsService(req).deleteDefenderSettings();
+  edrSettingsService().deleteDefenderSettings();
   res.json({ success: true });
 }));
 
@@ -308,7 +319,7 @@ router.post('/defender/test', requirePermission('integrations:write'), validate(
   const { tenant_id, client_id, client_secret, auth_method, cert_thumbprint, private_key_pem } = req.body;
 
   // Resolve: use provided values or fall back to stored
-  const stored = getSettingsService(req).getDefenderCredentials();
+  const stored = edrSettingsService().getDefenderCredentials();
   const effectiveTenantId = tenant_id || stored?.tenant_id;
   const effectiveClientId = client_id || stored?.client_id;
 
@@ -429,8 +440,8 @@ function getEsClientForRequest(): ReturnType<typeof createEsClient> | null {
  * Safe to call even when Defender isn't configured — returns mode='disabled'
  * and zeroed counts.
  */
-router.get('/defender/auto-resolve/status', requirePermission('integrations:read'), asyncHandler(async (req, res) => {
-  const mode = getSettingsService(req).getAutoResolveMode();
+router.get('/defender/auto-resolve/status', requirePermission('integrations:read'), asyncHandler(async (_req, res) => {
+  const mode = edrSettingsService().getAutoResolveMode();
   const lastAutoResolve = defenderSyncService.getSyncStatus().lastSyncResult?.autoResolve ?? null;
 
   const es = getEsClientForRequest();
@@ -477,7 +488,7 @@ router.get('/defender/auto-resolve/status', requirePermission('integrations:read
 router.put('/defender/auto-resolve/mode', requirePermission('integrations:write'), validate(DefenderAutoResolveModeSchema), asyncHandler(async (req, res) => {
   const { mode } = req.body as { mode: 'disabled' | 'dry_run' | 'enabled' };
   try {
-    getSettingsService(req).setAutoResolveMode(mode);
+    edrSettingsService().setAutoResolveMode(mode);
   } catch (err) {
     throw new AppError(err instanceof Error ? err.message : String(err), 400);
   }
@@ -559,13 +570,13 @@ export { defenderSyncService };
 const crowdstrikeSyncService = new CrowdStrikeSyncService();
 
 /** GET /api/integrations/crowdstrike — Returns masked settings */
-router.get('/crowdstrike', requirePermission('integrations:read'), (req, res) => {
-  res.json(getSettingsService(req).getCrowdStrikeSettingsMasked());
+router.get('/crowdstrike', requirePermission('integrations:read'), (_req, res) => {
+  res.json(edrSettingsService().getCrowdStrikeSettingsMasked());
 });
 
 /** POST /api/integrations/crowdstrike — Save credentials (partial update supported) */
 router.post('/crowdstrike', requirePermission('integrations:write'), validate(CrowdStrikeCredentialsSchema), asyncHandler(async (req, res) => {
-  const svc = getSettingsService(req);
+  const svc = edrSettingsService();
   const { region, client_id, client_secret, label } = req.body;
 
   const isEdit = svc.isCrowdStrikeConfigured();
@@ -586,14 +597,14 @@ router.post('/crowdstrike', requirePermission('integrations:write'), validate(Cr
 }));
 
 /** DELETE /api/integrations/crowdstrike — Remove CrowdStrike credentials */
-router.delete('/crowdstrike', requirePermission('integrations:write'), asyncHandler(async (req, res) => {
+router.delete('/crowdstrike', requirePermission('integrations:write'), asyncHandler(async (_req, res) => {
   if (settingsService.isEnvCrowdStrikeConfigured()) {
     throw new AppError(
       'Cannot disconnect: CrowdStrike credentials are set via environment variables (CROWDSTRIKE_REGION, CROWDSTRIKE_CLIENT_ID, CROWDSTRIKE_CLIENT_SECRET). Remove these env vars to disconnect.',
       400
     );
   }
-  getSettingsService(req).deleteCrowdStrikeSettings();
+  edrSettingsService().deleteCrowdStrikeSettings();
   res.json({ success: true });
 }));
 
@@ -602,7 +613,7 @@ router.post('/crowdstrike/test', requirePermission('integrations:write'), valida
   const { region, client_id, client_secret } = req.body;
 
   // Resolve: use provided values or fall back to stored
-  const stored = getSettingsService(req).getCrowdStrikeCredentials();
+  const stored = edrSettingsService().getCrowdStrikeCredentials();
   const effectiveClientId = client_id || stored?.client_id;
   const effectiveClientSecret = client_secret || stored?.client_secret;
 
@@ -662,8 +673,8 @@ router.get('/crowdstrike/sync/status', requirePermission('integrations:read'), (
  * Safe to call even when CrowdStrike isn't configured — returns mode='disabled'
  * and zeroed counts.
  */
-router.get('/crowdstrike/auto-resolve/status', requirePermission('integrations:read'), asyncHandler(async (req, res) => {
-  const mode = getSettingsService(req).getCrowdStrikeAutoResolveMode();
+router.get('/crowdstrike/auto-resolve/status', requirePermission('integrations:read'), asyncHandler(async (_req, res) => {
+  const mode = edrSettingsService().getCrowdStrikeAutoResolveMode();
   const lastAutoResolve = crowdstrikeSyncService.getSyncStatus().lastSyncResult?.autoResolve ?? null;
 
   const es = getEsClientForRequest();
@@ -710,7 +721,7 @@ router.get('/crowdstrike/auto-resolve/status', requirePermission('integrations:r
 router.put('/crowdstrike/auto-resolve/mode', requirePermission('integrations:write'), validate(CrowdStrikeAutoResolveModeSchema), asyncHandler(async (req, res) => {
   const { mode } = req.body as { mode: 'disabled' | 'dry_run' | 'enabled' };
   try {
-    getSettingsService(req).setCrowdStrikeAutoResolveMode(mode);
+    edrSettingsService().setCrowdStrikeAutoResolveMode(mode);
   } catch (err) {
     throw new AppError(err instanceof Error ? err.message : String(err), 400);
   }

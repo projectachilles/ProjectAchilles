@@ -32,7 +32,7 @@ export class SentinelOneResponseService {
     action: SentinelOneResponseAction,
     actor: { userId: string; orgId?: string },
   ): Promise<ResponseActionOutcome> {
-    const creds = new IntegrationsSettingsService(actor.orgId).getSentinelOneCredentials();
+    const creds = new IntegrationsSettingsService().getSentinelOneCredentials(); // deployment-wide
     const targetIds = action.threatIds;
 
     const audit: SentinelOneResponseAuditDoc = {

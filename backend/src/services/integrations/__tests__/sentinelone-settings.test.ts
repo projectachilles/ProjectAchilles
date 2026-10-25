@@ -111,4 +111,19 @@ describe('IntegrationsSettingsService — SentinelOne', () => {
     expect(legacy.getSentinelOneAutoResolveMode()).toBe('disabled');
     expect(JSON.parse(realFs.readFileSync(FILE, 'utf8')).orgs).toBeUndefined();
   });
+
+  it('lists EDR sections saved under an org as dormant (EDR integrations are deployment-wide)', () => {
+    realFs.mkdirSync(realPath.dirname(FILE), { recursive: true });
+    realFs.writeFileSync(FILE, JSON.stringify({
+      crowdstrike: { configured: true },
+      orgs: {
+        org_a: { sentinelone: { configured: true }, defender: { configured: true }, alerts: { thresholds: { enabled: true } } },
+        org_b: { alerts: { thresholds: { enabled: true } } },
+      },
+    }));
+    expect(new IntegrationsSettingsService().listDormantOrgEdrSections()).toEqual([
+      { orgId: 'org_a', integrations: ['defender', 'sentinelone'] },
+    ]);
+  });
 });
+

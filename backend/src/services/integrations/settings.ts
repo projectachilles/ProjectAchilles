@@ -1484,6 +1484,22 @@ export class IntegrationsSettingsService {
     return merged;
   }
 
+  /**
+   * EDR integration sections (Defender, CrowdStrike, SentinelOne) saved under
+   * an org. EDR integrations are deployment-wide (their background sync never
+   * read org sections), so these are dormant; startup warns about them so an
+   * admin can re-enter the credentials once in Settings.
+   */
+  listDormantOrgEdrSections(): Array<{ orgId: string; integrations: string[] }> {
+    const orgs = this.getRawFileSettings()?.orgs ?? {};
+    const out: Array<{ orgId: string; integrations: string[] }> = [];
+    for (const [orgId, section] of Object.entries(orgs)) {
+      const integrations = (['defender', 'crowdstrike', 'sentinelone'] as const).filter((k) => section?.[k]);
+      if (integrations.length > 0) out.push({ orgId, integrations });
+    }
+    return out;
+  }
+
   /** Org ids that have their own pre-execution notice section (ignores this service's org id). */
   listNoticeOrgIds(): string[] {
     const orgs = this.getRawFileSettings()?.orgs ?? {};
