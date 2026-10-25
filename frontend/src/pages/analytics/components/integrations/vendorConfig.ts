@@ -3,9 +3,11 @@
 import { crowdstrikeApi } from '@/services/api/crowdstrike';
 import { DEFAULT_FALCON_CONSOLE_BASE, falconAlertUrl, resolveFalconConsoleBase } from '../../utils/falconConsole';
 import { defenderApi } from '@/services/api/defender';
+import { integrationsApi } from '@/services/api/integrations';
+import { sentinelOneApi } from '@/services/api/sentinelone';
 import { sentineloneAnalyticsApi } from '@/services/api/sentineloneAnalytics';
 
-import type { IntegrationApi } from '@/services/api/integrationTypes';
+import type { AutoResolveSource, IntegrationApi } from '@/services/api/integrationTypes';
 
 export type { TimeWindow } from '@/services/api/integrationTypes';
 
@@ -60,6 +62,8 @@ export interface IntegrationVendor {
   defaultSeverityKey: string;
   alertTypeSegments?: AlertTypeSegment[];
   api: IntegrationApi;
+  /** Status + receipts behind the auto-resolve hero tile. */
+  autoResolve: AutoResolveSource;
 }
 
 export const VENDORS: Record<VendorId, IntegrationVendor> = {
@@ -86,6 +90,10 @@ export const VENDORS: Record<VendorId, IntegrationVendor> = {
       getAlertSummary: crowdstrikeApi.getAlertSummary,
       getTechniqueCoverage: crowdstrikeApi.getTechniqueCoverage,
     },
+    autoResolve: {
+      getStatus: () => integrationsApi.getCrowdStrikeAutoResolveStatus(),
+      getReceipts: (limit, offset) => integrationsApi.getCrowdStrikeAutoResolveReceipts(limit, offset),
+    },
   },
   defender: {
     id: 'defender',
@@ -108,6 +116,10 @@ export const VENDORS: Record<VendorId, IntegrationVendor> = {
       getAlertTrend: defenderApi.getAlertTrend,
       getAlertSummary: defenderApi.getAlertSummary,
       getTechniqueCoverage: defenderApi.getTechniqueCoverage,
+    },
+    autoResolve: {
+      getStatus: () => integrationsApi.getAutoResolveStatus(),
+      getReceipts: (limit, offset) => integrationsApi.getAutoResolveReceipts(limit, offset),
     },
   },
   sentinelone: {
@@ -136,6 +148,18 @@ export const VENDORS: Record<VendorId, IntegrationVendor> = {
       getAlertTrend: sentineloneAnalyticsApi.getAlertTrend,
       getAlertSummary: sentineloneAnalyticsApi.getAlertSummary,
       getTechniqueCoverage: sentineloneAnalyticsApi.getTechniqueCoverage,
+    },
+    autoResolve: {
+      getStatus: async () => {
+        const status = await sentinelOneApi.getAutoResolveStatus();
+        return {
+          mode: status.mode,
+          counts: status.counts,
+          // The pass writes nothing with a read-only token, even when enabled.
+          writesBlocked: status.mode === 'enabled' && status.permission_mode === 'read_only',
+        };
+      },
+      getReceipts: (limit, offset) => sentinelOneApi.getAutoResolveReceipts(limit, offset),
     },
   },
 };

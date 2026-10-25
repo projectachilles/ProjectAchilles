@@ -117,6 +117,19 @@ export interface IntegrationAlertQuery {
 }
 
 /** The API surface the shared integration components depend on. */
+/** Auto-resolve state behind the hero tile, in one shape for every vendor. */
+export interface AutoResolveTileStatus {
+  mode: 'disabled' | 'dry_run' | 'enabled';
+  counts: { last24h: number; last7d: number; last30d: number };
+  /** Enabled, but the vendor connection can't write (SentinelOne read-only token). */
+  writesBlocked?: boolean;
+}
+
+export interface AutoResolveSource {
+  getStatus(): Promise<AutoResolveTileStatus>;
+  getReceipts(limit: number, offset: number): Promise<{ items: { auto_resolved_at?: string | null }[] }>;
+}
+
 export interface IntegrationApi {
   getAlerts(params?: IntegrationAlertQuery): Promise<IntegrationAlertPage>;
   getAlertSummary(window?: TimeWindow): Promise<IntegrationAlertSummary>;

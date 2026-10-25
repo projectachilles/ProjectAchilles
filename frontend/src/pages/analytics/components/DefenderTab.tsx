@@ -197,7 +197,7 @@ export default function DefenderTab({ dateRange }: DefenderTabProps) {
           />
         </div>
         <div className="col-span-12 sm:col-span-6 md:col-span-3">
-          <AutoResolveStatTile footnote={stillOpenFootnote(data?.summary?.counts)} />
+          <AutoResolveStatTile vendor={vendor} footnote={stillOpenFootnote(data?.summary?.counts)} />
         </div>
       </div>
 

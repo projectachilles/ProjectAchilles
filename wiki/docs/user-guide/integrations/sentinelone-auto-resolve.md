@@ -139,6 +139,13 @@ A successful real resolve also sets the document's `status` to `resolved` and
 its `resolved_at`. The alert feed's "auto-resolved" count includes only
 `enabled` receipts without an error.
 
+The **Auto-Resolve** tile on the SentinelOne Analytics tab shows the current
+mode and the receipts written in the last 30 days and 24 hours, like the
+Defender and CrowdStrike tiles. These counts include dry-run and error
+receipts. When auto-resolve is `enabled` but the integration is read-only, the
+tile also says "Read-only token: nothing is written" (see
+[Troubleshooting](#auto-resolve-is-enabled-but-the-integration-is-read-only)).
+
 ### Limits and errors
 
 - At most **30 candidates** per pass, and the pass stops starting new writes

@@ -6,12 +6,14 @@ import { sentinelOneApi } from '@/services/api/sentinelone';
 import type { TechniqueCoverageResponse } from '@/services/api/integrationTypes';
 import type { DateRangeValue } from '@/lib/timeRange';
 import IntegrationTabHeader from './integrations/IntegrationTabHeader';
+import AutoResolveStatTile from './AutoResolveStatTile';
 import HeroStatTile from './HeroStatTile';
 import EndpointAlertDetailsDrawer from './integrations/EndpointAlertDetailsDrawer';
 import IntegrationTimelineCard from './integrations/IntegrationTimelineCard';
 import IntegrationAlertFeed from './integrations/IntegrationAlertFeed';
 import TechniqueCoverageCard from './integrations/TechniqueCoverageCard';
 import { AlertsHeroTile, CoverageHeroTile } from './integrations/IntegrationHeroTiles';
+import { stillOpenFootnote } from './integrations/heroMetrics';
 import { useTabWindow } from './integrations/useTabWindow';
 import { VENDORS } from './integrations/vendorConfig';
 import { SentinelOneAgentHealthCard, SentinelOnePolicyTable, SentinelOneExclusionGapCard } from './SentinelOnePostureCards';
@@ -129,7 +131,7 @@ export default function SentinelOneTab({ dateRange }: SentinelOneTabProps) {
       />
 
       <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-12 sm:col-span-6 md:col-span-4">
+        <div className="col-span-12 sm:col-span-6 md:col-span-3">
           <AlertsHeroTile
             vendor={vendor}
             summary={data?.summary ?? null}
@@ -140,7 +142,7 @@ export default function SentinelOneTab({ dateRange }: SentinelOneTabProps) {
             windowLabel={windowLabel}
           />
         </div>
-        <div className="col-span-12 sm:col-span-6 md:col-span-4">
+        <div className="col-span-12 sm:col-span-6 md:col-span-3">
           <CoverageHeroTile
             coverage={data?.coverage ?? null}
             loading={loading}
@@ -148,7 +150,7 @@ export default function SentinelOneTab({ dateRange }: SentinelOneTabProps) {
             windowLabel={windowLabel}
           />
         </div>
-        <div className="col-span-12 sm:col-span-6 md:col-span-4">
+        <div className="col-span-12 sm:col-span-6 md:col-span-3">
           <HeroStatTile
             title="Agent response"
             icon={<ShieldCheck className="w-4 h-4 text-primary" />}
@@ -161,6 +163,9 @@ export default function SentinelOneTab({ dateRange }: SentinelOneTabProps) {
             loading={loading}
             emptyState={!loading && (!prevention || responseTotal === 0) ? `No SentinelOne alerts in ${windowLabel}` : undefined}
           />
+        </div>
+        <div className="col-span-12 sm:col-span-6 md:col-span-3">
+          <AutoResolveStatTile vendor={vendor} footnote={stillOpenFootnote(data?.summary?.counts)} />
         </div>
       </div>
 
