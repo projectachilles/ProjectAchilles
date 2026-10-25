@@ -18,7 +18,7 @@ import { sentinelOneApi } from '@/services/api/sentinelone';
 
 export function IntegrationsTab() {
   const { configured: analyticsConfigured } = useAnalyticsAuth();
-  const { preExecutionNotices, sentinelone } = useCapabilities();
+  const { preExecutionNotices, sentinelone, alerting } = useCapabilities();
   const [noticesStatus, setNoticesStatus] = useState<IntegrationStatus>('not-configured');
   const handleNoticesStatusChange = useCallback((enabled: boolean) => {
     setNoticesStatus(enabled ? 'connected' : 'not-configured');
@@ -72,10 +72,14 @@ export function IntegrationsTab() {
       setCrowdStrikeStatus(settings.configured ? 'connected' : 'not-configured');
     }).catch(() => {});
 
+  }, []);
+
+  useEffect(() => {
+    if (!alerting) return;
     alertsApi.getAlertSettings().then((settings) => {
       setAlertsStatus(settings.configured ? 'connected' : 'not-configured');
     }).catch(() => {});
-  }, []);
+  }, [alerting]);
 
   useEffect(() => {
     if (!sentinelone) return;
@@ -133,14 +137,16 @@ export function IntegrationsTab() {
         </IntegrationGridCard>
       )}
 
-      <IntegrationGridCard
-        icon={Bell}
-        title="Alerts & Notifications"
-        description="Threshold-based alerting via Slack and email on score changes"
-        status={alertsStatus}
-      >
-        <AlertsConfig onStatusChange={handleAlertsStatusChange} />
-      </IntegrationGridCard>
+      {alerting && (
+        <IntegrationGridCard
+          icon={Bell}
+          title="Alerts & Notifications"
+          description="Threshold-based alerting via Slack and email on score changes"
+          status={alertsStatus}
+        >
+          <AlertsConfig onStatusChange={handleAlertsStatusChange} />
+        </IntegrationGridCard>
+      )}
 
       {preExecutionNotices && (
         <IntegrationGridCard
