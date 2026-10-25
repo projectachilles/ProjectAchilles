@@ -291,6 +291,8 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push/PR to main:
 - **Claude reviews on fork PRs.** Fork `pull_request` runs get no secrets, and claude-code-action needs a write-access actor. So `claude-review` and `claude-security-review` skip fork PRs on `pull_request`, and run when a maintainer adds the **`claude-review` label** after reading the diff (`pull_request_target`).
   - Those runs check out only the base branch and read the PR through the API (`gh pr diff`). No PR file is on disk, and no PR code runs.
   - The label is removed after the run, so re-label after each new push.
+  - Those runs set `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` in a bubblewrap PID namespace. It strips `CLAUDE_CODE_OAUTH_TOKEN` from Claude's subprocesses but deliberately keeps `GITHUB_TOKEN`, so `gh` still posts; the job's `permissions:` is what limits that token.
+- **A green Claude job doesn't mean it posted.** The security review must leave a `<!-- claude-security-review -->` comment (from `claude[bot]` or `github-actions[bot]`); "Verify the review posted" fails the job otherwise. Its prompt asks for an HTML `<h2>` heading and plain `gh` commands, because Claude Code's Bash check refuses a quoted `--body` with a newline followed by `#` (a Markdown heading), `$VAR`s and redirection, and nobody can approve that in CI. The code review (plugin) posts nothing on PRs it judges trivial, by design.
   - Never check out the PR head in these jobs (Semgrep's `pull-request-target-code-checkout` rule enforces it), and never add steps that run PR code.
 - **Vercel previews of fork PRs** need a team member to click "Authorization required to deploy" in the PR checks. Keep Git Fork Protection on: it guards the projects' environment variables.
 
