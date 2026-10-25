@@ -29,11 +29,14 @@ vi.mock('@/services/api/sentineloneAnalytics', () => ({
     getExclusionGaps: (...a: unknown[]) => s1.getExclusionGaps(...a),
   },
 }));
+const mockGetAutoResolveStatus = vi.fn();
 vi.mock('@/services/api/sentinelone', () => ({
   sentinelOneApi: {
     getSyncStatus: () => mockGetSyncStatus(),
     triggerSync: () => mockTriggerSync(),
     waitForSync: (...a: unknown[]) => mockWaitForSync(...a),
+    getAutoResolveStatus: () => mockGetAutoResolveStatus(),
+    getAutoResolveReceipts: () => Promise.resolve({ items: [], total: 0, limit: 100, offset: 0 }),
   },
 }));
 // The S1 tab must never hit the CrowdStrike endpoints.
@@ -76,6 +79,7 @@ describe('SentinelOneTab', () => {
     vi.clearAllMocks();
     s1.getAlertSummary.mockResolvedValue({ total: 9, bySeverity: { high: 9 }, byStatus: {}, recentHigh: [], recentMedium: [], counts });
     s1.getAlertTrend.mockResolvedValue([]);
+    mockGetAutoResolveStatus.mockResolvedValue({ mode: 'dry_run', permission_mode: 'response', counts: { last24h: 0, last7d: 0, last30d: 3 }, lastAutoResolve: null });
     s1.getTechniqueCoverage.mockResolvedValue(null);
     s1.getAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 10, counts });
     mockGetSyncStatus.mockResolvedValue({ lastThreatSync: '2026-10-11T03:00:00.000Z', lastAlertSync: null, lastError: null });
@@ -126,6 +130,13 @@ describe('SentinelOneTab', () => {
     await waitFor(() => expect(screen.getByText('Agent response')).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText(/3 detected only/)).toBeInTheDocument());
     expect(screen.queryByText(/ZTA/i)).toBeNull();
+  });
+
+  it('shows the auto-resolve tile from the SentinelOne auto-resolve status', async () => {
+    renderTab();
+    await waitFor(() => expect(screen.getByText('Auto-Resolve')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Dry Run')).toBeInTheDocument());
+    expect(mockGetAutoResolveStatus).toHaveBeenCalled();
   });
 
   it('explains when SentinelOne refused the agent reads', async () => {

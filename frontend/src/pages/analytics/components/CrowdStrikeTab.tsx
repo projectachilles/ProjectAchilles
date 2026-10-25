@@ -13,7 +13,7 @@ import type { DateRangeValue } from '@/lib/timeRange';
 import IntegrationTabHeader from './integrations/IntegrationTabHeader';
 import HeroStatTile from './HeroStatTile';
 import Sparkline from './Sparkline';
-import CrowdStrikeAutoResolveStatTile from './CrowdStrikeAutoResolveStatTile';
+import AutoResolveStatTile from './AutoResolveStatTile';
 import EndpointAlertDetailsDrawer from './integrations/EndpointAlertDetailsDrawer';
 import IntegrationTimelineCard from './integrations/IntegrationTimelineCard';
 import IntegrationAlertFeed from './integrations/IntegrationAlertFeed';
@@ -220,7 +220,7 @@ export default function CrowdStrikeTab({ dateRange }: CrowdStrikeTabProps) {
           />
         </div>
         <div className="col-span-12 sm:col-span-6 md:col-span-3">
-          <CrowdStrikeAutoResolveStatTile footnote={stillOpenFootnote(data?.summary?.counts)} />
+          <AutoResolveStatTile vendor={vendor} footnote={stillOpenFootnote(data?.summary?.counts)} />
         </div>
       </div>
 

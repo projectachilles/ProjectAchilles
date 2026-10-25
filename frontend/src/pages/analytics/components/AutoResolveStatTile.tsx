@@ -1,14 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { ShieldCheck } from 'lucide-react';
-import {
-  integrationsApi,
-  type AutoResolveStatus,
-  type AutoResolveMode,
-  type AutoResolveReceipt,
-} from '@/services/api/integrations';
+import type { AutoResolveSource, AutoResolveTileStatus } from '@/services/api/integrationTypes';
 import HeroStatTile from './HeroStatTile';
+import type { IntegrationVendor } from './integrations/vendorConfig';
 
-const MODE_META: Record<AutoResolveMode, { label: string; tone: string }> = {
+const MODE_META: Record<AutoResolveTileStatus['mode'], { label: string; tone: string }> = {
   disabled: { label: 'Disabled', tone: 'text-muted-foreground' },
   dry_run: { label: 'Dry Run', tone: 'text-amber-500' },
   enabled: { label: 'Enabled', tone: 'text-emerald-500' },
@@ -23,7 +19,7 @@ const RECEIPT_FETCH_LIMIT = 100;
  * matches the `now-30d` ES range filter in /auto-resolve/status (so the
  * sparkline sums approximately equal the displayed 30d count).
  */
-function buildDailySparkline(items: AutoResolveReceipt[]): number[] {
+function buildDailySparkline(items: Awaited<ReturnType<AutoResolveSource['getReceipts']>>['items']): number[] {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
 
@@ -46,22 +42,27 @@ function buildDailySparkline(items: AutoResolveReceipt[]): number[] {
 }
 
 interface Props {
+  /** Supplies the vendor's auto-resolve status and receipts (`vendor.autoResolve`). */
+  vendor: IntegrationVendor;
   /** Extra line under the mode line (e.g. "7 of 11 test alerts still open"). */
   footnote?: ReactNode;
 }
 
-export default function AutoResolveStatTile({ footnote }: Props = {}) {
-  const [status, setStatus] = useState<AutoResolveStatus | null>(null);
+/** Auto-resolve hero tile for the Defender, CrowdStrike and SentinelOne tabs. */
+export default function AutoResolveStatTile({ vendor, footnote }: Props) {
+  const [status, setStatus] = useState<AutoResolveTileStatus | null>(null);
   const [sparkline, setSparkline] = useState<number[] | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const source = vendor.autoResolve;
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       const [statusR, receiptsR] = await Promise.allSettled([
-        integrationsApi.getAutoResolveStatus(),
-        integrationsApi.getAutoResolveReceipts(RECEIPT_FETCH_LIMIT, 0),
+        source.getStatus(),
+        source.getReceipts(RECEIPT_FETCH_LIMIT, 0),
       ]);
 
       if (cancelled) return;
@@ -85,7 +86,7 @@ export default function AutoResolveStatTile({ footnote }: Props = {}) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [source]);
 
   if (loading) {
     return (
@@ -118,6 +119,9 @@ export default function AutoResolveStatTile({ footnote }: Props = {}) {
         <span>·</span>
         <span>24h: {status.counts.last24h.toLocaleString()}</span>
       </span>
+      {status.writesBlocked && (
+        <span className="text-amber-500">Read-only token: nothing is written</span>
+      )}
       {footnote && <span>{footnote}</span>}
     </span>
   );

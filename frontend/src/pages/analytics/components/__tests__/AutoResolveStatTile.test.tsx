@@ -4,21 +4,37 @@ import { MemoryRouter } from 'react-router-dom';
 
 const mockGetStatus = vi.fn();
 const mockGetReceipts = vi.fn();
+const mockCsStatus = vi.fn();
+const mockCsReceipts = vi.fn();
+const mockS1Status = vi.fn();
+const mockS1Receipts = vi.fn();
 
 vi.mock('@/services/api/integrations', () => ({
   integrationsApi: {
     getAutoResolveStatus: () => mockGetStatus(),
     getAutoResolveReceipts: (limit: number, offset: number) =>
       mockGetReceipts(limit, offset),
+    getCrowdStrikeAutoResolveStatus: () => mockCsStatus(),
+    getCrowdStrikeAutoResolveReceipts: (limit: number, offset: number) =>
+      mockCsReceipts(limit, offset),
+  },
+}));
+
+vi.mock('@/services/api/sentinelone', () => ({
+  sentinelOneApi: {
+    getAutoResolveStatus: () => mockS1Status(),
+    getAutoResolveReceipts: (limit: number, offset: number) =>
+      mockS1Receipts(limit, offset),
   },
 }));
 
 const { default: AutoResolveStatTile } = await import('../AutoResolveStatTile');
+const { VENDORS } = await import('../integrations/vendorConfig');
 
-function renderTile() {
+function renderTile(vendor = VENDORS.defender) {
   return render(
     <MemoryRouter>
-      <AutoResolveStatTile />
+      <AutoResolveStatTile vendor={vendor} />
     </MemoryRouter>
   );
 }
@@ -56,7 +72,7 @@ describe('AutoResolveStatTile', () => {
 
     render(
       <MemoryRouter>
-        <AutoResolveStatTile footnote="7 of 11 test alerts still open" />
+        <AutoResolveStatTile vendor={VENDORS.defender} footnote="7 of 11 test alerts still open" />
       </MemoryRouter>
     );
 
@@ -186,5 +202,53 @@ describe('AutoResolveStatTile', () => {
     await waitFor(() => expect(screen.getByText('8')).toBeInTheDocument());
     // Sparkline absent because we have no data, but the tile is still useful
     expect(screen.queryByRole('img', { name: 'Auto-Resolve trend' })).toBeNull();
+  });
+
+  it('reads the CrowdStrike endpoints for the CrowdStrike vendor', async () => {
+    mockCsStatus.mockResolvedValue({
+      mode: 'dry_run',
+      counts: { last24h: 1, last7d: 2, last30d: 5 },
+      lastAutoResolve: null,
+    });
+    mockCsReceipts.mockResolvedValue(emptyReceipts);
+
+    renderTile(VENDORS.crowdstrike);
+
+    await waitFor(() => expect(screen.getByText('5')).toBeInTheDocument());
+    expect(mockCsReceipts).toHaveBeenCalledWith(100, 0);
+    expect(mockGetStatus).not.toHaveBeenCalled();
+  });
+
+  it('reads the SentinelOne endpoints for the SentinelOne vendor', async () => {
+    mockS1Status.mockResolvedValue({
+      mode: 'enabled',
+      permission_mode: 'response',
+      counts: { last24h: 2, last7d: 4, last30d: 12 },
+      lastAutoResolve: null,
+    });
+    mockS1Receipts.mockResolvedValue(emptyReceipts);
+
+    renderTile(VENDORS.sentinelone);
+
+    await waitFor(() => expect(screen.getByText('12')).toBeInTheDocument());
+    expect(screen.getByText('Enabled')).toBeInTheDocument();
+    expect(mockS1Receipts).toHaveBeenCalledWith(100, 0);
+    expect(screen.queryByText(/Read-only token/)).toBeNull();
+  });
+
+  it('warns when SentinelOne auto-resolve is enabled with a read-only token', async () => {
+    mockS1Status.mockResolvedValue({
+      mode: 'enabled',
+      permission_mode: 'read_only',
+      counts: { last24h: 0, last7d: 0, last30d: 0 },
+      lastAutoResolve: null,
+    });
+    mockS1Receipts.mockResolvedValue(emptyReceipts);
+
+    renderTile(VENDORS.sentinelone);
+
+    await waitFor(() =>
+      expect(screen.getByText('Read-only token: nothing is written')).toBeInTheDocument()
+    );
   });
 });
