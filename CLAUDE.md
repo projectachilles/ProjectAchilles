@@ -503,6 +503,7 @@ Threshold-based alerting dispatched when test results cross configured score thr
 - **Backend service**: `services/alerting/` — `alerting.service.ts` (threshold evaluation), `slack.service.ts`, `email.service.ts`
 - **Frontend**: `AlertsConfig` settings component, `NotificationBell` in TopBar
 - **Dispatch trigger**: Called from `results.service.ts` after successful ES ingestion
+- **Backend-only**: `backend-serverless/` has no alerting routes. `GET /api/capabilities` reports `alerting: false` there, which hides the Settings card and the bell's alert calls (the bell still shows flash notifications). The frontend default is `true`, because alerting predates the flag.
 
 ### Visual Theme
 A single theme: the f0 dark theme (since the f0 restyle). `useTheme` (`frontend/src/hooks/useTheme.tsx`) keeps the old provider/hook API so consumers and test mocks still work, but `theme` is always `'dark'` and there is no theme selector. CSS variables in `frontend/src/styles/index.css` drive all styling via Tailwind CSS v4 `@theme` blocks; print layouts (execution report, campaign evidence) re-point those tokens to a fixed light palette.

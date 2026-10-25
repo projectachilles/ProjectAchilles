@@ -12,6 +12,7 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
 import { alertsApi } from '@/services/api/alerts';
+import { useCapabilities } from '@/hooks/useCapabilities';
 import type { AlertHistoryItem } from '@/services/api/alerts';
 
 const LAST_SEEN_KEY = 'achilles:lastSeenAlert';
@@ -36,9 +37,13 @@ export function NotificationBell() {
   const [loading, setLoading] = useState(false);
   const [hasUnseen, setHasUnseen] = useState(false);
   const [flashItems, setFlashItems] = useState<FlashNotification[]>([]);
+  // backend-serverless has no alerting routes: the bell then shows only flash
+  // notifications. Wait for the real capabilities so no call 404s first.
+  const { alerting, loaded } = useCapabilities();
 
-  // On mount: check if alerting is configured + seed hasUnseen
+  // Check if alerting is configured + seed hasUnseen
   useEffect(() => {
+    if (!loaded || !alerting) return;
     let cancelled = false;
     alertsApi.getAlertSettings().then((settings) => {
       if (cancelled) return;
@@ -49,9 +54,14 @@ export function NotificationBell() {
           setHasUnseen(true);
         }
       }
+    }).catch(() => {
+      if (!cancelled) setConfigured(false);
     });
+    return () => { cancelled = true; };
+  }, [loaded, alerting]);
 
-    // Seed flash notifications and check for unseen
+  // On mount: seed flash notifications and check for unseen
+  useEffect(() => {
     const flash = getFlashNotifications();
     setFlashItems(flash);
     if (flash.length > 0) {
@@ -60,8 +70,6 @@ export function NotificationBell() {
         setHasUnseen(true);
       }
     }
-
-    return () => { cancelled = true; };
   }, []);
 
   // Listen for new flash notifications from same tab
@@ -122,8 +130,16 @@ export function NotificationBell() {
         <DropdownMenuLabel>Notifications</DropdownMenuLabel>
         <DropdownMenuSeparator />
 
+        {/* Threshold alerting not part of this backend (Vercel) */}
+        {loaded && !alerting && (
+          <div className="px-3 py-4 text-center">
+            <Bell className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+            <p className="text-sm font-medium">Threshold alerts aren't available on this deployment</p>
+          </div>
+        )}
+
         {/* Not configured state */}
-        {configured === false && (
+        {alerting && configured === false && (
           <div className="px-3 py-4 text-center">
             <Bell className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
             <p className="text-sm font-medium">Alerts not configured</p>
