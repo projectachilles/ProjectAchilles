@@ -12,7 +12,7 @@ interface IntegrationTabHeaderProps {
   onSync: () => void;
 }
 
-/** Tab header with Sync Now and the last sync failure (CrowdStrike / SentinelOne tabs). */
+/** Tab header with Sync Now and the last sync failure (Defender / CrowdStrike / SentinelOne tabs). */
 export default function IntegrationTabHeader({ vendor, lastSync, syncing, syncError, onSync }: IntegrationTabHeaderProps) {
   return (
     <div className="space-y-3">
