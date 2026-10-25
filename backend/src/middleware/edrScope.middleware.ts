@@ -8,6 +8,7 @@ import { AppError } from './error.middleware.js';
  * inside one org, so none of them may change that shared configuration;
  * there it is set through the DEFENDER_* / CROWDSTRIKE_* / SENTINELONE_*
  * environment variables. Reads (masked, no secrets) stay available.
+ * (Fork CI coverage test: comment-only change, not for merge.)
  */
 export function requireDeploymentScopeForEdrWrite(_req: Request, _res: Response, next: NextFunction): void {
   if (process.env.REQUIRE_ORG_ISOLATION === 'true') {
