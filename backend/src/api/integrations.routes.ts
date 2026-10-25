@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Request } from 'express';
 import { requireClerkAuth, requirePermission, getUserOrgId } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
+import { requireDeploymentScopeForEdrWrite } from '../middleware/edrScope.middleware.js';
 import { validateUrlForSSRF, validateHostForSSRF } from '../middleware/urlValidation.js';
 import { IntegrationsSettingsService } from '../services/integrations/settings.js';
 import { DefenderSyncService } from '../services/defender/sync.service.js';
@@ -247,7 +248,7 @@ router.get('/defender', requirePermission('integrations:read'), (_req, res) => {
 });
 
 /** POST /api/integrations/defender — Save credentials (partial update supported) */
-router.post('/defender', requirePermission('integrations:write'), validate(DefenderCredentialsSchema), asyncHandler(async (req, res) => {
+router.post('/defender', requirePermission('integrations:write'), requireDeploymentScopeForEdrWrite, validate(DefenderCredentialsSchema), asyncHandler(async (req, res) => {
   const svc = edrSettingsService();
   const { tenant_id, client_id, client_secret, label, auth_method, cert_thumbprint, private_key_pem } = req.body;
 
@@ -303,7 +304,7 @@ router.post('/defender/parse-pfx', requirePermission('integrations:write'), uplo
 }));
 
 /** DELETE /api/integrations/defender — Remove Defender credentials */
-router.delete('/defender', requirePermission('integrations:write'), asyncHandler(async (_req, res) => {
+router.delete('/defender', requirePermission('integrations:write'), requireDeploymentScopeForEdrWrite, asyncHandler(async (_req, res) => {
   if (settingsService.isEnvDefenderConfigured()) {
     throw new AppError(
       'Cannot disconnect: Defender credentials are set via environment variables (DEFENDER_TENANT_ID, DEFENDER_CLIENT_ID, DEFENDER_CLIENT_SECRET). Remove these env vars to disconnect.',
@@ -485,7 +486,7 @@ router.get('/defender/auto-resolve/status', requirePermission('integrations:read
  * Fails with 400 when Defender is not yet configured (the setter throws —
  * we surface that clearly rather than silently writing a shadow entry).
  */
-router.put('/defender/auto-resolve/mode', requirePermission('integrations:write'), validate(DefenderAutoResolveModeSchema), asyncHandler(async (req, res) => {
+router.put('/defender/auto-resolve/mode', requirePermission('integrations:write'), requireDeploymentScopeForEdrWrite, validate(DefenderAutoResolveModeSchema), asyncHandler(async (req, res) => {
   const { mode } = req.body as { mode: 'disabled' | 'dry_run' | 'enabled' };
   try {
     edrSettingsService().setAutoResolveMode(mode);
@@ -575,7 +576,7 @@ router.get('/crowdstrike', requirePermission('integrations:read'), (_req, res) =
 });
 
 /** POST /api/integrations/crowdstrike — Save credentials (partial update supported) */
-router.post('/crowdstrike', requirePermission('integrations:write'), validate(CrowdStrikeCredentialsSchema), asyncHandler(async (req, res) => {
+router.post('/crowdstrike', requirePermission('integrations:write'), requireDeploymentScopeForEdrWrite, validate(CrowdStrikeCredentialsSchema), asyncHandler(async (req, res) => {
   const svc = edrSettingsService();
   const { region, client_id, client_secret, label } = req.body;
 
@@ -597,7 +598,7 @@ router.post('/crowdstrike', requirePermission('integrations:write'), validate(Cr
 }));
 
 /** DELETE /api/integrations/crowdstrike — Remove CrowdStrike credentials */
-router.delete('/crowdstrike', requirePermission('integrations:write'), asyncHandler(async (_req, res) => {
+router.delete('/crowdstrike', requirePermission('integrations:write'), requireDeploymentScopeForEdrWrite, asyncHandler(async (_req, res) => {
   if (settingsService.isEnvCrowdStrikeConfigured()) {
     throw new AppError(
       'Cannot disconnect: CrowdStrike credentials are set via environment variables (CROWDSTRIKE_REGION, CROWDSTRIKE_CLIENT_ID, CROWDSTRIKE_CLIENT_SECRET). Remove these env vars to disconnect.',
@@ -718,7 +719,7 @@ router.get('/crowdstrike/auto-resolve/status', requirePermission('integrations:r
  * Fails with 400 when CrowdStrike is not yet configured (the setter throws —
  * we surface that clearly rather than silently writing a shadow entry).
  */
-router.put('/crowdstrike/auto-resolve/mode', requirePermission('integrations:write'), validate(CrowdStrikeAutoResolveModeSchema), asyncHandler(async (req, res) => {
+router.put('/crowdstrike/auto-resolve/mode', requirePermission('integrations:write'), requireDeploymentScopeForEdrWrite, validate(CrowdStrikeAutoResolveModeSchema), asyncHandler(async (req, res) => {
   const { mode } = req.body as { mode: 'disabled' | 'dry_run' | 'enabled' };
   try {
     edrSettingsService().setCrowdStrikeAutoResolveMode(mode);

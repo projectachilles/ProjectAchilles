@@ -59,6 +59,23 @@ describe('SentinelOne routes', () => {
     vi.spyOn(sentinelOneSyncService, 'syncAll').mockResolvedValue({ timestamp: 'now' });
   });
 
+  it('with REQUIRE_ORG_ISOLATION=true the shared SentinelOne config is read-only from the UI', async () => {
+    await request(app()).post('/api/integrations/sentinelone').send({ base_url: BASE, api_token: TOKEN, permission_mode: 'response' });
+    process.env.REQUIRE_ORG_ISOLATION = 'true';
+    try {
+      expect((await request(app()).post('/api/integrations/sentinelone').send({ label: 'x' })).status).toBe(403);
+      expect((await request(app()).delete('/api/integrations/sentinelone')).status).toBe(403);
+      expect((await request(app()).put('/api/integrations/sentinelone/auto-mitigation').send({ mode: 'enabled' })).status).toBe(403);
+      expect((await request(app()).put('/api/integrations/sentinelone/auto-resolve/mode').send({ mode: 'dry_run' })).status).toBe(403);
+      expect((await request(app()).post('/api/integrations/sentinelone/sync').send({ reset: true })).status).toBe(403);
+      expect((await request(app()).get('/api/integrations/sentinelone')).status).toBe(200);
+    } finally {
+      delete process.env.REQUIRE_ORG_ISOLATION;
+    }
+    // Single-org mode: unchanged.
+    expect((await request(app()).put('/api/integrations/sentinelone/auto-resolve/mode').send({ mode: 'dry_run' })).status).toBe(200);
+  });
+
   it('GET returns not configured initially', async () => {
     const res = await request(app()).get('/api/integrations/sentinelone');
     expect(res.status).toBe(200);
