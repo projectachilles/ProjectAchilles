@@ -290,6 +290,45 @@ jobs:
           { echo "### Denied tool calls"; echo '```'; echo "${denials:-none}"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           echo "${denials:-No denied tool calls}"
 
+      # What Claude did, for runs that end without the expected comment: each
+      # tool call as ok/ERR with the same masked first words as above, plus the
+      # first line of any error (backticks and control characters stripped,
+      # 160 chars). Written to the job summary only, never stdout, so PR text
+      # in an error can't be read as a workflow command.
+      - name: Trace tool calls
+        continue-on-error: true # Reporting only
+        if: always() && steps.claude-security-review.outputs.execution_file != ''
+        env:
+          EXECUTION_FILE: ${{ steps.claude-security-review.outputs.execution_file }}
+        run: |
+          trace=$(jq -r '
+            def words3: split(" ") | map(select(. != "")) as $w
+              | ($w | map(test("^[A-Za-z_][A-Za-z0-9_]*=")) | index(false) // ($w | length)) as $n
+              | (if $n > 0 then ["<env>"] else [] end)
+                + ($w[$n:$n + 3] | map(if test("=") then "<env>" else . end))
+              | join(" ");
+            def clean: gsub("[`\u0000-\u001f]"; " ") | gsub(" +"; " ") | .[0:160];
+            ([.[] | select(.type == "user") | .message.content[]? | select(.type? == "tool_result")
+               | {key: .tool_use_id,
+                  value: {err: (.is_error // false),
+                          text: (.content | if type == "array" then map(.text? // "") | join(" ") else tostring end)}}]
+             | from_entries) as $res
+            | .[] | select(.type == "assistant") | .message.content[]? | select(.type? == "tool_use")
+            | ($res[.id] // {err: null, text: ""}) as $r
+            | (if .name == "Bash" then
+                 "Bash: " + ((.input.command // "") | sub("[\"\u0027`][\\s\\S]*"; "") | split("\n")
+                   | (map(test("<<")) | index(true)) as $h | (if $h == null then . else .[0:$h + 1] end)
+                   | join("; ") | [splits("\\s*(?:;|&&|\\|\\||\\|)\\s*")] | map(select(. != "")) | .[0:4]
+                   | map(words3) | join(" → "))
+               elif .name == "WebFetch" then
+                 "WebFetch: " + ((.input.url // "") | capture("^[a-z]+://(?<h>[^/?#]+)").h // "?")
+               else .name end) as $call
+            | if $r.err == null then "?   " + $call
+              elif $r.err then "ERR " + $call + "\n      " + ($r.text | split("\n")[0] | clean)
+              else "ok  " + $call end
+          ' "$EXECUTION_FILE")
+          { echo "### Tool calls"; echo '```'; echo "${trace:-none}"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       # The job is green whether or not Claude posted, so check: a run that
       # posts nothing (e.g. a comment Claude Code's Bash check refused) fails
       # here instead of passing silently. Only the bots' comments count, so a
