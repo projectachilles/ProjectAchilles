@@ -77,7 +77,7 @@ export interface DeployProvider {
   checkPrereqs(): Promise<Prereq[]>;
 
   /** Zod schema describing the inputs the wizard must collect. */
-  inputSchema(): z.ZodTypeAny;
+  inputSchema(): z.ZodType<Record<string, unknown>>;
 
   /** Ordered steps for the given (already-validated) inputs. */
   plan(inputs: Record<string, unknown>): Step[];
