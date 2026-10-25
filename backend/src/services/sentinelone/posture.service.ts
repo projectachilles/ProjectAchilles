@@ -4,8 +4,10 @@
 //  - Policies          GET /sites, /groups, /{accounts|sites|groups}/{id}/policy → doc_type 'policy'
 //  - Agent inventory   GET /agents                   → doc_type 'agent'
 //  - Agent health      GET /agents/count (per filter)→ doc_type 'agent_health' (time series)
+//  - Endpoint Protection score (from the inventory + policies) → doc_type 'protection_score' (time series)
 //
-// Nothing here is scored. Policies are shown as plain settings; exclusions are
+// The only score is the Achilles Endpoint Protection score (protection-score.ts).
+// Policies are otherwise shown as plain settings; exclusions are
 // matched against tests SentinelOne missed so a coverage gap caused by an
 // exclusion is visible. The pass runs on its own cadence (POSTURE_INTERVAL_MS)
 // after an alert poll and never throws.
@@ -14,6 +16,7 @@ import type { Client } from '@elastic/elasticsearch';
 import type { QueryDslQueryContainer } from '@elastic/elasticsearch/lib/api/types.js';
 import { SentinelOneApiError, type SentinelOneClient } from './s1-client.js';
 import { ensureSentinelOnePostureIndex, SENTINELONE_POSTURE_INDEX } from './index-management.js';
+import { computeProtectionScore, type SentinelOneProtectionScore } from './protection-score.js';
 import { attackSimulationExclusions } from '../analytics/attack-simulation-filter.js';
 import { windowRange } from '../analytics/integration-window.js';
 import type { TimeWindow } from '../analytics/integration-window.js';
@@ -214,10 +217,12 @@ export class SentinelOnePostureService {
     }
 
     // Policies
+    let policyDocs: Raw[] = [];
     try {
       const docs = await this.fetchPolicies(settings, result.errors);
       await this.replaceSnapshot('policy', snapshotId, docs);
       result.policies = docs.length;
+      policyDocs = docs.map((d) => d.doc);
     } catch (err) {
       result.errors.push(`policies: ${describe(err)}`);
     }
@@ -261,6 +266,21 @@ export class SentinelOnePostureService {
       });
     } catch (err) {
       result.errors.push(`agent_health: ${describe(err)}`);
+    }
+
+    // Endpoint Protection score (needs the inventory; policies only add anti-tamper)
+    if (inventory) {
+      try {
+        const protection = computeProtectionScore(inventory, policyDocs);
+        result.protectionScore = protection.score;
+        await this.es.index({
+          index: SENTINELONE_POSTURE_INDEX,
+          document: { doc_type: 'protection_score', snapshot_id: snapshotId, timestamp: snapshotId, protection },
+          refresh: 'wait_for',
+        });
+      } catch (err) {
+        result.errors.push(`protection_score: ${describe(err)}`);
+      }
     }
 
     result.durationMs = Date.now() - startedAt;
@@ -446,6 +466,23 @@ export class SentinelOnePostureService {
     } as any).catch(missingIndex);
     const hits = hitsOf(res) as Array<{ timestamp: string; counts: SentinelOneAgentHealthCounts }>;
     return { latest: hits[0] ?? null, trend: hits.slice().reverse() };
+  }
+
+  /** Latest Endpoint Protection snapshot + its trend over `days`. */
+  async getProtectionScore(days = 30): Promise<{
+    latest: (SentinelOneProtectionScore & { timestamp: string }) | null;
+    trend: Array<{ timestamp: string; score: number | null }>;
+  }> {
+    const res = await this.es.search({
+      index: SENTINELONE_POSTURE_INDEX,
+      size: Math.min(Math.ceil(days * (86_400_000 / POSTURE_INTERVAL_MS)) + 8, 10_000),
+      query: { bool: { filter: [{ term: { doc_type: 'protection_score' } }, { range: { timestamp: { gte: `now-${days}d` } } }] } },
+      sort: [{ timestamp: 'desc' }],
+    } as any).catch(missingIndex);
+    const hits = hitsOf(res) as Array<{ timestamp: string; protection: SentinelOneProtectionScore }>;
+    const latest = hits[0] ? { ...hits[0].protection, timestamp: hits[0].timestamp } : null;
+    const trend = hits.slice().reverse().map((h) => ({ timestamp: h.timestamp, score: h.protection?.score ?? null }));
+    return { latest, trend };
   }
 
   async getLatestAgentHealth(): Promise<SentinelOneAgentHealthCounts | null> {

@@ -99,6 +99,9 @@ describe('SentinelOnePostureService.runPosturePass', () => {
     expect(r.agentHealth).toEqual({ total: 4, active: 4, infected: 4, outdated: 4, detect_only: 1, disconnected: 4 });
     expect(e.deleteByQuery).toHaveBeenCalledTimes(3);
     expect(e.index.mock.calls[0][0].document).toMatchObject({ doc_type: 'agent_health' });
+    // Endpoint Protection: the one agent runs in detect mode, so it isn't protected.
+    expect(e.index.mock.calls[1][0].document).toMatchObject({ doc_type: 'protection_score', protection: { score: 0, protected: 0, scored: 1, total: 1 } });
+    expect(r.protectionScore).toBe(0);
   });
 });
 
@@ -130,6 +133,9 @@ describe('SentinelOnePostureService.runPosturePass — partial permissions (live
     expect(r.agentHealth).toBeNull();
     expect(e.index.mock.calls[0][0].document).toMatchObject({ doc_type: 'agent_health', counts_error: 'HTTP 403', counts: { total: null } });
     expect(r.errors.map((x) => x.split(':')[0])).toEqual(['policies', 'agents', 'agent_health']);
+    // No inventory, no Endpoint Protection snapshot (rather than a misleading 0).
+    expect(e.index).toHaveBeenCalledTimes(1);
+    expect(r.protectionScore).toBeUndefined();
   });
 });
 

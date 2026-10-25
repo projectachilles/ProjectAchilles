@@ -313,6 +313,8 @@ export interface SentinelOnePosturePassResult {
   policies: number;
   agents: number;
   agentHealth: SentinelOneAgentHealthCounts | null;
+  /** Endpoint Protection score of this pass (undefined when the inventory failed). */
+  protectionScore?: number | null;
   errors: string[];
   durationMs: number;
 }

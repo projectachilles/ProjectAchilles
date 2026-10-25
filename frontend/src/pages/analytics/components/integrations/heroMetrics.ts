@@ -57,6 +57,22 @@ export function stillOpenFootnote(counts: AlertFacetCounts | undefined): string 
   return `${counts.linkedOpen.toLocaleString()} of ${counts.bySource.test.toLocaleString()} test alerts still open`;
 }
 
+/**
+ * The `n` checks with the lowest pass rate (0-100), weakest first, among those
+ * evaluated for at least one agent. Ties keep the backend's check order.
+ */
+export function weakestChecks(
+  checks: Array<{ label: string; evaluated: number; passed: number }>,
+  n: number,
+): Array<{ label: string; pct: number }> {
+  return checks
+    .filter((c) => c.evaluated > 0)
+    .map((c, i) => ({ label: c.label, pct: (c.passed / c.evaluated) * 100, i }))
+    .sort((a, b) => a.pct - b.pct || a.i - b.i)
+    .slice(0, n)
+    .map(({ label, pct }) => ({ label, pct }));
+}
+
 /** Integer as-is, otherwise one decimal place. */
 export function formatScore(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);

@@ -12,6 +12,7 @@ const s1 = {
   getAgentHealth: vi.fn(),
   getPosturePolicies: vi.fn(),
   getExclusionGaps: vi.fn(),
+  getProtectionScore: vi.fn(),
 };
 const mockGetSyncStatus = vi.fn();
 const mockTriggerSync = vi.fn();
@@ -27,6 +28,7 @@ vi.mock('@/services/api/sentineloneAnalytics', () => ({
     getAgentHealth: (...a: unknown[]) => s1.getAgentHealth(...a),
     getPosturePolicies: (...a: unknown[]) => s1.getPosturePolicies(...a),
     getExclusionGaps: (...a: unknown[]) => s1.getExclusionGaps(...a),
+    getProtectionScore: (...a: unknown[]) => s1.getProtectionScore(...a),
   },
 }));
 const mockGetAutoResolveStatus = vi.fn();
@@ -79,6 +81,19 @@ describe('SentinelOneTab', () => {
     vi.clearAllMocks();
     s1.getAlertSummary.mockResolvedValue({ total: 9, bySeverity: { high: 9 }, byStatus: {}, recentHigh: [], recentMedium: [], counts });
     s1.getAlertTrend.mockResolvedValue([]);
+    s1.getProtectionScore.mockResolvedValue({
+      latest: {
+        score: 62.5, protected: 5, scored: 8, total: 8, timestamp: '2026-10-25T12:00:00.000Z',
+        checks: [
+          { id: 'reporting', label: 'Reporting', evaluated: 8, passed: 8 },
+          { id: 'protect_mode', label: 'Protect mode', evaluated: 8, passed: 6 },
+          { id: 'anti_tamper', label: 'Anti-tamper on', evaluated: 8, passed: 7 },
+          { id: 'firewall_control', label: 'Firewall control on', evaluated: 0, passed: 0 },
+          { id: 'disk_encrypted', label: 'Disk encrypted', evaluated: 8, passed: 5 },
+        ],
+      },
+      trend: [{ timestamp: '2026-10-20T00:00:00.000Z', score: 50 }, { timestamp: '2026-10-25T12:00:00.000Z', score: 62.5 }],
+    });
     mockGetAutoResolveStatus.mockResolvedValue({ mode: 'dry_run', permission_mode: 'response', counts: { last24h: 0, last7d: 0, last30d: 3 }, lastAutoResolve: null });
     s1.getTechniqueCoverage.mockResolvedValue(null);
     s1.getAlerts.mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 10, counts });
@@ -113,7 +128,10 @@ describe('SentinelOneTab', () => {
     expect(await screen.findByRole('link', { name: 'LSASS dump' })).toHaveAttribute('href', '/analytics?tab=executions&tests=LSASS%20dump');
     expect(screen.getByText('C:\\F0\\')).toBeInTheDocument();
     expect(s1.getExclusionGaps).toHaveBeenCalledWith(WINDOW);
-    expect(screen.queryByText(/score/i)).toBeNull();
+    // The policy table and agent health card show settings, never a score.
+    const policyTable = screen.getByText('Inherits the site policy').closest('table')!;
+    expect(policyTable.textContent).not.toMatch(/score/i);
+    expect(screen.getByLabelText('Agent health counts').textContent).not.toMatch(/score/i);
   });
 
   it('loads summary, trend and coverage from the SentinelOne API with the page window', async () => {
@@ -130,6 +148,25 @@ describe('SentinelOneTab', () => {
     await waitFor(() => expect(screen.getByText('Agent response')).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText(/3 detected only/)).toBeInTheDocument());
     expect(screen.queryByText(/ZTA/i)).toBeNull();
+  });
+
+  it('shows the Endpoint Protection score as an Achilles score, with its weakest checks', async () => {
+    renderTab();
+    await waitFor(() => expect(screen.getByText('Endpoint Protection')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText('62.5').length).toBeGreaterThan(0));
+    expect(screen.getByText(/5 of 8 agents pass every check · Achilles score/)).toBeInTheDocument();
+    // The 3 weakest evaluated checks, weakest first; an unevaluated check is not shown.
+    const meters = screen.getAllByRole('meter').map((m) => m.getAttribute('aria-label'));
+    expect(meters).toEqual(['Disk encrypted score', 'Protect mode score', 'Anti-tamper on score']);
+    expect(screen.queryByLabelText('Firewall control on score')).toBeNull();
+    expect(screen.getByRole('img', { name: 'Endpoint Protection trend' })).toBeInTheDocument();
+    expect(s1.getProtectionScore).toHaveBeenCalledWith(expect.any(Number));
+  });
+
+  it('explains when there is no Endpoint Protection score yet', async () => {
+    s1.getProtectionScore.mockResolvedValue({ latest: null, trend: [] });
+    renderTab();
+    await waitFor(() => expect(screen.getByText(/No Endpoint Protection score yet/)).toBeInTheDocument());
   });
 
   it('shows the auto-resolve tile from the SentinelOne auto-resolve status', async () => {

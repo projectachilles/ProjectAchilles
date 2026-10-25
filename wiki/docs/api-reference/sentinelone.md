@@ -38,7 +38,7 @@ match the CrowdStrike endpoints. Only the differences are listed here.
 | `ztaScore` is always `null` | `/correlation/scores` returns the Defense Score series with `ztaScore: null` on every point. |
 | Record-type filter | `GET /alerts` also accepts `sourceType` (see below). |
 | Evidence flags | Technique coverage reads `f0rtika.sentinelone_*` flags instead of `f0rtika.crowdstrike_*`. |
-| Posture endpoints | `/posture/policies`, `/posture/agent-health` and `/posture/exclusion-gaps` are SentinelOne-only (see [Posture](#posture)). |
+| Posture endpoints | `/posture/policies`, `/posture/agent-health`, `/posture/protection-score` and `/posture/exclusion-gaps` are SentinelOne-only (see [Posture](#posture)). |
 
 ### Alerts
 
@@ -125,8 +125,9 @@ GET /api/analytics/sentinelone/correlation/alerts-for-test
 ```
 
 - **`/correlation/scores`** — Defense Score over time (`?days=<n>`, default
-  90). Points are `{ date, defenseScore, ztaScore }` with `ztaScore` always
-  `null`.
+  90). Points are `{ date, defenseScore, ztaScore }`; for SentinelOne
+  `ztaScore` carries the Achilles [Endpoint Protection score](#endpoint-protection-score)
+  (the day's last snapshot), `null` on days without one.
 - **`/correlation/techniques`** — MITRE technique overlap between test results
   and SentinelOne alerts.
 - **`/correlation/detection-rate`** — the legacy technique plus time-window
@@ -145,6 +146,7 @@ GET /api/analytics/sentinelone/correlation/alerts-for-test
 ```
 GET /api/analytics/sentinelone/posture/policies
 GET /api/analytics/sentinelone/posture/agent-health?days=<n>
+GET /api/analytics/sentinelone/posture/protection-score?days=<n>
 GET /api/analytics/sentinelone/posture/exclusion-gaps?from=<iso>&to=<iso>
 ```
 
@@ -152,8 +154,10 @@ These endpoints read the local snapshot in the `achilles-sentinelone-posture`
 index; they never call the SentinelOne API. The posture pass writes that
 snapshot after an alert sync, at most every 6 hours, using read-only `GET`s
 (`/exclusions`, `/sites`, `/groups`, `/{accounts|sites|groups}/{id}/policy`,
-`/agents`, `/agents/count`). Nothing in it is scored. When Elasticsearch is not
-configured, or the pass has not run yet, they return empty results.
+`/agents`, `/agents/count`). The only score is the Achilles Endpoint
+Protection score, computed from that inventory and those policies. When
+Elasticsearch is not configured, or the pass has not run yet, they return empty
+results.
 
 #### Policies
 
@@ -192,6 +196,41 @@ reads), sorted by level:
 Counts come from `GET /agents/count` with one filter each. A count that fails
 falls back to the stored agent inventory, and is `null` when neither is
 readable. `latest` is `null` until the first posture pass.
+
+#### Endpoint Protection score
+
+`GET /posture/protection-score?days=<n>` (default 30, clamped to 1–365). The
+score is an Achilles metric, not a SentinelOne one: the share of agents that
+pass every check. See
+[Analytics → SentinelOne](../user-guide/analytics/sentinelone#endpoint-protection-score)
+for what each check means.
+
+```jsonc
+{
+  "latest": {
+    "timestamp": "2026-10-25T06:00:00.000Z",
+    "score": 87.5,        // 0-100, one decimal; null when no agent could be scored
+    "protected": 105,     // agents passing every check evaluated for them
+    "scored": 120,        // agents with at least one evaluated check
+    "total": 121,         // agents in the inventory
+    "checks": [
+      { "id": "reporting", "label": "Reporting", "evaluated": 121, "passed": 118 },
+      { "id": "protect_mode", "label": "Protect mode", "evaluated": 121, "passed": 119 },
+      { "id": "up_to_date", "label": "Agent up to date", "evaluated": 121, "passed": 117 },
+      { "id": "no_active_threat", "label": "No active threat", "evaluated": 121, "passed": 121 },
+      { "id": "anti_tamper", "label": "Anti-tamper on", "evaluated": 110, "passed": 110 },
+      { "id": "firewall_control", "label": "Firewall control on", "evaluated": 0, "passed": 0 },
+      { "id": "disk_encrypted", "label": "Disk encrypted", "evaluated": 121, "passed": 112 }
+    ]
+  },
+  "trend": [ { "timestamp": "...", "score": 85.0 } ]   // oldest first
+}
+```
+
+A check with `evaluated: 0` was reported by no agent (or, for anti-tamper, no
+applicable policy could be read) and doesn't affect the score. `latest` is
+`null` until the first posture pass after the upgrade, and no snapshot is
+written when the agent inventory couldn't be read.
 
 #### Exclusion gaps
 

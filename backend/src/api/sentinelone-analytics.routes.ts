@@ -75,7 +75,7 @@ router.get('/alerts/trend', READ, asyncHandler(async (req, res) => {
   res.json(await analyticsService.getAlertTrend(days, parseWindowQuery(req.query)));
 }));
 
-/** GET /api/analytics/sentinelone/correlation/scores — Defense Score over time (ztaScore always null) */
+/** GET /api/analytics/sentinelone/correlation/scores — Defense Score over time; ztaScore carries the Endpoint Protection score */
 router.get('/correlation/scores', READ, asyncHandler(async (req, res) => {
   const days = parseInt(String(req.query.days ?? '90'), 10);
   res.json(await analyticsService.getScoreComparison(days));
@@ -138,6 +138,13 @@ router.get('/posture/agent-health', READ, asyncHandler(async (req, res) => {
   const days = Math.min(Math.max(parseInt(String(req.query.days ?? '30'), 10) || 30, 1), 365);
   const svc = postureService();
   res.json(svc ? await svc.getAgentHealth(days) : { latest: null, trend: [] });
+}));
+
+/** GET /api/analytics/sentinelone/posture/protection-score?days=30 — Achilles Endpoint Protection score + trend */
+router.get('/posture/protection-score', READ, asyncHandler(async (req, res) => {
+  const days = Math.min(Math.max(parseInt(String(req.query.days ?? '30'), 10) || 30, 1), 365);
+  const svc = postureService();
+  res.json(svc ? await svc.getProtectionScore(days) : { latest: null, trend: [] });
 }));
 
 /** GET /api/analytics/sentinelone/posture/exclusion-gaps — missed tests covered by an exclusion */

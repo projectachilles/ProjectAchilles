@@ -1,19 +1,21 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ShieldCheck } from 'lucide-react';
+import { Gauge, ShieldCheck } from 'lucide-react';
 import type { CrowdStrikeAlertSummary, CrowdStrikeAlertTrendPoint } from '@/services/api/crowdstrike';
-import { sentineloneAnalyticsApi } from '@/services/api/sentineloneAnalytics';
+import { sentineloneAnalyticsApi, type SentinelOneProtectionScoreResponse } from '@/services/api/sentineloneAnalytics';
 import { sentinelOneApi } from '@/services/api/sentinelone';
 import type { TechniqueCoverageResponse } from '@/services/api/integrationTypes';
 import type { DateRangeValue } from '@/lib/timeRange';
 import IntegrationTabHeader from './integrations/IntegrationTabHeader';
 import AutoResolveStatTile from './AutoResolveStatTile';
 import HeroStatTile from './HeroStatTile';
+import Sparkline from './Sparkline';
+import ScoreBar from './integrations/ScoreBar';
 import EndpointAlertDetailsDrawer from './integrations/EndpointAlertDetailsDrawer';
 import IntegrationTimelineCard from './integrations/IntegrationTimelineCard';
 import IntegrationAlertFeed from './integrations/IntegrationAlertFeed';
 import TechniqueCoverageCard from './integrations/TechniqueCoverageCard';
 import { AlertsHeroTile, CoverageHeroTile } from './integrations/IntegrationHeroTiles';
-import { stillOpenFootnote } from './integrations/heroMetrics';
+import { firstToLastDelta, formatScore, stillOpenFootnote, weakestChecks, ztaTrendDays } from './integrations/heroMetrics';
 import { useTabWindow } from './integrations/useTabWindow';
 import { VENDORS } from './integrations/vendorConfig';
 import { SentinelOneAgentHealthCard, SentinelOnePolicyTable, SentinelOneExclusionGapCard } from './SentinelOnePostureCards';
@@ -26,6 +28,7 @@ interface TabData {
   trend: CrowdStrikeAlertTrendPoint[];
   coverage: TechniqueCoverageResponse | null;
   coverageFailed: boolean;
+  protection: SentinelOneProtectionScoreResponse | null;
 }
 
 interface SentinelOneTabProps {
@@ -36,8 +39,9 @@ interface SentinelOneTabProps {
 /**
  * SentinelOne analytics tab — the CrowdStrike tab's layout over
  * /api/analytics/sentinelone/*. SentinelOne has no Zero Trust Assessment
- * equivalent, so the posture tile is replaced by the agent-response split
- * (prevented vs detected only) from the same alert facets; no score is invented.
+ * equivalent, so the posture tile shows the Achilles Endpoint Protection score
+ * (computed by the posture pass, labelled as ours), next to the agent-response
+ * split (prevented vs detected only) from the alert facets.
  */
 export default function SentinelOneTab({ dateRange }: SentinelOneTabProps) {
   const { window, windowLabel, refreshKey, refresh } = useTabWindow(dateRange);
@@ -62,16 +66,18 @@ export default function SentinelOneTab({ dateRange }: SentinelOneTabProps) {
     const seq = ++loadSeq.current;
     setLoading(true);
     (async () => {
-      const [summaryR, trendR, coverageR] = await Promise.allSettled([
+      const [summaryR, trendR, coverageR, protectionR] = await Promise.allSettled([
         sentineloneAnalyticsApi.getAlertSummary(window),
         sentineloneAnalyticsApi.getAlertTrend(30, window),
         sentineloneAnalyticsApi.getTechniqueCoverage(window),
+        sentineloneAnalyticsApi.getProtectionScore(ztaTrendDays(window)),
       ]);
       if (seq !== loadSeq.current) return;
 
       if (summaryR.status === 'rejected') console.error('Failed to load SentinelOne alert summary:', summaryR.reason);
       if (trendR.status === 'rejected') console.error('Failed to load SentinelOne alert trend:', trendR.reason);
       if (coverageR.status === 'rejected') console.error('Failed to load SentinelOne technique coverage:', coverageR.reason);
+      if (protectionR.status === 'rejected') console.error('Failed to load SentinelOne Endpoint Protection score:', protectionR.reason);
 
       setData({
         summary: summaryR.status === 'fulfilled' ? summaryR.value : null,
@@ -79,6 +85,7 @@ export default function SentinelOneTab({ dateRange }: SentinelOneTabProps) {
         trend: trendR.status === 'fulfilled' ? trendR.value : [],
         coverage: coverageR.status === 'fulfilled' ? coverageR.value : null,
         coverageFailed: coverageR.status === 'rejected',
+        protection: protectionR.status === 'fulfilled' ? protectionR.value : null,
       });
       setLoading(false);
     })();
@@ -117,6 +124,13 @@ export default function SentinelOneTab({ dateRange }: SentinelOneTabProps) {
     }
   }
 
+  // Endpoint Protection: an Achilles score, refreshed by the 6-hourly posture pass.
+  const protection = data?.protection?.latest ?? null;
+  const protectionSeries = (data?.protection?.trend ?? []).map((p) => p.score).filter((v): v is number => typeof v === 'number');
+  const protectionUnavailable = !loading && (protection == null || protection.score == null);
+  const protectionDays = ztaTrendDays(window);
+  const weakest = protection ? weakestChecks(protection.checks, 3) : [];
+
   const prevention = data?.summary?.counts?.byPrevention;
   const responseTotal = prevention ? prevention.prevented + prevention.detected_only + prevention.kill_failed : 0;
 
@@ -130,8 +144,40 @@ export default function SentinelOneTab({ dateRange }: SentinelOneTabProps) {
         onSync={handleSync}
       />
 
-      <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-12 sm:col-span-6 md:col-span-3">
+      {/* Hero row: 5 tiles */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div>
+          <HeroStatTile
+            title="Endpoint Protection"
+            icon={<Gauge className="w-4 h-4 text-primary" />}
+            value={protection?.score != null ? formatScore(protection.score) : '—'}
+            valueSuffix="%"
+            subValue={
+              protection
+                ? `${protection.protected.toLocaleString()} of ${protection.scored.toLocaleString()} agents pass every check · Achilles score`
+                : undefined
+            }
+            chartSlot={
+              protection && !protectionUnavailable ? (
+                <div className="w-full space-y-1.5">
+                  {weakest.map((c) => (
+                    <ScoreBar key={c.label} label={c.label} value={c.pct} labelClassName="w-28" />
+                  ))}
+                  {protectionSeries.length >= 2 && (
+                    <div className="text-emerald-500">
+                      <Sparkline data={protectionSeries} width={240} height={24} ariaLabel="Endpoint Protection trend" />
+                    </div>
+                  )}
+                </div>
+              ) : undefined
+            }
+            delta={protectionUnavailable ? undefined : firstToLastDelta(protectionSeries)}
+            deltaLabel={`pts over last ${protectionDays}d`}
+            loading={loading}
+            emptyState={protectionUnavailable ? 'No Endpoint Protection score yet: it appears after the next posture sync (every 6 hours)' : undefined}
+          />
+        </div>
+        <div>
           <AlertsHeroTile
             vendor={vendor}
             summary={data?.summary ?? null}
@@ -142,7 +188,7 @@ export default function SentinelOneTab({ dateRange }: SentinelOneTabProps) {
             windowLabel={windowLabel}
           />
         </div>
-        <div className="col-span-12 sm:col-span-6 md:col-span-3">
+        <div>
           <CoverageHeroTile
             coverage={data?.coverage ?? null}
             loading={loading}
@@ -150,7 +196,7 @@ export default function SentinelOneTab({ dateRange }: SentinelOneTabProps) {
             windowLabel={windowLabel}
           />
         </div>
-        <div className="col-span-12 sm:col-span-6 md:col-span-3">
+        <div>
           <HeroStatTile
             title="Agent response"
             icon={<ShieldCheck className="w-4 h-4 text-primary" />}
@@ -164,7 +210,7 @@ export default function SentinelOneTab({ dateRange }: SentinelOneTabProps) {
             emptyState={!loading && (!prevention || responseTotal === 0) ? `No SentinelOne alerts in ${windowLabel}` : undefined}
           />
         </div>
-        <div className="col-span-12 sm:col-span-6 md:col-span-3">
+        <div>
           <AutoResolveStatTile vendor={vendor} footnote={stillOpenFootnote(data?.summary?.counts)} />
         </div>
       </div>

@@ -122,6 +122,7 @@ export async function ensureSentinelOneIndex(): Promise<void> {
 //   doc_type 'policy'        one per scope      (_id policy-<level>-<id>)
 //   doc_type 'agent'         one per agent      (_id agent-<id>)
 //   doc_type 'agent_health'  time series of /agents/count snapshots
+//   doc_type 'protection_score'  time series of the Endpoint Protection score
 // Docs from the previous pass are removed by `snapshot_id`.
 // ---------------------------------------------------------------------------
 
@@ -183,6 +184,16 @@ export const SENTINELONE_POSTURE_MAPPING = {
           outdated: { type: 'integer' as const },
           detect_only: { type: 'integer' as const },
           disconnected: { type: 'integer' as const },
+        },
+      },
+      // Endpoint Protection score (protection-score.ts); per-check rows are display-only
+      protection: {
+        properties: {
+          score: { type: 'float' as const },
+          protected: { type: 'integer' as const },
+          scored: { type: 'integer' as const },
+          total: { type: 'integer' as const },
+          checks: { type: 'object' as const, enabled: false },
         },
       },
       // Unparsed API object for audit / display of fields we don't map.

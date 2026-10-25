@@ -4,6 +4,7 @@ import {
   firstToLastDelta,
   formatScore,
   stillOpenFootnote,
+  weakestChecks,
   ztaTrendDays,
 } from '../heroMetrics';
 
@@ -77,5 +78,28 @@ describe('formatScore', () => {
   it('keeps integers and rounds the rest to one decimal', () => {
     expect(formatScore(61)).toBe('61');
     expect(formatScore(61.25)).toBe('61.3');
+  });
+});
+
+describe('weakestChecks', () => {
+  const checks = [
+    { label: 'Reporting', evaluated: 10, passed: 10 },
+    { label: 'Protect mode', evaluated: 10, passed: 7 },
+    { label: 'Anti-tamper on', evaluated: 10, passed: 7 },
+    { label: 'Firewall control on', evaluated: 0, passed: 0 },
+    { label: 'Disk encrypted', evaluated: 4, passed: 1 },
+  ];
+
+  it('returns the lowest pass rates first, skipping unevaluated checks, ties in input order', () => {
+    expect(weakestChecks(checks, 3)).toEqual([
+      { label: 'Disk encrypted', pct: 25 },
+      { label: 'Protect mode', pct: 70 },
+      { label: 'Anti-tamper on', pct: 70 },
+    ]);
+  });
+
+  it('returns fewer when fewer checks were evaluated', () => {
+    expect(weakestChecks([{ label: 'Reporting', evaluated: 2, passed: 2 }], 3)).toEqual([{ label: 'Reporting', pct: 100 }]);
+    expect(weakestChecks([], 3)).toEqual([]);
   });
 });

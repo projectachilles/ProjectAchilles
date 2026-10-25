@@ -12,8 +12,9 @@ tab appears in the Analytics dashboard (`?tab=sentinelone`). Like the
 
 > Of the attack simulations we launched, what share did SentinelOne catch?
 
-It also shows the SentinelOne posture that explains the answer: agent health,
-protection policy per scope, and missed tests that sit under an exclusion.
+It also shows the SentinelOne posture that explains the answer: the Achilles
+Endpoint Protection score, agent health, protection policy per scope, and
+missed tests that sit under an exclusion.
 
 If the integration is not configured the tab is hidden entirely: the
 `useSentinelOneConfig()` hook gates the tab, so unconfigured users never see
@@ -40,12 +41,48 @@ policy cards show the latest posture snapshot and don't depend on the range.
 
 | Tile | What it shows |
 |------|---------------|
+| **Endpoint Protection** | The Achilles [Endpoint Protection score](#endpoint-protection-score): the share of SentinelOne agents that pass every protection check, how many agents that is, the three weakest checks, and the trend over the window (at most 365 days). |
 | **SentinelOne Alerts** | Alerts (threats and detection alerts) in the window, how many are linked to Achilles tests versus organic, a severity bar, and the change versus the previous 7 days. Click it to jump to the alert feed. |
 | **Detected / Prevented** | The share of attack simulations in the window that SentinelOne detected, and the share it prevented, from the same response as the Technique Coverage card (see [Detection rate](#detection-rate)). |
 | **Agent response** | How many alerts in the window SentinelOne **prevented** (killed, quarantined or otherwise mitigated), how many were **detected only**, and how many had a failed mitigation. Read from the prevention action recorded on each threat; detection alerts carry none, so they count as detected only. A threat that Achilles [automatic mitigation](../integrations/sentinelone-auto-resolve#automatic-mitigation) killed or quarantined also counts as detected only. |
+| **Auto-Resolve** | The auto-resolve mode and the receipts written in the last 30 days and 24 hours, like the Defender and CrowdStrike tiles. See [SentinelOne Auto-Resolve](../integrations/sentinelone-auto-resolve#receipts). |
 
-SentinelOne has no Zero Trust Assessment equivalent, so unlike the CrowdStrike
-tab there is no posture-score tile, and no score is invented.
+## Endpoint Protection score
+
+SentinelOne has no posture score like Microsoft Defender's Secure Score or
+CrowdStrike's Zero Trust Assessment. The **Endpoint Protection** score fills
+that slot, and it is an **Achilles** score, computed from the agent inventory
+and protection policies the posture pass already reads. It is not a
+SentinelOne metric, and the tile says so.
+
+The score is the percentage of agents that pass **every** check below:
+
+| Check | Passes when |
+|-------|-------------|
+| Reporting | The agent is active (`isActive`) |
+| Protect mode | The agent's mitigation mode is `protect`, not `detect` |
+| Agent up to date | The agent version is current (`isUpToDate`) |
+| No active threat | The agent is not infected |
+| Anti-tamper on | Anti-tamper is on in the policy that applies to the agent: its group's own policy, or the site policy when the group inherits, or the account policy when there is no site policy |
+| Firewall control on | SentinelOne Firewall Control is enabled on the agent (`firewallEnabled`) |
+| Disk encrypted | The agent reports disk encryption (`encryptedApplications`) |
+
+A check that an agent doesn't report is **skipped** for that agent, not
+failed. Anti-tamper is skipped when the policy that applies couldn't be read
+(for example a 403, or a group past the 200-policy read limit). Agents with no
+evaluated check are left out of the count.
+
+Network isolation doesn't lower the score. In SentinelOne, a "disconnected"
+network status means the console isolated the endpoint, which contains it; it
+is not a protection gap.
+
+Firewall Control is a separately licensed SentinelOne feature. Without it,
+that check fails on every agent and holds the score down; the tile's weakest
+checks show when that is the reason.
+
+The score is recalculated by every posture pass (with the first sync, then
+every 6 hours) and kept as a time series. Until the first pass the tile says
+there is no score yet.
 
 ## Agent Health
 
