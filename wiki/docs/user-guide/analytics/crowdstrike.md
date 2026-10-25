@@ -32,7 +32,7 @@ Four tiles summarize posture at a glance:
 | Tile | What it shows |
 |------|---------------|
 | **ZTA Score** | Current Zero Trust Assessment posture score (0–100 average across devices), the change versus the trend window, and a sparkline. Shows a not-licensed empty state when Falcon Insight is unavailable. |
-| **CrowdStrike Alerts** | Total alert count in the window, how many are high/critical-severity, and the change versus the previous 7 days. Click the tile to open the alert drawer for all alerts. |
+| **CrowdStrike Alerts** | Total alert count in the window, how many are high/critical-severity, and the change versus the previous 7 days. Click the tile to jump to the alert feed below. |
 | **Detection Rate** | The headline metric — the share of attack simulations in the selected window that CrowdStrike detected (evidence-based, see [Detection Rate](#detection-rate)), with prevented, detected-only and missed counts. |
 | **Auto-Resolve** | Current auto-resolve mode (`disabled` / `dry-run` / `enabled`) and recent receipt counts. See [Auto-Resolve](../integrations/crowdstrike-auto-resolve). |
 
@@ -71,7 +71,9 @@ stable as you filter, and the "All" count equals the Alerts tile total. The
 summary strip above the feed follows the source you pick but not the severity;
 severity only narrows the rows and the page count. A linked alert's **Linked
 test** opens the Executions view filtered to that test, or to the bundle when
-the alert was matched to a bundle. Click a row to open the alert drawer.
+the alert was matched to a bundle. Rows aren't clickable; the link icon opens
+the alert in the Falcon console. To open the alert drawer, click a technique in
+Technique Coverage below.
 
 ## Technique Coverage
 
