@@ -13,7 +13,7 @@ const mockFetch = vi.fn().mockResolvedValue({
 vi.stubGlobal('fetch', mockFetch);
 
 // Dynamic import AFTER mock setup (required by vitest)
-const { buildSlackBlocks, sendSlackAlert, testSlackWebhook } = await import(
+const { buildSlackBlocks, sendSlackAlert, sendSlackText, slackWebhookEndpoint, testSlackWebhook } = await import(
   '../slack.service.js'
 );
 
@@ -187,6 +187,65 @@ describe('slack.service', () => {
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('403');
+    });
+  });
+
+  // ---- webhook URL validation (CodeQL js/request-forgery #178) -------------
+
+  describe('slackWebhookEndpoint', () => {
+    it.each([
+      ['https://hooks.slack.com/services/T000/B000/XXXX', 'https://hooks.slack.com/services/T000/B000/XXXX'],
+      ['  https://hooks.slack.com/services/T000/B000/XXXX  ', 'https://hooks.slack.com/services/T000/B000/XXXX'],
+      ['https://hooks.slack.com/workflows/T0/A1/123/abc_DEF-9', 'https://hooks.slack.com/workflows/T0/A1/123/abc_DEF-9'],
+    ])('accepts %s', (input, expected) => {
+      expect(slackWebhookEndpoint(input)).toBe(expected);
+    });
+
+    it.each([
+      ['another host', 'https://example.com/services/T000/B000/XXXX'],
+      ['a lookalike host', 'https://hooks.slack.com.evil.example/services/T/B/X'],
+      ['plain http', 'http://hooks.slack.com/services/T/B/X'],
+      ['userinfo', 'https://user:pass@hooks.slack.com/services/T/B/X'],
+      ['an explicit port', 'https://hooks.slack.com:8443/services/T/B/X'],
+      ['a query string', 'https://hooks.slack.com/services/T/B/X?redirect=http://169.254.169.254/'],
+      ['a fragment', 'https://hooks.slack.com/services/T/B/X#frag'],
+      ['another path', 'https://hooks.slack.com/triggers/T/B/X'],
+      ['an encoded traversal', 'https://hooks.slack.com/services/..%2F..%2Fapi'],
+      ['a metadata IP', 'http://169.254.169.254/latest/meta-data/'],
+      ['not a URL', 'hooks.slack.com/services/T/B/X'],
+      ['empty', ''],
+    ])('rejects %s', (_label, input) => {
+      expect(slackWebhookEndpoint(input)).toBeNull();
+    });
+  });
+
+  describe('non-Slack webhook URLs are never requested', () => {
+    const internal = 'http://169.254.169.254/latest/meta-data/';
+
+    it('sendSlackAlert throws without calling fetch', async () => {
+      await expect(sendSlackAlert(internal, baseAlertData)).rejects.toThrow(/Invalid Slack webhook URL/);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('sendSlackText throws without calling fetch', async () => {
+      await expect(sendSlackText(internal, 'hi')).rejects.toThrow(/Invalid Slack webhook URL/);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('testSlackWebhook reports the invalid URL without calling fetch', async () => {
+      const result = await testSlackWebhook(internal);
+      expect(result).toEqual({ success: false, message: expect.stringMatching(/Invalid Slack webhook URL/) });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('refuses redirects, so Slack can never bounce the request elsewhere', async () => {
+      await sendSlackAlert(webhookUrl, baseAlertData);
+      await sendSlackText(webhookUrl, 'hi');
+      await testSlackWebhook(webhookUrl);
+      for (const [, options] of mockFetch.mock.calls as [string, RequestInit][]) {
+        expect(options.redirect).toBe('error');
+      }
+      expect(mockFetch).toHaveBeenCalledTimes(3);
     });
   });
 });

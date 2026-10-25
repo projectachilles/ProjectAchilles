@@ -3,7 +3,7 @@ import type { Request } from 'express';
 import { requireClerkAuth, requirePermission, getUserOrgId } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { requireDeploymentScopeForEdrWrite } from '../middleware/edrScope.middleware.js';
-import { validateUrlForSSRF, validateHostForSSRF } from '../middleware/urlValidation.js';
+import { validateHostForSSRF } from '../middleware/urlValidation.js';
 import { IntegrationsSettingsService } from '../services/integrations/settings.js';
 import { DefenderSyncService } from '../services/defender/sync.service.js';
 import { AlertsService } from '../services/alerts/alerts.service.js';
@@ -860,15 +860,8 @@ router.post('/alerts/test', requirePermission('integrations:write'), validate(Al
     // Test Slack — use webhook from request body or existing settings
     const slackUrl = req.body.slack_webhook_url || settings?.slack?.webhook_url;
     if (slackUrl) {
-      const SLACK_URL_PATTERN = /^https:\/\/hooks\.slack\.com\/(services|workflows)\//;
-      try {
-        await validateUrlForSSRF(slackUrl, [SLACK_URL_PATTERN]);
-      } catch {
-        results.slack = { success: false, message: 'Invalid Slack webhook URL. Must be https://hooks.slack.com/services/... or https://hooks.slack.com/workflows/...' };
-      }
-      if (!results.slack) {
-        results.slack = await testSlackWebhook(slackUrl);
-      }
+      // testSlackWebhook only ever sends to https://hooks.slack.com (slackWebhookEndpoint).
+      results.slack = await testSlackWebhook(slackUrl);
     }
 
     // Test Email — form values over the saved ones; blank/masked credentials

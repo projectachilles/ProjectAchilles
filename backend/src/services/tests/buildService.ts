@@ -539,9 +539,10 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     }
 
     const platform = this.settingsService.getPlatformSettings();
+    const safeUuid = path.basename(uuid);
     const filename = platform.os === 'windows'
-      ? `${uuid}.exe`
-      : uuid;
+      ? `${safeUuid}.exe`
+      : safeUuid;
     const buildDir = this.ensureBuildDir(uuid);
     const outputPath = path.join(buildDir, filename);
 
@@ -590,7 +591,10 @@ const ARTIFACT_DIR = \`${artifactDir}\`
     const targetOSes = this.resolveTargetOSes(testDir, uuid);
 
     // 3. Determine output filename (primary artifact, for back-compat meta fields)
-    const filename = platform.os === 'windows' ? `${uuid}.exe` : uuid;
+    // basename: UUID_REGEX already rules out separators; this keeps the
+    // filename provably inside buildDir for the path checks too.
+    const safeUuid = path.basename(uuid);
+    const filename = platform.os === 'windows' ? `${safeUuid}.exe` : safeUuid;
 
     // Per-OS artifacts collected during the build (populated for build_all.sh
     // cross-platform builds). The primary OS entry is added at meta-write time.
