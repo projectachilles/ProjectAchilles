@@ -57,8 +57,13 @@ export function slackWebhookEndpoint(url: string): string | null {
   }
   const match = SLACK_WEBHOOK_PATH.exec(parsed.pathname);
   if (!match) return null;
-  const kind = match[1] === 'services' ? 'services' : 'workflows';
-  return `https://hooks.slack.com/${kind}/${match[2]}`;
+  // Encode each segment: a no-op for the characters the regex allows, but it
+  // is what static analysis (CodeQL js/request-forgery) recognises as making
+  // the path safe to put in a request URL.
+  const path = match[2].split('/').map((segment) => encodeURIComponent(segment)).join('/');
+  return match[1] === 'services'
+    ? `https://hooks.slack.com/services/${path}`
+    : `https://hooks.slack.com/workflows/${path}`;
 }
 
 export const INVALID_SLACK_WEBHOOK_MESSAGE =
