@@ -170,7 +170,7 @@ ProjectAchilles uses [Clerk](https://clerk.com) for authentication. You need a f
    `{"metadata": "{{user.public_metadata}}"}` and save. After your first sign-in to
    ProjectAchilles, set `{"role": "admin"}` in your user's public metadata
    (**Users →** you **→ Metadata → Public**) and sign in again: a user with no
-   role is read-only. Details: [Clerk roles](https://docs.projectachilles.io/docs/deployment/prerequisites#session-token-claim).
+   role is read-only. Details: [Clerk roles](https://docs.projectachilles.io/docs/deployment/clerk-setup#session-token-claim).
 
 ---
 

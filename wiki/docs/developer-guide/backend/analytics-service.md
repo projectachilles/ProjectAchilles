@@ -145,7 +145,7 @@ graph TD
 | `ELASTICSEARCH_INDEX_PATTERN` | Index pattern for queries (e.g., `achilles-results-*`) |
 | `ENCRYPTION_SECRET` | Key for AES-256-GCM field encryption |
 
-:::tip Cloud vs self-hosted
+:::tip[Cloud vs self-hosted]
 The settings service supports both Elastic Cloud (via `cloudId` + `apiKey`) and self-hosted deployments (via `node` + username/password). The client factory automatically selects the correct connection method based on which fields are populated.
 :::
 
@@ -188,7 +188,7 @@ The analytics service uses a canonical error code system to classify test outcom
 - **Defense Score:** `(protected / conclusive) * 100` where conclusive = codes `[101, 105, 126, 127]`
 - **Error Rate:** `(error_count / total_activity) * 100` where error = codes `[0, 1, 259, 999]`
 
-:::warning Conclusive vs inconclusive
+:::warning[Conclusive vs inconclusive]
 Only conclusive exit codes (101, 105, 126, 127) contribute to the defense score. Inconclusive codes (0, 200, 259) and errors (999) are tracked separately via the error rate metric. This prevents test infrastructure issues from artificially deflating the defense score.
 :::
 
@@ -259,7 +259,7 @@ A shared function creates Elasticsearch clients from `AnalyticsSettings` objects
 - **Direct** connections (via `node` URL + username/password or API key)
 - Automatic authentication method selection
 
-:::info Elasticsearch version compatibility
+:::info[Elasticsearch version compatibility]
 The backend uses `@elastic/elasticsearch` client v8.x, which must match the Elasticsearch server v8.x. The v9 client sends `compatible-with=9` headers that ES 8.x rejects with HTTP 400. Watch for npm/Dependabot updates bumping the client to v9.
 :::
 

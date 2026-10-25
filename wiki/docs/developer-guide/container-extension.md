@@ -174,7 +174,7 @@ enum ProbeStatus {
 }
 ```
 
-:::info Compatibility Requirement
+:::info[Compatibility Requirement]
 Containers must have `curl` available to receive the probe binary. Alpine-based images and minimal distroless containers are typically marked as Unsupported. Use a full base image (e.g., `ubuntu`, `debian`) for probe compatibility.
 :::
 

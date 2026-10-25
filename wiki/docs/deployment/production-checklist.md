@@ -24,13 +24,13 @@ Use this checklist before going live with any deployment target.
 - [ ] Added authorized domains (frontend + backend URLs)
 - [ ] Added redirect URLs: `https://<your-domain>/*`
 - [ ] Copied production API keys (`pk_live_...`, `sk_live_...`)
-- [ ] Added `{"metadata": "{{user.public_metadata}}"}` to the session token claims (**Configure → Sessions → Customize session token**) on the production instance ([details](./prerequisites#session-token-claim))
-- [ ] Set **Configure → Access mode** to **Invite-only**, or enabled the allowlist ([details](./prerequisites#restrict-sign-ups))
-- [ ] After the first sign-in: set `{"role": "admin"}` in the first admin's public metadata ([details](./prerequisites#first-admin)); invite the rest from **Settings → Users**
+- [ ] Added `{"metadata": "{{user.public_metadata}}"}` to the session token claims (**Configure → Sessions → Customize session token**) on the production instance ([details](./clerk-setup#session-token-claim))
+- [ ] Set **Configure → Access mode** to **Invite-only**, or enabled the allowlist ([details](./clerk-setup#restrict-sign-ups))
+- [ ] After the first sign-in: set `{"role": "admin"}` in the first admin's public metadata ([details](./clerk-setup#first-admin)); invite the rest from **Settings → Users**
 
 ### OAuth Providers (Production Requires Custom Credentials)
 
-:::danger OAuth Configuration Required
+:::danger[OAuth Configuration Required]
 Clerk development instances use shared OAuth credentials. **Production instances require your own.** Without them, social login buttons redirect with an empty `client_id`, resulting in a 404 error.
 :::
 

@@ -35,7 +35,7 @@ Four tiles summarize posture at a glance:
 | **Detected / Prevented** | The headline metric — the share of attack simulations in the selected window that Defender detected (the [Detection Rate](#detection-rate), evidence-based), the share it prevented, how many executions raised an alert and how many were stopped, plus one pip per technique showing whether it drew an alert. |
 | **Auto-Resolve** | Current auto-resolve mode (`disabled` / `dry-run` / `enabled`) and recent receipt counts. See [Auto-Resolve](../integrations/defender-auto-resolve). |
 
-:::info Detection Rate is evidence-based
+:::info[Detection Rate is evidence-based]
 The Detection Rate comes from the per-run detection flags the enrichment pass
 writes onto each test result, not from a technique plus time-window match
 against alerts. It is an **organisation-specific operational KPI** — track it
@@ -110,7 +110,7 @@ detectionRate = (prevented + detectedOnly) / executions × 100
 - **prevented** — Defender confirmed it blocked the execution. **Detected only** is
   detected but not blocked; the rest are **missed**.
 
-:::note Numbers can differ from before
+:::note[Numbers can differ from before]
 Earlier versions matched alerts to executions by MITRE technique within a
 ±60-minute window. The tab now reads the per-run flags instead, so rates can
 change after this update. The legacy

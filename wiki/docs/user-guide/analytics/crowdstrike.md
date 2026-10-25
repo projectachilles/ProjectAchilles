@@ -36,7 +36,7 @@ Four tiles summarize posture at a glance:
 | **Detection Rate** | The headline metric — the share of attack simulations in the selected window that CrowdStrike detected (evidence-based, see [Detection Rate](#detection-rate)), with prevented, detected-only and missed counts. |
 | **Auto-Resolve** | Current auto-resolve mode (`disabled` / `dry-run` / `enabled`) and recent receipt counts. See [Auto-Resolve](../integrations/crowdstrike-auto-resolve). |
 
-:::info Detection Rate is evidence-based
+:::info[Detection Rate is evidence-based]
 The Detection Rate comes from the per-run detection flags the enrichment pass
 writes onto each test result, not from a technique plus time-window match
 against alerts. It is an **organisation-specific operational KPI** — track it
@@ -107,7 +107,7 @@ detectionRate = (prevented + detectedOnly) / executions × 100
 - **prevented** — CrowdStrike confirmed it blocked the execution. **Detected only** is
   detected but not blocked; the rest are **missed**.
 
-:::note Numbers can differ from before
+:::note[Numbers can differ from before]
 Earlier versions matched alerts to executions by MITRE technique within a
 ±60-minute window. The tab now reads the per-run flags instead, so rates can
 change after this update. The legacy

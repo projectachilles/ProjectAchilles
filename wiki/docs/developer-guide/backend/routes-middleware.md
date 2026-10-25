@@ -85,7 +85,7 @@ Routes are organized by module in `backend/src/api/`:
 | `cli-auth.routes.ts` | Mixed | CLI device authorization flow |
 | `users.routes.ts` | Clerk | User management |
 
-:::info Agent routes use a two-tier split
+:::info[Agent routes use a two-tier split]
 Agent endpoints live under `/api/agent/`. Admin endpoints (Clerk-authenticated) are mounted at `/api/agent/admin/*`, while device endpoints (API-key-authenticated) are mounted directly at `/api/agent/*`. The parent router in `agent/index.ts` applies the correct auth middleware at mount time.
 :::
 
@@ -212,11 +212,11 @@ Rate limiting uses `express-rate-limit` with separate budgets for different endp
 | CLI device code | 10 req | 15 min | IP | Device code generation |
 | CLI polling | 60 req | 1 min | IP | Frequent polling during auth flow |
 
-:::tip Agent device rate limiting
+:::tip[Agent device rate limiting]
 The agent device limiter keys on the composite `<normalized-ip>:<agent-id>`. Each enrolled agent gets its own budget even when a whole fleet shares one NAT IP, while an unauthenticated probe (no `X-Agent-ID`) still cannot escape its IP bucket.
 :::
 
-:::warning Global limiter skips agent routes
+:::warning[Global limiter skips agent routes]
 The global `apiLimiter` (1000/15min) explicitly skips paths starting with `/api/agent/` (excluding `/api/agent/admin/`). Agent device endpoints rely solely on their own dedicated limiter. This ensures agent traffic and UI traffic are rate-limited independently.
 :::
 

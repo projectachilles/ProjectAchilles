@@ -24,7 +24,7 @@ description: "Key differences between backend/ and backend-serverless/ — Turso
 | Build system | Go cross-compilation | Stubbed (returns 503) |
 | Cert generation | OpenSSL CLI | `node-forge` (pure JS) |
 
-:::warning Independent Codebases
+:::warning[Independent Codebases]
 Changes to `backend/` do **not** propagate to `backend-serverless/`. If modifying shared logic (types, API contracts, ES mappings), update both codebases.
 :::
 
@@ -135,7 +135,7 @@ All file operations (certificates, settings, binaries) use Vercel Blob instead o
 
 The standard backend shells out to OpenSSL for certificate operations. The serverless backend uses `node-forge` (pure JavaScript) since native binaries are unavailable:
 
-:::warning Performance Note
+:::warning[Performance Note]
 RSA-4096 key generation in pure JS takes 2-8 seconds. This is fine for Vercel Pro (60s timeout) but tight for Vercel Hobby (10s timeout). Certificate generation is a rare operation so this is acceptable in practice.
 :::
 

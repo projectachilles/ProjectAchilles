@@ -36,7 +36,7 @@ macOS binaries receive ad-hoc signatures via `rcodesign`. No certificate is requ
 ### Linux
 Linux binaries are not signed.
 
-:::info Signing Failures Are Non-Fatal
+:::info[Signing Failures Are Non-Fatal]
 If signing fails (missing certificate, tool error), the build continues and produces an unsigned binary.
 :::
 
@@ -107,7 +107,7 @@ The UI scans Go source files for `//go:embed` directives and categorizes each de
 
 The **Build** button remains disabled until all external dependencies are uploaded. Source-built dependencies are compiled automatically as part of the build process.
 
-:::warning Upload Validation
+:::warning[Upload Validation]
 When uploading a Windows executable dependency, the UI performs client-side validation by checking for the MZ header (the first two bytes of any PE executable). Invalid files are rejected before upload.
 :::
 
@@ -170,6 +170,6 @@ When multiple tests are selected:
 - Individual test build failures are non-fatal -- the remaining tests can still be submitted
 - Tasks are created for each test-agent combination
 
-:::info Build Before Execute
+:::info[Build Before Execute]
 The execution drawer checks build status automatically. If a test has not been built yet, you can trigger the build directly from the drawer without going back to the test detail page.
 :::

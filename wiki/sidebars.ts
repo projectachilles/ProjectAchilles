@@ -20,6 +20,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'deployment/overview',
         'deployment/prerequisites',
+        'deployment/clerk-setup',
         'deployment/docker-compose',
         'deployment/server-installer',
         'deployment/public-server',

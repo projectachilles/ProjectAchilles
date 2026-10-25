@@ -28,7 +28,7 @@ The server answers with the newest version registered for the agent's OS and arc
    - If the check passes, the agent reports the result, exits, and the service manager (SCM, systemd or launchd) starts the new binary.
    - If the check fails, the agent **restores the `.old` binary**, keeps running on its current version, and reports the update as failed with the reason.
 
-:::info Launch check requires agent 0.6.6 or later
+:::info[Launch check requires agent 0.6.6 or later]
 The launch check (steps 4–5) arrived in agent 0.6.6. The binary doing the update runs this logic, so the update *to* 0.6.6 still ran without it; every update after that is protected. Older agents exit straight after the swap. If Windows then refuses to start the new binary, the agent stays offline until someone starts it by hand (see [Troubleshooting](#troubleshooting)).
 :::
 
@@ -71,7 +71,7 @@ go version -m achilles-agent-windows-amd64.exe | grep ldflags
 #   build   -ldflags="-s -w -X main.version=0.6.6"
 ```
 
-:::warning Why the version must match
+:::warning[Why the version must match]
 If a binary's embedded version differs from the version it's registered as, every agent that installs it restarts still reporting the old version, is offered the "new" version again, and reinstalls it in a loop until it hits rate limits. The upload check prevents this. Agents 0.6.5 and later also refuse to reinstall the same file (same SHA256) that didn't change their version.
 :::
 
@@ -91,7 +91,7 @@ Add a **per-rule exclusion** for the agent binary. In Intune: **Endpoint securit
 C:\F0\achilles-agent.exe
 ```
 
-:::danger Keep the exclusion narrow
+:::danger[Keep the exclusion narrow]
 - **Exclude the exact file, not `C:\F0\`.** Security tests run from `C:\F0\tasks\`, and ASR has to keep judging them. Excluding the folder makes blocked tests pass and inflates the Defense Score.
 - **Use the per-rule list, not the global "ASR Only Exclusions".** The global list exempts the path from every ASR rule.
 - **Don't use a Defender for Endpoint certificate "Allow" indicator.** The agent and all test binaries are signed with the same certificate, so trusting it would let every test through.

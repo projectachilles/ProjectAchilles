@@ -192,7 +192,7 @@ https://projectachilles.io
 3. After your first sign-in to ProjectAchilles, open **Users** → your user → **Metadata**, edit **Public** to `{"role": "admin"}`, then sign out and in again.
 4. Invite everyone else, with a role, from **Settings → Users** in ProjectAchilles.
 
-Without a role every user is read-only. Details: [Clerk roles](https://docs.projectachilles.io/docs/deployment/prerequisites#session-token-claim).
+Without a role every user is read-only. Details: [Clerk roles](https://docs.projectachilles.io/docs/deployment/clerk-setup#session-token-claim).
 
 ---
 

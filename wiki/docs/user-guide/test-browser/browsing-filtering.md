@@ -131,7 +131,7 @@ The **Overview** tab features an interactive MITRE ATT&CK Enterprise coverage ch
 Coverage density is rendered with the governed chart tokens — accent green at
 varying opacity — so it stays legible against the console's dark surfaces.
 
-:::tip Drill-Down Navigation
+:::tip[Drill-Down Navigation]
 Click a technique in the coverage chart to jump directly to the Browse tab with that technique pre-filtered. This is the fastest way to find tests for a specific ATT&CK technique.
 :::
 
@@ -157,11 +157,11 @@ The search box matches across multiple fields simultaneously:
 | **Not Run Yet** | Tests that have never been executed (requires Elasticsearch connection) |
 | **Has Binary** | Tests that currently have a compiled binary available for download |
 
-:::info "Not Run Yet" Filter
+:::info["Not Run Yet" Filter]
 The "Not Run Yet" filter queries your Elasticsearch analytics data to identify tests that exist in the library but have no recorded executions. This is useful for expanding coverage to untested techniques.
 :::
 
-:::info "Has Binary" Filter
+:::info["Has Binary" Filter]
 The **Has Binary** toggle narrows the list to tests that have already been
 built. It loads the set of built test UUIDs once from
 `GET /api/tests/builds` and filters client-side. On serverless (Vercel)

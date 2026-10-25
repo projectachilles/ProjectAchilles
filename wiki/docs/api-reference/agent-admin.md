@@ -93,7 +93,7 @@ first. Agents with no heartbeats in the window are omitted:
 
 Requires the `endpoints:agents:read` permission.
 
-:::note Route ordering
+:::note[Route ordering]
 This route is registered **before** `/agents/:id`, otherwise Express captures
 `heartbeats` as an agent id and the endpoint 404s.
 :::
@@ -121,7 +121,7 @@ Requires the `endpoints:tasks:create` permission. Command tasks are rejected by
 the service itself, so this route cannot be used to sidestep the stricter
 `endpoints:tasks:command` permission.
 
-:::info Retry counting
+:::info[Retry counting]
 The clone records `original_task_id` (the first task in the chain) and
 `retry_count + 1`. Manual retries are deliberately **not** capped by
 `max_retries` — that budget governs automatic retries only.

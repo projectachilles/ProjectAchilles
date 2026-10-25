@@ -82,7 +82,7 @@ graph TD
 3. Click **Generate Token**
 4. The token string and platform-specific installation commands appear immediately
 
-:::warning Copy the Token Immediately
+:::warning[Copy the Token Immediately]
 The full token string is displayed only once at creation time. Copy it before navigating away. You can still see the token's status and metadata in the token list, but the raw string is not shown again.
 :::
 
@@ -106,7 +106,7 @@ The token list table shows a status badge for each token:
 | **Expired** | Token has passed its TTL expiration time |
 | **Exhausted** | Token has reached its maximum use count |
 
-:::tip Bulk Enrollment
+:::tip[Bulk Enrollment]
 For large deployments, create a token with a high **Max Uses** value and distribute the same installation command across your fleet using your configuration management tool (Ansible, SCCM, etc.).
 :::
 
@@ -169,7 +169,7 @@ which one it holds.
 The grace period (5 minutes) bounds *delivery* — how long a heartbeat will hand
 the pending key out — not how long either key is accepted.
 
-:::info Why not decide at expiry
+:::info[Why not decide at expiry]
 When the grace period lapses the server cannot tell whether the agent received
 the new key or was simply offline, and either guess locks an agent out for good.
 Promoting strands an agent that was asleep through the window: the key it holds

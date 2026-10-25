@@ -39,7 +39,7 @@ vi.mock('../database.js', () => ({ getDatabase: () => testDb }));
 const { functionToTest } = await import('../service.js');
 ```
 
-:::warning Mock Ordering Is Critical
+:::warning[Mock Ordering Is Critical]
 The `vi.mock` must come before the dynamic `import()`. Vitest hoists mocks, but the imported module captures the mock at import time.
 :::
 

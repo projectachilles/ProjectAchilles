@@ -115,7 +115,7 @@ const role = useAppRole();
 ```
 
 :::note
-Users without a role get the `explorer` permission set (read-only), in the frontend hooks and in the backend alike. Every deployment needs one admin; see [Make the first admin](../../deployment/prerequisites#first-admin).
+Users without a role get the `explorer` permission set (read-only), in the frontend hooks and in the backend alike. Every deployment needs one admin; see [Make the first admin](../../deployment/clerk-setup#first-admin).
 :::
 
 ### Route Protection Pattern

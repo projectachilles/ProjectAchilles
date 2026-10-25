@@ -25,7 +25,7 @@ ProjectAchilles supports up to **5 certificates** (uploaded + generated combined
 3. Fill in the subject fields (Common Name, Organization, etc.)
 4. Click **Generate**
 
-:::info Platform Differences
+:::info[Platform Differences]
 - **Docker/Railway/Render/Fly.io**: Uses OpenSSL CLI for generation and `osslsigncode` for signing
 - **Vercel**: Uses `node-forge` (pure JS) for generation; signing is not available (no osslsigncode)
 :::
@@ -85,7 +85,7 @@ Navigate to **Settings** and select the **Tests** tab to access certificate mana
 5. Click **Upload**
 6. The certificate appears in the certificate list with its subject details and expiration date
 
-:::tip PFX Compatibility
+:::tip[PFX Compatibility]
 Some PFX files use algorithms that the platform cannot parse for metadata extraction. In that case, the upload still succeeds, but the displayed subject and expiration fields may show "Unknown". The certificate itself remains fully functional for signing.
 :::
 
@@ -116,7 +116,7 @@ Only one certificate can be active at a time. The active certificate is used for
 - **Download** -- Retrieves the PFX file for backup or use in other tools
 - **Delete** -- Permanently removes the certificate (requires the `settings:certificates:delete` permission)
 
-:::warning 5-Certificate Limit
+:::warning[5-Certificate Limit]
 The platform enforces a maximum of 5 certificates (uploaded and generated combined). Delete unused certificates before adding new ones if you have reached the limit.
 :::
 

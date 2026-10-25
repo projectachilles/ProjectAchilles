@@ -82,7 +82,7 @@ Candidates are taken oldest match first. Alerts that were already correlated
 and are still unresolved when you turn the pass on are processed too, a batch
 at a time.
 
-:::info Live status check (fails closed)
+:::info[Live status check (fails closed)]
 The local status can be stale: detection alerts are re-synced only by
 creation time, so a status change in the console may not reach Elasticsearch.
 Before acting, every pass re-reads each candidate's **current** incident status
@@ -162,7 +162,7 @@ its `resolved_at`. The alert feed's "auto-resolved" count includes only
 
 ## Automatic mitigation
 
-:::danger This acts on real endpoints
+:::danger[This acts on real endpoints]
 When enabled, every sync kills or quarantines matching threats on the hosts
 where they were found, without asking. A wrong match stops a real process. Run
 it in dry-run first and check the receipts.
@@ -197,7 +197,7 @@ A threat is a candidate only when **all** of these hold:
 | Inside the configured account / site / group scope | Never outside your scope. |
 | No receipt from the current mode | Not handled before. |
 
-:::info Live check before acting (fails closed)
+:::info[Live check before acting (fails closed)]
 The local copy is only as fresh as the last poll, so before acting the pass
 re-reads every candidate from the console (one `GET /threats?ids=...` call). A
 threat is mitigated only when SentinelOne still reports it as `unresolved`,
@@ -239,7 +239,7 @@ logged as `[SentinelOne-Response] ...`. The settings card lists it under
 
 ## Defense Score and coverage
 
-:::warning Defense Score invariant
+:::warning[Defense Score invariant]
 **Neither pass changes the [Defense Score](../analytics/defense-score).** Both
 write only to alert documents in `achilles-sentinelone` and to the console.
 Test documents in `achilles-results-*` stay byte-identical whether the passes
