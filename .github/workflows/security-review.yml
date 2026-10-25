@@ -186,17 +186,19 @@ jobs:
       # job holds secrets. CLAUDE_CODE_SUBPROCESS_ENV_SCRUB (below) strips
       # credentials from every subprocess Claude starts and runs them in a PID
       # namespace, so a prompt-injected `gh pr comment --body "$SECRET"` has
-      # nothing to leak. It needs bubblewrap; Ubuntu 24.04 restricts
+      # nothing to leak. It needs bubblewrap and socat (Claude Code refuses every
+      # Bash call without them: "Sandbox dependencies not available"); Ubuntu 24.04 restricts
       # unprivileged user namespaces via AppArmor. If the sandbox can't start,
       # this step fails and no review runs (fail closed).
       - name: Prepare the subprocess sandbox (fork PRs)
         if: github.event_name == 'pull_request_target'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq bubblewrap
+          sudo apt-get install -y -qq bubblewrap socat
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           bwrap --ro-bind / / --dev /dev --proc /proc --unshare-pid true
-          echo "bubblewrap OK"
+          command -v socat >/dev/null
+          echo "bubblewrap + socat OK"
 
       - name: Run Claude Security Review
         id: claude-security-review
