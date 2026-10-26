@@ -35,6 +35,8 @@ type fakeHost struct {
 	perms  map[string]fs.FileMode
 	log    []event
 	script []scripted
+	// readErr makes ReadFile of a path fail with the given error.
+	readErr map[string]error
 }
 
 func newFakeHost() *fakeHost {
@@ -63,6 +65,9 @@ func (f *fakeHost) Run(_ context.Context, stdin []byte, name string, args ...str
 func (f *fakeHost) ReadFile(path string) ([]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := f.readErr[path]; err != nil {
+		return nil, &fs.PathError{Op: "open", Path: path, Err: err}
+	}
 	b, ok := f.files[path]
 	if !ok {
 		return nil, &fs.PathError{Op: "open", Path: path, Err: os.ErrNotExist}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/netip"
 	"regexp"
 	"strings"
@@ -245,7 +246,8 @@ func ApplyNetwork(ctx context.Context, h Host, nc NetConfig) (func(context.Conte
 }
 
 // SetHostname sets the hostname and keeps exactly one 127.0.1.1 line in
-// /etc/hosts so the machine resolves its own name.
+// /etc/hosts so the machine resolves its own name. A missing /etc/hosts is
+// created; any other read error is returned with the file untouched.
 func SetHostname(ctx context.Context, h Host, name string) error {
 	if !hostnameRe.MatchString(name) {
 		return fmt.Errorf("invalid hostname %q", name)
@@ -253,9 +255,13 @@ func SetHostname(ctx context.Context, h Host, name string) error {
 	if out, err := h.Run(ctx, []byte{}, "hostnamectl", "set-hostname", name); err != nil {
 		return fmt.Errorf("hostnamectl: %w: %s", err, strings.TrimSpace(string(out)))
 	}
+	// Only a missing file is recreated (with localhost): rewriting after any
+	// other read error would drop every entry it holds.
 	existing, err := h.ReadFile(hostsPath)
-	if err != nil {
-		existing = nil
+	if errors.Is(err, fs.ErrNotExist) {
+		existing = []byte("127.0.0.1 localhost\n")
+	} else if err != nil {
+		return fmt.Errorf("read %s: %w", hostsPath, err)
 	}
 	var kept []string
 	for _, line := range strings.Split(string(existing), "\n") {

@@ -3,6 +3,7 @@ package firstboot
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"reflect"
 	"strings"
@@ -250,5 +251,32 @@ func TestHostCIDR(t *testing.T) {
 		if got := hostCIDR(c.i); got != c.want {
 			t.Errorf("hostCIDR(%+v) = %q, want %q", c.i, got, c.want)
 		}
+	}
+}
+
+// Only a missing /etc/hosts may be recreated: rewriting it after any other
+// read error would drop localhost and every other entry.
+func TestSetHostnameReadErrorKeepsHosts(t *testing.T) {
+	h := newFakeHost()
+	h.files["/etc/hosts"] = []byte("127.0.0.1 localhost\n10.0.0.9 db\n")
+	h.readErr = map[string]error{"/etc/hosts": fs.ErrPermission}
+	err := SetHostname(context.Background(), h, "achilles-1")
+	if err == nil || !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("err = %v", err)
+	}
+	for _, e := range h.log {
+		if e.write == "/etc/hosts" {
+			t.Fatal("/etc/hosts rewritten after a read error")
+		}
+	}
+}
+
+func TestSetHostnameCreatesMissingHosts(t *testing.T) {
+	h := newFakeHost()
+	if err := SetHostname(context.Background(), h, "achilles-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(h.files["/etc/hosts"]), "127.0.0.1 localhost\n127.0.1.1 achilles-1\n"; got != want {
+		t.Fatalf("hosts = %q, want %q", got, want)
 	}
 }
