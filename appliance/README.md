@@ -85,5 +85,24 @@ qcow2 gets its final name; `make check-sealed` re-runs the gate.
 
 In full mode the job also runs `make vhdx` and uploads only
 `ProjectAchilles-<ver>-hyperv.zip` and `appliance-SHA256SUMS` as the
-`appliance-hyperv` artifact (7 days). The qcow2, `repo.bundle` and Packer logs
-are never uploaded.
+`appliance-hyperv` artifact (7 days). When a run fails, `appliance-logs`
+(1 day) holds `out/packer.log`, `out/serial.log` and the boot test's
+`out/boot-test/**/*.log`: `build-image.sh` deletes a log that contains the
+build password or its hash before it fails, and the boot-test VMs use only
+the placeholder fixtures in `test/`. The qcow2, the VM disks, the backup and
+`repo.bundle` are never uploaded.
+
+The job frees runner disk first (removes preinstalled SDKs and toolcaches,
+prunes Docker) and prints `df -h`; a build needs about 40 GB.
+
+### First CI run
+
+The workflow has not run on GitHub before this PR. Merge only after the PR's
+`quick` run is green. Then run the full mode once, before the next `v*` tag:
+
+```bash
+gh workflow run appliance.yml -f full=true
+```
+
+It installs, backs up and restores, and uploads the Hyper-V zip; a failure
+there would otherwise first show up on the release.
