@@ -1,7 +1,5 @@
 [Unit]
 Description=ProjectAchilles appliance console banner
-After=network-online.target
-Wants=network-online.target
 Before=getty.target
 
 [Service]

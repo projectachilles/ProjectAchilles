@@ -1,8 +1,16 @@
 [Unit]
 Description=ProjectAchilles appliance first boot
 ConditionPathExists=!/var/lib/projectachilles/firstboot.done
-After=systemd-user-sessions.service network-online.target
-Wants=network-online.target
+# No wait for the network to be online: first boot configures it itself, and
+# waiting for it blanks tty1 for ~2 min when there is no DHCP server.
+After=systemd-user-sessions.service
+# First boot owns tty1. Starting the getty (Run does, after the handoff
+# screen; logind's autovt@tty1 is the same unit) stops first boot first.
+Conflicts=getty@tty1.service
+Before=getty@tty1.service
+# Restart forever: a start limit would leave tty1 dead after a few fast
+# failures (Ctrl+C mashing, a missing binary).
+StartLimitIntervalSec=0
 
 [Service]
 Type=idle

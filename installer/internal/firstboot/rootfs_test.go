@@ -29,6 +29,22 @@ func lineValues(content, key string) []string {
 	return out
 }
 
+// section returns the body of [name] in a unit file.
+func section(unit, name string) string {
+	var b strings.Builder
+	in := false
+	for _, l := range strings.Split(unit, "\n") {
+		if t := strings.TrimSpace(l); strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
+			in = t == "["+name+"]"
+			continue
+		}
+		if in {
+			b.WriteString(l + "\n")
+		}
+	}
+	return b.String()
+}
+
 func TestRootfsMatchesConstants(t *testing.T) {
 	fb := readRootfs(t, "etc/systemd/system/achilles-firstboot.service")
 	is := readRootfs(t, "etc/systemd/system/achilles-issue.service")
@@ -52,6 +68,44 @@ func TestRootfsMatchesConstants(t *testing.T) {
 	}
 	if !strings.Contains(fb, "Restart=on-failure") {
 		t.Error("firstboot unit lacks Restart=on-failure")
+	}
+	// A unit setting is a whole line: "Type=idle" must not match "Type=idlex".
+	hasLine := func(unit, line string) bool {
+		for _, l := range strings.Split(unit, "\n") {
+			if strings.TrimSpace(l) == line {
+				return true
+			}
+		}
+		return false
+	}
+	for _, want := range []string{
+		// Ctrl+C mashing or a missing binary must never hit the start limit
+		// and leave tty1 dead. Only honoured in [Unit].
+		"StartLimitIntervalSec=0",
+		// A getty (or logind's autovt@tty1 alias) on tty1 would fight first
+		// boot for the console. Before= makes the handover stop first boot
+		// before the getty takes tty1.
+		"Conflicts=getty@tty1.service",
+		"Before=getty@tty1.service",
+	} {
+		if !hasLine(section(fb, "Unit"), want) {
+			t.Errorf("firstboot unit [Unit] lacks %s", want)
+		}
+	}
+	for _, want := range []string{"Type=idle", "TTYPath=/dev/tty1"} {
+		if !hasLine(section(fb, "Service"), want) {
+			t.Errorf("firstboot unit [Service] lacks %s", want)
+		}
+	}
+	if !hasLine(is, "Before=getty.target") {
+		t.Error("issue unit lacks Before=getty.target")
+	}
+	// First boot configures the network itself; waiting for network-online
+	// blanks tty1 for ~2 min when there is no DHCP.
+	for name, unit := range map[string]string{"firstboot": fb, "issue": is} {
+		if strings.Contains(unit, "network-online.target") {
+			t.Errorf("%s unit waits for network-online.target", name)
+		}
 	}
 	if !strings.Contains(sh, BinPath) {
 		t.Error("profile script does not reference BinPath")
