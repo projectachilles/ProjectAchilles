@@ -67,10 +67,13 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
 
+      # No Go cache: this job checks out a chosen ref (inputs.ref or the release
+      # commit), and a cache it saved would be restored by default-branch runs
+      # (cache poisoning). The installer builds once per run anyway.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: installer/go.mod
-          cache-dependency-path: installer/go.mod
+          cache: false
 
       - name: Build, check and boot-test the image (${{ env.MODE }})
         run: make -C appliance builder installer-bin installer-testbin image check-sealed boot-test MODE="$MODE"
