@@ -161,3 +161,8 @@ func (u FormUI) ConfirmNetwork(ctx context.Context, nc NetConfig, timeout time.D
 func (u FormUI) Handoff(ctx context.Context, h Handoff) error {
 	return u.run(ctx, huh.NewGroup(huh.NewNote().Title("Ready").Description(HandoffText(h)).Next(true).NextLabel("Continue")))
 }
+
+// Notice shows msg until the admin presses Enter.
+func (u FormUI) Notice(ctx context.Context, msg string) error {
+	return u.run(ctx, huh.NewGroup(huh.NewNote().Title("That didn't work").Description(msg).Next(true).NextLabel("OK")))
+}

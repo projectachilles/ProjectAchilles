@@ -22,6 +22,9 @@ type fakeUI struct {
 	networkCalls int
 	confirmCalls int
 	handoff      *Handoff
+	handoffErr   error
+	notices      []string
+	onHandoff    func()
 }
 
 func (u *fakeUI) Layout(context.Context) (Layout, error) { return u.layout, nil }
@@ -45,7 +48,17 @@ func (u *fakeUI) ConfirmNetwork(context.Context, NetConfig, time.Duration) (bool
 	}
 	return u.confirms[i], nil
 }
-func (u *fakeUI) Handoff(_ context.Context, h Handoff) error { u.handoff = &h; return nil }
+func (u *fakeUI) Handoff(_ context.Context, h Handoff) error {
+	u.handoff = &h
+	if u.onHandoff != nil {
+		u.onHandoff()
+	}
+	return u.handoffErr
+}
+func (u *fakeUI) Notice(_ context.Context, msg string) error {
+	u.notices = append(u.notices, msg)
+	return nil
+}
 
 func testIfaces() []sysprobe.Iface {
 	return []sysprobe.Iface{{Name: "eth0", IP: "10.0.5.20", CIDR: "10.0.5.20/24"}}
@@ -91,6 +104,8 @@ func logSeq(f *fakeHost) []string {
 func TestRunOrder(t *testing.T) {
 	f := runHost()
 	ui := dhcpUI()
+	handoffSeenBeforeGetty := false
+	ui.onHandoff = func() { handoffSeenBeforeGetty = idx(logSeq(f), "systemctl --no-block start getty@tty1.service") < 0 }
 	if err := Run(context.Background(), f, ui, testIfaces, "v1"); err != nil {
 		t.Fatal(err)
 	}
@@ -102,6 +117,9 @@ func TestRunOrder(t *testing.T) {
 	n := len(seq)
 	if seq[n-2] != "write "+MarkerPath || seq[n-1] != "systemctl --no-block start getty@tty1.service" {
 		t.Fatalf("tail = %v", seq[n-3:])
+	}
+	if !handoffSeenBeforeGetty {
+		t.Fatal("getty started before Handoff was shown")
 	}
 	if ui.handoff == nil || ui.handoff.Fingerprint != "SHA256:abc123" || ui.handoff.IP != "10.0.5.20" ||
 		ui.handoff.User != AdminUser || ui.handoff.Hostname != "achilles" {
@@ -177,5 +195,124 @@ func TestRunAbortReturnsError(t *testing.T) {
 	}
 	if idx(logSeq(f), "systemctl enable --now ssh.socket") >= 0 || f.Exists(MarkerPath) {
 		t.Fatal("ssh enabled or marker written after abort")
+	}
+}
+
+func TestRunGettyStartFailureIsNonFatal(t *testing.T) {
+	f := runHost()
+	f.on([]string{"systemctl", "--no-block", "start", "getty@tty1.service"}, "", errors.New("boom"))
+	if err := Run(context.Background(), f, dhcpUI(), testIfaces, "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if !f.Exists(MarkerPath) {
+		t.Fatal("marker missing")
+	}
+}
+
+func TestRunHandoffAbortAfterCompleteIsNotAnError(t *testing.T) {
+	f := runHost()
+	ui := dhcpUI()
+	ui.handoffErr = huh.ErrUserAborted
+	if err := Run(context.Background(), f, ui, testIfaces, "v1"); err != nil {
+		t.Fatal(err)
+	}
+	seq := logSeq(f)
+	if seq[len(seq)-1] != "systemctl --no-block start getty@tty1.service" {
+		t.Fatalf("getty not started after aborted handoff: %v", seq)
+	}
+}
+
+// failingHost fails one scripted Run once, then behaves normally.
+type onceHost struct {
+	*fakeHost
+	prefix string
+	hook   func()
+	done   bool
+}
+
+func (h *onceHost) Run(ctx context.Context, stdin []byte, name string, args ...string) ([]byte, error) {
+	out, err := h.fakeHost.Run(ctx, stdin, name, args...)
+	if !h.done && strings.HasPrefix(strings.Join(append([]string{name}, args...), " "), h.prefix) {
+		h.done = true
+		if h.hook != nil {
+			h.hook()
+		}
+		return []byte("apply broke"), errors.New("exit 1")
+	}
+	return out, err
+}
+
+func TestRunReasksAfterApplyFailure(t *testing.T) {
+	f := &onceHost{fakeHost: runHost(), prefix: "netplan apply"}
+	ui := dhcpUI()
+	first := NetConfig{Iface: "eth0", Address: "10.0.5.50/24", Gateway: "10.0.5.1", DNS: []string{"10.0.5.2"}, Hostname: "achilles"}
+	ui.networks = []NetConfig{first, {Iface: "eth0", DHCP: true, Hostname: "achilles"}}
+	if err := Run(context.Background(), f, ui, testIfaces, "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(ui.notices) != 1 || !strings.Contains(ui.notices[0], "netplan apply") {
+		t.Fatalf("notices = %q", ui.notices)
+	}
+	if len(ui.prevs) != 2 || ui.prevs[1] == nil || ui.prevs[1].Address != first.Address {
+		t.Fatalf("prevs = %+v", ui.prevs)
+	}
+}
+
+func TestRunReasksAfterInvalidConfig(t *testing.T) {
+	f := runHost()
+	ui := dhcpUI()
+	bad := NetConfig{Iface: "eth0", Address: "nonsense", Gateway: "10.0.5.1", DNS: []string{"10.0.5.2"}, Hostname: "achilles"}
+	ui.networks = []NetConfig{bad, {Iface: "eth0", DHCP: true, Hostname: "achilles"}}
+	if err := Run(context.Background(), f, ui, testIfaces, "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(ui.notices) != 1 || ui.networkCalls != 2 || ui.prevs[1] == nil || ui.prevs[1].Address != "nonsense" {
+		t.Fatalf("notices=%q calls=%d prevs=%+v", ui.notices, ui.networkCalls, ui.prevs)
+	}
+	if idx(logSeq(f), "netplan apply") != -1 && f.files[NetplanPath] != nil && strings.Contains(string(f.files[NetplanPath]), "nonsense") {
+		t.Fatal("invalid config was written")
+	}
+}
+
+func TestRunDHCPRedetectFallsBack(t *testing.T) {
+	old := redetectPause
+	redetectPause = 0
+	defer func() { redetectPause = old }()
+	f := runHost()
+	ui := dhcpUI()
+	calls := 0
+	ifaces := func() []sysprobe.Iface {
+		calls++
+		if calls == 1 {
+			return testIfaces()
+		}
+		return nil // default-route iface vanishes after apply
+	}
+	if err := Run(context.Background(), f, ui, ifaces, "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if ui.handoff.IP != "10.0.5.20" {
+		t.Fatalf("ip = %q", ui.handoff.IP)
+	}
+	if calls != 1+redetectAttempts {
+		t.Fatalf("calls = %d", calls)
+	}
+}
+
+func TestRunCancelDuringApplyStillRevertsAndErrors(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	f := &onceHost{fakeHost: runHost(), prefix: "netplan apply", hook: cancel}
+	orig := []byte("original netplan\n")
+	f.files[NetplanPath] = orig
+	ui := dhcpUI()
+	ui.networks = []NetConfig{{Iface: "eth0", Address: "10.0.5.50/24", Gateway: "10.0.5.1", DNS: []string{"10.0.5.2"}, Hostname: "achilles"}}
+	if err := Run(ctx, f, ui, testIfaces, "v1"); err == nil {
+		t.Fatal("expected error")
+	}
+	if string(f.files[NetplanPath]) != string(orig) {
+		t.Fatalf("netplan not restored: %q", f.files[NetplanPath])
+	}
+	if f.Exists(MarkerPath) || len(ui.notices) != 0 {
+		t.Fatal("continued after cancel")
 	}
 }

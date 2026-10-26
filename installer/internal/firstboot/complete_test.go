@@ -32,7 +32,6 @@ func TestCompleteOrder(t *testing.T) {
 		"systemctl enable --now ssh.socket",
 		"systemctl enable getty@tty1.service",
 		"write " + MarkerPath,
-		"systemctl --no-block start getty@tty1.service",
 	}
 	if strings.Join(seq, "|") != strings.Join(want, "|") {
 		t.Fatalf("order = %v\nwant %v", seq, want)
@@ -58,16 +57,5 @@ func TestCompleteStopsBeforeMarkerOnGettyError(t *testing.T) {
 	}
 	if f.Exists(MarkerPath) {
 		t.Fatal("marker written despite failure")
-	}
-}
-
-func TestCompleteGettyStartFailureIsNonFatal(t *testing.T) {
-	f := newFakeHost()
-	f.on([]string{"systemctl", "--no-block", "start", "getty@tty1.service"}, "", errors.New("boom"))
-	if err := Complete(context.Background(), f, "v1"); err != nil {
-		t.Fatalf("err = %v", err)
-	}
-	if !f.Exists(MarkerPath) {
-		t.Fatal("marker missing")
 	}
 }

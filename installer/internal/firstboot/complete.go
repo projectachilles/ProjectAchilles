@@ -34,7 +34,9 @@ KbdInteractiveAuthentication no
 `
 
 // Complete enables SSH and the tty1 getty, then writes the first-boot marker.
-// Order matters: the marker comes last-but-one, so a crash before it makes
+// It does not start the getty: starting it hangs up tty1, so Run starts it
+// after the handoff screen has been read.
+// Order matters: the marker comes last, so a crash before it makes
 // first boot run again on the next boot. Callers must set the password first.
 func Complete(ctx context.Context, h Host, version string) error {
 	if err := h.WriteFile(SSHDConfPath, []byte(sshdConf), 0o644); err != nil {
@@ -52,9 +54,5 @@ func Complete(ctx context.Context, h Host, version string) error {
 	if err := h.WriteFile(MarkerPath, []byte(marker), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", MarkerPath, err)
 	}
-	// Non-fatal: the marker is written, so systemd will not rerun first boot
-	// (ConditionPathExists=!marker). The getty is enabled and starts on the
-	// next boot; failing here would only leave the console blank until then.
-	_, _ = h.Run(ctx, []byte{}, "systemctl", "--no-block", "start", "getty@tty1.service")
 	return nil
 }

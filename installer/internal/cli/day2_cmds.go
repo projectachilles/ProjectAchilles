@@ -38,12 +38,12 @@ func init() {
 	})
 }
 
-// withSignals cancels ctx on SIGINT/SIGTERM so the day-2 commands' deferred
+// withSignals cancels ctx on SIGINT/SIGTERM/SIGHUP so the day-2 commands' deferred
 // cleanup (restart the stack, remove staged secrets) runs instead of the
 // process dying with the stack stopped.
 func withSignals(h Handler) Handler {
 	return func(ctx context.Context, args []string) error {
-		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 		defer stop()
 		return h(ctx, args)
 	}
