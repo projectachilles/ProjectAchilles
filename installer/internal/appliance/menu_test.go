@@ -4,17 +4,22 @@ import (
 	"bytes"
 	"context"
 	"io"
-
-	"charm.land/huh/v2"
+	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
+
+	"charm.land/huh/v2"
 
 	"github.com/projectachilles/ProjectAchilles/installer/internal/firstboot"
 )
 
 type fakeUI struct {
 	choice    MenuChoice
-	path      string
+	path      string   // returned when paths is exhausted
+	paths     []string // answers to BackupPath, in order
+	problems  []string // the problem passed to each BackupPath call
 	chosen    int
 	pathErr   error
 	chooseErr error
@@ -24,13 +29,22 @@ func (f *fakeUI) Choose(context.Context) (MenuChoice, error) {
 	f.chosen++
 	return f.choice, f.chooseErr
 }
-func (f *fakeUI) BackupPath(context.Context) (string, error) { return f.path, f.pathErr }
+func (f *fakeUI) BackupPath(_ context.Context, problem string) (string, error) {
+	f.problems = append(f.problems, problem)
+	if len(f.paths) > 0 {
+		p := f.paths[0]
+		f.paths = f.paths[1:]
+		return p, f.pathErr
+	}
+	return f.path, f.pathErr
+}
 
 type menuRig struct {
 	ui    *fakeUI
 	calls [][]string
 	out   bytes.Buffer
 	deps  MenuDeps
+	dirs  []string
 }
 
 func newRig(installed bool, files ...string) *menuRig {
@@ -41,13 +55,10 @@ func newRig(installed bool, files ...string) *menuRig {
 			if installed && p == firstboot.RepoDir+"/deploy.config.env" {
 				return true
 			}
-			for _, f := range files {
-				if f == p {
-					return true
-				}
-			}
-			return false
+			return slices.Contains(files, p) || slices.Contains(r.dirs, p)
 		},
+		IsRegular: func(p string) bool { return slices.Contains(files, p) },
+		HomeDir:   func() (string, error) { return "/home/achilles", nil },
 		Exec: func(_ context.Context, name string, args ...string) error {
 			r.calls = append(r.calls, append([]string{name}, args...))
 			return nil
@@ -65,8 +76,28 @@ func TestMenuInstalledPrintsSummaryOnly(t *testing.T) {
 	if r.ui.chosen != 0 || len(r.calls) != 0 {
 		t.Fatalf("chosen=%d calls=%v", r.ui.chosen, r.calls)
 	}
-	if !strings.Contains(r.out.String(), "sudo achilles-installer status") {
-		t.Fatalf("output: %q", r.out.String())
+	out := r.out.String()
+	// deploy.config.env exists once the wizard ran, even if the install then
+	// failed: say "configured" and how to finish or check it.
+	for _, want := range []string{"configured", "sudo " + firstboot.BinPath + " install", "sudo " + firstboot.BinPath + " status"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q: %q", want, out)
+		}
+	}
+	if strings.Contains(out, "is installed") {
+		t.Errorf("output claims an install: %q", out)
+	}
+	assertAbsoluteCommands(t, out)
+}
+
+// sudo's secure_path doesn't include /opt/projectachilles: every command
+// shown to the admin must name the binary by its absolute path.
+func assertAbsoluteCommands(t *testing.T, text string) {
+	t.Helper()
+	for _, m := range regexp.MustCompile(`\S*achilles-installer`).FindAllString(text, -1) {
+		if strings.TrimLeft(m, "`'\"") != firstboot.BinPath {
+			t.Errorf("command %q is not %s in %q", m, firstboot.BinPath, text)
+		}
 	}
 }
 
@@ -102,6 +133,69 @@ func TestMenuRestore(t *testing.T) {
 	}
 	if len(r.calls) != 0 {
 		t.Fatalf("calls: %v", r.calls)
+	}
+	// A bad path is asked again (with the reason), a bounded number of times.
+	if n := len(r.ui.problems); n != maxPathAttempts || r.ui.problems[0] != "" || !strings.Contains(r.ui.problems[1], "File not found: "+p) {
+		t.Fatalf("problems: %q", r.ui.problems)
+	}
+}
+
+func restoreWith(t *testing.T, r *menuRig, answers ...string) {
+	t.Helper()
+	r.ui.choice, r.ui.paths = ChoiceRestore, answers
+	if err := Menu(context.Background(), r.deps); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func wantRestore(t *testing.T, r *menuRig, path string) {
+	t.Helper()
+	want := []string{"sudo", firstboot.BinPath, "restore", path}
+	if len(r.calls) != 1 || strings.Join(r.calls[0], " ") != strings.Join(want, " ") {
+		t.Fatalf("calls: %v, want %v", r.calls, want)
+	}
+}
+
+func TestMenuRestoreExpandsHome(t *testing.T) {
+	r := newRig(false, "/home/achilles/backup.tar.gz")
+	restoreWith(t, r, "~/backup.tar.gz")
+	wantRestore(t, r, "/home/achilles/backup.tar.gz")
+}
+
+func TestMenuRestoreTrimsWhitespace(t *testing.T) {
+	r := newRig(false, "/home/achilles/backup.tar.gz")
+	restoreWith(t, r, "  /home/achilles/backup.tar.gz \n")
+	wantRestore(t, r, "/home/achilles/backup.tar.gz")
+}
+
+func TestMenuRestoreRelativePathMadeAbsolute(t *testing.T) {
+	abs, err := filepath.Abs("backup.tar.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newRig(false, abs)
+	restoreWith(t, r, "backup.tar.gz")
+	wantRestore(t, r, abs)
+}
+
+func TestMenuRestoreRejectsDirectory(t *testing.T) {
+	p := "/home/achilles/backup.tar.gz"
+	r := newRig(false, p)
+	r.dirs = []string{"/home/achilles"}
+	restoreWith(t, r, "/home/achilles", p)
+	wantRestore(t, r, p)
+	if len(r.ui.problems) != 2 || !strings.Contains(r.ui.problems[1], "/home/achilles is not a file") {
+		t.Fatalf("problems: %q", r.ui.problems)
+	}
+}
+
+func TestMenuRestoreEmptyPathReasks(t *testing.T) {
+	p := "/home/achilles/backup.tar.gz"
+	r := newRig(false, p)
+	restoreWith(t, r, "   ", p)
+	wantRestore(t, r, p)
+	if len(r.ui.problems) != 2 || r.ui.problems[1] == "" {
+		t.Fatalf("problems: %q", r.ui.problems)
 	}
 }
 

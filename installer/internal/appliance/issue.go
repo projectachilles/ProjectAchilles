@@ -8,10 +8,16 @@ import (
 	"github.com/projectachilles/ProjectAchilles/installer/internal/firstboot"
 )
 
-// RenderIssue returns the console banner. agetty expands \4 to the IPv4 address.
-func RenderIssue(installed bool, domain string) string {
-	if installed && domain != "" {
-		return fmt.Sprintf("\nProjectAchilles: https://%s\nAppliance address: \\4\n\n", domain)
+// RenderIssue returns the console banner. agetty expands \4 to the IPv4
+// address. configured means the install wizard has run (Installed), which
+// doesn't prove the install finished.
+func RenderIssue(configured bool, domain string) string {
+	if configured {
+		head := "ProjectAchilles is configured on this appliance."
+		if domain != "" {
+			head = "ProjectAchilles is configured for https://" + domain
+		}
+		return fmt.Sprintf("\n%s\nAppliance address: \\4\nCheck it: sudo %s status\n\n", head, firstboot.BinPath)
 	}
 	return "\nProjectAchilles appliance (not installed yet)\nAddress: \\4  -  log in as achilles over SSH or this console to set it up.\n\n"
 }

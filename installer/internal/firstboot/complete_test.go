@@ -74,3 +74,14 @@ func TestCompleteStopsBeforeMarkerOnDisableError(t *testing.T) {
 		t.Fatal("marker written despite failure")
 	}
 }
+
+// sudo's secure_path doesn't include /opt/projectachilles: a command on the
+// handoff screen must name the installer by its absolute path.
+func TestHandoffTextCommandsAreAbsolute(t *testing.T) {
+	text := HandoffText(Handoff{User: AdminUser, IP: "10.0.5.20", Hostname: "achilles", Fingerprint: "SHA256:x"})
+	for _, f := range strings.Fields(text) {
+		if strings.Contains(f, "achilles-installer") && strings.Trim(f, "`'\".,;") != BinPath {
+			t.Errorf("handoff names %q, not %s", f, BinPath)
+		}
+	}
+}
