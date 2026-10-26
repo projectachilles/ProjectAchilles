@@ -20,8 +20,11 @@
 #   regenerated the IDs the seal removed, and after a reboot the console
 #   getty runs and first boot doesn't. Finally the two VMs must not share a
 #   machine-id, a host key or a Docker engine ID.
-# full: also installs on VM1 (it must reuse the pre-built images), backs it
-#   up, and restores that backup on VM2, which was never installed.
+# full: also installs on VM1 (it must reuse the pre-built images), seeds a
+#   marker into each data volume, backs it up, and restores that backup on
+#   VM2, which was never installed. VM2 must come up the same way: Caddy
+#   serving the frontend, the markers, the Caddy root CA, the pinned .env
+#   values and the rendered Caddy config all equal to VM1's.
 #
 # Any failed check prints the VM's serial-log tail and exits 1.
 set -euo pipefail
@@ -128,6 +131,7 @@ vm_upload() {
 
 prepare_vm() {
 	local i=$1
+	CUR=$i
 	log "vm$i: overlay and injections"
 	qemu-img create -q -f qcow2 -b "$IMAGE" -F qcow2 "$WORK/vm$i.qcow2" 100G
 	cp "$OVMF_VARS" "$WORK/vm$i.vars.fd"
@@ -254,7 +258,8 @@ quick_checks() {
 	# Reboot: SSH (same host key: known_hosts would refuse another) and the
 	# getty come back, and first boot stays done.
 	local marker boot replays
-	marker=$(vm_ssh "$i" "cat $MARKER_PATH | paste -sd' '") || fail "no first-boot marker"
+	marker=$(vm_ssh "$i" "cat $MARKER_PATH") || fail "no first-boot marker"
+	[ -n "$marker" ] || fail "the first-boot marker $MARKER_PATH is empty"
 	# The two probes used after the reboot must see this boot's first boot,
 	# or "did not run again" would prove nothing.
 	out=$(vm_ssh "$i" "systemctl show -P InvocationID achilles-firstboot.service")
@@ -272,7 +277,10 @@ quick_checks() {
 	expect_eq "getty@tty1 after reboot" "$out" "active"
 	vm_ssh "$i" "test -s /etc/issue.d/50-achilles.issue" || fail "/etc/issue.d/50-achilles.issue missing"
 	log "vm$CUR: ok: console banner present"
-	expect_eq "first-boot marker after reboot" "$(vm_ssh "$i" "cat $MARKER_PATH | paste -sd' '")" "$marker"
+	out=$(vm_ssh "$i" "cat $MARKER_PATH") || fail "no first-boot marker after the reboot"
+	[ -n "$out" ] || fail "the first-boot marker $MARKER_PATH is empty after the reboot"
+	[ "$out" = "$marker" ] || fail "first-boot marker changed: '$out', was '$marker'"
+	log "vm$CUR: ok: first-boot marker after reboot = $(paste -sd' ' <<<"$marker")"
 	out=$(vm_ssh "$i" "systemctl show -P InvocationID achilles-firstboot.service")
 	expect_eq "achilles-firstboot runs this boot" "${out:-none}" "none"
 	out=$(vm_root "$i" "$replays")
@@ -317,6 +325,63 @@ backend_health() {
 	fi
 }
 
+# caddy_frontend I: Caddy serves the frontend at https://achilles.test/ (HTTP
+# 200, within 2 minutes). Unconditional: unlike the API, it doesn't depend on
+# the placeholder Clerk keys. achilles.test resolves through the engine's
+# /etc/hosts entry.
+caddy_frontend() {
+	local i=$1 code n
+	for ((n = 0; n < 24; n++)); do
+		code=$(vm_root "$i" "curl -sk -o /dev/null -w '%{http_code}' --max-time 10 https://achilles.test/ || true")
+		[ "$code" = 200 ] && break
+		sleep 5
+	done
+	expect_eq "Caddy serves the frontend: HTTP status of https://achilles.test/" "$code" "200"
+}
+
+DATA_MARKER_PATH=/root/.projectachilles/boot-test-marker
+ES_MARKER_DOC=http://localhost:9200/boot-test-marker/_doc/1
+ES_MARKER_SRC=http://localhost:9200/boot-test-marker/_source/1
+
+# seed_markers I: write DATA_MARKER into the achilles-data volume (through the
+# backend) and into Elasticsearch (esdata), then read both back.
+seed_markers() {
+	local i=$1
+	vm_root "$i" "$COMPOSE exec -T backend sh -c 'printf %s $DATA_MARKER > $DATA_MARKER_PATH'" ||
+		fail "could not write the marker into the achilles-data volume"
+	vm_root "$i" "$COMPOSE exec -T elasticsearch curl -fsS -XPUT '$ES_MARKER_DOC?refresh=true' -H 'Content-Type: application/json' -d '{\"marker\":\"$DATA_MARKER\"}' >/dev/null && $COMPOSE exec -T elasticsearch curl -fsS -XPOST http://localhost:9200/_flush >/dev/null" ||
+		fail "could not index the marker document in Elasticsearch"
+	check_markers "$i"
+}
+
+# check_markers I: both markers read back as DATA_MARKER (ES within 3 minutes:
+# it may still be recovering its indices after a start).
+check_markers() {
+	local i=$1 out n
+	out=$(vm_root "$i" "$COMPOSE exec -T backend cat $DATA_MARKER_PATH") || out=""
+	expect_eq "achilles-data volume marker" "$out" "$DATA_MARKER"
+	for ((n = 0; n < 36; n++)); do
+		out=$(vm_root "$i" "$COMPOSE exec -T elasticsearch curl -fsS '$ES_MARKER_SRC'" 2>/dev/null | jq -r .marker 2>/dev/null) || out=""
+		[ "$out" = "$DATA_MARKER" ] && break
+		sleep 5
+	done
+	expect_eq "esdata marker document" "$out" "$DATA_MARKER"
+}
+
+# stack_state I: what a restore must reproduce, one "name value" per line:
+# the root .env's COMPOSE_PROJECT_NAME and ACHILLES_DOMAIN, a hash of
+# backend/.env's ENCRYPTION_SECRET (re-generating it would make the restored
+# settings unreadable), and the SHA-256 of each rendered Caddy snippet and of
+# Caddy's exported internal root CA (from the caddy-data volume).
+stack_state() {
+	# shellcheck disable=SC2016 # expanded on the VM
+	vm_root "$1" "cd $REPO"' && for k in COMPOSE_PROJECT_NAME ACHILLES_DOMAIN; do
+		printf ".env:%s %s\n" "$k" "$(sed -n "s/^$k=//p" .env | tail -n 1)"
+	done
+	printf "backend/.env:ENCRYPTION_SECRET sha256:%s\n" "$(sed -n "s/^ENCRYPTION_SECRET=//p" backend/.env | tail -n 1 | sha256sum | cut -c1-16)"
+	sha256sum deploy/caddy/rendered/* deploy/caddy/certs/root-ca.crt | awk "{print \$2, \$1}"'
+}
+
 # build_probe I: a trivial build works, and BuildKit wrote its worker ID
 # (removed by the seal) again. Prints the worker ID.
 build_probe() {
@@ -348,8 +413,19 @@ full_install_backup() {
 	out=$(vm_root "$i" "docker network ls --filter label=com.docker.compose.project=achilles-server --format '{{.Name}}'")
 	[ -n "$out" ] || fail "no network of compose project achilles-server"
 	log "vm$CUR: ok: compose network(s): $(echo "$out" | paste -sd' ')"
+	caddy_frontend "$i"
 	backend_health "$i"
 	WORKER_ID[$i]=$(build_probe "$i")
+	DATA_MARKER="boot-test-$BUILD_COMMIT-$(date +%s)-$RANDOM"
+	seed_markers "$i"
+	STATE1=$(stack_state "$i") || fail "could not read the stack's state"
+	grep -qx '.env:COMPOSE_PROJECT_NAME achilles-server' <<<"$STATE1" ||
+		fail "VM1's .env does not pin achilles-server: $STATE1"
+	grep -qx '.env:ACHILLES_DOMAIN achilles.test' <<<"$STATE1" ||
+		fail "VM1's .env has another ACHILLES_DOMAIN: $STATE1"
+	grep -q '^deploy/caddy/rendered/' <<<"$STATE1" || fail "VM1 has no rendered Caddy config"
+	indent "$i" <<<"$STATE1"
+	log "vm$CUR: ok: recorded .env values, rendered Caddy config and root CA"
 
 	log "vm$i: achilles-installer backup"
 	out=$(vm_root "$i" "achilles-installer backup 2>&1") || { echo "$out" >&2; fail "backup failed"; }
@@ -360,6 +436,8 @@ full_install_backup() {
 	vm_root "$i" "cat '$BACKUP_REMOTE'" >"$BACKUP_LOCAL" || fail "could not copy the backup out"
 	out=$(tar -tf "$BACKUP_LOCAL") || fail "the copied backup is not a readable tar archive"
 	grep -qE '^(\./)?MANIFEST$' <<<"$out" || fail "the copied backup has no MANIFEST"
+	# install --config copies the config into the checkout, so the backup has it.
+	grep -qE '^(\./)?files/deploy\.config\.env$' <<<"$out" || fail "the backup has no deploy.config.env"
 	log "vm$CUR: ok: backup copied out: $BACKUP_LOCAL ($(du -h "$BACKUP_LOCAL" | cut -f1))"
 }
 
@@ -374,12 +452,31 @@ full_restore() {
 		fail "restore on the never-installed VM failed"
 	fi
 	indent "$i" <<<"$out"
+	grep -q '^No containers for compose project achilles-server' <<<"$out" ||
+		fail "restore did not take the never-installed path (no 'No containers' line)"
+	grep -q 'Re-running the installer with the restored' <<<"$out" ||
+		fail "restore did not re-run the engine on the restored config"
+	grep -q 'Using the pre-built images' <<<"$out" ||
+		fail "the restore's engine run rebuilt the images (no 'Using the pre-built images' line)"
+	log "vm$CUR: ok: restore skipped the stop and re-ran the engine on the pre-built images"
 	compose_running "$i"
+	out=$(vm_root "$i" "docker network ls --filter label=com.docker.compose.project=achilles-server --format '{{.Name}}'")
+	[ -n "$out" ] || fail "no network of compose project achilles-server"
+	log "vm$CUR: ok: compose network(s): $(echo "$out" | paste -sd' ')"
+	caddy_frontend "$i"
+	backend_health "$i"
+	check_markers "$i"
+	out=$(stack_state "$i") || fail "could not read the stack's state"
+	indent "$i" <<<"$out"
+	[ "$out" = "$STATE1" ] || fail "VM2's .env values, rendered Caddy config or root CA differ from VM1's: $(diff <(echo "$STATE1") <(echo "$out") || true)"
+	log "vm$CUR: ok: .env values, rendered Caddy config and Caddy root CA equal VM1's"
 }
 
 # --- main ------------------------------------------------------------------
 
 declare -A WORKER_ID
+DATA_MARKER=""
+STATE1=""
 BACKUP_LOCAL=""
 BACKUP_REMOTE=""
 
