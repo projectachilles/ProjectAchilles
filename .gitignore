@@ -110,3 +110,7 @@ deploy/onprem/*.sh
 
 # On-prem installer binary (placed by scripts/install-onprem.sh)
 /achilles-installer
+
+# Windows appliance image build
+appliance/out/
+!appliance/build/
