@@ -1,4 +1,5 @@
 import type { NoticeSummary } from '../services/notices/types.js';
+import type { EdrTermination } from '../services/edr/agent-kill-evidence.js';
 /**
  * TypeScript type definitions for the custom agent management system.
  * Replaces LimaCharlie with a self-hosted agent infrastructure.
@@ -250,6 +251,8 @@ export interface TaskGroup {
 
 export interface TaskResult {
   error?: string;
+  /** Stamped by the agent-kill reconciliation pass on watchdog-failed tasks. */
+  edr_terminated?: EdrTermination;
   task_id: string;
   test_uuid: string;
   exit_code: number;

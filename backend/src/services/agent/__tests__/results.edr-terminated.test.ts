@@ -14,12 +14,14 @@ vi.mock('../../analytics/settings.js', () => ({
 
 const mockEsIndex = vi.fn();
 const mockEsBulk = vi.fn();
+const mockPutMapping = vi.fn();
 vi.mock('../../analytics/client.js', () => ({
-  createEsClient: vi.fn(() => ({ index: mockEsIndex, bulk: mockEsBulk })),
+  createEsClient: vi.fn(() => ({ index: mockEsIndex, bulk: mockEsBulk, indices: { putMapping: mockPutMapping } })),
 }));
 
 const mockCreateResultsIndex = vi.fn();
-vi.mock('../../analytics/index-management.service.js', () => ({
+vi.mock('../../analytics/index-management.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../analytics/index-management.service.js')>()),
   createResultsIndex: (...args: unknown[]) => mockCreateResultsIndex(...args),
 }));
 
@@ -45,6 +47,7 @@ function makeTask(): Task {
 beforeEach(() => {
   vi.clearAllMocks();
   resetClient();
+  mockPutMapping.mockResolvedValue({});
   mockIsConfigured.mockReturnValue(true);
   mockGetSettings.mockReturnValue({ writeIndexPrefix: 'achilles-results-', writeIndexRollover: 'daily' });
 });
@@ -81,5 +84,30 @@ describe('ingestEdrTerminatedResult', () => {
   it('refuses a wildcard write index', async () => {
     mockGetSettings.mockReturnValue({ writeIndexPrefix: 'achilles-*', writeIndexRollover: 'none' });
     await expect(ingestEdrTerminatedResult(makeTask(), 'h', t, null)).rejects.toThrow(/wildcard/);
+  });
+
+  it('puts the edr_terminated mapping on an existing write index once', async () => {
+    await ingestEdrTerminatedResult(makeTask(), 'SBL4862', t, null);
+    await ingestEdrTerminatedResult(makeTask(), 'SBL4862', t, null);
+    expect(mockPutMapping).toHaveBeenCalledTimes(1);
+    expect(mockPutMapping).toHaveBeenCalledWith({
+      index: 'achilles-results-2026.10.20',
+      properties: { f0rtika: { properties: {
+        edr_terminated: { type: 'boolean' },
+        edr_terminated_vendors: { type: 'keyword' },
+        edr_terminated_alert_ids: { type: 'keyword' },
+        stages_unknown: { type: 'boolean' },
+      } } },
+    });
+    expect(mockPutMapping.mock.invocationCallOrder[0]).toBeLessThan(mockEsIndex.mock.invocationCallOrder[0]);
+  });
+
+  it('still writes the doc when putMapping fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockPutMapping.mockRejectedValue(new Error('boom'));
+    await ingestEdrTerminatedResult(makeTask(), 'SBL4862', t, null);
+    expect(mockEsIndex).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

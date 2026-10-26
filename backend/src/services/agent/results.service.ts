@@ -7,7 +7,7 @@ import type { AnalyticsSettings } from '../../types/analytics.js';
 import { ERROR_CODE_MAP } from '../analytics/elasticsearch.js';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
-import { createResultsIndex } from '../analytics/index-management.service.js';
+import { createResultsIndex, RESULTS_INDEX_MAPPING } from '../analytics/index-management.service.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
 import type { EdrTermination } from '../edr/agent-kill-evidence.js';
 
@@ -78,6 +78,7 @@ function sanitizeExitCode(exitCode: number): { code: number; raw?: string } {
 // Lazy-initialised ES client and per-index ensure cache
 let esClient: Client | null = null;
 const ensuredIndices = new Set<string>();
+const edrMappedIndices = new Set<string>();
 
 /** Initialise (or re-use) the ES client from the current analytics settings. */
 async function getClient(): Promise<{ client: Client }> {
@@ -178,6 +179,30 @@ export async function ingestResult(task: Task, result: TaskResult): Promise<void
   await client.index({ index, id: task.id, document: doc });
 }
 
+const EDR_TERMINATED_FIELDS = [
+  'edr_terminated',
+  'edr_terminated_vendors',
+  'edr_terminated_alert_ids',
+  'stages_unknown',
+] as const;
+
+/**
+ * Indices created before these fields existed would dynamically map the
+ * vendor/alert-id arrays as text. Add the canonical definitions once per
+ * process per index; additive and idempotent, so failure is non-fatal.
+ */
+async function ensureEdrTerminatedMapping(client: Client, index: string): Promise<void> {
+  if (edrMappedIndices.has(index)) return;
+  const all = RESULTS_INDEX_MAPPING.mappings.properties.f0rtika.properties;
+  const properties = Object.fromEntries(EDR_TERMINATED_FIELDS.map((k) => [k, all[k]]));
+  try {
+    await client.indices.putMapping({ index, properties: { f0rtika: { properties } } });
+    edrMappedIndices.add(index);
+  } catch (err) {
+    console.warn(`[Results] putMapping failed for ${index}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 /**
  * Write the whole-test result for a run whose agent was killed by an EDR: the
  * watchdog failed the task and no result ever arrived, so this is the only ES
@@ -202,6 +227,7 @@ export async function ingestEdrTerminatedResult(
     edr_terminated_alert_ids: t.alert_ids,
     stages_unknown: true,
   };
+  await ensureEdrTerminatedMapping(client, index);
   await client.index({ index, id: task.id, document: { ...doc, f0rtika } });
 }
 
@@ -306,4 +332,5 @@ async function ingestBundleControls(
 export function resetClient(): void {
   esClient = null;
   ensuredIndices.clear();
+  edrMappedIndices.clear();
 }

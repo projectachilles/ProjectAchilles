@@ -807,7 +807,7 @@ export function listAgentKillCandidates(sinceIso: string): AgentKillCandidateRow
   `).all(...AGENT_KILL_WATCHDOG_ERRORS, since) as TaskRow[];
   return rows.map((row) => {
     const task = parseTaskRow(row);
-    const termination = (task.result as (TaskResult & { edr_terminated?: EdrTermination }) | null)?.edr_terminated ?? null;
+    const termination = task.result?.edr_terminated ?? null;
     return { task, hostname: row.agent_hostname ?? null, termination };
   });
 }
@@ -819,7 +819,7 @@ export function listAgentKillCandidates(sinceIso: string): AgentKillCandidateRow
 export function recordEdrTermination(taskId: string, t: EdrTermination): void {
   getDatabase().prepare(`
     UPDATE tasks
-    SET result = json_set(result, '$.edr_terminated', json(?)),
+    SET result = json_set(COALESCE(result, '{}'), '$.edr_terminated', json(?)),
         es_ingested = 1
     WHERE id = ?
   `).run(JSON.stringify(t), taskId);
