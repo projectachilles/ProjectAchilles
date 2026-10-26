@@ -18,6 +18,9 @@ on:
       - "backend-serverless/src/**"
       - "frontend/src/**"
       - "agent/**/*.go"
+      - "installer/**"
+      - "scripts/**"
+      - "appliance/**"
       - "backend/package*.json"
       - "backend-serverless/package*.json"
       - "frontend/package*.json"
@@ -55,7 +58,7 @@ jobs:
             --config p/dockerfile --config p/github-actions \
             --config .semgrep/rules/ \
             --json --output semgrep-results.json \
-            backend/src backend-serverless/src frontend/src agent/ .github/ \
+            backend/src backend-serverless/src frontend/src agent/ installer/ scripts/ appliance/ .github/ \
             || true
 
       # `|| true` keeps findings non-blocking, but it also hid a broken config:
