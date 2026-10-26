@@ -1,0 +1,6 @@
+{
+  "layout": "us",
+  "password": "BootTest-Only-Pw-2026",
+  "network": {"DHCP": true, "Hostname": "achilles"},
+  "keep": true
+}

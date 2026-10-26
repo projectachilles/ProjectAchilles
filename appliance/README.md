@@ -28,7 +28,7 @@ Run from the repo root with `make -C appliance <target>`.
 | `out-ownership-check` | Prove container targets leave `out/` owned by you (`DOCKER_RUN_OUT`) |
 | `image` | Build `out/achilles-appliance-<ver>.qcow2` with Packer from the committed HEAD (refuses a dirty tree; about 6-10 min with KVM). Log: `out/packer.log`, VM console: `out/serial.log` |
 | `check-sealed` | Assert the image is sealed (`IMAGE=` defaults to this `VER`'s image) |
-| `boot-test` | Boot-test the image under UEFI (later task) |
+| `boot-test` | Boot `IMAGE` in two throwaway UEFI VMs (`test/boot-test.sh`). `MODE=quick` (about 10 min): first boot, distinct identities, clean checkout and image labels at the build commit, reboot. `MODE=full` (10-40 min) also installs on VM1, backs it up and restores the backup on VM2. Serial logs and install output: `out/boot-test/` |
 | `vhdx` | Produce the Hyper-V zip (later task) |
 | `clean` | Remove `appliance/out/` |
 

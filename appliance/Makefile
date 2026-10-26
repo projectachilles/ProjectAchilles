@@ -97,8 +97,25 @@ check-sealed:
 	@test -n "$(IMAGE)" || { echo "usage: make check-sealed IMAGE=out/<image>" >&2; exit 2; }
 	$(DOCKER_RUN) build/check-sealed.sh $(IMAGE)
 
-boot-test:
-	@echo "boot-test: not implemented yet (Task 7)" >&2; exit 1
+# Boot-test IMAGE in two throwaway VMs (test/boot-test.sh; spec 10.1).
+# MODE=quick: first boot, identity, image reuse labels, reboot. MODE=full also
+# installs, backs up and restores (10-40 min). The build commit comes from the
+# image name (<ver> = git describe: ...-g<sha>, or a tag); unknown names fall
+# back to HEAD. Override with BUILD_COMMIT=<sha>.
+MODE ?= quick
+boot-test: installer-testbin
+	@case "$(MODE)" in quick|full) ;; *) \
+		echo "usage: make boot-test MODE=quick|full [IMAGE=out/<image>.qcow2]" >&2; exit 2 ;; esac
+	@test -f "$(IMAGE)" || { echo "boot-test: no image $(IMAGE)" >&2; exit 2; }
+	@bc='$(BUILD_COMMIT)'; \
+	if [ -z "$$bc" ]; then \
+		v=$$(basename "$(IMAGE)" .qcow2); v=$${v#achilles-appliance-}; ref=$$v; \
+		if [[ $$v =~ -g([0-9a-f]{7,40})$$ ]]; then ref=$${BASH_REMATCH[1]}; fi; \
+		bc=$$(git rev-parse --verify -q "$$ref^{commit}") || { \
+			bc=$(COMMIT); echo "boot-test: no commit in the image name; expecting HEAD"; }; \
+	fi; \
+	echo "boot-test: $(IMAGE), MODE=$(MODE), build commit $$bc"; \
+	$(DOCKER_RUN_OUT) env BUILD_COMMIT="$$bc" test/boot-test.sh "$(IMAGE)" out/achilles-installer-test "$(MODE)"
 
 vhdx:
 	@echo "vhdx: not implemented yet (Task 8)" >&2; exit 1
