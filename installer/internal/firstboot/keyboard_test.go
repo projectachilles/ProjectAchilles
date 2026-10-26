@@ -2,6 +2,7 @@ package firstboot
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -77,5 +78,18 @@ func TestApplyKeyboardRejectsShellMetacharacters(t *testing.T) {
 	f := newFakeHost()
 	if err := ApplyKeyboard(context.Background(), f, Layout{XKBLayout: "latam", XKBVariant: "dvorak-intl_1"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The file is what matters (keyboard-setup applies it on the next boot):
+// setupcon failing on an odd console must not restart first boot.
+func TestApplyKeyboardSetupconFailureIsNonFatal(t *testing.T) {
+	h := newFakeHost()
+	h.on([]string{"setupcon"}, "setupcon: cannot open /dev/tty0", errors.New("exit status 1"))
+	if err := ApplyKeyboard(context.Background(), h, Layouts[1]); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(string(h.files[KeyboardPath]), `XKBLAYOUT="latam"`) {
+		t.Fatalf("%s = %q", KeyboardPath, h.files[KeyboardPath])
 	}
 }

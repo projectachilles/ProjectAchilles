@@ -53,6 +53,8 @@ func KnownXKBLayout(baseLst []byte, code string) bool {
 }
 
 // ApplyKeyboard writes /etc/default/keyboard and applies it to the console.
+// Applying it now is best effort: keyboard-setup.service applies the file on
+// every boot, so a setupcon failure (an odd console) must not fail first boot.
 func ApplyKeyboard(ctx context.Context, h Host, l Layout) error {
 	// The file is sourced by a shell: refuse anything but plain XKB codes.
 	if !SafeXKBCode(l.XKBLayout) || (l.XKBVariant != "" && !SafeXKBCode(l.XKBVariant)) {
@@ -63,8 +65,6 @@ func ApplyKeyboard(ctx context.Context, h Host, l Layout) error {
 	if err := h.WriteFile(KeyboardPath, []byte(conf), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", KeyboardPath, err)
 	}
-	if out, err := h.Run(ctx, nil, "setupcon", "--force", "--keyboard-only"); err != nil {
-		return fmt.Errorf("setupcon: %w: %s", err, strings.TrimSpace(string(out)))
-	}
+	_, _ = h.Run(ctx, nil, "setupcon", "--force", "--keyboard-only")
 	return nil
 }

@@ -145,19 +145,41 @@ func splitList(s string) []string {
 	return out
 }
 
-// ConfirmNetwork asks whether the new network works; no answer in timeout
-// means false.
-func (u FormUI) ConfirmNetwork(ctx context.Context, nc NetConfig, timeout time.Duration) (bool, error) {
+// confirmText is the confirm screen's title and description.
+func confirmText(nc NetConfig, c NetCheck, timeout time.Duration) (title, desc string) {
 	what := "DHCP"
 	if !nc.DHCP {
 		what = nc.Address
 	}
-	ok := false
+	title = fmt.Sprintf("Can you keep these settings? Reverting in %d s if there's no answer.", int(timeout.Round(time.Second)/time.Second))
+	desc = fmt.Sprintf("Network: %s on %s, hostname %s", what, nc.Iface, nc.Hostname)
+	if c.Gateway != "" {
+		if c.GatewayOK {
+			desc += fmt.Sprintf("\n\nGateway %s answers.", c.Gateway)
+		} else {
+			desc += fmt.Sprintf("\n\nGateway %s does not answer — this configuration probably won't work.", c.Gateway)
+		}
+	}
+	if c.Address != "" {
+		desc += fmt.Sprintf("\n\nFrom your workstation you can also run ping %s.", c.Address)
+	}
+	return title, desc
+}
+
+// confirmDefault is the pre-selected answer: Keep only when the gateway
+// answered. A timeout reverts whatever is selected.
+func confirmDefault(c NetCheck) bool { return c.Gateway != "" && c.GatewayOK }
+
+// ConfirmNetwork asks whether the new network works; no answer in timeout
+// means false.
+func (u FormUI) ConfirmNetwork(ctx context.Context, nc NetConfig, c NetCheck, timeout time.Duration) (bool, error) {
+	title, desc := confirmText(nc, c, timeout)
+	ok := confirmDefault(c)
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	err := u.run(cctx, huh.NewGroup(huh.NewConfirm().
-		Title("Can you keep these settings? Reverting in 60 s if there's no answer.").
-		Description(fmt.Sprintf("Network: %s on %s, hostname %s", what, nc.Iface, nc.Hostname)).
+		Title(title).
+		Description(desc).
 		Affirmative("Keep").Negative("Revert").Value(&ok)))
 	if err != nil {
 		// Our own deadline is "no answer"; a cancelled parent is a real abort.

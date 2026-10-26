@@ -3,6 +3,8 @@ package firstboot
 import (
 	"context"
 	"errors"
+	"io"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +24,7 @@ type fakeUI struct {
 	dets         []Detected
 	networkCalls int
 	confirmCalls int
+	checks       []NetCheck
 	handoff      *Handoff
 	handoffErr   error
 	notices      []string
@@ -42,7 +45,8 @@ func (u *fakeUI) Network(_ context.Context, d Detected, prev *NetConfig) (NetCon
 	}
 	return u.networks[i], nil
 }
-func (u *fakeUI) ConfirmNetwork(context.Context, NetConfig, time.Duration) (bool, error) {
+func (u *fakeUI) ConfirmNetwork(_ context.Context, _ NetConfig, c NetCheck, _ time.Duration) (bool, error) {
+	u.checks = append(u.checks, c)
 	i := u.confirmCalls
 	u.confirmCalls++
 	if i >= len(u.confirms) {
@@ -201,6 +205,136 @@ func TestRunAbortReturnsError(t *testing.T) {
 	}
 	if idx(logSeq(f), "systemctl enable --now ssh.socket") >= 0 || f.Exists(MarkerPath) {
 		t.Fatal("ssh enabled or marker written after abort")
+	}
+	if len(ui.notices) != 0 {
+		t.Fatalf("abort showed a notice: %q", ui.notices)
+	}
+}
+
+func TestRunEOFShowsNoNotice(t *testing.T) {
+	ui := dhcpUI()
+	ui.passwordErr = io.EOF
+	if err := Run(context.Background(), runHost(), ui, testIfaces, "v1"); !errors.Is(err, io.EOF) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(ui.notices) != 0 {
+		t.Fatalf("EOF showed a notice: %q", ui.notices)
+	}
+}
+
+// A failing step outside the network form restarts first boot (systemd
+// Restart=on-failure): the admin must be told why before the screen resets.
+func TestRunStepFailureShowsNotice(t *testing.T) {
+	for _, prefix := range [][]string{
+		{"chpasswd"},
+		{"ssh-keygen", "-A"},
+		{"systemctl", "disable", FirstbootUnit},
+	} {
+		f := runHost()
+		f.script = append([]scripted{{prefix: prefix, out: []byte("it broke"), err: errors.New("exit status 1")}}, f.script...)
+		ui := dhcpUI()
+		err := Run(context.Background(), f, ui, testIfaces, "v1")
+		if err == nil {
+			t.Fatalf("%v: expected error", prefix)
+		}
+		if len(ui.notices) != 1 || !strings.HasPrefix(ui.notices[0], "First boot failed: ") ||
+			!strings.Contains(ui.notices[0], prefix[0]) || !strings.Contains(ui.notices[0], "it broke") ||
+			!strings.HasSuffix(ui.notices[0], ". It will start again from the beginning.") {
+			t.Fatalf("%v: notices = %q", prefix, ui.notices)
+		}
+		if f.Exists(MarkerPath) || ui.handoff != nil {
+			t.Fatalf("%v: continued after failure", prefix)
+		}
+	}
+}
+
+func TestRunStaticChecksGateway(t *testing.T) {
+	for _, answers := range []bool{true, false} {
+		f := runHost()
+		if !answers {
+			f.script = append([]scripted{{prefix: []string{"ping"}, err: errors.New("exit status 1")}}, f.script...)
+		}
+		ui := dhcpUI()
+		ui.networks = []NetConfig{{Iface: "eth0", Address: "10.0.5.50/24", Gateway: "10.0.5.1", DNS: []string{"10.0.5.2"}, Hostname: "achilles"}}
+		if err := Run(context.Background(), f, ui, testIfaces, "v1"); err != nil {
+			t.Fatal(err)
+		}
+		want := NetCheck{Address: "10.0.5.50", Gateway: "10.0.5.1", GatewayOK: answers}
+		if len(ui.checks) != 1 || ui.checks[0] != want {
+			t.Fatalf("answers=%v: checks = %+v", answers, ui.checks)
+		}
+		seq := logSeq(f)
+		ping, apply, hn := idx(seq, "ping -c1 -W2 10.0.5.1"), idx(seq, "netplan apply"), idx(seq, "hostnamectl set-hostname achilles")
+		if ping < 0 || ping < apply || ping < hn {
+			t.Fatalf("answers=%v: ping not run after apply: %v", answers, seq)
+		}
+		if !f.Exists(MarkerPath) {
+			t.Fatalf("answers=%v: a failed ping must not fail first boot", answers)
+		}
+	}
+}
+
+func TestRunPingMissingIsNoCheck(t *testing.T) {
+	f := runHost()
+	f.script = append([]scripted{{prefix: []string{"ping"}, err: &exec.Error{Name: "ping", Err: exec.ErrNotFound}}}, f.script...)
+	ui := dhcpUI()
+	if err := Run(context.Background(), f, ui, testIfaces, "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if want := (NetCheck{Address: "10.0.5.20"}); len(ui.checks) != 1 || ui.checks[0] != want {
+		t.Fatalf("checks = %+v", ui.checks)
+	}
+}
+
+// Error texts often end in a period; the notice must not read "..".
+func TestRunFailureNoticeHasOnePeriod(t *testing.T) {
+	ui := dhcpUI()
+	ui.password = "short"
+	if err := Run(context.Background(), runHost(), ui, testIfaces, "v1"); err == nil {
+		t.Fatal("expected error")
+	}
+	if want := "First boot failed: Use at least 12 characters. It will start again from the beginning."; len(ui.notices) != 1 || ui.notices[0] != want {
+		t.Fatalf("notices = %q", ui.notices)
+	}
+}
+
+func TestRunDHCPChecksDetectedGateway(t *testing.T) {
+	f := runHost()
+	ui := dhcpUI()
+	if err := Run(context.Background(), f, ui, testIfaces, "v1"); err != nil {
+		t.Fatal(err)
+	}
+	want := NetCheck{Address: "10.0.5.20", Gateway: "10.0.5.1", GatewayOK: true}
+	if len(ui.checks) != 1 || ui.checks[0] != want {
+		t.Fatalf("checks = %+v", ui.checks)
+	}
+	if idx(logSeq(f), "ping -c1 -W2 10.0.5.1") < 0 {
+		t.Fatalf("gateway not pinged: %v", logSeq(f))
+	}
+}
+
+func TestRunNoGatewayDoesNotPing(t *testing.T) {
+	old := redetectPause
+	redetectPause = 0
+	defer func() { redetectPause = old }()
+	f := noDHCPHost()
+	ui := dhcpUI()
+	static := NetConfig{Iface: "eth0", Address: "10.0.5.50/24", Gateway: "10.0.5.1", DNS: []string{"10.0.5.2"}, Hostname: "achilles"}
+	ui.networks = []NetConfig{{Iface: "eth0", DHCP: true, Hostname: "achilles"}, static}
+	if err := Run(context.Background(), f, ui, noIfaces, "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(ui.checks) != 2 || ui.checks[0] != (NetCheck{}) {
+		t.Fatalf("checks = %+v", ui.checks)
+	}
+	pings := 0
+	for _, c := range f.calls() {
+		if c.argv[0] == "ping" {
+			pings++
+		}
+	}
+	if pings != 1 { // only the static config's gateway
+		t.Fatalf("pings = %d: %v", pings, logSeq(f))
 	}
 }
 
