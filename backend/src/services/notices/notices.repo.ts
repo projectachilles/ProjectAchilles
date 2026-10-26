@@ -11,6 +11,7 @@
  */
 import { getDatabase } from '../agent/database.js';
 import { runTag } from './window.js';
+import { AGENT_KILL_WATCHDOG_ERRORS, parseSqliteUtc } from '../edr/agent-kill-evidence.js';
 import type { NoticeKind, NoticeRecord, NoticeRow, NoticeScope, NoticeSourceType, NoticeState, NoticeSummary } from './types.js';
 
 export interface NewNotice {
@@ -488,17 +489,63 @@ export interface TaskOutcomeRow {
   created_at: string;
   /** payload.metadata.category */
   category: string | null;
+  /** 1 once the result is in Elasticsearch (for a failed task: reconciled as EDR-killed). */
+  es_ingested: number;
 }
 
 export function getLinkedTaskOutcomes(noticeId: string): TaskOutcomeRow[] {
   return getDatabase()
     .prepare(`
       SELECT id, status, result, assigned_at, completed_at, original_task_id, retry_count, created_at,
-             json_extract(payload, '$.metadata.category') AS category
+             json_extract(payload, '$.metadata.category') AS category, es_ingested
       FROM tasks WHERE notice_id = ?
       ORDER BY created_at ASC, id ASC
     `)
     .all(noticeId) as TaskOutcomeRow[];
+}
+
+/** Latest attempt per target: a failed task and its automatic retries count once. */
+export function latestAttempts(rows: TaskOutcomeRow[]): TaskOutcomeRow[] {
+  const byChain = new Map<string, TaskOutcomeRow>();
+  for (const r of rows) {
+    const key = r.original_task_id || r.id;
+    const cur = byChain.get(key);
+    if (!cur || (r.retry_count ?? 0) > (cur.retry_count ?? 0)) byChain.set(key, r);
+  }
+  return [...byChain.values()];
+}
+
+/** How long the Finished email waits for a cut-off run to be reconciled. */
+const FINISHED_HOLD_MS = 15 * 60_000;
+
+const WATCHDOG_ERRORS = new Set<string>(AGENT_KILL_WATCHDOG_ERRORS);
+
+function resultError(result: string | null): unknown {
+  if (!result) return null;
+  try {
+    return (JSON.parse(result) as { error?: unknown }).error;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Should the Finished email wait? True while, with an EDR connected, a run's
+ * latest attempt was cut off by a watchdog less than 15 minutes ago and the
+ * EDR reconciliation pass has not yet proved (es_ingested = 1) that the EDR
+ * killed it. Derived from task rows only, so it survives a restart. Tasks the
+ * pass never reconciles (cyber-hygiene, never assigned) don't hold.
+ */
+export function finishedHoldActive(rows: TaskOutcomeRow[], now: Date, edrConfigured: boolean): boolean {
+  if (!edrConfigured) return false;
+  return latestAttempts(rows).some((r) => {
+    if (r.status !== 'failed' || r.es_ingested !== 0 || !r.completed_at || !r.assigned_at) return false;
+    if (r.category === 'cyber-hygiene') return false;
+    const error = resultError(r.result);
+    if (typeof error !== 'string' || !WATCHDOG_ERRORS.has(error)) return false;
+    // NaN (unparseable completed_at) fails the comparison: no hold.
+    return now.getTime() - parseSqliteUtc(r.completed_at) < FINISHED_HOLD_MS;
+  });
 }
 
 export function markFinishedSent(id: string, atIso: string): boolean {

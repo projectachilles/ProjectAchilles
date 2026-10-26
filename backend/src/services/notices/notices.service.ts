@@ -25,9 +25,11 @@ import * as repo from './notices.repo.js';
 import { resolveUserLabel } from './userLabel.js';
 import { getTestMetadata } from '../agent/test-catalog.service.js';
 import { fetchEdrDocs } from '../outcomes/edr.js';
-import { cellVerdict, controlsOf, resultDocIds } from '../outcomes/verdict.js';
+import { cellVerdict, controlsOf, edrTerminatedReason, edrTerminatedVerdict, resultDocIds } from '../outcomes/verdict.js';
+import { isAnyEdrConfigured } from '../edr/agent-kill-reconcile.service.js';
 import type { NoticeRow, NoticeScope, NoticeSourceType, NoticeState } from './types.js';
 import type { TaskPayload, TaskResult, TaskStatus } from '../../types/agent.js';
+import type { EdrVendorKey } from '../edr/agent-kill-evidence.js';
 import type { PreExecutionNoticeSettings } from '../../types/integrations.js';
 
 export { getNoticeSummaries } from './notices.repo.js';
@@ -795,17 +797,6 @@ async function boundedWaitPass(now: Date): Promise<{ notDelivered: number; expir
   return { notDelivered, expired };
 }
 
-/** Latest attempt per target: a failed task and its automatic retries count once. */
-function latestAttempts(rows: repo.TaskOutcomeRow[]): repo.TaskOutcomeRow[] {
-  const byChain = new Map<string, repo.TaskOutcomeRow>();
-  for (const r of rows) {
-    const key = r.original_task_id || r.id;
-    const cur = byChain.get(key);
-    if (!cur || (r.retry_count ?? 0) > (cur.retry_count ?? 0)) byChain.set(key, r);
-  }
-  return [...byChain.values()];
-}
-
 function parseResult(s: string | null): TaskResult | null {
   if (!s) return null;
   try {
@@ -815,20 +806,26 @@ function parseResult(s: string | null): TaskResult | null {
   }
 }
 
-async function sendFinished(n: NoticeRow, now: Date): Promise<boolean> {
-  const rows = repo.getLinkedTaskOutcomes(n.id);
+async function sendFinished(n: NoticeRow, rows: repo.TaskOutcomeRow[], now: Date): Promise<boolean> {
   if (rows.length === 0) return false;
 
   // Same verdict as Analytics and the campaign evidence page: completed
   // results get EDR prevention/detection from their ES docs. By now the
   // pickup window has closed, so the EDR sync has had time to tag them.
-  const latest = latestAttempts(rows).map((r) => ({ row: r, result: parseResult(r.result) }));
+  const latest = repo.latestAttempts(rows).map((r) => ({ row: r, result: parseResult(r.result) }));
   const completed = latest.filter((x) => x.row.status === 'completed' && x.result);
   const edr = await fetchEdrDocs(completed.flatMap((x) =>
     resultDocIds(x.row.id, x.row.category, controlsOf(x.result!.bundle_results?.controls))));
   const counts: FinishedEmailData['counts'] = { protected: 0, prevented: 0, detected: 0, unprotected: 0, error: 0, notRun: 0 };
+  // Vendors that killed the agent mid-run (reconciled from their alerts), earliest first.
+  const killedBy: EdrVendorKey[] = [];
+  let killedRuns = 0;
   for (const { row, result } of latest) {
-    if (row.status === 'completed' && result) {
+    if (row.status === 'failed' && result?.edr_terminated?.vendors?.length) {
+      counts[edrTerminatedVerdict(result.edr_terminated).state]++;
+      killedRuns++;
+      for (const v of result.edr_terminated.vendors) if (!killedBy.includes(v)) killedBy.push(v);
+    } else if (row.status === 'completed' && result) {
       const v = cellVerdict({
         taskId: row.id,
         exitCode: typeof result.exit_code === 'number' ? result.exit_code : null,
@@ -866,6 +863,9 @@ async function sendFinished(n: NoticeRow, now: Date): Promise<boolean> {
     finishedAt,
     counts,
     edrUnavailable: edr.status === 'unavailable',
+    edrTerminated: killedRuns > 0
+      ? { runs: killedRuns, reason: edrTerminatedReason(killedBy) }
+      : undefined,
     uiUrl: tasksUiUrl(),
   });
   // Updated event: same UID, next SEQUENCE, ending at the actual finish.
@@ -902,10 +902,17 @@ async function sendFinished(n: NoticeRow, now: Date): Promise<boolean> {
 async function finishedPass(now: Date): Promise<number> {
   let finished = 0;
   const since = new Date(now.getTime() - FINISHED_LOOKBACK_MS).toISOString();
-  for (const n of repo.listFinishedCandidates(now.toISOString(), since, MAX_FINISHED_ATTEMPTS)) {
+  const candidates = repo.listFinishedCandidates(now.toISOString(), since, MAX_FINISHED_ATTEMPTS);
+  // EDR integrations are deployment-wide; read their settings once per pass.
+  const edrConfigured = candidates.length > 0 && isAnyEdrConfigured();
+  for (const n of candidates) {
     // send_finished is the owning org's setting.
     if (!noticeSettings(n).getPreExecutionNoticeSettings().send_finished) continue;
-    if (await sendFinished(n, now)) finished++;
+    const rows = repo.getLinkedTaskOutcomes(n.id);
+    // A run cut off by a watchdog may yet be proved EDR-killed (Protected):
+    // wait for reconciliation, up to 15 minutes. Not an attempt.
+    if (repo.finishedHoldActive(rows, now, edrConfigured)) continue;
+    if (await sendFinished(n, rows, now)) finished++;
   }
   return finished;
 }

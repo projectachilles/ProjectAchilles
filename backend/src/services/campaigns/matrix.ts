@@ -8,7 +8,8 @@ import type { NoticeRecord, NoticeScope, NoticeSummary } from '../notices/types.
 import type { TaskStatus } from '../../types/agent.js';
 import type { CampaignRunRow, CellState, RunSnapshot } from './types.js';
 import { fetchEdrDocs, type EdrDocs, type EdrStatus } from '../outcomes/edr.js';
-import { cellVerdict, controlsOf, resultDocIds, type StageView } from '../outcomes/verdict.js';
+import { cellVerdict, controlsOf, edrTerminatedVerdict, resultDocIds, type StageView } from '../outcomes/verdict.js';
+import type { EdrTermination } from '../edr/agent-kill-evidence.js';
 
 export interface MatrixCell {
   state: CellState;
@@ -63,6 +64,8 @@ interface PairTask {
   /** JSON array text from result.bundle_results.controls */
   controls: string | null;
   stderr_tail: string | null;
+  /** JSON text of result.edr_terminated: set once a watchdog-failed run was proved EDR-killed. */
+  edr_terminated: string | null;
 }
 
 const STATES: CellState[] = [
@@ -85,7 +88,7 @@ function latestTasksByPair(runId: string): Map<string, PairTask> {
   const rows = getDatabase()
     .prepare(
       `SELECT id, agent_id, test_uuid, status, exit_code, error, techniques, completed_at, notice_id,
-              category, controls, stderr_tail FROM (
+              category, controls, stderr_tail, edr_terminated FROM (
          SELECT id, agent_id, json_extract(payload, '$.test_uuid') AS test_uuid, status,
                 json_extract(result, '$.exit_code') AS exit_code,
                 json_extract(result, '$.error') AS error,
@@ -94,6 +97,7 @@ function latestTasksByPair(runId: string): Map<string, PairTask> {
                 json_extract(payload, '$.metadata.category') AS category,
                 CASE WHEN status = 'completed' THEN json_extract(result, '$.bundle_results.controls') END AS controls,
                 CASE WHEN status = 'completed' THEN substr(json_extract(result, '$.stderr'), -400) END AS stderr_tail,
+                json_extract(result, '$.edr_terminated') AS edr_terminated,
                 ROW_NUMBER() OVER (
                   PARTITION BY json_extract(payload, '$.test_uuid'), agent_id
                   ORDER BY created_at DESC, rowid DESC) AS rn
@@ -129,6 +133,16 @@ function parseControls(raw: string | null) {
   }
 }
 
+function parseTermination(raw: string | null): EdrTermination | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as EdrTermination;
+    return Array.isArray(v?.vendors) && v.vendors.length > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Result-doc ids of a completed cell (none while running, or for cyber-hygiene bundles). */
 function docIdsFor(task: PairTask): string[] {
   return task.status === 'completed' ? resultDocIds(task.id, task.category, parseControls(task.controls)) : [];
@@ -159,9 +173,16 @@ function cellFor(task: PairTask, notices: Record<string, NoticeSummary>, nowIso:
       });
       return { state: v.state, ...base, reason: v.reason, edr: v.edr, stages: v.stages, stages_text: v.stagesText };
     }
-    case 'failed':
+    case 'failed': {
+      // The EDR killed the agent mid-run (reconciled from its alerts): Protected, stages unknown.
+      const killed = parseTermination(task.edr_terminated);
+      if (killed) {
+        const v = edrTerminatedVerdict(killed);
+        return { state: v.state, ...base, reason: v.reason, edr: v.edr, stages: v.stages, stages_text: v.stagesText };
+      }
       // The reason a pair did not produce a verdict (agent error).
       return { state: 'error', ...base, reason: task.error, ...EMPTY };
+    }
     default:
       return { state: 'not_run', ...base, reason: task.error, ...EMPTY }; // expired / cancelled
   }
