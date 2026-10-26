@@ -11,9 +11,15 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+## [2.6.1] - 2026-10-26
+
 ### Fixed
 
-- **SentinelOne Endpoint Protection score stuck at 0% on laptop fleets.** Two of its checks failed every agent for reasons that aren't protection gaps. *Reporting* used SentinelOne's live online flag, so a snapshot taken while laptops were closed failed all of them, although an offline agent keeps protecting its endpoint. It is now **Checked in (7 days)**: online, or last checked in within 7 days. *Firewall control* failed every agent on consoles without SentinelOne Firewall Control (a separate license); when no agent has it on, the check is now skipped as not deployed. Agent snapshots now also keep each agent's last check-in time.
+- **SentinelOne Endpoint Protection score stuck at 0% on laptop fleets** (#597). Two of its checks failed every agent for reasons that aren't protection gaps. *Reporting* used SentinelOne's live online flag, so a snapshot taken while laptops were closed failed all of them, although an offline agent keeps protecting its endpoint. It is now **Checked in (7 days)**: online, or last checked in within 7 days. *Firewall control* failed every agent on consoles without SentinelOne Firewall Control (a separate license); when no agent has it on, the check is now skipped as not deployed. Agent snapshots now also keep each agent's last check-in time.
+
+### Documentation
+
+- **Server Installer: trusting the on-prem root CA** (#596). The trust section and the GPO steps now say plainly that without the root in `LocalMachine\Root` agents can't enroll (`x509: certificate signed by unknown authority`), what the GPO changes in the domain (one certificate, nothing else), and how to roll it out: a dedicated GPO under Computer Configuration, piloted on one OU, with how to undo it and which ASR, PowerShell, AppLocker/WDAC and firewall policies still apply. Adds a troubleshooting row for the enrollment `x509` error.
 
 ## [2.6.0] - 2026-10-25
 
@@ -779,7 +785,8 @@ Complete platform overhaul — custom agent system, multi-deployment support, Mi
 | Agent 0.6.0 | 2026-04-03 | First tagged agent binary release |
 | 1.0.0 | 2024-12-10 | Initial release |
 
-[Unreleased]: https://github.com/projectachilles/ProjectAchilles/compare/v2.6.0...HEAD
+[Unreleased]: https://github.com/projectachilles/ProjectAchilles/compare/v2.6.1...HEAD
+[2.6.1]: https://github.com/projectachilles/ProjectAchilles/compare/v2.6.0...v2.6.1
 [2.6.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.3.1...v2.4.0
