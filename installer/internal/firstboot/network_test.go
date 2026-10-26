@@ -2,6 +2,7 @@ package firstboot
 
 import (
 	"context"
+	"errors"
 	"os"
 	"reflect"
 	"strings"
@@ -172,5 +173,56 @@ func TestSetHostnameReplacesLoopbackLine(t *testing.T) {
 	if strings.Count(got, "127.0.1.1") != 1 || !strings.Contains(got, "127.0.1.1 achilles-1\n") ||
 		strings.Contains(got, "ubuntu") || !strings.Contains(got, "::1 ip6-localhost") {
 		t.Fatalf("hosts: %q", got)
+	}
+}
+
+const linkShowOut = `1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000\    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+2: docker0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state DOWN mode DEFAULT group default \    link/ether 02:42:ac:11:00:01 brd ff:ff:ff:ff:ff:ff
+3: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000\    link/ether 00:15:5d:01:02:03 brd ff:ff:ff:ff:ff:ff
+`
+
+func TestDetectNetworkFallsBackToFirstNICWithoutDefaultRoute(t *testing.T) {
+	h := newFakeHost()
+	h.on([]string{"ip", "-4", "route", "show", "default"}, "", nil)
+	h.on([]string{"ip", "-o", "link", "show"}, linkShowOut, nil)
+	got, err := DetectNetwork(context.Background(), h, func() []sysprobe.Iface { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Detected{Iface: "eth0"}); got != want {
+		t.Fatalf("got %+v want %+v", got, want)
+	}
+}
+
+func TestDetectNetworkFallsBackWhenRouteNICHasNoAddress(t *testing.T) {
+	h := newFakeHost()
+	h.on([]string{"ip", "-4", "route", "show", "default"}, "default via 10.0.5.1 dev eth0\n", nil)
+	h.on([]string{"ip", "-o", "link", "show"}, linkShowOut, nil)
+	got, err := DetectNetwork(context.Background(), h, func() []sysprobe.Iface { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Detected{Iface: "eth0"}); got != want {
+		t.Fatalf("got %+v want %+v", got, want)
+	}
+}
+
+func TestDetectNetworkNoNICIsError(t *testing.T) {
+	h := newFakeHost()
+	h.on([]string{"ip", "-4", "route", "show", "default"}, "", nil)
+	h.on([]string{"ip", "-o", "link", "show"}, strings.Join(strings.Split(linkShowOut, "\n")[:2], "\n")+"\n", nil)
+	_, err := DetectNetwork(context.Background(), h, func() []sysprobe.Iface { return nil })
+	if !errors.Is(err, ErrNoNIC) {
+		t.Fatalf("err = %v, want ErrNoNIC", err)
+	}
+}
+
+func TestParseLinkNames(t *testing.T) {
+	out := linkShowOut + "4: eth1.10@eth1: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN\\    link/ether 00:15:5d:01:02:04 brd ff:ff:ff:ff:ff:ff\n" +
+		"5: sit0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN\\    link/sit 0.0.0.0 brd 0.0.0.0\n" +
+		"6: veth12ab@if5: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500\\    link/ether 6a:00:00:00:00:01 brd ff:ff:ff:ff:ff:ff\n" +
+		"7: eth2: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN\\    link/ether 00:15:5d:01:02:05 brd ff:ff:ff:ff:ff:ff\n"
+	if got, want := physicalNICs(out), []string{"eth0", "eth2"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
 	}
 }

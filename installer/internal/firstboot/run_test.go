@@ -19,6 +19,7 @@ type fakeUI struct {
 	networks     []NetConfig
 	confirms     []bool
 	prevs        []*NetConfig
+	dets         []Detected
 	networkCalls int
 	confirmCalls int
 	handoff      *Handoff
@@ -31,8 +32,9 @@ func (u *fakeUI) Layout(context.Context) (Layout, error) { return u.layout, nil 
 func (u *fakeUI) Password(context.Context) (string, error) {
 	return u.password, u.passwordErr
 }
-func (u *fakeUI) Network(_ context.Context, _ Detected, prev *NetConfig) (NetConfig, error) {
+func (u *fakeUI) Network(_ context.Context, d Detected, prev *NetConfig) (NetConfig, error) {
 	u.prevs = append(u.prevs, prev)
+	u.dets = append(u.dets, d)
 	i := u.networkCalls
 	u.networkCalls++
 	if i >= len(u.networks) {
@@ -314,5 +316,91 @@ func TestRunCancelDuringApplyStillRevertsAndErrors(t *testing.T) {
 	}
 	if f.Exists(MarkerPath) || len(ui.notices) != 0 {
 		t.Fatal("continued after cancel")
+	}
+}
+
+// noDHCPHost has a NIC but no default route: no DHCP server answered.
+func noDHCPHost() *fakeHost {
+	f := newFakeHost()
+	f.on([]string{"ip", "-4", "route", "show", "default"}, "", nil)
+	f.on([]string{"ip", "-o", "link", "show"}, "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536\\    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n"+
+		"3: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500\\    link/ether 00:15:5d:01:02:03 brd ff:ff:ff:ff:ff:ff\n", nil)
+	f.on([]string{"ssh-keygen", "-lf"}, "256 SHA256:abc123 root@x (ED25519)\n", nil)
+	f.files["/etc/machine-id"] = []byte("abc\n")
+	return f
+}
+
+func noIfaces() []sysprobe.Iface { return nil }
+
+func TestRunWithoutDHCPReachesNetworkForm(t *testing.T) {
+	f := noDHCPHost()
+	ui := dhcpUI()
+	ui.networks = []NetConfig{{Iface: "eth0", Address: "10.0.5.50/24", Gateway: "10.0.5.1", DNS: []string{"10.0.5.2"}, Hostname: "achilles"}}
+	if err := Run(context.Background(), f, ui, noIfaces, "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(ui.dets) != 1 || ui.dets[0] != (Detected{Iface: "eth0"}) {
+		t.Fatalf("Network got %+v", ui.dets)
+	}
+	if !strings.Contains(string(f.files[NetplanPath]), "10.0.5.50/24") || !f.Exists(MarkerPath) {
+		t.Fatalf("static config not applied or first boot incomplete: %q", f.files[NetplanPath])
+	}
+	if ui.handoff == nil || ui.handoff.IP != "10.0.5.50" || len(ui.notices) != 0 {
+		t.Fatalf("handoff=%+v notices=%q", ui.handoff, ui.notices)
+	}
+}
+
+func TestRunDHCPWithoutAddressReasks(t *testing.T) {
+	old := redetectPause
+	redetectPause = 0
+	defer func() { redetectPause = old }()
+	f := noDHCPHost()
+	ui := dhcpUI()
+	static := NetConfig{Iface: "eth0", Address: "10.0.5.50/24", Gateway: "10.0.5.1", DNS: []string{"10.0.5.2"}, Hostname: "achilles"}
+	ui.networks = []NetConfig{{Iface: "eth0", DHCP: true, Hostname: "achilles"}, static}
+	if err := Run(context.Background(), f, ui, noIfaces, "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(ui.notices) != 1 || !strings.Contains(ui.notices[0], "DHCP didn't give this server an address") {
+		t.Fatalf("notices = %q", ui.notices)
+	}
+	if ui.networkCalls != 2 || ui.prevs[1] == nil || !ui.prevs[1].DHCP || ui.prevs[1].Hostname != "achilles" {
+		t.Fatalf("calls=%d prevs=%+v", ui.networkCalls, ui.prevs)
+	}
+	if ui.handoff == nil || ui.handoff.IP != "10.0.5.50" {
+		t.Fatalf("handoff = %+v", ui.handoff)
+	}
+}
+
+func TestRunNoNICShowsNotice(t *testing.T) {
+	f := newFakeHost()
+	f.on([]string{"ip", "-4", "route", "show", "default"}, "", nil)
+	f.on([]string{"ip", "-o", "link", "show"}, "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536\\    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n", nil)
+	ui := dhcpUI()
+	err := Run(context.Background(), f, ui, noIfaces, "v1")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	want := "No network adapter found. Add one to this VM in Hyper-V and restart it."
+	if len(ui.notices) != 1 || ui.notices[0] != want {
+		t.Fatalf("notices = %q", ui.notices)
+	}
+	if ui.networkCalls != 0 || f.Exists(MarkerPath) {
+		t.Fatal("continued without a NIC")
+	}
+}
+
+// systemd stops first boot (SIGTERM, which cancels ctx) when Run starts the
+// tty1 getty, because the unit has Conflicts=getty@tty1.service. That is the
+// normal end of first boot, not a failure.
+func TestRunStoppedByGettyStartIsNotAnError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := &onceHost{fakeHost: runHost(), prefix: "systemctl --no-block start getty@tty1.service", hook: cancel}
+	if err := Run(ctx, f, dhcpUI(), testIfaces, "v1"); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if !f.Exists(MarkerPath) {
+		t.Fatal("marker missing")
 	}
 }

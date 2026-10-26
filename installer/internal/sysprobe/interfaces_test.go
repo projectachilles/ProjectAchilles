@@ -113,3 +113,14 @@ func TestLANInterfacesPublicFirstOnSameInterface(t *testing.T) {
 		t.Fatalf("order = %v, want %s", ips, want)
 	}
 }
+
+func TestIsVirtualIface(t *testing.T) {
+	for name, want := range map[string]bool{
+		"docker0": true, "br-1a2b": true, "veth9": true, "tailscale0": true, "wg0": true,
+		"eth0": false, "ens18": false, "enp0s3": false,
+	} {
+		if got := IsVirtualIface(name); got != want {
+			t.Errorf("IsVirtualIface(%q) = %v, want %v", name, got, want)
+		}
+	}
+}

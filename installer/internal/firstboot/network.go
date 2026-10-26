@@ -2,6 +2,7 @@ package firstboot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"regexp"
@@ -26,22 +27,55 @@ type NetConfig struct {
 	Hostname string
 }
 
+// ErrNoNIC means the VM has no network adapter at all.
+var ErrNoNIC = errors.New("no network adapter found")
+
 // DetectNetwork finds the default-route interface and its current IPv4/CIDR.
+// Without a usable default route (no DHCP server, or the route's interface
+// has no IPv4 address) it returns the first physical NIC with empty
+// IP/CIDR/Gateway, so the admin can still set a static address. Only a VM
+// without any NIC is an error (ErrNoNIC).
 func DetectNetwork(ctx context.Context, h Host, ifaces func() []sysprobe.Iface) (Detected, error) {
 	out, err := h.Run(ctx, []byte{}, "ip", "-4", "route", "show", "default")
 	if err != nil {
 		return Detected{}, fmt.Errorf("ip route: %w", err)
 	}
 	gw, dev := parseDefaultRoute(string(out))
-	if dev == "" {
-		return Detected{}, fmt.Errorf("no default route found")
-	}
-	for _, i := range ifaces() {
-		if i.Name == dev {
-			return Detected{Iface: i.Name, IP: i.IP, CIDR: i.CIDR, Gateway: gw}, nil
+	if dev != "" {
+		for _, i := range ifaces() {
+			if i.Name == dev {
+				return Detected{Iface: i.Name, IP: i.IP, CIDR: i.CIDR, Gateway: gw}, nil
+			}
 		}
 	}
-	return Detected{}, fmt.Errorf("default route interface %s has no IPv4 address", dev)
+	out, err = h.Run(ctx, []byte{}, "ip", "-o", "link", "show")
+	if err != nil {
+		return Detected{}, fmt.Errorf("ip link: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	nics := physicalNICs(string(out))
+	if len(nics) == 0 {
+		return Detected{}, ErrNoNIC
+	}
+	return Detected{Iface: nics[0]}, nil
+}
+
+// physicalNICs lists the Ethernet NICs in `ip -o link show` output, in order:
+// not loopback, not a stacked link (vlan, veth peer, sit0@NONE: "name@parent"),
+// not a virtual name, and with an Ethernet link type.
+func physicalNICs(out string) []string {
+	var nics []string
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 || !strings.HasSuffix(f[1], ":") || !strings.Contains(line, "link/ether ") {
+			continue
+		}
+		name := strings.TrimSuffix(f[1], ":")
+		if name == "lo" || strings.Contains(name, "@") || sysprobe.IsVirtualIface(name) {
+			continue
+		}
+		nics = append(nics, name)
+	}
+	return nics
 }
 
 // parseDefaultRoute extracts the gateway and device from `ip -4 route show

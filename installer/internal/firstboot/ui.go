@@ -79,24 +79,36 @@ func (u FormUI) Password(ctx context.Context) (string, error) {
 	return pw, nil
 }
 
-// Network asks DHCP or static and, for static, the address details.
-func (u FormUI) Network(ctx context.Context, d Detected, prev *NetConfig) (NetConfig, error) {
-	nc := NetConfig{Iface: d.Iface, DHCP: true, Hostname: "achilles"}
-	addr, gw, dns, search := d.CIDR, d.Gateway, "", ""
+// networkForm is the network form's starting state.
+type networkForm struct{ mode, hostname, addr, gw, dns, search, desc string }
+
+// networkFormDefaults pre-fills the network form. Without a DHCP address
+// (d.IP empty) it defaults to a static address with empty fields; prev, the
+// last rejected config, pre-fills the hostname and any static fields.
+func networkFormDefaults(d Detected, prev *NetConfig) networkForm {
+	f := networkForm{mode: "dhcp", hostname: "achilles", addr: d.CIDR, gw: d.Gateway, desc: dhcpWarning}
 	if prev != nil {
-		nc.Hostname = prev.Hostname
-		nc.DHCP = prev.DHCP
+		f.hostname = prev.Hostname
 		if !prev.DHCP {
-			addr, gw, dns, search = prev.Address, prev.Gateway, strings.Join(prev.DNS, ", "), prev.Search
+			f.mode = "static"
+			f.addr, f.gw, f.dns, f.search = prev.Address, prev.Gateway, strings.Join(prev.DNS, ", "), prev.Search
 		}
 	}
-	mode := "dhcp"
-	if !nc.DHCP {
-		mode = "static"
+	if d.IP == "" {
+		f.mode = "static"
+		f.desc = "No address from DHCP on " + d.Iface + ". Set a static address.\n\n" + dhcpWarning
 	}
+	return f
+}
+
+// Network asks DHCP or static and, for static, the address details.
+func (u FormUI) Network(ctx context.Context, d Detected, prev *NetConfig) (NetConfig, error) {
+	f := networkFormDefaults(d, prev)
+	nc := NetConfig{Iface: d.Iface, Hostname: f.hostname}
+	mode, addr, gw, dns, search := f.mode, f.addr, f.gw, f.dns, f.search
 	if err := u.run(ctx, huh.NewGroup(
 		huh.NewSelect[string]().Title("Network").
-			Description(dhcpWarning).
+			Description(f.desc).
 			Options(huh.NewOption("Keep DHCP", "dhcp"), huh.NewOption("Set a static address", "static")).
 			Value(&mode),
 		huh.NewInput().Title("Hostname").Value(&nc.Hostname).Validate(func(s string) error {
@@ -106,9 +118,9 @@ func (u FormUI) Network(ctx context.Context, d Detected, prev *NetConfig) (NetCo
 		return NetConfig{}, err
 	}
 	if mode == "dhcp" {
+		nc.DHCP = true
 		return nc, nil
 	}
-	nc.DHCP = false
 	if err := u.run(ctx, huh.NewGroup(
 		huh.NewInput().Title("Address (CIDR)").Placeholder("10.0.5.20/24").Value(&addr),
 		huh.NewInput().Title("Gateway").Value(&gw),
