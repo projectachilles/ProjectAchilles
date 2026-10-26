@@ -3,7 +3,7 @@
 // `Authorization: ApiToken <token>`.
 
 import type { AutoResolveMode, AutoResolvePassResult, EnrichmentPassResult } from './defender.js';
-import type { AgentKillPassResult } from '../services/edr/agent-kill-reconcile.service.js';
+import type { AgentKillPassResult } from './agent-kill.js';
 
 export type { AutoResolveMode };
 

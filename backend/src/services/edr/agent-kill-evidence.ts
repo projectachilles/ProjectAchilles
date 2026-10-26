@@ -41,6 +41,8 @@ export interface EdrTermination {
   alert_ids: string[];
   killed_at: string;
   reconciled_at: string;
+  /** Set when the test is multi-stage; the kill doc then carries bundle_id / bundle_name. */
+  bundle_name?: string;
 }
 
 /** Prevention actions that mean the EDR itself stopped the process. */

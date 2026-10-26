@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import fs from 'fs';
 import Database from 'better-sqlite3';
 import type { Client } from '@elastic/elasticsearch';
 import { createTestDatabase, insertTestAgent, insertTestTask } from '../../../__tests__/helpers/db.js';
@@ -35,7 +36,12 @@ vi.mock('../../analytics/test-name-lookup.js', () => ({
   resolveTestNames: (...args: unknown[]) => mockResolveTestNames(...args),
 }));
 
-let edrConfigured = { defender: false, crowdstrike: false, sentinelone: true };
+let mockCatalog = new Map<string, { name: string; isMultiStage: boolean }>();
+vi.mock('../../agent/test-catalog.service.js', () => ({
+  getTestMetadata: (uuid: string) => mockCatalog.get(uuid) ?? null,
+}));
+
+let edrConfigured = { defender: true, crowdstrike: true, sentinelone: true };
 vi.mock('../../integrations/settings.js', () => ({
   IntegrationsSettingsService: class {
     isDefenderConfigured = () => edrConfigured.defender;
@@ -117,7 +123,8 @@ beforeEach(() => {
   alertStore = {};
   indexErrors = {};
   esConfigured = true;
-  edrConfigured = { defender: false, crowdstrike: false, sentinelone: true };
+  edrConfigured = { defender: true, crowdstrike: true, sentinelone: true };
+  mockCatalog = new Map();
   // Fake msearch: every sub-search gets all alerts of its index, so the code's
   // own evidence rule (not the ES prefilter) decides what qualifies.
   mockMsearch.mockImplementation(async ({ searches }: { searches: Array<Record<string, unknown>> }) => {
@@ -162,7 +169,7 @@ describe('EdrAgentKillReconciler.runPass', () => {
 
     const markers = bulkDocs();
     expect(markers).toHaveLength(1);
-    expect(markers[0].meta).toEqual({ _index: S1, _id: 's1-threat-4862' });
+    expect(markers[0].meta).toEqual({ _index: S1, _id: 's1-threat-4862', retry_on_conflict: 3 });
     expect(markers[0].doc).toEqual({
       f0rtika: { achilles_agent_kill_task_id: '8089b475', achilles_agent_kill_matched_at: NOW.toISOString() },
     });
@@ -219,10 +226,11 @@ describe('EdrAgentKillReconciler.runPass', () => {
     addKilledTask('8089b475', 'agent-4862', '2026-10-26 16:06:05', '2026-10-26 16:12:59');
     alertStore[S1] = [s1Threat('s1-threat-4862', 'SBL4862', '2026-10-26T16:06:32.719Z')];
     alertStore[DEFENDER] = [s1Threat('mde-1', 'SBL4862', '2026-10-26T16:06:40.000Z')];
+    alertStore[CROWDSTRIKE] = [s1Threat('cs-1', 'SBL4862', '2026-10-26T16:06:45.000Z')];
 
     await reconciler().runPass({ now: NOW });
 
-    expect(mockBulk).toHaveBeenCalled();
+    expect(bulkDocs().map((m) => m.meta._index).sort()).toEqual([DEFENDER, CROWDSTRIKE, S1].sort());
     expect(JSON.stringify(mockBulk.mock.calls)).not.toContain('achilles_correlated');
   });
 
@@ -323,6 +331,20 @@ describe('EdrAgentKillReconciler.runPass', () => {
     expect(t?.killed_at).toBe('2026-10-26T16:06:32.719Z');
   });
 
+  it('keeps the recorded vendor order when a later-found vendor alerted earlier', async () => {
+    addKilledTask('8089b475', 'agent-4862', '2026-10-26 16:06:05', '2026-10-26 16:12:59');
+    alertStore[S1] = [s1Threat('s1-threat-4862', 'SBL4862', '2026-10-26T16:06:32.719Z')];
+    await reconciler().runPass({ now: NOW });
+    alertStore[DEFENDER] = [s1Threat('mde-early', 'SBL4862', '2026-10-26T16:06:20.000Z')];
+
+    await reconciler().runPass({ now: NOW });
+
+    const t = taskRow('8089b475').result.edr_terminated;
+    expect(t?.vendors).toEqual(['sentinelone', 'defender']);
+    expect(t?.alert_ids).toEqual(['s1-threat-4862', 'mde-early']);
+    expect(t?.killed_at).toBe('2026-10-26T16:06:20.000Z');
+  });
+
   it('skips a task whose agent has no hostname', async () => {
     addKilledTask('orphan', 'agent-4862', '2026-10-26 16:06:05', '2026-10-26 16:12:59');
     testDb.pragma('foreign_keys = OFF');
@@ -352,7 +374,32 @@ describe('EdrAgentKillReconciler.runPass', () => {
     expect(mockIndex.mock.calls.map((c) => c[0].id).sort()).toEqual(['oct23', 'oct26']);
   });
 
-  it('marks bundle tests with bundle_id', async () => {
+  it("uses the catalog's isMultiStage", async () => {
+    addKilledTask('8089b475', 'agent-4862', '2026-10-26 16:06:05', '2026-10-26 16:12:59');
+    alertStore[S1] = [s1Threat('s1-threat-4862', 'SBL4862', '2026-10-26T16:06:32.719Z')];
+    mockCatalog.set(LOCKBIT_UUID, { name: 'LockBit 3.0 Chain', isMultiStage: true });
+
+    await reconciler().runPass({ now: NOW });
+
+    expect(mockResolveTestNames).not.toHaveBeenCalled();
+    expect(mockIndex.mock.calls[0][0].document.f0rtika).toMatchObject({ bundle_id: LOCKBIT_UUID, bundle_name: 'LockBit 3.0 Chain' });
+    expect(taskRow('8089b475').result.edr_terminated).toMatchObject({ bundle_name: 'LockBit 3.0 Chain' });
+  });
+
+  it('trusts a catalog entry that is not multi-stage over ES names', async () => {
+    addKilledTask('8089b475', 'agent-4862', '2026-10-26 16:06:05', '2026-10-26 16:12:59');
+    alertStore[S1] = [s1Threat('s1-threat-4862', 'SBL4862', '2026-10-26T16:06:32.719Z')];
+    mockCatalog.set(LOCKBIT_UUID, { name: 'LockBit 3.0', isMultiStage: false });
+    mockResolveTestNames.mockResolvedValue(new Map([[LOCKBIT_UUID, { name: 'LockBit 3.0 Chain', kind: 'bundle' }]]));
+
+    await reconciler().runPass({ now: NOW });
+
+    expect(mockResolveTestNames).not.toHaveBeenCalled();
+    expect('bundle_id' in mockIndex.mock.calls[0][0].document.f0rtika).toBe(false);
+    expect(taskRow('8089b475').result.edr_terminated).not.toHaveProperty('bundle_name');
+  });
+
+  it('falls back to resolveTestNames when the catalog has no entry', async () => {
     addKilledTask('8089b475', 'agent-4862', '2026-10-26 16:06:05', '2026-10-26 16:12:59');
     alertStore[S1] = [s1Threat('s1-threat-4862', 'SBL4862', '2026-10-26T16:06:32.719Z')];
     mockResolveTestNames.mockResolvedValue(new Map([[LOCKBIT_UUID, { name: 'LockBit 3.0 Chain', kind: 'bundle' }]]));
@@ -362,6 +409,24 @@ describe('EdrAgentKillReconciler.runPass', () => {
     expect(mockResolveTestNames).toHaveBeenCalledTimes(1);
     expect(mockResolveTestNames).toHaveBeenCalledWith(esClient, 'achilles-results-*', [LOCKBIT_UUID]);
     expect(mockIndex.mock.calls[0][0].document.f0rtika).toMatchObject({ bundle_id: LOCKBIT_UUID, bundle_name: 'LockBit 3.0 Chain' });
+  });
+
+  it('a vendor-add rewrite keeps bundle_id when the lookup now fails', async () => {
+    addKilledTask('8089b475', 'agent-4862', '2026-10-26 16:06:05', '2026-10-26 16:12:59');
+    alertStore[S1] = [s1Threat('s1-threat-4862', 'SBL4862', '2026-10-26T16:06:32.719Z')];
+    mockResolveTestNames.mockResolvedValue(new Map([[LOCKBIT_UUID, { name: 'LockBit 3.0 Chain', kind: 'bundle' }]]));
+    await reconciler().runPass({ now: NOW });
+    mockIndex.mockClear();
+    mockResolveTestNames.mockClear();
+    mockResolveTestNames.mockResolvedValue(new Map()); // ES name lookup now fails (it returns an empty Map)
+    alertStore[DEFENDER] = [s1Threat('mde-1', 'SBL4862', '2026-10-26T16:06:50.000Z')];
+
+    const later = await reconciler().runPass({ now: NOW });
+
+    expect(later.vendorsAdded).toBe(1);
+    expect(mockResolveTestNames).not.toHaveBeenCalled();
+    expect(mockIndex.mock.calls[0][0].document.f0rtika).toMatchObject({ bundle_id: LOCKBIT_UUID, bundle_name: 'LockBit 3.0 Chain' });
+    expect(taskRow('8089b475').result.edr_terminated).toMatchObject({ bundle_name: 'LockBit 3.0 Chain', vendors: ['sentinelone', 'defender'] });
   });
 
   it('writes a standalone doc when the name lookup says test', async () => {
@@ -386,7 +451,8 @@ describe('EdrAgentKillReconciler.runPass', () => {
       { index: S1, ignore_unavailable: true },
     ]);
     const body = JSON.stringify(searches[1]);
-    expect(searches[1].size).toBe(20);
+    expect(searches[1].size).toBe(50);
+    expect(searches[1].sort).toEqual([{ created_at: 'asc' }]);
     expect(body).toContain('{"term":{"doc_type":"alert"}}');
     expect(body).toContain('{"wildcard":{"evidence_hostnames":{"value":"sbl4862*","case_insensitive":true}}}');
     expect(body).toContain('{"range":{"created_at":{"gte":"2026-10-26T16:06:05.000Z","lte":"2026-10-26T16:12:59.000Z"}}}');
@@ -408,6 +474,51 @@ describe('EdrAgentKillReconciler.runPass', () => {
     });
     const s1MappingCall = mockPutMapping.mock.calls.findIndex((c) => c[0].index === S1);
     expect(mockPutMapping.mock.invocationCallOrder[s1MappingCall]).toBeLessThan(mockBulk.mock.invocationCallOrder[0]);
+  });
+
+  it("searches only configured vendors' indices", async () => {
+    edrConfigured = { defender: true, crowdstrike: false, sentinelone: true };
+    addKilledTask('8089b475', 'agent-4862', '2026-10-26 16:06:05', '2026-10-26 16:12:59');
+    alertStore[CROWDSTRIKE] = [s1Threat('cs-1', 'SBL4862', '2026-10-26T16:06:45.000Z')];
+
+    const result = await reconciler().runPass({ now: NOW });
+
+    const { searches } = mockMsearch.mock.calls[0][0];
+    expect(searches.filter((_: unknown, i: number) => i % 2 === 0).map((h: { index: string }) => h.index)).toEqual([DEFENDER, S1]);
+    expect(result.reconciled).toBe(0);
+  });
+
+  it('is a no-op when no EDR is configured', async () => {
+    edrConfigured = { defender: false, crowdstrike: false, sentinelone: false };
+    addKilledTask('8089b475', 'agent-4862', '2026-10-26 16:06:05', '2026-10-26 16:12:59');
+    alertStore[S1] = [s1Threat('s1-threat-4862', 'SBL4862', '2026-10-26T16:06:32.719Z')];
+
+    const result = await reconciler().runPass({ now: NOW });
+
+    expect(result).toEqual({ candidates: 0, reconciled: 0, vendorsAdded: 0, errors: [] });
+    expect(mockMsearch).not.toHaveBeenCalled();
+  });
+
+  it('rewrites the same _id on the next pass when the stamp failed after the doc was written', async () => {
+    addKilledTask('8089b475', 'agent-4862', '2026-10-26 16:06:05', '2026-10-26 16:12:59');
+    alertStore[S1] = [s1Threat('s1-threat-4862', 'SBL4862', '2026-10-26T16:06:32.719Z')];
+    testDb.exec(`CREATE TRIGGER fail_stamp BEFORE UPDATE OF es_ingested ON tasks BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END;`);
+
+    const first = await reconciler().runPass({ now: NOW });
+
+    expect(first.reconciled).toBe(0);
+    expect(first.errors).toEqual([expect.stringContaining('disk I/O error')]);
+    expect(mockIndex).toHaveBeenCalledTimes(1);
+    expect(taskRow('8089b475').es_ingested).toBe(0);
+
+    testDb.exec('DROP TRIGGER fail_stamp');
+    const second = await reconciler().runPass({ now: NOW });
+
+    expect(second.reconciled).toBe(1);
+    expect(mockIndex).toHaveBeenCalledTimes(2);
+    expect(mockIndex.mock.calls.map((c) => c[0].id)).toEqual(['8089b475', '8089b475']);
+    expect(mockIndex.mock.calls[1][0].index).toBe(mockIndex.mock.calls[0][0].index);
+    expect(taskRow('8089b475').es_ingested).toBe(1);
   });
 
   it('honours the lookback window', async () => {
@@ -440,16 +551,27 @@ describe('runAgentKillReconciliation', () => {
     expect(mockResolveTestNames.mock.calls[0][1]).toBe('achilles-results-*');
   });
 
-  it('shares one pass between overlapping calls', async () => {
+  it('runs exactly one trailing pass for calls made while a pass is in flight', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(NOW);
     addKilledTask('8089b475', 'agent-4862', '2026-10-26 16:06:05', '2026-10-26 16:12:59');
+    alertStore[S1] = [s1Threat('s1-threat-4862', 'SBL4862', '2026-10-26T16:06:32.719Z')];
     vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    const [a, b] = await Promise.all([runAgentKillReconciliation(), runAgentKillReconciliation()]);
+    const first = runAgentKillReconciliation();
+    const late1 = runAgentKillReconciliation();
+    const late2 = runAgentKillReconciliation();
 
-    expect(a).toBe(b);
-    expect(mockMsearch).toHaveBeenCalledTimes(1);
+    expect(late1).toBe(late2);
+    expect(late1).not.toBe(first);
+    const [a, b] = await Promise.all([first, late1]);
+    expect(a.reconciled).toBe(1);
+    expect(b).toEqual({ candidates: 1, reconciled: 0, vendorsAdded: 0, errors: [] });
+    expect(mockMsearch).toHaveBeenCalledTimes(2);
+
+    // Idle again: the next call starts a fresh pass.
+    await runAgentKillReconciliation();
+    expect(mockMsearch).toHaveBeenCalledTimes(3);
   });
 
   it('never throws when the pass itself throws', async () => {
@@ -458,6 +580,18 @@ describe('runAgentKillReconciliation', () => {
     const result = await runAgentKillReconciliation();
     expect(result.errors).toHaveLength(1);
     expect(err).toHaveBeenCalled();
+  });
+});
+
+describe('server.ts 5-minute alert loops', () => {
+  it('run the pass after enrichment and before auto-resolve for Defender and CrowdStrike', () => {
+    const src = fs.readFileSync(new URL('../../../server.ts', import.meta.url), 'utf8');
+    for (const svc of ['defenderSyncService', 'crowdstrikeSyncService']) {
+      const enrichment = src.indexOf(`await ${svc}.runEnrichmentPass()`);
+      const autoResolve = src.indexOf(`await ${svc}.runAutoResolvePass()`);
+      expect(enrichment).toBeGreaterThan(-1);
+      expect(src.slice(enrichment, autoResolve)).toContain('await runAgentKillReconciliation();');
+    }
   });
 });
 

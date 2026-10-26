@@ -1,8 +1,7 @@
-import type { Client, estypes } from '@elastic/elasticsearch';
 // Reconciliation pass for test runs whose agent the EDR killed mid-test. The
 // watchdog fails such a task and no result ever reaches Elasticsearch; this
-// pass looks for proof of the kill in EVERY vendor's alert index (Defender,
-// CrowdStrike, SentinelOne) and, when the evidence rule in
+// pass looks for proof of the kill in EVERY configured vendor's alert index
+// (Defender, CrowdStrike, SentinelOne) and, when the evidence rule in
 // agent-kill-evidence.ts holds, writes the run's Protected whole-test doc,
 // links the proving alerts, and stamps the task. Runs after each vendor's
 // enrichment pass; the result doesn't depend on which vendor synced first.
@@ -10,11 +9,12 @@ import type { Client, estypes } from '@elastic/elasticsearch';
 // The alert-side link is `f0rtika.achilles_agent_kill_*`, never
 // `f0rtika.achilles_correlated`, so auto-resolve and automatic mitigation
 // never select these alerts.
+import type { Client, estypes } from '@elastic/elasticsearch';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { resolveTestNames } from '../analytics/test-name-lookup.js';
-import type { LinkedTestName } from '../analytics/test-name-lookup.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
+import { getTestMetadata } from '../agent/test-catalog.service.js';
 import { listAgentKillCandidates, recordEdrTermination } from '../agent/tasks.service.js';
 import type { AgentKillCandidateRow } from '../agent/tasks.service.js';
 import { ingestEdrTerminatedResult } from '../agent/results.service.js';
@@ -30,25 +30,20 @@ import {
   summarizeTermination,
 } from './agent-kill-evidence.js';
 import type { EdrTermination, EdrVendorKey, KillCandidateTask, KillEvidenceAlert } from './agent-kill-evidence.js';
+import type { AgentKillPassResult } from '../../types/agent-kill.js';
 
-export interface AgentKillPassResult {
-  /** Watchdog-failed tasks examined (with a hostname and parseable times). */
-  candidates: number;
-  /** Tasks turned into Protected results on this pass. */
-  reconciled: number;
-  /** Already-reconciled tasks that gained another vendor's proof. */
-  vendorsAdded: number;
-  errors: string[];
-}
+export type { AgentKillPassResult };
 
 const DEFAULT_LOOKBACK_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** Hits per candidate x vendor sub-search; a kill raises a handful of alerts at most. */
-const ALERT_HITS_PER_SEARCH = 20;
-/** Candidates per msearch (x3 vendor sub-searches). */
+/** Hits per candidate x vendor sub-search, earliest first; a kill raises a handful of alerts at most. */
+const ALERT_HITS_PER_SEARCH = 50;
+/** Candidates per msearch (one sub-search per configured vendor each). */
 const CANDIDATES_PER_MSEARCH = 50;
 
-const VENDOR_INDICES: ReadonlyArray<{ vendor: EdrVendorKey; index: string }> = [
+interface VendorIndex { vendor: EdrVendorKey; index: string }
+
+const VENDOR_INDICES: ReadonlyArray<VendorIndex> = [
   { vendor: 'defender', index: DEFENDER_INDEX },
   { vendor: 'crowdstrike', index: CROWDSTRIKE_INDEX },
   { vendor: 'sentinelone', index: SENTINELONE_INDEX },
@@ -146,21 +141,31 @@ function isMissingIndex(error: estypes.ErrorCause): boolean {
 }
 
 /**
- * Add the proof found on this pass to an earlier termination. A vendor recorded
- * before stays recorded even when its alert has since left the index (S1 drops
- * items that stop passing its filters); it keeps its place relative to the new
- * proof by the earlier kill time.
+ * Add the proof found on this pass to an earlier termination. What was
+ * recorded stays, in its order, even when its alert has since left the index
+ * (S1 drops items that stop passing its filters); new vendors and alerts are
+ * appended in earliest-alert order. The bundle decision is reused as stored.
  */
 function mergeTermination(prev: EdrTermination, fresh: EdrTermination): EdrTermination {
-  const keptVendors = prev.vendors.filter((v) => !fresh.vendors.includes(v));
-  const keptIds = prev.alert_ids.filter((id) => !fresh.alert_ids.includes(id));
-  const prevFirst = parseSqliteUtc(prev.killed_at) <= parseSqliteUtc(fresh.killed_at);
+  const killedAt = parseSqliteUtc(fresh.killed_at) < parseSqliteUtc(prev.killed_at) ? fresh.killed_at : prev.killed_at;
   return {
-    vendors: prevFirst ? [...keptVendors, ...fresh.vendors] : [...fresh.vendors, ...keptVendors],
-    alert_ids: prevFirst ? [...keptIds, ...fresh.alert_ids] : [...fresh.alert_ids, ...keptIds],
-    killed_at: prevFirst ? prev.killed_at : fresh.killed_at,
+    vendors: [...prev.vendors, ...fresh.vendors.filter((v) => !prev.vendors.includes(v))],
+    alert_ids: [...prev.alert_ids, ...fresh.alert_ids.filter((id) => !prev.alert_ids.includes(id))],
+    killed_at: killedAt,
     reconciled_at: fresh.reconciled_at,
+    ...(prev.bundle_name ? { bundle_name: prev.bundle_name } : {}),
   };
+}
+
+/** Alert indices of the EDR integrations configured right now. */
+function configuredVendorIndices(): VendorIndex[] {
+  const s = new IntegrationsSettingsService();
+  const on: Record<EdrVendorKey, boolean> = {
+    defender: s.isDefenderConfigured(),
+    crowdstrike: s.isCrowdStrikeConfigured(),
+    sentinelone: s.isSentinelOneConfigured(),
+  };
+  return VENDOR_INDICES.filter((v) => on[v.vendor]);
 }
 
 export class EdrAgentKillReconciler {
@@ -178,13 +183,16 @@ export class EdrAgentKillReconciler {
     const nowIso = now.toISOString();
     const since = new Date(now.getTime() - (opts.lookbackDays ?? DEFAULT_LOOKBACK_DAYS) * DAY_MS).toISOString();
 
+    const vendors = configuredVendorIndices();
+    if (vendors.length === 0) return result;
+
     const candidates = listAgentKillCandidates(since)
       .map(toCandidate)
       .filter((c): c is Candidate => c !== null);
     result.candidates = candidates.length;
     if (candidates.length === 0) return result;
 
-    const evidence = await this.fetchEvidence(candidates, result.errors);
+    const evidence = await this.fetchEvidence(candidates, vendors, result.errors);
 
     const planned: PlannedWrite[] = [];
     for (const candidate of candidates) {
@@ -200,12 +208,17 @@ export class EdrAgentKillReconciler {
     }
     if (planned.length === 0) return result;
 
-    // One lookup per pass: a uuid that names a bundle gets bundle_id on its doc.
-    const uuids = [...new Set(planned.map((p) => p.candidate.row.task.payload.test_uuid))];
-    const names = await resolveTestNames(this.client, this.resultsIndexPattern, uuids);
+    // Decide bundle identity once, for new tasks only; a vendor-add rewrite
+    // reuses the stored decision so a later lookup failure can't drop bundle_id.
+    const fresh = planned.filter((p) => p.isNew);
+    const bundles = await this.resolveBundles([...new Set(fresh.map((p) => p.candidate.row.task.payload.test_uuid))]);
+    for (const p of fresh) {
+      const bundleName = bundles.get(p.candidate.row.task.payload.test_uuid);
+      if (bundleName) p.termination.bundle_name = bundleName;
+    }
 
     for (const p of planned) {
-      if (await this.write(p, names, nowIso, result.errors)) {
+      if (await this.write(p, nowIso, result.errors)) {
         if (p.isNew) result.reconciled += 1;
         else result.vendorsAdded += 1;
       }
@@ -213,17 +226,42 @@ export class EdrAgentKillReconciler {
     return result;
   }
 
+  /**
+   * Bundle name per multi-stage test uuid. The test catalog decides; the
+   * names in ES only cover uuids the catalog doesn't know (e.g. a test
+   * removed from the library since it ran).
+   */
+  private async resolveBundles(uuids: string[]): Promise<Map<string, string>> {
+    const bundles = new Map<string, string>();
+    const unknown: string[] = [];
+    for (const uuid of uuids) {
+      const meta = getTestMetadata(uuid);
+      if (!meta) unknown.push(uuid);
+      else if (meta.isMultiStage) bundles.set(uuid, meta.name);
+    }
+    if (unknown.length > 0) {
+      const names = await resolveTestNames(this.client, this.resultsIndexPattern, unknown);
+      for (const [uuid, n] of names) if (n.kind === 'bundle') bundles.set(uuid, n.name);
+    }
+    return bundles;
+  }
+
   /** Candidate alerts per task id, from one msearch per chunk of candidates. */
-  private async fetchEvidence(candidates: Candidate[], errors: string[]): Promise<Map<string, KillEvidenceAlert[]>> {
+  private async fetchEvidence(candidates: Candidate[], vendors: VendorIndex[], errors: string[]): Promise<Map<string, KillEvidenceAlert[]>> {
     const byTask = new Map<string, KillEvidenceAlert[]>();
     for (let i = 0; i < candidates.length; i += CANDIDATES_PER_MSEARCH) {
       const chunk = candidates.slice(i, i + CANDIDATES_PER_MSEARCH);
       const searches: estypes.MsearchRequestItem[] = [];
       const keys: Array<{ taskId: string; vendor: EdrVendorKey }> = [];
       for (const c of chunk) {
-        for (const { vendor, index } of VENDOR_INDICES) {
+        for (const { vendor, index } of vendors) {
           searches.push({ index, ignore_unavailable: true });
-          searches.push({ size: ALERT_HITS_PER_SEARCH, _source: ALERT_SOURCE_FIELDS, query: killEvidenceQuery(c.kill) });
+          searches.push({
+            size: ALERT_HITS_PER_SEARCH,
+            sort: [{ created_at: 'asc' }],
+            _source: ALERT_SOURCE_FIELDS,
+            query: killEvidenceQuery(c.kill),
+          });
           keys.push({ taskId: c.kill.taskId, vendor });
         }
       }
@@ -270,10 +308,9 @@ export class EdrAgentKillReconciler {
    * leaves the task unstamped so the next pass retries it; failed markers only
    * cost the UI link, so the task is still stamped.
    */
-  private async write(p: PlannedWrite, names: Map<string, LinkedTestName>, nowIso: string, errors: string[]): Promise<boolean> {
+  private async write(p: PlannedWrite, nowIso: string, errors: string[]): Promise<boolean> {
     const { task } = p.candidate.row;
-    const name = names.get(task.payload.test_uuid);
-    const bundle = name?.kind === 'bundle' ? { bundleName: name.name } : null;
+    const bundle = p.termination.bundle_name ? { bundleName: p.termination.bundle_name } : null;
     try {
       await ingestEdrTerminatedResult(task, p.candidate.kill.hostname, p.termination, bundle);
     } catch (err) {
@@ -298,7 +335,7 @@ export class EdrAgentKillReconciler {
       const index = INDEX_OF_VENDOR.get(a.vendor);
       if (!index) continue;
       await this.ensureMarkerMapping(index);
-      operations.push({ update: { _index: index, _id: a.id } });
+      operations.push({ update: { _index: index, _id: a.id, retry_on_conflict: 3 } });
       operations.push({ doc: { f0rtika: { achilles_agent_kill_task_id: taskId, achilles_agent_kill_matched_at: nowIso } } });
     }
     if (operations.length === 0) return null;
@@ -332,8 +369,7 @@ export class EdrAgentKillReconciler {
 
 /** True when any EDR integration (Defender, CrowdStrike, SentinelOne) is configured. */
 export function isAnyEdrConfigured(): boolean {
-  const s = new IntegrationsSettingsService();
-  return s.isDefenderConfigured() || s.isCrowdStrikeConfigured() || s.isSentinelOneConfigured();
+  return configuredVendorIndices().length > 0;
 }
 
 /** What a vendor sync records when the pass could not run at all. */
@@ -341,16 +377,32 @@ export function failedAgentKillPass(err: unknown): AgentKillPassResult {
   return emptyResult([errMsg(err)]);
 }
 
-let inFlight: Promise<AgentKillPassResult> | null = null;
+let current: Promise<AgentKillPassResult> | null = null;
+let trailing: Promise<AgentKillPassResult> | null = null;
 
 /**
  * Run one reconciliation pass with the analytics ES client. Never throws:
- * failures come back in `errors` and the next sync retries. Overlapping calls
- * (two vendors finishing their syncs together) share one pass.
+ * failures come back in `errors` and the next sync retries. Passes never
+ * overlap: a call made while one runs waits for it and then gets exactly one
+ * trailing pass (shared by every such caller), so alerts a vendor synced
+ * mid-pass are still seen.
  */
 export function runAgentKillReconciliation(): Promise<AgentKillPassResult> {
-  inFlight ??= runOnce().finally(() => { inFlight = null; });
-  return inFlight;
+  if (trailing) return trailing;
+  if (!current) return startPass();
+  trailing = current.then(() => {
+    trailing = null;
+    return startPass();
+  });
+  return trailing;
+}
+
+function startPass(): Promise<AgentKillPassResult> {
+  const pass: Promise<AgentKillPassResult> = runOnce().finally(() => {
+    if (current === pass) current = null;
+  });
+  current = pass;
+  return pass;
 }
 
 async function runOnce(): Promise<AgentKillPassResult> {

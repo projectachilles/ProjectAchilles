@@ -1,7 +1,7 @@
 // Type definitions for CrowdStrike Falcon integration via the Falcon API.
 
 import type { AutoResolveMode, EnrichmentPassOptions, EnrichmentPassResult, AutoResolvePassOptions, AutoResolvePassResult } from './defender.js';
-import type { AgentKillPassResult } from '../services/edr/agent-kill-reconcile.service.js';
+import type { AgentKillPassResult } from './agent-kill.js';
 
 export type { AutoResolveMode, EnrichmentPassOptions, EnrichmentPassResult, AutoResolvePassOptions, AutoResolvePassResult };
 

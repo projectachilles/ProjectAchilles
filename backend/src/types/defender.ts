@@ -1,6 +1,6 @@
 // Type definitions for Microsoft Defender integration via Microsoft Graph API.
 
-import type { AgentKillPassResult } from '../services/edr/agent-kill-reconcile.service.js';
+import type { AgentKillPassResult } from './agent-kill.js';
 
 // ---------------------------------------------------------------------------
 // Microsoft Graph API response shapes (only fields we consume)
