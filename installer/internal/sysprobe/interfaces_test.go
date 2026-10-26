@@ -124,3 +124,25 @@ func TestIsVirtualIface(t *testing.T) {
 		}
 	}
 }
+
+// HasAddr is the restore's "is the backup's CADDY_BIND_IP on this server"
+// check: any interface address counts (a VPN or bridge address can be bound),
+// IPv4-mapped forms match, and garbage never matches.
+func TestHasAddr(t *testing.T) {
+	mk := func(s string) net.Addr {
+		ip, n, _ := net.ParseCIDR(s)
+		n.IP = ip
+		return n
+	}
+	addrs := []net.Addr{mk("127.0.0.1/8"), mk("10.0.2.15/24"), mk("100.101.1.2/32"), mk("fd00::5/64"), &net.IPAddr{IP: net.ParseIP("192.168.9.9")}}
+	for ip, want := range map[string]bool{
+		"10.0.2.15": true, "100.101.1.2": true, "fd00::5": true, "192.168.9.9": true,
+		"::ffff:10.0.2.15": true, "10.0.2.16": false, "fd00::6": false, "": false, "not-an-ip": false,
+		// Unspecified: Caddy binds every address, which is always "on" this host.
+		"0.0.0.0": true, "::": true,
+	} {
+		if got := HasAddr(addrs, ip); got != want {
+			t.Errorf("HasAddr(%q) = %v, want %v", ip, got, want)
+		}
+	}
+}

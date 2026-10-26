@@ -115,7 +115,8 @@ func TestNonInteractiveInstallExitCode(t *testing.T) {
 			t.Errorf("output missing %q:\n%s", want, got)
 		}
 	}
-	if len(*calls) != 1 || (*calls)[0].root != repo || (*calls)[0].cfgPath != cfg {
+	// The engine runs on the copy in the checkout.
+	if len(*calls) != 1 || (*calls)[0].root != repo || (*calls)[0].cfgPath != filepath.Join(repo, "deploy.config.env") {
 		t.Errorf("runner calls = %+v", *calls)
 	}
 }
@@ -138,13 +139,20 @@ func TestNonInteractiveInstallSuccess(t *testing.T) {
 func TestNonInteractiveRelativeConfigMadeAbsolute(t *testing.T) {
 	cfg := validConfig(t)
 	t.Chdir(filepath.Dir(cfg))
+	repo := t.TempDir()
 	r, calls, b := unattendedRegistry(t, scripted{})
 	var out, errb bytes.Buffer
-	if code := r.Run([]string{"install", "--config", filepath.Base(cfg), "--yes", "--repo", t.TempDir()}, &out, &errb); code != 0 {
+	if code := r.Run([]string{"install", "--config", filepath.Base(cfg), "--yes", "--repo", repo}, &out, &errb); code != 0 {
 		t.Fatalf("exit code = %d (stderr %q)", code, errb.String())
 	}
-	if got := (*calls)[0].cfgPath; got != cfg {
-		t.Fatalf("engine config path = %q, want %q (output %q)", got, cfg, b.out.String())
+	// The engine gets an absolute path (the checkout's copy), and the copy
+	// came from the file the relative path named.
+	want := filepath.Join(repo, "deploy.config.env")
+	if got := (*calls)[0].cfgPath; got != want {
+		t.Fatalf("engine config path = %q, want %q (output %q)", got, want, b.out.String())
+	}
+	if a, c := readFileT(t, cfg), readFileT(t, want); a != c {
+		t.Fatalf("the copy is not %s", cfg)
 	}
 }
 
@@ -185,13 +193,17 @@ func TestNonInteractiveWithoutYesPrintsPlan(t *testing.T) {
 		t.Fatalf("exit code = %d, want 2", code)
 	}
 	got := b.out.String()
-	for _, want := range []string{"scripts/deploy-server.sh " + cfg, repo, "--yes"} {
+	inRepo := filepath.Join(repo, "deploy.config.env")
+	for _, want := range []string{"Would copy " + cfg + " to " + inRepo, "scripts/deploy-server.sh " + inRepo, repo, "--yes"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("plan missing %q:\n%s", want, got)
 		}
 	}
 	if len(*calls) != 0 {
 		t.Fatal("engine started without --yes")
+	}
+	if _, err := os.Stat(inRepo); err == nil {
+		t.Fatal("the plan copied the config")
 	}
 }
 
@@ -259,4 +271,13 @@ func TestNonInteractiveInvitesFirstAdmin(t *testing.T) {
 			t.Errorf("failure should print the manual steps: %q", b.err.String())
 		}
 	}
+}
+
+func readFileT(t *testing.T, p string) string {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }

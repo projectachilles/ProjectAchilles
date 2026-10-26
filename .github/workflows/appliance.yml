@@ -1,0 +1,109 @@
+name: Appliance Image
+
+# Builds the sealed Windows appliance image and boot-tests it under QEMU/OVMF.
+#   pull_request      quick boot-test, no artifact
+#   workflow_dispatch quick, or full + Hyper-V zip artifact when `full` is set;
+#                     pick the branch or tag with `gh workflow run … --ref <ref>`
+#   push of v*.*.*    full boot-test of the release tag + Hyper-V zip artifact
+# The job only ever checks out the ref it runs on: building another ref
+# (workflow_run, a `ref` input) would let that code write caches restored by
+# default-branch runs (CodeQL actions/cache-poisoning).
+
+on:
+  pull_request:
+    paths:
+      - 'appliance/**'
+      - 'installer/**'
+      - 'scripts/deploy-server.sh'
+      - 'docker-compose.server.yml'
+      - 'backend/Dockerfile'
+      - 'frontend/Dockerfile'
+      - '.github/workflows/appliance.yml'
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Full boot-test (install, backup, restore) and upload the Hyper-V zip'
+        required: false
+        type: boolean
+        default: false
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: appliance-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  appliance:
+    name: Build and boot-test appliance
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      MODE: ${{ (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.full)) && 'full' || 'quick' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history and tags: the image version is `git describe`.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/share/swift /opt/hostedtoolcache/CodeQL
+          docker system prune -af
+          df -h
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      # No Go cache: the installer is built once per run.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: installer/go.mod
+          cache: false
+
+      - name: Build, check and boot-test the image (${{ env.MODE }})
+        run: make -C appliance builder installer-bin installer-testbin image check-sealed boot-test MODE="$MODE"
+
+      - name: Package for Hyper-V
+        if: env.MODE == 'full'
+        run: make -C appliance vhdx
+
+      # Only the zip and its checksum: never repo.bundle or the qcow2 (logs of a
+      # failed run go to appliance-logs, below).
+      - name: Upload Hyper-V package
+        if: env.MODE == 'full'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: appliance-hyperv
+          path: |
+            appliance/out/ProjectAchilles-*-hyperv.zip
+            appliance/out/appliance-SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
+      # Diagnostics for a failed build or boot test, kept one day. Packer's log
+      # and the build VM's console: build-image.sh greps both for the build
+      # password and its hash, and deletes a file that holds either before it
+      # fails. Boot-test logs come from throwaway VMs configured with the
+      # placeholder fixtures in appliance/test/. Never the qcow2, the VM disks,
+      # the backup or repo.bundle.
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: appliance-logs
+          path: |
+            appliance/out/packer.log
+            appliance/out/serial.log
+            appliance/out/boot-test/**/*.log
+          if-no-files-found: ignore
+          retention-days: 1

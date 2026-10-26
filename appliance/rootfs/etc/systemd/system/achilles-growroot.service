@@ -1,0 +1,12 @@
+[Unit]
+Description=ProjectAchilles grow the root filesystem to fill the disk
+Before=achilles-firstboot.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/projectachilles/growroot.sh
+# First boot waits for this unit: never hold it on a hung growpart/resize2fs.
+TimeoutStartSec=5min
+
+[Install]
+WantedBy=multi-user.target

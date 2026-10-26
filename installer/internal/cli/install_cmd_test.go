@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -87,5 +88,66 @@ func TestDay2CommandsAcceptHandOffFlags(t *testing.T) {
 		if strings.Contains(errb.String(), "flag provided but not defined") {
 			t.Errorf("%s rejects the hand-off flags: %s", name, errb.String())
 		}
+	}
+}
+
+// `install --config X` puts the effective config into the checkout, where
+// backup finds it, and runs the engine on that copy.
+func TestInstallCopiesConfigIntoCheckout(t *testing.T) {
+	cfg := validConfig(t) // in a temp dir, outside the checkout
+	want, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	r, calls, b := unattendedRegistry(t, scripted{})
+	var out, errb bytes.Buffer
+	if code := r.Run([]string{"install", "--config", cfg, "--yes", "--repo", repo}, &out, &errb); code != 0 {
+		t.Fatalf("exit %d: %s", code, b.err.String())
+	}
+	dst := filepath.Join(repo, "deploy.config.env")
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("config not copied into the checkout: %v", err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("copy differs:\n%s\nwant:\n%s", got, want)
+	}
+	if fi, _ := os.Stat(dst); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("copy mode %v, want 0600", fi.Mode().Perm())
+	}
+	if len(*calls) != 1 || (*calls)[0].cfgPath != dst || (*calls)[0].root != repo {
+		t.Fatalf("engine calls = %+v, want the checkout's copy %s", *calls, dst)
+	}
+	if _, err := os.Stat(cfg); err != nil {
+		t.Fatalf("the original must stay: %v", err)
+	}
+}
+
+// A config that already is <repo>/deploy.config.env is used in place.
+func TestInstallConfigAlreadyInCheckoutNotCopied(t *testing.T) {
+	src := validConfig(t)
+	repo := filepath.Dir(src) // validConfig wrote <dir>/deploy.config.env
+	if err := os.Chmod(src, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.Stat(src)
+	r, calls, b := unattendedRegistry(t, scripted{})
+	var out, errb bytes.Buffer
+	// Reached through a path that is not literally <repo>/deploy.config.env.
+	via := filepath.Join(repo, ".", "deploy.config.env")
+	if code := r.Run([]string{"install", "--config", via, "--yes", "--repo", repo}, &out, &errb); code != 0 {
+		t.Fatalf("exit %d: %s", code, b.err.String())
+	}
+	after, _ := os.Stat(src)
+	if !os.SameFile(before, after) || after.Mode().Perm() != 0o640 {
+		t.Fatalf("the file in the checkout was replaced or re-moded (%v)", after.Mode().Perm())
+	}
+	ents, _ := os.ReadDir(repo)
+	if len(ents) != 1 {
+		t.Fatalf("stray files in the checkout: %v", ents)
+	}
+	if len(*calls) != 1 || (*calls)[0].cfgPath != src {
+		t.Fatalf("engine calls = %+v, want %s", *calls, src)
 	}
 }

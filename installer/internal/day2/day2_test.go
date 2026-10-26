@@ -298,13 +298,18 @@ func backupDeps(t *testing.T, f *fakeCmd) Deps {
 		Cmd: f, RepoDir: repo, CADir: caDir, BackupDir: filepath.Join(t.TempDir(), "backups"),
 		Out: io.Discard, In: strings.NewReader(""), Host: "achilles.corp.example.com",
 		Project: "projectachilles", Now: time.Now,
+		RunEngine: func(context.Context) error { return nil },
 	}
 }
 
 // helperFake simulates the alpine helper: a "tar -cf /out/X.tar" run writes
-// X.tar into the host directory mounted at /out. zstd probes fail.
+// X.tar into the host directory mounted at /out. zstd probes fail. `docker
+// ps` lists one container: an installed server.
 func helperFake(failTar bool) *fakeCmd {
 	return &fakeCmd{handler: func(c call) ([]byte, error) {
+		if c.name == "docker" && len(c.args) > 0 && c.args[0] == "ps" {
+			return []byte("3f2a1b\n"), nil
+		}
 		if c.name != "docker" || len(c.args) == 0 || c.args[0] != "run" {
 			return nil, nil
 		}
@@ -453,6 +458,8 @@ func TestRestoreRoundTripAndPerms(t *testing.T) {
 	_ = os.Chmod(d.CADir, 0o755)
 	f.calls = nil
 	d.In = strings.NewReader("achilles.corp.example.com\n")
+	engineRuns := 0
+	d.RunEngine = func(context.Context) error { engineRuns++; return nil }
 	if err := Restore(context.Background(), d, p, false); err != nil {
 		t.Fatal(err)
 	}
@@ -469,8 +476,10 @@ func TestRestoreRoundTripAndPerms(t *testing.T) {
 	if fi, _ := os.Stat(filepath.Join(d.CADir, "public")); fi.Mode().Perm() != 0o755 {
 		t.Fatalf("public dir mode %v", fi.Mode().Perm())
 	}
-	if !f.has("stop") || !f.has("up -d") {
-		t.Fatalf("calls: %v", f.calls)
+	// The config was restored, so the engine (not a bare compose up) starts
+	// the stack.
+	if !f.has("stop") || engineRuns != 1 || f.has("up -d") {
+		t.Fatalf("engine runs %d, calls: %v", engineRuns, f.calls)
 	}
 	if _, err := ca.Load(d.CADir); err != nil {
 		t.Fatalf("restored CA must load: %v", err)

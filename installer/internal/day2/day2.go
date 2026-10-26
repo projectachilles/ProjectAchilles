@@ -75,9 +75,13 @@ type Deps struct {
 	Health func(ctx context.Context, host string, roots *x509.CertPool) (HealthResult, error)
 	// DiskFree reports free bytes on path. Nil means the OS default.
 	DiskFree func(path string) (uint64, error)
-	// RunEngine re-runs the install engine non-interactively with the
-	// existing config, printing its progress. Upgrade only.
+	// RunEngine re-runs the install engine non-interactively with
+	// <RepoDir>/deploy.config.env, printing its progress. Upgrade and
+	// Restore use it.
 	RunEngine func(ctx context.Context) error
+	// HasLocalIP reports whether ip is an address of this host. Nil means
+	// sysprobe.HostHasIP.
+	HasLocalIP func(ip string) (bool, error)
 	// InstallerVersion is this binary's version (main.version). Upgrade
 	// uses it to tell the operator how to update the installer itself.
 	InstallerVersion string

@@ -59,8 +59,12 @@ jobs:
         working-directory: installer
         run: go test ./...
 
+      - name: Test (appliancetest build)
+        working-directory: installer
+        run: go test -tags appliancetest ./internal/firstboot/ ./internal/cli/
+
       - name: ShellCheck
         run: |
-          files="scripts/deploy-server.sh scripts/ca-renew.sh scripts/install-onprem.sh"
+          files="scripts/deploy-server.sh scripts/ca-renew.sh scripts/install-onprem.sh appliance/build/*.sh appliance/build/provision/*.sh appliance/test/*.sh appliance/rootfs/usr/local/lib/projectachilles/growroot.sh appliance/rootfs/etc/profile.d/achilles-appliance.sh"
           # shellcheck disable=SC2086
           docker run --rm -v "$PWD":/mnt -w /mnt koalaman/shellcheck:stable $files
