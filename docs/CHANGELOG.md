@@ -11,19 +11,51 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-10-25
+
+### Added
+
+- **SentinelOne integration** (#566, contributed by Max Garcia and Joan Cruz). Pulls threats and detection alerts from the SentinelOne Management API v2.1 (read-only by default) and matches them to test executions, so SentinelOne counts in Analytics, the Defense Score, campaign evidence and pre-execution notice emails. Adds a SentinelOne Analytics tab, a 6-hourly posture pass (policies, agent health, exclusion gaps), optional auto-resolve of test-matched incidents, and optional automatic mitigation (off by default: kills or quarantines test threats SentinelOne left unmitigated, audited, and never counted as SentinelOne prevention). Docker, Render and Fly.io backends; hidden on Vercel. Docs: wiki User Guide → Integrations → SentinelOne.
+- **SentinelOne Endpoint Protection score** (#594). SentinelOne has no posture score like Defender's Secure Score or CrowdStrike's Zero Trust Assessment, so Achilles computes one every 6 hours from the posture pass: the share of agents that pass seven checks (reporting, Protect mode, agent up to date, no active threat, anti-tamper on in the effective policy, firewall control on, disk encrypted). It leads the SentinelOne Analytics tab with its three weakest checks and a trend, and is the posture series in the Defense Score comparison. API: `GET /api/analytics/sentinelone/posture/protection-score`. A check the console doesn't report is skipped, not failed. Firewall Control needs its own SentinelOne license; without it that check fails on every agent.
+- **Auto-resolve tile on the SentinelOne tab** (#591), as on the Defender and CrowdStrike tabs: the mode, incidents resolved in the last 24 hours / 7 / 30 days, and a warning when auto-resolve is enabled with a read-only API token.
+
+### Changed
+
+- **EDR integration settings are deployment-wide.** Defender, CrowdStrike and SentinelOne settings were saved under the admin's Clerk org, but sync, enrichment and auto-resolve read only the deployment-wide settings, so with an active org the saved credentials never synced and the toggles never took effect. They are now one deployment-wide configuration, as on Vercel. Alerts, pre-execution notices and Azure stay per org.
+- **Multi-tenant: shared EDR settings are read-only from the UI.** With `REQUIRE_ORG_ISOLATION=true`, saving or deleting EDR settings, changing the auto-resolve mode, SentinelOne automatic mitigation and re-backfill return 403, so one tenant's admin can't change what runs for every tenant. Use the `DEFENDER_*`, `CROWDSTRIKE_*` and `SENTINELONE_*` environment variables there.
+- **backend-serverless:** `@vercel/node` 13 → 15 (the Vercel build runtime).
+
 ### Fixed
 
+- **Integration settings survive a corrupt `integrations.json`.** When the file couldn't be parsed (a truncated write, a hand edit), the next settings write, including the 5-minute Defender and CrowdStrike sync timestamps, replaced the whole file and dropped every other integration's credentials and the pre-execution notice settings. Writers now refuse to overwrite a file they can't read.
+- **Alert drawers:** Defender, CrowdStrike and SentinelOne alert details no longer say "Auto-resolved by Achilles" for dry runs or for alerts the auto-resolve pass skipped.
+- **Vercel:** the Alerts & Notifications settings card and the top-bar bell's alert calls are hidden; the serverless backend has no alerting, and every call returned 404.
+- **Settings → Users:** removing a role now says the user becomes read-only; the option read "No role (full access)".
 - **installer:** `status`, `upgrade`, `backup` and `restore` now refuse to run without root and print the `sudo` command to use. Before, `status` as a normal user reported a healthy install as broken (`Containers unavailable`, `no AchillesDomain in deploy.config.env`), because the configuration files and the Docker socket are root-only. The wizard's Done screen now shows the commands as `sudo ./achilles-installer …`.
 - **installer:** the preflight no longer warns on a fresh server because Docker isn't installed yet (the install adds it). It now warns only when Docker is installed but its daemon isn't answering, which would make the install fail.
+
+### Security
+
+- **AES-GCM tag length pinned** for pending agent API keys (both backends). This decrypt didn't fix the tag length, so a truncated 4-byte tag authenticated (2^32 forgery work instead of 2^128). It now requires 16 bytes, like the other GCM decrypts.
+- **SentinelOne console URL rebuilt from validated parts**, so nothing in the configured URL can change the host server-side requests go to.
+- **Code scanning is real again.** Semgrep had been scanning 0 files while reporting no findings; it now runs (0 findings across 701 files, `backend-serverless` included), and fork PRs get CodeQL, Semgrep and Claude reviews.
+- **Slack webhooks only go to Slack** (#592). Threshold alerts, pre-execution notices and the Test button posted to whatever webhook URL was saved, so an admin could point the server at any public host. Webhook URLs must now be `https://hooks.slack.com/services/…` or `https://hooks.slack.com/workflows/…`: other URLs are rejected when saved and never contacted, and Slack redirects aren't followed. (CodeQL js/request-forgery)
+- **Test build file names** use only the base name of the test UUID, so a crafted UUID can't place the signed binary outside the build directory (#592; CodeQL js/path-injection).
+- **Dependencies** (#593): `zod` 4.6.7 in the CLI ([GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5), high: memory exhaustion validating oversized collections) and `serialize-javascript` 7.1.3 in the wiki build ([GHSA-m5mm-p8h7-m29v](https://github.com/advisories/GHSA-m5mm-p8h7-m29v), low).
+
+### Upgrade notes
+
+- **EDR settings saved under an org** were never synced, and still aren't. At startup the backend now logs a warning for each one: re-enter those credentials once in Settings → Integrations, where they are saved deployment-wide. They aren't migrated automatically.
+- **Slack webhook URLs that aren't `hooks.slack.com`** (a relay or proxy) stop receiving alerts and notices, and **Test Channels** reports the URL as invalid. Enter a Slack incoming-webhook or workflow URL in Settings → Integrations → Alerts & Notifications.
 
 ### Documentation
 
 - **Clerk secret key.** The Clerk Setup guide now says to create a new secret key (**Add new key** → **Copy key and close**): Clerk shows a key in full only when it's created, and selecting an existing one can open the paid IP-allowlist dialog instead of copying it.
-
 - **Wiki callouts render again.** Since the Docusaurus 3.10.2 upgrade, every titled callout (`:::warning Title`, 160 on 61 pages) showed as raw text; they now use the `:::warning[Title]` syntax.
 - **Clerk Setup guide.** A new wiki page, Deployment → Clerk Setup, walks through the Clerk Dashboard with screenshots: create the app, copy the keys, the session token claim, Invite-only sign-ups, the first admin, and the production instance (text). Prerequisites now summarises it, and every deployment guide links to it.
 - **Clerk roles in every deployment guide.** The session token claim (`{"metadata": "{{user.public_metadata}}"}`), the first admin's `{"role": "admin"}` and an invite-only sign-up mode are now one section in the wiki's Prerequisites, and every deployment guide (Docker Compose, Server Installer, Public and On-Prem Server, Fly.io, Render, Railway, Vercel, the production checklists) points to it. Before, only the Server Installer and local quick start mentioned them.
 - **Server Installer page for on-prem and cloud.** The wiki page moved to `deployment/server-installer` and comes first among the server guides; sections are shared or marked *On-prem LAN* / *Cloud server* instead of cloud being appended at the end. The full reference is now `docs/deployment/SERVER_INSTALLER.md` (`ON_PREM_LAN.md` points to it).
+- **Alert feed docs.** The CrowdStrike and Defender Analytics pages no longer say that feed rows and the alerts tile open the alert drawer: a row's link icon opens the alert in the console, and the tile scrolls to the feed.
 
 ## [2.5.0] - 2026-10-24
 
@@ -743,7 +775,8 @@ Complete platform overhaul — custom agent system, multi-deployment support, Mi
 | Agent 0.6.0 | 2026-04-03 | First tagged agent binary release |
 | 1.0.0 | 2024-12-10 | Initial release |
 
-[Unreleased]: https://github.com/projectachilles/ProjectAchilles/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/projectachilles/ProjectAchilles/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/projectachilles/ProjectAchilles/compare/v2.3.0...v2.3.1
