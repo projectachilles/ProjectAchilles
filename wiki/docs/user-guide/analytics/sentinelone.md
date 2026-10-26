@@ -59,12 +59,12 @@ The score is the percentage of agents that pass **every** check below:
 
 | Check | Passes when |
 |-------|-------------|
-| Reporting | The agent is active (`isActive`) |
+| Checked in (7 days) | The agent is online now, or last checked in with the console within the past 7 days (`lastActiveDate`) |
 | Protect mode | The agent's mitigation mode is `protect`, not `detect` |
 | Agent up to date | The agent version is current (`isUpToDate`) |
 | No active threat | The agent is not infected |
 | Anti-tamper on | Anti-tamper is on in the policy that applies to the agent: its group's own policy, or the site policy when the group inherits, or the account policy when there is no site policy |
-| Firewall control on | SentinelOne Firewall Control is enabled on the agent (`firewallEnabled`) |
+| Firewall control on | SentinelOne Firewall Control is enabled on the agent (`firewallEnabled`); skipped when no agent has it on |
 | Disk encrypted | The agent reports disk encryption (`encryptedApplications`) |
 
 A check that an agent doesn't report is **skipped** for that agent, not
@@ -76,9 +76,15 @@ Network isolation doesn't lower the score. In SentinelOne, a "disconnected"
 network status means the console isolated the endpoint, which contains it; it
 is not a protection gap.
 
-Firewall Control is a separately licensed SentinelOne feature. Without it,
-that check fails on every agent and holds the score down; the tile's weakest
-checks show when that is the reason.
+An offline agent keeps protecting its endpoint, so being offline right now
+isn't a failure: a laptop closed overnight still passes **Checked in**. An
+agent that hasn't checked in for more than 7 days fails it, because nothing
+it reports can be trusted any more. (The **Active** count under Agent health
+is the live online state.)
+
+Firewall Control is a separately licensed SentinelOne feature. When no agent
+has it on, the check is treated as not deployed and skipped (the API marks it
+`notDeployed`); as soon as one agent has it on, it counts for every agent.
 
 The score is recalculated by every posture pass (with the first sync, then
 every 6 hours) and kept as a time series. Until the first pass the tile says

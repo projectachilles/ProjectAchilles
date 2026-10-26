@@ -65,6 +65,8 @@ export interface SentinelOneProtectionCheck {
   /** Agents the check could be evaluated for. */
   evaluated: number;
   passed: number;
+  /** Firewall control only: no agent has it on, so the check is skipped. */
+  notDeployed?: boolean;
 }
 
 export interface SentinelOneProtectionScore {

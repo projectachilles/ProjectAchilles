@@ -11,7 +11,14 @@
 //
 // networkStatus is deliberately not a check: "disconnected" means SentinelOne
 // network-isolated the endpoint (contained), not that it is unprotected.
-// Reporting is `isActive`.
+//
+// Reporting means "checked in within REPORTING_WINDOW_DAYS" (`lastActiveDate`),
+// not the live `isActive` flag: an offline agent keeps protecting the machine,
+// and a laptop closed overnight shouldn't fail the 3 AM snapshot.
+//
+// Firewall control is skipped when no agent has it on: that is SentinelOne
+// Firewall Control not deployed (it's licensed separately), not every agent
+// failing. Once one agent has it on, it counts for every agent.
 
 export type ProtectionCheckId =
   | 'reporting'
@@ -28,6 +35,8 @@ export interface ProtectionCheckResult {
   /** Agents the check could be evaluated for. */
   evaluated: number;
   passed: number;
+  /** Firewall control only: no agent has it on, so the check is skipped. */
+  notDeployed?: boolean;
 }
 
 export interface SentinelOneProtectionScore {
@@ -54,8 +63,12 @@ export interface ProtectionPolicyDoc {
   raw?: unknown;
 }
 
+/** An agent that checked in within this many days passes Reporting. */
+export const REPORTING_WINDOW_DAYS = 7;
+const REPORTING_WINDOW_MS = REPORTING_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
 const CHECKS: Array<{ id: ProtectionCheckId; label: string }> = [
-  { id: 'reporting', label: 'Reporting' },
+  { id: 'reporting', label: `Checked in (${REPORTING_WINDOW_DAYS} days)` },
   { id: 'protect_mode', label: 'Protect mode' },
   { id: 'up_to_date', label: 'Agent up to date' },
   { id: 'no_active_threat', label: 'No active threat' },
@@ -97,22 +110,45 @@ function effectiveAntiTamper(
   return account === 'missing' ? undefined : account;
 }
 
+/**
+ * Active now, or last checked in within the window. Undefined when the agent
+ * reports neither field; an unparseable date with `isActive: false` fails.
+ */
+function checkedIn(agent: Raw, now: number): boolean | undefined {
+  const active = bool(agent.isActive);
+  if (active) return true;
+  if (typeof agent.lastActiveDate === 'string' && agent.lastActiveDate) {
+    const t = Date.parse(agent.lastActiveDate);
+    return Number.isFinite(t) && now - t <= REPORTING_WINDOW_MS;
+  }
+  return active;
+}
+
 /** Each check's verdict for one agent: true pass, false fail, undefined not evaluated. */
-function agentChecks(agent: Raw, antiTamper: boolean | undefined): Record<ProtectionCheckId, boolean | undefined> {
+function agentChecks(
+  agent: Raw,
+  antiTamper: boolean | undefined,
+  now: number,
+  firewallDeployed: boolean,
+): Record<ProtectionCheckId, boolean | undefined> {
   const mode = typeof agent.mitigationMode === 'string' && agent.mitigationMode ? agent.mitigationMode : undefined;
   const infected = bool(agent.infected);
   return {
-    reporting: bool(agent.isActive),
+    reporting: checkedIn(agent, now),
     protect_mode: mode === undefined ? undefined : mode === 'protect',
     up_to_date: bool(agent.isUpToDate),
     no_active_threat: infected === undefined ? undefined : !infected,
     anti_tamper: antiTamper,
-    firewall_control: bool(agent.firewallEnabled),
+    firewall_control: firewallDeployed ? bool(agent.firewallEnabled) : undefined,
     disk_encrypted: bool(agent.encryptedApplications),
   };
 }
 
-export function computeProtectionScore(agents: Raw[], policyDocs: ProtectionPolicyDoc[]): SentinelOneProtectionScore {
+export function computeProtectionScore(
+  agents: Raw[],
+  policyDocs: ProtectionPolicyDoc[],
+  now: number = Date.now(),
+): SentinelOneProtectionScore {
   const policies = { group: new Map<string, ProtectionPolicyDoc>(), site: new Map<string, ProtectionPolicyDoc>(), account: new Map<string, ProtectionPolicyDoc>() };
   for (const doc of policyDocs) {
     const scopeId = id(doc.scope_id);
@@ -122,11 +158,12 @@ export function computeProtectionScore(agents: Raw[], policyDocs: ProtectionPoli
     else if (doc.level === 'account') policies.account.set(scopeId, doc);
   }
 
+  const firewallDeployed = agents.some((a) => a.firewallEnabled === true);
   const tally = new Map(CHECKS.map((c) => [c.id, { evaluated: 0, passed: 0 }]));
   let protectedCount = 0;
   let scored = 0;
   for (const agent of agents) {
-    const verdicts = agentChecks(agent, effectiveAntiTamper(agent, policies));
+    const verdicts = agentChecks(agent, effectiveAntiTamper(agent, policies), now, firewallDeployed);
     let evaluated = 0;
     let allPass = true;
     for (const c of CHECKS) {
@@ -148,6 +185,13 @@ export function computeProtectionScore(agents: Raw[], policyDocs: ProtectionPoli
     protected: protectedCount,
     scored,
     total: agents.length,
-    checks: CHECKS.map((c) => ({ id: c.id, label: c.label, ...tally.get(c.id)! })),
+    checks: CHECKS.map((c) => ({
+      id: c.id,
+      label: c.label,
+      ...tally.get(c.id)!,
+      ...(c.id === 'firewall_control' && !firewallDeployed && agents.some((a) => typeof a.firewallEnabled === 'boolean')
+        ? { notDeployed: true }
+        : {}),
+    })),
   };
 }

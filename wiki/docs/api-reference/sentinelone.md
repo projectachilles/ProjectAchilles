@@ -214,12 +214,12 @@ for what each check means.
     "scored": 120,        // agents with at least one evaluated check
     "total": 121,         // agents in the inventory
     "checks": [
-      { "id": "reporting", "label": "Reporting", "evaluated": 121, "passed": 118 },
+      { "id": "reporting", "label": "Checked in (7 days)", "evaluated": 121, "passed": 118 },
       { "id": "protect_mode", "label": "Protect mode", "evaluated": 121, "passed": 119 },
       { "id": "up_to_date", "label": "Agent up to date", "evaluated": 121, "passed": 117 },
       { "id": "no_active_threat", "label": "No active threat", "evaluated": 121, "passed": 121 },
       { "id": "anti_tamper", "label": "Anti-tamper on", "evaluated": 110, "passed": 110 },
-      { "id": "firewall_control", "label": "Firewall control on", "evaluated": 0, "passed": 0 },
+      { "id": "firewall_control", "label": "Firewall control on", "evaluated": 0, "passed": 0, "notDeployed": true },
       { "id": "disk_encrypted", "label": "Disk encrypted", "evaluated": 121, "passed": 112 }
     ]
   },
@@ -228,7 +228,11 @@ for what each check means.
 ```
 
 A check with `evaluated: 0` was reported by no agent (or, for anti-tamper, no
-applicable policy could be read) and doesn't affect the score. `latest` is
+applicable policy could be read) and doesn't affect the score.
+`notDeployed: true` on `firewall_control` means agents report Firewall Control
+but none has it on, so it is skipped rather than failed. `reporting` passes an
+agent that is online or checked in within the last 7 days; snapshots from
+v2.6.0 used the live online state and the label "Reporting". `latest` is
 `null` until the first posture pass after the upgrade, and no snapshot is
 written when the agent inventory couldn't be read.
 
