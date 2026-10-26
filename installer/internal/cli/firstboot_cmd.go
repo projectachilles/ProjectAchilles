@@ -20,12 +20,20 @@ type firstbootDeps struct {
 	stderr io.Writer
 }
 
+// newFirstbootUI builds the first-boot console. Test builds (-tags
+// appliancetest) override it in firstboot_testui.go.
+var newFirstbootUI = func() (firstboot.UI, error) { return firstboot.FormUI{}, nil }
+
 func init() {
 	registerFirstboot(defaultRegistry, firstbootDeps{
 		isRoot: func() bool { return os.Geteuid() == 0 },
 		exists: firstboot.OSHost{}.Exists,
 		run: func(ctx context.Context) error {
-			return firstboot.Run(ctx, firstboot.OSHost{}, firstboot.FormUI{}, sysprobe.SystemLANInterfaces, defaultRegistry.version)
+			ui, err := newFirstbootUI()
+			if err != nil {
+				return err
+			}
+			return firstboot.Run(ctx, firstboot.OSHost{}, ui, sysprobe.SystemLANInterfaces, defaultRegistry.version)
 		},
 		stderr: os.Stderr,
 	})

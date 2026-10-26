@@ -59,6 +59,10 @@ jobs:
         working-directory: installer
         run: go test ./...
 
+      - name: Test (appliancetest build)
+        working-directory: installer
+        run: go test -tags appliancetest ./internal/firstboot/ ./internal/cli/
+
       - name: ShellCheck
         run: |
           files="scripts/deploy-server.sh scripts/ca-renew.sh scripts/install-onprem.sh"
