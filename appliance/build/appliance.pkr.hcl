@@ -8,7 +8,7 @@
 
 variable "version" {
   type        = string
-  description = "Image version (git describe --tags --always --dirty)."
+  description = "Image version: the platform tag it was built from (Makefile DESCRIBED)."
 }
 
 variable "commit" {

@@ -11,10 +11,19 @@ BASE_IMG := ubuntu-24.04-server-cloudimg-amd64.img
 HOST_UID := $(shell id -u)
 HOST_GID := $(shell id -g)
 
-# Computed once (:=), still overridable with `make VER=x`.
+# The appliance version is the platform release tag it was built from (spec
+# 9): describe only v<x>.<y>.<z> tags, never agent-v* ones, which share
+# commits with platform releases. Computed once (:=).
+DESCRIBED := $(shell git describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --always --dirty)
 ifndef VER
-VER := $(shell git describe --tags --always --dirty)
+VER := $(DESCRIBED)
 endif
+# Expanded by `image`: a VER from the environment or the command line must
+# equal $(DESCRIBED), or the image would be named, versioned and stamped
+# (-X main.version, ACHILLES_VERSION) with it. ALLOW_VER_OVERRIDE=1 allows it.
+VER_CHECK = $(if $(filter 1,$(ALLOW_VER_OVERRIDE)),,$(if $(filter $(DESCRIBED),$(VER)),,$(error \
+	VER=$(VER) is not this commit's version $(DESCRIBED) (git describe). Unset VER, \
+	or set ALLOW_VER_OVERRIDE=1 to build an image named and stamped $(VER))))
 
 IMAGE ?= out/achilles-appliance-$(VER).qcow2
 
@@ -72,10 +81,12 @@ out-ownership-check: | $(OUT)
 	fi; echo "out-ownership-check: OK"
 
 # Sealed qcow2 from the committed HEAD: refuses a dirty tree (the image holds
-# a clean checkout of exactly $(COMMIT)), rebuilds the installer binary for
+# a clean checkout of exactly $(COMMIT)) and a VER that is not its describe
+# (VER_CHECK), rebuilds the installer binary for
 # this commit, bundles HEAD + tags, then runs Packer in the builder
 # (build/build-image.sh, which also runs check-sealed before naming the image).
 image:
+	$(VER_CHECK)
 	@case "$(VER)" in *-dirty) \
 		echo "commit your changes: the image must hold a clean checkout" >&2; exit 1 ;; esac
 	@git diff --quiet HEAD -- || { \

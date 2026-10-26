@@ -32,8 +32,17 @@ Run from the repo root with `make -C appliance <target>`.
 | `vhdx` | Convert `IMAGE` to a dynamic VHDX (`qemu-img convert -O vhdx -o subformat=dynamic`, then `qemu-img check`), zip it as `out/ProjectAchilles-<ver>-hyperv.zip` (holds `ProjectAchilles-<ver>.vhdx`) and write `out/appliance-SHA256SUMS`. Verify with `cd out && sha256sum -c appliance-SHA256SUMS` |
 | `clean` | Remove `appliance/out/` |
 
-`VER` defaults to `git describe --tags --always --dirty`; override with
-`make VER=x.y.z ...`.
+`VER` is the platform release the image is built from:
+`git describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --always --dirty`, so
+`v2.7.0` on a release tag and `v2.7.0-3-g<sha>` after it. Agent tags
+(`agent-v*`) never count, even on a commit they share with a platform
+release. `image` refuses a `VER` (environment or command line) that differs
+from that describe of HEAD, because the image is named, versioned and stamped
+(`-X main.version`, `ACHILLES_VERSION`) with it. To build one anyway, add
+`ALLOW_VER_OVERRIDE=1`, for example
+`make -C appliance image VER=v2.7.0-rc1 ALLOW_VER_OVERRIDE=1`. Other targets
+(`check-sealed`, `boot-test`, `vhdx`) take `VER` only to find the default
+`IMAGE`.
 
 ## Disk use
 
