@@ -20,6 +20,8 @@ import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { recordEvent } from './events.service.js';
 import { getNoticeSummaries } from '../notices/notices.repo.js';
 import type { NoticeScope } from '../notices/types.js';
+import { AGENT_KILL_WATCHDOG_ERRORS, parseSqliteUtc } from '../edr/agent-kill-evidence.js';
+import type { EdrTermination } from '../edr/agent-kill-evidence.js';
 
 // ============================================================================
 // HELPERS
@@ -773,6 +775,54 @@ export function markTaskIngested(taskId: string): void {
         last_ingest_attempt_at = datetime('now')
     WHERE id = ?
   `).run(taskId);
+}
+
+export interface AgentKillCandidateRow {
+  task: Task;
+  hostname: string | null;
+  /** Parsed `result.edr_terminated`; null until the task has been reconciled. */
+  termination: EdrTermination | null;
+}
+
+/**
+ * Watchdog-failed `execute_test` tasks (agent vanished mid-run) completed
+ * since `sinceIso`, with the agent hostname. Includes already-reconciled rows.
+ * Cyber-hygiene tests are excluded: they score per control, so a whole-test
+ * document can't represent them.
+ */
+export function listAgentKillCandidates(sinceIso: string): AgentKillCandidateRow[] {
+  const marks = AGENT_KILL_WATCHDOG_ERRORS.map(() => '?').join(', ');
+  // completed_at is stored as SQLite `YYYY-MM-DD HH:MM:SS`; compare in that format.
+  const since = new Date(parseSqliteUtc(sinceIso)).toISOString().slice(0, 19).replace('T', ' ');
+  const rows = getDatabase().prepare(`
+    SELECT t.*, a.hostname AS agent_hostname
+    FROM tasks t
+    LEFT JOIN agents a ON a.id = t.agent_id
+    WHERE t.type = 'execute_test'
+      AND t.status = 'failed'
+      AND json_extract(t.result, '$.error') IN (${marks})
+      AND t.completed_at >= ?
+      AND t.assigned_at IS NOT NULL
+      AND COALESCE(json_extract(t.payload, '$.metadata.category'), '') != 'cyber-hygiene'
+  `).all(...AGENT_KILL_WATCHDOG_ERRORS, since) as TaskRow[];
+  return rows.map((row) => {
+    const task = parseTaskRow(row);
+    const termination = (task.result as (TaskResult & { edr_terminated?: EdrTermination }) | null)?.edr_terminated ?? null;
+    return { task, hostname: row.agent_hostname ?? null, termination };
+  });
+}
+
+/**
+ * Stamp a watchdog-failed task as reconciled: adds `result.edr_terminated` and
+ * sets es_ingested = 1. `status` and `exit_code` stay as the watchdog left them.
+ */
+export function recordEdrTermination(taskId: string, t: EdrTermination): void {
+  getDatabase().prepare(`
+    UPDATE tasks
+    SET result = json_set(result, '$.edr_terminated', json(?)),
+        es_ingested = 1
+    WHERE id = ?
+  `).run(JSON.stringify(t), taskId);
 }
 
 /**
