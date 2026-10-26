@@ -38,12 +38,25 @@ func init() {
 	})
 }
 
-// withSignals cancels ctx on SIGINT/SIGTERM/SIGHUP so the day-2 commands' deferred
-// cleanup (restart the stack, remove staged secrets) runs instead of the
-// process dying with the stack stopped.
+// signalsToCatch is what withSignals turns into a cancel. SIGHUP is left out
+// when the process started with it ignored (`nohup achilles-installer
+// upgrade`): catching it would re-enable it, and an SSH disconnect would then
+// cancel the command the admin asked to survive one.
+func signalsToCatch(ignored func(os.Signal) bool) []os.Signal {
+	sigs := []os.Signal{os.Interrupt, syscall.SIGTERM}
+	if !ignored(syscall.SIGHUP) {
+		sigs = append(sigs, syscall.SIGHUP)
+	}
+	return sigs
+}
+
+// withSignals cancels ctx on SIGINT/SIGTERM (and SIGHUP unless ignored, see
+// signalsToCatch) so the day-2 commands' deferred cleanup (restart the stack,
+// remove staged secrets) runs instead of the process dying with the stack
+// stopped.
 func withSignals(h Handler) Handler {
 	return func(ctx context.Context, args []string) error {
-		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+		ctx, stop := signal.NotifyContext(ctx, signalsToCatch(signal.Ignored)...)
 		defer stop()
 		return h(ctx, args)
 	}
