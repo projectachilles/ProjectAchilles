@@ -1,9 +1,29 @@
 #!/bin/sh
 # Test stand-in for the docker CLI: logs each call and succeeds. `ps` prints
 # STUB_DOCKER_PS (the working_dir labels of existing compose containers).
+# `image inspect ... NAME` prints NAME's commit from STUB_DOCKER_IMAGES
+# (comma-separated name=commit pairs) or fails like a missing image. Compose
+# calls also log the ACHILLES_GIT_COMMIT they see, on an "env ..." line.
 [ -n "${STUB_LOG:-}" ] && echo "docker $*" >> "$STUB_LOG"
 case "$1" in
   --version) echo "Docker version 0.0.0-stub" ;;
   ps) [ -n "${STUB_DOCKER_PS:-}" ] && printf '%s\n' "$STUB_DOCKER_PS" ;;
+  compose) [ -n "${STUB_LOG:-}" ] && echo "env ACHILLES_GIT_COMMIT=${ACHILLES_GIT_COMMIT:-}" >> "$STUB_LOG" ;;
+  image)
+    if [ "${2:-}" = inspect ]; then
+      for name do :; done # the last argument is the image name
+      old_ifs=$IFS; IFS=,
+      for pair in ${STUB_DOCKER_IMAGES:-}; do
+        if [ "${pair%%=*}" = "$name" ]; then
+          IFS=$old_ifs
+          printf '%s\n' "${pair#*=}"
+          exit 0
+        fi
+      done
+      IFS=$old_ifs
+      echo "Error: No such image: $name" >&2
+      exit 1
+    fi
+    ;;
 esac
 exit 0

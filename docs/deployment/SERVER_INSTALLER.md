@@ -1029,6 +1029,13 @@ the `ca` commands take `--dir DIR` (default `/etc/projectachilles/ca`).
   Then run the unattended install once (section 12) so the engine and the
   renewal timer's root-owned copy in `/usr/local/lib/projectachilles/` use the
   new binary.
+- **Re-runs reuse images that are already current.** The engine labels the
+  backend and frontend images with the commit they were built from. When both
+  labels match the checked-out commit and nothing under `backend/` or
+  `frontend/` is modified, the `up` phase starts them without rebuilding and
+  logs `Using the pre-built images for <commit>`. After an upgrade the commit
+  changes, so they are rebuilt. To rebuild anyway, run with
+  `ACHILLES_FORCE_BUILD=1`.
 
 ### Backups
 
