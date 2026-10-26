@@ -36,6 +36,8 @@ const BULK_CHUNK = 500;
 type Raw = Record<string, unknown>;
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : typeof v === 'number' ? String(v) : undefined);
 const boolOrUndef = (v: unknown): boolean | undefined => (typeof v === 'boolean' ? v : undefined);
+/** A parseable date string as-is; anything else is left out (never an empty string). */
+const dateOrUndef = (v: unknown): string | undefined => (typeof v === 'string' && v && Number.isFinite(Date.parse(v)) ? v : undefined);
 const firstOf = (v: unknown): string | undefined => (Array.isArray(v) ? str(v[0]) : str(v));
 
 type PostureClient = Pick<SentinelOneClient, 'paginate' | 'listExclusions' | 'listSites' | 'listGroups' | 'getPolicy' | 'listAgents' | 'countAgents'>;
@@ -644,6 +646,7 @@ function toAgentDoc(a: Raw): { id: string; doc: Raw } | null {
       infected: boolOrUndef(a.infected),
       is_up_to_date: boolOrUndef(a.isUpToDate),
       network_status: str(a.networkStatus),
+      last_active_date: dateOrUndef(a.lastActiveDate),
     },
   };
 }

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { computeProtectionScore, type ProtectionPolicyDoc } from '../protection-score.js';
+import { computeProtectionScore, REPORTING_WINDOW_DAYS, type ProtectionPolicyDoc } from '../protection-score.js';
+
+const NOW = Date.parse('2026-10-26T10:00:00Z');
+const DAY = 24 * 60 * 60 * 1000;
+const daysAgo = (d: number) => new Date(NOW - d * DAY).toISOString();
 
 /** An agent that passes every check, overridable per test. */
 function agent(over: Record<string, unknown> = {}): Record<string, unknown> {
@@ -45,8 +49,62 @@ describe('computeProtectionScore', () => {
     expect(computeProtectionScore([agent({ networkStatus: 'disconnected' })], [sitePolicy(true)]).score).toBe(100);
   });
 
-  it('fails an agent that stopped reporting', () => {
-    expect(computeProtectionScore([agent({ isActive: false })], [sitePolicy(true)]).score).toBe(0);
+  describe('reporting: checked in within the window, not online right now', () => {
+    const offline = (over: Record<string, unknown>) => computeProtectionScore([agent({ isActive: false, ...over })], [sitePolicy(true)], NOW);
+
+    it('passes an offline agent that checked in within the window', () => {
+      expect(offline({ lastActiveDate: daysAgo(2.5) }).score).toBe(100);
+      expect(offline({ lastActiveDate: daysAgo(REPORTING_WINDOW_DAYS) }).score).toBe(100);
+    });
+
+    it('fails an agent that has not checked in for longer than the window', () => {
+      const r = offline({ lastActiveDate: daysAgo(REPORTING_WINDOW_DAYS + 0.01) });
+      expect(r.score).toBe(0);
+      expect(check(r, 'reporting')).toMatchObject({ evaluated: 1, passed: 0 });
+    });
+
+    it('passes an active agent whatever its last-active date says', () => {
+      expect(computeProtectionScore([agent({ lastActiveDate: daysAgo(30) })], [sitePolicy(true)], NOW).score).toBe(100);
+    });
+
+    it('falls back to isActive without a last-active date, and fails an unparseable one', () => {
+      expect(offline({}).score).toBe(0);
+      expect(offline({ lastActiveDate: 'not a date' }).score).toBe(0);
+    });
+
+    it('skips the check when the agent reports neither field', () => {
+      const r = computeProtectionScore([agent({ isActive: undefined })], [sitePolicy(true)], NOW);
+      expect(check(r, 'reporting').evaluated).toBe(0);
+    });
+
+    it('names the window in the label', () => {
+      expect(check(offline({}), 'reporting').label).toBe(`Checked in (${REPORTING_WINDOW_DAYS} days)`);
+    });
+  });
+
+  describe('firewall control', () => {
+    it('is skipped, as not deployed, when no agent has it on', () => {
+      const r = computeProtectionScore([agent({ firewallEnabled: false }), agent({ id: '2', firewallEnabled: false })], [sitePolicy(true)]);
+      expect(r.score).toBe(100);
+      expect(check(r, 'firewall_control')).toEqual({ id: 'firewall_control', label: 'Firewall control on', evaluated: 0, passed: 0, notDeployed: true });
+    });
+
+    it('counts for every agent once one agent has it on', () => {
+      const r = computeProtectionScore([agent(), agent({ id: '2', firewallEnabled: false })], [sitePolicy(true)]);
+      expect(r.score).toBe(50);
+      expect(check(r, 'firewall_control')).toEqual({ id: 'firewall_control', label: 'Firewall control on', evaluated: 2, passed: 1 });
+    });
+
+    it('is not flagged as not deployed when no agent reports the field', () => {
+      const r = computeProtectionScore([agent({ firewallEnabled: undefined })], [sitePolicy(true)]);
+      expect(check(r, 'firewall_control').notDeployed).toBeUndefined();
+    });
+  });
+
+  it('scores a laptop fleet that is offline overnight and has no Firewall Control (sb.gob.do, Oct 26 2026)', () => {
+    const fleet = [2.6, 2.5, 2.5, 2.5, 2.4].map((d, i) =>
+      agent({ id: String(i), isActive: false, lastActiveDate: daysAgo(d), firewallEnabled: false, networkStatus: 'connected' }));
+    expect(computeProtectionScore(fleet, [sitePolicy(true), inheritingGroup], NOW)).toMatchObject({ score: 100, protected: 5, scored: 5, total: 5 });
   });
 
   describe('anti-tamper comes from the policy that applies to the agent', () => {

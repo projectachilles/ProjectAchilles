@@ -11,6 +11,10 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+### Fixed
+
+- **SentinelOne Endpoint Protection score stuck at 0% on laptop fleets.** Two of its checks failed every agent for reasons that aren't protection gaps. *Reporting* used SentinelOne's live online flag, so a snapshot taken while laptops were closed failed all of them, although an offline agent keeps protecting its endpoint. It is now **Checked in (7 days)**: online, or last checked in within 7 days. *Firewall control* failed every agent on consoles without SentinelOne Firewall Control (a separate license); when no agent has it on, the check is now skipped as not deployed. Agent snapshots now also keep each agent's last check-in time.
+
 ## [2.6.0] - 2026-10-25
 
 ### Added

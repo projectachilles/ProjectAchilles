@@ -175,6 +175,7 @@ export const SENTINELONE_POSTURE_MAPPING = {
       infected: bool,
       is_up_to_date: bool,
       network_status: kw,
+      last_active_date: { type: 'date' as const },
       // agent health counts
       counts: {
         properties: {

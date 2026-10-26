@@ -70,7 +70,7 @@ describe('SentinelOnePostureService.runPosturePass', () => {
       listSites: vi.fn().mockResolvedValue({ data: [{ id: '22', name: 'Prod', accountId: '11' }] }),
       listGroups: vi.fn().mockResolvedValue({ data: [{ id: '33', name: 'Default', siteId: '22', inherits: true }, { id: '34', name: 'Lab', siteId: '22', inherits: false }] }),
       getPolicy: vi.fn().mockResolvedValue({ mitigationMode: 'protect', engines: { reputation: 'on' } }),
-      listAgents: vi.fn().mockResolvedValue({ data: [{ id: '5', computerName: 'win-01', osType: 'windows', isActive: true, mitigationMode: 'detect' }] }),
+      listAgents: vi.fn().mockResolvedValue({ data: [{ id: '5', computerName: 'win-01', osType: 'windows', isActive: true, mitigationMode: 'detect', lastActiveDate: '2026-10-23T23:06:49.000Z' }] }),
       countAgents: vi.fn().mockImplementation(async (p: Record<string, unknown>) => {
         if (p.mitigationMode) throw new SentinelOneApiError('unknown filter', 400, '');
         return 4;
@@ -102,6 +102,9 @@ describe('SentinelOnePostureService.runPosturePass', () => {
     // Endpoint Protection: the one agent runs in detect mode, so it isn't protected.
     expect(e.index.mock.calls[1][0].document).toMatchObject({ doc_type: 'protection_score', protection: { score: 0, protected: 0, scored: 1, total: 1 } });
     expect(r.protectionScore).toBe(0);
+    // The agent snapshot keeps the last check-in time behind the "Checked in" check.
+    const agentDoc = e.bulk.mock.calls.flatMap((x) => x[0].operations).find((o: Record<string, unknown>) => o.doc_type === 'agent');
+    expect(agentDoc).toMatchObject({ agent_id: '5', is_active: true, last_active_date: '2026-10-23T23:06:49.000Z' });
   });
 });
 
