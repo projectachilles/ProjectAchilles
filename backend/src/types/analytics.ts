@@ -363,13 +363,16 @@ export interface ChainDepthBucket {
 }
 
 export interface ChainDepthResponse {
-  chains: number;                // chains counted (blocked + end to end)
+  chains: number;                // chains counted (blocked + end to end + agent terminated)
   buckets: ChainDepthBucket[];   // always stages 1, 2, 3, 4 in order
   endToEnd: number;              // chains no stage blocked
   endToEndAlerted: number;       // of those, some stage was detected
   endToEndBundleNames: string[];
   endToEndAlertedBundleNames: string[];    // end-to-end chains where an EDR alerted
   endToEndUndetectedBundleNames: string[]; // end-to-end chains with no alert (a bundle can be in both)
+  /** Chains whose latest run the EDR stopped by killing the agent: stages unknown, so in no bucket and not end to end. */
+  agentTerminated: number;
+  agentTerminatedBundleNames: string[];
   inconclusive: number;          // chains whose latest run had an errored / pre-execution-blocked stage; in no bucket
   /** Of those, chains whose latest run had a stage blocked before it ran (260): the technique was not evaluated. */
   blockedBeforeRun: number;

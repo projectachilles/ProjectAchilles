@@ -153,6 +153,8 @@ interface ChainRun extends PairRun {
   blockedStages: number[] | null;
   /** "Stage N" numbers of the detected-but-unblocked stages; null when any has no such validator. */
   alertedStages: number[] | null;
+  /** The EDR killed the agent mid-run: one whole-test kill doc, stages unknown. */
+  agentTerminated: boolean;
 }
 
 function isChainRun(run: PairRun): run is ChainRun {
@@ -633,22 +635,41 @@ export class ElasticsearchService {
     };
   }
 
+  /**
+   * Whole-test doc of a bundle run the EDR killed along with the agent: it
+   * carries f0rtika.bundle_id but no is_bundle_control, and is scored as one
+   * more run of that bundle's pair (the stages are unknown).
+   */
+  private readonly KILL_BUNDLE_DOC = {
+    bool: {
+      filter: [
+        { term: { 'f0rtika.edr_terminated': true } },
+        { exists: { field: 'f0rtika.bundle_id' } },
+      ],
+    },
+  };
+
   /** Filter matching standalone tests + cyber-hygiene bundle controls (scored per-document). */
   private readonly PER_DOC_FILTER = {
     bool: {
       should: [
-        { bool: { must_not: [{ term: { 'f0rtika.is_bundle_control': true } }] } },
+        { bool: { must_not: [{ term: { 'f0rtika.is_bundle_control': true } }, this.KILL_BUNDLE_DOC] } },
         { term: { 'f0rtika.category': 'cyber-hygiene' } },
       ],
       minimum_should_match: 1,
     },
   };
 
-  /** Filter matching non-cyber-hygiene bundle controls (scored per-bundle-group). */
+  /** Filter matching non-cyber-hygiene bundle controls and bundle kill docs (scored per-bundle-group). */
   private readonly PER_BUNDLE_FILTER = {
     bool: {
       must: [
-        { term: { 'f0rtika.is_bundle_control': true } },
+        {
+          bool: {
+            should: [{ term: { 'f0rtika.is_bundle_control': true } }, this.KILL_BUNDLE_DOC],
+            minimum_should_match: 1,
+          },
+        },
         { bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] } },
       ],
     },
@@ -1334,6 +1355,8 @@ export class ElasticsearchService {
         },
         codes: { terms: { field: 'event.ERROR', size: 10 } },
         names: { terms: { field: 'f0rtika.error_name', size: 20 } },
+        // Chain depth: a kill run has no stage to bucket at.
+        edr_terminated: { filter: { term: { 'f0rtika.edr_terminated': true } } },
       },
       (b) => {
         const ts = parseEsTime(b.key?.ts);
@@ -1359,6 +1382,7 @@ export class ElasticsearchService {
           alertedUnblocked: (b.alerted_unblocked?.doc_count ?? 0) > 0,
           blockedStages: stageNumbers(b.strict),
           alertedStages: stageNumbers(b.alerted_unblocked),
+          agentTerminated: (b.edr_terminated?.doc_count ?? 0) > 0,
         };
         all.push(run);
         allBundles.push(bundleId);
@@ -3183,6 +3207,9 @@ export class ElasticsearchService {
    * Inconclusive pairs are counted only when the outcome filters let
    * inconclusive results through (no result=protected|unprotected, no
    * errorCodes/errorNames: their codes aren't fetched).
+   * A run the EDR cut short by killing the agent (one whole-test kill doc,
+   * exit 126) is a settled chain with unknown stages: it counts in `chains`
+   * and `agentTerminated`, never in a stage bucket or end to end.
    */
   async getChainDepth(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<ChainDepthResponse> {
     const scope = await this.resolvePostureScope({ ...params, scoringMode: 'any-stage' });
@@ -3208,13 +3235,18 @@ export class ElasticsearchService {
     const endToEndNames = new Set<string>();
     const endToEndAlertedNames = new Set<string>();
     const endToEndUndetectedNames = new Set<string>();
+    const agentTerminatedNames = new Set<string>();
     let chains = 0;
     let endToEnd = 0;
     let endToEndAlerted = 0;
+    let agentTerminated = 0;
     for (const p of applyOutcomeFilters(settled, outcome)) {
       if (!isChainRun(p)) continue;
       chains++;
-      if (p.strictProtected) {
+      if (p.agentTerminated) {
+        agentTerminated++;
+        if (p.testName) agentTerminatedNames.add(p.testName);
+      } else if (p.strictProtected) {
         const stop = chainStop(p);
         const bucket = buckets[Math.min(Math.max(stop.stage, 1), 4) - 1];
         bucket.blocked++;
@@ -3249,6 +3281,8 @@ export class ElasticsearchService {
       endToEndBundleNames: sorted(endToEndNames),
       endToEndAlertedBundleNames: sorted(endToEndAlertedNames),
       endToEndUndetectedBundleNames: sorted(endToEndUndetectedNames),
+      agentTerminated,
+      agentTerminatedBundleNames: sorted(agentTerminatedNames),
       inconclusive: showInconclusive ? inconclusiveKeys.size : 0,
       blockedBeforeRun: showInconclusive ? blockedBeforeRun.length : 0,
       blockedBeforeRunBundleNames: showInconclusive ? sorted(new Set(blockedBeforeRun.flatMap(r => (r.bundleName ? [r.bundleName] : [])))) : [],
