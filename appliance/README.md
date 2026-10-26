@@ -80,8 +80,14 @@ qcow2 gets its final name; `make check-sealed` re-runs the gate.
 | Trigger | Mode | Artifact |
 |---------|------|----------|
 | `pull_request` touching `appliance/`, `installer/`, `scripts/deploy-server.sh`, the server compose file or the Dockerfiles | `quick` | none |
-| `workflow_dispatch` (inputs `ref`, `full`) | `quick`, or `full` when `full` is set | in full mode |
-| `workflow_run` after a successful "Release Platform" | `full`, on the released commit | yes |
+| `workflow_dispatch` (input `full`; pick the branch or tag with `--ref`) | `quick`, or `full` when `full` is set | in full mode |
+| push of a `v*.*.*` tag | `full`, on the tag | yes |
+
+The job only builds the ref it runs on. Checking out another ref (a
+`workflow_run` trigger, a `ref` input) would let that code write Actions
+caches that default-branch runs restore (CodeQL
+`actions/cache-poisoning`). The tag-push run starts alongside "Release
+Platform" rather than after it.
 
 In full mode the job also runs `make vhdx` and uploads only
 `ProjectAchilles-<ver>-hyperv.zip` and `appliance-SHA256SUMS` as the

@@ -1,9 +1,13 @@
 name: Appliance Image
 
 # Builds the sealed Windows appliance image and boot-tests it under QEMU/OVMF.
-#   pull_request     quick boot-test, no artifact
-#   workflow_dispatch full boot-test only when `full` is set
-#   workflow_run     full boot-test of a successful platform release + Hyper-V zip artifact
+#   pull_request      quick boot-test, no artifact
+#   workflow_dispatch quick, or full + Hyper-V zip artifact when `full` is set;
+#                     pick the branch or tag with `gh workflow run … --ref <ref>`
+#   push of v*.*.*    full boot-test of the release tag + Hyper-V zip artifact
+# The job only ever checks out the ref it runs on: building another ref
+# (workflow_run, a `ref` input) would let that code write caches restored by
+# default-branch runs (CodeQL actions/cache-poisoning).
 
 on:
   pull_request:
@@ -17,24 +21,19 @@ on:
       - '.github/workflows/appliance.yml'
   workflow_dispatch:
     inputs:
-      ref:
-        description: 'Branch, tag or SHA to build (default: the selected branch)'
-        required: false
-        type: string
       full:
         description: 'Full boot-test (install, backup, restore) and upload the Hyper-V zip'
         required: false
         type: boolean
         default: false
-  workflow_run:
-    workflows: ['Release Platform']
-    types: [completed]
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
 
 permissions:
   contents: read
 
 concurrency:
-  group: appliance-${{ github.event.workflow_run.head_sha || github.ref }}
+  group: appliance-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -42,16 +41,14 @@ jobs:
     name: Build and boot-test appliance
     runs-on: ubuntu-latest
     timeout-minutes: 150
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     env:
-      MODE: ${{ (github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && inputs.full)) && 'full' || 'quick' }}
+      MODE: ${{ (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.full)) && 'full' || 'quick' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Full history and tags: the image version is `git describe`.
           fetch-depth: 0
           persist-credentials: false
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.ref || '' }}
 
       - name: Free runner disk
         run: |
@@ -67,9 +64,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
 
-      # No Go cache: this job checks out a chosen ref (inputs.ref or the release
-      # commit), and a cache it saved would be restored by default-branch runs
-      # (cache poisoning). The installer builds once per run anyway.
+      # No Go cache: the installer is built once per run.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: installer/go.mod
