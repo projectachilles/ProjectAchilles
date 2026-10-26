@@ -309,9 +309,14 @@ func Restore(ctx context.Context, d Deps, file string, yes bool) error {
 		return nil
 	}
 
+	// Printed as well as returned on the failures below: the CLI shows only
+	// the engine's own error when it carries an exit status.
+	finish := fmt.Sprintf("sudo %s install --config %s --yes", filepath.Join(d.RepoDir, "achilles-installer"), cfgPath)
 	c, err := config.Load(cfgPath)
 	if err != nil {
-		return fmt.Errorf("reading the restored %s: %w", cfgPath, err)
+		fmt.Fprintf(w, "\nThe data is restored, but the restored %s can't be read: %v\nFix the file, then finish with:\n  %s\n", cfgPath, err, finish)
+		return fmt.Errorf("the data is restored, but the restored %s can't be read: %w. "+
+			"Fix the file, then finish with: %s", cfgPath, err, finish)
 	}
 	if ip := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(c.CaddyBindIP), "["), "]"); ip != "" {
 		local, err := d.hasLocalIP(ip)
@@ -328,9 +333,6 @@ func Restore(ctx context.Context, d Deps, file string, yes bool) error {
 	}
 	fmt.Fprintf(w, "Re-running the installer with the restored %s...\n", cfgPath)
 	if err := d.RunEngine(ctx); err != nil {
-		// Printed as well as returned: the CLI shows only the engine's own
-		// error when it carries an exit status.
-		finish := fmt.Sprintf("sudo %s install --config %s --yes", filepath.Join(d.RepoDir, "achilles-installer"), cfgPath)
 		fmt.Fprintf(w, "\nThe data is restored, but the installer run that starts the stack failed. Fix the problem above, then finish with:\n  %s\n", finish)
 		return fmt.Errorf("the data is restored, but the installer run that starts the stack failed: %w. "+
 			"Fix the problem above, then finish with: %s", err, finish)

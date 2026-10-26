@@ -311,3 +311,39 @@ func TestBackupWarnsWithoutConfig(t *testing.T) {
 		t.Fatalf("warning printed with the config present:\n%s", out.String())
 	}
 }
+
+// A restored deploy.config.env the installer can't parse (shell syntax a
+// hand-edited config may hold) fails the restore after the data is back: it
+// must say so, print the command that finishes the job, and still fail.
+func TestRestoreUnreadableConfigPrintsFinishCommand(t *testing.T) {
+	src := backupDeps(t, helperFake(false))
+	bad := "ACHILLES_DOMAIN=achilles.test\nif [ -n \"$X\" ]; then TLS_MODE=internal; fi\n"
+	if err := os.WriteFile(filepath.Join(src.RepoDir, "deploy.config.env"), []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Backup(context.Background(), src, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := restoreFake("", nil)
+	var out strings.Builder
+	runs := 0
+	d := freshDeps(t, f, &out, &runs, true)
+	err = Restore(context.Background(), d, p, true)
+	if err == nil {
+		t.Fatalf("restore succeeded with an unreadable config\n%s", out.String())
+	}
+	if runs != 0 {
+		t.Fatalf("engine runs = %d, want 0", runs)
+	}
+	finish := "sudo " + filepath.Join(d.RepoDir, "achilles-installer") + " install --config " +
+		filepath.Join(d.RepoDir, "deploy.config.env") + " --yes"
+	for name, s := range map[string]string{"output": out.String(), "error": err.Error()} {
+		if !strings.Contains(s, finish) || !strings.Contains(s, "data is restored") {
+			t.Errorf("%s does not say the data is restored and name %q:\n%s", name, finish, s)
+		}
+	}
+	if !strings.Contains(err.Error(), "expected KEY=value") {
+		t.Errorf("err = %v, want the parse error", err)
+	}
+}

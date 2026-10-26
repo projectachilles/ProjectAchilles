@@ -1095,7 +1095,9 @@ what the backup doesn't hold: `deploy/caddy/rendered/`, the `/etc/hosts` entry
 (`HOSTS_ENTRY=true`) and the CA renewal timer. If that engine run fails, the
 data is already restored: fix the reported problem and finish with
 `sudo /opt/projectachilles/achilles-installer install --config /opt/projectachilles/deploy.config.env --yes`
-(restore prints the command with your paths).
+(restore prints the command with your paths). The same applies when the
+restored `deploy.config.env` can't be read (for example shell syntax the
+installer doesn't accept): fix the file and run that command.
 
 **A backup with another project name.** An appliance ships its images as
 `achilles-server-backend` and `achilles-server-frontend`. A backup from an
