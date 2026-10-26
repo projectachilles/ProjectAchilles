@@ -6,6 +6,7 @@ import { createEsClient } from '../analytics/client.js';
 import { DEFENDER_INDEX } from './index-management.js';
 import { buildAlertTimeWindowQuery, buildDefenderEvidenceQuery } from './evidence-correlation.js';
 import { attackSimulationExclusions } from '../analytics/attack-simulation-filter.js';
+import { NOT_EDR_TERMINATED } from '../analytics/enrichment-eligibility.js';
 import { projectAlertHit } from '../alerts/alertHit.js';
 import { getControlMitreTechniques } from './control-correlation.service.js';
 import { trendInterval, windowRange } from '../analytics/integration-window.js';
@@ -682,7 +683,7 @@ export class DefenderAnalyticsService {
     const testResult = await client.search({
       index: settings.indexPattern,
       size: 0,
-      query: { bool: { must_not: attackSimulationExclusions() } },
+      query: { bool: { filter: [NOT_EDR_TERMINATED], must_not: attackSimulationExclusions() } },
       aggs: {
         techniques: { terms: { field: 'f0rtika.techniques', size: 100 } },
       },
@@ -763,6 +764,7 @@ export class DefenderAnalyticsService {
       query: {
         bool: {
           must: [{ range: { 'routing.event_time': { gte: `now-${days}d/d` } } }],
+          filter: [NOT_EDR_TERMINATED],
           must_not: attackSimulationExclusions(),
         },
       },

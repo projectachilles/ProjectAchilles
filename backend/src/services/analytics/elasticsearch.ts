@@ -4,6 +4,7 @@ import { Client } from '@elastic/elasticsearch';
 import { createEsClient } from './client.js';
 import { RiskAcceptanceService } from '../risk-acceptance/risk-acceptance.service.js';
 import { attackSimulationExclusions } from './attack-simulation-filter.js';
+import { NOT_EDR_TERMINATED } from './enrichment-eligibility.js';
 import { AppError } from '../../middleware/error.middleware.js';
 import {
   MAX_FRESHNESS_DAYS,
@@ -291,19 +292,12 @@ export const TEST_KEY_SCRIPT = {
   lang: 'painless' as const,
 };
 
-/** Exit code for a test binary blocked before it ran (e.g. an ASR prevalence rule). */
-/**
- * Excludes the whole-test doc of a run the EDR killed along with the agent.
- * Technique views apply it: the stages of such a run are unknown, so it counts
- * for the test as a whole but never for its techniques.
- */
-export const NOT_EDR_TERMINATED = { bool: { must_not: [{ term: { 'f0rtika.edr_terminated': true } }] } };
-
 /** Internal option of the latest-basis technique readers; part of the posture cache key. */
 interface TechniqueScopeOption {
   excludeEdrTerminated?: boolean;
 }
 
+/** Exit code for a test binary blocked before it ran (e.g. an ASR prevalence rule). */
 const BLOCKED_PRE_EXECUTION_CODE = 260;
 
 /** Newest inconclusive run of a chain (see fetchBundleInconclusiveRuns). */
@@ -2156,7 +2150,7 @@ export class ElasticsearchService {
       index: this.settings.indexPattern,
       size: 0,
       query: {
-        bool: { filter: [this.buildTestDataFilter()] }
+        bool: { filter: [this.buildTestDataFilter(), NOT_EDR_TERMINATED] }
       },
       aggs: {
         techniques: {

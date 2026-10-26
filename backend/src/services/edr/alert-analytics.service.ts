@@ -8,6 +8,7 @@ import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { buildAlertTimeWindowQuery, buildCrowdStrikeEvidenceQuery } from '../crowdstrike/evidence-correlation.js';
 import { attackSimulationExclusions } from '../analytics/attack-simulation-filter.js';
+import { NOT_EDR_TERMINATED } from '../analytics/enrichment-eligibility.js';
 import { projectAlertHit } from '../alerts/alertHit.js';
 import { trendInterval, windowRange } from '../analytics/integration-window.js';
 import { alertDocs, alertFacets, allOf, LINKED, firstString, severityFilter, sourceFilter } from '../analytics/alert-facets.js';
@@ -515,7 +516,7 @@ export class EdrAlertAnalyticsService {
     const testResult = await client.search({
       index: settings.indexPattern,
       size: 0,
-      query: { bool: { must_not: attackSimulationExclusions() } },
+      query: { bool: { filter: [NOT_EDR_TERMINATED], must_not: attackSimulationExclusions() } },
       aggs: {
         techniques: { terms: { field: 'f0rtika.techniques', size: 100 } },
       },
@@ -596,6 +597,7 @@ export class EdrAlertAnalyticsService {
       query: {
         bool: {
           must: [{ range: { 'routing.event_time': { gte: `now-${days}d/d` } } }],
+          filter: [NOT_EDR_TERMINATED],
           must_not: attackSimulationExclusions(),
         },
       },

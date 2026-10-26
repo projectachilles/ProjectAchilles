@@ -23,7 +23,8 @@ vi.mock('../../risk-acceptance/risk-acceptance.service.js', () => ({
   }),
 }));
 
-const { ElasticsearchService, NOT_EDR_TERMINATED } = await import('../elasticsearch.js');
+const { ElasticsearchService } = await import('../elasticsearch.js');
+const { NOT_EDR_TERMINATED } = await import('../enrichment-eligibility.js');
 
 const useIndex = (docs: Doc[]) => useIndexOn(mockSearch, docs);
 
@@ -110,11 +111,16 @@ describe('technique views and EDR-killed runs', () => {
     });
   });
 
+  it('getAvailableTechniques excludes edr_terminated docs', async () => {
+    await createService().getAvailableTechniques();
+    expect(mockSearch.mock.calls[0][0].query.bool.filter).toContainEqual(NOT_EDR_TERMINATED);
+  });
+
   describe('basis=latest', () => {
     it('getTechniqueDistributionLatest: a kill-doc pair contributes no technique', async () => {
       useIndex([stage(T0, 1, 101, 'T1486'), bundleKill(T1), standaloneKill(T1)]);
       const items = await createService().getTechniqueDistributionLatest(LATEST);
-      // The kill docs are not the latest run any more: the real stage run stands.
+      // Kill docs are excluded from the pair runs, so the real stage run stands.
       expect(items).toEqual([{ technique: 'T1486', protected: 0, unprotected: 1 }]);
     });
 
@@ -147,16 +153,19 @@ describe('technique views and EDR-killed runs', () => {
       expect(tile.clauses).not.toContainEqual(NOT_EDR_TERMINATED);
     });
 
-    it('a technique read after the tile re-queries instead of reusing its snapshot', async () => {
-      useIndex([stage(T0, 1, 101, 'T1486'), bundleKill(T1)]);
+    it('a technique read does not reuse a test-level breakdown snapshot, and leaves it intact', async () => {
+      // getDefenseScoreByHostnameLatest reads the same metadata/all-stages scope as the technique views.
+      useIndex([standaloneKill(T1)]);
       const svc = createService();
-      await svc.getDefenseScoreLatest({ ...LATEST, scoringMode: 'any-stage' });
+      const params = { ...LATEST, scoringMode: 'all-stages' as const };
+      expect(await svc.getDefenseScoreByHostnameLatest(params)).toMatchObject([{ hostname: 'h1', score: 100 }]);
+
       const before = mockSearch.mock.calls.length;
-      await svc.getTechniqueOutcomes(LATEST);
+      expect(await svc.getTechniqueOutcomes(params)).toEqual([]);
       expect(mockSearch.mock.calls.length).toBeGreaterThan(before);
-      // And the tile's own entry is intact.
+
       const again = mockSearch.mock.calls.length;
-      await svc.getDefenseScoreLatest({ ...LATEST, scoringMode: 'any-stage' });
+      expect(await svc.getDefenseScoreByHostnameLatest(params)).toMatchObject([{ hostname: 'h1', score: 100 }]);
       expect(mockSearch.mock.calls.length).toBe(again);
     });
   });

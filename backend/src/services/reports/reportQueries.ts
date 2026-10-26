@@ -2,7 +2,8 @@
 // Pure: each returns a search body without `index`; the service adds the
 // index pattern. Caps live here so the parsers and the service agree.
 
-import { NOT_EDR_TERMINATED, RUN_GROUP_KEY_SCRIPT, TEST_KEY_SCRIPT } from '../analytics/elasticsearch.js';
+import { RUN_GROUP_KEY_SCRIPT, TEST_KEY_SCRIPT } from '../analytics/elasticsearch.js';
+import { NOT_EDR_TERMINATED } from '../analytics/enrichment-eligibility.js';
 import { HIGH_IMPACT_FILTER, OUTCOME_FILTERS } from './stageOutcome.js';
 import type { TimeBucket } from '../../types/reports.js';
 
@@ -42,7 +43,8 @@ export function scopeRequest(filters: unknown[]): Body {
       runs: runCount(),
       endpoints: { cardinality: { field: 'routing.hostname' } },
       tests: { cardinality: { script: TEST_KEY_SCRIPT } },
-      tactics: { cardinality: { field: 'f0rtika.tactics' } },
+      // Kill docs carry the test's tactics, but their stages are unknown.
+      tactics: { filter: NOT_EDR_TERMINATED, aggs: { distinct: { cardinality: { field: 'f0rtika.tactics' } } } },
       first: { min: { field: 'routing.event_time' } },
       last: { max: { field: 'routing.event_time' } },
       high_impact: { filter: HIGH_IMPACT_FILTER },

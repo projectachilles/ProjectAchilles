@@ -14,7 +14,7 @@ describe('parseScope', () => {
   const res = {
     aggregations: {
       outcomes: agg({ protected: 3, unprotected: 2, skipped: 4 }),
-      runs: { value: 12_345 }, endpoints: { value: 5 }, tests: { value: 2 }, tactics: { value: 3 },
+      runs: { value: 12_345 }, endpoints: { value: 5 }, tests: { value: 2 }, tactics: { distinct: { value: 3 } },
       first: { value: T }, last: { value: T + 60_000 }, high_impact: { doc_count: 1 },
       hosts: { buckets: [{ key: 'WS-FIN-014', runs: { value: 4 }, outcomes: agg({ protected: 1 }) }] },
       techniques: { by_technique: { buckets: [

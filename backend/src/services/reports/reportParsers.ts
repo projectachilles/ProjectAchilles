@@ -87,7 +87,7 @@ export function parseScope(response: Agg): ParsedScope {
     runsApproximate: runs > APPROXIMATE_ABOVE,
     endpoints: a.endpoints?.value ?? 0,
     tests: a.tests?.value ?? 0,
-    tactics: a.tactics?.value ?? 0,
+    tactics: a.tactics?.distinct?.value ?? 0,
     highImpactUnprotected: a.high_impact?.doc_count ?? 0,
     firstExecution: isoOf(a.first),
     lastExecution: isoOf(a.last),

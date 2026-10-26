@@ -20,7 +20,7 @@ const agg = (c: Partial<OutcomeCounts>) => ({ buckets: Object.fromEntries(STAGE_
 function scopeResponse(over: { outcomes?: Partial<OutcomeCounts>; runs?: number; otherHostDocs?: number } = {}) {
   return { aggregations: {
     outcomes: agg(over.outcomes ?? { protected: 1, unprotected: 1 }),
-    runs: { value: over.runs ?? 1 }, endpoints: { value: 1 }, tests: { value: 1 }, tactics: { value: 2 },
+    runs: { value: over.runs ?? 1 }, endpoints: { value: 1 }, tests: { value: 1 }, tactics: { distinct: { value: 2 } },
     first: { value: T_RUN }, last: { value: T_RUN }, high_impact: { doc_count: 1 },
     hosts: {
       sum_other_doc_count: over.otherHostDocs ?? 0,
