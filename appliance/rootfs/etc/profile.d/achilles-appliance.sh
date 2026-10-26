@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # ProjectAchilles appliance: show the admin menu on interactive logins of the
 # "achilles" user. POSIX sh; sourced by login shells, so it never terminates
 # the shell, and it does nothing for other users or non-interactive shells.

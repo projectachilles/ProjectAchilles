@@ -29,7 +29,7 @@ Run from the repo root with `make -C appliance <target>`.
 | `image` | Build `out/achilles-appliance-<ver>.qcow2` with Packer from the committed HEAD (refuses a dirty tree; about 6-10 min with KVM). Log: `out/packer.log`, VM console: `out/serial.log` |
 | `check-sealed` | Assert the image is sealed (`IMAGE=` defaults to this `VER`'s image) |
 | `boot-test` | Boot `IMAGE` in two throwaway UEFI VMs (`test/boot-test.sh`). `MODE=quick` (about 10 min): first boot, distinct identities, clean checkout and image labels at the build commit, reboot. `MODE=full` (10-40 min) also installs on VM1, backs it up and restores the backup on VM2. Serial logs and install output: `out/boot-test/` |
-| `vhdx` | Produce the Hyper-V zip (later task) |
+| `vhdx` | Convert `IMAGE` to a dynamic VHDX (`qemu-img convert -O vhdx -o subformat=dynamic`, then `qemu-img check`), zip it as `out/ProjectAchilles-<ver>-hyperv.zip` (holds `ProjectAchilles-<ver>.vhdx`) and write `out/appliance-SHA256SUMS`. Verify with `cd out && sha256sum -c appliance-SHA256SUMS` |
 | `clean` | Remove `appliance/out/` |
 
 `VER` defaults to `git describe --tags --always --dirty`; override with
@@ -61,3 +61,19 @@ The image holds the committed HEAD, so commit first: `image` refuses a
 `-dirty` version. `build-image.sh` sparsifies the qcow2, refuses it if it
 contains the build password or its hash, and runs `check-sealed` before the
 qcow2 gets its final name; `make check-sealed` re-runs the gate.
+
+## CI
+
+`.github/workflows/appliance.yml` runs the same targets on `ubuntu-latest`
+(KVM enabled via a udev rule, 150 minute timeout):
+
+| Trigger | Mode | Artifact |
+|---------|------|----------|
+| `pull_request` touching `appliance/`, `installer/`, `scripts/deploy-server.sh`, the server compose file or the Dockerfiles | `quick` | none |
+| `workflow_dispatch` (inputs `ref`, `full`) | `quick`, or `full` when `full` is set | in full mode |
+| `workflow_run` after a successful "Release Platform" | `full`, on the released commit | yes |
+
+In full mode the job also runs `make vhdx` and uploads only
+`ProjectAchilles-<ver>-hyperv.zip` and `appliance-SHA256SUMS` as the
+`appliance-hyperv` artifact (7 days). The qcow2, `repo.bundle` and Packer logs
+are never uploaded.

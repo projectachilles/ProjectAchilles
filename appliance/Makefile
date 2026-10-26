@@ -117,8 +117,17 @@ boot-test: installer-testbin
 	echo "boot-test: $(IMAGE), MODE=$(MODE), build commit $$bc"; \
 	$(DOCKER_RUN_OUT) env BUILD_COMMIT="$$bc" test/boot-test.sh "$(IMAGE)" out/achilles-installer-test "$(MODE)"
 
+# Hyper-V package from IMAGE: dynamic VHDX, zipped, with a SHA-256 of the zip.
+# Outputs in out/: ProjectAchilles-<ver>.vhdx, ProjectAchilles-<ver>-hyperv.zip,
+# appliance-SHA256SUMS (zip only, relative name, so `sha256sum -c` works in out/).
 vhdx:
-	@echo "vhdx: not implemented yet (Task 8)" >&2; exit 1
+	@test -f "$(IMAGE)" || { echo "vhdx: no image $(IMAGE)" >&2; exit 2; }
+	$(DOCKER_RUN_OUT) bash -euo pipefail -c ' \
+		rm -f out/ProjectAchilles-$(VER).vhdx out/ProjectAchilles-$(VER)-hyperv.zip out/appliance-SHA256SUMS; \
+		qemu-img convert -O vhdx -o subformat=dynamic "$(IMAGE)" out/ProjectAchilles-$(VER).vhdx; \
+		qemu-img check out/ProjectAchilles-$(VER).vhdx; \
+		zip -j out/ProjectAchilles-$(VER)-hyperv.zip out/ProjectAchilles-$(VER).vhdx; \
+		cd out && sha256sum ProjectAchilles-$(VER)-hyperv.zip > appliance-SHA256SUMS'
 
 clean:
 	rm -rf $(OUT)
