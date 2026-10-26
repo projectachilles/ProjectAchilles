@@ -82,6 +82,13 @@ vi.mock('../enrichment.service.js', () => ({
   },
 }));
 
+// The agent-kill reconciliation reads SQLite; stub it and record the call order.
+const mockAgentKill = vi.fn(async () => ({ candidates: 0, reconciled: 0, vendorsAdded: 0, errors: [] as string[] }));
+vi.mock('../../edr/agent-kill-reconcile.service.js', () => ({
+  runAgentKillReconciliation: () => mockAgentKill(),
+  failedAgentKillPass: (err: unknown) => ({ candidates: 0, reconciled: 0, vendorsAdded: 0, errors: [err instanceof Error ? err.message : String(err)] }),
+}));
+
 const { SentinelOneSyncService, transformThreat, transformCloudAlert, passesFilters, normalizeToken, SENTINELONE_SYNC_VERSION, threatPreventionAction } = await import('../sync.service.js');
 
 // ── Fixtures (shape of /web/api/v2.1/threats and /cloud-detection/alerts) ──
@@ -248,6 +255,23 @@ describe('SentinelOneSyncService', () => {
     mockAutoMitigationPass.mockResolvedValue({ mode: 'disabled', action: 'kill', candidates: 0, mitigated: 0, wouldMitigate: 0, skipped: 0, errors: [], durationMs: 0 });
     mockAutoResolvePass.mockResolvedValue({ mode: 'disabled', candidates: 0, patched: 0, wouldPatch: 0, skipped: 0, errors: [], durationMs: 0 });
     mockPosturePass.mockResolvedValue({ exclusions: 1, policies: 2, agents: 3, agentHealth: null, errors: [], durationMs: 0 });
+  });
+
+  it('syncAll runs the reconciliation after enrichment, before auto-mitigation', async () => {
+    mockAgentKill.mockResolvedValueOnce({ candidates: 1, reconciled: 1, vendorsAdded: 0, errors: [] });
+    const result = await new SentinelOneSyncService().syncAll();
+    expect(mockAgentKill).toHaveBeenCalledTimes(1);
+    expect(mockRunEnrichment.mock.invocationCallOrder[0]).toBeLessThan(mockAgentKill.mock.invocationCallOrder[0]);
+    expect(mockAgentKill.mock.invocationCallOrder[0]).toBeLessThan(mockAutoMitigationPass.mock.invocationCallOrder[0]);
+    expect(result.agentKill).toEqual({ candidates: 1, reconciled: 1, vendorsAdded: 0, errors: [] });
+  });
+
+  it('a rejecting reconciliation never fails the sync', async () => {
+    mockAgentKill.mockRejectedValueOnce(new Error('boom'));
+    const result = await new SentinelOneSyncService().syncAll();
+    expect(result.agentKill?.errors).toEqual(['boom']);
+    expect(result.threats?.errors).toEqual([]);
+    expect(mockAutoMitigationPass).toHaveBeenCalled();
   });
 
   it('runs auto-mitigation, then auto-resolve, after the correlation pass, with the stored modes and scope', async () => {

@@ -44,7 +44,8 @@ export interface EdrTermination {
 }
 
 /** Prevention actions that mean the EDR itself stopped the process. */
-const QUALIFYING_PREVENTION_ACTIONS = new Set(['process_killed', 'quarantined', 'blocked']);
+export const KILL_PREVENTION_ACTIONS = ['process_killed', 'quarantined', 'blocked'] as const;
+const QUALIFYING_PREVENTION_ACTIONS = new Set<string>(KILL_PREVENTION_ACTIONS);
 
 /**
  * Epoch ms for a SQLite `datetime('now')` value (`YYYY-MM-DD HH:MM:SS`, UTC

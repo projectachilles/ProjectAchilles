@@ -67,6 +67,7 @@ export const CROWDSTRIKE_INDEX_MAPPING = {
       // Achilles correlation + auto-resolve fields.
       // Populated on ALERT docs by:
       //   - enrichment.service.ts  (achilles_correlated, achilles_test_uuid, achilles_matched_at)
+      //   - edr/agent-kill-reconcile.service.ts (achilles_agent_kill_task_id, achilles_agent_kill_matched_at)
       //   - auto-resolve.service.ts (auto_resolved, auto_resolved_at, auto_resolve_mode, auto_resolve_error)
       // Object mapping (not nested) — single sub-object per alert doc; dotted-path queries work directly.
       f0rtika: {
@@ -74,6 +75,10 @@ export const CROWDSTRIKE_INDEX_MAPPING = {
           achilles_correlated: { type: 'boolean' as const },
           achilles_test_uuid:  { type: 'keyword' as const },
           achilles_matched_at: { type: 'date' as const },
+          // EDR-killed agent runs (edr/agent-kill-reconcile.service.ts). A
+          // separate link, never achilles_correlated, so auto-resolve skips them.
+          achilles_agent_kill_task_id:    { type: 'keyword' as const },
+          achilles_agent_kill_matched_at: { type: 'date' as const },
           auto_resolved:       { type: 'boolean' as const },
           auto_resolved_at:    { type: 'date' as const },
           auto_resolve_mode:   { type: 'keyword' as const },

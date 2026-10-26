@@ -111,6 +111,13 @@ vi.mock('../auto-resolve.service.js', () => ({
   },
 }));
 
+// The agent-kill reconciliation reads SQLite; stub it and record the call order.
+const mockAgentKill = vi.fn(async () => ({ candidates: 0, reconciled: 0, vendorsAdded: 0, errors: [] as string[] }));
+vi.mock('../../edr/agent-kill-reconcile.service.js', () => ({
+  runAgentKillReconciliation: () => mockAgentKill(),
+  failedAgentKillPass: (err: unknown) => ({ candidates: 0, reconciled: 0, vendorsAdded: 0, errors: [err instanceof Error ? err.message : String(err)] }),
+}));
+
 const { CrowdStrikeSyncService } = await import('../sync.service.js');
 const { ensureCrowdStrikeIndex } = await import('../index-management.js');
 
@@ -472,6 +479,32 @@ describe('CrowdStrikeSyncService', () => {
   // ── syncAll ────────────────────────────────────────────────────
 
   describe('syncAll', () => {
+    it('syncAll runs the reconciliation after enrichment', async () => {
+      mockGetAlertsCombined.mockResolvedValue(emptyPage);
+      mockGetZtaDeviceIds.mockResolvedValue({ resources: [], after: undefined, total: 0 });
+      mockAgentKill.mockResolvedValueOnce({ candidates: 2, reconciled: 1, vendorsAdded: 0, errors: [] });
+      const enrichment = vi.spyOn(service, 'runEnrichmentPass');
+      const autoResolve = vi.spyOn(service, 'runAutoResolvePass');
+
+      const result = await service.syncAll();
+
+      expect(mockAgentKill).toHaveBeenCalledTimes(1);
+      expect(enrichment.mock.invocationCallOrder[0]).toBeLessThan(mockAgentKill.mock.invocationCallOrder[0]);
+      expect(mockAgentKill.mock.invocationCallOrder[0]).toBeLessThan(autoResolve.mock.invocationCallOrder[0]);
+      expect(result.agentKill).toEqual({ candidates: 2, reconciled: 1, vendorsAdded: 0, errors: [] });
+    });
+
+    it('a rejecting reconciliation never fails the sync', async () => {
+      mockGetAlertsCombined.mockResolvedValue(emptyPage);
+      mockGetZtaDeviceIds.mockResolvedValue({ resources: [], after: undefined, total: 0 });
+      mockAgentKill.mockRejectedValueOnce(new Error('boom'));
+
+      const result = await service.syncAll();
+
+      expect(result.agentKill?.errors).toEqual(['boom']);
+      expect(result.autoResolve).toBeDefined();
+    });
+
     it('runs alerts + zta syncs, enrichment, and auto-resolve passes', async () => {
       mockGetAlertsCombined.mockResolvedValue(emptyPage);
       mockGetZtaDeviceIds.mockResolvedValue({ resources: [], after: undefined, total: 0 });

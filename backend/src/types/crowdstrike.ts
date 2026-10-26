@@ -1,6 +1,7 @@
 // Type definitions for CrowdStrike Falcon integration via the Falcon API.
 
 import type { AutoResolveMode, EnrichmentPassOptions, EnrichmentPassResult, AutoResolvePassOptions, AutoResolvePassResult } from './defender.js';
+import type { AgentKillPassResult } from '../services/edr/agent-kill-reconcile.service.js';
 
 export type { AutoResolveMode, EnrichmentPassOptions, EnrichmentPassResult, AutoResolvePassOptions, AutoResolvePassResult };
 
@@ -192,6 +193,8 @@ export interface CrowdStrikeSyncResult {
   alerts: SyncResult;
   zta: SyncResult;
   enrichment: EnrichmentPassResult;
+  /** EDR-killed agent runs reconciled after enrichment (all vendors' alert indices). */
+  agentKill?: AgentKillPassResult;
   autoResolve: AutoResolvePassResult;
   timestamp: string;
 }

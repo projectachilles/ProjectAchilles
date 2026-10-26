@@ -20,6 +20,7 @@ import { SentinelOneAutoResolveService } from './auto-resolve.service.js';
 import { SentinelOneAutoMitigationService } from './auto-mitigation.service.js';
 import { SentinelOneResponseService } from './response.service.js';
 import { SentinelOnePostureService, POSTURE_INTERVAL_MS } from './posture.service.js';
+import { runAgentKillReconciliation, failedAgentKillPass } from '../edr/agent-kill-reconcile.service.js';
 import type { AutoResolvePassResult, EnrichmentPassResult } from '../../types/defender.js';
 import type {
   S1Threat,
@@ -312,6 +313,9 @@ export class SentinelOneSyncService {
 
       // Correlate AFTER the poll so freshly-synced alerts are visible.
       result.enrichment = await this.runEnrichmentPass(es);
+      // EDR-killed agent runs: watchdog-failed tasks with kill evidence in any
+      // vendor's alert index become Protected results. Never throws.
+      result.agentKill = await runAgentKillReconciliation().catch(failedAgentKillPass);
       // Then the opt-in write passes (both no-ops by default): mitigation
       // first (it only acts on unresolved threats), then auto-resolve.
       result.autoMitigation = await this.runAutoMitigationPass(es, client, settings);
