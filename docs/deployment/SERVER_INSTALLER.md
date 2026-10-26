@@ -1034,8 +1034,9 @@ the `ca` commands take `--dir DIR` (default `/etc/projectachilles/ca`).
   labels match the checked-out commit and nothing under `backend/` or
   `frontend/` is modified, the `up` phase starts them without rebuilding and
   logs `Using the pre-built images for <commit>`. After an upgrade the commit
-  changes, so they are rebuilt. To rebuild anyway, run with
-  `ACHILLES_FORCE_BUILD=1`.
+  changes, so they are rebuilt. Images built while `backend/` or `frontend/` had
+  local changes carry no commit, so they are never reused once the changes are
+  reverted. To rebuild anyway, run with `ACHILLES_FORCE_BUILD=1`.
 
 ### Backups
 

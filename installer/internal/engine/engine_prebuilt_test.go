@@ -137,6 +137,17 @@ func TestEngineUpBuildsWhenTreeDirty(t *testing.T) {
 	wantBuild(t, up)
 }
 
+// Images rebuilt from a modified tree must not carry HEAD's commit: once the
+// patch is reverted, a clean re-run would otherwise reuse the patched image.
+func TestEngineUpDirtyBuildStampsNoCommit(t *testing.T) {
+	s := newUpSandbox(t)
+	c := gitInit(t, s)
+	writeFile(t, s.path("backend", "src", "patched.ts"), "export const patched = true;\n", 0o644)
+	_, up := runUp(t, s, map[string]string{"STUB_DOCKER_IMAGES": images(c, c)})
+	wantBuild(t, up)
+	wantEmptyCommit(t, s)
+}
+
 func TestEngineUpBuildsWhenForced(t *testing.T) {
 	s := newUpSandbox(t)
 	c := gitInit(t, s)
