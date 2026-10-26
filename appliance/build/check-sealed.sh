@@ -11,7 +11,6 @@ usage() { echo "usage: $0 <image>" >&2; exit 2; }
 IMG=$1
 [ -f "$IMG" ] || { echo "check-sealed: no such image: $IMG" >&2; exit 2; }
 command -v guestfish >/dev/null || { echo "check-sealed: guestfish not found" >&2; exit 2; }
-command -v virt-cat >/dev/null || { echo "check-sealed: virt-cat not found" >&2; exit 2; }
 
 BIN=/opt/projectachilles/achilles-installer
 MARKER=appliancetest-first-boot-answers
@@ -75,17 +74,27 @@ echo @@group
 echo @@cloud_sudoers
 -exists /etc/sudoers.d/90-cloud-init-users
 echo @@nopasswd
--sh "grep -rhsE '^[^#]*NOPASSWD' /etc/sudoers /etc/sudoers.d; true"
+-sh "grep -RhE '^[^#]*(NOPASSWD|!authenticate)' /etc/sudoers /etc/sudoers.d; echo SUDO_GREP_RC=\$?"
 echo @@keys_root
 -find /root
 echo @@keys_home
 -find /home
+echo @@installer_mode
+-download $BIN $tmp/installer.bin
 echo @@end
 EOS
 rc=$?
 if [ $rc -ne 0 ] || ! grep -qx '@@end' "$tmp/out"; then
 	echo "check-sealed: guestfish failed (exit $rc)" >&2
 	cat "$tmp/err" >&2
+	exit 2
+fi
+# Commands run with '-' so a missing path is not fatal. Anything on stderr
+# other than "No such file or directory" is a real tool error, never "clean".
+unexpected=$(grep -v 'No such file or directory' "$tmp/err" | grep -v '^[[:space:]]*$')
+if [ -n "$unexpected" ]; then
+	echo "check-sealed: unexpected guestfish errors:" >&2
+	echo "$unexpected" >&2
 	exit 2
 fi
 
@@ -153,12 +162,10 @@ if [ -z "$vols" ]; then ok "no Docker volumes"; else fail "no Docker volumes" "$
 # installer binary
 if [ "$(sec installer)" = true ]; then
 	ok "installer binary present ($BIN)"
-	virt-cat --ro -a "$IMG" "$BIN" 2>"$tmp/err2" | grep -ac "$MARKER" >"$tmp/count"
-	ps=("${PIPESTATUS[@]}")
-	if [ "${ps[0]}" -ne 0 ]; then
-		echo "check-sealed: virt-cat failed" >&2; cat "$tmp/err2" >&2; exit 2
+	if [ ! -f "$tmp/installer.bin" ]; then
+		echo "check-sealed: could not read $BIN from the image" >&2; exit 2
 	fi
-	n=$(cat "$tmp/count")
+	n=$(grep -ac "$MARKER" "$tmp/installer.bin")
 	if [ "$n" = 0 ]; then ok "installer binary is not the test build"
 	else fail "installer binary is not the test build" "contains $MARKER"; fi
 else
@@ -181,7 +188,14 @@ else
 	fail "achilles is in group sudo" "not a member"
 fi
 expect_false cloud_sudoers "no /etc/sudoers.d/90-cloud-init-users" "present"
-expect_none nopasswd "no NOPASSWD in sudoers"
+src=$(sec nopasswd)
+case $(echo "$src" | grep -x 'SUDO_GREP_RC=[0-9]*') in
+	SUDO_GREP_RC=0 | SUDO_GREP_RC=1) ;;
+	*) echo "check-sealed: sudoers grep did not run cleanly in the image" >&2; exit 2 ;;
+esac
+hits=$(echo "$src" | grep -vx 'SUDO_GREP_RC=[0-9]*')
+if [ -z "$hits" ]; then ok "no NOPASSWD or !authenticate in sudoers"
+else fail "no NOPASSWD or !authenticate in sudoers" "$(echo "$hits" | tr '\n' ' ')"; fi
 keys=$( { sec keys_root; sec keys_home; } | grep -E '(^|/)authorized_keys2?$')
 if [ -z "$keys" ]; then ok "no authorized_keys under /root or /home"
 else fail "no authorized_keys under /root or /home" "$(echo "$keys" | tr '\n' ' ')"; fi
