@@ -38,11 +38,12 @@ DOCKER_RUN_OUT = $(DOCKER_RUN) bash -c \
 	'"$$@"; rc=$$?; chown -R $(HOST_UID):$(HOST_GID) out; exit $$rc' _
 
 .PHONY: help builder builder-smoke check-space base-image installer-bin \
-	installer-testbin out-ownership-check image check-sealed boot-test vhdx clean
+	installer-testbin out-ownership-check image repo-bundle check-sealed boot-test vhdx clean
 
 help:
 	@echo "targets: builder builder-smoke check-space base-image installer-bin"
-	@echo "         installer-testbin out-ownership-check image check-sealed boot-test vhdx clean"
+	@echo "         installer-testbin out-ownership-check image repo-bundle check-sealed"
+	@echo "         boot-test vhdx clean"
 
 $(OUT):
 	mkdir -p $(OUT)
@@ -82,25 +83,34 @@ out-ownership-check: | $(OUT)
 
 # Sealed qcow2 from the committed HEAD: refuses a dirty tree (the image holds
 # a clean checkout of exactly $(COMMIT)) and a VER that is not its describe
-# (VER_CHECK), rebuilds the installer binary for
-# this commit, bundles HEAD + tags, then runs Packer in the builder
-# (build/build-image.sh, which also runs check-sealed before naming the image).
+# (VER_CHECK), rebuilds the installer binary for this commit, writes
+# repo.bundle, then runs Packer in the builder (build/build-image.sh, which
+# also runs check-sealed before naming the image).
 image:
 	$(VER_CHECK)
 	@case "$(VER)" in *-dirty) \
 		echo "commit your changes: the image must hold a clean checkout" >&2; exit 1 ;; esac
 	@git diff --quiet HEAD -- || { \
 		echo "commit your changes: the image must hold a clean checkout" >&2; exit 1; }
-	$(MAKE) builder check-space base-image installer-bin VER=$(VER)
+	$(MAKE) builder check-space base-image installer-bin repo-bundle VER=$(VER)
+	$(DOCKER_RUN_OUT) build/build-image.sh
+
+# out/repo.bundle: the build commit (as HEAD; a bare SHA gives the bundle no
+# ref to clone) and the platform release tags merged into it, which
+# `upgrade` and describe need. Nothing else of the build host's: no stash,
+# no local branches, no agent-v* tags, and no local-only tags (they could
+# carry private commits). Asserts the bundle holds exactly those refs.
+BUNDLE_TAGS = git tag --merged HEAD -l 'v[0-9]*.[0-9]*.[0-9]*'
+repo-bundle: | $(OUT)
 	rm -f $(OUT)/repo.bundle
-	@# Only the build commit (as HEAD; a bare SHA gives the bundle no ref to
-	@# clone) and the tags: never the stash or local branches.
-	git bundle create $(OUT)/repo.bundle HEAD --tags
+	git bundle create $(OUT)/repo.bundle HEAD $$($(BUNDLE_TAGS) | sed 's|^|refs/tags/|')
 	@heads=$$(git bundle list-heads $(OUT)/repo.bundle); \
 	echo "$$heads" | grep -qx '$(COMMIT) HEAD' || { echo "repo.bundle: HEAD is not $(COMMIT)" >&2; exit 1; }; \
-	extra=$$(echo "$$heads" | awk '$$2 != "HEAD" && $$2 !~ /^refs\/tags\//'); \
-	[ -z "$$extra" ] || { echo "repo.bundle: unexpected refs: $$extra" >&2; exit 1; }
-	$(DOCKER_RUN_OUT) build/build-image.sh
+	got=$$(echo "$$heads" | awk '{print $$2}' | sort); \
+	want=$$( { echo HEAD; $(BUNDLE_TAGS) | sed 's|^|refs/tags/|'; } | sort); \
+	[ "$$got" = "$$want" ] || { echo "repo.bundle: refs are not HEAD + the v* tags merged into it:" >&2; \
+		diff <(echo "$$want") <(echo "$$got") >&2; exit 1; }; \
+	echo "repo.bundle: HEAD + $$(echo "$$want" | grep -c '^refs/tags/') tags"
 
 # Offline inspection of IMAGE (path relative to appliance/; defaults to the
 # image `make image` builds for this VER). Exit 1 = not sealed.

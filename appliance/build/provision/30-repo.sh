@@ -17,7 +17,8 @@ BIN_SRC=/tmp/achilles-installer
 umask 022
 
 log "cloning the bundle into $REPO"
-# The bundle holds only HEAD (the build commit) and the tags (Makefile).
+# The bundle holds only HEAD (the build commit) and the v<x>.<y>.<z> tags
+# merged into it (Makefile repo-bundle).
 git -c advice.detachedHead=false clone --quiet "$BUNDLE" "$REPO"
 git -C "$REPO" remote set-url origin "$ORIGIN"
 git -C "$REPO" -c advice.detachedHead=false checkout --quiet --detach "$ACHILLES_COMMIT"

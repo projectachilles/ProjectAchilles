@@ -27,6 +27,7 @@ Run from the repo root with `make -C appliance <target>`.
 | `installer-testbin` | Build `out/achilles-installer-test` (`-tags appliancetest`) |
 | `out-ownership-check` | Prove container targets leave `out/` owned by you (`DOCKER_RUN_OUT`) |
 | `image` | Build `out/achilles-appliance-<ver>.qcow2` with Packer from the committed HEAD (refuses a dirty tree; about 6-10 min with KVM). Log: `out/packer.log`, VM console: `out/serial.log` |
+| `repo-bundle` | Write `out/repo.bundle` (run by `image`): `HEAD` and only the `v<x>.<y>.<z>` tags merged into it. No branches, stash, `agent-v*` or local-only tags, so nothing private from the build host ships. Fails unless the bundle holds exactly those refs |
 | `check-sealed` | Assert the image is sealed (`IMAGE=` defaults to this `VER`'s image) |
 | `boot-test` | Boot `IMAGE` in two throwaway UEFI VMs (`test/boot-test.sh`). `MODE=quick` (about 10 min): first boot, distinct identities, clean checkout and image labels at the build commit, reboot. `MODE=full` (10-40 min) also installs on VM1, backs it up and restores the backup on VM2. Serial logs and install output: `out/boot-test/` |
 | `vhdx` | Convert `IMAGE` to a dynamic VHDX (`qemu-img convert -O vhdx -o subformat=dynamic`, then `qemu-img check`), zip it as `out/ProjectAchilles-<ver>-hyperv.zip` (holds `ProjectAchilles-<ver>.vhdx`) and write `out/appliance-SHA256SUMS`. Verify with `cd out && sha256sum -c appliance-SHA256SUMS` |
