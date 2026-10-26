@@ -627,7 +627,11 @@ fi
 prebuilt_images_current() {
   [ "$FORCE_BUILD" = 0 ] && [ -n "$ACHILLES_GIT_COMMIT" ] || return 1
   local dirty svc label
-  dirty="$(git -C "$REPO_ROOT" status --porcelain -- backend frontend 2>/dev/null)" || return 1
+  # --untracked-files=all overrides a host status.showUntrackedFiles=no (a new
+  # source file is built into the image); --no-optional-locks keeps a root run
+  # from rewriting a user-owned .git/index.
+  dirty="$(git -C "$REPO_ROOT" --no-optional-locks status --porcelain --untracked-files=all \
+    -- backend frontend 2>/dev/null)" || return 1
   [ -z "$dirty" ] || return 1
   for svc in backend frontend; do
     label="$($DOCKER image inspect --format '{{ index .Config.Labels "io.projectachilles.commit" }}' \
@@ -636,11 +640,29 @@ prebuilt_images_current() {
   done
 }
 
+# checkout_commit: HEAD of this checkout, or nothing when REPO_ROOT is not the
+# top of its own git repository (no .git, an unborn repo, or a copy without
+# .git sitting inside another repository).
+checkout_commit() {
+  local top
+  top="$(git -C "$REPO_ROOT" rev-parse --show-toplevel 2>/dev/null)" || return 0
+  [ "$(cd "$top" && pwd -P)" = "$(cd "$REPO_ROOT" && pwd -P)" ] || return 0
+  git -C "$REPO_ROOT" rev-parse --verify -q HEAD 2>/dev/null || true
+}
+
+# compose_up ARGS...: `docker compose up -d ARGS` in the repo. sudo's env_reset
+# drops exported variables, so through sudo the commit is passed explicitly.
+compose_up() {
+  local -a via=()
+  [ "$DOCKER" = docker ] || via=($SUDO env "ACHILLES_GIT_COMMIT=${ACHILLES_GIT_COMMIT}")
+  ( cd "$REPO_ROOT" && "${via[@]}" docker compose -f "$COMPOSE_FILE" up -d "$@" )
+}
+
 if [ "$RENDER_ONLY" = 0 ]; then
   phase up "Building and starting the stack (this can take several minutes)"
   # Compose stamps the images with it (label, and the backend's GIT_COMMIT
   # build arg that /api/health reports). Empty outside a git checkout.
-  ACHILLES_GIT_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
+  ACHILLES_GIT_COMMIT="$(checkout_commit)"
   export ACHILLES_GIT_COMMIT
   if [ "$TLS_MODE" = "acme-dns" ]; then
     c_info "Building custom Caddy image with DNS plugin (${CADDY_DNS_MODULE})"
@@ -651,9 +673,9 @@ if [ "$RENDER_ONLY" = 0 ]; then
   fi
   if prebuilt_images_current; then
     c_ok "Using the pre-built images for ${ACHILLES_GIT_COMMIT:0:12}"
-    ( cd "$REPO_ROOT" && $DOCKER compose -f "$COMPOSE_FILE" up -d )
+    compose_up
   else
-    ( cd "$REPO_ROOT" && $DOCKER compose -f "$COMPOSE_FILE" up -d --build )
+    compose_up --build
   fi
   c_ok "Containers started"
   # `up` leaves a running Caddy alone when only the bind-mounted CA files

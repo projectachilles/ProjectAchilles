@@ -7,6 +7,9 @@
 [ -n "${STUB_LOG:-}" ] && echo "docker $*" >> "$STUB_LOG"
 case "$1" in
   --version) echo "Docker version 0.0.0-stub" ;;
+  # STUB_DOCKER_NO_DAEMON=1: the user can't reach the daemon except through
+  # sudo (the sudo stub sets STUB_VIA_SUDO=1).
+  info) [ "${STUB_DOCKER_NO_DAEMON:-}" = 1 ] && [ "${STUB_VIA_SUDO:-}" != 1 ] && exit 1 ;;
   ps) [ -n "${STUB_DOCKER_PS:-}" ] && printf '%s\n' "$STUB_DOCKER_PS" ;;
   compose) [ -n "${STUB_LOG:-}" ] && echo "env ACHILLES_GIT_COMMIT=${ACHILLES_GIT_COMMIT:-}" >> "$STUB_LOG" ;;
   image)
