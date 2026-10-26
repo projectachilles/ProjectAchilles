@@ -1,0 +1,21 @@
+[Unit]
+Description=ProjectAchilles appliance first boot
+ConditionPathExists=!/var/lib/projectachilles/firstboot.done
+After=systemd-user-sessions.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=idle
+ExecStart=/opt/projectachilles/achilles-installer firstboot
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+Environment=TERM=linux
+Restart=on-failure
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

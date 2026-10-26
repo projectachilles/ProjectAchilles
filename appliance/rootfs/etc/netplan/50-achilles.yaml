@@ -1,0 +1,10 @@
+# Default appliance network: DHCP on any wired NIC (en*, eth*).
+# First boot may replace this file. Phase 3 must install it with mode 0600
+# (netplan warns about world-readable files).
+network:
+  version: 2
+  ethernets:
+    all-wired:
+      match:
+        name: "e*"
+      dhcp4: true
