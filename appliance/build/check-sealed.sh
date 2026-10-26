@@ -65,6 +65,10 @@ echo @@etc_pa
 -exists /etc/projectachilles
 echo @@docker_volumes
 -ls /var/lib/docker/volumes
+echo @@engine_id
+-exists /var/lib/docker/engine-id
+echo @@seal_pending
+-exists /var/lib/projectachilles-seal-pending
 echo @@installer
 -is-file $BIN
 echo @@shadow
@@ -158,6 +162,8 @@ expect_false caddy_rendered "no deploy/caddy/rendered/" "present"
 expect_false etc_pa "no /etc/projectachilles" "present"
 vols=$(sec docker_volumes | grep -vxE 'backingFsBlockDev|metadata\.db')
 if [ -z "$vols" ]; then ok "no Docker volumes"; else fail "no Docker volumes" "$(echo "$vols" | tr '\n' ' ')"; fi
+expect_false engine_id "no Docker engine-id (/var/lib/docker/engine-id)" "present: shared by every clone"
+expect_false seal_pending "shutdown-time seal completed (no /var/lib/projectachilles-seal-pending)" "marker present: seal-final failed or never ran"
 
 # installer binary
 if [ "$(sec installer)" = true ]; then

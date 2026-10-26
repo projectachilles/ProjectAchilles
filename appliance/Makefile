@@ -16,6 +16,8 @@ ifndef VER
 VER := $(shell git describe --tags --always --dirty)
 endif
 
+IMAGE ?= out/achilles-appliance-$(VER).qcow2
+
 # Run a command in the builder. Same absolute path inside as on the host.
 DOCKER_RUN = docker run --rm --user root --device /dev/kvm \
 	-v $(REPO):$(REPO) -w $(REPO)/appliance \
@@ -69,10 +71,28 @@ out-ownership-check: | $(OUT)
 		echo "out/ file owned by uid $$owner, expected $(HOST_UID)" >&2; exit 1; \
 	fi; echo "out-ownership-check: OK"
 
+# Sealed qcow2 from the committed HEAD: refuses a dirty tree (the image holds
+# a clean checkout of exactly $(COMMIT)), rebuilds the installer binary for
+# this commit, bundles HEAD + tags, then runs Packer in the builder
+# (build/build-image.sh, which also runs check-sealed before naming the image).
 image:
-	@echo "image: not implemented yet (Task 6)" >&2; exit 1
+	@case "$(VER)" in *-dirty) \
+		echo "commit your changes: the image must hold a clean checkout" >&2; exit 1 ;; esac
+	@git diff --quiet HEAD -- || { \
+		echo "commit your changes: the image must hold a clean checkout" >&2; exit 1; }
+	$(MAKE) builder check-space base-image installer-bin VER=$(VER)
+	rm -f $(OUT)/repo.bundle
+	@# Only the build commit (as HEAD; a bare SHA gives the bundle no ref to
+	@# clone) and the tags: never the stash or local branches.
+	git bundle create $(OUT)/repo.bundle HEAD --tags
+	@heads=$$(git bundle list-heads $(OUT)/repo.bundle); \
+	echo "$$heads" | grep -qx '$(COMMIT) HEAD' || { echo "repo.bundle: HEAD is not $(COMMIT)" >&2; exit 1; }; \
+	extra=$$(echo "$$heads" | awk '$$2 != "HEAD" && $$2 !~ /^refs\/tags\//'); \
+	[ -z "$$extra" ] || { echo "repo.bundle: unexpected refs: $$extra" >&2; exit 1; }
+	$(DOCKER_RUN_OUT) build/build-image.sh
 
-# Offline inspection of IMAGE (path relative to appliance/). Exit 1 = not sealed.
+# Offline inspection of IMAGE (path relative to appliance/; defaults to the
+# image `make image` builds for this VER). Exit 1 = not sealed.
 check-sealed:
 	@test -n "$(IMAGE)" || { echo "usage: make check-sealed IMAGE=out/<image>" >&2; exit 2; }
 	$(DOCKER_RUN) build/check-sealed.sh $(IMAGE)

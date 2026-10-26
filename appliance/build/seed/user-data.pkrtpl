@@ -1,0 +1,19 @@
+#cloud-config
+# Build-time only. cloud-init runs once, in the Packer build VM, then the seal
+# disables it. Creates the achilles admin with the SHA-512 crypt hash of a
+# per-build random password (the plaintext never enters the VM's disk: only
+# Packer's SSH communicator uses it) and a NOPASSWD rule for the
+# provisioners; seal.sh locks the account and removes the rule.
+# No `default` entry, so no `ubuntu` user.
+users:
+  - name: achilles
+    gecos: ProjectAchilles admin
+    groups: [sudo]
+    shell: /bin/bash
+    lock_passwd: false
+    hashed_passwd: "${password_hash}"
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+ssh_pwauth: true
+# The build makes its own apt calls (10-base.sh).
+package_update: false
+package_upgrade: false
