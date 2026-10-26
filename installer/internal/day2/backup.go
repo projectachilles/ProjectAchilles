@@ -14,6 +14,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/projectachilles/ProjectAchilles/installer/internal/config"
+	"github.com/projectachilles/ProjectAchilles/installer/internal/sysprobe"
 )
 
 // backedUpVolumes are the data volumes. repo-cache, go-cache and caddy-config
@@ -26,6 +29,16 @@ var backedUpFiles = []struct{ rel, name string }{
 	{".env", "files/.env"},
 	{"backend/.env", "files/backend.env"},
 }
+
+// noConfigWarning is printed when a backup has no deploy.config.env: the
+// engine cannot be re-run from it, so it only suits the server it came from.
+const noConfigWarning = "WARNING: this backup has no deploy.config.env; it can be restored only onto this server."
+
+// defaultProject is deploy-server.sh's compose project for a fresh install
+// (and the name the appliance's pre-built images carry).
+const defaultProject = "achilles-server"
+
+var validProject = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 const (
 	dirVolumes = "volumes"
@@ -162,13 +175,25 @@ func Backup(ctx context.Context, d Deps, out string) (path string, err error) {
 	fmt.Fprintf(w, "\nBackup written: %s\n", final)
 	fmt.Fprintln(w, "WARNING: this file holds secrets (API keys, Clerk and session secrets, certificate keys) and the CA private keys.")
 	fmt.Fprintln(w, "         Store it encrypted and off this server; anyone who reads it can impersonate your CA.")
+	if _, err := os.Stat(filepath.Join(d.RepoDir, "deploy.config.env")); err != nil {
+		fmt.Fprintln(w, noConfigWarning)
+	}
 	return final, nil
 }
 
 // Restore reverses Backup: it extracts and validates the archive first, then
 // (after confirmation) stops the stack, restores the volumes, configuration
-// files and CA, and starts the stack. The confirmation is typing the host name
-// unless yes.
+// files and CA, and brings the stack up again. The confirmation is typing the
+// host name unless yes.
+//
+// It also works on a server that was never installed (a new appliance, new
+// hardware): with no containers for the compose project there is nothing to
+// stop. When the restored checkout has a deploy.config.env, the stack is
+// brought up by re-running the engine on it, which also re-renders what the
+// backup does not hold (deploy/caddy/rendered/, the hosts entry, the renewal
+// timer); without one it falls back to compose up. When the config binds
+// Caddy to an address this server does not have, it stops after restoring
+// the data and says how to set the new address.
 func Restore(ctx context.Context, d Deps, file string, yes bool) error {
 	w := d.out()
 	if _, err := os.Stat(file); err != nil {
@@ -208,13 +233,21 @@ func Restore(ctx context.Context, d Deps, file string, yes bool) error {
 		}
 	}
 
-	// The backed-up root .env may name another compose project (or none, from
-	// before it was pinned); the volumes go into this one, so keep it.
-	project := d.project()
+	project := d.restoreProject(stage)
 
-	fmt.Fprintln(w, "Stopping the stack...")
-	if _, err := d.compose(ctx, "stop"); err != nil {
-		return fmt.Errorf("stopping the stack: %w", err)
+	// A server that was never installed has no containers, and no .env for
+	// compose to read the file with, so there is nothing to stop.
+	ids, err := d.Cmd.Run(ctx, "docker", "ps", "-a", "-q", "--filter", "label=com.docker.compose.project="+project)
+	if err != nil {
+		return fmt.Errorf("listing the stack's containers: %w", err)
+	}
+	if strings.TrimSpace(string(ids)) == "" {
+		fmt.Fprintf(w, "No containers for compose project %s on this server: nothing to stop.\n", project)
+	} else {
+		fmt.Fprintln(w, "Stopping the stack...")
+		if _, err := d.compose(ctx, "stop"); err != nil {
+			return fmt.Errorf("stopping the stack: %w", err)
+		}
 	}
 
 	for _, tf := range vols {
@@ -265,12 +298,71 @@ func Restore(ctx context.Context, d Deps, file string, yes bool) error {
 		return fmt.Errorf("pinning the compose project in .env: %w", err)
 	}
 
-	fmt.Fprintln(w, "Starting the stack...")
-	if _, err := d.compose(ctx, "up", "-d"); err != nil {
-		return fmt.Errorf("starting the stack: %w", err)
+	cfgPath := filepath.Join(d.RepoDir, "deploy.config.env")
+	if _, err := os.Stat(cfgPath); err != nil {
+		fmt.Fprintln(w, noConfigWarning)
+		fmt.Fprintln(w, "Starting the stack...")
+		if _, err := d.compose(ctx, "up", "-d"); err != nil {
+			return fmt.Errorf("starting the stack: %w", err)
+		}
+		fmt.Fprintln(w, "Restore complete. Run achilles-installer status to check the stack.")
+		return nil
+	}
+
+	c, err := config.Load(cfgPath)
+	if err != nil {
+		return fmt.Errorf("reading the restored %s: %w", cfgPath, err)
+	}
+	if ip := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(c.CaddyBindIP), "["), "]"); ip != "" {
+		local, err := d.hasLocalIP(ip)
+		if err != nil {
+			return fmt.Errorf("checking this server's addresses: %w (the data is restored)", err)
+		}
+		if !local {
+			fmt.Fprintln(w, newAddressMessage(d.RepoDir, ip))
+			return fmt.Errorf("the data is restored, but the stack was not started: %s is not an address of this server", ip)
+		}
+	}
+	if d.RunEngine == nil {
+		return errors.New("no installer engine configured")
+	}
+	fmt.Fprintf(w, "Re-running the installer with the restored %s...\n", cfgPath)
+	if err := d.RunEngine(ctx); err != nil {
+		return fmt.Errorf("the data is restored, but the installer run that starts the stack failed: %w", err)
 	}
 	fmt.Fprintln(w, "Restore complete. Run achilles-installer status to check the stack.")
 	return nil
+}
+
+// newAddressMessage is what Restore prints when the restored config binds
+// Caddy to an address this server does not have.
+func newAddressMessage(repo, ip string) string {
+	return fmt.Sprintf("The backup's server address %s is not on this server. Run `sudo %s install` and choose Reconfigure "+
+		"to set this server's address (your data and CA are kept).", ip, filepath.Join(repo, "achilles-installer"))
+}
+
+func (d Deps) hasLocalIP(ip string) (bool, error) {
+	if d.HasLocalIP != nil {
+		return d.HasLocalIP(ip)
+	}
+	return sysprobe.HostHasIP(ip)
+}
+
+// restoreProject is the compose project the volumes are restored into. An
+// installed server keeps its own (the backed-up root .env may name another,
+// or none from before it was pinned). A server with no root .env was never
+// installed: it takes the backup's pinned project, else the engine's default.
+func (d Deps) restoreProject(stage string) string {
+	if d.Project != "" || os.Getenv("COMPOSE_PROJECT_NAME") != "" {
+		return d.project()
+	}
+	if _, err := os.Stat(filepath.Join(d.RepoDir, ".env")); err == nil {
+		return d.project()
+	}
+	if p := envFileValue(filepath.Join(stage, "files", ".env"), "COMPOSE_PROJECT_NAME"); validProject.MatchString(p) {
+		return p
+	}
+	return defaultProject
 }
 
 // safeArchiveFile is the only shape of volume archive name Restore will use.

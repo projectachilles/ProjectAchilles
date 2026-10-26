@@ -179,11 +179,26 @@ func unattended(ctx context.Context, sio installIO, root, cfgFile string, yes bo
 		}
 		return exitWith(1, fmt.Errorf("%s: %d setting(s) need fixing; nothing was changed", path, len(ps)))
 	}
+	// The engine always runs on <root>/deploy.config.env, so backup (and a
+	// restore elsewhere) finds the config the install really used.
+	inRepo := filepath.Join(root, "deploy.config.env")
+	same := sameFile(path, inRepo)
 	if !yes {
-		fmt.Fprintf(sio.stdout, "Would run, in %s:\n  bash scripts/deploy-server.sh %s\n"+
-			"with ACHILLES_PROGRESS=1 ACHILLES_NONINTERACTIVE=1 (no prompts). Nothing was changed.\n"+
-			"To install, add --yes:\n  achilles-installer install --config %s --yes\n", root, path, path)
+		if !same {
+			fmt.Fprintf(sio.stdout, "Would copy %s to %s (mode 600), then run, in %s:\n  bash scripts/deploy-server.sh %s\n",
+				path, inRepo, root, inRepo)
+		} else {
+			fmt.Fprintf(sio.stdout, "Would run, in %s:\n  bash scripts/deploy-server.sh %s\n", root, path)
+		}
+		fmt.Fprintf(sio.stdout, "with ACHILLES_PROGRESS=1 ACHILLES_NONINTERACTIVE=1 (no prompts). Nothing was changed.\n"+
+			"To install, add --yes:\n  achilles-installer install --config %s --yes\n", path)
 		return exitWith(2, nil)
+	}
+	if !same {
+		if err := copyConfig(path, inRepo); err != nil {
+			return fmt.Errorf("copying %s into the checkout: %w", path, err)
+		}
+		path = inRepo
 	}
 
 	starter, err := sio.newRunner(root, path, caDir)
@@ -262,4 +277,43 @@ type failedStart struct{ err error }
 
 func (f failedStart) Start(context.Context) (<-chan engine.Event, func() error, error) {
 	return nil, nil, f.err
+}
+
+// sameFile reports whether a and b name the same existing file.
+func sameFile(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	fa, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	fb, err := os.Stat(b)
+	return err == nil && os.SameFile(fa, fb)
+}
+
+// copyConfig writes src's bytes to dst (mode 0600) through a temporary file
+// in dst's directory, so a reader never sees a partial config.
+func copyConfig(src, dst string) error {
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".deploy.config.env-")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), dst)
 }

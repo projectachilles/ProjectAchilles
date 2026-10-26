@@ -135,13 +135,7 @@ func upgradeCmd(r *Registry, dio day2IO) Handler {
 		if _, err := os.Stat(cfgPath); err != nil {
 			return fmt.Errorf("%s not found: upgrade re-runs the install with the existing config", cfgPath)
 		}
-		d.RunEngine = func(ctx context.Context) error {
-			starter, err := dio.newRunner(root, cfgPath, *caDir)
-			if err != nil {
-				return err
-			}
-			return driveEngine(ctx, dio.stdout, starter)
-		}
+		d.RunEngine = runEngine(dio, root, *caDir)
 		return day2.Upgrade(ctx, d, *ref, *yes)
 	}
 }
@@ -183,6 +177,24 @@ func restoreCmd(dio day2IO) Handler {
 		if file == "" {
 			return errors.New("usage: achilles-installer restore FILE [--yes]")
 		}
-		return day2.Restore(ctx, day2Deps(dio, repoDir(*repo), *caDir), file, *yes)
+		root := repoDir(*repo)
+		d := day2Deps(dio, root, *caDir)
+		d.RunEngine = runEngine(dio, root, *caDir)
+		return day2.Restore(ctx, d, file, *yes)
+	}
+}
+
+// runEngine re-runs the engine on <root>/deploy.config.env the way
+// `install --config … --yes` does, printing its events as plain lines.
+func runEngine(dio day2IO, root, caDir string) func(context.Context) error {
+	return func(ctx context.Context) error {
+		if dio.newRunner == nil {
+			return errors.New("no installer engine configured")
+		}
+		starter, err := dio.newRunner(root, filepath.Join(root, "deploy.config.env"), caDir)
+		if err != nil {
+			return err
+		}
+		return driveEngine(ctx, dio.stdout, starter)
 	}
 }

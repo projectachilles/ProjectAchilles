@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"os"
@@ -118,4 +120,70 @@ func TestSignalsToCatch(t *testing.T) {
 	if !has(got, os.Interrupt) || !has(got, syscall.SIGTERM) || has(got, syscall.SIGHUP) {
 		t.Fatalf("SIGHUP ignored (nohup): %v", got)
 	}
+}
+
+// restoreArchive writes a minimal backup: a MANIFEST and the given files
+// (archive name -> content).
+func restoreArchive(t *testing.T, files map[string]string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "b.tar.gz")
+	fh, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz := gzip.NewWriter(fh)
+	tw := tar.NewWriter(gz)
+	files["MANIFEST"] = "projectachilles backup\n"
+	for name, body := range files {
+		if err := tw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o600, Size: int64(len(body))}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := errors.Join(tw.Close(), gz.Close(), fh.Close()); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// restore re-runs the engine the way install --config … --yes does: on the
+// restored <repo>/deploy.config.env, with this restore's CA directory.
+func TestRestoreRunsEngineOnRestoredConfig(t *testing.T) {
+	repo, caDir := t.TempDir(), filepath.Join(t.TempDir(), "ca")
+	p := restoreArchive(t, map[string]string{
+		// 127.0.0.1 is on every host, so the real address check passes.
+		"files/deploy.config.env": "ACHILLES_DOMAIN='achilles.test'\nTLS_MODE='internal'\nCADDY_BIND_IP='127.0.0.1'\n",
+		"files/.env":              "COMPOSE_PROJECT_NAME=achilles-server\n",
+	})
+	var out, errb bytes.Buffer
+	var got []string
+	r := NewRegistry("test")
+	registerDay2(r, day2IO{
+		stdin: strings.NewReader(""), stdout: &out, stderr: &errb, cmd: recordCmd{new(bool)},
+		newRunner: func(root, cfgPath, ca string) (engine.Starter, error) {
+			got = []string{root, cfgPath, ca}
+			return okRun{}, nil
+		},
+	})
+	if code := r.Run([]string{"restore", p, "--yes", "--repo", repo, "--ca-dir", caDir}, &out, &errb); code != 0 {
+		t.Fatalf("exit %d: %s\n%s", code, errb.String(), out.String())
+	}
+	if want := []string{repo, filepath.Join(repo, "deploy.config.env"), caDir}; !slices.Equal(got, want) {
+		t.Fatalf("engine runner = %q, want %q", got, want)
+	}
+	if !strings.Contains(out.String(), "==> Rendering") {
+		t.Fatalf("engine events not printed:\n%s", out.String())
+	}
+}
+
+// okRun is an engine run that emits one phase and succeeds.
+type okRun struct{}
+
+func (okRun) Start(context.Context) (<-chan engine.Event, func() error, error) {
+	ch := make(chan engine.Event, 1)
+	ch <- engine.Event{Kind: engine.Phase, ID: "caddy-render", Text: "Rendering"}
+	close(ch)
+	return ch, func() error { return nil }, nil
 }
