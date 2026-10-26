@@ -44,6 +44,11 @@ systemctl stop systemd-random-seed.service
 rm -f /var/lib/systemd/random-seed
 # The host key for systemd-creds encrypted credentials, if anything made one.
 rm -f /var/lib/systemd/credential.secret
+# Timer stamps hold the build time. With Persistent=true, apt-daily and
+# apt-daily-upgrade would then catch up within the first hour on an image
+# imported weeks later, usually during the admin's first install. With no
+# stamp, systemd creates one at first boot and waits for the next run.
+rm -f /var/lib/systemd/timers/stamp-*
 
 log "docker identity"
 # Per-daemon IDs, regenerated when missing at the first start on the
@@ -91,6 +96,8 @@ usermod -p '!' $USER_NAME
 cp -p /etc/shadow /etc/shadow-
 : >/etc/machine-id
 rm -f /var/lib/systemd/random-seed /var/lib/systemd/credential.secret
+# A timer that fired since seal.sh wrote its stamp again.
+rm -f /var/lib/systemd/timers/stamp-*
 # Keep the journal (shutdown messages included) in /run from here on.
 journalctl --relinquish-var
 rm -rf /var/log/journal/*
@@ -120,6 +127,7 @@ fstrim -av
 [ ! -s /etc/machine-id ] || die "/etc/machine-id not empty"
 [ "$(readlink /var/lib/dbus/machine-id)" = /etc/machine-id ] || die "dbus machine-id is not a symlink"
 [ ! -e /var/lib/systemd/credential.secret ] || die "credential.secret left"
+[ -z "$(find /var/lib/systemd/timers -name 'stamp-*' 2>/dev/null)" ] || die "timer stamps left"
 [ -z "$(find /root /home -name 'authorized_keys*')" ] || die "authorized_keys left"
 [ ! -e /var/lib/docker/engine-id ] || die "docker engine-id left"
 [ -f "$PENDING" ] || die "$PENDING missing"

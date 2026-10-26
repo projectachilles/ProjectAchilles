@@ -33,6 +33,8 @@ echo @@random_seed
 -exists /var/lib/systemd/random-seed
 echo @@credential_secret
 -exists /var/lib/systemd/credential.secret
+echo @@timer_stamps
+-glob-expand /var/lib/systemd/timers/stamp-*
 echo @@cloud_disabled
 -is-file /etc/cloud/cloud-init.disabled
 echo @@netplan_cloud
@@ -142,6 +144,9 @@ case $(sec dbus_machine_id) in
 esac
 expect_false random_seed "no /var/lib/systemd/random-seed" "present: every clone starts from the same seed"
 expect_false credential_secret "no /var/lib/systemd/credential.secret" "present: every clone shares the host credential key"
+# Persistent=true timers catch up on a stamp from the build: apt-daily and
+# apt-daily-upgrade would run unattended-upgrades soon after first boot.
+expect_none timer_stamps "no systemd timer stamps (/var/lib/systemd/timers/stamp-*)"
 
 # cloud-init
 expect_true cloud_disabled "cloud-init disabled (/etc/cloud/cloud-init.disabled)" "marker file missing"
