@@ -72,8 +72,10 @@ out-ownership-check: | $(OUT)
 image:
 	@echo "image: not implemented yet (Task 6)" >&2; exit 1
 
+# Offline inspection of IMAGE (path relative to appliance/). Exit 1 = not sealed.
 check-sealed:
-	@echo "check-sealed: not implemented yet (Task 5)" >&2; exit 1
+	@test -n "$(IMAGE)" || { echo "usage: make check-sealed IMAGE=out/<image>" >&2; exit 2; }
+	$(DOCKER_RUN) build/check-sealed.sh $(IMAGE)
 
 boot-test:
 	@echo "boot-test: not implemented yet (Task 7)" >&2; exit 1
