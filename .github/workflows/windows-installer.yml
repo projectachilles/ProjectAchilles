@@ -1,7 +1,9 @@
 name: Windows installer
 
 # Runs scripts/Install-ProjectAchilles.ps1 end to end (git, docker, the health
-# check and prompts are stubbed) under Windows PowerShell 5.1 and PowerShell 7.
+# check and prompts are stubbed) and appliance/windows/Import-Achilles.ps1
+# against a simulated Hyper-V host (every Hyper-V, CIM and web command is
+# stubbed), under Windows PowerShell 5.1 and PowerShell 7.
 # 5.1 ships with Windows and is what most users run; breakage specific to it
 # (e.g. a three-argument Join-Path) does not show up under pwsh.
 on:
@@ -11,6 +13,7 @@ on:
       - 'scripts/Install-ProjectAchilles.ps1'
       - 'scripts/tests/Test-WindowsInstaller.ps1'
       - 'backend/.env.example'
+      - 'appliance/windows/**'
       - '.github/workflows/windows-installer.yml'
   pull_request:
     branches: [main]
@@ -18,6 +21,7 @@ on:
       - 'scripts/Install-ProjectAchilles.ps1'
       - 'scripts/tests/Test-WindowsInstaller.ps1'
       - 'backend/.env.example'
+      - 'appliance/windows/**'
       - '.github/workflows/windows-installer.yml'
   workflow_dispatch:
 
@@ -41,4 +45,13 @@ jobs:
           PS_EXE: ${{ matrix.exe }}
         run: |
           & $env:PS_EXE -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/tests/Test-WindowsInstaller.ps1
+          exit $LASTEXITCODE
+
+      - name: Run the appliance import script against a simulated Hyper-V host
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          PS_EXE: ${{ matrix.exe }}
+        run: |
+          & $env:PS_EXE -NoProfile -NonInteractive -ExecutionPolicy Bypass -File appliance/windows/tests/Test-ImportAchilles.ps1
           exit $LASTEXITCODE
