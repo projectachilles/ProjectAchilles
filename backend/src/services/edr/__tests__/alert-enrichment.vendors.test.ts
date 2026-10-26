@@ -44,6 +44,13 @@ describe.each(VENDORS)('EDR alert enrichment — $name', ({ prefix, index, make 
     for (const other of VENDORS.filter((v) => v.prefix !== prefix)) expect(q).not.toContain(`${other.prefix}_`);
   });
 
+  it('does not scan edr_terminated docs', async () => {
+    search.mockResolvedValueOnce({ hits: { hits: [] } });
+    await make(client).runEnrichmentPass();
+    const q = JSON.stringify(search.mock.calls[0][0].query);
+    expect(q).toContain('{"bool":{"must_not":[{"term":{"f0rtika.edr_terminated":true}}]}}');
+  });
+
   it('a stage match with a confirmed action writes detected + stage + prevented flags, and correlates the alert', async () => {
     search.mockResolvedValueOnce({ hits: { hits: [resultDoc(999)] } });
     msearch.mockResolvedValueOnce({ responses: [hits('quarantined'), hits('quarantined')] });
