@@ -187,3 +187,29 @@ func (okRun) Start(context.Context) (<-chan engine.Event, func() error, error) {
 	close(ch)
 	return ch, func() error { return nil }, nil
 }
+
+// A failed engine run after a restore keeps the engine's exit status and
+// tells the operator how to finish.
+func TestRestoreEngineFailureSaysHowToFinish(t *testing.T) {
+	repo := t.TempDir()
+	p := restoreArchive(t, map[string]string{
+		"files/deploy.config.env": "ACHILLES_DOMAIN='achilles.test'\nTLS_MODE='internal'\n",
+		"files/.env":              "COMPOSE_PROJECT_NAME=achilles-server\n",
+	})
+	var out, errb bytes.Buffer
+	r := NewRegistry("test")
+	registerDay2(r, day2IO{
+		stdin: strings.NewReader(""), stdout: &out, stderr: &errb, cmd: recordCmd{new(bool)},
+		newRunner: func(string, string, string) (engine.Starter, error) {
+			return scripted{err: exitCode(3)}, nil
+		},
+	})
+	code := r.Run([]string{"restore", p, "--yes", "--repo", repo}, &out, &errb)
+	if code != 3 {
+		t.Fatalf("exit %d, want the engine's 3; stderr %s", code, errb.String())
+	}
+	want := "sudo " + filepath.Join(repo, "achilles-installer") + " install --config " + filepath.Join(repo, "deploy.config.env") + " --yes"
+	if got := out.String() + errb.String(); !strings.Contains(got, want) {
+		t.Fatalf("want %q in:\n%s", want, got)
+	}
+}

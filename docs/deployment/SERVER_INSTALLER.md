@@ -1002,7 +1002,7 @@ sudo ./achilles-installer <command>
 | `status` | Health, certificates, disk, last backup (section 9). |
 | `upgrade [--ref TAG] [--yes]` | Moves the checkout to the highest release tag (or `--ref`) and re-runs the engine with the existing config. Shows `Upgrade: <from> -> <to>` and the changelog link, and asks for confirmation unless `--yes`. Refuses a working tree with uncommitted changes (it restores an old-engine `deploy/caddy/tls.caddy` first). On failure it prints the rollback steps. |
 | `backup [--out DIR]` | Stops the stack briefly and writes `/var/backups/projectachilles/<UTC timestamp>.tar.gz` (or `.tar.zst` when available), mode 0600: the `achilles-data`, `caddy-data` and `esdata` volumes, the CA directory **including the root key**, `deploy.config.env`, `.env` and `backend/.env`. Restarts the stack afterwards, even on failure. |
-| `restore FILE [--yes]` | Overwrites the volumes, configuration, `.env` files and CA with the backup's, then re-runs the engine on the restored `deploy.config.env` to start the stack (a backup without one gets `docker compose up -d` instead). Asks you to type the hostname unless `--yes`. Works on a server that was never installed (see [Restoring onto a new server](#restoring-onto-a-new-server)). |
+| `restore FILE [--yes]` | Overwrites the volumes, configuration, `.env` files and CA with the backup's, then re-runs the engine on the restored `deploy.config.env` to start the stack. The engine regenerates `backend/.env` and `.env` from that config: the secrets (`SESSION_SECRET`, `ENCRYPTION_SECRET`, `CLI_AUTH_SECRET`) are kept from the restored `backend/.env`, but keys you added to `backend/.env` by hand are not carried over (put them in `deploy.config.env` or add them again). When neither the backup nor the server has a `deploy.config.env`, it runs `docker compose up -d` instead. Asks you to type the hostname unless `--yes`. Works on a server that was never installed (see [Restoring onto a new server](#restoring-onto-a-new-server)). |
 | `ca export --out DIR` | Writes `root.crt` and `root.cer` and prints the SHA-256 and SHA-1 thumbprint. |
 | `ca bootstrap --host NAME --out DIR` | Re-renders the bootstrap scripts (the engine does this on every run, into `deploy/onprem/`). |
 | `ca renew [--if-expiring 180d]` | Renews the intermediate if due (prints `renewed` or `not due`); then run `sudo systemctl start achilles-ca-renew.service` so Caddy drops its cached leaves and restarts (section 6). |
@@ -1057,16 +1057,32 @@ checkout: `install --config FILE` copies `FILE` to
 `/opt/projectachilles/deploy.config.env` (mode 0600) and installs from that
 copy. An install from before that change may not have it there. `backup` then
 warns `this backup has no deploy.config.env; it can be restored only onto this
-server`, and restoring it onto a server that has no `deploy.config.env` of its
-own only runs `docker compose up -d`. To fix that,
+server`. Restoring such a backup onto a server that has no `deploy.config.env`
+of its own only runs `docker compose up -d`. Onto a server that has one (the
+same server, restoring an older backup), the restore keeps that file and
+re-runs the engine on it, with the restored `.env` files and data. To fix that,
 copy the config you installed from to `/opt/projectachilles/deploy.config.env`
 and take a new backup.
 
 #### Restoring onto a new server
 
 `restore` works on a server where `install` never ran: a freshly imported
-appliance, or new hardware for a hand-built server. Clone the same release (or
-import the appliance), copy the backup file over, then:
+appliance, or new hardware for a hand-built server.
+
+Before you start, the new server needs:
+
+- **Docker** with the Compose v2 plugin, running. The restore uses Docker to
+  re-create the volumes before the engine runs, so it can't install Docker for
+  you the way `install` does. An appliance has it already.
+- **The checkout and the installer binary**, `/opt/projectachilles` and
+  `/opt/projectachilles/achilles-installer`, at the release the backup came
+  from. An appliance has both. On new hardware, run `install-onprem.sh`
+  (section 5.1) with `--ref <that release> --no-run`, so it installs the
+  binary without starting the wizard.
+- **The backup file**, copied over (it holds every secret: use `scp`, not a
+  share).
+
+Then:
 
 ```bash
 sudo /opt/projectachilles/achilles-installer restore /path/to/<timestamp>.tar.gz
@@ -1076,7 +1092,13 @@ With no ProjectAchilles containers on the server there is nothing to stop. The
 restore puts back the volumes, the CA, `deploy.config.env` and the `.env`
 files, then re-runs the engine on the restored config. That also re-creates
 what the backup doesn't hold: `deploy/caddy/rendered/`, the `/etc/hosts` entry
-(`HOSTS_ENTRY=true`) and the CA renewal timer.
+(`HOSTS_ENTRY=true`) and the CA renewal timer. If that engine run fails, the
+data is already restored: fix the reported problem and finish with
+`sudo /opt/projectachilles/achilles-installer install --config /opt/projectachilles/deploy.config.env --yes`
+(restore prints the command with your paths).
+
+A `CADDY_BIND_IP` of `0.0.0.0` or `::` (every address) always counts as on
+this server.
 
 **A new address.** Before starting anything, the restore checks that the
 config's `CADDY_BIND_IP` is an address of this server. If it isn't, it stops

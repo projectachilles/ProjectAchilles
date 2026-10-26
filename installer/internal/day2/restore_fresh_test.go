@@ -181,13 +181,38 @@ func TestRestoreRunsEngineWhenConfigPresent(t *testing.T) {
 		t.Fatalf("engine runs = %d, compose up = %v; want the engine only", runs, f.has("up -d"))
 	}
 
-	// A failing engine run fails the restore, and says the data is back.
+	// A failing engine run fails the restore, says the data is back, and
+	// gives the command that finishes the job.
 	f = restoreFake("3f2a1b\n", nil)
 	d = freshDeps(t, f, &out, &runs, true)
 	d.RunEngine = func(context.Context) error { return errors.New("engine exit 3") }
 	err := Restore(context.Background(), d, p, true)
 	if err == nil || !strings.Contains(err.Error(), "engine exit 3") {
 		t.Fatalf("err = %v", err)
+	}
+	finish := "sudo " + filepath.Join(d.RepoDir, "achilles-installer") + " install --config " +
+		filepath.Join(d.RepoDir, "deploy.config.env") + " --yes"
+	if !strings.Contains(err.Error(), finish) || !strings.Contains(err.Error(), "data is restored") {
+		t.Fatalf("err = %v, want it to say the data is restored and to name %q", err, finish)
+	}
+}
+
+// An unspecified CADDY_BIND_IP (every address) is on every server: the real
+// address check must not stop the restore.
+func TestRestoreUnspecifiedBindIPRunsEngine(t *testing.T) {
+	for _, ip := range []string{"0.0.0.0", "::", "[::]"} {
+		p := sourceBackup(t, ip, "B=2\n")
+		f := restoreFake("", nil)
+		var out strings.Builder
+		runs := 0
+		d := freshDeps(t, f, &out, &runs, false)
+		d.HasLocalIP = nil // the real check, sysprobe.HostHasIP
+		if err := Restore(context.Background(), d, p, true); err != nil {
+			t.Fatalf("%s: %v\n%s", ip, err, out.String())
+		}
+		if runs != 1 || strings.Contains(out.String(), "is not on this server") {
+			t.Fatalf("%s: engine runs = %d\n%s", ip, runs, out.String())
+		}
 	}
 }
 

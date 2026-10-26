@@ -139,13 +139,17 @@ func DefaultRouteIface() string {
 
 // HasAddr reports whether ip (bare, no brackets) is one of addrs. Every
 // interface counts, loopback, bridge and VPN included: Caddy can bind any of
-// them. IPv4-mapped IPv6 forms match their IPv4 address.
+// them. IPv4-mapped IPv6 forms match their IPv4 address. The unspecified
+// address (0.0.0.0, ::) means every address, so it is always local.
 func HasAddr(addrs []net.Addr, ip string) bool {
 	want, err := netip.ParseAddr(ip)
 	if err != nil {
 		return false
 	}
 	want = want.Unmap()
+	if want.IsUnspecified() {
+		return true
+	}
 	for _, a := range addrs {
 		var raw net.IP
 		switch v := a.(type) {

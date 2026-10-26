@@ -328,7 +328,12 @@ func Restore(ctx context.Context, d Deps, file string, yes bool) error {
 	}
 	fmt.Fprintf(w, "Re-running the installer with the restored %s...\n", cfgPath)
 	if err := d.RunEngine(ctx); err != nil {
-		return fmt.Errorf("the data is restored, but the installer run that starts the stack failed: %w", err)
+		// Printed as well as returned: the CLI shows only the engine's own
+		// error when it carries an exit status.
+		finish := fmt.Sprintf("sudo %s install --config %s --yes", filepath.Join(d.RepoDir, "achilles-installer"), cfgPath)
+		fmt.Fprintf(w, "\nThe data is restored, but the installer run that starts the stack failed. Fix the problem above, then finish with:\n  %s\n", finish)
+		return fmt.Errorf("the data is restored, but the installer run that starts the stack failed: %w. "+
+			"Fix the problem above, then finish with: %s", err, finish)
 	}
 	fmt.Fprintln(w, "Restore complete. Run achilles-installer status to check the stack.")
 	return nil

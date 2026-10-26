@@ -138,6 +138,8 @@ func TestHasAddr(t *testing.T) {
 	for ip, want := range map[string]bool{
 		"10.0.2.15": true, "100.101.1.2": true, "fd00::5": true, "192.168.9.9": true,
 		"::ffff:10.0.2.15": true, "10.0.2.16": false, "fd00::6": false, "": false, "not-an-ip": false,
+		// Unspecified: Caddy binds every address, which is always "on" this host.
+		"0.0.0.0": true, "::": true,
 	} {
 		if got := HasAddr(addrs, ip); got != want {
 			t.Errorf("HasAddr(%q) = %v, want %v", ip, got, want)
