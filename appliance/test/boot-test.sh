@@ -305,24 +305,33 @@ compose_running() {
 	expect_eq "running compose services" "$got" "$want"
 }
 
-# backend_health I: if the backend container turns healthy within 5 minutes,
-# the API must answer through Caddy. Placeholder Clerk keys may keep it
-# unhealthy, which spec 10.1 allows.
+# backend_health I: the backend container turns healthy within 5 minutes,
+# and https://achilles.test/api/health answers through Caddy with the
+# backend's own JSON (not the SPA's index.html fallback): status "ok",
+# service "ProjectAchilles", and the commit the image was built from. The
+# placeholder Clerk keys don't stop it: the health route needs no Clerk call.
 backend_health() {
-	local i=$1 st n
+	local i=$1 st body n
 	for ((n = 0; n < 30; n++)); do
-		st=$(vm_root "$i" "docker inspect --format '{{.State.Health.Status}}' \$($COMPOSE ps -q backend)")
-		[ "$st" = starting ] || break
+		st=$(vm_root "$i" "docker inspect --format '{{.State.Health.Status}}' \$($COMPOSE ps -q backend)") || st=""
+		[ "$st" = healthy ] && break
 		sleep 10
 	done
-	if [ "$st" = healthy ]; then
-		st=$(vm_root "$i" "curl -fsk --max-time 20 https://achilles.test/api/health") ||
-			fail "the backend is healthy but https://achilles.test/api/health failed"
-		log "vm$CUR: ok: https://achilles.test/api/health: $st"
-	else
-		log "vm$CUR: WARN: backend health is '$st' (allowed with placeholder Clerk keys, spec 10.1)"
-		vm_root "$i" "$COMPOSE logs --tail 15 backend" | indent "$i" || true
+	if [ "$st" != healthy ]; then
+		vm_root "$i" "$COMPOSE logs --tail 30 backend" | indent "$i" || true
+		fail "the backend is '$st', not healthy, after 5 minutes"
 	fi
+	log "vm$CUR: ok: backend container healthy"
+	for ((n = 0; n < 12; n++)); do
+		body=$(vm_root "$i" "curl -fsk --max-time 20 https://achilles.test/api/health") || body=""
+		jq -e --arg c "$BUILD_COMMIT" '.status == "ok" and .service == "ProjectAchilles" and .commit == $c' \
+			<<<"$body" >/dev/null 2>&1 && break
+		sleep 5
+	done
+	jq -e --arg c "$BUILD_COMMIT" '.status == "ok" and .service == "ProjectAchilles" and .commit == $c' \
+		<<<"$body" >/dev/null 2>&1 ||
+		fail "https://achilles.test/api/health did not return the backend's health JSON for $BUILD_COMMIT: '${body:0:300}'"
+	log "vm$CUR: ok: https://achilles.test/api/health through Caddy: $body"
 }
 
 # caddy_frontend I: Caddy serves the frontend at https://achilles.test/ (HTTP
