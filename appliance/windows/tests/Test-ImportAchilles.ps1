@@ -41,6 +41,35 @@ $ErrorActionPreference = 'Stop'
 $script:fail = 0
 function Check($name, [bool]$ok) { if ($ok) { "  PASS $name" } else { "  FAIL $name"; $script:fail = 1 } }
 
+# ---- safety -----------------------------------------------------------------
+# This harness may run on a machine with Hyper-V enabled (the lab host), and
+# members of "Hyper-V Administrators" can change Hyper-V without elevation.
+# So it fails safe instead of relying on remembering every mock:
+#  1. it imports the few modules the script and the harness legitimately use,
+#     then turns module autoloading off, so a command from any other module
+#     (Hyper-V, NetAdapter, NetTCPIP, ...) raises CommandNotFound instead of
+#     loading and running;
+#  2. every command of the host-changing modules that exist on this machine
+#     gets a stub that logs and throws, in case one is already loaded;
+#  3. TestStatic_EveryCommandIsMockedOrSafe fails on any command the script
+#     calls that is neither mocked here nor on an explicit safe list, so a
+#     forgotten mock goes red on Linux and in CI as well.
+Import-Module Microsoft.PowerShell.Management, Microsoft.PowerShell.Utility, Microsoft.PowerShell.Archive -ErrorAction Stop
+$DangerousModules = @('Hyper-V', 'NetAdapter', 'NetTCPIP', 'NetLbfo', 'Dism', 'ServerManager', 'FailoverClusters', 'Storage', 'CimCmdlets')
+$HostCommands = @(Get-Command -Module $DangerousModules -CommandType Cmdlet, Function -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+$global:PSModuleAutoLoadingPreference = 'None'
+
+# An HTTP error response for the Invoke-WebRequest mock. The script reads
+# $_.Exception.Response.StatusCode, as on Windows PowerShell 5.1 (WebException)
+# and PowerShell 7 (HttpResponseException).
+Add-Type -IgnoreWarnings -TypeDefinition @'
+public class AchillesFakeHttpResponse : System.Net.WebResponse {
+    private readonly System.Net.HttpStatusCode code;
+    public AchillesFakeHttpResponse(int statusCode) { code = (System.Net.HttpStatusCode)statusCode; }
+    public System.Net.HttpStatusCode StatusCode { get { return code; } }
+}
+'@
+
 $root = Join-Path ([IO.Path]::GetTempPath()) ('pa-import-test-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Path $root | Out-Null
 
@@ -78,7 +107,7 @@ $FixReleaseUrl = "https://github.com/projectachilles/ProjectAchilles/releases/do
 # Windows 11 client with Hyper-V enabled and plenty of disk and memory.
 function New-HVState([string]$dir) {
     @{
-        IsAdmin       = $true
+        IsAdmin       = $true         # what the elevation probe returns (raw)
         HyperVModule  = $true
         ProductType   = 1             # Win32_OperatingSystem: 1 client, 3 server
         FeatureState  = 'Enabled'     # client: Get-WindowsOptionalFeature State
@@ -88,9 +117,11 @@ function New-HVState([string]$dir) {
         Switches      = New-Object System.Collections.ArrayList
         Adapters      = New-Object System.Collections.ArrayList
         VhdPath       = (Join-Path $dir 'vhd')
-        FreeDiskBytes = 500GB
+        FreeDiskBytes = 500GB         # free space of the one default volume
+        Volumes       = $null         # $null = one volume at the temp root; or a list of @{ Name; FreeSpace }
         FreeMemoryKB  = [long](32GB / 1KB)
         Web           = @{}           # url -> response body (string)
+        WebStatus     = @{}           # url -> HTTP error status (e.g. 404)
         IpSequence    = New-Object System.Collections.ArrayList
     }
 }
@@ -133,10 +164,10 @@ function global:Read-Host {
     if ($global:Answers.Count -eq 0) { throw "unscripted prompt: $Prompt" }
     return [string]$global:Answers.Dequeue()
 }
-function global:Test-IsAdministrator {
+function global:Test-AchillesImportElevated {
     [CmdletBinding()] param()
     Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
-    [bool]$global:HV.IsAdmin
+    $global:HV.IsAdmin
 }
 function global:Get-Module {
     [CmdletBinding()] param([Parameter(Position = 0)][string[]]$Name, [switch]$ListAvailable)
@@ -150,6 +181,13 @@ function global:Get-Module {
 function global:Get-CimInstance {
     [CmdletBinding()] param([Parameter(Position = 0)][string]$ClassName)
     Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    if ($ClassName -eq 'Win32_Volume') {
+        if ($null -eq $global:HV.Volumes) {
+            return [pscustomobject]@{ Name = [IO.Path]::GetPathRoot($root); FreeSpace = [uint64]$global:HV.FreeDiskBytes }
+        }
+        foreach ($v in $global:HV.Volumes) { [pscustomobject]@{ Name = $v.Name; FreeSpace = [uint64]$v.FreeSpace } }
+        return
+    }
     if ($ClassName -ne 'Win32_OperatingSystem') { throw "harness: Get-CimInstance $ClassName is not mocked" }
     [pscustomobject]@{
         Caption            = 'Microsoft Windows (mock)'
@@ -189,26 +227,25 @@ function global:Get-VMHost {
     Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
     [pscustomobject]@{ VirtualHardDiskPath = $global:HV.VhdPath }
 }
-# Every FileSystem drive reports the scenario's free space.
-function global:Get-PSDrive {
-    [CmdletBinding()] param([Parameter(Position = 0)][string[]]$Name, [string]$PSProvider)
-    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
-    $roots = @([IO.Path]::GetPathRoot($root), [IO.Path]::GetPathRoot([string]$global:HV.VhdPath)) | Select-Object -Unique
-    foreach ($r in $roots) { [pscustomobject]@{ Name = 'Mock'; Root = $r; Free = [long]$global:HV.FreeDiskBytes } }
-}
 # Answers from $HV.Web, the way Windows PowerShell 5.1 returns an
-# application/octet-stream body (a byte array). Anything else is unreachable.
+# application/octet-stream body (a byte array). $HV.WebStatus answers with an
+# HTTP error. Anything else is unreachable.
 function global:Invoke-WebRequest {
     [CmdletBinding()] param([Parameter(Position = 0)][string]$Uri, [switch]$UseBasicParsing, [string]$OutFile)
     Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    if ($global:HV.WebStatus.ContainsKey($Uri)) {
+        $status = [int]$global:HV.WebStatus[$Uri]
+        throw (New-Object System.Net.WebException "The remote server returned an error: ($status) (mock)", $null, ([System.Net.WebExceptionStatus]::ProtocolError), (New-Object AchillesFakeHttpResponse $status))
+    }
     if (-not $global:HV.Web.ContainsKey($Uri)) {
         throw (New-Object System.Net.WebException "The remote name could not be resolved: 'github.com' (mock)")
     }
     [pscustomobject]@{ StatusCode = 200; Content = [Text.Encoding]::ASCII.GetBytes([string]$global:HV.Web[$Uri]) }
 }
 
-# Commands that change a host (or that later tasks will mock with state).
-# Until a scenario needs them, any call is logged and fails the run.
+# Commands that change a host (or that later tasks will mock with state), plus
+# every command of the host-changing modules found on this machine. Until a
+# scenario mocks one, any call is logged and fails the run.
 $guarded = @(
     'Enable-WindowsOptionalFeature', 'Install-WindowsFeature', 'Restart-Computer',
     'New-VM', 'Remove-VM', 'Start-VM', 'Stop-VM', 'Set-VM', 'Set-VMFirmware', 'Set-VMMemory',
@@ -216,7 +253,13 @@ $guarded = @(
     'Get-VMNetworkAdapter', 'Connect-VMNetworkAdapter', 'Add-VMHardDiskDrive', 'Set-VMHost',
     'Get-VMSwitch', 'New-VMSwitch', 'Remove-VMSwitch', 'Get-NetAdapter', 'vmconnect'
 )
-foreach ($n in $guarded) {
+# The mocks are the "function global:" definitions in this file.
+$tokens = $null; $parseErrors = $null
+$selfAst = [System.Management.Automation.Language.Parser]::ParseFile($PSCommandPath, [ref]$tokens, [ref]$parseErrors)
+$MockNames = @($selfAst.FindAll({ param($a) $a -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $a.Name -like 'global:*' }, $true) |
+    ForEach-Object { $_.Name.Substring(7) })
+$StubNames = @(@($guarded) + $HostCommands | Select-Object -Unique | Where-Object { $MockNames -notcontains $_ })
+foreach ($n in $StubNames) {
     Set-Item -Path "function:global:$n" -Value {
         [void]$global:Calls.Add("$($MyInvocation.MyCommand.Name) $args")
         throw "harness: $($MyInvocation.MyCommand.Name) is not mocked"
@@ -332,10 +375,65 @@ function TestStatic_HelpShowsBypassFile {
         $help = $ast.GetHelpContent()
         if ($null -ne $help) {
             $all = [string]$help.Synopsis + "`n" + (@($help.Examples) -join "`n")
-            $ok = $all.Contains('powershell -ExecutionPolicy Bypass -File .\Import-Achilles.ps1')
+            $ok = $all.Contains('powershell -NoProfile -ExecutionPolicy Bypass -File .\Import-Achilles.ps1')
         }
     }
-    Check 'help (.SYNOPSIS/.EXAMPLE) shows powershell -ExecutionPolicy Bypass -File' $ok
+    Check 'help (.SYNOPSIS/.EXAMPLE) shows powershell -NoProfile -ExecutionPolicy Bypass -File' $ok
+    # -NoProfile keeps a profile's functions out of the run; every usage line has it.
+    $all = 0; $without = 0
+    if (Test-Path -LiteralPath $Script) {
+        foreach ($l in [IO.File]::ReadAllLines($Script)) {
+            if ($l.Contains('-ExecutionPolicy Bypass')) { $all++; if (-not $l.Contains('-NoProfile -ExecutionPolicy Bypass')) { $without++ } }
+        }
+    }
+    Check "every '-ExecutionPolicy Bypass' usage line has -NoProfile ($all found)" ($all -gt 0 -and $without -eq 0)
+}
+
+# Commands the script may call without a mock: local, in-process, and only
+# touching paths the script was given. Anything else needs a mock above.
+$SafeCommands = @(
+    'Add-Type', 'Copy-Item', 'Expand-Archive', 'ForEach-Object', 'Get-ChildItem', 'Get-FileHash',
+    'Get-Item', 'Join-Path', 'Move-Item', 'New-Item', 'New-Object', 'Out-Null', 'Remove-Item',
+    'Select-Object', 'Set-StrictMode', 'Split-Path', 'Test-Path', 'Where-Object', 'Write-Host'
+)
+
+# Names of commands in a script that are not mocked, safe, or the script's own
+# functions; module-qualified names; and dynamic invocations (& $x).
+function Get-UnsafeCommands([System.Management.Automation.Language.Ast]$ast) {
+    $own = @($ast.FindAll({ param($a) $a -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) | ForEach-Object { $_.Name })
+    foreach ($c in $ast.FindAll({ param($a) $a -is [System.Management.Automation.Language.CommandAst] }, $true)) {
+        $n = $c.GetCommandName()
+        $where = "line $($c.Extent.StartLineNumber)"
+        if ($null -eq $n) { "dynamic invocation at ${where}: $($c.Extent.Text)"; continue }
+        if ($n.Contains('\')) { "module-qualified $n at $where"; continue }
+        if ($own -contains $n -or $MockNames -contains $n -or $SafeCommands -contains $n) { continue }
+        if ($StubNames -contains $n) { "$n at $where is guarded but not mocked"; continue }
+        "$n at $where is neither mocked nor on the safe list"
+    }
+}
+
+function TestStatic_EveryCommandIsMockedOrSafe {
+    $bad = @('script missing')
+    if (Test-Path -LiteralPath $Script) {
+        $tokens = $null; $parseErrors = $null
+        $bad = @(Get-UnsafeCommands ([System.Management.Automation.Language.Parser]::ParseFile($Script, [ref]$tokens, [ref]$parseErrors)))
+    }
+    Check 'every command the script calls is mocked or on the safe list' ($bad.Count -eq 0)
+    foreach ($b in $bad) { "     | $b" }
+
+    # The check itself must catch an unmocked Hyper-V command, a
+    # module-qualified name and a dynamic invocation.
+    $probe = [System.Management.Automation.Language.Parser]::ParseInput(
+        "function Own { Get-ChildItem }`nOwn`nAdd-VMNetworkAdapter -VMName x`nHyper-V\Get-VM`n& `$cmd`n", [ref]$null, [ref]$null)
+    $found = @(Get-UnsafeCommands $probe)
+    Check 'the command check catches unmocked, module-qualified and dynamic calls' (
+        $found.Count -eq 3 -and ($found -join ' ') -match 'Add-VMNetworkAdapter' -and ($found -join ' ') -match 'module-qualified' -and ($found -join ' ') -match 'dynamic')
+
+    # With autoloading off, a command from a module that was not imported
+    # cannot load and run.
+    $notFound = $false
+    try { Get-SmbShare | Out-Null } catch [System.Management.Automation.CommandNotFoundException] { $notFound = $true }
+    Check 'module autoloading is off (an unimported module''s command is not found)' ($global:PSModuleAutoLoadingPreference -eq 'None' -and $notFound)
 }
 
 # ==== preflight ==============================================================
@@ -346,6 +444,22 @@ function TestPreflight_NotElevatedRefuses {
     Expect 'exit 1' $r ($r.ExitCode -eq 1)
     Expect 'says Run PowerShell as Administrator' $r (Test-Contains $r 'Run PowerShell as Administrator')
     Expect 'no Hyper-V calls' $r (Test-NoHyperVCalls $r)
+
+    # A common helper name in a profile must not stand in for the check.
+    $null = New-Scenario 'preflight-not-elevated-profile-helper'
+    $global:HV.IsAdmin = $false
+    Set-Item -Path 'function:global:Test-IsAdministrator' -Value { $true }
+    try { $r = Invoke-Import (Get-BaseParams) }
+    finally { Remove-Item -LiteralPath 'function:global:Test-IsAdministrator' }
+    Expect 'a Test-IsAdministrator returning $true does not bypass the check' $r ($r.ExitCode -eq 1 -and (Test-Contains $r 'Run PowerShell as Administrator'))
+
+    # Only a real [bool] $true passes: the string 'False' is truthy.
+    foreach ($v in @('False', 'True', 1)) {
+        $null = New-Scenario "preflight-elevation-not-bool-$v"
+        $global:HV.IsAdmin = $v
+        $r = Invoke-Import (Get-BaseParams)
+        Expect "a probe returning $($v.GetType().Name) '$v' is refused" $r ($r.ExitCode -eq 1 -and (Test-Contains $r 'Run PowerShell as Administrator'))
+    }
 }
 
 function TestPreflight_HyperVMissingPrintsEnableCommand {
@@ -445,6 +559,44 @@ function TestPreflight_LowDiskRefuses {
     Expect 'image + 20 GB fits: preflight passes' $r (Test-Contains $r 'Preflight checks passed')
 }
 
+# A Destination under a mount-point folder lives on the mounted volume, not
+# on the drive that holds the folder: the longest volume name that prefixes
+# Destination wins (case-insensitively, as on Windows).
+function TestPreflight_MountPointDiskSpace {
+    $sep = [IO.Path]::DirectorySeparatorChar
+    $dir = New-Scenario 'preflight-mount-point-low'
+    $mount = Join-Path $dir 'mnt'
+    $global:HV.Volumes = @(
+        @{ Name = [IO.Path]::GetPathRoot($root); FreeSpace = 500GB },
+        @{ Name = $mount + $sep; FreeSpace = 5GB }
+    )
+    $p = Get-BaseParams; $p.Destination = Join-Path $mount 'VMs'
+    $r = Invoke-Import $p
+    Expect 'small mounted volume under a big drive: refused' $r ($r.ExitCode -eq 1 -and (Test-Contains $r 'Not enough free disk space'))
+
+    $dir = New-Scenario 'preflight-mount-point-big'
+    $mount = Join-Path $dir 'mnt'
+    $global:HV.Volumes = @(
+        @{ Name = [IO.Path]::GetPathRoot($root); FreeSpace = 5GB },
+        @{ Name = ($mount + $sep).ToUpperInvariant(); FreeSpace = 500GB }
+    )
+    $p = Get-BaseParams; $p.Destination = Join-Path $mount 'VMs'
+    $r = Invoke-Import $p
+    Expect 'big mounted volume under a small drive (name in other case): passes' $r (Test-Contains $r 'Preflight checks passed')
+}
+
+# A UNC Destination (an SMB3 share) is on no local volume. The free space
+# can't be checked: warn and go on. Simulated by a host whose only volume
+# does not hold Destination; a real \\server\share path would make the
+# script reach the network on Windows (and be a relative path on Linux).
+function TestPreflight_DestinationOnNoLocalVolumeWarns {
+    $dir = New-Scenario 'preflight-no-local-volume'
+    $global:HV.Volumes = @(@{ Name = (Join-Path $dir 'elsewhere') + [IO.Path]::DirectorySeparatorChar; FreeSpace = 1GB })
+    $r = Invoke-Import (Get-BaseParams)
+    Expect 'warns that the free space could not be checked' $r (Test-Contains $r 'Could not check the free space')
+    Expect 'and goes on (preflight passes)' $r (Test-Contains $r 'Preflight checks passed')
+}
+
 function TestPreflight_LowMemoryRefuses {
     $null = New-Scenario 'preflight-low-memory'
     $global:HV.FreeMemoryKB = [long](7GB / 1KB)   # default -MemoryGB is 8
@@ -512,6 +664,17 @@ function TestImage_ChecksumMismatchStopsAndCleansUp {
     $sums = New-SumsFile 'sums-bad-vhdx' "$bad  $FixVhdxName`n"
     $r = Invoke-Import @{ ImagePath = $FixVhdx; ChecksumFile = $sums }
     Expect '.vhdx: exit 1 and nothing left at the destination' $r ($r.ExitCode -eq 1 -and (Test-NoWork $global:HV.VhdPath))
+    Expect '.vhdx: the Destination folder this run created is removed' $r (-not (Test-Path -LiteralPath $global:HV.VhdPath))
+
+    # Folders this run created for -Destination go; ones that existed stay.
+    $dir = New-Scenario 'image-checksum-mismatch-new-dest'
+    $dest = Join-Path (Join-Path $dir 'new') 'deeper'
+    $r = Invoke-Import @{ ImagePath = $FixVhdx; ChecksumFile = $sums; Destination = $dest }
+    Expect 'nested new -Destination: every folder this run created is removed' $r ($r.ExitCode -eq 1 -and -not (Test-Path -LiteralPath (Join-Path $dir 'new')))
+    $dir = New-Scenario 'image-checksum-mismatch-existing-dest'
+    New-Item -ItemType Directory -Path $global:HV.VhdPath | Out-Null
+    $r = Invoke-Import @{ ImagePath = $FixVhdx; ChecksumFile = $sums }
+    Expect 'an existing -Destination folder is kept' $r ($r.ExitCode -eq 1 -and (Test-Path -LiteralPath $global:HV.VhdPath))
 }
 
 function TestImage_ChecksumFileWithoutEntryStops {
@@ -521,6 +684,24 @@ function TestImage_ChecksumFileWithoutEntryStops {
     Expect 'exit 1' $r ($r.ExitCode -eq 1)
     Expect 'says the image is not listed' $r (Test-Contains $r "$FixZipName is not listed")
     Expect 'nothing written' $r (Test-NoWork $global:HV.VhdPath)
+}
+
+function TestImage_ChecksumFileFormats {
+    $null = New-Scenario 'image-checksum-uppercase'
+    $sums = New-SumsFile 'sums-upper' ($FixZipHash.ToUpperInvariant() + "  $FixZipName`n")
+    $r = Invoke-Import @{ ImagePath = $FixZip; ChecksumFile = $sums }
+    Expect 'uppercase hex matches' $r (Test-Contains $r 'SHA256 matches')
+
+    $null = New-Scenario 'image-checksum-duplicate-same'
+    $sums = New-SumsFile 'sums-dup-same' "$FixZipHash  $FixZipName`n$($FixZipHash.ToUpperInvariant())  $FixZipName`n"
+    $r = Invoke-Import @{ ImagePath = $FixZip; ChecksumFile = $sums }
+    Expect 'the same entry twice with the same hash passes' $r (Test-Contains $r 'SHA256 matches')
+
+    $null = New-Scenario 'image-checksum-duplicate-different'
+    $sums = New-SumsFile 'sums-dup-diff' "$FixZipHash  $FixZipName`n$('1' * 64)  $FixZipName`n"
+    $r = Invoke-Import @{ ImagePath = $FixZip; ChecksumFile = $sums }
+    Expect 'the same entry twice with different hashes: exit 1, nothing written' $r (
+        $r.ExitCode -eq 1 -and (Test-Contains $r 'listed more than once') -and (Test-NoWork $global:HV.VhdPath))
 }
 
 function TestImage_NoChecksumSourceRefuses {
@@ -570,6 +751,23 @@ function TestImage_UnreadableZipRefuses {
     [IO.File]::WriteAllText($broken, 'not a zip')
     $r = Invoke-Import @{ ImagePath = $broken; ChecksumFile = $FixSums }
     Expect 'exit 1, says it cannot read the zip, nothing written' $r ($r.ExitCode -eq 1 -and (Test-Contains $r 'as a zip file') -and (Test-NoWork $global:HV.VhdPath))
+}
+
+# A wrong -Version is not an offline host: the release exists but has no
+# appliance-SHA256SUMS (HTTP 404). Say so; keep the computed-hash hint.
+function TestImage_VersionNotFoundSaysCheckVersion {
+    $null = New-Scenario 'image-version-404'
+    $url = 'https://github.com/projectachilles/ProjectAchilles/releases/download/v9.9.8/appliance-SHA256SUMS'
+    $global:HV.WebStatus[$url] = 404
+    $r = Invoke-Import @{ ImagePath = $FixZip; Version = '9.9.8' }
+    Expect 'exit 1' $r ($r.ExitCode -eq 1)
+    Expect 'says the release has no appliance-SHA256SUMS' $r (Test-Contains $r 'v9.9.8 release has no appliance-SHA256SUMS')
+    Expect 'says to check that -Version matches the image' $r (Test-Contains $r 'Check that -Version matches the image')
+    Expect 'suggests the version in the image file name' $r (Test-Contains $r "-Version $FixVer")
+    Expect 'keeps the computed-hash hint' $r (Test-Contains $r $FixZipHash)
+    Expect "points at the image's own release page" $r (Test-Contains $r "releases/tag/v$FixVer")
+    Expect 'no offline guidance' $r (-not (Test-Contains $r 'Could not download'))
+    Expect 'nothing written' $r (Test-NoWork $global:HV.VhdPath)
 }
 
 # ---- run --------------------------------------------------------------------

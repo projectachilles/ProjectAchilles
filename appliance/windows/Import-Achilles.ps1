@@ -3,7 +3,7 @@
 <#
 .SYNOPSIS
     Imports the ProjectAchilles appliance into Hyper-V. Run it from an
-    elevated prompt as: powershell -ExecutionPolicy Bypass -File .\Import-Achilles.ps1 -ImagePath <zip> -Version <x.y.z>
+    elevated prompt as: powershell -NoProfile -ExecutionPolicy Bypass -File .\Import-Achilles.ps1 -ImagePath <zip> -Version <x.y.z>
 
 .DESCRIPTION
     Verifies the appliance image against the SHA256 checksums published on
@@ -23,8 +23,9 @@
     appliance-SHA256SUMS. There is no way to skip verification.
 
     A script downloaded with a browser is blocked by the default execution
-    policy. Run it with "powershell -ExecutionPolicy Bypass -File" as in the
-    examples; do not dot-source it.
+    policy. Run it with "powershell -NoProfile -ExecutionPolicy Bypass -File"
+    as in the examples (-NoProfile keeps profile functions out of the run);
+    do not dot-source it.
 
 .PARAMETER ImagePath
     The appliance image: ProjectAchilles-<version>-hyperv.zip from the
@@ -74,12 +75,12 @@
     adapter without typing its name.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File .\Import-Achilles.ps1 -ImagePath .\ProjectAchilles-2.7.0-hyperv.zip -Version 2.7.0
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\Import-Achilles.ps1 -ImagePath .\ProjectAchilles-2.7.0-hyperv.zip -Version 2.7.0
 
     Verifies the zip against the v2.7.0 release checksums and imports it.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File .\Import-Achilles.ps1 -ImagePath D:\ProjectAchilles-2.7.0-hyperv.zip -ChecksumFile D:\appliance-SHA256SUMS
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\Import-Achilles.ps1 -ImagePath D:\ProjectAchilles-2.7.0-hyperv.zip -ChecksumFile D:\appliance-SHA256SUMS
 
     The same on a host without internet access, with a copy of the release's
     checksum file.
@@ -189,25 +190,40 @@ function Format-GB {
 # -----------------------------------------------------------------------------
 
 # The test harness (tests/Test-ImportAchilles.ps1) simulates a non-elevated
-# session by defining a global Test-IsAdministrator first. A function the
-# script defines would take precedence over it, so the script defines its own
-# only when none exists. Every other host query is a plain cmdlet call.
-if (-not (Test-Path -LiteralPath 'function:\Test-IsAdministrator')) {
-    function Test-IsAdministrator {
+# session by defining a global Test-AchillesImportElevated first. A function
+# the script defines would take precedence over it, so the script defines its
+# own only when none exists. The name is unique to this script so that a
+# common helper in a profile (Test-IsAdministrator, say) can't stand in for
+# it, and the caller accepts only a [bool] $true. Every other host query is a
+# plain cmdlet call.
+if (-not (Test-Path -LiteralPath 'function:\Test-AchillesImportElevated')) {
+    function Test-AchillesImportElevated {
         $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
         $principal = New-Object Security.Principal.WindowsPrincipal $identity
         $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     }
 }
 
-# Free bytes on the volume that holds $Path, or $null when unknown (a UNC
-# path, for example).
+# Free bytes on the volume that holds $Path, or $null when no local volume
+# does (a UNC share). The volume is the one with the longest name (C:\,
+# D:\Mounts\VMs\, ...) that prefixes the path, so a mount-point folder counts
+# as its own volume rather than the drive that holds it.
 function Get-FreeBytes {
     param([string]$Path)
-    $pathRoot = [IO.Path]::GetPathRoot($Path)
-    $drive = @(Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -eq $pathRoot }) | Select-Object -First 1
-    if ($null -eq $drive -or $null -eq $drive.Free) { return $null }
-    [long]$drive.Free
+    $sep = [IO.Path]::DirectorySeparatorChar
+    $full = $Path.TrimEnd('\', '/') + $sep
+    $best = $null
+    foreach ($volume in @(Get-CimInstance -ClassName Win32_Volume)) {
+        $volumeName = [string]$volume.Name
+        if ([string]::IsNullOrEmpty($volumeName) -or $null -eq $volume.FreeSpace) { continue }
+        if (-not $volumeName.EndsWith([string]$sep)) { $volumeName += $sep }
+        if (-not $full.StartsWith($volumeName, [StringComparison]::OrdinalIgnoreCase)) { continue }
+        if ($null -eq $best -or $volumeName.Length -gt $best.Name.Length) {
+            $best = @{ Name = $volumeName; Free = [long]$volume.FreeSpace }
+        }
+    }
+    if ($null -eq $best) { return $null }
+    $best.Free
 }
 
 # Uncompressed size of the image: the .vhdx inside a zip, or the .vhdx itself.
@@ -291,7 +307,8 @@ function Assert-Parameters {
 function Invoke-Preflight {
     Write-Step 1 'Checking this host'
 
-    if (-not (Test-IsAdministrator)) {
+    $elevated = Test-AchillesImportElevated
+    if (-not ($elevated -is [bool] -and $elevated)) {
         Stop-Import 'This script needs an elevated session. Run PowerShell as Administrator (right-click, Run as administrator) and start it again.'
     }
     Write-Ok 'Running elevated'
@@ -369,7 +386,7 @@ function Invoke-Preflight {
     $needed = (Get-ImageSize $ImagePath) + $DiskHeadroomBytes
     $free = Get-FreeBytes $script:Destination
     if ($null -eq $free) {
-        Write-Warn "Could not read the free space at $($script:Destination); make sure it has $(Format-GB $needed) free."
+        Write-Warn "Could not check the free space at $($script:Destination): it is not on a local volume (a network share?). Make sure it has $(Format-GB $needed) free."
     }
     elseif ($free -lt $needed) {
         Stop-Import "Not enough free disk space at $($script:Destination): $(Format-GB $free) free, $(Format-GB $needed) needed (the image plus 20 GB to grow)." @(
@@ -400,6 +417,18 @@ function Get-ImageHash {
     (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+# The HTTP status of a failed web request, or 0. Windows PowerShell 5.1
+# throws a WebException and PowerShell 7 an HttpResponseException; both carry
+# the status in .Response.StatusCode.
+function Get-HttpStatus {
+    param($Exception)
+    $response = $Exception.PSObject.Properties['Response']
+    if ($null -eq $response -or $null -eq $response.Value) { return 0 }
+    $code = $response.Value.PSObject.Properties['StatusCode']
+    if ($null -eq $code -or $null -eq $code.Value) { return 0 }
+    [int]$code.Value
+}
+
 # The checksum file's text, from -ChecksumFile or the GitHub release. When the
 # release can't be reached, prints the image's hash and stops.
 function Get-ChecksumText {
@@ -420,16 +449,33 @@ function Get-ChecksumText {
     }
     catch {
         $reason = $_.Exception.Message
-        Write-Fail "Could not download the checksum file: $reason"
+        $status = Get-HttpStatus $_.Exception
+        $leaf = [IO.Path]::GetFileName($ImagePath)
+        $page = "$ReleaseBase/tag/v$Version"
+        if ($status -eq 404) {
+            # The host is online; the release has no such file.
+            $message = "The v$Version release has no appliance-SHA256SUMS (HTTP 404). Check that -Version matches the image."
+            $detail = New-Object System.Collections.ArrayList
+            $page = $ReleaseBase
+            if ($leaf -match '^ProjectAchilles-(.+)-hyperv\.zip$' -and $Matches[1] -ne $Version) {
+                [void]$detail.Add("The image's file name says version $($Matches[1]): try -Version $($Matches[1]).")
+                $page = "$ReleaseBase/tag/v$($Matches[1])"
+            }
+        }
+        else {
+            Write-Fail "Could not download the checksum file: $reason"
+            $message = 'The image cannot be verified without the checksum file.'
+            $detail = New-Object System.Collections.ArrayList
+        }
         $hash = Get-ImageHash $ImagePath
-        Stop-Import 'The image cannot be verified without the checksum file.' @(
-            "SHA256 of $([IO.Path]::GetFileName($ImagePath)):",
+        Stop-Import $message (@($detail) + @(
+            "SHA256 of ${leaf}:",
             "    $hash",
             'From a machine with internet access, compare it with appliance-SHA256SUMS on',
-            "    $ReleaseBase/tag/v$Version",
+            "    $page",
             'then copy that file to this host and run again with -ChecksumFile <path>',
             '(instead of -Version).'
-        )
+        ))
     }
 }
 
@@ -480,13 +526,20 @@ function Get-VerifiedImage {
     $isZip = [IO.Path]::GetExtension($ImagePath) -eq '.zip'
     if ($isZip) { Assert-HashMatches $ImagePath $expected $source }
 
-    if (-not (Test-Path -LiteralPath $script:Destination)) {
-        New-Item -ItemType Directory -Path $script:Destination -Force | Out-Null
+    # Folders this run creates for Destination, deepest first: removed again
+    # if the image doesn't make it there.
+    $createdDirs = New-Object System.Collections.ArrayList
+    $dir = $script:Destination
+    while (-not [string]::IsNullOrEmpty($dir) -and -not (Test-Path -LiteralPath $dir)) {
+        [void]$createdDirs.Add($dir)
+        $dir = [IO.Path]::GetDirectoryName($dir)
     }
+    $placed = $false
     $work = Join-Path $script:Destination ('.achilles-import-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
-    New-Item -ItemType Directory -Path $work | Out-Null
     $oldProgress = $ProgressPreference
     try {
+        if ($createdDirs.Count -gt 0) { New-Item -ItemType Directory -Path $script:Destination -Force | Out-Null }
+        New-Item -ItemType Directory -Path $work | Out-Null
         # The progress bar makes Expand-Archive and Copy-Item on Windows
         # PowerShell 5.1 many times slower on a multi-GB file.
         $ProgressPreference = 'SilentlyContinue'
@@ -507,11 +560,19 @@ function Get-VerifiedImage {
             Assert-HashMatches $disk $expected $source
         }
         Move-Item -LiteralPath $disk -Destination $script:TargetVhdx
+        $placed = $true
         [void]$script:Changes.Add("disk $($script:TargetVhdx)")
     }
     finally {
         $ProgressPreference = $oldProgress
         Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+        if (-not $placed) {
+            foreach ($d in $createdDirs) {
+                if ((Test-Path -LiteralPath $d) -and @(Get-ChildItem -LiteralPath $d -Force).Count -eq 0) {
+                    Remove-Item -LiteralPath $d -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
     }
     Write-Ok "Disk ready: $($script:TargetVhdx)"
     $script:TargetVhdx
