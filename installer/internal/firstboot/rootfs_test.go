@@ -131,12 +131,34 @@ func TestRootfsMatchesConstants(t *testing.T) {
 		t.Error("netplan does not note mode 0600")
 	}
 
+	gr := readRootfs(t, "etc/systemd/system/achilles-growroot.service")
+	const growScript = "/usr/local/lib/projectachilles/growroot.sh"
+	if v := lineValues(gr, "ExecStart="); len(v) != 1 || v[0] != growScript {
+		t.Errorf("growroot ExecStart = %v, want %s", v, growScript)
+	}
+	for _, want := range []string{"Before=achilles-firstboot.service"} {
+		if !hasLine(section(gr, "Unit"), want) {
+			t.Errorf("growroot [Unit] lacks %s", want)
+		}
+	}
+	if !hasLine(section(gr, "Service"), "Type=oneshot") {
+		t.Error("growroot [Service] lacks Type=oneshot")
+	}
+	if !hasLine(section(gr, "Install"), "WantedBy=multi-user.target") {
+		t.Error("growroot [Install] lacks WantedBy=multi-user.target")
+	}
+	if fi, err := os.Stat(filepath.Join(rootfsDir, "usr/local/lib/projectachilles/growroot.sh")); err != nil {
+		t.Errorf("stat growroot.sh: %v", err)
+	} else if fi.Mode().Perm()&0o111 != 0o111 {
+		t.Errorf("growroot.sh mode %v is not executable", fi.Mode().Perm())
+	}
+
 	if _, err := exec.LookPath("systemd-analyze"); err != nil {
 		t.Skip("systemd-analyze not available")
 	}
 	// verify insists the ExecStart binary exists, which it does not on the
 	// build host: verify copies with the binary pointed at /bin/true.
-	for name, unit := range map[string]string{"achilles-firstboot.service": fb, "achilles-issue.service": is} {
+	for name, unit := range map[string]string{"achilles-firstboot.service": fb, "achilles-issue.service": is, "achilles-growroot.service": strings.ReplaceAll(gr, growScript, "/bin/true")} {
 		p := filepath.Join(t.TempDir(), name)
 		if err := os.WriteFile(p, []byte(strings.ReplaceAll(unit, BinPath, "/bin/true")), 0o644); err != nil {
 			t.Fatal(err)

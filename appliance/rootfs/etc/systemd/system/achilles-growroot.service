@@ -1,0 +1,10 @@
+[Unit]
+Description=ProjectAchilles grow the root filesystem to fill the disk
+Before=achilles-firstboot.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/projectachilles/growroot.sh
+
+[Install]
+WantedBy=multi-user.target
