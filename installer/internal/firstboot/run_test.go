@@ -116,6 +116,10 @@ func TestRunOrder(t *testing.T) {
 	if kb < 0 || pw < 0 || ssh < 0 || !(kb < pw && pw < ssh) {
 		t.Fatalf("order wrong: kb=%d pw=%d ssh=%d\n%v", kb, pw, ssh, seq)
 	}
+	getty, disable := idx(seq, "systemctl enable getty@tty1.service"), idx(seq, "systemctl disable achilles-firstboot.service")
+	if getty < 0 || disable < 0 || !(getty < disable && disable < idx(seq, "write "+MarkerPath)) {
+		t.Fatalf("first-boot unit not disabled between getty enable and marker: getty=%d disable=%d\n%v", getty, disable, seq)
+	}
 	n := len(seq)
 	if seq[n-2] != "write "+MarkerPath || seq[n-1] != "systemctl --no-block start getty@tty1.service" {
 		t.Fatalf("tail = %v", seq[n-3:])

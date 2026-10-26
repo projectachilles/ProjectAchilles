@@ -28,6 +28,8 @@ const (
 	SSHDConfPath = "/etc/ssh/sshd_config.d/50-achilles.conf"
 	// KeyboardPath is the console keyboard configuration.
 	KeyboardPath = "/etc/default/keyboard"
+	// FirstbootUnit is the systemd unit that runs first boot on tty1.
+	FirstbootUnit = "achilles-firstboot.service"
 	// IssuePath is the console banner snippet.
 	IssuePath = "/etc/issue.d/50-achilles.issue"
 )

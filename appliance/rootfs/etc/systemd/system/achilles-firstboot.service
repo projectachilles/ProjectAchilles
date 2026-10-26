@@ -1,5 +1,8 @@
 [Unit]
 Description=ProjectAchilles appliance first boot
+# First boot disables this unit when it completes (an enabled unit would make
+# systemd drop the getty@tty1 start on every boot, through Conflicts= below);
+# the marker condition is a backstop.
 ConditionPathExists=!/var/lib/projectachilles/firstboot.done
 # No wait for the network to be online: first boot configures it itself, and
 # waiting for it blanks tty1 for ~2 min when there is no DHCP server.

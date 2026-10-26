@@ -46,7 +46,7 @@ func section(unit, name string) string {
 }
 
 func TestRootfsMatchesConstants(t *testing.T) {
-	fb := readRootfs(t, "etc/systemd/system/achilles-firstboot.service")
+	fb := readRootfs(t, "etc/systemd/system/"+FirstbootUnit) // Complete disables it by this name
 	is := readRootfs(t, "etc/systemd/system/achilles-issue.service")
 	sh := readRootfs(t, "etc/profile.d/achilles-appliance.sh")
 	np := readRootfs(t, "etc/netplan/50-achilles.yaml")

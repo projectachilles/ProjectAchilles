@@ -31,6 +31,7 @@ func TestCompleteOrder(t *testing.T) {
 		"write " + SSHDConfPath,
 		"systemctl enable --now ssh.socket",
 		"systemctl enable getty@tty1.service",
+		"systemctl disable achilles-firstboot.service",
 		"write " + MarkerPath,
 	}
 	if strings.Join(seq, "|") != strings.Join(want, "|") {
@@ -52,6 +53,20 @@ func TestCompleteStopsBeforeMarkerOnError(t *testing.T) {
 func TestCompleteStopsBeforeMarkerOnGettyError(t *testing.T) {
 	f := newFakeHost()
 	f.on([]string{"systemctl", "enable", "getty@tty1.service"}, "", errors.New("boom"))
+	if err := Complete(context.Background(), f, "v1"); err == nil {
+		t.Fatal("expected error")
+	}
+	if f.Exists(MarkerPath) {
+		t.Fatal("marker written despite failure")
+	}
+}
+
+// On later boots an enabled first-boot unit would make systemd drop the
+// getty@tty1 start (Conflicts=), leaving tty1 blank: a failed disable must
+// not write the marker, so first boot runs again.
+func TestCompleteStopsBeforeMarkerOnDisableError(t *testing.T) {
+	f := newFakeHost()
+	f.on([]string{"systemctl", "disable", "achilles-firstboot.service"}, "", errors.New("boom"))
 	if err := Complete(context.Background(), f, "v1"); err == nil {
 		t.Fatal("expected error")
 	}
