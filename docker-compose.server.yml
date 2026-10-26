@@ -62,7 +62,14 @@ services:
       retries: 3
 
   backend:
-    build: ./backend
+    # The commit label lets scripts/deploy-server.sh reuse images built from
+    # the checked-out commit (a pre-built appliance) instead of rebuilding.
+    build:
+      context: ./backend
+      args:
+        GIT_COMMIT: "${ACHILLES_GIT_COMMIT:-}"
+      labels:
+        io.projectachilles.commit: "${ACHILLES_GIT_COMMIT:-}"
     restart: unless-stopped
     expose:
       - "3000"
@@ -90,7 +97,10 @@ services:
       retries: 3
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      labels:
+        io.projectachilles.commit: "${ACHILLES_GIT_COMMIT:-}"
     restart: unless-stopped
     expose:
       - "80"
