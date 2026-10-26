@@ -27,6 +27,12 @@ echo @@ssh_host_keys
 -glob-expand /etc/ssh/ssh_host_*
 echo @@machine_id
 -filesize /etc/machine-id
+echo @@dbus_machine_id
+-sh "f=/var/lib/dbus/machine-id; if [ -L \$f ]; then echo \"link \$(readlink \$f)\"; elif [ -e \$f ]; then echo present; else echo absent; fi"
+echo @@random_seed
+-exists /var/lib/systemd/random-seed
+echo @@credential_secret
+-exists /var/lib/systemd/credential.secret
 echo @@cloud_disabled
 -is-file /etc/cloud/cloud-init.disabled
 echo @@netplan_cloud
@@ -126,6 +132,16 @@ expect_none ssh_host_keys "no /etc/ssh/ssh_host_* keys"
 mid=$(sec machine_id)
 if [ "$mid" = 0 ]; then ok "/etc/machine-id is empty"
 else fail "/etc/machine-id is empty" "${mid:-missing}"; fi
+
+# A regular file here is a second machine-id, shared by every clone.
+case $(sec dbus_machine_id) in
+	absent) ok "/var/lib/dbus/machine-id absent or a symlink to /etc/machine-id" ;;
+	"link /etc/machine-id") ok "/var/lib/dbus/machine-id absent or a symlink to /etc/machine-id" ;;
+	present | "link "*) fail "/var/lib/dbus/machine-id absent or a symlink to /etc/machine-id" "$(sec dbus_machine_id)" ;;
+	*) echo "check-sealed: could not inspect /var/lib/dbus/machine-id in the image" >&2; exit 2 ;;
+esac
+expect_false random_seed "no /var/lib/systemd/random-seed" "present: every clone starts from the same seed"
+expect_false credential_secret "no /var/lib/systemd/credential.secret" "present: every clone shares the host credential key"
 
 # cloud-init
 expect_true cloud_disabled "cloud-init disabled (/etc/cloud/cloud-init.disabled)" "marker file missing"

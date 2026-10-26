@@ -42,6 +42,8 @@ ln -s /etc/machine-id /var/lib/dbus/machine-id
 # it again at shutdown (the unit is already stopped).
 systemctl stop systemd-random-seed.service
 rm -f /var/lib/systemd/random-seed
+# The host key for systemd-creds encrypted credentials, if anything made one.
+rm -f /var/lib/systemd/credential.secret
 
 log "docker identity"
 # Per-daemon IDs, regenerated when missing at the first start on the
@@ -88,7 +90,7 @@ usermod -p '!' $USER_NAME
 # shadow- (the tools' backup) still holds the old hash.
 cp -p /etc/shadow /etc/shadow-
 : >/etc/machine-id
-rm -f /var/lib/systemd/random-seed
+rm -f /var/lib/systemd/random-seed /var/lib/systemd/credential.secret
 # Keep the journal (shutdown messages included) in /run from here on.
 journalctl --relinquish-var
 rm -rf /var/log/journal/*
@@ -117,6 +119,7 @@ fstrim -av
 [ -z "$(find /etc/ssh -name 'ssh_host_*')" ] || die "host keys left"
 [ ! -s /etc/machine-id ] || die "/etc/machine-id not empty"
 [ "$(readlink /var/lib/dbus/machine-id)" = /etc/machine-id ] || die "dbus machine-id is not a symlink"
+[ ! -e /var/lib/systemd/credential.secret ] || die "credential.secret left"
 [ -z "$(find /root /home -name 'authorized_keys*')" ] || die "authorized_keys left"
 [ ! -e /var/lib/docker/engine-id ] || die "docker engine-id left"
 [ -f "$PENDING" ] || die "$PENDING missing"
