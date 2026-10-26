@@ -231,3 +231,103 @@ func TestEngineUpBuildsOutsideGit(t *testing.T) {
 	wantReason(t, r, "no commit for this checkout")
 	wantEmptyCommit(t, s)
 }
+
+// projectImages names the backend and frontend images of compose project p.
+func projectImages(p, backend, frontend string) string {
+	return p + "-backend=" + backend + "," + p + "-frontend=" + frontend
+}
+
+// A restore onto the appliance takes the backup's COMPOSE_PROJECT_NAME
+// (older installs use their directory name), but the appliance ships its
+// images as achilles-server-*. When those were built from HEAD, tag them to
+// the project's names instead of rebuilding (offline, 10+ minutes).
+func TestEngineUpRetagsApplianceImagesForOtherProject(t *testing.T) {
+	s := newSandbox(t, "acme-http", "COMPOSE_PROJECT_NAME=projectachilles\n")
+	addFullRunStubs(t, s)
+	c := gitInit(t, s)
+	r, up := runUp(t, s, map[string]string{"STUB_DOCKER_IMAGES": images(c, c)})
+	for _, svc := range []string{"backend", "frontend"} {
+		want := "docker tag achilles-server-" + svc + " projectachilles-" + svc
+		if got := stubLines(t, s, want); len(got) != 1 {
+			t.Errorf("want one %q call, got %q", want, got)
+		}
+	}
+	if strings.Contains(up, "--build") || !strings.Contains(up, " up -d") {
+		t.Errorf("want up -d without --build, got %q", up)
+	}
+	if !strings.Contains(r.stdout, "Tagging the appliance's pre-built achilles-server-* images as projectachilles-*") {
+		t.Errorf("stdout does not say the images were tagged\n%s", r)
+	}
+	if !strings.Contains(r.stdout, "Using the pre-built images") {
+		t.Errorf("stdout does not say the images were reused\n%s", r)
+	}
+}
+
+// The appliance's images from another commit are no use: no tag, rebuild.
+func TestEngineUpNoRetagWhenApplianceImagesStale(t *testing.T) {
+	s := newSandbox(t, "acme-http", "COMPOSE_PROJECT_NAME=projectachilles\n")
+	addFullRunStubs(t, s)
+	c := gitInit(t, s)
+	r, up := runUp(t, s, map[string]string{"STUB_DOCKER_IMAGES": images(otherCommit, otherCommit)})
+	if got := stubLines(t, s, "docker tag "); len(got) != 0 {
+		t.Errorf("want no docker tag call, got %q", got)
+	}
+	wantBuild(t, up)
+	wantReason(t, r, "no projectachilles-backend image built from "+c[:12])
+}
+
+// Only one of the appliance's images is at HEAD: tag neither.
+func TestEngineUpNoRetagWhenOneApplianceImageStale(t *testing.T) {
+	s := newSandbox(t, "acme-http", "COMPOSE_PROJECT_NAME=projectachilles\n")
+	addFullRunStubs(t, s)
+	c := gitInit(t, s)
+	_, up := runUp(t, s, map[string]string{"STUB_DOCKER_IMAGES": images(c, otherCommit)})
+	if got := stubLines(t, s, "docker tag "); len(got) != 0 {
+		t.Errorf("want no docker tag call, got %q", got)
+	}
+	wantBuild(t, up)
+}
+
+// The project's own images already at HEAD: nothing to tag.
+func TestEngineUpNoRetagWhenProjectImagesCurrent(t *testing.T) {
+	s := newSandbox(t, "acme-http", "COMPOSE_PROJECT_NAME=projectachilles\n")
+	addFullRunStubs(t, s)
+	c := gitInit(t, s)
+	_, up := runUp(t, s, map[string]string{"STUB_DOCKER_IMAGES": images(c, c) + "," + projectImages("projectachilles", c, c)})
+	if got := stubLines(t, s, "docker tag "); len(got) != 0 {
+		t.Errorf("want no docker tag call, got %q", got)
+	}
+	if strings.Contains(up, "--build") {
+		t.Errorf("want up -d without --build, got %q", up)
+	}
+}
+
+// A modified tree never reuses, so it never tags either.
+func TestEngineUpNoRetagWhenTreeDirty(t *testing.T) {
+	s := newSandbox(t, "acme-http", "COMPOSE_PROJECT_NAME=projectachilles\n")
+	addFullRunStubs(t, s)
+	c := gitInit(t, s)
+	writeFile(t, s.path("backend", "src", "patched.ts"), "export const patched = true;\n", 0o644)
+	_, up := runUp(t, s, map[string]string{"STUB_DOCKER_IMAGES": images(c, c)})
+	if got := stubLines(t, s, "docker tag "); len(got) != 0 {
+		t.Errorf("want no docker tag call, got %q", got)
+	}
+	wantBuild(t, up)
+}
+
+// Through sudo (no daemon access for the user), the tag goes through sudo too.
+func TestEngineUpRetagsUnderSudo(t *testing.T) {
+	s := newSandbox(t, "acme-http", "COMPOSE_PROJECT_NAME=projectachilles\n")
+	addFullRunStubs(t, s)
+	writeFile(t, filepath.Join(s.stubs, "sudo"), `#!/bin/sh
+exec env -i PATH="$PATH" STUB_VIA_SUDO=1 $(env | grep '^STUB_') "$@"
+`, 0o755)
+	c := gitInit(t, s)
+	r, up := runUp(t, s, map[string]string{"STUB_DOCKER_IMAGES": images(c, c), "STUB_DOCKER_NO_DAEMON": "1"})
+	if strings.Contains(up, "--build") {
+		t.Errorf("want the tagged images reused under sudo, got %q", up)
+	}
+	if strings.Contains(r.stdout, "Could not tag") {
+		t.Errorf("tag failed under sudo\n%s", r)
+	}
+}

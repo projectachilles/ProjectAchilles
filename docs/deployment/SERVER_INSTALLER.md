@@ -1097,6 +1097,17 @@ data is already restored: fix the reported problem and finish with
 `sudo /opt/projectachilles/achilles-installer install --config /opt/projectachilles/deploy.config.env --yes`
 (restore prints the command with your paths).
 
+**A backup with another project name.** An appliance ships its images as
+`achilles-server-backend` and `achilles-server-frontend`. A backup from an
+older hand-built server can carry another `COMPOSE_PROJECT_NAME` (those
+installs used their directory name, for example `projectachilles`), and its
+volumes are named after it. When both `achilles-server-*` images were built
+from the checked-out commit, the engine tags them with the project's names and
+logs `Tagging the appliance's pre-built achilles-server-* images as <project>-*`,
+so the stack starts without a rebuild (which needs internet access and takes
+10 minutes or more). Images from another commit are not tagged: the engine
+rebuilds and says why.
+
 A `CADDY_BIND_IP` of `0.0.0.0` or `::` (every address) always counts as on
 this server.
 

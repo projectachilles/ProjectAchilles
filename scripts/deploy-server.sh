@@ -647,13 +647,44 @@ prebuilt_reuse_blocker() {
   if [ "$SOURCES_CLEAN" != 1 ]; then
     echo "backend/ or frontend/ has local changes"; return 1
   fi
-  local svc label
+  local svc
   for svc in backend frontend; do
-    label="$($DOCKER image inspect --format '{{ index .Config.Labels "io.projectachilles.commit" }}' \
-      "${COMPOSE_PROJECT_NAME}-${svc}" 2>/dev/null)" || label=""
-    if [ "$label" != "$ACHILLES_GIT_COMMIT" ]; then
+    if ! image_at_commit "${COMPOSE_PROJECT_NAME}-${svc}"; then
       echo "no ${COMPOSE_PROJECT_NAME}-${svc} image built from ${ACHILLES_GIT_COMMIT:0:12}"; return 1
     fi
+  done
+}
+
+# image_at_commit IMAGE: succeeds when IMAGE exists and its
+# io.projectachilles.commit label is ACHILLES_GIT_COMMIT (never when that is
+# empty).
+image_at_commit() {
+  local label
+  [ -n "$ACHILLES_GIT_COMMIT" ] || return 1
+  label="$($DOCKER image inspect --format '{{ index .Config.Labels "io.projectachilles.commit" }}' \
+    "$1" 2>/dev/null)" || return 1
+  [ "$label" = "$ACHILLES_GIT_COMMIT" ]
+}
+
+# retag_appliance_images: the appliance ships its images as achilles-server-*
+# (the default project name). A restore can bring a backup's other
+# COMPOSE_PROJECT_NAME (older installs use their directory name), and compose
+# would then rebuild: online only, 10+ minutes, a second copy of the images.
+# When the project's own images are not at HEAD but both achilles-server-*
+# images are, tag those to the project's names so `up` reuses them.
+retag_appliance_images() {
+  local svc need=0
+  [ "$COMPOSE_PROJECT_NAME" != achilles-server ] || return 0
+  [ "$FORCE_BUILD" = 0 ] && [ -n "$ACHILLES_GIT_COMMIT" ] || return 0
+  for svc in backend frontend; do
+    image_at_commit "${COMPOSE_PROJECT_NAME}-${svc}" || need=1
+    image_at_commit "achilles-server-${svc}" || return 0
+  done
+  [ "$need" = 1 ] || return 0
+  c_info "Tagging the appliance's pre-built achilles-server-* images as ${COMPOSE_PROJECT_NAME}-* (built from ${ACHILLES_GIT_COMMIT:0:12})"
+  for svc in backend frontend; do
+    $DOCKER tag "achilles-server-${svc}" "${COMPOSE_PROJECT_NAME}-${svc}" \
+      || c_warn "Could not tag achilles-server-${svc} as ${COMPOSE_PROJECT_NAME}-${svc}"
   done
 }
 
@@ -696,6 +727,7 @@ if [ "$RENDER_ONLY" = 0 ]; then
       "${CADDY_DIR}"
     c_ok "Built ${CADDY_IMAGE}"
   fi
+  retag_appliance_images
   if REBUILD_REASON="$(prebuilt_reuse_blocker)"; then
     c_ok "Using the pre-built images for ${ACHILLES_GIT_COMMIT:0:12}"
     compose_up

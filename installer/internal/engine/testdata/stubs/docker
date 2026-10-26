@@ -2,8 +2,9 @@
 # Test stand-in for the docker CLI: logs each call and succeeds. `ps` prints
 # STUB_DOCKER_PS (the working_dir labels of existing compose containers).
 # `image inspect ... NAME` prints NAME's commit from STUB_DOCKER_IMAGES
-# (comma-separated name=commit pairs) or fails like a missing image. Compose
-# calls also log the ACHILLES_GIT_COMMIT they see, on an "env ..." line.
+# (comma-separated name=commit pairs), or from an earlier `tag SRC DST` (kept
+# in $STUB_LOG.tags), or fails like a missing image. Compose calls also log
+# the ACHILLES_GIT_COMMIT they see, on an "env ..." line.
 [ -n "${STUB_LOG:-}" ] && echo "docker $*" >> "$STUB_LOG"
 case "$1" in
   --version) echo "Docker version 0.0.0-stub" ;;
@@ -12,11 +13,20 @@ case "$1" in
   info) [ "${STUB_DOCKER_NO_DAEMON:-}" = 1 ] && [ "${STUB_VIA_SUDO:-}" != 1 ] && exit 1 ;;
   ps) [ -n "${STUB_DOCKER_PS:-}" ] && printf '%s\n' "$STUB_DOCKER_PS" ;;
   compose) [ -n "${STUB_LOG:-}" ] && echo "env ACHILLES_GIT_COMMIT=${ACHILLES_GIT_COMMIT:-}" >> "$STUB_LOG" ;;
+  tag)
+    [ "${STUB_DOCKER_NO_DAEMON:-}" = 1 ] && [ "${STUB_VIA_SUDO:-}" != 1 ] && exit 1
+    # Give DST the commit SRC has (now), like a real tag of the same image.
+    commit=$("$0" image inspect "$2" 2>/dev/null) || { echo "Error: No such image: $2" >&2; exit 1; }
+    [ -n "${STUB_LOG:-}" ] && echo "$3=$commit" >> "$STUB_LOG.tags"
+    ;;
   image)
     if [ "${2:-}" = inspect ]; then
       for name do :; done # the last argument is the image name
+      tagged=""
+      [ -n "${STUB_LOG:-}" ] && [ -f "$STUB_LOG.tags" ] && tagged=$(tr '\n' , < "$STUB_LOG.tags")
       old_ifs=$IFS; IFS=,
-      for pair in ${STUB_DOCKER_IMAGES:-}; do
+      # Tags are searched first: they replace what STUB_DOCKER_IMAGES says.
+      for pair in $tagged ${STUB_DOCKER_IMAGES:-}; do
         if [ "${pair%%=*}" = "$name" ]; then
           IFS=$old_ifs
           printf '%s\n' "${pair#*=}"
