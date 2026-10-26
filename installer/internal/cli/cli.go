@@ -16,7 +16,7 @@ type Handler func(ctx context.Context, args []string) error
 var commands = []string{
 	"install", "status", "upgrade", "backup", "restore",
 	"ca init", "ca renew", "ca export", "ca bootstrap",
-	"version",
+	"firstboot", "version",
 }
 
 // Registry maps subcommand names (one or two words) to handlers.
