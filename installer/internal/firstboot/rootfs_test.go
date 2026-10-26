@@ -144,6 +144,11 @@ func TestRootfsMatchesConstants(t *testing.T) {
 	if !hasLine(section(gr, "Service"), "Type=oneshot") {
 		t.Error("growroot [Service] lacks Type=oneshot")
 	}
+	// First boot waits for it (Before=), and a oneshot has no start timeout
+	// by default: a hung growpart or resize2fs must not hold first boot.
+	if !hasLine(section(gr, "Service"), "TimeoutStartSec=5min") {
+		t.Error("growroot [Service] lacks TimeoutStartSec=5min")
+	}
 	if !hasLine(section(gr, "Install"), "WantedBy=multi-user.target") {
 		t.Error("growroot [Install] lacks WantedBy=multi-user.target")
 	}
