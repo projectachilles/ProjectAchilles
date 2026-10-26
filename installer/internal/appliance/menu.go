@@ -35,6 +35,8 @@ type MenuDeps struct {
 	Exists func(string) bool
 	Exec   func(ctx context.Context, name string, args ...string) error // stdio attached
 	Out    io.Writer
+	// IsTerminal reports whether stdin is a terminal; nil means yes.
+	IsTerminal func() bool
 }
 
 func configPath() string { return filepath.Join(firstboot.RepoDir, "deploy.config.env") }
@@ -48,8 +50,15 @@ func Menu(ctx context.Context, d MenuDeps) error {
 		fmt.Fprintln(d.Out, "ProjectAchilles is installed. Run 'sudo achilles-installer status' to check it.")
 		return nil
 	}
+	// Without a terminal (ssh host cmd, scp) there is nobody to ask.
+	if d.IsTerminal != nil && !d.IsTerminal() {
+		return nil
+	}
 	choice, err := d.UI.Choose(ctx)
 	if err != nil {
+		if aborted(err) {
+			return nil
+		}
 		return err
 	}
 	switch choice {
@@ -58,6 +67,9 @@ func Menu(ctx context.Context, d MenuDeps) error {
 	case ChoiceRestore:
 		path, err := d.UI.BackupPath(ctx)
 		if err != nil {
+			if aborted(err) {
+				return nil // Ctrl+C or EOF: back to the shell
+			}
 			return err
 		}
 		if !d.Exists(path) {
@@ -67,6 +79,11 @@ func Menu(ctx context.Context, d MenuDeps) error {
 	default:
 		return nil
 	}
+}
+
+// aborted reports a Ctrl+C or closed stdin, which both mean "open a shell".
+func aborted(err error) bool {
+	return errors.Is(err, huh.ErrUserAborted) || errors.Is(err, io.EOF)
 }
 
 // FormUI is the real menu UI, built from huh forms.
@@ -82,7 +99,7 @@ func (FormUI) Choose(ctx context.Context) (MenuChoice, error) {
 			huh.NewOption("Restore from a backup (moving from another server)", ChoiceRestore),
 			huh.NewOption("Open a shell", ChoiceShell),
 		).Value(&choice))).WithTheme(huh.ThemeFunc(huh.ThemeBase16)).RunWithContext(ctx)
-	if errors.Is(err, huh.ErrUserAborted) {
+	if aborted(err) {
 		return ChoiceShell, nil
 	}
 	return choice, err

@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/charmbracelet/x/term"
+
 	"github.com/projectachilles/ProjectAchilles/installer/internal/appliance"
 	"github.com/projectachilles/ProjectAchilles/installer/internal/firstboot"
 )
@@ -26,7 +28,8 @@ func registerAppliance(r *Registry, isRoot func() bool) {
 				cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 				return cmd.Run()
 			},
-			Out: os.Stdout,
+			Out:        os.Stdout,
+			IsTerminal: func() bool { return term.IsTerminal(os.Stdin.Fd()) },
 		})
 	}))
 	r.Register("appliance issue", func(_ context.Context, args []string) error {
