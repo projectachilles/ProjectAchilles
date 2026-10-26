@@ -38,7 +38,9 @@ var virtualPrefixes = []string{
 	"docker", "br-", "veth", "virbr", "tailscale", "tun", "wg", "zt", "cni", "flannel", "cali", "vxlan",
 }
 
-func isVirtual(name string) bool {
+// IsVirtualIface reports whether name is a container, bridge, VPN or tunnel
+// interface rather than a NIC.
+func IsVirtualIface(name string) bool {
 	for _, p := range virtualPrefixes {
 		if strings.HasPrefix(name, p) {
 			return true
@@ -56,7 +58,7 @@ func LANInterfaces(list func() ([]net.Interface, error), addrs func(net.Interfac
 	}
 	out := []Iface{}
 	for _, ifc := range ifs {
-		if ifc.Flags&net.FlagLoopback != 0 || ifc.Flags&net.FlagUp == 0 || isVirtual(ifc.Name) {
+		if ifc.Flags&net.FlagLoopback != 0 || ifc.Flags&net.FlagUp == 0 || IsVirtualIface(ifc.Name) {
 			continue
 		}
 		as, err := addrs(ifc)

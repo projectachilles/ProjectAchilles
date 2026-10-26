@@ -1,0 +1,10 @@
+[Unit]
+Description=ProjectAchilles appliance console banner
+Before=getty.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/projectachilles/achilles-installer appliance issue
+
+[Install]
+WantedBy=multi-user.target

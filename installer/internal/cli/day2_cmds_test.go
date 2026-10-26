@@ -6,7 +6,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/projectachilles/ProjectAchilles/installer/internal/engine"
@@ -101,5 +103,19 @@ func TestUpgradeNamesThisBinarysVersion(t *testing.T) {
 	r.Run([]string{"upgrade", "--repo", repo, "--yes"}, &out, &errb)
 	if want := "This installer binary is v2.3.0; the checkout is now v2.4.0."; !strings.Contains(out.String(), want) {
 		t.Fatalf("want %q in:\n%s\n%s", want, out.String(), errb.String())
+	}
+}
+
+// `nohup achilles-installer upgrade` starts with SIGHUP ignored: catching it
+// anyway would cancel the upgrade when the SSH session drops.
+func TestSignalsToCatch(t *testing.T) {
+	has := func(sigs []os.Signal, s os.Signal) bool { return slices.Contains(sigs, s) }
+	got := signalsToCatch(func(os.Signal) bool { return false })
+	if !has(got, os.Interrupt) || !has(got, syscall.SIGTERM) || !has(got, syscall.SIGHUP) {
+		t.Fatalf("not ignored: %v", got)
+	}
+	got = signalsToCatch(func(s os.Signal) bool { return s == syscall.SIGHUP })
+	if !has(got, os.Interrupt) || !has(got, syscall.SIGTERM) || has(got, syscall.SIGHUP) {
+		t.Fatalf("SIGHUP ignored (nohup): %v", got)
 	}
 }

@@ -1,0 +1,16 @@
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: false
+      addresses:
+        - 10.0.5.20/24
+      routes:
+        - to: default
+          via: 10.0.5.1
+      nameservers:
+        addresses:
+          - 10.0.0.10
+          - 10.0.0.11
+        search:
+          - corp.example

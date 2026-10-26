@@ -1,0 +1,32 @@
+[Unit]
+Description=ProjectAchilles appliance first boot
+# First boot disables this unit when it completes (an enabled unit would make
+# systemd drop the getty@tty1 start on every boot, through Conflicts= below);
+# the marker condition is a backstop.
+ConditionPathExists=!/var/lib/projectachilles/firstboot.done
+# No wait for the network to be online: first boot configures it itself, and
+# waiting for it blanks tty1 for ~2 min when there is no DHCP server.
+After=systemd-user-sessions.service
+# First boot owns tty1. Starting the getty (Run does, after the handoff
+# screen; logind's autovt@tty1 is the same unit) stops first boot first.
+Conflicts=getty@tty1.service
+Before=getty@tty1.service
+# Restart forever: a start limit would leave tty1 dead after a few fast
+# failures (Ctrl+C mashing, a missing binary).
+StartLimitIntervalSec=0
+
+[Service]
+Type=idle
+ExecStart=/opt/projectachilles/achilles-installer firstboot
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+Environment=TERM=linux
+Restart=on-failure
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

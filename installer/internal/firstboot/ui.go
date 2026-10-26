@@ -1,0 +1,202 @@
+package firstboot
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"charm.land/huh/v2"
+)
+
+const baseLstPath = "/usr/share/X11/xkb/rules/base.lst"
+
+const dhcpWarning = "Ask your network team for a DHCP reservation: ProjectAchilles is tied to this address, and a new address needs the installer re-run."
+
+// FormUI is the real console UI, built from huh forms.
+type FormUI struct{}
+
+func (FormUI) run(ctx context.Context, groups ...*huh.Group) error {
+	return huh.NewForm(groups...).WithTheme(huh.ThemeFunc(huh.ThemeBase16)).RunWithContext(ctx)
+}
+
+const otherLayout = "other"
+
+// Layout asks for the console keyboard layout.
+func (u FormUI) Layout(ctx context.Context) (Layout, error) {
+	opts := make([]huh.Option[string], 0, len(Layouts)+1)
+	for _, l := range Layouts {
+		opts = append(opts, huh.NewOption(l.Label, l.ID))
+	}
+	opts = append(opts, huh.NewOption("Other (type an XKB code)", otherLayout))
+	choice := Layouts[0].ID
+	if err := u.run(ctx, huh.NewGroup(huh.NewSelect[string]().
+		Title("Keyboard layout").
+		Description("Pick this first: the wrong layout makes the password hard to type.").
+		Options(opts...).Value(&choice))); err != nil {
+		return Layout{}, err
+	}
+	if choice != otherLayout {
+		for _, l := range Layouts {
+			if l.ID == choice {
+				return l, nil
+			}
+		}
+	}
+	base, _ := os.ReadFile(baseLstPath)
+	var code string
+	if err := u.run(ctx, huh.NewGroup(huh.NewInput().
+		Title("XKB layout code").Description("For example: pt, it, br, se.").
+		Value(&code).
+		Validate(func(s string) error {
+			s = strings.TrimSpace(s)
+			if !SafeXKBCode(s) || !KnownXKBLayout(base, s) {
+				return errors.New("Unknown layout code.")
+			}
+			return nil
+		}))); err != nil {
+		return Layout{}, err
+	}
+	code = strings.TrimSpace(code)
+	return Layout{ID: code, Label: code, XKBLayout: code}, nil
+}
+
+// Password asks twice and loops until ValidatePassword accepts.
+func (u FormUI) Password(ctx context.Context) (string, error) {
+	var pw, confirm string
+	if err := u.run(ctx, huh.NewGroup(
+		huh.NewInput().Title("Password for "+AdminUser).
+			Description("At least 12 characters; must not contain \""+AdminUser+"\".").
+			EchoMode(huh.EchoModePassword).Value(&pw),
+		huh.NewInput().Title("Repeat the password").
+			EchoMode(huh.EchoModePassword).Value(&confirm).
+			Validate(func(c string) error { return ValidatePassword(pw, c) }),
+	)); err != nil {
+		return "", err
+	}
+	return pw, nil
+}
+
+// networkForm is the network form's starting state.
+type networkForm struct{ mode, hostname, addr, gw, dns, search, desc string }
+
+// networkFormDefaults pre-fills the network form. Without a DHCP address
+// (d.IP empty) it defaults to a static address with empty fields; prev, the
+// last rejected config, pre-fills the hostname and any static fields.
+func networkFormDefaults(d Detected, prev *NetConfig) networkForm {
+	f := networkForm{mode: "dhcp", hostname: "achilles", addr: d.CIDR, gw: d.Gateway, desc: dhcpWarning}
+	if prev != nil {
+		f.hostname = prev.Hostname
+		if !prev.DHCP {
+			f.mode = "static"
+			f.addr, f.gw, f.dns, f.search = prev.Address, prev.Gateway, strings.Join(prev.DNS, ", "), prev.Search
+		}
+	}
+	if d.IP == "" {
+		f.mode = "static"
+		f.desc = "No address from DHCP on " + d.Iface + ". Set a static address.\n\n" + dhcpWarning
+	}
+	return f
+}
+
+// Network asks DHCP or static and, for static, the address details.
+func (u FormUI) Network(ctx context.Context, d Detected, prev *NetConfig) (NetConfig, error) {
+	f := networkFormDefaults(d, prev)
+	nc := NetConfig{Iface: d.Iface, Hostname: f.hostname}
+	mode, addr, gw, dns, search := f.mode, f.addr, f.gw, f.dns, f.search
+	if err := u.run(ctx, huh.NewGroup(
+		huh.NewSelect[string]().Title("Network").
+			Description(f.desc).
+			Options(huh.NewOption("Keep DHCP", "dhcp"), huh.NewOption("Set a static address", "static")).
+			Value(&mode),
+		huh.NewInput().Title("Hostname").Value(&nc.Hostname).Validate(func(s string) error {
+			return ValidateNetConfig(NetConfig{Iface: d.Iface, DHCP: true, Hostname: s})
+		}),
+	)); err != nil {
+		return NetConfig{}, err
+	}
+	if mode == "dhcp" {
+		nc.DHCP = true
+		return nc, nil
+	}
+	if err := u.run(ctx, huh.NewGroup(
+		huh.NewInput().Title("Address (CIDR)").Placeholder("10.0.5.20/24").Value(&addr),
+		huh.NewInput().Title("Gateway").Value(&gw),
+		huh.NewInput().Title("DNS servers (comma separated, 1-3)").Value(&dns),
+		huh.NewInput().Title("Search domain (optional)").Value(&search).
+			Validate(func(string) error {
+				cand := NetConfig{Iface: d.Iface, Address: addr, Gateway: gw, DNS: splitList(dns), Search: strings.TrimSpace(search), Hostname: nc.Hostname}
+				return ValidateNetConfig(cand)
+			}),
+	)); err != nil {
+		return NetConfig{}, err
+	}
+	nc.Address, nc.Gateway, nc.DNS, nc.Search = addr, gw, splitList(dns), strings.TrimSpace(search)
+	return nc, nil
+}
+
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' }) {
+		out = append(out, p)
+	}
+	return out
+}
+
+// confirmText is the confirm screen's title and description.
+func confirmText(nc NetConfig, c NetCheck, timeout time.Duration) (title, desc string) {
+	what := "DHCP"
+	if !nc.DHCP {
+		what = nc.Address
+	}
+	title = fmt.Sprintf("Can you keep these settings? Reverting in %d s if there's no answer.", int(timeout.Round(time.Second)/time.Second))
+	desc = fmt.Sprintf("Network: %s on %s, hostname %s", what, nc.Iface, nc.Hostname)
+	if c.Gateway != "" {
+		if c.GatewayOK {
+			desc += fmt.Sprintf("\n\nGateway %s answers.", c.Gateway)
+		} else {
+			desc += fmt.Sprintf("\n\nGateway %s does not answer — this configuration probably won't work.", c.Gateway)
+		}
+	}
+	if c.Address != "" {
+		desc += fmt.Sprintf("\n\nFrom your workstation you can also run ping %s.", c.Address)
+	}
+	return title, desc
+}
+
+// confirmDefault is the pre-selected answer: Keep only when the gateway
+// answered. A timeout reverts whatever is selected.
+func confirmDefault(c NetCheck) bool { return c.Gateway != "" && c.GatewayOK }
+
+// ConfirmNetwork asks whether the new network works; no answer in timeout
+// means false.
+func (u FormUI) ConfirmNetwork(ctx context.Context, nc NetConfig, c NetCheck, timeout time.Duration) (bool, error) {
+	title, desc := confirmText(nc, c, timeout)
+	ok := confirmDefault(c)
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	err := u.run(cctx, huh.NewGroup(huh.NewConfirm().
+		Title(title).
+		Description(desc).
+		Affirmative("Keep").Negative("Revert").Value(&ok)))
+	if err != nil {
+		// Our own deadline is "no answer"; a cancelled parent is a real abort.
+		if ctx.Err() == nil && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, huh.ErrTimeout)) {
+			return false, nil
+		}
+		return false, err
+	}
+	return ok, nil
+}
+
+// Handoff shows the connection details until the admin presses Enter.
+func (u FormUI) Handoff(ctx context.Context, h Handoff) error {
+	return u.run(ctx, huh.NewGroup(huh.NewNote().Title("Ready").Description(HandoffText(h)).Next(true).NextLabel("Continue")))
+}
+
+// Notice shows msg until the admin presses Enter.
+func (u FormUI) Notice(ctx context.Context, msg string) error {
+	return u.run(ctx, huh.NewGroup(huh.NewNote().Title("That didn't work").Description(msg).Next(true).NextLabel("OK")))
+}
