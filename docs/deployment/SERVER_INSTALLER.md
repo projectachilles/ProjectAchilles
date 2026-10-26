@@ -718,13 +718,33 @@ Get-ChildItem Cert:\LocalMachine\Root | Where-Object Subject -like '*ProjectAchi
 
 ## 7. Distributing trust and enrolling Windows endpoints
 
-Two separate jobs:
+**No trust, no agents.** Every Windows endpoint, and every machine people open
+the web UI from, must trust the ProjectAchilles root CA in
+`Cert:\LocalMachine\Root`. The agent verifies the server against the Windows
+trust store **when it enrolls**, and it has no other way to trust the server at
+that point. On a machine without the root:
 
-- **Trust:** the root must be in `Cert:\LocalMachine\Root` **before** the agent
-  enrolls, because enrollment verifies the server against the OS trust store.
-  GPO or Intune does this for the fleet; the bootstrap script does it per machine
-  (and skips it when the root is already there).
-- **Enrollment:** the bootstrap script, run per machine with an enrollment token.
+- enrollment fails with `x509: certificate signed by unknown authority`, before
+  the token is sent, and the agent never appears in the web UI;
+- browsers show a certificate warning.
+
+Never work around this with the agent's `skip_tls_verify` / `--allow-insecure`
+override. It turns off certificate checks for an agent that runs commands as
+SYSTEM: anyone who can intercept its traffic could pose as the server. Get the
+root onto the machine instead.
+
+**Two ways to get the root onto a machine.** Either one is enough for the agent:
+
+| Way | Covers | Use it for |
+|-----|--------|------------|
+| **GPO** (7.1) or **Intune** (7.2) | Every computer in the linked OUs or device groups, browsers included | The fleet, and every machine people browse to the UI from |
+| **The bootstrap script** (7.3) | The one machine it runs on; it imports the root, then enrolls the agent | Machines outside GPO, or a handful of endpoints. When GPO has already put the root there, it skips the import. |
+
+Enrolling the agent is a separate job: the bootstrap script does it, one machine
+at a time, with an enrollment token.
+
+With **Enterprise CA** (`byo`) certificates, your own root is already trusted:
+skip 7.1 and 7.2. With **Let's Encrypt** none of this section applies.
 
 > **GPO distributes the root only.** Never put enrollment tokens, or a script
 > that contains one, in a GPO, a startup script or SYSVOL: every domain computer
@@ -732,29 +752,68 @@ Two separate jobs:
 
 ### 7.1 GPO: push the root
 
-1. Get `root.cer` and check it. On the server:
+**What this changes in your domain: one certificate, nothing else.** The
+installer never connects to Active Directory and changes no Group Policy: the AD
+admin makes the change below by hand. Roots from different GPOs add up on each
+computer, so importing this one doesn't remove, replace or reorder any root
+already trusted, and no other policy setting changes. To keep it that way, use a
+**new GPO that holds only this root**. Don't edit the Default Domain Policy or a
+GPO someone else owns: a dedicated GPO can be piloted, filtered and undone on its
+own.
+
+1. **Get `root.cer` and check it.** On the server:
 
    ```bash
    sudo /opt/projectachilles/achilles-installer ca export --out /root/achilles-root
    ```
 
    This writes `root.cer` and `root.crt` and prints the SHA-256 and the SHA-1
-   thumbprint. Copy `root.cer` to the GPO admin workstation and compare:
+   (Windows) thumbprint. Copy `root.cer` to the GPO admin workstation and compare:
 
    ```powershell
    (Get-FileHash -Algorithm SHA256 .\root.cer).Hash
    ```
 
-   The hash must equal the installer's SHA-256 with the colons removed.
-2. In Group Policy Management, edit (or create) a GPO linked to the OUs that hold
-   the endpoints and browser machines.
-3. Go to **Computer Configuration → Policies → Windows Settings → Security
-   Settings → Public Key Policies → Trusted Root Certification Authorities**,
-   right-click, **Import**, and select `root.cer`.
-4. Endpoints apply it at the next policy refresh, or immediately with
-   `gpupdate /force`.
+   The hash must equal the installer's SHA-256 with the colons removed. If it
+   doesn't, stop: don't import the file.
+2. **Create a dedicated GPO.** In Group Policy Management, right-click **Group
+   Policy Objects → New** and give it a name that says what it is, for example
+   `ProjectAchilles - Trusted Root CA`. Don't link it yet.
+3. **Import the root into it.** Edit the new GPO and go to **Computer
+   Configuration → Policies → Windows Settings → Security Settings → Public Key
+   Policies → Trusted Root Certification Authorities**. Right-click, **Import**,
+   select `root.cer` and keep the store the wizard offers (Trusted Root
+   Certification Authorities). Change nothing else in the GPO. The setting is
+   under *Computer* Configuration, so it applies to computers, not users: the
+   root goes into the machine store, which is the one the agent and the browsers
+   read.
+4. **Pilot it.** Link the GPO to an OU with a few test machines (right-click the
+   OU → **Link an Existing GPO**). On one of them run `gpupdate /force`, then the
+   checks in 7.5. If your domain uses **Certificate Path Validation Settings**
+   (in the same Public Key Policies area) to limit which root CAs computers
+   trust, this is where you confirm the new root is accepted.
+5. **Roll it out.** Link the same GPO to the OUs that hold the endpoints and the
+   machines people browse to the UI from. To limit it to certain computers,
+   replace **Authenticated Users** under **Security Filtering** with a computer
+   group. Computers pick it up at the next policy refresh (every 90 minutes or so), at
+   a reboot, or right away with `gpupdate /force`.
 
 Only the root is needed: Caddy sends the intermediate with every handshake.
+
+**Undo.** Unlinking or deleting the GPO removes the copy Group Policy added at
+the next refresh. Copies the bootstrap script or a manual import put in
+`LocalMachine\Root` stay until you delete them
+([Removing the old root from endpoints](#removing-the-old-root-from-endpoints)).
+
+**Your other policies still apply.** Nothing in ProjectAchilles changes them, and
+some can stop a rollout until you make a deliberate exception:
+
+| Existing policy | Effect | What to decide |
+|-----------------|--------|----------------|
+| Defender ASR rule `01443614` in block mode | Blocks the agent binary | A per-rule exclusion for exactly `C:\F0\achilles-agent.exe` (section 3). Never the `C:\F0` folder: tests must stay subject to ASR. |
+| PowerShell execution policy set by GPO | The bootstrap script won't run (`-ExecutionPolicy Bypass` doesn't override it) | Sign the script, or run it through SCCM or an RMM tool (section 13). |
+| AppLocker or WDAC | Can block the agent | An allow rule for the agent. |
+| Network firewalls | No root download (TCP 80) or no connection (TCP 443) | Allow both from the endpoints to the server (section 3). |
 
 ### 7.2 Intune alternative
 
@@ -1101,6 +1160,7 @@ subnets can reach the LAN IP, use your network firewall (or Docker's
 | Bootstrap: `This script must run as Administrator (elevated PowerShell).` | Start PowerShell with Run as administrator. |
 | Bootstrap fails at "Downloading root CA" | Name does not resolve, or TCP 80 is blocked between the endpoint and the server. `Resolve-DnsName`, then `Test-NetConnection achilles.corp.example.com -Port 80`. |
 | Bootstrap fails at "Downloading agent" with 404 | No agent version is registered for Windows amd64: **Settings → Agent → Registered Versions** (5.3). |
+| Agent enrollment: `x509: certificate signed by unknown authority` | The root is not in `LocalMachine\Root` on that machine: push it by GPO (7.1) or run the bootstrap script (7.3), then check with 7.5. Don't use `--allow-insecure`. |
 | `Could not establish trust relationship for the SSL/TLS secure channel` | The root is not in `LocalMachine\Root`, or the name is outside the CA's zone. |
 | `Could not create SSL/TLS secure channel` | The PowerShell session doesn't offer TLS 1.2 (older Windows PowerShell 5.1 hosts); the server requires TLS 1.2 or later. Run the `[Net.ServicePointManager]::SecurityProtocol` line from 7.5 first. The bootstrap script sets it itself. |
 | `… cannot be loaded … is not digitally signed` (or `… running scripts is disabled on this system`) | A Group Policy execution policy (AllSigned, RemoteSigned, or scripts disabled) overrides `-ExecutionPolicy Bypass`. Sign the script with a code-signing certificate your endpoints trust (re-sign it after every re-render), or deploy it through SCCM or an RMM tool with its execution-policy bypass setting (ConfigMgr: client setting **PowerShell execution policy** = **Bypass**). |
