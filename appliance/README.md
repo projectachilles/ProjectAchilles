@@ -25,6 +25,7 @@ Run from the repo root with `make -C appliance <target>`.
 | `base-image` | Download the Ubuntu 24.04 cloud image, verify against `SHA256SUMS` (about 600 MB) |
 | `installer-bin` | Build `out/achilles-installer` (host Go) |
 | `installer-testbin` | Build `out/achilles-installer-test` (`-tags appliancetest`) |
+| `out-ownership-check` | Prove container targets leave `out/` owned by you (`DOCKER_RUN_OUT`) |
 | `image` | Build the qcow2 (later task) |
 | `check-sealed` | Assert the image is sealed (later task) |
 | `boot-test` | Boot-test the image under UEFI (later task) |
