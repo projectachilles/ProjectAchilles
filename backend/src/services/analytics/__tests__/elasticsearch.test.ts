@@ -3474,7 +3474,7 @@ describe('elasticsearch.ts', () => {
         expect(JSON.stringify(pairs[0].query)).toContain('excluded-test');
       });
 
-      it('the four breakdowns share one metadata snapshot, separate from the score snapshot', async () => {
+      it('the breakdowns share one metadata snapshot, separate from the score snapshot and the technique one', async () => {
         routeRepeat({ u1: { name: 'Test One' }, u2: { name: 'Test Two' } });
         const svc = createService();
         await Promise.all([
@@ -3486,10 +3486,11 @@ describe('elasticsearch.ts', () => {
           svc.getDefenseScoreByCategoryWithSubcategoriesLatest(params),
         ]);
         const pairs = searchesWith('pairs');
-        expect(pairs).toHaveLength(2); // one series snapshot + one metadata snapshot
-        expect(searchesWith('test_meta')).toHaveLength(1);
+        // series snapshot + metadata snapshot + the technique view's own (it leaves EDR-killed runs out)
+        expect(pairs).toHaveLength(3);
+        expect(searchesWith('test_meta')).toHaveLength(2);
         const daySources = pairs.map((r: any) => r.aggs.pairs.composite.sources.some((src: any) => 'day' in src));
-        expect(daySources.sort()).toEqual([false, true]);
+        expect(daySources.sort()).toEqual([false, false, true]);
       });
     });
 

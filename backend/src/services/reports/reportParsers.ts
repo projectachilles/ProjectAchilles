@@ -67,7 +67,7 @@ export function parseScope(response: Agg): ParsedScope {
   const a = response?.aggregations ?? {};
   const outcomes = countsFromFiltersAgg(a.outcomes);
   const runs = a.runs?.value ?? 0;
-  const techniques: ReportTechnique[] = buckets(a.techniques).map((b) => {
+  const techniques: ReportTechnique[] = buckets(a.techniques?.by_technique).map((b) => {
     const id = String(b.key);
     const info = techniqueInfo(id);
     return {

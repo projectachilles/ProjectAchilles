@@ -17,11 +17,11 @@ describe('parseScope', () => {
       runs: { value: 12_345 }, endpoints: { value: 5 }, tests: { value: 2 }, tactics: { value: 3 },
       first: { value: T }, last: { value: T + 60_000 }, high_impact: { doc_count: 1 },
       hosts: { buckets: [{ key: 'WS-FIN-014', runs: { value: 4 }, outcomes: agg({ protected: 1 }) }] },
-      techniques: { buckets: [
+      techniques: { by_technique: { buckets: [
         { key: 'T1486', tactics: { buckets: [{ key: 'impact' }] }, tests: { buckets: [{ key: BUNDLE }] }, outcomes: agg({ unprotected: 2 }) },
         { key: 'T1059.001', tactics: { buckets: [{ key: 'execution' }] }, tests: { buckets: [] }, outcomes: agg({ protected: 3 }) },
         { key: 'T9999', tactics: { buckets: [] }, tests: { buckets: [] }, outcomes: agg({}) },
-      ] },
+      ] } },
       actors: { buckets: [{ key: 'LockBit 3.0 (S1202)', runs: { value: 4 }, tests: { buckets: [{ key: BUNDLE }] }, outcomes: agg({ protected: 3 }) }] },
     },
   };
@@ -65,7 +65,7 @@ describe('technique tactic resolution', () => {
     key, tactics: tacticBuckets(tactics), tests: { buckets: [] }, outcomes: agg({ unprotected: 1 }),
   });
   const tacticOf = (techniques: unknown[]) => Object.fromEntries(
-    parseScope({ aggregations: { techniques: { buckets: techniques } } }).techniques.map((t) => [t.id, t.tactic]),
+    parseScope({ aggregations: { techniques: { by_technique: { buckets: techniques } } } }).techniques.map((t) => [t.id, t.tactic]),
   );
 
   it('takes the ATT&CK tactic over doc-level ES tactics that tie on count', () => {

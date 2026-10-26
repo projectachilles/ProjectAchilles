@@ -292,6 +292,18 @@ export const TEST_KEY_SCRIPT = {
 };
 
 /** Exit code for a test binary blocked before it ran (e.g. an ASR prevalence rule). */
+/**
+ * Excludes the whole-test doc of a run the EDR killed along with the agent.
+ * Technique views apply it: the stages of such a run are unknown, so it counts
+ * for the test as a whole but never for its techniques.
+ */
+export const NOT_EDR_TERMINATED = { bool: { must_not: [{ term: { 'f0rtika.edr_terminated': true } }] } };
+
+/** Internal option of the latest-basis technique readers; part of the posture cache key. */
+interface TechniqueScopeOption {
+  excludeEdrTerminated?: boolean;
+}
+
 const BLOCKED_PRE_EXECUTION_CODE = 260;
 
 /** Newest inconclusive run of a chain (see fetchBundleInconclusiveRuns). */
@@ -1503,7 +1515,7 @@ export class ElasticsearchService {
    * rawRuns is null when nothing is excluded or the shape skips it.
    */
   async getLatestPosture(
-    params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>,
+    params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams> & TechniqueScopeOption,
     shape: PostureShape,
   ): Promise<PostureSnapshot & { outcome: OutcomeFilters }> {
     return this.latestPostureFor(await this.resolvePostureScope(params), shape);
@@ -1511,12 +1523,14 @@ export class ElasticsearchService {
 
   /** Window, filter-bar clauses and risk-acceptance exclusion of a latest-basis request. */
   private async resolvePostureScope(
-    params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>,
+    params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams> & TechniqueScopeOption,
   ): Promise<PostureScope> {
     const window = this.resolveLatestWindow(params); // 400 before any ES call
     const outcome = this.parseOutcomeFilters(params);
     const isAnyStage = params.scoringMode === 'any-stage';
     const clauses = this.buildFilterBarClauses(params, { excludeOutcome: true });
+    // Technique views: an EDR-killed run has unknown stages, so no technique is credited.
+    if (params.excludeEdrTerminated) clauses.push(NOT_EDR_TERMINATED);
     const exclusionFilter: unknown = (await this.getRiskAcceptanceService().buildExclusionFilter(params.org)) ?? null;
     return {
       window,
@@ -1532,6 +1546,8 @@ export class ElasticsearchService {
         org: params.org || null,
         clauses,
         exclusion: exclusionFilter,
+        // Only when set, so the tile's cache key is unchanged; the clause alone would differ too, this keeps it explicit.
+        ...(params.excludeEdrTerminated ? { excludeEdrTerminated: true } : {}),
       },
     };
   }
@@ -1644,7 +1660,7 @@ export class ElasticsearchService {
   }
 
   /** Outcome-filtered latest pair per key, as of window.toMs (exclusions applied). */
-  async getLatestPairs(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<PairRun[]> {
+  async getLatestPairs(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams> & TechniqueScopeOption): Promise<PairRun[]> {
     const { window, runs, outcome } = await this.getLatestPosture(params, 'metadata');
     return applyOutcomeFilters(latestPairsAsOf(runs, window.toMs, window.freshnessMs), outcome);
   }
@@ -1755,6 +1771,7 @@ export class ElasticsearchService {
   async getDefenseScoreByTechnique(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<BreakdownItem[]> {
     const isAnyStage = params.scoringMode === 'any-stage';
     const filters = await this.buildDefenseScoreFilters(params);
+    filters.push(NOT_EDR_TERMINATED);
     const results = await this.runBreakdownQuery(filters, 'by_technique', 'f0rtika.techniques', 50, isAnyStage);
 
     return results
@@ -2023,7 +2040,7 @@ export class ElasticsearchService {
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
 
-    filters.push(...this.buildFilterBarClauses(params));
+    filters.push(...this.buildFilterBarClauses(params), NOT_EDR_TERMINATED);
 
     const response = await this.client.search({
       index: this.settings.indexPattern,
@@ -3057,7 +3074,7 @@ export class ElasticsearchService {
     // Always per-stage: an any-stage bundle pair carries one verdict for all
     // of its techniques, which would mark a technique protected even when its
     // own stage got through. Per-control pairs score each technique honestly.
-    const pairs = await this.getLatestPairs({ ...params, scoringMode: 'all-stages' });
+    const pairs = await this.getLatestPairs({ ...params, scoringMode: 'all-stages', excludeEdrTerminated: true });
     const items: TechniqueDistributionItem[] = [];
     for (const [technique, s] of groupPairs(pairs, p => (p.techniques.length > 0 ? p.techniques : undefined))) {
       items.push({ technique, protected: s.protectedCount, unprotected: s.pairCount - s.protectedCount });
@@ -3156,7 +3173,7 @@ export class ElasticsearchService {
    * getTechniqueDistributionLatest. Every technique is returned (no top-N).
    */
   async getTechniqueOutcomes(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<TechniqueOutcomeItem[]> {
-    const pairs = await this.getLatestPairs({ ...params, scoringMode: 'all-stages' });
+    const pairs = await this.getLatestPairs({ ...params, scoringMode: 'all-stages', excludeEdrTerminated: true });
     const byTechnique = new Map<string, { protected: number; detected: number; unprotected: number; lastTs: number }>();
     for (const p of pairs) {
       for (const technique of new Set(p.techniques)) {

@@ -26,8 +26,8 @@ describe('scopeRequest', () => {
 
   it('breaks down hosts, techniques and actors', () => {
     expect(body.aggs.hosts.terms).toEqual({ field: 'routing.hostname', size: 100 });
-    expect(body.aggs.techniques.terms).toEqual({ field: 'f0rtika.techniques', size: 300 });
-    expect(body.aggs.techniques.aggs.tests.terms.script).toBe(TEST_KEY_SCRIPT);
+    expect(body.aggs.techniques.aggs.by_technique.terms).toEqual({ field: 'f0rtika.techniques', size: 300 });
+    expect(body.aggs.techniques.aggs.by_technique.aggs.tests.terms.script).toBe(TEST_KEY_SCRIPT);
     expect(body.aggs.actors.terms.field).toBe('f0rtika.threat_actor');
   });
 });

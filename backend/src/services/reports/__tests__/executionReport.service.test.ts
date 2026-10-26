@@ -26,10 +26,10 @@ function scopeResponse(over: { outcomes?: Partial<OutcomeCounts>; runs?: number;
       sum_other_doc_count: over.otherHostDocs ?? 0,
       buckets: [{ key: 'WS-FIN-014', runs: { value: 1 }, outcomes: agg({ protected: 1, unprotected: 1 }) }],
     },
-    techniques: { buckets: [
+    techniques: { by_technique: { buckets: [
       { key: 'T1567.002', tactics: { buckets: [{ key: 'exfiltration' }] }, tests: { buckets: [{ key: BUNDLE }] }, outcomes: agg({ unprotected: 4 }) },
       { key: 'T1486', tactics: { buckets: [{ key: 'impact' }] }, tests: { buckets: [{ key: BUNDLE }] }, outcomes: agg({ protected: 4 }) },
-    ] },
+    ] } },
     actors: { buckets: [{ key: 'LockBit 3.0 (S1202)', runs: { value: 1 }, tests: { buckets: [{ key: BUNDLE }] }, outcomes: agg({ protected: 1, unprotected: 1 }) }] },
   } };
 }

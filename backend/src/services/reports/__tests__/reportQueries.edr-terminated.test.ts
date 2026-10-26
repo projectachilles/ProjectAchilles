@@ -1,0 +1,21 @@
+import { describe, it, expect } from 'vitest';
+import { NOT_EDR_TERMINATED } from '../../analytics/elasticsearch.js';
+import { scopeRequest } from '../reportQueries.js';
+
+type Any = Record<string, any>;
+
+describe('scopeRequest and EDR-killed runs', () => {
+  const body = scopeRequest([]) as Any;
+
+  it('technique aggregation ignores kill docs', () => {
+    expect(body.aggs.techniques.filter).toBe(NOT_EDR_TERMINATED);
+    expect(body.aggs.techniques.aggs.by_technique.terms.field).toBe('f0rtika.techniques');
+  });
+
+  it('outcomes, hosts, actors and run counts still include kill docs', () => {
+    for (const name of ['outcomes', 'runs', 'hosts', 'actors', 'tests']) {
+      expect(JSON.stringify(body.aggs[name])).not.toContain('edr_terminated');
+    }
+    expect(JSON.stringify(body.query)).not.toContain('edr_terminated');
+  });
+});

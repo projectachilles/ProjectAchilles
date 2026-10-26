@@ -2,7 +2,7 @@
 // Pure: each returns a search body without `index`; the service adds the
 // index pattern. Caps live here so the parsers and the service agree.
 
-import { RUN_GROUP_KEY_SCRIPT, TEST_KEY_SCRIPT } from '../analytics/elasticsearch.js';
+import { NOT_EDR_TERMINATED, RUN_GROUP_KEY_SCRIPT, TEST_KEY_SCRIPT } from '../analytics/elasticsearch.js';
 import { HIGH_IMPACT_FILTER, OUTCOME_FILTERS } from './stageOutcome.js';
 import type { TimeBucket } from '../../types/reports.js';
 
@@ -50,12 +50,18 @@ export function scopeRequest(filters: unknown[]): Body {
         terms: { field: 'routing.hostname', size: HOSTS_CAP },
         aggs: { outcomes: outcomes(), runs: runCount() },
       },
+      // An EDR-killed run has unknown stages: it counts for its test, never for a technique.
       techniques: {
-        terms: { field: 'f0rtika.techniques', size: TECHNIQUES_CAP },
+        filter: NOT_EDR_TERMINATED,
         aggs: {
-          outcomes: outcomes(),
-          tactics: { terms: { field: 'f0rtika.tactics', size: 3 } },
-          tests: { terms: { script: TEST_KEY_SCRIPT, size: 50 } },
+          by_technique: {
+            terms: { field: 'f0rtika.techniques', size: TECHNIQUES_CAP },
+            aggs: {
+              outcomes: outcomes(),
+              tactics: { terms: { field: 'f0rtika.tactics', size: 3 } },
+              tests: { terms: { script: TEST_KEY_SCRIPT, size: 50 } },
+            },
+          },
         },
       },
       actors: {
