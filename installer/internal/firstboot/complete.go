@@ -52,8 +52,9 @@ func Complete(ctx context.Context, h Host, version string) error {
 	if err := h.WriteFile(MarkerPath, []byte(marker), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", MarkerPath, err)
 	}
-	if out, err := h.Run(ctx, []byte{}, "systemctl", "--no-block", "start", "getty@tty1.service"); err != nil {
-		return fmt.Errorf("start getty: %w: %s", err, strings.TrimSpace(string(out)))
-	}
+	// Non-fatal: the marker is written, so systemd will not rerun first boot
+	// (ConditionPathExists=!marker). The getty is enabled and starts on the
+	// next boot; failing here would only leave the console blank until then.
+	_, _ = h.Run(ctx, []byte{}, "systemctl", "--no-block", "start", "getty@tty1.service")
 	return nil
 }

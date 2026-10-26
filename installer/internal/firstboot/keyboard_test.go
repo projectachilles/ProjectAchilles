@@ -56,3 +56,26 @@ func TestKnownXKBLayout(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyKeyboardRejectsShellMetacharacters(t *testing.T) {
+	for _, l := range []Layout{
+		{XKBLayout: "us\"; rm -rf /; \""},
+		{XKBLayout: "us$(id)"},
+		{XKBLayout: "US"},
+		{XKBLayout: ""},
+		{XKBLayout: "us", XKBVariant: "a b"},
+		{XKBLayout: "us", XKBVariant: "`id`"},
+	} {
+		f := newFakeHost()
+		if err := ApplyKeyboard(context.Background(), f, l); err == nil {
+			t.Errorf("accepted %+v", l)
+		}
+		if f.Exists(KeyboardPath) {
+			t.Errorf("wrote file for %+v", l)
+		}
+	}
+	f := newFakeHost()
+	if err := ApplyKeyboard(context.Background(), f, Layout{XKBLayout: "latam", XKBVariant: "dvorak-intl_1"}); err != nil {
+		t.Fatal(err)
+	}
+}

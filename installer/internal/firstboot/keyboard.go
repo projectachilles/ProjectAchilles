@@ -5,8 +5,15 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 )
+
+// xkbSafeRe is what may go into /etc/default/keyboard, a shell-sourced file.
+var xkbSafeRe = regexp.MustCompile(`^[a-z0-9_-]+$`)
+
+// SafeXKBCode reports whether code is safe to write into /etc/default/keyboard.
+func SafeXKBCode(code string) bool { return xkbSafeRe.MatchString(code) }
 
 // Layout is a keyboard choice offered on the first screen.
 type Layout struct{ ID, Label, XKBLayout, XKBVariant string }
@@ -47,6 +54,10 @@ func KnownXKBLayout(baseLst []byte, code string) bool {
 
 // ApplyKeyboard writes /etc/default/keyboard and applies it to the console.
 func ApplyKeyboard(ctx context.Context, h Host, l Layout) error {
+	// The file is sourced by a shell: refuse anything but plain XKB codes.
+	if !SafeXKBCode(l.XKBLayout) || (l.XKBVariant != "" && !SafeXKBCode(l.XKBVariant)) {
+		return fmt.Errorf("invalid keyboard layout %q / variant %q", l.XKBLayout, l.XKBVariant)
+	}
 	conf := fmt.Sprintf("XKBMODEL=\"pc105\"\nXKBLAYOUT=%q\nXKBVARIANT=%q\nXKBOPTIONS=\"\"\nBACKSPACE=\"guess\"\n",
 		l.XKBLayout, l.XKBVariant)
 	if err := h.WriteFile(KeyboardPath, []byte(conf), 0o644); err != nil {
