@@ -25,10 +25,11 @@ func TestParseDefaultRoute(t *testing.T) {
 func TestDetectNetworkUsesDefaultRouteDevice(t *testing.T) {
 	h := newFakeHost()
 	h.on([]string{"ip", "-4", "route", "show", "default"}, "default via 10.0.5.1 dev eth1 proto dhcp metric 100\n", nil)
+	// sysprobe's real shape: CIDR is the network, IP the host address.
 	ifaces := func() []sysprobe.Iface {
 		return []sysprobe.Iface{
-			{Name: "eth0", IP: "192.168.1.5", CIDR: "192.168.1.5/24"},
-			{Name: "eth1", IP: "10.0.5.20", CIDR: "10.0.5.20/24"},
+			{Name: "eth0", IP: "192.168.1.5", CIDR: "192.168.1.0/24"},
+			{Name: "eth1", IP: "10.0.5.20", CIDR: "10.0.5.0/24"},
 		}
 	}
 	got, err := DetectNetwork(context.Background(), h, ifaces)
@@ -68,6 +69,15 @@ func TestValidateNetConfig(t *testing.T) {
 		{"empty hostname", static(func(n *NetConfig) { n.Hostname = "" }), false},
 		{"ipv6 address", static(func(n *NetConfig) { n.Address = "fe80::1/64" }), false},
 		{"no prefix", static(func(n *NetConfig) { n.Address = "10.0.5.20" }), false},
+		{"network address", static(func(n *NetConfig) { n.Address = "10.0.5.0/24" }), false},
+		{"broadcast address", static(func(n *NetConfig) { n.Address = "10.0.5.255/24" }), false},
+		{"network address /30", static(func(n *NetConfig) { n.Address = "10.0.5.4/30"; n.Gateway = "10.0.5.5" }), false},
+		{"broadcast address /30", static(func(n *NetConfig) { n.Address = "10.0.5.7/30"; n.Gateway = "10.0.5.5" }), false},
+		{"host /30", static(func(n *NetConfig) { n.Address = "10.0.5.6/30"; n.Gateway = "10.0.5.5" }), true},
+		{"gateway is the address", static(func(n *NetConfig) { n.Gateway = "10.0.5.20" }), false},
+		{"gateway is the network", static(func(n *NetConfig) { n.Gateway = "10.0.5.0" }), false},
+		{"gateway is broadcast", static(func(n *NetConfig) { n.Gateway = "10.0.5.255" }), false},
+		{"high gateway ok", static(func(n *NetConfig) { n.Gateway = "10.0.5.254" }), true},
 		{"dhcp bad hostname", NetConfig{Iface: "eth0", DHCP: true, Hostname: "Bad_Name"}, false},
 	}
 	for _, c := range cases {
@@ -224,5 +234,21 @@ func TestParseLinkNames(t *testing.T) {
 		"7: eth2: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN\\    link/ether 00:15:5d:01:02:05 brd ff:ff:ff:ff:ff:ff\n"
 	if got, want := physicalNICs(out), []string{"eth0", "eth2"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestHostCIDR(t *testing.T) {
+	for _, c := range []struct {
+		i    sysprobe.Iface
+		want string
+	}{
+		{sysprobe.Iface{IP: "10.0.5.20", CIDR: "10.0.5.0/24"}, "10.0.5.20/24"},
+		{sysprobe.Iface{IP: "172.16.3.9", CIDR: "172.16.0.0/16"}, "172.16.3.9/16"},
+		{sysprobe.Iface{IP: "", CIDR: "10.0.5.0/24"}, ""},
+		{sysprobe.Iface{IP: "10.0.5.20", CIDR: ""}, ""},
+	} {
+		if got := hostCIDR(c.i); got != c.want {
+			t.Errorf("hostCIDR(%+v) = %q, want %q", c.i, got, c.want)
+		}
 	}
 }

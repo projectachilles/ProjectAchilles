@@ -67,7 +67,8 @@ func (u *fakeUI) Notice(_ context.Context, msg string) error {
 }
 
 func testIfaces() []sysprobe.Iface {
-	return []sysprobe.Iface{{Name: "eth0", IP: "10.0.5.20", CIDR: "10.0.5.20/24"}}
+	// sysprobe's real shape: CIDR is the network, IP the host address.
+	return []sysprobe.Iface{{Name: "eth0", IP: "10.0.5.20", CIDR: "10.0.5.0/24"}}
 }
 
 func runHost() *fakeHost {
@@ -127,6 +128,11 @@ func TestRunOrder(t *testing.T) {
 	n := len(seq)
 	if seq[n-2] != "write "+MarkerPath || seq[n-1] != "systemctl --no-block start getty@tty1.service" {
 		t.Fatalf("tail = %v", seq[n-3:])
+	}
+	// The static form pre-fills Address from this: it must be the host's
+	// address, not the network's.
+	if len(ui.dets) != 1 || ui.dets[0].CIDR != "10.0.5.20/24" {
+		t.Fatalf("detected = %+v", ui.dets)
 	}
 	if !handoffSeenBeforeGetty {
 		t.Fatal("getty started before Handoff was shown")

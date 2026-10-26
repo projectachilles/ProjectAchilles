@@ -44,7 +44,7 @@ func DetectNetwork(ctx context.Context, h Host, ifaces func() []sysprobe.Iface) 
 	if dev != "" {
 		for _, i := range ifaces() {
 			if i.Name == dev {
-				return Detected{Iface: i.Name, IP: i.IP, CIDR: i.CIDR, Gateway: gw}, nil
+				return Detected{Iface: i.Name, IP: i.IP, CIDR: hostCIDR(i), Gateway: gw}, nil
 			}
 		}
 	}
@@ -57,6 +57,32 @@ func DetectNetwork(ctx context.Context, h Host, ifaces func() []sysprobe.Iface) 
 		return Detected{}, ErrNoNIC
 	}
 	return Detected{Iface: nics[0]}, nil
+}
+
+// hostCIDR is the interface's address in CIDR form ("10.0.5.20/24"), which
+// pre-fills the static form. sysprobe's Iface.CIDR is the network
+// ("10.0.5.0/24", what the wizard needs for LAN_SUBNETS), so only its prefix
+// length is used. "" if either part doesn't parse.
+func hostCIDR(i sysprobe.Iface) string {
+	ip, err := parseIPv4(i.IP)
+	if err != nil {
+		return ""
+	}
+	pfx, err := netip.ParsePrefix(i.CIDR)
+	if err != nil {
+		return ""
+	}
+	return netip.PrefixFrom(ip, pfx.Bits()).String()
+}
+
+// broadcast is the last address of an IPv4 prefix.
+func broadcast(p netip.Prefix) netip.Addr {
+	b := p.Masked().Addr().As4()
+	host := uint32(1)<<(32-p.Bits()) - 1
+	for i := 0; i < 4; i++ {
+		b[3-i] |= byte(host >> (8 * i))
+	}
+	return netip.AddrFrom4(b)
 }
 
 // physicalNICs lists the Ethernet NICs in `ip -o link show` output, in order:
@@ -128,12 +154,25 @@ func ValidateNetConfig(nc NetConfig) error {
 	if pfx.Bits() < 8 || pfx.Bits() > 30 {
 		return fmt.Errorf("prefix length must be between /8 and /30")
 	}
+	network, bcast := pfx.Masked().Addr(), broadcast(pfx)
+	switch pfx.Addr() {
+	case network:
+		return fmt.Errorf("%s is the network address of %s, not a host address; use one like %s/%d", pfx.Addr(), pfx.Masked(), network.Next(), pfx.Bits())
+	case bcast:
+		return fmt.Errorf("%s is the broadcast address of %s, not a host address", pfx.Addr(), pfx.Masked())
+	}
 	gw, err := parseIPv4(nc.Gateway)
 	if err != nil {
 		return fmt.Errorf("gateway: %w", err)
 	}
 	if !pfx.Masked().Contains(gw) {
 		return fmt.Errorf("gateway %s is not in subnet %s", nc.Gateway, pfx.Masked())
+	}
+	switch gw {
+	case pfx.Addr():
+		return fmt.Errorf("gateway %s is this server's own address", gw)
+	case network, bcast:
+		return fmt.Errorf("gateway %s is the network or broadcast address of %s", gw, pfx.Masked())
 	}
 	if n := len(nc.DNS); n < 1 || n > 3 {
 		return fmt.Errorf("provide 1 to 3 DNS servers")
