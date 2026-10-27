@@ -49,11 +49,13 @@ export function ExecutionLog({ report, head }: { report: ExecutionReport; head: 
                 <td className="rp-mono rp-nowrap">{fmtDate(r.completedAt, tz)} {fmtTime(r.completedAt, tz)}</td>
                 <td className="rp-mono rp-id">{r.hostname}</td>
                 <td>{truncate(r.testName, 40)}</td>
+                {/* A kill run's one doc is the whole test, not a stage: its stages are unknown. */}
                 <td>
-                  <GlyphRow stages={r.stages.filter((s) => s.outcome !== 'skipped')} notFetched={r.moreStages} />
-                  {r.agentTerminated && <p className="rp-caption">{agentKillText(r)}</p>}
+                  {r.agentTerminated
+                    ? <>—<p className="rp-caption">{agentKillText(r)}</p></>
+                    : <GlyphRow stages={r.stages.filter((s) => s.outcome !== 'skipped')} notFetched={r.moreStages} />}
                 </td>
-                <td className="rp-num">{defended(c)}/{conclusive(c)}</td>
+                <td className="rp-num">{r.agentTerminated ? '—' : `${defended(c)}/${conclusive(c)}`}</td>
                 {edr && <td className="rp-num-wrap">{firstAlertText(r)}</td>}
               </tr>
             );

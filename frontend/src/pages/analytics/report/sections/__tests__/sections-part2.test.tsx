@@ -666,6 +666,19 @@ describe('EDR-killed runs in the appendices', () => {
     expect(within(hostRow('WS-FIN-014')).getByText(NOTE)).toBeInTheDocument();
   });
 
+  it('the execution log shows a dash, not a glyph or "1/1", for the unknown stages', () => {
+    const one = { ...makeRun().stages[0], controlId: null, order: 1, outcome: 'protected' as const, exitCode: 126 };
+    render(<ExecutionLog report={makeReport({ runs: [{ ...killed(), stages: [one] }, makeRun({ hostname: 'WS-OPS-022', completedAt: '2026-10-11T09:12:00.000Z' })] })} head={head} />);
+    const cells = hostRow('WS-FIN-014').querySelectorAll('td');
+    expect(cells[3].querySelector('svg')).toBeNull();
+    expect(cells[3].textContent).toBe(`—${NOTE}`);
+    expect(cells[4]).toHaveTextContent(/^—$/);
+    // An ordinary run keeps its glyphs and count.
+    const other = hostRow('WS-OPS-022').querySelectorAll('td');
+    expect(other[3].querySelector('svg')).not.toBeNull();
+    expect(other[4].textContent).toMatch(/^\d+\/\d+$/);
+  });
+
   it('the run timeline carries the note, a protected-as-a-whole completion and no silent-run flag', () => {
     const { container } = render(<RunStrips report={makeReport({ runs: [killed()] })} head={head} />);
     expect(screen.getByText(NOTE)).toBeInTheDocument();
