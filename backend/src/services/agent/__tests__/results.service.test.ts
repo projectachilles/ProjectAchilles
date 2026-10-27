@@ -517,6 +517,78 @@ describe('results.service', () => {
   });
 });
 
+// ── No-rollover ingestion (the default) ──────────────────────────────────────
+
+describe('ingestResult without rollover', () => {
+  function noneSettings() {
+    return {
+      connectionType: 'direct' as const,
+      node: 'http://localhost:9200',
+      apiKey: 'test-key',
+      indexPattern: 'achilles-results-*',
+      writeIndexPrefix: 'achilles-results-',
+      writeIndexRollover: 'none' as const,
+      configured: true,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetClient();
+    mockIsConfigured.mockReturnValue(true);
+    mockGetSettings.mockReturnValue(noneSettings());
+    mockEsIndex.mockResolvedValue({});
+    mockEsBulk.mockResolvedValue({ errors: false, items: [] });
+    mockCreateResultsIndex.mockResolvedValue({ created: true, message: 'ok' });
+  });
+
+  const task: Task = makeTask({ target_index: null });
+
+  // A fresh install has no results index: without this, the first write lets
+  // ES guess the mapping (text, not keyword) and every Analytics aggregation fails.
+  it('creates the write index with the canonical mapping before the first write', async () => {
+    await ingestResult(task, makeResult());
+
+    expect(mockCreateResultsIndex).toHaveBeenCalledWith('achilles-results-');
+    expect(mockCreateResultsIndex.mock.invocationCallOrder[0])
+      .toBeLessThan(mockEsIndex.mock.invocationCallOrder[0]);
+  });
+
+  it('creates the write index before a bundle fan-out', async () => {
+    await ingestResult(task, makeResult({ bundle_results: makeBundle() }));
+
+    expect(mockCreateResultsIndex).toHaveBeenCalledWith('achilles-results-');
+    expect(mockCreateResultsIndex.mock.invocationCallOrder[0])
+      .toBeLessThan(mockEsBulk.mock.invocationCallOrder[0]);
+  });
+
+  // Existing deployments may write through a scoped key with no create-index
+  // privilege, into an index created long ago: that must keep working.
+  it('still writes when the key may not create indices', async () => {
+    mockCreateResultsIndex.mockRejectedValue(Object.assign(new Error('security_exception'), { statusCode: 403 }));
+
+    await ingestResult(task, makeResult());
+    await ingestResult(task, makeResult());
+
+    expect(mockEsIndex).toHaveBeenCalledTimes(2);
+    expect(mockCreateResultsIndex).toHaveBeenCalledTimes(1); // denied once, not asked again
+  });
+
+  it('does not write when creating the index fails for another reason', async () => {
+    mockCreateResultsIndex.mockRejectedValueOnce(new Error('ES unavailable'));
+
+    await expect(ingestResult(task, makeResult())).rejects.toThrow('ES unavailable');
+    expect(mockEsIndex).not.toHaveBeenCalled();
+  });
+
+  it('never creates an explicit target index', async () => {
+    await ingestResult(makeTask({ target_index: 'customer-results' }), makeResult());
+
+    expect(mockCreateResultsIndex).not.toHaveBeenCalled();
+    expect(mockEsIndex).toHaveBeenCalledWith(expect.objectContaining({ index: 'customer-results' }));
+  });
+});
+
 // ── Daily-rollover ingestion ─────────────────────────────────────────────────
 
 describe('ingestResult daily rollover', () => {

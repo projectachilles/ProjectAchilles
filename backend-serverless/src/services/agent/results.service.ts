@@ -99,10 +99,22 @@ async function getClient(): Promise<{ client: Client }> {
  * Ensure the named index exists with the canonical mapping.
  * Caches successful ensures so the mapping call runs at most once per index
  * name per process lifetime (idempotent on already-exists on the ES side too).
+ *
+ * With `tolerateDenied`, a 403 (a key that may write but not create indices)
+ * is logged and the write goes ahead: the index is then expected to exist.
  */
-async function ensureResultsIndex(name: string): Promise<void> {
+async function ensureResultsIndex(name: string, tolerateDenied = false): Promise<void> {
   if (ensuredIndices.has(name)) return;
-  await createResultsIndex(name);
+  try {
+    await createResultsIndex(name);
+  } catch (err) {
+    const status = (err as { statusCode?: number } | null)?.statusCode;
+    if (!tolerateDenied || status !== 403) throw err;
+    console.warn(
+      `[results] Not allowed to create index "${name}" (403); writing to it as is. ` +
+        'If it does not exist yet, create it from Analytics settings so it gets the results mapping.',
+    );
+  }
   ensuredIndices.add(name);
 }
 
@@ -119,10 +131,14 @@ export async function ingestResult(task: Task, result: TaskResult): Promise<void
   if (index.includes('*')) {
     throw new Error(`Resolved write index contains a wildcard: "${index}" — configure a concrete writeIndexPrefix/indexPattern for writes`);
   }
-  // Auto-create index mapping only for generated dated indices; an explicit
-  // target_index is the caller's own index and is their responsibility.
-  const isGeneratedDated = !task.target_index && (settings.writeIndexRollover ?? 'none') !== 'none';
-  if (isGeneratedDated) await ensureResultsIndex(index);
+  // Create a generated write index with the canonical mapping before its first
+  // write, or ES guesses the mapping and Analytics aggregations fail. An explicit
+  // target_index is the caller's own index and is their responsibility. Without
+  // rollover the index usually exists already, maybe behind a key that may not
+  // create indices: that must not block the write.
+  if (!task.target_index) {
+    await ensureResultsIndex(index, (settings.writeIndexRollover ?? 'none') === 'none');
+  }
 
   // Bundle results: fan out to one ES document per control
   if (result.bundle_results?.controls?.length) {
