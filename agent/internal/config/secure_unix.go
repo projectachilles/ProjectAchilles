@@ -11,6 +11,12 @@ func secureFilePermissions(path string) error {
 	return os.Chmod(path, 0600)
 }
 
+// SecureConfigPermissions enforces 0600 on an existing config file. Called at
+// startup so a config that was never re-saved gets the same mode Save gives.
+func SecureConfigPermissions(path string) error {
+	return secureFilePermissions(path)
+}
+
 // SecureBinaryPermissions enforces 0700 (owner rwx only) on the agent binary.
 // Called at startup to retroactively fix permissions left by older applyUpdate() code.
 func SecureBinaryPermissions(path string) error {

@@ -105,6 +105,12 @@ func main() {
 		log.Println("WARNING: TLS certificate verification is disabled via --allow-insecure. This is NOT recommended for production.")
 	}
 
+	// Harden the config (it holds the agent key) on every startup, like the
+	// binary below: older agents' icacls calls failed on non-English Windows.
+	if err := config.SecureConfigPermissions(*configPath); err != nil {
+		log.Printf("warning: could not secure config permissions: %v", err)
+	}
+
 	// Harden own binary permissions on every startup.
 	// Fixes permissions left by older applyUpdate() code in a single restart cycle.
 	if exe, err := os.Executable(); err == nil {

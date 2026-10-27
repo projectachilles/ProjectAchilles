@@ -21,6 +21,14 @@ func secureFilePermissions(path string) error {
 	return nil
 }
 
+// SecureConfigPermissions restricts an existing config file (it holds the
+// agent key) to SYSTEM and Administrators. Called at startup so a config
+// written by an agent whose icacls call failed (localized account names, before
+// winacl) is locked down without waiting for the next Save.
+func SecureConfigPermissions(path string) error {
+	return secureFilePermissions(path)
+}
+
 // SecureBinaryPermissions restricts the agent binary to SYSTEM and
 // Administrators (full control). Called at startup to retroactively fix
 // permissions left by older applyUpdate() code.
