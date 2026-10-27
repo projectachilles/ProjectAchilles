@@ -70,6 +70,14 @@ Instead of a client secret, the integration can authenticate with a certificate 
 
 In Docker deployments, sync runs via `setInterval`. On Vercel, sync runs via Cron at `/api/cron/defender-sync`.
 
+## When the EDR kills the agent
+
+A Microsoft Defender policy can terminate `achilles-agent.exe` (or the test binary's parent chain) in the middle of a test. The agent never reports, so the task fails with `Agent went offline during execution` or `Task exceeded execution timeout`. If Microsoft Defender raised an alert on the same host in the run window, with techniques that overlap the test's, ProjectAchilles records the run as **Protected** with stages unknown. See [Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#agent-terminated-by-the-edr).
+
+These alerts stay open in Microsoft Defender: Achilles links them to the run but never auto-resolves them. Triage them like any other alert.
+
+Do not add an agent exclusion in Microsoft Defender to stop this. The agent launches the test binaries, so a child-process exclusion would exempt the tests too and the run would no longer measure your protection. This is the same reasoning as the Defender ASR advice to exclude only `C:\F0\achilles-agent.exe` per rule, never the `C:\F0` folder.
+
 ## Architecture
 
 The Defender integration is composed of four backend services that work together to pull data from Microsoft Graph, store it in Elasticsearch, and expose analytics to the frontend.

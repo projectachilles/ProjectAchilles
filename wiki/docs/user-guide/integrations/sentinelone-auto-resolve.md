@@ -124,6 +124,8 @@ Auto-resolve **never** sets an analyst verdict (Achilles tests run real
 techniques; the verdict stays your analysts' call) and **never** kills,
 quarantines, remediates or isolates anything.
 
+Alerts matched to an EDR-killed agent run (see [Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#agent-terminated-by-the-edr)) are never auto-resolved.
+
 ### Receipts
 
 Each processed alert document in `achilles-sentinelone` gets:
