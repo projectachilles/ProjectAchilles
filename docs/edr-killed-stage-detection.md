@@ -66,18 +66,33 @@ for unrelated reasons inside the same window — acceptable, and visible in the 
 **Load:** the scan set grows by error-category docs inside the 90-day lookback. Pass caps (200
 docs/pass, 60s) are unchanged; the pass is self-healing across cycles.
 
-### 2. Scoring — no change required
+### 2. Scoring — verdict display fixed here; Defense-Score widen deferred
 
-Defense Score already ORs detection flags into protected
-(`backend/src/services/analytics/elasticsearch.ts` — the `combined` should-clauses and
-`buildDetectedFilter()`). Once a killed stage is flagged, it counts. `is_protected` semantics
-(codes 105/126/127) are untouched, preserving the strict/combined distinction.
+**Correction (Oct 27 2026):** the earlier claim that flagging alone makes a killed stage count was
+wrong for per-stage verdicts. The stage verdict functions returned `inconclusive` as soon as the
+exit code was not 101, *before* consulting the EDR flags, so a 999/`0xE0000027` stage carrying its
+own `*_stage_detected` + a confirmed prevention action still read as "Not scored: error". This is
+now fixed in `reports/stageOutcome.ts` (`classifyStage` + `OUTCOME_FILTERS`) and its
+backend-serverless twin: an error-coded stage upgrades to Prevented/Detected on **stage-level
+evidence only** (`*_stage_detected` + a confirmed `*_prevention_action`; never the bundle-level
+`*_prevented`/`*_detected` flags, which a sibling stage can set).
 
-### 3. UI — no change required
+The **Defense Score** still filters to conclusive codes `[101,105,126,127]`
+(`analytics/elasticsearch.ts` `buildConclusiveResultsFilter`, `posture.ts` `CONCLUSIVE_CODES`)
+*before* the detection-OR applies, so an error-coded killed stage shows the right verdict but does
+not yet count toward the score. Widening that gate is a separate, larger change (strict-vs-combined,
+risk-acceptance, trend) — tracked, not done here. `is_protected` semantics (codes 105/126/127) are
+untouched.
 
-`ExecResultLabel` already treats `*_stage_detected ?? *_detected` as **Detected**, and the stage
-detail already shows the related alert via `alerts-for-test`. The raw kill code remains visible as
-`Unknown (3758096423)` / `event.ERROR_raw` for transparency.
+### 3. UI — verdict upgraded here (was NOT automatic)
+
+**Correction:** `classifyExecution` (`executions/shared.tsx`) early-returned `inconclusive` for any
+non-101 code, so the `*_stage_detected ?? *_detected` fallback below it never ran for a killed
+stage — the row showed "Not scored", not Detected. The console now upgrades an error-coded stage
+with stage-level evidence to Prevented/Detected (`stageVerdict.ts` renders "Ran, then an EDR
+stopped it." / the Detected label). The stage detail still shows the related alert via
+`alerts-for-test`, and the raw kill code remains visible as `Unknown (3758096423)` /
+`event.ERROR_raw` for transparency.
 
 ### 4. Agent — no change
 

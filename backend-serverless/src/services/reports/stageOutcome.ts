@@ -53,20 +53,42 @@ function confirmedAction(source: Record<string, unknown>, field: string): boolea
   return CONFIRMED_PREVENTION_ACTIONS.includes(String(getSourceField(source, `f0rtika.${field}`) ?? ''));
 }
 
+/** This stage's own EDR detection flag is set (stage-level, never bundle-level `*_detected`). */
+function stageDetected(source: Record<string, unknown>): boolean {
+  return flag(source, 'defender_stage_detected') || flag(source, 'crowdstrike_stage_detected');
+}
+
+/** This stage was detected AND the EDR took a confirmed prevention action on it. */
+function stagePrevented(source: Record<string, unknown>): boolean {
+  return (flag(source, 'crowdstrike_stage_detected') && confirmedAction(source, 'crowdstrike_prevention_action'))
+    || (flag(source, 'defender_stage_detected') && confirmedAction(source, 'defender_prevention_action'));
+}
+
 /** Classify one stage or standalone-test result exactly like the console's ExecResultLabel. */
 export function classifyStage(source: Record<string, unknown>): StageOutcome {
   const code = exitCodeOf(source);
   const isBundle = getSourceField(source, 'f0rtika.is_bundle_control') === true;
   if (isBundle && code === 0 && getSourceField(source, 'f0rtika.category') !== 'cyber-hygiene') return 'skipped';
   if (code !== undefined && PROTECTED_EXIT_CODES.includes(code)) return 'protected';
-  if (code !== UNPROTECTED_EXIT_CODE) return 'inconclusive';
+  if (code !== UNPROTECTED_EXIT_CODE) {
+    // Error / non-conclusive code (e.g. 999, or a Falcon kill coerced to 999):
+    // an EDR may have blocked THIS stage. Credit it ONLY on this stage's own
+    // detection flag + confirmed action — never the bundle-level
+    // `*_prevented`/`*_detected` flags, which a sibling stage can set. A missing
+    // code or exit 0 (ran to completion) never upgrades. No evidence ⇒
+    // inconclusive, unchanged.
+    if (code !== undefined && code !== 0) {
+      if (stagePrevented(source)) return 'prevented';
+      if (stageDetected(source)) return 'detected';
+    }
+    return 'inconclusive';
+  }
 
-  const prevented = flag(source, 'crowdstrike_prevented')
-    || flag(source, 'defender_prevented')
-    || (flag(source, 'crowdstrike_stage_detected') && confirmedAction(source, 'crowdstrike_prevention_action'))
-    || (flag(source, 'defender_stage_detected') && confirmedAction(source, 'defender_prevention_action'));
+  const prevented = stagePrevented(source)
+    || flag(source, 'crowdstrike_prevented')
+    || flag(source, 'defender_prevented');
   if (prevented) return 'prevented';
-  if (flag(source, 'defender_stage_detected') || flag(source, 'crowdstrike_stage_detected')) return 'detected';
+  if (stageDetected(source)) return 'detected';
   return 'unprotected';
 }
 
@@ -107,6 +129,25 @@ const STAGE_DETECTED: Clause = {
   },
 };
 
+/** Stage-level prevention only (never the bundle-level `*_prevented` flags). */
+const STAGE_PREVENTION_SIGNAL: Clause = {
+  bool: {
+    should: [
+      { bool: { filter: [term('f0rtika.crowdstrike_stage_detected', true), { terms: { 'f0rtika.crowdstrike_prevention_action': CONFIRMED_PREVENTION_ACTIONS } }] } },
+      { bool: { filter: [term('f0rtika.defender_stage_detected', true), { terms: { 'f0rtika.defender_prevention_action': CONFIRMED_PREVENTION_ACTIONS } }] } },
+    ],
+    minimum_should_match: 1,
+  },
+};
+
+/** An error / non-conclusive exit code that is present and not 0 — mirrors classifyStage's gate. */
+const ERROR_CODED: Clause = {
+  bool: {
+    filter: [{ exists: { field: 'event.ERROR' } }],
+    must_not: [{ terms: { 'event.ERROR': CONCLUSIVE_EXIT_CODES } }, term('event.ERROR', 0)],
+  },
+};
+
 const UNPROTECTED: Clause = {
   bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE)], must_not: [PREVENTION_SIGNAL, STAGE_DETECTED] },
 };
@@ -115,10 +156,28 @@ const UNPROTECTED: Clause = {
 export const OUTCOME_FILTERS: Record<StageOutcome, Clause> = {
   skipped: SKIPPED,
   protected: { terms: { 'event.ERROR': PROTECTED_EXIT_CODES } },
-  prevented: { bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE), PREVENTION_SIGNAL] } },
-  detected: { bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE), STAGE_DETECTED], must_not: [PREVENTION_SIGNAL] } },
+  prevented: {
+    bool: {
+      should: [
+        { bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE), PREVENTION_SIGNAL] } },
+        { bool: { filter: [ERROR_CODED, STAGE_PREVENTION_SIGNAL] } },
+      ],
+      minimum_should_match: 1,
+    },
+  },
+  detected: {
+    bool: {
+      should: [
+        { bool: { filter: [term('event.ERROR', UNPROTECTED_EXIT_CODE), STAGE_DETECTED], must_not: [PREVENTION_SIGNAL] } },
+        { bool: { filter: [ERROR_CODED, STAGE_DETECTED], must_not: [STAGE_PREVENTION_SIGNAL] } },
+      ],
+      minimum_should_match: 1,
+    },
+  },
   unprotected: UNPROTECTED,
-  inconclusive: { bool: { must_not: [{ terms: { 'event.ERROR': CONCLUSIVE_EXIT_CODES } }, SKIPPED] } },
+  inconclusive: {
+    bool: { must_not: [{ terms: { 'event.ERROR': CONCLUSIVE_EXIT_CODES } }, SKIPPED, { bool: { filter: [ERROR_CODED, STAGE_DETECTED] } }] },
+  },
 };
 
 /** Unprotected stages on exfiltration/impact tactics. */
