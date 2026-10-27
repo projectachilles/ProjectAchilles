@@ -171,6 +171,7 @@ $TimeSynchronizationId = '2497F4DE-E9FA-4204-80E4-4B75C46419C0'
 # How long to wait for the VM's IPv4 address; ACHILLES_IMPORT_IP_TIMEOUT_S
 # overrides it (the tests use 2 s).
 $DefaultIpTimeoutS = 300
+$MaxIpTimeoutS = 3600
 $IpPollSeconds = 5
 
 # -----------------------------------------------------------------------------
@@ -1020,7 +1021,7 @@ function Get-ApplianceVersion {
 # The VM's integration service with that ID, or with that English name.
 function Find-IntegrationService {
     param([object[]]$Services, [string]$Id, [string]$EnglishName)
-    $byId = @($Services | Where-Object { ([string](Get-PropValue $_ 'Id')).IndexOf($Id, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+    $byId = @($Services | Where-Object { ([string](Get-PropValue $_ 'Id')).EndsWith('\' + $Id, [StringComparison]::OrdinalIgnoreCase) })
     if ($byId.Count -gt 0) { return $byId[0] }
     $byName = @($Services | Where-Object { [string]$_.Name -eq $EnglishName })
     if ($byName.Count -gt 0) { return $byName[0] }
@@ -1107,7 +1108,13 @@ function Format-VmCommand {
 function Get-IpTimeout {
     $raw = [string]$env:ACHILLES_IMPORT_IP_TIMEOUT_S
     $n = 0
-    if (-not [string]::IsNullOrWhiteSpace($raw) -and [int]::TryParse($raw.Trim(), [ref]$n) -and $n -ge 1) { return $n }
+    if (-not [string]::IsNullOrWhiteSpace($raw) -and [int]::TryParse($raw.Trim(), [ref]$n) -and $n -ge 1) {
+        if ($n -gt $MaxIpTimeoutS) {
+            Write-Info "ACHILLES_IMPORT_IP_TIMEOUT_S=$n is capped at $MaxIpTimeoutS s."
+            return $MaxIpTimeoutS
+        }
+        return $n
+    }
     $DefaultIpTimeoutS
 }
 
@@ -1173,7 +1180,8 @@ function Start-AndReport {
     Write-Step 5 'Starting the VM'
     if ($NoStart) {
         Write-Ok "The VM '$Name' is ready; not started (-NoStart)"
-        Write-Info "Start it with: Start-VM -Name $(ConvertTo-Literal $Name)"
+        $startCommand = (Format-VmCommand 'Start-VM' '').TrimEnd()
+        Write-Info "Start it with: $startCommand"
         Write-Info 'Then:'
         Write-ConsoleHint
         return
@@ -1182,6 +1190,10 @@ function Start-AndReport {
     try { Start-VM -VM $Vm | Out-Null }
     catch { Stop-Import "Could not start the VM '$Name': $($_.Exception.Message)" }
     Write-Ok "Started the VM '$Name'"
+    # The console command comes before the wait so the admin can start first
+    # boot in parallel; the report below repeats it.
+    Write-Info 'First boot needs the console. You can open it now, while this waits:'
+    Write-ConsoleHint
     $timeout = Get-IpTimeout
     Write-Info "Waiting up to $timeout s for its IPv4 address..."
     $ip = Wait-VmIPv4 $Vm $timeout

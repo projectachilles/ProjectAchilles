@@ -1732,6 +1732,21 @@ function TestVM_IntegrationServicesFoundById {
         $en[0] -ceq "Enable-VMIntegrationService -VMIntegrationService <VMIntegrationService 'Interfaz de servicio invitado'>" -and
         $en[1] -ceq "Enable-VMIntegrationService -VMIntegrationService <VMIntegrationService 'Sincronizacion de hora'>")
 
+    # Lowercase IDs match (case-insensitive), and an ID that merely contains the
+    # GUID (a decoy listed first) is not the service: the match is anchored at the end.
+    $null = New-Scenario 'vm-integration-lowercase'
+    $global:HV.IntegrationServices = @(
+        @{ Name = 'Decoy one'; Guid = '6c09bb55-d683-4da0-8931-c9bf705f6480-x'; Enabled = $false },
+        @{ Name = 'Guest Service Interface'; Guid = '6c09bb55-d683-4da0-8931-c9bf705f6480'; Enabled = $false },
+        @{ Name = 'Decoy two'; Guid = '2497f4de-e9fa-4204-80e4-4b75c46419c0-x'; Enabled = $false },
+        @{ Name = 'Time Synchronization'; Guid = '2497f4de-e9fa-4204-80e4-4b75c46419c0'; Enabled = $false })
+    $r = Invoke-Import (Get-BaseParams)
+    $en = @($r.Calls | Where-Object { $_.StartsWith('Enable-VMIntegrationService ') })
+    Expect 'lowercase GUIDs, decoys with the GUID as a prefix: enables the real two services' $r (
+        $r.ExitCode -eq 0 -and $en.Count -eq 2 -and
+        $en[0] -ceq "Enable-VMIntegrationService -VMIntegrationService <VMIntegrationService 'Guest Service Interface'>" -and
+        $en[1] -ceq "Enable-VMIntegrationService -VMIntegrationService <VMIntegrationService 'Time Synchronization'>")
+
     $null = New-Scenario 'vm-integration-missing'
     $global:HV.IntegrationServices = @(@{ Name = 'Heartbeat'; Guid = '84EAAE65-2F2E-45F5-9BB5-0E857DC8EB47'; Enabled = $true })
     $r = Invoke-Import (Get-BaseParams)
@@ -1778,6 +1793,14 @@ function TestVM_NoStartSkipsStart {
         (Test-Contains $r "Start-VM -Name 'ProjectAchilles'") -and (Test-Contains $r 'vmconnect localhost ProjectAchilles'))
 }
 
+function TestVM_NoStartHintUsesExactNameForWildcards {
+    $null = New-Scenario 'vm-no-start-wildcard'
+    $p = Get-BaseParams; $p.NoStart = $true; $p.Name = 'PA[1]'
+    $r = Invoke-Import $p
+    Expect '-NoStart with a wildcard name: the start hint selects by exact name, never Start-VM -Name PA[1]' $r (
+        $r.ExitCode -eq 0 -and (Test-Contains $r "Get-VM | Where-Object Name -eq 'PA[1]' | Start-VM") -and -not (Test-Contains $r "Start-VM -Name 'PA[1]'"))
+}
+
 function TestVM_StartsAndPrintsIp {
     $null = New-Scenario 'vm-start-ip'
     # Nothing, then IPv6 only, then a link-local IPv4, then the real address.
@@ -1792,6 +1815,10 @@ function TestVM_StartsAndPrintsIp {
     Expect 'waited 5 s between polls (mocked sleeps)' $r ((Get-SleepSeconds $r) -eq 15)
     Expect 'prints the console command: vmconnect localhost ProjectAchilles' $r (Test-Contains $r 'vmconnect localhost ProjectAchilles')
     Expect 'says what first boot asks: keyboard layout, admin password, network' $r (Test-Contains $r 'keyboard layout, admin password, network')
+    $firstHint = Get-OutputIndex $r 'vmconnect localhost ProjectAchilles'
+    Expect 'the console command is printed before the IP wait, and again in the final report' $r (
+        $firstHint -ge 0 -and $firstHint -lt (Get-OutputIndex $r 'Waiting up to') -and
+        $r.Output.IndexOf('vmconnect localhost ProjectAchilles', $firstHint + 1, [StringComparison]::OrdinalIgnoreCase) -gt (Get-OutputIndex $r 'The VM is running. Its IPv4'))
     Expect 'Start-VM before the first address poll' $r (
         [array]::IndexOf($r.Calls, "Start-VM -VM $VmRef") -ge 0 -and
         [array]::IndexOf($r.Calls, "Start-VM -VM $VmRef") -lt [array]::IndexOf($r.Calls, "Get-VMNetworkAdapter -VM $VmRef"))
@@ -1815,6 +1842,13 @@ function TestVM_IpTimeoutIsNotFailure {
     $global:HV.IpTimeoutS = 'soon'
     $r = Invoke-Import (Get-BaseParams)
     Expect 'an unusable ACHILLES_IMPORT_IP_TIMEOUT_S falls back to 300 s' $r ($r.ExitCode -eq 0 -and (Get-SleepSeconds $r) -eq 300)
+
+    $null = New-Scenario 'vm-ip-timeout-cap'
+    $global:HV.IpSequence = New-Object System.Collections.ArrayList
+    $global:HV.IpTimeoutS = '999999'
+    $r = Invoke-Import (Get-BaseParams)
+    Expect 'ACHILLES_IMPORT_IP_TIMEOUT_S above 3600 is capped at 3600 s, with a note' $r (
+        $r.ExitCode -eq 0 -and (Get-SleepSeconds $r) -eq 3600 -and (Test-Contains $r 'capped at 3600'))
 
     $null = New-Scenario 'vm-ip-probe-fails'
     $global:HV.FailAt = 'Get-VMNetworkAdapter'
