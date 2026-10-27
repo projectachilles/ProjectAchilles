@@ -92,7 +92,9 @@ func TestRootfsMatchesConstants(t *testing.T) {
 			t.Errorf("firstboot unit [Unit] lacks %s", want)
 		}
 	}
-	for _, want := range []string{"Type=idle", "TTYPath=/dev/tty1"} {
+	// TTYVTDisallocate clears tty1 first, so the form doesn't start under
+	// the boot log (getty@.service does the same).
+	for _, want := range []string{"Type=idle", "TTYPath=/dev/tty1", "TTYVTDisallocate=yes"} {
 		if !hasLine(section(fb, "Service"), want) {
 			t.Errorf("firstboot unit [Service] lacks %s", want)
 		}
