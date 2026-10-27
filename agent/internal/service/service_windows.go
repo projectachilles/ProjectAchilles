@@ -19,6 +19,7 @@ import (
 	"github.com/f0rt1ka/achilles-agent/internal/config"
 	"github.com/f0rt1ka/achilles-agent/internal/poller"
 	"github.com/f0rt1ka/achilles-agent/internal/store"
+	"github.com/f0rt1ka/achilles-agent/internal/winacl"
 )
 
 const (
@@ -209,12 +210,8 @@ func platformInstall(configPath string) error {
 	// Harden the binary — restrict to SYSTEM and Administrators only.
 	// The admin may have placed it with inherited permissions from the
 	// download directory, allowing any local user to read/execute it.
-	aclCmd := exec.Command("icacls", execPath,
-		"/inheritance:r",
-		"/grant:r", "NT AUTHORITY\\SYSTEM:(RX)",
-		"/grant:r", "BUILTIN\\Administrators:(F)",
-	)
-	if out, err := aclCmd.CombinedOutput(); err != nil {
+	aclArgv := winacl.RestrictArgs(execPath, "RX", "F")
+	if out, err := exec.Command(aclArgv[0], aclArgv[1:]...).CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: icacls on binary failed: %v: %s\n", err, out)
 	}
 
