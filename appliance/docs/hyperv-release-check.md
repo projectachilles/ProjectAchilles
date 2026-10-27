@@ -79,7 +79,18 @@ ssh <user>@<host> "powershell -NoProfile -EncodedCommand $(iconv -f UTF-8 -t UTF
 One-liners can be passed as `powershell -NoProfile -Command "..."`.
 The SSH account must be an administrator and the session elevated (the OpenSSH
 server gives administrators an elevated token). The host must be awake and
-logged in for SSH to answer.
+logged in for SSH to answer: set its sleep to **Never** on AC power before
+starting, or it sleeps mid-run and freezes the VMs. Windows drops ping by
+default, so test the host with SSH, not ping.
+
+- Take a script's exit code from `ssh`'s own exit status, or `$LASTEXITCODE`
+  inside PowerShell. Not `& echo %ERRORLEVEL%` in the remote `cmd`: `cmd`
+  expands it when it reads the line, before the script runs.
+- `vmconnect` needs the host's desktop session (the user at the host, or RDP):
+  run from SSH it opens nowhere. For the controller to see the console, save
+  the VM's screen with WMI
+  (`Msvm_VirtualSystemManagementService.GetVirtualSystemThumbnailImage`,
+  RGB565 pixels) and convert it locally.
 
 ### Lab host (this runbook's first run; not a requirement for other hosts)
 
@@ -93,6 +104,9 @@ logged in for SSH to answer.
   not cut the SSH session, so H3 can run over SSH with `-NetAdapterName` and
   `-ConfirmNetworkInterruption`. On a host where the session arrives over the
   adapter being bridged, do H3 from the console or a local session.
+- After H3 the host's Ethernet address moves to `vEthernet (ProjectAchilles
+  External)`, and the Wi-Fi address may stop answering. SSH to `.45` then,
+  keeping the host key: `ssh -o HostKeyAlias=192.168.4.44 mesa@192.168.4.45`.
 
 ## Steps
 
@@ -102,7 +116,7 @@ logged in for SSH to answer.
 $os = Get-CimInstance Win32_OperatingSystem
 "$($os.Caption) build $($os.BuildNumber) $($os.OSArchitecture)"
 $PSVersionTable.PSVersion.ToString()
-(New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole('Administrator')
+(New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 (Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All).State
 (Get-Service ClusSvc -ErrorAction SilentlyContinue).Status
 $vh = (Get-VMHost).VirtualHardDiskPath; $vh
@@ -214,18 +228,23 @@ console text.
 The user opens the console (`vmconnect localhost 'ProjectAchilles'`, or Hyper-V
 Manager -> Connect) and walks the real FormUI (CI only exercises the test UI):
 
-1. **Keyboard**: pick **Latin American**. Type a few symbols in the password
-   step to confirm the layout (`@`, `-`, `_`, `/`).
-2. **Password**: set one (a throwaway for the lab). The user hands it to the
-   controller in chat now (see "Ownership of credentials"); the controller
-   exports it as `SSHPASS`.
+1. **Keyboard**: pick **Latin American**. Check the layout in the network
+   step's **Hostname** field, which shows what you type: type `@ - _ /`, look,
+   then delete them (the password fields show only `*`).
+2. **Password**: set one (a throwaway for the lab), **at least 12 characters
+   in the first field**: the length error only shows on "Repeat", and there is
+   no way back to the first field on this console (Shift+Tab does nothing
+   there). If it happens, press Ctrl+C: first boot restarts at the keyboard
+   step. The user hands the password to the controller in chat now (see
+   "Ownership of credentials"); the controller exports it as `SSHPASS`.
 3. **Network**, wrong static IP first: choose static and enter an address that
    does not exist on the LAN (for example a different subnet). Expect the
    60 s confirm-or-revert screen. Do **not** confirm: wait it out. Expected:
    the settings revert and the wizard offers the choice again. Then choose
    **DHCP**. Expected: an address within about 5 s (slow DHCP servers show a
    "no address" notice and let you choose DHCP again; record if seen).
-4. **Identity** (hostname/admin name): accept or set. **SSH on.**
+4. **Hostname**: set it in the network form (`achilles` for VM1, `achilles2`
+   for VM2). SSH is on after first boot; there is no step for it.
 5. **Handoff screen**: shows `ssh achilles@<ip>` and the SHA256 host key
    fingerprint. Write both down (photo or typed) and give the controller the
    IP and the `SHA256:...` string: H5 compares against it.
@@ -316,13 +335,24 @@ it holds anything sensitive (it should not). Then:
 
 ```bash
 vmsudo "$VM_IP" '/opt/projectachilles/achilles-installer status'
-vmssh "$VM_IP" 'curl -sk https://<vm-ip>/api/health'
+vmssh "$VM_IP" "curl -sk --resolve achilles.lab.test:443:$VM_IP https://achilles.lab.test/api/health"
 vmssh "$VM_IP" 'rm -f /home/achilles/install.env'      # holds the Clerk keys
 ```
 
-Expected: all services healthy, `status` clean, health `ok`. The UI opens at
-`https://<vm-ip>/` from a LAN browser after trusting the exported CA, and the
-Clerk sign-in works (the user checks this).
+Expected: all services healthy, `status` clean, health `ok`. Right after the
+install Caddy may still show `!! health starting` for about a minute; run
+`status` again. The server certificate names only `ACHILLES_DOMAIN`, so the
+UI does **not** open at `https://<vm-ip>/` (TLS internal error): the browser's
+machine needs the name (a hosts line `<vm-ip>  achilles.lab.test`, or a DNS
+record) and, to avoid the "Not secure" warning, the root CA trusted
+(`http://achilles.lab.test/ca/root.cer`, SHA-256 as `status` prints it). Then
+`https://achilles.lab.test` opens and the Clerk sign-in works as the admin
+(the user checks this).
+
+If the host slept since the VM started, the VM's clock lags and every Clerk
+sign-in fails ("Session expired or authentication failed"): compare
+`vmssh "$VM_IP" 'date -u'` with the controller and, if it lags, run
+`vmsudo "$VM_IP" 'systemctl restart systemd-timesyncd'`.
 
 ### C2 - Optional: run the wizard interactively (console)
 
@@ -334,12 +364,29 @@ as H6. Optional; not required for a pass.
 
 ### H7 - Enroll an agent from another LAN machine and run one test (host / user)
 
-From the UI create an enrollment token, install the agent on a second LAN
-machine with the appliance's CA (`ca_cert`) per the installer output, then
-dispatch one test to it.
+A fresh install has no agent binary (`/api/agent/download` answers 404): the
+user first builds one in **Settings -> Agent** (Windows amd64). Then the user
+creates an enrollment token in **Agents -> Enroll agent**. The commands that
+dialog shows don't trust the appliance's CA: use the bootstrap script the
+installer rendered instead. Copy
+`/opt/projectachilles/deploy/onprem/bootstrap-windows.ps1` from the VM to the
+endpoint, give the endpoint the name (hosts line or DNS, as in H6) and, in an
+**elevated** PowerShell on the endpoint:
 
-Expected: the agent appears online with a heartbeat; the test task runs and
-its result shows in Analytics/Executions. Record the agent OS and the test.
+```powershell
+powershell -ExecutionPolicy Bypass -File .\bootstrap-windows.ps1 -Token <enrollment-token>
+```
+
+It pins and trusts the root CA, installs the agent in `C:\F0` and starts the
+`AchillesAgent` service. Then the user dispatches one read-only test (for
+example the Cyber-Hygiene Bundle, Windows Defender Edition) from **Tests**.
+
+Expected: the agent appears online with a heartbeat; the task completes (its
+log is `C:\F0\achilles-agent.log`); the result shows in **Analytics -> All
+Executions**, a bundle as one group with per-control rows. Record the agent
+OS, the test and its exit code. Executions must not be empty while the
+backend logs `Fielddata is disabled on [...]`: that is the fresh-index
+mapping bug fixed in #605.
 
 ### H4 - Second import reusing the switch (host)
 
@@ -414,11 +461,19 @@ If VM2 is on a different subnet than VM1, also edit `LAN_SUBNETS` the same way
 
 (Equivalent to choosing Reconfigure in the TUI; the user can instead do that on
 the console as C2.) Expected: the stack starts; the data (agents, settings) and
-the same CA are present on VM2 (`status` shows the CA expiry equal to VM1's);
-the UI at VM2's address works after trusting the (same) CA. This is the
+the same CA are present on VM2 (`status` shows the same root SHA-256 as VM1's);
+the UI works at the same name once it points at VM2's address. This is the
 new-IP restore guard end to end (QEMU gave both CI VMs the same address, so only
-this step proves it). Delete the backup copies (`rm`) on the VMs and the
-controller when done.
+this step proves it).
+
+Then move H7's agent: point the endpoint's name at VM2's address. The agent
+keeps its open connection to VM1, so it moves only when that connection
+drops: shut VM1 down (`Stop-VM -Name 'ProjectAchilles'`, as when retiring an
+old server; H11 needs it to exist, not to run). Expected: within a minute,
+VM2's backend logs the agent's heartbeats (200) with no re-enrollment.
+
+Delete the backup copies (`shred -u`) on the VMs and the controller when done:
+they hold the CA private keys.
 
 ### H9 - Restore a legacy-project backup onto a fresh import (vm, controller)
 
@@ -543,18 +598,19 @@ One row per step per run. Result is Pass, Fail, N/A or Blocked.
 
 | Date | Host build | Image version | Step | Pass/Fail | Notes |
 |------|------------|---------------|------|-----------|-------|
-|  |  |  | H1 |  |  |
-|  |  |  | H2 |  |  |
-|  |  |  | H3 / H3b |  |  |
-|  |  |  | C1 (VM1) |  |  |
-|  |  |  | H5 |  |  |
-|  |  |  | H6 |  |  |
-|  |  |  | C2 (optional) |  |  |
-|  |  |  | H7 |  |  |
-|  |  |  | H4 |  |  |
-|  |  |  | C1 (VM2) |  |  |
-|  |  |  | H8 |  |  |
-|  |  |  | C1 (VM3) |  |  |
-|  |  |  | H9 |  |  |
-|  |  |  | H10 |  |  |
-|  |  |  | H11 |  |  |
+| 2026-10-26 | Win 11 Ent es-DO 10.0.26300 | v2.6.1-50-g363c83f0 (#602) | H1 | Pass | Elevated check failed with `IsInRole('Administrator')` on Spanish Windows (fixed above: enum form). |
+| 2026-10-26 | Win 11 Ent es-DO 10.0.26300 | v2.6.1-50-g363c83f0 (#602) | H2 | Pass | Zip + SUMS verified on controller and host. |
+| 2026-10-26 | Win 11 Ent es-DO 10.0.26300 | v2.6.1-50-g363c83f0 (#602) | H3 / H3b | Fail | Import Pass; first-boot form drawn to the journal, tty1 blank (huh draws on stderr). Fixed in #604. |
+| 2026-10-27 | Win 11 Ent es-DO 10.0.26300 | v2.6.1-73-gf8953030 (#604) | H3 / H3b | Pass | Redo with the #604 image; form on tty1 (under the boot log: finding). |
+| 2026-10-27 | Win 11 Ent es-DO 10.0.26300 | v2.6.1-73-gf8953030 (#604) | C1 (VM1) | Pass | es-latam; wrong static IP reverted after 60 s; DHCP; two reboots clean. Findings: password length shown only on Repeat, no way back; boot log and stale frames on tty1; Ubuntu MOTD offers do-release-upgrade. |
+| 2026-10-27 | Win 11 Ent es-DO 10.0.26300 | v2.6.1-73-gf8953030 (#604) | H5 | Pass | Fingerprint = handoff; unchanged after both reboots. |
+| 2026-10-27 | Win 11 Ent es-DO 10.0.26300 | v2.6.1-73-gf8953030 (#604) | H6 | Pass | 34 s, pre-built images, status clean once Caddy is healthy; Clerk sign-in as admin via hosts line. VM clock lagged ~5 min after the host slept, Clerk failed until timesyncd restart (finding). |
+| 2026-10-27 | Win 11 Ent es-DO 10.0.26300 | v2.6.1-73-gf8953030 (#604) | C2 (optional) | N/A |  |
+| 2026-10-27 | Win 11 Ent es-DO 10.0.26300 | v2.6.1-73-gf8953030 (#604) | H7 | Pass | Agent 0.7.0 on the Spanish Win 11 host via bootstrap script; Cyber-Hygiene bundle exit 101, 48 controls. Analytics empty until the index fix (#605); agent icacls warnings on Spanish Windows (agent fix). |
+| 2026-10-27 | Win 11 Ent es-DO 10.0.26300 | v2.6.1-73-gf8953030 (#604) | H4 | Pass | Switch reused; VM2 host key and machine-id differ from VM1. |
+| 2026-10-27 | Win 11 Ent es-DO 10.0.26300 | v2.6.1-73-gf8953030 (#604) | C1 (VM2) | Pass | DHCP, hostname achilles2. |
+| 2026-10-27 | Win 11 Ent es-DO 10.0.26300 | v2.6.1-73-gf8953030 (#604) | H8 | Pass | New-IP guard stopped the restore; Reconfigure kept data + same CA; agent moved to VM2 after VM1 shut down. |
+| 2026-10-27 | Win 11 Ent es-DO 10.0.26300 | v2.6.1-73-gf8953030 (#604) | C1 (VM3) | N/A | No H9. |
+| 2026-10-27 | Win 11 Ent es-DO 10.0.26300 | v2.6.1-73-gf8953030 (#604) | H9 | N/A | No pre-appliance backup available; retag path engine-tested only. |
+| 2026-10-27 | Win 11 Ent es-DO 10.0.26300 | v2.6.1-73-gf8953030 (#604) | H10 | N/A | No tag newer than the image. |
+| 2026-10-27 | Win 11 Ent es-DO 10.0.26300 | v2.6.1-73-gf8953030 (#604) | H11 | Pass | Refused, exit 1, nothing changed. |
