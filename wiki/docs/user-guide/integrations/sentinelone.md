@@ -83,7 +83,7 @@ status changes and threat mitigation (e.g. IR Team / SOC) for Response mode.
 
 ## When the EDR kills the agent
 
-A SentinelOne policy can terminate `achilles-agent.exe` (or the test binary's parent chain) in the middle of a test. The agent never reports, so the task fails with `Agent went offline during execution` or `Task exceeded execution timeout`. If SentinelOne raised an alert on the same host in the run window, with techniques that overlap the test's, ProjectAchilles records the run as **Protected** with stages unknown. See [Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#agent-terminated-by-the-edr).
+A SentinelOne policy can terminate `achilles-agent.exe` (or the test binary's parent chain) in the middle of a test. The agent never reports, so the task fails with `Agent went offline during execution` or `Task exceeded execution timeout`. If SentinelOne raised an alert on the same host in the run window, with techniques that overlap the test's, ProjectAchilles records the run as **Protected** with stages unknown. See [Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#6-agent-terminated-by-the-edr).
 
 These alerts stay open in SentinelOne: Achilles links them to the run but never auto-resolves them or touches them with automatic mitigation. Triage them like any other alert.
 

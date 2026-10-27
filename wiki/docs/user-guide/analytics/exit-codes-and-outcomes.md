@@ -132,9 +132,9 @@ Outcomes: `PREVENTED / DETECTED / MISSED / EXPOSED / NOT_RUN / ERROR`.
 | Stage dies, no alert anywhere | 999, no alert | none | **Inconclusive** / ERROR — a kill is never assumed |
 | Defender ASR policy blocks launch | 260 | policy, not detection | **Inconclusive** / ERROR — never counted |
 | Defender quarantines at extraction | 105 | — | **Protected** / PREVENTED |
-| EDR kills the agent mid-test | `-1` (watchdog) | Same-host alert in the run window, EDR-killed, techniques overlap | **Protected**, stages unknown (see [above](#agent-terminated-by-the-edr)); no alert means **Error** |
+| EDR kills the agent mid-test | `-1` (watchdog) | Same-host alert in the run window, EDR-killed, techniques overlap | **Protected**, stages unknown, not in the SB export (see [section 6](#6-agent-terminated-by-the-edr)). Without an alert it stays **Error** in Analytics and campaigns (the Finished email shows **Not run**) |
 
-## Agent terminated by the EDR
+## 6. Agent terminated by the EDR
 
 An EDR can kill the agent process itself in the middle of a test. The agent then never reports a result, and the server's watchdog fails the task as `Agent went offline during execution` or `Task exceeded execution timeout` (exit `-1`, no Elasticsearch document). When an EDR alert proves the kill, ProjectAchilles turns that failure into a **Protected** result. It does this after every Microsoft Defender, CrowdStrike and SentinelOne poll, and only against EDRs that are configured.
 
@@ -145,7 +145,7 @@ A watchdog failure becomes a result only when **all** of these hold:
 - The EDR itself killed, quarantined or blocked something. Achilles' own SentinelOne automatic mitigation does not count.
 - The alert's ATT&CK techniques overlap the test's techniques (compared at parent level, so `T1486` matches `T1486.001`).
 
-The name of the flagged file does not matter. For example, an alert whose process tree is rooted at the agent's own binary or at a remote-management agent such as `rphcp.exe` still matches, because the technique and time window tie it to the run. Alerts are searched back 30 days.
+The name of the flagged file does not matter. For example, an alert whose process tree is rooted at the agent's own binary or at a remote-management agent such as `rphcp.exe` still matches, because the technique and time window tie it to the run. Watchdog failures from the last 30 days are checked; each failure's alerts are searched only within that run's own pick-up-to-failure window.
 
 Not every `-1` qualifies:
 

@@ -123,7 +123,7 @@ integration degrades gracefully when it is not licensed:
 
 ## When the EDR kills the agent
 
-A CrowdStrike Falcon policy can terminate `achilles-agent.exe` (or the test binary's parent chain) in the middle of a test. The agent never reports, so the task fails with `Agent went offline during execution` or `Task exceeded execution timeout`. If CrowdStrike Falcon raised an alert on the same host in the run window, with techniques that overlap the test's, ProjectAchilles records the run as **Protected** with stages unknown. See [Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#agent-terminated-by-the-edr).
+A CrowdStrike Falcon policy can terminate `achilles-agent.exe` (or the test binary's parent chain) in the middle of a test. The agent never reports, so the task fails with `Agent went offline during execution` or `Task exceeded execution timeout`. If CrowdStrike Falcon raised an alert on the same host in the run window, with techniques that overlap the test's, ProjectAchilles records the run as **Protected** with stages unknown. See [Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#6-agent-terminated-by-the-edr).
 
 These alerts stay open in CrowdStrike Falcon: Achilles links them to the run but never auto-resolves them. Triage them like any other alert.
 
