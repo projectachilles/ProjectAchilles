@@ -132,6 +132,39 @@ Outcomes: `PREVENTED / DETECTED / MISSED / EXPOSED / NOT_RUN / ERROR`.
 | Stage dies, no alert anywhere | 999, no alert | none | **Inconclusive** / ERROR — a kill is never assumed |
 | Defender ASR policy blocks launch | 260 | policy, not detection | **Inconclusive** / ERROR — never counted |
 | Defender quarantines at extraction | 105 | — | **Protected** / PREVENTED |
+| EDR kills the agent mid-test | `-1` (watchdog) | Same-host alert in the run window, EDR-killed, techniques overlap | **Protected**, stages unknown, not in the SB export (see [section 6](#6-agent-terminated-by-the-edr)). Without an alert there is no Elasticsearch document, so the run is absent from Analytics. The task shows **failed** on the Tasks page, campaigns show **Error** and the Finished email shows **Not run** |
+
+## 6. Agent terminated by the EDR
+
+An EDR can kill the agent process itself in the middle of a test. The agent then never reports a result, and the server's watchdog fails the task as `Agent went offline during execution` or `Task exceeded execution timeout` (exit `-1`, no Elasticsearch document). When an EDR alert proves the kill, ProjectAchilles turns that failure into a **Protected** result. It does this after every Microsoft Defender, CrowdStrike and SentinelOne poll, and only against EDRs that are configured.
+
+A watchdog failure becomes a result only when **all** of these hold:
+
+- The alert is on the same host (exact short hostname).
+- It was created between the moment the agent picked up the task and the moment the watchdog failed it. If the agent came back (service recovery, a quick reboot) and picked up its next test first, the window ends at that pickup plus 60 seconds, so the next test's alerts never count for the dead one.
+- If the alert is already linked to a test (`f0rtika.achilles_test_uuid`), it is this test.
+- The EDR itself killed, quarantined or blocked something. Achilles' own SentinelOne automatic mitigation does not count.
+- The alert's ATT&CK techniques overlap the test's techniques (compared at parent level, so `T1486` matches `T1486.001`).
+
+The name of the flagged file does not matter. For example, an alert whose process tree is rooted at the agent's own binary or at a remote-management agent such as `rphcp.exe` still matches, because the technique and time window tie it to the run. The first check after the server starts covers watchdog failures from the last 30 days; later checks cover the last 2 days, since vendor alerts sync within minutes. Each failure's alerts are searched only within that run's own window.
+
+Not every `-1` qualifies:
+
+- A watchdog failure with no matching alert stays an **error** and stays out of Elasticsearch.
+- Cyber-hygiene tests are never converted. They are scored per control, and a whole-test result cannot represent them.
+
+### How it scores
+
+- It is one whole-test result with outcome **Protected** and the stages **unknown**: the agent died before saying which stage was running.
+- It counts in the Defense Score. For a multi-stage test in **any-stage** mode it joins that test's latest-basis pair on the host, and the newest run wins whether it is a kill or a real run. In **all-stages** mode pairs are per stage, so a multi-stage kill run adds no pair; a single-stage test's kill run is its own pair.
+- It is excluded from every technique view: technique coverage, the ATT&CK matrix, the execution report's technique and tactic counts, and the vendors' detection-rate and technique-overlap numbers. Stages are unknown, so no technique can be credited.
+- The chain-depth card shows these runs as **Stopped by EDR, stage unknown: N**, instead of placing them in a stage bucket.
+- Campaign evidence and the pre-execution Finished email show **Protected**. See [Pre-execution notices](../integrations/pre-execution-notices).
+- The SB-PC-2026-001 export stays per-control, so these runs are not in it.
+
+:::note[Alerts stay open]
+Alerts matched this way are linked to the run but never auto-resolved, and they never receive the `achilles_correlated` flag, so SentinelOne automatic mitigation never touches them. Your SOC still sees and triages them.
+:::
 
 ## Related
 

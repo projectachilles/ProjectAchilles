@@ -20,16 +20,16 @@ const agg = (c: Partial<OutcomeCounts>) => ({ buckets: Object.fromEntries(STAGE_
 function scopeResponse(over: { outcomes?: Partial<OutcomeCounts>; runs?: number; otherHostDocs?: number } = {}) {
   return { aggregations: {
     outcomes: agg(over.outcomes ?? { protected: 1, unprotected: 1 }),
-    runs: { value: over.runs ?? 1 }, endpoints: { value: 1 }, tests: { value: 1 }, tactics: { value: 2 },
+    runs: { value: over.runs ?? 1 }, endpoints: { value: 1 }, tests: { value: 1 }, tactics: { distinct: { value: 2 } },
     first: { value: T_RUN }, last: { value: T_RUN }, high_impact: { doc_count: 1 },
     hosts: {
       sum_other_doc_count: over.otherHostDocs ?? 0,
       buckets: [{ key: 'WS-FIN-014', runs: { value: 1 }, outcomes: agg({ protected: 1, unprotected: 1 }) }],
     },
-    techniques: { buckets: [
+    techniques: { by_technique: { buckets: [
       { key: 'T1567.002', tactics: { buckets: [{ key: 'exfiltration' }] }, tests: { buckets: [{ key: BUNDLE }] }, outcomes: agg({ unprotected: 4 }) },
       { key: 'T1486', tactics: { buckets: [{ key: 'impact' }] }, tests: { buckets: [{ key: BUNDLE }] }, outcomes: agg({ protected: 4 }) },
-    ] },
+    ] } },
     actors: { buckets: [{ key: 'LockBit 3.0 (S1202)', runs: { value: 1 }, tests: { buckets: [{ key: BUNDLE }] }, outcomes: agg({ protected: 1, unprotected: 1 }) }] },
   } };
 }
@@ -42,6 +42,7 @@ const stageBucket = (controlId: string, validator: string, name: string, tactic:
 function testsResponse() {
   return { aggregations: { tests: { buckets: [{
     key: BUNDLE, runs: { value: 1 }, endpoints: { value: 1 }, last_run: { value: T_RUN }, outcomes: agg({ protected: 1, unprotected: 1 }),
+    controls: { doc_count: 2 },
     meta: { hits: { hits: [{ _source: { f0rtika: {
       is_bundle_control: true, bundle_name: 'LockBit 3.0 Double Extortion Kill Chain', test_name: 'Impact',
       category: 'intel-driven', severity: 'critical', threat_actor: 'LockBit 3.0 (S1202)',

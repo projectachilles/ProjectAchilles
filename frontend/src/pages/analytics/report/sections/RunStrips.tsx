@@ -1,7 +1,7 @@
 import type { ExecutionReport, ReportRun, ReportTest } from '@/services/api/reports';
 import { conclusive, defended } from '../lib/outcomes';
 import { fmtDate, fmtDuration, fmtLatency, fmtTime, timeOf } from '../lib/format';
-import { alertStageText, countStages, testOf, vendorName } from '../lib/runs';
+import { agentKillText, alertStageText, countStages, testOf, vendorName } from '../lib/runs';
 import { RunStrip } from '../diagrams/RunStrip';
 import { OutcomeLegend } from '../diagrams/StageGlyph';
 import { Sheet, type SheetHead } from './Sheet';
@@ -19,7 +19,7 @@ function byTimeUndatedLast(a: RunEvent, b: RunEvent): number {
 
 /** With EDR configured: a run with no alert is "silent" only if its alerts were searched; otherwise it is unchecked. */
 function AlertFlag({ run }: { run: ReportRun }) {
-  if (run.alerts.length > 0) return null;
+  if (run.alerts.length > 0 || run.agentTerminated) return null;
   return run.alertsChecked
     ? <span className="rp-silent">SILENT RUN</span>
     : <span className="rp-unchecked">ALERTS NOT CHECKED</span>;
@@ -49,7 +49,9 @@ function RunBlock({ run, tests, tz, edrVendors }: { run: ReportRun; tests: Repor
     ...alertEvents,
     {
       t: end,
-      text: `Completed${start !== null ? ` after ${fmtDuration(end - start)}` : ''} · ${defended(c)} of ${conclusive(c)} stages defended`,
+      text: `Completed${start !== null ? ` after ${fmtDuration(end - start)}` : ''} · ${
+        run.agentTerminated ? 'protected, stages unknown' : `${defended(c)} of ${conclusive(c)} stages defended`
+      }`,
     },
   ].sort(byTimeUndatedLast);
 
@@ -60,6 +62,7 @@ function RunBlock({ run, tests, tz, edrVendors }: { run: ReportRun; tests: Repor
         <small>{fmtDate(run.completedAt, tz)}{edr && <AlertFlag run={run} />}</small>
       </h3>
       <RunStrip run={run} edrVendors={edrVendors} test={testOf(tests, run)} />
+      {run.agentTerminated && <p className="rp-caption">{agentKillText(run)}</p>}
       <ol className="rp-events">
         {events.map((e, i) => (
           <li key={i}><span className="rp-mono rp-muted">{e.t === null ? '—' : fmtTime(new Date(e.t).toISOString(), tz, true)}</span><span>{e.text}</span></li>

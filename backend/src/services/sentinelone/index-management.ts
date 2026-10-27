@@ -72,6 +72,11 @@ export const SENTINELONE_INDEX_MAPPING = {
           achilles_correlated: { type: 'boolean' as const },
           achilles_test_uuid: { type: 'keyword' as const },
           achilles_matched_at: { type: 'date' as const },
+          // EDR-killed agent runs (edr/agent-kill-reconcile.service.ts). A
+          // separate link, never achilles_correlated, so auto-resolve and
+          // automatic mitigation skip them.
+          achilles_agent_kill_task_id: { type: 'keyword' as const },
+          achilles_agent_kill_matched_at: { type: 'date' as const },
           // Auto-resolve receipts (incident status → resolved + note).
           auto_resolved: { type: 'boolean' as const },
           auto_resolved_at: { type: 'date' as const },

@@ -1,5 +1,7 @@
 // Type definitions for Microsoft Defender integration via Microsoft Graph API.
 
+import type { AgentKillPassResult } from './agent-kill.js';
+
 // ---------------------------------------------------------------------------
 // Microsoft Graph API response shapes (only fields we consume)
 // ---------------------------------------------------------------------------
@@ -299,6 +301,8 @@ export interface DefenderSyncResult {
   controls: SyncResult;
   alerts: SyncResult;
   enrichment: EnrichmentPassResult;
+  /** EDR-killed agent runs reconciled after enrichment (all vendors' alert indices). */
+  agentKill?: AgentKillPassResult;
   autoResolve: AutoResolvePassResult;
   timestamp: string;
 }

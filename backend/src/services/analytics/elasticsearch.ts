@@ -4,6 +4,7 @@ import { Client } from '@elastic/elasticsearch';
 import { createEsClient } from './client.js';
 import { RiskAcceptanceService } from '../risk-acceptance/risk-acceptance.service.js';
 import { attackSimulationExclusions } from './attack-simulation-filter.js';
+import { NOT_EDR_TERMINATED } from './enrichment-eligibility.js';
 import { AppError } from '../../middleware/error.middleware.js';
 import {
   MAX_FRESHNESS_DAYS,
@@ -153,6 +154,8 @@ interface ChainRun extends PairRun {
   blockedStages: number[] | null;
   /** "Stage N" numbers of the detected-but-unblocked stages; null when any has no such validator. */
   alertedStages: number[] | null;
+  /** The EDR killed the agent mid-run: one whole-test kill doc, stages unknown. */
+  agentTerminated: boolean;
 }
 
 function isChainRun(run: PairRun): run is ChainRun {
@@ -288,6 +291,11 @@ export const TEST_KEY_SCRIPT = {
   `,
   lang: 'painless' as const,
 };
+
+/** Internal option of the latest-basis technique readers; part of the posture cache key. */
+interface TechniqueScopeOption {
+  excludeEdrTerminated?: boolean;
+}
 
 /** Exit code for a test binary blocked before it ran (e.g. an ASR prevalence rule). */
 const BLOCKED_PRE_EXECUTION_CODE = 260;
@@ -633,22 +641,41 @@ export class ElasticsearchService {
     };
   }
 
+  /**
+   * Whole-test doc of a bundle run the EDR killed along with the agent: it
+   * carries f0rtika.bundle_id but no is_bundle_control, and is scored as one
+   * more run of that bundle's pair (the stages are unknown).
+   */
+  private readonly KILL_BUNDLE_DOC = {
+    bool: {
+      filter: [
+        { term: { 'f0rtika.edr_terminated': true } },
+        { exists: { field: 'f0rtika.bundle_id' } },
+      ],
+    },
+  };
+
   /** Filter matching standalone tests + cyber-hygiene bundle controls (scored per-document). */
   private readonly PER_DOC_FILTER = {
     bool: {
       should: [
-        { bool: { must_not: [{ term: { 'f0rtika.is_bundle_control': true } }] } },
+        { bool: { must_not: [{ term: { 'f0rtika.is_bundle_control': true } }, this.KILL_BUNDLE_DOC] } },
         { term: { 'f0rtika.category': 'cyber-hygiene' } },
       ],
       minimum_should_match: 1,
     },
   };
 
-  /** Filter matching non-cyber-hygiene bundle controls (scored per-bundle-group). */
+  /** Filter matching non-cyber-hygiene bundle controls and bundle kill docs (scored per-bundle-group). */
   private readonly PER_BUNDLE_FILTER = {
     bool: {
       must: [
-        { term: { 'f0rtika.is_bundle_control': true } },
+        {
+          bool: {
+            should: [{ term: { 'f0rtika.is_bundle_control': true } }, this.KILL_BUNDLE_DOC],
+            minimum_should_match: 1,
+          },
+        },
         { bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] } },
       ],
     },
@@ -1334,6 +1361,8 @@ export class ElasticsearchService {
         },
         codes: { terms: { field: 'event.ERROR', size: 10 } },
         names: { terms: { field: 'f0rtika.error_name', size: 20 } },
+        // Chain depth: a kill run has no stage to bucket at.
+        edr_terminated: { filter: { term: { 'f0rtika.edr_terminated': true } } },
       },
       (b) => {
         const ts = parseEsTime(b.key?.ts);
@@ -1359,6 +1388,7 @@ export class ElasticsearchService {
           alertedUnblocked: (b.alerted_unblocked?.doc_count ?? 0) > 0,
           blockedStages: stageNumbers(b.strict),
           alertedStages: stageNumbers(b.alerted_unblocked),
+          agentTerminated: (b.edr_terminated?.doc_count ?? 0) > 0,
         };
         all.push(run);
         allBundles.push(bundleId);
@@ -1479,7 +1509,7 @@ export class ElasticsearchService {
    * rawRuns is null when nothing is excluded or the shape skips it.
    */
   async getLatestPosture(
-    params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>,
+    params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams> & TechniqueScopeOption,
     shape: PostureShape,
   ): Promise<PostureSnapshot & { outcome: OutcomeFilters }> {
     return this.latestPostureFor(await this.resolvePostureScope(params), shape);
@@ -1487,12 +1517,18 @@ export class ElasticsearchService {
 
   /** Window, filter-bar clauses and risk-acceptance exclusion of a latest-basis request. */
   private async resolvePostureScope(
-    params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>,
+    params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams> & TechniqueScopeOption,
   ): Promise<PostureScope> {
     const window = this.resolveLatestWindow(params); // 400 before any ES call
     const outcome = this.parseOutcomeFilters(params);
     const isAnyStage = params.scoringMode === 'any-stage';
     const clauses = this.buildFilterBarClauses(params, { excludeOutcome: true });
+    // Technique views: an EDR-killed run has unknown stages, so no technique is credited.
+    if (params.excludeEdrTerminated) clauses.push(NOT_EDR_TERMINATED);
+    // All-stages pairs are per stage doc; a bundle kill doc has no stages, and
+    // as its own `oid|<bundle>|host` pair no later real run would replace it.
+    // Standalone kill docs stay: there the kill doc is the test's only doc.
+    else if (!isAnyStage) clauses.push({ bool: { must_not: [this.KILL_BUNDLE_DOC] } });
     const exclusionFilter: unknown = (await this.getRiskAcceptanceService().buildExclusionFilter(params.org)) ?? null;
     return {
       window,
@@ -1508,6 +1544,8 @@ export class ElasticsearchService {
         org: params.org || null,
         clauses,
         exclusion: exclusionFilter,
+        // Only when set, so the tile's cache key is unchanged; the clause alone would differ too, this keeps it explicit.
+        ...(params.excludeEdrTerminated ? { excludeEdrTerminated: true } : {}),
       },
     };
   }
@@ -1620,7 +1658,7 @@ export class ElasticsearchService {
   }
 
   /** Outcome-filtered latest pair per key, as of window.toMs (exclusions applied). */
-  async getLatestPairs(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<PairRun[]> {
+  async getLatestPairs(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams> & TechniqueScopeOption): Promise<PairRun[]> {
     const { window, runs, outcome } = await this.getLatestPosture(params, 'metadata');
     return applyOutcomeFilters(latestPairsAsOf(runs, window.toMs, window.freshnessMs), outcome);
   }
@@ -1731,6 +1769,7 @@ export class ElasticsearchService {
   async getDefenseScoreByTechnique(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<BreakdownItem[]> {
     const isAnyStage = params.scoringMode === 'any-stage';
     const filters = await this.buildDefenseScoreFilters(params);
+    filters.push(NOT_EDR_TERMINATED);
     const results = await this.runBreakdownQuery(filters, 'by_technique', 'f0rtika.techniques', 50, isAnyStage);
 
     return results
@@ -1999,7 +2038,7 @@ export class ElasticsearchService {
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
 
-    filters.push(...this.buildFilterBarClauses(params));
+    filters.push(...this.buildFilterBarClauses(params), NOT_EDR_TERMINATED);
 
     const response = await this.client.search({
       index: this.settings.indexPattern,
@@ -2115,7 +2154,7 @@ export class ElasticsearchService {
       index: this.settings.indexPattern,
       size: 0,
       query: {
-        bool: { filter: [this.buildTestDataFilter()] }
+        bool: { filter: [this.buildTestDataFilter(), NOT_EDR_TERMINATED] }
       },
       aggs: {
         techniques: {
@@ -2600,6 +2639,10 @@ export class ElasticsearchService {
       sentinelone_stage_detected: getField(source, 'f0rtika.sentinelone_stage_detected') ?? false,
       sentinelone_prevented: getField(source, 'f0rtika.sentinelone_prevented') ?? false,
       sentinelone_prevention_action: getField(source, 'f0rtika.sentinelone_prevention_action'),
+      edr_terminated: getField(source, 'f0rtika.edr_terminated') ?? false,
+      edr_terminated_vendors: getField(source, 'f0rtika.edr_terminated_vendors'),
+      edr_terminated_alert_ids: getField(source, 'f0rtika.edr_terminated_alert_ids'),
+      stages_unknown: getField(source, 'f0rtika.stages_unknown') ?? false,
     };
   }
 
@@ -3033,7 +3076,7 @@ export class ElasticsearchService {
     // Always per-stage: an any-stage bundle pair carries one verdict for all
     // of its techniques, which would mark a technique protected even when its
     // own stage got through. Per-control pairs score each technique honestly.
-    const pairs = await this.getLatestPairs({ ...params, scoringMode: 'all-stages' });
+    const pairs = await this.getLatestPairs({ ...params, scoringMode: 'all-stages', excludeEdrTerminated: true });
     const items: TechniqueDistributionItem[] = [];
     for (const [technique, s] of groupPairs(pairs, p => (p.techniques.length > 0 ? p.techniques : undefined))) {
       items.push({ technique, protected: s.protectedCount, unprotected: s.pairCount - s.protectedCount });
@@ -3132,7 +3175,7 @@ export class ElasticsearchService {
    * getTechniqueDistributionLatest. Every technique is returned (no top-N).
    */
   async getTechniqueOutcomes(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<TechniqueOutcomeItem[]> {
-    const pairs = await this.getLatestPairs({ ...params, scoringMode: 'all-stages' });
+    const pairs = await this.getLatestPairs({ ...params, scoringMode: 'all-stages', excludeEdrTerminated: true });
     const byTechnique = new Map<string, { protected: number; detected: number; unprotected: number; lastTs: number }>();
     for (const p of pairs) {
       for (const technique of new Set(p.techniques)) {
@@ -3183,6 +3226,9 @@ export class ElasticsearchService {
    * Inconclusive pairs are counted only when the outcome filters let
    * inconclusive results through (no result=protected|unprotected, no
    * errorCodes/errorNames: their codes aren't fetched).
+   * A run the EDR cut short by killing the agent (one whole-test kill doc,
+   * exit 126) is a settled chain with unknown stages: it counts in `chains`
+   * and `agentTerminated`, never in a stage bucket or end to end.
    */
   async getChainDepth(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<ChainDepthResponse> {
     const scope = await this.resolvePostureScope({ ...params, scoringMode: 'any-stage' });
@@ -3208,13 +3254,18 @@ export class ElasticsearchService {
     const endToEndNames = new Set<string>();
     const endToEndAlertedNames = new Set<string>();
     const endToEndUndetectedNames = new Set<string>();
+    const agentTerminatedNames = new Set<string>();
     let chains = 0;
     let endToEnd = 0;
     let endToEndAlerted = 0;
+    let agentTerminated = 0;
     for (const p of applyOutcomeFilters(settled, outcome)) {
       if (!isChainRun(p)) continue;
       chains++;
-      if (p.strictProtected) {
+      if (p.agentTerminated) {
+        agentTerminated++;
+        if (p.testName) agentTerminatedNames.add(p.testName);
+      } else if (p.strictProtected) {
         const stop = chainStop(p);
         const bucket = buckets[Math.min(Math.max(stop.stage, 1), 4) - 1];
         bucket.blocked++;
@@ -3249,6 +3300,8 @@ export class ElasticsearchService {
       endToEndBundleNames: sorted(endToEndNames),
       endToEndAlertedBundleNames: sorted(endToEndAlertedNames),
       endToEndUndetectedBundleNames: sorted(endToEndUndetectedNames),
+      agentTerminated,
+      agentTerminatedBundleNames: sorted(agentTerminatedNames),
       inconclusive: showInconclusive ? inconclusiveKeys.size : 0,
       blockedBeforeRun: showInconclusive ? blockedBeforeRun.length : 0,
       blockedBeforeRunBundleNames: showInconclusive ? sorted(new Set(blockedBeforeRun.flatMap(r => (r.bundleName ? [r.bundleName] : [])))) : [],

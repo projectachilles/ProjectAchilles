@@ -3,6 +3,7 @@
 
 import { classifyStage, countsFromFiltersAgg, getSourceField, isHighImpact, STAGE_OUTCOMES } from './stageOutcome.js';
 import { OTHER_LANE } from './reportQueries.js';
+import { EDR_VENDORS } from '../outcomes/vendors.js';
 import { techniqueInfo } from '../../data/attackTechniques.js';
 import { tacticName, tacticRank } from '../../data/attackTactics.js';
 import type {
@@ -67,7 +68,7 @@ export function parseScope(response: Agg): ParsedScope {
   const a = response?.aggregations ?? {};
   const outcomes = countsFromFiltersAgg(a.outcomes);
   const runs = a.runs?.value ?? 0;
-  const techniques: ReportTechnique[] = buckets(a.techniques).map((b) => {
+  const techniques: ReportTechnique[] = buckets(a.techniques?.by_technique).map((b) => {
     const id = String(b.key);
     const info = techniqueInfo(id);
     return {
@@ -87,7 +88,7 @@ export function parseScope(response: Agg): ParsedScope {
     runsApproximate: runs > APPROXIMATE_ABOVE,
     endpoints: a.endpoints?.value ?? 0,
     tests: a.tests?.value ?? 0,
-    tactics: a.tactics?.value ?? 0,
+    tactics: a.tactics?.distinct?.value ?? 0,
     highImpactUnprotected: a.high_impact?.doc_count ?? 0,
     firstExecution: isoOf(a.first),
     lastExecution: isoOf(a.last),
@@ -124,8 +125,10 @@ function sortByStage<T extends { validator: unknown; controlId: string | null }>
 export function parseTests(response: Agg): ReportTest[] {
   const tests: ReportTest[] = buckets(response?.aggregations?.tests).map((b) => {
     const testKey = String(b.key);
-    const meta = firstSource(b.meta);
-    const isBundle = getSourceField(meta, 'f0rtika.is_bundle_control') === true;
+    // A kill doc may be the newest doc; prefer the newest real one (testsRequest).
+    const realMeta = firstSource(b.real_meta?.meta);
+    const meta = Object.keys(realMeta).length > 0 ? realMeta : firstSource(b.meta);
+    const isBundle = (b.controls?.doc_count ?? 0) > 0;
     const outcomes = countsFromFiltersAgg(b.outcomes);
     const name = (isBundle ? str(getSourceField(meta, 'f0rtika.bundle_name')) : null)
       ?? str(getSourceField(meta, 'f0rtika.test_name'))
@@ -242,6 +245,16 @@ export function parseRuns(response: Agg): ReportRun[] {
       ?? str(getSourceField(first, 'f0rtika.test_name'))
       ?? testKey;
 
+    // A kill doc stands alone (one doc, no stage fan-out), so the first member carries it.
+    const killed = getSourceField(first, 'f0rtika.edr_terminated') === true;
+    const agentTerminated: ReportRun['agentTerminated'] = killed
+      ? {
+          vendors: strArray(getSourceField(first, 'f0rtika.edr_terminated_vendors'))
+            .filter((v): v is NonNullable<ReportRun['agentTerminated']>['vendors'][number] => EDR_VENDORS.some((e) => e.key === v)),
+          alertIds: strArray(getSourceField(first, 'f0rtika.edr_terminated_alert_ids')),
+        }
+      : undefined;
+
     return {
       key,
       testKey,
@@ -254,6 +267,7 @@ export function parseRuns(response: Agg): ReportRun[] {
       moreStages: Math.max(0, (b.doc_count ?? hits.length) - hits.length),
       alerts: [],
       alertsChecked: false,
+      ...(agentTerminated && { agentTerminated }),
     };
   });
 }

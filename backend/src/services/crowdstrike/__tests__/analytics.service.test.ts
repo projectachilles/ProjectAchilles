@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NOT_EDR_TERMINATED } from '../../analytics/enrichment-eligibility.js';
 
 // ── Mock setup ──────────────────────────────────────────────────────
 
@@ -587,6 +588,20 @@ describe('CrowdStrikeAnalyticsService', () => {
       expect(result).toEqual([
         { technique: 'T1059', testResults: 10, crowdstrikeAlerts: 3 },
       ]);
+    });
+
+    it('overlap and detection-rate test queries leave EDR-killed docs out', async () => {
+      const empty = { hits: { total: { value: 0 }, hits: [] }, aggregations: { techniques: { buckets: [] } } };
+      mockSearch.mockResolvedValue(empty);
+
+      await service.getTechniqueOverlap();
+      await service.getDetectionRate(30, 60);
+
+      // Calls 0 and 2 are the test-results queries (each is followed by its alert query).
+      for (const i of [0, 2]) {
+        const bool = (mockSearch.mock.calls[i][0].query as Record<string, any>).bool;
+        expect(bool.filter).toContainEqual(NOT_EDR_TERMINATED);
+      }
     });
   });
 

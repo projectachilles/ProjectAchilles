@@ -4,6 +4,8 @@
 **Related:** `docs/defender-asr-exclusion-rationale.md`, `docs/defender-detection-rate.md`, `docs/crowdstrike-detection-rate.md`, PR #484 (exit-code overflow fix)
 **Canonical reference:** `wiki/docs/user-guide/analytics/exit-codes-and-outcomes.md`
 
+> **Related case: the EDR kills the agent itself.** This spec covers a killed *stage* whose result still reaches Elasticsearch. When the EDR kills the agent process, no result is reported at all; that case is reconciled from EDR alerts after the fact and scored Protected with stages unknown. See `wiki/docs/user-guide/analytics/exit-codes-and-outcomes.md` ("Agent terminated by the EDR").
+
 ## Problem
 
 When an EDR kills a test stage **at launch or mid-run**, the resulting test document lands in an

@@ -7,8 +7,9 @@ import type { AnalyticsSettings } from '../../types/analytics.js';
 import { ERROR_CODE_MAP } from '../analytics/elasticsearch.js';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
-import { createResultsIndex } from '../analytics/index-management.service.js';
+import { createResultsIndex, RESULTS_INDEX_MAPPING } from '../analytics/index-management.service.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
+import type { EdrTermination } from '../edr/agent-kill-evidence.js';
 
 function pad2(n: number): string { return n < 10 ? `0${n}` : `${n}`; }
 
@@ -77,6 +78,7 @@ function sanitizeExitCode(exitCode: number): { code: number; raw?: string } {
 // Lazy-initialised ES client and per-index ensure cache
 let esClient: Client | null = null;
 const ensuredIndices = new Set<string>();
+const edrMappedIndices = new Set<string>();
 
 /** Initialise (or re-use) the ES client from the current analytics settings. */
 async function getClient(): Promise<{ client: Client }> {
@@ -106,16 +108,11 @@ async function ensureResultsIndex(name: string): Promise<void> {
   ensuredIndices.add(name);
 }
 
-/**
- * Ingest a completed task result into Elasticsearch.
- *
- * Builds a document that matches the existing ES schema used by the Analytics
- * module so dashboards, filters, and aggregations work without changes.
- */
-export async function ingestResult(task: Task, result: TaskResult): Promise<void> {
+/** Client + concrete write index for a result doc (wildcard guard, dated-index ensure). */
+async function prepareWrite(task: Task, timestamp: string | undefined): Promise<{ client: Client; index: string }> {
   const { client } = await getClient();
   const settings = new SettingsService().getSettings();
-  const index = resolveWriteIndex(settings, { target_index: task.target_index ?? undefined }, result.completed_at);
+  const index = resolveWriteIndex(settings, { target_index: task.target_index ?? undefined }, timestamp);
   if (index.includes('*')) {
     throw new Error(
       `Resolved write index contains a wildcard: "${index}" — configure a concrete writeIndexPrefix/indexPattern for writes`,
@@ -126,20 +123,17 @@ export async function ingestResult(task: Task, result: TaskResult): Promise<void
   // caller's own index whose lifecycle they own, so we don't create it for them.
   const isGeneratedDated = !task.target_index && (settings.writeIndexRollover ?? 'none') !== 'none';
   if (isGeneratedDated) await ensureResultsIndex(index);
+  return { client, index };
+}
 
-  // Bundle results: fan out to one ES document per control
-  if (result.bundle_results?.controls?.length) {
-    await ingestBundleControls(client, index, task, result);
-    return;
-  }
-
-  // Standard single-document path (unchanged)
-  const exitCode = sanitizeExitCode(result.exit_code);
-  const doc = {
+/** Standard whole-test document; shared by `ingestResult` and `ingestEdrTerminatedResult`. */
+function buildStandardDoc(task: Task, eventTime: string | undefined, hostname: string | undefined, rawExitCode: number) {
+  const exitCode = sanitizeExitCode(rawExitCode);
+  return {
     routing: {
-      event_time: result.completed_at,
+      event_time: eventTime,
       oid: task.org_id,
-      hostname: result.hostname,
+      hostname,
     },
     event: {
       ERROR: exitCode.code,
@@ -148,8 +142,8 @@ export async function ingestResult(task: Task, result: TaskResult): Promise<void
     f0rtika: {
       test_uuid: task.payload.test_uuid,
       test_name: task.payload.test_name,
-      is_protected: isProtectedCode(result.exit_code),
-      error_name: getErrorName(result.exit_code),
+      is_protected: isProtectedCode(rawExitCode),
+      error_name: getErrorName(rawExitCode),
       category: task.payload.metadata?.category,
       subcategory: task.payload.metadata?.subcategory,
       severity: task.payload.metadata?.severity,
@@ -162,8 +156,79 @@ export async function ingestResult(task: Task, result: TaskResult): Promise<void
       score: task.payload.metadata?.score,
     },
   };
+}
+
+/**
+ * Ingest a completed task result into Elasticsearch.
+ *
+ * Builds a document that matches the existing ES schema used by the Analytics
+ * module so dashboards, filters, and aggregations work without changes.
+ */
+export async function ingestResult(task: Task, result: TaskResult): Promise<void> {
+  const { client, index } = await prepareWrite(task, result.completed_at);
+
+  // Bundle results: fan out to one ES document per control
+  if (result.bundle_results?.controls?.length) {
+    await ingestBundleControls(client, index, task, result);
+    return;
+  }
+
+  // Standard single-document path (unchanged)
+  const doc = buildStandardDoc(task, result.completed_at, result.hostname, result.exit_code);
 
   await client.index({ index, id: task.id, document: doc });
+}
+
+const EDR_TERMINATED_FIELDS = [
+  'edr_terminated',
+  'edr_terminated_vendors',
+  'edr_terminated_alert_ids',
+  'stages_unknown',
+] as const;
+
+/**
+ * Indices created before these fields existed would dynamically map the
+ * vendor/alert-id arrays as text. Add the canonical definitions once per
+ * process per index; additive and idempotent, so failure is non-fatal.
+ */
+async function ensureEdrTerminatedMapping(client: Client, index: string): Promise<void> {
+  if (edrMappedIndices.has(index)) return;
+  const all = RESULTS_INDEX_MAPPING.mappings.properties.f0rtika.properties;
+  const properties = Object.fromEntries(EDR_TERMINATED_FIELDS.map((k) => [k, all[k]]));
+  try {
+    await client.indices.putMapping({ index, properties: { f0rtika: { properties } } });
+    edrMappedIndices.add(index);
+  } catch (err) {
+    console.warn(`[Results] putMapping failed for ${index}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * Write the whole-test result for a run whose agent was killed by an EDR: the
+ * watchdog failed the task and no result ever arrived, so this is the only ES
+ * document the run gets. Always Protected (exit 126); stage outcomes are
+ * unknown. `_id = task.id`, so a retry overwrites itself. Never dispatches
+ * threshold alerts, and carries no `is_bundle_control` or vendor
+ * `*_detected`/`*_prevented` flags.
+ */
+export async function ingestEdrTerminatedResult(
+  task: Task,
+  hostname: string,
+  t: EdrTermination,
+  bundle: { bundleName: string } | null,
+): Promise<void> {
+  const { client, index } = await prepareWrite(task, t.killed_at);
+  const doc = buildStandardDoc(task, t.killed_at, hostname, 126);
+  const f0rtika = {
+    ...doc.f0rtika,
+    ...(bundle ? { bundle_id: task.payload.test_uuid, bundle_name: bundle.bundleName } : {}),
+    edr_terminated: true,
+    edr_terminated_vendors: t.vendors,
+    edr_terminated_alert_ids: t.alert_ids,
+    stages_unknown: true,
+  };
+  await ensureEdrTerminatedMapping(client, index);
+  await client.index({ index, id: task.id, document: { ...doc, f0rtika } });
 }
 
 /**
@@ -267,4 +332,5 @@ async function ingestBundleControls(
 export function resetClient(): void {
   esClient = null;
   ensuredIndices.clear();
+  edrMappedIndices.clear();
 }

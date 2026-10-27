@@ -2461,8 +2461,12 @@ describe('elasticsearch.ts', () => {
 
         const callArg = mockSearch.mock.calls[0][0];
         const perBundleFilter = callArg.aggs.per_bundle.filter;
+        // A bundle control, or a bundle test's EDR kill doc (edr-terminated-scoring.test.ts)
         expect(perBundleFilter.bool.must).toContainEqual({
-          term: { 'f0rtika.is_bundle_control': true },
+          bool: {
+            should: [{ term: { 'f0rtika.is_bundle_control': true } }, (svc as any).KILL_BUNDLE_DOC],
+            minimum_should_match: 1,
+          },
         });
         expect(perBundleFilter.bool.must).toContainEqual({
           bool: { must_not: [{ term: { 'f0rtika.category': 'cyber-hygiene' } }] },
@@ -2480,9 +2484,9 @@ describe('elasticsearch.ts', () => {
 
         const callArg = mockSearch.mock.calls[0][0];
         const perDocFilter = callArg.aggs.per_doc.filter;
-        // Per-doc covers: NOT a bundle control, OR cyber-hygiene category
+        // Per-doc covers: NOT a bundle control (nor a bundle kill doc), OR cyber-hygiene category
         expect(perDocFilter.bool.should).toContainEqual({
-          bool: { must_not: [{ term: { 'f0rtika.is_bundle_control': true } }] },
+          bool: { must_not: [{ term: { 'f0rtika.is_bundle_control': true } }, (svc as any).KILL_BUNDLE_DOC] },
         });
         expect(perDocFilter.bool.should).toContainEqual({
           term: { 'f0rtika.category': 'cyber-hygiene' },
@@ -3470,7 +3474,7 @@ describe('elasticsearch.ts', () => {
         expect(JSON.stringify(pairs[0].query)).toContain('excluded-test');
       });
 
-      it('the four breakdowns share one metadata snapshot, separate from the score snapshot', async () => {
+      it('the breakdowns share one metadata snapshot, separate from the score snapshot and the technique one', async () => {
         routeRepeat({ u1: { name: 'Test One' }, u2: { name: 'Test Two' } });
         const svc = createService();
         await Promise.all([
@@ -3482,10 +3486,11 @@ describe('elasticsearch.ts', () => {
           svc.getDefenseScoreByCategoryWithSubcategoriesLatest(params),
         ]);
         const pairs = searchesWith('pairs');
-        expect(pairs).toHaveLength(2); // one series snapshot + one metadata snapshot
-        expect(searchesWith('test_meta')).toHaveLength(1);
+        // series snapshot + metadata snapshot + the technique view's own (it leaves EDR-killed runs out)
+        expect(pairs).toHaveLength(3);
+        expect(searchesWith('test_meta')).toHaveLength(2);
         const daySources = pairs.map((r: any) => r.aggs.pairs.composite.sources.some((src: any) => 'day' in src));
-        expect(daySources.sort()).toEqual([false, true]);
+        expect(daySources.sort()).toEqual([false, false, true]);
       });
     });
 
@@ -3602,7 +3607,7 @@ describe('elasticsearch.ts', () => {
           bundleMeta: { b1: { name: 'Chain One' } },
         });
         const res = await createService().getChainDepth(params);
-        expect(res).toEqual({ chains: 1, buckets: emptyBuckets, endToEnd: 1, endToEndAlerted: 0, endToEndBundleNames: ['Chain One'], endToEndAlertedBundleNames: [], endToEndUndetectedBundleNames: ['Chain One'], inconclusive: 0, blockedBeforeRun: 0, blockedBeforeRunBundleNames: [], stageErrors: 0 });
+        expect(res).toEqual({ chains: 1, buckets: emptyBuckets, endToEnd: 1, endToEndAlerted: 0, endToEndBundleNames: ['Chain One'], endToEndAlertedBundleNames: [], endToEndUndetectedBundleNames: ['Chain One'], agentTerminated: 0, agentTerminatedBundleNames: [], inconclusive: 0, blockedBeforeRun: 0, blockedBeforeRunBundleNames: [], stageErrors: 0 });
       });
 
       it('a detection-only stage does not stop the chain: end to end, alerted', async () => {
@@ -3738,7 +3743,7 @@ describe('elasticsearch.ts', () => {
           meta: { 'standalone-1': { name: 'Standalone' }, 'ch-bundle::CH-DEF-001': { name: 'Defender on', category: 'cyber-hygiene' } },
         });
         const res = await createService().getChainDepth(params);
-        expect(res).toEqual({ chains: 0, buckets: emptyBuckets, endToEnd: 0, endToEndAlerted: 0, endToEndBundleNames: [], endToEndAlertedBundleNames: [], endToEndUndetectedBundleNames: [], inconclusive: 0, blockedBeforeRun: 0, blockedBeforeRunBundleNames: [], stageErrors: 0 });
+        expect(res).toEqual({ chains: 0, buckets: emptyBuckets, endToEnd: 0, endToEndAlerted: 0, endToEndBundleNames: [], endToEndAlertedBundleNames: [], endToEndUndetectedBundleNames: [], agentTerminated: 0, agentTerminatedBundleNames: [], inconclusive: 0, blockedBeforeRun: 0, blockedBeforeRunBundleNames: [], stageErrors: 0 });
         // Chains come from the non-cyber-hygiene bundle composite only.
         const bundleQuery = searchesWith('bundle_runs')[0];
         expect(bundleQuery.query.bool.filter).toContainEqual((createService() as any).PER_BUNDLE_FILTER);
@@ -3845,7 +3850,7 @@ describe('elasticsearch.ts', () => {
             bundleMeta: { b1: { name: 'Chain One' } },
           });
           const res = await createService().getChainDepth(params);
-          expect(res).toEqual({ chains: 0, buckets: emptyBuckets, endToEnd: 0, endToEndAlerted: 0, endToEndBundleNames: [], endToEndAlertedBundleNames: [], endToEndUndetectedBundleNames: [], inconclusive: 1, blockedBeforeRun: 0, blockedBeforeRunBundleNames: [], stageErrors: 1 });
+          expect(res).toEqual({ chains: 0, buckets: emptyBuckets, endToEnd: 0, endToEndAlerted: 0, endToEndBundleNames: [], endToEndAlertedBundleNames: [], endToEndUndetectedBundleNames: [], agentTerminated: 0, agentTerminatedBundleNames: [], inconclusive: 1, blockedBeforeRun: 0, blockedBeforeRunBundleNames: [], stageErrors: 1 });
         });
 
         it('stage 1 = 101, stage 2 = 260 (ASR blocked pre-execution): inconclusive, not end to end', async () => {

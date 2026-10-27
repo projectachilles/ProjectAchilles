@@ -203,3 +203,54 @@ describe('RunDetailPanel — cyber-hygiene bundles keep the ratio view', () => {
     expect(screen.getByText('Validator')).toBeInTheDocument();
   });
 });
+
+describe('RunDetailPanel — EDR-killed run', () => {
+  const killed = {
+  test_uuid: 'u1', test_name: 'LockBit kill chain', hostname: 'SBL8801', is_protected: true, org: 'o',
+  timestamp: '2026-10-12T12:47:49Z', error_code: 126, error_name: 'ExecutionPrevented',
+  bundle_id: 'b1', bundle_name: 'LockBit kill chain', is_bundle_control: false,
+  edr_terminated: true, edr_terminated_vendors: ['sentinelone', 'defender'],
+  edr_terminated_alert_ids: ['s1-alert-1', 'mde-9'], stages_unknown: true,
+} as EnrichedTestExecution;
+
+  function renderKilled() {
+    render(
+      <RunDetailPanel
+        row={{ type: 'standalone', key: 'k', execution: killed }}
+        defenderConfigured
+        crowdstrikeConfigured={false}
+        descriptionMap={new Map()}
+        descriptionLoadingKey={null}
+        alertsMap={new Map()}
+        alertsLoading={new Set()}
+        csAlertsMap={new Map()}
+        csAlertsLoading={new Set()}
+        stageAlertsCacheKey={(e) => e.test_uuid}
+        getAcceptanceForExec={() => undefined}
+        riskEnabled
+        archiveEnabled={false}
+        onRequestAcceptRisk={vi.fn()}
+        onRequestRevoke={vi.fn()}
+        onRequestArchive={vi.fn()}
+        onOpenInfo={vi.fn()}
+        expandedControlIndex={null}
+        onToggleControl={vi.fn()}
+      />,
+    );
+  }
+
+  it('shows the note and alert ids and no stages', () => {
+    renderKilled();
+    expect(
+      screen.getByText(
+        'SentinelOne and Defender terminated the Achilles agent while this test was running, so the test could not report which stages ran. The run counts as protected for the test as a whole; stages are unknown.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Evidence alert(s)')).toBeInTheDocument();
+    expect(screen.getByText('s1-alert-1')).toBeInTheDocument();
+    expect(screen.getByText('mde-9')).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Stages' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Attack chain' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Defender Alerts')).not.toBeInTheDocument();
+  });
+});

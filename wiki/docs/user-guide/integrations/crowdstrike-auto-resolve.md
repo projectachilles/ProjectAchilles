@@ -36,6 +36,9 @@ Auto-resolve has three modes, selected from the UI or API:
 Receipts are written in both `dry_run` and `enabled` modes so the same
 candidate isn't reprocessed on every sync cycle.
 
+
+Alerts matched to an EDR-killed agent run (see [Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#6-agent-terminated-by-the-edr)) are never auto-resolved.
+
 ## Which Alerts Are Eligible
 
 An alert is a candidate only when **all** of these hold:

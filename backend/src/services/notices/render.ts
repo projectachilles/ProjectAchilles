@@ -38,6 +38,8 @@ export interface FinishedEmailData {
   counts: { protected: number; prevented: number; detected: number; unprotected: number; error: number; notRun: number };
   /** Elasticsearch could not be reached, so the counts use exit codes only. */
   edrUnavailable?: boolean;
+  /** Runs counted as Protected because the EDR killed the agent mid-run, and the verdict's reason naming the vendor(s). */
+  edrTerminated?: { runs: number; reason: string };
   uiUrl: string;
 }
 
@@ -184,6 +186,9 @@ export function buildFinishedEmail(d: FinishedEmailData): { subject: string; htm
         ? 'EDR results were unavailable, so these counts use test exit codes only.'
         : 'Prevented and Detected come from your EDR alerts, as in Analytics.'
     }</td></tr>`,
+    ...(d.edrTerminated
+      ? [`<tr><td style="padding:4px 24px 0;font-size:12px;color:#71717a;">${escapeHtml(`${d.edrTerminated.reason} ${plural(d.edrTerminated.runs, 'run', 'runs')} counted as Protected.`)}</td></tr>`]
+      : []),
     `<tr><td style="padding:12px 24px 20px;"><a href="${escapeHtml(d.uiUrl)}" style="color:#2563eb;font-size:13px;">Open ProjectAchilles</a></td></tr>`,
   ].join('\n');
   return { subject, html: shell(subject, body) };

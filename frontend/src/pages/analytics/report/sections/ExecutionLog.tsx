@@ -1,7 +1,7 @@
 import type { ExecutionReport, ReportRun } from '@/services/api/reports';
 import { conclusive, defended } from '../lib/outcomes';
 import { fmtCount, fmtDate, fmtLatency, fmtTime, plural, truncate } from '../lib/format';
-import { countStages, firstAlert, vendorName } from '../lib/runs';
+import { agentKillText, countStages, firstAlert, vendorName } from '../lib/runs';
 import { GlyphRow, OutcomeLegend } from '../diagrams/StageGlyph';
 import { Sheet, type SheetHead } from './Sheet';
 import { AlertsIncompleteNote } from './scope';
@@ -49,8 +49,13 @@ export function ExecutionLog({ report, head }: { report: ExecutionReport; head: 
                 <td className="rp-mono rp-nowrap">{fmtDate(r.completedAt, tz)} {fmtTime(r.completedAt, tz)}</td>
                 <td className="rp-mono rp-id">{r.hostname}</td>
                 <td>{truncate(r.testName, 40)}</td>
-                <td><GlyphRow stages={r.stages.filter((s) => s.outcome !== 'skipped')} notFetched={r.moreStages} /></td>
-                <td className="rp-num">{defended(c)}/{conclusive(c)}</td>
+                {/* A kill run's one doc is the whole test, not a stage: its stages are unknown. */}
+                <td>
+                  {r.agentTerminated
+                    ? <>—<p className="rp-caption">{agentKillText(r)}</p></>
+                    : <GlyphRow stages={r.stages.filter((s) => s.outcome !== 'skipped')} notFetched={r.moreStages} />}
+                </td>
+                <td className="rp-num">{r.agentTerminated ? '—' : `${defended(c)}/${conclusive(c)}`}</td>
                 {edr && <td className="rp-num-wrap">{firstAlertText(r)}</td>}
               </tr>
             );

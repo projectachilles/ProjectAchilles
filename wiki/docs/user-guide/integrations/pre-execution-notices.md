@@ -69,6 +69,12 @@ A calendar file (`.ics`) is attached so the window shows up in the engineers' ca
 
 The **finished email** is sent once the window is over and every task has ended. It repeats the run tag, shows the actual start and finish, and counts outcomes with the same labels as Analytics → All Executions and the campaign evidence page: **Protected**, **Prevented**, **Detected**, **Unprotected**, **Error** and **Not run**. Prevented and Detected come from Microsoft Defender or CrowdStrike Falcon alerts that match the test. The email goes out after the pickup window closes, by which time the EDR sync has caught up. If Elasticsearch can't be reached, the email says the counts use test exit codes only. It also updates the calendar entry to end at the real finish time. If it cannot be sent, nothing is held back by that.
 
+When an EDR is connected and a test was cut off by the watchdog (the agent went offline or timed out), the finished email waits up to 15 minutes for the EDR sync to confirm whether the EDR killed the agent. A confirmed kill is reported as **Protected** (the email names the EDR vendor). Without confirmation the run counts as **Not run** in the email, because every task that did not complete does. The latest attempt decides: if a retry exists, its outcome is the one reported.
+
+:::note[SentinelOne with a long polling interval]
+The kill is confirmed after an EDR poll. Microsoft Defender and CrowdStrike poll alerts every 5 minutes. If SentinelOne is your only EDR and its polling interval is above about 8 minutes, the confirmation may not arrive within the 15-minute wait. The email then says **Not run**, while Analytics shows the run as **Protected** once the next poll confirms the kill.
+:::
+
 ## What the Tasks page shows
 
 | Badge | Meaning |

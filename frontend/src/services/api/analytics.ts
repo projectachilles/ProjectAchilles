@@ -196,6 +196,13 @@ export interface EnrichedTestExecution extends TestExecution {
   sentinelone_stage_detected?: boolean;
   sentinelone_prevented?: boolean;
   sentinelone_prevention_action?: string;
+  /** The EDR killed the Achilles agent mid-run: protected as a whole, stages unknown. */
+  edr_terminated?: boolean;
+  /** Vendors that killed the agent, earliest first ('defender' | 'crowdstrike' | 'sentinelone'). */
+  edr_terminated_vendors?: string[];
+  /** Alert ids that are the evidence for the kill. */
+  edr_terminated_alert_ids?: string[];
+  stages_unknown?: boolean;
 }
 
 export interface PaginatedResponse<T> {
@@ -288,6 +295,9 @@ export interface ChainDepthResponse {
   blockedBeforeRunBundleNames?: string[];
   /** Of inconclusive: latest run had a stage error (e.g. 999). Absent on older backends. */
   stageErrors?: number;
+  /** Latest run's agent was killed by the EDR: counted in `chains`, but in no stage row and not end to end. Absent on older backends. */
+  agentTerminated?: number;
+  agentTerminatedBundleNames?: string[];
 }
 
 export interface ExecutionActivityDay {

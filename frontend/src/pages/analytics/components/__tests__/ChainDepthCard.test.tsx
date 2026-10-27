@@ -244,3 +244,32 @@ describe('ChainDepthCard', () => {
     });
   });
 });
+
+describe('ChainDepthCard agent-terminated line', () => {
+  it('shows the line and counts the runs in the total when > 0', () => {
+    render(<ChainDepthCard data={{ ...data, chains: 10, agentTerminated: 2, agentTerminatedBundleNames: ['LockBit 3.0'] }} />);
+    expect(screen.getByText('10 chains')).toBeInTheDocument();
+    expect(screen.getByText(/Stopped by EDR, stage unknown: 2/)).toBeInTheDocument();
+    expect(screen.getByText(/LockBit 3\.0/)).toBeInTheDocument();
+  });
+
+  it('is hidden when 0 or absent', () => {
+    const { rerender } = render(<ChainDepthCard data={{ ...data, agentTerminated: 0, agentTerminatedBundleNames: [] }} />);
+    expect(screen.queryByText(/Stopped by EDR/)).not.toBeInTheDocument();
+    rerender(<ChainDepthCard data={data} />);
+    expect(screen.queryByText(/Stopped by EDR/)).not.toBeInTheDocument();
+  });
+
+  it('renders when only kill runs exist', () => {
+    render(
+      <ChainDepthCard
+        data={{
+          ...data, chains: 1, endToEnd: 0, endToEndAlerted: 0, endToEndBundleNames: [], endToEndAlertedBundleNames: [], endToEndUndetectedBundleNames: [],
+          buckets: data.buckets.map((b) => ({ ...b, blocked: 0, alertedNotBlocked: 0, bundleNames: [] })),
+          agentTerminated: 1, agentTerminatedBundleNames: ['LockBit 3.0'],
+        }}
+      />,
+    );
+    expect(screen.getByText(/Stopped by EDR, stage unknown: 1/)).toBeInTheDocument();
+  });
+});

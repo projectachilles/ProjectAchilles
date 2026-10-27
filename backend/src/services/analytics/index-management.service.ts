@@ -43,6 +43,12 @@ export const RESULTS_INDEX_MAPPING = {
           control_validator: { type: 'keyword' as const },
           control_description: { type: 'text' as const, index: false },
           is_bundle_control: { type: 'boolean' as const },
+          // Whole-test result written when an EDR killed the agent mid-run
+          // (no per-stage data exists, so stages_unknown is set).
+          edr_terminated: { type: 'boolean' as const },
+          edr_terminated_vendors: { type: 'keyword' as const },
+          edr_terminated_alert_ids: { type: 'keyword' as const },
+          stages_unknown: { type: 'boolean' as const },
           defender_detected: { type: 'boolean' as const },
           // Set true only when an alert's evidence contains THIS stage's
           // specific binary (`<uuid>-<control_id>[-<variant>].exe`). Distinct

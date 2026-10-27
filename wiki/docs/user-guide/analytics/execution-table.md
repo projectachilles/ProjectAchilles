@@ -56,6 +56,10 @@ The verdicts are explanatory only; they do not change scoring. The exact rules a
 
 Cyber-hygiene bundles keep the per-control ratio bar and rows described above.
 
+### Runs terminated by the EDR
+
+When an EDR kills the agent mid-test and an alert proves it, the run appears as one row with outcome **Protected** and the stages marked **unknown**; there is no per-stage detail because the agent never reported any. See [Exit Codes & Outcomes](./exit-codes-and-outcomes#6-agent-terminated-by-the-edr) for the evidence rule.
+
 ## Archiving
 
 Use the **Archive** button to move old execution results out of active views. Archived results are still queryable but hidden from the default view.

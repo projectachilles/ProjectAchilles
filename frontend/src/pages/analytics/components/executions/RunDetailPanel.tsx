@@ -39,7 +39,7 @@ import {
   type RunDetailPanelProps,
 } from './detailParts';
 import { StageList } from './StageList';
-import { stageOutcomeCounts } from './stageVerdict';
+import { agentKill, agentKillNote, stageOutcomeCounts } from './stageVerdict';
 
 export type { AcceptRiskItem, InfoModalRequest } from './detailParts';
 
@@ -89,6 +89,8 @@ function ExecDetailBody({
   const isLoadingDesc = descriptionLoadingKey === descKey;
   const hasDocumentation = descData && (descData.hasInfoCard || descData.hasReadme);
 
+  const kill = agentKill(exec);
+
   const { defender, crowdstrike, sentinelone } = stageAlertState(exec, {
     alertsMap,
     alertsLoading,
@@ -101,6 +103,25 @@ function ExecDetailBody({
 
   return (
     <div className="flex flex-col gap-3 text-sm">
+      {kill && (
+        <div className="rounded-md border border-border bg-raised p-3">
+          <p className="text-xs text-foreground">{agentKillNote(kill)}</p>
+          {kill.alertIds.length > 0 && (
+            <div className="mt-2">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
+                Evidence alert(s)
+              </span>
+              <ul className="mt-1 space-y-0.5">
+                {kill.alertIds.map((id) => (
+                  <li key={id} className="break-all font-mono text-[11px] text-muted">
+                    {id}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
       {!isLoadingDesc && hasDocumentation && (
         <div>
           <button
@@ -164,7 +185,7 @@ function ExecDetailBody({
       {/* Related Defender Alerts — STAGE-ATTRIBUTABLE only. Bundle-level
           alerts render once in the bundle callout instead of being
           duplicated under every stage. */}
-      {defenderConfigured && exec.techniques && exec.techniques.length > 0 && (
+      {defenderConfigured && !kill && exec.techniques && exec.techniques.length > 0 && (
         <div className="border-t border-border pt-3">
           <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
             Defender Alerts
@@ -193,7 +214,7 @@ function ExecDetailBody({
       {/* Related CrowdStrike Alerts — STAGE-ATTRIBUTABLE only. Bundle-level
           alerts render once in the bundle callout instead of being
           duplicated under every stage. */}
-      {crowdstrikeConfigured && exec.techniques && exec.techniques.length > 0 && (
+      {crowdstrikeConfigured && !kill && exec.techniques && exec.techniques.length > 0 && (
         <div className="border-t border-border pt-3">
           <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
             CrowdStrike Alerts
@@ -220,7 +241,7 @@ function ExecDetailBody({
       )}
 
       {/* Related SentinelOne Alerts — STAGE-ATTRIBUTABLE only (same rule as CrowdStrike). */}
-      {sentineloneConfigured && exec.techniques && exec.techniques.length > 0 && (
+      {sentineloneConfigured && !kill && exec.techniques && exec.techniques.length > 0 && (
         <div className="border-t border-border pt-3">
           <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
             SentinelOne Alerts

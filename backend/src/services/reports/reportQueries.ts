@@ -3,6 +3,7 @@
 // index pattern. Caps live here so the parsers and the service agree.
 
 import { RUN_GROUP_KEY_SCRIPT, TEST_KEY_SCRIPT } from '../analytics/elasticsearch.js';
+import { NOT_EDR_TERMINATED } from '../analytics/enrichment-eligibility.js';
 import { HIGH_IMPACT_FILTER, OUTCOME_FILTERS } from './stageOutcome.js';
 import type { TimeBucket } from '../../types/reports.js';
 
@@ -42,7 +43,8 @@ export function scopeRequest(filters: unknown[]): Body {
       runs: runCount(),
       endpoints: { cardinality: { field: 'routing.hostname' } },
       tests: { cardinality: { script: TEST_KEY_SCRIPT } },
-      tactics: { cardinality: { field: 'f0rtika.tactics' } },
+      // Kill docs carry the test's tactics, but their stages are unknown.
+      tactics: { filter: NOT_EDR_TERMINATED, aggs: { distinct: { cardinality: { field: 'f0rtika.tactics' } } } },
       first: { min: { field: 'routing.event_time' } },
       last: { max: { field: 'routing.event_time' } },
       high_impact: { filter: HIGH_IMPACT_FILTER },
@@ -50,12 +52,18 @@ export function scopeRequest(filters: unknown[]): Body {
         terms: { field: 'routing.hostname', size: HOSTS_CAP },
         aggs: { outcomes: outcomes(), runs: runCount() },
       },
+      // An EDR-killed run has unknown stages: it counts for its test, never for a technique.
       techniques: {
-        terms: { field: 'f0rtika.techniques', size: TECHNIQUES_CAP },
+        filter: NOT_EDR_TERMINATED,
         aggs: {
-          outcomes: outcomes(),
-          tactics: { terms: { field: 'f0rtika.tactics', size: 3 } },
-          tests: { terms: { script: TEST_KEY_SCRIPT, size: 50 } },
+          by_technique: {
+            terms: { field: 'f0rtika.techniques', size: TECHNIQUES_CAP },
+            aggs: {
+              outcomes: outcomes(),
+              tactics: { terms: { field: 'f0rtika.tactics', size: 3 } },
+              tests: { terms: { script: TEST_KEY_SCRIPT, size: 50 } },
+            },
+          },
         },
       },
       actors: {
@@ -72,6 +80,7 @@ export function scopeRequest(filters: unknown[]): Body {
 
 /** Q2: one bucket per test (bundle or standalone) with per-stage breakdowns. */
 export function testsRequest(filters: unknown[]): Body {
+  const meta = { top_hits: { size: 1, sort: [{ 'routing.event_time': { order: 'desc' } }], _source: SOURCE_FIELDS } };
   return {
     size: 0,
     query: scopeQuery(filters),
@@ -83,7 +92,12 @@ export function testsRequest(filters: unknown[]): Body {
           endpoints: { cardinality: { field: 'routing.hostname' } },
           last_run: { max: { field: 'routing.event_time' } },
           outcomes: outcomes(),
-          meta: { top_hits: { size: 1, sort: [{ 'routing.event_time': { order: 'desc' } }], _source: SOURCE_FIELDS } },
+          meta,
+          // A bundle's newest doc can be a kill doc (no is_bundle_control,
+          // stages unknown): bundle-ness comes from its control docs, and the
+          // metadata from the newest real doc when there is one.
+          controls: { filter: { term: { 'f0rtika.is_bundle_control': true } } },
+          real_meta: { filter: NOT_EDR_TERMINATED, aggs: { meta } },
           stages: {
             terms: { field: 'f0rtika.control_id', size: STAGES_PER_TEST },
             aggs: {

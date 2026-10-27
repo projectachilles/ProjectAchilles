@@ -11,6 +11,7 @@ import { classifyOutcome } from '../notices/render.js';
 import type { StageOutcome } from '../../types/reports.js';
 import type { TaskResult } from '../../types/agent.js';
 import type { EdrDocs } from './edr.js';
+import type { EdrTermination, EdrVendorKey } from '../edr/agent-kill-evidence.js';
 import { EDR_VENDORS } from './vendors.js';
 
 export type VerdictState = 'protected' | 'prevented' | 'detected' | 'unprotected' | 'error';
@@ -197,4 +198,28 @@ export function cellVerdict(input: VerdictInput): Verdict {
       stagesText: isBundle ? stages.map((st, i) => `${i + 1}:${st.outcome === 'skipped' ? 'skip' : st.exit_code}`).join(' ') : '',
     };
   }
+}
+
+const vendorNames = (keys: EdrVendorKey[]) =>
+  keys.flatMap((k) => EDR_VENDORS.filter((v) => v.key === k).map((v) => v.name as string));
+
+/** "Stopped by SentinelOne: the EDR terminated the agent and the test. Stages not reported." */
+export function edrTerminatedReason(vendors: EdrVendorKey[]): string {
+  return `Stopped by ${joinNames(vendorNames(vendors))}: the EDR terminated the agent and the test. Stages not reported.`;
+}
+
+/**
+ * A watchdog-failed run that the EDR reconciliation pass proved was stopped by
+ * the EDR killing the agent (`result.edr_terminated`). Protected, but we never
+ * learn which stage was running, so no stages are reported.
+ */
+export function edrTerminatedVerdict(t: EdrTermination): Verdict {
+  const names = vendorNames(t.vendors);
+  return {
+    state: 'protected',
+    reason: edrTerminatedReason(t.vendors),
+    edr: names.map((n) => `${n}: prevented (agent terminated)`).join('; ') || null,
+    stages: [],
+    stagesText: 'stages unknown',
+  };
 }

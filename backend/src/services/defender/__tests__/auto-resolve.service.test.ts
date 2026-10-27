@@ -421,4 +421,18 @@ describe('DefenderAutoResolveService', () => {
     expect(typeof result.durationMs).toBe('number');
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
   });
+
+  // Regression guard (EDR-killed agent runs): kill-matched alerts carry only
+  // achilles_agent_kill_task_id, never achilles_correlated, so the candidate
+  // query must keep requiring achilles_correlated:true to leave them alone.
+  it('ignores alerts that only carry achilles_agent_kill_task_id', async () => {
+    const service = createService('enabled');
+    mockSearch.mockResolvedValueOnce(searchResponse([]));
+
+    await service.runAutoResolvePass();
+
+    const q = JSON.stringify(mockSearch.mock.calls[0][0].query);
+    expect(q).toContain('"f0rtika.achilles_correlated":true');
+    expect(q).not.toContain('achilles_agent_kill_task_id');
+  });
 });

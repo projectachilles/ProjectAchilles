@@ -651,3 +651,40 @@ describe('Method', () => {
     }
   });
 });
+
+describe('EDR-killed runs in the appendices', () => {
+  const NOTE = 'SentinelOne terminated the Achilles agent while this test was running, so the test could not report which stages ran. The run counts as protected for the test as a whole; stages are unknown.';
+  const killed = () => makeRun({
+    alerts: [],
+    alertsChecked: true,
+    agentTerminated: { vendors: ['sentinelone'], alertIds: ['s1-alert-1'] },
+  });
+
+  it('the execution log carries the note on the kill row only', () => {
+    render(<ExecutionLog report={makeReport({ runs: [killed(), makeRun({ hostname: 'WS-OPS-022', completedAt: '2026-10-11T09:12:00.000Z' })] })} head={head} />);
+    expect(screen.getAllByText(NOTE)).toHaveLength(1);
+    expect(within(hostRow('WS-FIN-014')).getByText(NOTE)).toBeInTheDocument();
+  });
+
+  it('the execution log shows a dash, not a glyph or "1/1", for the unknown stages', () => {
+    const one = { ...makeRun().stages[0], controlId: null, order: 1, outcome: 'protected' as const, exitCode: 126 };
+    render(<ExecutionLog report={makeReport({ runs: [{ ...killed(), stages: [one] }, makeRun({ hostname: 'WS-OPS-022', completedAt: '2026-10-11T09:12:00.000Z' })] })} head={head} />);
+    const cells = hostRow('WS-FIN-014').querySelectorAll('td');
+    expect(cells[3].querySelector('svg')).toBeNull();
+    expect(cells[3].textContent).toBe(`—${NOTE}`);
+    expect(cells[4]).toHaveTextContent(/^—$/);
+    // An ordinary run keeps its glyphs and count.
+    const other = hostRow('WS-OPS-022').querySelectorAll('td');
+    expect(other[3].querySelector('svg')).not.toBeNull();
+    expect(other[4].textContent).toMatch(/^\d+\/\d+$/);
+  });
+
+  it('the run timeline carries the note, a protected-as-a-whole completion and no silent-run flag', () => {
+    const { container } = render(<RunStrips report={makeReport({ runs: [killed()] })} head={head} />);
+    expect(screen.getByText(NOTE)).toBeInTheDocument();
+    expect(screen.queryByText('SILENT RUN')).toBeNull();
+    const events = Array.from(container.querySelectorAll('.rp-events li')).map((li) => li.textContent);
+    expect(events.some((e) => e?.includes('protected, stages unknown'))).toBe(true);
+    expect(events.some((e) => e?.includes('stages defended'))).toBe(false);
+  });
+});

@@ -8,6 +8,7 @@ import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { DefenderEnrichmentService } from './enrichment.service.js';
 import { DefenderAutoResolveService } from './auto-resolve.service.js';
+import { runAgentKillReconciliation, failedAgentKillPass } from '../edr/agent-kill-reconcile.service.js';
 import type { Client } from '@elastic/elasticsearch';
 import type {
   GraphSecureScore,
@@ -569,6 +570,10 @@ export class DefenderSyncService {
     // in the index when we evaluate test docs.
     const enrichment = await this.runEnrichmentPass();
 
+    // EDR-killed agent runs: watchdog-failed tasks with kill evidence in any
+    // vendor's alert index become Protected results. Never throws.
+    const agentKill = await runAgentKillReconciliation().catch(failedAgentKillPass);
+
     // Auto-resolve pass runs AFTER enrichment because its candidates are
     // exactly the alerts the enrichment pass just tagged. Customer opt-in;
     // no-op when auto_resolve_mode='disabled' (the default).
@@ -579,6 +584,7 @@ export class DefenderSyncService {
       controls,
       alerts,
       enrichment,
+      agentKill,
       autoResolve,
       timestamp: new Date().toISOString(),
     };

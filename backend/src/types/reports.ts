@@ -216,6 +216,8 @@ export interface ReportRun {
    * False means not (fully) checked, which is not the same as "no alerts".
    */
   alertsChecked: boolean;
+  /** Set when the EDR killed the agent during this run: protected as a whole, stages unknown. */
+  agentTerminated?: { vendors: Array<'defender' | 'crowdstrike' | 'sentinelone'>; alertIds: string[] };
 }
 
 export interface AcceptedRiskRow {

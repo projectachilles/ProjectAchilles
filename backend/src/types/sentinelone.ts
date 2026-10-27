@@ -3,6 +3,7 @@
 // `Authorization: ApiToken <token>`.
 
 import type { AutoResolveMode, AutoResolvePassResult, EnrichmentPassResult } from './defender.js';
+import type { AgentKillPassResult } from './agent-kill.js';
 
 export type { AutoResolveMode };
 
@@ -343,6 +344,8 @@ export interface SentinelOneSyncResult {
   cloud_detection_alerts?: SentinelOneSourceSyncResult;
   /** Correlation pass run after the poll (f0rtika.sentinelone_* flags on results). */
   enrichment?: EnrichmentPassResult;
+  /** EDR-killed agent runs reconciled after enrichment (all vendors' alert indices). */
+  agentKill?: AgentKillPassResult;
   autoMitigation?: AutoMitigationPassResult;
   autoResolve?: AutoResolvePassResult;
   posture?: SentinelOnePosturePassResult;

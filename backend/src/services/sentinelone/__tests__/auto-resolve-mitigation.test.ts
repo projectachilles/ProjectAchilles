@@ -46,6 +46,16 @@ describe('SentinelOneAutoResolveService', () => {
     expect(es.search.mock.calls[0][0].index).toBe('achilles-sentinelone');
   });
 
+  // Regression guard (EDR-killed agent runs): kill-matched alerts carry only
+  // achilles_agent_kill_task_id, never achilles_correlated.
+  it('ignores alerts that only carry achilles_agent_kill_task_id', async () => {
+    const es = mockEs([]);
+    await new SentinelOneAutoResolveService(es as never, mockS1() as never, 'enabled', {}).runAutoResolvePass();
+    const q = filters(es);
+    expect(q).toContain('"f0rtika.achilles_correlated":true');
+    expect(q).not.toContain('achilles_agent_kill_task_id');
+  });
+
   it('dry_run: receipts only, never calls the API', async () => {
     const es = mockEs([threatHit('1'), alertHit('2')]);
     const s1 = mockS1();
@@ -187,6 +197,18 @@ describe('SentinelOneAutoMitigationService', () => {
       '"source_type":"threats"', '"f0rtika.achilles_correlated":true', '"status":"unresolved"',
       '"mitigation_status":"not_mitigated"', '"field":"prevention_action"', '"site_id":["222"]', '"f0rtika.auto_mitigation_mode":"enabled"',
     ]) expect(q).toContain(part);
+  });
+
+  // Regression guard (EDR-killed agent runs): never kill/quarantine on a
+  // kill-matched alert, which carries no achilles_correlated flag.
+  it('never mitigates an alert that only carries achilles_agent_kill_task_id', async () => {
+    const es = mockEs([]);
+    const ex = exec();
+    await svc(es, ex).runAutoMitigationPass();
+    const q = filters(es);
+    expect(q).toContain('"f0rtika.achilles_correlated":true');
+    expect(q).not.toContain('achilles_agent_kill_task_id');
+    expect(ex.execute).not.toHaveBeenCalled();
   });
 
   it('dry_run logs + receipts without calling the response service', async () => {

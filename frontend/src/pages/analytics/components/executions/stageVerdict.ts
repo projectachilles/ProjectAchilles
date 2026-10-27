@@ -20,6 +20,36 @@ const ACTION_COPY: Record<string, string> = {
   blocked: 'blocked it',
 };
 
+const KILL_VENDOR_NAMES: Record<string, string> = {
+  defender: 'Defender',
+  crowdstrike: 'CrowdStrike',
+  sentinelone: 'SentinelOne',
+};
+
+/** Vendor ids joined as display names ("A and B"), in the order given; "An EDR" when there are none. */
+export function killVendorLabel(vendors: string[] | undefined): string {
+  return joinNames((vendors ?? []).map((v) => KILL_VENDOR_NAMES[v] ?? v)) ?? 'An EDR';
+}
+
+/**
+ * Set when the EDR killed the agent during this run (stages unknown); null otherwise.
+ * `vendor` is the vendor names joined with " and ", in the order the backend sent them.
+ */
+export function agentKill(exec: EnrichedTestExecution): { vendor: string; alertIds: string[] } | null {
+  if (!exec.edr_terminated) return null;
+  return { vendor: killVendorLabel(exec.edr_terminated_vendors), alertIds: exec.edr_terminated_alert_ids ?? [] };
+}
+
+/** Run-list sub-label under "Protected" for an EDR-killed run. */
+export function agentKillSubLabel(kill: { vendor: string }): string {
+  return `Stopped by ${kill.vendor} \u2014 agent terminated`;
+}
+
+/** Detail-panel note for an EDR-killed run. */
+export function agentKillNote(kill: { vendor: string }): string {
+  return `${kill.vendor} terminated the Achilles agent while this test was running, so the test could not report which stages ran. The run counts as protected for the test as a whole; stages are unknown.`;
+}
+
 /** Per-stage flags, falling back to the bundle-level flags for older documents. */
 function stageEdr(exec: EnrichedTestExecution) {
   return {
