@@ -23,6 +23,7 @@ const sidebars: SidebarsConfig = {
         'deployment/clerk-setup',
         'deployment/docker-compose',
         'deployment/server-installer',
+        'deployment/appliance',
         'deployment/public-server',
         'deployment/on-prem-server',
         'deployment/railway',
