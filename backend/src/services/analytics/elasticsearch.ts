@@ -1525,6 +1525,10 @@ export class ElasticsearchService {
     const clauses = this.buildFilterBarClauses(params, { excludeOutcome: true });
     // Technique views: an EDR-killed run has unknown stages, so no technique is credited.
     if (params.excludeEdrTerminated) clauses.push(NOT_EDR_TERMINATED);
+    // All-stages pairs are per stage doc; a bundle kill doc has no stages, and
+    // as its own `oid|<bundle>|host` pair no later real run would replace it.
+    // Standalone kill docs stay: there the kill doc is the test's only doc.
+    else if (!isAnyStage) clauses.push({ bool: { must_not: [this.KILL_BUNDLE_DOC] } });
     const exclusionFilter: unknown = (await this.getRiskAcceptanceService().buildExclusionFilter(params.org)) ?? null;
     return {
       window,

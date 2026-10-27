@@ -171,6 +171,31 @@ describe('EDR-killed runs in Defense Score scoring', () => {
     });
   });
 
+  describe('basis=latest, all-stages', () => {
+    const ALL_STAGES: Params = { ...LATEST, scoringMode: 'all-stages' };
+
+    it('a bundle kill doc adds no pair: stage pairs only (spec 5.2)', async () => {
+      useIndex([...realRun(T0), killDoc(T1)]);
+      const pairs = await createService().getLatestPairs(ALL_STAGES);
+      expect(pairs.map(p => p.pairKey).sort()).toEqual([1, 2, 3].map(n => `org-a|${LOCKBIT}::LB-00${n}|h1`));
+      const res = await createService().getDefenseScoreLatest(ALL_STAGES);
+      expect([res.pairCount, res.score]).toEqual([3, 0]);
+    });
+
+    it('scoringMode omitted behaves as all-stages', async () => {
+      const noMode: Params = { from: LATEST.from, to: LATEST.to, basis: 'latest' };
+      useIndex([...realRun(T0), killDoc(T1)]);
+      const res = await createService().getDefenseScoreLatest(noMode);
+      expect(res.pairCount).toBe(3);
+    });
+
+    it('a standalone kill doc is still a per-doc pair', async () => {
+      useIndex([killDoc(T1, { bundle: false }), standaloneDoc(T0, 101)]);
+      const res = await createService().getDefenseScoreLatest(ALL_STAGES);
+      expect([res.pairCount, res.score]).toEqual([2, 50]);
+    });
+  });
+
   describe('basis=executions', () => {
     it('executions basis counts the kill doc as protected', async () => {
       useIndex([killDoc(T1, { bundle: false }), standaloneDoc(T0, 101)]);
