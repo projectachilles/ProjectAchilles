@@ -168,7 +168,7 @@ Run these on the VM (SSH in as `achilles`, or use the console):
 
 ```bash
 cd /opt/projectachilles
-sudo ./achilles-installer backup            # /var/backups/projectachilles/<UTC timestamp>.tar.gz
+sudo ./achilles-installer backup            # /var/backups/projectachilles/<UTC timestamp>.tar.gz (or .tar.zst)
 sudo ./achilles-installer restore <file>    # overwrites volumes, config and CA
 ```
 

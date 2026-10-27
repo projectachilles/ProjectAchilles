@@ -208,7 +208,7 @@ jobs:
       - name: Verify the round trip
         run: |
           url="${R2_PUBLIC_BASE_URL%/}/appliance/$ZIP_NAME"
-          curl -fsSLI "$url" >/dev/null || { echo "::error::$url is not publicly reachable"; exit 1; }
+          curl -fsSL -r 0-0 -o /dev/null "$url" || { echo "::error::$url is not publicly reachable"; exit 1; }
           assets="$(gh release view "$VER" --json assets --jq '.assets[].name')"
           for a in appliance-SHA256SUMS Import-Achilles.ps1; do
             if ! grep -qx "$a" <<<"$assets"; then
