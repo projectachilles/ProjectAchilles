@@ -990,6 +990,35 @@ function TestImage_ChecksumMatchesExtracts {
     Expect '-Destination given: Get-VMHost not needed' $r (-not (Test-Called $r 'Get-VMHost'))
 }
 
+# The zip is verified, then extracted: both must read the same bytes. A zip in
+# a folder the user can write to (Downloads) can be replaced in between.
+function TestImage_ZipReplacedAfterHashIsNotUsed {
+    $dir = New-Scenario 'image-zip-replaced-after-hash'
+    $src = Join-Path $dir $FixZipName
+    Copy-Item -LiteralPath $FixZip -Destination $src
+    $evilStage = Join-Path $dir 'evil'
+    New-Item -ItemType Directory -Path $evilStage | Out-Null
+    $evilBytes = New-Object byte[] 65536
+    (New-Object System.Random 7).NextBytes($evilBytes)
+    [IO.File]::WriteAllBytes((Join-Path $evilStage $FixVhdxName), $evilBytes)
+    $evilZip = Join-Path $dir 'evil.zip'
+    Compress-Archive -Path (Join-Path $evilStage $FixVhdxName) -DestinationPath $evilZip
+    # Get-FileHash as the script sees it: hashes, then the source is replaced.
+    $global:SwapSource = $src; $global:SwapWith = $evilZip
+    function global:Get-FileHash {
+        param([string]$LiteralPath, [string]$Algorithm)
+        $h = Microsoft.PowerShell.Utility\Get-FileHash -LiteralPath $LiteralPath -Algorithm $Algorithm
+        if ($LiteralPath -eq $global:SwapSource) { Copy-Item -LiteralPath $global:SwapWith -Destination $global:SwapSource -Force }
+        $h
+    }
+    try { $r = Invoke-Import @{ Yes = $true; ImagePath = $src; ChecksumFile = $FixSums } }
+    finally { Remove-Item -Path function:global:Get-FileHash }
+    $target = Join-Path $global:HV.VhdPath 'ProjectAchilles.vhdx'
+    $same = $false
+    if (Test-Path -LiteralPath $target) { $same = (Microsoft.PowerShell.Utility\Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -eq $FixVhdxHash }
+    Expect 'the disk is the verified one, not the replacement' $r $same
+}
+
 function TestImage_ChecksumMismatchStopsAndCleansUp {
     $null = New-Scenario 'image-checksum-mismatch'
     $bad = ('0' * 64)
@@ -1108,6 +1137,21 @@ function TestImage_VersionNotFoundSaysCheckVersion {
     Expect 'keeps the computed-hash hint' $r (Test-Contains $r $FixZipHash)
     Expect "points at the image's own release page" $r (Test-Contains $r "releases/tag/v$FixVer")
     Expect 'no offline guidance' $r (-not (Test-Contains $r 'Could not download'))
+    Expect 'nothing written' $r (Test-NoWork $global:HV.VhdPath)
+}
+
+# The image's (v-prefixed) name matches -Version, yet the release has no
+# appliance-SHA256SUMS: don't suggest the same version again, point to the
+# checksum file that came with the image.
+function TestImage_VersionNotFoundForMatchingImage {
+    $dir = New-Scenario 'image-version-404-matching-name'
+    $zip = Join-Path $dir 'ProjectAchilles-v9.9.12-hyperv.zip'
+    Copy-Item -LiteralPath $FixZip -Destination $zip
+    $global:HV.WebStatus['https://github.com/projectachilles/ProjectAchilles/releases/download/v9.9.12/appliance-SHA256SUMS'] = 404
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $zip; Version = '9.9.12' }
+    Expect 'exit 1' $r ($r.ExitCode -eq 1)
+    Expect 'no -Version suggestion for the version already given' $r (-not (Test-Contains $r 'try -Version'))
+    Expect 'points to -ChecksumFile' $r (Test-Contains $r '-ChecksumFile')
     Expect 'nothing written' $r (Test-NoWork $global:HV.VhdPath)
 }
 

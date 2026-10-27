@@ -26,8 +26,10 @@
     not enough free disk space or memory. It never enables Hyper-V itself
     and never overwrites anything.
 
-    The checksum file comes from GitHub on purpose: the image and its
-    checksum are published on different hosts. A Hyper-V host without
+    The checksum file comes from the GitHub release on purpose: releases
+    publish the image elsewhere (Cloudflare R2), so a forged image also needs
+    a forged GitHub release. A checksum is not a signature: it proves the
+    image matches what was published there. A Hyper-V host without
     internet access can use -ChecksumFile with a copy of
     appliance-SHA256SUMS. There is no way to skip verification.
 
@@ -496,13 +498,17 @@ function Get-ChecksumText {
         $leaf = [IO.Path]::GetFileName($ImagePath)
         $page = "$ReleaseBase/tag/v$Version"
         if ($status -eq 404) {
-            # The host is online; the release has no such file.
-            $message = "The v$Version release has no appliance-SHA256SUMS (HTTP 404). Check that -Version matches the image."
+            # The host is online; the release has no such file. Image names
+            # carry a v (git describe), -Version doesn't.
             $detail = New-Object System.Collections.ArrayList
             $page = $ReleaseBase
-            if ($leaf -match '^ProjectAchilles-(.+)-hyperv\.zip$' -and $Matches[1] -ne $Version) {
+            if ($leaf -match '^ProjectAchilles-[vV]?(.+)-hyperv\.zip$' -and $Matches[1] -ne $Version) {
+                $message = "The v$Version release has no appliance-SHA256SUMS (HTTP 404). Check that -Version matches the image."
                 [void]$detail.Add("The image's file name says version $($Matches[1]): try -Version $($Matches[1]).")
                 $page = "$ReleaseBase/tag/v$($Matches[1])"
+            }
+            else {
+                $message = "The v$Version release has no appliance-SHA256SUMS (HTTP 404). Use -ChecksumFile with the appliance-SHA256SUMS that came with the image."
             }
         }
         else {
@@ -567,7 +573,6 @@ function Get-VerifiedImage {
     $sums = Get-ChecksumText
     $expected = Get-ExpectedHash $sums $source
     $isZip = [IO.Path]::GetExtension($ImagePath) -eq '.zip'
-    if ($isZip) { Assert-HashMatches $ImagePath $expected $source }
 
     # Folders this run creates for Destination, deepest first: removed again
     # if the image doesn't make it there.
@@ -586,17 +591,25 @@ function Get-VerifiedImage {
         # The progress bar makes Expand-Archive and Copy-Item on Windows
         # PowerShell 5.1 many times slower on a multi-GB file.
         $ProgressPreference = 'SilentlyContinue'
+        # Hash a copy, not the source, so what was verified is what is used: the
+        # source may sit in a folder anyone logged on can write to (Downloads),
+        # and could be replaced between the hash and its use.
         if ($isZip) {
+            Write-Info "Copying to $($script:Destination)..."
+            $zip = Join-Path $work ([IO.Path]::GetFileName($ImagePath))
+            Copy-Item -LiteralPath $ImagePath -Destination $zip
+            Assert-HashMatches $zip $expected $source
             Write-Info "Extracting to $($script:Destination) (a few minutes)..."
-            Expand-Archive -LiteralPath $ImagePath -DestinationPath $work
-            $disks = @(Get-ChildItem -LiteralPath $work -Recurse -File -Filter '*.vhdx')
+            $unzipped = Join-Path $work 'image'
+            Expand-Archive -LiteralPath $zip -DestinationPath $unzipped
+            Remove-Item -LiteralPath $zip
+            $disks = @(Get-ChildItem -LiteralPath $unzipped -Recurse -File -Filter '*.vhdx')
             if ($disks.Count -ne 1) {
                 Stop-Import "The zip holds $($disks.Count) .vhdx files; the appliance zip holds exactly one."
             }
             $disk = $disks[0].FullName
         }
         else {
-            # Hash the copy, not the source, so what was verified is what is used.
             Write-Info "Copying to $($script:Destination)..."
             $disk = Join-Path $work ([IO.Path]::GetFileName($ImagePath))
             Copy-Item -LiteralPath $ImagePath -Destination $disk
