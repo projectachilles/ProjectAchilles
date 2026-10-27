@@ -112,15 +112,21 @@ function New-MockSwitch([string]$Name, [string]$Type = 'External', $Adapter = $n
     [pscustomobject]@{ Name = $Name; SwitchType = $Type; NetAdapterInterfaceDescription = $Adapter; Id = [guid]$Id }
 }
 # A network adapter as the state describes it: Get-NetAdapter returns the
-# public fields; Physical (for -Physical) and IPv4 (for Get-NetIPAddress) are
-# the mocks' own. NdisPhysicalMedium 14 = 802.3 (wired), 9 = native 802.11.
-$script:NextIfIndex = 10
-function New-MockAdapter([string]$Name, [string]$Description, [string]$Status = 'Up', [int]$Medium = 14, [string[]]$IPv4 = @(), [bool]$Physical = $true) {
-    $script:NextIfIndex++
-    $type = switch ($Medium) { 14 { '802.3' } 9 { 'Native 802.11' } 1 { 'Wireless LAN' } default { 'Unspecified' } }
+# public fields; Physical (for -Physical) and IPv4 (the addresses for
+# Get-NetIPAddress, IPv6 ones too, despite the name) are the mocks' own. NdisPhysicalMedium 14 = 802.3 (wired), 9 = native 802.11,
+# 8 = wireless WAN, 10 = Bluetooth; NdisMedium 16 = native 802.11. Values as
+# read on the lab host (Spanish Windows 11): Ethernet 14 / '802.3', Wi-Fi 9 /
+# 'Native 802.11'.
+$script:NextIfIndex = 20
+function New-MockAdapter([string]$Name, [string]$Description, [string]$Status = 'Up', [int]$Medium = 14, [string[]]$IPv4 = @(), [bool]$Physical = $true, [int]$IfIndex = 0) {
+    if ($IfIndex -eq 0) { $script:NextIfIndex++; $IfIndex = $script:NextIfIndex }
+    $type = switch ($Medium) { 14 { '802.3' } 9 { 'Native 802.11' } 1 { 'Wireless LAN' } 8 { 'Wireless WAN' } 10 { 'BlueTooth' } default { 'Unspecified' } }
+    $ndisMedium = 0; if ($Medium -eq 9) { $ndisMedium = 16 }
+    $state = 'Connected'; if ($Status -ne 'Up') { $state = 'Disconnected' }
     @{
-        Name = $Name; InterfaceDescription = $Description; ifIndex = $script:NextIfIndex; Status = $Status
-        LinkSpeed = '1 Gbps'; NdisPhysicalMedium = [uint32]$Medium; PhysicalMediaType = $type
+        Name = $Name; InterfaceDescription = $Description; ifIndex = $IfIndex; Status = $Status
+        MediaConnectionState = $state; LinkSpeed = '1 Gbps'; NdisPhysicalMedium = [uint32]$Medium
+        NdisMedium = [uint32]$ndisMedium; PhysicalMediaType = $type
         IPv4 = $IPv4; Physical = $Physical
     }
 }
@@ -143,8 +149,13 @@ function New-HVState([string]$dir) {
             (New-MockSwitch 'Default Switch' 'Internal' $null $DefaultSwitchId),
             (New-MockSwitch 'LAN' 'External' $EthDesc))
         Adapters      = [System.Collections.ArrayList]@(
-            (New-MockAdapter 'Ethernet' $EthDesc 'Up' 14 @('192.168.4.45')))
-        NewSwitchFails = $false       # New-VMSwitch throws
+            (New-MockAdapter 'Ethernet' $EthDesc 'Up' 14 @('192.168.4.45') $true 18))
+        NewSwitchFails = $null        # 'before': New-VMSwitch throws; 'after': creates the switch, then throws
+        SshConnection = $null         # $env:SSH_CONNECTION during the run ("client cport server sport")
+        SessionName   = $null         # $env:SESSIONNAME during the run (RDP-Tcp#N for Remote Desktop)
+        RdpPort       = $null         # registry PortNumber of RDP-Tcp; $null = no value
+        TcpConnections = New-Object System.Collections.ArrayList   # @{ LocalAddress; LocalPort; RemoteAddress; State }
+        SessionProbeThrows = $false   # Get-NetIPAddress -IPAddress / Get-NetTCPConnection throw
         NewSwitchAdapterArg = $null   # the -NetAdapterName New-VMSwitch received, as given
         VhdPath       = (Join-Path $dir 'vhd')
         FreeDiskBytes = 500GB         # free space of the one default volume
@@ -287,19 +298,44 @@ function global:Get-NetAdapter {
         if ($Physical -and -not $a.Physical) { continue }
         if ($Name -and $a.Name -notlike $Name) { continue }
         $o = [ordered]@{}
-        foreach ($k in 'Name', 'InterfaceDescription', 'ifIndex', 'Status', 'LinkSpeed', 'NdisPhysicalMedium', 'PhysicalMediaType') {
+        foreach ($k in 'Name', 'InterfaceDescription', 'ifIndex', 'Status', 'MediaConnectionState', 'LinkSpeed', 'NdisPhysicalMedium', 'NdisMedium', 'PhysicalMediaType') {
             if ($a.ContainsKey($k)) { $o[$k] = $a[$k] }
         }
         [pscustomobject]$o
     }
 }
 function global:Get-NetIPAddress {
-    [CmdletBinding()] param([int]$InterfaceIndex, [string]$AddressFamily)
+    [CmdletBinding()] param([string]$IPAddress, [int]$InterfaceIndex, [string]$AddressFamily)
     Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    if ($IPAddress) {
+        if ($global:HV.SessionProbeThrows) { throw 'Access denied (mock).' }
+        $hit = @($global:HV.Adapters | Where-Object { @($_.IPv4) -contains $IPAddress })
+        if ($hit.Count -eq 0) { Write-Error "No MSFT_NetIPAddress objects found with property 'IPAddress' equal to '$IPAddress' (mock)."; return }
+        return [pscustomobject]@{ IPAddress = $IPAddress; AddressFamily = 'IPv4'; InterfaceIndex = [uint32]$hit[0].ifIndex }
+    }
     foreach ($a in $global:HV.Adapters) {
         if ($a.ifIndex -ne $InterfaceIndex) { continue }
-        foreach ($ip in @($a.IPv4)) { [pscustomobject]@{ IPAddress = $ip; AddressFamily = 'IPv4'; InterfaceIndex = $InterfaceIndex } }
+        foreach ($ip in @($a.IPv4)) {
+            if ($AddressFamily -eq 'IPv4' -and $ip.Contains(':')) { continue }
+            [pscustomobject]@{ IPAddress = $ip; AddressFamily = 'IPv4'; InterfaceIndex = $InterfaceIndex }
+        }
     }
+}
+function global:Get-NetTCPConnection {
+    [CmdletBinding()] param([string]$State, [int]$LocalPort)
+    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    if ($global:HV.SessionProbeThrows) { throw 'Access denied (mock).' }
+    $hit = @($global:HV.TcpConnections | Where-Object { (-not $State -or $_.State -eq $State) -and (-not $LocalPort -or $_.LocalPort -eq $LocalPort) })
+    if ($hit.Count -eq 0) { Write-Error 'No matching MSFT_NetTCPConnection objects found (mock).'; return }
+    foreach ($c in $hit) { [pscustomobject]$c }
+}
+# Only the RDP port number is read from the registry.
+function global:Get-ItemProperty {
+    [CmdletBinding()] param([string]$LiteralPath, [string]$Name)
+    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    if ($LiteralPath -ne 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp') { throw "harness: Get-ItemProperty $LiteralPath is not mocked" }
+    if ($null -eq $global:HV.RdpPort) { Write-Error "Property $Name does not exist (mock)."; return }
+    [pscustomobject]@{ PortNumber = [int]$global:HV.RdpPort }
 }
 # Creates an External switch in the state (never Internal: -SwitchType is
 # declared only so that passing it shows up in the log).
@@ -307,11 +343,12 @@ function global:New-VMSwitch {
     [CmdletBinding()] param([string]$Name, [string]$NetAdapterName, [bool]$AllowManagementOS, [string]$SwitchType)
     Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
     $global:HV.NewSwitchAdapterArg = $NetAdapterName
-    if ($global:HV.NewSwitchFails) { throw 'The operation failed because the adapter is in use (mock).' }
+    if ($global:HV.NewSwitchFails -eq 'before') { throw 'The operation failed because the adapter is in use (mock).' }
     $a = @($global:HV.Adapters | Where-Object { $_.Name -eq $NetAdapterName })
     if ($a.Count -ne 1) { throw "harness: New-VMSwitch on unknown adapter '$NetAdapterName'" }
     $s = New-MockSwitch $Name 'External' $a[0].InterfaceDescription
     [void]$global:HV.Switches.Add($s)
+    if ($global:HV.NewSwitchFails -eq 'after') { throw 'The switch was created, but binding the management OS adapter failed (mock).' }
     $s
 }
 
@@ -359,12 +396,21 @@ function Invoke-Import([hashtable]$Params, [string[]]$Answers) {
     $global:Answers.Clear(); foreach ($a in @($Answers)) { $global:Answers.Enqueue($a) }
     $records = @()
     $global:LASTEXITCODE = 0
+    # The session the script sees comes from the scenario, never from the
+    # shell running the harness (which may itself be an SSH session).
+    $savedEnv = @{ SSH_CONNECTION = $env:SSH_CONNECTION; SESSIONNAME = $env:SESSIONNAME }
+    $env:SSH_CONNECTION = $global:HV.SshConnection
+    $env:SESSIONNAME = $global:HV.SessionName
     try {
         $records = & $Script @Params *>&1
         $code = $LASTEXITCODE
     }
     catch {
         $code = "threw: $($_.Exception.Message)"
+    }
+    finally {
+        $env:SSH_CONNECTION = $savedEnv.SSH_CONNECTION
+        $env:SESSIONNAME = $savedEnv.SESSIONNAME
     }
     $text = ConvertTo-OutputText $records
     if ($code -is [string]) { $text += "$code`n" }
@@ -464,11 +510,23 @@ function TestStatic_HelpShowsBypassFile {
 
 # Commands the script may call without a mock: local, in-process, and only
 # touching paths the script was given. Anything else needs a mock above.
+# Add-Type and New-Object are not on this list: they are checked separately
+# (Get-UnsafeCommands), because they can load code or start COM servers.
 $SafeCommands = @(
-    'Add-Type', 'Copy-Item', 'Expand-Archive', 'ForEach-Object', 'Get-ChildItem', 'Get-FileHash',
-    'Get-Item', 'Join-Path', 'Move-Item', 'New-Item', 'New-Object', 'Out-Null', 'Remove-Item',
+    'Copy-Item', 'Expand-Archive', 'ForEach-Object', 'Get-ChildItem', 'Get-FileHash',
+    'Get-Item', 'Join-Path', 'Move-Item', 'Out-Null', 'New-Item', 'Remove-Item',
     'Select-Object', 'Set-StrictMode', 'Split-Path', 'Test-Path', 'Where-Object', 'Write-Host'
 )
+
+# The only Add-Type calls the script may make, as written (whitespace
+# collapsed). Each entry says what it is for; anything else (-TypeDefinition,
+# -MemberDefinition, -Path, other assemblies, splatting) fails the scan.
+$AllowedAddType = @(
+    # System.IO.Compression.ZipFile, to read the zip's uncompressed size (Get-ImageSize).
+    'Add-Type -AssemblyName System.IO.Compression.FileSystem'
+)
+# .NET types that start processes: [Diagnostics.Process]::Start(...) and friends.
+$ProcessTypePattern = '^(System\.)?Diagnostics\.Process'
 
 # True for a native executable: a name with an executable extension (also as a
 # path), or one that resolves to an application on this machine. Checked
@@ -495,9 +553,32 @@ function Get-UnsafeCommands([System.Management.Automation.Language.Ast]$ast, [st
         if ($Mocks -contains $n) { continue }
         if (Test-NativeCommand $n) { "native executable $n at $where is not mocked"; continue }
         if ($n.Contains('\')) { "module-qualified $n at $where"; continue }
+        if ($n -eq 'Add-Type') {
+            $text = ($c.Extent.Text -replace '\s+', ' ').Trim()
+            if ($AllowedAddType -notcontains $text) { "Add-Type at $where is not on the allow list: $text" }
+            continue
+        }
+        if ($n -eq 'New-Object') {
+            foreach ($e in @($c.CommandElements | Select-Object -Skip 1)) {
+                if ($e -is [System.Management.Automation.Language.CommandParameterAst] -and
+                    'ComObject'.StartsWith($e.ParameterName, [StringComparison]::OrdinalIgnoreCase)) {
+                    "New-Object -ComObject at $where"
+                }
+                if ($e -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $e.Value -match $ProcessTypePattern) {
+                    "New-Object $($e.Value) at $where starts processes"
+                }
+            }
+            continue
+        }
         if ($own -contains $n -or $SafeCommands -contains $n) { continue }
         if ($StubNames -contains $n) { "$n at $where is guarded but not mocked"; continue }
         "$n at $where is neither mocked nor on the safe list"
+    }
+    # Not commands at all: [Diagnostics.Process]::Start('netsh.exe', ...).
+    foreach ($t in $ast.FindAll({ param($a) $a -is [System.Management.Automation.Language.TypeExpressionAst] }, $true)) {
+        if ($t.TypeName.FullName -match $ProcessTypePattern) {
+            "[$($t.TypeName.FullName)] at line $($t.Extent.StartLineNumber) starts processes: $($t.Parent.Extent.Text)"
+        }
     }
 }
 
@@ -535,6 +616,30 @@ function TestStatic_EveryCommandIsMockedOrSafe {
     Check 'a native executable passes only when that exact name is mocked' ($found.Count -eq 0)
     $found = @(Get-UnsafeCommands ([System.Management.Automation.Language.Parser]::ParseInput("vmconnect.exe localhost x`n", [ref]$null, [ref]$null)) @('vmconnect'))
     Check 'a mock of vmconnect does not cover vmconnect.exe' ($found.Count -eq 1 -and $found[0] -like 'native executable vmconnect.exe *')
+
+    # Ways to start a process or load code that are not commands: .NET
+    # Process, COM objects, and Add-Type beyond the allow list.
+    $probe = [System.Management.Automation.Language.Parser]::ParseInput((@(
+        "[Diagnostics.Process]::Start('netsh.exe', 'interface show interface')",
+        "[System.Diagnostics.Process]::Start('cmd.exe')",
+        "`$p = [System.Diagnostics.ProcessStartInfo]::new('sc.exe')",
+        "New-Object -ComObject WScript.Shell",
+        "New-Object -Com Shell.Application",
+        "New-Object System.Diagnostics.Process",
+        "Add-Type -TypeDefinition 'public class X {}'",
+        "Add-Type -MemberDefinition 'public static extern void Beep();' -Name B",
+        "Add-Type -Path C:\x.dll",
+        "Add-Type -AssemblyName System.Windows.Forms",
+        "Add-Type 'public class Y {}'",
+        "Add-Type @addTypeArgs"
+    ) -join "`n") + "`n", [ref]$null, [ref]$null)
+    $found = @(Get-UnsafeCommands $probe)
+    $lines = @($found | ForEach-Object { if ($_ -match ' at line (\d+)') { [int]$Matches[1] } } | Select-Object -Unique)
+    Check 'the command check flags [Diagnostics.Process], New-Object -ComObject and Add-Type beyond its allow list (12 lines)' ($lines.Count -eq 12)
+    if ($lines.Count -ne 12) { foreach ($f in $found) { "     | $f" } }
+    $allowed = [System.Management.Automation.Language.Parser]::ParseInput(
+        "Add-Type -AssemblyName System.IO.Compression.FileSystem`nNew-Object System.Collections.ArrayList`n[IO.Path]::GetFileName('x')`n", [ref]$null, [ref]$null)
+    Check 'the allow-listed Add-Type and ordinary New-Object/.NET calls pass' (@(Get-UnsafeCommands $allowed).Count -eq 0)
 
     # With autoloading off, a command from a module that was not imported
     # cannot load and run.
@@ -927,6 +1032,13 @@ function TestSwitch_ReusesSingleExternal {
     $r = Invoke-Import (Get-SwitchParams) @('n')
     Expect 'answering n: exit 1, no switch, nothing written' $r (Test-RefusedUnchanged $r)
     Expect 'and says how to pick or create one' $r ((Test-Contains $r '-SwitchName') -and (Test-Contains $r '-NetAdapterName'))
+
+    # A Spanish keyboard answers "si" with an accent ([char]0xED keeps this file ASCII).
+    foreach ($yes in @("s$([char]0x00ED)", 'Si', 'S')) {
+        $null = New-Scenario "switch-reuse-single-answer-$([int][char]$yes[$yes.Length - 1])"
+        $r = Invoke-Import (Get-SwitchParams) @($yes)
+        Expect "answering '$yes' reuses it" $r ((Get-Prompts $r).Count -eq 1 -and (Test-ReusesWithoutChange $r 'LAN'))
+    }
 }
 
 function TestSwitch_ChoosesAmongSeveralExternal {
@@ -955,14 +1067,33 @@ function TestSwitch_ChoosesAmongSeveralExternal {
         (Test-RefusedUnchanged $r) -and (Test-Contains $r '-SwitchName') -and (Get-Prompts $r).Count -eq 0)
 }
 
-function TestSwitch_SwitchNameMustBeExternal {
-    foreach ($case in @(@('Internal', 'Internal-Lab'), @('Private', 'Isolated'), @('Internal', 'Default Switch'))) {
+# Spec 8.2 step 3: an explicit -SwitchName may name any existing switch. One
+# that is not External is accepted with a loud warning; the automatic paths
+# never pick one.
+function TestSwitch_SwitchNameAcceptsAnySwitchWithWarning {
+    foreach ($case in @(@('Internal', 'Internal-Lab', 'an Internal switch'), @('Private', 'Isolated', 'a Private switch'), @('Internal', 'Default Switch', 'the Default Switch (NAT)'))) {
         $null = New-Scenario "switch-name-$($case[0].ToLowerInvariant())-$($case[1].Replace(' ', '-'))"
         if ($case[1] -ne 'Default Switch') { [void]$global:HV.Switches.Add((New-MockSwitch $case[1] $case[0])) }
-        $p = Get-BaseParams; $p.SwitchName = $case[1]
+        $p = Get-BaseParams; $p.SwitchName = $case[1]; $p.ConfirmNetworkInterruption = $true
         $r = Invoke-Import $p
-        Expect "-SwitchName '$($case[1])' ($($case[0])): exit 1, nothing written" $r ((Test-RefusedUnchanged $r) -and (Test-Contains $r 'not an External switch'))
+        $warn = @(Get-OutputLine $r "'$($case[1])' is $($case[2]): agents on your network will not reach the VM through it")
+        $ok = @(Get-OutputLine $r 'The VM will connect to')
+        Expect "-SwitchName '$($case[1])' ($($case[0])): accepted, no prompt, no New-VMSwitch, goes on" $r (
+            (Get-NewSwitchCalls $r).Count -eq 0 -and (Get-Prompts $r).Count -eq 0 -and $r.ExitCode -eq 2 -and
+            $ok.Count -eq 1 -and $ok[0].Contains("'$($case[1])'") -and (Test-Contains $r 'SHA256 matches'))
+        Expect "  and warned with [!!]: $($case[2]), agents will not reach the VM" $r ($warn.Count -eq 1 -and $warn[0].Contains('[!!]'))
+        Expect '  and says -ConfirmNetworkInterruption is ignored (nothing is created)' $r (Test-Contains $r '-ConfirmNetworkInterruption is ignored')
+        $nat = @(Get-OutputLine $r 'NAT address can change')
+        if ($case[1] -eq 'Default Switch') { Expect '  the Default Switch: also says its NAT address can change' $r ($nat.Count -eq 1 -and $nat[0].Contains('[!!]')) }
+        else { Expect '  no NAT-address line for other switches' $r ($nat.Count -eq 0) }
     }
+
+    $null = New-Scenario 'switch-name-duplicate'
+    [void]$global:HV.Switches.Add((New-MockSwitch 'Dup' 'External' $EthDesc))
+    [void]$global:HV.Switches.Add((New-MockSwitch 'Dup' 'Internal'))
+    $p = Get-BaseParams; $p.SwitchName = 'Dup'
+    $r = Invoke-Import $p
+    Expect 'a -SwitchName that names several switches: exit 1' $r ((Test-RefusedUnchanged $r) -and (Test-Contains $r "Several virtual switches are named 'Dup'"))
 
     $null = New-Scenario 'switch-name-missing'
     $p = Get-BaseParams; $p.SwitchName = 'Nope'
@@ -988,6 +1119,12 @@ function TestSwitch_CreateRequiresTypedName {
     Expect 'confirmed before the image, created after it is verified' $r (
         (Get-OutputIndex $r $WarnText) -lt (Get-OutputIndex $r 'SHA256 matches') -and
         (Get-OutputIndex $r 'SHA256 matches') -lt (Get-OutputIndex $r "Created the External switch '$NewSwitch'"))
+    $rdp = @(Get-OutputLine $r 'Remote Desktop session over it will disconnect')
+    $over = @(Get-OutputLine $r 'Connected over this adapter?')
+    Expect 'the Remote Desktop/SSH line and the "connected over this adapter" line are [!!] warnings' $r (
+        $rdp.Count -eq 1 -and $rdp[0].Contains('[!!]') -and $over.Count -eq 1 -and $over[0].Contains('[!!]'))
+    $note = Get-OutputIndex $r 'The switch is created in step 4, after the image is verified.'
+    Expect 'the step-4 note comes after the confirmation' $r ($note -gt (Get-OutputIndex $r "Confirmed: an External switch on 'Ethernet'"))
     Expect 'the host now has the External switch on Ethernet' $r (@($global:HV.Switches | Where-Object { $_.Name -eq $NewSwitch -and $_.SwitchType -eq 'External' -and $_.NetAdapterInterfaceDescription -eq $EthDesc }).Count -eq 1)
     Expect 'at the VM step (exit 2) it offers to remove the switch it created' $r ($r.ExitCode -eq 2 -and (Test-Contains $r "Remove-VMSwitch -Name '$NewSwitch' -Force"))
 
@@ -1009,7 +1146,8 @@ function TestSwitch_WrongTypedNameAborts {
         $null = New-Scenario "switch-wrong-name-$i"
         Set-OnlyDefaultSwitch
         $r = Invoke-Import (Get-SwitchParams) @($answer)
-        Expect "typed '$answer': exit 1, no switch, nothing written" $r ((Test-RefusedUnchanged $r) -and (Test-Contains $r 'No switch was created'))
+        Expect "typed '$answer': exit 1, no switch, nothing written, no step-4 note" $r (
+            (Test-RefusedUnchanged $r) -and (Test-Contains $r 'No switch was created') -and -not (Test-Contains $r 'The switch is created in step 4'))
     }
 }
 
@@ -1020,6 +1158,7 @@ function TestSwitch_UnattendedWithoutConfirmRefuses {
     $r = Invoke-Import $p
     Expect '-Yes -NetAdapterName without -ConfirmNetworkInterruption: exit 1, no prompt' $r ((Test-RefusedUnchanged $r) -and (Get-Prompts $r).Count -eq 0)
     Expect 'shows the warning and names -ConfirmNetworkInterruption' $r ((Test-NetworkWarning $r) -and (Test-Contains $r '-ConfirmNetworkInterruption'))
+    Expect 'no step-4 note before the -Yes refusal' $r (-not (Test-Contains $r 'The switch is created in step 4'))
 
     $null = New-Scenario 'switch-unattended-no-adapter'
     Set-OnlyDefaultSwitch
@@ -1032,6 +1171,7 @@ function TestSwitch_UnattendedWithoutConfirmRefuses {
     Set-OnlyDefaultSwitch
     $p = Get-SwitchParams; $p.ConfirmNetworkInterruption = $true
     $r = Invoke-Import $p @('nope')
+    Expect 'says -ConfirmNetworkInterruption confirms only together with -NetAdapterName' $r (Test-Contains $r '-ConfirmNetworkInterruption confirms only together with -NetAdapterName')
     Expect '-ConfirmNetworkInterruption alone still asks for the typed name' $r ((Test-RefusedUnchanged $r) -and (Get-Prompts $r).Count -eq 1)
 
     $null = New-Scenario 'switch-confirm-without-adapter-yes'
@@ -1063,6 +1203,7 @@ function TestSwitch_UnattendedWithConfirmCreates {
     $p = Get-BaseParams; $p.NetAdapterName = 'Ethernet'; $p.ConfirmNetworkInterruption = $true
     $r = Invoke-Import $p
     Expect 'an adapter that already has an External switch: reuses it, no warning' $r ((Test-ReusesWithoutChange $r 'LAN') -and -not (Test-Contains $r $WarnText))
+    Expect '  and says -ConfirmNetworkInterruption is ignored (nothing is created)' $r (Test-Contains $r '-ConfirmNetworkInterruption is ignored')
 
     $null = New-Scenario 'switch-adapter-beside-existing'
     [void]$global:HV.Adapters.Add((New-MockAdapter 'Ethernet 2' 'Realtek USB GbE Family Controller' 'Up' 14 @('10.0.0.5')))
@@ -1086,12 +1227,20 @@ function TestSwitch_UnattendedWithConfirmCreates {
 
     $null = New-Scenario 'switch-create-fails'
     Set-OnlyDefaultSwitch
-    $global:HV.NewSwitchFails = $true
+    $global:HV.NewSwitchFails = 'before'
     $p = Get-BaseParams; $p.NetAdapterName = 'Ethernet'; $p.ConfirmNetworkInterruption = $true
     $r = Invoke-Import $p
     Expect 'New-VMSwitch fails: exit 2, says so, prints how to remove the disk' $r (
         $r.ExitCode -eq 2 -and (Test-Contains $r 'Could not create the External switch') -and (Test-Contains $r 'Remove-Item -LiteralPath'))
     Expect 'and offers no switch removal (none was created)' $r (-not (Test-Contains $r 'Remove-VMSwitch'))
+
+    # New-VMSwitch made the switch and then failed: it is still this run's.
+    $null = New-Scenario 'switch-create-fails-after-creating'
+    Set-OnlyDefaultSwitch
+    $global:HV.NewSwitchFails = 'after'
+    $r = Invoke-Import $p
+    Expect 'New-VMSwitch creates the switch, then fails: exit 2, says so' $r ($r.ExitCode -eq 2 -and (Test-Contains $r 'Could not create the External switch'))
+    Expect '  and offers to remove that switch' $r (Test-Contains $r "Remove-VMSwitch -Name '$NewSwitch' -Force")
 }
 
 function TestSwitch_OnlyUpPhysicalAdaptersListed {
@@ -1129,7 +1278,7 @@ function TestSwitch_WifiMarkedNotRecommended {
         (New-MockAdapter 'WLAN' 'Qualcomm Atheros QCA9377' 'Up' 0 @('192.168.1.12')))
     # Each signal alone must be enough: 'Ethernet 3' has only the NDIS medium,
     # 'WLAN' only the media type.
-    $global:HV.Adapters[1].Remove('PhysicalMediaType')
+    $global:HV.Adapters[1].Remove('PhysicalMediaType'); $global:HV.Adapters[1].Remove('NdisMedium')
     $global:HV.Adapters[2].Remove('NdisPhysicalMedium')
     $global:HV.Adapters[2].PhysicalMediaType = 'Native 802.11'
     $r = Invoke-Import (Get-SwitchParams) @('2', 'Ethernet 3')
@@ -1162,6 +1311,175 @@ function TestSwitch_AdapterNameWithSpacesAndAccents {
     $r = Invoke-Import $p
     Expect '-NetAdapterName: the name arrives at New-VMSwitch byte-identical' $r (
         (Get-NewSwitchCalls $r).Count -eq 1 -and $null -ne $global:HV.NewSwitchAdapterArg -and [string]::CompareOrdinal($global:HV.NewSwitchAdapterArg, $acc) -eq 0)
+
+    # Typing accents is unreliable: Windows PowerShell 5.1 with redirected
+    # stdin (code page 850) turns o-acute into two box-drawing characters, and
+    # some clients send decomposed text. The confirmation ignores accents and
+    # case, still bound to the one adapter shown; New-VMSwitch always gets the
+    # adapter's own name.
+    $plain = 'Conexion de area local 2'
+    $nfd = "Conexio$([char]0x0301)n de a$([char]0x0301)rea local 2"
+    $cp850 = "Conexi$([char]0x251C)$([char]0x2502)n de $([char]0x251C)$([char]0x00AA)rea local 2"
+    foreach ($t in @(@('accent-free', $plain), @('lowercase accent-free', $plain.ToLowerInvariant()), @('decomposed (NFD)', $nfd))) {
+        $null = New-Scenario "switch-accents-typed-$($t[0].Replace(' ', '-').Replace('(', '').Replace(')', ''))"
+        Set-OnlyDefaultSwitch
+        $global:HV.Adapters = [System.Collections.ArrayList]@((New-MockAdapter $acc 'Realtek PCIe GbE Family Controller' 'Up' 14 @('192.168.1.20')))
+        $r = Invoke-Import (Get-SwitchParams) @($t[1])
+        Expect "typed $($t[0]): confirmed, New-VMSwitch gets the accented name byte-identical" $r (
+            (Get-NewSwitchCalls $r).Count -eq 1 -and $null -ne $global:HV.NewSwitchAdapterArg -and [string]::CompareOrdinal($global:HV.NewSwitchAdapterArg, $acc) -eq 0)
+    }
+    Expect 'the prompt says accents are optional' $r (@(Get-Prompts $r)[0] -match 'accents are optional')
+
+    $null = New-Scenario 'switch-accents-typed-cp850'
+    Set-OnlyDefaultSwitch
+    $global:HV.Adapters = [System.Collections.ArrayList]@((New-MockAdapter $acc 'Realtek PCIe GbE Family Controller' 'Up' 14 @('192.168.1.20')))
+    $r = Invoke-Import (Get-SwitchParams) @($cp850)
+    Expect 'typed through code page 850 (still wrong): refused, nothing written' $r (Test-RefusedUnchanged $r)
+    Expect '  and prints the unattended alternative, quoted' $r (([string]$r.Output).Contains("-NetAdapterName '$acc' -ConfirmNetworkInterruption"))
+
+    $null = New-Scenario 'switch-accents-param-plain'
+    Set-OnlyDefaultSwitch
+    $global:HV.Adapters = [System.Collections.ArrayList]@((New-MockAdapter $acc 'Realtek PCIe GbE Family Controller' 'Up' 14 @('192.168.1.20')))
+    $p = Get-BaseParams; $p.NetAdapterName = $plain; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p
+    Expect '-NetAdapterName without accents finds the adapter; New-VMSwitch gets its own name' $r (
+        (Get-NewSwitchCalls $r).Count -eq 1 -and [string]::CompareOrdinal([string]$global:HV.NewSwitchAdapterArg, $acc) -eq 0)
+
+    # Two adapters that differ only in accents: the accent-free spelling is ambiguous.
+    $null = New-Scenario 'switch-accents-param-ambiguous'
+    Set-OnlyDefaultSwitch
+    $global:HV.Adapters = [System.Collections.ArrayList]@(
+        (New-MockAdapter "R$([char]0x00E9)d" 'NIC 1' 'Up' 14 @('10.0.1.2')),
+        (New-MockAdapter "R$([char]0x00E8)d" 'NIC 2' 'Up' 14 @('10.0.2.2')))
+    $p = Get-BaseParams; $p.NetAdapterName = 'Red'; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p
+    Expect '-NetAdapterName matching two adapters once accents are ignored: exit 1' $r ((Test-RefusedUnchanged $r) -and (Test-Contains $r 'matches more than one adapter'))
+
+    # A name with an apostrophe is quoted for copying.
+    $null = New-Scenario 'switch-apostrophe-alternative'
+    Set-OnlyDefaultSwitch
+    $global:HV.Adapters = [System.Collections.ArrayList]@((New-MockAdapter "Juan's NIC" 'Realtek PCIe GbE Family Controller' 'Up' 14 @('192.168.1.21')))
+    $r = Invoke-Import (Get-SwitchParams) @('nope')
+    Expect "refused; the alternative quotes Juan's NIC as 'Juan''s NIC'" $r ((Test-RefusedUnchanged $r) -and (Test-Contains $r "-NetAdapterName 'Juan''s NIC' -ConfirmNetworkInterruption"))
+}
+
+# WWAN (mobile broadband) and Bluetooth adapters cannot carry an External
+# switch: they are not offered, and -NetAdapterName naming one is refused
+# before anything changes (not at New-VMSwitch, after the disk copy).
+function TestSwitch_WirelessWanAndBluetoothCannotCarryASwitch {
+    $null = New-Scenario 'switch-wwan-bt-not-offered'
+    Set-OnlyDefaultSwitch
+    [void]$global:HV.Adapters.Add((New-MockAdapter 'Cellular' 'Generic Mobile Broadband Adapter' 'Up' 8 @('10.64.1.2')))
+    [void]$global:HV.Adapters.Add((New-MockAdapter 'Bluetooth Network Connection' 'Bluetooth Device (Personal Area Network)' 'Up' 10))
+    $r = Invoke-Import (Get-SwitchParams) @('Ethernet')
+    Expect 'only Ethernet is offered (no number prompt), and the switch goes on Ethernet' $r (
+        -not (Test-Contains $r ') Cellular') -and -not (Test-Contains $r ') Bluetooth') -and (Get-Prompts $r).Count -eq 1 -and
+        @(Get-NewSwitchCalls $r) -ccontains "New-VMSwitch -Name '$NewSwitch' -NetAdapterName 'Ethernet' -AllowManagementOS `$true")
+    Expect 'says which adapters cannot carry a virtual switch' $r ((Test-Contains $r 'cannot carry a virtual switch') -and (Test-Contains $r "'Cellular'") -and (Test-Contains $r "'Bluetooth Network Connection'"))
+    Expect 'wireless WAN is not labelled Wi-Fi' $r (-not ((@(Get-OutputLine $r 'Cellular') -join ' ') -match 'Wi-Fi'))
+
+    foreach ($n in @('Cellular', 'Bluetooth Network Connection')) {
+        $null = New-Scenario "switch-cannot-carry-$($n.Split(' ')[0].ToLowerInvariant())"
+        Set-OnlyDefaultSwitch
+        [void]$global:HV.Adapters.Add((New-MockAdapter 'Cellular' 'Generic Mobile Broadband Adapter' 'Up' 8 @('10.64.1.2')))
+        [void]$global:HV.Adapters.Add((New-MockAdapter 'Bluetooth Network Connection' 'Bluetooth Device (Personal Area Network)' 'Up' 10))
+        $p = Get-BaseParams; $p.NetAdapterName = $n; $p.ConfirmNetworkInterruption = $true
+        $r = Invoke-Import $p
+        Expect "-NetAdapterName '$n': exit 1 before anything changes" $r ((Test-RefusedUnchanged $r) -and (Test-Contains $r 'cannot carry a virtual switch'))
+    }
+
+    # NdisMedium 16 (native 802.11) alone is enough to mark Wi-Fi.
+    $null = New-Scenario 'switch-wifi-ndismedium-only'
+    Set-OnlyDefaultSwitch
+    $w = New-MockAdapter 'Red inalambrica' $WifiDesc 'Up' 9 @('192.168.1.30')
+    $w.Remove('NdisPhysicalMedium'); $w.Remove('PhysicalMediaType')
+    [void]$global:HV.Adapters.Add($w)
+    $r = Invoke-Import (Get-SwitchParams) @('x')
+    Expect 'an adapter with only NdisMedium 16 is marked not recommended' $r ((@(Get-OutputLine $r ') Red inalambrica') -join ' ') -match 'not recommended')
+}
+
+# The adapter carrying the admin's own session (SSH or Remote Desktop) is
+# detected, advisory and fail-open. Lab values: SSH arrives over Wi-Fi
+# (192.168.4.44, ifIndex 10); the switch goes on Ethernet (192.168.4.45, 18).
+function Set-LabAdapters {
+    Set-OnlyDefaultSwitch
+    $global:HV.Adapters = [System.Collections.ArrayList]@(
+        (New-MockAdapter 'Ethernet' $EthDesc 'Up' 14 @('192.168.4.45', 'fe80::abcd') $true 18),
+        (New-MockAdapter 'Wi-Fi' $WifiDesc 'Up' 9 @('192.168.4.44') $true 10))
+}
+function TestSwitch_SessionAdapterDetected {
+    $created = "New-VMSwitch -Name '$NewSwitch' -NetAdapterName 'Ethernet' -AllowManagementOS `$true"
+    $null = New-Scenario 'switch-session-lab-ssh-on-wifi'
+    Set-LabAdapters
+    $global:HV.SshConnection = '192.168.4.30 52692 192.168.4.44 22'
+    $p = Get-BaseParams; $p.NetAdapterName = 'Ethernet'; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p
+    Expect 'lab case (SSH over Wi-Fi, switch on Ethernet): looked up the SSH server address' $r (Test-Called $r "Get-NetIPAddress -IPAddress '192.168.4.44'")
+    Expect '  no session warning, -ConfirmNetworkInterruption is enough' $r (-not (Test-Contains $r 'Your SSH session') -and @(Get-NewSwitchCalls $r) -ccontains $created)
+
+    $null = New-Scenario 'switch-session-lab-list'
+    Set-LabAdapters
+    $global:HV.SshConnection = '192.168.4.30 52692 192.168.4.44 22'
+    $r = Invoke-Import (Get-SwitchParams) @('1', 'Ethernet')
+    Expect 'the list marks Wi-Fi as carrying your SSH session, not Ethernet' $r (
+        (@(Get-OutputLine $r '2) Wi-Fi') -join ' ') -match 'your SSH session' -and -not ((@(Get-OutputLine $r '1) Ethernet') -join ' ') -match 'your SSH session'))
+
+    $null = New-Scenario 'switch-session-ssh-on-ethernet'
+    Set-LabAdapters
+    $global:HV.SshConnection = '192.168.4.30 52692 192.168.4.45 22'
+    $p = Get-BaseParams; $p.NetAdapterName = 'Ethernet'; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p
+    $w = @(Get-OutputLine $r "Your SSH session (from 192.168.4.30) arrives over 'Ethernet': creating the switch will end it, and this script with it.")
+    Expect 'SSH over the chosen adapter: [!!] warning naming the client' $r ($w.Count -eq 1 -and $w[0].Contains('[!!]'))
+    Expect '  -Yes -ConfirmNetworkInterruption refused: exit 1, nothing written, says it is not enough' $r ((Test-RefusedUnchanged $r) -and (Test-Contains $r '-ConfirmNetworkInterruption is not enough'))
+
+    $null = New-Scenario 'switch-session-ssh-on-ethernet-typed'
+    Set-LabAdapters
+    $global:HV.SshConnection = '192.168.4.30 52692 192.168.4.45 22'
+    $p = Get-SwitchParams; $p.NetAdapterName = 'Ethernet'; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p @('Ethernet')
+    Expect '  without -Yes: asks for the typed name instead, which confirms it' $r ((Get-Prompts $r).Count -eq 1 -and @(Get-NewSwitchCalls $r) -ccontains $created)
+
+    $null = New-Scenario 'switch-session-ssh-ipv6-scope'
+    Set-LabAdapters
+    $global:HV.SshConnection = 'fe80::1%7 50000 fe80::abcd%18 22'
+    $p = Get-BaseParams; $p.NetAdapterName = 'Ethernet'; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p
+    Expect 'IPv6 with %scope: scope stripped, still detected and refused' $r (
+        (Test-Called $r "Get-NetIPAddress -IPAddress 'fe80::abcd'") -and (Test-Contains $r 'Your SSH session (from fe80::1)') -and (Test-RefusedUnchanged $r))
+
+    $null = New-Scenario 'switch-session-rdp-on-ethernet'
+    Set-LabAdapters
+    $global:HV.SessionName = 'RDP-Tcp#2'
+    $global:HV.RdpPort = 3390
+    [void]$global:HV.TcpConnections.Add(@{ LocalAddress = '192.168.4.45'; LocalPort = 3390; RemoteAddress = '192.168.4.30'; RemotePort = 51000; State = 'Established' })
+    $p = Get-BaseParams; $p.NetAdapterName = 'Ethernet'; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p
+    $w = @(Get-OutputLine $r "Your Remote Desktop session (from 192.168.4.30) arrives over 'Ethernet'")
+    Expect 'Remote Desktop over the chosen adapter (port from the registry): [!!] warning' $r (
+        (Test-Called $r "Get-NetTCPConnection -State 'Established' -LocalPort 3390") -and $w.Count -eq 1 -and $w[0].Contains('[!!]'))
+    Expect '  -Yes -ConfirmNetworkInterruption refused' $r (Test-RefusedUnchanged $r)
+
+    $null = New-Scenario 'switch-session-rdp-default-port-on-wifi'
+    Set-LabAdapters
+    $global:HV.SessionName = 'RDP-Tcp#0'
+    [void]$global:HV.TcpConnections.Add(@{ LocalAddress = '192.168.4.44'; LocalPort = 3389; RemoteAddress = '192.168.4.30'; RemotePort = 51000; State = 'Established' })
+    $r = Invoke-Import $p
+    Expect 'Remote Desktop (default port 3389) over Wi-Fi, switch on Ethernet: no warning, created' $r (
+        (Test-Called $r "Get-NetTCPConnection -State 'Established' -LocalPort 3389") -and -not (Test-Contains $r 'Your Remote Desktop session') -and @(Get-NewSwitchCalls $r) -ccontains $created)
+
+    $null = New-Scenario 'switch-session-probe-throws'
+    Set-LabAdapters
+    $global:HV.SshConnection = '192.168.4.30 52692 192.168.4.45 22'
+    $global:HV.SessionProbeThrows = $true
+    $r = Invoke-Import $p
+    Expect 'detection throws: no warning, no crash, created as before' $r (
+        -not (Test-Contains $r 'Your SSH session') -and -not (Test-Contains $r 'Unexpected error') -and $r.ExitCode -eq 2 -and @(Get-NewSwitchCalls $r) -ccontains $created)
+
+    $null = New-Scenario 'switch-session-console'
+    Set-LabAdapters
+    $r = Invoke-Import $p
+    Expect 'console session: no session lookups at all' $r (-not (Test-Called $r 'Get-NetTCPConnection') -and @($r.Calls | Where-Object { $_ -like 'Get-NetIPAddress -IPAddress*' }).Count -eq 0)
 }
 
 function TestSwitch_NeverUsesDefaultSwitch {

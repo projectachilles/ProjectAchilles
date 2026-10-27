@@ -16,7 +16,8 @@
     adapters that are up and creates "ProjectAchilles External" on the one
     you pick, after you type its name: creating it interrupts the host's
     network on that adapter for several seconds, so a Remote Desktop session
-    over it disconnects. It never uses the Default Switch and never creates
+    over it disconnects. On its own it never picks the Default Switch or an
+    Internal or Private switch (only -SwitchName can), and it never creates
     an Internal or NAT switch.
 
     It checks the host first and refuses before changing anything when the
@@ -52,9 +53,9 @@
     The VM name, also used for the disk file name. Default: ProjectAchilles.
 
 .PARAMETER SwitchName
-    An existing External virtual switch to connect the VM to. Internal and
-    Private switches and the Default Switch (NAT) are refused: agents on the
-    network could not reach the VM through them.
+    An existing virtual switch to connect the VM to. Any switch is accepted;
+    for an Internal or Private switch, or the Default Switch (NAT), the
+    script warns that agents on the network will not reach the VM through it.
 
 .PARAMETER NetAdapterName
     The physical network adapter for a new External switch, named
@@ -86,7 +87,9 @@
 
 .PARAMETER ConfirmNetworkInterruption
     With -NetAdapterName, confirms creating an External switch on that
-    adapter without typing its name.
+    adapter without typing its name. Not enough when your own SSH or Remote
+    Desktop session arrives over that adapter: then type the name, or pick
+    another adapter.
 
 .EXAMPLE
     powershell -NoProfile -ExecutionPolicy Bypass -File .\Import-Achilles.ps1 -ImagePath .\ProjectAchilles-2.7.0-hyperv.zip -Version 2.7.0
@@ -150,6 +153,8 @@ $script:StopMarker = 'ACHILLES_IMPORT_STOP'
 $script:Changes = New-Object System.Collections.ArrayList
 # The adapter of the switch this run created, if it created one.
 $script:CreatedSwitchAdapter = $null
+# Adapters carrying the admin's own SSH/RDP session (Get-SessionAdapters).
+$script:Sessions = @()
 
 # -----------------------------------------------------------------------------
 # Output helpers (same layout as scripts/Install-ProjectAchilles.ps1)
@@ -623,12 +628,85 @@ function Test-ExternalSwitch {
 }
 
 # Wi-Fi by the medium, never by the name (localized, and admins rename them):
-# NdisPhysicalMedium 1 is wireless LAN and 9 native 802.11.
+# NdisPhysicalMedium 1 (wireless LAN) or 9 (native 802.11), or NdisMedium 16
+# (native 802.11). PhysicalMediaType is the fallback; "Wireless WAN" is not
+# Wi-Fi.
 function Test-WirelessAdapter {
     param($Adapter)
-    $medium = Get-PropValue $Adapter 'NdisPhysicalMedium'
-    if ($null -ne $medium -and ([int]$medium -eq 1 -or [int]$medium -eq 9)) { return $true }
-    [string](Get-PropValue $Adapter 'PhysicalMediaType') -match '802\.11|Wireless'
+    $physical = Get-PropValue $Adapter 'NdisPhysicalMedium'
+    if ($null -ne $physical -and ([int]$physical -eq 1 -or [int]$physical -eq 9)) { return $true }
+    $medium = Get-PropValue $Adapter 'NdisMedium'
+    if ($null -ne $medium -and [int]$medium -eq 16) { return $true }
+    [string](Get-PropValue $Adapter 'PhysicalMediaType') -match '802\.11|Wireless LAN'
+}
+
+# Wireless WAN (NdisPhysicalMedium 8, mobile broadband) and Bluetooth (10)
+# adapters cannot be bound to a virtual switch.
+function Test-SwitchableAdapter {
+    param($Adapter)
+    $physical = Get-PropValue $Adapter 'NdisPhysicalMedium'
+    if ($null -ne $physical) { return -not ([int]$physical -eq 8 -or [int]$physical -eq 10) }
+    [string](Get-PropValue $Adapter 'PhysicalMediaType') -notmatch '^(Wireless WAN|BlueTooth)$'
+}
+
+# A name without accents and case, for comparing what the admin typed: typed
+# accents are unreliable (Windows PowerShell 5.1 with redirected input reads
+# code page 850, and some clients send decomposed text), so "conexion de area
+# local" confirms "Conexion de area local" with its accents.
+function Get-FoldedName {
+    param([string]$Text)
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($c in ([string]$Text).Trim().Normalize([Text.NormalizationForm]::FormD).ToCharArray()) {
+        if ([Globalization.CharUnicodeInfo]::GetUnicodeCategory($c) -ne [Globalization.UnicodeCategory]::NonSpacingMark) {
+            [void]$sb.Append($c)
+        }
+    }
+    $sb.ToString().ToUpperInvariant()
+}
+
+function Test-SameFoldedName {
+    param([string]$A, [string]$B)
+    [string]::Equals((Get-FoldedName $A), (Get-FoldedName $B), [StringComparison]::Ordinal)
+}
+
+# The adapters that carry the admin's own session, as @{ Kind; Client;
+# IfIndex }: SSH from $env:SSH_CONNECTION ("client cport server sport"), and
+# Remote Desktop from the established connections on the RDP port. Advisory
+# and fail-open: any error means none are known, and nothing changes.
+function Get-SessionAdapters {
+    $found = New-Object System.Collections.ArrayList
+    try {
+        $ssh = [string]$env:SSH_CONNECTION
+        if (-not [string]::IsNullOrWhiteSpace($ssh)) {
+            $parts = @($ssh.Trim() -split '\s+')
+            if ($parts.Count -ge 3) {
+                $client = ($parts[0] -split '%')[0]
+                $server = ($parts[2] -split '%')[0]
+                foreach ($ip in @(Get-NetIPAddress -IPAddress $server -ErrorAction Stop)) {
+                    [void]$found.Add(@{ Kind = 'SSH'; Client = $client; IfIndex = [int]$ip.InterfaceIndex })
+                }
+            }
+        }
+        elseif ([string]$env:SESSIONNAME -like 'RDP-Tcp*') {
+            $port = 3389
+            $value = Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name PortNumber -ErrorAction SilentlyContinue
+            if ($null -ne $value -and $null -ne (Get-PropValue $value 'PortNumber')) { $port = [int]$value.PortNumber }
+            foreach ($conn in @(Get-NetTCPConnection -State Established -LocalPort $port -ErrorAction Stop)) {
+                $local = ([string]$conn.LocalAddress -split '%')[0]
+                if ($local.StartsWith('::ffff:') -and $local.Contains('.')) { $local = $local.Substring(7) }
+                foreach ($ip in @(Get-NetIPAddress -IPAddress $local -ErrorAction Stop)) {
+                    [void]$found.Add(@{ Kind = 'Remote Desktop'; Client = [string]$conn.RemoteAddress; IfIndex = [int]$ip.InterfaceIndex })
+                }
+            }
+        }
+    }
+    catch { return }
+    @($found)
+}
+
+function Get-OwnSessions {
+    param($Adapter)
+    @($script:Sessions | Where-Object { $_.IfIndex -eq [int]$Adapter.ifIndex })
 }
 
 function Format-Switch {
@@ -652,6 +730,9 @@ function Format-Adapter {
     $speed = [string](Get-PropValue $Adapter 'LinkSpeed')
     if ($speed) { $text += "  -  $speed" }
     if (Test-WirelessAdapter $Adapter) { $text += '  (Wi-Fi: not recommended)' }
+    foreach ($kind in @(Get-OwnSessions $Adapter | ForEach-Object { $_.Kind } | Select-Object -Unique)) {
+        $text += "  (carries your $kind session)"
+    }
     $text
 }
 
@@ -675,8 +756,9 @@ function Read-Choice {
 }
 
 # Shows what creating the switch does and gets it confirmed: the typed adapter
-# name, or -NetAdapterName with -ConfirmNetworkInterruption. -Yes never
-# confirms it. Returns the plan for Select-VmSwitch.
+# name, or -NetAdapterName with -ConfirmNetworkInterruption (not enough when
+# the admin's own session arrives over that adapter). -Yes never confirms it.
+# Returns the plan for Select-VmSwitch.
 function Confirm-NewSwitch {
     param($Adapter, [object[]]$AllSwitches)
     $name = [string]$Adapter.Name
@@ -690,35 +772,67 @@ function Confirm-NewSwitch {
         Write-Warn "'$name' is a Wi-Fi adapter. Not recommended: many access points drop the VM's traffic, so agents may not reach it."
     }
     Write-Warn "Creating an External switch on '$name' interrupts this host's network on that adapter for several seconds."
-    Write-Info "A Remote Desktop session over it will disconnect and should reconnect; an SSH session over it may end, and this script with it."
+    Write-Warn 'A Remote Desktop session over it will disconnect and should reconnect; an SSH session over it may end, and this script with it.'
     Write-Info "The host's IP settings on '$name' move to a new adapter, ""vEthernet ($NewSwitchName)""."
-    Write-Info 'Connected over this adapter? Run this from the console or over another adapter instead.'
-    Write-Info 'The switch is created in step 4, after the image is verified.'
-    if ($ConfirmNetworkInterruption -and -not [string]::IsNullOrWhiteSpace($NetAdapterName)) {
+    Write-Warn 'Connected over this adapter? Run this from the console or over another adapter instead.'
+    $own = @(Get-OwnSessions $Adapter)
+    foreach ($s in $own) {
+        if ($s.Kind -eq 'SSH') {
+            Write-Warn "Your SSH session (from $($s.Client)) arrives over '$name': creating the switch will end it, and this script with it."
+        }
+        else {
+            Write-Warn "Your Remote Desktop session (from $($s.Client)) arrives over '$name': creating the switch will disconnect it."
+        }
+    }
+    $unattended = "-NetAdapterName $(ConvertTo-Literal $name) -ConfirmNetworkInterruption"
+    $confirmed = $ConfirmNetworkInterruption -and -not [string]::IsNullOrWhiteSpace($NetAdapterName)
+    if ($ConfirmNetworkInterruption -and -not $confirmed) {
+        Write-Info '-ConfirmNetworkInterruption confirms only together with -NetAdapterName: type the adapter name instead.'
+    }
+    if ($confirmed -and $own.Count -gt 0) {
+        Write-Warn '-ConfirmNetworkInterruption is not enough here, because it would cut your own session: type the adapter name, or pick another adapter.'
+        $confirmed = $false
+    }
+    if ($confirmed) {
         Write-Ok 'Confirmed with -NetAdapterName and -ConfirmNetworkInterruption'
     }
     elseif ($Yes) {
-        Stop-Import '-Yes does not confirm creating a switch, because it interrupts the network. No switch was created and nothing was changed.' @(
-            "Add -NetAdapterName $(ConvertTo-Literal $name) -ConfirmNetworkInterruption, or run without -Yes and type the adapter name."
-        )
+        $how = "Add $unattended, or run without -Yes and type the adapter name."
+        if ($own.Count -gt 0) { $how = 'Run without -Yes and type the adapter name, pick another adapter, or run this from the console.' }
+        Stop-Import '-Yes does not confirm creating a switch, because it interrupts the network. No switch was created and nothing was changed.' @($how)
     }
     else {
-        $typed = ([string](Read-Host "Type the adapter name ($name) to create the switch, or press Enter to stop")).Trim()
-        if (-not [string]::Equals($typed, $name, [StringComparison]::OrdinalIgnoreCase)) {
-            Stop-Import "That is not '$name'. No switch was created and nothing was changed."
+        $hint = ''
+        if ($name -match '[^\x00-\x7F]') { $hint = '; accents are optional' }
+        $typed = [string](Read-Host "Type the adapter name ($name$hint) to create the switch, or press Enter to stop")
+        if ([string]::IsNullOrWhiteSpace($typed) -or -not (Test-SameFoldedName $typed $name)) {
+            $detail = @("To confirm without typing, run again with $unattended.")
+            if ($own.Count -gt 0) { $detail = @('Type the name exactly, pick another adapter, or run this from the console.') }
+            Stop-Import "That is not '$name'. No switch was created and nothing was changed." $detail
         }
         Write-Ok "Confirmed: an External switch on '$name'"
     }
+    Write-Info 'The switch is created in step 4, after the image is verified.'
     @{ Name = $NewSwitchName; Create = $true; AdapterName = $name }
 }
 
-# Decides which External switch the VM uses, before anything on the host
-# changes, so a refusal here leaves nothing behind (exit 1): an existing one
-# (reusing interrupts nothing), or a new one on a physical adapter that is up.
-# Never an Internal or Private switch, never the Default Switch. Returns
-# @{ Name; Create; AdapterName } for Select-VmSwitch.
+# Decides which switch the VM uses, before anything on the host changes, so a
+# refusal here leaves nothing behind (exit 1): an explicit -SwitchName (any
+# switch, with a warning when agents can't reach the VM through it), an
+# existing External switch (reusing interrupts nothing), or a new one on a
+# physical adapter that is up. The automatic paths never pick an Internal or
+# Private switch or the Default Switch. Returns @{ Name; Create; AdapterName }
+# for Select-VmSwitch.
 function Resolve-VmSwitch {
     Write-Step 2 'Virtual switch'
+    $plan = Get-SwitchPlan
+    if (-not $plan.Create -and $ConfirmNetworkInterruption) {
+        Write-Info "-ConfirmNetworkInterruption is ignored: no switch is created (the VM uses '$($plan.Name)')."
+    }
+    $plan
+}
+
+function Get-SwitchPlan {
     $haveSwitchName = -not [string]::IsNullOrWhiteSpace($SwitchName)
     $haveAdapterName = -not [string]::IsNullOrWhiteSpace($NetAdapterName)
     if ($haveSwitchName -and $haveAdapterName) {
@@ -737,41 +851,33 @@ function Resolve-VmSwitch {
         if ($named.Count -gt 1) {
             Stop-Import "Several virtual switches are named '$SwitchName'. Rename them in Hyper-V Manager first."
         }
-        if (-not (Test-ExternalSwitch $named[0])) {
-            $kind = [string]$named[0].SwitchType
-            if (Test-DefaultSwitch $named[0]) { $kind = 'the Default Switch (NAT)' }
-            Stop-Import "'$SwitchName' is $kind, not an External switch: agents on your network could not reach the VM through it." (@(
-                'Pick an External switch with -SwitchName, or leave -SwitchName out to create one. External switches on this host:'
-            ) + $externalLines)
+        $target = $named[0]
+        if (Test-ExternalSwitch $target) {
+            Write-Ok "The VM will connect to the External switch $(Format-Switch $target)"
         }
-        Write-Ok "The VM will connect to the External switch $(Format-Switch $named[0])"
-        return @{ Name = [string]$named[0].Name; Create = $false; AdapterName = $null }
+        else {
+            # Spec 8.2 step 3: the admin may choose any switch explicitly.
+            $isDefault = Test-DefaultSwitch $target
+            $type = [string]$target.SwitchType
+            if ($isDefault) { $kind = 'the Default Switch (NAT)' }
+            elseif ($type -eq 'Internal') { $kind = 'an Internal switch' }
+            elseif ($type -eq 'Private') { $kind = 'a Private switch' }
+            else { $kind = "a $type switch" }
+            Write-Warn "'$($target.Name)' is ${kind}: agents on your network will not reach the VM through it."
+            if ($isDefault) {
+                Write-Warn 'Its NAT address can change (after a host restart, for example), so agents set up with it may lose the server.'
+            }
+            Write-Ok "The VM will connect to '$($target.Name)', as -SwitchName asks"
+        }
+        return @{ Name = [string]$target.Name; Create = $false; AdapterName = $null }
     }
 
-    $adapters = @(Get-NetAdapter -Physical | Where-Object Status -eq 'Up')
-    $adapterLines = @(Get-AdapterLines $adapters)
-
-    if ($haveAdapterName) {
-        $match = @($adapters | Where-Object { [string]$_.Name -eq $NetAdapterName })
-        if ($match.Count -eq 0) {
-            if ($adapterLines.Count -eq 0) { $adapterLines = @('(none)') }
-            Stop-Import "No physical network adapter named '$NetAdapterName' is up. Physical adapters that are up:" $adapterLines
-        }
-        $adapter = $match[0]
-        # An adapter carries at most one External switch: reuse the one it has.
-        $bound = @($external | Where-Object { [string](Get-PropValue $_ 'NetAdapterInterfaceDescription') -eq [string]$adapter.InterfaceDescription })
-        if ($bound.Count -gt 0) {
-            Write-Ok "The VM will connect to the External switch $(Format-Switch $bound[0]) (already on '$($adapter.Name)'; nothing to create)"
-            return @{ Name = [string]$bound[0].Name; Create = $false; AdapterName = $null }
-        }
-        return Confirm-NewSwitch $adapter $all
-    }
-
-    if ($external.Count -eq 1) {
+    if (-not $haveAdapterName -and $external.Count -eq 1) {
         Write-Info "External switch on this host: $(Format-Switch $external[0])"
         if (-not $Yes) {
-            $answer = ([string](Read-Host "Connect the VM to '$($external[0].Name)'? [Y/n]")).Trim()
-            if ($answer -notmatch '^(|y|yes|s|si)$') {
+            # Spanish keyboards answer "si" with an accent; Get-FoldedName drops it.
+            $answer = Get-FoldedName (Read-Host "Connect the VM to '$($external[0].Name)'? [Y/n]")
+            if (@('', 'Y', 'YES', 'S', 'SI') -notcontains $answer) {
                 Stop-Import 'Nothing was changed.' @(
                     'Pick a switch with -SwitchName <name>, or create one on an adapter with -NetAdapterName <name>.'
                 )
@@ -780,7 +886,7 @@ function Resolve-VmSwitch {
         Write-Ok "The VM will connect to the External switch $(Format-Switch $external[0])"
         return @{ Name = [string]$external[0].Name; Create = $false; AdapterName = $null }
     }
-    if ($external.Count -gt 1) {
+    if (-not $haveAdapterName -and $external.Count -gt 1) {
         Write-Info 'External switches on this host:'
         $i = 0
         foreach ($s in $external) { $i++; Write-Info "    $i) $(Format-Switch $s)" }
@@ -790,9 +896,50 @@ function Resolve-VmSwitch {
         return @{ Name = [string]$pick.Name; Create = $false; AdapterName = $null }
     }
 
+    # A new switch (or one already on -NetAdapterName): physical adapters that
+    # are up, and the ones of those that can carry a switch.
+    $up = @(Get-NetAdapter -Physical | Where-Object Status -eq 'Up')
+    $adapters = @($up | Where-Object { Test-SwitchableAdapter $_ })
+    $cannot = @($up | Where-Object { -not (Test-SwitchableAdapter $_) })
+    $script:Sessions = @(Get-SessionAdapters)
+    $adapterLines = @(Get-AdapterLines $adapters)
+    $cannotText = (@($cannot | ForEach-Object { "'$($_.Name)'" }) -join ', ')
+
+    if ($haveAdapterName) {
+        $match = @($up | Where-Object { [string]$_.Name -eq $NetAdapterName })
+        if ($match.Count -eq 0) {
+            $match = @($up | Where-Object { Test-SameFoldedName ([string]$_.Name) $NetAdapterName })
+            if ($match.Count -gt 1) {
+                Stop-Import "-NetAdapterName '$NetAdapterName' matches more than one adapter once accents are ignored. Use the exact name:" @(
+                    $match | ForEach-Object { "    $(ConvertTo-Literal ([string]$_.Name))" })
+            }
+        }
+        if ($match.Count -eq 0) {
+            $list = $adapterLines
+            if ($list.Count -eq 0) { $list = @('(none)') }
+            Stop-Import "No physical network adapter named '$NetAdapterName' is up. Physical adapters that are up:" $list
+        }
+        $adapter = $match[0]
+        if (-not (Test-SwitchableAdapter $adapter)) {
+            Stop-Import "'$($adapter.Name)' is a wireless WAN or Bluetooth adapter: it cannot carry a virtual switch. Nothing was changed." @(
+                'Pick a wired adapter (or Wi-Fi) with -NetAdapterName.'
+            )
+        }
+        # An adapter carries at most one External switch: reuse the one it has.
+        $bound = @($external | Where-Object { [string](Get-PropValue $_ 'NetAdapterInterfaceDescription') -eq [string]$adapter.InterfaceDescription })
+        if ($bound.Count -gt 0) {
+            Write-Ok "The VM will connect to the External switch $(Format-Switch $bound[0]) (already on '$($adapter.Name)'; nothing to create)"
+            return @{ Name = [string]$bound[0].Name; Create = $false; AdapterName = $null }
+        }
+        return Confirm-NewSwitch $adapter $all
+    }
+
     # No External switch yet: create one on a physical adapter.
     if (@($all | Where-Object { Test-DefaultSwitch $_ }).Count -gt 0) {
         Write-Info 'The Default Switch is not used: it is NAT, and agents on your network could not reach the VM through it.'
+    }
+    if ($cannot.Count -gt 0) {
+        Write-Info "Not offered, because they cannot carry a virtual switch (wireless WAN, Bluetooth): $cannotText"
     }
     if ($adapters.Count -eq 0) {
         Stop-Import 'There is no External switch, and no physical network adapter is up to create one on. Nothing was changed.' @(
