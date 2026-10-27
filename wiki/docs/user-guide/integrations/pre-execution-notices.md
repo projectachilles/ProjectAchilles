@@ -71,6 +71,10 @@ The **finished email** is sent once the window is over and every task has ended.
 
 When an EDR is connected and a test was cut off by the watchdog (the agent went offline or timed out), the finished email waits up to 15 minutes for the EDR sync to confirm whether the EDR killed the agent. A confirmed kill is reported as **Protected** (the email names the EDR vendor). Without confirmation the run counts as **Not run** in the email, because every task that did not complete does. The latest attempt decides: if a retry exists, its outcome is the one reported.
 
+:::note[SentinelOne with a long polling interval]
+The kill is confirmed after an EDR poll. Microsoft Defender and CrowdStrike poll alerts every 5 minutes. If SentinelOne is your only EDR and its polling interval is above about 8 minutes, the confirmation may not arrive within the 15-minute wait. The email then says **Not run**, while Analytics shows the run as **Protected** once the next poll confirms the kill.
+:::
+
 ## What the Tasks page shows
 
 | Badge | Meaning |
