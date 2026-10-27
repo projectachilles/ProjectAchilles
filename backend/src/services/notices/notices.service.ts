@@ -26,7 +26,7 @@ import { resolveUserLabel } from './userLabel.js';
 import { getTestMetadata } from '../agent/test-catalog.service.js';
 import { fetchEdrDocs } from '../outcomes/edr.js';
 import { cellVerdict, controlsOf, edrTerminatedReason, edrTerminatedVerdict, resultDocIds } from '../outcomes/verdict.js';
-import { isAnyEdrConfigured } from '../edr/agent-kill-reconcile.service.js';
+import { isAnyEdrConfigured } from '../edr/edr-configured.js';
 import type { NoticeRow, NoticeScope, NoticeSourceType, NoticeState } from './types.js';
 import type { TaskPayload, TaskResult, TaskStatus } from '../../types/agent.js';
 import type { EdrVendorKey } from '../edr/agent-kill-evidence.js';

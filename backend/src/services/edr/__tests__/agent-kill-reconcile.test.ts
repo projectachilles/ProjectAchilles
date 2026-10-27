@@ -20,16 +20,24 @@ const mockPutMapping = vi.fn();
 const esClient = { msearch: mockMsearch, bulk: mockBulk, index: mockIndex, indices: { putMapping: mockPutMapping } };
 
 let esConfigured = true;
+let writeIndexRollover = 'none';
 vi.mock('../../analytics/settings.js', () => ({
   SettingsService: class {
     getSettings = () => ({
       configured: esConfigured, indexPattern: 'achilles-results-*',
-      writeIndexPrefix: 'achilles-results-sb', writeIndexRollover: 'none',
+      writeIndexPrefix: 'achilles-results-sb-', writeIndexRollover,
     });
     isConfigured = () => esConfigured;
   },
 }));
 vi.mock('../../analytics/client.js', () => ({ createEsClient: () => esClient }));
+
+// Dated rollover auto-creates the day's index; record it instead.
+const mockCreateResultsIndex = vi.fn();
+vi.mock('../../analytics/index-management.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../analytics/index-management.service.js')>()),
+  createResultsIndex: (...args: unknown[]) => mockCreateResultsIndex(...args),
+}));
 
 const mockResolveTestNames = vi.fn();
 vi.mock('../../analytics/test-name-lookup.js', () => ({
@@ -50,7 +58,7 @@ vi.mock('../../integrations/settings.js', () => ({
   },
 }));
 
-const { EdrAgentKillReconciler, runAgentKillReconciliation, isAnyEdrConfigured } = await import('../agent-kill-reconcile.service.js');
+const { EdrAgentKillReconciler, runAgentKillReconciliation, resetAgentKillLookback } = await import('../agent-kill-reconcile.service.js');
 const { resetClient } = await import('../../agent/results.service.js');
 
 // ── Fixtures (sb.gob.do, Oct 26 2026: LockBit 3.0 batch a75d8c3e) ──
@@ -117,12 +125,14 @@ function reconciler(): InstanceType<typeof EdrAgentKillReconciler> {
 beforeEach(() => {
   vi.clearAllMocks();
   resetClient();
+  resetAgentKillLookback();
   testDb = createTestDatabase();
   insertTestAgent(testDb, { id: 'agent-4862', hostname: 'SBL4862', os: 'windows' });
   insertTestAgent(testDb, { id: 'agent-3938', hostname: 'SBL3938', os: 'windows' });
   alertStore = {};
   indexErrors = {};
   esConfigured = true;
+  writeIndexRollover = 'none';
   edrConfigured = { defender: true, crowdstrike: true, sentinelone: true };
   mockCatalog = new Map();
   // Fake msearch: every sub-search gets all alerts of its index, so the code's
@@ -383,7 +393,30 @@ describe('EdrAgentKillReconciler.runPass', () => {
     const t = taskRow('8089b475').result.edr_terminated;
     expect(t?.vendors).toEqual(['sentinelone', 'defender']);
     expect(t?.alert_ids).toEqual(['s1-threat-4862', 'mde-early']);
-    expect(t?.killed_at).toBe('2026-10-26T16:06:20.000Z');
+    expect(t?.killed_at).toBe('2026-10-26T16:06:32.719Z');
+  });
+
+  it('a vendor-add rewrite keeps killed_at, so a dated index never gets a second doc', async () => {
+    writeIndexRollover = 'daily';
+    addKilledTask('midnight', 'agent-4862', '2026-10-25 23:58:00', '2026-10-26 00:05:00');
+    alertStore[S1] = [s1Threat('s1-after-midnight', 'SBL4862', '2026-10-26T00:00:30.000Z')];
+    await reconciler().runPass({ now: NOW });
+    // Defender's alert syncs later but is dated the day before.
+    alertStore[DEFENDER] = [s1Threat('mde-before-midnight', 'SBL4862', '2026-10-25T23:59:30.000Z')];
+
+    const later = await reconciler().runPass({ now: NOW });
+
+    expect(later.vendorsAdded).toBe(1);
+    expect(mockIndex).toHaveBeenCalledTimes(2);
+    const [first, second] = mockIndex.mock.calls.map((c) => c[0]);
+    expect(first.index).toBe('achilles-results-sb-2026.10.26');
+    expect(second.index).toBe(first.index);
+    expect(second.id).toBe(first.id);
+    expect(second.document.routing.event_time).toBe('2026-10-26T00:00:30.000Z');
+    expect(second.document.f0rtika.edr_terminated_vendors).toEqual(['sentinelone', 'defender']);
+    expect(second.document.f0rtika.edr_terminated_alert_ids).toEqual(['s1-after-midnight', 'mde-before-midnight']);
+    expect(taskRow('midnight').result.edr_terminated?.killed_at).toBe('2026-10-26T00:00:30.000Z');
+    expect(mockCreateResultsIndex.mock.calls.map((c) => c[0])).not.toContain('achilles-results-sb-2026.10.25');
   });
 
   it('skips a task whose agent has no hostname', async () => {
@@ -593,6 +626,53 @@ describe('runAgentKillReconciliation', () => {
     expect(mockResolveTestNames.mock.calls[0][1]).toBe('achilles-results-*');
   });
 
+  it('looks back 30 days on the first pass and 2 days after that', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    addKilledTask('oct06', 'agent-4862', '2026-10-06 16:06:05', '2026-10-06 16:12:59');
+    alertStore[S1] = [s1Threat('threat-oct06', 'SBL4862', '2026-10-06T16:06:32.000Z')];
+
+    const first = await runAgentKillReconciliation();
+
+    expect(first).toEqual({ candidates: 1, reconciled: 1, vendorsAdded: 0, errors: [] });
+
+    addKilledTask('oct07', 'agent-3938', '2026-10-07 16:06:05', '2026-10-07 16:12:59');
+    addKilledTask('oct25', 'agent-3938', '2026-10-25 16:06:05', '2026-10-25 16:12:59');
+    alertStore[S1].push(
+      s1Threat('threat-oct07', 'SBL3938', '2026-10-07T16:06:32.000Z'),
+      s1Threat('threat-oct25', 'SBL3938', '2026-10-25T16:06:32.000Z'),
+    );
+
+    const second = await runAgentKillReconciliation();
+
+    expect(second).toEqual({ candidates: 1, reconciled: 1, vendorsAdded: 0, errors: [] });
+    expect(taskRow('oct25').result.edr_terminated?.alert_ids).toEqual(['threat-oct25']);
+    expect(taskRow('oct07').result.edr_terminated).toBeUndefined();
+  });
+
+  it('keeps the 30-day lookback until a pass runs cleanly with an EDR configured', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    addKilledTask('oct06', 'agent-4862', '2026-10-06 16:06:05', '2026-10-06 16:12:59');
+    alertStore[S1] = [s1Threat('threat-oct06', 'SBL4862', '2026-10-06T16:06:32.000Z')];
+
+    esConfigured = false;
+    await runAgentKillReconciliation();
+    esConfigured = true;
+    edrConfigured = { defender: false, crowdstrike: false, sentinelone: false };
+    await runAgentKillReconciliation();
+    edrConfigured = { defender: false, crowdstrike: false, sentinelone: true };
+    mockMsearch.mockRejectedValueOnce(new Error('es down'));
+    await runAgentKillReconciliation();
+
+    const result = await runAgentKillReconciliation();
+
+    expect(result).toEqual({ candidates: 1, reconciled: 1, vendorsAdded: 0, errors: [] });
+  });
+
   it('runs exactly one trailing pass for calls made while a pass is in flight', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(NOW);
@@ -634,14 +714,5 @@ describe('server.ts 5-minute alert loops', () => {
       expect(enrichment).toBeGreaterThan(-1);
       expect(src.slice(enrichment, autoResolve)).toContain('await runAgentKillReconciliation();');
     }
-  });
-});
-
-describe('isAnyEdrConfigured', () => {
-  it('is true when any one EDR is configured', () => {
-    edrConfigured = { defender: false, crowdstrike: false, sentinelone: false };
-    expect(isAnyEdrConfigured()).toBe(false);
-    edrConfigured = { defender: false, crowdstrike: true, sentinelone: false };
-    expect(isAnyEdrConfigured()).toBe(true);
   });
 });

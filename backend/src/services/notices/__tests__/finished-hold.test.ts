@@ -27,7 +27,7 @@ const { mockSendMail, edrOn } = vi.hoisted(() => ({
   edrOn: { value: true },
 }));
 vi.mock('../../outcomes/edr.js', () => ({ fetchEdrDocs: async () => ({ status: 'not_configured', docs: new Map() }) }));
-vi.mock('../../edr/agent-kill-reconcile.service.js', () => ({ isAnyEdrConfigured: () => edrOn.value }));
+vi.mock('../../edr/edr-configured.js', () => ({ isAnyEdrConfigured: () => edrOn.value }));
 vi.mock('../../alerts/email.service.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../alerts/email.service.js')>()),
   sendMail: mockSendMail,

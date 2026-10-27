@@ -13,14 +13,12 @@ import type { Client, estypes } from '@elastic/elasticsearch';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { resolveTestNames } from '../analytics/test-name-lookup.js';
-import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { getTestMetadata } from '../agent/test-catalog.service.js';
 import { listAgentKillCandidates, recordEdrTermination } from '../agent/tasks.service.js';
 import type { AgentKillCandidateRow } from '../agent/tasks.service.js';
 import { ingestEdrTerminatedResult } from '../agent/results.service.js';
-import { DEFENDER_INDEX } from '../defender/index-management.js';
-import { CROWDSTRIKE_INDEX } from '../crowdstrike/index-management.js';
-import { SENTINELONE_INDEX } from '../sentinelone/index-management.js';
+import { VENDOR_INDICES, configuredVendorIndices, isAnyEdrConfigured } from './edr-configured.js';
+import type { VendorIndex } from './edr-configured.js';
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS, ACHILLES_MITIGATED_QUERY } from '../shared/achillesMitigation.js';
 import {
   KILL_PREVENTION_ACTIONS,
@@ -34,7 +32,10 @@ import type { AgentKillPassResult } from '../../types/agent-kill.js';
 
 export type { AgentKillPassResult };
 
+/** Lookback of a process's first full pass: covers kills from before a restart or deploy. */
 const DEFAULT_LOOKBACK_DAYS = 30;
+/** Lookback of every later pass; vendor alerts sync within minutes, so 2 days is ample. */
+const RECENT_LOOKBACK_DAYS = 2;
 const DAY_MS = 24 * 60 * 60 * 1000;
 /**
  * How long after the agent's next pickup an alert still counts for the dead
@@ -46,13 +47,6 @@ const ALERT_HITS_PER_SEARCH = 50;
 /** Candidates per msearch (one sub-search per configured vendor each). */
 const CANDIDATES_PER_MSEARCH = 50;
 
-interface VendorIndex { vendor: EdrVendorKey; index: string }
-
-const VENDOR_INDICES: ReadonlyArray<VendorIndex> = [
-  { vendor: 'defender', index: DEFENDER_INDEX },
-  { vendor: 'crowdstrike', index: CROWDSTRIKE_INDEX },
-  { vendor: 'sentinelone', index: SENTINELONE_INDEX },
-];
 const INDEX_OF_VENDOR = new Map(VENDOR_INDICES.map((v) => [v.vendor, v.index]));
 
 const ALERT_SOURCE_FIELDS = [
@@ -158,28 +152,19 @@ function isMissingIndex(error: estypes.ErrorCause): boolean {
  * Add the proof found on this pass to an earlier termination. What was
  * recorded stays, in its order, even when its alert has since left the index
  * (S1 drops items that stop passing its filters); new vendors and alerts are
- * appended in earliest-alert order. The bundle decision is reused as stored.
+ * appended in earliest-alert order. `killed_at` stays as recorded even when
+ * the new vendor alerted earlier: it is the doc's event time and picks its
+ * dated write index, so moving it could leave a second doc in another index.
+ * The bundle decision is reused as stored.
  */
 function mergeTermination(prev: EdrTermination, fresh: EdrTermination): EdrTermination {
-  const killedAt = parseSqliteUtc(fresh.killed_at) < parseSqliteUtc(prev.killed_at) ? fresh.killed_at : prev.killed_at;
   return {
     vendors: [...prev.vendors, ...fresh.vendors.filter((v) => !prev.vendors.includes(v))],
     alert_ids: [...prev.alert_ids, ...fresh.alert_ids.filter((id) => !prev.alert_ids.includes(id))],
-    killed_at: killedAt,
+    killed_at: prev.killed_at,
     reconciled_at: fresh.reconciled_at,
     ...(prev.bundle_name ? { bundle_name: prev.bundle_name } : {}),
   };
-}
-
-/** Alert indices of the EDR integrations configured right now. */
-function configuredVendorIndices(): VendorIndex[] {
-  const s = new IntegrationsSettingsService();
-  const on: Record<EdrVendorKey, boolean> = {
-    defender: s.isDefenderConfigured(),
-    crowdstrike: s.isCrowdStrikeConfigured(),
-    sentinelone: s.isSentinelOneConfigured(),
-  };
-  return VENDOR_INDICES.filter((v) => on[v.vendor]);
 }
 
 export class EdrAgentKillReconciler {
@@ -382,11 +367,6 @@ export class EdrAgentKillReconciler {
   }
 }
 
-/** True when any EDR integration (Defender, CrowdStrike, SentinelOne) is configured. */
-export function isAnyEdrConfigured(): boolean {
-  return configuredVendorIndices().length > 0;
-}
-
 /** What a vendor sync records when the pass could not run at all. */
 export function failedAgentKillPass(err: unknown): AgentKillPassResult {
   return emptyResult([errMsg(err)]);
@@ -394,6 +374,13 @@ export function failedAgentKillPass(err: unknown): AgentKillPassResult {
 
 let current: Promise<AgentKillPassResult> | null = null;
 let trailing: Promise<AgentKillPassResult> | null = null;
+/** Set once this process has run a clean 30-day pass with an EDR configured. */
+let fullLookbackDone = false;
+
+/** Test hook: forget that the first full-lookback pass ran. */
+export function resetAgentKillLookback(): void {
+  fullLookbackDone = false;
+}
 
 /**
  * Run one reconciliation pass with the analytics ES client. Never throws:
@@ -425,7 +412,12 @@ async function runOnce(): Promise<AgentKillPassResult> {
     const settings = new SettingsService().getSettings();
     if (!settings.configured) return emptyResult(['Elasticsearch is not configured']);
     const reconciler = new EdrAgentKillReconciler(createEsClient(settings), settings.indexPattern);
-    const result = await reconciler.runPass();
+    // The first pass per process looks back 30 days (kills from before a
+    // restart or deploy); later passes only 2. A pass that hit errors, or had
+    // no EDR to search, doesn't count, so the next one still looks back 30.
+    const lookbackDays = fullLookbackDone ? RECENT_LOOKBACK_DAYS : DEFAULT_LOOKBACK_DAYS;
+    const result = await reconciler.runPass({ lookbackDays });
+    if (result.errors.length === 0 && isAnyEdrConfigured()) fullLookbackDone = true;
     if (result.reconciled || result.vendorsAdded || result.errors.length) {
       console.log(
         `[EDR-AgentKill] candidates=${result.candidates} reconciled=${result.reconciled} ` +
