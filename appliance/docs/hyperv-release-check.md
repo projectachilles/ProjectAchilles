@@ -21,16 +21,24 @@ result. Record the outcome in the results table at the end.
   console.
 
 Ownership of credentials: in C1 the user chooses the appliance admin password
-and hands it to the controller in chat at that moment. The controller keeps it
-only in its shell environment and uses it through `sshpass -e` (the
-`SSHPASS` variable) and `sudo -S` fed from the same variable:
+and hands it to the controller at that moment; use the **same password on
+every VM** of the run (one `SSHPASS` serves VM1-VM3), or re-export it per VM.
+The controller keeps it only in its shell environment and uses it through
+`sshpass -e` (the `SSHPASS` variable) and `sudo -S` fed from the same
+variable. A person at a terminal reads it without echo, so it stays out of the
+shell history; an automated controller gets it in its chat, which is then in
+that transcript: lab throwaways only, and change them (and rotate the Clerk
+development secret key) after the run.
 
 ```bash
-export SSHPASS='<password the user chose>'          # never written to a file
+read -rs SSHPASS && export SSHPASS                  # never written to a file
+KNOWN="$PWD/known_hosts.release-check"              # host keys checked in H5 only
 # Both take the VM's address, then ONE remote command as ONE quoted string.
-vmssh()  { sshpass -e ssh -o StrictHostKeyChecking=accept-new achilles@"$1" "$2"; }
-vmsudo() { sshpass -e ssh -o StrictHostKeyChecking=accept-new achilles@"$1" "sudo -S -p '' sh -c $(printf %q "$2")" <<<"$SSHPASS"; }
+vmssh()  { sshpass -e ssh -o UserKnownHostsFile="$KNOWN" -o StrictHostKeyChecking=yes achilles@"$1" "$2"; }
+vmsudo() { sshpass -e ssh -o UserKnownHostsFile="$KNOWN" -o StrictHostKeyChecking=yes achilles@"$1" "sudo -S -p '' sh -c $(printf %q "$2")" <<<"$SSHPASS"; }
 ```
+
+Both refuse a VM whose key H5 hasn't checked and added to `$KNOWN`.
 
 Convention: the address is the first argument (`vmssh "$VM1_IP" '...'`), the
 remote command is **one** single-quoted string (so `stat -c "%a %n" /x` reaches
@@ -117,7 +125,7 @@ $os = Get-CimInstance Win32_OperatingSystem
 "$($os.Caption) build $($os.BuildNumber) $($os.OSArchitecture)"
 $PSVersionTable.PSVersion.ToString()
 (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-(Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All).State
+(Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V).State
 (Get-Service ClusSvc -ErrorAction SilentlyContinue).Status
 $vh = (Get-VMHost).VirtualHardDiskPath; $vh
 (Get-PSDrive -Name $vh.Substring(0,1)).Free / 1GB
@@ -271,15 +279,18 @@ console's handoff screen (C1). Compare **before** trusting the host key, with
 no login:
 
 ```bash
-ssh-keyscan -t ed25519 "$VM_IP" 2>/dev/null | ssh-keygen -lf -
+ssh-keyscan -t ed25519 "$VM_IP" 2>/dev/null > scanned.key
+ssh-keygen -lf scanned.key
 ```
 
 Expected: the printed `SHA256:...` equals the fingerprint from the console
 (record "match" or the two values in the results). If it differs, stop: do not
-connect. Only after it matches, connect non-interactively and accept the key:
+connect. Only after it matches, add **that** key (the one you just checked, not
+whatever a later connection offers) and connect:
 
 ```bash
-vmssh "$VM_IP" true     # uses -o StrictHostKeyChecking=accept-new; exits 0
+cat scanned.key >> "$KNOWN" && rm scanned.key
+vmssh "$VM_IP" true     # StrictHostKeyChecking=yes against $KNOWN; exits 0
 ```
 
 On the VM, check the image invariants (spec 15):
@@ -326,6 +337,7 @@ ADMIN_EMAIL=<user's email>
 ```bash
 vmssh "$VM_IP" 'umask 077; cat > /home/achilles/install.env' <<<"$CONFIG_TEXT"   # CONFIG_TEXT built in the controller's shell only
 vmsudo "$VM_IP" '/opt/projectachilles/achilles-installer install --repo /opt/projectachilles --config /home/achilles/install.env --yes' 2>&1 | tee install.log
+vmssh "$VM_IP" 'rm -f /home/achilles/install.env'      # holds the Clerk keys: remove it even if the install failed
 ```
 
 Expected: completes with no image build ("Using the pre-built images for
@@ -336,7 +348,6 @@ it holds anything sensitive (it should not). Then:
 ```bash
 vmsudo "$VM_IP" '/opt/projectachilles/achilles-installer status'
 vmssh "$VM_IP" "curl -sk --resolve achilles.lab.test:443:$VM_IP https://achilles.lab.test/api/health"
-vmssh "$VM_IP" 'rm -f /home/achilles/install.env'      # holds the Clerk keys
 ```
 
 Expected: all services healthy, `status` clean, health `ok`. Right after the
@@ -431,7 +442,9 @@ secret: copy it VM1 -> controller -> VM2 with `scp` (not a share), keep it only
 in the controller's scratch directory and delete it afterwards:
 
 ```bash
-sshpass -e scp achilles@$VM1_IP:/home/achilles/$F ./ && sshpass -e scp ./$F achilles@$VM2_IP:/home/achilles/
+S="-o UserKnownHostsFile=$KNOWN -o StrictHostKeyChecking=yes"
+sshpass -e scp $S achilles@$VM1_IP:/home/achilles/$F ./ && chmod 600 ./$F && sshpass -e scp $S ./$F achilles@$VM2_IP:/home/achilles/
+sha256sum ./$F && vmssh "$VM2_IP" "sha256sum /home/achilles/$F"    # same hash at every hop
 ```
 
 VM2 has **never run install** (spec 15: restore on a never-installed VM) and has
