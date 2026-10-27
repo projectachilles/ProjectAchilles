@@ -726,7 +726,11 @@ function TestStatic_EveryCommandIsMockedOrSafe {
     # .com/.bat/.cmd), a full path to one, or a bare name that resolves to an
     # application on this machine (netsh, sc, hostname, ...). Only an explicit
     # mock of that exact name lets one through.
-    $app = @(Get-Command -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1)
+    # The probe name must parse as a bare command: Git for Windows ships '[.exe',
+    # which parses as something else and made this check fail on CI.
+    $app = @(Get-Command -CommandType Application -ErrorAction SilentlyContinue |
+        Where-Object { [IO.Path]::GetFileNameWithoutExtension($_.Name) -match '^[A-Za-z][A-Za-z0-9_-]*$' } |
+        Select-Object -First 1)
     $bare = ''
     if ($app.Count -gt 0) { $bare = [IO.Path]::GetFileNameWithoutExtension($app[0].Name) }
     $probe = [System.Management.Automation.Language.Parser]::ParseInput(
