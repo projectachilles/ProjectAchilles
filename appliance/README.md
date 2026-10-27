@@ -112,3 +112,9 @@ gh workflow run appliance.yml -f full=true
 
 It installs, backs up and restores, and uploads the Hyper-V zip; a failure
 there would otherwise first show up on the release.
+
+## Release check on Hyper-V
+
+Before a release, run the manual check in [docs/hyperv-release-check.md](docs/hyperv-release-check.md):
+import with `windows/Import-Achilles.ps1`, first boot on a real console, the wizard, an
+agent, backup and restore, upgrade.
