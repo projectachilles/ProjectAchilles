@@ -22,3 +22,9 @@ func SecureConfigPermissions(path string) error {
 func SecureBinaryPermissions(path string) error {
 	return os.Chmod(path, 0700)
 }
+
+// SecureAgentDir is a no-op outside Windows: the work dir is created with
+// mode 0700, which Unix honours (Windows ignores mode bits, hence the ACLs).
+func SecureAgentDir(exePath, workDir string) error {
+	return nil
+}

@@ -115,6 +115,11 @@ func main() {
 	// Fixes permissions left by older applyUpdate() code in a single restart cycle.
 	if exe, err := os.Executable(); err == nil {
 		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+			// Lock the folder first: test binaries run as SYSTEM from the work
+			// dir inside it, and the updater stages new binaries in it.
+			if err := config.SecureAgentDir(resolved, cfg.WorkDir); err != nil {
+				log.Printf("warning: could not secure agent folder: %v", err)
+			}
 			if err := config.SecureBinaryPermissions(resolved); err != nil {
 				log.Printf("warning: could not secure binary permissions: %v", err)
 			}

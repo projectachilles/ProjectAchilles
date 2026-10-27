@@ -95,13 +95,13 @@ Key behaviors:
 - Implements the full SCM lifecycle (start, stop, interrogate)
 - Configures automatic restart on failure with exponential backoff
 - Uses Task Scheduler as a fallback restart mechanism after updates (see below)
-- Hardens the binary with `icacls` (SYSTEM + Administrators only, inherited permissions removed)
+- Hardens the binary with `icacls` (SYSTEM + Administrators only, inherited permissions removed). Every `icacls` call names well-known SIDs (`*S-1-5-18`, `*S-1-5-32-544`), never account names, which are localized (`BUILTIN\Administradores` on Spanish Windows)
 
 ```bash
 # What Install() does under the hood
 sc.exe create achilles-agent binPath= "C:\path\to\achilles-agent.exe --run" start= auto
 sc.exe failure achilles-agent reset= 86400 actions= restart/5000/restart/10000/restart/30000
-icacls "C:\path\to\achilles-agent.exe" /inheritance:r /grant:r "SYSTEM:(F)" "Administrators:(F)"
+icacls "C:\path\to\achilles-agent.exe" /inheritance:r /grant:r *S-1-5-18:(RX) /grant:r *S-1-5-32-544:(F)
 ```
 
 :::info
@@ -314,5 +314,7 @@ All platforms apply permission hardening during installation and after updates:
 | Platform | Binary Permissions | Config Permissions |
 |----------|-------------------|-------------------|
 | Windows | SYSTEM + Administrators full control via `icacls`, inherited permissions removed | SYSTEM + Administrators read/write via `icacls` |
+
+On Windows the agent also locks its folder at every startup (agent 0.7.1+), the same way `bootstrap-windows.ps1` does: owner Administrators, a protected DACL granting SYSTEM and Administrators full control and OWNER RIGHTS only read-control, inherited by everything inside, and the work dir reset to inherit it. A folder under `C:\` otherwise inherits *Modify* for every signed-in user, and test binaries run as SYSTEM from `C:\F0\tasks` after their hash check. It only does this in the standard layout (work dir directly inside the folder holding the binary, e.g. `C:\F0\tasks` next to `C:\F0\achilles-agent.exe`) and never on a junction or symbolic link; otherwise it logs a warning, and the folder should be locked with `bootstrap-windows.ps1` or a GPO.
 | Linux | `0700` (root execute only) | `0600` (root read/write only) |
 | macOS | `0700` (root execute only) | `0600` (root read/write only) |
