@@ -222,11 +222,37 @@ export type ExecutionOutcome = 'skipped' | 'protected' | 'prevented' | 'detected
  * (backend/src/services/reports/stageOutcome.ts); both are pinned by the same
  * golden table.
  */
+/** This stage's own detection flag (stage-level only, never the bundle-level `*_detected` fallback). */
+function stageOnlyDetected(exec: EnrichedTestExecution): boolean {
+  return Boolean(exec.defender_stage_detected || exec.crowdstrike_stage_detected || exec.sentinelone_stage_detected);
+}
+
+/** This stage was detected AND the EDR took a confirmed prevention action on it. */
+function stageOnlyPrevented(exec: EnrichedTestExecution): boolean {
+  return Boolean(
+    (exec.crowdstrike_stage_detected && isConfirmedPrevention(exec.crowdstrike_prevention_action)) ||
+    (exec.defender_stage_detected && isConfirmedPrevention(exec.defender_prevention_action)) ||
+    (exec.sentinelone_stage_detected && isConfirmedPrevention(exec.sentinelone_prevention_action)),
+  );
+}
+
 export function classifyExecution(exec: EnrichedTestExecution): ExecutionOutcome {
   if (isSkippedStage(exec)) return 'skipped';
   const result = getResultFromErrorCode(exec.error_code);
   if (result === 'protected') return 'protected';
-  if (result !== 'unprotected') return 'inconclusive';
+  if (result !== 'unprotected') {
+    // Error / non-conclusive code (e.g. 999, or a Falcon kill coerced to 999):
+    // an EDR may have blocked THIS stage. Credit it ONLY on this stage's own
+    // flag + confirmed action — never the bundle-level `*_detected`/`*_prevented`
+    // fallback, which a sibling stage can set. A missing code or exit 0 (ran to
+    // completion) never upgrades. No evidence ⇒ inconclusive, unchanged.
+    const code = exec.error_code;
+    if (code !== undefined && code !== null && code !== 0) {
+      if (stageOnlyPrevented(exec)) return 'prevented';
+      if (stageOnlyDetected(exec)) return 'detected';
+    }
+    return 'inconclusive';
+  }
   const csDetected = exec.crowdstrike_stage_detected ?? exec.crowdstrike_detected;
   const defDetected = exec.defender_stage_detected ?? exec.defender_detected;
   const s1Detected = exec.sentinelone_stage_detected ?? exec.sentinelone_detected;

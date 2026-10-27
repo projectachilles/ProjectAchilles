@@ -70,7 +70,7 @@ describe('stageVerdict', () => {
     expect(v.body).toBe('CrowdStrike reports it killed the process.');
   });
 
-  it('inconclusive, both detected, only CrowdStrike acted', () => {
+  it('error-coded stage both detected, only CrowdStrike acted → prevented', () => {
     const v = stageVerdict(
       mk({
         error_code: 999,
@@ -81,8 +81,9 @@ describe('stageVerdict', () => {
       }),
       [],
     );
-    expect(v.kind).toBe('inconclusive');
-    expect(v.body.endsWith('CrowdStrike reports it killed the process, which is the likely cause.')).toBe(true);
+    expect(v.kind).toBe('prevented');
+    expect(v.title).toBe('Ran, then an EDR stopped it.');
+    expect(v.body).toBe('CrowdStrike reports it killed the process.');
   });
 
   it('boolean-only prevention names the flagged vendor(s)', () => {
@@ -124,7 +125,7 @@ describe('stageVerdict', () => {
     });
   });
 
-  it('inconclusive with EDR prevention evidence', () => {
+  it('error-coded stage an EDR killed → prevented (not "Not scored")', () => {
     const v = stageVerdict(
       mk({
         error_code: 999,
@@ -134,8 +135,16 @@ describe('stageVerdict', () => {
       }),
       [],
     );
-    expect(v.kind).toBe('inconclusive');
-    expect(v.body.endsWith('CrowdStrike reports it killed the process, which is the likely cause.')).toBe(true);
+    expect(v.kind).toBe('prevented');
+    expect(v.body).toBe('CrowdStrike reports it killed the process.');
+  });
+
+  it('error-coded stage detected only (no confirmed action) → detected', () => {
+    const v = stageVerdict(
+      mk({ error_code: 999, error_name: 'Unexpected', crowdstrike_stage_detected: true, crowdstrike_prevention_action: 'kill_failed' }),
+      [],
+    );
+    expect(v.kind).toBe('detected');
   });
 
   it('skipped after a protected stage', () => {
