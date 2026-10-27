@@ -42,6 +42,7 @@ const stageBucket = (controlId: string, validator: string, name: string, tactic:
 function testsResponse() {
   return { aggregations: { tests: { buckets: [{
     key: BUNDLE, runs: { value: 1 }, endpoints: { value: 1 }, last_run: { value: T_RUN }, outcomes: agg({ protected: 1, unprotected: 1 }),
+    controls: { doc_count: 2 },
     meta: { hits: { hits: [{ _source: { f0rtika: {
       is_bundle_control: true, bundle_name: 'LockBit 3.0 Double Extortion Kill Chain', test_name: 'Impact',
       category: 'intel-driven', severity: 'critical', threat_actor: 'LockBit 3.0 (S1202)',

@@ -125,8 +125,10 @@ function sortByStage<T extends { validator: unknown; controlId: string | null }>
 export function parseTests(response: Agg): ReportTest[] {
   const tests: ReportTest[] = buckets(response?.aggregations?.tests).map((b) => {
     const testKey = String(b.key);
-    const meta = firstSource(b.meta);
-    const isBundle = getSourceField(meta, 'f0rtika.is_bundle_control') === true;
+    // A kill doc may be the newest doc; prefer the newest real one (testsRequest).
+    const realMeta = firstSource(b.real_meta?.meta);
+    const meta = Object.keys(realMeta).length > 0 ? realMeta : firstSource(b.meta);
+    const isBundle = (b.controls?.doc_count ?? 0) > 0;
     const outcomes = countsFromFiltersAgg(b.outcomes);
     const name = (isBundle ? str(getSourceField(meta, 'f0rtika.bundle_name')) : null)
       ?? str(getSourceField(meta, 'f0rtika.test_name'))

@@ -100,6 +100,7 @@ describe('parseTests', () => {
       },
       {
         key: BUNDLE, runs: { value: 5 }, endpoints: { value: 3 }, last_run: { value: T }, outcomes: agg({ protected: 2 }),
+        controls: { doc_count: 10 },
         meta: { hits: { hits: [{ _source: { f0rtika: { is_bundle_control: true, bundle_name: 'LockBit kill chain', test_name: 'Impact', severity: 'critical' } } }] } },
         stages: { buckets: [stage('T1486', 'Stage 5', 'Impact'), stage('T1003.001', 'Stage 2', 'Credential access')] },
       },
@@ -215,7 +216,8 @@ describe('stageSortKey', () => {
 
 describe('parseRuns for an EDR-killed run', () => {
   const killRes = (extra: Record<string, unknown> = {}) => ({ aggregations: { runs: { buckets: [{
-    key: `bundle::${BUNDLE}::WS-FIN-014::${T}`, doc_count: 1, completed: { value: T },
+    // RUN_GROUP_KEY_SCRIPT: a kill doc has no is_bundle_control, so its run key is standalone::
+    key: `standalone::${BUNDLE}::WS-FIN-014::${T}`, doc_count: 1, completed: { value: T },
     members: { hits: { hits: [{
       _id: TASK,
       _source: {
@@ -233,10 +235,46 @@ describe('parseRuns for an EDR-killed run', () => {
   it('carries the vendors and alert ids so the report can print the note', () => {
     const [run] = parseRuns(killRes());
     expect(run.agentTerminated).toEqual({ vendors: ['sentinelone'], alertIds: ['s1-1'] });
+    expect([run.testKey, run.testName]).toEqual([BUNDLE, 'LockBit kill chain']);
   });
 
   it('leaves agentTerminated off an ordinary run', () => {
     const [run] = parseRuns(killRes({ edr_terminated: false }));
     expect(run).not.toHaveProperty('agentTerminated');
+  });
+});
+
+describe('parseTests for a bundle whose newest doc is a kill doc', () => {
+  const killMeta = { hits: { hits: [{ _source: { f0rtika: {
+    bundle_id: BUNDLE, bundle_name: 'LockBit kill chain', test_name: 'LockBit 3.0', category: 'intel-driven',
+    is_protected: true, edr_terminated: true, stages_unknown: true, techniques: ['T1486', 'T1003.001'],
+  } } }] } };
+  const controlMeta = { hits: { hits: [{ _source: { f0rtika: {
+    is_bundle_control: true, bundle_id: BUNDLE, bundle_name: 'LockBit kill chain', test_name: 'Impact',
+    category: 'intel-driven', severity: 'critical',
+  } } }] } };
+  const stage = (controlId: string, validator: string) => ({
+    key: controlId, outcomes: agg({ unprotected: 1 }),
+    meta: { hits: { hits: [{ _source: { f0rtika: { test_name: `${validator} doc`, control_validator: validator, techniques: [controlId] } } }] } },
+  });
+  const bucket = (extra: Record<string, unknown>) => ({
+    key: BUNDLE, runs: { value: 2 }, endpoints: { value: 1 }, last_run: { value: T }, outcomes: agg({ protected: 1, unprotected: 2 }),
+    meta: killMeta,
+    stages: { buckets: [stage('T1486', 'Stage 2'), stage('T1003.001', 'Stage 1')] },
+    ...extra,
+  });
+
+  it('stays a bundle with its real stages', () => {
+    const [t] = parseTests({ aggregations: { tests: { buckets: [bucket({ controls: { doc_count: 2 }, real_meta: { doc_count: 2, meta: controlMeta } })] } } });
+    expect([t.isBundle, t.name, t.severity]).toEqual([true, 'LockBit kill chain', 'critical']);
+    expect(t.stages.map((s) => s.controlId)).toEqual(['T1003.001', 'T1486']);
+  });
+
+  it('a test with only kill docs is shown whole, from the kill doc', () => {
+    const [t] = parseTests({ aggregations: { tests: { buckets: [bucket({
+      controls: { doc_count: 0 }, real_meta: { doc_count: 0, meta: { hits: { hits: [] } } }, stages: { buckets: [] },
+    })] } } });
+    expect([t.isBundle, t.name, t.category]).toEqual([false, 'LockBit 3.0', 'intel-driven']);
+    expect(t.stages).toHaveLength(1);
   });
 });

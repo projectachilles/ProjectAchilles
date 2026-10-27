@@ -80,6 +80,7 @@ export function scopeRequest(filters: unknown[]): Body {
 
 /** Q2: one bucket per test (bundle or standalone) with per-stage breakdowns. */
 export function testsRequest(filters: unknown[]): Body {
+  const meta = { top_hits: { size: 1, sort: [{ 'routing.event_time': { order: 'desc' } }], _source: SOURCE_FIELDS } };
   return {
     size: 0,
     query: scopeQuery(filters),
@@ -91,7 +92,12 @@ export function testsRequest(filters: unknown[]): Body {
           endpoints: { cardinality: { field: 'routing.hostname' } },
           last_run: { max: { field: 'routing.event_time' } },
           outcomes: outcomes(),
-          meta: { top_hits: { size: 1, sort: [{ 'routing.event_time': { order: 'desc' } }], _source: SOURCE_FIELDS } },
+          meta,
+          // A bundle's newest doc can be a kill doc (no is_bundle_control,
+          // stages unknown): bundle-ness comes from its control docs, and the
+          // metadata from the newest real doc when there is one.
+          controls: { filter: { term: { 'f0rtika.is_bundle_control': true } } },
+          real_meta: { filter: NOT_EDR_TERMINATED, aggs: { meta } },
           stages: {
             terms: { field: 'f0rtika.control_id', size: STAGES_PER_TEST },
             aggs: {
