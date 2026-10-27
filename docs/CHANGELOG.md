@@ -11,6 +11,17 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-10-27
+
+### Added
+- **Windows Hyper-V appliance — a new deployment target.** A prebuilt, sealed Ubuntu VM image (Packer-built, boot-tested in CI) that boots to a console wizard — keyboard, admin password, network — via `achilles-installer firstboot`, with a login menu, console banner, and root-filesystem auto-grow. `Import-Achilles.ps1` verifies the download against its published checksum and imports, creates and starts the VM on a Hyper-V host. Each release's image is published to Cloudflare R2, with `appliance-SHA256SUMS` and `Import-Achilles.ps1` attached to the GitHub release. User guide: Deployment → Appliance.
+- **EDR-killed agent runs count as protected.** When a connected EDR terminates a test mid-execution, that run is recorded as a whole-test Protected result (reconciled after each EDR sync), scored in its bundle pair and chain depth, kept out of technique-coverage views, shown in the UI as protected with stages unknown, and reflected in campaigns and Finished emails. Implemented across the backend, analytics, frontend, reports, and the serverless fork.
+
+### Fixed
+- **Analytics were empty on a fresh install.** The results index is now created with its field mapping, so aggregations (defense scores, heatmaps, treemaps) work on a brand-new deployment. (#605)
+- **A stage an EDR blocked with an error code** is credited as prevented/detected rather than counted as an error. (#606)
+- Numerous appliance and installer robustness fixes: sealed-image verification fails closed, first-boot draws reliably on tty1 and recovers without DHCP, restore works onto a server that was never installed, and the image version is stamped from platform tags only.
+
 ## Agent [0.7.1] - 2026-10-27
 
 ### Security
@@ -796,7 +807,8 @@ Complete platform overhaul — custom agent system, multi-deployment support, Mi
 | Agent 0.6.0 | 2026-04-03 | First tagged agent binary release |
 | 1.0.0 | 2024-12-10 | Initial release |
 
-[Unreleased]: https://github.com/projectachilles/ProjectAchilles/compare/v2.6.1...HEAD
+[Unreleased]: https://github.com/projectachilles/ProjectAchilles/compare/v2.7.0...HEAD
+[2.7.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.6.1...v2.7.0
 [2.6.1]: https://github.com/projectachilles/ProjectAchilles/compare/v2.6.0...v2.6.1
 [2.6.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.4.0...v2.5.0
