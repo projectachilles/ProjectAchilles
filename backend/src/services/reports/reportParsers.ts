@@ -3,6 +3,7 @@
 
 import { classifyStage, countsFromFiltersAgg, getSourceField, isHighImpact, STAGE_OUTCOMES } from './stageOutcome.js';
 import { OTHER_LANE } from './reportQueries.js';
+import { EDR_VENDORS } from '../outcomes/vendors.js';
 import { techniqueInfo } from '../../data/attackTechniques.js';
 import { tacticName, tacticRank } from '../../data/attackTactics.js';
 import type {
@@ -242,6 +243,16 @@ export function parseRuns(response: Agg): ReportRun[] {
       ?? str(getSourceField(first, 'f0rtika.test_name'))
       ?? testKey;
 
+    // A kill doc stands alone (one doc, no stage fan-out), so the first member carries it.
+    const killed = getSourceField(first, 'f0rtika.edr_terminated') === true;
+    const agentTerminated: ReportRun['agentTerminated'] = killed
+      ? {
+          vendors: strArray(getSourceField(first, 'f0rtika.edr_terminated_vendors'))
+            .filter((v): v is NonNullable<ReportRun['agentTerminated']>['vendors'][number] => EDR_VENDORS.some((e) => e.key === v)),
+          alertIds: strArray(getSourceField(first, 'f0rtika.edr_terminated_alert_ids')),
+        }
+      : undefined;
+
     return {
       key,
       testKey,
@@ -254,6 +265,7 @@ export function parseRuns(response: Agg): ReportRun[] {
       moreStages: Math.max(0, (b.doc_count ?? hits.length) - hits.length),
       alerts: [],
       alertsChecked: false,
+      ...(agentTerminated && { agentTerminated }),
     };
   });
 }

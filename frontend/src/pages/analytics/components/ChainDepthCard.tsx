@@ -124,6 +124,7 @@ function ChainDepthCard({ data, loading, onRowClick }: ChainDepthCardProps) {
       </Frame>
     );
   }
+  const terminated = data.agentTerminated ?? 0;
   if (data.chains === 0 && data.inconclusive === 0 && (data.blockedBeforeRun ?? 0) === 0) {
     return (
       <Frame>
@@ -227,6 +228,12 @@ function ChainDepthCard({ data, loading, onRowClick }: ChainDepthCardProps) {
               </span>
             )}
           </div>
+          {terminated > 0 && (
+            <span title={(data.agentTerminatedBundleNames ?? []).join(', ') || undefined}>
+              {`Stopped by EDR, stage unknown: ${terminated}`}
+              {(data.agentTerminatedBundleNames ?? []).length > 0 && ` (${(data.agentTerminatedBundleNames ?? []).join(', ')})`}
+            </span>
+          )}
           {split
             ? (data.stageErrors ?? 0) > 0 && (
                 <span>{`${chainCount(data.stageErrors ?? 0)} with a stage error — not shown`}</span>

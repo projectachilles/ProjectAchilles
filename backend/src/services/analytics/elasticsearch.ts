@@ -2635,6 +2635,10 @@ export class ElasticsearchService {
       sentinelone_stage_detected: getField(source, 'f0rtika.sentinelone_stage_detected') ?? false,
       sentinelone_prevented: getField(source, 'f0rtika.sentinelone_prevented') ?? false,
       sentinelone_prevention_action: getField(source, 'f0rtika.sentinelone_prevention_action'),
+      edr_terminated: getField(source, 'f0rtika.edr_terminated') ?? false,
+      edr_terminated_vendors: getField(source, 'f0rtika.edr_terminated_vendors'),
+      edr_terminated_alert_ids: getField(source, 'f0rtika.edr_terminated_alert_ids'),
+      stages_unknown: getField(source, 'f0rtika.stages_unknown') ?? false,
     };
   }
 

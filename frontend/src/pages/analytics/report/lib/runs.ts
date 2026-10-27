@@ -1,6 +1,7 @@
 // Helpers over the report's runs, shared by the test pages, the execution log
 // and the run-strip appendix.
 import type { OutcomeCounts, ReportAlert, ReportRun, ReportRunStage, ReportStage, ReportTest } from '@/services/api/reports';
+import { agentKillNote, killVendorLabel } from '../../components/executions/stageVerdict';
 import { timeOf, truncate } from './format';
 import { emptyCounts } from './outcomes';
 
@@ -81,4 +82,9 @@ export function alertStageText(tests: ReportTest[], run: ReportRun, token: strin
   if (test && !test.isBundle) return '';
   const stage = stageForAlert(run, token, test?.stages);
   return stage ? `S${stage.order} ${truncate(resolveRunStage(tests, run, stage).name, STAGE_NAME_MAX)}` : 'bundle';
+}
+
+/** The note for a run the EDR killed the agent in (same copy as the console's run detail); null otherwise. */
+export function agentKillText(run: ReportRun): string | null {
+  return run.agentTerminated ? agentKillNote({ vendor: killVendorLabel(run.agentTerminated.vendors) }) : null;
 }

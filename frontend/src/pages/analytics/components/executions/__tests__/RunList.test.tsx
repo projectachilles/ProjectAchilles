@@ -39,3 +39,27 @@ describe('RunList selection', () => {
     expect(other.className).toContain('hover:bg-raised/60');
   });
 });
+
+describe('RunList EDR-killed runs', () => {
+  it('shows Protected with the agent-terminated sub-label', () => {
+    const killed: DisplayRow = {
+      type: 'standalone',
+      key: 'k',
+      execution: {
+  test_uuid: 'u1', test_name: 'LockBit kill chain', hostname: 'SBL8801', is_protected: true, org: 'o',
+  timestamp: '2026-10-12T12:47:49Z', error_code: 126, error_name: 'ExecutionPrevented',
+  bundle_id: 'b1', bundle_name: 'LockBit kill chain', is_bundle_control: false,
+  edr_terminated: true, edr_terminated_vendors: ['sentinelone', 'defender'],
+  edr_terminated_alert_ids: ['s1-alert-1', 'mde-9'], stages_unknown: true,
+} as EnrichedTestExecution,
+    };
+    render(<RunList rows={[killed]} selectedKey={null} onSelect={vi.fn()} checkedKeys={null} onToggleChecked={vi.fn()} />);
+    expect(screen.getByText('Protected')).toBeInTheDocument();
+    expect(screen.getByText('Stopped by SentinelOne and Defender \u2014 agent terminated')).toBeInTheDocument();
+  });
+
+  it('shows no sub-label on an ordinary row', () => {
+    render(<RunList rows={rows} selectedKey={null} onSelect={vi.fn()} checkedKeys={null} onToggleChecked={vi.fn()} />);
+    expect(screen.queryByText(/agent terminated/)).not.toBeInTheDocument();
+  });
+});

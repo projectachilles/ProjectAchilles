@@ -188,6 +188,13 @@ export interface EnrichedTestExecution extends TestExecution {
   sentinelone_stage_detected?: boolean;
   sentinelone_prevented?: boolean;
   sentinelone_prevention_action?: string;
+  /** The EDR killed the Achilles agent mid-run; the run is protected as a whole and its stages are unknown. */
+  edr_terminated?: boolean;
+  /** Vendors that killed the agent, earliest first ('defender' | 'crowdstrike' | 'sentinelone'). */
+  edr_terminated_vendors?: string[];
+  /** Alert ids that are the evidence for the kill. */
+  edr_terminated_alert_ids?: string[];
+  stages_unknown?: boolean;
 }
 
 // Pagination support

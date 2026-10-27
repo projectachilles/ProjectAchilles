@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stageVerdict, stageOutcomeCounts, stageVendors } from '../stageVerdict';
+import { agentKill, agentKillNote, agentKillSubLabel, stageKind, stageVerdict, stageOutcomeCounts, stageVendors } from '../stageVerdict';
 import type { EnrichedTestExecution } from '@/services/api/analytics';
 
 function mk(over: Partial<EnrichedTestExecution> = {}): EnrichedTestExecution {
@@ -246,5 +246,26 @@ describe('stageVerdict with SentinelOne', () => {
   });
   it('boolean-only prevention names SentinelOne', () => {
     expect(stageVerdict(mk({ sentinelone_prevented: true }), []).body).toBe('SentinelOne reports it stopped it.');
+  });
+});
+
+describe('stageVerdict for an EDR-killed run', () => {
+  const kill = mk({ is_bundle_control: false, error_code: 126, is_protected: true, edr_terminated: true, edr_terminated_vendors: ['sentinelone', 'defender'], edr_terminated_alert_ids: ['a1'], stages_unknown: true });
+
+  it('classifies a kill doc as protected', () => {
+    expect(stageKind(kill)).toBe('protected');
+    expect(stageVerdict(kill, []).kind).toBe('protected');
+  });
+
+  it('names the vendors in order, joined with "and"', () => {
+    expect(agentKill(kill)).toEqual({ vendor: 'SentinelOne and Defender', alertIds: ['a1'] });
+    expect(agentKillSubLabel({ vendor: 'SentinelOne' })).toBe('Stopped by SentinelOne \u2014 agent terminated');
+    expect(agentKillNote({ vendor: 'CrowdStrike' })).toBe(
+      'CrowdStrike terminated the Achilles agent while this test was running, so the test could not report which stages ran. The run counts as protected for the test as a whole; stages are unknown.',
+    );
+  });
+
+  it('is null for an ordinary result', () => {
+    expect(agentKill(mk({ edr_terminated: false }))).toBeNull();
   });
 });

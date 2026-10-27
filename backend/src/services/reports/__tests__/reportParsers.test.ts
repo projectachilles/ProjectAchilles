@@ -212,3 +212,31 @@ describe('stageSortKey', () => {
     expect(stageSortKey('Windows Defender', 'CH-DEF-001')).toEqual([Number.MAX_SAFE_INTEGER, 'CH-DEF-001']);
   });
 });
+
+describe('parseRuns for an EDR-killed run', () => {
+  const killRes = (extra: Record<string, unknown> = {}) => ({ aggregations: { runs: { buckets: [{
+    key: `bundle::${BUNDLE}::WS-FIN-014::${T}`, doc_count: 1, completed: { value: T },
+    members: { hits: { hits: [{
+      _id: TASK,
+      _source: {
+        event: { ERROR: 126 },
+        f0rtika: {
+          bundle_id: BUNDLE, bundle_name: 'LockBit kill chain', test_name: 'LockBit kill chain', is_protected: true,
+          edr_terminated: true, stages_unknown: true,
+          edr_terminated_vendors: ['sentinelone', 'unknown-vendor'], edr_terminated_alert_ids: ['s1-1'],
+          ...extra,
+        },
+      },
+    }] } },
+  }] } } });
+
+  it('carries the vendors and alert ids so the report can print the note', () => {
+    const [run] = parseRuns(killRes());
+    expect(run.agentTerminated).toEqual({ vendors: ['sentinelone'], alertIds: ['s1-1'] });
+  });
+
+  it('leaves agentTerminated off an ordinary run', () => {
+    const [run] = parseRuns(killRes({ edr_terminated: false }));
+    expect(run).not.toHaveProperty('agentTerminated');
+  });
+});
