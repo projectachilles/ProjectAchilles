@@ -7,6 +7,8 @@ import (
 	"log"
 	"os"
 	"os/exec"
+
+	"github.com/f0rt1ka/achilles-agent/internal/winacl"
 )
 
 // applyUpdate replaces the current binary with the new one. Windows cannot
@@ -36,12 +38,8 @@ func applyUpdate(currentBin, newBin string) error {
 // Windows ignores Unix mode bits, so we use icacls to strip inherited permissions
 // and grant explicit access to privileged accounts only.
 func secureBinaryPermissions(path string) {
-	cmd := exec.Command("icacls", path,
-		"/inheritance:r",
-		"/grant:r", "NT AUTHORITY\\SYSTEM:(F)",
-		"/grant:r", "BUILTIN\\Administrators:(F)",
-	)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	argv := winacl.RestrictArgs(path, "F", "F")
+	if out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput(); err != nil {
 		log.Printf("warning: icacls on binary failed: %v: %s", err, out)
 	}
 }
