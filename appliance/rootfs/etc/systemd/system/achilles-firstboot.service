@@ -24,6 +24,9 @@ StandardError=journal
 TTYPath=/dev/tty1
 TTYReset=yes
 TTYVHangup=yes
+# Clear tty1 (and its scrollback) first, so the form doesn't start under the
+# boot log.
+TTYVTDisallocate=yes
 Environment=TERM=linux
 Restart=on-failure
 RestartSec=1
