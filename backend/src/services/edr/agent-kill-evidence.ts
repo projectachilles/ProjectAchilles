@@ -17,8 +17,13 @@ export type EdrVendorKey = 'defender' | 'crowdstrike' | 'sentinelone';
 /** A watchdog-failed task, with its timestamps already parsed to epoch ms. */
 export interface KillCandidateTask {
   taskId: string;
+  testUuid: string;
   hostname: string;
   assignedAtMs: number;
+  /**
+   * End of the evidence window: the watchdog failure, or earlier when the
+   * restarted agent picked up its next task first (see the reconciler).
+   */
   failedAtMs: number;
   techniques: string[];
 }
@@ -33,6 +38,8 @@ export interface KillEvidenceAlert {
   preventionAction?: string;
   /** True when the prevention was Achilles' own automatic mitigation (`isAchillesMitigated()` on the alert doc). */
   achillesMitigated: boolean;
+  /** `f0rtika.achilles_test_uuid`, when the enrichment pass correlated the alert to a test. */
+  achillesTestUuid?: string;
 }
 
 /** Stored in the task result JSON as `edr_terminated`. */
@@ -81,6 +88,12 @@ export function techniquesOverlap(a: string[], b: string[]): boolean {
   return b.some((t) => parents.has(parentTechnique(t)));
 }
 
+/** Test uuids compared case-insensitively, a `<bundle>::<control>` id by its bundle. */
+function sameTest(a: string, b: string): boolean {
+  const norm = (u: string) => u.trim().toLowerCase().split('::')[0];
+  return norm(a) === norm(b);
+}
+
 /** Does this alert prove the EDR killed the task's agent? */
 export function alertProvesKill(task: KillCandidateTask, alert: KillEvidenceAlert): boolean {
   if (!alert.createdAt) return false;
@@ -88,6 +101,7 @@ export function alertProvesKill(task: KillCandidateTask, alert: KillEvidenceAler
   // NaN fails both comparisons, so an unparseable time is rejected here.
   if (!(created >= task.assignedAtMs && created <= task.failedAtMs)) return false;
   if (alert.achillesMitigated) return false;
+  if (alert.achillesTestUuid && !sameTest(alert.achillesTestUuid, task.testUuid)) return false;
   if (!alert.preventionAction || !QUALIFYING_PREVENTION_ACTIONS.has(alert.preventionAction.toLowerCase())) return false;
   if (!hostMatches(task.hostname, alert.evidenceHostnames)) return false;
   return techniquesOverlap(task.techniques, alert.mitreTechniques);

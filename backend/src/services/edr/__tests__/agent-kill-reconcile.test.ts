@@ -222,6 +222,47 @@ describe('EdrAgentKillReconciler.runPass', () => {
     expect(mockIndex).not.toHaveBeenCalled();
   });
 
+  it("ignores the next test's alerts once the restarted agent has picked it up", async () => {
+    const OVERDUE = 'Task exceeded execution timeout';
+    addKilledTask('dead-a', 'agent-4862', '2026-10-26 16:06:05', '2026-10-26 16:30:00', OVERDUE);
+    insertTestTask(testDb, { id: 'next-b', agent_id: 'agent-4862', status: 'completed', assigned_at: '2026-10-26 16:09:00' });
+    // B's blocked stage, inside A's original window but after B's pickup + 60 s grace.
+    alertStore[S1] = [s1Threat('b-stage', 'SBL4862', '2026-10-26T16:12:00.000Z')];
+
+    const result = await reconciler().runPass({ now: NOW });
+
+    expect(result.reconciled).toBe(0);
+    expect(mockIndex).not.toHaveBeenCalled();
+    expect(taskRow('dead-a').result.edr_terminated).toBeUndefined();
+    const body = JSON.stringify(mockMsearch.mock.calls[0][0].searches[1]);
+    expect(body).toContain('{"range":{"created_at":{"gte":"2026-10-26T16:06:05.000Z","lte":"2026-10-26T16:10:00.000Z"}}}');
+  });
+
+  it('still reconciles on an alert inside the grace after the next pickup', async () => {
+    const OVERDUE = 'Task exceeded execution timeout';
+    addKilledTask('dead-a', 'agent-4862', '2026-10-26 16:06:05', '2026-10-26 16:30:00', OVERDUE);
+    insertTestTask(testDb, { id: 'next-b', agent_id: 'agent-4862', status: 'completed', assigned_at: '2026-10-26 16:09:00' });
+    // The console's createdAt for A's kill lagged past B's pickup.
+    alertStore[S1] = [s1Threat('a-kill', 'SBL4862', '2026-10-26T16:09:40.000Z')];
+
+    const result = await reconciler().runPass({ now: NOW });
+
+    expect(result.reconciled).toBe(1);
+    expect(taskRow('dead-a').result.edr_terminated?.alert_ids).toEqual(['a-kill']);
+  });
+
+  it("rejects an alert correlated to a different test", async () => {
+    addKilledTask('8089b475', 'agent-4862', '2026-10-26 16:06:05', '2026-10-26 16:12:59');
+    alertStore[S1] = [s1Threat('other-test', 'SBL4862', '2026-10-26T16:06:32.719Z', {
+      f0rtika: { achilles_correlated: true, achilles_test_uuid: '7659eeba-f315-440e-9882-4aa015d68b27' },
+    })];
+
+    const result = await reconciler().runPass({ now: NOW });
+
+    expect(result.reconciled).toBe(0);
+    expect(mockIndex).not.toHaveBeenCalled();
+  });
+
   it('never writes achilles_correlated', async () => {
     addKilledTask('8089b475', 'agent-4862', '2026-10-26 16:06:05', '2026-10-26 16:12:59');
     alertStore[S1] = [s1Threat('s1-threat-4862', 'SBL4862', '2026-10-26T16:06:32.719Z')];
@@ -453,6 +494,7 @@ describe('EdrAgentKillReconciler.runPass', () => {
     const body = JSON.stringify(searches[1]);
     expect(searches[1].size).toBe(50);
     expect(searches[1].sort).toEqual([{ created_at: 'asc' }]);
+    expect(searches[1]._source).toContain('f0rtika.achilles_test_uuid');
     expect(body).toContain('{"term":{"doc_type":"alert"}}');
     expect(body).toContain('{"wildcard":{"evidence_hostnames":{"value":"sbl4862*","case_insensitive":true}}}');
     expect(body).toContain('{"range":{"created_at":{"gte":"2026-10-26T16:06:05.000Z","lte":"2026-10-26T16:12:59.000Z"}}}');

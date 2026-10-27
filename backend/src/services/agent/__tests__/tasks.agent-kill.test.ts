@@ -59,6 +59,24 @@ describe('listAgentKillCandidates', () => {
     expect(rows.every((r) => r.hostname === 'SBL4862' && r.termination === null)).toBe(true);
   });
 
+  it("reports the same agent's next assignment, ignoring other agents", () => {
+    insertTestAgent(testDb, { id: 'agent-002', hostname: 'SBL3938' });
+    addTask('killed', { error: OVERDUE });
+    insertTestTask(testDb, { id: 'other-agent', agent_id: 'agent-002', status: 'completed', assigned_at: '2026-10-20 10:02:00' });
+    insertTestTask(testDb, { id: 'earlier', agent_id: 'agent-001', status: 'completed', assigned_at: '2026-10-20 09:00:00' });
+    insertTestTask(testDb, { id: 'next', agent_id: 'agent-001', status: 'completed', assigned_at: '2026-10-20 10:07:00' });
+    insertTestTask(testDb, { id: 'later', agent_id: 'agent-001', status: 'pending', assigned_at: '2026-10-20 10:20:00' });
+    const [row] = listAgentKillCandidates('2026-10-01T00:00:00.000Z');
+    expect(row.task.id).toBe('killed');
+    expect(row.nextAssignedAt).toBe('2026-10-20 10:07:00');
+  });
+
+  it('has no next assignment when the agent ran nothing after the task', () => {
+    addTask('killed', { error: OFFLINE });
+    const [row] = listAgentKillCandidates('2026-10-01T00:00:00.000Z');
+    expect(row.nextAssignedAt).toBeNull();
+  });
+
   it('returns the parsed termination of a reconciled task', () => {
     addTask('k', { error: OFFLINE });
     recordEdrTermination('k', term);

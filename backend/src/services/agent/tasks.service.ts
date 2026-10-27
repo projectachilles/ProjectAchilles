@@ -782,6 +782,12 @@ export interface AgentKillCandidateRow {
   hostname: string | null;
   /** Parsed `result.edr_terminated`; null until the task has been reconciled. */
   termination: EdrTermination | null;
+  /**
+   * `assigned_at` of the same agent's next task, or null. A restarted agent
+   * picks up its next test while the dead one is still `executing`, so that
+   * test's alerts can fall inside the dead task's window.
+   */
+  nextAssignedAt: string | null;
 }
 
 /**
@@ -795,7 +801,9 @@ export function listAgentKillCandidates(sinceIso: string): AgentKillCandidateRow
   // completed_at is stored as SQLite `YYYY-MM-DD HH:MM:SS`; compare in that format.
   const since = new Date(parseSqliteUtc(sinceIso)).toISOString().slice(0, 19).replace('T', ' ');
   const rows = getDatabase().prepare(`
-    SELECT t.*, a.hostname AS agent_hostname
+    SELECT t.*, a.hostname AS agent_hostname,
+      (SELECT MIN(t2.assigned_at) FROM tasks t2
+        WHERE t2.agent_id = t.agent_id AND t2.assigned_at > t.assigned_at) AS next_assigned_at
     FROM tasks t
     LEFT JOIN agents a ON a.id = t.agent_id
     WHERE t.type = 'execute_test'
@@ -804,11 +812,11 @@ export function listAgentKillCandidates(sinceIso: string): AgentKillCandidateRow
       AND t.completed_at >= ?
       AND t.assigned_at IS NOT NULL
       AND COALESCE(json_extract(t.payload, '$.metadata.category'), '') != 'cyber-hygiene'
-  `).all(...AGENT_KILL_WATCHDOG_ERRORS, since) as TaskRow[];
+  `).all(...AGENT_KILL_WATCHDOG_ERRORS, since) as Array<TaskRow & { next_assigned_at: string | null }>;
   return rows.map((row) => {
     const task = parseTaskRow(row);
     const termination = task.result?.edr_terminated ?? null;
-    return { task, hostname: row.agent_hostname ?? null, termination };
+    return { task, hostname: row.agent_hostname ?? null, termination, nextAssignedAt: row.next_assigned_at ?? null };
   });
 }
 

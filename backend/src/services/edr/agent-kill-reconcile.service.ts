@@ -36,6 +36,11 @@ export type { AgentKillPassResult };
 
 const DEFAULT_LOOKBACK_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * How long after the agent's next pickup an alert still counts for the dead
+ * task: the console's createdAt can lag the kill itself by a few seconds.
+ */
+const NEXT_TASK_GRACE_MS = 60 * 1000;
 /** Hits per candidate x vendor sub-search, earliest first; a kill raises a handful of alerts at most. */
 const ALERT_HITS_PER_SEARCH = 50;
 /** Candidates per msearch (one sub-search per configured vendor each). */
@@ -50,7 +55,10 @@ const VENDOR_INDICES: ReadonlyArray<VendorIndex> = [
 ];
 const INDEX_OF_VENDOR = new Map(VENDOR_INDICES.map((v) => [v.vendor, v.index]));
 
-const ALERT_SOURCE_FIELDS = ['created_at', 'evidence_hostnames', 'mitre_techniques', 'prevention_action', ...ACHILLES_MITIGATION_FIELDS];
+const ALERT_SOURCE_FIELDS = [
+  'created_at', 'evidence_hostnames', 'mitre_techniques', 'prevention_action',
+  'f0rtika.achilles_test_uuid', ...ACHILLES_MITIGATION_FIELDS,
+];
 
 /** The alert-doc link, declared on each alert index before it is first written. */
 const MARKER_MAPPING = {
@@ -63,6 +71,7 @@ interface AlertSource {
   evidence_hostnames?: unknown;
   mitre_techniques?: unknown;
   prevention_action?: unknown;
+  f0rtika?: { achilles_test_uuid?: unknown };
 }
 
 interface Candidate {
@@ -95,13 +104,18 @@ function toCandidate(row: AgentKillCandidateRow): Candidate | null {
   const assignedAtMs = row.task.assigned_at ? parseSqliteUtc(row.task.assigned_at) : NaN;
   const failedAtMs = row.task.completed_at ? parseSqliteUtc(row.task.completed_at) : NaN;
   if (!Number.isFinite(assignedAtMs) || !Number.isFinite(failedAtMs)) return null;
+  // A restarted agent (service recovery, quick reboot) runs its next test
+  // while this one still waits for the watchdog; that test's alerts must not
+  // count. The window ends at the next pickup, plus a grace for console lag.
+  const nextMs = row.nextAssignedAt ? parseSqliteUtc(row.nextAssignedAt) + NEXT_TASK_GRACE_MS : NaN;
   return {
     row,
     kill: {
       taskId: row.task.id,
+      testUuid: row.task.payload.test_uuid,
       hostname: row.hostname,
       assignedAtMs,
-      failedAtMs,
+      failedAtMs: Number.isFinite(nextMs) ? Math.min(failedAtMs, nextMs) : failedAtMs,
       techniques: row.task.payload.metadata?.techniques ?? [],
     },
   };
@@ -295,6 +309,7 @@ export class EdrAgentKillReconciler {
             mitreTechniques: strings(s.mitre_techniques),
             preventionAction: typeof s.prevention_action === 'string' ? s.prevention_action : undefined,
             achillesMitigated: isAchillesMitigated(s),
+            ...(typeof s.f0rtika?.achilles_test_uuid === 'string' ? { achillesTestUuid: s.f0rtika.achilles_test_uuid } : {}),
           });
         }
         byTask.set(key.taskId, list);

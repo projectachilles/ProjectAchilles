@@ -10,6 +10,7 @@ import type { KillCandidateTask, KillEvidenceAlert } from '../agent-kill-evidenc
 
 const task: KillCandidateTask = {
   taskId: 't-1',
+  testUuid: '298cc137-ea39-4cf0-9b2d-b1c59a3cbacb',
   hostname: 'SBL4862',
   assignedAtMs: Date.parse('2026-10-26T16:06:05Z'),
   failedAtMs: Date.parse('2026-10-26T16:12:59Z'),
@@ -65,6 +66,15 @@ describe('alertProvesKill', () => {
 
   it('rejects a different host', () => {
     expect(alertProvesKill(task, { ...alert, evidenceHostnames: ['other'] })).toBe(false);
+  });
+
+  it('rejects an alert correlated to a different test', () => {
+    expect(alertProvesKill(task, { ...alert, achillesTestUuid: '7659eeba-f315-440e-9882-4aa015d68b27' })).toBe(false);
+  });
+
+  it('accepts an alert correlated to this test, in any case or as a bundle control', () => {
+    expect(alertProvesKill(task, { ...alert, achillesTestUuid: '298CC137-EA39-4CF0-9B2D-B1C59A3CBACB' })).toBe(true);
+    expect(alertProvesKill(task, { ...alert, achillesTestUuid: '298cc137-ea39-4cf0-9b2d-b1c59a3cbacb::stage-1' })).toBe(true);
   });
 });
 
