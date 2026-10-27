@@ -39,7 +39,7 @@ Download `ProjectAchilles-v<version>-hyperv.zip` from the release's download
 link:
 
 ```text
-https://<downloads-domain>/appliance/ProjectAchilles-v<version>-hyperv.zip
+https://pub-a6274ea13e824eb9b36c451d2740eced.r2.dev/appliance/ProjectAchilles-v<version>-hyperv.zip
 ```
 
 The current link is on the
