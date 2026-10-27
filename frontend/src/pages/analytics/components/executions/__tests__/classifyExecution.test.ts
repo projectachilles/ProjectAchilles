@@ -67,6 +67,27 @@ const GOLDEN: GoldenCase[] = [
   { name: 'exit 260 → inconclusive', exit: 260, expected: 'inconclusive' },
   { name: 'exit 999 → inconclusive', exit: 999, expected: 'inconclusive' },
   { name: 'exit 999 + Defender prevented → inconclusive (unlike SB Export)', exit: 999, flags: { defender_prevented: true }, expected: 'inconclusive' },
+  // Error-coded stage the EDR blocked: upgrade on this stage's own flag + confirmed action.
+  {
+    name: 'exit 999 + Falcon stage alert + process_killed → prevented (EDR killed the stage)', exit: 999,
+    flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'process_killed' }, expected: 'prevented',
+  },
+  {
+    name: 'exit 999 + Defender stage alert + quarantined → prevented', exit: 999,
+    flags: { defender_stage_detected: true }, actions: { defender_prevention_action: 'quarantined' }, expected: 'prevented',
+  },
+  { name: 'exit 999 + Defender stage alert, no action → detected', exit: 999, flags: { defender_stage_detected: true }, expected: 'detected' },
+  {
+    name: 'exit 999 + Falcon stage alert + kill_failed → detected (kill_failed is not prevention)', exit: 999,
+    flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'kill_failed' }, expected: 'detected',
+  },
+  { name: 'exit 999 + bundle-level Defender flag only → inconclusive (sibling-stage risk)', exit: 999, flags: { defender_detected: true }, expected: 'inconclusive' },
+  {
+    name: 'Falcon kill code 0xE0000027 + stage alert + process_killed → prevented', exit: 3758096423,
+    flags: { crowdstrike_stage_detected: true }, actions: { crowdstrike_prevention_action: 'process_killed' }, expected: 'prevented',
+  },
+  { name: 'exit 0 + Defender stage alert → inconclusive (exit 0 ran, never an EDR block)', exit: 0, flags: { defender_stage_detected: true }, expected: 'inconclusive' },
+  { name: 'missing exit code + Defender stage alert → inconclusive (no code, no upgrade)', flags: { defender_stage_detected: true }, expected: 'inconclusive' },
   { name: 'missing exit code → inconclusive', expected: 'inconclusive' },
 ];
 
