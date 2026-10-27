@@ -1715,6 +1715,19 @@ function TestVM_CreatedWithExactSettings {
     $null = New-Scenario 'vm-notes-unknown-version'
     $r = Invoke-Import @{ Yes = $true; ImagePath = $disk; ChecksumFile = $sums }
     Expect 'no version anywhere: the notes say so' $r (@(Get-VmChangeCalls $r | Where-Object { $_ -cmatch "^Set-VM .* -Notes 'ProjectAchilles appliance \(version unknown\), imported $IsoDate'$" }).Count -eq 1)
+
+    # appliance/Makefile names images from git describe, so the version in the
+    # name starts with a v: a release, and a build between releases.
+    foreach ($case in @(
+            @{ Leaf = 'ProjectAchilles-v9.9.11.vhdx'; Want = '9\.9\.11' },
+            @{ Leaf = 'ProjectAchilles-v2.6.1-73-gf8953030.vhdx'; Want = '2\.6\.1-73-gf8953030' })) {
+        $null = New-Scenario "vm-notes-from-$($case.Leaf)"
+        $named = Join-Path $FixDir $case.Leaf
+        Copy-Item -LiteralPath $FixVhdx -Destination $named
+        $sumsNamed = New-SumsFile "sums-$($case.Leaf)" "$FixVhdxHash  $($case.Leaf)`n"
+        $r = Invoke-Import @{ Yes = $true; ImagePath = $named; ChecksumFile = $sumsNamed }
+        Expect "$($case.Leaf): the notes give the version without the v" $r (@(Get-VmChangeCalls $r | Where-Object { $_ -cmatch "^Set-VM .* -Notes 'ProjectAchilles appliance $($case.Want), imported $IsoDate'$" }).Count -eq 1)
+    }
 }
 
 # Integration service names are localized (a Spanish host says "Sincronizacion

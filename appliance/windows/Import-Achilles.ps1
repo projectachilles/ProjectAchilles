@@ -92,12 +92,12 @@
     another adapter.
 
 .EXAMPLE
-    powershell -NoProfile -ExecutionPolicy Bypass -File .\Import-Achilles.ps1 -ImagePath .\ProjectAchilles-2.7.0-hyperv.zip -Version 2.7.0
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\Import-Achilles.ps1 -ImagePath .\ProjectAchilles-v2.7.0-hyperv.zip -Version 2.7.0
 
     Verifies the zip against the v2.7.0 release checksums and imports it.
 
 .EXAMPLE
-    powershell -NoProfile -ExecutionPolicy Bypass -File .\Import-Achilles.ps1 -ImagePath D:\ProjectAchilles-2.7.0-hyperv.zip -ChecksumFile D:\appliance-SHA256SUMS
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\Import-Achilles.ps1 -ImagePath D:\ProjectAchilles-v2.7.0-hyperv.zip -ChecksumFile D:\appliance-SHA256SUMS
 
     The same on a host without internet access, with a copy of the release's
     checksum file.
@@ -1010,11 +1010,12 @@ function Register-CreatedSwitch {
 # -----------------------------------------------------------------------------
 
 # The appliance version for the VM's notes: -Version, else the image's file
-# name (ProjectAchilles-<version>-hyperv.zip or ProjectAchilles-<version>.vhdx).
+# name (ProjectAchilles-v<version>-hyperv.zip or ProjectAchilles-v<version>.vhdx;
+# appliance/Makefile names them from git describe), without the v like -Version.
 function Get-ApplianceVersion {
     if (-not [string]::IsNullOrWhiteSpace($Version)) { return $Version }
     $leaf = [IO.Path]::GetFileName($ImagePath)
-    if ($leaf -match '^ProjectAchilles-([0-9][0-9A-Za-z.-]*?)(-hyperv)?\.(zip|vhdx)$') { return $Matches[1] }
+    if ($leaf -match '^ProjectAchilles-[vV]?([0-9][0-9A-Za-z.-]*?)(-hyperv)?\.(zip|vhdx)$') { return $Matches[1] }
     '(version unknown)'
 }
 
