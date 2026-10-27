@@ -246,7 +246,7 @@ Machine ID binding means an encrypted config file is not portable between hosts.
 
 ### File Permissions
 - **Unix (Linux/macOS):** config files `0600` (owner read/write), binaries `0700` (owner execute)
-- **Windows:** `icacls` restricts access to SYSTEM and Administrators; inherited permissions are removed
+- **Windows:** `icacls` restricts access to SYSTEM and Administrators (by well-known SID); inherited permissions are removed. At startup the agent also locks its folder (`C:\F0`, including the work dir) the way `bootstrap-windows.ps1` does
 
 ### Process Isolation
 - Each task executes in an isolated temporary directory

@@ -45,5 +45,5 @@ The agent-server communication channel has been hardened through a dedicated int
 ## Platform Hardening
 
 - **File Permissions**: Binary 0700, config 0600, work dirs 0700
-- **Windows ACLs**: SYSTEM + Administrators only via icacls
+- **Windows ACLs**: SYSTEM + Administrators only via icacls (well-known SIDs), on the binary, the config and the agent folder with its work dir
 - **Heartbeat Jitter**: +/-5s randomization prevents thundering herd

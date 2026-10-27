@@ -11,6 +11,17 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+## Agent [0.7.1] - 2026-10-27
+
+### Security
+- **Test binaries and updates can no longer be swapped by a local user on Windows.** The agent never locked its own folder. Created under `C:\`, `C:\F0` inherits *Modify* for every signed-in user, and the agent downloads test binaries into `C:\F0\tasks`, checks their SHA256 and then runs them as SYSTEM (the updater stages new binaries in `C:\F0` too), so a local user could replace a file after the check and get code run as SYSTEM. At every startup the agent now locks the folder the way `bootstrap-windows.ps1` does (owner Administrators; SYSTEM and Administrators only, by well-known SID; inherited by the work dir and everything in it). It only does this in the standard layout (work dir directly inside the folder holding the binary) and never on a junction; otherwise it logs a warning. Endpoints enrolled with `bootstrap-windows.ps1` or with `C:\F0` locked by GPO were not exposed.
+- **Agent files are locked down on non-English Windows.** The agent restricted its config (agent key, server URL) and binary with `icacls` using English account names; on localized Windows (e.g. Spanish `BUILTIN\Administradores`) `icacls` failed (exit 1332), changed nothing and only logged a warning, so both kept their inherited ACL. The agent now uses well-known SIDs and re-locks the config at every startup. (#607)
+
+Both fixes apply on the first start after updating; no re-enrollment needed.
+
+### Fixed
+- **Windows test binaries without `.exe` are launchable.** A legacy `binary_name` lacking `.exe` gets one appended on Windows (complements the per-OS dispatch in platform 2.3.1). (#544)
+
 ## [2.6.1] - 2026-10-26
 
 ### Fixed
@@ -792,6 +803,7 @@ Complete platform overhaul — custom agent system, multi-deployment support, Mi
 [2.4.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/projectachilles/ProjectAchilles/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.2.0...v2.3.0
+[Agent 0.7.1]: https://github.com/projectachilles/ProjectAchilles/compare/agent-v0.7.0...agent-v0.7.1
 [Agent 0.7.0]: https://github.com/projectachilles/ProjectAchilles/compare/agent-v0.6.7...agent-v0.7.0
 [2.2.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.1.0...v2.2.0
 [Agent 0.6.7]: https://github.com/projectachilles/ProjectAchilles/compare/agent-v0.6.3...agent-v0.6.7
