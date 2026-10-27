@@ -18,8 +18,12 @@ const dhcpWarning = "Ask your network team for a DHCP reservation: ProjectAchill
 // FormUI is the real console UI, built from huh forms.
 type FormUI struct{}
 
+// run shows the form on stdin/stdout, which achilles-firstboot.service points
+// at tty1. huh draws on stderr by default, and the unit sends stderr to the
+// journal: a default form draws into the journal and leaves tty1 blank.
 func (FormUI) run(ctx context.Context, groups ...*huh.Group) error {
-	return huh.NewForm(groups...).WithTheme(huh.ThemeFunc(huh.ThemeBase16)).RunWithContext(ctx)
+	return huh.NewForm(groups...).WithTheme(huh.ThemeFunc(huh.ThemeBase16)).
+		WithInput(os.Stdin).WithOutput(os.Stdout).RunWithContext(ctx)
 }
 
 const otherLayout = "other"
