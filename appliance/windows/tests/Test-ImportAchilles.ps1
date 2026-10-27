@@ -52,8 +52,10 @@ function Check($name, [bool]$ok) { if ($ok) { "  PASS $name" } else { "  FAIL $n
 #  2. every command of the host-changing modules that exist on this machine
 #     gets a stub that logs and throws, in case one is already loaded;
 #  3. TestStatic_EveryCommandIsMockedOrSafe fails on any command the script
-#     calls that is neither mocked here nor on an explicit safe list, so a
-#     forgotten mock goes red on Linux and in CI as well.
+#     calls that is neither mocked here nor on an explicit safe list, and on
+#     any native executable (netsh.exe, vmconnect, ...) not mocked by that
+#     exact name, so a forgotten mock goes red on Linux and in CI as well;
+#  4. when any static check fails, no runtime scenario runs at all.
 Import-Module Microsoft.PowerShell.Management, Microsoft.PowerShell.Utility, Microsoft.PowerShell.Archive -ErrorAction Stop
 $DangerousModules = @('Hyper-V', 'NetAdapter', 'NetTCPIP', 'NetLbfo', 'Dism', 'ServerManager', 'FailoverClusters', 'Storage', 'CimCmdlets')
 $HostCommands = @(Get-Command -Module $DangerousModules -CommandType Cmdlet, Function -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
@@ -397,16 +399,32 @@ $SafeCommands = @(
     'Select-Object', 'Set-StrictMode', 'Split-Path', 'Test-Path', 'Where-Object', 'Write-Host'
 )
 
+# True for a native executable: a name with an executable extension (also as a
+# path), or one that resolves to an application on this machine. Checked
+# before the safe list and the script's own functions, so nothing but an
+# explicit mock of that exact name lets one through.
+$script:ApplicationCache = @{}
+function Test-NativeCommand([string]$n) {
+    if ($n -match '\.(exe|com|bat|cmd)$') { return $true }
+    if (-not $script:ApplicationCache.ContainsKey($n)) {
+        $script:ApplicationCache[$n] = @(Get-Command -Name ([WildcardPattern]::Escape($n)) -CommandType Application -ErrorAction SilentlyContinue).Count -gt 0
+    }
+    $script:ApplicationCache[$n]
+}
+
 # Names of commands in a script that are not mocked, safe, or the script's own
-# functions; module-qualified names; and dynamic invocations (& $x).
-function Get-UnsafeCommands([System.Management.Automation.Language.Ast]$ast) {
+# functions; native executables that are not mocked; module-qualified names;
+# and dynamic invocations (& $x). $Mocks defaults to this file's mocks.
+function Get-UnsafeCommands([System.Management.Automation.Language.Ast]$ast, [string[]]$Mocks = $MockNames) {
     $own = @($ast.FindAll({ param($a) $a -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) | ForEach-Object { $_.Name })
     foreach ($c in $ast.FindAll({ param($a) $a -is [System.Management.Automation.Language.CommandAst] }, $true)) {
         $n = $c.GetCommandName()
         $where = "line $($c.Extent.StartLineNumber)"
         if ($null -eq $n) { "dynamic invocation at ${where}: $($c.Extent.Text)"; continue }
+        if ($Mocks -contains $n) { continue }
+        if (Test-NativeCommand $n) { "native executable $n at $where is not mocked"; continue }
         if ($n.Contains('\')) { "module-qualified $n at $where"; continue }
-        if ($own -contains $n -or $MockNames -contains $n -or $SafeCommands -contains $n) { continue }
+        if ($own -contains $n -or $SafeCommands -contains $n) { continue }
         if ($StubNames -contains $n) { "$n at $where is guarded but not mocked"; continue }
         "$n at $where is neither mocked nor on the safe list"
     }
@@ -428,6 +446,24 @@ function TestStatic_EveryCommandIsMockedOrSafe {
     $found = @(Get-UnsafeCommands $probe)
     Check 'the command check catches unmocked, module-qualified and dynamic calls' (
         $found.Count -eq 3 -and ($found -join ' ') -match 'Add-VMNetworkAdapter' -and ($found -join ' ') -match 'module-qualified' -and ($found -join ' ') -match 'dynamic')
+
+    # Native executables never count as safe: a name ending in .exe (or
+    # .com/.bat/.cmd), a full path to one, or a bare name that resolves to an
+    # application on this machine (netsh, sc, hostname, ...). Only an explicit
+    # mock of that exact name lets one through.
+    $app = @(Get-Command -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1)
+    $bare = ''
+    if ($app.Count -gt 0) { $bare = [IO.Path]::GetFileNameWithoutExtension($app[0].Name) }
+    $probe = [System.Management.Automation.Language.Parser]::ParseInput(
+        "vmconnect.exe localhost x`nNETSH.EXE interface show interface`n& 'C:\Windows\System32\sc.exe' stop x`ncmd.CMD /c x`n$bare`n", [ref]$null, [ref]$null)
+    $found = @(Get-UnsafeCommands $probe)
+    $native = @($found | Where-Object { $_ -like 'native executable *' })
+    Check "the command check flags native executables, by extension and by resolving to an application ('$bare')" (
+        $bare -ne '' -and $found.Count -eq 5 -and $native.Count -eq 5 -and ($native -join ' ') -match [regex]::Escape("native executable $bare "))
+    $found = @(Get-UnsafeCommands $probe @('vmconnect.exe', 'NETSH.EXE', 'C:\Windows\System32\sc.exe', 'cmd.CMD', $bare))
+    Check 'a native executable passes only when that exact name is mocked' ($found.Count -eq 0)
+    $found = @(Get-UnsafeCommands ([System.Management.Automation.Language.Parser]::ParseInput("vmconnect.exe localhost x`n", [ref]$null, [ref]$null)) @('vmconnect'))
+    Check 'a mock of vmconnect does not cover vmconnect.exe' ($found.Count -eq 1 -and $found[0] -like 'native executable vmconnect.exe *')
 
     # With autoloading off, a command from a module that was not imported
     # cannot load and run.
@@ -773,9 +809,23 @@ function TestImage_VersionNotFoundSaysCheckVersion {
 # ---- run --------------------------------------------------------------------
 $tokens = $null; $parseErrors = $null
 $self = [System.Management.Automation.Language.Parser]::ParseFile($PSCommandPath, [ref]$tokens, [ref]$parseErrors)
-$scenarios = $self.FindAll({ param($a) $a -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $a.Name -match '^Test[A-Za-z]+_' }, $false) |
-    ForEach-Object { $_.Name } | Where-Object { $_ -like $Only }
-foreach ($s in $scenarios) {
+$scenarios = @($self.FindAll({ param($a) $a -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $a.Name -match '^Test[A-Za-z]+_' }, $false) |
+    ForEach-Object { $_.Name })
+# The static checks always run, whatever -Only says, and gate everything else:
+# a script that calls something unmocked (a Hyper-V cmdlet, netsh.exe, ...) or
+# does not parse is never run, so a forgotten mock can't reach a real host.
+foreach ($s in @($scenarios | Where-Object { $_ -like 'TestStatic_*' })) {
+    try { & $s }
+    catch { Check "$s ran without a harness error ($($_.Exception.Message))" $false }
+}
+if ($script:fail) {
+    ""
+    'Static checks failed: no scenario ran the script. Mock what it calls (or fix it) first.'
+    "logs kept for inspection: $root"
+    'RESULT: FAIL'
+    exit 1
+}
+foreach ($s in @($scenarios | Where-Object { $_ -notlike 'TestStatic_*' -and $_ -like $Only })) {
     try { & $s }
     catch { Check "$s ran without a harness error ($($_.Exception.Message))" $false }
 }
