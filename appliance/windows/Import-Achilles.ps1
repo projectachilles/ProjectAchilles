@@ -105,7 +105,12 @@
 .NOTES
     Exit codes: 0 the VM was created (and started unless -NoStart);
     1 refused or failed before any change; 2 failed after a change, with
-    cleanup instructions printed.
+    cleanup instructions printed. After a failure the VM and its disk are
+    kept; the script prints the commands that remove them.
+
+    Once started, the script waits up to 5 minutes for the VM's IPv4
+    address. No address in that time is not a failure: the VM's console
+    shows what first boot needs.
 #>
 
 [CmdletBinding()]
@@ -155,6 +160,18 @@ $script:Changes = New-Object System.Collections.ArrayList
 $script:CreatedSwitchAdapter = $null
 # Adapters carrying the admin's own SSH/RDP session (Get-SessionAdapters).
 $script:Sessions = @()
+# The VM this run created, and whether it tried to start it (for cleanup).
+$script:CreatedVmName = $null
+$script:VmStartAttempted = $false
+
+# Integration services by their fixed IDs: the names are localized ("Interfaz
+# de servicio invitado" on a Spanish host). The English name is a fallback.
+$GuestServiceInterfaceId = '6C09BB55-D683-4DA0-8931-C9BF705F6480'
+$TimeSynchronizationId = '2497F4DE-E9FA-4204-80E4-4B75C46419C0'
+# How long to wait for the VM's IPv4 address; ACHILLES_IMPORT_IP_TIMEOUT_S
+# overrides it (the tests use 2 s).
+$DefaultIpTimeoutS = 300
+$IpPollSeconds = 5
 
 # -----------------------------------------------------------------------------
 # Output helpers (same layout as scripts/Install-ProjectAchilles.ps1)
@@ -988,11 +1005,194 @@ function Register-CreatedSwitch {
 }
 
 # -----------------------------------------------------------------------------
-# Steps 4-5: VM, start (not implemented yet)
+# Steps 4-5: the VM
 # -----------------------------------------------------------------------------
 
+# The appliance version for the VM's notes: -Version, else the image's file
+# name (ProjectAchilles-<version>-hyperv.zip or ProjectAchilles-<version>.vhdx).
+function Get-ApplianceVersion {
+    if (-not [string]::IsNullOrWhiteSpace($Version)) { return $Version }
+    $leaf = [IO.Path]::GetFileName($ImagePath)
+    if ($leaf -match '^ProjectAchilles-([0-9][0-9A-Za-z.-]*?)(-hyperv)?\.(zip|vhdx)$') { return $Matches[1] }
+    '(version unknown)'
+}
+
+# The VM's integration service with that ID, or with that English name.
+function Find-IntegrationService {
+    param([object[]]$Services, [string]$Id, [string]$EnglishName)
+    $byId = @($Services | Where-Object { ([string](Get-PropValue $_ 'Id')).IndexOf($Id, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+    if ($byId.Count -gt 0) { return $byId[0] }
+    $byName = @($Services | Where-Object { [string]$_.Name -eq $EnglishName })
+    if ($byName.Count -gt 0) { return $byName[0] }
+    $null
+}
+
+function Register-CreatedVm {
+    $script:CreatedVmName = $Name
+    [void]$script:Changes.Add("VM '$Name'")
+}
+
+# Creates the VM on the verified disk with the appliance's settings (spec 8.2
+# step 4) and returns it. Any failure after New-VM keeps the VM and the disk:
+# the main block prints how to remove them (exit 2).
 function New-AchillesVm {
-    Stop-Import 'VM creation and start: not implemented yet (Task 3).'
+    param([string]$VhdxPath, [string]$VmSwitchName)
+    Write-Info "Creating the VM '$Name': Generation 2, $MemoryGB GB static memory, $CpuCount virtual processors, on '$VmSwitchName'..."
+    $vm = $null
+    try {
+        $vm = New-VM -Name $Name -Generation 2 -MemoryStartupBytes ([long]$MemoryGB * 1GB) -VHDPath $VhdxPath -SwitchName $VmSwitchName -BootDevice VHD
+    }
+    catch {
+        $reason = $_.Exception.Message
+        # A VM that exists despite the error was still made by this run.
+        try { if (@(Get-VM | Where-Object { $_.Name -eq $Name }).Count -gt 0) { Register-CreatedVm } }
+        catch { Write-Warn "Could not check whether the VM exists: $($_.Exception.Message)" }
+        Stop-Import "Could not create the VM '$Name': $reason"
+    }
+    Register-CreatedVm
+    if ($null -eq $vm) { Stop-Import "New-VM returned no VM for '$Name'." }
+    Write-Ok "Created the VM '$Name'"
+
+    $notes = "ProjectAchilles appliance $(Get-ApplianceVersion), imported $([DateTime]::Now.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture))"
+    $doing = 'turn off dynamic memory'
+    try {
+        # Dynamic memory hurts the Elasticsearch JVM: memory is static.
+        Set-VMMemory -VM $vm -DynamicMemoryEnabled $false | Out-Null
+        $doing = "set $CpuCount virtual processors"
+        Set-VMProcessor -VM $vm -Count $CpuCount | Out-Null
+        # Ubuntu boots with Secure Boot only under the Microsoft UEFI CA template.
+        $doing = 'turn on Secure Boot with the MicrosoftUEFICertificateAuthority template'
+        Set-VMFirmware -VM $vm -EnableSecureBoot On -SecureBootTemplate MicrosoftUEFICertificateAuthority | Out-Null
+        Write-Ok "Static memory $MemoryGB GB, $CpuCount virtual processors, Secure Boot (Microsoft UEFI CA)"
+        # A server: no automatic checkpoints; starts with the host, shuts down with it.
+        $doing = 'turn off automatic checkpoints and set the automatic start and stop actions'
+        Set-VM -VM $vm -AutomaticCheckpointsEnabled $false -CheckpointType Production -AutomaticStartAction Start -AutomaticStartDelay 30 -AutomaticStopAction ShutDown -Notes $notes | Out-Null
+        Write-Ok 'Automatic checkpoints off (Production checkpoints); starts with the host after 30 s, shuts down with it'
+        $doing = 'turn on Guest Service Interface and Time Synchronization'
+        $services = @(Get-VMIntegrationService -VM $vm)
+        foreach ($wanted in @(@($GuestServiceInterfaceId, 'Guest Service Interface'), @($TimeSynchronizationId, 'Time Synchronization'))) {
+            $service = Find-IntegrationService $services $wanted[0] $wanted[1]
+            if ($null -eq $service) { throw "the VM has no '$($wanted[1])' integration service." }
+            Enable-VMIntegrationService -VMIntegrationService $service | Out-Null
+        }
+        Write-Ok 'Guest Service Interface and Time Synchronization on'
+        if ($VlanIdGiven) {
+            $doing = "set access VLAN $VlanId on the VM's network adapter"
+            Set-VMNetworkAdapterVlan -VM $vm -Access -VlanId $VlanId | Out-Null
+            Write-Ok "Network adapter on access VLAN $VlanId"
+        }
+    }
+    catch {
+        if ([string]$_.Exception.Message -eq $script:StopMarker) { throw }
+        Stop-Import "Could not $doing for the VM '$Name': $($_.Exception.Message)"
+    }
+    $vm
+}
+
+# A VM name for a command line: bare when that is safe, else quoted.
+function Format-VmArgument {
+    param([string]$VmName)
+    if ($VmName -match '^[A-Za-z0-9._-]+$') { return $VmName }
+    ConvertTo-Literal $VmName
+}
+
+# A Hyper-V command on this VM by exact name. -Name takes wildcards, so a
+# name with [ ] * ? selects the VM with Where-Object instead.
+function Format-VmCommand {
+    param([string]$Command, [string]$Arguments)
+    if ($Name.IndexOfAny([char[]]'[]*?`') -ge 0) { return "Get-VM | Where-Object Name -eq $(ConvertTo-Literal $Name) | $Command $Arguments" }
+    "$Command -Name $(ConvertTo-Literal $Name) $Arguments"
+}
+
+function Get-IpTimeout {
+    $raw = [string]$env:ACHILLES_IMPORT_IP_TIMEOUT_S
+    $n = 0
+    if (-not [string]::IsNullOrWhiteSpace($raw) -and [int]::TryParse($raw.Trim(), [ref]$n) -and $n -ge 1) { return $n }
+    $DefaultIpTimeoutS
+}
+
+# The VM's first IPv4 address (as Hyper-V reads it from the guest over KVP),
+# skipping 169.254.x.x, or $null.
+function Get-VmIPv4 {
+    param($Vm)
+    foreach ($adapter in @(Get-VMNetworkAdapter -VM $Vm)) {
+        foreach ($address in @(Get-PropValue $adapter 'IPAddresses')) {
+            $text = [string]$address
+            $parsed = $null
+            if ([Net.IPAddress]::TryParse($text, [ref]$parsed) -and
+                $parsed.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetwork -and -not $text.StartsWith('169.254.')) {
+                return $text
+            }
+        }
+    }
+    $null
+}
+
+# Polls for the address up to $TimeoutS seconds. Advisory: an error reading it
+# ends the wait without failing the import.
+function Wait-VmIPv4 {
+    param($Vm, [int]$TimeoutS)
+    $waited = 0
+    while ($true) {
+        try { $ip = Get-VmIPv4 $Vm }
+        catch {
+            Write-Warn "Could not read the VM's address: $($_.Exception.Message)"
+            return $null
+        }
+        if ($ip) { return $ip }
+        if ($waited -ge $TimeoutS) { return $null }
+        $step = [Math]::Min($IpPollSeconds, $TimeoutS - $waited)
+        Start-Sleep -Seconds $step
+        $waited += $step
+    }
+}
+
+# The Hyper-V console. vmconnect.exe ships with the Hyper-V management tools
+# on desktop Windows and Server with Desktop Experience, not on Server Core.
+# Only its presence is checked; it is never run.
+function Write-ConsoleHint {
+    $windir = [string]$env:windir
+    $haveConsole = $false
+    if (-not [string]::IsNullOrWhiteSpace($windir)) {
+        $haveConsole = Test-Path -LiteralPath (Join-Path (Join-Path $windir 'System32') 'vmconnect.exe') -PathType Leaf
+    }
+    if ($haveConsole) {
+        Write-Info "Open the console: vmconnect localhost $(Format-VmArgument $Name)"
+    }
+    else {
+        Write-Info 'This host has no Hyper-V console (vmconnect.exe), as on Server Core. Open the VM from Hyper-V Manager'
+        Write-Info 'on another computer for its first boot, and use SSH after first boot.'
+    }
+    Write-Info 'First boot asks on the console for: keyboard layout, admin password, network settings.'
+}
+
+# Starts the VM unless -NoStart, waits for its IPv4 address and says how to
+# reach it (spec 8.2 step 5). No address in time is not a failure.
+function Start-AndReport {
+    param($Vm)
+    Write-Step 5 'Starting the VM'
+    if ($NoStart) {
+        Write-Ok "The VM '$Name' is ready; not started (-NoStart)"
+        Write-Info "Start it with: Start-VM -Name $(ConvertTo-Literal $Name)"
+        Write-Info 'Then:'
+        Write-ConsoleHint
+        return
+    }
+    $script:VmStartAttempted = $true
+    try { Start-VM -VM $Vm | Out-Null }
+    catch { Stop-Import "Could not start the VM '$Name': $($_.Exception.Message)" }
+    Write-Ok "Started the VM '$Name'"
+    $timeout = Get-IpTimeout
+    Write-Info "Waiting up to $timeout s for its IPv4 address..."
+    $ip = Wait-VmIPv4 $Vm $timeout
+    if ($ip) {
+        Write-Ok "The VM is running. Its IPv4 address: $ip"
+    }
+    else {
+        Write-Warn "The VM is running but reported no IPv4 address within $timeout s. That is not an error: first boot waits"
+        Write-Info 'on the console for its settings, and the network may have no DHCP. Look at the console:'
+    }
+    Write-ConsoleHint
 }
 
 # -----------------------------------------------------------------------------
@@ -1007,10 +1207,13 @@ try {
     # The switch is decided (and a new one confirmed) before anything changes,
     # and only created once the image is verified.
     $switchPlan = Resolve-VmSwitch
-    $vhdx = Get-VerifiedImage   # the VM's disk (Task 3)
+    $vhdx = Get-VerifiedImage
     Write-Step 4 'Creating the VM'
-    $vmSwitch = Select-VmSwitch $switchPlan   # @{ Name; Created } (Task 3)
-    New-AchillesVm
+    $vmSwitch = Select-VmSwitch $switchPlan   # @{ Name; Created }
+    $vm = New-AchillesVm $vhdx $vmSwitch.Name
+    Start-AndReport $vm
+    Write-Host ''
+    exit 0
 }
 catch {
     if ([string]$_.Exception.Message -ne $script:StopMarker) {
@@ -1019,7 +1222,16 @@ catch {
     if ($script:Changes.Count -gt 0) {
         Write-Info 'Changes made so far:'
         foreach ($c in $script:Changes) { Write-Info "    $c" }
-        Write-Info "Remove the disk with: Remove-Item -LiteralPath $(ConvertTo-Literal $script:TargetVhdx)"
+        if ($null -ne $script:CreatedVmName) {
+            # The VM and its disk are kept; removing them is the admin's call.
+            Write-Info 'The VM and its disk are kept. To remove them, run:'
+            if ($script:VmStartAttempted) { Write-Info "    $(Format-VmCommand 'Stop-VM' '-TurnOff -Force')" }
+            Write-Info "    $(Format-VmCommand 'Remove-VM' '-Force')"
+            Write-Info "    Remove-Item -LiteralPath $(ConvertTo-Literal $script:TargetVhdx)"
+        }
+        else {
+            Write-Info "Remove the disk with: Remove-Item -LiteralPath $(ConvertTo-Literal $script:TargetVhdx)"
+        }
         if ($null -ne $script:CreatedSwitchAdapter) {
             # Only a switch this run created; a reused one is never offered.
             Write-Info "This run created the switch '$NewSwitchName'. If you don't need it, remove it with:"

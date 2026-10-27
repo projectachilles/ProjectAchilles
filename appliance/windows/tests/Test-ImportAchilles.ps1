@@ -163,7 +163,23 @@ function New-HVState([string]$dir) {
         FreeMemoryKB  = [long](32GB / 1KB)
         Web           = @{}           # url -> response body (string)
         WebStatus     = @{}           # url -> HTTP error status (e.g. 404)
-        IpSequence    = New-Object System.Collections.ArrayList
+        # VM step. IpSequence: what Get-VMNetworkAdapter reports as IPAddresses on
+        # each call (the last entry repeats; empty = never an address).
+        IpSequence    = [System.Collections.ArrayList]@(, @('192.168.4.60', 'fe80::215:5dff:fe04:160'))
+        IpCalls       = 0
+        IpTimeoutS    = $null         # $env:ACHILLES_IMPORT_IP_TIMEOUT_S during the run
+        Vmconnect     = $true         # <windir>\System32\vmconnect.exe exists (Hyper-V console)
+        Windir        = (Join-Path $dir 'windir')   # $env:windir during the run
+        FailAt        = $null         # a VM mock that throws ('New-VM:after' = creates the VM, then throws)
+        # Integration services of a new VM: localized names, fixed IDs.
+        IntegrationServices = @(
+            @{ Name = 'Guest Service Interface'; Guid = '6C09BB55-D683-4DA0-8931-C9BF705F6480'; Enabled = $false },
+            @{ Name = 'Heartbeat'; Guid = '84EAAE65-2F2E-45F5-9BB5-0E857DC8EB47'; Enabled = $true },
+            @{ Name = 'Key-Value Pair Exchange'; Guid = '2A34B1C2-FD73-4043-8A5B-DD2159BC743F'; Enabled = $true },
+            @{ Name = 'Shutdown'; Guid = '9F8233AC-BE49-4C79-8EE3-E7E1985B2077'; Enabled = $true },
+            @{ Name = 'Time Synchronization'; Guid = '2497F4DE-E9FA-4204-80E4-4B75C46419C0'; Enabled = $true },
+            @{ Name = 'VSS'; Guid = '5CED1297-4598-4915-A5FC-AD21BB4D02A4'; Enabled = $true })
+        IntegrationObjects = $null    # what Get-VMIntegrationService returned (same objects each call)
     }
 }
 
@@ -195,6 +211,8 @@ function global:Format-MockValue($v) {
     if ($null -eq $v) { return '$null' }
     if ($v -is [bool]) { if ($v) { return '$true' } else { return '$false' } }
     if ($v -is [string]) { return "'" + $v.Replace("'", "''") + "'" }
+    # Mock Hyper-V objects (a VM, an integration service) print as <Kind 'Name'>.
+    if ($null -ne $v.PSObject.Properties['MockKind']) { return "<$($v.MockKind) '$($v.Name)'>" }
     if ($v -is [array]) { return (@($v | ForEach-Object { Format-MockValue $_ }) -join ',') }
     return [string]$v
 }
@@ -352,6 +370,87 @@ function global:New-VMSwitch {
     $s
 }
 
+# ---- VM mocks ----
+# Every one logs its call; $HV.FailAt names the one that throws.
+function global:Invoke-MockFailure([string]$Command) {
+    if ($global:HV.FailAt -eq $Command) { throw "$Command failed: the operation could not be completed (mock)." }
+}
+function global:New-VM {
+    [CmdletBinding()] param([string]$Name, [int]$Generation, [long]$MemoryStartupBytes, [string]$VHDPath, [string]$SwitchName,
+        [string]$BootDevice, [string]$Path, [string]$NewVHDPath, [long]$NewVHDSizeBytes, [switch]$NoVHD)
+    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    Invoke-MockFailure 'New-VM'
+    $global:HV.NewVmSawDisk = Test-Path -LiteralPath $VHDPath
+    $vm = [pscustomobject]@{ MockKind = 'VM'; Name = $Name; Id = [guid]::NewGuid(); State = 'Off' }
+    [void]$global:HV.VMs.Add($vm)
+    Invoke-MockFailure 'New-VM:after'
+    $vm
+}
+function global:Set-VMMemory {
+    [CmdletBinding()] param([Parameter(Position = 0)]$VM, [bool]$DynamicMemoryEnabled, [long]$StartupBytes, [long]$MinimumBytes, [long]$MaximumBytes)
+    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    Invoke-MockFailure 'Set-VMMemory'
+}
+function global:Set-VMProcessor {
+    [CmdletBinding()] param([Parameter(Position = 0)]$VM, [long]$Count)
+    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    Invoke-MockFailure 'Set-VMProcessor'
+}
+function global:Set-VMFirmware {
+    [CmdletBinding()] param([Parameter(Position = 0)]$VM, [string]$EnableSecureBoot, [string]$SecureBootTemplate, [string]$SecureBootTemplateId)
+    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    Invoke-MockFailure 'Set-VMFirmware'
+}
+function global:Set-VM {
+    [CmdletBinding()] param([Parameter(Position = 0)]$VM, [bool]$AutomaticCheckpointsEnabled, [string]$CheckpointType,
+        [string]$AutomaticStartAction, [int]$AutomaticStartDelay, [string]$AutomaticStopAction, [string]$Notes,
+        [long]$MemoryStartupBytes, [switch]$DynamicMemory, [long]$ProcessorCount, [string]$Name)
+    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    Invoke-MockFailure 'Set-VM'
+}
+function global:Get-VMIntegrationService {
+    [CmdletBinding()] param([Parameter(Position = 0)]$VM, [string[]]$Name)
+    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    Invoke-MockFailure 'Get-VMIntegrationService'
+    if ($null -eq $global:HV.IntegrationObjects) {
+        $global:HV.IntegrationObjects = @($global:HV.IntegrationServices | ForEach-Object {
+                [pscustomobject]@{ MockKind = 'VMIntegrationService'; Name = $_.Name; Id = "Microsoft:$($VM.Id)\$($_.Guid)"; Enabled = $_.Enabled; VMName = $VM.Name } })
+    }
+    $global:HV.IntegrationObjects
+}
+function global:Enable-VMIntegrationService {
+    [CmdletBinding()] param([Parameter(Position = 0)]$VMIntegrationService, $VM, [string[]]$Name)
+    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    Invoke-MockFailure 'Enable-VMIntegrationService'
+    foreach ($svc in @($VMIntegrationService)) { $svc.Enabled = $true }
+}
+function global:Set-VMNetworkAdapterVlan {
+    [CmdletBinding()] param([Parameter(Position = 0)]$VM, [switch]$Access, [int]$VlanId, [switch]$Trunk, [switch]$Untagged)
+    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    Invoke-MockFailure 'Set-VMNetworkAdapterVlan'
+}
+function global:Start-VM {
+    [CmdletBinding()] param([Parameter(Position = 0)]$VM, [string]$Name)
+    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    Invoke-MockFailure 'Start-VM'
+    $VM.State = 'Running'
+}
+function global:Get-VMNetworkAdapter {
+    [CmdletBinding()] param([Parameter(Position = 0)]$VM, [string]$VMName)
+    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    Invoke-MockFailure 'Get-VMNetworkAdapter'
+    $seq = $global:HV.IpSequence
+    $ips = @()
+    if ($seq.Count -gt 0) { $ips = @($seq[[Math]::Min($global:HV.IpCalls, $seq.Count - 1)]) }
+    $global:HV.IpCalls++
+    [pscustomobject]@{ MockKind = 'VMNetworkAdapter'; Name = 'Network Adapter'; VMName = $VM.Name; IPAddresses = [string[]]$ips }
+}
+# The IP wait sleeps between polls: logged, never slept.
+function global:Start-Sleep {
+    [CmdletBinding()] param([Parameter(Position = 0)][int]$Seconds, [int]$Milliseconds)
+    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+}
+
 # Commands that change a host (or that later tasks will mock with state), plus
 # every command of the host-changing modules found on this machine. Until a
 # scenario mocks one, any call is logged and fails the run.
@@ -359,7 +458,7 @@ $guarded = @(
     'Enable-WindowsOptionalFeature', 'Install-WindowsFeature', 'Restart-Computer',
     'New-VM', 'Remove-VM', 'Start-VM', 'Stop-VM', 'Set-VM', 'Set-VMFirmware', 'Set-VMMemory',
     'Set-VMProcessor', 'Enable-VMIntegrationService', 'Set-VMNetworkAdapterVlan',
-    'Get-VMNetworkAdapter', 'Connect-VMNetworkAdapter', 'Add-VMHardDiskDrive', 'Set-VMHost',
+    'Get-VMNetworkAdapter', 'Connect-VMNetworkAdapter', 'Add-VMHardDiskDrive', 'Set-VMHost', 'Get-VMIntegrationService',
     'Get-VMSwitch', 'New-VMSwitch', 'Remove-VMSwitch', 'Get-NetAdapter', 'vmconnect'
 )
 # The mocks are the "function global:" definitions in this file.
@@ -398,9 +497,17 @@ function Invoke-Import([hashtable]$Params, [string[]]$Answers) {
     $global:LASTEXITCODE = 0
     # The session the script sees comes from the scenario, never from the
     # shell running the harness (which may itself be an SSH session).
-    $savedEnv = @{ SSH_CONNECTION = $env:SSH_CONNECTION; SESSIONNAME = $env:SESSIONNAME }
+    # Likewise windir (where the script looks for vmconnect.exe) and the IP wait.
+    $savedEnv = @{ SSH_CONNECTION = $env:SSH_CONNECTION; SESSIONNAME = $env:SESSIONNAME; windir = $env:windir; ACHILLES_IMPORT_IP_TIMEOUT_S = $env:ACHILLES_IMPORT_IP_TIMEOUT_S }
     $env:SSH_CONNECTION = $global:HV.SshConnection
     $env:SESSIONNAME = $global:HV.SessionName
+    $env:ACHILLES_IMPORT_IP_TIMEOUT_S = $global:HV.IpTimeoutS
+    $system32 = Join-Path $global:HV.Windir 'System32'
+    New-Item -ItemType Directory -Path $system32 -Force | Out-Null
+    $vmconnect = Join-Path $system32 'vmconnect.exe'
+    if ($global:HV.Vmconnect) { [IO.File]::WriteAllText($vmconnect, 'not a program (harness)') }
+    elseif (Test-Path -LiteralPath $vmconnect) { Remove-Item -LiteralPath $vmconnect }
+    $env:windir = $global:HV.Windir
     try {
         $records = & $Script @Params *>&1
         $code = $LASTEXITCODE
@@ -411,6 +518,8 @@ function Invoke-Import([hashtable]$Params, [string[]]$Answers) {
     finally {
         $env:SSH_CONNECTION = $savedEnv.SSH_CONNECTION
         $env:SESSIONNAME = $savedEnv.SESSIONNAME
+        $env:windir = $savedEnv.windir
+        $env:ACHILLES_IMPORT_IP_TIMEOUT_S = $savedEnv.ACHILLES_IMPORT_IP_TIMEOUT_S
     }
     $text = ConvertTo-OutputText $records
     if ($code -is [string]) { $text += "$code`n" }
@@ -438,7 +547,7 @@ function Test-Contains($r, [string]$text) { $r.Output.IndexOf($text, [StringComp
 function Test-Called($r, [string]$prefix) {
     @($r.Calls | Where-Object { $_ -eq $prefix -or $_.StartsWith("$prefix ", [StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
 }
-$HyperVCommands = 'Get-VM', 'Get-VMHost', 'Get-VMSwitch', 'New-VM', 'New-VMSwitch', 'Get-WindowsOptionalFeature', 'Get-WindowsFeature', 'Get-Service'
+$HyperVCommands = 'Get-VM', 'Get-VMHost', 'Get-VMSwitch', 'New-VM', 'New-VMSwitch', 'Get-WindowsOptionalFeature', 'Get-WindowsFeature', 'Get-Service', 'Start-VM'
 function Test-NoHyperVCalls($r) {
     @($r.Calls | Where-Object { $HyperVCommands -contains ($_ -split ' ')[0] }).Count -eq 0
 }
@@ -453,6 +562,12 @@ function Expect([string]$name, $r, [bool]$ok) {
 # Default parameters for a run that passes preflight with the fixtures. -Yes
 # reuses the default host's one External switch without a prompt.
 function Get-BaseParams { @{ ImagePath = $FixZip; ChecksumFile = $FixSums; Yes = $true } }
+function Get-NewVmCalls($r) { @($r.Calls | Where-Object { $_.StartsWith('New-VM ') }) }
+# True when the run created the VM on that switch and finished (exit 0).
+function Test-VmCreatedOn($r, [string]$switch) {
+    $calls = @(Get-NewVmCalls $r)
+    $r.ExitCode -eq 0 -and $calls.Count -eq 1 -and $calls[0].Contains("-SwitchName '$($switch.Replace("'", "''"))'")
+}
 
 # ==== static =================================================================
 # Windows PowerShell 5.1 reads a .ps1 without a BOM as Windows-1252. A UTF-8
@@ -859,10 +974,9 @@ function TestImage_ChecksumMatchesExtracts {
     Expect 'the VHDX is the one from the zip' $r $same
     Expect 'no temp directory left behind' $r (@(Get-ChildItem -LiteralPath $global:HV.VhdPath -Force -ErrorAction SilentlyContinue).Count -eq 1)
     Expect 'the zip is kept' $r (Test-Path -LiteralPath $FixZip)
-    # Until Task 3 the VM step is a stub: the disk is a change, so exit 2
-    # with the command that removes it.
-    Expect 'stops at the not-implemented VM step with exit 2 and how to remove the disk' $r (
-        $r.ExitCode -eq 2 -and (Test-Contains $r 'not implemented yet (Task 3)') -and (Test-Contains $r "Remove-Item -LiteralPath '$target'"))
+    $vmCalls = @(Get-NewVmCalls $r)
+    Expect 'exit 0: the VM is created on that disk, and no cleanup is printed' $r (
+        $r.ExitCode -eq 0 -and $vmCalls.Count -eq 1 -and $vmCalls[0].Contains("-VHDPath '$target'") -and -not (Test-Contains $r 'Remove-Item'))
 
     # -Destination overrides the host default, and a .vhdx listed in the
     # checksum file is accepted as -ImagePath.
@@ -1035,7 +1149,7 @@ function TestSwitch_ReusesSingleExternal {
     Expect 'no network warning (reusing interrupts nothing)' $r (-not (Test-Contains $r $WarnText))
     $sw = Get-OutputIndex $r 'Virtual switch'
     Expect 'the switch is chosen before the image is verified' $r ($sw -ge 0 -and $sw -lt (Get-OutputIndex $r 'SHA256 matches'))
-    Expect 'goes on to the VM step (exit 2), offers no switch removal' $r ($r.ExitCode -eq 2 -and -not (Test-Contains $r 'Remove-VMSwitch'))
+    Expect 'creates the VM on LAN (exit 0), offers no switch removal' $r ((Test-VmCreatedOn $r 'LAN') -and -not (Test-Contains $r 'Remove-VMSwitch'))
 
     $null = New-Scenario 'switch-reuse-single-enter'
     $r = Invoke-Import (Get-SwitchParams) @('')
@@ -1092,7 +1206,7 @@ function TestSwitch_SwitchNameAcceptsAnySwitchWithWarning {
         $warn = @(Get-OutputLine $r "'$($case[1])' is $($case[2]): agents on your network will not reach the VM through it")
         $ok = @(Get-OutputLine $r 'The VM will connect to')
         Expect "-SwitchName '$($case[1])' ($($case[0])): accepted, no prompt, no New-VMSwitch, goes on" $r (
-            (Get-NewSwitchCalls $r).Count -eq 0 -and (Get-Prompts $r).Count -eq 0 -and $r.ExitCode -eq 2 -and
+            (Get-NewSwitchCalls $r).Count -eq 0 -and (Get-Prompts $r).Count -eq 0 -and (Test-VmCreatedOn $r $case[1]) -and
             $ok.Count -eq 1 -and $ok[0].Contains("'$($case[1])'") -and (Test-Contains $r 'SHA256 matches'))
         Expect "  and warned with [!!]: $($case[2]), agents will not reach the VM" $r ($warn.Count -eq 1 -and $warn[0].Contains('[!!]'))
         Expect '  and says -ConfirmNetworkInterruption is ignored (nothing is created)' $r (Test-Contains $r '-ConfirmNetworkInterruption is ignored')
@@ -1139,7 +1253,7 @@ function TestSwitch_CreateRequiresTypedName {
     $note = Get-OutputIndex $r 'The switch is created in step 4, after the image is verified.'
     Expect 'the step-4 note comes after the confirmation' $r ($note -gt (Get-OutputIndex $r "Confirmed: an External switch on 'Ethernet'"))
     Expect 'the host now has the External switch on Ethernet' $r (@($global:HV.Switches | Where-Object { $_.Name -eq $NewSwitch -and $_.SwitchType -eq 'External' -and $_.NetAdapterInterfaceDescription -eq $EthDesc }).Count -eq 1)
-    Expect 'at the VM step (exit 2) it offers to remove the switch it created' $r ($r.ExitCode -eq 2 -and (Test-Contains $r "Remove-VMSwitch -Name '$NewSwitch' -Force"))
+    Expect 'the VM is created on the new switch (exit 0); nothing to clean up' $r ((Test-VmCreatedOn $r $NewSwitch) -and -not (Test-Contains $r 'Remove-VMSwitch'))
 
     # Two adapters: pick by number, then type the name (case does not matter;
     # New-VMSwitch gets the adapter's own name).
@@ -1212,7 +1326,7 @@ function TestSwitch_UnattendedWithConfirmCreates {
     $calls = @(Get-NewSwitchCalls $r)
     Expect "exactly: $expected" $r ($calls.Count -eq 1 -and $calls[0] -ceq $expected)
     Expect 'no prompt, and the warning is still shown' $r ((Get-Prompts $r).Count -eq 0 -and (Test-NetworkWarning $r))
-    Expect 'exit 2 at the VM step, offers to remove the created switch' $r ($r.ExitCode -eq 2 -and (Test-Contains $r "Remove-VMSwitch -Name '$NewSwitch' -Force"))
+    Expect 'the VM is created on the new switch (exit 0)' $r (Test-VmCreatedOn $r $NewSwitch)
 
     $null = New-Scenario 'switch-confirm-interactive'
     Set-OnlyDefaultSwitch
@@ -1506,7 +1620,7 @@ function TestSwitch_SessionAdapterDetected {
     $global:HV.SessionProbeThrows = $true
     $r = Invoke-Import $p
     Expect 'detection throws: no warning, no crash, created as before' $r (
-        -not (Test-Contains $r 'Your SSH session') -and -not (Test-Contains $r 'Unexpected error') -and $r.ExitCode -eq 2 -and @(Get-NewSwitchCalls $r) -ccontains $created)
+        -not (Test-Contains $r 'Your SSH session') -and -not (Test-Contains $r 'Unexpected error') -and $r.ExitCode -eq 0 -and @(Get-NewSwitchCalls $r) -ccontains $created)
 
     $null = New-Scenario 'switch-session-console'
     Set-LabAdapters
@@ -1533,6 +1647,260 @@ function TestSwitch_NeverUsesDefaultSwitch {
     $r = Invoke-Import (Get-SwitchParams) @('Ethernet')
     Expect 'a Default Switch reported as External is still not reused' $r (
         (Get-NewSwitchCalls $r).Count -eq 1 -and -not (Test-Contains $r "connect to the External switch 'Default Switch'"))
+}
+
+# ==== VM: create, start, report ==============================================
+# The calls that change the VM, in order (reads and sleeps left out).
+function Get-VmChangeCalls($r) {
+    @($r.Calls | Where-Object { $_ -match '^(New-VM|Set-VM|Set-VMMemory|Set-VMProcessor|Set-VMFirmware|Enable-VMIntegrationService|Set-VMNetworkAdapterVlan|Start-VM) ' })
+}
+function Get-SleepSeconds($r) {
+    $total = 0
+    foreach ($c in @($r.Calls | Where-Object { $_.StartsWith('Start-Sleep ') })) { if ($c -match '-Seconds (\d+)') { $total += [int]$Matches[1] } }
+    $total
+}
+# The VM is kept: no Remove-VM/Stop-VM ran, and the VM and its disk exist.
+function Test-VmKept($r, [string]$vmName, [string]$vhdx) {
+    -not (Test-Called $r 'Remove-VM') -and -not (Test-Called $r 'Stop-VM') -and -not (Test-Called $r 'Remove-VMSwitch') -and
+    @($global:HV.VMs | Where-Object { $_.Name -eq $vmName }).Count -eq 1 -and (Test-Path -LiteralPath $vhdx)
+}
+$VmRef = "<VM 'ProjectAchilles'>"
+$IsoDate = '\d{4}-\d{2}-\d{2}'
+
+function TestVM_CreatedWithExactSettings {
+    $null = New-Scenario 'vm-exact-settings'
+    $r = Invoke-Import (Get-BaseParams)
+    $target = Join-Path $global:HV.VhdPath 'ProjectAchilles.vhdx'
+    $calls = @(Get-VmChangeCalls $r)
+    $expected = @(
+        "New-VM -Name 'ProjectAchilles' -Generation 2 -MemoryStartupBytes 8589934592 -VHDPath '$($target.Replace("'", "''"))' -SwitchName 'LAN' -BootDevice 'VHD'",
+        "Set-VMMemory -VM $VmRef -DynamicMemoryEnabled `$false",
+        "Set-VMProcessor -VM $VmRef -Count 4",
+        "Set-VMFirmware -VM $VmRef -EnableSecureBoot 'On' -SecureBootTemplate 'MicrosoftUEFICertificateAuthority'",
+        "Set-VM -VM $VmRef -AutomaticCheckpointsEnabled `$false -CheckpointType 'Production' -AutomaticStartAction 'Start' -AutomaticStartDelay 30 -AutomaticStopAction 'ShutDown' -Notes 'ProjectAchilles appliance 9.9.9, imported <date>'",
+        "Enable-VMIntegrationService -VMIntegrationService <VMIntegrationService 'Guest Service Interface'>",
+        "Enable-VMIntegrationService -VMIntegrationService <VMIntegrationService 'Time Synchronization'>",
+        "Start-VM -VM $VmRef")
+    $same = $calls.Count -eq $expected.Count
+    for ($i = 0; $same -and $i -lt $expected.Count; $i++) {
+        if ($expected[$i].Contains('<date>')) {
+            $same = $calls[$i] -cmatch ('^' + [regex]::Escape($expected[$i]).Replace('<date>', $IsoDate) + '$')
+        }
+        else { $same = $calls[$i] -ceq $expected[$i] }
+    }
+    Expect 'exactly these calls, in this order: New-VM, Set-VMMemory, Set-VMProcessor, Set-VMFirmware, Set-VM, Enable-VMIntegrationService x2, Start-VM' $r $same
+    if (-not $same) { foreach ($c in $calls) { "     | got: $c" } }
+    Expect 'exit 0' $r ($r.ExitCode -eq 0)
+    Expect 'New-VM ran with the disk already in place' $r ($global:HV.NewVmSawDisk -eq $true)
+    Expect 'both integration services are on afterwards' $r (
+        @($global:HV.IntegrationObjects | Where-Object { $_.Enabled -and ($_.Name -eq 'Guest Service Interface' -or $_.Name -eq 'Time Synchronization') }).Count -eq 2)
+    Expect 'the notes use today''s date (ISO)' $r (@($calls | Where-Object { $_.Contains("imported $([DateTime]::Now.ToString('yyyy-MM-dd'))'") }).Count -eq 1 -or
+        @($calls | Where-Object { $_.Contains("imported $([DateTime]::Now.AddDays(-1).ToString('yyyy-MM-dd'))'") }).Count -eq 1)
+
+    $null = New-Scenario 'vm-exact-settings-custom'
+    $p = Get-BaseParams; $p.MemoryGB = 12; $p.CpuCount = 2
+    $r = Invoke-Import $p
+    $calls = @(Get-VmChangeCalls $r)
+    Expect '-MemoryGB 12 -CpuCount 2: 12 GB static, 2 vCPUs' $r (
+        $calls.Count -ge 3 -and $calls[0].Contains('-MemoryStartupBytes 12884901888 ') -and $calls[2] -ceq "Set-VMProcessor -VM $VmRef -Count 2")
+
+    # -Version gives the version for the notes (the .vhdx name may not carry it).
+    $null = New-Scenario 'vm-notes-version'
+    $sums = New-SumsFile 'sums-vhdx-notes' "$FixVhdxHash  disk.vhdx`n"
+    $disk = Join-Path $FixDir 'disk.vhdx'
+    Copy-Item -LiteralPath $FixVhdx -Destination $disk
+    $global:HV.Web[$FixReleaseUrl.Replace($FixVer, '9.9.10')] = "$FixVhdxHash  disk.vhdx`n"
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $disk; Version = '9.9.10' }
+    Expect 'the notes name the -Version' $r (@(Get-VmChangeCalls $r | Where-Object { $_ -cmatch "^Set-VM .* -Notes 'ProjectAchilles appliance 9\.9\.10, imported $IsoDate'$" }).Count -eq 1)
+    $null = New-Scenario 'vm-notes-unknown-version'
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $disk; ChecksumFile = $sums }
+    Expect 'no version anywhere: the notes say so' $r (@(Get-VmChangeCalls $r | Where-Object { $_ -cmatch "^Set-VM .* -Notes 'ProjectAchilles appliance \(version unknown\), imported $IsoDate'$" }).Count -eq 1)
+}
+
+# Integration service names are localized (a Spanish host says "Sincronizacion
+# de hora"); the script finds them by their fixed IDs.
+function TestVM_IntegrationServicesFoundById {
+    $null = New-Scenario 'vm-integration-localized'
+    $global:HV.IntegrationServices = @(
+        @{ Name = 'Interfaz de servicio invitado'; Guid = '6C09BB55-D683-4DA0-8931-C9BF705F6480'; Enabled = $false },
+        @{ Name = 'Latido'; Guid = '84EAAE65-2F2E-45F5-9BB5-0E857DC8EB47'; Enabled = $true },
+        @{ Name = 'Sincronizacion de hora'; Guid = '2497F4DE-E9FA-4204-80E4-4B75C46419C0'; Enabled = $false })
+    $r = Invoke-Import (Get-BaseParams)
+    $en = @($r.Calls | Where-Object { $_.StartsWith('Enable-VMIntegrationService ') })
+    Expect 'Spanish names: enables exactly the two services by ID, exit 0' $r (
+        $r.ExitCode -eq 0 -and $en.Count -eq 2 -and
+        $en[0] -ceq "Enable-VMIntegrationService -VMIntegrationService <VMIntegrationService 'Interfaz de servicio invitado'>" -and
+        $en[1] -ceq "Enable-VMIntegrationService -VMIntegrationService <VMIntegrationService 'Sincronizacion de hora'>")
+
+    $null = New-Scenario 'vm-integration-missing'
+    $global:HV.IntegrationServices = @(@{ Name = 'Heartbeat'; Guid = '84EAAE65-2F2E-45F5-9BB5-0E857DC8EB47'; Enabled = $true })
+    $r = Invoke-Import (Get-BaseParams)
+    Expect 'a service the host does not have: exit 2, names it, prints Remove-VM, never starts the VM' $r (
+        $r.ExitCode -eq 2 -and (Test-Contains $r 'Guest Service Interface') -and (Test-Contains $r "Remove-VM -Name 'ProjectAchilles' -Force") -and -not (Test-Called $r 'Start-VM'))
+}
+
+function TestVM_VlanAppliedWhenGiven {
+    $null = New-Scenario 'vm-vlan'
+    $p = Get-BaseParams; $p.VlanId = 42
+    $r = Invoke-Import $p
+    $calls = @(Get-VmChangeCalls $r)
+    $vlan = [array]::IndexOf($calls, "Set-VMNetworkAdapterVlan -VM $VmRef -Access -VlanId 42")
+    Expect '-VlanId 42: Set-VMNetworkAdapterVlan -Access -VlanId 42, after the integration services and before Start-VM' $r (
+        $r.ExitCode -eq 0 -and $vlan -gt 0 -and $calls[$vlan - 1].StartsWith('Enable-VMIntegrationService') -and $calls[$vlan + 1] -ceq "Start-VM -VM $VmRef")
+
+    $null = New-Scenario 'vm-no-vlan'
+    $r = Invoke-Import (Get-BaseParams)
+    Expect 'no -VlanId: no VLAN call' $r ($r.ExitCode -eq 0 -and -not (Test-Called $r 'Set-VMNetworkAdapterVlan'))
+}
+
+function TestVM_DestinationWithSpaces {
+    $dir = New-Scenario 'vm-destination-spaces'
+    $dest = Join-Path $dir "Hyper V disks (O'Brien)"
+    $p = Get-BaseParams; $p.Destination = $dest; $p.Name = 'Achilles Lab'
+    $r = Invoke-Import $p
+    $vhdx = Join-Path $dest 'Achilles Lab.vhdx'
+    $calls = @(Get-NewVmCalls $r)
+    Expect 'New-VM gets the name and the disk path with spaces and an apostrophe, as one argument each' $r (
+        $r.ExitCode -eq 0 -and $calls.Count -eq 1 -and
+        $calls[0] -ceq "New-VM -Name 'Achilles Lab' -Generation 2 -MemoryStartupBytes 8589934592 -VHDPath '$($vhdx.Replace("'", "''"))' -SwitchName 'LAN' -BootDevice 'VHD'" -and
+        (Test-Path -LiteralPath $vhdx))
+    Expect 'the console command quotes the name' $r (Test-Contains $r "vmconnect localhost 'Achilles Lab'")
+}
+
+function TestVM_NoStartSkipsStart {
+    $null = New-Scenario 'vm-no-start'
+    $p = Get-BaseParams; $p.NoStart = $true
+    $r = Invoke-Import $p
+    Expect '-NoStart: exit 0, VM created, no Start-VM, no IP wait' $r (
+        $r.ExitCode -eq 0 -and (Get-NewVmCalls $r).Count -eq 1 -and -not (Test-Called $r 'Start-VM') -and
+        -not (Test-Called $r 'Get-VMNetworkAdapter') -and -not (Test-Called $r 'Start-Sleep'))
+    Expect '  says how to start it, and how to open the console then' $r (
+        (Test-Contains $r "Start-VM -Name 'ProjectAchilles'") -and (Test-Contains $r 'vmconnect localhost ProjectAchilles'))
+}
+
+function TestVM_StartsAndPrintsIp {
+    $null = New-Scenario 'vm-start-ip'
+    # Nothing, then IPv6 only, then a link-local IPv4, then the real address.
+    $global:HV.IpSequence = [System.Collections.ArrayList]@(, @())
+    [void]$global:HV.IpSequence.Add(@('fe80::215:5dff:fe04:160'))
+    [void]$global:HV.IpSequence.Add(@('169.254.10.20', 'fe80::215:5dff:fe04:160'))
+    [void]$global:HV.IpSequence.Add(@('fe80::215:5dff:fe04:160', '192.168.4.60'))
+    $r = Invoke-Import (Get-BaseParams)
+    $ipLine = @(Get-OutputLine $r '192.168.4.60')
+    Expect 'exit 0; reports 192.168.4.60 with [OK] after 4 polls (IPv6 and 169.254.x skipped)' $r (
+        $r.ExitCode -eq 0 -and $ipLine.Count -ge 1 -and $ipLine[0].Contains('[OK]') -and $global:HV.IpCalls -eq 4 -and -not (Test-Contains $r '169.254.10.20'))
+    Expect 'waited 5 s between polls (mocked sleeps)' $r ((Get-SleepSeconds $r) -eq 15)
+    Expect 'prints the console command: vmconnect localhost ProjectAchilles' $r (Test-Contains $r 'vmconnect localhost ProjectAchilles')
+    Expect 'says what first boot asks: keyboard layout, admin password, network' $r (Test-Contains $r 'keyboard layout, admin password, network')
+    Expect 'Start-VM before the first address poll' $r (
+        [array]::IndexOf($r.Calls, "Start-VM -VM $VmRef") -ge 0 -and
+        [array]::IndexOf($r.Calls, "Start-VM -VM $VmRef") -lt [array]::IndexOf($r.Calls, "Get-VMNetworkAdapter -VM $VmRef"))
+    Expect 'no cleanup printed on success' $r (-not (Test-Contains $r 'Remove-VM') -and -not (Test-Contains $r 'Remove-Item'))
+}
+
+function TestVM_IpTimeoutIsNotFailure {
+    $null = New-Scenario 'vm-ip-timeout'
+    $global:HV.IpSequence = New-Object System.Collections.ArrayList
+    $global:HV.IpTimeoutS = '2'
+    $r = Invoke-Import (Get-BaseParams)
+    $warn = @(Get-OutputLine $r 'no IPv4 address')
+    Expect 'ACHILLES_IMPORT_IP_TIMEOUT_S=2, no address: exit 0' $r ($r.ExitCode -eq 0 -and -not (Test-Contains $r '[FAIL]'))
+    Expect '  waits 2 s in total, says so with [!!] and that it is not an error' $r (
+        (Get-SleepSeconds $r) -eq 2 -and $warn.Count -ge 1 -and $warn[0].Contains('[!!]') -and (Test-Contains $r 'not an error'))
+    Expect '  points at the console' $r (Test-Contains $r 'vmconnect localhost ProjectAchilles')
+    Expect '  no cleanup printed' $r (-not (Test-Contains $r 'Remove-VM'))
+
+    $null = New-Scenario 'vm-ip-timeout-default'
+    $global:HV.IpSequence = New-Object System.Collections.ArrayList
+    $global:HV.IpTimeoutS = 'soon'
+    $r = Invoke-Import (Get-BaseParams)
+    Expect 'an unusable ACHILLES_IMPORT_IP_TIMEOUT_S falls back to 300 s' $r ($r.ExitCode -eq 0 -and (Get-SleepSeconds $r) -eq 300)
+
+    $null = New-Scenario 'vm-ip-probe-fails'
+    $global:HV.FailAt = 'Get-VMNetworkAdapter'
+    $r = Invoke-Import (Get-BaseParams)
+    Expect 'reading the address fails: still exit 0 (the VM runs), [!!], console hint' $r (
+        $r.ExitCode -eq 0 -and (Test-Contains $r 'Could not read the VM') -and (Test-Contains $r 'vmconnect localhost ProjectAchilles') -and -not (Test-Contains $r 'Unexpected error'))
+}
+
+function TestVM_ServerCoreHintWithoutVmconnect {
+    $null = New-Scenario 'vm-server-core'
+    $global:HV.Vmconnect = $false
+    $r = Invoke-Import (Get-BaseParams)
+    Expect 'no vmconnect.exe: exit 0, says to use SSH after first boot, no vmconnect command' $r (
+        $r.ExitCode -eq 0 -and (Test-Contains $r 'use SSH after first boot') -and -not (Test-Contains $r 'vmconnect localhost'))
+    Expect '  vmconnect is looked for, never run' $r (-not (Test-Called $r 'vmconnect') -and -not (Test-Called $r 'vmconnect.exe'))
+
+    $null = New-Scenario 'vm-server-core-timeout'
+    $global:HV.Vmconnect = $false
+    $global:HV.IpSequence = New-Object System.Collections.ArrayList
+    $global:HV.IpTimeoutS = '2'
+    $r = Invoke-Import (Get-BaseParams)
+    Expect 'no address and no vmconnect: exit 0, still the SSH hint' $r ($r.ExitCode -eq 0 -and (Test-Contains $r 'use SSH after first boot'))
+}
+
+function TestVM_FailureAfterCreatePrintsCleanup {
+    $null = New-Scenario 'vm-fail-firmware'
+    $global:HV.FailAt = 'Set-VMFirmware'
+    $r = Invoke-Import (Get-BaseParams)
+    $target = Join-Path $global:HV.VhdPath 'ProjectAchilles.vhdx'
+    $removeVm = Get-OutputIndex $r "Remove-VM -Name 'ProjectAchilles' -Force"
+    $removeDisk = Get-OutputIndex $r "Remove-Item -LiteralPath '$target'"
+    Expect 'Set-VMFirmware throws: exit 2, says what failed' $r ($r.ExitCode -eq 2 -and (Test-Contains $r 'Secure Boot') -and (Test-Contains $r 'Set-VMFirmware failed'))
+    Expect '  the VM and the VHDX are kept' $r (Test-VmKept $r 'ProjectAchilles' $target)
+    Expect '  prints Remove-VM, then Remove-Item for the disk' $r ($removeVm -ge 0 -and $removeDisk -gt $removeVm)
+    Expect '  no Stop-VM line (it never started), no switch removal (LAN was reused), never started' $r (
+        -not (Test-Contains $r 'Stop-VM') -and -not (Test-Contains $r 'Remove-VMSwitch') -and -not (Test-Called $r 'Start-VM'))
+
+    $null = New-Scenario 'vm-fail-start'
+    $global:HV.FailAt = 'Start-VM'
+    $r = Invoke-Import (Get-BaseParams)
+    $stop = Get-OutputIndex $r "Stop-VM -Name 'ProjectAchilles' -TurnOff -Force"
+    Expect 'Start-VM throws: exit 2, Stop-VM -TurnOff then Remove-VM then Remove-Item' $r (
+        $r.ExitCode -eq 2 -and $stop -ge 0 -and $stop -lt (Get-OutputIndex $r "Remove-VM -Name 'ProjectAchilles' -Force") -and
+        (Get-OutputIndex $r "Remove-VM -Name 'ProjectAchilles' -Force") -lt (Get-OutputIndex $r 'Remove-Item -LiteralPath') -and (Test-VmKept $r 'ProjectAchilles' $target))
+
+    $null = New-Scenario 'vm-fail-new-vm'
+    $global:HV.FailAt = 'New-VM'
+    $r = Invoke-Import (Get-BaseParams)
+    Expect 'New-VM throws (no VM): exit 2, the disk''s Remove-Item, no Remove-VM' $r (
+        $r.ExitCode -eq 2 -and (Test-Contains $r "Could not create the VM 'ProjectAchilles'") -and (Test-Contains $r 'Remove-Item -LiteralPath') -and -not (Test-Contains $r 'Remove-VM'))
+
+    $null = New-Scenario 'vm-fail-new-vm-after'
+    $global:HV.FailAt = 'New-VM:after'
+    $r = Invoke-Import (Get-BaseParams)
+    Expect 'New-VM creates the VM, then throws: exit 2, Remove-VM offered' $r (
+        $r.ExitCode -eq 2 -and (Test-Contains $r "Remove-VM -Name 'ProjectAchilles' -Force") -and (Test-VmKept $r 'ProjectAchilles' $target))
+
+    # A name with wildcard characters: Remove-VM -Name would match others.
+    $null = New-Scenario 'vm-fail-wildcard-name'
+    $global:HV.FailAt = 'Set-VM'
+    $p = Get-BaseParams; $p.Name = 'PA[1]'
+    $r = Invoke-Import $p
+    Expect "-Name 'PA[1]': the removal selects the VM by exact name" $r (
+        $r.ExitCode -eq 2 -and (Test-Contains $r "Get-VM | Where-Object Name -eq 'PA[1]' | Remove-VM -Force") -and -not (Test-Contains $r "Remove-VM -Name 'PA[1]'"))
+}
+
+function TestVM_FailureOffersRemovingCreatedSwitchOnly {
+    $null = New-Scenario 'vm-fail-created-switch'
+    Set-OnlyDefaultSwitch
+    $global:HV.FailAt = 'Set-VMFirmware'
+    $p = Get-BaseParams; $p.NetAdapterName = 'Ethernet'; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p
+    Expect 'this run created the switch: exit 2, Remove-VMSwitch offered after Remove-VM' $r (
+        $r.ExitCode -eq 2 -and (Get-OutputIndex $r "Remove-VMSwitch -Name '$NewSwitch' -Force") -gt (Get-OutputIndex $r "Remove-VM -Name 'ProjectAchilles' -Force") -and
+        (Get-OutputIndex $r "Remove-VM -Name 'ProjectAchilles' -Force") -ge 0 -and -not (Test-Called $r 'Remove-VMSwitch'))
+
+    $null = New-Scenario 'vm-fail-reused-switch'
+    $global:HV.FailAt = 'Set-VMFirmware'
+    $r = Invoke-Import (Get-BaseParams)
+    Expect 'a reused switch: exit 2, no Remove-VMSwitch offered' $r ($r.ExitCode -eq 2 -and -not (Test-Contains $r 'Remove-VMSwitch'))
+
+    $null = New-Scenario 'vm-fail-named-switch'
+    $global:HV.FailAt = 'Set-VMFirmware'
+    $p = Get-BaseParams; $p.SwitchName = 'Default Switch'
+    $r = Invoke-Import $p
+    Expect 'a -SwitchName switch: exit 2, no Remove-VMSwitch offered' $r ($r.ExitCode -eq 2 -and -not (Test-Contains $r 'Remove-VMSwitch'))
 }
 
 # ---- run --------------------------------------------------------------------
