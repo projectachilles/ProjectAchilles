@@ -77,8 +77,15 @@ jobs:
         if: env.MODE == 'full'
         run: make -C appliance vhdx
 
-      # Only the zip and its checksum: never repo.bundle or the qcow2 (logs of a
-      # failed run go to appliance-logs, below).
+      # Copied next to the zip so the artifact stays flat: upload-artifact roots
+      # a multi-directory path list at the common ancestor (appliance/), which
+      # would nest the files under out/ and windows/ and break publish's dist/.
+      - name: Stage the import script
+        if: env.MODE == 'full'
+        run: cp appliance/windows/Import-Achilles.ps1 appliance/out/Import-Achilles.ps1
+
+      # Only the zip, its checksum and the import script: never repo.bundle or
+      # the qcow2 (logs of a failed run go to appliance-logs, below).
       - name: Upload Hyper-V package
         if: env.MODE == 'full'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -87,6 +94,7 @@ jobs:
           path: |
             appliance/out/ProjectAchilles-*-hyperv.zip
             appliance/out/appliance-SHA256SUMS
+            appliance/out/Import-Achilles.ps1
           if-no-files-found: error
           retention-days: 7
 
@@ -152,8 +160,8 @@ jobs:
         run: |
           shopt -s nullglob
           zips=(dist/ProjectAchilles-*-hyperv.zip)
-          if [ "${#zips[@]}" -ne 1 ] || [ ! -s dist/appliance-SHA256SUMS ]; then
-            echo "::error::expected exactly one Hyper-V zip and appliance-SHA256SUMS in dist/, found: $(ls dist)"
+          if [ "${#zips[@]}" -ne 1 ] || [ ! -s dist/appliance-SHA256SUMS ] || [ ! -s dist/Import-Achilles.ps1 ]; then
+            echo "::error::expected exactly one Hyper-V zip, appliance-SHA256SUMS and Import-Achilles.ps1 in dist/, found: $(ls dist)"
             exit 1
           fi
           zip_name="$(basename "${zips[0]}")"
@@ -188,7 +196,7 @@ jobs:
         run: |
           for i in $(seq 1 40); do
             if gh release view "$VER" >/dev/null 2>&1; then
-              gh release upload "$VER" dist/appliance-SHA256SUMS --clobber
+              gh release upload "$VER" dist/appliance-SHA256SUMS dist/Import-Achilles.ps1 --clobber
               exit 0
             fi
             echo "Release $VER not found yet (attempt $i/40), waiting 30s"
@@ -201,8 +209,11 @@ jobs:
         run: |
           url="${R2_PUBLIC_BASE_URL%/}/appliance/$ZIP_NAME"
           curl -fsSLI "$url" >/dev/null || { echo "::error::$url is not publicly reachable"; exit 1; }
-          if ! gh release view "$VER" --json assets --jq '.assets[].name' | grep -qx 'appliance-SHA256SUMS'; then
-            echo "::error::appliance-SHA256SUMS is not attached to release $VER"
-            exit 1
-          fi
+          assets="$(gh release view "$VER" --json assets --jq '.assets[].name')"
+          for a in appliance-SHA256SUMS Import-Achilles.ps1; do
+            if ! grep -qx "$a" <<<"$assets"; then
+              echo "::error::$a is not attached to release $VER"
+              exit 1
+            fi
+          done
           echo "Verified $url and the release checksum asset" >> "$GITHUB_STEP_SUMMARY"
