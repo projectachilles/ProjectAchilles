@@ -11,6 +11,14 @@
     creates an External virtual switch, creates a Generation 2 VM and
     starts it.
 
+    The VM needs an External switch so that agents on the network can reach
+    it. An existing one is reused. Otherwise the script lists the physical
+    adapters that are up and creates "ProjectAchilles External" on the one
+    you pick, after you type its name: creating it interrupts the host's
+    network on that adapter for several seconds, so a Remote Desktop session
+    over it disconnects. It never uses the Default Switch and never creates
+    an Internal or NAT switch.
+
     It checks the host first and refuses before changing anything when the
     session is not elevated, Hyper-V is not enabled, the host is a failover
     cluster node, a VM or disk of the same name already exists, or there is
@@ -44,10 +52,14 @@
     The VM name, also used for the disk file name. Default: ProjectAchilles.
 
 .PARAMETER SwitchName
-    An existing External virtual switch to connect the VM to.
+    An existing External virtual switch to connect the VM to. Internal and
+    Private switches and the Default Switch (NAT) are refused: agents on the
+    network could not reach the VM through them.
 
 .PARAMETER NetAdapterName
-    The physical network adapter for a new External switch.
+    The physical network adapter for a new External switch, named
+    "ProjectAchilles External". If that adapter already has an External
+    switch, the VM uses it instead.
 
 .PARAMETER VlanId
     An access VLAN ID (1-4094) for the VM's network adapter.
@@ -66,9 +78,11 @@
     Create the VM but do not start it.
 
 .PARAMETER Yes
-    Answer yes to the confirmation prompts. It never confirms creating a
-    switch, which interrupts the host's network: that needs
-    -ConfirmNetworkInterruption.
+    Answer yes to the confirmation prompts, for example to reuse the host's
+    only External switch. It never confirms creating a switch, which
+    interrupts the host's network: that needs -NetAdapterName with
+    -ConfirmNetworkInterruption. With several External switches, name one
+    with -SwitchName.
 
 .PARAMETER ConfirmNetworkInterruption
     With -NetAdapterName, confirms creating an External switch on that
@@ -125,11 +139,17 @@ $DiskHeadroomBytes = 20GB
 $ReleaseBase = 'https://github.com/projectachilles/ProjectAchilles/releases'
 $ClientEnableCommand = 'Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All'
 $ServerEnableCommand = 'Install-WindowsFeature -Name Hyper-V -IncludeManagementTools'
+# The External switch this script creates when the host has none.
+$NewSwitchName = 'ProjectAchilles External'
+# Hyper-V's Default Switch (Internal, with NAT) has this ID on every host.
+$DefaultSwitchId = 'c08cb7b8-9b3c-408e-8e30-5e16a3aeb444'
 
 # Thrown by Stop-Import; the main block turns it into the exit code.
 $script:StopMarker = 'ACHILLES_IMPORT_STOP'
 # Set once something on the host has changed (exit code 2 from then on).
 $script:Changes = New-Object System.Collections.ArrayList
+# The adapter of the switch this run created, if it created one.
+$script:CreatedSwitchAdapter = $null
 
 # -----------------------------------------------------------------------------
 # Output helpers (same layout as scripts/Install-ProjectAchilles.ps1)
@@ -406,7 +426,7 @@ function Invoke-Preflight {
 }
 
 # -----------------------------------------------------------------------------
-# Step 2: image
+# Step 3: image
 # -----------------------------------------------------------------------------
 
 function Get-ReleaseSumsUrl { "$ReleaseBase/download/v$Version/appliance-SHA256SUMS" }
@@ -519,7 +539,7 @@ function Assert-HashMatches {
 # returns that path. Work happens in a temp folder inside Destination (same
 # volume, so the final move is a rename), which is always removed.
 function Get-VerifiedImage {
-    Write-Step 2 'Verifying the image'
+    Write-Step 3 'Verifying the image'
     if ([string]::IsNullOrWhiteSpace($ChecksumFile)) { $source = Get-ReleaseSumsUrl } else { $source = $ChecksumFile }
     $sums = Get-ChecksumText
     $expected = Get-ExpectedHash $sums $source
@@ -579,15 +599,253 @@ function Get-VerifiedImage {
 }
 
 # -----------------------------------------------------------------------------
-# Steps 3-5: switch, VM, start (not implemented yet)
+# Step 2: virtual switch
 # -----------------------------------------------------------------------------
 
+# A property of a cmdlet object, or $null when it has none (StrictMode-safe).
+function Get-PropValue {
+    param($Object, [string]$Property)
+    $p = $Object.PSObject.Properties[$Property]
+    if ($null -eq $p) { return $null }
+    $p.Value
+}
+
+# Hyper-V's Default Switch is Internal with NAT: agents on the LAN can't reach
+# a VM behind it. It has this fixed ID on every host; the name is a fallback.
+function Test-DefaultSwitch {
+    param($Switch)
+    ([string](Get-PropValue $Switch 'Id') -eq $DefaultSwitchId) -or ([string]$Switch.Name -eq 'Default Switch')
+}
+
+function Test-ExternalSwitch {
+    param($Switch)
+    ([string]$Switch.SwitchType -eq 'External') -and -not (Test-DefaultSwitch $Switch)
+}
+
+# Wi-Fi by the medium, never by the name (localized, and admins rename them):
+# NdisPhysicalMedium 1 is wireless LAN and 9 native 802.11.
+function Test-WirelessAdapter {
+    param($Adapter)
+    $medium = Get-PropValue $Adapter 'NdisPhysicalMedium'
+    if ($null -ne $medium -and ([int]$medium -eq 1 -or [int]$medium -eq 9)) { return $true }
+    [string](Get-PropValue $Adapter 'PhysicalMediaType') -match '802\.11|Wireless'
+}
+
+function Format-Switch {
+    param($Switch)
+    $desc = [string](Get-PropValue $Switch 'NetAdapterInterfaceDescription')
+    if ($desc) { "'$($Switch.Name)' on $desc" } else { "'$($Switch.Name)'" }
+}
+
+# "name  -  description  -  IPv4  -  speed", for the admin to recognize the
+# adapter (the IPv4 shows which one carries their own connection).
+function Format-Adapter {
+    param($Adapter)
+    $ips = @()
+    try {
+        $ips = @(Get-NetIPAddress -InterfaceIndex ([int]$Adapter.ifIndex) -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            ForEach-Object { [string]$_.IPAddress })
+    }
+    catch { $ips = @() }
+    if ($ips.Count -eq 0) { $ipText = 'no IPv4 address' } else { $ipText = $ips -join ', ' }
+    $text = "$($Adapter.Name)  -  $($Adapter.InterfaceDescription)  -  $ipText"
+    $speed = [string](Get-PropValue $Adapter 'LinkSpeed')
+    if ($speed) { $text += "  -  $speed" }
+    if (Test-WirelessAdapter $Adapter) { $text += '  (Wi-Fi: not recommended)' }
+    $text
+}
+
+function Get-AdapterLines {
+    param([object[]]$Adapters)
+    $lines = New-Object System.Collections.ArrayList
+    $i = 0
+    foreach ($a in $Adapters) { $i++; [void]$lines.Add("$i) $(Format-Adapter $a)") }
+    @($lines)
+}
+
+# A number from 1 to $Count, read from the admin; anything else stops.
+function Read-Choice {
+    param([string]$Prompt, [int]$Count)
+    $answer = ([string](Read-Host $Prompt)).Trim()
+    $n = 0
+    if (-not [int]::TryParse($answer, [ref]$n) -or $n -lt 1 -or $n -gt $Count) {
+        Stop-Import "'$answer' is not a number from 1 to $Count. Nothing was changed."
+    }
+    $n
+}
+
+# Shows what creating the switch does and gets it confirmed: the typed adapter
+# name, or -NetAdapterName with -ConfirmNetworkInterruption. -Yes never
+# confirms it. Returns the plan for Select-VmSwitch.
+function Confirm-NewSwitch {
+    param($Adapter, [object[]]$AllSwitches)
+    $name = [string]$Adapter.Name
+    $taken = @($AllSwitches | Where-Object { [string]$_.Name -eq $NewSwitchName })
+    if ($taken.Count -gt 0) {
+        Stop-Import "A virtual switch named '$NewSwitchName' already exists ($($taken[0].SwitchType)). Nothing was changed." @(
+            'If it is an External switch, use it with -SwitchName; otherwise rename or remove it in Hyper-V Manager.'
+        )
+    }
+    if (Test-WirelessAdapter $Adapter) {
+        Write-Warn "'$name' is a Wi-Fi adapter. Not recommended: many access points drop the VM's traffic, so agents may not reach it."
+    }
+    Write-Warn "Creating an External switch on '$name' interrupts this host's network on that adapter for several seconds."
+    Write-Info "A Remote Desktop session over it will disconnect and should reconnect; an SSH session over it may end, and this script with it."
+    Write-Info "The host's IP settings on '$name' move to a new adapter, ""vEthernet ($NewSwitchName)""."
+    Write-Info 'Connected over this adapter? Run this from the console or over another adapter instead.'
+    Write-Info 'The switch is created in step 4, after the image is verified.'
+    if ($ConfirmNetworkInterruption -and -not [string]::IsNullOrWhiteSpace($NetAdapterName)) {
+        Write-Ok 'Confirmed with -NetAdapterName and -ConfirmNetworkInterruption'
+    }
+    elseif ($Yes) {
+        Stop-Import '-Yes does not confirm creating a switch, because it interrupts the network. No switch was created and nothing was changed.' @(
+            "Add -NetAdapterName $(ConvertTo-Literal $name) -ConfirmNetworkInterruption, or run without -Yes and type the adapter name."
+        )
+    }
+    else {
+        $typed = ([string](Read-Host "Type the adapter name ($name) to create the switch, or press Enter to stop")).Trim()
+        if (-not [string]::Equals($typed, $name, [StringComparison]::OrdinalIgnoreCase)) {
+            Stop-Import "That is not '$name'. No switch was created and nothing was changed."
+        }
+        Write-Ok "Confirmed: an External switch on '$name'"
+    }
+    @{ Name = $NewSwitchName; Create = $true; AdapterName = $name }
+}
+
+# Decides which External switch the VM uses, before anything on the host
+# changes, so a refusal here leaves nothing behind (exit 1): an existing one
+# (reusing interrupts nothing), or a new one on a physical adapter that is up.
+# Never an Internal or Private switch, never the Default Switch. Returns
+# @{ Name; Create; AdapterName } for Select-VmSwitch.
+function Resolve-VmSwitch {
+    Write-Step 2 'Virtual switch'
+    $haveSwitchName = -not [string]::IsNullOrWhiteSpace($SwitchName)
+    $haveAdapterName = -not [string]::IsNullOrWhiteSpace($NetAdapterName)
+    if ($haveSwitchName -and $haveAdapterName) {
+        Stop-Import 'Use -SwitchName (an existing switch) or -NetAdapterName (a new one), not both.'
+    }
+    $all = @(Get-VMSwitch)
+    $external = @($all | Where-Object { Test-ExternalSwitch $_ })
+    $externalLines = @($external | ForEach-Object { '    ' + (Format-Switch $_) })
+    if ($externalLines.Count -eq 0) { $externalLines = @('    (none)') }
+
+    if ($haveSwitchName) {
+        $named = @($all | Where-Object { [string]$_.Name -eq $SwitchName })
+        if ($named.Count -eq 0) {
+            Stop-Import "There is no virtual switch named '$SwitchName'. External switches on this host:" $externalLines
+        }
+        if ($named.Count -gt 1) {
+            Stop-Import "Several virtual switches are named '$SwitchName'. Rename them in Hyper-V Manager first."
+        }
+        if (-not (Test-ExternalSwitch $named[0])) {
+            $kind = [string]$named[0].SwitchType
+            if (Test-DefaultSwitch $named[0]) { $kind = 'the Default Switch (NAT)' }
+            Stop-Import "'$SwitchName' is $kind, not an External switch: agents on your network could not reach the VM through it." (@(
+                'Pick an External switch with -SwitchName, or leave -SwitchName out to create one. External switches on this host:'
+            ) + $externalLines)
+        }
+        Write-Ok "The VM will connect to the External switch $(Format-Switch $named[0])"
+        return @{ Name = [string]$named[0].Name; Create = $false; AdapterName = $null }
+    }
+
+    $adapters = @(Get-NetAdapter -Physical | Where-Object Status -eq 'Up')
+    $adapterLines = @(Get-AdapterLines $adapters)
+
+    if ($haveAdapterName) {
+        $match = @($adapters | Where-Object { [string]$_.Name -eq $NetAdapterName })
+        if ($match.Count -eq 0) {
+            if ($adapterLines.Count -eq 0) { $adapterLines = @('(none)') }
+            Stop-Import "No physical network adapter named '$NetAdapterName' is up. Physical adapters that are up:" $adapterLines
+        }
+        $adapter = $match[0]
+        # An adapter carries at most one External switch: reuse the one it has.
+        $bound = @($external | Where-Object { [string](Get-PropValue $_ 'NetAdapterInterfaceDescription') -eq [string]$adapter.InterfaceDescription })
+        if ($bound.Count -gt 0) {
+            Write-Ok "The VM will connect to the External switch $(Format-Switch $bound[0]) (already on '$($adapter.Name)'; nothing to create)"
+            return @{ Name = [string]$bound[0].Name; Create = $false; AdapterName = $null }
+        }
+        return Confirm-NewSwitch $adapter $all
+    }
+
+    if ($external.Count -eq 1) {
+        Write-Info "External switch on this host: $(Format-Switch $external[0])"
+        if (-not $Yes) {
+            $answer = ([string](Read-Host "Connect the VM to '$($external[0].Name)'? [Y/n]")).Trim()
+            if ($answer -notmatch '^(|y|yes|s|si)$') {
+                Stop-Import 'Nothing was changed.' @(
+                    'Pick a switch with -SwitchName <name>, or create one on an adapter with -NetAdapterName <name>.'
+                )
+            }
+        }
+        Write-Ok "The VM will connect to the External switch $(Format-Switch $external[0])"
+        return @{ Name = [string]$external[0].Name; Create = $false; AdapterName = $null }
+    }
+    if ($external.Count -gt 1) {
+        Write-Info 'External switches on this host:'
+        $i = 0
+        foreach ($s in $external) { $i++; Write-Info "    $i) $(Format-Switch $s)" }
+        if ($Yes) { Stop-Import 'There are several External switches: with -Yes, say which one with -SwitchName <name>. Nothing was changed.' }
+        $pick = $external[(Read-Choice "Switch for the VM [1-$($external.Count)]" $external.Count) - 1]
+        Write-Ok "The VM will connect to the External switch $(Format-Switch $pick)"
+        return @{ Name = [string]$pick.Name; Create = $false; AdapterName = $null }
+    }
+
+    # No External switch yet: create one on a physical adapter.
+    if (@($all | Where-Object { Test-DefaultSwitch $_ }).Count -gt 0) {
+        Write-Info 'The Default Switch is not used: it is NAT, and agents on your network could not reach the VM through it.'
+    }
+    if ($adapters.Count -eq 0) {
+        Stop-Import 'There is no External switch, and no physical network adapter is up to create one on. Nothing was changed.' @(
+            'Connect a network cable (or enable the adapter) and run this again.'
+        )
+    }
+    if ($Yes) {
+        Stop-Import 'There is no External switch yet. Creating one interrupts the network, so -Yes alone does not do it. Nothing was changed.' (@(
+            'Name the adapter with -NetAdapterName <name> -ConfirmNetworkInterruption, or run without -Yes. Physical adapters that are up:'
+        ) + @($adapterLines | ForEach-Object { "    $_" }))
+    }
+    Write-Info 'No External switch yet. Physical network adapters that are up:'
+    foreach ($line in $adapterLines) { Write-Info "    $line" }
+    if ($adapters.Count -eq 1) { $adapter = $adapters[0] }
+    else { $adapter = $adapters[(Read-Choice "Adapter for the new External switch [1-$($adapters.Count)]" $adapters.Count) - 1] }
+    Confirm-NewSwitch $adapter $all
+}
+
+# Step 4, before the VM: creates the switch Resolve-VmSwitch planned (once the
+# image is verified) and returns @{ Name; Created }. It never creates one the
+# admin did not confirm, and never an Internal or NAT switch.
 function Select-VmSwitch {
-    Write-Step 3 'Virtual switch'
-    Write-Fail 'Switch selection, VM creation and start: not implemented yet (Task 2/3).'
-    Write-Info "The verified disk is at $($script:TargetVhdx). Remove it with:"
-    Write-Info "    Remove-Item -LiteralPath $(ConvertTo-Literal $script:TargetVhdx)"
-    exit 1
+    param([hashtable]$Plan)
+    if (-not $Plan.Create) { return @{ Name = $Plan.Name; Created = $false } }
+    $adapter = $Plan.AdapterName
+    Write-Info "Creating the External switch '$NewSwitchName' on '$adapter' (the network on that adapter drops for a few seconds)..."
+    try {
+        New-VMSwitch -Name $NewSwitchName -NetAdapterName $adapter -AllowManagementOS $true | Out-Null
+    }
+    catch {
+        $reason = $_.Exception.Message
+        # A switch that exists despite the error was still made by this run.
+        try { if (@(Get-VMSwitch | Where-Object { [string]$_.Name -eq $NewSwitchName }).Count -gt 0) { Register-CreatedSwitch $adapter } }
+        catch { Write-Warn "Could not check whether the switch exists: $($_.Exception.Message)" }
+        Stop-Import "Could not create the External switch on '$adapter': $reason"
+    }
+    Register-CreatedSwitch $adapter
+    Write-Ok "Created the External switch '$NewSwitchName' on '$adapter'"
+    @{ Name = $NewSwitchName; Created = $true }
+}
+
+function Register-CreatedSwitch {
+    param([string]$Adapter)
+    $script:CreatedSwitchAdapter = $Adapter
+    [void]$script:Changes.Add("virtual switch '$NewSwitchName' on '$Adapter'")
+}
+
+# -----------------------------------------------------------------------------
+# Steps 4-5: VM, start (not implemented yet)
+# -----------------------------------------------------------------------------
+
+function New-AchillesVm {
+    Stop-Import 'VM creation and start: not implemented yet (Task 3).'
 }
 
 # -----------------------------------------------------------------------------
@@ -599,8 +857,13 @@ try {
     Write-Host '  ProjectAchilles appliance import for Hyper-V' -ForegroundColor Magenta
     Assert-Parameters
     Invoke-Preflight
+    # The switch is decided (and a new one confirmed) before anything changes,
+    # and only created once the image is verified.
+    $switchPlan = Resolve-VmSwitch
     $vhdx = Get-VerifiedImage   # the VM's disk (Task 3)
-    Select-VmSwitch
+    Write-Step 4 'Creating the VM'
+    $vmSwitch = Select-VmSwitch $switchPlan   # @{ Name; Created } (Task 3)
+    New-AchillesVm
 }
 catch {
     if ([string]$_.Exception.Message -ne $script:StopMarker) {
@@ -610,6 +873,12 @@ catch {
         Write-Info 'Changes made so far:'
         foreach ($c in $script:Changes) { Write-Info "    $c" }
         Write-Info "Remove the disk with: Remove-Item -LiteralPath $(ConvertTo-Literal $script:TargetVhdx)"
+        if ($null -ne $script:CreatedSwitchAdapter) {
+            # Only a switch this run created; a reused one is never offered.
+            Write-Info "This run created the switch '$NewSwitchName'. If you don't need it, remove it with:"
+            Write-Info "    Remove-VMSwitch -Name $(ConvertTo-Literal $NewSwitchName) -Force"
+            Write-Info "(that interrupts the network on '$($script:CreatedSwitchAdapter)' again for a few seconds)."
+        }
         exit 2
     }
     exit 1

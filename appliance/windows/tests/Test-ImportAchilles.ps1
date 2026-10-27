@@ -105,8 +105,31 @@ $FixSums = New-SumsFile 'appliance-SHA256SUMS' $FixSumsText
 $FixReleaseUrl = "https://github.com/projectachilles/ProjectAchilles/releases/download/v$FixVer/appliance-SHA256SUMS"
 
 # ---- simulated host ---------------------------------------------------------
+# A virtual switch as Get-VMSwitch returns it. Hyper-V's Default Switch is
+# Internal (with NAT) and has the same fixed ID on every host.
+$DefaultSwitchId = 'c08cb7b8-9b3c-408e-8e30-5e16a3aeb444'
+function New-MockSwitch([string]$Name, [string]$Type = 'External', $Adapter = $null, [string]$Id = [guid]::NewGuid().ToString()) {
+    [pscustomobject]@{ Name = $Name; SwitchType = $Type; NetAdapterInterfaceDescription = $Adapter; Id = [guid]$Id }
+}
+# A network adapter as the state describes it: Get-NetAdapter returns the
+# public fields; Physical (for -Physical) and IPv4 (for Get-NetIPAddress) are
+# the mocks' own. NdisPhysicalMedium 14 = 802.3 (wired), 9 = native 802.11.
+$script:NextIfIndex = 10
+function New-MockAdapter([string]$Name, [string]$Description, [string]$Status = 'Up', [int]$Medium = 14, [string[]]$IPv4 = @(), [bool]$Physical = $true) {
+    $script:NextIfIndex++
+    $type = switch ($Medium) { 14 { '802.3' } 9 { 'Native 802.11' } 1 { 'Wireless LAN' } default { 'Unspecified' } }
+    @{
+        Name = $Name; InterfaceDescription = $Description; ifIndex = $script:NextIfIndex; Status = $Status
+        LinkSpeed = '1 Gbps'; NdisPhysicalMedium = [uint32]$Medium; PhysicalMediaType = $type
+        IPv4 = $IPv4; Physical = $Physical
+    }
+}
+$EthDesc = 'Intel(R) Ethernet Connection (7) I219-V'
+$WifiDesc = 'Intel(R) Wi-Fi 6 AX201 160MHz'
+
 # One state hashtable per scenario. Defaults describe a healthy, elevated
-# Windows 11 client with Hyper-V enabled and plenty of disk and memory.
+# Windows 11 client with Hyper-V enabled, plenty of disk and memory, the
+# Default Switch and one External switch "LAN" on its Ethernet adapter.
 function New-HVState([string]$dir) {
     @{
         IsAdmin       = $true         # what the elevation probe returns (raw)
@@ -116,8 +139,13 @@ function New-HVState([string]$dir) {
         FeatureServer = $true         # server: Get-WindowsFeature Installed
         ClusSvc       = $null         # $null = not installed, or 'Running'/'Stopped'
         VMs           = New-Object System.Collections.ArrayList
-        Switches      = New-Object System.Collections.ArrayList
-        Adapters      = New-Object System.Collections.ArrayList
+        Switches      = [System.Collections.ArrayList]@(
+            (New-MockSwitch 'Default Switch' 'Internal' $null $DefaultSwitchId),
+            (New-MockSwitch 'LAN' 'External' $EthDesc))
+        Adapters      = [System.Collections.ArrayList]@(
+            (New-MockAdapter 'Ethernet' $EthDesc 'Up' 14 @('192.168.4.45')))
+        NewSwitchFails = $false       # New-VMSwitch throws
+        NewSwitchAdapterArg = $null   # the -NetAdapterName New-VMSwitch received, as given
         VhdPath       = (Join-Path $dir 'vhd')
         FreeDiskBytes = 500GB         # free space of the one default volume
         Volumes       = $null         # $null = one volume at the temp root; or a list of @{ Name; FreeSpace }
@@ -245,6 +273,48 @@ function global:Invoke-WebRequest {
     [pscustomobject]@{ StatusCode = 200; Content = [Text.Encoding]::ASCII.GetBytes([string]$global:HV.Web[$Uri]) }
 }
 
+function global:Get-VMSwitch {
+    [CmdletBinding()] param([Parameter(Position = 0)][string]$Name)
+    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    foreach ($s in $global:HV.Switches) {
+        if (-not $Name -or $s.Name -like $Name) { $s }
+    }
+}
+function global:Get-NetAdapter {
+    [CmdletBinding()] param([Parameter(Position = 0)][string]$Name, [switch]$Physical)
+    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    foreach ($a in $global:HV.Adapters) {
+        if ($Physical -and -not $a.Physical) { continue }
+        if ($Name -and $a.Name -notlike $Name) { continue }
+        $o = [ordered]@{}
+        foreach ($k in 'Name', 'InterfaceDescription', 'ifIndex', 'Status', 'LinkSpeed', 'NdisPhysicalMedium', 'PhysicalMediaType') {
+            if ($a.ContainsKey($k)) { $o[$k] = $a[$k] }
+        }
+        [pscustomobject]$o
+    }
+}
+function global:Get-NetIPAddress {
+    [CmdletBinding()] param([int]$InterfaceIndex, [string]$AddressFamily)
+    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    foreach ($a in $global:HV.Adapters) {
+        if ($a.ifIndex -ne $InterfaceIndex) { continue }
+        foreach ($ip in @($a.IPv4)) { [pscustomobject]@{ IPAddress = $ip; AddressFamily = 'IPv4'; InterfaceIndex = $InterfaceIndex } }
+    }
+}
+# Creates an External switch in the state (never Internal: -SwitchType is
+# declared only so that passing it shows up in the log).
+function global:New-VMSwitch {
+    [CmdletBinding()] param([string]$Name, [string]$NetAdapterName, [bool]$AllowManagementOS, [string]$SwitchType)
+    Add-MockCall $MyInvocation.MyCommand $PSBoundParameters
+    $global:HV.NewSwitchAdapterArg = $NetAdapterName
+    if ($global:HV.NewSwitchFails) { throw 'The operation failed because the adapter is in use (mock).' }
+    $a = @($global:HV.Adapters | Where-Object { $_.Name -eq $NetAdapterName })
+    if ($a.Count -ne 1) { throw "harness: New-VMSwitch on unknown adapter '$NetAdapterName'" }
+    $s = New-MockSwitch $Name 'External' $a[0].InterfaceDescription
+    [void]$global:HV.Switches.Add($s)
+    $s
+}
+
 # Commands that change a host (or that later tasks will mock with state), plus
 # every command of the host-changing modules found on this machine. Until a
 # scenario mocks one, any call is logged and fails the run.
@@ -334,8 +404,9 @@ function Expect([string]$name, $r, [bool]$ok) {
     Check $name $ok
     if (-not $ok) { Show-Output $r }
 }
-# Default parameters for a run that passes preflight with the fixtures.
-function Get-BaseParams { @{ ImagePath = $FixZip; ChecksumFile = $FixSums } }
+# Default parameters for a run that passes preflight with the fixtures. -Yes
+# reuses the default host's one External switch without a prompt.
+function Get-BaseParams { @{ ImagePath = $FixZip; ChecksumFile = $FixSums; Yes = $true } }
 
 # ==== static =================================================================
 # Windows PowerShell 5.1 reads a .ps1 without a BOM as Windows-1252. A UTF-8
@@ -670,15 +741,17 @@ function TestImage_ChecksumMatchesExtracts {
     Expect 'the VHDX is the one from the zip' $r $same
     Expect 'no temp directory left behind' $r (@(Get-ChildItem -LiteralPath $global:HV.VhdPath -Force -ErrorAction SilentlyContinue).Count -eq 1)
     Expect 'the zip is kept' $r (Test-Path -LiteralPath $FixZip)
-    # Task 1: the switch and VM steps are stubs.
-    Expect 'stops at the not-implemented switch step with exit 1' $r ($r.ExitCode -eq 1 -and (Test-Contains $r 'not implemented yet (Task 2/3)'))
+    # Until Task 3 the VM step is a stub: the disk is a change, so exit 2
+    # with the command that removes it.
+    Expect 'stops at the not-implemented VM step with exit 2 and how to remove the disk' $r (
+        $r.ExitCode -eq 2 -and (Test-Contains $r 'not implemented yet (Task 3)') -and (Test-Contains $r "Remove-Item -LiteralPath '$target'"))
 
     # -Destination overrides the host default, and a .vhdx listed in the
     # checksum file is accepted as -ImagePath.
     $dir = New-Scenario 'image-vhdx-listed'
     $sums = New-SumsFile 'sums-vhdx' "$FixVhdxHash *$FixVhdxName`r`n"
     $dest = Join-Path $dir 'custom dest'
-    $r = Invoke-Import @{ ImagePath = $FixVhdx; ChecksumFile = $sums; Destination = $dest; Name = 'pa-test' }
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $FixVhdx; ChecksumFile = $sums; Destination = $dest; Name = 'pa-test' }
     $target = Join-Path $dest 'pa-test.vhdx'
     Expect '.vhdx image copied to -Destination\-Name.vhdx' $r ((Test-Path -LiteralPath $target) -and (Test-Contains $r 'SHA256 matches'))
     Expect 'the source .vhdx is kept' $r (Test-Path -LiteralPath $FixVhdx)
@@ -689,7 +762,7 @@ function TestImage_ChecksumMismatchStopsAndCleansUp {
     $null = New-Scenario 'image-checksum-mismatch'
     $bad = ('0' * 64)
     $sums = New-SumsFile 'sums-bad' "$bad  $FixZipName`n"
-    $r = Invoke-Import @{ ImagePath = $FixZip; ChecksumFile = $sums }
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $FixZip; ChecksumFile = $sums }
     Expect 'exit 1' $r ($r.ExitCode -eq 1)
     Expect 'says it does not match, with both hashes' $r ((Test-Contains $r 'does not match') -and (Test-Contains $r $bad) -and (Test-Contains $r $FixZipHash))
     Expect 'no VHDX and no temp directory at the destination' $r (Test-NoWork $global:HV.VhdPath)
@@ -698,25 +771,25 @@ function TestImage_ChecksumMismatchStopsAndCleansUp {
     # A .vhdx image is copied before hashing; a mismatch removes the copy.
     $null = New-Scenario 'image-checksum-mismatch-vhdx'
     $sums = New-SumsFile 'sums-bad-vhdx' "$bad  $FixVhdxName`n"
-    $r = Invoke-Import @{ ImagePath = $FixVhdx; ChecksumFile = $sums }
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $FixVhdx; ChecksumFile = $sums }
     Expect '.vhdx: exit 1 and nothing left at the destination' $r ($r.ExitCode -eq 1 -and (Test-NoWork $global:HV.VhdPath))
     Expect '.vhdx: the Destination folder this run created is removed' $r (-not (Test-Path -LiteralPath $global:HV.VhdPath))
 
     # Folders this run created for -Destination go; ones that existed stay.
     $dir = New-Scenario 'image-checksum-mismatch-new-dest'
     $dest = Join-Path (Join-Path $dir 'new') 'deeper'
-    $r = Invoke-Import @{ ImagePath = $FixVhdx; ChecksumFile = $sums; Destination = $dest }
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $FixVhdx; ChecksumFile = $sums; Destination = $dest }
     Expect 'nested new -Destination: every folder this run created is removed' $r ($r.ExitCode -eq 1 -and -not (Test-Path -LiteralPath (Join-Path $dir 'new')))
     $dir = New-Scenario 'image-checksum-mismatch-existing-dest'
     New-Item -ItemType Directory -Path $global:HV.VhdPath | Out-Null
-    $r = Invoke-Import @{ ImagePath = $FixVhdx; ChecksumFile = $sums }
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $FixVhdx; ChecksumFile = $sums }
     Expect 'an existing -Destination folder is kept' $r ($r.ExitCode -eq 1 -and (Test-Path -LiteralPath $global:HV.VhdPath))
 }
 
 function TestImage_ChecksumFileWithoutEntryStops {
     $null = New-Scenario 'image-checksum-no-entry'
     $sums = New-SumsFile 'sums-other' "$FixZipHash  ProjectAchilles-1.0.0-hyperv.zip`n"
-    $r = Invoke-Import @{ ImagePath = $FixZip; ChecksumFile = $sums }
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $FixZip; ChecksumFile = $sums }
     Expect 'exit 1' $r ($r.ExitCode -eq 1)
     Expect 'says the image is not listed' $r (Test-Contains $r "$FixZipName is not listed")
     Expect 'nothing written' $r (Test-NoWork $global:HV.VhdPath)
@@ -725,37 +798,37 @@ function TestImage_ChecksumFileWithoutEntryStops {
 function TestImage_ChecksumFileFormats {
     $null = New-Scenario 'image-checksum-uppercase'
     $sums = New-SumsFile 'sums-upper' ($FixZipHash.ToUpperInvariant() + "  $FixZipName`n")
-    $r = Invoke-Import @{ ImagePath = $FixZip; ChecksumFile = $sums }
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $FixZip; ChecksumFile = $sums }
     Expect 'uppercase hex matches' $r (Test-Contains $r 'SHA256 matches')
 
     $null = New-Scenario 'image-checksum-duplicate-same'
     $sums = New-SumsFile 'sums-dup-same' "$FixZipHash  $FixZipName`n$($FixZipHash.ToUpperInvariant())  $FixZipName`n"
-    $r = Invoke-Import @{ ImagePath = $FixZip; ChecksumFile = $sums }
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $FixZip; ChecksumFile = $sums }
     Expect 'the same entry twice with the same hash passes' $r (Test-Contains $r 'SHA256 matches')
 
     $null = New-Scenario 'image-checksum-duplicate-different'
     $sums = New-SumsFile 'sums-dup-diff' "$FixZipHash  $FixZipName`n$('1' * 64)  $FixZipName`n"
-    $r = Invoke-Import @{ ImagePath = $FixZip; ChecksumFile = $sums }
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $FixZip; ChecksumFile = $sums }
     Expect 'the same entry twice with different hashes: exit 1, nothing written' $r (
         $r.ExitCode -eq 1 -and (Test-Contains $r 'listed more than once') -and (Test-NoWork $global:HV.VhdPath))
 }
 
 function TestImage_NoChecksumSourceRefuses {
     $null = New-Scenario 'image-no-checksum-source'
-    $r = Invoke-Import @{ ImagePath = $FixZip }
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $FixZip }
     Expect 'exit 1' $r ($r.ExitCode -eq 1)
     Expect 'names -Version and -ChecksumFile' $r ((Test-Contains $r '-Version') -and (Test-Contains $r '-ChecksumFile'))
     Expect 'refused before any host call' $r ($r.Calls.Count -eq 0)
 
     $null = New-Scenario 'image-both-checksum-sources'
-    $r = Invoke-Import @{ ImagePath = $FixZip; ChecksumFile = $FixSums; Version = $FixVer }
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $FixZip; ChecksumFile = $FixSums; Version = $FixVer }
     Expect 'both given: exit 1 before any host call' $r ($r.ExitCode -eq 1 -and $r.Calls.Count -eq 0 -and (Test-Contains $r 'not both'))
 }
 
 function TestImage_VersionFetchesReleaseSums {
     $null = New-Scenario 'image-version-fetch'
     $global:HV.Web[$FixReleaseUrl] = $FixSumsText
-    $r = Invoke-Import @{ ImagePath = $FixZip; Version = $FixVer }
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $FixZip; Version = $FixVer }
     $fetches = @($r.Calls | Where-Object { $_.StartsWith('Invoke-WebRequest') })
     Expect 'one fetch, of exactly the release URL' $r ($fetches.Count -eq 1 -and $fetches[0].StartsWith("Invoke-WebRequest -Uri '$FixReleaseUrl'"))
     Expect 'checksum matches and the VHDX is in place' $r ((Test-Contains $r 'SHA256 matches') -and (Test-Path -LiteralPath (Join-Path $global:HV.VhdPath 'ProjectAchilles.vhdx')))
@@ -763,17 +836,17 @@ function TestImage_VersionFetchesReleaseSums {
     # A leading "v" is accepted and does not end up doubled in the URL.
     $null = New-Scenario 'image-version-with-v'
     $global:HV.Web[$FixReleaseUrl] = $FixSumsText
-    $r = Invoke-Import @{ ImagePath = $FixZip; Version = "v$FixVer" }
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $FixZip; Version = "v$FixVer" }
     Expect '-Version v9.9.9 fetches the same URL' $r (Test-Called $r "Invoke-WebRequest -Uri '$FixReleaseUrl'")
 
     $null = New-Scenario 'image-version-invalid'
-    $r = Invoke-Import @{ ImagePath = $FixZip; Version = '1.0/../../evil' }
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $FixZip; Version = '1.0/../../evil' }
     Expect 'a malformed -Version is refused before any host call' $r ($r.ExitCode -eq 1 -and $r.Calls.Count -eq 0)
 }
 
 function TestImage_VersionUnreachablePrintsHashAndAsksForChecksumFile {
     $null = New-Scenario 'image-version-unreachable'
-    $r = Invoke-Import @{ ImagePath = $FixZip; Version = $FixVer }
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $FixZip; Version = $FixVer }
     Expect 'exit 1' $r ($r.ExitCode -eq 1)
     Expect 'prints the computed SHA256 of the image' $r (Test-Contains $r $FixZipHash)
     Expect 'asks for -ChecksumFile' $r (Test-Contains $r '-ChecksumFile')
@@ -785,7 +858,7 @@ function TestImage_UnreadableZipRefuses {
     $dir = New-Scenario 'image-unreadable-zip'
     $broken = Join-Path $dir $FixZipName
     [IO.File]::WriteAllText($broken, 'not a zip')
-    $r = Invoke-Import @{ ImagePath = $broken; ChecksumFile = $FixSums }
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $broken; ChecksumFile = $FixSums }
     Expect 'exit 1, says it cannot read the zip, nothing written' $r ($r.ExitCode -eq 1 -and (Test-Contains $r 'as a zip file') -and (Test-NoWork $global:HV.VhdPath))
 }
 
@@ -795,7 +868,7 @@ function TestImage_VersionNotFoundSaysCheckVersion {
     $null = New-Scenario 'image-version-404'
     $url = 'https://github.com/projectachilles/ProjectAchilles/releases/download/v9.9.8/appliance-SHA256SUMS'
     $global:HV.WebStatus[$url] = 404
-    $r = Invoke-Import @{ ImagePath = $FixZip; Version = '9.9.8' }
+    $r = Invoke-Import @{ Yes = $true; ImagePath = $FixZip; Version = '9.9.8' }
     Expect 'exit 1' $r ($r.ExitCode -eq 1)
     Expect 'says the release has no appliance-SHA256SUMS' $r (Test-Contains $r 'v9.9.8 release has no appliance-SHA256SUMS')
     Expect 'says to check that -Version matches the image' $r (Test-Contains $r 'Check that -Version matches the image')
@@ -804,6 +877,312 @@ function TestImage_VersionNotFoundSaysCheckVersion {
     Expect "points at the image's own release page" $r (Test-Contains $r "releases/tag/v$FixVer")
     Expect 'no offline guidance' $r (-not (Test-Contains $r 'Could not download'))
     Expect 'nothing written' $r (Test-NoWork $global:HV.VhdPath)
+}
+
+# ==== switch =================================================================
+# Spec 8.2 step 3. Creating an External switch drops the host's network on
+# that adapter (and a Remote Desktop or SSH session over it), so it needs the
+# typed adapter name, or -NetAdapterName with -ConfirmNetworkInterruption.
+$NewSwitch = 'ProjectAchilles External'
+function Get-SwitchParams { @{ ImagePath = $FixZip; ChecksumFile = $FixSums } }   # no -Yes
+function Get-NewSwitchCalls($r) { @($r.Calls | Where-Object { $_.StartsWith('New-VMSwitch') }) }
+function Get-Prompts($r) { @($r.Calls | Where-Object { $_.StartsWith('Read-Host') }) }
+function Get-OutputIndex($r, [string]$text) { $r.Output.IndexOf($text, [StringComparison]::OrdinalIgnoreCase) }
+function Get-OutputLine($r, [string]$text) { @($r.Output -split "`n" | Where-Object { $_.IndexOf($text, [StringComparison]::OrdinalIgnoreCase) -ge 0 }) }
+function Set-OnlyDefaultSwitch {
+    $global:HV.Switches = [System.Collections.ArrayList]@(New-MockSwitch 'Default Switch' 'Internal' $null $DefaultSwitchId)
+}
+function Add-SecondExternal {
+    [void]$global:HV.Adapters.Add((New-MockAdapter 'Ethernet 2' 'Realtek USB GbE Family Controller' 'Up' 14 @('10.0.0.5')))
+    [void]$global:HV.Switches.Add((New-MockSwitch 'Lab' 'External' 'Realtek USB GbE Family Controller'))
+}
+$WarnText = "interrupts this host's network on that adapter for several seconds"
+function Test-NetworkWarning($r) {
+    (Test-Contains $r $WarnText) -and (Test-Contains $r 'Remote Desktop session over it will disconnect') -and (Test-Contains $r 'vEthernet')
+}
+function Test-ReusesWithoutChange($r, [string]$switch) {
+    (Get-NewSwitchCalls $r).Count -eq 0 -and (Test-Contains $r "The VM will connect to the External switch '$switch'")
+}
+# Refused at the switch step: exit 1, no switch, nothing written.
+function Test-RefusedUnchanged($r) {
+    $r.ExitCode -eq 1 -and (Get-NewSwitchCalls $r).Count -eq 0 -and (Test-NoWork $global:HV.VhdPath)
+}
+
+function TestSwitch_ReusesSingleExternal {
+    $null = New-Scenario 'switch-reuse-single-yes'
+    $r = Invoke-Import (Get-BaseParams)
+    Expect 'reuses LAN: no New-VMSwitch' $r (Test-ReusesWithoutChange $r 'LAN')
+    Expect 'no prompt with -Yes' $r ((Get-Prompts $r).Count -eq 0)
+    Expect 'lists the switch with its adapter' $r ((Test-Contains $r "'LAN'") -and (Test-Contains $r $EthDesc))
+    Expect 'no network warning (reusing interrupts nothing)' $r (-not (Test-Contains $r $WarnText))
+    $sw = Get-OutputIndex $r 'Virtual switch'
+    Expect 'the switch is chosen before the image is verified' $r ($sw -ge 0 -and $sw -lt (Get-OutputIndex $r 'SHA256 matches'))
+    Expect 'goes on to the VM step (exit 2), offers no switch removal' $r ($r.ExitCode -eq 2 -and -not (Test-Contains $r 'Remove-VMSwitch'))
+
+    $null = New-Scenario 'switch-reuse-single-enter'
+    $r = Invoke-Import (Get-SwitchParams) @('')
+    Expect 'without -Yes: one prompt, Enter reuses it' $r ((Get-Prompts $r).Count -eq 1 -and (Test-ReusesWithoutChange $r 'LAN') -and $r.AnswersLeft -eq 0)
+
+    $null = New-Scenario 'switch-reuse-single-declined'
+    $r = Invoke-Import (Get-SwitchParams) @('n')
+    Expect 'answering n: exit 1, no switch, nothing written' $r (Test-RefusedUnchanged $r)
+    Expect 'and says how to pick or create one' $r ((Test-Contains $r '-SwitchName') -and (Test-Contains $r '-NetAdapterName'))
+}
+
+function TestSwitch_ChoosesAmongSeveralExternal {
+    $null = New-Scenario 'switch-several-prompt'
+    Add-SecondExternal
+    $r = Invoke-Import (Get-SwitchParams) @('2')
+    Expect 'a numbered list of the External switches' $r ((Test-Contains $r "1) 'LAN'") -and (Test-Contains $r "2) 'Lab'"))
+    Expect 'the Default Switch is not offered' $r (-not (Test-Contains $r ") 'Default Switch'"))
+    Expect 'one prompt; 2 picks Lab' $r ((Get-Prompts $r).Count -eq 1 -and (Test-ReusesWithoutChange $r 'Lab'))
+
+    $null = New-Scenario 'switch-several-invalid'
+    Add-SecondExternal
+    $r = Invoke-Import (Get-SwitchParams) @('3')
+    Expect 'an answer that is not a listed number: exit 1, nothing written' $r (Test-RefusedUnchanged $r)
+
+    $null = New-Scenario 'switch-several-by-name'
+    Add-SecondExternal
+    $p = Get-SwitchParams; $p.SwitchName = 'Lab'
+    $r = Invoke-Import $p
+    Expect '-SwitchName Lab picks it directly, no prompt' $r ((Get-Prompts $r).Count -eq 0 -and (Test-ReusesWithoutChange $r 'Lab'))
+
+    $null = New-Scenario 'switch-several-yes'
+    Add-SecondExternal
+    $r = Invoke-Import (Get-BaseParams)
+    Expect '-Yes cannot choose between several: exit 1 asking for -SwitchName, no prompt' $r (
+        (Test-RefusedUnchanged $r) -and (Test-Contains $r '-SwitchName') -and (Get-Prompts $r).Count -eq 0)
+}
+
+function TestSwitch_SwitchNameMustBeExternal {
+    foreach ($case in @(@('Internal', 'Internal-Lab'), @('Private', 'Isolated'), @('Internal', 'Default Switch'))) {
+        $null = New-Scenario "switch-name-$($case[0].ToLowerInvariant())-$($case[1].Replace(' ', '-'))"
+        if ($case[1] -ne 'Default Switch') { [void]$global:HV.Switches.Add((New-MockSwitch $case[1] $case[0])) }
+        $p = Get-BaseParams; $p.SwitchName = $case[1]
+        $r = Invoke-Import $p
+        Expect "-SwitchName '$($case[1])' ($($case[0])): exit 1, nothing written" $r ((Test-RefusedUnchanged $r) -and (Test-Contains $r 'not an External switch'))
+    }
+
+    $null = New-Scenario 'switch-name-missing'
+    $p = Get-BaseParams; $p.SwitchName = 'Nope'
+    $r = Invoke-Import $p
+    Expect 'an unknown -SwitchName: exit 1, lists the External switches' $r ((Test-RefusedUnchanged $r) -and (Test-Contains $r "'LAN'"))
+
+    $null = New-Scenario 'switch-name-and-adapter'
+    $p = Get-BaseParams; $p.SwitchName = 'LAN'; $p.NetAdapterName = 'Ethernet'
+    $r = Invoke-Import $p
+    Expect '-SwitchName with -NetAdapterName: exit 1' $r ((Test-RefusedUnchanged $r) -and (Test-Contains $r 'not both'))
+}
+
+function TestSwitch_CreateRequiresTypedName {
+    $null = New-Scenario 'switch-create-typed'
+    Set-OnlyDefaultSwitch
+    $r = Invoke-Import (Get-SwitchParams) @('Ethernet')
+    $calls = @(Get-NewSwitchCalls $r)
+    Expect 'one New-VMSwitch, with exactly the External-switch arguments' $r (
+        $calls.Count -eq 1 -and $calls[0] -ceq "New-VMSwitch -Name '$NewSwitch' -NetAdapterName 'Ethernet' -AllowManagementOS `$true")
+    Expect 'the warning says it interrupts the network, drops Remote Desktop, and moves the IP to vEthernet' $r (Test-NetworkWarning $r)
+    Expect 'one prompt (the typed name), before New-VMSwitch' $r (
+        (Get-Prompts $r).Count -eq 1 -and [array]::IndexOf($r.Calls, @(Get-Prompts $r)[0]) -lt [array]::IndexOf($r.Calls, $calls[0]))
+    Expect 'confirmed before the image, created after it is verified' $r (
+        (Get-OutputIndex $r $WarnText) -lt (Get-OutputIndex $r 'SHA256 matches') -and
+        (Get-OutputIndex $r 'SHA256 matches') -lt (Get-OutputIndex $r "Created the External switch '$NewSwitch'"))
+    Expect 'the host now has the External switch on Ethernet' $r (@($global:HV.Switches | Where-Object { $_.Name -eq $NewSwitch -and $_.SwitchType -eq 'External' -and $_.NetAdapterInterfaceDescription -eq $EthDesc }).Count -eq 1)
+    Expect 'at the VM step (exit 2) it offers to remove the switch it created' $r ($r.ExitCode -eq 2 -and (Test-Contains $r "Remove-VMSwitch -Name '$NewSwitch' -Force"))
+
+    # Two adapters: pick by number, then type the name (case does not matter;
+    # New-VMSwitch gets the adapter's own name).
+    $null = New-Scenario 'switch-create-pick'
+    Set-OnlyDefaultSwitch
+    [void]$global:HV.Adapters.Add((New-MockAdapter 'Ethernet 2' 'Realtek USB GbE Family Controller' 'Up' 14 @('10.0.0.5')))
+    $r = Invoke-Import (Get-SwitchParams) @('2', 'ETHERNET 2')
+    $calls = @(Get-NewSwitchCalls $r)
+    Expect 'number then typed name: New-VMSwitch on Ethernet 2' $r (
+        (Get-Prompts $r).Count -eq 2 -and $calls.Count -eq 1 -and $calls[0] -ceq "New-VMSwitch -Name '$NewSwitch' -NetAdapterName 'Ethernet 2' -AllowManagementOS `$true")
+}
+
+function TestSwitch_WrongTypedNameAborts {
+    $i = 0
+    foreach ($answer in @('Ethernet 2', '', 'yes', 'y', 'Ethernet; Remove-VM')) {
+        $i++
+        $null = New-Scenario "switch-wrong-name-$i"
+        Set-OnlyDefaultSwitch
+        $r = Invoke-Import (Get-SwitchParams) @($answer)
+        Expect "typed '$answer': exit 1, no switch, nothing written" $r ((Test-RefusedUnchanged $r) -and (Test-Contains $r 'No switch was created'))
+    }
+}
+
+function TestSwitch_UnattendedWithoutConfirmRefuses {
+    $null = New-Scenario 'switch-unattended-no-confirm'
+    Set-OnlyDefaultSwitch
+    $p = Get-BaseParams; $p.NetAdapterName = 'Ethernet'
+    $r = Invoke-Import $p
+    Expect '-Yes -NetAdapterName without -ConfirmNetworkInterruption: exit 1, no prompt' $r ((Test-RefusedUnchanged $r) -and (Get-Prompts $r).Count -eq 0)
+    Expect 'shows the warning and names -ConfirmNetworkInterruption' $r ((Test-NetworkWarning $r) -and (Test-Contains $r '-ConfirmNetworkInterruption'))
+
+    $null = New-Scenario 'switch-unattended-no-adapter'
+    Set-OnlyDefaultSwitch
+    $r = Invoke-Import (Get-BaseParams)
+    Expect '-Yes and no External switch: exit 1, says -NetAdapterName -ConfirmNetworkInterruption, no prompt' $r (
+        (Test-RefusedUnchanged $r) -and (Test-Contains $r '-NetAdapterName') -and (Test-Contains $r '-ConfirmNetworkInterruption') -and (Get-Prompts $r).Count -eq 0)
+
+    # -ConfirmNetworkInterruption confirms only together with -NetAdapterName.
+    $null = New-Scenario 'switch-confirm-without-adapter'
+    Set-OnlyDefaultSwitch
+    $p = Get-SwitchParams; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p @('nope')
+    Expect '-ConfirmNetworkInterruption alone still asks for the typed name' $r ((Test-RefusedUnchanged $r) -and (Get-Prompts $r).Count -eq 1)
+
+    $null = New-Scenario 'switch-confirm-without-adapter-yes'
+    Set-OnlyDefaultSwitch
+    $p = Get-BaseParams; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p
+    Expect '-Yes -ConfirmNetworkInterruption without -NetAdapterName: exit 1, no prompt' $r ((Test-RefusedUnchanged $r) -and (Get-Prompts $r).Count -eq 0)
+}
+
+function TestSwitch_UnattendedWithConfirmCreates {
+    $expected = "New-VMSwitch -Name '$NewSwitch' -NetAdapterName 'Ethernet' -AllowManagementOS `$true"
+    $null = New-Scenario 'switch-unattended-confirm'
+    Set-OnlyDefaultSwitch
+    $p = Get-BaseParams; $p.NetAdapterName = 'Ethernet'; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p
+    $calls = @(Get-NewSwitchCalls $r)
+    Expect "exactly: $expected" $r ($calls.Count -eq 1 -and $calls[0] -ceq $expected)
+    Expect 'no prompt, and the warning is still shown' $r ((Get-Prompts $r).Count -eq 0 -and (Test-NetworkWarning $r))
+    Expect 'exit 2 at the VM step, offers to remove the created switch' $r ($r.ExitCode -eq 2 -and (Test-Contains $r "Remove-VMSwitch -Name '$NewSwitch' -Force"))
+
+    $null = New-Scenario 'switch-confirm-interactive'
+    Set-OnlyDefaultSwitch
+    $p = Get-SwitchParams; $p.NetAdapterName = 'Ethernet'; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p
+    Expect 'without -Yes too: created, no prompt' $r ((Get-Prompts $r).Count -eq 0 -and @(Get-NewSwitchCalls $r) -ccontains $expected)
+
+    # The adapter already carries an External switch: reuse it, interrupt nothing.
+    $null = New-Scenario 'switch-adapter-already-bound'
+    $p = Get-BaseParams; $p.NetAdapterName = 'Ethernet'; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p
+    Expect 'an adapter that already has an External switch: reuses it, no warning' $r ((Test-ReusesWithoutChange $r 'LAN') -and -not (Test-Contains $r $WarnText))
+
+    $null = New-Scenario 'switch-adapter-beside-existing'
+    [void]$global:HV.Adapters.Add((New-MockAdapter 'Ethernet 2' 'Realtek USB GbE Family Controller' 'Up' 14 @('10.0.0.5')))
+    $p = Get-BaseParams; $p.NetAdapterName = 'Ethernet 2'; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p
+    Expect 'another adapter while LAN exists: creates on that adapter' $r (@(Get-NewSwitchCalls $r) -ccontains "New-VMSwitch -Name '$NewSwitch' -NetAdapterName 'Ethernet 2' -AllowManagementOS `$true")
+
+    $null = New-Scenario 'switch-adapter-down'
+    Set-OnlyDefaultSwitch
+    [void]$global:HV.Adapters.Add((New-MockAdapter 'Ethernet 2' 'Realtek USB GbE Family Controller' 'Disconnected'))
+    $p = Get-BaseParams; $p.NetAdapterName = 'Ethernet 2'; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p
+    Expect 'an adapter that is not up: exit 1, nothing written' $r ((Test-RefusedUnchanged $r) -and (Test-Contains $r "No physical network adapter named 'Ethernet 2' is up"))
+
+    $null = New-Scenario 'switch-name-taken'
+    Set-OnlyDefaultSwitch
+    [void]$global:HV.Switches.Add((New-MockSwitch $NewSwitch 'Internal'))
+    $p = Get-BaseParams; $p.NetAdapterName = 'Ethernet'; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p
+    Expect "a non-External switch already named '$NewSwitch': exit 1, nothing written" $r ((Test-RefusedUnchanged $r) -and (Test-Contains $r 'already exists'))
+
+    $null = New-Scenario 'switch-create-fails'
+    Set-OnlyDefaultSwitch
+    $global:HV.NewSwitchFails = $true
+    $p = Get-BaseParams; $p.NetAdapterName = 'Ethernet'; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p
+    Expect 'New-VMSwitch fails: exit 2, says so, prints how to remove the disk' $r (
+        $r.ExitCode -eq 2 -and (Test-Contains $r 'Could not create the External switch') -and (Test-Contains $r 'Remove-Item -LiteralPath'))
+    Expect 'and offers no switch removal (none was created)' $r (-not (Test-Contains $r 'Remove-VMSwitch'))
+}
+
+function TestSwitch_OnlyUpPhysicalAdaptersListed {
+    $null = New-Scenario 'switch-adapters-listed'
+    Set-OnlyDefaultSwitch
+    [void]$global:HV.Adapters.Add((New-MockAdapter 'Ethernet 2' 'Realtek USB GbE Family Controller' 'Disconnected'))
+    [void]$global:HV.Adapters.Add((New-MockAdapter 'Wi-Fi' $WifiDesc 'Up' 9 @('192.168.4.44')))
+    [void]$global:HV.Adapters.Add((New-MockAdapter 'vEthernet (Default Switch)' 'Hyper-V Virtual Ethernet Adapter' 'Up' 14 @('172.20.0.1') $false))
+    [void]$global:HV.Adapters.Add((New-MockAdapter 'Tailscale' 'Tailscale Tunnel' 'Up' 0 @('100.64.0.7') $false))
+    $r = Invoke-Import (Get-SwitchParams) @('x')
+    Expect 'asks Get-NetAdapter for physical adapters' $r (Test-Called $r 'Get-NetAdapter -Physical')
+    Expect 'lists the Up physical ones, numbered, with IPv4 and link speed' $r (
+        (Test-Contains $r '1) Ethernet') -and (Test-Contains $r '2) Wi-Fi') -and (Test-Contains $r '192.168.4.45') -and
+        (Test-Contains $r '192.168.4.44') -and (Test-Contains $r '1 Gbps') -and (Test-Contains $r $EthDesc))
+    Expect 'not the disconnected or virtual ones' $r (
+        -not (Test-Contains $r 'Ethernet 2') -and -not (Test-Contains $r 'vEthernet (Default Switch)') -and -not (Test-Contains $r 'Tailscale'))
+    Expect 'an answer that is not a listed number: exit 1, nothing written' $r (Test-RefusedUnchanged $r)
+
+    $null = New-Scenario 'switch-no-adapter-up'
+    Set-OnlyDefaultSwitch
+    $global:HV.Adapters[0].Status = 'Disconnected'
+    $r = Invoke-Import (Get-SwitchParams)
+    Expect 'no physical adapter up: exit 1, no prompt, nothing written' $r (
+        (Test-RefusedUnchanged $r) -and (Get-Prompts $r).Count -eq 0 -and (Test-Contains $r 'No physical network adapter is up'))
+}
+
+# Wi-Fi is told by the medium (NdisPhysicalMedium, or PhysicalMediaType when
+# that is all there is), never by the name, which is localized and editable.
+function TestSwitch_WifiMarkedNotRecommended {
+    $null = New-Scenario 'switch-wifi-marked'
+    Set-OnlyDefaultSwitch
+    $global:HV.Adapters = [System.Collections.ArrayList]@(
+        (New-MockAdapter 'Wi-Fi' 'Realtek PCIe GbE Family Controller' 'Up' 14 @('192.168.1.10')),
+        (New-MockAdapter 'Ethernet 3' $WifiDesc 'Up' 9 @('192.168.1.11')),
+        (New-MockAdapter 'WLAN' 'Qualcomm Atheros QCA9377' 'Up' 0 @('192.168.1.12')))
+    # Each signal alone must be enough: 'Ethernet 3' has only the NDIS medium,
+    # 'WLAN' only the media type.
+    $global:HV.Adapters[1].Remove('PhysicalMediaType')
+    $global:HV.Adapters[2].Remove('NdisPhysicalMedium')
+    $global:HV.Adapters[2].PhysicalMediaType = 'Native 802.11'
+    $r = Invoke-Import (Get-SwitchParams) @('2', 'Ethernet 3')
+    $line = { param($t) (Get-OutputLine $r $t) -join ' ' }
+    Expect "'Wi-Fi' by name but wired (802.3): not marked" $r ((& $line '1) Wi-Fi') -ne '' -and (& $line '1) Wi-Fi') -notmatch 'not recommended')
+    Expect "'Ethernet 3' with NdisPhysicalMedium 9 (802.11): marked not recommended" $r ((& $line '2) Ethernet 3') -match 'not recommended')
+    Expect "'WLAN' with only PhysicalMediaType 'Native 802.11': marked not recommended" $r ((& $line '3) WLAN') -match 'not recommended')
+    Expect 'picking a Wi-Fi adapter warns again and still needs the typed name' $r (
+        (Test-Contains $r "'Ethernet 3' is a Wi-Fi adapter") -and (Get-Prompts $r).Count -eq 2 -and
+        @(Get-NewSwitchCalls $r) -ccontains "New-VMSwitch -Name '$NewSwitch' -NetAdapterName 'Ethernet 3' -AllowManagementOS `$true")
+}
+
+# A Spanish-locale host: "Conexion de area local 2" with its accents (built
+# from code points: this file stays ASCII). The name must reach New-VMSwitch
+# unchanged, from the typed confirmation and from -NetAdapterName.
+function TestSwitch_AdapterNameWithSpacesAndAccents {
+    $acc = "Conexi$([char]0x00F3)n de $([char]0x00E1)rea local 2"
+    $null = New-Scenario 'switch-accents-typed'
+    Set-OnlyDefaultSwitch
+    $global:HV.Adapters = [System.Collections.ArrayList]@((New-MockAdapter $acc 'Realtek PCIe GbE Family Controller' 'Up' 14 @('192.168.1.20')))
+    $r = Invoke-Import (Get-SwitchParams) @($acc)
+    Expect 'typed: the name arrives at New-VMSwitch byte-identical' $r (
+        (Get-NewSwitchCalls $r).Count -eq 1 -and $null -ne $global:HV.NewSwitchAdapterArg -and [string]::CompareOrdinal($global:HV.NewSwitchAdapterArg, $acc) -eq 0)
+    Expect 'and is shown as is' $r (([string]$r.Output).Contains($acc))
+
+    $null = New-Scenario 'switch-accents-param'
+    Set-OnlyDefaultSwitch
+    $global:HV.Adapters = [System.Collections.ArrayList]@((New-MockAdapter $acc 'Realtek PCIe GbE Family Controller' 'Up' 14 @('192.168.1.20')))
+    $p = Get-BaseParams; $p.NetAdapterName = $acc; $p.ConfirmNetworkInterruption = $true
+    $r = Invoke-Import $p
+    Expect '-NetAdapterName: the name arrives at New-VMSwitch byte-identical' $r (
+        (Get-NewSwitchCalls $r).Count -eq 1 -and $null -ne $global:HV.NewSwitchAdapterArg -and [string]::CompareOrdinal($global:HV.NewSwitchAdapterArg, $acc) -eq 0)
+}
+
+function TestSwitch_NeverUsesDefaultSwitch {
+    $null = New-Scenario 'switch-only-default'
+    Set-OnlyDefaultSwitch
+    $r = Invoke-Import (Get-SwitchParams) @('Ethernet')
+    Expect 'only the Default Switch: goes to creation, never reuses it' $r (
+        (Get-NewSwitchCalls $r).Count -eq 1 -and -not (Test-Contains $r "connect to the External switch 'Default Switch'"))
+    Expect 'says why the Default Switch is not used' $r (Test-Contains $r 'The Default Switch is not used')
+
+    $null = New-Scenario 'switch-only-default-yes'
+    Set-OnlyDefaultSwitch
+    $r = Invoke-Import (Get-BaseParams)
+    Expect 'with -Yes: refused (creation path), not reused' $r ((Test-RefusedUnchanged $r) -and -not (Test-Contains $r "connect to the External switch 'Default Switch'"))
+
+    # Even if it were reported as External, its fixed ID gives it away.
+    $null = New-Scenario 'switch-default-reported-external'
+    $global:HV.Switches = [System.Collections.ArrayList]@(New-MockSwitch 'Default Switch' 'External' $null $DefaultSwitchId)
+    $r = Invoke-Import (Get-SwitchParams) @('Ethernet')
+    Expect 'a Default Switch reported as External is still not reused' $r (
+        (Get-NewSwitchCalls $r).Count -eq 1 -and -not (Test-Contains $r "connect to the External switch 'Default Switch'"))
 }
 
 # ---- run --------------------------------------------------------------------
