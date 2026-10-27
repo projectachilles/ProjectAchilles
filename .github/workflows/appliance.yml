@@ -107,3 +107,102 @@ jobs:
             appliance/out/boot-test/**/*.log
           if-no-files-found: ignore
           retention-days: 1
+
+  # Publishes a release build. Trust split: the zip goes to R2 (public, large);
+  # the authoritative appliance-SHA256SUMS goes on the GitHub release, because
+  # Import-Achilles.ps1 fetches the checksum from GitHub and the zip from R2, so
+  # a compromised bucket cannot swap the zip and its checksum together.
+  # Write access is job-scoped, so this job never checks out the repo: no PR or
+  # tag code runs with the write token, it only handles the downloaded artifact.
+  publish:
+    name: Publish appliance to R2 and the release
+    needs: appliance
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # Fail loudly: a release without a download link must not look green.
+      - name: Require R2 configuration
+        run: |
+          missing=0
+          for name in R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET R2_PUBLIC_BASE_URL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is empty: set it as a repository secret (variable for R2_PUBLIC_BASE_URL) before tagging a release"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: appliance-hyperv
+          path: dist
+
+      - name: Resolve the version and zip name
+        run: |
+          shopt -s nullglob
+          zips=(dist/ProjectAchilles-*-hyperv.zip)
+          if [ "${#zips[@]}" -ne 1 ] || [ ! -s dist/appliance-SHA256SUMS ]; then
+            echo "::error::expected exactly one Hyper-V zip and appliance-SHA256SUMS in dist/, found: $(ls dist)"
+            exit 1
+          fi
+          zip_name="$(basename "${zips[0]}")"
+          ver="${zip_name#ProjectAchilles-}"
+          ver="${ver%-hyperv.zip}"
+          # The release tag is the version as-is (it already starts with "v").
+          case "$ver" in
+            v[0-9]*) ;;
+            *) echo "::error::cannot derive a v-prefixed version from $zip_name"; exit 1 ;;
+          esac
+          {
+            echo "ZIP_NAME=$zip_name"
+            echo "VER=$ver"
+          } >> "$GITHUB_ENV"
+
+      # R2 rejects the CRC checksums recent AWS CLI versions add by default.
+      - name: Upload the zip to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
+          AWS_RESPONSE_CHECKSUM_VALIDATION: WHEN_REQUIRED
+        run: |
+          aws s3 cp "dist/$ZIP_NAME" "s3://$R2_BUCKET/appliance/" \
+            --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com"
+          echo "Download URL: ${R2_PUBLIC_BASE_URL%/}/appliance/$ZIP_NAME" >> "$GITHUB_STEP_SUMMARY"
+
+      # The release is created by a separate workflow on the same tag, so it may
+      # not exist yet. Never upload to a guessed tag: wait, or fail.
+      - name: Attach the checksum to the release
+        run: |
+          for i in $(seq 1 40); do
+            if gh release view "$VER" >/dev/null 2>&1; then
+              gh release upload "$VER" dist/appliance-SHA256SUMS --clobber
+              exit 0
+            fi
+            echo "Release $VER not found yet (attempt $i/40), waiting 30s"
+            sleep 30
+          done
+          echo "::error::release $VER did not appear within 20 minutes; checksum not attached"
+          exit 1
+
+      - name: Verify the round trip
+        run: |
+          url="${R2_PUBLIC_BASE_URL%/}/appliance/$ZIP_NAME"
+          curl -fsSLI "$url" >/dev/null || { echo "::error::$url is not publicly reachable"; exit 1; }
+          if ! gh release view "$VER" --json assets --jq '.assets[].name' | grep -qx 'appliance-SHA256SUMS'; then
+            echo "::error::appliance-SHA256SUMS is not attached to release $VER"
+            exit 1
+          fi
+          echo "Verified $url and the release checksum asset" >> "$GITHUB_STEP_SUMMARY"
