@@ -807,7 +807,7 @@ function Confirm-NewSwitch {
         $typed = [string](Read-Host "Type the adapter name ($name$hint) to create the switch, or press Enter to stop")
         if ([string]::IsNullOrWhiteSpace($typed) -or -not (Test-SameFoldedName $typed $name)) {
             $detail = @("To confirm without typing, run again with $unattended.")
-            if ($own.Count -gt 0) { $detail = @('Type the name exactly, pick another adapter, or run this from the console.') }
+            if ($own.Count -gt 0) { $detail = @('Type the adapter name again (case and accents do not matter), pick another adapter, or run this from the console.') }
             Stop-Import "That is not '$name'. No switch was created and nothing was changed." $detail
         }
         Write-Ok "Confirmed: an External switch on '$name'"

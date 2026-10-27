@@ -560,12 +560,20 @@ function Get-UnsafeCommands([System.Management.Automation.Language.Ast]$ast, [st
         }
         if ($n -eq 'New-Object') {
             foreach ($e in @($c.CommandElements | Select-Object -Skip 1)) {
-                if ($e -is [System.Management.Automation.Language.CommandParameterAst] -and
-                    'ComObject'.StartsWith($e.ParameterName, [StringComparison]::OrdinalIgnoreCase)) {
-                    "New-Object -ComObject at $where"
+                # A splat can carry any parameter (ComObject, a Process type name).
+                if ($e -is [System.Management.Automation.Language.VariableExpressionAst] -and $e.Splatted) {
+                    "New-Object with splatted parameters at ${where}: $($c.Extent.Text)"
                 }
-                if ($e -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $e.Value -match $ProcessTypePattern) {
-                    "New-Object $($e.Value) at $where starts processes"
+                $value = $e
+                if ($e -is [System.Management.Automation.Language.CommandParameterAst]) {
+                    if ('ComObject'.StartsWith($e.ParameterName, [StringComparison]::OrdinalIgnoreCase)) {
+                        "New-Object -ComObject at $where"
+                    }
+                    # -TypeName:System.Diagnostics.Process: the value sits on the parameter.
+                    $value = $e.Argument
+                }
+                if ($value -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $value.Value -match $ProcessTypePattern) {
+                    "New-Object $($value.Value) at $where starts processes"
                 }
             }
             continue
@@ -631,12 +639,17 @@ function TestStatic_EveryCommandIsMockedOrSafe {
         "Add-Type -Path C:\x.dll",
         "Add-Type -AssemblyName System.Windows.Forms",
         "Add-Type 'public class Y {}'",
-        "Add-Type @addTypeArgs"
+        "Add-Type @addTypeArgs",
+        # The colon form puts the value on the parameter (CommandParameterAst.Argument).
+        "New-Object -TypeName:System.Diagnostics.Process",
+        "New-Object -ComObject:WScript.Shell",
+        # A splatted New-Object can hide -ComObject or a Process type name.
+        "`$a = @{ ComObject = 'WScript.Shell' }; New-Object @a"
     ) -join "`n") + "`n", [ref]$null, [ref]$null)
     $found = @(Get-UnsafeCommands $probe)
     $lines = @($found | ForEach-Object { if ($_ -match ' at line (\d+)') { [int]$Matches[1] } } | Select-Object -Unique)
-    Check 'the command check flags [Diagnostics.Process], New-Object -ComObject and Add-Type beyond its allow list (12 lines)' ($lines.Count -eq 12)
-    if ($lines.Count -ne 12) { foreach ($f in $found) { "     | $f" } }
+    Check 'the command check flags [Diagnostics.Process], New-Object -ComObject (also -TypeName:/-ComObject: and splatted) and Add-Type beyond its allow list (15 lines)' ($lines.Count -eq 15)
+    if ($lines.Count -ne 15) { foreach ($f in $found) { "     | $f" } }
     $allowed = [System.Management.Automation.Language.Parser]::ParseInput(
         "Add-Type -AssemblyName System.IO.Compression.FileSystem`nNew-Object System.Collections.ArrayList`n[IO.Path]::GetFileName('x')`n", [ref]$null, [ref]$null)
     Check 'the allow-listed Add-Type and ordinary New-Object/.NET calls pass' (@(Get-UnsafeCommands $allowed).Count -eq 0)
@@ -1141,7 +1154,7 @@ function TestSwitch_CreateRequiresTypedName {
 
 function TestSwitch_WrongTypedNameAborts {
     $i = 0
-    foreach ($answer in @('Ethernet 2', '', 'yes', 'y', 'Ethernet; Remove-VM')) {
+    foreach ($answer in @('Ethernet 2', '', 'yes', 'y', 'Ethernet; Remove-VM', 'Eth')) {
         $i++
         $null = New-Scenario "switch-wrong-name-$i"
         Set-OnlyDefaultSwitch
@@ -1149,6 +1162,15 @@ function TestSwitch_WrongTypedNameAborts {
         Expect "typed '$answer': exit 1, no switch, nothing written, no step-4 note" $r (
             (Test-RefusedUnchanged $r) -and (Test-Contains $r 'No switch was created') -and -not (Test-Contains $r 'The switch is created in step 4'))
     }
+
+    # The typed name confirms only the adapter that was picked: the exact name
+    # of another adapter that is up does not.
+    $null = New-Scenario 'switch-wrong-name-other-adapter'
+    Set-OnlyDefaultSwitch
+    [void]$global:HV.Adapters.Add((New-MockAdapter 'Ethernet 2' 'Realtek USB GbE Family Controller' 'Up' 14 @('10.0.0.5')))
+    $r = Invoke-Import (Get-SwitchParams) @('1', 'Ethernet 2')
+    Expect "picked adapter 1, typed adapter 2's exact name: exit 1, no New-VMSwitch, nothing written" $r (
+        (Test-RefusedUnchanged $r) -and (Get-Prompts $r).Count -eq 2 -and (Test-Contains $r "That is not 'Ethernet'"))
 }
 
 function TestSwitch_UnattendedWithoutConfirmRefuses {
@@ -1439,6 +1461,16 @@ function TestSwitch_SessionAdapterDetected {
     $p = Get-SwitchParams; $p.NetAdapterName = 'Ethernet'; $p.ConfirmNetworkInterruption = $true
     $r = Invoke-Import $p @('Ethernet')
     Expect '  without -Yes: asks for the typed name instead, which confirms it' $r ((Get-Prompts $r).Count -eq 1 -and @(Get-NewSwitchCalls $r) -ccontains $created)
+
+    # A wrong name there: the hint agrees with the prompt (case and accents
+    # do not matter), it never asks for the name "exactly".
+    $null = New-Scenario 'switch-session-ssh-on-ethernet-wrong'
+    Set-LabAdapters
+    $global:HV.SshConnection = '192.168.4.30 52692 192.168.4.45 22'
+    $r = Invoke-Import $p @('Ethernt')
+    Expect '  a wrong typed name: refused, and the hint says case and accents do not matter' $r (
+        (Test-RefusedUnchanged $r) -and (Test-Contains $r 'Type the adapter name again (case and accents do not matter), pick another adapter, or run this from the console.') -and
+        -not (Test-Contains $r 'exactly'))
 
     $null = New-Scenario 'switch-session-ssh-ipv6-scope'
     Set-LabAdapters
