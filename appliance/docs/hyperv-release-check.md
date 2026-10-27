@@ -27,9 +27,21 @@ only in its shell environment and uses it through `sshpass -e` (the
 
 ```bash
 export SSHPASS='<password the user chose>'          # never written to a file
-vmssh() { sshpass -e ssh -o StrictHostKeyChecking=accept-new achilles@"$VM_IP" "$@"; }
-vmsudo() { sshpass -e ssh -o StrictHostKeyChecking=accept-new achilles@"$VM_IP" "sudo -S -p '' $*" <<<"$SSHPASS"; }   # sudo reads the password from stdin
+# Both take the VM's address, then ONE remote command as ONE quoted string.
+vmssh()  { sshpass -e ssh -o StrictHostKeyChecking=accept-new achilles@"$1" "$2"; }
+vmsudo() { sshpass -e ssh -o StrictHostKeyChecking=accept-new achilles@"$1" "sudo -S -p '' sh -c $(printf %q "$2")" <<<"$SSHPASS"; }
 ```
+
+Convention: the address is the first argument (`vmssh "$VM1_IP" '...'`), the
+remote command is **one** single-quoted string (so `stat -c "%a %n" /x` reaches
+the remote intact), and `vmsudo` runs that whole string under `sudo sh -c`, so
+`&&`, pipes and redirections are privileged too. Use double quotes only to
+expand a controller-side variable (`"cp .../$F ..."`). `vmsudo` feeds the
+password to `sudo -S` on **stdin**, so it cannot be combined with a remote
+command that reads stdin (`cat`, `tee` without a file, an interactive prompt);
+for those, put the data in place with `vmssh` first (into /home/achilles) and
+then `vmsudo` a `cp` or `mv`. Set `VM1_IP`, `VM2_IP`, `VM3_IP` as each VM gets its address; `VM_IP` in the C1, H5
+and H6 snippets means the VM under test (export it before each VM's steps).
 
 The Clerk development keys come from
 the user in chat for H6, go into a file on the VM that is deleted after the
@@ -224,11 +236,12 @@ Manager -> Connect) and walks the real FormUI (CI only exercises the test UI):
 After the second reboot, the controller checks (see H5 for the SSH form):
 
 ```bash
-systemctl is-enabled achilles-firstboot; systemctl is-active achilles-firstboot
+vmssh "$VM_IP" 'systemctl is-enabled achilles-firstboot; systemctl is-active achilles-firstboot'
 ```
 
-Expected: `disabled` (or not found) and `inactive`. Otherwise as written; no second
-first-boot run after reboot.
+Expected: `is-enabled` prints `disabled` (or says the unit is not found; either
+is a pass) and `is-active` prints `inactive`. Everything else as written, and
+no second first-boot run after either reboot.
 
 Repeat C1 for VM2 (H4) and VM3 (H9) with their own rows in the results table.
 
@@ -247,19 +260,19 @@ Expected: the printed `SHA256:...` equals the fingerprint from the console
 connect. Only after it matches, connect non-interactively and accept the key:
 
 ```bash
-vmssh true     # uses -o StrictHostKeyChecking=accept-new; exits 0
+vmssh "$VM_IP" true     # uses -o StrictHostKeyChecking=accept-new; exits 0
 ```
 
 On the VM, check the image invariants (spec 15):
 
 ```bash
-vmsudo stat -c '%a %n' /etc/netplan/*
-vmssh 'ls /etc/systemd/system/getty.target.wants/ 2>/dev/null | grep -c getty@tty1 || true'
-vmssh stat -c '%a %n' /opt/projectachilles
-vmsudo 'sh -c "ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub"'
-vmssh cat /etc/machine-id
-vmsudo git -C /opt/projectachilles tag --points-at HEAD
-vmsudo git -C /opt/projectachilles rev-parse HEAD
+vmsudo "$VM_IP" 'stat -c "%a %n" /etc/netplan/*'
+vmssh "$VM_IP" 'ls /etc/systemd/system/getty.target.wants/ 2>/dev/null | grep -c getty@tty1 || true'
+vmssh "$VM_IP" 'stat -c "%a %n" /opt/projectachilles'
+vmsudo "$VM_IP" 'ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub'
+vmssh "$VM_IP" 'cat /etc/machine-id'
+vmsudo "$VM_IP" 'git -C /opt/projectachilles tag --points-at HEAD'
+vmsudo "$VM_IP" 'git -C /opt/projectachilles rev-parse HEAD'
 ```
 
 (`/opt/projectachilles` is `root:root` 0755, so `git` needs `sudo`, otherwise
@@ -292,8 +305,8 @@ ADMIN_EMAIL=<user's email>
 (Adjust names to the lab; the rest keeps the example's defaults.) Then:
 
 ```bash
-vmssh 'umask 077; cat > /home/achilles/install.env' <<<"$CONFIG_TEXT"   # CONFIG_TEXT built in the controller's shell only
-vmsudo /opt/projectachilles/achilles-installer install --repo /opt/projectachilles --config /home/achilles/install.env --yes 2>&1 | tee install.log
+vmssh "$VM_IP" 'umask 077; cat > /home/achilles/install.env' <<<"$CONFIG_TEXT"   # CONFIG_TEXT built in the controller's shell only
+vmsudo "$VM_IP" '/opt/projectachilles/achilles-installer install --repo /opt/projectachilles --config /home/achilles/install.env --yes' 2>&1 | tee install.log
 ```
 
 Expected: completes with no image build ("Using the pre-built images for
@@ -302,9 +315,9 @@ Expected: completes with no image build ("Using the pre-built images for
 it holds anything sensitive (it should not). Then:
 
 ```bash
-vmsudo /opt/projectachilles/achilles-installer status
-vmssh 'curl -sk https://<vm-ip>/api/health'
-vmssh 'rm -f /home/achilles/install.env'      # holds the Clerk keys
+vmsudo "$VM_IP" '/opt/projectachilles/achilles-installer status'
+vmssh "$VM_IP" 'curl -sk https://<vm-ip>/api/health'
+vmssh "$VM_IP" 'rm -f /home/achilles/install.env'      # holds the Clerk keys
 ```
 
 Expected: all services healthy, `status` clean, health `ok`. The UI opens at
@@ -350,19 +363,20 @@ Expected: exit 0; the line "The VM will connect to the External switch
 'ProjectAchilles External' ..." (no new switch created, no network
 interruption); VM `ProjectAchilles2` created with its own disk
 `ProjectAchilles2.vhdx`; the first VM is untouched. Then repeat C1 on
-`ProjectAchilles2` (and H5's fingerprint comparison for its address) (a different static/DHCP address; use a different hostname).
+`ProjectAchilles2` (use a different hostname and address) and H5's fingerprint
+comparison for its address.
 Expected: a different host key fingerprint and machine-id from VM1 (H5 values)
 -- a repeat would mean the image was not sealed (spec 15).
 
 ### H8 - Backup on VM1, restore on VM2 with a different IP (vm, controller)
 
-On VM1 (the controller; `$VM1_IP`):
+On VM1 (the controller; `$VM1_IP`; in the C1/H5/H6 snippets `$VM_IP` is the VM under test, i.e. `$VM1_IP` for VM1):
 
 ```bash
-vmsudo /opt/projectachilles/achilles-installer backup
-vmsudo 'ls -l /var/backups/projectachilles/'        # root-owned, mode 0600
-F=$(vmsudo 'ls -t /var/backups/projectachilles/ | head -1')
-vmsudo "cp /var/backups/projectachilles/$F /home/achilles/ && chown achilles: /home/achilles/$F"
+vmsudo "$VM1_IP" '/opt/projectachilles/achilles-installer backup'
+vmsudo "$VM1_IP" 'ls -l /var/backups/projectachilles/'        # root-owned, mode 0600
+F=$(vmsudo "$VM1_IP" 'ls -t /var/backups/projectachilles/ | head -1')
+vmsudo "$VM1_IP" "cp /var/backups/projectachilles/$F /home/achilles/ && chown achilles: /home/achilles/$F"
 ```
 
 Verify the mode with `sudo ls -l` (expect `-rw-------`). The backup holds every
@@ -377,7 +391,7 @@ VM2 has **never run install** (spec 15: restore on a never-installed VM) and has
 a **different IP** from VM1's. On VM2, after H5's fingerprint comparison for VM2:
 
 ```bash
-vmsudo /opt/projectachilles/achilles-installer restore /home/achilles/$F --yes
+vmsudo "$VM2_IP" "/opt/projectachilles/achilles-installer restore /home/achilles/$F --yes"
 ```
 
 (Without `--yes` it asks to type the host name.) Expected: the data restores,
@@ -389,9 +403,14 @@ Then set VM2's address non-interactively: edit the restored config and
 re-run the engine:
 
 ```bash
-vmsudo sed -i 's/^CADDY_BIND_IP=.*/CADDY_BIND_IP=<VM2 ip>/' /opt/projectachilles/deploy.config.env
-vmsudo /opt/projectachilles/achilles-installer install --repo /opt/projectachilles --config /opt/projectachilles/deploy.config.env --yes
+NEW_IP="$VM2_IP"          # VM2's own address
+vmsudo "$VM2_IP" "sed -i 's/^CADDY_BIND_IP=.*/CADDY_BIND_IP=$NEW_IP/' /opt/projectachilles/deploy.config.env"
+vmsudo "$VM2_IP" 'grep -E "^(CADDY_BIND_IP|LAN_SUBNETS)=" /opt/projectachilles/deploy.config.env'
+vmsudo "$VM2_IP" '/opt/projectachilles/achilles-installer install --repo /opt/projectachilles --config /opt/projectachilles/deploy.config.env --yes'
 ```
+
+If VM2 is on a different subnet than VM1, also edit `LAN_SUBNETS` the same way
+(the firewall allow-list; the `grep` above shows both values).
 
 (Equivalent to choosing Reconfigure in the TUI; the user can instead do that on
 the console as C2.) Expected: the stack starts; the data (agents, settings) and
@@ -411,8 +430,11 @@ and delete its `.vhdx`) once H8 is recorded. The legacy backup (its `.env` has
 with the same `scp` route as H8. Then:
 
 ```bash
-vmsudo /opt/projectachilles/achilles-installer restore /home/achilles/<legacy>.tar.gz --yes 2>&1 | tee restore.log
+vmsudo "$VM3_IP" '/opt/projectachilles/achilles-installer restore /home/achilles/<legacy>.tar.gz --yes' 2>&1 | tee restore.log
 ```
+
+If the VM is on a different subnet than the legacy server, `LAN_SUBNETS` in
+the restored `deploy.config.env` must be edited too (as in H8).
 
 A legacy backup from another server normally trips the new-IP guard **first**
 (same stop message as H8), so the retag lines are **not** in this output. Then
@@ -429,8 +451,8 @@ Unverified until run: the project name stays `projectachilles` after
 Reconfigure:
 
 ```bash
-vmsudo grep COMPOSE_PROJECT_NAME /opt/projectachilles/.env      # expect projectachilles
-vmsudo 'docker ps --format {{.Names}}'                           # names start with projectachilles-
+vmsudo "$VM3_IP" 'grep COMPOSE_PROJECT_NAME /opt/projectachilles/.env'      # expect projectachilles
+vmsudo "$VM3_IP" 'docker ps --format {{.Names}}'                           # names start with projectachilles-
 ```
 
 If the backup's address happens to be local to VM3, the retag lines appear in
@@ -443,10 +465,10 @@ Only if a newer `v*.*.*` tag than the image's exists; otherwise record N/A.
 On VM1:
 
 ```bash
-vmsudo /opt/projectachilles/achilles-installer upgrade --ref <tag> --yes
-vmssh 'ls -l /opt/projectachilles/achilles-installer'
-vmsudo git -C /opt/projectachilles tag --points-at HEAD
-vmsudo /opt/projectachilles/achilles-installer status
+vmsudo "$VM1_IP" '/opt/projectachilles/achilles-installer upgrade --ref <tag> --yes'
+vmssh "$VM1_IP" 'ls -l /opt/projectachilles/achilles-installer'
+vmsudo "$VM1_IP" 'git -C /opt/projectachilles tag --points-at HEAD'
+vmsudo "$VM1_IP" '/opt/projectachilles/achilles-installer status'
 ```
 
 Expected: shows `Upgrade: <from> -> <to>`, completes (the VM needs internet; it
