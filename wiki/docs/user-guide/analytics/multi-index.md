@@ -20,7 +20,7 @@ Ingestion routes through a write index resolved from a configurable prefix and r
 | **Monthly** | `achilles-results-YYYY.MM` |
 | **Static** (none) | The prefix as-is |
 
-New dated indices are created automatically on first ingest with the correct field mappings. Because the read pattern (`achilles-results-*`) spans all dated indices, analytics always see the full result history — rollover only affects where new documents land.
+The write index is created automatically on first ingest with the correct field mappings, in every mode (an index you named yourself as a task's target is left to you). With **Static**, an existing index is used as it is, and a key that may write but not create indices still writes; a missing index then has to be created from Analytics → Settings first, or Elasticsearch guesses its field types. Because the read pattern (`achilles-results-*`) spans all dated indices, analytics always see the full result history — rollover only affects where new documents land.
 
 Rollover keeps individual indices small, which makes retention simple: old dated indices can be snapshotted and deleted without touching the current write index.
 
