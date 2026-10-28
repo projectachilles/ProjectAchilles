@@ -118,3 +118,49 @@ export function latestDigests(scope: NoticeScope, sinceDate: string): DigestRow[
     `)
     .all(...params, sinceDate) as DigestRow[];
 }
+
+/** Orgs that own at least one active schedule. */
+export function listActiveScheduleOrgs(): string[] {
+  const rows = getDatabase()
+    .prepare(`SELECT DISTINCT org_id FROM schedules WHERE status = 'active' ORDER BY org_id`)
+    .all() as Array<{ org_id: string }>;
+  return rows.map((r) => r.org_id);
+}
+
+/** An active schedule row as stored (JSON columns unparsed). */
+export interface DigestScheduleRow {
+  id: string;
+  name: string | null;
+  org_id: string;
+  agent_ids: string;
+  test_uuid: string;
+  test_name: string;
+  metadata: string;
+  schedule_type: string;
+  schedule_config: string;
+  timezone: string;
+}
+
+export function getActiveSchedules(orgId: string): DigestScheduleRow[] {
+  return getDatabase()
+    .prepare(`
+      SELECT id, name, org_id, agent_ids, test_uuid, test_name, metadata, schedule_type, schedule_config, timezone
+      FROM schedules WHERE status = 'active' AND org_id = ? ORDER BY created_at, id
+    `)
+    .all(orgId) as DigestScheduleRow[];
+}
+
+/** Hosts of `agentIds` that are not decommissioned (the scheduler's filter). */
+export function getListedAgentHosts(
+  agentIds: string[],
+): Array<{ id: string; hostname: string; os: string; last_heartbeat: string | null }> {
+  if (agentIds.length === 0) return [];
+  const placeholders = agentIds.map(() => '?').join(', ');
+  return getDatabase()
+    .prepare(`
+      SELECT id, hostname, os, last_heartbeat FROM agents
+      WHERE id IN (${placeholders}) AND status != 'decommissioned'
+      ORDER BY hostname, id
+    `)
+    .all(...agentIds) as Array<{ id: string; hostname: string; os: string; last_heartbeat: string | null }>;
+}
