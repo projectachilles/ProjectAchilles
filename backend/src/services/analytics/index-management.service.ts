@@ -3,6 +3,7 @@
 
 import { SettingsService } from './settings.js';
 import { createEsClient } from './client.js';
+import { EDR_VENDOR_KEYS } from '../outcomes/vendors.js';
 
 export interface IndexInfo {
   name: string;
@@ -49,31 +50,13 @@ export const RESULTS_INDEX_MAPPING = {
           edr_terminated_vendors: { type: 'keyword' as const },
           edr_terminated_alert_ids: { type: 'keyword' as const },
           stages_unknown: { type: 'boolean' as const },
-          defender_detected: { type: 'boolean' as const },
-          // Set true only when an alert's evidence contains THIS stage's
-          // specific binary (`<uuid>-<control_id>[-<variant>].exe`). Distinct
-          // from defender_detected, which is bundle-scoped and so propagates
-          // across every stage of a bundle when only one stage was actually
-          // detected. Drives the per-stage "Detected" badge in the UI.
-          defender_stage_detected: { type: 'boolean' as const },
-          // Vendor-confirmed prevention (subset of defender_detected): a
-          // matched alert carried a prevention-ish remediationStatus.
-          defender_prevented: { type: 'boolean' as const },
-          defender_prevention_action: { type: 'keyword' as const },
-          // CrowdStrike equivalents of the two Defender flags above, written
-          // by CrowdStrikeEnrichmentService (bundle-scoped / stage-scoped).
-          crowdstrike_detected: { type: 'boolean' as const },
-          crowdstrike_stage_detected: { type: 'boolean' as const },
-          // Vendor-confirmed prevention (subset of crowdstrike_detected):
-          // a matched alert carried a prevention disposition.
-          crowdstrike_prevented: { type: 'boolean' as const },
-          crowdstrike_prevention_action: { type: 'keyword' as const },
-          // SentinelOne equivalents, written by the SentinelOne enrichment
-          // pass (same correlation rules as CrowdStrike).
-          sentinelone_detected: { type: 'boolean' as const },
-          sentinelone_stage_detected: { type: 'boolean' as const },
-          sentinelone_prevented: { type: 'boolean' as const },
-          sentinelone_prevention_action: { type: 'keyword' as const },
+          // Per EDR registry vendor (services/outcomes/vendors.ts), the flags its
+          // enrichment pass writes: <key>_detected (bundle-scoped match),
+          // <key>_stage_detected (alert names THIS stage's own binary;
+          // drives the per-stage "Detected" badge), <key>_prevented
+          // (vendor-confirmed prevention, subset of detected) and
+          // <key>_prevention_action.
+          ...edrFlagMappings(),
           tenant_label: { type: 'keyword' as const },
         },
       },
@@ -155,4 +138,15 @@ export async function listResultsIndices(pattern: string): Promise<IndexInfo[]> 
     }
     throw err;
   }
+}
+
+function edrFlagMappings(): Record<string, { type: 'boolean' | 'keyword' }> {
+  return Object.fromEntries(
+    EDR_VENDOR_KEYS.flatMap((v) => [
+      [`${v}_detected`, { type: 'boolean' as const }],
+      [`${v}_stage_detected`, { type: 'boolean' as const }],
+      [`${v}_prevented`, { type: 'boolean' as const }],
+      [`${v}_prevention_action`, { type: 'keyword' as const }],
+    ]),
+  );
 }

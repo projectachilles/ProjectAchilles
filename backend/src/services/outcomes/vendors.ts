@@ -79,6 +79,26 @@ export function edrFlagField(key: EdrVendorKey, kind: EdrFlagKind): `f0rtika.${E
   return `f0rtika.${key}_${kind}`;
 }
 
+const ALL_FLAG_KINDS: readonly EdrFlagKind[] = ['detected', 'stage_detected', 'prevented', 'prevention_action'];
+
+/** `_source` includes for the vendor flags, vendor by vendor (all four kinds by default). */
+export function edrFlagSourceFields(kinds: readonly EdrFlagKind[] = ALL_FLAG_KINDS): string[] {
+  return EDR_VENDOR_KEYS.flatMap((v) => kinds.map((k) => edrFlagField(v, k)));
+}
+
+/** One `<key>_detected: true` term per vendor: the "an EDR saw it" half of the combined score. */
+export function edrDetectedTerms(): Array<{ term: Record<string, true> }> {
+  return EDR_VENDOR_KEYS.map((v) => ({ term: { [edrFlagField(v, 'detected')]: true } }));
+}
+
+/** The per-vendor enrichment flags on a result row (API field names). */
+export type EdrResultFlags =
+  { [K in EdrVendorKey as `${K}_detected` | `${K}_stage_detected` | `${K}_prevented`]?: boolean }
+  & { [K in EdrVendorKey as `${K}_prevention_action`]?: string };
+
+/** Bundle-group rollups of the vendor flags (API field names, e.g. `crowdstrikePrevented`). */
+export type EdrGroupRollup = { [K in EdrVendorKey as `${K}Detected` | `${K}Prevented`]?: boolean };
+
 /** Compile-time type equality, for lists that can't import the registry (see vendor-assertions.ts). */
 export type Equal<A, B> =
   (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;

@@ -35,3 +35,24 @@ describe('EDR vendor registry', () => {
     expect(edrVendor('crowdstrike').reportName).toBe('Falcon');
   });
 });
+
+describe('registry-derived ES helpers', () => {
+  it('lists every flag field per vendor', async () => {
+    const { edrFlagSourceFields } = await import('../vendors.js');
+    expect(edrFlagSourceFields()).toHaveLength(4 * EDR_VENDOR_KEYS.length);
+    expect(edrFlagSourceFields(['detected'])).toEqual([
+      'f0rtika.defender_detected',
+      'f0rtika.crowdstrike_detected',
+      'f0rtika.sentinelone_detected',
+    ]);
+  });
+
+  it('builds one detected term per vendor', async () => {
+    const { edrDetectedTerms } = await import('../vendors.js');
+    expect(edrDetectedTerms()).toEqual([
+      { term: { 'f0rtika.defender_detected': true } },
+      { term: { 'f0rtika.crowdstrike_detected': true } },
+      { term: { 'f0rtika.sentinelone_detected': true } },
+    ]);
+  });
+});

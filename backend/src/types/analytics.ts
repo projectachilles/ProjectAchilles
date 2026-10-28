@@ -1,4 +1,5 @@
 // Analytics module types
+import type { EdrGroupRollup, EdrResultFlags } from '../services/outcomes/vendors.js';
 
 // Elasticsearch settings stored in config file
 export interface AnalyticsSettings {
@@ -144,7 +145,16 @@ export type SeverityLevel = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export type CategoryType = 'intel-driven' | 'mitre-top10' | 'cyber-hygiene' | 'phase-aligned';
 
 // Enriched test execution with new fields
-export interface EnrichedTestExecution extends TestExecution {
+/**
+ * `EdrResultFlags` adds, for every vendor in the EDR registry
+ * (services/outcomes/vendors.ts), the flags its enrichment pass writes:
+ * `<key>_detected` (an alert matched this doc's bundle UUID, host and time
+ * window; bundle-scoped), `<key>_stage_detected` (the alert names THIS stage's
+ * own binary), `<key>_prevented` (the matched alert carried vendor-confirmed
+ * prevention) and `<key>_prevention_action` (quarantined / process_killed /
+ * blocked).
+ */
+export interface EnrichedTestExecution extends TestExecution, EdrResultFlags {
   category?: CategoryType;
   subcategory?: string;
   severity?: SeverityLevel;
@@ -163,31 +173,6 @@ export interface EnrichedTestExecution extends TestExecution {
   /** What the stage does (from bundle_results.json); absent on older documents. */
   control_description?: string;
   is_bundle_control?: boolean;
-  /** Set true by the enrichment pass when a Defender alert matches this doc's bundle UUID, hostname, and time window. */
-  defender_detected?: boolean;
-  /**
-   * Set true by the enrichment pass when an alert's evidence contains
-   * THIS stage's specific binary (`<uuid>-<control_id>[-<variant>].exe`).
-   * Strictly per-stage; does not propagate across a bundle's stages.
-   */
-  defender_stage_detected?: boolean;
-  /** Set true when a matched Defender alert carried a prevention-ish remediationStatus (vendor-confirmed prevention; subset of defender_detected). */
-  defender_prevented?: boolean;
-  /** The matched alert's derived prevention action (process_killed / blocked / quarantined). */
-  defender_prevention_action?: string;
-  /** Set true by the CrowdStrike enrichment pass when a Falcon alert matches this doc's bundle UUID, hostname, and time window. */
-  crowdstrike_detected?: boolean;
-  /** CrowdStrike per-stage equivalent of defender_stage_detected. */
-  crowdstrike_stage_detected?: boolean;
-  /** Set true when a matched CrowdStrike alert carried a prevention disposition (vendor-confirmed prevention; subset of crowdstrike_detected). */
-  crowdstrike_prevented?: boolean;
-  /** The matched alert's derived prevention action (quarantined / process_killed / blocked). */
-  crowdstrike_prevention_action?: string;
-  /** SentinelOne equivalents of the crowdstrike_* flags, written by the SentinelOne enrichment pass. */
-  sentinelone_detected?: boolean;
-  sentinelone_stage_detected?: boolean;
-  sentinelone_prevented?: boolean;
-  sentinelone_prevention_action?: string;
   /** The EDR killed the Achilles agent mid-run; the run is protected as a whole and its stages are unknown. */
   edr_terminated?: boolean;
   /** Vendors that killed the agent, earliest first ('defender' | 'crowdstrike' | 'sentinelone'). */
@@ -249,7 +234,8 @@ export interface PaginatedExecutionsParams extends ExtendedAnalyticsQueryParams,
 }
 
 // Grouped execution result (one per collapsed display row)
-export interface ExecutionGroup {
+/** `EdrGroupRollup`: per registry vendor, `<key>Detected` / `<key>Prevented` when any member is. */
+export interface ExecutionGroup extends EdrGroupRollup {
   groupKey: string;
   type: 'bundle' | 'standalone';
   representative: EnrichedTestExecution;
@@ -257,18 +243,6 @@ export interface ExecutionGroup {
   protectedCount: number;
   unprotectedCount: number;
   totalCount: number;
-  /** True when a correlated Defender alert exists for this group's binary + hostname. */
-  defenderDetected?: boolean;
-  /** True when a matched Defender alert carried a prevention-ish remediationStatus for any member of this group. */
-  defenderPrevented?: boolean;
-  /** True when a correlated CrowdStrike alert exists for this group's binary + hostname. */
-  crowdstrikeDetected?: boolean;
-  /** True when a matched CrowdStrike alert carried a prevention disposition for any member of this group. */
-  crowdstrikePrevented?: boolean;
-  /** True when a correlated SentinelOne alert exists for this group's binary + hostname. */
-  sentineloneDetected?: boolean;
-  /** True when a matched SentinelOne alert carried a prevention action for any member of this group. */
-  sentinelonePrevented?: boolean;
 }
 
 // Response shape for grouped/collapsed pagination

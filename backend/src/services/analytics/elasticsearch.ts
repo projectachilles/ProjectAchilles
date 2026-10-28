@@ -18,6 +18,8 @@ import {
 import type { OutcomeFilters, PairRun, PostureWindow } from './posture.js';
 import { TtlPromiseCache } from './postureCache.js';
 import type { TtlCacheOptions } from './postureCache.js';
+import { EDR_VENDOR_KEYS, edrDetectedTerms, edrFlagField, edrFlagSourceFields } from '../outcomes/vendors.js';
+import type { EdrGroupRollup, EdrResultFlags } from '../outcomes/vendors.js';
 import type {
   ExecutionActivityResponse,
   AnalyticsSettings,
@@ -498,8 +500,8 @@ export class ElasticsearchService {
   }
 
   /**
-   * Run a score query that returns both combined (is_protected OR defender_detected
-   * OR crowdstrike_detected) and strict (is_protected only) counts in a single ES request.
+   * Run a score query that returns both combined (is_protected OR any EDR
+   * registry vendor's <key>_detected) and strict (is_protected only) counts in a single ES request.
    */
   private async runCombinedScoreQuery(filters: any[]): Promise<{
     total: number;
@@ -519,9 +521,7 @@ export class ElasticsearchService {
             bool: {
               should: [
                 { term: { 'f0rtika.is_protected': true } },
-                { term: { 'f0rtika.defender_detected': true } },
-                { term: { 'f0rtika.crowdstrike_detected': true } },
-                { term: { 'f0rtika.sentinelone_detected': true } },
+                ...edrDetectedTerms(),
               ],
               minimum_should_match: 1,
             },
@@ -558,9 +558,7 @@ export class ElasticsearchService {
                 bool: {
                   should: [
                     { term: { 'f0rtika.is_protected': true } },
-                    { term: { 'f0rtika.defender_detected': true } },
-                    { term: { 'f0rtika.crowdstrike_detected': true } },
-                    { term: { 'f0rtika.sentinelone_detected': true } },
+                    ...edrDetectedTerms(),
                   ],
                   minimum_should_match: 1,
                 },
@@ -580,9 +578,7 @@ export class ElasticsearchService {
                     bool: {
                       should: [
                         { term: { 'f0rtika.is_protected': true } },
-                        { term: { 'f0rtika.defender_detected': true } },
-                        { term: { 'f0rtika.crowdstrike_detected': true } },
-                        { term: { 'f0rtika.sentinelone_detected': true } },
+                        ...edrDetectedTerms(),
                       ],
                       minimum_should_match: 1,
                     },
@@ -620,10 +616,8 @@ export class ElasticsearchService {
 
   /**
    * Build the "has_detected" filter for per-bundle scoring. A stage is
-   * "detected" if the agent reported is_protected:true OR the Defender
-   * enrichment pass marked defender_detected:true OR the CrowdStrike
-   * enrichment pass marked crowdstrike_detected:true OR the SentinelOne
-   * enrichment pass marked sentinelone_detected:true.
+   * "detected" if the agent reported is_protected:true OR any EDR registry
+   * vendor's enrichment pass marked <key>_detected:true.
    */
   private buildDetectedFilter(): Record<string, any> {
     return {
@@ -631,9 +625,7 @@ export class ElasticsearchService {
         bool: {
           should: [
             { term: { 'f0rtika.is_protected': true } },
-            { term: { 'f0rtika.defender_detected': true } },
-            { term: { 'f0rtika.crowdstrike_detected': true } },
-            { term: { 'f0rtika.sentinelone_detected': true } },
+            ...edrDetectedTerms(),
           ],
           minimum_should_match: 1,
         },
@@ -1233,9 +1225,7 @@ export class ElasticsearchService {
             metrics: [
               'routing.event_time',
               'f0rtika.is_protected',
-              'f0rtika.defender_detected',
-              'f0rtika.crowdstrike_detected',
-              'f0rtika.sentinelone_detected',
+              ...edrFlagSourceFields(['detected']),
               'event.ERROR',
               'f0rtika.error_name',
             ].map(field => ({ field })),
@@ -1258,7 +1248,7 @@ export class ElasticsearchService {
         runs.push({
           pairKey: `${b.key.oid ?? ''}|${testUuid}|${hostname}`,
           ts,
-          protected: isProtected || esBool(m['f0rtika.defender_detected']) || esBool(m['f0rtika.crowdstrike_detected']) || esBool(m['f0rtika.sentinelone_detected']),
+          protected: isProtected || edrFlagSourceFields(['detected']).some((f) => esBool(m[f])),
           strictProtected: isProtected,
           errorCodes: codes,
           errorNames: errorNamesFor(codes, typeof m['f0rtika.error_name'] === 'string' ? [m['f0rtika.error_name']] : []),
@@ -1349,9 +1339,7 @@ export class ElasticsearchService {
           filter: {
             bool: {
               should: [
-                { term: { 'f0rtika.defender_detected': true } },
-                { term: { 'f0rtika.crowdstrike_detected': true } },
-                { term: { 'f0rtika.sentinelone_detected': true } },
+                ...edrDetectedTerms(),
               ],
               minimum_should_match: 1,
               must_not: [{ term: { 'f0rtika.is_protected': true } }],
@@ -2570,17 +2558,15 @@ export class ElasticsearchService {
       };
     });
 
-    // Roll up defender_detected / crowdstrike_detected / *_prevented
-    // from member docs. The enrichment passes (DefenderEnrichmentService /
-    // CrowdStrikeEnrichmentService) populate f0rtika.* flags on each eligible
+    // Roll up each vendor's <key>_detected / <key>_prevented from member
+    // docs. The enrichment passes populate f0rtika.* flags on each eligible
     // doc; the badges show if any stage of a bundle group is detected/prevented.
     for (const group of groups) {
-      group.defenderDetected = group.members.some((m) => m.defender_detected === true);
-      group.crowdstrikeDetected = group.members.some((m) => m.crowdstrike_detected === true);
-      group.defenderPrevented = group.members.some((m) => m.defender_prevented === true);
-      group.crowdstrikePrevented = group.members.some((m) => m.crowdstrike_prevented === true);
-      group.sentineloneDetected = group.members.some((m) => m.sentinelone_detected === true);
-      group.sentinelonePrevented = group.members.some((m) => m.sentinelone_prevented === true);
+      const rollup = group as EdrGroupRollup;
+      for (const v of EDR_VENDOR_KEYS) {
+        rollup[`${v}Detected`] = group.members.some((m) => m[`${v}_detected`] === true);
+        rollup[`${v}Prevented`] = group.members.some((m) => m[`${v}_prevented`] === true);
+      }
     }
 
     return {
@@ -2627,18 +2613,7 @@ export class ElasticsearchService {
       control_validator: getField(source, 'f0rtika.control_validator'),
       control_description: getField(source, 'f0rtika.control_description'),
       is_bundle_control: getField(source, 'f0rtika.is_bundle_control') ?? false,
-      defender_detected: getField(source, 'f0rtika.defender_detected') ?? false,
-      defender_stage_detected: getField(source, 'f0rtika.defender_stage_detected') ?? false,
-      defender_prevented: getField(source, 'f0rtika.defender_prevented') ?? false,
-      defender_prevention_action: getField(source, 'f0rtika.defender_prevention_action'),
-      crowdstrike_detected: getField(source, 'f0rtika.crowdstrike_detected') ?? false,
-      crowdstrike_stage_detected: getField(source, 'f0rtika.crowdstrike_stage_detected') ?? false,
-      crowdstrike_prevented: getField(source, 'f0rtika.crowdstrike_prevented') ?? false,
-      crowdstrike_prevention_action: getField(source, 'f0rtika.crowdstrike_prevention_action'),
-      sentinelone_detected: getField(source, 'f0rtika.sentinelone_detected') ?? false,
-      sentinelone_stage_detected: getField(source, 'f0rtika.sentinelone_stage_detected') ?? false,
-      sentinelone_prevented: getField(source, 'f0rtika.sentinelone_prevented') ?? false,
-      sentinelone_prevention_action: getField(source, 'f0rtika.sentinelone_prevention_action'),
+      ...vendorFlagsOf(source),
       edr_terminated: getField(source, 'f0rtika.edr_terminated') ?? false,
       edr_terminated_vendors: getField(source, 'f0rtika.edr_terminated_vendors'),
       edr_terminated_alert_ids: getField(source, 'f0rtika.edr_terminated_alert_ids'),
@@ -3569,9 +3544,7 @@ export class ElasticsearchService {
       bool: {
         should: [
           { term: { 'f0rtika.is_protected': true } },
-          { term: { 'f0rtika.defender_detected': true } },
-          { term: { 'f0rtika.crowdstrike_detected': true } },
-          { term: { 'f0rtika.sentinelone_detected': true } },
+          ...edrDetectedTerms(),
         ],
         minimum_should_match: 1,
       },
@@ -3897,4 +3870,16 @@ export class ElasticsearchService {
 
     return { archived, errors };
   }
+}
+
+/** The per-vendor enrichment flags of a result doc, booleans defaulting to false. */
+function vendorFlagsOf(source: unknown): EdrResultFlags {
+  const out: Record<string, unknown> = {};
+  for (const v of EDR_VENDOR_KEYS) {
+    out[`${v}_detected`] = getField(source, edrFlagField(v, 'detected')) ?? false;
+    out[`${v}_stage_detected`] = getField(source, edrFlagField(v, 'stage_detected')) ?? false;
+    out[`${v}_prevented`] = getField(source, edrFlagField(v, 'prevented')) ?? false;
+    out[`${v}_prevention_action`] = getField(source, edrFlagField(v, 'prevention_action'));
+  }
+  return out as EdrResultFlags;
 }
