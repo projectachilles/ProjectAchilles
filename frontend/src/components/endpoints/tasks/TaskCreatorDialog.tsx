@@ -13,6 +13,7 @@ import { analyticsApi, type IndexInfo } from '@/services/api/analytics';
 import { integrationsApi } from '@/services/api/integrations';
 import type { AgentSummary, TaskTestMetadata, ScheduleType, ScheduleConfig, RandomizeMode } from '@/types/agent';
 import type { TestMetadata, BuildInfo } from '@/types/test';
+import { COMMON_TIMEZONES } from '@/lib/timezones';
 
 interface AvailableTest {
   test: TestMetadata;
@@ -41,21 +42,6 @@ const EMPTY_METADATA: TaskTestMetadata = {
 };
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-const COMMON_TIMEZONES = [
-  'UTC',
-  'America/New_York',
-  'America/Chicago',
-  'America/Denver',
-  'America/Los_Angeles',
-  'Europe/London',
-  'Europe/Berlin',
-  'Europe/Paris',
-  'Asia/Tokyo',
-  'Asia/Shanghai',
-  'Asia/Kolkata',
-  'Australia/Sydney',
-];
 
 const RANDOMIZE_HINT = 'Weekdays 09:00–17:00 · Weekends anytime';
 

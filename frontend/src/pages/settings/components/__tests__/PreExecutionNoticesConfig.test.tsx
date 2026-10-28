@@ -8,6 +8,7 @@ vi.mock('@/services/api/notices', () => ({
     saveSettings: vi.fn(),
     sendTest: vi.fn(),
     listPending: vi.fn().mockResolvedValue([]),
+    getStatus: vi.fn(),
   },
 }));
 
@@ -21,11 +22,19 @@ const base = {
   max_wait_minutes: 60,
   pickup_window_minutes: 120,
   send_finished: true,
+  advance_digest_enabled: false,
+  digest_timezone: 'UTC',
   smtp_configured: true,
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(noticesApi.getStatus).mockResolvedValue({
+    pendingOverdue: 0,
+    notDeliveredLast7d: 0,
+    smtpCheck: { ok: null, at: null, message: null },
+    digests: [],
+  });
 });
 
 describe('PreExecutionNoticesConfig', () => {
@@ -92,5 +101,55 @@ describe('PreExecutionNoticesConfig', () => {
     });
     render(<PreExecutionNoticesConfig />);
     expect(await screen.findByText(/connection refused/)).toBeInTheDocument();
+  });
+
+  describe('advance digest', () => {
+    const digestLabel = /send a daily advance digest/i;
+
+    it('is unchecked from settings and disabled while notices are off', async () => {
+      vi.mocked(noticesApi.getSettings).mockResolvedValue(base);
+      render(<PreExecutionNoticesConfig />);
+      const box = await screen.findByLabelText(digestLabel);
+      expect(box).not.toBeChecked();
+      expect(box).toBeDisabled();
+      expect(screen.getByText('Turn on pre-execution notices to use the digest.')).toBeInTheDocument();
+    });
+
+    it('pre-fills the browser timezone on first enable and saves it', async () => {
+      const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(
+        () => ({ resolvedOptions: () => ({ timeZone: 'America/Santo_Domingo' }) }) as unknown as Intl.DateTimeFormat,
+      );
+      vi.mocked(noticesApi.getSettings).mockResolvedValue({ ...base, enabled: true, recipients: ['a@x.io'] });
+      vi.mocked(noticesApi.saveSettings).mockResolvedValue({ ...base, enabled: true, recipients: ['a@x.io'] });
+      render(<PreExecutionNoticesConfig />);
+      await userEvent.click(await screen.findByLabelText(digestLabel));
+      expect(screen.getByLabelText(/digest timezone/i)).toHaveValue('America/Santo_Domingo');
+      await userEvent.click(screen.getByRole('button', { name: /save/i }));
+      await waitFor(() => expect(noticesApi.saveSettings).toHaveBeenCalled());
+      const body = vi.mocked(noticesApi.saveSettings).mock.calls[0][0];
+      expect(body.advance_digest_enabled).toBe(true);
+      expect(body.digest_timezone).toBe('America/Santo_Domingo');
+      spy.mockRestore();
+    });
+
+    it('shows the failed digest line', async () => {
+      vi.mocked(noticesApi.getSettings).mockResolvedValue(base);
+      vi.mocked(noticesApi.getStatus).mockResolvedValue({
+        pendingOverdue: 0,
+        notDeliveredLast7d: 0,
+        smtpCheck: { ok: null, at: null, message: null },
+        digests: [
+          {
+            orgId: 'org_1', digestDate: '2026-10-27', runDate: '2026-10-28', state: 'failed',
+            occurrenceCount: 0, hostCount: 0, recipientCount: 0, sentAt: null,
+            lastError: 'SMTP email is not configured',
+          },
+        ],
+      });
+      render(<PreExecutionNoticesConfig />);
+      expect(
+        await screen.findByText('Last digest 2026-10-27: not sent (SMTP email is not configured)'),
+      ).toBeInTheDocument();
+    });
   });
 });
