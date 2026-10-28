@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Cloud, Server, CheckCircle, Info, ShieldAlert } from 'lucide-react';
+import { Cloud, Server, CheckCircle } from 'lucide-react';
 import { analyticsApi } from '@/services/api/analytics';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { Input } from '@/components/shared/ui/Input';
@@ -7,6 +7,7 @@ import { Button } from '@/components/shared/ui/Button';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Spinner } from '@/components/shared/ui/Spinner';
 import { IndexManagement } from './IndexManagement';
+import { fieldControlClass, fieldLabelClass } from '@/components/shared/ui/formStyles';
 
 interface AnalyticsConfigProps {
   onStatusChange?: (configured: boolean) => void;
@@ -168,7 +169,6 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
       {/* Edit mode info banner */}
       {editMode && (
         <Alert variant="default">
-          <Info className="w-4 h-4" />
           <div>
             <p className="font-medium">Editing existing configuration</p>
             <p className="text-sm text-muted-foreground mt-1">
@@ -181,7 +181,6 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
       {/* Success message */}
       {successMessage && (
         <Alert variant="success">
-          <CheckCircle className="w-4 h-4" />
           {successMessage}
         </Alert>
       )}
@@ -191,32 +190,32 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
         <button
           type="button"
           onClick={() => setConnectionType('cloud')}
-          className={`flex-1 p-4 rounded-lg border-2 transition-colors ${
+          className={`flex-1 p-3 rounded-md border transition-colors ${
             connectionType === 'cloud'
               ? 'border-primary bg-primary/5'
               : 'border-border hover:border-primary/50'
           }`}
         >
           <Cloud
-            className={`w-6 h-6 mx-auto mb-2 ${connectionType === 'cloud' ? 'text-primary' : 'text-muted-foreground'}`}
+            className={`w-5 h-5 mx-auto mb-1.5 ${connectionType === 'cloud' ? 'text-primary' : 'text-muted-foreground'}`}
           />
-          <p className="font-medium text-card-foreground">Elastic Cloud</p>
-          <p className="text-sm text-muted-foreground">Connect via Cloud ID</p>
+          <p className="text-sm font-medium text-card-foreground">Elastic Cloud</p>
+          <p className="text-xs text-muted-foreground">Connect via Cloud ID</p>
         </button>
         <button
           type="button"
           onClick={() => setConnectionType('direct')}
-          className={`flex-1 p-4 rounded-lg border-2 transition-colors ${
+          className={`flex-1 p-3 rounded-md border transition-colors ${
             connectionType === 'direct'
               ? 'border-primary bg-primary/5'
               : 'border-border hover:border-primary/50'
           }`}
         >
           <Server
-            className={`w-6 h-6 mx-auto mb-2 ${connectionType === 'direct' ? 'text-primary' : 'text-muted-foreground'}`}
+            className={`w-5 h-5 mx-auto mb-1.5 ${connectionType === 'direct' ? 'text-primary' : 'text-muted-foreground'}`}
           />
-          <p className="font-medium text-card-foreground">Direct URL</p>
-          <p className="text-sm text-muted-foreground">Connect to self-hosted</p>
+          <p className="text-sm font-medium text-card-foreground">Direct URL</p>
+          <p className="text-xs text-muted-foreground">Connect to self-hosted</p>
         </button>
       </div>
 
@@ -281,7 +280,7 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
               For self-hosted Elasticsearch using a self-signed or organization CA certificate.
             </p>
 
-            <label className="block text-sm font-medium mb-1" htmlFor="es-ca-cert">
+            <label className={fieldLabelClass} htmlFor="es-ca-cert">
               Custom CA Certificate (PEM)
             </label>
             <textarea
@@ -320,7 +319,6 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
 
             {tlsInsecureSkipVerify && (
               <Alert variant="destructive" className="mt-3">
-                <ShieldAlert className="w-4 h-4" />
                 <div>
                   <p className="font-medium">TLS validation is disabled.</p>
                   <p className="text-sm">
@@ -353,14 +351,14 @@ export function AnalyticsConfig({ onStatusChange }: AnalyticsConfigProps) {
 
       {/* Write Index Rollover */}
       <div>
-        <label htmlFor="write-index-rollover" className="block text-sm font-medium mb-1.5 text-foreground">
+        <label htmlFor="write-index-rollover" className={fieldLabelClass}>
           Write index rollover
         </label>
         <select
           id="write-index-rollover"
           value={writeIndexRollover}
           onChange={(e) => setWriteIndexRollover(e.target.value as 'none' | 'daily' | 'monthly')}
-          className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+          className={fieldControlClass}
         >
           <option value="none">None (single index)</option>
           <option value="daily">Daily (YYYY.MM.DD)</option>

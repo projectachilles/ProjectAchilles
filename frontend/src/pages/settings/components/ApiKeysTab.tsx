@@ -5,6 +5,8 @@ import { Toast } from '@/components/shared/ui/Alert';
 import { Input } from '@/components/shared/ui/Input';
 import { Button } from '@/components/shared/ui/Button';
 import { Copy, Loader2, RefreshCw, Trash2, X } from 'lucide-react';
+import { fieldControlClass } from '@/components/shared/ui/formStyles';
+import { cn } from '@/lib/utils';
 
 function timeAgoIso(iso: string | null): string {
   if (!iso) return '—';
@@ -116,7 +118,7 @@ export function ApiKeysTab() {
           value={scope}
           onChange={(e) => setScope(e.target.value as ApiKeyScope)}
           disabled={creating}
-          className="h-[42px] text-sm rounded-lg border border-border bg-background px-3 focus:outline-none focus:ring-2 focus:ring-primary/50"
+          className={cn(fieldControlClass, 'w-auto')}
         >
           <option value="read">read (analytics, results, agents — read-only)</option>
           <option value="read-write">read-write (operator — no destructive actions)</option>

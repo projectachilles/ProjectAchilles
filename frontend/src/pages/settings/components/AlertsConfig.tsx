@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle, Info } from 'lucide-react';
+import { CheckCircle } from 'lucide-react';
 import { alertsApi } from '@/services/api/alerts';
 import type { AlertHistoryItem } from '@/services/api/alerts';
 import { integrationsApi } from '@/services/api/integrations';
@@ -219,7 +219,6 @@ export function AlertsConfig({ onStatusChange }: AlertsConfigProps) {
       {/* Edit mode info */}
       {editMode && (
         <Alert variant="default">
-          <Info className="w-4 h-4" />
           <div>
             <p className="font-medium">Editing existing configuration</p>
             <p className="text-sm text-muted-foreground mt-1">
@@ -232,7 +231,6 @@ export function AlertsConfig({ onStatusChange }: AlertsConfigProps) {
       {/* Success message */}
       {successMessage && (
         <Alert variant="success">
-          <CheckCircle className="w-4 h-4" />
           {successMessage}
         </Alert>
       )}

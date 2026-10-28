@@ -14,6 +14,8 @@ import { Input } from '@/components/shared/ui/Input';
 import { Loading } from '@/components/shared/ui/Spinner';
 import { Toast } from '@/components/shared/ui/Alert';
 import { useHasPermission } from '@/hooks/useAppRole';
+import { fieldControlClass } from '@/components/shared/ui/formStyles';
+import { cn } from '@/lib/utils';
 
 const TOAST_DURATION_MS = 4000;
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
@@ -344,7 +346,7 @@ export default function TasksPage() {
           <div className="flex flex-wrap items-center gap-4">
             <div className="min-w-40 max-lg:min-w-0 max-lg:flex-1 max-lg:basis-40">
               <select
-                className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                className={fieldControlClass}
                 value={statusFilter}
                 onChange={(e) => handleStatusFilterChange(e.target.value as TaskStatus | '')}
               >
@@ -430,7 +432,7 @@ export default function TasksPage() {
             <div className="flex items-center gap-3">
               <span>Showing {rangeStart}&ndash;{rangeEnd} of {totalGroups}</span>
               <select
-                className="rounded border border-border bg-background px-2 py-1 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                className={cn(fieldControlClass, 'h-8 w-auto px-2')}
                 value={pageSize}
                 onChange={(e) => handlePageSizeChange(Number(e.target.value))}
               >

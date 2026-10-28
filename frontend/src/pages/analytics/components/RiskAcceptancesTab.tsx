@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { analyticsApi, type RiskAcceptance } from '@/services/api/analytics';
 import { useHasPermission } from '@/hooks/useAppRole';
+import { fieldLabelClass } from '@/components/shared/ui/formStyles';
 
 interface RiskAcceptancesTabProps {
   onActiveCountChange: (count: number) => void;
@@ -308,7 +309,7 @@ export default function RiskAcceptancesTab({ onActiveCountChange }: RiskAcceptan
               This control will be included in the Defense Score again.
             </p>
             <div className="mb-4">
-              <label className="block text-sm font-medium text-foreground mb-1.5">
+              <label className={fieldLabelClass}>
                 Reason <span className="text-red-500">*</span>
               </label>
               <textarea

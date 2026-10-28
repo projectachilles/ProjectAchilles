@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { CheckCircle, Info, ExternalLink, Unlink, RefreshCw } from 'lucide-react';
+import { CheckCircle, ExternalLink, Unlink, RefreshCw } from 'lucide-react';
 import { sentinelOneApi } from '@/services/api/sentinelone';
 import { sentineloneAnalyticsApi } from '@/services/api/sentineloneAnalytics';
 import type {
@@ -227,7 +227,6 @@ export function SentinelOneConfig({ onStatusChange }: SentinelOneConfigProps) {
     <div className="space-y-6">
       {envConfigured && (
         <Alert variant="default">
-          <Info className="w-4 h-4" />
           <div>
             <p className="font-medium">Environment variable configuration detected</p>
             <p className="text-sm text-muted-foreground mt-1">
@@ -239,7 +238,6 @@ export function SentinelOneConfig({ onStatusChange }: SentinelOneConfigProps) {
 
       {editMode && !envConfigured && (
         <Alert variant="default">
-          <Info className="w-4 h-4" />
           <div>
             <p className="font-medium">Editing existing configuration</p>
             <p className="text-sm text-muted-foreground mt-1">Leave the API token blank to keep the current one.</p>
@@ -249,7 +247,6 @@ export function SentinelOneConfig({ onStatusChange }: SentinelOneConfigProps) {
 
       {successMessage && (
         <Alert variant="success">
-          <CheckCircle className="w-4 h-4" />
           {successMessage}
         </Alert>
       )}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, AlertTriangle } from 'lucide-react';
+import { X } from 'lucide-react';
 import { Button } from '@/components/shared/ui/Button';
 import { Alert } from '@/components/shared/ui/Alert';
 import { agentApi } from '@/services/api/agent';
@@ -302,7 +302,6 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
               {/* Azure warning */}
               {needsAzureWarning && (
                 <Alert variant="destructive">
-                  <AlertTriangle className="w-4 h-4" />
                   <div>
                     <p className="font-medium">Azure credentials not configured</p>
                     <p className="text-sm mt-1">

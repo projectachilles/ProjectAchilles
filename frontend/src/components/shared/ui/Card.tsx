@@ -50,7 +50,7 @@ export const CardTitle = forwardRef<HTMLHeadingElement, CardTitleProps>(
     return (
       <h3
         ref={ref}
-        className={`text-lg font-semibold ${className}`}
+        className={`text-sm font-semibold tracking-tight ${className}`}
         {...props}
       >
         {children}

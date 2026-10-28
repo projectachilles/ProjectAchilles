@@ -14,23 +14,23 @@ interface AlertProps {
 const variantStyles: Record<AlertVariant, { container: string; icon: ReactNode }> = {
   default: {
     container: 'bg-raised border-border',
-    icon: <Info className="w-5 h-5" />,
+    icon: <Info className="h-4 w-4" />,
   },
   success: {
     container: 'bg-accent-dim border-accent/30 text-accent',
-    icon: <CheckCircle2 className="w-5 h-5" />,
+    icon: <CheckCircle2 className="h-4 w-4" />,
   },
   warning: {
     container: 'bg-warning-dim border-warning/40 text-warning',
-    icon: <AlertTriangle className="w-5 h-5" />,
+    icon: <AlertTriangle className="h-4 w-4" />,
   },
   destructive: {
     container: 'bg-danger-dim border-danger/30 text-danger',
-    icon: <AlertCircle className="w-5 h-5" />,
+    icon: <AlertCircle className="h-4 w-4" />,
   },
   info: {
     container: 'bg-info-dim border-info/30 text-info',
-    icon: <Info className="w-5 h-5" />,
+    icon: <Info className="h-4 w-4" />,
   },
 };
 
@@ -38,10 +38,10 @@ export function Alert({ variant = 'default', title, children, onClose, className
   const { container, icon } = variantStyles[variant];
 
   return (
-    <div className={`relative flex gap-3 rounded-lg border p-4 ${container} ${className}`}>
-      <div className="flex-shrink-0">{icon}</div>
+    <div className={`relative flex gap-2.5 rounded-md border p-3 ${container} ${className}`}>
+      <div className="mt-0.5 flex-shrink-0">{icon}</div>
       <div className="flex-1">
-        {title && <h5 className="font-medium mb-1">{title}</h5>}
+        {title && <h5 className="mb-1 text-sm font-medium">{title}</h5>}
         <div className="text-sm">{children}</div>
       </div>
       {onClose && (
@@ -68,7 +68,7 @@ export function Toast({ variant = 'default', message, onClose, className = '' }:
   const { container, icon } = variantStyles[variant];
 
   return (
-    <div className={`flex items-center gap-3 rounded-lg border p-4 ${container} ${className}`}>
+    <div className={`flex items-center gap-2.5 rounded-md border p-3 ${container} ${className}`}>
       <div className="flex-shrink-0">{icon}</div>
       <span className="text-sm font-medium">{message}</span>
       {onClose && (

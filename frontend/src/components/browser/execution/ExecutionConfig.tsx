@@ -4,6 +4,8 @@ import { Input } from '@/components/shared/ui/Input';
 import { Play, Calendar, ChevronRight, ChevronDown } from 'lucide-react';
 import type { ScheduleType, RandomizeMode } from '@/types/agent';
 import type { IndexInfo } from '@/services/api/analytics';
+import { fieldControlClass, fieldLabelClass } from '@/components/shared/ui/formStyles';
+import { cn } from '@/lib/utils';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -13,9 +15,9 @@ const RANDOMIZE_HINT = 'Weekdays 09:00–17:00 · Weekends anytime';
 function TimingModeSelect({ mode, onChange }: { mode: RandomizeMode; onChange: (mode: RandomizeMode) => void }) {
   return (
     <div>
-      <label className="block text-sm font-medium mb-1.5">Timing</label>
+      <label className={fieldLabelClass}>Timing</label>
       <select
-        className="w-full max-w-xs rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+        className={cn(fieldControlClass, 'max-w-xs')}
         value={mode}
         onChange={(e) => onChange(e.target.value as RandomizeMode)}
       >
@@ -124,9 +126,9 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
               onChange={(e) => onChange({ timeout: e.target.value })}
             />
             <div>
-              <label className="block text-sm font-medium mb-1.5">Priority</label>
+              <label className={fieldLabelClass}>Priority</label>
               <select
-                className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                className={fieldControlClass}
                 value={config.priority}
                 onChange={(e) => onChange({ priority: e.target.value })}
               >
@@ -151,10 +153,10 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
             </button>
             {showAdvanced && (
               <div id="exec-advanced-run-now" className="mt-2">
-                <label className="block text-sm font-medium mb-1.5" htmlFor="exec-target-index">Target Index</label>
+                <label className={fieldLabelClass} htmlFor="exec-target-index">Target Index</label>
                 <select
                   id="exec-target-index"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                  className={fieldControlClass}
                   value={config.targetIndex}
                   onChange={(e) => onChange({ targetIndex: e.target.value })}
                   disabled={indicesLoading}
@@ -181,7 +183,7 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
 
           {/* Frequency pills */}
           <div>
-            <label className="block text-sm font-medium mb-1.5">Frequency</label>
+            <label className={fieldLabelClass}>Frequency</label>
             <div className="flex gap-2">
               {(['once', 'daily', 'weekly', 'monthly'] as ScheduleType[]).map((t) => (
                 <button
@@ -208,10 +210,10 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
               )}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1.5">Date</label>
+                  <label className={fieldLabelClass}>Date</label>
                   <input
                     type="date"
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                    className={fieldControlClass}
                     value={config.scheduleDate}
                     onChange={(e) => onChange({ scheduleDate: e.target.value })}
                     min={new Date().toISOString().slice(0, 10)}
@@ -219,10 +221,10 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
                 </div>
                 {config.randomizeMode === 'fixed' && (
                   <div>
-                    <label className="block text-sm font-medium mb-1.5">Time</label>
+                    <label className={fieldLabelClass}>Time</label>
                     <input
                       type="time"
-                      className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                      className={fieldControlClass}
                       value={config.scheduleTime}
                       onChange={(e) => onChange({ scheduleTime: e.target.value })}
                     />
@@ -241,10 +243,10 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
               <TimingModeSelect mode={config.randomizeMode} onChange={(m) => onChange({ randomizeMode: m })} />
               {config.randomizeMode === 'fixed' ? (
                 <div>
-                  <label className="block text-sm font-medium mb-1.5">Time</label>
+                  <label className={fieldLabelClass}>Time</label>
                   <input
                     type="time"
-                    className="w-full max-w-48 rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                    className={cn(fieldControlClass, 'max-w-48')}
                     value={config.scheduleTime}
                     onChange={(e) => onChange({ scheduleTime: e.target.value })}
                   />
@@ -259,7 +261,7 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
           {config.scheduleType === 'weekly' && (
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium mb-1.5">Days</label>
+                <label className={fieldLabelClass}>Days</label>
                 <div className="flex gap-1.5">
                   {DAY_LABELS.map((label, idx) => (
                     <button
@@ -280,10 +282,10 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
               <TimingModeSelect mode={config.randomizeMode} onChange={(m) => onChange({ randomizeMode: m })} />
               {config.randomizeMode === 'fixed' ? (
                 <div>
-                  <label className="block text-sm font-medium mb-1.5">Time</label>
+                  <label className={fieldLabelClass}>Time</label>
                   <input
                     type="time"
-                    className="w-full max-w-48 rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                    className={cn(fieldControlClass, 'max-w-48')}
                     value={config.scheduleTime}
                     onChange={(e) => onChange({ scheduleTime: e.target.value })}
                   />
@@ -299,9 +301,9 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1.5">Day of Month</label>
+                  <label className={fieldLabelClass}>Day of Month</label>
                   <select
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                    className={fieldControlClass}
                     value={config.scheduleDayOfMonth}
                     onChange={(e) => onChange({ scheduleDayOfMonth: parseInt(e.target.value) })}
                   >
@@ -312,10 +314,10 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
                 </div>
                 {config.randomizeMode === 'fixed' && (
                   <div>
-                    <label className="block text-sm font-medium mb-1.5">Time</label>
+                    <label className={fieldLabelClass}>Time</label>
                     <input
                       type="time"
-                      className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                      className={fieldControlClass}
                       value={config.scheduleTime}
                       onChange={(e) => onChange({ scheduleTime: e.target.value })}
                     />
@@ -331,9 +333,9 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
 
           {/* Timezone */}
           <div>
-            <label className="block text-sm font-medium mb-1.5">Timezone</label>
+            <label className={fieldLabelClass}>Timezone</label>
             <select
-              className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+              className={fieldControlClass}
               value={config.scheduleTimezone}
               onChange={(e) => onChange({ scheduleTimezone: e.target.value })}
             >
@@ -355,9 +357,9 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
               onChange={(e) => onChange({ timeout: e.target.value })}
             />
             <div>
-              <label className="block text-sm font-medium mb-1.5">Priority</label>
+              <label className={fieldLabelClass}>Priority</label>
               <select
-                className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                className={fieldControlClass}
                 value={config.priority}
                 onChange={(e) => onChange({ priority: e.target.value })}
               >
@@ -382,10 +384,10 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
             </button>
             {showAdvanced && (
               <div id="exec-advanced-sched" className="mt-2">
-                <label className="block text-sm font-medium mb-1.5" htmlFor="exec-target-index-sched">Target Index</label>
+                <label className={fieldLabelClass} htmlFor="exec-target-index-sched">Target Index</label>
                 <select
                   id="exec-target-index-sched"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                  className={fieldControlClass}
                   value={config.targetIndex}
                   onChange={(e) => onChange({ targetIndex: e.target.value })}
                   disabled={indicesLoading}

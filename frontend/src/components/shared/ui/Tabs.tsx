@@ -66,7 +66,7 @@ export function TabsTrigger({ value, children, className = '', disabled }: TabsT
       onClick={() => !disabled && setActiveTab(value)}
       disabled={disabled}
       className={`
-        flex items-center gap-2 px-4 py-3 text-sm font-medium
+        flex items-center gap-2 px-3 py-2 text-sm font-medium
         transition-colors border-b-2 -mb-px
         ${isActive
           ? 'border-primary text-primary bg-background'

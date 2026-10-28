@@ -8,6 +8,8 @@ import { Spinner } from '@/components/shared/ui/Spinner';
 import { agentApi } from '@/services/api/agent';
 import { testsApi, type CertificateInfo } from '@/services/api/tests';
 import { pushFlashNotification } from '@/lib/flashNotifications';
+import { fieldLabelClass, fieldTextareaClass } from '@/components/shared/ui/formStyles';
+import { cn } from '@/lib/utils';
 
 const OS_OPTIONS = [
   { value: 'linux', label: 'Linux' },
@@ -122,7 +124,7 @@ export function AgentBinaryUpload({ onUploaded }: AgentBinaryUploadProps) {
       </div>
 
       <div>
-        <label className="block text-sm font-medium mb-1.5 text-foreground">
+        <label className={fieldLabelClass}>
           Binary File
         </label>
         <input
@@ -193,7 +195,7 @@ export function AgentBinaryUpload({ onUploaded }: AgentBinaryUploadProps) {
       )}
 
       <div>
-        <label className="block text-sm font-medium mb-1.5 text-foreground">
+        <label className={fieldLabelClass}>
           Release Notes
         </label>
         <textarea
@@ -201,10 +203,7 @@ export function AgentBinaryUpload({ onUploaded }: AgentBinaryUploadProps) {
           onChange={(e) => setReleaseNotes(e.target.value)}
           placeholder="Optional release notes..."
           rows={2}
-          className="w-full rounded-lg border border-border bg-background px-3 py-2.5
-            text-foreground text-sm
-            focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary
-            resize-none"
+          className={cn(fieldTextareaClass, 'resize-none')}
         />
       </div>
 
