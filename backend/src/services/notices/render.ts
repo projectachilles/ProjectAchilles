@@ -25,7 +25,7 @@ export interface NoticeEmailData {
   /** `stages`: display text, e.g. "3", "52 controls", "bundle" or "—". */
   tests: Array<{ name: string; uuid: string; stages: string; techniques: string[]; tactics: string[] }>;
   hosts: Array<{ hostname: string; os: string; online: boolean }>;
-  edr: Array<{ vendor: 'Microsoft Defender' | 'CrowdStrike Falcon'; autoResolve: 'disabled' | 'dry_run' | 'enabled' }>;
+  edr: Array<{ vendor: string; autoResolve: 'disabled' | 'dry_run' | 'enabled' }>;
   uiUrl: string;
 }
 

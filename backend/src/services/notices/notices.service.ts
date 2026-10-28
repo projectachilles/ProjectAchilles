@@ -33,6 +33,7 @@ import type { NoticeRow, NoticeScope, NoticeSourceType, NoticeState } from './ty
 import type { TaskPayload, TaskResult, TaskStatus } from '../../types/agent.js';
 import type { EdrVendorKey } from '../edr/agent-kill-evidence.js';
 import type { PreExecutionNoticeSettings } from '../../types/integrations.js';
+import { noticeEdrContext } from './edrContext.js';
 
 export { getNoticeSummaries } from './notices.repo.js';
 
@@ -508,13 +509,7 @@ function buildNoticeMail(
       : undefined;
 
   // EDR context.
-  const edr: NoticeEmailData['edr'] = [];
-  if (svc.isDefenderConfigured()) {
-    edr.push({ vendor: 'Microsoft Defender', autoResolve: svc.getDefenderSettings()?.auto_resolve_mode ?? 'disabled' });
-  }
-  if (svc.isCrowdStrikeConfigured()) {
-    edr.push({ vendor: 'CrowdStrike Falcon', autoResolve: svc.getCrowdStrikeAutoResolveMode() });
-  }
+  const edr = noticeEdrContext(svc);
 
   const trigger = triggerText(n, userLabel);
   const data: NoticeEmailData = {

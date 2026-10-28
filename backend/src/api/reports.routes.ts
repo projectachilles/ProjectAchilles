@@ -5,6 +5,9 @@ import { SettingsService } from '../services/analytics/settings.js';
 import { IntegrationsSettingsService } from '../services/integrations/settings.js';
 import { ExecutionReportService } from '../services/reports/executionReport.service.js';
 import { SbReportService, parseSbReportWindow } from '../services/reports/sbReport.service.js';
+import { EDR_VENDOR_KEYS } from '../services/outcomes/vendors.js';
+import type { EdrVendorKey } from '../services/outcomes/vendors.js';
+import { VENDOR_SETTINGS } from '../services/edr/vendor-settings.js';
 
 const router = Router();
 
@@ -82,11 +85,9 @@ router.get('/executions', requirePermission('analytics:dashboards:read'), asyncH
 
   const integrations = new IntegrationsSettingsService();
   const service = new ExecutionReportService(settings, {
-    vendors: {
-      defender: integrations.isDefenderConfigured(),
-      crowdstrike: integrations.isCrowdStrikeConfigured(),
-      sentinelone: integrations.isSentinelOneConfigured(),
-    },
+    vendors: Object.fromEntries(
+      EDR_VENDOR_KEYS.map((k) => [k, VENDOR_SETTINGS[k].isConfigured(integrations)]),
+    ) as Record<EdrVendorKey, boolean>,
   });
 
   const report = await service.generate({

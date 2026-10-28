@@ -10,6 +10,9 @@ import type { CampaignRunRow, CellState, RunSnapshot } from './types.js';
 import { fetchEdrDocs, type EdrDocs, type EdrStatus } from '../outcomes/edr.js';
 import { cellVerdict, controlsOf, edrTerminatedVerdict, resultDocIds, type StageView } from '../outcomes/verdict.js';
 import type { EdrTermination } from '../edr/agent-kill-evidence.js';
+import { edrVendor } from '../outcomes/vendors.js';
+import type { EdrVendorKey } from '../outcomes/vendors.js';
+import { configuredVendorKeys } from '../edr/vendor-settings.js';
 
 export interface MatrixCell {
   state: CellState;
@@ -207,14 +210,12 @@ async function startedByName(row: CampaignRunRow, snap: RunSnapshot): Promise<st
   return name.startsWith('user_') ? resolveUserLabel(name) : name;
 }
 
-/** EDR integrations are deployment-wide (their sync ignores org sections). */
-function edrSources(): string[] {
-  const svc = new IntegrationsSettingsService();
-  return [
-    ...(svc.isDefenderConfigured() ? ['Microsoft Defender'] : []),
-    ...(svc.isCrowdStrikeConfigured() ? ['CrowdStrike Falcon'] : []),
-    ...(svc.isSentinelOneConfigured() ? ['SentinelOne'] : []),
-  ];
+/** The matrix shows SentinelOne without "Singularity" (unchanged since campaigns shipped). */
+const MATRIX_LABEL_OVERRIDE: Partial<Record<EdrVendorKey, string>> = { sentinelone: 'SentinelOne' };
+
+/** Configured EDR names for the evidence matrix. EDR integrations are deployment-wide (their sync ignores org sections). */
+export function matrixEdrSources(svc: IntegrationsSettingsService = new IntegrationsSettingsService()): string[] {
+  return configuredVendorKeys(svc).map((k) => MATRIX_LABEL_OVERRIDE[k] ?? edrVendor(k).label);
 }
 
 async function build(row: CampaignRunRow): Promise<RunMatrix> {
@@ -252,7 +253,7 @@ async function build(row: CampaignRunRow): Promise<RunMatrix> {
       started_at: row.started_at,
       notice: row.notice_id ? getNoticeRecord(row.notice_id, scope) : null,
     },
-    edr: { status: edr.status, sources: edrSources() },
+    edr: { status: edr.status, sources: matrixEdrSources() },
     tests: snap.tests,
     agents: snap.agents,
     cells,
