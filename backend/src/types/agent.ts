@@ -403,7 +403,7 @@ export type ScheduleStatus = 'active' | 'paused' | 'completed' | 'deleted';
  */
 export type RandomizeMode = 'fixed' | 'fleet' | 'per_machine';
 
-export interface ScheduleConfigOnce { date: string; time: string; }
+export interface ScheduleConfigOnce { date: string; time: string; randomize_mode?: RandomizeMode; }
 export interface ScheduleConfigDaily { time: string; randomize_time?: boolean; randomize_mode?: RandomizeMode; }
 export interface ScheduleConfigWeekly { days: number[]; time: string; randomize_time?: boolean; randomize_mode?: RandomizeMode; }   // 0=Sun..6=Sat
 export interface ScheduleConfigMonthly { dayOfMonth: number; time: string; randomize_time?: boolean; randomize_mode?: RandomizeMode; }

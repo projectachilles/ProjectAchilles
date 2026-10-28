@@ -7,6 +7,7 @@ import { Switch } from '@/components/shared/ui/Switch';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Search, Tag, X, Play, Calendar, Terminal, AlertTriangle, ChevronRight, ChevronDown } from 'lucide-react';
 import { useHasPermission } from '@/hooks/useAppRole';
+import { useCapabilities } from '@/hooks/useCapabilities';
 import { agentApi } from '@/services/api/agent';
 import { browserApi } from '@/services/api/browser';
 import { analyticsApi, type IndexInfo } from '@/services/api/analytics';
@@ -45,7 +46,7 @@ const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const RANDOMIZE_HINT = 'Weekdays 09:00–17:00 · Weekends anytime';
 
-/** Labeled dropdown selecting how a recurring schedule's run time is randomized. */
+/** Labeled dropdown selecting how a schedule's run time is randomized. */
 function TimingModeSelect({
   mode,
   onChange,
@@ -116,6 +117,8 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
     Intl.DateTimeFormat().resolvedOptions().timeZone
   );
   const [randomizeMode, setRandomizeMode] = useState<RandomizeMode>('fixed');
+  // Vercel's backend runs Once schedules at the fixed time only.
+  const { randomizedOnce } = useCapabilities();
 
   // Target index state
   const [targetIndex, setTargetIndex] = useState('');
@@ -299,7 +302,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
     const mode = randomizeMode !== 'fixed' ? randomizeMode : undefined;
     switch (scheduleType) {
       case 'once':
-        return { date: scheduleDate, time: scheduleTime };
+        return { date: scheduleDate, time: scheduleTime, randomize_mode: mode };
       case 'daily':
         return { time: scheduleTime, randomize_mode: mode };
       case 'weekly':
@@ -373,8 +376,12 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
     if (randomizeMode === 'fixed' && !scheduleTime) return false;
     if (scheduleType === 'once' && !scheduleDate) return false;
     if (scheduleType === 'once' && scheduleDate) {
-      const target = new Date(`${scheduleDate}T${scheduleTime}`);
-      if (target <= new Date()) return false;
+      // Randomized: any date from today on (the server refuses a closed window).
+      if (randomizeMode !== 'fixed') {
+        if (scheduleDate < new Date().toLocaleDateString('en-CA')) return false;
+      } else if (new Date(`${scheduleDate}T${scheduleTime}`) <= new Date()) {
+        return false;
+      }
     }
     if (scheduleType === 'weekly' && scheduleDays.length === 0) return false;
     return true;
@@ -746,7 +753,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                         <button
                           key={t}
                           type="button"
-                          onClick={() => { setScheduleType(t); if (t === 'once') setRandomizeMode('fixed'); }}
+                          onClick={() => { setScheduleType(t); if (t === 'once' && !randomizedOnce) setRandomizeMode('fixed'); }}
                           className={`text-xs px-3 py-1.5 rounded-full border transition-colors capitalize ${
                             scheduleType === t
                               ? 'bg-primary/10 text-primary border-primary/30'
@@ -759,28 +766,36 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                     </div>
                   </div>
 
-                  {/* Conditional: Once → date picker */}
+                  {/* Conditional: Once → (timing mode) + date + time */}
                   {scheduleType === 'once' && (
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium mb-1.5">Date</label>
-                        <input
-                          type="date"
-                          className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
-                          value={scheduleDate}
-                          onChange={(e) => setScheduleDate(e.target.value)}
-                          min={new Date().toISOString().slice(0, 10)}
-                        />
+                    <div className="space-y-3">
+                      {randomizedOnce && <TimingModeSelect mode={randomizeMode} onChange={setRandomizeMode} />}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium mb-1.5">Date</label>
+                          <input
+                            type="date"
+                            className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                            value={scheduleDate}
+                            onChange={(e) => setScheduleDate(e.target.value)}
+                            min={new Date().toISOString().slice(0, 10)}
+                          />
+                        </div>
+                        {randomizeMode === 'fixed' && (
+                          <div>
+                            <label className="block text-sm font-medium mb-1.5">Time</label>
+                            <input
+                              type="time"
+                              className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                              value={scheduleTime}
+                              onChange={(e) => setScheduleTime(e.target.value)}
+                            />
+                          </div>
+                        )}
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1.5">Time</label>
-                        <input
-                          type="time"
-                          className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
-                          value={scheduleTime}
-                          onChange={(e) => setScheduleTime(e.target.value)}
-                        />
-                      </div>
+                      {randomizeMode !== 'fixed' && (
+                        <p className="text-xs text-muted-foreground">{randomizeCaption(randomizeMode)} · For today's date, only the rest of the window</p>
+                      )}
                     </div>
                   )}
 

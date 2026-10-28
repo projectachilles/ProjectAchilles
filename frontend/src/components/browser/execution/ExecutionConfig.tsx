@@ -9,7 +9,7 @@ const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const RANDOMIZE_HINT = 'Weekdays 09:00–17:00 · Weekends anytime';
 
-/** Labeled dropdown selecting how a recurring schedule's run time is randomized. */
+/** Labeled dropdown selecting how a schedule's run time is randomized. */
 function TimingModeSelect({ mode, onChange }: { mode: RandomizeMode; onChange: (mode: RandomizeMode) => void }) {
   return (
     <div>
@@ -86,9 +86,11 @@ interface ExecutionConfigProps {
   onChange: (updates: Partial<ExecutionConfigState>) => void;
   availableIndices: IndexInfo[];
   indicesLoading?: boolean;
+  /** The backend runs Once schedules at a random time (false on Vercel). */
+  allowRandomizedOnce?: boolean;
 }
 
-export function ExecutionConfig({ config, onChange, availableIndices, indicesLoading }: ExecutionConfigProps) {
+export function ExecutionConfig({ config, onChange, availableIndices, indicesLoading, allowRandomizedOnce = false }: ExecutionConfigProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   function toggleDay(day: number) {
@@ -185,7 +187,7 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
                 <button
                   key={t}
                   type="button"
-                  onClick={() => { onChange({ scheduleType: t }); if (t === 'once') onChange({ randomizeMode: 'fixed' }); }}
+                  onClick={() => { onChange({ scheduleType: t }); if (t === 'once' && !allowRandomizedOnce) onChange({ randomizeMode: 'fixed' }); }}
                   className={`text-xs px-3 py-1.5 rounded-full border transition-colors capitalize ${
                     config.scheduleType === t
                       ? 'bg-primary/10 text-primary border-primary/30'
@@ -198,28 +200,38 @@ export function ExecutionConfig({ config, onChange, availableIndices, indicesLoa
             </div>
           </div>
 
-          {/* Once → date picker */}
+          {/* Once → (timing mode) + date + time */}
           {config.scheduleType === 'once' && (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1.5">Date</label>
-                <input
-                  type="date"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
-                  value={config.scheduleDate}
-                  onChange={(e) => onChange({ scheduleDate: e.target.value })}
-                  min={new Date().toISOString().slice(0, 10)}
-                />
+            <div className="space-y-3">
+              {allowRandomizedOnce && (
+                <TimingModeSelect mode={config.randomizeMode} onChange={(m) => onChange({ randomizeMode: m })} />
+              )}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">Date</label>
+                  <input
+                    type="date"
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                    value={config.scheduleDate}
+                    onChange={(e) => onChange({ scheduleDate: e.target.value })}
+                    min={new Date().toISOString().slice(0, 10)}
+                  />
+                </div>
+                {config.randomizeMode === 'fixed' && (
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5">Time</label>
+                    <input
+                      type="time"
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                      value={config.scheduleTime}
+                      onChange={(e) => onChange({ scheduleTime: e.target.value })}
+                    />
+                  </div>
+                )}
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1.5">Time</label>
-                <input
-                  type="time"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
-                  value={config.scheduleTime}
-                  onChange={(e) => onChange({ scheduleTime: e.target.value })}
-                />
-              </div>
+              {config.randomizeMode !== 'fixed' && (
+                <p className="text-xs text-muted-foreground">{randomizeCaption(config.randomizeMode)} · For today's date, only the rest of the window</p>
+              )}
             </div>
           )}
 

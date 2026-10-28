@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { getDatabase } from './database.js';
 import { createTasks } from './tasks.service.js';
 import { createSchedulerTick } from '../notices/notices.service.js';
-import { toUTCDate, todayInTimezone, dayOfWeekInTimezone, randomTimeForDate, addDays, daysInMonth, resolveRandomizeMode } from './scheduleTime.js';
+import { toUTCDate, todayInTimezone, dayOfWeekInTimezone, randomTimeForDate, randomInstantInWindow, addDays, daysInMonth, resolveRandomizeMode } from './scheduleTime.js';
 
 export { resolveRandomizeMode } from './scheduleTime.js';
 import { AppError } from '../../middleware/error.middleware.js';
@@ -187,13 +187,15 @@ export function computeNextRun(
   // Both 'fleet' and 'per_machine' modes randomize the time-of-day; only 'fixed'
   // uses the configured `time`. (For 'per_machine', the caller invokes this once
   // per agent so each agent gets an independent random roll.)
-  const randomize = type !== 'once' && resolveRandomizeMode(config) !== 'fixed';
+  const randomize = resolveRandomizeMode(config) !== 'fixed';
   // A randomized schedule that just fired must not land on the same local day.
   const skipToday = randomize && opts?.afterFire === true;
 
   switch (type) {
     case 'once': {
       const c = config as ScheduleConfigOnce;
+      // A randomized one-off runs once: nothing follows a fired run.
+      if (randomize) return skipToday ? null : randomInstantInWindow(c.date, timezone, now);
       const runDate = toUTCDate(c.date, c.time, timezone);
       return runDate > now ? runDate : null;
     }
@@ -327,10 +329,9 @@ export function createSchedule(
     throw new AppError('schedule_type and schedule_config are required', 400);
   }
 
-  // Per-machine mode (recurring only): each agent gets its own random time.
+  // Per-machine mode: each agent gets its own random time.
   // We store the per-agent map and keep next_run_at as its minimum.
-  const perMachine =
-    schedule_type !== 'once' && resolveRandomizeMode(schedule_config) === 'per_machine';
+  const perMachine = resolveRandomizeMode(schedule_config) === 'per_machine';
   const agentNextRuns = perMachine
     ? computePerAgentNextRuns(schedule_type, schedule_config, timezone, agent_ids)
     : null;
@@ -340,6 +341,10 @@ export function createSchedule(
     ? (perMachineMin ? new Date(perMachineMin) : null)
     : computeNextRun(schedule_type, schedule_config, timezone);
   if (!nextRun && schedule_type === 'once') {
+    if (resolveRandomizeMode(schedule_config) !== 'fixed') {
+      const { date } = schedule_config as ScheduleConfigOnce;
+      throw new AppError(`The random window for ${date} has already passed; pick a later date`, 400);
+    }
     throw new AppError('Scheduled time must be in the future', 400);
   }
 
@@ -463,9 +468,7 @@ export function updateSchedule(
     const schedule = parseScheduleRow(updated);
 
     if (schedule.status === 'active') {
-      const mode = schedule.schedule_type !== 'once'
-        ? resolveRandomizeMode(schedule.schedule_config)
-        : 'fixed';
+      const mode = resolveRandomizeMode(schedule.schedule_config);
 
       if (mode === 'per_machine') {
         // Reconcile the per-agent map. When the time basis changed
@@ -549,9 +552,7 @@ export function processSchedules(clock?: Date): { processed: number; errors: str
     ).all(...schedule.agent_ids) as { id: string }[];
     const eligibleAgentIds = activeAgentRows.map(r => r.id);
 
-    const mode = schedule.schedule_type !== 'once'
-      ? resolveRandomizeMode(schedule.schedule_config)
-      : 'fixed';
+    const mode = resolveRandomizeMode(schedule.schedule_config);
 
     // ----- per_machine: each agent fires at its own time -----
     if (mode === 'per_machine' && schedule.agent_next_runs) {
@@ -644,9 +645,13 @@ export function processSchedules(clock?: Date): { processed: number; errors: str
         else delete map[id];
       }
 
+      // A one-off schedule is done once every agent has had its turn.
+      const nextMin = minNextRun(map);
+      const completed = schedule.schedule_type === 'once' && nextMin === null ? 1 : 0;
       db.prepare(
-        "UPDATE schedules SET next_run_at = ?, last_run_at = ?, agent_next_runs = ?, updated_at = datetime('now') WHERE id = ?",
-      ).run(minNextRun(map), now.toISOString(), JSON.stringify(map), schedule.id);
+        `UPDATE schedules SET next_run_at = ?, last_run_at = ?, agent_next_runs = ?,
+           status = CASE WHEN ? THEN 'completed' ELSE status END, updated_at = datetime('now') WHERE id = ?`,
+      ).run(nextMin, now.toISOString(), JSON.stringify(map), completed, schedule.id);
       continue;
     }
     // ----- fixed / fleet: whole fleet fires together (original path) -----

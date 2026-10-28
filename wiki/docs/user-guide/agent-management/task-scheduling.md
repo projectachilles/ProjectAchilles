@@ -22,7 +22,7 @@ description: "Automate recurring test execution with flexible scheduling options
 
 | Type | Description |
 |------|-------------|
-| **Once** | Execute at a specific date and time |
+| **Once** | Execute once on a specific date, at a set time or a random time |
 | **Daily** | Execute every day at the specified time |
 | **Weekly** | Execute on specific days of the week |
 | **Monthly** | Execute on a specific day of the month |
@@ -38,6 +38,15 @@ Schedules support three timing modes:
 | **Randomized per machine** | Each targeted agent gets its own independent random time within office hours |
 
 Randomization provides more realistic simulation of attacker behavior than executing at the same time every day. **Per-machine** randomization additionally avoids the whole fleet lighting up detection systems at once — useful for staggering load and for realistic dispersed activity.
+
+**Once** schedules can be randomized too:
+- **Fleet together:** every targeted machine runs together at one random time on that date.
+- **Per machine:** each machine runs once at its own random time on that date.
+
+Either way, the times fall in that date's window: weekdays 09:00–17:00, weekends any time, in the schedule's timezone. The schedule shows **Completed** after the last machine's turn.
+- If the date is today, only the rest of today's window is used.
+- A schedule for today is refused once today's window has closed.
+- This option is not available on the Vercel (serverless) deployment, which runs Once schedules at a set time only.
 
 A randomized daily, weekly or monthly schedule runs **at most once per day**: after it fires, its next random time is picked on the next eligible day, never later the same day. A run that was skipped or failed also waits for the next eligible day. Editing a schedule picks a new time and may choose later the same day.
 

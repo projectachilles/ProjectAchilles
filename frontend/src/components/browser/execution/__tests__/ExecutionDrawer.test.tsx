@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { TestMetadata } from '@/types/test';
 import type { AgentSummary } from '@/types/agent';
@@ -26,8 +26,10 @@ vi.mock('@/services/api/browser', () => ({ browserApi: { getBuildInfo: api.getBu
 vi.mock('@/services/api/analytics', () => ({ analyticsApi: { listIndices: api.listIndices } }));
 vi.mock('@/services/api/integrations', () => ({ integrationsApi: { getAzureSettings: api.getAzureSettings } }));
 
-const caps = vi.hoisted(() => ({ preExecutionNotices: true }));
-vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ preExecutionNotices: caps.preExecutionNotices }) }));
+const caps = vi.hoisted(() => ({ preExecutionNotices: true, randomizedOnce: false }));
+vi.mock('@/hooks/useCapabilities', () => ({
+  useCapabilities: () => ({ preExecutionNotices: caps.preExecutionNotices, randomizedOnce: caps.randomizedOnce }),
+}));
 
 const { default: ExecutionDrawer } = await import('../ExecutionDrawer');
 
@@ -56,6 +58,7 @@ const AGENT: AgentSummary = {
 beforeEach(() => {
   vi.clearAllMocks();
   caps.preExecutionNotices = true;
+  caps.randomizedOnce = false;
   api.listAgents.mockResolvedValue({ agents: [AGENT], total: 1 });
   api.getBuildInfo.mockImplementation(async (uuid: string) => ({ exists: true, filename: `${uuid}.exe` }));
   api.listIndices.mockResolvedValue([]);
@@ -131,5 +134,29 @@ describe('ExecutionDrawer Run Now', () => {
     expect(api.createTasksBatch).not.toHaveBeenCalled();
     expect(api.createTasks.mock.calls.map((c) => c[0].test_uuid)).toEqual(['uuid-a', 'uuid-b']);
     expect(await screen.findByText('Created 2 task(s) for 1 agent(s)')).toBeInTheDocument();
+  });
+});
+
+describe('ExecutionDrawer Schedule Once', () => {
+  it('sends a randomized Once with its timing mode', async () => {
+    caps.randomizedOnce = true;
+    api.createSchedule.mockResolvedValue({});
+    const tomorrow = new Date(Date.now() + 86_400_000).toLocaleDateString('en-CA');
+    const { container } = render(<ExecutionDrawer open onClose={() => {}} tests={[test('uuid-a', 'Test A')]} />);
+
+    await userEvent.click(await screen.findByRole('checkbox', { name: /host-1/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+    await userEvent.click(screen.getByRole('button', { name: 'once' }));
+    fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: tomorrow } });
+    await userEvent.selectOptions(screen.getByDisplayValue('Fixed time'), 'per_machine');
+    const submit = screen.getByRole('button', { name: /Schedule \(1\)/ });
+    await waitFor(() => expect(submit).toBeEnabled());
+    await userEvent.click(submit);
+
+    await waitFor(() => expect(api.createSchedule).toHaveBeenCalledTimes(1));
+    expect(api.createSchedule.mock.calls[0][0]).toMatchObject({
+      schedule_type: 'once',
+      schedule_config: { date: tomorrow, time: '09:00', randomize_mode: 'per_machine' },
+    });
   });
 });

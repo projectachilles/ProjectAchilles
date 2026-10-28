@@ -63,6 +63,16 @@ describe('digestOccurrences', () => {
     expect(occurrencesForDigestDay(s, '2026-11-29', 'UTC', W)).toHaveLength(0);
   });
 
+  it('a randomized once uses its random mode and the date\'s window', () => {
+    for (const mode of ['fleet', 'per_machine'] as const) {
+      const occ = occurrencesForDigestDay(sched('once', { date: '2026-10-29', time: '09:00', randomize_mode: mode }), '2026-10-29', 'UTC', W);
+      const w = randomWindowForDate('2026-10-29', 'UTC');
+      expect(occ).toHaveLength(1);
+      expect(occ[0].mode).toBe(mode);
+      expect(occ[0].start).toEqual(w.start);
+    }
+  });
+
   it('once runs only on its date', () => {
     const s = sched('once', { date: '2026-10-29', time: '09:00' });
     expect(occurrencesForDigestDay(s, '2026-10-29', 'UTC', W)).toHaveLength(1);

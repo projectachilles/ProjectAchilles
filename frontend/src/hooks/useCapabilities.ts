@@ -14,6 +14,8 @@ export interface Capabilities {
   sentinelone: boolean;
   /** Threshold alerting (/api/integrations/alerts; backend-only; backend-serverless has none) */
   alerting: boolean;
+  /** Random timing for one-off ("Once") schedules (backend-only; backend-serverless runs them at the fixed time) */
+  randomizedOnce: boolean;
   platform: string;
   /** false until /api/capabilities has resolved (or failed); values are defaults before then */
   loaded?: boolean;
@@ -33,6 +35,7 @@ const DEFAULT_CAPABILITIES: Capabilities = {
   // Alerting predates /api/capabilities: a Docker backend that doesn't report
   // the flag still has it.
   alerting: true,
+  randomizedOnce: false,
   platform: 'docker',
 };
 

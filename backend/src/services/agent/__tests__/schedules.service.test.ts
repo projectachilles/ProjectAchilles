@@ -1183,4 +1183,135 @@ describe('schedules.service', () => {
       expect(listed[0].next_run_at).toBe('2026-02-10T14:00:00.000Z');
     });
   });
+
+  describe('once with randomized timing', () => {
+    // Monday 2026-02-09, UTC: the weekday window is 09:00-17:00 (480 min).
+    const MON = '2026-02-09';
+    const at = (iso: string) => new Date(`${MON}T${iso}.000Z`);
+    const rowOf = (id: string) =>
+      testDb.prepare('SELECT status, next_run_at, agent_next_runs FROM schedules WHERE id = ?').get(id) as {
+        status: string;
+        next_run_at: string | null;
+        agent_next_runs: string | null;
+      };
+    const onceRandom = (mode: 'fleet' | 'per_machine', date = MON) => ({
+      schedule_type: 'once' as const,
+      schedule_config: { date, time: '09:00', randomize_mode: mode },
+    });
+
+    describe('computeNextRun', () => {
+      it('rolls inside the date\'s window', () => {
+        vi.spyOn(Math, 'random').mockReturnValue(0.625); // 300/480 -> 14:00
+        const next = computeNextRun('once', { date: MON, time: '09:00', randomize_mode: 'fleet' }, 'UTC', at('08:00:00'));
+        expect(next!.toISOString()).toBe('2026-02-09T14:00:00.000Z');
+      });
+
+      it('for today, uses only what is left of the window', () => {
+        vi.spyOn(Math, 'random').mockReturnValue(0);
+        const cfg = { date: MON, time: '09:00', randomize_mode: 'per_machine' as const };
+        expect(computeNextRun('once', cfg, 'UTC', at('15:00:00'))!.toISOString()).toBe('2026-02-09T15:01:00.000Z');
+        vi.spyOn(Math, 'random').mockReturnValue(0.9999);
+        expect(computeNextRun('once', cfg, 'UTC', at('15:00:00'))!.toISOString()).toBe('2026-02-09T16:59:00.000Z');
+      });
+
+      it('returns null once the window has closed, and after a run', () => {
+        const cfg = { date: MON, time: '09:00', randomize_mode: 'fleet' as const };
+        expect(computeNextRun('once', cfg, 'UTC', at('17:00:00'))).toBeNull();
+        expect(computeNextRun('once', cfg, 'UTC', at('10:00:00'), { afterFire: true })).toBeNull();
+      });
+
+      it('uses the whole day at weekends', () => {
+        vi.spyOn(Math, 'random').mockReturnValue(0);
+        const next = computeNextRun('once', { date: '2026-02-14', time: '09:00', randomize_mode: 'fleet' }, 'UTC', at('08:00:00'));
+        expect(next!.toISOString()).toBe('2026-02-14T00:00:00.000Z');
+      });
+
+      it('leaves fixed-time once schedules unchanged', () => {
+        expect(computeNextRun('once', { date: MON, time: '09:30' }, 'UTC', at('08:00:00'))!.toISOString())
+          .toBe('2026-02-09T09:30:00.000Z');
+      });
+    });
+
+    describe('createSchedule', () => {
+      it('per_machine: gives each agent its own slot in the window', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(at('08:00:00'));
+        insertTestAgent(testDb, { id: 'agent-002' });
+        const schedule = createSchedule(baseScheduleRequest({ agent_ids: ['agent-001', 'agent-002'], ...onceRandom('per_machine') }), 'user-001');
+        const slots = Object.values(schedule.agent_next_runs ?? {});
+        expect(Object.keys(schedule.agent_next_runs!).sort()).toEqual(['agent-001', 'agent-002']);
+        for (const s of slots) expect(s >= '2026-02-09T09:00:00.000Z' && s < '2026-02-09T17:00:00.000Z').toBe(true);
+        expect(schedule.next_run_at).toBe(slots.sort()[0]);
+      });
+
+      it('fleet: one next_run_at in the window and no per-agent map', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(at('08:00:00'));
+        vi.spyOn(Math, 'random').mockReturnValue(0.625); // 300/480 -> 14:00
+        const schedule = createSchedule(baseScheduleRequest(onceRandom('fleet')), 'user-001');
+        expect(schedule.agent_next_runs).toBeNull();
+        expect(schedule.next_run_at).toBe('2026-02-09T14:00:00.000Z');
+      });
+
+      it('refuses a date whose window has already closed', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(at('18:00:00'));
+        for (const mode of ['fleet', 'per_machine'] as const) {
+          expect(() => createSchedule(baseScheduleRequest(onceRandom(mode)), 'user-001'))
+            .toThrow(/random window for 2026-02-09 has already passed/);
+        }
+      });
+    });
+
+    describe('processSchedules', () => {
+      it('per_machine: each agent runs once, and the schedule completes after the last one', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(at('08:00:00'));
+        insertTestAgent(testDb, { id: 'agent-002' });
+        const schedule = createSchedule(baseScheduleRequest({ agent_ids: ['agent-001', 'agent-002'], ...onceRandom('per_machine') }), 'user-001');
+        const first = '2026-02-09T10:00:00.000Z';
+        const second = '2026-02-09T15:30:00.000Z';
+        testDb.prepare('UPDATE schedules SET agent_next_runs = ?, next_run_at = ? WHERE id = ?')
+          .run(JSON.stringify({ 'agent-001': first, 'agent-002': second }), first, schedule.id);
+
+        processSchedules(at('10:00:00'));
+        expect(mockCreateTasks.mock.calls.map((c) => c[0].agent_ids)).toEqual([['agent-001']]);
+        expect(rowOf(schedule.id)).toMatchObject({ status: 'active', next_run_at: second });
+        expect(JSON.parse(rowOf(schedule.id).agent_next_runs!)).toEqual({ 'agent-002': second });
+
+        processSchedules(at('12:00:00'));
+        expect(mockCreateTasks).toHaveBeenCalledTimes(1);
+
+        processSchedules(at('15:30:00'));
+        expect(mockCreateTasks.mock.calls.map((c) => c[0].agent_ids)).toEqual([['agent-001'], ['agent-002']]);
+        expect(rowOf(schedule.id)).toMatchObject({ status: 'completed', next_run_at: null });
+
+        processSchedules(at('16:00:00'));
+        expect(mockCreateTasks).toHaveBeenCalledTimes(2);
+      });
+
+      it('fleet: all agents run together once, then the schedule completes', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(at('08:00:00'));
+        insertTestAgent(testDb, { id: 'agent-002' });
+        const schedule = createSchedule(baseScheduleRequest({ agent_ids: ['agent-001', 'agent-002'], ...onceRandom('fleet') }), 'user-001');
+        const due = schedule.next_run_at!;
+        processSchedules(new Date(due));
+        expect(mockCreateTasks).toHaveBeenCalledTimes(1);
+        expect(mockCreateTasks.mock.calls[0][0].agent_ids.sort()).toEqual(['agent-001', 'agent-002']);
+        expect(rowOf(schedule.id).status).toBe('completed');
+      });
+    });
+
+    it('updateSchedule: moving the date re-rolls every agent inside the new date\'s window', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(at('08:00:00'));
+      insertTestAgent(testDb, { id: 'agent-002' });
+      const schedule = createSchedule(baseScheduleRequest({ agent_ids: ['agent-001', 'agent-002'], ...onceRandom('per_machine') }), 'user-001');
+      const updated = updateSchedule(schedule.id, { schedule_config: { date: '2026-02-10', time: '09:00', randomize_mode: 'per_machine' } });
+      const slots = Object.values(updated.agent_next_runs ?? {});
+      expect(slots).toHaveLength(2);
+      for (const s of slots) expect(s >= '2026-02-10T09:00:00.000Z' && s < '2026-02-10T17:00:00.000Z').toBe(true);
+    });
+  });
 });

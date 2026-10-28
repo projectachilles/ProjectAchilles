@@ -58,7 +58,7 @@ export function runsOnDay(s: DigestScheduleInput, day: string): boolean {
 
 /** The schedule's mode and its scheduled start (fixed) or random window (fleet, per_machine). */
 function scheduledFor(s: DigestScheduleInput, runDay: string) {
-  const mode = s.schedule_type === 'once' ? 'fixed' : resolveRandomizeMode(s.schedule_config);
+  const mode = resolveRandomizeMode(s.schedule_config);
   if (mode === 'fixed') {
     const at = toUTCDate(runDay, (s.schedule_config as { time: string }).time, s.timezone);
     return { mode, start: at, end: at };
