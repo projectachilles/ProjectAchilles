@@ -35,8 +35,8 @@ const blockedPreExecReason = "Blocked before execution (Access is denied). This 
 	"Defender ASR rule 01443614-cd74-433a-b99e-2ecdc07bfc25 (\"block executables unless they meet a prevalence, " +
 	"age, or trusted list criterion\"), or an application-control policy, refusing to launch a fresh low-prevalence " +
 	"binary. The test never ran, so the technique was NOT evaluated (this is not a 'protected' result). To measure " +
-	"this test, add a per-rule ASR exclusion for the test path (C:\\F0\\tasks) via Intune; confirm with Defender " +
-	"event 1121."
+	"this test, add a per-rule exclusion for this rule only on the agent folder (C:\\F0) via Intune or GPO; " +
+	"confirm with Defender event 1121."
 
 // newBlockedResult builds the first-class result reported for a pre-execution
 // block. It fills os/arch/hostname/timestamps so the payload satisfies the
