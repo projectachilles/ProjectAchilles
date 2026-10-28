@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Database, Cloud, ShieldCheck, Bell, MailCheck } from 'lucide-react';
-import { CrowdStrikeLogo, SentinelOneLogo } from '@/components/shared/VendorLogos';
+import { Database, Cloud, Bell, MailCheck } from 'lucide-react';
+import { CrowdStrikeLogo, DefenderLogo, SentinelOneLogo } from '@/components/shared/VendorLogos';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import type { IntegrationStatus } from './IntegrationCard';
 import { IntegrationGridCard } from './IntegrationGridCard';
@@ -15,6 +15,7 @@ import { useCapabilities } from '@/hooks/useCapabilities';
 import { integrationsApi } from '@/services/api/integrations';
 import { alertsApi } from '@/services/api/alerts';
 import { sentinelOneApi } from '@/services/api/sentinelone';
+import { noticesApi } from '@/services/api/notices';
 
 export function IntegrationsTab() {
   const { configured: analyticsConfigured } = useAnalyticsAuth();
@@ -88,6 +89,14 @@ export function IntegrationsTab() {
     }).catch(() => {});
   }, [sentinelone]);
 
+  // The config form only reports its status once its dialog opens, so fetch it for the badge.
+  useEffect(() => {
+    if (!preExecutionNotices) return;
+    noticesApi.getSettings().then((settings) => {
+      setNoticesStatus(settings.enabled ? 'connected' : 'not-configured');
+    }).catch(() => {});
+  }, [preExecutionNotices]);
+
   return (
     <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
       <IntegrationGridCard
@@ -109,7 +118,7 @@ export function IntegrationsTab() {
       </IntegrationGridCard>
 
       <IntegrationGridCard
-        icon={ShieldCheck}
+        icon={DefenderLogo}
         title="Microsoft Defender"
         description="Secure Score, alerts, and security controls via Microsoft Graph"
         status={defenderStatus}

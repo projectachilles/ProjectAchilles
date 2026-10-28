@@ -416,7 +416,7 @@ export default function TestsPage() {
                           fleetState,
                           executedUuids ? executedUuids.has(test.uuid) : null,
                         )}
-                        onOpen={() => navigate(`/tests/${test.uuid}`)}
+                        onOpen={() => navigate(`/tests/${test.uuid}`, { state: { backTo: `/tests${searchParams.size ? `?${searchParams}` : ''}` } })}
                         isFavorite={isFavorite(test.uuid)}
                         onToggleFavorite={() => toggleFavorite(test.uuid)}
                         onExecute={canCreateTasks ? () => openDrawer([test]) : undefined}

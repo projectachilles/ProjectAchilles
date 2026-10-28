@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown, RefreshCw, Settings, ShieldCheck, ShieldOff } from 'lucide-react';
-import { CrowdStrikeLogo, SentinelOneLogo } from '@/components/shared/VendorLogos';
+import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown, RefreshCw, Settings, ShieldOff } from 'lucide-react';
+import { CrowdStrikeLogo, DefenderLogo, SentinelOneLogo } from '@/components/shared/VendorLogos';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/button';
 import SettingsModal from './components/SettingsModal';
@@ -704,7 +704,7 @@ export default function AnalyticsDashboardPage() {
             { id: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard, badge: null },
             { id: 'executions' as const, label: 'All Executions', icon: Table, badge: executionsData?.pagination ? executionsData.pagination.totalDocuments.toLocaleString() : null },
             { id: 'risk-acceptances' as const, label: 'Risk Acceptances', icon: ShieldOff, badge: activeRiskCount > 0 ? String(activeRiskCount) : null },
-            ...(defenderConfigured ? [{ id: 'defender' as const, label: 'Defender', icon: ShieldCheck, badge: null }] : []),
+            ...(defenderConfigured ? [{ id: 'defender' as const, label: 'Defender', icon: DefenderLogo, badge: null }] : []),
             ...(crowdstrikeConfigured ? [{ id: 'crowdstrike' as const, label: 'CrowdStrike', icon: CrowdStrikeLogo, badge: null }] : []),
             ...(sentineloneConfigured ? [{ id: 'sentinelone' as const, label: 'SentinelOne', icon: SentinelOneLogo, badge: null }] : []),
           ]).map(tab => (

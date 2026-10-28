@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 
-const caps = vi.hoisted(() => ({ sentinelone: false, alerting: true }));
+const caps = vi.hoisted(() => ({ sentinelone: false, alerting: true, preExecutionNotices: false }));
 const getS1Settings = vi.hoisted(() => vi.fn());
 
-vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ preExecutionNotices: false, sentinelone: caps.sentinelone, alerting: caps.alerting }) }));
+vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ preExecutionNotices: caps.preExecutionNotices, sentinelone: caps.sentinelone, alerting: caps.alerting }) }));
 vi.mock('@/hooks/useAnalyticsAuth', () => ({ useAnalyticsAuth: () => ({ configured: false }) }));
 vi.mock('@/services/api/integrations', () => ({
   integrationsApi: {
@@ -16,6 +16,8 @@ vi.mock('@/services/api/integrations', () => ({
 const getAlertSettings = vi.hoisted(() => vi.fn());
 vi.mock('@/services/api/alerts', () => ({ alertsApi: { getAlertSettings } }));
 vi.mock('@/services/api/sentinelone', () => ({ sentinelOneApi: { getSettings: getS1Settings } }));
+const getNoticeSettings = vi.hoisted(() => vi.fn());
+vi.mock('@/services/api/notices', () => ({ noticesApi: { getSettings: getNoticeSettings } }));
 // The config forms render only when a card is opened; stub them to keep this test about the grid.
 vi.mock('../AnalyticsConfig', () => ({ AnalyticsConfig: () => null }));
 vi.mock('../AzureConfig', () => ({ AzureConfig: () => null }));
@@ -31,7 +33,9 @@ describe('IntegrationsTab SentinelOne card', () => {
   beforeEach(() => {
     getS1Settings.mockReset().mockResolvedValue({ configured: false });
     getAlertSettings.mockReset().mockResolvedValue({ configured: false });
+    getNoticeSettings.mockReset().mockResolvedValue({ enabled: false });
     caps.alerting = true;
+    caps.preExecutionNotices = false;
   });
 
   it('is hidden, and its settings never requested, when the backend lacks the capability (Vercel)', () => {
@@ -61,5 +65,18 @@ describe('IntegrationsTab SentinelOne card', () => {
     expect(screen.getByText('Alerts & Notifications')).toBeTruthy();
     expect(getAlertSettings).toHaveBeenCalled();
   });
-});
 
+  it('the Pre-execution notices badge reflects saved settings before its dialog is opened', async () => {
+    caps.preExecutionNotices = true;
+    getNoticeSettings.mockResolvedValue({ enabled: true });
+    render(<IntegrationsTab />);
+    const card = screen.getByText('Pre-execution notices').closest('div.rounded-lg') as HTMLElement;
+    expect(await within(card).findByText('connected')).toBeTruthy();
+  });
+
+  it('never requests notice settings when the backend lacks the capability (Vercel)', () => {
+    render(<IntegrationsTab />);
+    expect(screen.queryByText('Pre-execution notices')).toBeNull();
+    expect(getNoticeSettings).not.toHaveBeenCalled();
+  });
+});

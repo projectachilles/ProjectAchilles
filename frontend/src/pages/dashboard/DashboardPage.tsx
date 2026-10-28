@@ -1,5 +1,5 @@
-import { FlaskConical, Server, ShieldAlert, ShieldCheck, Star } from 'lucide-react';
-import { CrowdStrikeLogo } from '@/components/shared/VendorLogos';
+import { FlaskConical, Server, ShieldAlert, Star } from 'lucide-react';
+import { CrowdStrikeLogo, DefenderLogo } from '@/components/shared/VendorLogos';
 import { cn } from '@/lib/utils';
 import { isLowSample, POSTURE_HELP, postureCaption, postureWindowLabel } from '@/lib/posture';
 import { isSameTimeRange, TIME_RANGE_PRESETS, timeRangeButtonLabel } from '@/lib/timeRange';
@@ -58,7 +58,7 @@ export default function DashboardPage() {
           ? `${data.secureScore.currentScore.toFixed(1)} / ${data.secureScore.maxScore.toFixed(1)} pts`
           : undefined
         : 'not configured',
-      icon: ShieldCheck,
+      icon: DefenderLogo,
       to: '/analytics?tab=defender',
       tone: data.secureScore ? 'accent' : 'default',
     },
