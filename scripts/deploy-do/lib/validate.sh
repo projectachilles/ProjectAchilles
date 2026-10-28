@@ -72,7 +72,7 @@ validate_es_cluster() {
 
 # validate_es_write <backend_host> <ssh_key> <es_private_ip> <es_api_key>
 # Probes a write to `achilles-results` (no wildcard).
-# This is the explicit regression test for bancocaribe ES wildcard bug.
+# This is the explicit regression test for the ES wildcard-index bug.
 validate_es_write() {
     local be_host="$1" ssh_key="$2" es_priv="$3" es_key="$4"
     local out
@@ -83,7 +83,7 @@ validate_es_write() {
               -d '{\"probe\":true,\"@timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}' " \
         2>/dev/null || echo "")
     if ! echo "$out" | grep -q '"result":"created"' ; then
-        log_error "ES write probe failed (bancocaribe wildcard bug regression?):"
+        log_error "ES write probe failed (ES wildcard-index bug regression?):"
         echo "$out" >&2
         return 1
     fi

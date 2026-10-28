@@ -474,7 +474,7 @@ describe('DefenderAnalyticsService (serverless)', () => {
         ['T1486'],
         '2026-02-25T10:00:00Z',
         30,
-        'SB11284',
+        'WS11284',
         '92b0b4f6-a09b-4c7b-b593-31ce461f804c.exe',
       );
 
@@ -482,7 +482,7 @@ describe('DefenderAnalyticsService (serverless)', () => {
       const tier3 = JSON.stringify(mockSearch.mock.calls[2][0].query);
       expect(tier3).toContain('mitre_techniques');
       expect(tier3).toContain('evidence_hostnames');
-      expect(tier3).toContain('SB11284');
+      expect(tier3).toContain('WS11284');
     });
 
     it('returns a re-fire-matched terminal alert with resolved_at populated (branch c)', async () => {

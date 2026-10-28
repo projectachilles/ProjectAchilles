@@ -544,7 +544,7 @@ describe('tasks.service', () => {
 
     // ──────────────────────────────────────────────────────────────────────
     // Retry creation gating: regression for the May-2026 retry-pile-on
-    // pattern observed on tpsgl. Previously, every stale task on an
+    // pattern observed on a customer tenant. Previously, every stale task on an
     // agent that stayed offline (e.g. laptop powered off overnight) got
     // 2 auto-retries — both of which then also failed when the same
     // agent stayed offline. Resulting `failed×3 / completed×0` chains
@@ -699,7 +699,7 @@ describe('tasks.service', () => {
     // 'downloading' must be picked up. Previously the WHERE clause only
     // covered 'executing'/'downloading', so an 'assigned' task whose
     // agent crashed mid-handoff zombied for 7 days until TTL expiry. A
-    // real such zombie was observed on tpsgl: task df09471f sat assigned
+    // real such zombie was observed on a customer tenant: task df09471f sat assigned
     // for 4+ days while the agent was heartbeating fresh.
     // ──────────────────────────────────────────────────────────────────────
     it('catches assigned tasks past execution_timeout + buffer', () => {

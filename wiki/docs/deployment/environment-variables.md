@@ -85,6 +85,7 @@ For local development, `start.sh` creates this key automatically from the `elast
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `ORGANIZATION_NAME` | The organization this deployment serves. The [execution report](../user-guide/analytics/execution-report) prints it on the cover, in the scope table and in every page header. A name longer than 56 characters is cut with an ellipsis. | Unset: the report says *All organizations* |
+| `ORG_NAMES` | Display names for organization UUIDs (`routing.oid`) in Analytics, the execution report and the compliance export. JSON keyed by org UUID; each value is a short name or `{"shortName": "...", "fullName": "..."}`, for example `{"<org-uuid>": {"shortName": "ACME", "fullName": "Acme Corporation"}}`. | Unset: organizations show the first 8 characters of their UUID |
 
 ### Vercel-Only
 
@@ -133,6 +134,7 @@ For local development, `start.sh` creates this key automatically from the `elast
 | `ELASTICSEARCH_*` | Optional | Optional | Optional | Optional | Optional |
 | `TESTS_REPO_URL` | Optional | Optional | Optional | Optional | Optional |
 | `ORGANIZATION_NAME` | Optional | Optional | Optional | Optional | Optional |
+| `ORG_NAMES` | Optional | Optional | Optional | Optional | Optional |
 | `TURSO_*` | — | — | — | — | **Required** |
 | `SIGNING_*_B64` | — | — | — | — | **Required** |
 | `BLOB_READ_WRITE_TOKEN` | — | — | — | — | Auto |

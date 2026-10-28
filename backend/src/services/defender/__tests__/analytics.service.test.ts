@@ -1020,7 +1020,7 @@ describe('DefenderAnalyticsService', () => {
         ['T1486'],
         '2026-02-25T10:00:00Z',
         30,
-        'SB11284',
+        'WS11284',
         '92b0b4f6-a09b-4c7b-b593-31ce461f804c.exe',
       );
 
@@ -1028,7 +1028,7 @@ describe('DefenderAnalyticsService', () => {
       const tier3 = JSON.stringify(mockSearch.mock.calls[2][0].query);
       expect(tier3).toContain('mitre_techniques');
       expect(tier3).toContain('evidence_hostnames');
-      expect(tier3).toContain('SB11284');
+      expect(tier3).toContain('WS11284');
     });
 
     it('returns a re-fire-matched terminal alert with resolved_at populated (branch c)', async () => {
@@ -1098,7 +1098,7 @@ describe('DefenderAnalyticsService', () => {
         ['T1562.001'],
         '2026-05-03T19:12:00Z',
         30,
-        'SBL3483',
+        'LT3483',
         '5e59dd6a-6c87-4377-942c-ea9b5e054cb9.exe',
         'BlueHammer Early-Stage Behavioral Pattern',
       );
@@ -1164,7 +1164,7 @@ describe('DefenderAnalyticsService', () => {
         ['T1211'],
         '2026-04-28T12:20:00Z',
         30,
-        'SBL5708',
+        'LT5708',
         '5e59dd6a-6c87-4377-942c-ea9b5e054cb9.exe',
         'BlueHammer Early-Stage Behavioral Pattern',
       );
@@ -1186,7 +1186,7 @@ describe('DefenderAnalyticsService', () => {
       });
 
       const result = await service.getAlertsForTest(
-        ['T1211'], '2026-04-28T12:20:00Z', 30, 'SBL5708',
+        ['T1211'], '2026-04-28T12:20:00Z', 30, 'LT5708',
         '5e59dd6a-6c87-4377-942c-ea9b5e054cb9.exe',
         'BlueHammer Early-Stage Behavioral Pattern',
       );
@@ -1196,7 +1196,7 @@ describe('DefenderAnalyticsService', () => {
     });
 
     it('classifies an EICAR-style alert (no UUID in any filename) as bundle-attributable', async () => {
-      // Reproduces the live SBL3483 case: only a dropped-file name in evidence,
+      // Reproduces the live LT3483 case: only a dropped-file name in evidence,
       // and only a bundle-named sandbox dir in the path. No bundle-UUID anywhere.
       mockSearch.mockResolvedValueOnce({
         hits: { total: { value: 1 }, hits: [{ _source: {
@@ -1210,7 +1210,7 @@ describe('DefenderAnalyticsService', () => {
       });
 
       const result = await service.getAlertsForTest(
-        ['T1562.001'], '2026-05-03T19:00:24Z', 30, 'SBL3483',
+        ['T1562.001'], '2026-05-03T19:00:24Z', 30, 'LT3483',
         '5e59dd6a-6c87-4377-942c-ea9b5e054cb9.exe',
         'BlueHammer Early-Stage Behavioral Pattern',
       );
@@ -1236,7 +1236,7 @@ describe('DefenderAnalyticsService', () => {
       });
 
       const result = await service.getAlertsForTest(
-        ['T1211'], '2026-04-28T12:20:00Z', 30, 'SBL5708',
+        ['T1211'], '2026-04-28T12:20:00Z', 30, 'LT5708',
         '5e59dd6a-6c87-4377-942c-ea9b5e054cb9.exe',
         'BlueHammer Early-Stage Behavioral Pattern',
       );
@@ -1264,7 +1264,7 @@ describe('DefenderAnalyticsService', () => {
       });
 
       const result = await service.getAlertsForTest(
-        ['T1211'], '2026-04-28T12:20:00Z', 30, 'SBL5708',
+        ['T1211'], '2026-04-28T12:20:00Z', 30, 'LT5708',
         '5e59dd6a-6c87-4377-942c-ea9b5e054cb9.exe',
         'BlueHammer Early-Stage Behavioral Pattern',
       );

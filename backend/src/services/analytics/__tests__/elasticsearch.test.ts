@@ -97,7 +97,7 @@ function makeHitSource(overrides?: Record<string, unknown>) {
     'f0rtika.test_name': 'Test Alpha',
     'routing.hostname': 'host-a',
     'f0rtika.is_protected': true,
-    'routing.oid': '09b59276-9efb-4d3d-bbdd-4b4663ef0c42',
+    'routing.oid': ACME_ORG_UUID,
     'routing.event_time': '2025-01-15T12:00:00Z',
     'event.ERROR': 126,
     'f0rtika.error_name': 'ExecutionPrevented',
@@ -110,8 +110,17 @@ function createService(settingsOverrides?: Partial<AnalyticsSettings>) {
 }
 
 // ─── Tests ────────────────────────────────────────────────────────
+// Org display names come from ORG_NAMES per deployment (services/analytics/orgNames.ts).
+const ACME_ORG_UUID = 'aaaaaaaa-1111-4111-8111-111111111111';
+const GLOBEX_ORG_UUID = 'bbbbbbbb-2222-4222-8222-222222222222';
+const TEST_ORG_NAMES = JSON.stringify({
+  [ACME_ORG_UUID]: { shortName: 'ACME', fullName: 'Acme Corporation' },
+  [GLOBEX_ORG_UUID]: 'GLOBEX',
+});
+
 describe('elasticsearch.ts', () => {
   beforeEach(() => {
+    vi.stubEnv('ORG_NAMES', TEST_ORG_NAMES);
     mockSearch.mockReset();
     mockCount.mockReset();
     mockInfo.mockReset();
@@ -119,6 +128,9 @@ describe('elasticsearch.ts', () => {
     mockDeleteByQuery.mockReset();
     mockIndicesExists.mockReset();
     mockIndicesCreate.mockReset();
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   describe('sortBundleMembers', () => {
@@ -785,11 +797,11 @@ describe('elasticsearch.ts', () => {
     it('maps known org UUID to short name', async () => {
       mockSearch.mockResolvedValue(esSearchResponse({
         total: 1,
-        hits: [makeHitSource({ 'routing.oid': '09b59276-9efb-4d3d-bbdd-4b4663ef0c42' })],
+        hits: [makeHitSource({ 'routing.oid': ACME_ORG_UUID })],
       }));
       const svc = createService();
       const result = await svc.getRecentExecutions(makeParams());
-      expect(result[0].org).toBe('SB');
+      expect(result[0].org).toBe('ACME');
     });
 
     it('maps unknown org UUID to first 8 chars', async () => {
@@ -1006,13 +1018,13 @@ describe('elasticsearch.ts', () => {
     it('maps known UUID to shortName/fullName', async () => {
       mockSearch.mockResolvedValue(esSearchResponse({
         aggs: {
-          orgs: { buckets: [{ key: '09b59276-9efb-4d3d-bbdd-4b4663ef0c42', doc_count: 100 }] },
+          orgs: { buckets: [{ key: ACME_ORG_UUID, doc_count: 100 }] },
         },
       }));
       const svc = createService();
       const result = await svc.getOrganizations();
-      expect(result[0].shortName).toBe('SB');
-      expect(result[0].fullName).toBe('Superintendency of Banks');
+      expect(result[0].shortName).toBe('ACME');
+      expect(result[0].fullName).toBe('Acme Corporation');
     });
 
     it('falls back to substring for unknown UUID', async () => {
@@ -1836,15 +1848,15 @@ describe('elasticsearch.ts', () => {
         aggs: {
           by_org: {
             buckets: makeScoreBuckets([
-              { key: 'b2f8dccb-6d23-492e-aa87-a0a8a6103189', total: 10, protected: 8 },
+              { key: GLOBEX_ORG_UUID, total: 10, protected: 8 },
             ]),
           },
         },
       }));
       const svc = createService();
       const result = await svc.getDefenseScoreByOrg(makeParams());
-      expect(result[0].orgName).toBe('TPSGL');
-      expect(result[0].org).toBe('b2f8dccb-6d23-492e-aa87-a0a8a6103189');
+      expect(result[0].orgName).toBe('GLOBEX');
+      expect(result[0].org).toBe(GLOBEX_ORG_UUID);
       expect(result[0].score).toBe(80);
     });
 

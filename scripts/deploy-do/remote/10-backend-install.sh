@@ -130,14 +130,14 @@ PORT=3000
 # Authentication (publishable key only; secret key in $SECRETS_FILE)
 CLERK_PUBLISHABLE_KEY=${CLERK_PUBLISHABLE_KEY}
 
-# CORS — set explicitly (closes bancocaribe issue #5)
+# CORS — set explicitly (closes earlier-deploy issue #5)
 CORS_ORIGIN=${CORS_ORIGIN}
 
 # Agent communication URL
 AGENT_SERVER_URL=https://${AGENT_FQDN}
 
 # Elasticsearch — read pattern with wildcard, write resolver strips trailing *
-# (Setting non-wildcard explicitly closes bancocaribe issue #2.)
+# (Setting non-wildcard explicitly closes earlier-deploy issue #2.)
 ELASTICSEARCH_NODE=http://${ES_PRIVATE_IP}:9200
 ELASTICSEARCH_INDEX_PATTERN=achilles-results
 EOF

@@ -17,7 +17,8 @@
 import { randomBytes } from 'crypto';
 import type { Client } from '@elastic/elasticsearch';
 import { createEsClient } from '../analytics/client.js';
-import { ElasticsearchService, ORG_NAMES } from '../analytics/elasticsearch.js';
+import { ElasticsearchService } from '../analytics/elasticsearch.js';
+import { orgShortName } from '../analytics/orgNames.js';
 import { RiskAcceptanceService, type RiskAcceptance } from '../risk-acceptance/risk-acceptance.service.js';
 import { getTestDirectory, getTestMetadata } from '../agent/test-catalog.service.js';
 import { AppError } from '../../middleware/error.middleware.js';
@@ -363,7 +364,7 @@ export class ExecutionReportService {
       reportId: makeReportId(now),
       generatedAt: now.toISOString(),
       tz,
-      org: { id: params.org ?? null, name: params.org ? ORG_NAMES[params.org] ?? null : deploymentOrgName() },
+      org: { id: params.org ?? null, name: params.org ? orgShortName(params.org) ?? null : deploymentOrgName() },
       filters: echoFilters(params),
       outcomeFiltered: outcomeFilters(params),
       window: { ...window, ...axis, firstExecution: scope.firstExecution, lastExecution: scope.lastExecution },

@@ -3,7 +3,7 @@
  *
  * Profiles let users switch between deployments:
  *   achilles config add-profile railway --url https://app.projectachilles.io
- *   achilles config add-profile fly --url https://rga.agent.projectachilles.io
+ *   achilles config add-profile fly --url https://acme.agent.projectachilles.io
  *   achilles config use fly
  *
  * Config stored at ~/.achilles/config.json

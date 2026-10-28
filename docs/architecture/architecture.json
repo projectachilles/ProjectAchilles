@@ -338,7 +338,7 @@
     {"area": "node-forge", "issue": "RSA-4096 takes 2-8s pure JS (OK on Pro 60s timeout, tight on Hobby 10s); uses 3des for PKCS#12 (not AES) for OpenSSL compat; X.509 time second-precision — truncate ms."},
     {"area": "Source-built vs external deps", "issue": "Only external (non-source-built) missing deps block Build button + show Upload. Source-built deps show wrench + 'Auto-built'. saveUploadedFile rejects uploads for source-built deps. 4 detection heuristics in isSourceBuiltBinary()."},
     {"area": "Defender enrichment", "issue": "Mapping drift: evidence_filenames/_hostnames were dynamically mapped as text+.keyword (not keyword as code declared) -> query .keyword subfield. Time field: filter on 'timestamp' (=lastUpdateDateTime||createdDateTime), not 'created_at' — reused alerts have fresh updates but stale created dates."},
-    {"area": "TPSGL scheduler timezone", "issue": "Schedules configured 09:00 Europe/London fire at 00:00 UTC instead — laptops asleep -> 'agent offline' cascade. Root cause of ~72% TPSGL failures."},
+    {"area": "Scheduler timezone (customer tenant)", "issue": "Schedules configured 09:00 Europe/London fire at 00:00 UTC instead — laptops asleep -> 'agent offline' cascade. Root cause of ~72% of that tenant's failures."},
     {"area": "queue.Drain infinite retry", "issue": "agent/internal/queue/queue.go:100-108 retries 400-rejected results forever; amplifies timezone bug impact."},
     {"area": "expireOverdueTasks", "issue": "tasks.service.ts:1044 should include 'assigned' status; without it tasks zombie for 7d until TTL sweep."}
   ],

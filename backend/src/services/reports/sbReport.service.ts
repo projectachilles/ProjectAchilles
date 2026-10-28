@@ -23,7 +23,8 @@
 
 import type { Client } from '@elastic/elasticsearch';
 import { createEsClient } from '../analytics/client.js';
-import { ORG_NAMES, resolveErrorName } from '../analytics/elasticsearch.js';
+import { resolveErrorName } from '../analytics/elasticsearch.js';
+import { orgShortName } from '../analytics/orgNames.js';
 import { AppError } from '../../middleware/error.middleware.js';
 import type { AnalyticsSettings } from '../../types/analytics.js';
 import { EDR_VENDOR_KEYS, edrFlagField, edrVendor } from '../outcomes/vendors.js';
@@ -296,7 +297,7 @@ export class SbReportService {
     return {
       meta: {
         organization: params.orgCode
-          || (params.org ? ORG_NAMES[params.org] : undefined)
+          || (params.org ? orgShortName(params.org) : undefined)
           || params.org
           || 'unknown',
         vendor: params.vendor || 'ProjectAchilles',
