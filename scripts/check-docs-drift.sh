@@ -43,6 +43,10 @@ while IFS= read -r file; do
       add "wiki: user-guide/integrations/microsoft-defender.md" "Defender service changed" ;;
     backend/src/services/crowdstrike/*|backend-serverless/src/services/crowdstrike/*)
       add "wiki: user-guide/integrations/crowdstrike.md" "CrowdStrike service changed" ;;
+    backend/src/services/sentinelone/*)
+      add "wiki: user-guide/integrations/sentinelone.md" "SentinelOne service changed" ;;
+    backend/src/services/edr/*|backend/src/services/outcomes/vendors.ts|frontend/src/lib/edrVendors.ts)
+      add "wiki: user-guide/analytics/exit-codes-and-outcomes.md" "Shared EDR correlation or vendor registry changed" ;;
     backend/src/services/agent/*|backend-serverless/src/services/agent/*)
       add "wiki: user-guide/agent-management/" "Agent service changed" ;;
     backend/src/services/analytics/*|backend-serverless/src/services/analytics/*)
