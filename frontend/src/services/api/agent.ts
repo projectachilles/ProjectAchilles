@@ -89,8 +89,9 @@ export const agentApi = {
     return response.data.data;
   },
 
-  async listTokens(): Promise<EnrollmentToken[]> {
-    const response = await apiClient.get('/agent/admin/tokens');
+  async listTokens(orgId: string): Promise<EnrollmentToken[]> {
+    // The route requires org_id; without it every call was a 400 and the list stayed empty.
+    const response = await apiClient.get('/agent/admin/tokens', { params: { org_id: orgId } });
     return response.data.data;
   },
 

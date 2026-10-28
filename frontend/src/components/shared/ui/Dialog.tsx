@@ -43,13 +43,13 @@ export function Dialog({ open, onClose, children, className = '' }: DialogProps)
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-background/70"
+        className="fixed inset-0 bg-black/75 backdrop-blur-[2px]"
         onClick={onClose}
       />
       {/* Dialog content */}
       <div
         ref={dialogRef}
-        className={`relative z-50 w-full max-w-lg max-h-[90vh] overflow-auto rounded-[10px] border border-border-strong bg-surface p-5 text-sm shadow-[0_24px_60px_rgba(0,0,0,0.55)] ${className}`}
+        className={`relative z-50 w-full max-w-lg max-h-[90vh] overflow-auto rounded-[10px] border border-border-strong bg-overlay p-5 text-sm shadow-[0_0_0_1px_rgba(0,0,0,0.6),0_28px_70px_rgba(0,0,0,0.7)] ${className}`}
       >
         {children}
       </div>
@@ -64,7 +64,7 @@ interface DialogHeaderProps {
 
 export function DialogHeader({ children, onClose }: DialogHeaderProps) {
   return (
-    <div className="flex items-start justify-between mb-4">
+    <div className="mb-4 flex items-start justify-between border-b border-border pb-3">
       <div>{children}</div>
       {onClose && (
         <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 -mr-2 -mt-2">
