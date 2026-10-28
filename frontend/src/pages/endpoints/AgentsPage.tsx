@@ -35,7 +35,7 @@ import RotateKeyDialog from '../../components/endpoints/agents/RotateKeyDialog';
 import UninstallDialog from '../../components/endpoints/agents/UninstallDialog';
 import BulkDeleteDialog from '../../components/endpoints/agents/BulkDeleteDialog';
 import { TagPicker } from '@/components/endpoints/agents/TagPicker';
-import type { TagChange, TagCount } from '@/components/endpoints/agents/agentTagRules';
+import { tagSnapshot, type TagChange, type TagCount, type TagSnapshot } from '@/components/endpoints/agents/agentTagRules';
 import EnrollmentSection from '@/components/endpoints/enrollment/EnrollmentSection';
 import {
   Dialog,
@@ -65,6 +65,9 @@ export default function AgentsPage() {
   const pagination = useAppSelector(selectAgentPagination);
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [successUndo, setSuccessUndo] = useState<(() => void) | null>(null);
+  const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (successTimer.current) clearTimeout(successTimer.current); }, []);
   const [detailAgent, setDetailAgent] = useState<Agent | null>(null);
   const [rotateKeyAgentId, setRotateKeyAgentId] = useState<string | null>(null);
   const [uninstallAgents, setUninstallAgents] = useState<AgentSummary[]>([]);
@@ -182,9 +185,18 @@ export default function AgentsPage() {
     setSelectedAgents(allSelected ? [] : allIds);
   }
 
-  function showSuccess(message: string): void {
+  function hideSuccess(): void {
+    if (successTimer.current) clearTimeout(successTimer.current);
+    setSuccessMessage(null);
+    setSuccessUndo(null);
+  }
+
+  /** With `undo`, the toast offers Undo and stays up longer. A newer message replaces the old one and its timer. */
+  function showSuccess(message: string, undo?: () => void): void {
+    if (successTimer.current) clearTimeout(successTimer.current);
     setSuccessMessage(message);
-    setTimeout(() => setSuccessMessage(null), 4000);
+    setSuccessUndo(() => undo ?? null);
+    successTimer.current = setTimeout(hideSuccess, undo ? 8000 : 4000);
   }
 
   async function handleAction(agentId: string, action: string): Promise<void> {
@@ -221,22 +233,41 @@ export default function AgentsPage() {
     }
   }
 
+  function afterTagsChange(): void {
+    dispatch(fetchAgents(filters));
+    void refreshTags();
+  }
+
   /** One request for any number of agents; the rows, the bulk menu and the rail all refresh after. */
   async function handleTagsChange(agentIds: string[], change: TagChange): Promise<void> {
     setTagError(null);
+    const snapshot = tagSnapshot(agentIds, agents);
     try {
       const updated = await agentApi.bulkTags({ agent_ids: agentIds, ...change });
       const what = [
         change.add?.length ? `added ${change.add.map((t) => `"${t}"`).join(', ')}` : '',
         change.remove?.length ? `removed ${change.remove.map((t) => `"${t}"`).join(', ')}` : '',
       ].filter(Boolean).join(' and ');
-      showSuccess(`Tags ${what} · ${updated} agent${updated === 1 ? '' : 's'}`);
+      showSuccess(
+        `Tags ${what} · ${updated} agent${updated === 1 ? '' : 's'}`,
+        snapshot ? () => void undoTagsChange(snapshot) : undefined,
+      );
     } catch (err) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
       setTagError(msg ?? 'Could not update tags');
     }
-    dispatch(fetchAgents(filters));
-    void refreshTags();
+    afterTagsChange();
+  }
+
+  async function undoTagsChange(snapshot: TagSnapshot[]): Promise<void> {
+    hideSuccess();
+    const results = await Promise.allSettled(
+      snapshot.map(({ id, tags }) => agentApi.updateAgent(id, { tags })),
+    );
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (failed) setTagError(`Could not undo the tag change on ${failed} agent${failed === 1 ? '' : 's'}`);
+    else showSuccess('Tag change undone');
+    afterTagsChange();
   }
 
   async function handleTriggerUpdate(agentIds: string[]): Promise<void> {
@@ -369,10 +400,14 @@ export default function AgentsPage() {
           onRefresh={handleRefresh}
         />
 
+        {/* Always rendered, so selecting the first agent doesn't push the rows
+            down under the cursor (a mis-click there can remove a tag). */}
         {canWriteAgent && (
-          <>
-            {selectedAgents.length > 0 && (
-              <div className="mb-4 flex flex-wrap items-center gap-2">
+          <div className="mb-4 flex min-h-8 flex-wrap items-center gap-2">
+            {selectedAgents.length === 0 ? (
+              <span className="text-xs text-faint">Select agents to tag, update or disable them together</span>
+            ) : (
+              <>
                 <span className="mr-1 text-sm font-medium text-accent">{selectedAgents.length} selected</span>
                 <TagPicker
                   allTags={allTags}
@@ -427,9 +462,9 @@ export default function AgentsPage() {
                     </Button>
                   </>
                 )}
-              </div>
+              </>
             )}
-          </>
+          </div>
         )}
 
         {loading ? (
@@ -442,6 +477,8 @@ export default function AgentsPage() {
               latestVersions={latestVersions}
               canDelete={canDeleteAgent}
               allTags={allTags}
+              activeTag={filters.tag}
+              onShowGroup={(tag) => handleFilterChange({ tag })}
               onTagsChange={canWriteAgent ? handleTagsChange : undefined}
               onToggleSelect={handleToggleSelect}
               onToggleSelectAll={handleToggleSelectAll}
@@ -540,11 +577,17 @@ export default function AgentsPage() {
         )}
 
         {successMessage && (
-          <div className="fixed bottom-4 right-4 z-50">
+          // Hovering holds the toast open, so it can't vanish on the way to Undo.
+          <div
+            className="fixed bottom-4 right-4 z-50"
+            onMouseEnter={() => { if (successTimer.current) clearTimeout(successTimer.current); }}
+            onMouseLeave={() => { successTimer.current = setTimeout(hideSuccess, 3000); }}
+          >
             <Toast
               variant="success"
               message={successMessage}
-              onClose={() => setSuccessMessage(null)}
+              action={successUndo ? { label: 'Undo', onClick: successUndo } : undefined}
+              onClose={hideSuccess}
             />
           </div>
         )}

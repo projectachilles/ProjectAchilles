@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { normalizeTag, tagState } from '../agentTagRules';
+import { normalizeTag, tagSnapshot, tagState } from '../agentTagRules';
 import { TagPicker } from '../TagPicker';
 import { TagChips } from '../TagChips';
 
@@ -23,6 +23,18 @@ describe('agent tag rules', () => {
     expect(tagState('a', agents)).toEqual({ state: 'all', count: 2 });
     expect(tagState('b', agents)).toEqual({ state: 'some', count: 1 });
     expect(tagState('c', agents)).toEqual({ state: 'none', count: 0 });
+  });
+
+  it('snapshots exact previous tags for Undo, or nothing when an agent is off the page', () => {
+    const page = [
+      { id: 'a1', tags: ['s1', 'Finance'] },
+      { id: 'a2', tags: [] },
+    ];
+    const snap = tagSnapshot(['a1', 'a2'], page);
+    expect(snap).toEqual([{ id: 'a1', tags: ['s1', 'Finance'] }, { id: 'a2', tags: [] }]);
+    page[0].tags.push('later');
+    expect(snap?.[0].tags).toEqual(['s1', 'Finance']);
+    expect(tagSnapshot(['a1', 'elsewhere'], page)).toBeNull();
   });
 });
 

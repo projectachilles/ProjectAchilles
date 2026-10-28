@@ -61,16 +61,27 @@ interface ToastProps {
   variant?: AlertVariant;
   message: string;
   onClose?: () => void;
+  /** A one-click follow-up, such as Undo. */
+  action?: { label: string; onClick: () => void };
   className?: string;
 }
 
-export function Toast({ variant = 'default', message, onClose, className = '' }: ToastProps) {
+export function Toast({ variant = 'default', message, onClose, action, className = '' }: ToastProps) {
   const { container, icon } = variantStyles[variant];
 
   return (
     <div className={`flex items-center gap-2.5 rounded-md border p-3 ${container} ${className}`}>
       <div className="flex-shrink-0">{icon}</div>
       <span className="text-sm font-medium">{message}</span>
+      {action && (
+        <button
+          type="button"
+          onClick={action.onClick}
+          className="flex-shrink-0 rounded px-1.5 py-0.5 text-sm font-semibold underline underline-offset-2 hover:opacity-80 transition-opacity"
+        >
+          {action.label}
+        </button>
+      )}
       {onClose && (
         <button
           onClick={onClose}

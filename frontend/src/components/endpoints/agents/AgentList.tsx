@@ -35,8 +35,12 @@ interface AgentListProps {
   selectedAgents: string[];
   latestVersions: Map<string, string>;
   canDelete?: boolean;
-  /** Every tag in use, for the row tag menus. */
+  /** Every tag in use with its fleet-wide count, for the row tag menus and group headers. */
   allTags?: TagCount[];
+  /** The tag the list is filtered by: its agents are grouped under it. */
+  activeTag?: string;
+  /** Filter the list to one tag, from a group header whose agents span other pages or groups. */
+  onShowGroup?: (tag: string) => void;
   /** Omit when the user can't edit agents: tags are then read-only. */
   onTagsChange?: (agentIds: string[], change: TagChange) => Promise<void>;
   onToggleSelect: (agentId: string) => void;
@@ -74,6 +78,8 @@ export default function AgentList({
   latestVersions,
   canDelete = true,
   allTags = [],
+  activeTag,
+  onShowGroup,
   onTagsChange,
   onToggleSelect,
   onToggleSelectAll,
@@ -85,11 +91,12 @@ export default function AgentList({
   const allSelected =
     agents.length > 0 && agents.every((a) => selectedAgents.includes(a.id));
 
-  // Group by primary (first) tag; groups sorted by size, untagged last.
+  // Group by primary (first) tag, or by the filter tag when there is one;
+  // groups sorted by size, untagged last.
   const groups = useMemo(() => {
     const map = new Map<string, AgentSummary[]>();
     for (const agent of agents) {
-      const tag = agent.tags[0] ?? UNTAGGED;
+      const tag = activeTag && agent.tags.includes(activeTag) ? activeTag : agent.tags[0] ?? UNTAGGED;
       const list = map.get(tag);
       if (list) list.push(agent);
       else map.set(tag, [agent]);
@@ -99,7 +106,34 @@ export default function AgentList({
       if (b[0] === UNTAGGED) return -1;
       return b[1].length - a[1].length || a[0].localeCompare(b[0]);
     });
-  }, [agents]);
+  }, [agents, activeTag]);
+
+  const fleetCounts = useMemo(() => new Map(allTags.map((t) => [t.tag, t.count])), [allTags]);
+
+  // The list holds one page, so a group can be missing agents that are on other
+  // pages (or grouped under their own first tag): say so, and offer the filter.
+  const renderGroupHeader = (tag: string, members: AgentSummary[]) => {
+    const fleet = fleetCounts.get(tag) ?? 0;
+    const partial = tag !== UNTAGGED && fleet > members.length;
+    return (
+      <>
+        <span className="font-mono text-[11px] text-accent">{tag}</span>
+        <span className="ml-2 font-mono text-[11px] text-faint">
+          · {partial ? `${members.length} of ${fleet} shown` : `${members.length} agent${members.length !== 1 ? 's' : ''}`}
+          {' · '}{members.filter((m) => m.is_online).length} online
+        </span>
+        {partial && onShowGroup && tag !== activeTag && (
+          <button
+            type="button"
+            onClick={() => onShowGroup(tag)}
+            className="ml-2 font-mono text-[11px] text-muted underline-offset-2 transition-colors hover:text-accent hover:underline"
+          >
+            show all {fleet}
+          </button>
+        )}
+      </>
+    );
+  };
 
   // Radix portals the menu to <body>, so the table's overflow wrapper can't clip it.
   const renderActionsMenu = (agent: AgentSummary) => (
@@ -179,7 +213,7 @@ export default function AgentList({
         </button>
         <span className="text-[11px] text-faint">{agent.os} · {agent.arch}</span>
       </TableCell>
-      <TableCell className="max-w-56">{renderTags(agent)}</TableCell>
+      <TableCell className="min-w-44 max-w-64">{renderTags(agent)}</TableCell>
       <TableCell>
         {agent.health_score != null ? (
           <div className="flex items-center gap-2">
@@ -292,10 +326,7 @@ export default function AgentList({
           groups.map(([tag, members]) => (
             <Fragment key={tag}>
               <div className="bg-raised px-3 py-1.5">
-                <span className="font-mono text-[11px] text-accent">{tag}</span>
-                <span className="ml-2 font-mono text-[11px] text-faint">
-                  · {members.length} agent{members.length !== 1 ? 's' : ''} · {members.filter((m) => m.is_online).length} online
-                </span>
+                {renderGroupHeader(tag, members)}
               </div>
               {members.map(renderAgentCard)}
             </Fragment>
@@ -336,10 +367,7 @@ export default function AgentList({
               <Fragment key={tag}>
                 <TableRow className="bg-raised hover:bg-raised">
                   <TableCell colSpan={9} className="py-1.5">
-                    <span className="font-mono text-[11px] text-accent">{tag}</span>
-                    <span className="ml-2 font-mono text-[11px] text-faint">
-                      · {members.length} agent{members.length !== 1 ? 's' : ''} · {members.filter((m) => m.is_online).length} online
-                    </span>
+                    {renderGroupHeader(tag, members)}
                   </TableCell>
                 </TableRow>
                 {members.map(renderAgentRow)}
