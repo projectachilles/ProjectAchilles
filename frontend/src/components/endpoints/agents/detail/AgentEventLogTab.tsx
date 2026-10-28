@@ -7,6 +7,7 @@ import { RefreshCw, Wifi, WifiOff, Power, Download, HelpCircle, Server, Clock, S
 import { Card, CardContent } from '@/components/shared/ui/Card';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
+import { pillClass } from '@/components/shared/ui/pillStyles';
 import { Loading } from '@/components/shared/ui/Spinner';
 import { agentApi } from '@/services/api/agent';
 import type { AgentEvent, AgentEventType } from '@/types/agent';
@@ -194,22 +195,24 @@ export default function AgentEventLogTab({ agentId }: AgentEventLogTabProps) {
     <div className="mt-4 space-y-4">
       {/* Filter Chips */}
       <div className="flex flex-wrap gap-2">
-        <Button
-          variant={filterType === undefined ? 'primary' : 'outline'}
-          size="sm"
+        <button
+          type="button"
+          aria-pressed={filterType === undefined}
+          className={pillClass(filterType === undefined)}
           onClick={() => setFilterType(undefined)}
         >
           All
-        </Button>
+        </button>
         {ALL_EVENT_TYPES.map(type => (
-          <Button
+          <button
             key={type}
-            variant={filterType === type ? 'primary' : 'outline'}
-            size="sm"
+            type="button"
+            aria-pressed={filterType === type}
+            className={pillClass(filterType === type)}
             onClick={() => setFilterType(type)}
           >
             {EVENT_TYPE_LABELS[type]}
-          </Button>
+          </button>
         ))}
       </div>
 

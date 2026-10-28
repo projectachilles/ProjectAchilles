@@ -54,7 +54,7 @@ describe('ExecutionConfig Once timing', () => {
   function renderOnce(randomizeMode: 'fixed' | 'fleet' | 'per_machine', allowRandomizedOnce?: boolean) {
     const onChange = vi.fn();
     renderConfig({ config: { ...baseConfig, scheduleType: 'once', randomizeMode }, onChange, allowRandomizedOnce });
-    fireEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Schedule' }));
     return onChange;
   }
 

@@ -44,7 +44,7 @@ async function openOnceSchedule() {
   const search = await screen.findByPlaceholderText('Search tests...');
   fireEvent.focus(search);
   await userEvent.click(await screen.findByText('Test A'));
-  await userEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+  await userEvent.click(screen.getByRole('tab', { name: 'Schedule' }));
   await userEvent.click(screen.getByRole('button', { name: 'once' }));
   return view;
 }

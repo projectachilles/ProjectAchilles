@@ -86,7 +86,7 @@ describe('CampaignsPage', () => {
     const user = userEvent.setup();
     setup();
     await screen.findByText('CIS Baseline');
-    await user.click(screen.getByRole('button', { name: 'All runs' }));
+    await user.click(screen.getByRole('tab', { name: 'All runs' }));
     const list = await screen.findByRole('list', { name: 'All runs' });
     expect(campaignsApi.listAllRuns).toHaveBeenCalledWith({ limit: 25, offset: 0 });
     const rows = within(list).getAllByRole('listitem');
@@ -106,7 +106,7 @@ describe('CampaignsPage', () => {
     const user = userEvent.setup();
     setup();
     await screen.findByText('CIS Baseline');
-    await user.click(screen.getByRole('button', { name: 'All runs' }));
+    await user.click(screen.getByRole('tab', { name: 'All runs' }));
     const list = await screen.findByRole('list', { name: 'All runs' });
     await user.click(screen.getByRole('button', { name: 'Show more runs' }));
     await waitFor(() => expect(within(list).getAllByRole('listitem')).toHaveLength(2));
