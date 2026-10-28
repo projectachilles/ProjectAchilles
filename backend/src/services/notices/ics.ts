@@ -33,7 +33,7 @@ function fold(line: string): string[] {
   return out;
 }
 
-export function buildIcs(e: {
+type IcsEvent = {
   uid: string;
   sequence: number;
   start: Date;
@@ -41,23 +41,31 @@ export function buildIcs(e: {
   summary: string;
   description: string;
   stamp: Date;
-}): string {
+};
+
+export function buildIcsEvents(events: IcsEvent[]): string {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//ProjectAchilles//Pre-Execution Notice//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
-    'BEGIN:VEVENT',
-    `UID:${escapeText(e.uid)}`,
-    `SEQUENCE:${e.sequence}`,
-    `DTSTAMP:${utc(e.stamp)}`,
-    `DTSTART:${utc(e.start)}`,
-    `DTEND:${utc(e.end)}`,
-    `SUMMARY:${escapeText(e.summary)}`,
-    `DESCRIPTION:${escapeText(e.description)}`,
-    'END:VEVENT',
+    ...events.flatMap((e) => [
+      'BEGIN:VEVENT',
+      `UID:${escapeText(e.uid)}`,
+      `SEQUENCE:${e.sequence}`,
+      `DTSTAMP:${utc(e.stamp)}`,
+      `DTSTART:${utc(e.start)}`,
+      `DTEND:${utc(e.end)}`,
+      `SUMMARY:${escapeText(e.summary)}`,
+      `DESCRIPTION:${escapeText(e.description)}`,
+      'END:VEVENT',
+    ]),
     'END:VCALENDAR',
   ];
   return lines.flatMap(fold).map((l) => `${l}\r\n`).join('');
+}
+
+export function buildIcs(e: IcsEvent): string {
+  return buildIcsEvents([e]);
 }

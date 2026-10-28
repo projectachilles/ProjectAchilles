@@ -745,6 +745,7 @@ describe('pre-execution notice sweeps', () => {
         pendingOverdue: 1,
         notDeliveredLast7d: 1,
         smtpCheck: { ok: true, at: NOW.toISOString(), message: 'ok' },
+        digests: [],
       });
     });
 
@@ -759,6 +760,7 @@ describe('pre-execution notice sweeps', () => {
         pendingOverdue: 1,
         notDeliveredLast7d: 1,
         smtpCheck: { ok: null, at: null, message: null },
+        digests: [],
       });
     });
 

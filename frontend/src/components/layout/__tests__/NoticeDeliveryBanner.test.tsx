@@ -18,6 +18,7 @@ const status = (over: Record<string, unknown> = {}) => ({
   pendingOverdue: 0,
   notDeliveredLast7d: 0,
   smtpCheck: { ok: true, at: null, message: null },
+  digests: [],
   ...over,
 });
 

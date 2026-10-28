@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle, Send } from 'lucide-react';
 import { noticesApi } from '@/services/api/notices';
-import type { NoticeTestResult } from '@/services/api/notices';
+import type { NoticeDigestStatus, NoticeTestResult } from '@/services/api/notices';
 import { Input } from '@/components/shared/ui/Input';
 import { Button } from '@/components/shared/ui/Button';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Spinner } from '@/components/shared/ui/Spinner';
+import { COMMON_TIMEZONES } from '@/lib/timezones';
 import { HeldNoticesPanel } from './HeldNoticesPanel';
 
 interface PreExecutionNoticesConfigProps {
@@ -19,6 +20,46 @@ const parseRecipients = (raw: string): string[] =>
 const numberField = <K extends string>(key: K, raw: string): Partial<Record<K, number>> =>
   raw.trim() === '' ? {} : ({ [key]: Number(raw) } as Record<K, number>);
 
+const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+const digestLine = (d: NoticeDigestStatus): string | null => {
+  switch (d.state) {
+    case 'sent':
+      return (
+        `Last digest ${d.digestDate}: sent to ${plural(d.recipientCount, 'recipient')} ` +
+        `(${plural(d.occurrenceCount, 'run')} on ${plural(d.hostCount, 'host')})` +
+        (d.lastError ? ` — ${d.lastError}` : '')
+      );
+    case 'empty':
+      return `Last digest ${d.digestDate}: nothing scheduled for ${d.runDate}`;
+    case 'failed':
+      return `Last digest ${d.digestDate}: not sent (${d.lastError ?? 'unknown error'})`;
+    default:
+      return null;
+  }
+};
+
+const browserTimezone = (): string | null => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+};
+
+/** Every selectable zone: the full IANA list when the browser has it, else the common ones plus the browser's and the saved zone. */
+const timezoneOptions = (current: string): string[] => {
+  const supported = (Intl as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf;
+  let all: string[] | null = null;
+  try {
+    all = supported ? supported('timeZone') : null;
+  } catch {
+    all = null;
+  }
+  const base = all && all.length > 0 ? ['UTC', ...all] : [...COMMON_TIMEZONES, browserTimezone()];
+  return [...new Set([...base, current].filter((z): z is string => Boolean(z)))];
+};
+
 export function PreExecutionNoticesConfig({ onStatusChange }: PreExecutionNoticesConfigProps) {
   const [enabled, setEnabled] = useState(false);
   const [recipients, setRecipients] = useState('');
@@ -26,6 +67,10 @@ export function PreExecutionNoticesConfig({ onStatusChange }: PreExecutionNotice
   const [maxWait, setMaxWait] = useState('60');
   const [pickupWindow, setPickupWindow] = useState('120');
   const [sendFinished, setSendFinished] = useState(true);
+  const [digestEnabled, setDigestEnabled] = useState(false);
+  const [digestTimezone, setDigestTimezone] = useState('UTC');
+  const [digestNeverSaved, setDigestNeverSaved] = useState(false);
+  const [digests, setDigests] = useState<NoticeDigestStatus[]>([]);
   const [smtpConfigured, setSmtpConfigured] = useState(false);
   const [lastCheck, setLastCheck] = useState<{ at?: string; ok?: boolean; message?: string } | null>(null);
 
@@ -46,6 +91,9 @@ export function PreExecutionNoticesConfig({ onStatusChange }: PreExecutionNotice
         setMaxWait(String(s.max_wait_minutes));
         setPickupWindow(String(s.pickup_window_minutes));
         setSendFinished(s.send_finished);
+        setDigestEnabled(s.advance_digest_enabled ?? false);
+        setDigestTimezone(s.digest_timezone ?? 'UTC');
+        setDigestNeverSaved(!s.advance_digest_enabled && (s.digest_timezone ?? 'UTC') === 'UTC');
         setSmtpConfigured(s.smtp_configured);
         if (s.last_smtp_check_at) {
           setLastCheck({ at: s.last_smtp_check_at, ok: s.last_smtp_check_ok, message: s.last_smtp_check_message });
@@ -54,6 +102,10 @@ export function PreExecutionNoticesConfig({ onStatusChange }: PreExecutionNotice
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load settings'))
       .finally(() => setLoading(false));
+    Promise.resolve()
+      .then(() => noticesApi.getStatus())
+      .then((st) => setDigests(st?.digests ?? []))
+      .catch(() => setDigests([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -69,7 +121,10 @@ export function PreExecutionNoticesConfig({ onStatusChange }: PreExecutionNotice
         ...numberField('max_wait_minutes', maxWait),
         ...numberField('pickup_window_minutes', pickupWindow),
         send_finished: sendFinished,
+        advance_digest_enabled: digestEnabled,
+        digest_timezone: digestTimezone,
       });
+      setDigestNeverSaved(false);
       setSmtpConfigured(saved.smtp_configured);
       // Show what the server kept for any field that was left empty.
       setLeadMinutes(String(saved.lead_minutes));
@@ -96,6 +151,20 @@ export function PreExecutionNoticesConfig({ onStatusChange }: PreExecutionNotice
       setTesting(false);
     }
   };
+
+  const handleDigestToggle = (checked: boolean) => {
+    setDigestEnabled(checked);
+    if (checked && digestNeverSaved) {
+      const tz = browserTimezone();
+      if (tz) setDigestTimezone(tz);
+    }
+  };
+
+  const digestLines = digests
+    .map((d) => ({ orgId: d.orgId, text: digestLine(d) }))
+    .filter((l): l is { orgId: string; text: string } => l.text !== null);
+  const showDigestStatus =
+    digestLines.length > 0 && (digestEnabled || digests.some((d) => d.state === 'failed'));
 
   if (loading) {
     return (
@@ -191,6 +260,45 @@ export function PreExecutionNoticesConfig({ onStatusChange }: PreExecutionNotice
           />
           Send a finished email when the run completes
         </label>
+
+        <div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={digestEnabled}
+              disabled={!enabled}
+              onChange={(e) => handleDigestToggle(e.target.checked)}
+              className="rounded border-border"
+            />
+            Send a daily advance digest at 09:00 listing tomorrow's scheduled tests
+          </label>
+          {!enabled && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Turn on pre-execution notices to use the digest.
+            </p>
+          )}
+        </div>
+
+        {digestEnabled && (
+          <div>
+            <label htmlFor="digest-timezone" className="block text-sm font-medium mb-1.5 text-foreground">
+              Digest timezone
+            </label>
+            <select
+              id="digest-timezone"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+              value={digestTimezone}
+              onChange={(e) => {
+                setDigestTimezone(e.target.value);
+                setDigestNeverSaved(false);
+              }}
+            >
+              {timezoneOptions(digestTimezone).map((tz) => (
+                <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {lastCheck && (
@@ -199,6 +307,17 @@ export function PreExecutionNoticesConfig({ onStatusChange }: PreExecutionNotice
           {lastCheck.at ? ` at ${new Date(lastCheck.at).toLocaleString()}` : ''}
           {lastCheck.message ? ` — ${lastCheck.message}` : ''}
         </p>
+      )}
+
+      {showDigestStatus && (
+        <div className="space-y-0.5">
+          {digestLines.map((l) => (
+            <p key={l.orgId} className="text-sm text-muted-foreground">
+              {digestLines.length > 1 ? `${l.orgId}: ` : ''}
+              {l.text}
+            </p>
+          ))}
+        </div>
       )}
 
       {testResult && (

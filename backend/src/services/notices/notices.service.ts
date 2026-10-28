@@ -9,7 +9,7 @@
  */
 import crypto from 'crypto';
 import { getDatabase } from '../agent/database.js';
-import { randomWindowForDate, todayInTimezone } from '../agent/scheduleTime.js';
+import { randomWindowForDate, safeTimezone, todayInTimezone } from '../agent/scheduleTime.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { sendMail, testEmailConnection } from '../alerts/email.service.js';
 import type { OutgoingMail } from '../alerts/email.service.js';
@@ -22,6 +22,8 @@ import { MAX_INLINE_HOSTS, buildFinishedEmail, buildHostsCsv, buildNoticeEmail, 
 import type { FinishedEmailData, NoticeEmailData } from './render.js';
 import { computeDayRelease, computeRunRelease, runTag } from './window.js';
 import * as repo from './notices.repo.js';
+import { latestDigests } from './digest.repo.js';
+import type { DigestState } from './digest.repo.js';
 import { resolveUserLabel } from './userLabel.js';
 import { getTestMetadata } from '../agent/test-catalog.service.js';
 import { fetchEdrDocs } from '../outcomes/edr.js';
@@ -83,16 +85,7 @@ function noticeSettings(n: Pick<NoticeRow, 'org_id'>): IntegrationsSettingsServi
   return settingsFor(n.org_id);
 }
 
-/** A valid IANA timezone, or 'UTC' when `tz` is missing or invalid. */
-export function safeTimezone(tz: string | null | undefined): string {
-  if (!tz) return 'UTC';
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(0);
-    return tz;
-  } catch {
-    return 'UTC';
-  }
-}
+export { safeTimezone };
 
 function serverTimezone(): string {
   return safeTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -116,7 +109,7 @@ function parseTimestamp(s: string | null | undefined): number | null {
   return Number.isNaN(ms) ? null : ms;
 }
 
-function isOnline(lastHeartbeat: string | null, now: Date): boolean {
+export function isOnline(lastHeartbeat: string | null, now: Date): boolean {
   const ms = parseTimestamp(lastHeartbeat);
   return ms !== null && now.getTime() - ms <= ONLINE_THRESHOLD_MS;
 }
@@ -417,7 +410,7 @@ function triggerText(n: NoticeRow, user: string = n.created_by): string {
  * a bundle's control count from its last completed run, "bundle" before it
  * has run, or a dash when the test is no longer in the library.
  */
-function stagesText(testUuid: string, orgId: string | null): string {
+export function stagesText(testUuid: string, orgId: string | null): string {
   const meta = getTestMetadata(testUuid);
   if (!meta) return '—';
   if (meta.category === 'cyber-hygiene') {
@@ -1061,6 +1054,30 @@ export interface NoticeStatus {
   pendingOverdue: number;
   notDeliveredLast7d: number;
   smtpCheck: { ok: boolean | null; at: string | null; message: string | null };
+  /** Latest advance digest per org in scope, last 7 days. Always present. */
+  digests: Array<{
+    orgId: string;
+    digestDate: string;
+    runDate: string;
+    state: DigestState;
+    occurrenceCount: number;
+    hostCount: number;
+    recipientCount: number;
+    sentAt: string | null;
+    lastError: string | null;
+  }>;
+}
+
+const DIGEST_LOOKBACK_DAYS = 7;
+
+function recipientCountOf(json: string | null): number {
+  if (!json) return 0;
+  try {
+    const parsed: unknown = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed.length : 0;
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -1069,7 +1086,19 @@ export interface NoticeStatus {
  */
 export function getNoticeStatus(scope: NoticeScope, now: Date = new Date()): NoticeStatus {
   const s = settingsFor(scope.kind === 'org' ? scope.orgId : null).getPreExecutionNoticeSettings();
+  const sinceDate = new Date(now.getTime() - DIGEST_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   return {
+    digests: latestDigests(scope, sinceDate).map((d) => ({
+      orgId: d.org_id,
+      digestDate: d.digest_date,
+      runDate: d.run_date,
+      state: d.state,
+      occurrenceCount: d.occurrence_count,
+      hostCount: d.host_count,
+      recipientCount: recipientCountOf(d.recipients),
+      sentAt: d.sent_at,
+      lastError: d.last_error,
+    })),
     // Existing notices still matter after notices are turned off.
     pendingOverdue: repo.countPendingCreatedBefore(new Date(now.getTime() - PENDING_OVERDUE_MS).toISOString(), scope),
     notDeliveredLast7d: repo.countNotDeliveredSince(new Date(now.getTime() - NOT_DELIVERED_LOOKBACK_MS).toISOString(), scope),

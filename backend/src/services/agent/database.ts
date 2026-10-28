@@ -212,6 +212,25 @@ export function initializeTables(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_run_notices_state ON run_notices(state);
 
+    CREATE TABLE IF NOT EXISTS notice_digests (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      digest_date TEXT NOT NULL,
+      run_date TEXT NOT NULL,
+      timezone TEXT NOT NULL,
+      state TEXT NOT NULL CHECK(state IN ('sending','sent','failed','empty')),
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      occurrence_count INTEGER NOT NULL DEFAULT 0,
+      host_count INTEGER NOT NULL DEFAULT 0,
+      recipients TEXT,
+      created_at TEXT NOT NULL,
+      sent_at TEXT,
+      claim_at TEXT,
+      last_attempt_at TEXT,
+      UNIQUE(org_id, digest_date)
+    );
+
     CREATE TABLE IF NOT EXISTS campaigns (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL,

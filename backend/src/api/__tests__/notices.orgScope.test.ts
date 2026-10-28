@@ -38,6 +38,7 @@ vi.mock('../../middleware/clerk.middleware.js', async () => {
   return {
     requireClerkAuth: () => (req: any, _res: any, next: any) => { req.auth = currentAuth; next(); },
     requirePermission: () => (_req: any, _res: any, next: any) => next(),
+    hasRequestPermission: () => true,
     getUserId: (auth: any) => auth?.userId,
     getUserOrgId,
     validateRequestOrgId: (reqOrgId: string, auth: any) => {
@@ -238,6 +239,52 @@ describe('1. POST /api/notices/:id/release is org-scoped', () => {
     const res = await release('n-b');
     expect(res.status).toBe(403);
     expect(stateOf('n-b')).toBe('pending');
+  });
+});
+
+describe('2b. GET /api/notices/status reports advance digests', () => {
+  const day = (offset: number) => new Date(Date.now() - offset * 24 * 3600_000).toISOString().slice(0, 10);
+  function insertDigest(orgId: string, digestDate: string, over: Record<string, unknown> = {}) {
+    testDb.prepare(`INSERT INTO notice_digests
+      (id, org_id, digest_date, run_date, timezone, state, attempts, last_error, occurrence_count, host_count, recipients, created_at, sent_at)
+      VALUES (?, ?, ?, ?, 'UTC', ?, 1, ?, ?, ?, ?, ?, ?)`).run(
+      `${orgId}-${digestDate}`, orgId, digestDate, digestDate,
+      over.state ?? 'sent', over.lastError ?? null, over.occ ?? 3, over.hosts ?? 2,
+      'recipients' in over ? over.recipients : JSON.stringify(['x@a.test', 'y@a.test']), new Date().toISOString(), 'sentAt' in over ? over.sentAt : new Date().toISOString(),
+    );
+  }
+  beforeEach(() => {
+    insertDigest(ORG_A, day(0));
+    insertDigest(ORG_B, day(1), { state: 'failed', lastError: 'smtp down', recipients: null, sentAt: null });
+  });
+
+  it('an org caller gets only its own digest', async () => {
+    asOrg(ORG_A);
+    const res = await request(app()).get('/api/notices/status');
+    expect(res.body.data.digests).toEqual([
+      expect.objectContaining({ orgId: ORG_A, digestDate: day(0), state: 'sent', occurrenceCount: 3, hostCount: 2, recipientCount: 2, lastError: null }),
+    ]);
+  });
+
+  it('a no-org caller gets every org, with failed rows and 0 recipients', async () => {
+    asNoOrg();
+    const res = await request(app()).get('/api/notices/status');
+    expect(res.body.data.digests.map((d: { orgId: string }) => d.orgId)).toEqual([ORG_A, ORG_B]);
+    expect(res.body.data.digests[1]).toMatchObject({ state: 'failed', lastError: 'smtp down', recipientCount: 0, sentAt: null });
+  });
+
+  it('a no-org caller still gets 403 under REQUIRE_ORG_ISOLATION=true', async () => {
+    process.env.REQUIRE_ORG_ISOLATION = 'true';
+    asNoOrg();
+    expect((await request(app()).get('/api/notices/status')).status).toBe(403);
+  });
+
+  it('digests older than 7 days are not returned; the array is still present', async () => {
+    insertDigest('org_old', day(8));
+    asOrg('org_old');
+    const res = await request(app()).get('/api/notices/status');
+    expect(res.status).toBe(200);
+    expect(res.body.data.digests).toEqual([]);
   });
 });
 

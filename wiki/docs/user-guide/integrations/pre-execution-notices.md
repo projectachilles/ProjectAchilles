@@ -50,6 +50,26 @@ A command runs immediately as root/SYSTEM on the host, and no email is sent. Com
 - **Per-machine (randomized) schedules:** one notice **per schedule per day**, in the schedule's timezone. It covers the day's randomization window (for example 09:00 to 17:00), and each machine runs at its own random time inside it. Machines that come due later the same day join the notice that was already sent, so they do not wait again. A machine that comes due too late to fit the announced window (fewer than 10 minutes left before it closes, or after a backend restart once it has closed) does not silently join it. Its run is announced in a separate email instead, with the normal lead time and pickup window. That one email also covers every other machine of the schedule still due before the window closes, so a busy window end sends one extra email, not one per minute. Those machines may start up to about 10 minutes before their own random time, but never before the email is accepted. Their results arrive in that separate email's Finished message, not the day notice's. Runs caught up after a restart may happen outside the day window.
 - **Automatic retries** (after an agent drops or a task times out) belong to the same announced run. They do not send another email.
 
+## Advance digest
+
+The advance digest is an optional daily heads-up. Each day at 09:00 in the **digest timezone**, ProjectAchilles emails your notice recipients a list of the scheduled tests that start **tomorrow**, so the SOC knows a day ahead. It is off by default and needs pre-execution notices to be on.
+
+To turn it on, open **Settings → Integrations → Pre-execution notices**, tick **Send a daily advance digest at 09:00 listing tomorrow's scheduled tests** and pick the **Digest timezone**. The first time you tick it, the timezone is set to your browser's. The digest goes to the same recipients and uses the same SMTP settings as the notices, and each organization gets its own digest.
+
+The email lists each run with its test, the hosts and the window in which hosts can start the test. The window follows the same rules as the notice on the day: it opens after the notice lead time and closes when the pickup window ends, so a 10:00 schedule with a 5-minute lead and a 120-minute pickup window shows 10:05 to 12:05. If the mail server is slow on the day, the run's window moves later by the same amount, and a test started near the end may still be running after it. For a randomized schedule the email shows the day's window, never the exact random time of each machine. Fixed-time and randomized schedules are covered. Run Now, retries and campaign runs are not scheduled ahead, so they are not in the digest. Schedules with no remaining (non-decommissioned) endpoints are left out. A link to the Tasks page is included, and a calendar file (`.ics`) with one event per run window is attached.
+
+:::note[The day's notice is authoritative]
+The digest is only a heads-up. It never holds tests, and a failed digest never delays a run. If a schedule changes after 09:00, no correction email is sent: the regular notice sent on the day lists what actually runs. Because of this, the calendar shows two entries for the same run, one from the digest and one from the day's notice.
+:::
+
+- **Nothing scheduled:** if no run is due tomorrow, no email is sent.
+- **Late send:** the digest goes out at or after 09:00 in the digest timezone. If the backend was down at 09:00, it is sent later the same day. If the backend was down all day, that day's digest is skipped.
+- **Delivery failures:** a failed send is retried with backoff (1, 2, 4 and 8 minutes, then every 15 minutes) until the day ends. The failure appears only on the Settings card, as "Last digest *date*: not sent" with the error. There is no Slack message and no banner.
+- **Partial delivery:** if some recipients are rejected but at least one accepts, the digest counts as sent and the rejected addresses are noted on the card.
+- **Changing the timezone:** the day is counted in the digest timezone. If you change it after today's digest has gone out, a second digest can be sent on the same calendar day.
+
+The card shows the latest digest result: sent (recipients, runs and hosts), nothing scheduled, or not sent. The digest is backend-only, like the notices.
+
 ## What the email contains
 
 The subject looks like `[ProjectAchilles] Security testing starts 2026-10-23 09:05 AST (13:05 UTC) — 3 tests on 12 hosts`. When the timezone is UTC, the time is shown once: `2026-10-23 13:05 UTC`.

@@ -10,6 +10,8 @@ export interface NoticeSettings {
   max_wait_minutes: number;
   pickup_window_minutes: number;
   send_finished: boolean;
+  advance_digest_enabled: boolean;
+  digest_timezone: string;
   last_smtp_check_at?: string;
   last_smtp_check_ok?: boolean;
   last_smtp_check_message?: string;
@@ -25,10 +27,23 @@ export interface NoticeTestResult {
   fully_accepted: boolean;
 }
 
+export interface NoticeDigestStatus {
+  orgId: string;
+  digestDate: string;
+  runDate: string;
+  state: 'sending' | 'sent' | 'failed' | 'empty';
+  occurrenceCount: number;
+  hostCount: number;
+  recipientCount: number;
+  sentAt: string | null;
+  lastError: string | null;
+}
+
 export interface NoticeStatus {
   pendingOverdue: number;
   notDeliveredLast7d: number;
   smtpCheck: { ok: boolean | null; at: string | null; message: string | null };
+  digests: NoticeDigestStatus[];
 }
 
 /** A notice from GET /notices, with its run tag and number of held (pending) tasks. */

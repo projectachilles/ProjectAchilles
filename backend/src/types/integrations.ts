@@ -177,6 +177,10 @@ export interface PreExecutionNoticeSettings {
   /** Minutes after release that hosts have to pick up tasks (30-1440). */
   pickup_window_minutes: number;
   send_finished: boolean;
+  /** Daily 09:00 email listing tomorrow's scheduled tests. Inactive unless `enabled` is also true. */
+  advance_digest_enabled: boolean;
+  /** IANA timezone the 09:00 digest and "tomorrow" are evaluated in. */
+  digest_timezone: string;
   last_smtp_check_at?: string;
   last_smtp_check_ok?: boolean;
   last_smtp_check_message?: string;

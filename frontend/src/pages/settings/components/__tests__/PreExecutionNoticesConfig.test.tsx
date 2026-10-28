@@ -8,6 +8,7 @@ vi.mock('@/services/api/notices', () => ({
     saveSettings: vi.fn(),
     sendTest: vi.fn(),
     listPending: vi.fn().mockResolvedValue([]),
+    getStatus: vi.fn(),
   },
 }));
 
@@ -21,11 +22,19 @@ const base = {
   max_wait_minutes: 60,
   pickup_window_minutes: 120,
   send_finished: true,
+  advance_digest_enabled: false,
+  digest_timezone: 'UTC',
   smtp_configured: true,
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(noticesApi.getStatus).mockResolvedValue({
+    pendingOverdue: 0,
+    notDeliveredLast7d: 0,
+    smtpCheck: { ok: null, at: null, message: null },
+    digests: [],
+  });
 });
 
 describe('PreExecutionNoticesConfig', () => {
@@ -92,5 +101,106 @@ describe('PreExecutionNoticesConfig', () => {
     });
     render(<PreExecutionNoticesConfig />);
     expect(await screen.findByText(/connection refused/)).toBeInTheDocument();
+  });
+
+  describe('advance digest', () => {
+    const digestLabel = /send a daily advance digest/i;
+
+    it('is unchecked from settings and disabled while notices are off', async () => {
+      vi.mocked(noticesApi.getSettings).mockResolvedValue(base);
+      render(<PreExecutionNoticesConfig />);
+      const box = await screen.findByLabelText(digestLabel);
+      expect(box).not.toBeChecked();
+      expect(box).toBeDisabled();
+      expect(screen.getByText('Turn on pre-execution notices to use the digest.')).toBeInTheDocument();
+    });
+
+    it('pre-fills the browser timezone on first enable and saves it', async () => {
+      const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(
+        () => ({ resolvedOptions: () => ({ timeZone: 'America/Santo_Domingo' }) }) as unknown as Intl.DateTimeFormat,
+      );
+      vi.mocked(noticesApi.getSettings).mockResolvedValue({ ...base, enabled: true, recipients: ['a@x.io'] });
+      vi.mocked(noticesApi.saveSettings).mockResolvedValue({ ...base, enabled: true, recipients: ['a@x.io'] });
+      render(<PreExecutionNoticesConfig />);
+      await userEvent.click(await screen.findByLabelText(digestLabel));
+      expect(screen.getByLabelText(/digest timezone/i)).toHaveValue('America/Santo_Domingo');
+      await userEvent.click(screen.getByRole('button', { name: /save/i }));
+      await waitFor(() => expect(noticesApi.saveSettings).toHaveBeenCalled());
+      const body = vi.mocked(noticesApi.saveSettings).mock.calls[0][0];
+      expect(body.advance_digest_enabled).toBe(true);
+      expect(body.digest_timezone).toBe('America/Santo_Domingo');
+      spy.mockRestore();
+    });
+
+    it('shows the failed digest line', async () => {
+      vi.mocked(noticesApi.getSettings).mockResolvedValue(base);
+      vi.mocked(noticesApi.getStatus).mockResolvedValue({
+        pendingOverdue: 0,
+        notDeliveredLast7d: 0,
+        smtpCheck: { ok: null, at: null, message: null },
+        digests: [
+          {
+            orgId: 'org_1', digestDate: '2026-10-27', runDate: '2026-10-28', state: 'failed',
+            occurrenceCount: 0, hostCount: 0, recipientCount: 0, sentAt: null,
+            lastError: 'SMTP email is not configured',
+          },
+        ],
+      });
+      render(<PreExecutionNoticesConfig />);
+      expect(
+        await screen.findByText('Last digest 2026-10-27: not sent (SMTP email is not configured)'),
+      ).toBeInTheDocument();
+    });
+
+    it('shows the rejected recipients on a sent digest line, with singular counts', async () => {
+      vi.mocked(noticesApi.getSettings).mockResolvedValue({ ...base, enabled: true, advance_digest_enabled: true });
+      vi.mocked(noticesApi.getStatus).mockResolvedValue({
+        pendingOverdue: 0,
+        notDeliveredLast7d: 0,
+        smtpCheck: { ok: null, at: null, message: null },
+        digests: [
+          {
+            orgId: 'org_1', digestDate: '2026-10-27', runDate: '2026-10-28', state: 'sent',
+            occurrenceCount: 1, hostCount: 1, recipientCount: 1, sentAt: '2026-10-27T13:00:00.000Z',
+            lastError: 'rejected: b@x.com',
+          },
+        ],
+      });
+      render(<PreExecutionNoticesConfig />);
+      expect(
+        await screen.findByText(
+          'Last digest 2026-10-27: sent to 1 recipient (1 run on 1 host) — rejected: b@x.com',
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('offers the browser timezone after a different zone was saved, and keeps a deliberate pick', async () => {
+      const original = Object.getOwnPropertyDescriptor(Intl, 'supportedValuesOf');
+      const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(
+        () => ({ resolvedOptions: () => ({ timeZone: 'America/Santo_Domingo' }) }) as unknown as Intl.DateTimeFormat,
+      );
+      Object.defineProperty(Intl, 'supportedValuesOf', { value: undefined, configurable: true, writable: true });
+      try {
+        vi.mocked(noticesApi.getSettings).mockResolvedValue({
+          ...base, enabled: true, advance_digest_enabled: false, digest_timezone: 'UTC',
+        });
+        render(<PreExecutionNoticesConfig />);
+        const box = await screen.findByLabelText(digestLabel);
+        await userEvent.click(box); // prefill the browser zone
+        const select = screen.getByLabelText(/digest timezone/i);
+        expect(select).toHaveValue('America/Santo_Domingo');
+        await userEvent.selectOptions(select, 'Europe/Berlin');
+        await userEvent.click(box); // off
+        await userEvent.click(box); // on again
+        expect(screen.getByLabelText(/digest timezone/i)).toHaveValue('Europe/Berlin');
+        // browser zone is still selectable while another zone is current
+        await userEvent.selectOptions(screen.getByLabelText(/digest timezone/i), 'America/Santo_Domingo');
+        expect(screen.getByLabelText(/digest timezone/i)).toHaveValue('America/Santo_Domingo');
+      } finally {
+        spy.mockRestore();
+        if (original) Object.defineProperty(Intl, 'supportedValuesOf', original);
+        else delete (Intl as { supportedValuesOf?: unknown }).supportedValuesOf;
+      }
+    });
   });
 });

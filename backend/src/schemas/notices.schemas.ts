@@ -14,6 +14,8 @@ export const UpdateNoticeSettingsSchema = z.object({
   max_wait_minutes: z.number().int().optional(),
   pickup_window_minutes: z.number().int().optional(),
   send_finished: z.boolean().optional(),
+  advance_digest_enabled: z.boolean().optional(),
+  digest_timezone: z.string().trim().min(1).max(64).optional(),
 });
 
 export const ReleaseNoticeSchema = z.object({

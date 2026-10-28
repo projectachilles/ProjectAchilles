@@ -78,11 +78,13 @@ Settings and status for [pre-execution notices](../user-guide/integrations/pre-e
   "lead_minutes": 5,
   "max_wait_minutes": 60,
   "pickup_window_minutes": 120,
-  "send_finished": true
+  "send_finished": true,
+  "advance_digest_enabled": true,
+  "digest_timezone": "America/Santo_Domingo"
 }
 ```
 
-`lead_minutes` is clamped to 0 to 5, `max_wait_minutes` to 15 to 1440, and `pickup_window_minutes` to 30 to 1440. Recipients must be bare email addresses.
+`lead_minutes` is clamped to 0 to 5, `max_wait_minutes` to 15 to 1440, and `pickup_window_minutes` to 30 to 1440. Recipients must be bare email addresses. `advance_digest_enabled` (default `false`) turns on the daily [advance digest](../user-guide/integrations/pre-execution-notices#advance-digest), sent at 09:00 in `digest_timezone` (an IANA name, default `UTC`).
 
 **Test notice response (`POST /api/notices/settings/test`):**
 
@@ -100,6 +102,35 @@ Settings and status for [pre-execution notices](../user-guide/integrations/pre-e
 The grouped task list response (`GET /api/agent/admin/tasks/grouped`) adds a `notices` map (notice id to `run_tag`, `state`, `last_error`, `release_at`, `pickup_deadline`) on each batch group whose tasks are linked to notices. For a caller in an organization, the map only lists that organization's notices.
 
 `GET /api/notices/status` returns `smtpCheck` as `{ "ok": null, "at": null, "message": null }` while notices are disabled. `pendingOverdue` and `notDeliveredLast7d` are always counted.
+
+**Delivery details need `integrations:read`.** Both `GET /api/notices/status` and `GET /api/notices` are readable with `endpoints:tasks:read`. Recipient addresses and mail-server text are only returned to callers who also have `integrations:read`. Everyone else gets the same response with those details removed:
+- the list items have no `recipients` field;
+- `last_error` and `digests[].lastError` become a count such as `2 recipients rejected` or `1 recipient not accepted`, or `delivery failed`;
+- `smtpCheck.message` is `SMTP check failed` when the check failed, otherwise `null`.
+
+Counts and states are unchanged.
+
+The response also has a `digests` array, always present: the latest advance digest per organization in scope from the last 7 days.
+
+```json
+{
+  "digests": [
+    {
+      "orgId": "org_123",
+      "digestDate": "2026-10-27",
+      "runDate": "2026-10-28",
+      "state": "sent",
+      "occurrenceCount": 3,
+      "hostCount": 12,
+      "recipientCount": 2,
+      "sentAt": "2026-10-27T13:00:04.000Z",
+      "lastError": null
+    }
+  ]
+}
+```
+
+`digestDate` is the day the digest was sent and `runDate` the day it covers, both in the digest timezone. `state` is `sending`, `sent`, `empty` (nothing scheduled) or `failed`; `lastError` is set when a send failed or some recipients were rejected.
 
 ### Several tests under one notice
 

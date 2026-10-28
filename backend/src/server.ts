@@ -42,6 +42,7 @@ import riskAcceptanceRoutes from './api/risk-acceptance.routes.js';
 import noticesRoutes from './api/notices.routes.js';
 import campaignsRoutes from './api/campaigns.routes.js';
 import { processNotices } from './services/notices/notices.service.js';
+import { processAdvanceDigests } from './services/notices/digest.service.js';
 import reportsRoutes from './api/reports.routes.js';
 import cliAuthRoutes from './api/cli-auth.routes.js';
 import { acceptCliAuth } from './middleware/cliAuth.middleware.js';
@@ -430,10 +431,17 @@ function startBackgroundJobs(httpServer?: http.Server) {
   const noticeTick = () => {
     processNotices().catch((err: unknown) => console.error('[Notices] Tick failed:', err));
   };
+  // The advance digest runs beside the notice pass, never inside or after it:
+  // a slow digest send must not delay the pre-execution notice gate.
+  const digestTick = () => {
+    processAdvanceDigests().catch((err: unknown) => console.error('[Digest] Tick failed:', err));
+  };
   noticeTick();
+  digestTick();
   const schedulerInterval = setInterval(() => {
     processSchedules();
     noticeTick();
+    digestTick();
   }, 60_000);
 
   // --- Auto key rotation: check every 60s ---
