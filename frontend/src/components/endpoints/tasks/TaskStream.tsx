@@ -17,6 +17,7 @@ import { Loading } from '../../shared/ui/Spinner';
 import TaskStatusBadge from './TaskStatusBadge';
 import { cn } from '@/lib/utils';
 import { StreamRow } from '../../shared/ui/StreamRow';
+import { CopyButton } from '../../shared/ui/CopyButton';
 
 interface TaskStreamProps {
   groups: TaskGroup[];
@@ -101,9 +102,12 @@ function OutputBlock({
 }) {
   return (
     <div className="group">
-      <div className="mb-1 flex items-center justify-between">
+      <div className="mb-1 flex items-center justify-between gap-2">
         <span className="text-[10px] font-medium uppercase tracking-wider text-faint">{label}</span>
-        <Maximize2 className="h-3 w-3 text-faint opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
+        <span className="flex items-center gap-1">
+          <CopyButton text={text ?? ''} ariaLabel={`Copy ${label}`} disabled={!text} />
+          <Maximize2 className="h-3 w-3 text-faint opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
+        </span>
       </div>
       <pre
         role="button"
@@ -446,11 +450,18 @@ export default function TaskStream({
       {/* Expanded output viewer */}
       <Dialog open={outputView !== null} onOpenChange={(open) => !open && setOutputView(null)}>
         <DialogContent className="sm:max-w-4xl">
-          <DialogHeader>
-            <DialogTitle className="font-mono text-sm">
+          <DialogHeader className="flex-row items-center justify-between gap-3 pr-8">
+            <DialogTitle className="min-w-0 truncate font-mono text-sm">
               <span className="uppercase text-faint">{outputView?.label}</span>
               <span className="ml-2 font-sans text-foreground">{outputView?.task}</span>
             </DialogTitle>
+            <CopyButton
+              text={outputView?.text ?? ''}
+              label="Copy all"
+              variant="accent"
+              ariaLabel={`Copy all ${outputView?.label ?? 'output'}`}
+              disabled={!outputView?.text}
+            />
           </DialogHeader>
           <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background p-4 font-mono text-xs leading-relaxed">
             {outputView?.text || '(empty)'}
