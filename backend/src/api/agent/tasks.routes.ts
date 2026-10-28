@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
-import { getUserId, getUserOrgId, requirePermission, validateRequestOrgId } from '../../middleware/clerk.middleware.js';
+import { getUserId, getUserOrgId, hasRequestPermission, requirePermission, validateRequestOrgId } from '../../middleware/clerk.middleware.js';
 import {
   createTasks,
   createTasksBatch,
@@ -23,6 +23,7 @@ import {
   TerminalStateRejection,
 } from '../../services/agent/tasks.service.js';
 import { runWithNotice } from '../../services/notices/notices.service.js';
+import { redactNoticeSummaries } from '../../services/notices/redact.js';
 import { ingestResult } from '../../services/agent/results.service.js';
 import { retryPendingIngestions } from '../../services/agent/ingestionWorker.service.js';
 import { alertsService } from '../integrations.routes.js';
@@ -362,10 +363,15 @@ adminTasksRouter.get(
     const callerOrg = getUserOrgId(req.auth);
     const result = listTasksGrouped(filters, callerOrg ? { kind: 'org', orgId: callerOrg } : { kind: 'all' });
 
+    // Notice errors can name recipients (`not accepted: a@…`); only callers
+    // who can read the notice settings see them as-is.
+    const fullNoticeErrors = hasRequestPermission(req, 'integrations:read');
+
     // Strip env_vars from admin responses
     for (const group of result.groups) {
       group.tasks = group.tasks.map(sanitizeTaskForAdmin);
       group.payload = { ...group.payload, env_vars: undefined };
+      if (group.notices && !fullNoticeErrors) group.notices = redactNoticeSummaries(group.notices);
     }
 
     res.json({ success: true, data: result });

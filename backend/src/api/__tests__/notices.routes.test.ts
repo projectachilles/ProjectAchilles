@@ -477,6 +477,36 @@ describe('dispatch routes with the gate', () => {
       state: 'pending',
     });
   });
+
+  describe('grouped list notice errors need integrations:read', () => {
+    function seedFailedNotice() {
+      writeSettings({ notices: ENABLED });
+      insertTestAgent(testDb, { id: 'agent-001' });
+      insertTestTask(testDb, { id: 'task-1', batch_id: 'b1' });
+      testDb.prepare(`
+        INSERT INTO run_notices (id, kind, state, source_type, timezone, created_by, created_at, recipients, last_error)
+        VALUES ('abcdef12-0000-0000-0000-000000000000', 'run', 'pending', 'run_now', 'UTC', 'u1', ?,
+                '["a@corp.test","b@corp.test"]', 'not accepted: a@corp.test, b@corp.test')
+      `).run(new Date().toISOString());
+      testDb.prepare("UPDATE tasks SET notice_id = 'abcdef12-0000-0000-0000-000000000000' WHERE id = 'task-1'").run();
+    }
+    const notice = (res: request.Response) => res.body.data.groups[0].notices['abcdef12-0000-0000-0000-000000000000'];
+
+    it('keeps the raw error for a caller with integrations:read', async () => {
+      seedFailedNotice();
+      const res = await request(app()).get('/api/agent/admin/tasks/grouped');
+      expect(notice(res).last_error).toBe('not accepted: a@corp.test, b@corp.test');
+    });
+
+    it('reduces the error to a count for a caller without integrations:read', async () => {
+      seedFailedNotice();
+      deniedPermissions.add('integrations:read');
+      const res = await request(app()).get('/api/agent/admin/tasks/grouped');
+      expect(res.status).toBe(200);
+      expect(res.text).not.toContain('@corp.test');
+      expect(notice(res)).toMatchObject({ run_tag: 'PA-RUN-abcdef', state: 'pending', last_error: '2 recipients not accepted' });
+    });
+  });
 });
 
 describe('POST /api/agent/admin/tasks/batch', () => {

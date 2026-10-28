@@ -1,4 +1,5 @@
 import type { NoticeStatus } from './notices.service.js';
+import type { NoticeSummary } from './types.js';
 
 /*
  * The notice routes are readable with `endpoints:tasks:read` (analysts,
@@ -36,4 +37,11 @@ export function redactNoticeListItem<T extends { recipients?: unknown; last_erro
 ): Omit<T, 'recipients'> {
   const { recipients: _recipients, ...rest } = row;
   return { ...rest, last_error: redactDeliveryError(row.last_error) };
+}
+
+/** A grouped task list's notice map with each `last_error` redacted. */
+export function redactNoticeSummaries(notices: Record<string, NoticeSummary>): Record<string, NoticeSummary> {
+  return Object.fromEntries(
+    Object.entries(notices).map(([id, n]) => [id, { ...n, last_error: redactDeliveryError(n.last_error) }]),
+  );
 }
