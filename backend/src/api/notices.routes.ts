@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { Request } from 'express';
-import { requireClerkAuth, requirePermission, getUserId, getUserOrgId } from '../middleware/clerk.middleware.js';
+import { requireClerkAuth, requirePermission, hasRequestPermission, getUserId, getUserOrgId } from '../middleware/clerk.middleware.js';
 import { asyncHandler, AppError } from '../middleware/error.middleware.js';
 import { validate } from '../middleware/validation.js';
 import { IntegrationsSettingsService } from '../services/integrations/settings.js';
@@ -15,6 +15,7 @@ import {
   tasksUiUrl,
 } from '../services/notices/notices.service.js';
 import type { NoticeScope } from '../services/notices/notices.service.js';
+import { redactNoticeListItem, redactNoticeStatus } from '../services/notices/redact.js';
 import type { NoticeState } from '../services/notices/types.js';
 
 const NOTICE_STATES: NoticeState[] = ['pending', 'sent', 'not_delivered', 'overridden', 'skipped'];
@@ -62,6 +63,10 @@ const settingsService = (req: Request): IntegrationsSettingsService => {
 // Alerts UI never sends that flag, so it stays false after a UI save.
 const smtpConfigured = (svc: IntegrationsSettingsService): boolean =>
   isSmtpUsable(svc.getAlertSettings()?.email);
+
+// Status and list are readable with endpoints:tasks:read; recipient
+// addresses and raw SMTP text are only for callers who can read the settings.
+const canSeeDeliveryDetail = (req: Request): boolean => hasRequestPermission(req, 'integrations:read');
 
 router.get('/settings', requirePermission('integrations:read'), asyncHandler(async (req, res) => {
   const svc = settingsService(req);
@@ -133,7 +138,8 @@ router.post('/settings/test', requirePermission('integrations:write'), asyncHand
 }));
 
 router.get('/status', requirePermission('endpoints:tasks:read'), asyncHandler(async (req, res) => {
-  res.json({ success: true, data: getNoticeStatus(noticeScope(req)) });
+  const status = getNoticeStatus(noticeScope(req));
+  res.json({ success: true, data: canSeeDeliveryDetail(req) ? status : redactNoticeStatus(status) });
 }));
 
 router.get('/', requirePermission('endpoints:tasks:read'), asyncHandler(async (req, res) => {
@@ -147,7 +153,8 @@ router.get('/', requirePermission('endpoints:tasks:read'), asyncHandler(async (r
   if (state !== undefined && !NOTICE_STATES.includes(state as NoticeState)) {
     throw new AppError(`state must be one of ${NOTICE_STATES.join(', ')}`, 400);
   }
-  res.json({ success: true, data: listNotices(limit, offset, scope, state as NoticeState | undefined) });
+  const rows = listNotices(limit, offset, scope, state as NoticeState | undefined);
+  res.json({ success: true, data: canSeeDeliveryDetail(req) ? rows : rows.map(redactNoticeListItem) });
 }));
 
 router.post(

@@ -103,6 +103,13 @@ The grouped task list response (`GET /api/agent/admin/tasks/grouped`) adds a `no
 
 `GET /api/notices/status` returns `smtpCheck` as `{ "ok": null, "at": null, "message": null }` while notices are disabled. `pendingOverdue` and `notDeliveredLast7d` are always counted.
 
+**Delivery details need `integrations:read`.** Both `GET /api/notices/status` and `GET /api/notices` are readable with `endpoints:tasks:read`. Recipient addresses and mail-server text are only returned to callers who also have `integrations:read`. Everyone else gets the same response with those details removed:
+- the list items have no `recipients` field;
+- `last_error` and `digests[].lastError` become a count such as `2 recipients rejected` or `1 recipient not accepted`, or `delivery failed`;
+- `smtpCheck.message` is `SMTP check failed` when the check failed, otherwise `null`.
+
+Counts and states are unchanged.
+
 The response also has a `digests` array, always present: the latest advance digest per organization in scope from the last 7 days.
 
 ```json

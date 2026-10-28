@@ -33,6 +33,7 @@ vi.mock('../../middleware/clerk.middleware.js', () => ({
       : next(),
   getUserId: (auth: any) => auth?.userId,
   getUserOrgId: (auth: any) => auth?.orgId,
+  hasRequestPermission: (_req: any, ...permissions: string[]) => permissions.every((p) => !deniedPermissions.has(p)),
   validateRequestOrgId: () => undefined,
 }));
 
@@ -324,6 +325,52 @@ describe('GET /api/notices/status and list', () => {
     const all = await request(app()).get('/api/notices');
     expect(all.body.data).toHaveLength(2);
     expect((await request(app()).get('/api/notices?state=bogus')).status).toBe(400);
+  });
+});
+
+describe('delivery details need integrations:read', () => {
+  function seedFailures() {
+    writeSettings({
+      notices: {
+        enabled: true, recipients: ['soc@corp.test'],
+        last_smtp_check_ok: false, last_smtp_check_message: '535 auth failed for relay@corp.test',
+      },
+    });
+    testDb.prepare(`
+      INSERT INTO run_notices (id, kind, state, source_type, timezone, created_by, created_at, recipients, last_error)
+      VALUES ('n-1', 'run', 'pending', 'run_now', 'UTC', 'u1', '2026-10-23T10:00:00.000Z',
+              '["a@corp.test","b@corp.test"]', 'not accepted: b@corp.test')
+    `).run();
+    const today = new Date().toISOString().slice(0, 10);
+    testDb.prepare(`
+      INSERT INTO notice_digests (id, org_id, digest_date, run_date, timezone, state, last_error, recipients, created_at)
+      VALUES ('d-1', 'org-1', ?, ?, 'UTC', 'sent', 'rejected: a@corp.test, b@corp.test', '["a@corp.test","b@corp.test","c@corp.test"]', ?)
+    `).run(today, today, new Date().toISOString());
+  }
+
+  it('shows recipients and raw errors to a caller with integrations:read', async () => {
+    seedFailures();
+    const status = (await request(app()).get('/api/notices/status')).body.data;
+    expect(status.smtpCheck.message).toBe('535 auth failed for relay@corp.test');
+    expect(status.digests[0]).toMatchObject({ lastError: 'rejected: a@corp.test, b@corp.test', recipientCount: 3 });
+    const list = (await request(app()).get('/api/notices')).body.data;
+    expect(list[0].recipients).toBe('["a@corp.test","b@corp.test"]');
+    expect(list[0].last_error).toBe('not accepted: b@corp.test');
+  });
+
+  it('hides addresses and SMTP text from a caller without integrations:read', async () => {
+    seedFailures();
+    deniedPermissions.add('integrations:read');
+    const statusRes = await request(app()).get('/api/notices/status');
+    const listRes = await request(app()).get('/api/notices');
+    for (const body of [statusRes.text, listRes.text]) expect(body).not.toContain('@corp.test');
+
+    const status = statusRes.body.data;
+    expect(status.smtpCheck).toMatchObject({ ok: false, message: 'SMTP check failed' });
+    expect(status.digests[0]).toMatchObject({ lastError: '2 recipients rejected', recipientCount: 3 });
+    const list = listRes.body.data;
+    expect(list[0]).not.toHaveProperty('recipients');
+    expect(list[0]).toMatchObject({ id: 'n-1', run_tag: 'PA-RUN-n1', last_error: '1 recipient not accepted' });
   });
 });
 

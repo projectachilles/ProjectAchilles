@@ -38,6 +38,7 @@ vi.mock('../../middleware/clerk.middleware.js', async () => {
   return {
     requireClerkAuth: () => (req: any, _res: any, next: any) => { req.auth = currentAuth; next(); },
     requirePermission: () => (_req: any, _res: any, next: any) => next(),
+    hasRequestPermission: () => true,
     getUserId: (auth: any) => auth?.userId,
     getUserOrgId,
     validateRequestOrgId: (reqOrgId: string, auth: any) => {
