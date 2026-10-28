@@ -76,7 +76,8 @@ function claimDigest(orgId: string, today: string, runDate: string, tz: string, 
   }
   if (row.state === 'sending') {
     const claimed = parseTime(row.claim_at);
-    if (claimed !== null && now.getTime() - claimed <= STALE_CLAIM_MS) return null;
+    // A claim in the future (clock stepped back) is stale too.
+    if (claimed !== null && Math.abs(now.getTime() - claimed) <= STALE_CLAIM_MS) return null;
     return repo.reclaim(row.id, { state: 'sending', claimAt: row.claim_at }, nowIso) ? { id: row.id, claimAt: nowIso } : null;
   }
   return null;
@@ -106,7 +107,7 @@ function buildContent(
 ): DigestContent {
   const entries: Entry[] = [];
   const events: IcsEvent[] = [];
-  const hostsById = new Map<string, HostRowData>();
+  const hostsByName = new Map<string, HostRowData>();
 
   for (const s of repo.getActiveSchedules(orgId)) {
     let occurrences: ReturnType<typeof occurrencesForDigestDay>;
@@ -133,7 +134,7 @@ function buildContent(
     const hostRows = repo.getListedAgentHosts(agentIds);
     if (hostRows.length === 0) continue;
     const hosts = hostRows.map((a) => ({ hostname: a.hostname, os: a.os, online: isOnline(a.last_heartbeat, now) }));
-    hostRows.forEach((a, i) => hostsById.set(a.id, hosts[i]));
+    hostRows.forEach((a, i) => hostsByName.set(a.hostname, hosts[i]));
 
     const scheduleName = s.name || s.test_name;
     const test = {
@@ -158,7 +159,7 @@ function buildContent(
   }
 
   entries.sort((a, b) => a.start.getTime() - b.start.getTime() || a.scheduleName.localeCompare(b.scheduleName));
-  return { entries, events, hosts: [...hostsById.values()] };
+  return { entries, events, hosts: [...hostsByName.values()] };
 }
 
 function buildMail(runDate: string, tz: string, recipients: string[], c: DigestContent): OutgoingMail {
@@ -184,8 +185,10 @@ async function sendClaimed(
   now: Date,
 ): Promise<Outcome> {
   const nowIso = now.toISOString();
-  const failed = (error: string): Outcome =>
-    repo.markFailed(claim.id, claim.claimAt, error, nowIso) ? 'failed' : 'skipped';
+  const failed = (error: string): Outcome => {
+    console.warn(`[Digest] Digest for org ${orgId} not sent: ${error}`);
+    return repo.markFailed(claim.id, claim.claimAt, error, nowIso) ? 'failed' : 'skipped';
+  };
 
   const content = buildContent(orgId, runDate, tz, settings, now);
   if (content.entries.length === 0) return repo.markEmpty(claim.id, claim.claimAt) ? 'empty' : 'skipped';

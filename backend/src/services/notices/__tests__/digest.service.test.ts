@@ -192,8 +192,11 @@ function mailAt(i: number): OutgoingMail {
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('processAdvanceDigests', () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     testDb = createTestDatabase();
     resetExpireThrottle();
     const hb = at(-30_000).toISOString();
@@ -281,6 +284,22 @@ describe('processAdvanceDigests', () => {
     expect(digestRows()[0]).toMatchObject({ id: 'd-existing', state: 'sent' });
   });
 
+  it('reclaims a sending row whose claim is in the future (clock stepped back)', async () => {
+    thursdaySchedule();
+    insertDigestRow({ claim_at: at(60 * MIN).toISOString() });
+    await processAdvanceDigests(NOW);
+    expect(mockSendMail).toHaveBeenCalledTimes(1);
+    expect(digestRows()[0]).toMatchObject({ id: 'd-existing', state: 'sent' });
+  });
+
+  it('counts distinct hostnames, not agent ids, in host_count', async () => {
+    insertTestAgent(testDb, { id: 'a3', hostname: 'host-alpha', last_heartbeat: NOW.toISOString() });
+    thursdaySchedule('s1', { agentIds: ['a1', 'a2', 'a3'] });
+    await processAdvanceDigests(NOW);
+    expect(mailAt(0).subject).toContain('on 2 hosts');
+    expect(digestRows()[0].host_count).toBe(2);
+  });
+
   it('skips a fresh sending row (claimed 2 minutes ago)', async () => {
     thursdaySchedule();
     insertDigestRow({ claim_at: at(-2 * MIN).toISOString() });
@@ -340,6 +359,9 @@ describe('processAdvanceDigests', () => {
     await processAdvanceDigests(NOW);
     expect(mockSendMail).not.toHaveBeenCalled();
     expect(digestRows()[0]).toMatchObject({ state: 'failed', last_error: 'No recipients configured' });
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[Digest]'));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('org-001'));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('No recipients configured'));
   });
 
   it('writes an empty row and sends nothing when nothing is due tomorrow', async () => {
