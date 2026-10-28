@@ -2,6 +2,9 @@ import type { PreExecutionNoticeSettings } from '../../types/integrations.js';
 
 const MIN = 60_000;
 
+/** The settings the release rules read; the digest passes just these. */
+type ReleaseSettings = Pick<PreExecutionNoticeSettings, 'lead_minutes' | 'pickup_window_minutes'>;
+
 /** `PA-RUN-` + first 6 hex chars of the notice id (hyphens removed). */
 export function runTag(noticeId: string): string {
   return `PA-RUN-${noticeId.replace(/-/g, '').slice(0, 6)}`;
@@ -9,7 +12,7 @@ export function runTag(noticeId: string): string {
 
 export function computeRunRelease(
   sentAt: Date,
-  s: PreExecutionNoticeSettings,
+  s: ReleaseSettings,
   maxExecutionTimeoutSec: number,
 ): { releaseAt: Date; pickupDeadline: Date; windowEnd: Date } {
   const releaseAt = new Date(sentAt.getTime() + s.lead_minutes * MIN);
@@ -20,7 +23,7 @@ export function computeRunRelease(
 
 export function computeDayRelease(
   sentAt: Date,
-  s: PreExecutionNoticeSettings,
+  s: ReleaseSettings,
   dayWindowEnd: Date,
   maxExecutionTimeoutSec: number,
 ): { releaseAt: Date; pickupDeadline: Date; windowEnd: Date } {

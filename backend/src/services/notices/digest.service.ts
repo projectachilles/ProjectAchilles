@@ -121,7 +121,7 @@ function buildContent(
         schedule_config: parseJson<ScheduleConfig>(s.schedule_config, 'schedule_config'),
         timezone: s.timezone,
       };
-      occurrences = occurrencesForDigestDay(input, runDate, tz, settings.pickup_window_minutes);
+      occurrences = occurrencesForDigestDay(input, runDate, tz, settings);
       const ids = parseJson<unknown>(s.agent_ids, 'agent_ids');
       agentIds = Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : [];
       metadata = (parseJson<Partial<TaskTestMetadata> | null>(s.metadata || '{}', 'metadata') ?? {});

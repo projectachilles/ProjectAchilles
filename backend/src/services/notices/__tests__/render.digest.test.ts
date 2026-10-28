@@ -38,11 +38,11 @@ describe('buildDigestEmail', () => {
   it('renders each mode line and no ISO strings', () => {
     const mk = (mode: 'fixed' | 'fleet' | 'per_machine') =>
       buildDigestEmail(data({ entries: [{ ...data().entries[0], mode }] })).html;
-    expect(mk('per_machine')).toContain('Each host at its own random time between');
-    expect(mk('fleet')).toContain('All hosts at one random time between');
+    expect(mk('per_machine')).toContain('Each host at its own random time. Hosts can start the test between');
+    expect(mk('fleet')).toContain('All hosts together at one random time. Hosts can start the test between');
     const fixed = mk('fixed');
-    expect(fixed).toContain('All hosts starting at');
-    expect(fixed).toContain('; nothing new starts after');
+    expect(fixed).toContain('All hosts together. Hosts can start the test between');
+    expect(fixed).not.toContain('nothing new starts after');
     for (const m of ['per_machine', 'fleet', 'fixed'] as const) {
       expect(mk(m)).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
     }
@@ -51,6 +51,7 @@ describe('buildDigestEmail', () => {
   it('includes the intro, link and offline note', () => {
     const { html } = buildDigestEmail(data());
     expect(html).toContain('This is an advance heads-up.');
+    expect(html).toContain('If the mail server is slow on the day, both times move later');
     expect(html).toContain('Open schedules');
     expect(html).toContain('https://example.test/app');
     expect(html).toContain('offline: runs only if it reconnects in time');

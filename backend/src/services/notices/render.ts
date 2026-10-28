@@ -184,13 +184,14 @@ export interface DigestEmailData {
 function modeLine(e: DigestEmailData['entries'][number]): string {
   const start = formatDual(e.start, e.timezone);
   const end = formatDual(e.end, e.timezone);
+  const window = `Hosts can start the test between ${start} and ${end}.`;
   switch (e.mode) {
     case 'per_machine':
-      return `Each host at its own random time between ${start} and ${end}`;
+      return `Each host at its own random time. ${window}`;
     case 'fleet':
-      return `All hosts at one random time between ${start} and ${end}`;
+      return `All hosts together at one random time. ${window}`;
     default:
-      return `All hosts starting at ${start}; nothing new starts after ${end}`;
+      return `All hosts together. ${window}`;
   }
 }
 
@@ -217,7 +218,7 @@ export function buildDigestEmail(d: DigestEmailData): { subject: string; html: s
 
   const body = [
     `<tr><td style="padding:20px 24px 4px;font-size:16px;font-weight:600;color:#18181b;">Security testing is scheduled for tomorrow</td></tr>`,
-    `<tr><td style="padding:0 24px;"><p style="${p}">This is an advance heads-up. Each run is announced again by the usual pre-execution notice a few minutes before it starts. Schedules may still change; the notice sent on the day is authoritative.</p></td></tr>`,
+    `<tr><td style="padding:0 24px;"><p style="${p}">This is an advance heads-up. Each run is announced again by the usual pre-execution notice a few minutes before it starts. The times shown are when hosts can start a test; a test started near the end may still be running after it. If the mail server is slow on the day, both times move later. Schedules may still change; the notice sent on the day is authoritative.</p></td></tr>`,
     ...sections,
     finding,
     `<tr><td style="padding:12px 24px 20px;"><a href="${escapeHtml(d.uiUrl)}" style="color:#2563eb;font-size:13px;">Open schedules</a></td></tr>`,

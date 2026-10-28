@@ -1,4 +1,5 @@
 import type { ScheduleConfig, ScheduleType } from '../../types/agent.js';
+import type { PreExecutionNoticeSettings } from '../../types/integrations.js';
 import {
   addDays,
   daysInMonth,
@@ -6,6 +7,10 @@ import {
   resolveRandomizeMode,
   toUTCDate,
 } from '../agent/scheduleTime.js';
+import { computeDayRelease, computeRunRelease } from './window.js';
+
+/** The notice settings that decide when hosts may start a run. */
+export type DigestWindowSettings = Pick<PreExecutionNoticeSettings, 'lead_minutes' | 'pickup_window_minutes'>;
 
 export interface DigestScheduleInput {
   id: string;
@@ -20,7 +25,11 @@ export interface Occurrence {
   /** YYYY-MM-DD in the schedule's timezone. */
   runDay: string;
   mode: 'fixed' | 'fleet' | 'per_machine';
-  /** The window shown in the email. */
+  /**
+   * The window shown in the email: the earliest release and the pickup
+   * deadline the gate would set if the notice were sent on time. A slow
+   * mail server on the day shifts both later.
+   */
   start: Date;
   end: Date;
 }
@@ -47,40 +56,67 @@ export function runsOnDay(s: DigestScheduleInput, day: string): boolean {
   }
 }
 
-/** The occurrence (mode and window) for a run day the schedule fires on. */
-export function occurrenceFor(
-  s: DigestScheduleInput,
-  runDay: string,
-  pickupWindowMinutes: number,
-): Occurrence {
+/** The schedule's mode and its scheduled start (fixed) or random window (fleet, per_machine). */
+function scheduledFor(s: DigestScheduleInput, runDay: string) {
   const mode = s.schedule_type === 'once' ? 'fixed' : resolveRandomizeMode(s.schedule_config);
   if (mode === 'fixed') {
-    const start = toUTCDate(runDay, (s.schedule_config as { time: string }).time, s.timezone);
-    const end = new Date(start.getTime() + pickupWindowMinutes * 60_000);
-    return { scheduleId: s.id, runDay, mode, start, end };
+    const at = toUTCDate(runDay, (s.schedule_config as { time: string }).time, s.timezone);
+    return { mode, start: at, end: at };
   }
-  const { start, end } = randomWindowForDate(runDay, s.timezone);
-  return { scheduleId: s.id, runDay, mode, start, end };
+  return { mode, ...randomWindowForDate(runDay, s.timezone) };
 }
 
 /**
- * Occurrences whose window start falls inside the digest day, a calendar day
- * in `digestTz`. Candidate run days are the schedule-local days around it.
+ * The occurrence (mode and window) for a run day the schedule fires on.
+ * The window uses the gate's own release rules (window.ts), so the digest
+ * promises what getNextTask will enforce on the day.
+ */
+export function occurrenceFor(
+  s: DigestScheduleInput,
+  runDay: string,
+  settings: DigestWindowSettings,
+): Occurrence {
+  return windowFor(s.id, runDay, scheduledFor(s, runDay), settings);
+}
+
+function windowFor(
+  scheduleId: string,
+  runDay: string,
+  sched: ReturnType<typeof scheduledFor>,
+  settings: DigestWindowSettings,
+): Occurrence {
+  const { mode } = sched;
+  if (mode === 'per_machine') {
+    // One day notice, sent when the first host's slot comes due.
+    const r = computeDayRelease(sched.start, settings, sched.end, 0);
+    return { scheduleId, runDay, mode, start: r.releaseAt, end: r.pickupDeadline };
+  }
+  // fixed / fleet: a run notice at the (random) fire time.
+  const start = computeRunRelease(sched.start, settings, 0).releaseAt;
+  const end = computeRunRelease(sched.end, settings, 0).pickupDeadline;
+  return { scheduleId, runDay, mode, start, end };
+}
+
+/**
+ * Occurrences whose scheduled start falls inside the digest day, a calendar
+ * day in `digestTz`. Candidate run days are the schedule-local days around it.
+ * Filtering on the scheduled start (before the lead shift) keeps each run in
+ * exactly one digest, even when the lead pushes it past midnight.
  */
 export function occurrencesForDigestDay(
   s: DigestScheduleInput,
   digestDay: string,
   digestTz: string,
-  pickupWindowMinutes: number,
+  settings: DigestWindowSettings,
 ): Occurrence[] {
   const spanStart = toUTCDate(digestDay, '00:00', digestTz).getTime();
   const spanEnd = toUTCDate(addDays(digestDay, 1), '00:00', digestTz).getTime();
   const out: Occurrence[] = [];
   for (const runDay of [addDays(digestDay, -1), digestDay, addDays(digestDay, 1)]) {
     if (!runsOnDay(s, runDay)) continue;
-    const occ = occurrenceFor(s, runDay, pickupWindowMinutes);
-    const t = occ.start.getTime();
-    if (t >= spanStart && t < spanEnd) out.push(occ);
+    const sched = scheduledFor(s, runDay);
+    const t = sched.start.getTime();
+    if (t >= spanStart && t < spanEnd) out.push(windowFor(s.id, runDay, sched, settings));
   }
   return out;
 }
