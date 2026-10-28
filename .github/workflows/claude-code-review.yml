@@ -65,6 +65,10 @@ jobs:
           command -v socat >/dev/null
           echo "bubblewrap + socat OK"
 
+      - name: Note the review start time
+        id: start
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Run Claude Code Review
         id: claude-review
         env:
@@ -86,9 +90,15 @@ jobs:
           # Without --comment the plugin stops after the review and posts nothing
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }} --comment'
           # Pinned: the action's default model changes with its version
+          # The allow rules match whole commands: a pipe, `&&` or `cd` makes every
+          # part need its own rule, so `gh pr diff 1 | grep x` is denied, and a
+          # review whose reads were all denied ends green having posted nothing.
+          # Widening the rules (cat, grep, ...) would let a prompt-injected review
+          # read more of the runner, so steer the reads to the built-in tools.
           claude_args: |
             --model claude-opus-5-5
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*)"
+            --append-system-prompt "Shell commands here are allowed one at a time: run each gh command on its own, with no pipes, &&, ;, redirection or cd (for example gh pr diff 123 or gh pr view 123 --json files). Anything chained is denied. Read and search source files with the Read, Grep and Glob tools, never cat, grep, head or wc. The PR's changes come from gh pr diff; files on disk may be the base branch."
 
       # Full output stays hidden (public repo); list only which tool calls were denied
       - name: Report denied tool calls
@@ -120,6 +130,29 @@ jobs:
           echo "${denials:-No denied tool calls}"
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
+
+      # A green job must mean the review ran. Posting nothing is normal for a
+      # trivial PR, but not when tool calls were denied: then the review most
+      # likely couldn't read the diff. Re-run the job when this fails.
+      - name: Fail when denied tool calls left no review
+        if: always() && steps.claude-review.outputs.execution_file != ''
+        env:
+          EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          SINCE: ${{ steps.start.outputs.at }}
+        run: |
+          denied=$(jq '[.[] | select(.type == "result") | .permission_denials[]?] | length' "$EXECUTION_FILE")
+          [ "${denied:-0}" -gt 0 ] || exit 0
+          summary=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments?since=$SINCE" \
+            --jq '[.[] | select(.user.type == "Bot" and (.body | test("(^|\n)#+ Code review")))] | length')
+          inline=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/comments?since=$SINCE" \
+            --jq '[.[] | select(.user.type == "Bot")] | length')
+          if [ "$((summary + inline))" -eq 0 ]; then
+            echo "::error::$denied tool call(s) were denied and the review posted nothing. Re-run this job."
+            exit 1
+          fi
+          echo "$denied denied tool call(s), but the review posted ($summary summary, $inline inline)."
 
       # One review per label: the next push needs a fresh look and a new label.
       - name: Remove the review label
