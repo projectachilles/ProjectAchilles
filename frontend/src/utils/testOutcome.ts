@@ -16,6 +16,12 @@ export interface TestOutcome {
   tone: TestOutcomeTone;
   /** One-line explanation: tooltip and detail text. */
   title: string;
+  /**
+   * What decided the outcome: the run's own exit code, its bundle stages, or
+   * an EDR kill. When it isn't 'exit', the final exit code can disagree with
+   * the label (999 on an Unprotected bundle, -1 on an EDR stop).
+   */
+  basis: 'exit' | 'stages' | 'edr';
 }
 
 const PROTECTED_CODES = new Set([105, 126, 127]);
@@ -71,8 +77,8 @@ function stagesOf(result: AgentTask['result']): { category: string | null; contr
 
 const describeExit = (code: number) => `Exit ${code}: ${EXIT_MEANING[code] ?? 'unrecognised exit code'}.`;
 
-function outcome(kind: TestOutcomeKind, title: string): TestOutcome {
-  return { kind, ...KIND[kind], title };
+function outcome(kind: TestOutcomeKind, title: string, basis: TestOutcome['basis'] = 'exit'): TestOutcome {
+  return { kind, ...KIND[kind], title, basis };
 }
 
 /** The outcome of an execute_test task, or null for other task types and runs still in progress. */
@@ -87,6 +93,7 @@ export function testOutcome(task: Pick<AgentTask, 'type' | 'status' | 'result'>)
       return outcome(
         'protected',
         `Stopped by ${killVendorLabel(kill.vendors)}: the EDR terminated the agent and the test. Stages not reported.`,
+        'edr',
       );
     }
     return outcome('run-failed', task.result?.error ?? 'The run did not finish, so there is no result.');
@@ -104,12 +111,12 @@ export function testOutcome(task: Pick<AgentTask, 'type' | 'status' | 'result'>)
     const blocked = bundle.controls.findIndex((c) => !c.skipped && PROTECTED_CODES.has(c.exit_code));
     if (blocked >= 0) {
       const c = bundle.controls[blocked];
-      return outcome('protected', `Blocked at stage ${blocked + 1} (${c.control_id}), exit ${c.exit_code}.`);
+      return outcome('protected', `Blocked at stage ${blocked + 1} (${c.control_id}), exit ${c.exit_code}.`, 'stages');
     }
     const ran = bundle.controls.filter((c) => !c.skipped && c.exit_code === 101).length;
     if (ran > 0) {
       const total = bundle.controls.filter((c) => !c.skipped).length;
-      return outcome('unprotected', `${ran} of ${total} stage${total === 1 ? '' : 's'} ran without being blocked.`);
+      return outcome('unprotected', `${ran} of ${total} stage${total === 1 ? '' : 's'} ran without being blocked.`, 'stages');
     }
   }
   return outcome(exitKind(code), describeExit(code));

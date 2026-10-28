@@ -383,6 +383,9 @@ export default function TaskStream({
                 <span className="text-warning"> · retry {selectedTask.retry_count}/{selectedTask.max_retries ?? 2}</span>
               )}
             </div>
+            {selectedOutcome && selectedOutcome.basis !== 'exit' && (
+              <p className={cn('mt-2 text-xs', TONE_TEXT[selectedOutcome.tone])}>{selectedOutcome.title}</p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3 border-b border-border p-4 md:grid-cols-4">
             <div>
@@ -396,12 +399,15 @@ export default function TaskStream({
               </div>
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-faint">Exit code</div>
+              {/* A bundle's exit is its last stage's, not the verdict: label it so, and don't colour it as the outcome. */}
+              <div className="text-[10px] uppercase tracking-wider text-faint">
+                {selectedOutcome?.basis === 'stages' ? 'Final exit' : 'Exit code'}
+              </div>
               <div
                 className={cn(
                   'mt-0.5 font-mono text-xs',
                   selectedOutcome
-                    ? TONE_TEXT[selectedOutcome.tone]
+                    ? selectedOutcome.basis === 'exit' && TONE_TEXT[selectedOutcome.tone]
                     : selectedTask.result && selectedTask.result.exit_code !== 0 && 'text-danger',
                 )}
               >
