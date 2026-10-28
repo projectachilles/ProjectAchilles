@@ -15,6 +15,7 @@ import { Badge } from '@/components/shared/ui/Badge';
 import { Button } from '@/components/shared/ui/Button';
 import { Loading } from '@/components/shared/ui/Spinner';
 import { TaskStatusBadge } from '@/components/endpoints/tasks/TaskStatusBadge';
+import { TONE_TEXT, testOutcome } from '@/utils/testOutcome';
 import { agentApi } from '@/services/api/agent';
 import type { AgentTask } from '@/types/agent';
 
@@ -34,6 +35,13 @@ function formatDurationMs(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
   return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
+}
+
+/** A test's exit code is coloured by its outcome (126 is a win); a command's by success. */
+function exitCodeClass(task: AgentTask): string {
+  const outcome = testOutcome(task);
+  if (outcome) return TONE_TEXT[outcome.tone];
+  return task.result?.exit_code === 0 ? 'text-accent' : 'text-danger';
 }
 
 export default function AgentTaskHistoryTab({ agentId }: AgentTaskHistoryTabProps) {
@@ -127,7 +135,7 @@ export default function AgentTaskHistoryTab({ agentId }: AgentTaskHistoryTabProp
                   </TableCell>
                   <TableCell className="font-mono text-xs">
                     {task.result?.exit_code != null ? (
-                      <span className={task.result.exit_code === 0 ? 'text-accent' : 'text-danger'}>
+                      <span className={exitCodeClass(task)}>
                         {task.result.exit_code}
                       </span>
                     ) : '-'}

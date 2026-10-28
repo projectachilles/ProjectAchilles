@@ -81,6 +81,11 @@ export interface TaskResult {
   execution_duration_ms: number;
   hostname: string;
   error?: string;
+  /** Per-stage results of a bundle / multi-stage test, as the agent reported them. */
+  bundle_results?: {
+    bundle_category?: string;
+    controls?: Array<{ control_id: string; exit_code: number; skipped?: boolean; compliant?: boolean }>;
+  };
 }
 
 export interface TaskNoteEntry {

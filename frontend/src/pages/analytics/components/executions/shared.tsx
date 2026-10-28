@@ -121,6 +121,7 @@ export const ERROR_CODE_CATEGORIES: Record<number, string> = {
   127: 'protected',
   200: 'inconclusive',
   259: 'inconclusive',
+  260: 'inconclusive',
   999: 'error',
 };
 

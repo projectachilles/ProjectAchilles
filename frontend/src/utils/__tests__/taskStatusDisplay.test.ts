@@ -48,3 +48,25 @@ describe('resolveTaskStatusDisplay — honesty rule', () => {
     expect(resolveTaskStatusDisplay(task('expired')).variant).toBe('default');
   });
 });
+
+describe('resolveTaskStatusDisplay — security tests show their outcome', () => {
+  const test = (status: AgentTask['status'], r: TaskResult | null) => ({ ...task(status, r), type: 'execute_test' as const });
+
+  it('exit 126 is Protected, not Failed', () => {
+    expect(resolveTaskStatusDisplay(test('completed', result(126)))).toMatchObject({ label: 'Protected', variant: 'success' });
+  });
+
+  it('exit 101 is Unprotected (the only red outcome)', () => {
+    expect(resolveTaskStatusDisplay(test('completed', result(101)))).toMatchObject({ label: 'Unprotected', variant: 'destructive' });
+  });
+
+  it('exit 260 is Not run and a watchdog failure is Run failed, both warnings', () => {
+    expect(resolveTaskStatusDisplay(test('completed', result(260)))).toMatchObject({ label: 'Not run', variant: 'warning' });
+    expect(resolveTaskStatusDisplay(test('failed', result(-1)))).toMatchObject({ label: 'Run failed', variant: 'warning' });
+  });
+
+  it('keeps lifecycle labels while a test is still running', () => {
+    expect(resolveTaskStatusDisplay(test('executing', null))).toEqual({ label: 'Executing', variant: 'warning' });
+  });
+});
+
