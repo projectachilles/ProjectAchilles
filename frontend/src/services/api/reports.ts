@@ -1,5 +1,6 @@
 import { apiClient } from '@/hooks/useAuthenticatedApi';
 import type { ExtendedFilterParams } from './analytics';
+import type { EdrVendorKey } from '@/lib/edrVendors';
 
 // ─── SB-PC-2026-001 compliance report ─────────────────────────────
 
@@ -144,7 +145,7 @@ export interface ReportMeta {
   /** Set when part of the data in scope could not be read (partial shard failure); the cover shows a banner. */
   partial: { failedShards: number; totalShards: number } | null;
   /** EDR vendors configured for this report; empty means EDR content is omitted silently (matching the console). */
-  edrVendors: Array<'defender' | 'crowdstrike' | 'sentinelone'>;
+  edrVendors: EdrVendorKey[];
 }
 
 export interface ReportTotals {
@@ -193,8 +194,8 @@ export interface ReportStage {
   tactics: string[];
   outcomes: OutcomeCounts;
   /** Correlated alert counts from the runs list (the newest RUNS_CAP runs). */
-  /** `sentinelone` is absent from backends without the SentinelOne integration. */
-  alerts: { defender: number; crowdstrike: number; sentinelone?: number };
+  /** Per vendor; a vendor is absent from backends that don't have its integration. */
+  alerts: Partial<Record<EdrVendorKey, number>>;
 }
 
 export interface ReportTest {
@@ -275,7 +276,7 @@ export interface ReportRunStage {
 }
 
 export interface ReportAlert {
-  vendor: 'defender' | 'crowdstrike' | 'sentinelone';
+  vendor: EdrVendorKey;
   title: string;
   severity: string;
   status: string;
@@ -305,7 +306,7 @@ export interface ReportRun {
    */
   alertsChecked: boolean;
   /** Set when the EDR killed the agent during this run: protected as a whole, stages unknown. */
-  agentTerminated?: { vendors: Array<'defender' | 'crowdstrike' | 'sentinelone'>; alertIds: string[] };
+  agentTerminated?: { vendors: EdrVendorKey[]; alertIds: string[] };
 }
 
 export interface AcceptedRiskRow {

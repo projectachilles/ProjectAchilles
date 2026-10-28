@@ -6,6 +6,7 @@ import type {
   ExecutionGroup,
   SeverityLevel,
 } from '@/services/api/analytics';
+import { EDR_VENDOR_KEYS, PREVENTION_ACTION_PRECEDENCE, type EdrGroupRollup, type EdrVendorKey } from '@/lib/edrVendors';
 import {
   formatPreventionAction,
   isConfirmedPrevention,
@@ -152,7 +153,7 @@ export function isSkippedStage(exec: EnrichedTestExecution): boolean {
 
 // ── Display rows (bundle grouping) ─────────────────────────────────
 
-export interface BundleGroup {
+export interface BundleGroup extends EdrGroupRollup {
   type: 'bundle';
   key: string;
   bundle_id: string;
@@ -164,12 +165,6 @@ export interface BundleGroup {
   unprotectedCount: number;
   totalCount: number;
   category?: CategoryType;
-  defenderDetected?: boolean;
-  crowdstrikeDetected?: boolean;
-  crowdstrikePrevented?: boolean;
-  defenderPrevented?: boolean;
-  sentineloneDetected?: boolean;
-  sentinelonePrevented?: boolean;
 }
 
 export interface StandaloneRow {
@@ -197,12 +192,7 @@ export function mapGroupsToDisplayRows(groups: ExecutionGroup[]): DisplayRow[] {
         unprotectedCount: group.unprotectedCount,
         totalCount: group.totalCount,
         category: rep.category,
-        defenderDetected: group.defenderDetected,
-        crowdstrikeDetected: group.crowdstrikeDetected,
-        crowdstrikePrevented: group.crowdstrikePrevented,
-        defenderPrevented: group.defenderPrevented,
-        sentineloneDetected: group.sentineloneDetected,
-        sentinelonePrevented: group.sentinelonePrevented,
+        ...groupRollup(group),
       };
     }
     return {
@@ -225,15 +215,13 @@ export type ExecutionOutcome = 'skipped' | 'protected' | 'prevented' | 'detected
  */
 /** This stage's own detection flag (stage-level only, never the bundle-level `*_detected` fallback). */
 function stageOnlyDetected(exec: EnrichedTestExecution): boolean {
-  return Boolean(exec.defender_stage_detected || exec.crowdstrike_stage_detected || exec.sentinelone_stage_detected);
+  return EDR_VENDOR_KEYS.some((k) => Boolean(exec[`${k}_stage_detected`]));
 }
 
 /** This stage was detected AND the EDR took a confirmed prevention action on it. */
 function stageOnlyPrevented(exec: EnrichedTestExecution): boolean {
-  return Boolean(
-    (exec.crowdstrike_stage_detected && isConfirmedPrevention(exec.crowdstrike_prevention_action)) ||
-    (exec.defender_stage_detected && isConfirmedPrevention(exec.defender_prevention_action)) ||
-    (exec.sentinelone_stage_detected && isConfirmedPrevention(exec.sentinelone_prevention_action)),
+  return EDR_VENDOR_KEYS.some(
+    (k) => Boolean(exec[`${k}_stage_detected`]) && isConfirmedPrevention(exec[`${k}_prevention_action`]),
   );
 }
 
@@ -254,18 +242,13 @@ export function classifyExecution(exec: EnrichedTestExecution): ExecutionOutcome
     }
     return 'inconclusive';
   }
-  const csDetected = exec.crowdstrike_stage_detected ?? exec.crowdstrike_detected;
-  const defDetected = exec.defender_stage_detected ?? exec.defender_detected;
-  const s1Detected = exec.sentinelone_stage_detected ?? exec.sentinelone_detected;
-  const isPrevented =
-    exec.crowdstrike_prevented ||
-    (csDetected && isConfirmedPrevention(exec.crowdstrike_prevention_action)) ||
-    exec.defender_prevented ||
-    (defDetected && isConfirmedPrevention(exec.defender_prevention_action)) ||
-    exec.sentinelone_prevented ||
-    (s1Detected && isConfirmedPrevention(exec.sentinelone_prevention_action));
+  // Per-stage flag, falling back to the bundle-level flag for older documents.
+  const detected = (k: EdrVendorKey) => Boolean(exec[`${k}_stage_detected`] ?? exec[`${k}_detected`]);
+  const isPrevented = EDR_VENDOR_KEYS.some(
+    (k) => Boolean(exec[`${k}_prevented`]) || (detected(k) && isConfirmedPrevention(exec[`${k}_prevention_action`])),
+  );
   if (isPrevented) return 'prevented';
-  if (defDetected || csDetected || s1Detected) return 'detected';
+  if (EDR_VENDOR_KEYS.some(detected)) return 'detected';
   return 'unprotected';
 }
 
@@ -301,7 +284,7 @@ export function ExecResultLabel({ exec, compact }: { exec: EnrichedTestExecution
       );
     case 'prevented': {
       const action = formatPreventionAction(
-        exec.crowdstrike_prevention_action ?? exec.sentinelone_prevention_action ?? exec.defender_prevention_action,
+        PREVENTION_ACTION_PRECEDENCE.map((k) => exec[`${k}_prevention_action`]).find((a) => a !== undefined && a !== null),
       );
       return (
         <span className="inline-flex items-center gap-1.5 text-accent">
@@ -346,9 +329,8 @@ export function BundleResultLabel({ group, compact }: { group: BundleGroup; comp
   const iconClass = compact ? 'w-3.5 h-3.5' : 'w-4 h-4';
   const textClass = compact ? 'text-xs font-medium' : 'text-sm font-medium';
   const isProtected = group.protectedCount > 0;
-  const isPrevented = !isProtected && (group.crowdstrikePrevented || group.defenderPrevented || group.sentinelonePrevented);
-  const isDetected =
-    !isProtected && !isPrevented && (group.defenderDetected || group.crowdstrikeDetected || group.sentineloneDetected);
+  const isPrevented = !isProtected && EDR_VENDOR_KEYS.some((k) => group[`${k}Prevented`]);
+  const isDetected = !isProtected && !isPrevented && EDR_VENDOR_KEYS.some((k) => group[`${k}Detected`]);
 
   if (group.category === 'cyber-hygiene') {
     if (isPrevented) {
@@ -454,3 +436,13 @@ export const SORT_FIELDS: Array<{ field: string; label: string }> = [
   { field: 'f0rtika.category', label: 'Category' },
   { field: 'f0rtika.score', label: 'Score' },
 ];
+
+/** A server group's per-vendor `<key>Detected` / `<key>Prevented` rollups. */
+function groupRollup(group: ExecutionGroup): EdrGroupRollup {
+  const out: EdrGroupRollup = {};
+  for (const k of EDR_VENDOR_KEYS) {
+    out[`${k}Detected`] = group[`${k}Detected`];
+    out[`${k}Prevented`] = group[`${k}Prevented`];
+  }
+  return out;
+}
