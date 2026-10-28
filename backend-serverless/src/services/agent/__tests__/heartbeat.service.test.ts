@@ -216,6 +216,17 @@ describe('heartbeat.service', () => {
       expect(result.agents[0].hostname).toBe('web-server-01');
     });
 
+    it('filters by exact tag, not prefix or wildcard', async () => {
+      await insertTestAgent(testDb, { id: 'a1', tags: '["s1"]' });
+      await insertTestAgent(testDb, { id: 'a2', tags: '["s1-pilot"]' });
+      await insertTestAgent(testDb, { id: 'a3', tags: '["finance","s1"]' });
+      await insertTestAgent(testDb, { id: 'a4', tags: '["cs-falcon"]' });
+
+      const result = await listAgents({ tag: 's1' });
+      expect(result.agents.map((x) => x.id).sort()).toEqual(['a1', 'a3']);
+      expect((await listAgents({ tag: 'cs_falcon' })).total).toBe(0);
+    });
+
     it('supports pagination', async () => {
       await insertTestAgent(testDb, { id: 'a1' });
       await insertTestAgent(testDb, { id: 'a2' });

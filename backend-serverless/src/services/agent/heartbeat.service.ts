@@ -297,8 +297,9 @@ export async function listAgents(filters: ListAgentsRequest): Promise<ListAgents
   }
 
   if (filters.tag) {
-    conditions.push("tags LIKE ?");
-    params.push(`%${JSON.stringify(filters.tag).slice(0, -1)}%`);
+    // Exact match, like the tag counts: LIKE matched prefixes ("s1" found "s1-pilot") and `_` wildcards.
+    conditions.push('EXISTS (SELECT 1 FROM json_each(tags) WHERE value = ?)');
+    params.push(filters.tag);
   }
 
   if (filters.online_only) {

@@ -243,6 +243,17 @@ describe('heartbeat.service', () => {
       expect(result.agents[0].hostname).toBe('web-server-01');
     });
 
+    it('filters by exact tag, not prefix or wildcard', () => {
+      insertTestAgent(testDb, { id: 'a1', tags: '["s1"]' });
+      insertTestAgent(testDb, { id: 'a2', tags: '["s1-pilot"]' });
+      insertTestAgent(testDb, { id: 'a3', tags: '["finance","s1"]' });
+      insertTestAgent(testDb, { id: 'a4', tags: '["cs-falcon"]' });
+
+      const result = listAgents({ tag: 's1' });
+      expect(result.agents.map((x) => x.id).sort()).toEqual(['a1', 'a3']);
+      expect((listAgents({ tag: 'cs_falcon' })).total).toBe(0);
+    });
+
     it('supports pagination', () => {
       insertTestAgent(testDb, { id: 'a1' });
       insertTestAgent(testDb, { id: 'a2' });
