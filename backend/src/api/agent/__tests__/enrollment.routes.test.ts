@@ -195,6 +195,28 @@ describe('enrollment routes', () => {
       expect(res.body.data).toHaveLength(1);
     });
 
+    it('rejects org-less callers when REQUIRE_ORG_ISOLATION=true', async () => {
+      const token = await createToken('org-001', 'user-001');
+      const app = express();
+      app.use(express.json());
+      app.use((req, _res, next) => {
+        (req as any).auth = { userId: 'user-003' };
+        next();
+      });
+      app.use('/agent/admin', adminEnrollmentRouter);
+      app.use(errorHandler);
+      process.env.REQUIRE_ORG_ISOLATION = 'true';
+      try {
+        expect((await request(app).get('/agent/admin/tokens').query({ org_id: 'org-001' })).status).toBe(403);
+        expect((await request(app).delete(`/agent/admin/tokens/${token.id}`)).status).toBe(403);
+        expect((await request(app).post('/agent/admin/tokens').send({ org_id: 'org-001' })).status).toBe(403);
+      } finally {
+        delete process.env.REQUIRE_ORG_ISOLATION;
+      }
+      const still = await request(createAppAs('org-001')).get('/agent/admin/tokens').query({ org_id: 'org-001' });
+      expect(still.body.data).toHaveLength(1);
+    });
+
     it("answers 404 for another org's token and does not revoke it", async () => {
       const token = await createToken('org-001', 'user-001');
       const res = await request(createAppAs('org-002')).delete(`/agent/admin/tokens/${token.id}`);
