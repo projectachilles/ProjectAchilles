@@ -54,6 +54,7 @@ import { agentApi } from '@/services/api/agent';
 import { getLatestVersionMap } from '@/pages/endpoints/utils/versionHelpers';
 import type { AgentMetrics, FleetHealthMetrics, AgentSummary, ListAgentsRequest, Agent } from '@/types/agent';
 import { OutdatedAgentsRow } from '../../components/endpoints/agents/OutdatedAgentsRow';
+import { useOutdatedAgentCount } from '@/hooks/useOutdatedAgentCount';
 
 export default function AgentsPage() {
   const dispatch = useAppDispatch();
@@ -76,6 +77,7 @@ export default function AgentsPage() {
   const isInitialMount = useRef(true);
   const canEnroll = useHasPermission('endpoints:tokens:create');
   const canWriteAgent = useHasPermission('endpoints:agents:write');
+  const fleetOutdated = useOutdatedAgentCount();
   const canDeleteAgent = useHasPermission('endpoints:agents:delete');
 
   // Handle ?stale=true query param from dashboard link
@@ -301,20 +303,12 @@ export default function AgentsPage() {
           </DialogContent>
         </Dialog>
 
-        {(() => {
-          const outdated = agents.filter((a) => {
-            const latest = latestVersions.get(`${a.os}-${a.arch}`);
-            return latest && latest !== a.agent_version;
-          });
-          if (outdated.length === 0 || latestVersions.size === 0) return null;
-          return (
-            <OutdatedAgentsRow
-              outdated={outdated.length}
-              total={agents.length}
-              onUpdateAll={canWriteAgent ? () => handleTriggerUpdate(outdated.map((a) => a.id)) : undefined}
-            />
-          );
-        })()}
+        {/* Fleet-wide (every page), so the count and Update all match the sidebar badge. */}
+        <OutdatedAgentsRow
+          outdated={fleetOutdated.outdatedCount}
+          total={fleetOutdated.totalCount}
+          onUpdateAll={canWriteAgent ? () => void handleTriggerUpdate(fleetOutdated.outdatedIds).then(fleetOutdated.refresh) : undefined}
+        />
 
         {error && (
           <Alert variant="destructive" className="mb-4">

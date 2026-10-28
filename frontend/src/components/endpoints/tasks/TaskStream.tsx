@@ -195,10 +195,13 @@ export default function TaskStream({
         onKeyDown={(e) => {
           if (e.key === 'Enter') setSelectedTaskId(task.id);
         }}
+        aria-current={isSelected || undefined}
         className={cn(
           'w-full cursor-pointer px-4 py-[5px] text-left font-mono text-xs transition-colors',
           indent && 'pl-9',
-          isSelected ? 'bg-raised' : 'hover:bg-raised/60',
+          // Same as the Analytics run list: accent wash + an inset bar (a left
+          // border would be clipped by the rounded, scrolling list).
+          isSelected ? 'bg-accent-dim shadow-[inset_3px_0_0_var(--color-accent)]' : 'hover:bg-raised/60',
           checkedClass(task.id),
         )}
         leading={
@@ -220,7 +223,7 @@ export default function TaskStream({
           </>
         }
         name={taskName(task)}
-        nameClassName="font-sans text-[13px] text-foreground"
+        nameClassName={cn('font-sans text-[13px] text-foreground', isSelected && 'font-semibold')}
         meta={<span className="text-muted">{task.agent_hostname ?? '—'}</span>}
         trailing={
           outcome ? (

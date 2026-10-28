@@ -85,3 +85,19 @@ describe('TaskStream bundle verdict vs final exit', () => {
   });
 });
 
+describe('TaskStream selected row', () => {
+  it('marks the selected task clearly (accent wash + inset bar, aria-current) and moves it on click', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    render(<TaskStream groups={[group]} loading={false} />);
+    const rows = () => screen.getAllByRole('button').filter((b) => b.textContent?.includes('LockBit Chain') && !b.textContent.includes('batch'));
+    const first = rows()[0];
+    expect(first.getAttribute('aria-current')).toBe('true');
+    expect(first.className).toContain('bg-accent-dim');
+    expect(first.className).toContain('shadow-[inset_3px_0_0_var(--color-accent)]');
+
+    await userEvent.click(rows()[2]);
+    expect(rows()[2].getAttribute('aria-current')).toBe('true');
+    expect(rows()[0].getAttribute('aria-current')).toBeNull();
+  });
+});
+
