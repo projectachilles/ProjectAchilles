@@ -503,6 +503,7 @@ Emails the security engineers before every `execute_test` run and holds the test
 - **The gate fails closed.** `getPreExecutionNoticeSettings()` reads the notice section from the *raw* JSON (it holds no secrets), so an undecryptable credential elsewhere in `integrations.json` can't null the file and read as "off"; an unparseable file falls back to the last good read per org. Don't route it back through `getFileSettings()`.
 - **The run tag never reaches the hosts.** Telemetry shows the test UUID (binary names, `C:\F0\tasks` / `/opt/f0/tasks`); the notice email's "Finding this activity" section says so. Don't tell the SOC to search for `PA-RUN-…`.
 - **Trap: `migrateExecuteCommandType`** in `backend/src/services/agent/database.ts` recreates the `tasks` table and runs even on fresh DBs. Any new `tasks` column must be added to its `optionalCols`, and its index to the index recreation, or the column is silently dropped.
+- **Advance digest** (`services/notices/digest.service.ts`, `notice_digests`): daily 09:00 heads-up per schedule org; runs outside `processNotices` on purpose (never delays the gate); never touches `run_notices`/`tasks`.
 - Code: `backend/src/services/notices/`, `backend/src/api/notices.routes.ts`. `services/notices/` must not import `tasks.service.ts` (import cycle); `tasks.service.ts` imports from `notices.repo.ts`.
 
 ### Alerting Service
