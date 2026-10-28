@@ -190,7 +190,7 @@ footer { padding: 16px 24px; text-align: center; color: var(--text-3); font-size
     <option value="auto" selected>auto (sparse over 5m)</option>
     <option value="all">all ticks</option>
   </select></label>
-  <label><input type="checkbox" id="show-bug" checked> Highlight TPSGL scheduler bug</label>
+  <label><input type="checkbox" id="show-bug" checked> Highlight scheduler timezone bug</label>
 </div>
 
 <div class="legend-bar">
@@ -198,7 +198,7 @@ footer { padding: 16px 24px; text-align: center; color: var(--text-3); font-size
   <div class="it"><span class="sw" style="background:var(--accent)"></span>fire event (≤5 min)</div>
   <div class="it"><span class="sw" style="background:var(--text-3)"></span>fire event (sparse)</div>
   <div class="it"><span class="sw" style="background:var(--amber)"></span>scheduled run (operator-defined)</div>
-  <div class="it"><span class="sw" style="background:var(--red)"></span>TPSGL bug fire</div>
+  <div class="it"><span class="sw" style="background:var(--red)"></span>Scheduler bug fire</div>
   <div class="it"><span class="sw" style="background:rgba(94,201,255,0.15);border:1px dashed var(--blue)"></span>09:00–17:00 office hours (selected TZ)</div>
 </div>
 
@@ -206,9 +206,9 @@ footer { padding: 16px 24px; text-align: center; color: var(--text-3); font-size
   <div class="timeline" id="timeline"></div>
 </div>
 
-<h2>The TPSGL Scheduler Bug</h2>
+<h2>The Scheduler Timezone Bug</h2>
 <div class="note-card error">
-  <div class="label">root cause — ~72% of TPSGL failures (May 2026)</div>
+  <div class="label">root cause — ~72% of one tenant's failures (May 2026)</div>
   Schedules configured for <b>09:00 Europe/London</b> were firing at <b>00:00 UTC</b> instead.
   Operator laptops were asleep at midnight → tasks went to offline agents → cascading "agent offline" → queue.Drain infinite-retry amplification (<code>agent/internal/queue/queue.go:100-108</code>).
   Visible above as red ticks at hour 0 on the schedule lane.
@@ -313,9 +313,9 @@ function render() {
     if (j.kind === 'operator') {
       // Scheduled runs lane — show example operator schedules. Bug viz lives here.
       if (showBug) {
-        // The TPSGL bug: schedule configured for 09:00 Europe/London, fires at 00:00 UTC
-        html += '<div class="annotation" style="left:0px"><div class="label">⚠ TPSGL bug: meant for 09:00 London → fires 00:00 UTC</div></div>';
-        html += '<div class="tick event-error" style="left:0px" title="TPSGL bug — laptops asleep, agent offline cascade"></div>';
+        // The scheduler bug: schedule configured for 09:00 Europe/London, fires at 00:00 UTC
+        html += '<div class="annotation" style="left:0px"><div class="label">⚠ Scheduler bug: meant for 09:00 London → fires 00:00 UTC</div></div>';
+        html += '<div class="tick event-error" style="left:0px" title="Scheduler bug — laptops asleep, agent offline cascade"></div>';
       }
       // Show some "correct" example schedules: 09:00 in the selected TZ
       const offsetH = tzOffsetHours(refTz);

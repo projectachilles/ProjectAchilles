@@ -16,21 +16,21 @@ function acceptance(overrides: Partial<RiskAcceptance> & { test_name: string }):
 
 describe('effectiveScope', () => {
   it('honors explicit global even when hostname is set', () => {
-    // The "All Hosts (from LT-TPL-L50)" bug: persisted records had both fields.
+    // The "All Hosts (from LT-ACME-L50)" bug: persisted records had both fields.
     expect(effectiveScope(acceptance({
-      test_name: 't', scope: 'global', hostname: 'LT-TPL-L50',
+      test_name: 't', scope: 'global', hostname: 'LT-ACME-L50',
     }))).toBe('global');
   });
 
   it('honors explicit host', () => {
     expect(effectiveScope(acceptance({
-      test_name: 't', scope: 'host', hostname: 'LT-TPL-L50',
+      test_name: 't', scope: 'host', hostname: 'LT-ACME-L50',
     }))).toBe('host');
   });
 
   it('infers host from hostname presence on legacy records (no scope)', () => {
     expect(effectiveScope(acceptance({
-      test_name: 't', hostname: 'LT-TPL-L50',
+      test_name: 't', hostname: 'LT-ACME-L50',
     }))).toBe('host');
   });
 
@@ -50,8 +50,8 @@ describe('lookupKey', () => {
 });
 
 describe('findAcceptanceForExec', () => {
-  const exec50 = { test_name: 'Block X', control_id: 'CH-ASR-007', hostname: 'LT-TPL-L50' };
-  const exec123 = { test_name: 'Block X', control_id: 'CH-ASR-007', hostname: 'LT-TPL-L123' };
+  const exec50 = { test_name: 'Block X', control_id: 'CH-ASR-007', hostname: 'LT-ACME-L50' };
+  const exec123 = { test_name: 'Block X', control_id: 'CH-ASR-007', hostname: 'LT-ACME-L123' };
 
   it('returns undefined when map is null', () => {
     expect(findAcceptanceForExec(exec50, null)).toBeUndefined();
@@ -63,12 +63,12 @@ describe('findAcceptanceForExec', () => {
   });
 
   it('REGRESSION: returns global acceptance for non-origin host even when stale hostname is set', () => {
-    // The exact shape of the corrupt record on tpsgl: scope=global with hostname='LT-TPL-L50'.
+    // The exact shape of the corrupt record on a customer tenant: scope=global with hostname='LT-ACME-L50'.
     const acc = acceptance({
       test_name: 'Block X',
       control_id: 'CH-ASR-007',
       scope: 'global',
-      hostname: 'LT-TPL-L50',
+      hostname: 'LT-ACME-L50',
     });
     const map = new Map([['Block X::CH-ASR-007', [acc]]]);
 
@@ -82,7 +82,7 @@ describe('findAcceptanceForExec', () => {
       test_name: 'Block X',
       control_id: 'CH-ASR-007',
       scope: 'host',
-      hostname: 'LT-TPL-L50',
+      hostname: 'LT-ACME-L50',
     });
     const map = new Map([['Block X::CH-ASR-007', [acc]]]);
 
@@ -94,7 +94,7 @@ describe('findAcceptanceForExec', () => {
     const hostAcc = acceptance({
       acceptance_id: 'host-acc',
       test_name: 'Block X', control_id: 'CH-ASR-007',
-      scope: 'host', hostname: 'LT-TPL-L50',
+      scope: 'host', hostname: 'LT-ACME-L50',
     });
     const globalAcc = acceptance({
       acceptance_id: 'global-acc',
@@ -118,7 +118,7 @@ describe('findAcceptanceForExec', () => {
 
   it('legacy host record (no scope, hostname set) only matches that host', () => {
     const acc = acceptance({
-      test_name: 'Block X', control_id: 'CH-ASR-007', hostname: 'LT-TPL-L50',
+      test_name: 'Block X', control_id: 'CH-ASR-007', hostname: 'LT-ACME-L50',
     });
     const map = new Map([['Block X::CH-ASR-007', [acc]]]);
     expect(findAcceptanceForExec(exec50, map)).toBe(acc);
@@ -129,7 +129,7 @@ describe('findAcceptanceForExec', () => {
     const acc = acceptance({ test_name: 'Standalone Test', scope: 'global' });
     const map = new Map([['Standalone Test', [acc]]]);
     expect(findAcceptanceForExec(
-      { test_name: 'Standalone Test', hostname: 'LT-TPL-L123' },
+      { test_name: 'Standalone Test', hostname: 'LT-ACME-L123' },
       map,
     )).toBe(acc);
   });

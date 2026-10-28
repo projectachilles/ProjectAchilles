@@ -12,7 +12,7 @@ function stage(n: number, over: Partial<EnrichedTestExecution> = {}): EnrichedTe
   return {
     test_uuid: `${BUNDLE}::T${n}`,
     test_name: `Stage name ${n}`,
-    hostname: 'SBL8801',
+    hostname: 'LT8801',
     is_protected: false,
     org: 'o',
     timestamp: '2026-10-12T12:47:49Z',
@@ -34,10 +34,10 @@ function stage(n: number, over: Partial<EnrichedTestExecution> = {}): EnrichedTe
 function group(controls: EnrichedTestExecution[], over: Partial<BundleGroup> = {}): BundleGroup {
   return {
     type: 'bundle',
-    key: `bundle::${BUNDLE}::SBL8801`,
+    key: `bundle::${BUNDLE}::LT8801`,
     bundle_id: BUNDLE,
     bundle_name: 'LockBit kill chain',
-    hostname: 'SBL8801',
+    hostname: 'LT8801',
     timestamp: '2026-10-12T12:47:49Z',
     controls,
     protectedCount: controls.filter((c) => [105, 126, 127].includes(c.error_code ?? -1)).length,
@@ -206,7 +206,7 @@ describe('RunDetailPanel — cyber-hygiene bundles keep the ratio view', () => {
 
 describe('RunDetailPanel — EDR-killed run', () => {
   const killed = {
-  test_uuid: 'u1', test_name: 'LockBit kill chain', hostname: 'SBL8801', is_protected: true, org: 'o',
+  test_uuid: 'u1', test_name: 'LockBit kill chain', hostname: 'LT8801', is_protected: true, org: 'o',
   timestamp: '2026-10-12T12:47:49Z', error_code: 126, error_name: 'ExecutionPrevented',
   bundle_id: 'b1', bundle_name: 'LockBit kill chain', is_bundle_control: false,
   edr_terminated: true, edr_terminated_vendors: ['sentinelone', 'defender'],

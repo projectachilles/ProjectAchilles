@@ -738,7 +738,7 @@ describe('CrowdStrikeAnalyticsService', () => {
       techniques: ['T1059'],
       timestamp: '2026-10-01T12:00:00Z',
       windowMinutes: 30,
-      hostname: 'LT-TPL-L50',
+      hostname: 'LT-ACME-L50',
       binaryName: '92b0b4f6-a09b-4c7b-b593-31ce461f804c.exe',
     };
 
@@ -845,7 +845,7 @@ describe('CrowdStrikeAnalyticsService', () => {
       const tier3 = JSON.stringify(mockSearch.mock.calls[2][0].query);
       expect(tier3).toContain('mitre_techniques');
       expect(tier3).toContain('evidence_hostnames');
-      expect(tier3).toContain('LT-TPL-L50');
+      expect(tier3).toContain('LT-ACME-L50');
     });
 
     it('tier 3 with hostname but no binaryName (evidence tier skipped) is host-scoped', async () => {
@@ -864,7 +864,7 @@ describe('CrowdStrikeAnalyticsService', () => {
       expect(mockSearch).toHaveBeenCalledTimes(2);
       const tier3 = JSON.stringify(mockSearch.mock.calls[1][0].query);
       expect(tier3).toContain('evidence_hostnames');
-      expect(tier3).toContain('LT-TPL-L50');
+      expect(tier3).toContain('LT-ACME-L50');
     });
 
     it('sorts multiple alerts by proximity to the test timestamp', async () => {

@@ -1291,7 +1291,7 @@ export function expireOverdueTasks(): number {
   // never PATCHed to 'downloading' (e.g. agent crashed between poll and
   // download, or the PATCH failed mid-flight) gets cleaned up. Without
   // this branch the task zombies until TTL (default 7 days). Verified
-  // a real zombie of this shape on tpsgl: task df09471f sat 'assigned'
+  // a real zombie of this shape on a customer tenant: task df09471f sat 'assigned'
   // for 4+ days while its agent was heartbeating fresh.
   const overdueTasks = db.prepare(`
     SELECT * FROM tasks

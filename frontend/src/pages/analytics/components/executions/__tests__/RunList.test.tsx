@@ -46,7 +46,7 @@ describe('RunList EDR-killed runs', () => {
       type: 'standalone',
       key: 'k',
       execution: {
-  test_uuid: 'u1', test_name: 'LockBit kill chain', hostname: 'SBL8801', is_protected: true, org: 'o',
+  test_uuid: 'u1', test_name: 'LockBit kill chain', hostname: 'LT8801', is_protected: true, org: 'o',
   timestamp: '2026-10-12T12:47:49Z', error_code: 126, error_name: 'ExecutionPrevented',
   bundle_id: 'b1', bundle_name: 'LockBit kill chain', is_bundle_control: false,
   edr_terminated: true, edr_terminated_vendors: ['sentinelone', 'defender'],

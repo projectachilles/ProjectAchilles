@@ -103,7 +103,7 @@ clerk_prompt_keys() {
     # Special warning for dev keys on a public demo
     if [[ "$pk_env" == "test" ]]; then
         log_warn "Using pk_test_/sk_test_ keys on a public demo."
-        log_warn "Cross-subdomain Clerk handshake may misbehave (see bancocaribe history)."
+        log_warn "Cross-subdomain Clerk handshake may misbehave (seen on an earlier deploy)."
         log_warn "For production-quality demos, consider creating a Clerk live app + DNS."
         confirm "Continue with dev keys?" || { clerk_prompt_keys; return; }
     fi

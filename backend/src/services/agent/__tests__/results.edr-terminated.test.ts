@@ -54,14 +54,14 @@ beforeEach(() => {
 
 describe('ingestEdrTerminatedResult', () => {
   it('writes a whole-test protected doc', async () => {
-    await ingestEdrTerminatedResult(makeTask(), 'SBL4862', t, null);
+    await ingestEdrTerminatedResult(makeTask(), 'LT4862', t, null);
     expect(mockCreateResultsIndex).toHaveBeenCalledWith('achilles-results-2026.10.20');
     const call = mockEsIndex.mock.calls[0][0];
     expect(call.id).toBe('task-9');
     expect(call.index).toBe('achilles-results-2026.10.20');
     const d = call.document;
     expect(d.event.ERROR).toBe(126);
-    expect(d.routing).toEqual({ event_time: t.killed_at, oid: 'org-001', hostname: 'SBL4862' });
+    expect(d.routing).toEqual({ event_time: t.killed_at, oid: 'org-001', hostname: 'LT4862' });
     expect(d.f0rtika.is_protected).toBe(true);
     expect(d.f0rtika.edr_terminated).toBe(true);
     expect(d.f0rtika.stages_unknown).toBe(true);
@@ -75,7 +75,7 @@ describe('ingestEdrTerminatedResult', () => {
   });
 
   it('sets bundle_id and bundle_name for a multi-stage test', async () => {
-    await ingestEdrTerminatedResult(makeTask(), 'SBL4862', t, { bundleName: 'LockBit Chain' });
+    await ingestEdrTerminatedResult(makeTask(), 'LT4862', t, { bundleName: 'LockBit Chain' });
     const d = mockEsIndex.mock.calls[0][0].document;
     expect(d.f0rtika.bundle_id).toBe('uuid-9');
     expect(d.f0rtika.bundle_name).toBe('LockBit Chain');
@@ -87,8 +87,8 @@ describe('ingestEdrTerminatedResult', () => {
   });
 
   it('puts the edr_terminated mapping on an existing write index once', async () => {
-    await ingestEdrTerminatedResult(makeTask(), 'SBL4862', t, null);
-    await ingestEdrTerminatedResult(makeTask(), 'SBL4862', t, null);
+    await ingestEdrTerminatedResult(makeTask(), 'LT4862', t, null);
+    await ingestEdrTerminatedResult(makeTask(), 'LT4862', t, null);
     expect(mockPutMapping).toHaveBeenCalledTimes(1);
     expect(mockPutMapping).toHaveBeenCalledWith({
       index: 'achilles-results-2026.10.20',
@@ -105,7 +105,7 @@ describe('ingestEdrTerminatedResult', () => {
   it('still writes the doc when putMapping fails', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     mockPutMapping.mockRejectedValue(new Error('boom'));
-    await ingestEdrTerminatedResult(makeTask(), 'SBL4862', t, null);
+    await ingestEdrTerminatedResult(makeTask(), 'LT4862', t, null);
     expect(mockEsIndex).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();

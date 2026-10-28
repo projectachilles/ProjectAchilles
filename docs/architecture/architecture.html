@@ -1313,8 +1313,8 @@ footer code { color: var(--text-2); }
       "issue": "Mapping drift: evidence_filenames/_hostnames were dynamically mapped as text+.keyword (not keyword as code declared) -> query .keyword subfield. Time field: filter on 'timestamp' (=lastUpdateDateTime||createdDateTime), not 'created_at' \u2014 reused alerts have fresh updates but stale created dates."
     },
     {
-      "area": "TPSGL scheduler timezone",
-      "issue": "Schedules configured 09:00 Europe/London fire at 00:00 UTC instead \u2014 laptops asleep -> 'agent offline' cascade. Root cause of ~72% TPSGL failures."
+      "area": "Scheduler timezone (customer tenant)",
+      "issue": "Schedules configured 09:00 Europe/London fire at 00:00 UTC instead \u2014 laptops asleep -> 'agent offline' cascade. Root cause of ~72% of that tenant's failures."
     },
     {
       "area": "queue.Drain infinite retry",

@@ -40,17 +40,17 @@ describe('DefenderEnrichmentService', () => {
     errors: items.some((i) => !i.ok),
     items: items.map((i) => ({
       update: i.ok
-        ? { _index: 'achilles-results-tpsgl', result: 'updated' }
+        ? { _index: 'achilles-results-acme', result: 'updated' }
         : { error: { reason: i.reason ?? 'err' } },
     })),
   });
 
   const eligibleDoc = (id: string, uuid: string) => ({
     _id: id,
-    _index: 'achilles-results-tpsgl',
+    _index: 'achilles-results-acme',
     _source: {
       f0rtika: { test_uuid: uuid, test_name: 'T', category: 'intel-driven' },
-      routing: { event_time: '2026-03-27T07:52:54Z', hostname: 'LT-TPL-L50' },
+      routing: { event_time: '2026-03-27T07:52:54Z', hostname: 'LT-ACME-L50' },
     },
     sort: ['2026-03-27T07:52:54Z', 1],
   });
@@ -72,7 +72,7 @@ describe('DefenderEnrichmentService', () => {
   });
 
   it('flags an error-category doc (999, EDR-killed stage) when alert evidence matches', async () => {
-    // Production scenario (SB tenant, 2026-10-12): CrowdStrike killed the T1486
+    // Production scenario (customer tenant, 2026-10-12): CrowdStrike killed the T1486
     // stage at launch (exit 0xE0000027, coerced to 999) and raised a ProcRansomware
     // alert with the exact stage binary in evidence. The doc is error-category but
     // eligible for scanning; a match must flag it like any conclusive doc.
@@ -209,7 +209,7 @@ describe('DefenderEnrichmentService', () => {
     const goodDoc = eligibleDoc('d1', 'a::T1');
     const badDoc = {
       _id: 'd2',
-      _index: 'achilles-results-tpsgl',
+      _index: 'achilles-results-acme',
       _source: { f0rtika: { test_uuid: '' }, routing: {} },
       sort: ['2026-03-27T07:52:54Z', 2],
     };
@@ -263,7 +263,7 @@ describe('DefenderEnrichmentService', () => {
   it('bulk update targets the source index of each doc', async () => {
     const service = createService();
     mockSearch.mockResolvedValueOnce(makeScanResponse([
-      { ...eligibleDoc('d1', 'a::T1'), _index: 'achilles-results-tpsgl' },
+      { ...eligibleDoc('d1', 'a::T1'), _index: 'achilles-results-acme' },
     ]));
     mockMsearch.mockResolvedValueOnce(makeMsearchResponse([{ hits: { total: { value: 1 } } }]));
     mockBulk.mockResolvedValueOnce(makeBulkResponse([{ ok: true }]));
@@ -271,7 +271,7 @@ describe('DefenderEnrichmentService', () => {
     await service.runEnrichmentPass();
 
     const header = mockBulk.mock.calls[0][0].operations[0];
-    expect(header.update._index).toBe('achilles-results-tpsgl');
+    expect(header.update._index).toBe('achilles-results-acme');
     expect(header.update._id).toBe('d1');
   });
 
@@ -415,7 +415,7 @@ describe('DefenderEnrichmentService', () => {
 
     const ops = mockBulk.mock.calls[0][0].operations;
     expect(ops).toHaveLength(6);
-    expect(ops[0]).toEqual({ update: { _index: 'achilles-results-tpsgl', _id: 'd1' } });
+    expect(ops[0]).toEqual({ update: { _index: 'achilles-results-acme', _id: 'd1' } });
     expect(ops[1].doc.f0rtika.defender_detected).toBe(true);
     expect(ops[2]).toEqual({ update: { _index: 'achilles-defender', _id: 'alert-1' } });
     expect(ops[3].doc.f0rtika.achilles_correlated).toBe(true);
@@ -517,7 +517,7 @@ describe('DefenderEnrichmentService', () => {
   // Doc with a control_id — exercises BOTH the wide and stage sub-queries.
   const eligibleStageDoc = (id: string, bundleUuid: string, controlId: string) => ({
     _id: id,
-    _index: 'achilles-results-tpsgl',
+    _index: 'achilles-results-acme',
     _source: {
       f0rtika: {
         test_uuid: `${bundleUuid}::${controlId}`,

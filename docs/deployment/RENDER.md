@@ -177,8 +177,8 @@ In each service's **Settings** → **Custom Domains**, add:
 
 | Service | Custom Domain | Example |
 |---------|--------------|---------|
-| Frontend | `<prefix>.yourdomain.com` | `tpsgl.projectachilles.io` |
-| Backend | `<prefix>.agent.yourdomain.com` | `tpsgl.agent.projectachilles.io` |
+| Frontend | `<prefix>.yourdomain.com` | `acme.projectachilles.io` |
+| Backend | `<prefix>.agent.yourdomain.com` | `acme.agent.projectachilles.io` |
 
 ### Step 2: DNS Records
 
@@ -258,7 +258,7 @@ When you're ready to use custom domains instead of `*.onrender.com`:
    - Enter the **Client ID** and **Client Secret**
    - Save
 
-> **OAuth callback URL pattern:** All social providers use `https://clerk.<your-domain>/v1/oauth_callback` as the redirect URI. Replace `<your-domain>` with your frontend's custom domain (e.g., `clerk.tpsgl.projectachilles.io`).
+> **OAuth callback URL pattern:** All social providers use `https://clerk.<your-domain>/v1/oauth_callback` as the redirect URI. Replace `<your-domain>` with your frontend's custom domain (e.g., `clerk.acme.projectachilles.io`).
 
 ## Agent Build from Source
 

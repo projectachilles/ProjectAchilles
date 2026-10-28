@@ -101,7 +101,7 @@ describe('computeProtectionScore', () => {
     });
   });
 
-  it('scores a laptop fleet that is offline overnight and has no Firewall Control (sb.gob.do, Oct 26 2026)', () => {
+  it('scores a laptop fleet that is offline overnight and has no Firewall Control (customer fleet, Oct 26 2026)', () => {
     const fleet = [2.6, 2.5, 2.5, 2.5, 2.4].map((d, i) =>
       agent({ id: String(i), isActive: false, lastActiveDate: daysAgo(d), firewallEnabled: false, networkStatus: 'connected' }));
     expect(computeProtectionScore(fleet, [sitePolicy(true), inheritingGroup], NOW)).toMatchObject({ score: 100, protected: 5, scored: 5, total: 5 });

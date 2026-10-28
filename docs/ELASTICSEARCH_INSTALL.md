@@ -124,8 +124,8 @@ The deb postinst auto-generates a security configuration: a self-signed CA, tran
 
 ```yaml
 # Cluster / node identity
-cluster.name: rga
-node.name: rga-1
+cluster.name: achilles
+node.name: achilles-1
 
 # Paths
 path.data: /var/lib/elasticsearch
@@ -361,7 +361,7 @@ services:
       ELASTICSEARCH_USERNAME: kibana_system
       ELASTICSEARCH_PASSWORD: ${KIBANA_SYSTEM_PASSWORD}
       SERVER_HOST: "0.0.0.0"
-      SERVER_NAME: rga-kibana
+      SERVER_NAME: achilles-kibana
       SERVER_PUBLICBASEURL: "http://localhost:5601"
       NODE_OPTIONS: "--max-old-space-size=768"
       XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY}

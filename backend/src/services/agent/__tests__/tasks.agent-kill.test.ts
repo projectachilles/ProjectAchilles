@@ -42,7 +42,7 @@ const term: EdrTermination = {
 
 beforeEach(() => {
   testDb = createTestDatabase();
-  insertTestAgent(testDb, { id: 'agent-001', hostname: 'SBL4862' });
+  insertTestAgent(testDb, { id: 'agent-001', hostname: 'LT4862' });
 });
 
 describe('listAgentKillCandidates', () => {
@@ -56,11 +56,11 @@ describe('listAgentKillCandidates', () => {
     addTask('unassigned', { error: OFFLINE, assigned: false });
     const rows = listAgentKillCandidates('2026-10-01T00:00:00.000Z');
     expect(rows.map((r) => r.task.id).sort()).toEqual(['offline', 'overdue']);
-    expect(rows.every((r) => r.hostname === 'SBL4862' && r.termination === null)).toBe(true);
+    expect(rows.every((r) => r.hostname === 'LT4862' && r.termination === null)).toBe(true);
   });
 
   it("reports the same agent's next assignment, ignoring other agents", () => {
-    insertTestAgent(testDb, { id: 'agent-002', hostname: 'SBL3938' });
+    insertTestAgent(testDb, { id: 'agent-002', hostname: 'LT3938' });
     addTask('killed', { error: OVERDUE });
     insertTestTask(testDb, { id: 'other-agent', agent_id: 'agent-002', status: 'completed', assigned_at: '2026-10-20 10:02:00' });
     insertTestTask(testDb, { id: 'earlier', agent_id: 'agent-001', status: 'completed', assigned_at: '2026-10-20 09:00:00' });

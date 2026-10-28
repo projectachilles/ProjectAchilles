@@ -71,7 +71,7 @@ export function shortHostname(h: string): string {
   return h.trim().toLowerCase().split('.')[0];
 }
 
-/** Exact match on the short name, so `SBL4862` never matches `SBL48621`. */
+/** Exact match on the short name, so `LT4862` never matches `LT48621`. */
 export function hostMatches(agentHost: string, evidence: string[]): boolean {
   const want = shortHostname(agentHost);
   return want !== '' && evidence.some((e) => shortHostname(e) === want);

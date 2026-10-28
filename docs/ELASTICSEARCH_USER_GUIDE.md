@@ -14,7 +14,7 @@ This guide uses placeholders so it can be shared without leaking install-specifi
 | `<droplet-region>` | DO region the droplet runs in | `NYC1` |
 | `<do-region>` | DO region for the Spaces snapshot bucket | `NYC3` |
 | `<do-bucket>` | DO Spaces bucket name | `my-es-snapshots` |
-| `<cluster-name>` | ES `cluster.name` from `elasticsearch.yml` | `rga` |
+| `<cluster-name>` | ES `cluster.name` from `elasticsearch.yml` | `achilles` |
 | `<kibana-compose-dir>` | Local directory holding `compose.yaml` and `.env` | `~/projects/kibana` |
 
 `$ES_PW` is shorthand for the `elastic` superuser password — see [Where credentials live](#where-credentials-live) below.
