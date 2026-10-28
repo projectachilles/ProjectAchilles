@@ -87,6 +87,35 @@ function edrText(e: NoticeEmailData['edr'][number]): string {
   }
 }
 
+export type TestRowData = NoticeEmailData['tests'][number];
+export type HostRowData = NoticeEmailData['hosts'][number];
+
+export function testsTable(tests: TestRowData[]): string {
+  const td = 'padding:6px 8px;border-bottom:1px solid #e4e4e7;vertical-align:top;';
+  const testRows = tests
+    .map(
+      (t) =>
+        `<tr data-row="test"><td style="${td}font-size:13px;color:#18181b;">${escapeHtml(t.name)}<div style="font-family:Menlo,Consolas,monospace;font-size:11px;color:#71717a;margin-top:2px;">${escapeHtml(t.uuid)}</div></td><td style="${td}font-size:13px;color:#18181b;text-align:center;white-space:nowrap;">${escapeHtml(t.stages)}</td><td style="${td}font-size:12px;color:#52525b;">${escapeHtml([...t.techniques, ...t.tactics].join(', '))}</td></tr>`,
+    )
+    .join('');
+  return `<table width="100%" cellpadding="0" cellspacing="0">${headerRow([['Test'], ['Stages', 'center'], ['Techniques & tactics']])}${testRows}</table>`;
+}
+
+export function hostsTable(hosts: HostRowData[], offlineNote: (h: HostRowData) => string): string {
+  const shown = hosts.slice(0, MAX_INLINE_HOSTS);
+  const hostRows = shown
+    .map((h) => {
+      const status = h.online ? 'online' : offlineNote(h);
+      return `<tr data-row="host"><td style="padding:4px 8px;border-bottom:1px solid #e4e4e7;font-size:13px;color:#18181b;">${escapeHtml(h.hostname)}</td><td style="padding:4px 8px;border-bottom:1px solid #e4e4e7;font-size:12px;color:#52525b;">${escapeHtml(h.os)}</td><td style="padding:4px 8px;border-bottom:1px solid #e4e4e7;font-size:12px;color:#52525b;">${escapeHtml(status)}</td></tr>`;
+    })
+    .join('');
+  const more =
+    hosts.length > MAX_INLINE_HOSTS
+      ? `<div style="font-size:12px;color:#52525b;margin-top:6px;">and ${hosts.length - MAX_INLINE_HOSTS} more (see attached CSV)</div>`
+      : '';
+  return `<table width="100%" cellpadding="0" cellspacing="0">${headerRow([['Host'], ['OS'], ['Status']])}${hostRows}</table>${more}`;
+}
+
 export function buildNoticeEmail(d: NoticeEmailData): { subject: string; html: string } {
   const n = plural(d.tests.length, 'test', 'tests');
   const m = plural(d.hosts.length, 'host', 'hosts');
@@ -104,28 +133,6 @@ export function buildNoticeEmail(d: NoticeEmailData): { subject: string; html: s
   when.push(row('Starts no earlier than', escapeHtml(formatDual(d.startNotBefore, d.timezone))));
   when.push(row('Hosts pick up until', escapeHtml(formatDual(d.pickupDeadline, d.timezone))));
   when.push(row('All activity ends by', escapeHtml(formatDual(d.windowEnd, d.timezone))));
-
-  const td = 'padding:6px 8px;border-bottom:1px solid #e4e4e7;vertical-align:top;';
-  const testRows = d.tests
-    .map(
-      (t) =>
-        `<tr data-row="test"><td style="${td}font-size:13px;color:#18181b;">${escapeHtml(t.name)}<div style="font-family:Menlo,Consolas,monospace;font-size:11px;color:#71717a;margin-top:2px;">${escapeHtml(t.uuid)}</div></td><td style="${td}font-size:13px;color:#18181b;text-align:center;white-space:nowrap;">${escapeHtml(t.stages)}</td><td style="${td}font-size:12px;color:#52525b;">${escapeHtml([...t.techniques, ...t.tactics].join(', '))}</td></tr>`,
-    )
-    .join('');
-
-  const shown = d.hosts.slice(0, MAX_INLINE_HOSTS);
-  const hostRows = shown
-    .map((h) => {
-      const status = h.online
-        ? 'online'
-        : `offline: will run if it reconnects before ${formatDual(d.pickupDeadline, d.timezone)}`;
-      return `<tr data-row="host"><td style="padding:4px 8px;border-bottom:1px solid #e4e4e7;font-size:13px;color:#18181b;">${escapeHtml(h.hostname)}</td><td style="padding:4px 8px;border-bottom:1px solid #e4e4e7;font-size:12px;color:#52525b;">${escapeHtml(h.os)}</td><td style="padding:4px 8px;border-bottom:1px solid #e4e4e7;font-size:12px;color:#52525b;">${escapeHtml(status)}</td></tr>`;
-    })
-    .join('');
-  const more =
-    d.hosts.length > MAX_INLINE_HOSTS
-      ? `<div style="font-size:12px;color:#52525b;margin-top:6px;">and ${d.hosts.length - MAX_INLINE_HOSTS} more (see attached CSV)</div>`
-      : '';
 
   // What a SOC analyst can actually search for: the run tag never reaches the
   // hosts, but every test binary is named after its test UUID and runs from
@@ -149,11 +156,71 @@ export function buildNoticeEmail(d: NoticeEmailData): { subject: string; html: s
   const body = [
     `<tr><td style="padding:20px 24px 4px;font-size:16px;font-weight:600;color:#18181b;">Security testing is about to begin</td></tr>`,
     `<tr><td style="padding:0 24px;"><table width="100%" cellpadding="0" cellspacing="0">${when.join('')}</table></td></tr>`,
-    section(`Tests (${d.tests.length})`, `<table width="100%" cellpadding="0" cellspacing="0">${headerRow([['Test'], ['Stages', 'center'], ['Techniques & tactics']])}${testRows}</table>`),
-    section(`Hosts (${d.hosts.length})`, `<table width="100%" cellpadding="0" cellspacing="0">${headerRow([['Host'], ['OS'], ['Status']])}${hostRows}</table>${more}`),
+    section(`Tests (${d.tests.length})`, testsTable(d.tests)),
+    section(`Hosts (${d.hosts.length})`, hostsTable(d.hosts, () => `offline: will run if it reconnects before ${formatDual(d.pickupDeadline, d.timezone)}`)),
     finding,
     edr,
     `<tr><td style="padding:12px 24px 20px;"><a href="${escapeHtml(d.uiUrl)}" style="color:#2563eb;font-size:13px;">Open ProjectAchilles</a></td></tr>`,
+  ].join('\n');
+
+  return { subject, html: shell(subject, body) };
+}
+
+export interface DigestEmailData {
+  runDate: string;
+  digestTz: string;
+  uiUrl: string;
+  entries: Array<{
+    scheduleName: string;
+    mode: 'fixed' | 'fleet' | 'per_machine';
+    timezone: string;
+    start: Date;
+    end: Date;
+    test: TestRowData;
+    hosts: HostRowData[];
+  }>;
+}
+
+function modeLine(e: DigestEmailData['entries'][number]): string {
+  const start = formatDual(e.start, e.timezone);
+  const end = formatDual(e.end, e.timezone);
+  switch (e.mode) {
+    case 'per_machine':
+      return `Each host at its own random time between ${start} and ${end}`;
+    case 'fleet':
+      return `All hosts at one random time between ${start} and ${end}`;
+    default:
+      return `All hosts starting at ${start}; nothing new starts after ${end}`;
+  }
+}
+
+export function buildDigestEmail(d: DigestEmailData): { subject: string; html: string } {
+  const weekday = new Date(`${d.runDate}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+  const testCount = new Set(d.entries.map((e) => e.test.uuid)).size;
+  const hostCount = new Set(d.entries.flatMap((e) => e.hosts.map((h) => h.hostname))).size;
+  const subject = `[ProjectAchilles] Security testing scheduled tomorrow, ${weekday} ${d.runDate} — ${plural(testCount, 'test', 'tests')} on ${plural(hostCount, 'host', 'hosts')}`;
+
+  const p = 'font-size:13px;color:#18181b;margin:0 0 6px;';
+  const sections = d.entries.map((e) =>
+    section(
+      e.scheduleName,
+      `<p style="${p}color:#52525b;">${escapeHtml(modeLine(e))}</p>${testsTable([e.test])}<div style="height:8px;"></div>${hostsTable(e.hosts, () => 'offline: runs only if it reconnects in time')}`,
+    ),
+  );
+
+  const example = d.entries.find((e) => e.test.uuid)?.test.uuid;
+  const finding = section(
+    'Finding this activity in your security tools',
+    `<p style="${p}">On the hosts above, during the windows shown, the tests run from <code>C:\\F0\\tasks</code> (Windows) or <code>/opt/f0/tasks</code> (Linux, macOS). ` +
+      `Their files and processes are named after the test UUIDs listed above${example ? `, for example <code>${escapeHtml(example)}.exe</code>, or <code>${escapeHtml(example)}-T1105.exe</code> for a stage` : ''}.</p>`,
+  );
+
+  const body = [
+    `<tr><td style="padding:20px 24px 4px;font-size:16px;font-weight:600;color:#18181b;">Security testing is scheduled for tomorrow</td></tr>`,
+    `<tr><td style="padding:0 24px;"><p style="${p}">This is an advance heads-up. Each run is announced again by the usual pre-execution notice a few minutes before it starts. Schedules may still change; the notice sent on the day is authoritative.</p></td></tr>`,
+    ...sections,
+    finding,
+    `<tr><td style="padding:12px 24px 20px;"><a href="${escapeHtml(d.uiUrl)}" style="color:#2563eb;font-size:13px;">Open schedules</a></td></tr>`,
   ].join('\n');
 
   return { subject, html: shell(subject, body) };

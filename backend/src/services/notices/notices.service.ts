@@ -107,7 +107,7 @@ function parseTimestamp(s: string | null | undefined): number | null {
   return Number.isNaN(ms) ? null : ms;
 }
 
-function isOnline(lastHeartbeat: string | null, now: Date): boolean {
+export function isOnline(lastHeartbeat: string | null, now: Date): boolean {
   const ms = parseTimestamp(lastHeartbeat);
   return ms !== null && now.getTime() - ms <= ONLINE_THRESHOLD_MS;
 }
@@ -408,7 +408,7 @@ function triggerText(n: NoticeRow, user: string = n.created_by): string {
  * a bundle's control count from its last completed run, "bundle" before it
  * has run, or a dash when the test is no longer in the library.
  */
-function stagesText(testUuid: string, orgId: string | null): string {
+export function stagesText(testUuid: string, orgId: string | null): string {
   const meta = getTestMetadata(testUuid);
   if (!meta) return '—';
   if (meta.category === 'cyber-hygiene') {
