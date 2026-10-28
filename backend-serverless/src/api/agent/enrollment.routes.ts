@@ -1,8 +1,9 @@
 import { Router } from 'express';
+import type { Request } from 'express';
 import rateLimit from 'express-rate-limit';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
 import { validate } from '../../middleware/validation.js';
-import { getUserId, requirePermission, validateRequestOrgId } from '../../middleware/clerk.middleware.js';
+import { getUserId, getUserOrgId, requirePermission, validateRequestOrgId } from '../../middleware/clerk.middleware.js';
 import {
   createToken,
   enrollAgent,
@@ -106,6 +107,20 @@ agentEnrollmentRouter.get(
 // Admin router (Clerk auth required)
 // ============================================================================
 
+/**
+ * The caller's Clerk org, or undefined in legacy single-org mode. A no-org
+ * caller is rejected when REQUIRE_ORG_ISOLATION=true (same rule as campaigns
+ * and notices), so token routes never fall back to "any org" in multi-tenant.
+ */
+function callerOrg(req: Request): string | undefined {
+  const orgId = getUserOrgId(req.auth);
+  if (orgId) return orgId;
+  if (process.env.REQUIRE_ORG_ISOLATION === 'true') {
+    throw new AppError('Organization isolation required. Configure Clerk Organizations.', 403);
+  }
+  return undefined;
+}
+
 export const adminEnrollmentRouter = Router();
 
 // Clerk auth is applied at mount time in the parent router.
@@ -126,6 +141,7 @@ adminEnrollmentRouter.post(
 
     const { org_id, ttl_hours, max_uses, metadata } = req.body as CreateTokenRequest;
 
+    callerOrg(req);
     validateRequestOrgId(org_id, req.auth);
 
     const result = await createToken(
@@ -153,6 +169,8 @@ adminEnrollmentRouter.get(
     if (!orgId) {
       throw new AppError('Missing required query parameter: org_id', 400);
     }
+    callerOrg(req);
+    validateRequestOrgId(orgId, req.auth);
 
     const tokens = await listTokens(orgId);
 
@@ -168,7 +186,7 @@ adminEnrollmentRouter.delete(
   '/tokens/:id',
   requirePermission('endpoints:tokens:delete'),
   asyncHandler(async (req, res) => {
-    await revokeToken(req.params.id);
+    await revokeToken(req.params.id, callerOrg(req));
 
     res.json({ success: true, data: { message: 'Token revoked' } });
   })

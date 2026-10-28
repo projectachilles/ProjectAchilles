@@ -193,9 +193,15 @@ export function listTokens(orgId: string): EnrollmentToken[] {
 /**
  * Revoke (delete) an enrollment token.
  */
-export function revokeToken(tokenId: string): void {
+/**
+ * Revoke (delete) an enrollment token. With an orgId only that org's token can
+ * be revoked; another org's id gets the same 404 as a missing one.
+ */
+export function revokeToken(tokenId: string, orgId?: string): void {
   const db = getDatabase();
-  const result = db.prepare('DELETE FROM enrollment_tokens WHERE id = ?').run(tokenId);
+  const result = orgId
+    ? db.prepare('DELETE FROM enrollment_tokens WHERE id = ? AND org_id = ?').run(tokenId, orgId)
+    : db.prepare('DELETE FROM enrollment_tokens WHERE id = ?').run(tokenId);
 
   if (result.changes === 0) {
     throw new AppError('Token not found', 404);

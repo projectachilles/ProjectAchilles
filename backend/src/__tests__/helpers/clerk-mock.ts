@@ -25,5 +25,11 @@ vi.mock('../../middleware/clerk.middleware.js', () => ({
   },
   getUserId: (auth: any) => auth?.userId || auth?.sub || 'test-user-001',
   requirePermission: () => (_req: any, _res: any, next: any) => next(),
-  validateRequestOrgId: () => {},
+  getUserOrgId: (auth: any) => auth?.orgId,
+  // Same rule as the real one: only a caller with an org can mismatch.
+  validateRequestOrgId: (reqOrgId: string, auth: any) => {
+    if (auth?.orgId && reqOrgId !== auth.orgId) {
+      throw Object.assign(new Error('org_id does not match your organization'), { statusCode: 403, isOperational: true });
+    }
+  },
 }));
