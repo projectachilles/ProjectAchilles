@@ -340,6 +340,20 @@ describe('heartbeat history', () => {
       expect(metrics.task_success_rate_7d).toBe(66.7);
     });
 
+    it('does not count an EDR-killed run as a task failure', () => {
+      testDb.prepare(`
+        INSERT INTO tasks (id, agent_id, org_id, type, status, payload, completed_at, batch_id, result)
+        VALUES ('k1', 'agent-001', 'org-001', 'execute_test', 'failed', '{}', datetime('now', '-1 day'), 'k1',
+                '{"exit_code":-1,"edr_terminated":{"vendors":["crowdstrike"],"alert_ids":["a"]}}')
+      `).run();
+      testDb.prepare(`
+        INSERT INTO tasks (id, agent_id, org_id, type, status, payload, completed_at, batch_id)
+        VALUES ('k2', 'agent-001', 'org-001', 'execute_test', 'completed', '{}', datetime('now', '-1 day'), 'k2')
+      `).run();
+
+      expect(getFleetHealthMetrics().task_success_rate_7d).toBe(100);
+    });
+
     it('identifies stale agents', () => {
       // agent-001 has a heartbeat but no completed tasks in 7d
       testDb.prepare('UPDATE agents SET last_heartbeat = ? WHERE id = ?')

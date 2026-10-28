@@ -1,8 +1,17 @@
+import { Fragment } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type { CadenceView } from '../dashboardViews';
 import { AnalyticsSetupPrompt } from './AnalyticsSetupPrompt';
+
+const TONE_CLASS = {
+  accent: 'text-accent',
+  danger: 'text-danger',
+  warning: 'text-warning',
+  info: 'text-info',
+  muted: 'text-muted',
+} as const;
 
 interface TestingCadenceCardProps {
   view: CadenceView | null;
@@ -136,14 +145,15 @@ export function TestingCadenceCard({ view, configured, loading }: TestingCadence
             </span>
           </div>
           <div className={TILE}>
-            <span className={TILE_LABEL}>Tasks · 24h</span>
-            {view.tasks24h ? (
+            <span className={TILE_LABEL}>{view.taskActivity?.label ?? 'Runs · 7d'}</span>
+            {view.taskActivity ? (
               <span className="text-[13px]">
-                <span className="text-accent">{view.tasks24h.completed} done</span>
-                {' · '}
-                <span className="text-danger">{view.tasks24h.failed} failed</span>
-                {' · '}
-                <span className="text-warning">{view.tasks24h.inProgress} running</span>
+                {view.taskActivity.parts.map((p, i) => (
+                  <Fragment key={p.text}>
+                    {i > 0 && ' · '}
+                    <span className={TONE_CLASS[p.tone]}>{p.text}</span>
+                  </Fragment>
+                ))}
               </span>
             ) : (
               <span className="text-[13px] text-faint">—</span>

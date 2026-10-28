@@ -26,8 +26,11 @@ export interface CadenceView {
   endpointsTested7d: number;
   /** Enrolled agents. */
   agentsTotal: number;
-  /** Agent task activity over the last 24h; null when metrics are unavailable. */
-  tasks24h: { completed: number; failed: number; inProgress: number } | null;
+  /**
+   * Run activity: 7-day test outcomes ("Runs · 7d"), or the 24h lifecycle
+   * counts when the backend has no outcome metrics; null when metrics are unavailable.
+   */
+  taskActivity: { label: string; parts: Array<{ text: string; tone: 'accent' | 'danger' | 'warning' | 'info' | 'muted' }> } | null;
   /** Earliest upcoming schedule (next run in the future); null when none or schedules unavailable. */
   nextScheduled: { when: string; label: string; endpoints: number } | null;
   /** False when schedules could not be read (no permission): hide the row rather than say "Nothing scheduled". */
@@ -53,9 +56,28 @@ export function buildCadence(
   }
 
   const act = metrics?.task_activity_24h;
-  const tasks24h = act
-    ? { completed: act.completed ?? 0, failed: act.failed ?? 0, inProgress: act.in_progress ?? 0 }
-    : null;
+  const outcomes = metrics?.task_outcomes_7d;
+  let taskActivity: CadenceView['taskActivity'] = null;
+  if (outcomes) {
+    const t = outcomes.tests;
+    taskActivity = {
+      label: 'Runs · 7d',
+      parts: [
+        { text: `${t.protected + t.unprotected} with a verdict`, tone: 'accent' },
+        { text: `${t.not_run + t.run_failed + t.test_error + t.inconclusive} no verdict`, tone: 'warning' },
+        { text: `${act?.in_progress ?? 0} running`, tone: 'info' },
+      ],
+    };
+  } else if (act) {
+    taskActivity = {
+      label: 'Tasks · 24h',
+      parts: [
+        { text: `${act.completed ?? 0} done`, tone: 'accent' },
+        { text: `${act.failed ?? 0} failed`, tone: 'danger' },
+        { text: `${act.in_progress ?? 0} running`, tone: 'warning' },
+      ],
+    };
+  }
 
   let nextScheduled: CadenceView['nextScheduled'] = null;
   for (const s of schedules ?? []) {
@@ -83,7 +105,7 @@ export function buildCadence(
         : null,
     endpointsTested7d: activity.endpointsTested7d ?? 0,
     agentsTotal,
-    tasks24h,
+    taskActivity,
     nextScheduled,
     schedulesAvailable: schedules != null,
   };

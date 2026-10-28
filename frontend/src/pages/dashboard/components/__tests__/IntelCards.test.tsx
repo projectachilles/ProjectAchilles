@@ -20,7 +20,14 @@ const cadence: CadenceView = {
   protectedPct7d: 90,
   endpointsTested7d: 8,
   agentsTotal: 36,
-  tasks24h: { completed: 131, failed: 6, inProgress: 5 },
+  taskActivity: {
+    label: 'Runs · 7d',
+    parts: [
+      { text: '131 with a verdict', tone: 'accent' as const },
+      { text: '6 no verdict', tone: 'warning' as const },
+      { text: '5 running', tone: 'info' as const },
+    ],
+  },
   nextScheduled: { when: '2026-10-27T09:00:00Z', label: 'APT34 chain', endpoints: 12 },
   schedulesAvailable: true,
 };
@@ -31,7 +38,8 @@ describe('TestingCadenceCard', () => {
     expect(screen.getByText('Testing cadence')).toBeInTheDocument();
     expect(screen.getByText('last run 3d ago')).toBeInTheDocument();
     expect(screen.getByText('142 in 7d')).toBeInTheDocument();
-    expect(screen.getByText(/131 done/)).toBeInTheDocument();
+    expect(screen.getByText(/131 with a verdict/)).toBeInTheDocument();
+    expect(screen.getByText('Runs · 7d')).toBeInTheDocument();
     expect(screen.getByText(/APT34 chain on 12 endpoints/)).toBeInTheDocument();
     expect(screen.getByRole('img', { name: /Daily executions/ })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Tasks/ })).toHaveAttribute('href', '/tasks');
@@ -41,7 +49,7 @@ describe('TestingCadenceCard', () => {
       <TestingCadenceCard
         configured
         view={{ ...cadence, bars: [], lastRunDaysAgo: null, lastRunAt: null,
-          executions7d: 0, protectedPct7d: null, tasks24h: null, nextScheduled: null }}
+          executions7d: 0, protectedPct7d: null, taskActivity: null, nextScheduled: null }}
       />,
     );
     expect(screen.getByText('no runs yet')).toBeInTheDocument();

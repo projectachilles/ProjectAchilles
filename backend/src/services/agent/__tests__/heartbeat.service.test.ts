@@ -161,6 +161,35 @@ describe('heartbeat.service', () => {
       expect(metrics.task_activity_24h.in_progress).toBe(1);
     });
 
+    it('counts 7-day test outcomes by result, and other tasks separately', () => {
+      insertTestAgent(testDb, { id: 'a1' });
+      const recent = new Date(Date.now() - 3 * 86400 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+      const old = new Date(Date.now() - 9 * 86400 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+      const ins = testDb.prepare(`
+        INSERT INTO tasks (id, agent_id, org_id, type, status, payload, created_by, ttl, completed_at, result)
+        VALUES (?, 'a1', 'org-001', ?, ?, '{}', 'user', 604800, ?, ?)
+      `);
+      const res = (exit_code: number, extra: Record<string, unknown> = {}) =>
+        JSON.stringify({ exit_code, stdout: '', stderr: '', execution_duration_ms: 1, ...extra });
+      ins.run('p1', 'execute_test', 'completed', recent, res(126));
+      ins.run('p2', 'execute_test', 'failed', recent, res(-1, { edr_terminated: { vendors: ['defender'], alert_ids: ['x'] } }));
+      ins.run('u1', 'execute_test', 'completed', recent, res(101));
+      ins.run('n1', 'execute_test', 'completed', recent, res(260));
+      ins.run('f1', 'execute_test', 'failed', recent, res(-1));
+      ins.run('e1', 'execute_test', 'completed', recent, res(999));
+      ins.run('i1', 'execute_test', 'completed', recent, res(259));
+      ins.run('c1', 'execute_command', 'completed', recent, res(0));
+      ins.run('c2', 'execute_command', 'completed', recent, res(255));
+      ins.run('c3', 'update_agent', 'failed', recent, res(1));
+      ins.run('old', 'execute_test', 'completed', old, res(101)); // outside 7 days
+
+      const { task_outcomes_7d: o } = getAgentMetrics();
+      expect(o.tests).toEqual({
+        protected: 2, edr_stopped: 1, unprotected: 1, not_run: 1, run_failed: 1, test_error: 1, inconclusive: 1,
+      });
+      expect(o.other).toEqual({ total: 3, failed: 2 });
+    });
+
     it('includes by_version distribution', () => {
       insertTestAgent(testDb, { id: 'a1', agent_version: '1.0.0' });
       insertTestAgent(testDb, { id: 'a2', agent_version: '1.0.0' });

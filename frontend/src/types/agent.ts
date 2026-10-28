@@ -210,6 +210,20 @@ export interface ListTasksRequest {
   offset?: number;
 }
 
+export interface TaskOutcomes7d {
+  tests: {
+    protected: number;
+    /** Subset of protected: runs the EDR stopped by killing the agent. */
+    edr_stopped: number;
+    unprotected: number;
+    not_run: number;
+    run_failed: number;
+    test_error: number;
+    inconclusive: number;
+  };
+  other: { total: number; failed: number };
+}
+
 export interface AgentMetrics {
   total: number;
   online: number;
@@ -224,6 +238,8 @@ export interface AgentMetrics {
     success_rate: number;
     in_progress: number;
   };
+  /** Finished tasks in the last 7 days by outcome (backend/ only; absent on serverless). */
+  task_outcomes_7d?: TaskOutcomes7d;
   by_version: Record<string, number>;
 }
 
