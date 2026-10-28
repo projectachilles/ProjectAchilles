@@ -168,4 +168,39 @@ describe('enrollment routes', () => {
       expect(res.body.data.message).toBe('Token revoked');
     });
   });
+
+  describe('org scoping of token admin routes', () => {
+    function createAppAs(orgId: string) {
+      const app = express();
+      app.use(express.json());
+      app.use((req, _res, next) => {
+        (req as any).auth = { userId: 'user-002', orgId };
+        next();
+      });
+      app.use('/agent/admin', adminEnrollmentRouter);
+      app.use(errorHandler);
+      return app;
+    }
+
+    it("refuses to list another org's tokens", async () => {
+      await createToken('org-001', 'user-001');
+      const res = await request(createAppAs('org-002')).get('/agent/admin/tokens').query({ org_id: 'org-001' });
+      expect(res.status).toBe(403);
+    });
+
+    it('lists the caller org tokens', async () => {
+      await createToken('org-002', 'user-002');
+      const res = await request(createAppAs('org-002')).get('/agent/admin/tokens').query({ org_id: 'org-002' });
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveLength(1);
+    });
+
+    it("answers 404 for another org's token and does not revoke it", async () => {
+      const token = await createToken('org-001', 'user-001');
+      const res = await request(createAppAs('org-002')).delete(`/agent/admin/tokens/${token.id}`);
+      expect(res.status).toBe(404);
+      const still = await request(createAppAs('org-001')).get('/agent/admin/tokens').query({ org_id: 'org-001' });
+      expect(still.body.data).toHaveLength(1);
+    });
+  });
 });

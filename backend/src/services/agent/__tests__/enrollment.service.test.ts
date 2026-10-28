@@ -406,5 +406,17 @@ describe('enrollment.service', () => {
     it('throws for nonexistent token', () => {
       expect(() => revokeToken('nonexistent')).toThrow('Token not found');
     });
+
+    it('revokes a token of the caller org', async () => {
+      const token = await createToken('org-001', 'user-001');
+      revokeToken(token.id, 'org-001');
+      expect(testDb.prepare('SELECT 1 FROM enrollment_tokens WHERE id = ?').get(token.id)).toBeUndefined();
+    });
+
+    it("refuses another org's token as not found and leaves it in place", async () => {
+      const token = await createToken('org-001', 'user-001');
+      expect(() => revokeToken(token.id, 'org-002')).toThrow('Token not found');
+      expect(testDb.prepare('SELECT 1 FROM enrollment_tokens WHERE id = ?').get(token.id)).toBeTruthy();
+    });
   });
 });

@@ -180,9 +180,13 @@ export async function listTokens(orgId: string): Promise<EnrollmentToken[]> {
 /**
  * Revoke (delete) an enrollment token.
  */
-export async function revokeToken(tokenId: string): Promise<void> {
+export async function revokeToken(tokenId: string, orgId?: string): Promise<void> {
   const db = await getDb();
-  const result = await db.run('DELETE FROM enrollment_tokens WHERE id = ?', [tokenId]);
+  // With an orgId only that org's token can be revoked; another org's id gets
+  // the same 404 as a missing one.
+  const result = orgId
+    ? await db.run('DELETE FROM enrollment_tokens WHERE id = ? AND org_id = ?', [tokenId, orgId])
+    : await db.run('DELETE FROM enrollment_tokens WHERE id = ?', [tokenId]);
 
   if (result.changes === 0) {
     throw new AppError('Token not found', 404);

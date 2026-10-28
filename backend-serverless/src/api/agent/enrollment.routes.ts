@@ -2,7 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
 import { validate } from '../../middleware/validation.js';
-import { getUserId, requirePermission, validateRequestOrgId } from '../../middleware/clerk.middleware.js';
+import { getUserId, getUserOrgId, requirePermission, validateRequestOrgId } from '../../middleware/clerk.middleware.js';
 import {
   createToken,
   enrollAgent,
@@ -153,6 +153,7 @@ adminEnrollmentRouter.get(
     if (!orgId) {
       throw new AppError('Missing required query parameter: org_id', 400);
     }
+    validateRequestOrgId(orgId, req.auth);
 
     const tokens = await listTokens(orgId);
 
@@ -168,7 +169,7 @@ adminEnrollmentRouter.delete(
   '/tokens/:id',
   requirePermission('endpoints:tokens:delete'),
   asyncHandler(async (req, res) => {
-    await revokeToken(req.params.id);
+    await revokeToken(req.params.id, getUserOrgId(req.auth));
 
     res.json({ success: true, data: { message: 'Token revoked' } });
   })
