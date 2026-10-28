@@ -988,6 +988,17 @@ describe('tasks.service', () => {
   });
 
   describe('listTasksGrouped', () => {
+    it('filters by several task types at once', async () => {
+      await insertTestAgent(testDb, { id: 'agent-mt' });
+      await insertTestTask(testDb, { id: 'mt-test', agent_id: 'agent-mt', type: 'execute_test', batch_id: 'b1' });
+      await insertTestTask(testDb, { id: 'mt-up', agent_id: 'agent-mt', type: 'update_agent', batch_id: 'b2' });
+      await insertTestTask(testDb, { id: 'mt-un', agent_id: 'agent-mt', type: 'uninstall', batch_id: 'b3' });
+
+      const result = await listTasksGrouped({ types: ['update_agent', 'uninstall'] });
+      const ids = result.groups.flatMap((g) => g.tasks.map((t) => t.id)).sort();
+      expect(ids).toEqual(['mt-un', 'mt-up']);
+    });
+
     it('returns correct group structure for multi-agent batch', async () => {
       await insertTestAgent(testDb, { id: 'agent-002', hostname: 'host-2' });
       await insertTestAgent(testDb, { id: 'agent-003', hostname: 'host-3' });

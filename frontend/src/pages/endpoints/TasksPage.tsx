@@ -3,7 +3,7 @@ import { usePolling } from '@/hooks/usePolling';
 import { useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCw, Search, X, Trash2, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, ChevronDown } from 'lucide-react';
 import { agentApi } from '@/services/api/agent';
-import type { AgentMetrics, AgentTask, TaskGroup, TaskStatus, Schedule } from '@/types/agent';
+import type { AgentMetrics, AgentTask, TaskGroup, TaskStatus, TaskType, Schedule } from '@/types/agent';
 import { PageContainer, PageHeader } from '@/components/endpoints/Layout';
 import TaskStream from '@/components/endpoints/tasks/TaskStream';
 import ScheduleList from '@/components/endpoints/tasks/ScheduleList';
@@ -17,6 +17,8 @@ import { useHasPermission } from '@/hooks/useAppRole';
 import { fieldControlClass } from '@/components/shared/ui/formStyles';
 import { cn } from '@/lib/utils';
 import { taskTiles } from './utils/taskTiles';
+import { DEFAULT_TASK_KIND, TASK_KINDS, kindCount, typesForKind, type TaskKind } from './utils/taskKinds';
+import { pillClass } from '@/components/shared/ui/pillStyles';
 
 const TOAST_DURATION_MS = 4000;
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
@@ -41,6 +43,8 @@ export default function TasksPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [notesTask, setNotesTask] = useState<AgentTask | null>(null);
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
+  const [taskKind, setTaskKind] = useState<TaskKind>(DEFAULT_TASK_KIND);
+  const [typeCounts, setTypeCounts] = useState<Partial<Record<TaskType, number>> | undefined>(undefined);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   // Collapsed by default — schedules are configuration, the stream is the page
@@ -63,6 +67,7 @@ export default function TasksPage() {
   function buildFilters() {
     return {
       ...(statusFilter ? { status: statusFilter } : {}),
+      ...(typesForKind(taskKind).length ? { types: typesForKind(taskKind) } : {}),
       ...(debouncedSearch ? { search: debouncedSearch } : {}),
       limit: pageSize,
       offset: (page - 1) * pageSize,
@@ -76,13 +81,14 @@ export default function TasksPage() {
       const result = await agentApi.listTasksGrouped(buildFilters());
       setGroups(result.groups);
       setTotalGroups(result.total);
+      setTypeCounts(result.typeCounts);
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
     } finally {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, debouncedSearch, page, pageSize]);
+  }, [statusFilter, taskKind, debouncedSearch, page, pageSize]);
 
   const fetchSchedules = useCallback(async () => {
     try {
@@ -110,13 +116,14 @@ export default function TasksPage() {
       ]);
       setGroups(taskResult.groups);
       setTotalGroups(taskResult.total);
+      setTypeCounts(taskResult.typeCounts);
       setSchedules(scheduleResult);
       if (metricsResult) setMetrics(metricsResult);
     } catch {
       // Silent — don't surface transient poll failures
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, debouncedSearch, page, pageSize]);
+  }, [statusFilter, taskKind, debouncedSearch, page, pageSize]);
 
   usePolling(poll, 10_000);
 
@@ -140,6 +147,11 @@ export default function TasksPage() {
 
   function handleStatusFilterChange(value: TaskStatus | ''): void {
     setStatusFilter(value);
+    setPage(1);
+  }
+
+  function handleTaskKindChange(kind: TaskKind): void {
+    setTaskKind(kind);
     setPage(1);
   }
 
@@ -343,6 +355,27 @@ export default function TasksPage() {
         {/* Filter bar */}
         <div className="border border-border rounded-lg bg-card p-4 mb-4">
           <div className="flex flex-wrap items-center gap-4">
+            {/* Type pills: Security tests by default, so agent upkeep doesn't bury test runs */}
+            <div role="tablist" aria-label="Task type" className="flex flex-wrap gap-2">
+              {TASK_KINDS.map((k) => {
+                const count = kindCount(k.id, typeCounts);
+                return (
+                  <button
+                    key={k.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={taskKind === k.id}
+                    onClick={() => handleTaskKindChange(k.id)}
+                    className={pillClass(taskKind === k.id)}
+                  >
+                    {k.label}
+                    {count !== null && (
+                      <span className={cn('font-mono text-[11px]', taskKind === k.id ? 'text-accent' : 'text-faint')}>{count}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
             <div className="min-w-40 max-lg:min-w-0 max-lg:flex-1 max-lg:basis-40">
               <select
                 className={fieldControlClass}

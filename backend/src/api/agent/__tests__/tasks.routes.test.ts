@@ -530,5 +530,38 @@ describe('tasks routes', () => {
       expect(labels(res)['t-own']).toBe('Jane Doe');
     });
   });
+
+  describe('GET /admin/tasks/grouped type filter', () => {
+    beforeEach(() => {
+      insertTestTask(testDb, { id: 'g-test', batch_id: 'bt', type: 'execute_test' });
+      insertTestTask(testDb, { id: 'g-cmd', batch_id: 'bc', type: 'execute_command' });
+      insertTestTask(testDb, { id: 'g-up1', batch_id: 'bu', type: 'update_agent' });
+      insertTestTask(testDb, { id: 'g-up2', batch_id: 'bu', type: 'update_agent' });
+      insertTestTask(testDb, { id: 'g-un', batch_id: 'bn', type: 'uninstall' });
+    });
+    const ids = (res: request.Response) =>
+      res.body.data.groups.flatMap((g: { tasks: Array<{ id: string }> }) => g.tasks.map((t) => t.id)).sort();
+
+    it('filters by several task types at once (Maintenance = updates + uninstalls)', async () => {
+      const res = await request(createApp()).get('/admin/tasks/grouped').query({ type: 'update_agent,uninstall' });
+      expect(res.status).toBe(200);
+      expect(ids(res)).toEqual(['g-un', 'g-up1', 'g-up2']);
+    });
+
+    it('still filters by a single type', async () => {
+      const res = await request(createApp()).get('/admin/tasks/grouped').query({ type: 'execute_test' });
+      expect(ids(res)).toEqual(['g-test']);
+    });
+
+    it('returns task counts per type, ignoring the type filter so every pill has a count', async () => {
+      const res = await request(createApp()).get('/admin/tasks/grouped').query({ type: 'execute_test' });
+      expect(res.body.data.type_counts).toEqual({ execute_test: 1, execute_command: 1, update_agent: 2, uninstall: 1 });
+    });
+
+    it('rejects an unknown task type', async () => {
+      const res = await request(createApp()).get('/admin/tasks/grouped').query({ type: 'execute_test,drop_tables' });
+      expect(res.status).toBe(400);
+    });
+  });
 });
 

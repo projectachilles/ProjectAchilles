@@ -22,6 +22,7 @@ import type {
   AgentEvent,
   AgentEventType,
   FleetHealthMetrics,
+  TaskType,
 } from '@/types/agent';
 
 export const agentApi = {
@@ -137,10 +138,15 @@ export const agentApi = {
     return { tasks: data.tasks ?? [], total: data.total ?? 0 };
   },
 
-  async listTasksGrouped(params?: ListTasksRequest): Promise<{ groups: TaskGroup[]; total: number }> {
-    const response = await apiClient.get('/agent/admin/tasks/grouped', { params });
+  async listTasksGrouped(
+    params?: ListTasksRequest,
+  ): Promise<{ groups: TaskGroup[]; total: number; typeCounts?: Partial<Record<TaskType, number>> }> {
+    const { types, ...rest } = params ?? {};
+    const query = types?.length ? { ...rest, type: types.join(',') } : rest;
+    const response = await apiClient.get('/agent/admin/tasks/grouped', { params: query });
     const data = response.data.data;
-    return { groups: data.groups ?? [], total: data.total ?? 0 };
+    // type_counts: per-type task counts for the type pills (backend/ only).
+    return { groups: data.groups ?? [], total: data.total ?? 0, typeCounts: data.type_counts };
   },
 
   async getTask(taskId: string): Promise<AgentTask> {

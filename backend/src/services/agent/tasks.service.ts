@@ -7,6 +7,7 @@ import type {
   TaskPayload,
   TaskResult,
   TaskStatus,
+  TaskType,
   TaskTestMetadata,
   TaskNoteEntry,
   CreateTaskRequest,
@@ -911,7 +912,7 @@ export function listTasks(
 export function listTasksGrouped(
   filters: ListTasksRequest,
   noticeScope: NoticeScope,
-): { groups: TaskGroup[]; total: number } {
+): { groups: TaskGroup[]; total: number; type_counts: Partial<Record<TaskType, number>> } {
   const db = getDatabase();
 
   const conditions: string[] = [];
@@ -929,10 +930,6 @@ export function listTasksGrouped(
     conditions.push('t.status = ?');
     params.push(filters.status);
   }
-  if (filters.type) {
-    conditions.push('t.type = ?');
-    params.push(filters.type);
-  }
   if (filters.search) {
     const searchPattern = `%${filters.search}%`;
     conditions.push(`(
@@ -943,6 +940,23 @@ export function listTasksGrouped(
     params.push(searchPattern, searchPattern, searchPattern);
   }
 
+  // Task counts per type use every filter except the type, so each type pill
+  // shows how many tasks it would list.
+  const baseWhere = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const baseParams = [...params];
+  const countRows = db.prepare(`
+    SELECT t.type, COUNT(*) as count FROM tasks t LEFT JOIN agents a ON t.agent_id = a.id
+    ${baseWhere}
+    GROUP BY t.type
+  `).all(...baseParams) as { type: TaskType; count: number }[];
+  const type_counts: Partial<Record<TaskType, number>> = {};
+  for (const row of countRows) type_counts[row.type] = row.count;
+
+  const types = filters.types?.length ? filters.types : filters.type ? [filters.type] : [];
+  if (types.length > 0) {
+    conditions.push(`t.type IN (${types.map(() => '?').join(', ')})`);
+    params.push(...types);
+  }
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const limit = filters.limit ?? 50;
   const offset = filters.offset ?? 0;
@@ -967,7 +981,7 @@ export function listTasksGrouped(
   `).get(...params) as { total: number };
 
   if (batchRows.length === 0) {
-    return { groups: [], total: countRow.total };
+    return { groups: [], total: countRow.total, type_counts };
   }
 
   // 3. Fetch full task details for matched batches
@@ -1021,7 +1035,7 @@ export function listTasksGrouped(
     return group;
   });
 
-  return { groups, total: countRow.total };
+  return { groups, total: countRow.total, type_counts };
 }
 
 /**
