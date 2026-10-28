@@ -624,6 +624,11 @@ describe('Method', () => {
     expect(sources).toHaveTextContent('Microsoft Defender for Endpoint and CrowdStrike Falcon');
   });
 
+  it('renders an unknown vendor id from a newer backend instead of throwing', () => {
+    render(<Method head={head} edrVendors={['defender', 'sophos' as never]} />);
+    expect(screen.getByText(/sophos/)).toBeInTheDocument();
+  });
+
   it('names only the configured EDR vendor as an alert source', () => {
     const { container } = render(<Method head={head} edrVendors={['defender']} />);
     expect(container.textContent).toContain('Microsoft Defender for Endpoint');

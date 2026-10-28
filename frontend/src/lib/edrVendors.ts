@@ -62,9 +62,18 @@ export function edrVendor(key: EdrVendorKey): EdrVendor {
   return vendor;
 }
 
+/**
+ * Lookup for vendor ids that come from the API. A newer backend can send a
+ * vendor this build doesn't know (frontend and backend deploy separately), so
+ * display paths fall back to the raw id instead of throwing.
+ */
+export function findEdrVendor(key: string): EdrVendor | undefined {
+  return EDR_VENDORS.find((v) => v.key === key);
+}
+
 /** Display name for a vendor id from the API, falling back to the raw id for an unknown one. */
 export function edrVendorName(key: string): string {
-  return EDR_VENDORS.find((v) => v.key === key)?.name ?? key;
+  return findEdrVendor(key)?.name ?? key;
 }
 
 /** The per-vendor enrichment flags on a result row. */

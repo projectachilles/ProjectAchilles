@@ -4,7 +4,7 @@ import type { OutcomeCounts, ReportAlert, ReportRun, ReportRunStage, ReportStage
 import { agentKillNote, killVendorLabel } from '../../components/executions/stageVerdict';
 import { timeOf, truncate } from './format';
 import { emptyCounts } from './outcomes';
-import { edrVendor } from '@/lib/edrVendors';
+import { findEdrVendor } from '@/lib/edrVendors';
 
 /** Longest stage name printed beside a stage label in an alert row. */
 const STAGE_NAME_MAX = 34;
@@ -26,7 +26,7 @@ export function firstAlert(run: ReportRun): ReportAlert | null {
 }
 
 export function vendorName(vendor: ReportAlert['vendor']): string {
-  return edrVendor(vendor).reportName;
+  return findEdrVendor(vendor)?.reportName ?? vendor;
 }
 
 /** What labelling an alert's stage needs: a run stage, or the test's stage when the run did not fetch it. */

@@ -2,7 +2,7 @@ import type { ExecutionReport, StageOutcome } from '@/services/api/reports';
 import { OUTCOME_LABEL } from '../lib/outcomes';
 import { GlyphIcon } from '../diagrams/StageGlyph';
 import { Sheet, type SheetHead } from './Sheet';
-import { EDR_VENDOR_KEYS, edrVendor } from '@/lib/edrVendors';
+import { EDR_VENDOR_KEYS, findEdrVendor } from '@/lib/edrVendors';
 
 const DEFINITIONS: [StageOutcome, string][] = [
   ['protected', 'The test exited 105, 126 or 127: the security stack blocked or quarantined it.'],
@@ -31,7 +31,7 @@ export function Method({ head, edrVendors = [...EDR_VENDOR_KEYS] }: { head: Shee
         <p><b>Stage protection rate</b> is every other percentage in this report: protected, prevented or detected stage results divided by conclusive stage results. Skipped bundle stages (exit 0) are not results.</p>
         <p>
           <b>Sources.</b> Stage results come from the ProjectAchilles agent.
-          {edr && ` EDR alerts come from ${edrVendors.map((v) => edrVendor(v).productName).join(' and ')}, matched to a run by test binary, endpoint and a window from 5 minutes before to 30 minutes after the run completed.`}
+          {edr && ` EDR alerts come from ${edrVendors.map((v) => findEdrVendor(v)?.productName ?? v).join(' and ')}, matched to a run by test binary, endpoint and a window from 5 minutes before to 30 minutes after the run completed.`}
         </p>
         <p>
           <b>Limits.</b> Stages within a run are not timed individually; every stage carries the run's completion time.
