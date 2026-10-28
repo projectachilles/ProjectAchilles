@@ -74,3 +74,54 @@ describe('testOutcome', () => {
     expect(o?.title).toContain('1 of 2 controls compliant');
   });
 });
+
+// ── Golden table ──────────────────────────────────────────────────
+// Twin of backend/src/services/outcomes/__tests__/taskOutcome.test.ts (GOLDEN),
+// which drives the Tasks page tiles. Same rows, same expectations. Change BOTH
+// tables together.
+interface GoldenCase {
+  name: string;
+  status?: 'completed' | 'failed';
+  exit: number;
+  edrKilled?: boolean;
+  category?: string;
+  stages?: Array<[number, boolean?]>; // [exit_code, skipped]
+  expected: string;
+}
+
+const GOLDEN: GoldenCase[] = [
+  { name: 'exit 126 → protected', exit: 126, expected: 'protected' },
+  { name: 'exit 105 → protected', exit: 105, expected: 'protected' },
+  { name: 'exit 127 → protected', exit: 127, expected: 'protected' },
+  { name: 'exit 101 → unprotected', exit: 101, expected: 'unprotected' },
+  { name: 'exit 260 → not-run', exit: 260, expected: 'not-run' },
+  { name: 'exit 999 → test-error', exit: 999, expected: 'test-error' },
+  { name: 'exit 1 → test-error', exit: 1, expected: 'test-error' },
+  { name: 'exit 259 → inconclusive', exit: 259, expected: 'inconclusive' },
+  { name: 'exit 0 → inconclusive', exit: 0, expected: 'inconclusive' },
+  { name: 'unknown exit → inconclusive', exit: 42, expected: 'inconclusive' },
+  { name: 'watchdog failure → run-failed', status: 'failed', exit: -1, expected: 'run-failed' },
+  { name: 'EDR-killed watchdog failure → protected', status: 'failed', exit: -1, edrKilled: true, expected: 'protected' },
+  { name: 'bundle with a blocked stage → protected', exit: 999, category: 'intel-driven', stages: [[101], [126], [999]], expected: 'protected' },
+  { name: 'bundle, no block, one ran → unprotected', exit: 1, category: 'intel-driven', stages: [[101], [0, true]], expected: 'unprotected' },
+  { name: 'bundle, skipped blocked stage does not count', exit: 999, category: 'intel-driven', stages: [[126, true], [999]], expected: 'test-error' },
+  { name: 'cyber-hygiene follows the overall exit', exit: 101, category: 'cyber-hygiene', stages: [[126], [101]], expected: 'unprotected' },
+];
+
+function toTask(c: GoldenCase): Partial {
+  return {
+    type: 'execute_test',
+    status: c.status ?? 'completed',
+    result: {
+      exit_code: c.exit, stdout: '', stderr: '', execution_duration_ms: 1, started_at: '', completed_at: '', hostname: 'h',
+      ...(c.edrKilled ? { edr_terminated: { vendors: ['defender'], alert_ids: ['a'] } } : {}),
+      ...(c.stages ? { bundle_results: { bundle_category: c.category, controls: c.stages.map(([exit_code, skipped], i) => ({ control_id: `S${i + 1}`, exit_code, skipped: !!skipped })) } } : {}),
+    },
+  };
+}
+
+describe('testOutcome golden table (shared with the backend tiles)', () => {
+  it.each(GOLDEN.map((c) => [c.name, c] as const))('%s', (_name, c) => {
+    expect(testOutcome(toTask(c))?.kind).toBe(c.expected);
+  });
+});

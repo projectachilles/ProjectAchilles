@@ -31,7 +31,14 @@ describe('buildCadence', () => {
     ], 10, NOW);
     expect(v.lastRunDaysAgo).toBe(3);
     expect(v.protectedPct7d).toBe(75);
-    expect(v.tasks24h).toEqual({ completed: 5, failed: 1, inProgress: 1 });
+    expect(v.taskActivity).toEqual({
+      label: 'Tasks · 24h',
+      parts: [
+        { text: '5 done', tone: 'accent' },
+        { text: '1 failed', tone: 'danger' },
+        { text: '1 running', tone: 'warning' },
+      ],
+    });
     expect(v.nextScheduled).toEqual({ when: '2026-10-21T09:00:00Z', label: 'Test', endpoints: 2 });
     expect(v.schedulesAvailable).toBe(true);
     expect(v.agentsTotal).toBe(10);
@@ -45,7 +52,7 @@ describe('buildCadence', () => {
     expect(v.lastRunDaysAgo).toBeNull();
     expect(v.lastRunAt).toBeNull();
     expect(v.protectedPct7d).toBeNull();
-    expect(v.tasks24h).toBeNull();
+    expect(v.taskActivity).toBeNull();
     expect(JSON.stringify(v)).not.toContain('NaN');
   });
 
@@ -173,5 +180,29 @@ describe('buildAttackMatrix', () => {
     const e = buildAttackMatrix([], []);
     expect(e.empty).toBe(true);
     expect(e.columns.length).toBeGreaterThan(0);
+  });
+});
+
+describe('buildCadence run activity with 7-day outcomes', () => {
+  it('reports runs with and without a verdict', () => {
+    const v = buildCadence(
+      { days: [], lastExecutionAt: null, executions7d: 0, protectedPct7d: null, endpointsTested7d: 0 },
+      {
+        ...metrics,
+        task_outcomes_7d: {
+          tests: { protected: 3, edr_stopped: 2, unprotected: 1, not_run: 1, run_failed: 0, test_error: 2, inconclusive: 0 },
+          other: { total: 4, failed: 1 },
+        },
+      },
+      [], 0, NOW,
+    );
+    expect(v.taskActivity).toEqual({
+      label: 'Runs · 7d',
+      parts: [
+        { text: '4 with a verdict', tone: 'accent' },
+        { text: '3 no verdict', tone: 'warning' },
+        { text: '1 running', tone: 'info' },
+      ],
+    });
   });
 });

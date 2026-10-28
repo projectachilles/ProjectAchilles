@@ -16,6 +16,7 @@ import { Toast } from '@/components/shared/ui/Alert';
 import { useHasPermission } from '@/hooks/useAppRole';
 import { fieldControlClass } from '@/components/shared/ui/formStyles';
 import { cn } from '@/lib/utils';
+import { taskTiles } from './utils/taskTiles';
 
 const TOAST_DURATION_MS = 4000;
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
@@ -289,12 +290,14 @@ export default function TasksPage() {
   const rangeStart = totalGroups === 0 ? 0 : (page - 1) * pageSize + 1;
   const rangeEnd = Math.min(page * pageSize, totalGroups);
 
+  const tiles = metrics ? taskTiles(metrics) : null;
+
   return (
     <>
       <PageContainer>
         <PageHeader
           title="Tasks"
-          description="Task activity across the fleet — last 24 hours"
+          description={`Task activity across the fleet — ${tiles?.window ?? 'last 7 days'}`}
           actions={canCreateTask ? (
             <Button onClick={() => setDialogOpen(true)}>
               <Plus className="w-4 h-4 mr-2" />
@@ -303,18 +306,14 @@ export default function TasksPage() {
           ) : undefined}
         />
 
-        {/* 24h task-activity KPI mini-row */}
-        {metrics && (
+        {/* KPI tiles: 7-day test outcomes (falls back to 24h lifecycle counts) */}
+        {tiles && (
           <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-            {([
-              { label: 'Completed', value: metrics.task_activity_24h.completed, cls: 'text-accent' },
-              { label: 'Failed', value: metrics.task_activity_24h.failed, cls: metrics.task_activity_24h.failed > 0 ? 'text-danger' : '' },
-              { label: 'In progress', value: metrics.task_activity_24h.in_progress, cls: '' },
-              { label: 'Success rate', value: `${Math.round(metrics.task_activity_24h.success_rate)}%`, cls: '' },
-            ] as const).map((kpi) => (
+            {tiles.tiles.map((kpi) => (
               <div key={kpi.label} className="rounded-lg border border-border bg-surface p-4">
                 <div className="text-[11px] uppercase tracking-wider text-faint">{kpi.label}</div>
                 <div className={`mt-2 text-2xl font-semibold tracking-tight ${kpi.cls}`}>{kpi.value}</div>
+                {kpi.sub && <div className="mt-1 truncate text-xs text-muted" title={kpi.sub}>{kpi.sub}</div>}
               </div>
             ))}
           </div>

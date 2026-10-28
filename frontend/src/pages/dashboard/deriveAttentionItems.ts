@@ -3,7 +3,10 @@ import type { AttentionItem } from './components/AttentionBanner';
 export interface AttentionInputs {
   offlineAgents: number;
   staleAgents: number;
-  failedTasks24h: number;
+  /** Runs that didn't finish (not EDR stops) plus failed commands/updates. */
+  failedTasks: number;
+  /** The window failedTasks covers: 7d with outcome metrics, else the legacy 24h count. */
+  failedTasksWindow: '7d' | '24h';
   outdatedAgents: number;
   syncFailed: boolean;
 }
@@ -37,14 +40,16 @@ export function deriveAttentionItems(inputs: AttentionInputs): AttentionItem[] {
     });
   }
 
-  if (inputs.failedTasks24h > 0) {
+  if (inputs.failedTasks > 0) {
+    const window = inputs.failedTasksWindow;
     items.push({
       id: 'failed-tasks',
-      count: inputs.failedTasks24h,
-      label: 'tasks failed · 24h',
-      title: `${inputs.failedTasks24h} task(s) failed in the last 24h`,
+      count: inputs.failedTasks,
+      label: `tasks failed · ${window}`,
+      title: `${inputs.failedTasks} task(s) failed in the last ${window === '7d' ? '7 days' : '24h'}`,
       to: '/tasks',
-      severity: 'danger',
+      // Amber like "run failed" on the Tasks page: red is for Unprotected results.
+      severity: 'warning',
     });
   }
 

@@ -3,8 +3,12 @@ import { cancelPendingKey, decryptPendingKey, ROTATION_GRACE_PERIOD_SECONDS } fr
 import { recordEvent } from './events.service.js';
 import { invalidateAgentCache } from './agentAuthCache.js';
 import { computeAgentHealthScore, computeAgentHealthScores } from './health.service.js';
+import { classifyTaskOutcome } from '../outcomes/taskOutcome.js';
 import type {
   HeartbeatPayload,
+  TaskResult,
+  TaskStatus,
+  TaskType,
   AgentSummary,
   Agent,
   AgentRuntimeStatus,
@@ -221,7 +225,51 @@ interface AgentMetrics {
     success_rate: number;
     in_progress: number;
   };
+  /** Finished tasks in the last 7 days: test runs by outcome (same rules as the task rows), other tasks by success. */
+  task_outcomes_7d: TaskOutcomes7d;
   by_version: Record<string, number>;
+}
+
+interface TaskOutcomes7d {
+  tests: {
+    protected: number;
+    /** Subset of protected: runs the EDR stopped by killing the agent. */
+    edr_stopped: number;
+    unprotected: number;
+    not_run: number;
+    run_failed: number;
+    test_error: number;
+    inconclusive: number;
+  };
+  /** Commands, agent updates, uninstalls: failed = status failed or a non-zero exit. */
+  other: { total: number; failed: number };
+}
+
+function taskOutcomes7d(db: ReturnType<typeof getDatabase>, taskOrgCondition: string, orgParams: string[]): TaskOutcomes7d {
+  const rows = db.prepare(
+    `SELECT type, status, result FROM tasks WHERE status IN ('completed', 'failed') AND completed_at > datetime('now', '-7 days')${taskOrgCondition}`
+  ).all(...orgParams) as { type: TaskType; status: TaskStatus; result: string | null }[];
+
+  const tests = { protected: 0, edr_stopped: 0, unprotected: 0, not_run: 0, run_failed: 0, test_error: 0, inconclusive: 0 };
+  const other = { total: 0, failed: 0 };
+  const key = { protected: 'protected', unprotected: 'unprotected', 'not-run': 'not_run', 'run-failed': 'run_failed', 'test-error': 'test_error', inconclusive: 'inconclusive' } as const;
+  for (const row of rows) {
+    let result: TaskResult | null = null;
+    try {
+      result = row.result ? (JSON.parse(row.result) as TaskResult) : null;
+    } catch {
+      result = null;
+    }
+    const kind = classifyTaskOutcome({ type: row.type, status: row.status, result });
+    if (kind) {
+      tests[key[kind]] += 1;
+      if (kind === 'protected' && result?.edr_terminated) tests.edr_stopped += 1;
+    } else {
+      other.total += 1;
+      if (row.status === 'failed' || (result != null && result.exit_code !== 0)) other.failed += 1;
+    }
+  }
+  return { tests, other };
 }
 
 export function getAgentMetrics(orgId?: string): AgentMetrics {
@@ -310,6 +358,7 @@ export function getAgentMetrics(orgId?: string): AgentMetrics {
       success_rate: successRate,
       in_progress: inProgressRow.count,
     },
+    task_outcomes_7d: taskOutcomes7d(db, taskOrgCondition, orgParams),
     by_version,
   };
 }
@@ -787,12 +836,20 @@ export function getFleetHealthMetrics(orgId?: string): FleetHealthMetrics {
     `SELECT COUNT(*) as count FROM tasks t WHERE t.status = 'completed' AND t.completed_at > datetime('now', '-7 days')${taskOrgCondition}`
   ).get(...orgParams) as { count: number };
 
+  // A run the EDR stopped by killing the agent is the EDR working, not the
+  // agent failing: it counts as finished (result.edr_terminated, see taskOutcome).
   const failedRow = db.prepare(
-    `SELECT COUNT(*) as count FROM tasks t WHERE t.status = 'failed' AND t.completed_at > datetime('now', '-7 days')${taskOrgCondition}`
+    `SELECT COUNT(*) as count FROM tasks t WHERE t.status = 'failed' AND t.completed_at > datetime('now', '-7 days')${taskOrgCondition}
+       AND json_extract(t.result, '$.edr_terminated') IS NULL`
+  ).get(...orgParams) as { count: number };
+  const edrStoppedRow = db.prepare(
+    `SELECT COUNT(*) as count FROM tasks t WHERE t.status = 'failed' AND t.completed_at > datetime('now', '-7 days')${taskOrgCondition}
+       AND json_extract(t.result, '$.edr_terminated') IS NOT NULL`
   ).get(...orgParams) as { count: number };
 
-  const finished7d = completedRow.count + failedRow.count;
-  const taskSuccessRate = finished7d > 0 ? Math.round((completedRow.count / finished7d) * 100 * 10) / 10 : 100;
+  const succeeded7d = completedRow.count + edrStoppedRow.count;
+  const finished7d = succeeded7d + failedRow.count;
+  const taskSuccessRate = finished7d > 0 ? Math.round((succeeded7d / finished7d) * 100 * 10) / 10 : 100;
 
   // MTBF: mean time between task failures
   const failureTimestamps = db.prepare(`

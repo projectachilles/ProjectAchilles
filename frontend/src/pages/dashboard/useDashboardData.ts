@@ -173,6 +173,13 @@ export interface DashboardData {
 }
 
 /** Time window shared with Analytics; drives the analytics + Defender + CrowdStrike slices. */
+/** Failed runs/tasks for the attention row: 7d outcome counts when the backend has them. */
+function failedTasksInput(metrics: AgentMetrics | null): { failedTasks: number; failedTasksWindow: '7d' | '24h' } {
+  const o = metrics?.task_outcomes_7d;
+  if (o) return { failedTasks: o.tests.run_failed + o.other.failed, failedTasksWindow: '7d' };
+  return { failedTasks: metrics?.task_activity_24h.failed ?? 0, failedTasksWindow: '24h' };
+}
+
 export function useDashboardData(range: DateRangeValue = DEFAULT_TIME_RANGE): DashboardData {
   // Primitive deps, so a new object for the same range doesn't refetch
   const { preset, from: customFrom, to: customTo } = range;
@@ -375,7 +382,7 @@ export function useDashboardData(range: DateRangeValue = DEFAULT_TIME_RANGE): Da
         : deriveAttentionItems({
             offlineAgents: metrics?.offline ?? 0,
             staleAgents: fleetHealth?.stale_agent_count ?? 0,
-            failedTasks24h: metrics?.task_activity_24h.failed ?? 0,
+            ...failedTasksInput(metrics),
             outdatedAgents: outdatedCount,
             syncFailed: syncStatus?.status === 'error',
           }),
