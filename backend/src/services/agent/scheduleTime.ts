@@ -1,3 +1,5 @@
+import type { RandomizeMode, ScheduleConfig } from '../../types/agent.js';
+
 /**
  * Convert a date/time in a given timezone to a UTC Date.
  * Uses Intl.DateTimeFormat for timezone support without external deps.
@@ -111,4 +113,38 @@ export function randomWindowForDate(
     end = toUTCDate(dateStr, hhmm(endHour), timezone);
   }
   return { start, end };
+}
+
+/** Add N days to a date string (YYYY-MM-DD). */
+export function addDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+export function daysInMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
+}
+
+/**
+ * Resolve the effective randomization mode for a schedule config, bridging the
+ * legacy `randomize_time` boolean to the newer `randomize_mode` enum.
+ * Explicit `randomize_mode` always wins; otherwise legacy `randomize_time:true`
+ * means the whole fleet shared one random time ('fleet'), and anything else is 'fixed'.
+ */
+export function resolveRandomizeMode(config: ScheduleConfig): RandomizeMode {
+  const c = config as { randomize_mode?: RandomizeMode; randomize_time?: boolean };
+  if (c.randomize_mode) return c.randomize_mode;
+  return c.randomize_time ? 'fleet' : 'fixed';
+}
+
+/** A valid IANA timezone, or 'UTC' when `tz` is missing or invalid. */
+export function safeTimezone(tz: string | null | undefined): string {
+  if (!tz) return 'UTC';
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(0);
+    return tz;
+  } catch {
+    return 'UTC';
+  }
 }

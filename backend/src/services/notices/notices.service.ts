@@ -9,7 +9,7 @@
  */
 import crypto from 'crypto';
 import { getDatabase } from '../agent/database.js';
-import { randomWindowForDate, todayInTimezone } from '../agent/scheduleTime.js';
+import { randomWindowForDate, safeTimezone, todayInTimezone } from '../agent/scheduleTime.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { sendMail, testEmailConnection } from '../alerts/email.service.js';
 import type { OutgoingMail } from '../alerts/email.service.js';
@@ -83,16 +83,7 @@ function noticeSettings(n: Pick<NoticeRow, 'org_id'>): IntegrationsSettingsServi
   return settingsFor(n.org_id);
 }
 
-/** A valid IANA timezone, or 'UTC' when `tz` is missing or invalid. */
-export function safeTimezone(tz: string | null | undefined): string {
-  if (!tz) return 'UTC';
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(0);
-    return tz;
-  } catch {
-    return 'UTC';
-  }
-}
+export { safeTimezone };
 
 function serverTimezone(): string {
   return safeTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);

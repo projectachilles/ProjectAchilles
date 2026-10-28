@@ -4,6 +4,10 @@ import {
   randomWindowForDate,
   randomTimeForDate,
   todayInTimezone,
+  addDays,
+  daysInMonth,
+  resolveRandomizeMode,
+  safeTimezone,
 } from '../scheduleTime.js';
 
 describe('scheduleTime', () => {
@@ -36,5 +40,29 @@ describe('scheduleTime', () => {
 
   it('todayInTimezone formats YYYY-MM-DD in the zone', () => {
     expect(todayInTimezone('Asia/Tokyo', new Date('2026-10-21T20:00:00Z'))).toBe('2026-10-22');
+  });
+});
+
+describe('scheduleTime date helpers', () => {
+  it('addDays crosses year and month boundaries', () => {
+    expect(addDays('2026-12-31', 1)).toBe('2027-01-01');
+    expect(addDays('2026-03-01', -1)).toBe('2026-02-28');
+  });
+
+  it('daysInMonth handles leap years', () => {
+    expect(daysInMonth(2028, 2)).toBe(29);
+    expect(daysInMonth(2026, 4)).toBe(30);
+  });
+
+  it('resolveRandomizeMode bridges the legacy boolean', () => {
+    expect(resolveRandomizeMode({ time: '09:00', randomize_time: true })).toBe('fleet');
+    expect(resolveRandomizeMode({ time: '09:00', randomize_mode: 'per_machine' })).toBe('per_machine');
+    expect(resolveRandomizeMode({ time: '09:00' })).toBe('fixed');
+  });
+
+  it('safeTimezone falls back to UTC', () => {
+    expect(safeTimezone('Not/AZone')).toBe('UTC');
+    expect(safeTimezone(undefined)).toBe('UTC');
+    expect(safeTimezone('America/Santo_Domingo')).toBe('America/Santo_Domingo');
   });
 });
