@@ -1,4 +1,5 @@
 import type { AgentTask } from '@/types/agent';
+import { killVendorLabel } from '@/pages/analytics/components/executions/stageVerdict';
 
 // What a security-test run means, from its exit code(s). Mirrors the backend's
 // ERROR_CODE_MAP (services/analytics/elasticsearch.ts) and the campaign verdict
@@ -79,6 +80,15 @@ export function testOutcome(task: Pick<AgentTask, 'type' | 'status' | 'result'>)
   if (task.type !== 'execute_test') return null;
   // The watchdog fails a run whose agent went offline or overran (exit -1).
   if (task.status === 'failed') {
+    // ...unless the EDR reconciliation pass proved the EDR killed the agent:
+    // Protected, as in campaigns, Analytics and the Defense Score (verdict.ts).
+    const kill = task.result?.edr_terminated;
+    if (kill) {
+      return outcome(
+        'protected',
+        `Stopped by ${killVendorLabel(kill.vendors)}: the EDR terminated the agent and the test. Stages not reported.`,
+      );
+    }
     return outcome('run-failed', task.result?.error ?? 'The run did not finish, so there is no result.');
   }
   if (task.status !== 'completed' || !task.result) return null;

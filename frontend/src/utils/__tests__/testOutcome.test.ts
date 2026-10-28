@@ -31,6 +31,15 @@ describe('testOutcome', () => {
     expect(o?.title).toContain('Agent went offline');
   });
 
+  it('an EDR-killed run (reconciled watchdog failure) is Protected, like campaigns and Analytics', () => {
+    const o = testOutcome({
+      ...run(-1, { error: 'Agent went offline during execution', edr_terminated: { vendors: ['crowdstrike', 'defender'], alert_ids: ['a1'] } }),
+      status: 'failed',
+    });
+    expect(o).toMatchObject({ kind: 'protected', label: 'Protected', tone: 'accent' });
+    expect(o?.title).toBe('Stopped by CrowdStrike and Defender: the EDR terminated the agent and the test. Stages not reported.');
+  });
+
   it('only colours Unprotected red; runs that never happened are warnings', () => {
     expect(testOutcome(run(101))?.tone).toBe('danger');
     for (const code of [260, 999]) expect(testOutcome(run(code))?.tone).toBe('warning');

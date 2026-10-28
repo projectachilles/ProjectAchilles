@@ -81,6 +81,8 @@ export interface TaskResult {
   execution_duration_ms: number;
   hostname: string;
   error?: string;
+  /** Set by the EDR reconciliation pass on a watchdog-failed run the EDR killed (counts as Protected). */
+  edr_terminated?: { vendors: string[]; alert_ids: string[]; killed_at?: string; reconciled_at?: string; bundle_name?: string };
   /** Per-stage results of a bundle / multi-stage test, as the agent reported them. */
   bundle_results?: {
     bundle_category?: string;
