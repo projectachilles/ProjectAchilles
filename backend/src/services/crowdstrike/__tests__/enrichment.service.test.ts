@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../evidence-correlation.js', async () => {
-  const actual = await vi.importActual('../evidence-correlation.js');
+vi.mock('../../edr/evidence-correlation.js', async () => {
+  const actual = await vi.importActual('../../edr/evidence-correlation.js');
   return actual;
 });
 

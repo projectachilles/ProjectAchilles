@@ -1,12 +1,12 @@
-// Shared analytics for endpoint-EDR alert indexes (CrowdStrike, SentinelOne):
+// Shared analytics for every endpoint-EDR alert index (CrowdStrike, SentinelOne, …):
 // alerts, facets, trend, technique coverage, cross-correlation and detection
 // rate over normalized alert docs. Vendor subclasses bind the index and add
-// vendor-only data (CrowdStrike: ZTA posture score, see
+// vendor-only data (e.g. CrowdStrike's ZTA posture score, see
 // crowdstrike/analytics.service.ts).
 
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
-import { buildAlertTimeWindowQuery, buildCrowdStrikeEvidenceQuery } from '../crowdstrike/evidence-correlation.js';
+import { buildAlertTimeWindowQuery, buildCrowdStrikeEvidenceQuery } from './evidence-correlation.js';
 import { attackSimulationExclusions } from '../analytics/attack-simulation-filter.js';
 import { NOT_EDR_TERMINATED } from '../analytics/enrichment-eligibility.js';
 import { projectAlertHit } from '../alerts/alertHit.js';
@@ -40,7 +40,7 @@ export interface AlertSummary {
   total: number;
   bySeverity: Record<string, number>;
   byStatus: Record<string, number>;
-  /** Most recent critical+high alerts (CrowdStrike's top severity tiers). */
+  /** Most recent critical+high alerts (the top normalized severity tiers). */
   recentHigh: RecentAlert[];
   recentMedium: RecentAlert[];
   /** Facet counts for the hero tiles, over the same window. */
@@ -60,7 +60,8 @@ export interface AlertTrendPoint {
   low: number;
 }
 
-export interface CrowdStrikeAlertItem {
+/** One normalized EDR alert row (every endpoint-EDR index shares this shape). */
+export interface EdrAlertItem {
   alert_id: string;
   alert_title: string;
   description: string;
@@ -107,7 +108,7 @@ export interface TechniqueOverlapItem {
 }
 
 export interface PaginatedAlerts {
-  data: CrowdStrikeAlertItem[];
+  data: EdrAlertItem[];
   total: number;
   page: number;
   pageSize: number;
@@ -358,7 +359,7 @@ export class EdrAlertAnalyticsService {
         ? f0rtika.achilles_test_uuid
         : undefined;
       const linked = testUuid ? testNames.get(testUuid) : undefined;
-      const item: CrowdStrikeAlertItem = {
+      const item: EdrAlertItem = {
         alert_id: String(s.alert_id ?? ''),
         alert_title: String(s.alert_title ?? ''),
         description: String(s.description ?? ''),
@@ -462,7 +463,7 @@ export class EdrAlertAnalyticsService {
     const ztaMap = new Map(ztaScores.map((s) => [s.date.split('T')[0], s.score]));
 
     // Get Defense Score trend from the results index — attack simulations
-    // only, so it lines up with the rest of the CrowdStrike tab.
+    // only, so it lines up with the rest of the vendor's tab.
     const defenseResult = await client.search({
       index: settings.indexPattern,
       size: 0,
@@ -512,7 +513,7 @@ export class EdrAlertAnalyticsService {
     const settings = settingsService.getSettings();
 
     // Get MITRE techniques from test results — attack simulations only,
-    // so the overlap matches the rest of the CrowdStrike tab.
+    // so the overlap matches the rest of the vendor's tab.
     const testResult = await client.search({
       index: settings.indexPattern,
       size: 0,
@@ -528,7 +529,7 @@ export class EdrAlertAnalyticsService {
       doc_count: number;
     }>) ?? [];
 
-    // Get MITRE techniques from CrowdStrike alerts
+    // Get MITRE techniques from the vendor's alerts
     const alertResult = await client.search({
       index: this.alertIndex,
       size: 0,
@@ -578,7 +579,7 @@ export class EdrAlertAnalyticsService {
   }
 
   /**
-   * Per-execution CrowdStrike detection rate: the share of attack-simulation
+   * Per-execution EDR detection rate: the share of attack-simulation
    * test executions that have a temporally-correlated Falcon alert.
    * See docs/crowdstrike-detection-rate.md for the metric definition,
    * MITRE roll-up semantics, and known approximations.
@@ -613,7 +614,7 @@ export class EdrAlertAnalyticsService {
       },
     });
 
-    // Query 2: CrowdStrike alerts by technique with hourly buckets
+    // Query 2: vendor alerts by technique with hourly buckets
     const alertResult = await client.search({
       index: this.alertIndex,
       size: 0,
@@ -732,7 +733,7 @@ export class EdrAlertAnalyticsService {
   }
 
   /**
-   * Find CrowdStrike alerts correlated to a specific test execution.
+   * Find the vendor's alerts correlated to a specific test execution.
    *
    * Primary match: alert evidence contains the test binary filename AND
    * originated from the same hostname, within 0 to +windowMinutes after test.
@@ -905,3 +906,6 @@ export class EdrAlertAnalyticsService {
     return { alerts, matchedTechniques, total: techniqueTotal };
   }
 }
+
+/** @deprecated use EdrAlertItem (kept for older imports). */
+export type CrowdStrikeAlertItem = EdrAlertItem;

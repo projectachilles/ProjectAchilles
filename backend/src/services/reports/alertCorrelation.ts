@@ -24,7 +24,7 @@ import {
 import {
   buildAlertTimeWindowQuery as crowdstrikeTimeWindow,
   buildCrowdStrikeEvidenceQuery,
-} from '../crowdstrike/evidence-correlation.js';
+} from '../edr/evidence-correlation.js';
 import { DEFENDER_INDEX } from '../defender/index-management.js';
 import { CROWDSTRIKE_INDEX } from '../crowdstrike/index-management.js';
 import { SENTINELONE_INDEX } from '../sentinelone/index-management.js';

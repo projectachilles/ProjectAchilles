@@ -9,8 +9,8 @@ import {
   buildCrowdStrikeEvidenceQuery,
   buildStageCrowdStrikeEvidenceQuery,
   extractBundleUuid,
-} from '../crowdstrike/evidence-correlation.js';
-import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/crowdstrike.js';
+} from './evidence-correlation.js';
+import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/edr.js';
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS } from '../shared/achillesMitigation.js';
 import { enrichmentEligibleClauses } from '../analytics/enrichment-eligibility.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
