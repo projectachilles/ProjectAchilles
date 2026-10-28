@@ -145,7 +145,7 @@ describe('ExecutionDrawer Schedule Once', () => {
     const { container } = render(<ExecutionDrawer open onClose={() => {}} tests={[test('uuid-a', 'Test A')]} />);
 
     await userEvent.click(await screen.findByRole('checkbox', { name: /host-1/ }));
-    await userEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Schedule' }));
     await userEvent.click(screen.getByRole('button', { name: 'once' }));
     fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: tomorrow } });
     await userEvent.selectOptions(screen.getByDisplayValue('Fixed time'), 'per_machine');

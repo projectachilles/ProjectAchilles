@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown, RefreshCw, Settings, ShieldOff } from 'lucide-react';
 import { CrowdStrikeLogo, DefenderLogo, SentinelOneLogo } from '@/components/shared/VendorLogos';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { pillClass } from '@/components/shared/ui/pillStyles';
 import { Button } from '@/components/ui/button';
 import SettingsModal from './components/SettingsModal';
 import FilterBar from './components/FilterBar';
@@ -711,11 +712,7 @@ export default function AnalyticsDashboardPage() {
             <button
               key={tab.id}
               onClick={() => handleTabChange(tab.id)}
-              className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-3.5 text-[13px] font-medium transition-colors ${
-                activeTab === tab.id
-                  ? 'border-accent/25 bg-accent-dim text-accent'
-                  : 'border-border bg-raised text-muted hover:bg-overlay'
-              }`}
+              className={pillClass(activeTab === tab.id)}
             >
               <tab.icon className="h-4 w-4" />
               {tab.label}
