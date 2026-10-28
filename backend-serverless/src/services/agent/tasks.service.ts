@@ -811,9 +811,10 @@ export async function listTasksGrouped(
     conditions.push('t.status = ?');
     params.push(filters.status);
   }
-  if (filters.type) {
-    conditions.push('t.type = ?');
-    params.push(filters.type);
+  const types = filters.types?.length ? filters.types : filters.type ? [filters.type] : [];
+  if (types.length > 0) {
+    conditions.push(`t.type IN (${types.map(() => '?').join(', ')})`);
+    params.push(...types);
   }
   if (filters.search) {
     const searchPattern = `%${filters.search}%`;

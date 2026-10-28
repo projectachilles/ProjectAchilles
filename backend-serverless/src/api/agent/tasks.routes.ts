@@ -275,6 +275,8 @@ adminTasksRouter.get(
   })
 );
 
+const GROUPED_TASK_TYPES: ReadonlySet<string> = new Set<TaskType>(['execute_test', 'execute_command', 'update_agent', 'uninstall']);
+
 /**
  * GET /admin/tasks/grouped
  * List tasks grouped by batch_id with server-side pagination.
@@ -283,11 +285,17 @@ adminTasksRouter.get(
   '/tasks/grouped',
   requirePermission('endpoints:tasks:read'),
   asyncHandler(async (req, res) => {
+    // `type` may list several types ("update_agent,uninstall"); each must be known.
+    const types = typeof req.query.type === 'string' && req.query.type
+      ? req.query.type.split(',').map((t) => t.trim()).filter(Boolean)
+      : [];
+    if (types.some((t) => !GROUPED_TASK_TYPES.has(t))) throw new AppError('Invalid task type', 400);
+
     const filters: ListTasksRequest = {
       agent_id: req.query.agent_id as string | undefined,
       org_id: req.query.org_id as string | undefined,
       status: req.query.status as TaskStatus | undefined,
-      type: req.query.type as TaskType | undefined,
+      types: types as TaskType[],
       search: req.query.search as string | undefined,
       limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
       offset: req.query.offset ? parseInt(req.query.offset as string, 10) : undefined,

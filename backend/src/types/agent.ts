@@ -382,6 +382,8 @@ export interface ListTasksRequest {
   org_id?: string;
   status?: TaskStatus;
   type?: TaskType;
+  /** Several types at once (grouped list: "Maintenance" = update_agent + uninstall). */
+  types?: TaskType[];
   search?: string;
   limit?: number;
   offset?: number;
