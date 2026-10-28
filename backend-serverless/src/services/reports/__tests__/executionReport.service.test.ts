@@ -5,7 +5,6 @@ vi.mock('../../analytics/client.js', () => ({ createEsClient: vi.fn() }));
 import { createEsClient } from '../../analytics/client.js';
 import { STAGE_OUTCOMES } from '../stageOutcome.js';
 import { ExecutionReportService, ORG_NAME_MAX, deploymentOrgName } from '../executionReport.service.js';
-import { ORG_NAMES } from '../../analytics/elasticsearch.js';
 import type { OutcomeCounts } from '../../../types/reports.js';
 import type { AnalyticsSettings } from '../../../types/analytics.js';
 
@@ -522,7 +521,8 @@ describe('organization name', () => {
 
   it('lets an org named in the URL win over the deployment name', async () => {
     vi.stubEnv('ORGANIZATION_NAME', 'Acme Corp');
-    const [mappedId, mappedName] = Object.entries(ORG_NAMES)[0];
+    const [mappedId, mappedName] = ['aaaaaaaa-1111-4111-8111-111111111111', 'ACME'];
+    vi.stubEnv('ORG_NAMES', JSON.stringify({ [mappedId]: mappedName }));
     const mapped = await new ExecutionReportService(settings, makeDeps()).generate(params({ org: mappedId }), NOW);
     expect(mapped.meta.org).toEqual({ id: mappedId, name: mappedName });
     // An unmapped agent org prints its id; it is a subset of the deployment, not the whole of it.

@@ -14,6 +14,6 @@ export const authors: Record<string, Author> = {
   kendra: {
     id: 'kendra',
     name: 'Kendra Mazara',
-    role: 'Deputy CISO - SB',
+    role: 'Deputy CISO',
   },
 };
