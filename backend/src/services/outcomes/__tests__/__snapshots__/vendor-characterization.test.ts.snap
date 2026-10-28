@@ -1,0 +1,1808 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1`] = `
+{
+  "detected": {
+    "bool": {
+      "minimum_should_match": 1,
+      "should": [
+        {
+          "bool": {
+            "filter": [
+              {
+                "bool": {
+                  "filter": [
+                    {
+                      "exists": {
+                        "field": "event.ERROR",
+                      },
+                    },
+                  ],
+                  "must_not": [
+                    {
+                      "terms": {
+                        "event.ERROR": [
+                          101,
+                          105,
+                          126,
+                          127,
+                        ],
+                      },
+                    },
+                    {
+                      "term": {
+                        "event.ERROR": 0,
+                      },
+                    },
+                  ],
+                },
+              },
+              {
+                "bool": {
+                  "minimum_should_match": 1,
+                  "should": [
+                    {
+                      "term": {
+                        "f0rtika.crowdstrike_stage_detected": true,
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.defender_stage_detected": true,
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.sentinelone_stage_detected": true,
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+            "must_not": [
+              {
+                "bool": {
+                  "minimum_should_match": 1,
+                  "should": [
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.crowdstrike_stage_detected": true,
+                            },
+                          },
+                          {
+                            "terms": {
+                              "f0rtika.crowdstrike_prevention_action": [
+                                "blocked",
+                                "process_killed",
+                                "quarantined",
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.defender_stage_detected": true,
+                            },
+                          },
+                          {
+                            "terms": {
+                              "f0rtika.defender_prevention_action": [
+                                "blocked",
+                                "process_killed",
+                                "quarantined",
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.sentinelone_stage_detected": true,
+                            },
+                          },
+                          {
+                            "terms": {
+                              "f0rtika.sentinelone_prevention_action": [
+                                "blocked",
+                                "process_killed",
+                                "quarantined",
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+        {
+          "bool": {
+            "filter": [
+              {
+                "term": {
+                  "event.ERROR": 101,
+                },
+              },
+              {
+                "bool": {
+                  "minimum_should_match": 1,
+                  "should": [
+                    {
+                      "term": {
+                        "f0rtika.crowdstrike_stage_detected": true,
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.defender_stage_detected": true,
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.sentinelone_stage_detected": true,
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+            "must_not": [
+              {
+                "bool": {
+                  "minimum_should_match": 1,
+                  "should": [
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.crowdstrike_stage_detected": true,
+                            },
+                          },
+                          {
+                            "terms": {
+                              "f0rtika.crowdstrike_prevention_action": [
+                                "blocked",
+                                "process_killed",
+                                "quarantined",
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.defender_stage_detected": true,
+                            },
+                          },
+                          {
+                            "terms": {
+                              "f0rtika.defender_prevention_action": [
+                                "blocked",
+                                "process_killed",
+                                "quarantined",
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.sentinelone_stage_detected": true,
+                            },
+                          },
+                          {
+                            "terms": {
+                              "f0rtika.sentinelone_prevention_action": [
+                                "blocked",
+                                "process_killed",
+                                "quarantined",
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.crowdstrike_prevented": true,
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.defender_prevented": true,
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.sentinelone_prevented": true,
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      ],
+    },
+  },
+  "inconclusive": {
+    "bool": {
+      "must_not": [
+        {
+          "terms": {
+            "event.ERROR": [
+              101,
+              105,
+              126,
+              127,
+            ],
+          },
+        },
+        {
+          "bool": {
+            "filter": [
+              {
+                "term": {
+                  "f0rtika.is_bundle_control": true,
+                },
+              },
+              {
+                "term": {
+                  "event.ERROR": 0,
+                },
+              },
+            ],
+            "must_not": [
+              {
+                "term": {
+                  "f0rtika.category": "cyber-hygiene",
+                },
+              },
+            ],
+          },
+        },
+        {
+          "bool": {
+            "filter": [
+              {
+                "bool": {
+                  "filter": [
+                    {
+                      "exists": {
+                        "field": "event.ERROR",
+                      },
+                    },
+                  ],
+                  "must_not": [
+                    {
+                      "terms": {
+                        "event.ERROR": [
+                          101,
+                          105,
+                          126,
+                          127,
+                        ],
+                      },
+                    },
+                    {
+                      "term": {
+                        "event.ERROR": 0,
+                      },
+                    },
+                  ],
+                },
+              },
+              {
+                "bool": {
+                  "minimum_should_match": 1,
+                  "should": [
+                    {
+                      "term": {
+                        "f0rtika.crowdstrike_stage_detected": true,
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.defender_stage_detected": true,
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.sentinelone_stage_detected": true,
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      ],
+    },
+  },
+  "prevented": {
+    "bool": {
+      "minimum_should_match": 1,
+      "should": [
+        {
+          "bool": {
+            "filter": [
+              {
+                "bool": {
+                  "filter": [
+                    {
+                      "exists": {
+                        "field": "event.ERROR",
+                      },
+                    },
+                  ],
+                  "must_not": [
+                    {
+                      "terms": {
+                        "event.ERROR": [
+                          101,
+                          105,
+                          126,
+                          127,
+                        ],
+                      },
+                    },
+                    {
+                      "term": {
+                        "event.ERROR": 0,
+                      },
+                    },
+                  ],
+                },
+              },
+              {
+                "bool": {
+                  "minimum_should_match": 1,
+                  "should": [
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.crowdstrike_stage_detected": true,
+                            },
+                          },
+                          {
+                            "terms": {
+                              "f0rtika.crowdstrike_prevention_action": [
+                                "blocked",
+                                "process_killed",
+                                "quarantined",
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.defender_stage_detected": true,
+                            },
+                          },
+                          {
+                            "terms": {
+                              "f0rtika.defender_prevention_action": [
+                                "blocked",
+                                "process_killed",
+                                "quarantined",
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.sentinelone_stage_detected": true,
+                            },
+                          },
+                          {
+                            "terms": {
+                              "f0rtika.sentinelone_prevention_action": [
+                                "blocked",
+                                "process_killed",
+                                "quarantined",
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+        {
+          "bool": {
+            "filter": [
+              {
+                "term": {
+                  "event.ERROR": 101,
+                },
+              },
+              {
+                "bool": {
+                  "minimum_should_match": 1,
+                  "should": [
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.crowdstrike_stage_detected": true,
+                            },
+                          },
+                          {
+                            "terms": {
+                              "f0rtika.crowdstrike_prevention_action": [
+                                "blocked",
+                                "process_killed",
+                                "quarantined",
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.defender_stage_detected": true,
+                            },
+                          },
+                          {
+                            "terms": {
+                              "f0rtika.defender_prevention_action": [
+                                "blocked",
+                                "process_killed",
+                                "quarantined",
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.sentinelone_stage_detected": true,
+                            },
+                          },
+                          {
+                            "terms": {
+                              "f0rtika.sentinelone_prevention_action": [
+                                "blocked",
+                                "process_killed",
+                                "quarantined",
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.crowdstrike_prevented": true,
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.defender_prevented": true,
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.sentinelone_prevented": true,
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      ],
+    },
+  },
+  "protected": {
+    "terms": {
+      "event.ERROR": [
+        105,
+        126,
+        127,
+      ],
+    },
+  },
+  "skipped": {
+    "bool": {
+      "filter": [
+        {
+          "term": {
+            "f0rtika.is_bundle_control": true,
+          },
+        },
+        {
+          "term": {
+            "event.ERROR": 0,
+          },
+        },
+      ],
+      "must_not": [
+        {
+          "term": {
+            "f0rtika.category": "cyber-hygiene",
+          },
+        },
+      ],
+    },
+  },
+  "unprotected": {
+    "bool": {
+      "filter": [
+        {
+          "term": {
+            "event.ERROR": 101,
+          },
+        },
+      ],
+      "must_not": [
+        {
+          "bool": {
+            "minimum_should_match": 1,
+            "should": [
+              {
+                "bool": {
+                  "filter": [
+                    {
+                      "term": {
+                        "f0rtika.crowdstrike_stage_detected": true,
+                      },
+                    },
+                    {
+                      "terms": {
+                        "f0rtika.crowdstrike_prevention_action": [
+                          "blocked",
+                          "process_killed",
+                          "quarantined",
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+              {
+                "bool": {
+                  "filter": [
+                    {
+                      "term": {
+                        "f0rtika.defender_stage_detected": true,
+                      },
+                    },
+                    {
+                      "terms": {
+                        "f0rtika.defender_prevention_action": [
+                          "blocked",
+                          "process_killed",
+                          "quarantined",
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+              {
+                "bool": {
+                  "filter": [
+                    {
+                      "term": {
+                        "f0rtika.sentinelone_stage_detected": true,
+                      },
+                    },
+                    {
+                      "terms": {
+                        "f0rtika.sentinelone_prevention_action": [
+                          "blocked",
+                          "process_killed",
+                          "quarantined",
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+              {
+                "term": {
+                  "f0rtika.crowdstrike_prevented": true,
+                },
+              },
+              {
+                "term": {
+                  "f0rtika.defender_prevented": true,
+                },
+              },
+              {
+                "term": {
+                  "f0rtika.sentinelone_prevented": true,
+                },
+              },
+            ],
+          },
+        },
+        {
+          "bool": {
+            "minimum_should_match": 1,
+            "should": [
+              {
+                "term": {
+                  "f0rtika.crowdstrike_stage_detected": true,
+                },
+              },
+              {
+                "term": {
+                  "f0rtika.defender_stage_detected": true,
+                },
+              },
+              {
+                "term": {
+                  "f0rtika.sentinelone_stage_detected": true,
+                },
+              },
+            ],
+          },
+        },
+      ],
+    },
+  },
+}
+`;
+
+exports[`EDR vendor characterization (pre-registry refactor) > SB export rows per vendor 1`] = `
+[
+  {
+    "bundleId": "SB-PC-2026-001",
+    "bundleName": "Ransomware con doble extorsión — LockBit 3.0",
+    "detectedBy": [],
+    "evidenceRef": "S1 (ExecutionPrevented)",
+    "hostname": "H1",
+    "isProtected": true,
+    "outcome": "PREVENTED",
+    "preventedBy": [
+      "Microsoft Defender for Endpoint",
+    ],
+    "sourceEventId": "S1",
+    "stage": 1,
+    "stageLabel": "Ejecución y degradación de defensas en los endpoints",
+    "tactics": [],
+    "techniques": [
+      "T1486",
+    ],
+    "testName": "Unknown Test",
+    "timestamp": "2026-10-01T00:00:00Z",
+  },
+  {
+    "bundleId": "SB-PC-2026-001",
+    "bundleName": "Ransomware con doble extorsión — LockBit 3.0",
+    "detectedBy": [
+      "CrowdStrike Falcon",
+    ],
+    "evidenceRef": "S2 (Unprotected)",
+    "hostname": "H1",
+    "isProtected": true,
+    "outcome": "DETECTED",
+    "preventedBy": [],
+    "sourceEventId": "S2",
+    "stage": 2,
+    "stageLabel": "Acceso a credenciales privilegiadas",
+    "tactics": [],
+    "techniques": [
+      "T1486",
+    ],
+    "testName": "Unknown Test",
+    "timestamp": "2026-10-01T00:00:00Z",
+  },
+  {
+    "bundleId": "SB-PC-2026-001",
+    "bundleName": "Ransomware con doble extorsión — LockBit 3.0",
+    "detectedBy": [
+      "SentinelOne Singularity",
+    ],
+    "evidenceRef": "S3 (Unprotected)",
+    "hostname": "H1",
+    "isProtected": true,
+    "outcome": "DETECTED",
+    "preventedBy": [],
+    "sourceEventId": "S3",
+    "stage": 3,
+    "stageLabel": "Movimiento lateral y propagación hacia activos de valor",
+    "tactics": [],
+    "techniques": [
+      "T1486",
+    ],
+    "testName": "Unknown Test",
+    "timestamp": "2026-10-01T00:00:00Z",
+  },
+  {
+    "bundleId": "SB-PC-2026-001",
+    "bundleName": "Ransomware con doble extorsión — LockBit 3.0",
+    "detectedBy": [],
+    "evidenceRef": "S4 (Unprotected)",
+    "hostname": "H1",
+    "isProtected": false,
+    "outcome": "MISSED",
+    "preventedBy": [],
+    "sourceEventId": "S4",
+    "stage": 4,
+    "stageLabel": "Exfiltración de datos previa al cifrado",
+    "tactics": [],
+    "techniques": [
+      "T1486",
+    ],
+    "testName": "Unknown Test",
+    "timestamp": "2026-10-01T00:00:00Z",
+  },
+]
+`;
+
+exports[`EDR vendor characterization (pre-registry refactor) > SOURCE_FIELDS 1`] = `
+[
+  "event.ERROR",
+  "f0rtika.category",
+  "f0rtika.crowdstrike_detected",
+  "f0rtika.crowdstrike_prevented",
+  "f0rtika.crowdstrike_prevention_action",
+  "f0rtika.crowdstrike_stage_detected",
+  "f0rtika.defender_detected",
+  "f0rtika.defender_prevented",
+  "f0rtika.defender_prevention_action",
+  "f0rtika.defender_stage_detected",
+  "f0rtika.is_bundle_control",
+  "f0rtika.sentinelone_detected",
+  "f0rtika.sentinelone_prevented",
+  "f0rtika.sentinelone_prevention_action",
+  "f0rtika.sentinelone_stage_detected",
+]
+`;
+
+exports[`EDR vendor characterization (pre-registry refactor) > buildDetectedFilter 1`] = `
+{
+  "filter": {
+    "bool": {
+      "minimum_should_match": 1,
+      "should": [
+        {
+          "term": {
+            "f0rtika.crowdstrike_detected": true,
+          },
+        },
+        {
+          "term": {
+            "f0rtika.defender_detected": true,
+          },
+        },
+        {
+          "term": {
+            "f0rtika.is_protected": true,
+          },
+        },
+        {
+          "term": {
+            "f0rtika.sentinelone_detected": true,
+          },
+        },
+      ],
+    },
+  },
+}
+`;
+
+exports[`EDR vendor characterization (pre-registry refactor) > classifyStage across vendors, exit codes and bundle shape 1`] = `
+{
+  "0|bundle|crowdstrike|detected_bundle": "skipped",
+  "0|bundle|crowdstrike|none": "skipped",
+  "0|bundle|crowdstrike|prevented": "skipped",
+  "0|bundle|crowdstrike|stage_detected": "skipped",
+  "0|bundle|crowdstrike|stage_quarantined": "skipped",
+  "0|bundle|defender|detected_bundle": "skipped",
+  "0|bundle|defender|none": "skipped",
+  "0|bundle|defender|prevented": "skipped",
+  "0|bundle|defender|stage_detected": "skipped",
+  "0|bundle|defender|stage_quarantined": "skipped",
+  "0|bundle|sentinelone|detected_bundle": "skipped",
+  "0|bundle|sentinelone|none": "skipped",
+  "0|bundle|sentinelone|prevented": "skipped",
+  "0|bundle|sentinelone|stage_detected": "skipped",
+  "0|bundle|sentinelone|stage_quarantined": "skipped",
+  "0|single|crowdstrike|detected_bundle": "inconclusive",
+  "0|single|crowdstrike|none": "inconclusive",
+  "0|single|crowdstrike|prevented": "inconclusive",
+  "0|single|crowdstrike|stage_detected": "inconclusive",
+  "0|single|crowdstrike|stage_quarantined": "inconclusive",
+  "0|single|defender|detected_bundle": "inconclusive",
+  "0|single|defender|none": "inconclusive",
+  "0|single|defender|prevented": "inconclusive",
+  "0|single|defender|stage_detected": "inconclusive",
+  "0|single|defender|stage_quarantined": "inconclusive",
+  "0|single|sentinelone|detected_bundle": "inconclusive",
+  "0|single|sentinelone|none": "inconclusive",
+  "0|single|sentinelone|prevented": "inconclusive",
+  "0|single|sentinelone|stage_detected": "inconclusive",
+  "0|single|sentinelone|stage_quarantined": "inconclusive",
+  "101|bundle|crowdstrike|detected_bundle": "unprotected",
+  "101|bundle|crowdstrike|none": "unprotected",
+  "101|bundle|crowdstrike|prevented": "prevented",
+  "101|bundle|crowdstrike|stage_detected": "detected",
+  "101|bundle|crowdstrike|stage_quarantined": "prevented",
+  "101|bundle|defender|detected_bundle": "unprotected",
+  "101|bundle|defender|none": "unprotected",
+  "101|bundle|defender|prevented": "prevented",
+  "101|bundle|defender|stage_detected": "detected",
+  "101|bundle|defender|stage_quarantined": "prevented",
+  "101|bundle|sentinelone|detected_bundle": "unprotected",
+  "101|bundle|sentinelone|none": "unprotected",
+  "101|bundle|sentinelone|prevented": "prevented",
+  "101|bundle|sentinelone|stage_detected": "detected",
+  "101|bundle|sentinelone|stage_quarantined": "prevented",
+  "101|single|crowdstrike|detected_bundle": "unprotected",
+  "101|single|crowdstrike|none": "unprotected",
+  "101|single|crowdstrike|prevented": "prevented",
+  "101|single|crowdstrike|stage_detected": "detected",
+  "101|single|crowdstrike|stage_quarantined": "prevented",
+  "101|single|defender|detected_bundle": "unprotected",
+  "101|single|defender|none": "unprotected",
+  "101|single|defender|prevented": "prevented",
+  "101|single|defender|stage_detected": "detected",
+  "101|single|defender|stage_quarantined": "prevented",
+  "101|single|sentinelone|detected_bundle": "unprotected",
+  "101|single|sentinelone|none": "unprotected",
+  "101|single|sentinelone|prevented": "prevented",
+  "101|single|sentinelone|stage_detected": "detected",
+  "101|single|sentinelone|stage_quarantined": "prevented",
+  "105|bundle|crowdstrike|detected_bundle": "protected",
+  "105|bundle|crowdstrike|none": "protected",
+  "105|bundle|crowdstrike|prevented": "protected",
+  "105|bundle|crowdstrike|stage_detected": "protected",
+  "105|bundle|crowdstrike|stage_quarantined": "protected",
+  "105|bundle|defender|detected_bundle": "protected",
+  "105|bundle|defender|none": "protected",
+  "105|bundle|defender|prevented": "protected",
+  "105|bundle|defender|stage_detected": "protected",
+  "105|bundle|defender|stage_quarantined": "protected",
+  "105|bundle|sentinelone|detected_bundle": "protected",
+  "105|bundle|sentinelone|none": "protected",
+  "105|bundle|sentinelone|prevented": "protected",
+  "105|bundle|sentinelone|stage_detected": "protected",
+  "105|bundle|sentinelone|stage_quarantined": "protected",
+  "105|single|crowdstrike|detected_bundle": "protected",
+  "105|single|crowdstrike|none": "protected",
+  "105|single|crowdstrike|prevented": "protected",
+  "105|single|crowdstrike|stage_detected": "protected",
+  "105|single|crowdstrike|stage_quarantined": "protected",
+  "105|single|defender|detected_bundle": "protected",
+  "105|single|defender|none": "protected",
+  "105|single|defender|prevented": "protected",
+  "105|single|defender|stage_detected": "protected",
+  "105|single|defender|stage_quarantined": "protected",
+  "105|single|sentinelone|detected_bundle": "protected",
+  "105|single|sentinelone|none": "protected",
+  "105|single|sentinelone|prevented": "protected",
+  "105|single|sentinelone|stage_detected": "protected",
+  "105|single|sentinelone|stage_quarantined": "protected",
+  "999|bundle|crowdstrike|detected_bundle": "inconclusive",
+  "999|bundle|crowdstrike|none": "inconclusive",
+  "999|bundle|crowdstrike|prevented": "inconclusive",
+  "999|bundle|crowdstrike|stage_detected": "detected",
+  "999|bundle|crowdstrike|stage_quarantined": "prevented",
+  "999|bundle|defender|detected_bundle": "inconclusive",
+  "999|bundle|defender|none": "inconclusive",
+  "999|bundle|defender|prevented": "inconclusive",
+  "999|bundle|defender|stage_detected": "detected",
+  "999|bundle|defender|stage_quarantined": "prevented",
+  "999|bundle|sentinelone|detected_bundle": "inconclusive",
+  "999|bundle|sentinelone|none": "inconclusive",
+  "999|bundle|sentinelone|prevented": "inconclusive",
+  "999|bundle|sentinelone|stage_detected": "detected",
+  "999|bundle|sentinelone|stage_quarantined": "prevented",
+  "999|single|crowdstrike|detected_bundle": "inconclusive",
+  "999|single|crowdstrike|none": "inconclusive",
+  "999|single|crowdstrike|prevented": "inconclusive",
+  "999|single|crowdstrike|stage_detected": "detected",
+  "999|single|crowdstrike|stage_quarantined": "prevented",
+  "999|single|defender|detected_bundle": "inconclusive",
+  "999|single|defender|none": "inconclusive",
+  "999|single|defender|prevented": "inconclusive",
+  "999|single|defender|stage_detected": "detected",
+  "999|single|defender|stage_quarantined": "prevented",
+  "999|single|sentinelone|detected_bundle": "inconclusive",
+  "999|single|sentinelone|none": "inconclusive",
+  "999|single|sentinelone|prevented": "inconclusive",
+  "999|single|sentinelone|stage_detected": "detected",
+  "999|single|sentinelone|stage_quarantined": "prevented",
+}
+`;
+
+exports[`EDR vendor characterization (pre-registry refactor) > fetchBundlePairRuns request 1`] = `
+[
+  {
+    "aggs": {
+      "bundle_runs": {
+        "aggs": {
+          "alerted_unblocked": {
+            "aggs": {
+              "stages": {
+                "terms": {
+                  "field": "f0rtika.control_validator",
+                  "size": 20,
+                },
+              },
+            },
+            "filter": {
+              "bool": {
+                "minimum_should_match": 1,
+                "must_not": [
+                  {
+                    "term": {
+                      "f0rtika.is_protected": true,
+                    },
+                  },
+                ],
+                "should": [
+                  {
+                    "term": {
+                      "f0rtika.crowdstrike_detected": true,
+                    },
+                  },
+                  {
+                    "term": {
+                      "f0rtika.defender_detected": true,
+                    },
+                  },
+                  {
+                    "term": {
+                      "f0rtika.sentinelone_detected": true,
+                    },
+                  },
+                ],
+              },
+            },
+          },
+          "codes": {
+            "terms": {
+              "field": "event.ERROR",
+              "size": 10,
+            },
+          },
+          "combined": {
+            "filter": {
+              "bool": {
+                "minimum_should_match": 1,
+                "should": [
+                  {
+                    "term": {
+                      "f0rtika.crowdstrike_detected": true,
+                    },
+                  },
+                  {
+                    "term": {
+                      "f0rtika.defender_detected": true,
+                    },
+                  },
+                  {
+                    "term": {
+                      "f0rtika.is_protected": true,
+                    },
+                  },
+                  {
+                    "term": {
+                      "f0rtika.sentinelone_detected": true,
+                    },
+                  },
+                ],
+              },
+            },
+          },
+          "edr_terminated": {
+            "filter": {
+              "term": {
+                "f0rtika.edr_terminated": true,
+              },
+            },
+          },
+          "names": {
+            "terms": {
+              "field": "f0rtika.error_name",
+              "size": 20,
+            },
+          },
+          "strict": {
+            "aggs": {
+              "stages": {
+                "terms": {
+                  "field": "f0rtika.control_validator",
+                  "size": 20,
+                },
+              },
+            },
+            "filter": {
+              "term": {
+                "f0rtika.is_protected": true,
+              },
+            },
+          },
+        },
+        "composite": {
+          "size": 1000,
+          "sources": [
+            {
+              "oid": {
+                "terms": {
+                  "field": "routing.oid",
+                  "missing_bucket": true,
+                },
+              },
+            },
+            {
+              "bundle": {
+                "terms": {
+                  "field": "f0rtika.bundle_id",
+                },
+              },
+            },
+            {
+              "host": {
+                "terms": {
+                  "field": "routing.hostname",
+                },
+              },
+            },
+            {
+              "ts": {
+                "terms": {
+                  "field": "routing.event_time",
+                },
+              },
+            },
+          ],
+        },
+      },
+    },
+    "index": "achilles-results-*",
+    "query": {
+      "bool": {
+        "filter": [],
+      },
+    },
+    "size": 0,
+  },
+]
+`;
+
+exports[`EDR vendor characterization (pre-registry refactor) > fetchDocPairRuns request 1`] = `
+[
+  {
+    "aggs": {
+      "pairs": {
+        "aggs": {
+          "latest": {
+            "top_metrics": {
+              "metrics": [
+                {
+                  "field": "routing.event_time",
+                },
+                {
+                  "field": "f0rtika.is_protected",
+                },
+                {
+                  "field": "f0rtika.defender_detected",
+                },
+                {
+                  "field": "f0rtika.crowdstrike_detected",
+                },
+                {
+                  "field": "f0rtika.sentinelone_detected",
+                },
+                {
+                  "field": "event.ERROR",
+                },
+                {
+                  "field": "f0rtika.error_name",
+                },
+              ],
+              "sort": {
+                "routing.event_time": "desc",
+              },
+            },
+          },
+        },
+        "composite": {
+          "size": 10000,
+          "sources": [
+            {
+              "oid": {
+                "terms": {
+                  "field": "routing.oid",
+                  "missing_bucket": true,
+                },
+              },
+            },
+            {
+              "test": {
+                "terms": {
+                  "field": "f0rtika.test_uuid",
+                },
+              },
+            },
+            {
+              "host": {
+                "terms": {
+                  "field": "routing.hostname",
+                },
+              },
+            },
+          ],
+        },
+      },
+    },
+    "index": "achilles-results-*",
+    "query": {
+      "bool": {
+        "filter": [],
+      },
+    },
+    "size": 0,
+  },
+]
+`;
+
+exports[`EDR vendor characterization (pre-registry refactor) > getExecutionActivity request 1`] = `
+[
+  {
+    "aggs": {
+      "all_time": {
+        "aggs": {
+          "org": {
+            "aggs": {
+              "last": {
+                "max": {
+                  "field": "routing.event_time",
+                },
+              },
+            },
+            "filter": {
+              "bool": {
+                "filter": [
+                  {
+                    "bool": {
+                      "must": [
+                        {
+                          "exists": {
+                            "field": "f0rtika.test_uuid",
+                          },
+                        },
+                        {
+                          "exists": {
+                            "field": "f0rtika.test_name",
+                          },
+                        },
+                      ],
+                    },
+                  },
+                ],
+                "must_not": [
+                  {
+                    "term": {
+                      "event.ERROR": 200,
+                    },
+                  },
+                  {
+                    "bool": {
+                      "filter": [
+                        {
+                          "term": {
+                            "f0rtika.is_bundle_control": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "event.ERROR": 0,
+                          },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+        "global": {},
+      },
+      "last_7d": {
+        "aggs": {
+          "conclusive": {
+            "filter": {
+              "terms": {
+                "event.ERROR": [
+                  101,
+                  105,
+                  126,
+                  127,
+                ],
+              },
+            },
+          },
+          "endpoints": {
+            "cardinality": {
+              "field": "routing.hostname",
+            },
+          },
+          "protected": {
+            "filter": {
+              "bool": {
+                "filter": [
+                  {
+                    "terms": {
+                      "event.ERROR": [
+                        101,
+                        105,
+                        126,
+                        127,
+                      ],
+                    },
+                  },
+                  {
+                    "bool": {
+                      "minimum_should_match": 1,
+                      "should": [
+                        {
+                          "term": {
+                            "f0rtika.crowdstrike_detected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.defender_detected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.is_protected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.sentinelone_detected": true,
+                          },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+        "filter": {
+          "range": {
+            "routing.event_time": {
+              "gte": "now-6d/d",
+            },
+          },
+        },
+      },
+      "per_day": {
+        "aggs": {
+          "inconclusive": {
+            "filter": {
+              "bool": {
+                "must_not": [
+                  {
+                    "terms": {
+                      "event.ERROR": [
+                        101,
+                        105,
+                        126,
+                        127,
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+          "protected": {
+            "filter": {
+              "bool": {
+                "filter": [
+                  {
+                    "terms": {
+                      "event.ERROR": [
+                        101,
+                        105,
+                        126,
+                        127,
+                      ],
+                    },
+                  },
+                  {
+                    "bool": {
+                      "minimum_should_match": 1,
+                      "should": [
+                        {
+                          "term": {
+                            "f0rtika.crowdstrike_detected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.defender_detected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.is_protected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.sentinelone_detected": true,
+                          },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+          "unprotected": {
+            "filter": {
+              "bool": {
+                "filter": [
+                  {
+                    "terms": {
+                      "event.ERROR": [
+                        101,
+                        105,
+                        126,
+                        127,
+                      ],
+                    },
+                  },
+                ],
+                "must_not": [
+                  {
+                    "bool": {
+                      "minimum_should_match": 1,
+                      "should": [
+                        {
+                          "term": {
+                            "f0rtika.crowdstrike_detected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.defender_detected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.is_protected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.sentinelone_detected": true,
+                          },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+        "date_histogram": {
+          "calendar_interval": "day",
+          "extended_bounds": {
+            "max": "2026-10-28",
+            "min": "2026-10-22",
+          },
+          "field": "routing.event_time",
+          "min_doc_count": 0,
+        },
+      },
+    },
+    "index": "achilles-results-*",
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "range": {
+              "routing.event_time": {
+                "gte": "now-6d/d",
+              },
+            },
+          },
+          {
+            "bool": {
+              "filter": [
+                {
+                  "bool": {
+                    "must": [
+                      {
+                        "exists": {
+                          "field": "f0rtika.test_uuid",
+                        },
+                      },
+                      {
+                        "exists": {
+                          "field": "f0rtika.test_name",
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+              "must_not": [
+                {
+                  "term": {
+                    "event.ERROR": 200,
+                  },
+                },
+                {
+                  "bool": {
+                    "filter": [
+                      {
+                        "term": {
+                          "f0rtika.is_bundle_control": true,
+                        },
+                      },
+                      {
+                        "term": {
+                          "event.ERROR": 0,
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+    "size": 0,
+  },
+]
+`;
+
+exports[`EDR vendor characterization (pre-registry refactor) > grouped executions roll up per-vendor flags 1`] = `
+[
+  {
+    "crowdstrikeDetected": false,
+    "crowdstrikePrevented": true,
+    "defenderDetected": true,
+    "defenderPrevented": false,
+    "sentineloneDetected": true,
+    "sentinelonePrevented": true,
+  },
+]
+`;
+
+exports[`EDR vendor characterization (pre-registry refactor) > listDormantOrgEdrSections 1`] = `
+[
+  {
+    "integrations": [
+      "defender",
+      "crowdstrike",
+      "sentinelone",
+    ],
+    "orgId": "o1",
+  },
+]
+`;
+
+exports[`EDR vendor characterization (pre-registry refactor) > mapHitToExecution with every vendor flag set 1`] = `
+{
+  "crowdstrike_detected": true,
+  "crowdstrike_prevented": true,
+  "crowdstrike_prevention_action": "quarantined",
+  "crowdstrike_stage_detected": true,
+  "defender_detected": true,
+  "defender_prevented": true,
+  "defender_prevention_action": "quarantined",
+  "defender_stage_detected": true,
+  "sentinelone_detected": true,
+  "sentinelone_prevented": true,
+  "sentinelone_prevention_action": "quarantined",
+  "sentinelone_stage_detected": true,
+}
+`;
+
+exports[`EDR vendor characterization (pre-registry refactor) > runAnyStageCombinedQuery request 1`] = `
+[
+  {
+    "aggs": {
+      "per_bundle": {
+        "aggs": {
+          "bundles": {
+            "aggs": {
+              "has_combined": {
+                "filter": {
+                  "bool": {
+                    "minimum_should_match": 1,
+                    "should": [
+                      {
+                        "term": {
+                          "f0rtika.crowdstrike_detected": true,
+                        },
+                      },
+                      {
+                        "term": {
+                          "f0rtika.defender_detected": true,
+                        },
+                      },
+                      {
+                        "term": {
+                          "f0rtika.is_protected": true,
+                        },
+                      },
+                      {
+                        "term": {
+                          "f0rtika.sentinelone_detected": true,
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+              "has_strict": {
+                "filter": {
+                  "term": {
+                    "f0rtika.is_protected": true,
+                  },
+                },
+              },
+            },
+            "terms": {
+              "script": {
+                "lang": "painless",
+                "source": "doc['f0rtika.bundle_id'].value + '::' + doc['routing.hostname'].value",
+              },
+              "size": 10000,
+            },
+          },
+        },
+        "filter": {
+          "bool": {
+            "must": [
+              {
+                "bool": {
+                  "minimum_should_match": 1,
+                  "should": [
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.edr_terminated": true,
+                            },
+                          },
+                          {
+                            "exists": {
+                              "field": "f0rtika.bundle_id",
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.is_bundle_control": true,
+                      },
+                    },
+                  ],
+                },
+              },
+              {
+                "bool": {
+                  "must_not": [
+                    {
+                      "term": {
+                        "f0rtika.category": "cyber-hygiene",
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      },
+      "per_doc": {
+        "aggs": {
+          "combined": {
+            "filter": {
+              "bool": {
+                "minimum_should_match": 1,
+                "should": [
+                  {
+                    "term": {
+                      "f0rtika.crowdstrike_detected": true,
+                    },
+                  },
+                  {
+                    "term": {
+                      "f0rtika.defender_detected": true,
+                    },
+                  },
+                  {
+                    "term": {
+                      "f0rtika.is_protected": true,
+                    },
+                  },
+                  {
+                    "term": {
+                      "f0rtika.sentinelone_detected": true,
+                    },
+                  },
+                ],
+              },
+            },
+          },
+          "strict": {
+            "filter": {
+              "term": {
+                "f0rtika.is_protected": true,
+              },
+            },
+          },
+        },
+        "filter": {
+          "bool": {
+            "minimum_should_match": 1,
+            "should": [
+              {
+                "bool": {
+                  "must_not": [
+                    {
+                      "term": {
+                        "f0rtika.is_bundle_control": true,
+                      },
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.edr_terminated": true,
+                            },
+                          },
+                          {
+                            "exists": {
+                              "field": "f0rtika.bundle_id",
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+              {
+                "term": {
+                  "f0rtika.category": "cyber-hygiene",
+                },
+              },
+            ],
+          },
+        },
+      },
+    },
+    "index": "achilles-results-*",
+    "query": {
+      "bool": {
+        "filter": [],
+      },
+    },
+    "size": 0,
+  },
+]
+`;
+
+exports[`EDR vendor characterization (pre-registry refactor) > runCombinedScoreQuery request 1`] = `
+[
+  {
+    "aggs": {
+      "combined": {
+        "filter": {
+          "bool": {
+            "minimum_should_match": 1,
+            "should": [
+              {
+                "term": {
+                  "f0rtika.crowdstrike_detected": true,
+                },
+              },
+              {
+                "term": {
+                  "f0rtika.defender_detected": true,
+                },
+              },
+              {
+                "term": {
+                  "f0rtika.is_protected": true,
+                },
+              },
+              {
+                "term": {
+                  "f0rtika.sentinelone_detected": true,
+                },
+              },
+            ],
+          },
+        },
+      },
+      "strict": {
+        "filter": {
+          "term": {
+            "f0rtika.is_protected": true,
+          },
+        },
+      },
+    },
+    "index": "achilles-results-*",
+    "query": {
+      "bool": {
+        "filter": [],
+      },
+    },
+    "size": 0,
+    "track_total_hits": true,
+  },
+]
+`;

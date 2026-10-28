@@ -1,5 +1,6 @@
 import type { EnrichedTestExecution } from '@/services/api/analytics';
 import { classifyExecution, type ExecutionOutcome } from './shared';
+import { EDR_VENDOR_KEYS, PREVENTION_ACTION_PRECEDENCE, edrVendor, edrVendorName, type EdrVendorKey } from '@/lib/edrVendors';
 
 export type StageKind = ExecutionOutcome | 'not-run';
 
@@ -20,15 +21,9 @@ const ACTION_COPY: Record<string, string> = {
   blocked: 'blocked it',
 };
 
-const KILL_VENDOR_NAMES: Record<string, string> = {
-  defender: 'Defender',
-  crowdstrike: 'CrowdStrike',
-  sentinelone: 'SentinelOne',
-};
-
 /** Vendor ids joined as display names ("A and B"), in the order given; "An EDR" when there are none. */
 export function killVendorLabel(vendors: string[] | undefined): string {
-  return joinNames((vendors ?? []).map((v) => KILL_VENDOR_NAMES[v] ?? v)) ?? 'An EDR';
+  return joinNames((vendors ?? []).map(edrVendorName)) ?? 'An EDR';
 }
 
 /**
@@ -50,13 +45,9 @@ export function agentKillNote(kill: { vendor: string }): string {
   return `${kill.vendor} terminated the Achilles agent while this test was running, so the test could not report which stages ran. The run counts as protected for the test as a whole; stages are unknown.`;
 }
 
-/** Per-stage flags, falling back to the bundle-level flags for older documents. */
-function stageEdr(exec: EnrichedTestExecution) {
-  return {
-    defender: Boolean(exec.defender_stage_detected ?? exec.defender_detected),
-    crowdstrike: Boolean(exec.crowdstrike_stage_detected ?? exec.crowdstrike_detected),
-    sentinelone: Boolean(exec.sentinelone_stage_detected ?? exec.sentinelone_detected),
-  };
+/** Vendors whose per-stage flag is set (falling back to the bundle-level flag for older documents), in registry order. */
+function stageEdr(exec: EnrichedTestExecution): EdrVendorKey[] {
+  return EDR_VENDOR_KEYS.filter((k) => Boolean(exec[`${k}_stage_detected`] ?? exec[`${k}_detected`]));
 }
 
 /** "A", "A and B", "A, B and C". */
@@ -66,42 +57,31 @@ function joinNames(names: string[]): string | null {
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
-function vendorLabel(defender: boolean, crowdstrike: boolean, sentinelone = false): string | null {
-  return joinNames([
-    ...(defender ? ['Defender'] : []),
-    ...(crowdstrike ? ['CrowdStrike'] : []),
-    ...(sentinelone ? ['SentinelOne'] : []),
-  ]);
+function vendorLabel(vendors: readonly EdrVendorKey[]): string | null {
+  return joinNames(vendors.map((k) => edrVendor(k).name));
 }
 
 /** Vendor(s) that reported on this stage; null when none did. */
 export function stageVendors(exec: EnrichedTestExecution): { label: string; short: string } | null {
-  const { defender, crowdstrike, sentinelone } = stageEdr(exec);
-  const label = vendorLabel(defender, crowdstrike, sentinelone);
+  const vendors = stageEdr(exec);
+  const label = vendorLabel(vendors);
   if (!label) return null;
-  const short = [
-    ...(defender ? ['MDE'] : []),
-    ...(crowdstrike ? ['CS'] : []),
-    ...(sentinelone ? ['S1'] : []),
-  ].join(' + ');
-  return { label, short };
+  return { label, short: vendors.map((k) => edrVendor(k).abbrev).join(' + ') };
 }
 
-/** "<vendor> reports it <action>." naming only the vendor whose action is used (CrowdStrike, then SentinelOne, then Defender). */
+/** "<vendor> reports it <action>." naming only the vendor whose action is used (PREVENTION_ACTION_PRECEDENCE). */
 function preventionSentence(exec: EnrichedTestExecution): string | null {
-  const { defender, crowdstrike, sentinelone } = stageEdr(exec);
-  const csAction = crowdstrike ? ACTION_COPY[exec.crowdstrike_prevention_action ?? ''] : undefined;
-  if (csAction) return `CrowdStrike reports it ${csAction}.`;
-  const s1Action = sentinelone ? ACTION_COPY[exec.sentinelone_prevention_action ?? ''] : undefined;
-  if (s1Action) return `SentinelOne reports it ${s1Action}.`;
-  const defAction = defender ? ACTION_COPY[exec.defender_prevention_action ?? ''] : undefined;
-  if (defAction) return `Defender reports it ${defAction}.`;
+  const reported = new Set(stageEdr(exec));
+  for (const k of PREVENTION_ACTION_PRECEDENCE) {
+    const action = reported.has(k) ? ACTION_COPY[exec[`${k}_prevention_action`] ?? ''] : undefined;
+    if (action) return `${edrVendor(k).name} reports it ${action}.`;
+  }
   return null;
 }
 
 /** Boolean-only fallback: name the vendor(s) whose *_prevented flag is set. */
 function preventedFallback(exec: EnrichedTestExecution): string {
-  const names = vendorLabel(Boolean(exec.defender_prevented), Boolean(exec.crowdstrike_prevented), Boolean(exec.sentinelone_prevented));
+  const names = vendorLabel(EDR_VENDOR_KEYS.filter((k) => Boolean(exec[`${k}_prevented`])));
   if (!names) return 'An EDR reports it stopped it.';
   return `${names} ${names.includes(' and ') ? 'report' : 'reports'} it stopped it.`;
 }
@@ -152,11 +132,10 @@ export function stageVerdict(exec: EnrichedTestExecution, siblings: EnrichedTest
       };
     }
     case 'detected': {
-      const { defender, crowdstrike, sentinelone } = stageEdr(exec);
       return {
         kind,
         title: 'Ran to completion. An EDR alerted but did not stop it.',
-        body: `${vendorLabel(defender, crowdstrike, sentinelone) ?? 'An EDR'} raised an alert naming this stage's binary; nothing was blocked.`,
+        body: `${vendorLabel(stageEdr(exec)) ?? 'An EDR'} raised an alert naming this stage's binary; nothing was blocked.`,
       };
     }
     case 'unprotected':

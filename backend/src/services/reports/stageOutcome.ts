@@ -12,6 +12,8 @@
 // Its twin is frontend/src/pages/analytics/components/executions/__tests__/classifyExecution.test.ts.
 
 import type { OutcomeCounts, StageOutcome } from '../../types/reports.js';
+import { EDR_VENDOR_KEYS, edrFlagField } from '../outcomes/vendors.js';
+import type { EdrVendorKey } from '../outcomes/vendors.js';
 
 export const STAGE_OUTCOMES: readonly StageOutcome[] = [
   'protected', 'prevented', 'detected', 'unprotected', 'inconclusive', 'skipped',
@@ -55,16 +57,14 @@ function confirmedAction(source: Record<string, unknown>, field: string): boolea
 
 /** This stage's own EDR detection flag is set (stage-level, never bundle-level `*_detected`). */
 function stageDetected(source: Record<string, unknown>): boolean {
-  return flag(source, 'defender_stage_detected')
-    || flag(source, 'crowdstrike_stage_detected')
-    || flag(source, 'sentinelone_stage_detected');
+  return EDR_VENDOR_KEYS.some((v) => flag(source, `${v}_stage_detected`));
 }
 
 /** This stage was detected AND the EDR took a confirmed prevention action on it. */
 function stagePrevented(source: Record<string, unknown>): boolean {
-  return (flag(source, 'crowdstrike_stage_detected') && confirmedAction(source, 'crowdstrike_prevention_action'))
-    || (flag(source, 'sentinelone_stage_detected') && confirmedAction(source, 'sentinelone_prevention_action'))
-    || (flag(source, 'defender_stage_detected') && confirmedAction(source, 'defender_prevention_action'));
+  return EDR_VENDOR_KEYS.some(
+    (v) => flag(source, `${v}_stage_detected`) && confirmedAction(source, `${v}_prevention_action`),
+  );
 }
 
 /** Classify one stage or standalone-test result exactly like the console's ExecResultLabel. */
@@ -88,9 +88,7 @@ export function classifyStage(source: Record<string, unknown>): StageOutcome {
   }
 
   const prevented = stagePrevented(source)
-    || flag(source, 'crowdstrike_prevented')
-    || flag(source, 'defender_prevented')
-    || flag(source, 'sentinelone_prevented');
+    || EDR_VENDOR_KEYS.some((v) => flag(source, `${v}_prevented`));
   if (prevented) return 'prevented';
   if (stageDetected(source)) return 'detected';
   return 'unprotected';
@@ -114,15 +112,21 @@ const SKIPPED: Clause = {
   },
 };
 
+/** Stage-level detection plus a confirmed prevention action, for one vendor. */
+const stagePreventionClause = (v: EdrVendorKey): Clause => ({
+  bool: {
+    filter: [
+      term(edrFlagField(v, 'stage_detected'), true),
+      { terms: { [edrFlagField(v, 'prevention_action')]: CONFIRMED_PREVENTION_ACTIONS } },
+    ],
+  },
+});
+
 const PREVENTION_SIGNAL: Clause = {
   bool: {
     should: [
-      term('f0rtika.crowdstrike_prevented', true),
-      term('f0rtika.defender_prevented', true),
-      term('f0rtika.sentinelone_prevented', true),
-      { bool: { filter: [term('f0rtika.crowdstrike_stage_detected', true), { terms: { 'f0rtika.crowdstrike_prevention_action': CONFIRMED_PREVENTION_ACTIONS } }] } },
-      { bool: { filter: [term('f0rtika.defender_stage_detected', true), { terms: { 'f0rtika.defender_prevention_action': CONFIRMED_PREVENTION_ACTIONS } }] } },
-      { bool: { filter: [term('f0rtika.sentinelone_stage_detected', true), { terms: { 'f0rtika.sentinelone_prevention_action': CONFIRMED_PREVENTION_ACTIONS } }] } },
+      ...EDR_VENDOR_KEYS.map((v) => term(edrFlagField(v, 'prevented'), true)),
+      ...EDR_VENDOR_KEYS.map(stagePreventionClause),
     ],
     minimum_should_match: 1,
   },
@@ -130,11 +134,7 @@ const PREVENTION_SIGNAL: Clause = {
 
 const STAGE_DETECTED: Clause = {
   bool: {
-    should: [
-      term('f0rtika.defender_stage_detected', true),
-      term('f0rtika.crowdstrike_stage_detected', true),
-      term('f0rtika.sentinelone_stage_detected', true),
-    ],
+    should: EDR_VENDOR_KEYS.map((v) => term(edrFlagField(v, 'stage_detected'), true)),
     minimum_should_match: 1,
   },
 };
@@ -142,11 +142,7 @@ const STAGE_DETECTED: Clause = {
 /** Stage-level prevention only (never the bundle-level `*_prevented` flags). */
 const STAGE_PREVENTION_SIGNAL: Clause = {
   bool: {
-    should: [
-      { bool: { filter: [term('f0rtika.crowdstrike_stage_detected', true), { terms: { 'f0rtika.crowdstrike_prevention_action': CONFIRMED_PREVENTION_ACTIONS } }] } },
-      { bool: { filter: [term('f0rtika.defender_stage_detected', true), { terms: { 'f0rtika.defender_prevention_action': CONFIRMED_PREVENTION_ACTIONS } }] } },
-      { bool: { filter: [term('f0rtika.sentinelone_stage_detected', true), { terms: { 'f0rtika.sentinelone_prevention_action': CONFIRMED_PREVENTION_ACTIONS } }] } },
-    ],
+    should: EDR_VENDOR_KEYS.map(stagePreventionClause),
     minimum_should_match: 1,
   },
 };

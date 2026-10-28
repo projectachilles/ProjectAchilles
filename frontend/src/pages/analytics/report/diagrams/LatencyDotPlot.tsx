@@ -2,6 +2,7 @@
 // Negative values fired before the run completed.
 import type { ReportAlert, ReportRun } from '@/services/api/reports';
 import { fmtLatency, plural, timeOf } from '../lib/format';
+import { EDR_VENDORS } from '@/lib/edrVendors';
 
 const W = 680;
 const X0 = 156;
@@ -32,9 +33,7 @@ export function median(values: number[]): number | null {
 }
 
 const ROWS: { key: ReportAlert['vendor'] | 'any'; label: string }[] = [
-  { key: 'defender', label: 'Microsoft Defender' },
-  { key: 'crowdstrike', label: 'CrowdStrike Falcon' },
-  { key: 'sentinelone', label: 'SentinelOne Singularity' },
+  ...EDR_VENDORS.map((v) => ({ key: v.key, label: v.label })),
   { key: 'any', label: 'First alert, any EDR' },
 ];
 

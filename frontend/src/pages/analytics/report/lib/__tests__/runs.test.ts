@@ -12,6 +12,10 @@ describe('vendorName', () => {
     expect(vendorName('defender')).toBe('Defender');
     expect(vendorName('crowdstrike')).toBe('Falcon');
   });
+
+  it('shows an unknown vendor id from a newer backend instead of throwing', () => {
+    expect(vendorName('sophos' as never)).toBe('sophos');
+  });
 });
 
 describe('firstAlert', () => {

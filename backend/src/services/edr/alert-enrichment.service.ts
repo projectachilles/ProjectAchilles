@@ -9,10 +9,11 @@ import {
   buildCrowdStrikeEvidenceQuery,
   buildStageCrowdStrikeEvidenceQuery,
   extractBundleUuid,
-} from '../crowdstrike/evidence-correlation.js';
-import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/crowdstrike.js';
+} from './evidence-correlation.js';
+import type { EnrichmentPassOptions, EnrichmentPassResult } from '../../types/edr.js';
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS } from '../shared/achillesMitigation.js';
 import { enrichmentEligibleClauses } from '../analytics/enrichment-eligibility.js';
+import type { EdrVendorKey } from '../outcomes/vendors.js';
 
 const DEFAULT_LOOKBACK_DAYS = 90;
 const DEFAULT_BATCH_SIZE = 200;
@@ -55,7 +56,7 @@ const PREVENTION_ACTIONS = new Set(['quarantined', 'process_killed', 'blocked'])
  */
 export interface EnrichmentVendorTarget {
   alertIndex: string;
-  flagPrefix: 'crowdstrike' | 'sentinelone';
+  flagPrefix: EdrVendorKey;
   /**
    * Ignore the prevention action of alerts that ProjectAchilles itself
    * mitigated (SentinelOne automatic mitigation writes an

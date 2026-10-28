@@ -27,6 +27,8 @@ import { resolveErrorName } from '../analytics/elasticsearch.js';
 import { orgShortName } from '../analytics/orgNames.js';
 import { AppError } from '../../middleware/error.middleware.js';
 import type { AnalyticsSettings } from '../../types/analytics.js';
+import { EDR_VENDOR_KEYS, edrFlagField, edrVendor } from '../outcomes/vendors.js';
+import type { EdrVendorKey } from '../outcomes/vendors.js';
 
 export const SB_BUNDLE_ID = 'SB-PC-2026-001';
 export const SB_BUNDLE_NAME = 'Ransomware con doble extorsión — LockBit 3.0';
@@ -72,9 +74,6 @@ const INCONCLUSIVE_EXIT_CODES = new Set([200, 259, 260]);
 // ES default max_result_window and far above any legitimate window.
 const MAX_REPORT_DOCS = 10000;
 
-const MICROSOFT_DEFENDER = 'Microsoft Defender for Endpoint';
-const CROWDSTRIKE_FALCON = 'CrowdStrike Falcon';
-const SENTINELONE_SINGULARITY = 'SentinelOne Singularity';
 
 export type SbOutcome = 'PREVENTED' | 'DETECTED' | 'MISSED' | 'EXPOSED' | 'NOT_RUN' | 'ERROR';
 
@@ -204,9 +203,7 @@ function mapOutcome(
   exitCode: number | undefined,
   rawTactics: string[],
   edrDetected: boolean,
-  defenderPrevented: boolean,
-  crowdstrikePrevented: boolean,
-  sentinelonePrevented = false,
+  vendorPrevented: boolean,
 ): SbOutcome {
   if (exitCode !== undefined && PREVENTED_EXIT_CODES.has(exitCode)) return 'PREVENTED';
   // Vendor-confirmed prevention (prevention disposition/remediationStatus on
@@ -217,7 +214,7 @@ function mapOutcome(
   // same rule (stage matches always qualify; wide matches only for
   // non-conclusive docs), so a 101 + flag combo shouldn't occur — the guard
   // is belt-and-braces.
-  if ((defenderPrevented || crowdstrikePrevented || sentinelonePrevented) && exitCode !== 101) return 'PREVENTED';
+  if (vendorPrevented && exitCode !== 101) return 'PREVENTED';
   if (exitCode !== undefined && EXECUTED_EXIT_CODES.has(exitCode)) {
     if (edrDetected) return 'DETECTED';
     if (rawTactics.some((t) => EXPOSED_TACTICS.has(t))) return 'EXPOSED';
@@ -346,41 +343,29 @@ export class SbReportService {
       const techniques: string[] = getField(source, 'f0rtika.techniques')
         ?? [getField(source, 'f0rtika.control_id')].filter(Boolean);
       const controlName = getField(source, 'f0rtika.control_name');
-      const defenderDetected = Boolean(
-        getField(source, 'f0rtika.defender_stage_detected') ?? getField(source, 'f0rtika.defender_detected'),
-      );
-      const crowdstrikeDetected = Boolean(
-        getField(source, 'f0rtika.crowdstrike_stage_detected') ?? getField(source, 'f0rtika.crowdstrike_detected'),
-      );
-      // Vendor-confirmed prevention — deterministic evidence from the
-      // correlated alert (Defender remediationStatus / Falcon
+      // Per registry vendor: detected (stage flag, else the bundle-wide
+      // flag) and vendor-confirmed prevention — deterministic evidence from
+      // the correlated alert (e.g. Defender remediationStatus / Falcon
       // pattern_disposition), not inference.
-      const defenderPrevented = Boolean(getField(source, 'f0rtika.defender_prevented'));
-      const crowdstrikePrevented = Boolean(getField(source, 'f0rtika.crowdstrike_prevented'));
-      const sentineloneDetected = Boolean(
-        getField(source, 'f0rtika.sentinelone_stage_detected') ?? getField(source, 'f0rtika.sentinelone_detected'),
+      const detected = (k: EdrVendorKey) => Boolean(
+        getField(source, edrFlagField(k, 'stage_detected')) ?? getField(source, edrFlagField(k, 'detected')),
       );
-      const sentinelonePrevented = Boolean(getField(source, 'f0rtika.sentinelone_prevented'));
-      // Vendor attribution — when both vendors detected the stage, list both.
-      const detectingVendors = [
-        ...(defenderDetected ? [MICROSOFT_DEFENDER] : []),
-        ...(crowdstrikeDetected ? [CROWDSTRIKE_FALCON] : []),
-        ...(sentineloneDetected ? [SENTINELONE_SINGULARITY] : []),
-      ];
+      const prevented = (k: EdrVendorKey) => Boolean(getField(source, edrFlagField(k, 'prevented')));
+      // Vendor attribution — when several vendors detected the stage, list them all.
+      const detectingVendors = EDR_VENDOR_KEYS.filter(detected).map((k) => edrVendor(k).productName);
       // preventedBy lists each vendor whose prevented flag is set. Defender
       // keeps its pre-flag exit-code attribution too (a Defender-detected
       // stage that ended 105/126/127 was already credited to Defender).
-      const preventingVendors = [
-        ...(defenderDetected || defenderPrevented ? [MICROSOFT_DEFENDER] : []),
-        ...(crowdstrikePrevented ? [CROWDSTRIKE_FALCON] : []),
-        ...(sentinelonePrevented ? [SENTINELONE_SINGULARITY] : []),
-      ];
+      const preventingVendors = EDR_VENDOR_KEYS
+        .filter((k) => prevented(k) || (k === 'defender' && detected(k)))
+        .map((k) => edrVendor(k).productName);
+      const anyVendorPrevented = EDR_VENDOR_KEYS.some(prevented);
       const edrDetected = detectingVendors.length > 0;
 
       const stage = parseStageFromValidator(getField(source, 'f0rtika.control_validator'))
         ?? fallbackStage.get(hit)
         ?? 0;
-      const outcome = mapOutcome(exitCode, rawTactics, edrDetected, defenderPrevented, crowdstrikePrevented, sentinelonePrevented);
+      const outcome = mapOutcome(exitCode, rawTactics, edrDetected, anyVendorPrevented);
       const sourceEventId = String(hit._id ?? '');
 
       const inconclusive = exitCode !== undefined && INCONCLUSIVE_EXIT_CODES.has(exitCode);

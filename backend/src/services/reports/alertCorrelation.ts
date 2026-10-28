@@ -24,10 +24,11 @@ import {
 import {
   buildAlertTimeWindowQuery as crowdstrikeTimeWindow,
   buildCrowdStrikeEvidenceQuery,
-} from '../crowdstrike/evidence-correlation.js';
+} from '../edr/evidence-correlation.js';
 import { DEFENDER_INDEX } from '../defender/index-management.js';
 import { CROWDSTRIKE_INDEX } from '../crowdstrike/index-management.js';
 import { SENTINELONE_INDEX } from '../sentinelone/index-management.js';
+import type { EdrVendorKey } from '../outcomes/vendors.js';
 import { projectAlertHit } from '../alerts/alertHit.js';
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS } from '../shared/achillesMitigation.js';
 import type { ReportAlert } from '../../types/reports.js';
@@ -71,6 +72,13 @@ export const SENTINELONE_ADAPTER: VendorAdapter = {
   index: SENTINELONE_INDEX,
   buildEvidenceQuery: buildCrowdStrikeEvidenceQuery,
   buildTimeWindowQuery: crowdstrikeTimeWindow,
+};
+
+/** Every registry vendor's adapter; a vendor missing here is a compile error. */
+export const VENDOR_ADAPTERS: Record<EdrVendorKey, VendorAdapter> = {
+  defender: DEFENDER_ADAPTER,
+  crowdstrike: CROWDSTRIKE_ADAPTER,
+  sentinelone: SENTINELONE_ADAPTER,
 };
 
 export interface CorrelationRun {

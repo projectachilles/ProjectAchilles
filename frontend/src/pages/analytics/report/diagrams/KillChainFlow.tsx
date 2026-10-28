@@ -6,24 +6,21 @@ import type { ReportAlert, ReportTest } from '@/services/api/reports';
 import { BAND_LABEL, bandOf, conclusive, defended, protectionRate, tacticLabel } from '../lib/outcomes';
 import { fmtAlertCount, fmtPct } from '../lib/format';
 import { OutcomeBar } from './OutcomeBar';
+import { EDR_VENDORS, EDR_VENDOR_KEYS } from '@/lib/edrVendors';
 
 const W = 680;
 const H = 50;
 const NOTCH = 12;
 const PER_ROW = 6;
 
-const ALERT_VENDORS: { key: ReportAlert['vendor']; label: string }[] = [
-  { key: 'defender', label: 'Defender' },
-  { key: 'crowdstrike', label: 'Falcon' },
-  { key: 'sentinelone', label: 'SentinelOne' },
-];
+const ALERT_VENDORS: { key: ReportAlert['vendor']; label: string }[] = EDR_VENDORS.map((v) => ({ key: v.key, label: v.reportName }));
 
 /**
  * `edrVendors` is meta.edrVendors: the alert line names only configured vendors, and is omitted when there are none.
  * `alertsIncomplete` (alerts in meta.unavailable) prints counts as lower bounds and zeros as a dash.
  * `heading` prints inside the first row's unbreakable block, so it never ends a page without the chain.
  */
-export function KillChainFlow({ test, edrVendors = ['defender', 'crowdstrike'], alertsIncomplete = false, heading }: {
+export function KillChainFlow({ test, edrVendors = [...EDR_VENDOR_KEYS], alertsIncomplete = false, heading }: {
   test: ReportTest;
   edrVendors?: ReportAlert['vendor'][];
   alertsIncomplete?: boolean;

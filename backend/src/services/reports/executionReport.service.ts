@@ -24,7 +24,9 @@ import { getTestDirectory, getTestMetadata } from '../agent/test-catalog.service
 import { AppError } from '../../middleware/error.middleware.js';
 import { getRunStartTimes } from './taskTiming.js';
 import { readDefenseGuidance } from './guidanceExcerpt.js';
-import { correlateRuns, CROWDSTRIKE_ADAPTER, DEFENDER_ADAPTER, SENTINELONE_ADAPTER, type CorrelationRun, type VendorAdapter } from './alertCorrelation.js';
+import { correlateRuns, VENDOR_ADAPTERS, type CorrelationRun, type VendorAdapter } from './alertCorrelation.js';
+import { EDR_VENDOR_KEYS, edrVendor } from '../outcomes/vendors.js';
+import type { EdrVendorKey } from '../outcomes/vendors.js';
 import { computeTimeAxis, resolveReportWindow, validateTimeZone } from './reportWindow.js';
 import {
   LANES_CAP, OTHER_LANE, RUN_STRIP_MAX_RUNS, TESTS_CAP,
@@ -73,7 +75,7 @@ export interface ExecutionReportParams extends FilterParams {
 export interface ExecutionReportDeps {
   client: Client;
   es: Pick<ElasticsearchService, 'buildExtendedFilters' | 'getDefenseScore'>;
-  vendors: { defender: boolean; crowdstrike: boolean; sentinelone?: boolean };
+  vendors: Record<EdrVendorKey, boolean>;
   getTestMetadata: (uuid: string) => TestMetadata | null;
   readGuidance: (testKey: string) => string | null;
   getRunStartTimes: (taskIds: string[]) => Promise<Map<string, string>>;
@@ -93,11 +95,6 @@ interface Correlation {
   checked: Set<string>;
 }
 
-const VENDOR_LABEL: Record<ReportAlert['vendor'], string> = {
-  defender: 'Microsoft Defender',
-  crowdstrike: 'CrowdStrike Falcon',
-  sentinelone: 'SentinelOne Singularity',
-};
 
 const PARTIAL_WARNING = 'Some indices could not be read; totals may be incomplete';
 
@@ -553,11 +550,7 @@ export class ExecutionReportService {
 
   /** The EDR vendors configured for this report, in a fixed order. */
   private adapters(): VendorAdapter[] {
-    return [
-      ...(this.deps.vendors.defender ? [DEFENDER_ADAPTER] : []),
-      ...(this.deps.vendors.crowdstrike ? [CROWDSTRIKE_ADAPTER] : []),
-      ...(this.deps.vendors.sentinelone ? [SENTINELONE_ADAPTER] : []),
-    ];
+    return EDR_VENDOR_KEYS.filter((k) => this.deps.vendors[k]).map((k) => VENDOR_ADAPTERS[k]);
   }
 
   /**
@@ -590,7 +583,7 @@ export class ExecutionReportService {
 
     let checked = new Set(runs.map((r) => r.key));
     settled.forEach((outcome, i) => {
-      const label = VENDOR_LABEL[adapters[i].vendor];
+      const label = edrVendor(adapters[i].vendor).label;
       if (outcome.status === 'rejected') {
         checked = new Set();
         warnings.push(unavailableWarning(`${label} alerts`, outcome.reason));

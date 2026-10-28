@@ -2,6 +2,7 @@ import type { ExecutionReport, StageOutcome } from '@/services/api/reports';
 import { OUTCOME_LABEL } from '../lib/outcomes';
 import { GlyphIcon } from '../diagrams/StageGlyph';
 import { Sheet, type SheetHead } from './Sheet';
+import { EDR_VENDOR_KEYS, findEdrVendor } from '@/lib/edrVendors';
 
 const DEFINITIONS: [StageOutcome, string][] = [
   ['protected', 'The test exited 105, 126 or 127: the security stack blocked or quarantined it.'],
@@ -11,14 +12,8 @@ const DEFINITIONS: [StageOutcome, string][] = [
   ['inconclusive', 'The test could not reach a verdict (for example exit 200, 259, 260 or 999). Excluded from rates.'],
 ];
 
-const VENDOR_SOURCE: Record<ExecutionReport['meta']['edrVendors'][number], string> = {
-  defender: 'Microsoft Defender for Endpoint',
-  crowdstrike: 'CrowdStrike Falcon',
-  sentinelone: 'SentinelOne Singularity',
-};
-
 /** `edrVendors` is meta.edrVendors: the sources and alert-window text name only configured vendors, and are omitted when there are none. */
-export function Method({ head, edrVendors = ['defender', 'crowdstrike'] }: { head: SheetHead; edrVendors?: ExecutionReport['meta']['edrVendors'] }) {
+export function Method({ head, edrVendors = [...EDR_VENDOR_KEYS] }: { head: SheetHead; edrVendors?: ExecutionReport['meta']['edrVendors'] }) {
   const edr = edrVendors.length > 0;
   return (
     <Sheet label="Method" head={head}>
@@ -36,7 +31,7 @@ export function Method({ head, edrVendors = ['defender', 'crowdstrike'] }: { hea
         <p><b>Stage protection rate</b> is every other percentage in this report: protected, prevented or detected stage results divided by conclusive stage results. Skipped bundle stages (exit 0) are not results.</p>
         <p>
           <b>Sources.</b> Stage results come from the ProjectAchilles agent.
-          {edr && ` EDR alerts come from ${edrVendors.map((v) => VENDOR_SOURCE[v]).join(' and ')}, matched to a run by test binary, endpoint and a window from 5 minutes before to 30 minutes after the run completed.`}
+          {edr && ` EDR alerts come from ${edrVendors.map((v) => findEdrVendor(v)?.productName ?? v).join(' and ')}, matched to a run by test binary, endpoint and a window from 5 minutes before to 30 minutes after the run completed.`}
         </p>
         <p>
           <b>Limits.</b> Stages within a run are not timed individually; every stage carries the run's completion time.

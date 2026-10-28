@@ -12,7 +12,8 @@ export const AGENT_KILL_WATCHDOG_ERRORS = [
   'Task exceeded execution timeout',
 ] as const;
 
-export type EdrVendorKey = 'defender' | 'crowdstrike' | 'sentinelone';
+import type { EdrVendorKey } from '../outcomes/vendors.js';
+export type { EdrVendorKey };
 
 /** A watchdog-failed task, with its timestamps already parsed to epoch ms. */
 export interface KillCandidateTask {

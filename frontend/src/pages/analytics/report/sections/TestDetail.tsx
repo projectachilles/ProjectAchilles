@@ -7,6 +7,7 @@ import { OutcomeBar } from '../diagrams/OutcomeBar';
 import { GlyphIcon, GlyphRow, OutcomeLegend } from '../diagrams/StageGlyph';
 import { Sheet, type SheetHead } from './Sheet';
 import { AlertsIncompleteNote } from './scope';
+import { EDR_VENDOR_KEYS } from '@/lib/edrVendors';
 
 const MATRIX_MAX_HOSTS = 12;
 /** Up to this many stages each get a column; a longer control list becomes one glyph row per endpoint. */
@@ -31,7 +32,7 @@ function ControlTable({ test, edr, alertsIncomplete }: { test: ReportTest; edr: 
             <td className="rp-mono rp-id">{s.controlId ?? s.techniques.join(', ')}</td>
             <td style={{ width: '28%' }}><OutcomeBar counts={s.outcomes} legend={false} height={6} /></td>
             <td className="rp-num">{fmtPct(protectionRate(s.outcomes))}</td>
-            {edr && <td className="rp-num">{fmtAlertCount(s.alerts.defender + s.alerts.crowdstrike + (s.alerts.sentinelone ?? 0), alertsIncomplete)}</td>}
+            {edr && <td className="rp-num">{fmtAlertCount(EDR_VENDOR_KEYS.reduce((n, k) => n + (s.alerts[k] ?? 0), 0), alertsIncomplete)}</td>}
           </tr>
         ))}
       </tbody>

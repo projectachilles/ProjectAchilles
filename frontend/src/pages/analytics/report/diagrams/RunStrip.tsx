@@ -5,6 +5,7 @@ import { COUNTED_OUTCOMES, emptyCounts } from '../lib/outcomes';
 import { fmtLatency, plural, timeOf } from '../lib/format';
 import { stageForAlert, vendorName } from '../lib/runs';
 import { Glyph } from './StageGlyph';
+import { EDR_VENDOR_KEYS } from '@/lib/edrVendors';
 
 const W = 680;
 const X0 = 6;
@@ -68,7 +69,7 @@ function outcomeSegments(stages: ReportRunStage[]): Segment[] {
  * unchecked then, which would otherwise read as a gap). `test` is the run's test from report.tests,
  * which labels alerts on stages the run did not fetch and marks a standalone test.
  */
-export function RunStrip({ run, edrVendors = ['defender', 'crowdstrike'], test }: {
+export function RunStrip({ run, edrVendors = [...EDR_VENDOR_KEYS], test }: {
   run: ReportRun;
   edrVendors?: ReportAlert['vendor'][];
   test?: ReportTest;

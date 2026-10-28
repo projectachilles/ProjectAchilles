@@ -5,28 +5,30 @@ import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { DEFENDER_INDEX } from '../defender/index-management.js';
 import { CROWDSTRIKE_INDEX } from '../crowdstrike/index-management.js';
 import { SENTINELONE_INDEX } from '../sentinelone/index-management.js';
-import type { EdrVendorKey } from './agent-kill-evidence.js';
+import { EDR_VENDOR_KEYS } from '../outcomes/vendors.js';
+import type { EdrVendorKey } from '../outcomes/vendors.js';
+import { configuredVendorKeys } from './vendor-settings.js';
 
 export interface VendorIndex { vendor: EdrVendorKey; index: string }
 
-export const VENDOR_INDICES: ReadonlyArray<VendorIndex> = [
-  { vendor: 'defender', index: DEFENDER_INDEX },
-  { vendor: 'crowdstrike', index: CROWDSTRIKE_INDEX },
-  { vendor: 'sentinelone', index: SENTINELONE_INDEX },
-];
+const INDEX_BY_VENDOR: Record<EdrVendorKey, string> = {
+  defender: DEFENDER_INDEX,
+  crowdstrike: CROWDSTRIKE_INDEX,
+  sentinelone: SENTINELONE_INDEX,
+};
+
+export const VENDOR_INDICES: ReadonlyArray<VendorIndex> = EDR_VENDOR_KEYS.map((vendor) => ({
+  vendor,
+  index: INDEX_BY_VENDOR[vendor],
+}));
 
 /** Alert indices of the EDR integrations configured right now. */
 export function configuredVendorIndices(): VendorIndex[] {
-  const s = new IntegrationsSettingsService();
-  const on: Record<EdrVendorKey, boolean> = {
-    defender: s.isDefenderConfigured(),
-    crowdstrike: s.isCrowdStrikeConfigured(),
-    sentinelone: s.isSentinelOneConfigured(),
-  };
-  return VENDOR_INDICES.filter((v) => on[v.vendor]);
+  const on = new Set(configuredVendorKeys(new IntegrationsSettingsService()));
+  return VENDOR_INDICES.filter((v) => on.has(v.vendor));
 }
 
-/** True when any EDR integration (Defender, CrowdStrike, SentinelOne) is configured. */
+/** True when any EDR integration in the registry is configured. */
 export function isAnyEdrConfigured(): boolean {
   return configuredVendorIndices().length > 0;
 }

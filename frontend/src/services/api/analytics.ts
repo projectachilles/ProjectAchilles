@@ -1,4 +1,5 @@
 import { apiClient } from '@/hooks/useAuthenticatedApi';
+import type { EdrGroupRollup, EdrResultFlags } from '@/lib/edrVendors';
 
 export interface AnalyticsSettings {
   configured: boolean;
@@ -133,7 +134,17 @@ export interface OrganizationInfo {
 export type SeverityLevel = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export type CategoryType = 'intel-driven' | 'mitre-top10' | 'cyber-hygiene' | 'phase-aligned';
 
-export interface EnrichedTestExecution extends TestExecution {
+/**
+ * `EdrResultFlags` adds, per EDR registry vendor (lib/edrVendors.ts):
+ * `<key>_detected` (an alert matched this doc's bundle UUID + hostname + time
+ * window; BUNDLE-LEVEL, propagates across a bundle's stages),
+ * `<key>_stage_detected` (the alert names THIS stage's own binary; drives the
+ * per-stage "Detected" badge; may be undefined on old docs, the UI then falls
+ * back to the bundle flag), `<key>_prevented` (vendor-confirmed prevention,
+ * subset of detected; drives "Prevented") and `<key>_prevention_action`
+ * ('quarantined' | 'process_killed' | 'blocked').
+ */
+export interface EnrichedTestExecution extends TestExecution, EdrResultFlags {
   category?: CategoryType;
   subcategory?: string;
   severity?: SeverityLevel;
@@ -152,50 +163,6 @@ export interface EnrichedTestExecution extends TestExecution {
   /** What the stage does (from bundle_results.json); absent on older documents. */
   control_description?: string;
   is_bundle_control?: boolean;
-  // Populated by the Defender enrichment pass when an alert in
-  // achilles-defender correlates to this doc via bundle UUID + hostname +
-  // time window. Permanent (only flipped false→true). BUNDLE-LEVEL signal:
-  // propagates across every stage of a bundle whenever any one stage's
-  // binary appears in evidence. For per-stage truth use defender_stage_detected.
-  defender_detected?: boolean;
-  /**
-   * True when an alert's evidence contains THIS stage's specific binary
-   * (`<uuid>-<control_id>[-<variant>].exe`). Strictly per-stage. Drives
-   * the per-stage "Detected" badge. May be undefined on old docs that
-   * predate the stage-specific enrichment write — UI falls back to the
-   * bundle flag in that case.
-   */
-  defender_stage_detected?: boolean;
-  // Populated by the CrowdStrike enrichment pass when an alert in
-  // achilles-crowdstrike correlates to this doc via bundle UUID + hostname +
-  // time window. Same semantics as the defender_* flags above: the
-  // bundle-level flag propagates across stages; the stage flag is strictly
-  // per-stage.
-  crowdstrike_detected?: boolean;
-  crowdstrike_stage_detected?: boolean;
-  /**
-   * Set by the CrowdStrike enrichment pass when a correlated alert carried
-   * vendor-confirmed prevention evidence (pattern_disposition_details:
-   * quarantine / process killed / blocked). Subset of crowdstrike_detected —
-   * drives the stronger "Prevented" result label.
-   */
-  crowdstrike_prevented?: boolean;
-  /** Derived prevention action: 'quarantined' | 'process_killed' | 'blocked'. */
-  crowdstrike_prevention_action?: string;
-  /**
-   * Set by the Defender enrichment pass when a correlated alert carried
-   * vendor-confirmed prevention evidence (evidence remediationStatus:
-   * prevented / blocked / remediated). Subset of defender_detected — drives
-   * the same "Prevented" result label.
-   */
-  defender_prevented?: boolean;
-  /** Derived prevention action (normalized, same vocabulary as CrowdStrike). */
-  defender_prevention_action?: string;
-  /** SentinelOne equivalents of the crowdstrike_* flags (SentinelOne enrichment pass, same rules). */
-  sentinelone_detected?: boolean;
-  sentinelone_stage_detected?: boolean;
-  sentinelone_prevented?: boolean;
-  sentinelone_prevention_action?: string;
   /** The EDR killed the Achilles agent mid-run: protected as a whole, stages unknown. */
   edr_terminated?: boolean;
   /** Vendors that killed the agent, earliest first ('defender' | 'crowdstrike' | 'sentinelone'). */
@@ -371,7 +338,8 @@ export interface PaginatedExecutionsParams extends ExtendedFilterParams {
 }
 
 // Grouped execution result (one per collapsed display row)
-export interface ExecutionGroup {
+/** `EdrGroupRollup`: per registry vendor, `<key>Detected` / `<key>Prevented` when any member is. */
+export interface ExecutionGroup extends EdrGroupRollup {
   groupKey: string;
   type: 'bundle' | 'standalone';
   representative: EnrichedTestExecution;
@@ -379,12 +347,6 @@ export interface ExecutionGroup {
   protectedCount: number;
   unprotectedCount: number;
   totalCount: number;
-  defenderDetected?: boolean;
-  crowdstrikeDetected?: boolean;
-  crowdstrikePrevented?: boolean;
-  defenderPrevented?: boolean;
-  sentineloneDetected?: boolean;
-  sentinelonePrevented?: boolean;
 }
 
 // Response shape for grouped/collapsed pagination
