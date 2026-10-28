@@ -1,10 +1,14 @@
 import { Link } from 'react-router-dom';
-import { ShieldAlert, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface AttentionItem {
   id: string;
+  /** Shown in front of the label; omitted for yes/no problems (sync failed). */
+  count?: number;
+  /** Short chip text, e.g. "offline". */
   label: string;
+  /** Full sentence, used as the tooltip and the link's accessible name. */
+  title: string;
   to: string;
   severity: 'warning' | 'danger';
 }
@@ -14,38 +18,41 @@ interface AttentionBannerProps {
   loading?: boolean;
 }
 
+const rowLabel = 'mr-1 text-[11px] uppercase tracking-wider text-faint';
+
+/** Quiet count chips under the dashboard header; each opens the page that explains it. */
 export function AttentionBanner({ items, loading }: AttentionBannerProps) {
   if (loading) {
-    return <div className="h-12 animate-pulse rounded-lg border border-border bg-raised" aria-hidden="true" />;
-  }
-
-  if (items.length === 0) {
-    return (
-      <div className="flex items-center gap-2.5 rounded-lg border border-accent/30 bg-accent-dim p-3">
-        <ShieldCheck className="h-4 w-4 shrink-0 text-accent" />
-        <span className="text-sm text-accent">all clear — nothing needs attention</span>
-      </div>
-    );
+    return <div className="h-7 w-80 max-w-full animate-pulse rounded-md bg-raised" aria-hidden="true" />;
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-warning/40 bg-warning-dim p-3">
-      <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-warning">
-        <ShieldAlert className="h-4 w-4" />
-        needs attention
-      </span>
-      {items.map((item) => (
-        <Link
-          key={item.id}
-          to={item.to}
-          className={cn(
-            'text-sm underline-offset-4 hover:underline',
-            item.severity === 'danger' ? 'text-danger' : 'text-warning',
-          )}
-        >
-          {item.label} →
-        </Link>
-      ))}
+    <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
+      <span className={rowLabel}>attention</span>
+      {items.length === 0 ? (
+        <span className="flex items-center gap-1.5 text-muted">
+          <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
+          all clear
+        </span>
+      ) : (
+        items.map((item) => (
+          <Link
+            key={item.id}
+            to={item.to}
+            title={item.title}
+            aria-label={item.title}
+            className="flex items-center gap-1.5 rounded-[5px] border border-border bg-raised px-2 py-1 text-muted transition-colors hover:border-border-strong hover:text-foreground"
+          >
+            <span
+              data-severity={item.severity}
+              aria-hidden="true"
+              className={cn('h-1.5 w-1.5 rounded-full', item.severity === 'danger' ? 'bg-danger' : 'bg-warning')}
+            />
+            {item.count !== undefined && <span className="text-foreground">{item.count}</span>}
+            {item.label}
+          </Link>
+        ))
+      )}
     </div>
   );
 }

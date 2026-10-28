@@ -9,7 +9,7 @@ export interface AttentionInputs {
 }
 
 /**
- * Derive needs-attention banner items from data the dashboard already
+ * Derive needs-attention chips from data the dashboard already
  * fetched — no dedicated endpoint. Order matches the design handoff.
  */
 export function deriveAttentionItems(inputs: AttentionInputs): AttentionItem[] {
@@ -18,7 +18,9 @@ export function deriveAttentionItems(inputs: AttentionInputs): AttentionItem[] {
   if (inputs.offlineAgents > 0) {
     items.push({
       id: 'offline-agents',
-      label: `${inputs.offlineAgents} agent(s) offline`,
+      count: inputs.offlineAgents,
+      label: 'offline',
+      title: `${inputs.offlineAgents} agent(s) offline`,
       to: '/agents',
       severity: 'warning',
     });
@@ -27,7 +29,9 @@ export function deriveAttentionItems(inputs: AttentionInputs): AttentionItem[] {
   if (inputs.staleAgents > 0) {
     items.push({
       id: 'stale-agents',
-      label: `${inputs.staleAgents} stale agent(s) — no tasks in 7 days`,
+      count: inputs.staleAgents,
+      label: 'stale · 7d',
+      title: `${inputs.staleAgents} agent(s) with no tasks in 7 days`,
       to: '/agents?stale=true',
       severity: 'warning',
     });
@@ -36,7 +40,9 @@ export function deriveAttentionItems(inputs: AttentionInputs): AttentionItem[] {
   if (inputs.failedTasks24h > 0) {
     items.push({
       id: 'failed-tasks',
-      label: `${inputs.failedTasks24h} task(s) failed in the last 24h`,
+      count: inputs.failedTasks24h,
+      label: 'tasks failed · 24h',
+      title: `${inputs.failedTasks24h} task(s) failed in the last 24h`,
       to: '/tasks',
       severity: 'danger',
     });
@@ -45,7 +51,9 @@ export function deriveAttentionItems(inputs: AttentionInputs): AttentionItem[] {
   if (inputs.outdatedAgents > 0) {
     items.push({
       id: 'outdated-agents',
-      label: `${inputs.outdatedAgents} agent(s) running outdated versions`,
+      count: inputs.outdatedAgents,
+      label: 'outdated',
+      title: `${inputs.outdatedAgents} agent(s) running outdated versions`,
       to: '/agents',
       severity: 'warning',
     });
@@ -54,7 +62,8 @@ export function deriveAttentionItems(inputs: AttentionInputs): AttentionItem[] {
   if (inputs.syncFailed) {
     items.push({
       id: 'sync-failed',
-      label: 'test library sync failed',
+      label: 'library sync failed',
+      title: 'Test library sync failed',
       to: '/tests',
       severity: 'danger',
     });
