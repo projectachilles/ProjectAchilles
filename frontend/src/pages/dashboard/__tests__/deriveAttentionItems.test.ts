@@ -55,3 +55,22 @@ describe('deriveAttentionItems', () => {
     expect(items.find((i) => i.id === 'failed-tasks')?.to).toBe('/tasks');
   });
 });
+
+describe('deriveAttentionItems chip text', () => {
+  it('splits each count from its short chip label and keeps the full sentence as the title', () => {
+    const items = deriveAttentionItems({
+      offlineAgents: 11,
+      staleAgents: 9,
+      failedTasks24h: 2,
+      outdatedAgents: 9,
+      syncFailed: true,
+    });
+    expect(items.map(({ id, count, label, title }) => ({ id, count, label, title }))).toEqual([
+      { id: 'offline-agents', count: 11, label: 'offline', title: '11 agent(s) offline' },
+      { id: 'stale-agents', count: 9, label: 'stale · 7d', title: '9 agent(s) with no tasks in 7 days' },
+      { id: 'failed-tasks', count: 2, label: 'tasks failed · 24h', title: '2 task(s) failed in the last 24h' },
+      { id: 'outdated-agents', count: 9, label: 'outdated', title: '9 agent(s) running outdated versions' },
+      { id: 'sync-failed', count: undefined, label: 'library sync failed', title: 'Test library sync failed' },
+    ]);
+  });
+});
