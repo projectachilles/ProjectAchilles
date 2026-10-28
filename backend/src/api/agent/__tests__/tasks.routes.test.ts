@@ -54,6 +54,10 @@ vi.mock('../../../services/agent/ingestionWorker.service.js', () => ({
 }));
 
 
+vi.mock('../../../services/notices/userLabel.js', () => ({
+  resolveUserLabel: async (id: string) => (id === 'user_jane' ? 'Jane Doe (jane@example.com)' : id),
+}));
+
 const { agentTasksRouter, adminTasksRouter } = await import('../tasks.routes.js');
 const { errorHandler } = await import('../../../middleware/error.middleware.js');
 
@@ -469,4 +473,62 @@ describe('tasks routes', () => {
       expect(res.body.data.attempted).toBe(0);
     });
   });
+
+  describe('GET /admin/tasks/grouped requester', () => {
+    it('names who requested each task instead of returning the raw id', async () => {
+      testDb.prepare(
+        `INSERT INTO api_keys (id, name, token_hash, key_prefix, scope, created_by) VALUES ('k1', 'CI pipeline', 'h', 'ak_', 'read-write', 'u')`,
+      ).run();
+      insertTestTask(testDb, { id: 't-key', batch_id: 'b-key', created_by: 'apikey:k1' });
+      insertTestTask(testDb, { id: 't-none', batch_id: 'b-none', created_by: 'scheduler-legacy' });
+
+      const res = await request(createApp()).get('/admin/tasks/grouped');
+      expect(res.status).toBe(200);
+      const byId = Object.fromEntries(
+        res.body.data.groups.flatMap((g: { tasks: Array<{ id: string; created_by_label: string | null }> }) => g.tasks).map((t: { id: string; created_by_label: string | null }) => [t.id, t.created_by_label]),
+      );
+      expect(byId['t-key']).toBe('API key · CI pipeline');
+      // Not a Clerk user id and not an API key: shown as stored.
+      expect(byId['t-none']).toBe('scheduler-legacy');
+    });
+  });
+
+  describe('GET /admin/tasks/grouped requester privacy', () => {
+    function appAs(auth: Record<string, unknown>) {
+      const app = express();
+      app.use(express.json());
+      app.use((req, _res, next) => {
+        (req as any).auth = { userId: 'viewer', ...auth };
+        next();
+      });
+      app.use('/admin', adminTasksRouter);
+      app.use(errorHandler);
+      return app;
+    }
+    const labels = (res: request.Response) =>
+      Object.fromEntries(
+        res.body.data.groups
+          .flatMap((g: { tasks: Array<{ id: string; created_by_label: string | null }> }) => g.tasks)
+          .map((t: { id: string; created_by_label: string | null }) => [t.id, t.created_by_label]),
+      );
+
+    beforeEach(() => {
+      insertTestAgent(testDb, { id: 'agent-b', org_id: 'org-002' });
+      insertTestTask(testDb, { id: 't-own', batch_id: 'b-own', org_id: 'org-001', created_by: 'user_jane' });
+      insertTestTask(testDb, { id: 't-other', batch_id: 'b-other', agent_id: 'agent-b', org_id: 'org-002', created_by: 'user_jane' });
+    });
+
+    it('shows user admins the name and email, for their own org only', async () => {
+      const res = await request(appAs({ orgId: 'org-001' })).get('/admin/tasks/grouped');
+      expect(res.status).toBe(200);
+      expect(labels(res)['t-own']).toBe('Jane Doe (jane@example.com)');
+      expect(labels(res)['t-other']).toBeNull();
+    });
+
+    it('shows the name without the email to callers who cannot manage users', async () => {
+      const res = await request(appAs({ orgId: 'org-001', deny: ['settings:users:manage'] })).get('/admin/tasks/grouped');
+      expect(labels(res)['t-own']).toBe('Jane Doe');
+    });
+  });
 });
+

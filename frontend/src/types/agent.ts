@@ -126,6 +126,8 @@ export interface AgentTask {
   assigned_at: string | null;
   completed_at: string | null;
   batch_id: string;
+  /** Who requested it ("Name (email)", "API key · name"); backend/ grouped list only. */
+  created_by_label?: string | null;
   retry_count?: number;
   max_retries?: number;
   original_task_id?: string | null;
