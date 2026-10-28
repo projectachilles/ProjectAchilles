@@ -12,7 +12,8 @@ vi.mock('../database.js', async (importOriginal) => {
   return { ...actual, getDatabase: () => testDb };
 });
 
-vi.mock('../test-catalog.service.js', () => ({ getTestMetadata: () => null }));
+const { mockCatalog } = vi.hoisted(() => ({ mockCatalog: vi.fn((_uuid: string): unknown => null) }));
+vi.mock('../test-catalog.service.js', () => ({ getTestMetadata: (uuid: string) => mockCatalog(uuid) }));
 
 // Settings and builds live under a temp HOME. createTasks is real here.
 vi.mock('os', async () => {
@@ -83,7 +84,7 @@ const METADATA = {
 function insertSchedule(
   id: string,
   agentIds: string[],
-  opts: { nextRunAt: Date; config?: Record<string, unknown>; agentNextRuns?: Record<string, string> },
+  opts: { nextRunAt: Date; config?: Record<string, unknown>; agentNextRuns?: Record<string, string>; metadata?: object },
 ) {
   testDb
     .prepare(`
@@ -96,7 +97,7 @@ function insertSchedule(
       `Sched ${id}`,
       JSON.stringify(agentIds),
       `uuid-${id}`,
-      JSON.stringify(METADATA),
+      JSON.stringify(opts.metadata ?? METADATA),
       JSON.stringify(opts.config ?? { time: '12:00' }),
       opts.nextRunAt.toISOString(),
       opts.agentNextRuns ? JSON.stringify(opts.agentNextRuns) : null,
@@ -329,6 +330,7 @@ describe('processSchedules: late per_machine runs and a closed day notice (R23)'
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCatalog.mockImplementation(() => null);
     mockSendMail.mockResolvedValue({ accepted: ['a@x.com'], rejected: [] });
     mockTestEmailConnection.mockResolvedValue({ success: true, message: 'ok' });
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -336,6 +338,26 @@ describe('processSchedules: late per_machine runs and a closed day notice (R23)'
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('a schedule saved from the UI (empty metadata) gets the catalog techniques in its notice', async () => {
+    mockCatalog.mockImplementation((uuid) =>
+      uuid === 'uuid-ui'
+        ? { uuid, name: 'T', category: 'intel-driven', techniques: ['T1572', 'T1041'], tactics: ['command-and-control', 'exfiltration'], isMultiStage: false, stages: [] }
+        : null,
+    );
+    insertSchedule('ui', ['agent-1'], {
+      nextRunAt: NOW,
+      metadata: { ...METADATA, category: '' }, // what the Tasks dialog stores
+    });
+    vi.setSystemTime(NOW);
+    expect(processSchedules(NOW).errors).toEqual([]);
+    const payload = JSON.parse((testDb.prepare('SELECT payload FROM tasks').get() as { payload: string }).payload);
+    expect(payload.metadata).toMatchObject({ techniques: ['T1572', 'T1041'], tactics: ['command-and-control', 'exfiltration'] });
+
+    await tick(NOW);
+    expect(mockSendMail).toHaveBeenCalledTimes(1);
+    expect(mockSendMail.mock.calls[0][1].html).toContain('T1572, T1041, command-and-control, exfiltration');
   });
 
   it('late slot: a run due 5 min before the day deadline gets its own run notice and is served after it is sent', async () => {
