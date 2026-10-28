@@ -150,9 +150,9 @@
    ═══════════════════════════════════════════════════════════════ */
 
 /* Base styles */
-* {
-  border-color: var(--color-border);
-}
+/* The default border colour is set in @layer base below (border-border). Don't
+   set it here: unlayered CSS beats every layered Tailwind utility, so a bare
+   `* { border-color }` silently cancels border-accent, border-danger, etc. */
 
 /* Native checkboxes/radios in forms take the accent instead of the browser blue. */
 input[type="checkbox"],
