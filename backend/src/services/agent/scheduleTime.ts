@@ -115,6 +115,22 @@ export function randomWindowForDate(
   return { start, end };
 }
 
+/**
+ * A random whole minute inside the date's random window, strictly after
+ * `notBefore` when given (a one-off schedule created during its own day only
+ * uses what is left of the window). Null when no minute is left.
+ */
+export function randomInstantInWindow(dateStr: string, timezone: string, notBefore?: Date): Date | null {
+  const MIN = 60_000;
+  const { start, end } = randomWindowForDate(dateStr, timezone);
+  const from = notBefore
+    ? Math.max(start.getTime(), Math.ceil((notBefore.getTime() + 1) / MIN) * MIN)
+    : start.getTime();
+  const minutes = Math.floor((end.getTime() - from) / MIN);
+  if (minutes <= 0) return null;
+  return new Date(from + Math.floor(Math.random() * minutes) * MIN);
+}
+
 /** Add N days to a date string (YYYY-MM-DD). */
 export function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr + 'T00:00:00Z');

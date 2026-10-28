@@ -49,3 +49,42 @@ describe('ExecutionConfig Target Index', () => {
     expect(document.getElementById('exec-advanced-run-now')).toBeInTheDocument();
   });
 });
+
+describe('ExecutionConfig Once timing', () => {
+  function renderOnce(randomizeMode: 'fixed' | 'fleet' | 'per_machine', allowRandomizedOnce?: boolean) {
+    const onChange = vi.fn();
+    renderConfig({ config: { ...baseConfig, scheduleType: 'once', randomizeMode }, onChange, allowRandomizedOnce });
+    fireEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+    return onChange;
+  }
+
+  it('offers the Timing choice for Once when the backend supports it', () => {
+    renderOnce('fixed', true);
+    expect(screen.getByText('Timing')).toBeInTheDocument();
+    expect(screen.getByText('Time')).toBeInTheDocument();
+  });
+
+  it('hides it when the backend does not (Vercel)', () => {
+    renderOnce('fixed');
+    expect(screen.queryByText('Timing')).not.toBeInTheDocument();
+  });
+
+  it('a randomized Once asks for the date only and explains the window', () => {
+    renderOnce('per_machine', true);
+    expect(screen.getByText('Date')).toBeInTheDocument();
+    expect(screen.queryByText('Time')).not.toBeInTheDocument();
+    expect(screen.getByText(/Each machine runs at its own random time/)).toBeInTheDocument();
+  });
+
+  it('switching to Once keeps the timing choice only when it is supported', () => {
+    const allowed = renderOnce('per_machine', true);
+    fireEvent.click(screen.getByRole('button', { name: 'once' }));
+    expect(allowed).not.toHaveBeenCalledWith({ randomizeMode: 'fixed' });
+  });
+
+  it('switching to Once resets the timing to fixed when unsupported', () => {
+    const notAllowed = renderOnce('per_machine');
+    fireEvent.click(screen.getByRole('button', { name: 'once' }));
+    expect(notAllowed).toHaveBeenCalledWith({ randomizeMode: 'fixed' });
+  });
+});

@@ -25,7 +25,7 @@ function describeSchedule(schedule: Schedule): string {
   switch (schedule.schedule_type) {
     case 'once': {
       const c = config as ScheduleConfigOnce;
-      return `Once on ${c.date} at ${c.time} ${tz}`;
+      return resolveMode(c) === 'fixed' ? `Once on ${c.date} at ${c.time} ${tz}` : `Once on ${c.date}, ${timePhrase(c, tz)}`;
     }
     case 'daily': {
       const c = config as ScheduleConfigDaily;

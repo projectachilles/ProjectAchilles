@@ -44,7 +44,7 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
 
   // The batch route (one notice per multi-test run) exists only where pre-execution
   // notices do; Vercel/serverless has no /tasks/batch, so fall back to per-test POSTs.
-  const { preExecutionNotices } = useCapabilities();
+  const { preExecutionNotices, randomizedOnce } = useCapabilities();
 
   const [builds, setBuilds] = useState<Map<string, BuildInfo | null>>(new Map());
   const [buildsLoading, setBuildsLoading] = useState(false);
@@ -127,7 +127,7 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
     const mode = config.randomizeMode !== 'fixed' ? config.randomizeMode : undefined;
     switch (config.scheduleType) {
       case 'once':
-        return { date: config.scheduleDate, time: config.scheduleTime };
+        return { date: config.scheduleDate, time: config.scheduleTime, randomize_mode: mode };
       case 'daily':
         return { time: config.scheduleTime, randomize_mode: mode };
       case 'weekly':
@@ -151,8 +151,12 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
     if (config.randomizeMode === 'fixed' && !config.scheduleTime) return false;
     if (config.scheduleType === 'once' && !config.scheduleDate) return false;
     if (config.scheduleType === 'once' && config.scheduleDate) {
-      const target = new Date(`${config.scheduleDate}T${config.scheduleTime}`);
-      if (target <= new Date()) return false;
+      // Randomized: any date from today on (the server refuses a closed window).
+      if (config.randomizeMode !== 'fixed') {
+        if (config.scheduleDate < new Date().toLocaleDateString('en-CA')) return false;
+      } else if (new Date(`${config.scheduleDate}T${config.scheduleTime}`) <= new Date()) {
+        return false;
+      }
     }
     if (config.scheduleType === 'weekly' && config.scheduleDays.length === 0) return false;
     return true;
@@ -319,6 +323,7 @@ export default function ExecutionDrawer({ open, onClose, tests, onTasksCreated }
 
               {/* Execution Config */}
               <ExecutionConfig
+                allowRandomizedOnce={randomizedOnce}
                 config={config}
                 onChange={handleConfigChange}
                 availableIndices={availableIndices}

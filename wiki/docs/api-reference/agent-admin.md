@@ -139,15 +139,35 @@ GET /api/agent/admin/schedules
 POST /api/agent/admin/schedules
 ```
 
-**Body:**
+**Body** (a one-off run on 2026-10-29, each machine at its own random time):
 ```json
 {
-  "test_uuid": "test-uuid",
-  "frequency": "daily",
-  "time": "09:00",
   "agent_ids": ["agent-uuid"],
-  "platform": "windows",
-  "arch": "amd64",
-  "randomize": true
+  "org_id": "default",
+  "test_uuid": "test-uuid",
+  "test_name": "Test name",
+  "binary_name": "test-uuid.exe",
+  "metadata": {
+    "category": "", "subcategory": "", "severity": "", "techniques": [], "tactics": [],
+    "threat_actor": "", "target": [], "complexity": "", "tags": [], "score": null, "integrations": []
+  },
+  "schedule_type": "once",
+  "schedule_config": { "date": "2026-10-29", "time": "09:00", "randomize_mode": "per_machine" },
+  "timezone": "Europe/London"
 }
 ```
+
+`schedule_type` is `once`, `daily`, `weekly` or `monthly`. `schedule_config` takes:
+- `once`: `date` and `time`;
+- `daily`: `time`;
+- `weekly`: `days` (0 = Sunday … 6 = Saturday) and `time`;
+- `monthly`: `dayOfMonth` and `time`.
+
+Every type also takes an optional `randomize_mode`:
+- `fixed` (the default) runs at `time`.
+- `fleet` runs all agents together at one random time.
+- `per_machine` gives each agent its own random time.
+
+The random times fall within weekdays 09:00–17:00 or weekends at any time, in `timezone`. A randomized `once` uses only what's left of the window when `date` is today. It returns `400` if today's window has already closed.
+
+Leave the `metadata` fields empty to take them from the test library. `randomize_mode` on `once` is not supported by the Vercel (serverless) backend.

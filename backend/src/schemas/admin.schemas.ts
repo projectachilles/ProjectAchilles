@@ -108,7 +108,7 @@ const ScheduleTypeSchema = z.enum(['once', 'daily', 'weekly', 'monthly']);
 const RandomizeModeSchema = z.enum(['fixed', 'fleet', 'per_machine']);
 
 const ScheduleConfigSchema = z.union([
-  z.object({ date: z.string(), time: z.string() }).strict(),
+  z.object({ date: z.string(), time: z.string(), randomize_mode: RandomizeModeSchema.optional() }).strict(),
   z.object({ time: z.string(), randomize_time: z.boolean().optional(), randomize_mode: RandomizeModeSchema.optional() }).strict(),
   z.object({ days: z.array(z.number().int().min(0).max(6)), time: z.string(), randomize_time: z.boolean().optional(), randomize_mode: RandomizeModeSchema.optional() }).strict(),
   z.object({ dayOfMonth: z.number().int().min(1).max(31), time: z.string(), randomize_time: z.boolean().optional(), randomize_mode: RandomizeModeSchema.optional() }).strict(),

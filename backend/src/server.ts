@@ -321,6 +321,7 @@ async function startServer() {
       campaigns: true,
       sentinelone: true,
       alerting: true,
+      randomizedOnce: true,
       platform: 'docker',
     });
   });
