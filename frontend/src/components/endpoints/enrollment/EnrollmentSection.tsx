@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Copy, RefreshCw, Trash2, Key, Check } from 'lucide-react';
+import { Plus, RefreshCw, Trash2, Key } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/shared/ui/Card';
 import { Button } from '@/components/shared/ui/Button';
+import { CopyButton } from '@/components/shared/ui/CopyButton';
 import { Input } from '@/components/shared/ui/Input';
 import { Badge } from '@/components/shared/ui/Badge';
 import {
@@ -30,44 +31,6 @@ function getTokenStatus(token: EnrollmentToken): TokenStatus {
   return 'active';
 }
 
-function CopyButton({
-  text,
-  label = 'Copy',
-  accent = false,
-  className = '',
-}: { text: string; label?: string; accent?: boolean; className?: string }): React.ReactElement {
-  const [copied, setCopied] = useState(false);
-
-  function handleCopy(): void {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  const content = (
-    <>
-      {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-      {copied ? 'Copied' : label}
-    </>
-  );
-  if (accent) {
-    return (
-      <button
-        type="button"
-        onClick={handleCopy}
-        className={`inline-flex h-8 items-center gap-1.5 rounded-md border border-accent/25 bg-accent-dim px-3 text-xs font-medium text-accent transition-colors hover:bg-accent/15 ${className}`}
-      >
-        {content}
-      </button>
-    );
-  }
-  return (
-    <Button variant="ghost" size="sm" className={className} onClick={handleCopy}>
-      {content}
-    </Button>
-  );
-}
-
 function InstallCommands({ serverUrl, token }: { serverUrl: string; token: string }): React.ReactElement {
   const commands = buildInstallCommands(serverUrl, token);
   const [selected, setSelected] = useState<InstallCommand['id']>('windows');
@@ -93,7 +56,7 @@ function InstallCommands({ serverUrl, token }: { serverUrl: string; token: strin
       <div role="tabpanel" aria-label={current.label} className="rounded-md border border-border bg-background">
         <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
           <span className="text-xs text-muted">{current.hint}</span>
-          <CopyButton text={current.command} label="Copy command" accent />
+          <CopyButton text={current.command} label="Copy command" variant="accent" />
         </div>
         <pre className="whitespace-pre-wrap break-all p-3 font-mono text-xs leading-relaxed">{current.command}</pre>
       </div>
@@ -195,7 +158,7 @@ export default function EnrollmentSection({ orgId }: EnrollmentSectionProps): Re
             <div className="mt-4 p-4 bg-primary/5 border border-primary/20 rounded-lg">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-primary">Token Generated</span>
-                <CopyButton text={newToken} />
+                <CopyButton text={newToken} ariaLabel="Copy token" />
               </div>
               <code className="block break-all rounded-md border border-border bg-background p-3 font-mono text-xs">
                 {newToken}

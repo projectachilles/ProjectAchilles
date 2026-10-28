@@ -1,5 +1,6 @@
 import type { AgentMetrics } from '@/types/agent';
 import { cn } from '@/lib/utils';
+import { chipClass } from '@/components/shared/ui/pillStyles';
 
 interface GroupCount {
   tag: string;
@@ -75,20 +76,22 @@ export function FleetPulseRail({
         </div>
       </div>
 
-      {/* Needs attention */}
+      {/* Needs attention: same count chip as the dashboard; toggles the stale filter */}
       {staleCount != null && staleCount > 0 && (
-        <button
-          onClick={onStaleFilter}
-          className={cn(
-            'rounded-lg border p-3 text-left text-xs transition-colors',
-            staleActive
-              ? 'border-warning bg-warning-dim text-warning'
-              : 'border-warning/40 bg-warning-dim text-warning hover:border-warning',
-          )}
-        >
-          <div className="mb-1 text-[11px] uppercase tracking-wider">needs attention</div>
-          {staleCount} stale — no tasks in 7 days →
-        </button>
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <div className="mb-2.5 text-[11px] uppercase tracking-wider text-faint">attention</div>
+          <button
+            type="button"
+            onClick={onStaleFilter}
+            aria-pressed={staleActive}
+            title={`${staleCount} agent(s) with no tasks in 7 days — ${staleActive ? 'clear the filter' : 'show only these'}`}
+            className={chipClass(staleActive)}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-warning" aria-hidden="true" />
+            <span className={staleActive ? undefined : 'text-foreground'}>{staleCount}</span>
+            stale · 7d
+          </button>
+        </div>
       )}
 
       {/* Version distribution */}

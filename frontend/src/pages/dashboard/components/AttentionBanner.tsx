@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { chipClass } from '@/components/shared/ui/pillStyles';
 
 export interface AttentionItem {
   id: string;
@@ -42,7 +43,7 @@ export function AttentionBanner({ items, loading }: AttentionBannerProps) {
             to={item.to}
             title={item.title}
             aria-label={item.title}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-raised px-2.5 text-muted transition-colors hover:bg-overlay hover:text-foreground"
+            className={chipClass()}
           >
             <span
               data-severity={item.severity}
