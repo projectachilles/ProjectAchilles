@@ -81,7 +81,7 @@ func blockedHint(err error) string {
 	if runtime.GOOS == "windows" && errors.Is(err, os.ErrPermission) {
 		return " (Access denied — typically Microsoft Defender ASR rule 01443614-cd74-433a-b99e-2ecdc07bfc25 " +
 			"\"block executables unless they meet a prevalence, age, or trusted list criterion\", or an application-control " +
-			"policy; check Defender event 1121 and allowlist the agent binary path)"
+			"policy; check Defender event 1121 and add a per-rule exclusion for this rule only on the agent folder, C:\\F0)"
 	}
 	return ""
 }

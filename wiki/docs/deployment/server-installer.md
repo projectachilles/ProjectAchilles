@@ -145,8 +145,9 @@ Droplets and Hetzner Cloud servers (for providers that NAT it, see
 
 :::warning[Defender ASR]
 If attack surface reduction rule `01443614` runs in block mode, add a per-rule
-exclusion for exactly `C:\F0\achilles-agent.exe` before rollout. See
-[Self-updates](../user-guide/agent-management/self-updates).
+exclusion for `C:\F0`, for that rule only, before rollout. It lets the agent
+update and the tests start; the bootstrap script locks the folder to SYSTEM and
+Administrators. See [Endpoint Prerequisites](./endpoint-prerequisites).
 :::
 
 ## DNS and Clerk: pick your situation
@@ -792,9 +793,9 @@ some can stop a rollout until you make a deliberate exception:
 
 | Existing policy | Effect | What to decide |
 |-----------------|--------|----------------|
-| Defender ASR rule `01443614` in block mode | Blocks the agent binary | A per-rule exclusion for exactly `C:\F0\achilles-agent.exe` ([Before you start](#before-you-start)). Never the `C:\F0` folder: tests must stay subject to ASR. |
+| Defender ASR rule `01443614` in block mode | Blocks the agent's updates and every test | A per-rule exclusion for `C:\F0`, for this rule only ([Endpoint Prerequisites](./endpoint-prerequisites#3-defender-asr-per-rule-exclusion-for-cf0)). Never the global ASR exclusion list: the other rules must keep judging the tests. |
 | PowerShell execution policy set by GPO | The bootstrap script won't run (`-ExecutionPolicy Bypass` doesn't override it) | Sign the script, or run it through SCCM or an RMM tool ([Troubleshooting](#troubleshooting)). |
-| AppLocker or WDAC | Can block the agent | An allow rule for the agent. |
+| AppLocker or WDAC | Can block the agent and the tests | A publisher rule on the signing certificate ([Endpoint Prerequisites](./endpoint-prerequisites#5-application-control-wdac-and-applocker)). |
 | Network firewalls | No root download (TCP 80) or no connection (TCP 443) | Allow both from the endpoints to the server ([Before you start](#before-you-start)). |
 
 ### Enroll with the bootstrap script

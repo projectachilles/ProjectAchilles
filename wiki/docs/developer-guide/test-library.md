@@ -1,7 +1,7 @@
 ---
 sidebar_position: 8
 title: "Test Library Framework"
-description: "F0RT1KA Go test framework — Endpoint, Network, Cloud, Dropper, and cert_installer packages."
+description: "F0RT1KA Go test framework — Endpoint, Network, Cloud, and Dropper packages."
 ---
 
 # Test Library Framework
@@ -16,7 +16,6 @@ The F0RT1KA test library provides a set of Go packages for building security tes
 | **Network** | `f0_library/Network` | HTTP client, TCP/UDP, port scanning |
 | **Cloud** | `f0_library/Cloud` | AWS service clients and region detection |
 | **Dropper** | `f0_library/Dropper` | Cross-platform embedded binary deployment |
-| **cert_installer** | `f0_library/cert_installer` | Windows certificate installation |
 
 ## Endpoint Package
 
@@ -178,30 +177,21 @@ type DropperPayload struct {
 
 This enables tests to write files with the privileges of the dropper process rather than the test process.
 
-## cert_installer Package
+## cert_installer Package (removed)
 
-The `cert_installer` package handles automatic installation of the F0RT1KA code signing certificate on Windows endpoints.
-
-```go
-// Install certificate if not already present
-err := cert_installer.EnsureCertificateInstalled()
-
-// Get certificate info string
-info := cert_installer.GetCertificateInfo()
-```
-
-The package embeds the F0RT1KA certificate and uses PowerShell to install it in the `LocalMachine\Root` certificate store. This is required for signed test binaries to execute without SmartScreen warnings.
-
-:::warning[Windows Only]
-Certificate installation is a Windows-specific operation. On Linux and macOS, `EnsureCertificateInstalled()` is a no-op.
-:::
+**Removed.** The `cert_installer` package installed the F0RT1KA certificate into
+`LocalMachine\Root` on every endpoint where a test using it ran. That certificate is
+a root CA with no usage restrictions, so Windows trusted it for any purpose, and
+ProjectAchilles never needed it: binaries are signed with the tenant's own
+certificate at build time. Tests must not install certificates or change trust
+stores. To find and remove the root on endpoints, see
+[Endpoint Prerequisites](../deployment/endpoint-prerequisites#f0rtika-root-cleanup).
 
 ## Architecture Flow
 
 ```mermaid
 graph TD
-    A[Security Test main.go] --> B[cert_installer.EnsureCertificateInstalled]
-    B --> C[Endpoint.Start test, cleanup]
+    A[Security Test main.go] --> C[Endpoint.Start test, cleanup]
     C --> D[Test Function]
     D --> E{File Operations?}
     E -->|Yes| F[Endpoint.Write]
@@ -228,7 +218,6 @@ import (
     "f0_library/Endpoint"
     "f0_library/Network"
     "f0_library/Dropper"
-    "f0_library/cert_installer"
 )
 
 func test() {
@@ -261,19 +250,18 @@ func cleanup() {
 }
 
 func main() {
-    _ = cert_installer.EnsureCertificateInstalled()
     Endpoint.Start(test, cleanup)
 }
 ```
 
 ## Platform Support
 
-| Platform | Endpoint | Network | Cloud | Dropper | cert_installer |
-|----------|----------|---------|-------|---------|----------------|
-| Windows amd64 | Yes | Yes | Yes | Yes | Yes |
-| Linux amd64 | Yes | Yes | Yes | Yes | No-op |
-| Linux arm64 | Yes | Yes | Yes | Yes | No-op |
-| macOS amd64 | Yes | Yes | Yes | Yes | No-op |
-| macOS arm64 | Yes | Yes | Yes | Yes | No-op |
+| Platform | Endpoint | Network | Cloud | Dropper |
+|----------|----------|---------|-------|---------|
+| Windows amd64 | Yes | Yes | Yes | Yes |
+| Linux amd64 | Yes | Yes | Yes | Yes |
+| Linux arm64 | Yes | Yes | Yes | Yes |
+| macOS amd64 | Yes | Yes | Yes | Yes |
+| macOS arm64 | Yes | Yes | Yes | Yes |
 
 Platform-specific behavior (admin detection, file paths, dropper binaries) is handled via Go build constraints (`//go:build`), so tests compile and run identically across platforms.

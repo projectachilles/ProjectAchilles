@@ -62,7 +62,7 @@ drawers and execution detail panels.
 - `200` — upload confirmation, not a test outcome
 - `260` — a policy block before execution, including the ASR rule the platform
   excludes by design (see
-  [Defender ASR exclusion](../integrations/microsoft-defender)); counting it
+  [Defender ASR exclusion](../../deployment/endpoint-prerequisites#3-defender-asr-per-rule-exclusion-for-cf0)); counting it
   would conflate our own configuration with detection
 
 **Time-window semantics:** an alert correlates with a test when its

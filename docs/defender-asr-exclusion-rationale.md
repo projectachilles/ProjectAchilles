@@ -18,6 +18,8 @@ Microsoft states this rule's criteria **cannot** be manually tuned, and that the
 
 - **Setting used:** *ASR Only Per Rule Exclusions*, under the rule `01443614-cd74-433a-b99e-2ecdc07bfc25` **only** — not the global exclusion list.
 - **Path excluded:** `C:\F0` — the platform's working directory, which contains the agent (`C:\F0\achilles-agent.exe`) and the test-execution binaries (`C:\F0\tasks\…` and the multi-stage test binaries under `C:\F0`).
+- **Folder lock:** only SYSTEM and Administrators can write to `C:\F0` (the agent enforces this at every startup from version 0.7.1, and the bootstrap installer at install). A standard user therefore cannot place a file there to take advantage of the exclusion.
+- **Trade-off:** on these endpoints the platform does not measure rule `01443614` itself; it measures the protections behind it.
 
 ## What is NOT affected — the other ASR rules remain in Block and fully enforced
 

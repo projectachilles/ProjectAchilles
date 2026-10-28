@@ -87,7 +87,7 @@ A SentinelOne policy can terminate `achilles-agent.exe` (or the test binary's pa
 
 These alerts stay open in SentinelOne: Achilles links them to the run but never auto-resolves them or touches them with automatic mitigation. Triage them like any other alert.
 
-Do not add an agent exclusion in SentinelOne to stop this. The agent launches the test binaries, so a child-process exclusion would exempt the tests too and the run would no longer measure your protection. This is the same reasoning as the Defender ASR advice to exclude only `C:\F0\achilles-agent.exe` per rule, never the `C:\F0` folder.
+Do not add an agent exclusion in SentinelOne to stop this. The agent launches the test binaries, so a child-process exclusion would exempt the tests too and the run would no longer measure your protection. See [Endpoint Prerequisites](../../deployment/endpoint-prerequisites#6-edr-expectations).
 
 ## API
 
