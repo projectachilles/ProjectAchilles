@@ -131,7 +131,7 @@ const falconAlert = (overrides: Record<string, unknown> = {}) => ({
   severity: 70,
   severity_name: 'High',
   status: 'new',
-  device: { hostname: 'LT-TPL-L50' },
+  device: { hostname: 'LT-ACME-L50' },
   filename: '92B0B4F6-A09B-4C7B-B593-31CE461F804C.EXE',
   filepath: 'C:\\F0\\Tasks\\92B0B4F6-A09B-4C7B-B593-31CE461F804C.EXE',
   technique: 'Command and Scripting Interpreter',
@@ -203,7 +203,7 @@ describe('CrowdStrikeSyncService', () => {
       expect(doc.created_at).toBe('2026-10-01T12:00:00Z');
       expect(doc.updated_at).toBe('2026-10-01T12:05:00Z');
       expect(doc.resolved_at).toBeNull(); // status != closed
-      expect(doc.evidence_hostnames).toEqual(['LT-TPL-L50']);
+      expect(doc.evidence_hostnames).toEqual(['LT-ACME-L50']);
       expect(doc.evidence_filenames).toEqual(['92b0b4f6-a09b-4c7b-b593-31ce461f804c.exe']); // lowercased
       expect(doc.evidence_filepaths).toEqual(['c:\\f0\\tasks\\92b0b4f6-a09b-4c7b-b593-31ce461f804c.exe']);
     });

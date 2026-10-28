@@ -599,7 +599,7 @@ describe('schedules.service', () => {
     });
 
     // ────────────────────────────────────────────────────────────────────
-    // Regression for May-2026 outage on tpsgl.projectachilles.io.
+    // Regression for a May-2026 outage on a customer tenant.
     // When next_run_at is stored in ISO 8601 ('YYYY-MM-DDTHH:MM:SS.sssZ',
     // i.e. what `Date.toISOString()` writes — and what processSchedules
     // itself persists), the old SQL `next_run_at <= datetime('now')`

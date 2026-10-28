@@ -80,9 +80,9 @@ Follow the prompts. When the script prints the DNS box, add the two A records at
 | 8 | caddy_tls | Wait for ACME to issue both certs | ✓ |
 | 9 | verify | Curl SPA + env-config + /api/health + ES cluster + ES write probe | ✓ |
 
-## Bancocaribe-bug avoidance
+## Known-bug avoidance
 
-Each issue from the bancocaribe deploy (May 2026) is structurally prevented:
+Each issue from an earlier customer deploy (May 2026) is structurally prevented:
 
 | Issue | Prevention |
 |---|---|

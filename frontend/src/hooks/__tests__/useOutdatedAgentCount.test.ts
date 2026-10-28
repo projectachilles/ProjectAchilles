@@ -7,7 +7,7 @@ vi.mock('../usePolling', () => ({ usePolling: () => {} }));
 
 import { useOutdatedAgentCount } from '../useOutdatedAgentCount';
 
-// 70 agents: the first 50 are current, the last 20 run 0.7.0 (a fleet like sb.gob.do).
+// 70 agents: the first 50 are current, the last 20 run 0.7.0 (a typical customer fleet).
 const fleet = Array.from({ length: 70 }, (_, i) => ({
   id: `a${i}`, os: 'windows', arch: 'amd64', agent_version: i < 50 ? '0.7.1' : '0.7.0',
 }));

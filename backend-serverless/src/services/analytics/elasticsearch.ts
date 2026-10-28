@@ -54,6 +54,7 @@ import type {
   ExecutionGroup,
   GroupedPaginatedResponse,
 } from '../../types/analytics.js';
+import { orgName, orgShortName } from './orgNames.js';
 
 // Canonical error code → name mapping
 // Categories: protected, failed, inconclusive, contextual, error
@@ -245,12 +246,6 @@ function isPostureTime(v: string | undefined): boolean {
   return /^now(?:-\d+[dhwmM])?$/.test(v) || !Number.isNaN(Date.parse(v));
 }
 
-// Organization UUID → short-name mapping
-export const ORG_NAMES: Record<string, string> = {
-  '09b59276-9efb-4d3d-bbdd-4b4663ef0c42': 'SB',
-  'b2f8dccb-6d23-492e-aa87-a0a8a6103189': 'TPSGL',
-  '9634119d-fa6b-42b8-9b9b-90ad8f22e482': 'RGA',
-};
 
 /**
  * Run identity: one key per test run. The fourth segment is the EXACT
@@ -1764,7 +1759,7 @@ export class ElasticsearchService {
         test_name: getField(source, 'f0rtika.test_name') || 'Unknown Test',
         hostname: getField(source, 'routing.hostname') || 'Unknown',
         is_protected: getField(source, 'f0rtika.is_protected') || false,
-        org: ORG_NAMES[orgUuid] || (orgUuid ? orgUuid.substring(0, 8) : ''),
+        org: orgShortName(orgUuid) || (orgUuid ? orgUuid.substring(0, 8) : ''),
         timestamp: getField(source, 'routing.event_time') || '',
         error_code: getField(source, 'event.ERROR'),
         error_name: resolveErrorName(getField(source, 'event.ERROR'), getField(source, 'f0rtika.error_name')),
@@ -1786,25 +1781,9 @@ export class ElasticsearchService {
 
     const buckets = (response.aggregations?.orgs as any)?.buckets || [];
 
-    // Known organization mapping
-    const knownOrgs: Record<string, { shortName: string; fullName: string }> = {
-      '09b59276-9efb-4d3d-bbdd-4b4663ef0c42': {
-        shortName: 'SB',
-        fullName: 'Superintendency of Banks',
-      },
-      'b2f8dccb-6d23-492e-aa87-a0a8a6103189': {
-        shortName: 'TPSGL',
-        fullName: 'Transact Pay',
-      },
-      '9634119d-fa6b-42b8-9b9b-90ad8f22e482': {
-        shortName: 'RGA',
-        fullName: 'RG Associates',
-      },
-    };
-
     return buckets.map((bucket: any) => {
       const uuid = bucket.key;
-      const known = knownOrgs[uuid];
+      const known = orgName(uuid);
 
       return {
         uuid,
@@ -2155,7 +2134,7 @@ export class ElasticsearchService {
 
         return {
           org: bucket.key,
-          orgName: ORG_NAMES[bucket.key] || bucket.key.substring(0, 8),
+          orgName: orgShortName(bucket.key) || bucket.key.substring(0, 8),
           score: Math.round(score * 100) / 100,
           count: total,
           protected: protectedCount,
@@ -2561,7 +2540,7 @@ export class ElasticsearchService {
       test_name: getField(source, 'f0rtika.test_name') || 'Unknown Test',
       hostname: getField(source, 'routing.hostname') || 'Unknown',
       is_protected: getField(source, 'f0rtika.is_protected') || false,
-      org: ORG_NAMES[orgUuid] || (orgUuid ? orgUuid.substring(0, 8) : ''),
+      org: orgShortName(orgUuid) || (orgUuid ? orgUuid.substring(0, 8) : ''),
       timestamp: getField(source, 'routing.event_time') || '',
       error_code: getField(source, 'event.ERROR'),
       error_name: resolveErrorName(getField(source, 'event.ERROR'), getField(source, 'f0rtika.error_name')),

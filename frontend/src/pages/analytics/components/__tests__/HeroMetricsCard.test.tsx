@@ -12,7 +12,7 @@ function ledgerRow(label: string): HTMLElement {
 describe('HeroMetricsCard (Defense ledger)', () => {
   describe('"Actual" row (pre-risk-acceptance score)', () => {
     it('REGRESSION: shows rawScore (without RA exclusion), not realScore (EDR-only with RA)', () => {
-      // Reproduces the tpsgl bug shape: defenseScore == realScore (no Defender boost)
+      // Reproduces a bug shape seen on a customer tenant: defenseScore == realScore (no Defender boost)
       // but rawScore is meaningfully different because risk acceptance excluded
       // unprotected docs. The Actual row must reflect rawScore, the un-filtered score.
       render(

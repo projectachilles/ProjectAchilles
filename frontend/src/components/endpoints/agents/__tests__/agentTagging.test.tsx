@@ -85,14 +85,14 @@ describe('TagPicker (label menu)', () => {
 describe('TagChips', () => {
   it('removes a tag with its × button', async () => {
     const onChange = vi.fn();
-    render(<TagChips tags={['cs-falcon', 'finance']} allTags={allTags} agentName="SB11199" onChange={onChange} />);
-    await userEvent.click(screen.getByRole('button', { name: 'Remove tag finance from SB11199' }));
+    render(<TagChips tags={['cs-falcon', 'finance']} allTags={allTags} agentName="WS11199" onChange={onChange} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Remove tag finance from WS11199' }));
     expect(onChange).toHaveBeenCalledWith({ remove: ['finance'] });
-    expect(screen.getByRole('button', { name: 'Add tag to SB11199' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Add tag to WS11199' })).toBeTruthy();
   });
 
   it('is read-only without edit rights', () => {
-    render(<TagChips tags={['cs-falcon']} allTags={allTags} agentName="SB11199" />);
+    render(<TagChips tags={['cs-falcon']} allTags={allTags} agentName="WS11199" />);
     expect(screen.getByText('cs-falcon')).toBeTruthy();
     expect(screen.queryAllByRole('button')).toHaveLength(0);
   });

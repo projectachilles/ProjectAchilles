@@ -28,9 +28,12 @@ TEST_UUID_NAMESPACE = uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 # =============================================================================
 
 ORGANIZATIONS = [
-    {"uuid": "09b59276-9efb-4d3d-bbdd-4b4663ef0c42", "name": "SB"},
-    {"uuid": "b2f8dccb-6d23-492e-aa87-a0a8a6103189", "name": "TPSGL"},
-    {"uuid": "9634119d-fa6b-42b8-9b9b-90ad8f22e482", "name": "RGA"},
+    # Fictional orgs. To label them in Analytics, set the backend's ORG_NAMES to
+    # {"aaaaaaaa-1111-4111-8111-111111111111":"ACME", "bbbbbbbb-2222-4222-8222-222222222222":"GLOBEX",
+    #  "cccccccc-3333-4333-8333-333333333333":"INITECH"}
+    {"uuid": "aaaaaaaa-1111-4111-8111-111111111111", "name": "ACME"},
+    {"uuid": "bbbbbbbb-2222-4222-8222-222222222222", "name": "GLOBEX"},
+    {"uuid": "cccccccc-3333-4333-8333-333333333333", "name": "INITECH"},
 ]
 
 HOSTNAMES = [
@@ -451,7 +454,7 @@ def determine_protection_status(test, org_index):
     }
 
     # Org modifiers (some orgs have better security)
-    org_modifiers = [0.05, 0.0, -0.05]  # SB better, TPSGL baseline, RGA worse
+    org_modifiers = [0.05, 0.0, -0.05]  # ACME better, GLOBEX baseline, INITECH worse
 
     base_rate = severity_rates.get(test["severity"], 0.70)
     modified_rate = base_rate + org_modifiers[org_index]

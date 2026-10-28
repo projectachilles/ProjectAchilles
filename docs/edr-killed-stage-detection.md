@@ -22,9 +22,9 @@ Consequence: the **strongest possible protection outcome** — the EDR killed th
 it could do anything — renders in Analytics as an "error" stage with no detection credit, while a
 stage that merely *ran and was alerted on* does get credit. The scoring model punishes prevention.
 
-### Production evidence (2026-10-12, SB tenant)
+### Production evidence (2026-10-12, customer tenant)
 
-Three hosts (SB11199, SB11328, SBL8801) ran the LockBit kill-chain bundle. CrowdStrike Falcon killed
+Three hosts (WS11199, WS11328, LT8801) ran the LockBit kill-chain bundle. CrowdStrike Falcon killed
 `298cc137-…-t1486.exe` at launch (exit `0xE0000027`) and raised a `ProcRansomware` alert ~60s later
 carrying the exact stage binary in its evidence. The stage docs were error-category; enrichment never
 scanned them; the runs showed 4/5 stages with no CrowdStrike detection badge on the killed stage.

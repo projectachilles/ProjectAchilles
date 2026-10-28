@@ -532,7 +532,7 @@ export function processSchedules(clock?: Date): { processed: number; errors: str
   // HH:MM:SS'`) returned by `datetime('now')`. Raw `<=` does a char-by-char
   // string compare, and 'T' (0x54) > ' ' (0x20), so any next_run_at written in
   // ISO form would NEVER match this WHERE — even when many hours overdue. This
-  // silently broke all weekly/monthly schedules on tpsgl.projectachilles.io
+  // silently broke all weekly/monthly schedules on a customer tenant
   // (last fire 2026-05-01; verified directly against the production DB).
   // Wrap both sides in `datetime()` to normalise to space-form before compare.
   const dueRows = db.prepare(`

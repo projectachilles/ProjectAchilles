@@ -30,7 +30,7 @@ describe('classifyFailure', () => {
   });
 
   it('classifies the canonical Windows EDR-block as edr_blocked', () => {
-    // Real string from tpsgl production task 60b6b1f8 (May 2026).
+    // Real string from a production task (May 2026).
     const stderr = 'start binary: fork/exec C:\\F0\\tasks\\task-60b6b1f8-db4e-4300-9252-fa7258d4305f-2868866111\\078f1409-9f7b-4492-bb35-3fd596e85ce0.exe: Access is denied.';
     expect(classifyFailure(buildTask({ result: { stderr } }))).toBe('edr_blocked');
   });

@@ -6,14 +6,14 @@
 
 ## Part 1 — Host-scope the technique-only fallback in `alerts-for-test`
 
-### Problem (observed in production, 2026-10-12, SB tenant)
+### Problem (observed in production, 2026-10-12, customer tenant)
 
 `getAlertsForTest()` in both vendors' analytics services uses a three-tier fallback:
 evidence (hostname + binary + window) → technique + hostname → **technique-only with no
 hostname constraint** (`analytics.service.ts` — "Fallback 2"). During a fleet-wide
 simultaneous bundle run, hosts where the EDR did *not* alert inherited sibling hosts'
-alerts: SB11284's T1486 stage displayed three `ProcRansomware` alerts belonging to
-SBL8801 / SB11199 / SB11328 (same technique, same ±30-min window).
+alerts: WS11284's T1486 stage displayed three `ProcRansomware` alerts belonging to
+LT8801 / WS11199 / WS11328 (same technique, same ±30-min window).
 
 Impact is **display-only**: enrichment flags (which drive Defense Score and Detected
 badges) are hostname+evidence-constrained and were not affected.

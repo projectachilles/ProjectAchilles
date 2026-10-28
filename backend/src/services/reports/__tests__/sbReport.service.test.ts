@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { AnalyticsSettings } from '../../../types/analytics.js';
 
 // ─── Mock setup ───────────────────────────────────────────────────
@@ -14,7 +14,9 @@ const { SbReportService, parseSbReportWindow, SB_BUNDLE_ID, SB_BUNDLE_NAME, SB_S
   await import('../sbReport.service.js');
 
 // ─── Helpers ──────────────────────────────────────────────────────
-const SB_ORG_UUID = '09b59276-9efb-4d3d-bbdd-4b4663ef0c42';
+// Org display names come from ORG_NAMES per deployment (services/analytics/orgNames.ts).
+const ORG_UUID = 'aaaaaaaa-1111-4111-8111-111111111111';
+const TEST_ORG_NAMES = JSON.stringify({ [ORG_UUID]: 'ACME' });
 const BUNDLE_UUID = '298cc137-ea39-4cf0-9b2d-b1c59a3cbacb';
 const TASK_ID = '4c28f408-1676-40ff-a2e6-60ea5bdd6076';
 const EVENT_TIME = '2026-10-02T02:35:33.000Z';
@@ -53,7 +55,7 @@ function makeBundleHit(control: FixtureControl) {
   const hostname = control.hostname ?? 'WIN-LAB-01';
   const source: Record<string, unknown> = {
     'routing.event_time': control.event_time ?? EVENT_TIME,
-    'routing.oid': SB_ORG_UUID,
+    'routing.oid': ORG_UUID,
     'routing.hostname': hostname,
     'event.ERROR': control.exit_code,
     'f0rtika.test_uuid': `${control.bundle_id ?? BUNDLE_UUID}::${control.control_id}`,
@@ -127,7 +129,11 @@ function createService() {
 // ─── Tests ────────────────────────────────────────────────────────
 describe('sbReport.service.ts', () => {
   beforeEach(() => {
+    vi.stubEnv('ORG_NAMES', TEST_ORG_NAMES);
     mockSearch.mockReset();
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   describe('parseSbReportWindow', () => {
@@ -163,7 +169,7 @@ describe('sbReport.service.ts', () => {
     it('maps the real lab fixture to MISSED/PREVENTED/MISSED/EXPOSED/EXPOSED', async () => {
       mockSearch.mockResolvedValue(esSearchResponse(makeLabFixtureHits()));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions).toHaveLength(5);
       const byStage = new Map(report.executions.map((r) => [r.stage, r]));
@@ -200,12 +206,12 @@ describe('sbReport.service.ts', () => {
       expect(byStage.get(2)?.detectedBy).toEqual([]);
     });
 
-    it('builds meta with org short name from ORG_NAMES, default vendor, and generatedAt', async () => {
+    it('builds meta with the org short name from ORG_NAMES, default vendor, and generatedAt', async () => {
       mockSearch.mockResolvedValue(esSearchResponse(makeLabFixtureHits()));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
-      expect(report.meta.organization).toBe('SB');
+      expect(report.meta.organization).toBe('ACME');
       expect(report.meta.vendor).toBe('ProjectAchilles');
       expect(report.meta.window).toEqual(WINDOW);
       expect(new Date(report.meta.generatedAt).toString()).not.toBe('Invalid Date');
@@ -215,7 +221,7 @@ describe('sbReport.service.ts', () => {
       mockSearch.mockResolvedValue(esSearchResponse(makeLabFixtureHits()));
 
       const report = await createService().generateSbReport({
-        ...WINDOW, org: SB_ORG_UUID, orgCode: 'ENT-001', vendor: 'F0RT1KA / ProjectAchilles',
+        ...WINDOW, org: ORG_UUID, orgCode: 'ENT-001', vendor: 'F0RT1KA / ProjectAchilles',
       });
 
       expect(report.meta.organization).toBe('ENT-001');
@@ -228,7 +234,7 @@ describe('sbReport.service.ts', () => {
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions[0].outcome).toBe('DETECTED');
       expect(report.executions[0].isProtected).toBe(true);
@@ -241,7 +247,7 @@ describe('sbReport.service.ts', () => {
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions[0].outcome).toBe('DETECTED');
     });
@@ -252,7 +258,7 @@ describe('sbReport.service.ts', () => {
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions[0].outcome).toBe('PREVENTED');
       expect(report.executions[0].preventedBy).toEqual(['Microsoft Defender for Endpoint']);
@@ -267,7 +273,7 @@ describe('sbReport.service.ts', () => {
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions[0].outcome).toBe('PREVENTED');
       expect(report.executions[0].isProtected).toBe(true);
@@ -280,7 +286,7 @@ describe('sbReport.service.ts', () => {
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions[0].outcome).toBe('PREVENTED');
       expect(report.executions[0].preventedBy).toEqual(['SentinelOne Singularity']);
@@ -292,7 +298,7 @@ describe('sbReport.service.ts', () => {
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions[0].outcome).toBe('DETECTED');
       expect(report.executions[0].detectedBy).toEqual(['SentinelOne Singularity']);
@@ -307,7 +313,7 @@ describe('sbReport.service.ts', () => {
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions[0].outcome).toBe('DETECTED');
       expect(report.executions[0].preventedBy).toEqual([]);
@@ -323,7 +329,7 @@ describe('sbReport.service.ts', () => {
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions[0].outcome).toBe('PREVENTED');
       expect(report.executions[0].preventedBy).toEqual(['Microsoft Defender for Endpoint', 'CrowdStrike Falcon']);
@@ -337,7 +343,7 @@ describe('sbReport.service.ts', () => {
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions[0].outcome).toBe('PREVENTED');
       expect(report.executions[0].preventedBy).toEqual(['CrowdStrike Falcon']);
@@ -351,7 +357,7 @@ describe('sbReport.service.ts', () => {
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions[0].outcome).toBe('PREVENTED');
       expect(report.executions[0].isProtected).toBe(true);
@@ -367,7 +373,7 @@ describe('sbReport.service.ts', () => {
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions[0].outcome).toBe('PREVENTED');
       expect(report.executions[0].preventedBy).toEqual(['Microsoft Defender for Endpoint', 'CrowdStrike Falcon']);
@@ -381,7 +387,7 @@ describe('sbReport.service.ts', () => {
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions[0].outcome).toBe('DETECTED');
       expect(report.executions[0].preventedBy).toEqual([]);
@@ -394,7 +400,7 @@ describe('sbReport.service.ts', () => {
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions[0].outcome).toBe('ERROR');
       expect(report.executions[0].isProtected).toBe(false);
@@ -408,7 +414,7 @@ describe('sbReport.service.ts', () => {
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions.map((r) => r.outcome)).toEqual(['ERROR', 'ERROR']);
       expect(report.executions[0].evidenceRef).toContain('UnexpectedTestError');
@@ -425,7 +431,7 @@ describe('sbReport.service.ts', () => {
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions).toHaveLength(4);
       expect(report.executions.filter((r) => r.hostname === 'HOST-A')).toHaveLength(2);
@@ -442,7 +448,7 @@ describe('sbReport.service.ts', () => {
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions[0].stage).toBe(5);
       expect(report.executions[0].stageLabel).toBe(SB_STAGE_LABELS[5]);
@@ -458,7 +464,7 @@ describe('sbReport.service.ts', () => {
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
       const byTechnique = new Map(report.executions.map((r) => [r.techniques[0], r]));
 
       expect(byTechnique.get('T1003.001')?.stage).toBe(1);
@@ -469,17 +475,17 @@ describe('sbReport.service.ts', () => {
     it('returns an empty executions array for an empty window', async () => {
       mockSearch.mockResolvedValue(esSearchResponse([]));
 
-      const report = await createService().generateSbReport({ ...WINDOW, org: SB_ORG_UUID });
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions).toEqual([]);
-      expect(report.meta.organization).toBe('SB');
+      expect(report.meta.organization).toBe('ACME');
     });
 
     it('scopes the ES query to bundle controls, the window, org, and bundle_uuid', async () => {
       mockSearch.mockResolvedValue(esSearchResponse([]));
 
       await createService().generateSbReport({
-        ...WINDOW, org: SB_ORG_UUID, bundleUuid: BUNDLE_UUID,
+        ...WINDOW, org: ORG_UUID, bundleUuid: BUNDLE_UUID,
       });
 
       expect(mockSearch).toHaveBeenCalledTimes(1);
@@ -488,7 +494,7 @@ describe('sbReport.service.ts', () => {
       const filters = searchArgs.query.bool.filter;
       expect(filters).toContainEqual({ term: { 'f0rtika.is_bundle_control': true } });
       expect(filters).toContainEqual({ range: { 'routing.event_time': { gte: WINDOW.from, lte: WINDOW.to } } });
-      expect(filters).toContainEqual({ term: { 'routing.oid': SB_ORG_UUID } });
+      expect(filters).toContainEqual({ term: { 'routing.oid': ORG_UUID } });
       expect(filters).toContainEqual({ term: { 'f0rtika.bundle_id': BUNDLE_UUID } });
     });
 

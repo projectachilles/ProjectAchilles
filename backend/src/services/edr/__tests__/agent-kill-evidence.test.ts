@@ -11,7 +11,7 @@ import type { KillCandidateTask, KillEvidenceAlert } from '../agent-kill-evidenc
 const task: KillCandidateTask = {
   taskId: 't-1',
   testUuid: '298cc137-ea39-4cf0-9b2d-b1c59a3cbacb',
-  hostname: 'SBL4862',
+  hostname: 'LT4862',
   assignedAtMs: Date.parse('2026-10-26T16:06:05Z'),
   failedAtMs: Date.parse('2026-10-26T16:12:59Z'),
   techniques: ['T1059.001', 'T1003.001', 'T1021.002', 'T1567.002', 'T1486'],
@@ -21,14 +21,14 @@ const alert: KillEvidenceAlert = {
   id: 'a-1',
   vendor: 'sentinelone',
   createdAt: '2026-10-26T16:06:32.719Z',
-  evidenceHostnames: ['sbl4862'],
+  evidenceHostnames: ['lt4862'],
   mitreTechniques: ['T1003.001', 'T1053.005'],
   preventionAction: 'process_killed',
   achillesMitigated: false,
 };
 
 describe('alertProvesKill', () => {
-  it('accepts the SBL4862 agent-kill alert', () => {
+  it('accepts the LT4862 agent-kill alert', () => {
     expect(alertProvesKill(task, alert)).toBe(true);
   });
 
@@ -89,9 +89,9 @@ describe('techniquesOverlap', () => {
 
 describe('hostMatches', () => {
   it('is exact on the short name', () => {
-    expect(hostMatches('SBL4862', ['sbl4862.sb.local'])).toBe(true);
-    expect(hostMatches('SBL4862', ['SBL48621'])).toBe(false);
-    expect(hostMatches('sbl4862.corp', ['SBL4862'])).toBe(true);
+    expect(hostMatches('LT4862', ['lt4862.corp.local'])).toBe(true);
+    expect(hostMatches('LT4862', ['LT48621'])).toBe(false);
+    expect(hostMatches('lt4862.corp', ['LT4862'])).toBe(true);
   });
 });
 

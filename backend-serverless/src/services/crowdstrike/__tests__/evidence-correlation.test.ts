@@ -30,7 +30,7 @@ describe('buildCrowdStrikeEvidenceQuery', () => {
   const baseInput = {
     test_uuid: '92b0b4f6-a09b-4c7b-b593-31ce461f804c::T1204.002',
     routing_event_time: '2026-03-27T07:52:54Z',
-    routing_hostname: 'LT-TPL-L50',
+    routing_hostname: 'LT-ACME-L50',
   };
 
   // Helper: pull both wildcard variants for a given field root out of a should[]
@@ -69,8 +69,8 @@ describe('buildCrowdStrikeEvidenceQuery', () => {
     const q = buildCrowdStrikeEvidenceQuery(baseInput);
     const must = (q as any).bool.must as any[];
     const w = findShouldWildcards(must, 'evidence_hostnames');
-    expect(w.bare).toBe('LT-TPL-L50*');
-    expect(w.keyword).toBe('LT-TPL-L50*');
+    expect(w.bare).toBe('LT-ACME-L50*');
+    expect(w.keyword).toBe('LT-ACME-L50*');
     expect(w.minimum_should_match).toBe(1);
   });
 
@@ -96,10 +96,10 @@ describe('buildCrowdStrikeEvidenceQuery', () => {
   });
 
   it('uppercases the hostname prefix', () => {
-    const q = buildCrowdStrikeEvidenceQuery({ ...baseInput, routing_hostname: 'lt-tpl-l50' });
+    const q = buildCrowdStrikeEvidenceQuery({ ...baseInput, routing_hostname: 'lt-acme-l50' });
     const must = (q as any).bool.must as any[];
     const w = findShouldWildcards(must, 'evidence_hostnames');
-    expect(w.bare).toBe('LT-TPL-L50*');
+    expect(w.bare).toBe('LT-ACME-L50*');
   });
 
   it('builds the time window as -5/+30 minutes around event_time on BOTH timestamp and created_at', () => {

@@ -9,7 +9,7 @@ Defender **aggregates**: repeated detections of the same binary on the same host
 existing alert instead of creating a new one. When that alert is already resolved, a re-fire
 bumps `lastUpdateDateTime` but leaves `status: resolved` untouched — no new alert, no reopen.
 
-Observed in prod (SB11284, LockBit bundle, Oct 10/12 2026):
+Observed in prod (WS11284, LockBit bundle, Oct 10/12 2026):
 
 - Alert `da91cdf52c` ("Attempt to turn off Microsoft Defender Antivirus protection",
   T1562.001/.006) was created Oct 10 against the stage-1 binary
@@ -74,7 +74,7 @@ watermark: **an update that happens after the alert's resolution time is not the
    detection-rate analytics. Badge, panel, and analytics adopt the rule simultaneously and
    stay consistent by construction.
 
-3. **Effect on the SB11284 class of cases:** the two "49h before" T1486 alerts on the Oct 12
+3. **Effect on the WS11284 class of cases:** the two "49h before" T1486 alerts on the Oct 12
    run (bumps at 16:51:11Z / 16:59:03Z, inside the stage-5 execution window — strongly
    suggesting genuine re-fires misclassified as echo) would match again under branch (c), as
    would the stage-1 tamper alert. They reappear carrying their real semantics: *old alert,
@@ -90,7 +90,7 @@ watermark: **an update that happens after the alert's resolution time is not the
 
 5. **No backfill, no sync-version bump.** `resolved_at` is already synced; the change is
    query-side only. Going forward, re-fires set enrichment flags on newly ingested runs.
-   Historical result docs are untouched (flags are write-once; e.g. SB11284's Oct 12 stage-1
+   Historical result docs are untouched (flags are write-once; e.g. WS11284's Oct 12 stage-1
    doc keeps its pre-#490 "Detected" badge, which matches its actual history).
 
 ## CrowdStrike parity decision

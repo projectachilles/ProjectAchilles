@@ -16,7 +16,7 @@ const base = (o: Partial<VerdictInput>): VerdictInput => ({
   taskId: 't1', exitCode: 101, error: null, stderrTail: null, category: 'intel-driven', controls: null, edr: edr(), ...o,
 });
 
-describe('cellVerdict: the real RGA runs', () => {
+describe('cellVerdict: real customer runs', () => {
   it('CPC-Cesar × Kothamine: 101, 999, skipped + Defender prevented → Prevented, not Error', () => {
     const v = cellVerdict(base({
       exitCode: 999,

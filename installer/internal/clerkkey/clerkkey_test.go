@@ -43,9 +43,9 @@ func TestDecode(t *testing.T) {
 	}
 }
 
-func TestFitBancocaribeStyleAccepted(t *testing.T) {
-	r := pub("bancocaribe.projectachilles.io", "projectachilles.io", "bancocaribe.projectachilles.io", "projectachilles.io")
-	if fs := CheckFit(pk("pk_live_", "clerk.bancocaribe.projectachilles.io"), "sk_live_x", r); len(fs) != 0 {
+func TestFitTenantSubdomainStyleAccepted(t *testing.T) {
+	r := pub("acme.projectachilles.io", "projectachilles.io", "acme.projectachilles.io", "projectachilles.io")
+	if fs := CheckFit(pk("pk_live_", "clerk.acme.projectachilles.io"), "sk_live_x", r); len(fs) != 0 {
 		t.Fatalf("%+v", fs)
 	}
 }
