@@ -4,7 +4,7 @@
  */
 
 import { MoreHorizontal, Power, PowerOff, Trash2, KeyRound, Download, Unplug, Eye } from 'lucide-react';
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Table,
@@ -17,6 +17,12 @@ import {
 import { Checkbox } from '../../shared/ui/Checkbox';
 import { Badge, StatusDot } from '../../shared/ui/Badge';
 import { Button } from '../../shared/ui/Button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { HeartbeatSparkline } from './HeartbeatSparkline';
 import type { AgentSummary } from '@/types/agent';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
@@ -68,7 +74,6 @@ export default function AgentList({
 }: AgentListProps) {
   const navigate = useNavigate();
   const isDesktop = useIsDesktop();
-  const [openMenu, setOpenMenu] = useState<string | null>(null);
   const allSelected =
     agents.length > 0 && agents.every((a) => selectedAgents.includes(a.id));
 
@@ -88,71 +93,45 @@ export default function AgentList({
     });
   }, [agents]);
 
+  // Radix portals the menu to <body>, so the table's overflow wrapper can't clip it.
   const renderActionsMenu = (agent: AgentSummary) => (
-    <div className="relative">
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => setOpenMenu(openMenu === agent.id ? null : agent.id)}
-      >
-        <MoreHorizontal className="w-4 h-4" />
-      </Button>
-      {openMenu === agent.id && (
-        <div className="absolute right-0 top-8 z-50 w-40 rounded-md border border-border bg-overlay shadow-lg py-1">
-          <button
-            className="w-full text-left px-3 py-2 text-sm hover:bg-raised hover:text-accent flex items-center gap-2"
-            onClick={() => { onSelectAgent(agent); setOpenMenu(null); }}
-          >
-            <Eye className="w-4 h-4" /> Quick View
-          </button>
-          {agent.status === 'active' ? (
-            <button
-              className="w-full text-left px-3 py-2 text-sm hover:bg-raised hover:text-accent flex items-center gap-2"
-              onClick={() => { onAction(agent.id, 'disable'); setOpenMenu(null); }}
-            >
-              <PowerOff className="w-4 h-4" /> Disable
-            </button>
-          ) : (
-            <button
-              className="w-full text-left px-3 py-2 text-sm hover:bg-raised hover:text-accent flex items-center gap-2"
-              onClick={() => { onAction(agent.id, 'enable'); setOpenMenu(null); }}
-            >
-              <Power className="w-4 h-4" /> Enable
-            </button>
-          )}
-          <button
-            className="w-full text-left px-3 py-2 text-sm hover:bg-raised hover:text-accent flex items-center gap-2"
-            onClick={() => { onAction(agent.id, 'update'); setOpenMenu(null); }}
-          >
-            <Download className="w-4 h-4" /> Update
-          </button>
-          {canDelete && (
-            <button
-              className="w-full text-left px-3 py-2 text-sm hover:bg-raised hover:text-accent flex items-center gap-2"
-              onClick={() => { onAction(agent.id, 'rotate-key'); setOpenMenu(null); }}
-            >
-              <KeyRound className="w-4 h-4" /> Rotate API Key
-            </button>
-          )}
-          {canDelete && (
-            <button
-              className="w-full text-left px-3 py-2 text-sm hover:bg-raised text-danger flex items-center gap-2"
-              onClick={() => { onAction(agent.id, 'uninstall'); setOpenMenu(null); }}
-            >
-              <Unplug className="w-4 h-4" /> Uninstall
-            </button>
-          )}
-          {canDelete && (
-            <button
-              className="w-full text-left px-3 py-2 text-sm hover:bg-raised text-danger flex items-center gap-2"
-              onClick={() => { onAction(agent.id, 'delete'); setOpenMenu(null); }}
-            >
-              <Trash2 className="w-4 h-4" /> Delete
-            </button>
-          )}
-        </div>
-      )}
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label={`Actions for ${agent.hostname}`}>
+          <MoreHorizontal className="w-4 h-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-44 bg-overlay">
+        <DropdownMenuItem onSelect={() => onSelectAgent(agent)}>
+          <Eye /> Quick View
+        </DropdownMenuItem>
+        {agent.status === 'active' ? (
+          <DropdownMenuItem onSelect={() => onAction(agent.id, 'disable')}>
+            <PowerOff /> Disable
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem onSelect={() => onAction(agent.id, 'enable')}>
+            <Power /> Enable
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onSelect={() => onAction(agent.id, 'update')}>
+          <Download /> Update
+        </DropdownMenuItem>
+        {canDelete && (
+          <>
+            <DropdownMenuItem onSelect={() => onAction(agent.id, 'rotate-key')}>
+              <KeyRound /> Rotate API Key
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onSelect={() => onAction(agent.id, 'uninstall')}>
+              <Unplug /> Uninstall
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onSelect={() => onAction(agent.id, 'delete')}>
+              <Trash2 /> Delete
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 
   const renderAgentRow = (agent: AgentSummary) => (

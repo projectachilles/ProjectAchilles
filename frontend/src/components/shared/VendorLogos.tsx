@@ -5,6 +5,8 @@
 
 import crowdstrikePng from '@/assets/integrations/crowdstrike.png';
 import crowdstrikeWebp from '@/assets/integrations/crowdstrike.webp';
+import defenderPng from '@/assets/integrations/defender.png';
+import defenderWebp from '@/assets/integrations/defender.webp';
 import sentinelonePng from '@/assets/integrations/sentinelone.png';
 import sentineloneWebp from '@/assets/integrations/sentinelone.webp';
 import { cn } from '@/lib/utils';
@@ -31,6 +33,10 @@ function Logo({ png, webp, className, testId }: LogoProps & { png: string; webp:
 
 export function CrowdStrikeLogo({ className }: LogoProps) {
   return <Logo png={crowdstrikePng} webp={crowdstrikeWebp} className={className} testId="crowdstrike-logo" />;
+}
+
+export function DefenderLogo({ className }: LogoProps) {
+  return <Logo png={defenderPng} webp={defenderWebp} className={className} testId="defender-logo" />;
 }
 
 export function SentinelOneLogo({ className }: LogoProps) {

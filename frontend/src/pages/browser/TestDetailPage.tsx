@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import DOMPurify from 'dompurify';
 import { browserApi } from '@/services/api/browser';
 import type { TestDetails, FileContent } from '@/types/test';
@@ -21,6 +21,10 @@ import { cn } from '@/lib/utils';
 export default function TestDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  // The Tests list passes its own URL (filters, view) so Back restores it.
+  const fromList = (location.state as { backTo?: unknown } | null)?.backTo;
+  const backTo = typeof fromList === 'string' && fromList.startsWith('/tests') ? fromList : '/tests';
   const { theme } = useTheme();
   const attackFlowIframeRef = useRef<HTMLIFrameElement>(null);
   const killChainIframeRef = useRef<HTMLIFrameElement>(null);
@@ -212,7 +216,7 @@ export default function TestDetailPage() {
         <div className="text-center">
           <p className="text-red-500 mb-4">{error || 'Test not found'}</p>
           <button
-            onClick={() => navigate('/browser')}
+            onClick={() => navigate(backTo)}
             className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90"
           >
             Back to Tests
@@ -417,7 +421,7 @@ export default function TestDetailPage() {
           <div className="container mx-auto px-4 py-2 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
-                onClick={() => navigate('/dashboard?tab=browse')}
+                onClick={() => navigate(backTo)}
                 className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
               >
                 <ArrowLeft className="w-4 h-4" />
@@ -468,7 +472,7 @@ export default function TestDetailPage() {
         <div className="border-b border-border bg-background/95 backdrop-blur">
           <div className="container mx-auto px-4 py-4">
             <button
-              onClick={() => navigate('/dashboard?tab=browse')}
+              onClick={() => navigate(backTo)}
               className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-3"
             >
               <ArrowLeft className="w-4 h-4" />
