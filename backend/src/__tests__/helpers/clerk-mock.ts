@@ -25,6 +25,7 @@ vi.mock('../../middleware/clerk.middleware.js', () => ({
   },
   getUserId: (auth: any) => auth?.userId || auth?.sub || 'test-user-001',
   requirePermission: () => (_req: any, _res: any, next: any) => next(),
+  hasRequestPermission: () => true,
   getUserOrgId: (auth: any) => auth?.orgId,
   // Same rule as the real one: only a caller with an org can mismatch.
   validateRequestOrgId: (reqOrgId: string, auth: any) => {

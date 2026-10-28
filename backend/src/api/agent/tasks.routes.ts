@@ -29,6 +29,7 @@ import { retryPendingIngestions } from '../../services/agent/ingestionWorker.ser
 import { alertsService } from '../integrations.routes.js';
 import { validate } from '../../middleware/validation.js';
 import { UpdateTaskStatusSchema, TaskResultSchema } from '../../schemas/agent.schemas.js';
+import { resolveRequesterLabels } from '../../services/agent/requesterLabel.js';
 import {
   CreateTaskSchema,
   CreateTaskBatchSchema,
@@ -367,9 +368,12 @@ adminTasksRouter.get(
     // who can read the notice settings see them as-is.
     const fullNoticeErrors = hasRequestPermission(req, 'integrations:read');
 
+    // Who asked for each task, resolved once per distinct creator (Clerk lookups are cached).
+    const labels = await resolveRequesterLabels(result.groups.flatMap((g) => g.tasks.map((t) => t.created_by)));
+
     // Strip env_vars from admin responses
     for (const group of result.groups) {
-      group.tasks = group.tasks.map(sanitizeTaskForAdmin);
+      group.tasks = group.tasks.map((t) => ({ ...sanitizeTaskForAdmin(t), created_by_label: labels.get(t.created_by) ?? null }));
       group.payload = { ...group.payload, env_vars: undefined };
       if (group.notices && !fullNoticeErrors) group.notices = redactNoticeSummaries(group.notices);
     }

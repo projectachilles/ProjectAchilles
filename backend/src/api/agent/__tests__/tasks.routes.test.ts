@@ -469,4 +469,24 @@ describe('tasks routes', () => {
       expect(res.body.data.attempted).toBe(0);
     });
   });
+
+  describe('GET /admin/tasks/grouped requester', () => {
+    it('names who requested each task instead of returning the raw id', async () => {
+      testDb.prepare(
+        `INSERT INTO api_keys (id, name, token_hash, key_prefix, scope, created_by) VALUES ('k1', 'CI pipeline', 'h', 'ak_', 'read-write', 'u')`,
+      ).run();
+      insertTestTask(testDb, { id: 't-key', batch_id: 'b-key', created_by: 'apikey:k1' });
+      insertTestTask(testDb, { id: 't-none', batch_id: 'b-none', created_by: 'scheduler-legacy' });
+
+      const res = await request(createApp()).get('/admin/tasks/grouped');
+      expect(res.status).toBe(200);
+      const byId = Object.fromEntries(
+        res.body.data.groups.flatMap((g: { tasks: Array<{ id: string; created_by_label: string | null }> }) => g.tasks).map((t: { id: string; created_by_label: string | null }) => [t.id, t.created_by_label]),
+      );
+      expect(byId['t-key']).toBe('API key · CI pipeline');
+      // Not a Clerk user id and not an API key: shown as stored.
+      expect(byId['t-none']).toBe('scheduler-legacy');
+    });
+  });
 });
+

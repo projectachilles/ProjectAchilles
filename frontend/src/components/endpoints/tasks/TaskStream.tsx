@@ -426,6 +426,14 @@ export default function TaskStream({
                 {new Date(normalizeUtc(selectedTask.created_at)).toLocaleString()}
               </div>
             </div>
+            {selectedTask.created_by_label && (
+              <div className="col-span-2 md:col-span-4">
+                <div className="text-[10px] uppercase tracking-wider text-faint">Requested by</div>
+                <div className="mt-0.5 truncate text-xs" title={selectedTask.created_by_label}>
+                  {selectedTask.created_by_label}
+                </div>
+              </div>
+            )}
           </div>
           <div className="flex flex-col gap-3 p-4">
             {selectedTask.result?.error && (

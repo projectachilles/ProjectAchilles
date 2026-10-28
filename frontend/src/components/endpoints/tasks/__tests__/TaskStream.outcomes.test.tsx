@@ -101,3 +101,17 @@ describe('TaskStream selected row', () => {
   });
 });
 
+describe('TaskStream requested by', () => {
+  it('shows who requested the selected task', () => {
+    const t = { ...testTask('r', 126), created_by_label: 'Jane Doe (jane@example.com)' };
+    render(<TaskStream groups={[{ ...group, tasks: [t] }]} loading={false} />);
+    expect(screen.getByText('Requested by')).toBeTruthy();
+    expect(screen.getByText('Jane Doe (jane@example.com)')).toBeTruthy();
+  });
+
+  it('omits the row when the backend sends no requester (serverless)', () => {
+    render(<TaskStream groups={[{ ...group, tasks: [testTask('r', 126)] }]} loading={false} />);
+    expect(screen.queryByText('Requested by')).toBeNull();
+  });
+});
+
