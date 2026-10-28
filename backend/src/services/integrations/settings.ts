@@ -21,6 +21,7 @@ import type {
   SentinelOneSyncState,
 } from '../../types/sentinelone.js';
 import { normalizeSentinelOneBaseUrl } from '../sentinelone/s1-client.js';
+import { EDR_VENDOR_KEYS } from '../outcomes/vendors.js';
 import {
   S1_DEFAULT_POLL_INTERVAL_MINUTES,
   S1_DEFAULT_BACKFILL_DAYS,
@@ -1499,7 +1500,7 @@ export class IntegrationsSettingsService {
     const orgs = this.getRawFileSettings()?.orgs ?? {};
     const out: Array<{ orgId: string; integrations: string[] }> = [];
     for (const [orgId, section] of Object.entries(orgs)) {
-      const integrations = (['defender', 'crowdstrike', 'sentinelone'] as const).filter((k) => section?.[k]);
+      const integrations = EDR_VENDOR_KEYS.filter((k) => section?.[k]);
       if (integrations.length > 0) out.push({ orgId, integrations });
     }
     return out;
