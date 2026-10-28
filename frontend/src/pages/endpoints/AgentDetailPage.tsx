@@ -19,6 +19,8 @@ import AgentOverviewTab from '@/components/endpoints/agents/detail/AgentOverview
 import AgentTaskHistoryTab from '@/components/endpoints/agents/detail/AgentTaskHistoryTab';
 import AgentHeartbeatTab from '@/components/endpoints/agents/detail/AgentHeartbeatTab';
 import AgentEventLogTab from '@/components/endpoints/agents/detail/AgentEventLogTab';
+import { useHasPermission } from '@/hooks/useAppRole';
+import type { TagChange, TagCount } from '@/components/endpoints/agents/agentTagRules';
 
 function isOnline(lastHeartbeat: string | null): boolean {
   if (!lastHeartbeat) return false;
@@ -63,6 +65,27 @@ export default function AgentDetailPage() {
       // Silent — don't surface transient poll failures
     }
   }, [agentId]);
+
+  const canWriteAgent = useHasPermission('endpoints:agents:write');
+  const [allTags, setAllTags] = useState<TagCount[]>([]);
+  // Separate from `error`, which replaces the whole page.
+  const [tagError, setTagError] = useState<string | null>(null);
+  useEffect(() => {
+    agentApi.listTags().then(setAllTags).catch(() => {});
+  }, []);
+
+  async function handleTagsChange(change: TagChange): Promise<void> {
+    if (!agentId) return;
+    setTagError(null);
+    try {
+      await agentApi.bulkTags({ agent_ids: [agentId], ...change });
+      setAllTags(await agentApi.listTags());
+    } catch (err) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setTagError(msg ?? 'Could not update tags');
+    }
+    await pollAgent();
+  }
 
   usePolling(pollAgent, 30_000);
 
@@ -125,7 +148,16 @@ export default function AgentDetailPage() {
         </TabsList>
 
         <TabsContent value="overview">
-          <AgentOverviewTab agent={agent} />
+          {tagError && (
+            <Alert variant="destructive" className="mb-4" onClose={() => setTagError(null)}>
+              {tagError}
+            </Alert>
+          )}
+          <AgentOverviewTab
+            agent={agent}
+            allTags={allTags}
+            onTagsChange={canWriteAgent ? handleTagsChange : undefined}
+          />
         </TabsContent>
         <TabsContent value="tasks">
           <AgentTaskHistoryTab agentId={agent.id} />

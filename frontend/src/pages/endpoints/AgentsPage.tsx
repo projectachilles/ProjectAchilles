@@ -6,7 +6,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { usePolling } from '@/hooks/usePolling';
 import { useSearchParams } from 'react-router-dom';
-import { UserPlus, Download, Unplug, Ban, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { UserPlus, Download, Unplug, Ban, Trash2, ChevronLeft, ChevronRight, ChevronDown, Tag } from 'lucide-react';
 import { useHasPermission } from '@/hooks/useAppRole';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
@@ -18,8 +18,6 @@ import {
   setFilters,
   setPage,
   setAgents,
-  tagAgent,
-  untagAgent,
   updateAgentStatus,
   selectAgents,
   selectAgentFilters,
@@ -36,7 +34,8 @@ import AgentDetailPanel from '../../components/endpoints/agents/AgentDetailPanel
 import RotateKeyDialog from '../../components/endpoints/agents/RotateKeyDialog';
 import UninstallDialog from '../../components/endpoints/agents/UninstallDialog';
 import BulkDeleteDialog from '../../components/endpoints/agents/BulkDeleteDialog';
-import TagManager from '../../components/endpoints/sensors/TagManager';
+import { TagPicker } from '../../components/endpoints/agents/TagPicker';
+import type { TagChange, TagCount } from '../../components/endpoints/agents/agentTagRules';
 import EnrollmentSection from '@/components/endpoints/enrollment/EnrollmentSection';
 import {
   Dialog,
@@ -130,6 +129,18 @@ export default function AgentsPage() {
   // Fetch latest binary versions + fleet stats on mount
   useEffect(() => { refreshVersions(); refreshFleetStats(); }, [refreshVersions, refreshFleetStats]);
 
+  // Every tag in use, fleet-wide (the agent list holds one page at a time).
+  const [allTags, setAllTags] = useState<TagCount[]>([]);
+  const refreshTags = useCallback(async () => {
+    try {
+      setAllTags(await agentApi.listTags());
+    } catch {
+      // Keep the last list; the rail and menus still work with it.
+    }
+  }, []);
+  useEffect(() => { void refreshTags(); }, [refreshTags]);
+  const [tagError, setTagError] = useState<string | null>(null);
+
   // Silent poll — refresh agent list and versions without loading spinner
   const pollAgents = useCallback(async () => {
     try {
@@ -140,19 +151,14 @@ export default function AgentsPage() {
     }
     refreshVersions();
     refreshFleetStats();
-  }, [filters, dispatch, refreshVersions, refreshFleetStats]);
+    void refreshTags();
+  }, [filters, dispatch, refreshVersions, refreshFleetStats, refreshTags]);
 
   usePolling(pollAgents, 15_000);
 
-  const groupCounts = (() => {
-    const counts = new Map<string, number>();
-    for (const agent of agents) {
-      for (const tag of agent.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
-    }
-    return [...counts.entries()]
-      .map(([tag, count]) => ({ tag, count }))
-      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
-  })();
+  // Fleet-wide counts: every group stays listed (and correctly counted) while
+  // one is used as the filter or the fleet spans several pages.
+  const groupCounts = allTags;
 
   function handleFilterChange(newFilters: Partial<ListAgentsRequest>): void {
     dispatch(setFilters(newFilters));
@@ -215,26 +221,22 @@ export default function AgentsPage() {
     }
   }
 
-  async function handleAddTag(tag: string): Promise<void> {
-    let succeeded = 0;
-    for (const id of selectedAgents) {
-      const result = await dispatch(tagAgent({ id, tag }));
-      if (tagAgent.fulfilled.match(result)) succeeded++;
+  /** One request for any number of agents; the rows, the bulk menu and the rail all refresh after. */
+  async function handleTagsChange(agentIds: string[], change: TagChange): Promise<void> {
+    setTagError(null);
+    try {
+      const updated = await agentApi.bulkTags({ agent_ids: agentIds, ...change });
+      const what = [
+        change.add?.length ? `added ${change.add.map((t) => `"${t}"`).join(', ')}` : '',
+        change.remove?.length ? `removed ${change.remove.map((t) => `"${t}"`).join(', ')}` : '',
+      ].filter(Boolean).join(' and ');
+      showSuccess(`Tags ${what} · ${updated} agent${updated === 1 ? '' : 's'}`);
+    } catch (err) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setTagError(msg ?? 'Could not update tags');
     }
-    if (succeeded > 0) {
-      showSuccess(`Tag "${tag}" added to ${succeeded} agent(s)`);
-    }
-  }
-
-  async function handleRemoveTag(tag: string): Promise<void> {
-    let succeeded = 0;
-    for (const id of selectedAgents) {
-      const result = await dispatch(untagAgent({ id, tag }));
-      if (untagAgent.fulfilled.match(result)) succeeded++;
-    }
-    if (succeeded > 0) {
-      showSuccess(`Tag "${tag}" removed from ${succeeded} agent(s)`);
-    }
+    dispatch(fetchAgents(filters));
+    void refreshTags();
   }
 
   async function handleTriggerUpdate(agentIds: string[]): Promise<void> {
@@ -310,6 +312,12 @@ export default function AgentsPage() {
           onUpdateAll={canWriteAgent ? () => void handleTriggerUpdate(fleetOutdated.outdatedIds).then(fleetOutdated.refresh) : undefined}
         />
 
+        {tagError && (
+          <Alert variant="destructive" className="mb-4" onClose={() => setTagError(null)}>
+            {tagError}
+          </Alert>
+        )}
+
         {error && (
           <Alert variant="destructive" className="mb-4">
             {error}
@@ -363,13 +371,20 @@ export default function AgentsPage() {
 
         {canWriteAgent && (
           <>
-            <TagManager
-              selectedCount={selectedAgents.length}
-              onAddTag={handleAddTag}
-              onRemoveTag={handleRemoveTag}
-            />
             {selectedAgents.length > 0 && (
-              <div className="flex items-center gap-2 mb-4">
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <span className="mr-1 text-sm font-medium text-accent">{selectedAgents.length} selected</span>
+                <TagPicker
+                  allTags={allTags}
+                  agentTags={agents.filter((a) => selectedAgents.includes(a.id)).map((a) => a.tags)}
+                  onChange={(change) => handleTagsChange(selectedAgents, change)}
+                >
+                  <Button variant="secondary" size="sm">
+                    <Tag className="w-4 h-4 mr-1" />
+                    Tags
+                    <ChevronDown className="w-3.5 h-3.5 ml-0.5" />
+                  </Button>
+                </TagPicker>
                 <Button
                   variant="secondary"
                   size="sm"
@@ -426,6 +441,8 @@ export default function AgentsPage() {
               selectedAgents={selectedAgents}
               latestVersions={latestVersions}
               canDelete={canDeleteAgent}
+              allTags={allTags}
+              onTagsChange={canWriteAgent ? handleTagsChange : undefined}
               onToggleSelect={handleToggleSelect}
               onToggleSelectAll={handleToggleSelectAll}
               onAction={handleAction}

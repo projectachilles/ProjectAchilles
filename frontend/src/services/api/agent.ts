@@ -138,6 +138,18 @@ export const agentApi = {
     return { tasks: data.tasks ?? [], total: data.total ?? 0 };
   },
 
+  /** Every tag in use with its agent count (caller's org), not limited to one page of agents. */
+  async listTags(): Promise<Array<{ tag: string; count: number }>> {
+    const response = await apiClient.get('/agent/admin/tags');
+    return response.data.data.tags ?? [];
+  },
+
+  /** Add and/or remove tags on many agents in one request; returns how many were updated. */
+  async bulkTags(body: { agent_ids: string[]; add?: string[]; remove?: string[] }): Promise<number> {
+    const response = await apiClient.post('/agent/admin/tags/bulk', body);
+    return response.data.data.updated ?? 0;
+  },
+
   async listTasksGrouped(
     params?: ListTasksRequest,
   ): Promise<{ groups: TaskGroup[]; total: number; typeCounts?: Partial<Record<TaskType, number>> }> {

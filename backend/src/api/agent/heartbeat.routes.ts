@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { asyncHandler, AppError } from '../../middleware/error.middleware.js';
-import { requireAgentOrgAccess, requirePermission } from '../../middleware/clerk.middleware.js';
+import { getUserOrgId, requireAgentOrgAccess, requirePermission } from '../../middleware/clerk.middleware.js';
 import {
   processHeartbeat,
   getPendingRotationKey,
@@ -13,6 +13,8 @@ import {
   deleteAgent,
   addTag,
   removeTag,
+  listTagCounts,
+  bulkUpdateTags,
   getHeartbeatHistory,
   getBulkHeartbeatBuckets,
   getFleetHealthMetrics,
@@ -25,7 +27,7 @@ import {
 } from '../../services/agent/autoRotation.service.js';
 import { validate } from '../../middleware/validation.js';
 import { HeartbeatSchema } from '../../schemas/agent.schemas.js';
-import { UpdateAgentSchema, AddTagSchema, AutoRotationSchema } from '../../schemas/admin.schemas.js';
+import { UpdateAgentSchema, AddTagSchema, AutoRotationSchema, BulkTagsSchema } from '../../schemas/admin.schemas.js';
 import type { HeartbeatPayload, ListAgentsRequest, AgentEventType } from '../../types/agent.js';
 
 // ============================================================================
@@ -239,6 +241,48 @@ adminAgentRouter.post(
         warning: 'Copy this key as a backup. The agent will receive it automatically via heartbeat within ~60 seconds.',
       },
     });
+  })
+);
+
+/**
+ * The caller's Clerk org, or undefined in legacy single-org mode. A no-org
+ * caller is rejected when REQUIRE_ORG_ISOLATION=true (same rule as campaigns,
+ * notices and enrollment tokens).
+ */
+function callerOrg(req: Request): string | undefined {
+  const orgId = getUserOrgId(req.auth);
+  if (orgId) return orgId;
+  if (process.env.REQUIRE_ORG_ISOLATION === 'true') {
+    throw new AppError('Organization isolation required. Configure Clerk Organizations.', 403);
+  }
+  return undefined;
+}
+
+/**
+ * GET /admin/tags
+ * Every tag in use with its agent count, for the caller's org: the Groups
+ * rail, tag suggestions and the bulk tag menu (not limited to one page).
+ */
+adminAgentRouter.get(
+  '/tags',
+  requirePermission('endpoints:agents:read'),
+  asyncHandler(async (req: Request, res: Response) => {
+    res.json({ success: true, data: { tags: listTagCounts(callerOrg(req)) } });
+  })
+);
+
+/**
+ * POST /admin/tags/bulk
+ * Add and/or remove tags on many agents in one transaction.
+ */
+adminAgentRouter.post(
+  '/tags/bulk',
+  requirePermission('endpoints:agents:write'),
+  validate(BulkTagsSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { agent_ids, add, remove } = req.body as { agent_ids: string[]; add?: string[]; remove?: string[] };
+    const updated = bulkUpdateTags(agent_ids, { add, remove }, callerOrg(req));
+    res.json({ success: true, data: { updated } });
   })
 );
 
