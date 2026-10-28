@@ -13,8 +13,9 @@ vi.mock('../../agent/database.js', async (importOriginal) => {
   return { ...actual, getDatabase: () => testDb };
 });
 
+const { mockCatalog } = vi.hoisted(() => ({ mockCatalog: vi.fn((_uuid: string): unknown => null) }));
 vi.mock('../../agent/test-catalog.service.js', () => ({
-  getTestMetadata: () => null,
+  getTestMetadata: (uuid: string) => mockCatalog(uuid),
 }));
 
 vi.mock('@clerk/express', () => ({ clerkClient: { users: { getUser: vi.fn() } } }));
@@ -123,6 +124,7 @@ function insertSchedule(s: {
   timezone?: string;
   agentNextRuns?: Record<string, string> | null;
   status?: string;
+  metadata?: Record<string, unknown>;
 }) {
   testDb
     .prepare(`
@@ -138,7 +140,7 @@ function insertSchedule(s: {
       `uuid-${s.id}`,
       `Test for ${s.id}`,
       'test.exe',
-      JSON.stringify({ techniques: ['T1003'], tactics: ['credential-access'] }),
+      JSON.stringify(s.metadata ?? { techniques: ['T1003'], tactics: ['credential-access'] }),
       s.type ?? 'weekly',
       JSON.stringify(s.config),
       s.timezone ?? TZ,
@@ -196,6 +198,7 @@ describe('processAdvanceDigests', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCatalog.mockImplementation(() => null);
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     testDb = createTestDatabase();
     resetExpireThrottle();
@@ -263,6 +266,34 @@ describe('processAdvanceDigests', () => {
       recipients: JSON.stringify(RECIPIENTS),
       sent_at: NOW.toISOString(),
       last_error: null,
+    });
+  });
+
+  describe('techniques and tactics', () => {
+    // What the Tasks dialog and the Browser drawer store on every schedule.
+    const UI_METADATA = {
+      category: '', subcategory: '', severity: '', techniques: [], tactics: [], threat_actor: '',
+      target: [], complexity: '', tags: [], score: null, integrations: [],
+    };
+    const catalogEntry = {
+      uuid: 'uuid-s1', name: 'Test for s1', category: 'intel-driven', techniques: ['T1105', 'T1572'],
+      tactics: ['command-and-control', 'exfiltration'], isMultiStage: true, stages: [],
+    };
+
+    it('come from the test catalog when the schedule stored none (UI-created schedules)', async () => {
+      mockCatalog.mockImplementation((uuid) => (uuid === 'uuid-s1' ? catalogEntry : null));
+      thursdaySchedule('s1', { metadata: UI_METADATA });
+      await processAdvanceDigests(NOW);
+      const html = mailAt(0).html;
+      expect(html).toContain('T1105, T1572, command-and-control, exfiltration');
+    });
+
+    it('keep the schedule\'s own metadata when it has some', async () => {
+      mockCatalog.mockImplementation(() => catalogEntry);
+      thursdaySchedule('s1');
+      await processAdvanceDigests(NOW);
+      expect(mailAt(0).html).toContain('T1003, credential-access');
+      expect(mailAt(0).html).not.toContain('T1572');
     });
   });
 

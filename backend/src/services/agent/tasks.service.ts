@@ -14,7 +14,7 @@ import type {
   CreateCommandTaskRequest,
   ListTasksRequest,
 } from '../../types/agent.js';
-import { getTestMetadata } from './test-catalog.service.js';
+import { withCatalogMetadata } from './testMetadata.js';
 import { readBuildMeta, resolveTestArtifact } from './testArtifacts.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { recordEvent } from './events.service.js';
@@ -234,39 +234,7 @@ export function createTasks(
   const fallbackOs: string = buildMeta.platform?.os ?? 'linux';
 
   // Build payload with metadata enrichment from test catalog
-  let enrichedMetadata: TaskTestMetadata = metadata ?? {
-    category: '',
-    subcategory: '',
-    severity: '',
-    techniques: [],
-    tactics: [],
-    threat_actor: '',
-    target: [],
-    complexity: '',
-    tags: [],
-    score: null,
-    integrations: [],
-  };
-
-  // If metadata is empty (no category, no techniques), enrich from the test catalog
-  if (!enrichedMetadata.category && enrichedMetadata.techniques.length === 0) {
-    const entry = getTestMetadata(test_uuid);
-    if (entry) {
-      enrichedMetadata = {
-        category: entry.category ?? '',
-        subcategory: entry.subcategory ?? '',
-        severity: entry.severity ?? '',
-        techniques: entry.techniques ?? [],
-        tactics: entry.tactics ?? [],
-        threat_actor: entry.threatActor ?? '',
-        target: entry.target ?? [],
-        complexity: entry.complexity ?? '',
-        tags: entry.tags ?? [],
-        score: entry.score ?? null,
-        integrations: entry.integrations ?? [],
-      };
-    }
-  }
+  const enrichedMetadata = withCatalogMetadata(test_uuid, metadata);
 
   // Integration credentials (env_vars) are per-test, not per-agent — compute once.
   const envVars = resolveIntegrationEnvVars(enrichedMetadata);

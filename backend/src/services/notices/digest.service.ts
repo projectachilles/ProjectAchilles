@@ -23,6 +23,7 @@ import { occurrencesForDigestDay } from './digestOccurrences.js';
 import type { DigestScheduleInput } from './digestOccurrences.js';
 import { isOnline, retryBackoffMs, stagesText, tasksUiUrl } from './notices.service.js';
 import * as repo from './digest.repo.js';
+import { withCatalogMetadata } from '../agent/testMetadata.js';
 import type { ScheduleConfig, ScheduleType, TaskTestMetadata } from '../../types/agent.js';
 import type { PreExecutionNoticeSettings } from '../../types/integrations.js';
 
@@ -124,7 +125,7 @@ function buildContent(
       occurrences = occurrencesForDigestDay(input, runDate, tz, settings);
       const ids = parseJson<unknown>(s.agent_ids, 'agent_ids');
       agentIds = Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : [];
-      metadata = (parseJson<Partial<TaskTestMetadata> | null>(s.metadata || '{}', 'metadata') ?? {});
+      metadata = withCatalogMetadata(s.test_uuid, parseJson<Partial<TaskTestMetadata> | null>(s.metadata || '{}', 'metadata'));
     } catch (err) {
       console.error(`[Digest] Skipping schedule ${s.id} for org ${orgId}:`, err);
       continue;
