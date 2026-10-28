@@ -473,6 +473,7 @@ phase backend-env "Writing backend/.env"
   echo "CORS_ORIGIN=${PUBLIC_URL}"
   echo "AGENT_SERVER_URL=${PUBLIC_URL}"
   [ -n "${ORGANIZATION_NAME:-}" ] && echo "ORGANIZATION_NAME=${ORGANIZATION_NAME}"
+  [ -n "${ORG_NAMES:-}" ] && echo "ORG_NAMES=${ORG_NAMES}"
   if [ "$ES_MODE" = "self" ]; then
     echo "ELASTICSEARCH_NODE=http://elasticsearch:9200"
   else
