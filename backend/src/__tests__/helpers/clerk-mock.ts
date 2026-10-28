@@ -28,6 +28,8 @@ vi.mock('../../middleware/clerk.middleware.js', () => ({
   // Grants everything unless the test lists permissions in req.auth.deny.
   hasRequestPermission: (req: any, ...perms: string[]) => !perms.some((p) => req?.auth?.deny?.includes(p)),
   getUserOrgId: (auth: any) => auth?.orgId,
+  requireAgentOrgAccess: (_req: any, _res: any, next: any) => next(),
+  requireOrgAccess: (_req: any, _res: any, next: any) => next(),
   // Same rule as the real one: only a caller with an org can mismatch.
   validateRequestOrgId: (reqOrgId: string, auth: any) => {
     if (auth?.orgId && reqOrgId !== auth.orgId) {

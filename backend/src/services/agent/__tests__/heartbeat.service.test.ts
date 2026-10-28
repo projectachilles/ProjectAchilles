@@ -36,6 +36,9 @@ const {
   deleteAgent,
   addTag,
   removeTag,
+  normalizeTag,
+  listTagCounts,
+  bulkUpdateTags,
 } = await import('../heartbeat.service.js');
 
 describe('heartbeat.service', () => {
@@ -414,4 +417,56 @@ describe('heartbeat.service', () => {
       expect(agent!.rotation_pending).toBe(true);
     });
   });
+
+  describe('tag management', () => {
+    it('normalizes tags: trimmed, lowercased, limited characters and length', () => {
+      expect(normalizeTag('  CS-Falcon ')).toBe('cs-falcon');
+      expect(normalizeTag('site:nyc_01.a')).toBe('site:nyc_01.a');
+      expect(normalizeTag('')).toBeNull();
+      expect(normalizeTag('has space')).toBeNull();
+      expect(normalizeTag('-leading')).toBeNull();
+      expect(normalizeTag('x'.repeat(33))).toBeNull();
+    });
+
+    it('counts tags across the whole fleet, per org, without retired agents', () => {
+      insertTestAgent(testDb, { id: 'a1', org_id: 'org-1', tags: '["cs-falcon","finance"]' });
+      insertTestAgent(testDb, { id: 'a2', org_id: 'org-1', tags: '["cs-falcon"]' });
+      insertTestAgent(testDb, { id: 'a3', org_id: 'org-2', tags: '["cs-falcon"]' });
+      insertTestAgent(testDb, { id: 'a4', org_id: 'org-1', tags: '["finance"]', status: 'decommissioned' });
+
+      expect(listTagCounts('org-1')).toEqual([
+        { tag: 'cs-falcon', count: 2 },
+        { tag: 'finance', count: 1 },
+      ]);
+      expect(listTagCounts()).toEqual([
+        { tag: 'cs-falcon', count: 3 },
+        { tag: 'finance', count: 1 },
+      ]);
+    });
+
+    it('adds and removes tags on many agents in one call, without duplicates', () => {
+      insertTestAgent(testDb, { id: 'a1', tags: '["cs-falcon"]' });
+      insertTestAgent(testDb, { id: 'a2', tags: '["s1","pilot"]' });
+
+      const updated = bulkUpdateTags(['a1', 'a2'], { add: ['finance', 'cs-falcon'], remove: ['pilot'] });
+      expect(updated).toBe(2);
+      const tags = (id: string) => JSON.parse((testDb.prepare('SELECT tags FROM agents WHERE id = ?').get(id) as { tags: string }).tags);
+      expect(tags('a1')).toEqual(['cs-falcon', 'finance']);
+      expect(tags('a2')).toEqual(['s1', 'finance', 'cs-falcon']);
+    });
+
+    it('refuses agents outside the caller org and changes nothing', () => {
+      insertTestAgent(testDb, { id: 'a1', org_id: 'org-1', tags: '[]' });
+      insertTestAgent(testDb, { id: 'a2', org_id: 'org-2', tags: '[]' });
+      expect(() => bulkUpdateTags(['a1', 'a2'], { add: ['x'] }, 'org-1')).toThrow();
+      expect((testDb.prepare('SELECT tags FROM agents WHERE id = ?').get('a1') as { tags: string }).tags).toBe('[]');
+    });
+
+    it('removes a legacy mixed-case tag by its normalized name', () => {
+      insertTestAgent(testDb, { id: 'a1', tags: '["Finance","s1"]' });
+      bulkUpdateTags(['a1'], { remove: ['finance'] });
+      expect(JSON.parse((testDb.prepare('SELECT tags FROM agents WHERE id = ?').get('a1') as { tags: string }).tags)).toEqual(['s1']);
+    });
+  });
 });
+

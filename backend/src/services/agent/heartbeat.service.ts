@@ -1,4 +1,8 @@
 import { getDatabase } from './database.js';
+import { AppError } from '../../middleware/error.middleware.js';
+import { normalizeTag } from './tagRules.js';
+
+export { normalizeTag };
 import { cancelPendingKey, decryptPendingKey, ROTATION_GRACE_PERIOD_SECONDS } from './enrollment.service.js';
 import { recordEvent } from './events.service.js';
 import { invalidateAgentCache } from './agentAuthCache.js';
@@ -610,6 +614,53 @@ export function removeTag(agentId: string, tag: string): string[] {
   );
 
   return tags;
+}
+
+/** Every tag in use with its agent count (fleet-wide, or one org), most used first. Retired agents excluded. */
+export function listTagCounts(orgId?: string): { tag: string; count: number }[] {
+  const rows = getDatabase().prepare(`
+    SELECT j.value AS tag, COUNT(*) AS count
+    FROM agents a, json_each(a.tags) j
+    WHERE a.status NOT IN ('decommissioned', 'uninstalled')${orgId ? ' AND a.org_id = ?' : ''}
+    GROUP BY j.value
+    ORDER BY count DESC, tag ASC
+  `).all(...(orgId ? [orgId] : [])) as { tag: string; count: number }[];
+  return rows;
+}
+
+/**
+ * Add and/or remove tags on many agents in one transaction. Additions must be
+ * normalized already; a removal also drops a legacy tag that normalizes to it
+ * ("Finance" for "finance"). With an orgId, every agent must belong to it, or
+ * nothing changes. Returns the number of agents updated.
+ */
+export function bulkUpdateTags(
+  agentIds: string[],
+  change: { add?: string[]; remove?: string[] },
+  orgId?: string,
+): number {
+  const db = getDatabase();
+  const ids = [...new Set(agentIds)];
+  if (ids.length === 0) return 0;
+  const add = [...new Set(change.add ?? [])];
+  const remove = new Set(change.remove ?? []);
+
+  const rows = db.prepare(
+    `SELECT id, org_id, tags FROM agents WHERE id IN (${ids.map(() => '?').join(', ')})`,
+  ).all(...ids) as { id: string; org_id: string; tags: string }[];
+  if (rows.length !== ids.length) throw new AppError('Agent not found', 404);
+  if (orgId && rows.some((r) => r.org_id !== orgId)) throw new AppError('Agent not found', 404);
+
+  const now = new Date().toISOString();
+  const update = db.prepare('UPDATE agents SET tags = ?, updated_at = ? WHERE id = ?');
+  db.transaction(() => {
+    for (const row of rows) {
+      const kept = parseTags(row.tags).filter((t) => !remove.has(t) && !remove.has(normalizeTag(t) ?? t));
+      for (const tag of add) if (!kept.includes(tag)) kept.push(tag);
+      update.run(JSON.stringify(kept), now, row.id);
+    }
+  })();
+  return rows.length;
 }
 
 // ============================================================================

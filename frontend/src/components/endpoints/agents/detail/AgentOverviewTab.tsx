@@ -10,9 +10,15 @@ import { TaskStatusBadge } from '@/components/endpoints/tasks/TaskStatusBadge';
 import { StreamRow } from '@/components/shared/ui/StreamRow';
 import { agentApi } from '@/services/api/agent';
 import type { Agent, AgentTask } from '@/types/agent';
+import { TagChips } from '../TagChips';
+import type { TagChange, TagCount } from '../agentTagRules';
 
 interface AgentOverviewTabProps {
   agent: Agent;
+  /** Every tag in use, for the tag menu. */
+  allTags?: TagCount[];
+  /** Omit when the user can't edit agents: tags are then read-only. */
+  onTagsChange?: (change: TagChange) => Promise<void>;
 }
 
 function formatDuration(seconds: number): string {
@@ -28,7 +34,7 @@ function formatDate(dateStr: string | null): string {
   return new Date(normalized).toLocaleString();
 }
 
-export default function AgentOverviewTab({ agent }: AgentOverviewTabProps) {
+export default function AgentOverviewTab({ agent, allTags = [], onTagsChange }: AgentOverviewTabProps) {
   const [recentTasks, setRecentTasks] = useState<AgentTask[]>([]);
 
   useEffect(() => {
@@ -140,15 +146,7 @@ export default function AgentOverviewTab({ agent }: AgentOverviewTabProps) {
             <div className="flex items-center gap-1 text-sm text-muted-foreground mb-2">
               <Tag className="w-3 h-3" /> Tags
             </div>
-            <div className="flex flex-wrap gap-1">
-              {agent.tags.length > 0 ? (
-                agent.tags.map((tag) => (
-                  <Badge key={tag} variant="outline">{tag}</Badge>
-                ))
-              ) : (
-                <span className="text-xs text-muted-foreground">No tags</span>
-              )}
-            </div>
+            <TagChips tags={agent.tags} allTags={allTags} agentName={agent.hostname} onChange={onTagsChange} />
           </div>
         </CardContent>
       </Card>

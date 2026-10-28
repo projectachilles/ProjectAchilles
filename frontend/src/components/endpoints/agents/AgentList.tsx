@@ -24,6 +24,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { HeartbeatSparkline } from './HeartbeatSparkline';
+import { TagChips } from './TagChips';
+import type { TagChange, TagCount } from './agentTagRules';
 import type { AgentSummary } from '@/types/agent';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/utils';
@@ -33,6 +35,10 @@ interface AgentListProps {
   selectedAgents: string[];
   latestVersions: Map<string, string>;
   canDelete?: boolean;
+  /** Every tag in use, for the row tag menus. */
+  allTags?: TagCount[];
+  /** Omit when the user can't edit agents: tags are then read-only. */
+  onTagsChange?: (agentIds: string[], change: TagChange) => Promise<void>;
   onToggleSelect: (agentId: string) => void;
   onToggleSelectAll: () => void;
   onAction: (agentId: string, action: 'enable' | 'disable' | 'decommission' | 'delete' | 'rotate-key' | 'update' | 'uninstall') => void;
@@ -67,6 +73,8 @@ export default function AgentList({
   selectedAgents,
   latestVersions,
   canDelete = true,
+  allTags = [],
+  onTagsChange,
   onToggleSelect,
   onToggleSelectAll,
   onAction,
@@ -134,6 +142,15 @@ export default function AgentList({
     </DropdownMenu>
   );
 
+  const renderTags = (agent: AgentSummary) => (
+    <TagChips
+      tags={agent.tags}
+      allTags={allTags}
+      agentName={agent.hostname}
+      onChange={onTagsChange ? (change) => onTagsChange([agent.id], change) : undefined}
+    />
+  );
+
   const renderAgentRow = (agent: AgentSummary) => (
     <TableRow
       key={agent.id}
@@ -162,6 +179,7 @@ export default function AgentList({
         </button>
         <span className="text-[11px] text-faint">{agent.os} · {agent.arch}</span>
       </TableCell>
+      <TableCell className="max-w-56">{renderTags(agent)}</TableCell>
       <TableCell>
         {agent.health_score != null ? (
           <div className="flex items-center gap-2">
@@ -232,6 +250,9 @@ export default function AgentList({
           <HeartbeatSparkline agentId={agent.id} online={agent.is_online} />
           {renderActionsMenu(agent)}
         </div>
+        <div className="col-span-2 col-start-2">
+          {renderTags(agent)}
+        </div>
         <div className="col-span-2 col-start-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
           {agent.health_score != null && (
             <span className="flex items-center gap-1.5">
@@ -295,6 +316,7 @@ export default function AgentList({
             </TableHead>
             <TableHead className="w-10">Status</TableHead>
             <TableHead>Hostname</TableHead>
+            <TableHead>Tags</TableHead>
             <TableHead>Health</TableHead>
             <TableHead>Heartbeat · 24h</TableHead>
             <TableHead>Version</TableHead>
@@ -305,7 +327,7 @@ export default function AgentList({
         <TableBody>
           {agents.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={8} className="text-center py-8">
+              <TableCell colSpan={9} className="text-center py-8">
                 <p className="text-muted-foreground">No agents found</p>
               </TableCell>
             </TableRow>
@@ -313,7 +335,7 @@ export default function AgentList({
             groups.map(([tag, members]) => (
               <Fragment key={tag}>
                 <TableRow className="bg-raised hover:bg-raised">
-                  <TableCell colSpan={8} className="py-1.5">
+                  <TableCell colSpan={9} className="py-1.5">
                     <span className="font-mono text-[11px] text-accent">{tag}</span>
                     <span className="ml-2 font-mono text-[11px] text-faint">
                       · {members.length} agent{members.length !== 1 ? 's' : ''} · {members.filter((m) => m.is_online).length} online

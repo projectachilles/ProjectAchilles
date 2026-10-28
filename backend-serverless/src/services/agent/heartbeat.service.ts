@@ -1,4 +1,6 @@
 import { getDb } from './database.js';
+import { AppError } from '../../middleware/error.middleware.js';
+import { normalizeTag } from './tagRules.js';
 import { cancelPendingKey, decryptPendingKey, ROTATION_GRACE_PERIOD_SECONDS } from './enrollment.service.js';
 import type {
   HeartbeatPayload,
@@ -481,6 +483,49 @@ export async function removeTag(agentId: string, tag: string): Promise<string[]>
 // ============================================================================
 // HELPERS
 // ============================================================================
+
+/** Every tag in use with its agent count (fleet-wide, or one org), most used first. Retired agents excluded. */
+export async function listTagCounts(orgId?: string): Promise<{ tag: string; count: number }[]> {
+  const db = await getDb();
+  const rows = await db.all(
+    `SELECT j.value AS tag, COUNT(*) AS count
+     FROM agents a, json_each(a.tags) j
+     WHERE a.status NOT IN ('decommissioned', 'uninstalled')${orgId ? ' AND a.org_id = ?' : ''}
+     GROUP BY j.value
+     ORDER BY count DESC, tag ASC`,
+    orgId ? [orgId] : [],
+  );
+  return rows.map((r) => ({ tag: String(r.tag), count: Number(r.count) }));
+}
+
+/**
+ * Add and/or remove tags on many agents in one atomic batch. Additions must be
+ * normalized already; a removal also drops a legacy tag that normalizes to it.
+ * With an orgId, every agent must belong to it, or nothing changes.
+ */
+export async function bulkUpdateTags(
+  agentIds: string[],
+  change: { add?: string[]; remove?: string[] },
+  orgId?: string,
+): Promise<number> {
+  const db = await getDb();
+  const ids = [...new Set(agentIds)];
+  if (ids.length === 0) return 0;
+  const add = [...new Set(change.add ?? [])];
+  const remove = new Set(change.remove ?? []);
+
+  const rows = await db.all(`SELECT id, org_id, tags FROM agents WHERE id IN (${ids.map(() => '?').join(', ')})`, ids);
+  if (rows.length !== ids.length) throw new AppError('Agent not found', 404);
+  if (orgId && rows.some((r) => r.org_id !== orgId)) throw new AppError('Agent not found', 404);
+
+  const now = new Date().toISOString();
+  await db.batch(rows.map((row) => {
+    const kept = parseTags(row.tags as string).filter((t) => !remove.has(t) && !remove.has(normalizeTag(t) ?? t));
+    for (const tag of add) if (!kept.includes(tag)) kept.push(tag);
+    return { sql: 'UPDATE agents SET tags = ?, updated_at = ? WHERE id = ?', args: [JSON.stringify(kept), now, row.id as string] };
+  }));
+  return rows.length;
+}
 
 function parseTags(raw: string | null | undefined): string[] {
   if (!raw) return [];

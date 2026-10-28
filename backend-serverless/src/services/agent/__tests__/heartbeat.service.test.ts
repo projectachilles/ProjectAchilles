@@ -39,6 +39,8 @@ const {
   deleteAgent,
   addTag,
   removeTag,
+  listTagCounts,
+  bulkUpdateTags,
 } = await import('../heartbeat.service.js');
 
 describe('heartbeat.service', () => {
@@ -388,4 +390,26 @@ describe('heartbeat.service', () => {
       expect(agent!.rotation_pending).toBe(true);
     });
   });
+
+  describe('tag management', () => {
+    it('counts tags per org and updates many agents in one batch', async () => {
+      await insertTestAgent(testDb, { id: 't1', org_id: 'org-1', tags: '["cs-falcon"]' });
+      await insertTestAgent(testDb, { id: 't2', org_id: 'org-1', tags: '["Pilot"]' });
+      await insertTestAgent(testDb, { id: 't3', org_id: 'org-2', tags: '["cs-falcon"]' });
+
+      expect(await listTagCounts('org-1')).toEqual([
+        { tag: 'Pilot', count: 1 },
+        { tag: 'cs-falcon', count: 1 },
+      ]);
+
+      expect(await bulkUpdateTags(['t1', 't2'], { add: ['finance'], remove: ['pilot'] }, 'org-1')).toBe(2);
+      const tags = async (id: string) => JSON.parse(((await testDb.get('SELECT tags FROM agents WHERE id = ?', [id])) as unknown as { tags: string }).tags);
+      expect(await tags('t1')).toEqual(['cs-falcon', 'finance']);
+      expect(await tags('t2')).toEqual(['finance']);
+
+      await expect(bulkUpdateTags(['t1', 't3'], { add: ['x'] }, 'org-1')).rejects.toThrow('Agent not found');
+      expect(await tags('t1')).toEqual(['cs-falcon', 'finance']);
+    });
+  });
 });
+
