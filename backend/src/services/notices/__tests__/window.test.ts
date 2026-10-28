@@ -4,7 +4,8 @@ import type { PreExecutionNoticeSettings } from '../../../types/integrations.js'
 
 const s = (o: Partial<PreExecutionNoticeSettings> = {}): PreExecutionNoticeSettings => ({
   enabled: true, recipients: ['a@b.c'], lead_minutes: 5, max_wait_minutes: 60,
-  pickup_window_minutes: 120, send_finished: true, ...o,
+  pickup_window_minutes: 120, send_finished: true,
+  advance_digest_enabled: false, digest_timezone: 'UTC', ...o,
 });
 const t0 = new Date('2026-10-23T13:00:00.000Z');
 const min = (n: number) => new Date(t0.getTime() + n * 60_000);

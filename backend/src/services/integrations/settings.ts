@@ -9,6 +9,7 @@ import type { AzureIntegrationSettings, AzureCredentials, DefenderIntegrationSet
 import type { AutoResolveMode } from '../../types/defender.js';
 import type { CrowdStrikeRegion, CrowdStrikeZtaStatus } from '../../types/crowdstrike.js';
 import { CROWDSTRIKE_REGION_BASE_URLS, DEFAULT_CROWDSTRIKE_REGION } from '../crowdstrike/falcon-client.js';
+import { safeTimezone } from '../agent/scheduleTime.js';
 import { isMaskedSecret } from '../alerts/testEmailSettings.js';
 import type {
   SentinelOneIntegrationSettings,
@@ -52,6 +53,8 @@ const NOTICE_DEFAULTS: PreExecutionNoticeSettings = {
   max_wait_minutes: 60,
   pickup_window_minutes: 120,
   send_finished: true,
+  advance_digest_enabled: false,
+  digest_timezone: 'UTC',
 };
 
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
@@ -68,6 +71,8 @@ export function clampNoticeSettings(s: Partial<PreExecutionNoticeSettings>): Pre
     max_wait_minutes: clampInt(s.max_wait_minutes, 15, 1440, NOTICE_DEFAULTS.max_wait_minutes),
     pickup_window_minutes: clampInt(s.pickup_window_minutes, 30, 1440, NOTICE_DEFAULTS.pickup_window_minutes),
     send_finished: s.send_finished ?? NOTICE_DEFAULTS.send_finished,
+    advance_digest_enabled: s.advance_digest_enabled ?? NOTICE_DEFAULTS.advance_digest_enabled,
+    digest_timezone: safeTimezone(s.digest_timezone ?? NOTICE_DEFAULTS.digest_timezone),
   };
   if (s.last_smtp_check_at !== undefined) out.last_smtp_check_at = s.last_smtp_check_at;
   if (s.last_smtp_check_ok !== undefined) out.last_smtp_check_ok = s.last_smtp_check_ok;

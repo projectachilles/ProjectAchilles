@@ -152,6 +152,39 @@ describe('PUT /api/notices/settings', () => {
     expect(res.status).toBe(400);
   });
 
+  describe('advance digest fields', () => {
+    it('defaults to disabled and UTC', async () => {
+      const get = await request(app()).get('/api/notices/settings');
+      expect(get.body.data).toMatchObject({ advance_digest_enabled: false, digest_timezone: 'UTC' });
+    });
+
+    it('round-trips both values', async () => {
+      const put = await request(app()).put('/api/notices/settings')
+        .send({ advance_digest_enabled: true, digest_timezone: 'America/Santo_Domingo' });
+      expect(put.status).toBe(200);
+      expect(put.body.data).toMatchObject({ advance_digest_enabled: true, digest_timezone: 'America/Santo_Domingo' });
+      const get = await request(app()).get('/api/notices/settings');
+      expect(get.body.data).toMatchObject({ advance_digest_enabled: true, digest_timezone: 'America/Santo_Domingo' });
+    });
+
+    it('stores an unknown timezone as UTC', async () => {
+      const put = await request(app()).put('/api/notices/settings').send({ digest_timezone: 'Mars/Base' });
+      expect(put.status).toBe(200);
+      const get = await request(app()).get('/api/notices/settings');
+      expect(get.body.data.digest_timezone).toBe('UTC');
+    });
+
+    it('rejects a non-boolean advance_digest_enabled', async () => {
+      const res = await request(app()).put('/api/notices/settings').send({ advance_digest_enabled: 'yes' });
+      expect(res.status).toBe(400);
+    });
+
+    it('allows saving the digest while notices are disabled', async () => {
+      const res = await request(app()).put('/api/notices/settings').send({ advance_digest_enabled: true });
+      expect(res.status).toBe(200);
+    });
+  });
+
   it('requires integrations:write', async () => {
     deniedPermissions.add('integrations:write');
     const res = await request(app()).put('/api/notices/settings').send({});

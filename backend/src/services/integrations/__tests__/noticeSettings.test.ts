@@ -52,6 +52,8 @@ describe('pre-execution notice settings', () => {
       max_wait_minutes: 60,
       pickup_window_minutes: 120,
       send_finished: true,
+      advance_digest_enabled: false,
+      digest_timezone: 'UTC',
     });
   });
 
