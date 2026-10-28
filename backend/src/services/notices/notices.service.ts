@@ -22,6 +22,8 @@ import { MAX_INLINE_HOSTS, buildFinishedEmail, buildHostsCsv, buildNoticeEmail, 
 import type { FinishedEmailData, NoticeEmailData } from './render.js';
 import { computeDayRelease, computeRunRelease, runTag } from './window.js';
 import * as repo from './notices.repo.js';
+import { latestDigests } from './digest.repo.js';
+import type { DigestState } from './digest.repo.js';
 import { resolveUserLabel } from './userLabel.js';
 import { getTestMetadata } from '../agent/test-catalog.service.js';
 import { fetchEdrDocs } from '../outcomes/edr.js';
@@ -1052,6 +1054,30 @@ export interface NoticeStatus {
   pendingOverdue: number;
   notDeliveredLast7d: number;
   smtpCheck: { ok: boolean | null; at: string | null; message: string | null };
+  /** Latest advance digest per org in scope, last 7 days. Always present. */
+  digests: Array<{
+    orgId: string;
+    digestDate: string;
+    runDate: string;
+    state: DigestState;
+    occurrenceCount: number;
+    hostCount: number;
+    recipientCount: number;
+    sentAt: string | null;
+    lastError: string | null;
+  }>;
+}
+
+const DIGEST_LOOKBACK_DAYS = 7;
+
+function recipientCountOf(json: string | null): number {
+  if (!json) return 0;
+  try {
+    const parsed: unknown = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed.length : 0;
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -1060,7 +1086,19 @@ export interface NoticeStatus {
  */
 export function getNoticeStatus(scope: NoticeScope, now: Date = new Date()): NoticeStatus {
   const s = settingsFor(scope.kind === 'org' ? scope.orgId : null).getPreExecutionNoticeSettings();
+  const sinceDate = new Date(now.getTime() - DIGEST_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   return {
+    digests: latestDigests(scope, sinceDate).map((d) => ({
+      orgId: d.org_id,
+      digestDate: d.digest_date,
+      runDate: d.run_date,
+      state: d.state,
+      occurrenceCount: d.occurrence_count,
+      hostCount: d.host_count,
+      recipientCount: recipientCountOf(d.recipients),
+      sentAt: d.sent_at,
+      lastError: d.last_error,
+    })),
     // Existing notices still matter after notices are turned off.
     pendingOverdue: repo.countPendingCreatedBefore(new Date(now.getTime() - PENDING_OVERDUE_MS).toISOString(), scope),
     notDeliveredLast7d: repo.countNotDeliveredSince(new Date(now.getTime() - NOT_DELIVERED_LOOKBACK_MS).toISOString(), scope),
