@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { pillClass } from '@/components/shared/ui/pillStyles';
 import { Plug, FlaskConical, Bot, Users, KeyRound } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { pillClass } from '@/components/shared/ui/pillStyles';
 import { useHasPermission } from '@/hooks/useAppRole';
 import { IntegrationsTab } from './components/IntegrationsTab';
 import { TestsTab } from './components/TestsTab';

@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { pillClass } from '@/components/shared/ui/pillStyles';
 import { useSearchParams } from 'react-router-dom';
 import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown, RefreshCw, Settings, ShieldOff } from 'lucide-react';
 import { CrowdStrikeLogo, DefenderLogo, SentinelOneLogo } from '@/components/shared/VendorLogos';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { pillClass } from '@/components/shared/ui/pillStyles';
 import { Button } from '@/components/ui/button';
 import SettingsModal from './components/SettingsModal';
 import FilterBar from './components/FilterBar';
