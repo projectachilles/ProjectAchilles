@@ -20,10 +20,16 @@ const parseRecipients = (raw: string): string[] =>
 const numberField = <K extends string>(key: K, raw: string): Partial<Record<K, number>> =>
   raw.trim() === '' ? {} : ({ [key]: Number(raw) } as Record<K, number>);
 
+const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
+
 const digestLine = (d: NoticeDigestStatus): string | null => {
   switch (d.state) {
     case 'sent':
-      return `Last digest ${d.digestDate}: sent to ${d.recipientCount} recipients (${d.occurrenceCount} runs on ${d.hostCount} hosts)`;
+      return (
+        `Last digest ${d.digestDate}: sent to ${plural(d.recipientCount, 'recipient')} ` +
+        `(${plural(d.occurrenceCount, 'run')} on ${plural(d.hostCount, 'host')})` +
+        (d.lastError ? ` — ${d.lastError}` : '')
+      );
     case 'empty':
       return `Last digest ${d.digestDate}: nothing scheduled for ${d.runDate}`;
     case 'failed':
@@ -39,6 +45,19 @@ const browserTimezone = (): string | null => {
   } catch {
     return null;
   }
+};
+
+/** Every selectable zone: the full IANA list when the browser has it, else the common ones plus the browser's and the saved zone. */
+const timezoneOptions = (current: string): string[] => {
+  const supported = (Intl as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf;
+  let all: string[] | null = null;
+  try {
+    all = supported ? supported('timeZone') : null;
+  } catch {
+    all = null;
+  }
+  const base = all && all.length > 0 ? ['UTC', ...all] : [...COMMON_TIMEZONES, browserTimezone()];
+  return [...new Set([...base, current].filter((z): z is string => Boolean(z)))];
 };
 
 export function PreExecutionNoticesConfig({ onStatusChange }: PreExecutionNoticesConfigProps) {
@@ -269,14 +288,14 @@ export function PreExecutionNoticesConfig({ onStatusChange }: PreExecutionNotice
               id="digest-timezone"
               className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
               value={digestTimezone}
-              onChange={(e) => setDigestTimezone(e.target.value)}
+              onChange={(e) => {
+                setDigestTimezone(e.target.value);
+                setDigestNeverSaved(false);
+              }}
             >
-              {COMMON_TIMEZONES.map((tz) => (
+              {timezoneOptions(digestTimezone).map((tz) => (
                 <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
               ))}
-              {!COMMON_TIMEZONES.includes(digestTimezone) && (
-                <option value={digestTimezone}>{digestTimezone.replace(/_/g, ' ')}</option>
-              )}
             </select>
           </div>
         )}

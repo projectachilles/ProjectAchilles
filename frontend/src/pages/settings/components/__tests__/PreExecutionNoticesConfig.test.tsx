@@ -151,5 +151,56 @@ describe('PreExecutionNoticesConfig', () => {
         await screen.findByText('Last digest 2026-10-27: not sent (SMTP email is not configured)'),
       ).toBeInTheDocument();
     });
+
+    it('shows the rejected recipients on a sent digest line, with singular counts', async () => {
+      vi.mocked(noticesApi.getSettings).mockResolvedValue({ ...base, enabled: true, advance_digest_enabled: true });
+      vi.mocked(noticesApi.getStatus).mockResolvedValue({
+        pendingOverdue: 0,
+        notDeliveredLast7d: 0,
+        smtpCheck: { ok: null, at: null, message: null },
+        digests: [
+          {
+            orgId: 'org_1', digestDate: '2026-10-27', runDate: '2026-10-28', state: 'sent',
+            occurrenceCount: 1, hostCount: 1, recipientCount: 1, sentAt: '2026-10-27T13:00:00.000Z',
+            lastError: 'rejected: b@x.com',
+          },
+        ],
+      });
+      render(<PreExecutionNoticesConfig />);
+      expect(
+        await screen.findByText(
+          'Last digest 2026-10-27: sent to 1 recipient (1 run on 1 host) — rejected: b@x.com',
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('offers the browser timezone after a different zone was saved, and keeps a deliberate pick', async () => {
+      const original = Object.getOwnPropertyDescriptor(Intl, 'supportedValuesOf');
+      const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(
+        () => ({ resolvedOptions: () => ({ timeZone: 'America/Santo_Domingo' }) }) as unknown as Intl.DateTimeFormat,
+      );
+      Object.defineProperty(Intl, 'supportedValuesOf', { value: undefined, configurable: true, writable: true });
+      try {
+        vi.mocked(noticesApi.getSettings).mockResolvedValue({
+          ...base, enabled: true, advance_digest_enabled: false, digest_timezone: 'UTC',
+        });
+        render(<PreExecutionNoticesConfig />);
+        const box = await screen.findByLabelText(digestLabel);
+        await userEvent.click(box); // prefill the browser zone
+        const select = screen.getByLabelText(/digest timezone/i);
+        expect(select).toHaveValue('America/Santo_Domingo');
+        await userEvent.selectOptions(select, 'Europe/Berlin');
+        await userEvent.click(box); // off
+        await userEvent.click(box); // on again
+        expect(screen.getByLabelText(/digest timezone/i)).toHaveValue('Europe/Berlin');
+        // browser zone is still selectable while another zone is current
+        await userEvent.selectOptions(screen.getByLabelText(/digest timezone/i), 'America/Santo_Domingo');
+        expect(screen.getByLabelText(/digest timezone/i)).toHaveValue('America/Santo_Domingo');
+      } finally {
+        spy.mockRestore();
+        if (original) Object.defineProperty(Intl, 'supportedValuesOf', original);
+        else delete (Intl as { supportedValuesOf?: unknown }).supportedValuesOf;
+      }
+    });
   });
 });
