@@ -46,6 +46,19 @@ describe('testOutcome', () => {
     expect(testOutcome({ ...run(-1), status: 'failed' })?.tone).toBe('warning');
   });
 
+  it('says what the outcome is based on: the exit code, the stages, or an EDR kill', () => {
+    expect(testOutcome(run(126))?.basis).toBe('exit');
+    expect(testOutcome(run(999, { bundle_results: { bundle_category: 'intel-driven', controls: [
+      { control_id: 'S1', exit_code: 101 }, { control_id: 'S2', exit_code: 999 },
+    ] } }))?.basis).toBe('stages');
+    // a bundle with no blocked or unblocked stage falls back to its final exit
+    expect(testOutcome(run(999, { bundle_results: { bundle_category: 'intel-driven', controls: [
+      { control_id: 'S1', exit_code: 999 },
+    ] } }))?.basis).toBe('exit');
+    expect(testOutcome({ ...run(-1, { edr_terminated: { vendors: ['defender'], alert_ids: [] } }), status: 'failed' })?.basis).toBe('edr');
+    expect(testOutcome({ ...run(-1), status: 'failed' })?.basis).toBe('exit');
+  });
+
   it('is null for commands and for tests still in progress', () => {
     expect(testOutcome({ ...run(1), type: 'execute_command' })).toBeNull();
     expect(testOutcome({ type: 'execute_test', status: 'executing', result: null })).toBeNull();

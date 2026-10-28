@@ -55,3 +55,33 @@ describe('TaskStream test outcomes', () => {
     expect(header.textContent).not.toMatch(/✕/);
   });
 });
+
+describe('TaskStream bundle verdict vs final exit', () => {
+  const bundle: AgentTask = {
+    ...testTask('z', 999),
+    result: {
+      ...testTask('z', 999).result!,
+      bundle_results: { bundle_category: 'intel-driven', controls: [
+        { control_id: 'T1', exit_code: 101 }, { control_id: 'T2', exit_code: 101 }, { control_id: 'T3', exit_code: 101 },
+        { control_id: 'T4', exit_code: 999 }, { control_id: 'T5', exit_code: 0, skipped: true },
+      ] },
+    },
+  };
+  const one: TaskGroup = { ...group, batch_id: 'b2', tasks: [bundle], agent_count: 1, status_counts: { completed: 1 } };
+
+  it('labels the exit "Final exit", leaves it uncoloured, and states the stage verdict', () => {
+    render(<TaskStream groups={[one]} loading={false} />);
+    expect(screen.getByText('Final exit')).toBeTruthy();
+    expect(screen.queryByText('Exit code')).toBeNull();
+    const exit = screen.getByText(/test error, prerequisites not met/).parentElement!;
+    expect(exit.className).not.toContain('text-danger');
+    expect(screen.getByText('3 of 4 stages ran without being blocked.')).toBeTruthy();
+  });
+
+  it('keeps "Exit code" and no reason line when the exit code is the verdict', () => {
+    render(<TaskStream groups={[{ ...group, tasks: [testTask('s', 126)] }]} loading={false} />);
+    expect(screen.getByText('Exit code')).toBeTruthy();
+    expect(screen.queryByText(/Exit 126: execution prevented/)).toBeNull();
+  });
+});
+

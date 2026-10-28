@@ -6,7 +6,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { usePolling } from '@/hooks/usePolling';
 import { useSearchParams } from 'react-router-dom';
-import { UserPlus, Download, Unplug, Ban, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { UserPlus, Download, Unplug, Ban, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useHasPermission } from '@/hooks/useAppRole';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
@@ -53,6 +53,7 @@ import { Loading } from '../../components/shared/ui/Spinner';
 import { agentApi } from '@/services/api/agent';
 import { getLatestVersionMap } from '@/pages/endpoints/utils/versionHelpers';
 import type { AgentMetrics, FleetHealthMetrics, AgentSummary, ListAgentsRequest, Agent } from '@/types/agent';
+import { OutdatedAgentsRow } from '../../components/endpoints/agents/OutdatedAgentsRow';
 
 export default function AgentsPage() {
   const dispatch = useAppDispatch();
@@ -307,21 +308,11 @@ export default function AgentsPage() {
           });
           if (outdated.length === 0 || latestVersions.size === 0) return null;
           return (
-            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning-dim px-4 py-3">
-              <AlertTriangle className="h-5 w-5 shrink-0 text-warning" />
-              <p className="min-w-0 flex-1 basis-40 text-sm text-warning">
-                <span className="font-semibold">{outdated.length} of {agents.length} agent{agents.length !== 1 ? 's' : ''}</span>{' '}
-                running outdated versions
-              </p>
-              {canWriteAgent && (
-                <button
-                  onClick={() => handleTriggerUpdate(outdated.map((a) => a.id))}
-                  className="rounded-md border border-warning/40 bg-transparent px-3 py-1.5 text-xs font-medium text-warning transition-colors hover:bg-warning-dim"
-                >
-                  Update All ({outdated.length})
-                </button>
-              )}
-            </div>
+            <OutdatedAgentsRow
+              outdated={outdated.length}
+              total={agents.length}
+              onUpdateAll={canWriteAgent ? () => handleTriggerUpdate(outdated.map((a) => a.id)) : undefined}
+            />
           );
         })()}
 
