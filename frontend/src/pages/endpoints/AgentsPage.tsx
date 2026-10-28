@@ -34,8 +34,8 @@ import AgentDetailPanel from '../../components/endpoints/agents/AgentDetailPanel
 import RotateKeyDialog from '../../components/endpoints/agents/RotateKeyDialog';
 import UninstallDialog from '../../components/endpoints/agents/UninstallDialog';
 import BulkDeleteDialog from '../../components/endpoints/agents/BulkDeleteDialog';
-import { TagPicker } from '../../components/endpoints/agents/TagPicker';
-import type { TagChange, TagCount } from '../../components/endpoints/agents/agentTagRules';
+import { TagPicker } from '@/components/endpoints/agents/TagPicker';
+import type { TagChange, TagCount } from '@/components/endpoints/agents/agentTagRules';
 import EnrollmentSection from '@/components/endpoints/enrollment/EnrollmentSection';
 import {
   Dialog,
