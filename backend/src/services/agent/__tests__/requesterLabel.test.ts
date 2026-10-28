@@ -10,7 +10,7 @@ vi.mock('../database.js', async (importOriginal) => {
 const resolveUserLabel = vi.hoisted(() => vi.fn());
 vi.mock('../../notices/userLabel.js', () => ({ resolveUserLabel }));
 
-const { resolveRequesterLabel, resolveRequesterLabels } = await import('../requesterLabel.js');
+const { resolveRequesterLabel, resolveRequesterLabels, withoutEmail } = await import('../requesterLabel.js');
 
 describe('resolveRequesterLabel', () => {
   beforeEach(() => {
@@ -43,3 +43,31 @@ describe('resolveRequesterLabel', () => {
     expect(map.get('user_bob')).toBe('user_bob');
   });
 });
+
+describe('API key names stay in their org', () => {
+  beforeEach(() => {
+    testDb = createTestDatabase();
+    testDb.prepare(
+      `INSERT INTO api_keys (id, name, token_hash, key_prefix, scope, created_by, org_id) VALUES ('k2', 'Org B key', 'h2', 'ak_', 'read', 'u', 'org-b')`,
+    ).run();
+  });
+
+  it('does not name another org\'s key', async () => {
+    expect(await resolveRequesterLabel('apikey:k2', 'org-a')).toBe('API key');
+    expect(await resolveRequesterLabel('apikey:k2', 'org-b')).toBe('API key · Org B key');
+  });
+});
+
+describe('withoutEmail', () => {
+  it('keeps the name and drops the email', () => {
+    expect(withoutEmail('Jane Doe (jane@example.com)')).toBe('Jane Doe');
+  });
+  it('masks a label that is only an email', () => {
+    expect(withoutEmail('jane@example.com')).toBe('j…@example.com');
+  });
+  it('leaves other labels alone', () => {
+    expect(withoutEmail('API key · CI pipeline')).toBe('API key · CI pipeline');
+    expect(withoutEmail('user_123')).toBe('user_123');
+  });
+});
+

@@ -29,7 +29,7 @@ import { retryPendingIngestions } from '../../services/agent/ingestionWorker.ser
 import { alertsService } from '../integrations.routes.js';
 import { validate } from '../../middleware/validation.js';
 import { UpdateTaskStatusSchema, TaskResultSchema } from '../../schemas/agent.schemas.js';
-import { resolveRequesterLabels } from '../../services/agent/requesterLabel.js';
+import { resolveRequesterLabels, withoutEmail } from '../../services/agent/requesterLabel.js';
 import {
   CreateTaskSchema,
   CreateTaskBatchSchema,
@@ -368,12 +368,24 @@ adminTasksRouter.get(
     // who can read the notice settings see them as-is.
     const fullNoticeErrors = hasRequestPermission(req, 'integrations:read');
 
-    // Who asked for each task, resolved once per distinct creator (Clerk lookups are cached).
-    const labels = await resolveRequesterLabels(result.groups.flatMap((g) => g.tasks.map((t) => t.created_by)));
+    // Who asked for each task, resolved once per distinct creator (Clerk lookups
+    // are cached). It is personal data: only for tasks of the caller's own org
+    // (this list is not org-scoped yet), and emails only for user admins.
+    const inCallerOrg = (t: { org_id: string }) => !callerOrg || t.org_id === callerOrg;
+    const showEmails = hasRequestPermission(req, 'settings:users:manage');
+    const labels = await resolveRequesterLabels(
+      result.groups.flatMap((g) => g.tasks.filter(inCallerOrg).map((t) => t.created_by)),
+      callerOrg,
+    );
+    const requesterLabel = (t: { org_id: string; created_by: string }) => {
+      const label = inCallerOrg(t) ? labels.get(t.created_by) : undefined;
+      if (!label) return null;
+      return showEmails ? label : withoutEmail(label);
+    };
 
     // Strip env_vars from admin responses
     for (const group of result.groups) {
-      group.tasks = group.tasks.map((t) => ({ ...sanitizeTaskForAdmin(t), created_by_label: labels.get(t.created_by) ?? null }));
+      group.tasks = group.tasks.map((t) => ({ ...sanitizeTaskForAdmin(t), created_by_label: requesterLabel(t) }));
       group.payload = { ...group.payload, env_vars: undefined };
       if (group.notices && !fullNoticeErrors) group.notices = redactNoticeSummaries(group.notices);
     }
