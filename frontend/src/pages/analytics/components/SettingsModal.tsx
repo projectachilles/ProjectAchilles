@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Check, AlertCircle, Loader2, ShieldAlert } from 'lucide-react';
 import { analyticsApi } from '../../../services/api/analytics';
+import { fieldLabelClass } from '@/components/shared/ui/formStyles';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -129,7 +130,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
         <div className="p-4 space-y-4">
           {/* Connection Type */}
           <div>
-            <label className="block text-sm font-medium mb-2">Connection Type</label>
+            <label className={fieldLabelClass}>Connection Type</label>
             <div className="flex gap-4">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -157,7 +158,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
           {/* Cloud ID (for cloud) */}
           {connectionType === 'cloud' && (
             <div>
-              <label className="block text-sm font-medium mb-1">Cloud ID</label>
+              <label className={fieldLabelClass}>Cloud ID</label>
               <input
                 type="text"
                 value={cloudId}
@@ -174,7 +175,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
           {/* Node URL (for direct) */}
           {connectionType === 'direct' && (
             <div>
-              <label className="block text-sm font-medium mb-1">Elasticsearch URL</label>
+              <label className={fieldLabelClass}>Elasticsearch URL</label>
               <input
                 type="text"
                 value={node}
@@ -187,7 +188,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
 
           {/* API Key */}
           <div>
-            <label className="block text-sm font-medium mb-1">API Key</label>
+            <label className={fieldLabelClass}>API Key</label>
             <input
               type="password"
               value={apiKey}
@@ -205,7 +206,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Username</label>
+                  <label className={fieldLabelClass}>Username</label>
                   <input
                     type="text"
                     value={username}
@@ -215,7 +216,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Password</label>
+                  <label className={fieldLabelClass}>Password</label>
                   <input
                     type="password"
                     value={password}
@@ -233,7 +234,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
                   For Elasticsearch using a self-signed or custom-CA certificate.
                 </p>
 
-                <label className="block text-sm font-medium mb-1">Custom CA Certificate (PEM)</label>
+                <label className={fieldLabelClass}>Custom CA Certificate (PEM)</label>
                 <textarea
                   rows={5}
                   spellCheck={false}
@@ -277,7 +278,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
 
           {/* Index Pattern */}
           <div>
-            <label className="block text-sm font-medium mb-1">Index Pattern</label>
+            <label className={fieldLabelClass}>Index Pattern</label>
             <input
               type="text"
               value={indexPattern}
@@ -289,7 +290,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
 
           {/* Write Index Prefix */}
           <div>
-            <label htmlFor="modal-write-index-prefix" className="block text-sm font-medium mb-1">
+            <label htmlFor="modal-write-index-prefix" className={fieldLabelClass}>
               Write Index Prefix
             </label>
             <input
@@ -307,7 +308,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
 
           {/* Write Index Rollover */}
           <div>
-            <label htmlFor="modal-write-index-rollover" className="block text-sm font-medium mb-1">
+            <label htmlFor="modal-write-index-rollover" className={fieldLabelClass}>
               Write index rollover
             </label>
             <select

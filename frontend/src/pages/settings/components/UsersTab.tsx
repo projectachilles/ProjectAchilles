@@ -12,6 +12,7 @@ import { Input } from '@/components/shared/ui/Input';
 import { Button } from '@/components/shared/ui/Button';
 import { AlertTriangle, RefreshCw, Send, X, ChevronDown, Check, Minus, Loader2, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { fieldControlClass } from '@/components/shared/ui/formStyles';
 
 function timeAgo(epoch: number): string {
   const seconds = Math.floor((Date.now() - epoch) / 1000);
@@ -193,7 +194,7 @@ export function UsersTab() {
           value={inviteRole}
           onChange={(e) => setInviteRole(e.target.value as AppRole)}
           disabled={inviting}
-          className="h-[42px] text-sm rounded-lg border border-border bg-background px-3 focus:outline-none focus:ring-2 focus:ring-primary/50"
+          className={cn(fieldControlClass, 'w-auto')}
         >
           {VALID_ROLES.map((r) => (
             <option key={r} value={r}>{ROLE_LABELS[r]}</option>
@@ -290,7 +291,7 @@ export function UsersTab() {
                   disabled={pendingUserId === u.id}
                   value={u.role ?? ''}
                   onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                  className="text-sm rounded-lg border border-border bg-background px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  className={cn(fieldControlClass, 'h-8 w-auto px-2')}
                 >
                   <option value="">No role (read-only)</option>
                   {VALID_ROLES.map((r) => (

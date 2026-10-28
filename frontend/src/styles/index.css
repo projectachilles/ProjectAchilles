@@ -154,6 +154,12 @@
   border-color: var(--color-border);
 }
 
+/* Native checkboxes/radios in forms take the accent instead of the browser blue. */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--color-accent);
+}
+
 body {
   background-color: var(--color-background);
   color: var(--color-foreground);

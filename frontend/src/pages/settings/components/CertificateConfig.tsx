@@ -7,6 +7,7 @@ import { Alert } from '@/components/shared/ui/Alert';
 import { Badge } from '@/components/shared/ui/Badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/shared/ui/Tabs';
 import { Download, Trash2, Upload, KeyRound } from 'lucide-react';
+import { fieldLabelClass } from '@/components/shared/ui/formStyles';
 
 interface CertificateConfigProps {
   canDelete?: boolean;
@@ -190,7 +191,7 @@ export function CertificateConfig({ canDelete = true, onStatusChange }: Certific
           <TabsContent value="upload">
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1.5">PFX/P12 File</label>
+                <label className={fieldLabelClass}>PFX/P12 File</label>
                 <input
                   type="file"
                   accept=".pfx,.p12"

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle, Info, ExternalLink, Unlink } from 'lucide-react';
+import { CheckCircle, ExternalLink, Unlink } from 'lucide-react';
 import { integrationsApi } from '@/services/api/integrations';
 import type { CrowdStrikeRegion } from '@/services/api/integrations';
 import { Input } from '@/components/shared/ui/Input';
@@ -170,7 +170,6 @@ export function CrowdStrikeConfig({ onStatusChange }: CrowdStrikeConfigProps) {
       {/* Env override notice */}
       {envConfigured && (
         <Alert variant="default">
-          <Info className="w-4 h-4" />
           <div>
             <p className="font-medium">Environment variable configuration detected</p>
             <p className="text-sm text-muted-foreground mt-1">
@@ -183,7 +182,6 @@ export function CrowdStrikeConfig({ onStatusChange }: CrowdStrikeConfigProps) {
       {/* Edit mode info banner */}
       {editMode && !envConfigured && (
         <Alert variant="default">
-          <Info className="w-4 h-4" />
           <div>
             <p className="font-medium">Editing existing configuration</p>
             <p className="text-sm text-muted-foreground mt-1">
@@ -195,7 +193,6 @@ export function CrowdStrikeConfig({ onStatusChange }: CrowdStrikeConfigProps) {
 
       {successMessage && (
         <Alert variant="success">
-          <CheckCircle className="w-4 h-4" />
           {successMessage}
         </Alert>
       )}

@@ -28,19 +28,19 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
           />
           <div
             className={`
-              w-5 h-5 rounded-lg border flex items-center justify-center
+              h-4 w-4 rounded border flex items-center justify-center
               transition-colors
-              peer-focus:ring-2 peer-focus:ring-primary/50
+              peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent
               peer-disabled:opacity-50 peer-disabled:cursor-not-allowed
               ${isActive
-                ? 'bg-primary border-primary'
-                : 'border-border bg-background'
+                ? 'bg-accent border-accent'
+                : 'border-border bg-raised'
               }
               ${className}
             `}
           >
-            {indeterminate && !checked && <Minus className="w-3.5 h-3.5 text-primary-foreground" />}
-            {checked && <Check className="w-3.5 h-3.5 text-primary-foreground" />}
+            {indeterminate && !checked && <Minus className="h-3 w-3 text-accent-foreground" />}
+            {checked && <Check className="h-3 w-3 text-accent-foreground" />}
           </div>
         </div>
         {label && (

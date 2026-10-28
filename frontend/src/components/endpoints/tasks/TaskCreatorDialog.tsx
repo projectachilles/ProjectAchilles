@@ -5,7 +5,7 @@ import { Button } from '@/components/shared/ui/Button';
 import { Input } from '@/components/shared/ui/Input';
 import { Switch } from '@/components/shared/ui/Switch';
 import { Alert } from '@/components/shared/ui/Alert';
-import { Search, Tag, X, Play, Calendar, Terminal, AlertTriangle, ChevronRight, ChevronDown } from 'lucide-react';
+import { Search, Tag, X, Play, Calendar, Terminal, ChevronRight, ChevronDown } from 'lucide-react';
 import { useHasPermission } from '@/hooks/useAppRole';
 import { useCapabilities } from '@/hooks/useCapabilities';
 import { agentApi } from '@/services/api/agent';
@@ -15,6 +15,8 @@ import { integrationsApi } from '@/services/api/integrations';
 import type { AgentSummary, TaskTestMetadata, ScheduleType, ScheduleConfig, RandomizeMode } from '@/types/agent';
 import type { TestMetadata, BuildInfo } from '@/types/test';
 import { COMMON_TIMEZONES } from '@/lib/timezones';
+import { fieldControlClass, fieldLabelClass, fieldTextareaClass } from '@/components/shared/ui/formStyles';
+import { cn } from '@/lib/utils';
 
 interface AvailableTest {
   test: TestMetadata;
@@ -56,9 +58,9 @@ function TimingModeSelect({
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium mb-1.5">Timing</label>
+      <label className={fieldLabelClass}>Timing</label>
       <select
-        className="w-full max-w-xs rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+        className={cn(fieldControlClass, 'max-w-xs')}
         value={mode}
         onChange={(e) => onChange(e.target.value as RandomizeMode)}
       >
@@ -416,18 +418,17 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
           <div className="space-y-4">
             {/* === Agent Selector (shared) === */}
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label className={fieldLabelClass}>
                 Target Agents ({targetAgentIds.length} selected)
               </label>
 
               <div className="flex items-center gap-2 mb-2">
                 <div className="relative flex-1">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
+                    leftIcon={<Search className="h-4 w-4" />}
                     placeholder="Search hostname..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-8"
                   />
                 </div>
                 <Switch
@@ -510,7 +511,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
             {/* === Task Mode Toggle (hidden unless the user may send commands) === */}
             {canSendCommand && (
             <div>
-              <label className="block text-sm font-medium mb-1.5">Task Type</label>
+              <label className={fieldLabelClass}>Task Type</label>
               <div className="flex gap-1 p-0.5 bg-raised rounded-lg w-fit">
                 <button
                   type="button"
@@ -543,9 +544,9 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
             {/* === Command Input (command mode only) === */}
             {taskMode === 'command' && (
               <div>
-                <label className="block text-sm font-medium mb-1.5">Shell Command</label>
+                <label className={fieldLabelClass}>Shell Command</label>
                 <textarea
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground font-mono text-sm min-h-[80px] resize-y"
+                  className={cn(fieldTextareaClass, 'min-h-[80px] resize-y font-mono')}
                   placeholder="e.g. whoami && hostname"
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
@@ -559,15 +560,15 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
 
             {/* === Test Selector (test mode only) === */}
             {taskMode === 'test' && <div>
-              <label className="block text-sm font-medium mb-1.5">Security Test</label>
+              <label className={fieldLabelClass}>Security Test</label>
               <div
                 className="relative"
                 onBlur={() => window.setTimeout(() => setTestDropdownOpen(false), 150)}
               >
                 <div className="flex gap-2">
                   <div className="relative flex-1">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
+                      leftIcon={<Search className="h-4 w-4" />}
                       placeholder={loadingTests ? 'Loading tests...' : 'Search tests...'}
                       value={testUuid ? testName : testSearchQuery}
                       onChange={(e) => {
@@ -580,8 +581,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                         setTestDropdownOpen(true);
                       }}
                       onFocus={() => { if (!testUuid) setTestDropdownOpen(true); }}
-                      className="pl-8"
-                      disabled={loadingTests}
+                        disabled={loadingTests}
                     />
                   </div>
                   {testUuid && (
@@ -651,7 +651,6 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
             {/* === Azure configuration warning for identity-tenant tests === */}
             {needsAzureWarning && (
               <Alert variant="destructive">
-                <AlertTriangle className="w-4 h-4" />
                 <div>
                   <p className="font-medium">Azure credentials not configured</p>
                   <p className="text-sm mt-1">
@@ -689,9 +688,9 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                       onChange={(e) => setTimeout_(e.target.value)}
                     />
                     <div>
-                      <label className="block text-sm font-medium mb-1.5">Priority</label>
+                      <label className={fieldLabelClass}>Priority</label>
                       <select
-                        className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                        className={fieldControlClass}
                         value={priority}
                         onChange={(e) => setPriority(e.target.value)}
                       >
@@ -715,10 +714,10 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                       </button>
                       {showAdvanced && (
                         <div id="task-advanced-run-now" className="mt-2">
-                          <label className="block text-sm font-medium mb-1.5" htmlFor="task-target-index">Target Index</label>
+                          <label className={fieldLabelClass} htmlFor="task-target-index">Target Index</label>
                           <select
                             id="task-target-index"
-                            className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                            className={fieldControlClass}
                             value={targetIndex}
                             onChange={(e) => setTargetIndex(e.target.value)}
                             disabled={indicesLoading}
@@ -747,7 +746,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
 
                   {/* Frequency pills */}
                   <div>
-                    <label className="block text-sm font-medium mb-1.5">Frequency</label>
+                    <label className={fieldLabelClass}>Frequency</label>
                     <div className="flex gap-2">
                       {(['once', 'daily', 'weekly', 'monthly'] as ScheduleType[]).map((t) => (
                         <button
@@ -772,10 +771,10 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                       {randomizedOnce && <TimingModeSelect mode={randomizeMode} onChange={setRandomizeMode} />}
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-sm font-medium mb-1.5">Date</label>
+                          <label className={fieldLabelClass}>Date</label>
                           <input
                             type="date"
-                            className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                            className={fieldControlClass}
                             value={scheduleDate}
                             onChange={(e) => setScheduleDate(e.target.value)}
                             min={new Date().toISOString().slice(0, 10)}
@@ -783,10 +782,10 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                         </div>
                         {randomizeMode === 'fixed' && (
                           <div>
-                            <label className="block text-sm font-medium mb-1.5">Time</label>
+                            <label className={fieldLabelClass}>Time</label>
                             <input
                               type="time"
-                              className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                              className={fieldControlClass}
                               value={scheduleTime}
                               onChange={(e) => setScheduleTime(e.target.value)}
                             />
@@ -805,10 +804,10 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                       <TimingModeSelect mode={randomizeMode} onChange={setRandomizeMode} />
                       {randomizeMode === 'fixed' ? (
                         <div>
-                          <label className="block text-sm font-medium mb-1.5">Time</label>
+                          <label className={fieldLabelClass}>Time</label>
                           <input
                             type="time"
-                            className="w-full max-w-48 rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                            className={cn(fieldControlClass, 'max-w-48')}
                             value={scheduleTime}
                             onChange={(e) => setScheduleTime(e.target.value)}
                           />
@@ -823,7 +822,7 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                   {scheduleType === 'weekly' && (
                     <div className="space-y-3">
                       <div>
-                        <label className="block text-sm font-medium mb-1.5">Days</label>
+                        <label className={fieldLabelClass}>Days</label>
                         <div className="flex gap-1.5">
                           {DAY_LABELS.map((label, idx) => (
                             <button
@@ -844,10 +843,10 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                       <TimingModeSelect mode={randomizeMode} onChange={setRandomizeMode} />
                       {randomizeMode === 'fixed' ? (
                         <div>
-                          <label className="block text-sm font-medium mb-1.5">Time</label>
+                          <label className={fieldLabelClass}>Time</label>
                           <input
                             type="time"
-                            className="w-full max-w-48 rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                            className={cn(fieldControlClass, 'max-w-48')}
                             value={scheduleTime}
                             onChange={(e) => setScheduleTime(e.target.value)}
                           />
@@ -863,9 +862,9 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                     <div className="space-y-3">
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-sm font-medium mb-1.5">Day of Month</label>
+                          <label className={fieldLabelClass}>Day of Month</label>
                           <select
-                            className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                            className={fieldControlClass}
                             value={scheduleDayOfMonth}
                             onChange={(e) => setScheduleDayOfMonth(parseInt(e.target.value))}
                           >
@@ -876,10 +875,10 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                         </div>
                         {randomizeMode === 'fixed' && (
                           <div>
-                            <label className="block text-sm font-medium mb-1.5">Time</label>
+                            <label className={fieldLabelClass}>Time</label>
                             <input
                               type="time"
-                              className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                              className={fieldControlClass}
                               value={scheduleTime}
                               onChange={(e) => setScheduleTime(e.target.value)}
                             />
@@ -895,9 +894,9 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
 
                   {/* Timezone */}
                   <div>
-                    <label className="block text-sm font-medium mb-1.5">Timezone</label>
+                    <label className={fieldLabelClass}>Timezone</label>
                     <select
-                      className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                      className={fieldControlClass}
                       value={scheduleTimezone}
                       onChange={(e) => setScheduleTimezone(e.target.value)}
                     >
@@ -919,9 +918,9 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                       onChange={(e) => setTimeout_(e.target.value)}
                     />
                     <div>
-                      <label className="block text-sm font-medium mb-1.5">Priority</label>
+                      <label className={fieldLabelClass}>Priority</label>
                       <select
-                        className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                        className={fieldControlClass}
                         value={priority}
                         onChange={(e) => setPriority(e.target.value)}
                       >
@@ -946,10 +945,10 @@ export default function TaskCreatorDialog({ open, onClose, selectedAgents = [], 
                       </button>
                       {showAdvanced && (
                         <div id="task-advanced-sched" className="mt-2">
-                          <label className="block text-sm font-medium mb-1.5" htmlFor="task-target-index-sched">Target Index</label>
+                          <label className={fieldLabelClass} htmlFor="task-target-index-sched">Target Index</label>
                           <select
                             id="task-target-index-sched"
-                            className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground"
+                            className={fieldControlClass}
                             value={targetIndex}
                             onChange={(e) => setTargetIndex(e.target.value)}
                             disabled={indicesLoading}

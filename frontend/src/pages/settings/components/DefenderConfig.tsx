@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { CheckCircle, Info, ExternalLink, Unlink, Upload, FileKey } from 'lucide-react';
+import { CheckCircle, ExternalLink, Unlink, Upload, FileKey } from 'lucide-react';
 import { integrationsApi } from '@/services/api/integrations';
 import type { DefenderAuthMethod } from '@/services/api/integrations';
 import { Input } from '@/components/shared/ui/Input';
@@ -7,6 +7,8 @@ import { Button } from '@/components/shared/ui/Button';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Spinner } from '@/components/shared/ui/Spinner';
 import { DefenderAutoResolveSection } from './DefenderAutoResolveSection';
+import { fieldLabelClass, fieldTextareaClass } from '@/components/shared/ui/formStyles';
+import { cn } from '@/lib/utils';
 
 interface DefenderConfigProps {
   onStatusChange?: (configured: boolean) => void;
@@ -204,7 +206,6 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
       {/* Env override notice */}
       {envConfigured && (
         <Alert variant="default">
-          <Info className="w-4 h-4" />
           <div>
             <p className="font-medium">Environment variable configuration detected</p>
             <p className="text-sm text-muted-foreground mt-1">
@@ -217,7 +218,6 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
       {/* Edit mode info banner */}
       {editMode && !envConfigured && (
         <Alert variant="default">
-          <Info className="w-4 h-4" />
           <div>
             <p className="font-medium">Editing existing configuration</p>
             <p className="text-sm text-muted-foreground mt-1">
@@ -229,7 +229,6 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
 
       {successMessage && (
         <Alert variant="success">
-          <CheckCircle className="w-4 h-4" />
           {successMessage}
         </Alert>
       )}
@@ -328,7 +327,7 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
           {certInputMode === 'pfx' ? (
             <div className="space-y-3">
               <div className="space-y-1">
-                <label className="text-sm font-medium">PFX / P12 File</label>
+                <label className={fieldLabelClass}>PFX / P12 File</label>
                 <div
                   className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground hover:border-primary/50 hover:bg-raised/30 transition-colors"
                   onClick={() => fileInputRef.current?.click()}
@@ -371,7 +370,6 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
               </Button>
               {pfxParsed && (
                 <Alert variant="success">
-                  <CheckCircle className="w-4 h-4" />
                   <div className="text-xs space-y-0.5">
                     <p className="font-medium">Certificate extracted</p>
                     <p>Subject: {pfxParsed.subjectCn}</p>
@@ -391,9 +389,9 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
                 helperText="SHA-1 fingerprint shown on your App Registration → Certificates & secrets"
               />
               <div className="space-y-1">
-                <label className="text-sm font-medium">Private Key (PEM)</label>
+                <label className={fieldLabelClass}>Private Key (PEM)</label>
                 <textarea
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                  className={cn(fieldTextareaClass, 'resize-none font-mono text-xs')}
                   rows={6}
                   placeholder={editMode ? 'Leave blank to keep current' : '-----BEGIN PRIVATE KEY-----\n...'}
                   value={privateKeyPem}

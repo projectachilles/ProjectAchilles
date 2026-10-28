@@ -1,5 +1,7 @@
 import type { SelectHTMLAttributes } from 'react';
 import { forwardRef } from 'react';
+import { cn } from '@/lib/utils';
+import { fieldControlClass, fieldErrorClass, fieldLabelClass } from './formStyles';
 
 interface SelectOption {
   value: string;
@@ -22,7 +24,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
         {label && (
           <label
             htmlFor={selectId}
-            className="block text-sm font-medium mb-1.5 text-foreground"
+            className={fieldLabelClass}
           >
             {label}
           </label>
@@ -30,14 +32,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
         <select
           ref={ref}
           id={selectId}
-          className={`
-            w-full rounded-lg border border-border bg-background px-3 py-2.5
-            text-foreground
-            focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary
-            disabled:cursor-not-allowed disabled:opacity-50
-            ${error ? 'border-destructive focus:ring-destructive/50' : ''}
-            ${className}
-          `}
+          className={cn(fieldControlClass, error && 'border-danger', className)}
           {...props}
         >
           {placeholder && (
@@ -52,7 +47,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
           ))}
         </select>
         {error && (
-          <p className="mt-1.5 text-sm text-destructive">{error}</p>
+          <p className={fieldErrorClass}>{error}</p>
         )}
       </div>
     );

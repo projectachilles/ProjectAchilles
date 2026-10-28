@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle, Send } from 'lucide-react';
+import { Send } from 'lucide-react';
 import { noticesApi } from '@/services/api/notices';
 import type { NoticeDigestStatus, NoticeTestResult } from '@/services/api/notices';
 import { Input } from '@/components/shared/ui/Input';
@@ -8,6 +8,7 @@ import { Alert } from '@/components/shared/ui/Alert';
 import { Spinner } from '@/components/shared/ui/Spinner';
 import { COMMON_TIMEZONES } from '@/lib/timezones';
 import { HeldNoticesPanel } from './HeldNoticesPanel';
+import { fieldControlClass, fieldLabelClass, fieldTextareaClass } from '@/components/shared/ui/formStyles';
 
 interface PreExecutionNoticesConfigProps {
   onStatusChange?: (enabled: boolean) => void;
@@ -179,7 +180,6 @@ export function PreExecutionNoticesConfig({ onStatusChange }: PreExecutionNotice
       <HeldNoticesPanel />
       {successMessage && (
         <Alert variant="success">
-          <CheckCircle className="w-4 h-4" />
           {successMessage}
         </Alert>
       )}
@@ -207,7 +207,7 @@ export function PreExecutionNoticesConfig({ onStatusChange }: PreExecutionNotice
         </div>
 
         <div className="w-full">
-          <label htmlFor="notice-recipients" className="block text-sm font-medium mb-1.5 text-foreground">
+          <label htmlFor="notice-recipients" className={fieldLabelClass}>
             Recipients
           </label>
           <textarea
@@ -216,7 +216,7 @@ export function PreExecutionNoticesConfig({ onStatusChange }: PreExecutionNotice
             value={recipients}
             onChange={(e) => setRecipients(e.target.value)}
             placeholder="secops@example.com, oncall@example.com"
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            className={fieldTextareaClass}
           />
           <p className="mt-1 text-xs text-muted-foreground">
             Comma or newline separated (max 50). Save before sending a test notice.
@@ -281,12 +281,12 @@ export function PreExecutionNoticesConfig({ onStatusChange }: PreExecutionNotice
 
         {digestEnabled && (
           <div>
-            <label htmlFor="digest-timezone" className="block text-sm font-medium mb-1.5 text-foreground">
+            <label htmlFor="digest-timezone" className={fieldLabelClass}>
               Digest timezone
             </label>
             <select
               id="digest-timezone"
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+              className={fieldControlClass}
               value={digestTimezone}
               onChange={(e) => {
                 setDigestTimezone(e.target.value);

@@ -3,6 +3,7 @@ import { Input } from '@/components/shared/ui/Input';
 import { Switch } from '@/components/shared/ui/Switch';
 import { Search, Tag } from 'lucide-react';
 import type { AgentSummary } from '@/types/agent';
+import { fieldLabelClass } from '@/components/shared/ui/formStyles';
 
 interface AgentSelectorProps {
   agents: AgentSummary[];
@@ -66,18 +67,17 @@ export default function AgentSelector({ agents, targetAgentIds, onSelectionChang
 
   return (
     <div>
-      <label className="block text-sm font-medium mb-1">
+      <label className={fieldLabelClass}>
         Target Agents ({targetAgentIds.length} selected)
       </label>
 
       <div className="flex items-center gap-2 mb-2">
         <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
+            leftIcon={<Search className="h-4 w-4" />}
             placeholder="Search hostname..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-8"
           />
         </div>
         <Switch

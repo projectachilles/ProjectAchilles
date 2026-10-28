@@ -52,7 +52,7 @@ describe('Button', () => {
     render(<Button>Default</Button>);
 
     const btn = screen.getByRole('button');
-    expect(btn.className).toContain('h-10');
+    expect(btn.className).toContain('h-9');
   });
 
   it('applies sm size', () => {
@@ -66,14 +66,14 @@ describe('Button', () => {
     render(<Button size="lg">Large</Button>);
 
     const btn = screen.getByRole('button');
-    expect(btn.className).toContain('h-12');
+    expect(btn.className).toContain('h-10');
   });
 
   it('applies icon size', () => {
     render(<Button size="icon">X</Button>);
 
     const btn = screen.getByRole('button');
-    expect(btn.className).toContain('w-10');
+    expect(btn.className).toContain('w-9');
   });
 
   it('handles click events', async () => {

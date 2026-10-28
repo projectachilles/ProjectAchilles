@@ -3,6 +3,7 @@ import { AlertTriangle } from 'lucide-react';
 import { noticesApi, type NoticeListItem } from '@/services/api/notices';
 import { Button } from '@/components/shared/ui/Button';
 import { Alert } from '@/components/shared/ui/Alert';
+import { fieldTextareaClass } from '@/components/shared/ui/formStyles';
 
 const SOURCE_LABEL: Record<NoticeListItem['source_type'], string> = {
   run_now: 'Run Now',
@@ -97,7 +98,7 @@ export function HeldNoticesPanel() {
                       value={reason}
                       onChange={(e) => setReason(e.target.value)}
                       placeholder="e.g. Mail server down; SOC informed by phone (ticket CHG-1234)"
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      className={fieldTextareaClass}
                     />
                     {error && <Alert variant="destructive">{error}</Alert>}
                     <div className="flex gap-2">
