@@ -85,22 +85,24 @@ If a binary's embedded version differs from the version it's registered as, ever
 
 Every new build is a binary no endpoint has seen before. The Defender attack surface reduction (ASR) rule **"Block executable files from running unless they meet a prevalence, age, or trusted list criterion"** (`01443614-cd74-433a-b99e-2ecdc07bfc25`) blocks exactly that. In **Block** mode, Windows refuses to start the updated agent ("Access is denied", Defender event **1121**). Agents 0.6.6 and later detect this and roll back. Older agents go offline.
 
-Add a **per-rule exclusion** for the agent binary. In Intune: **Endpoint security → Attack surface reduction →** your ASR policy **→** the rule above **→ ASR Only Per Rule Exclusions → Add**:
+Add a **per-rule exclusion** for the agent folder, for this rule only. In Intune: **Endpoint security → Attack surface reduction →** your ASR policy **→** the rule above **→ ASR Only Per Rule Exclusions → Add**:
 
 ```
-C:\F0\achilles-agent.exe
+C:\F0
 ```
+
+The same exclusion lets the security tests and their stage binaries start. [Endpoint Prerequisites](../../deployment/endpoint-prerequisites#3-defender-asr-per-rule-exclusion-for-cf0) has the Group Policy steps, why it is safe, and what it costs.
 
 :::danger[Keep the exclusion narrow]
-- **Exclude the exact file, not `C:\F0\`.** Security tests run from `C:\F0\tasks\`, and ASR has to keep judging them. Excluding the folder makes blocked tests pass and inflates the Defense Score.
-- **Use the per-rule list, not the global "ASR Only Exclusions".** The global list exempts the path from every ASR rule.
-- **Don't use a Defender for Endpoint certificate "Allow" indicator.** The agent and all test binaries are signed with the same certificate, so trusting it would let every test through.
+- **Use the per-rule list, not the global "ASR Only Exclusions".** The global list exempts the folder from every ASR rule, so the tests would no longer be judged by them.
+- **Exclude the folder only where it is locked.** Agents 0.7.1 and later (and the bootstrap script) restrict `C:\F0` to SYSTEM and Administrators. On an older agent installed without the bootstrap script, update the agent first.
+- **Don't add a Defender Antivirus exclusion or a certificate "Allow" indicator.** The agent and all test binaries are signed with the same certificate, so trusting it would let every test through.
 :::
 
 To confirm on an endpoint:
-- A Defender **event 5007** (configuration changed) naming `achilles-agent.exe` shows the policy arrived.
+- A Defender **event 5007** (configuration changed) shows the policy arrived.
 - The best proof is the next update: the agent keeps heartbeating on the new version.
-- To confirm tests are still covered, run a test ASR normally blocks and check that event 1121 names the **test binary**.
+- The other ASR rules still apply to the tests: when a test trips one of them, event 1121 names that rule's GUID, not `01443614`.
 
 ## Troubleshooting
 

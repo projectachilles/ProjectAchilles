@@ -108,6 +108,7 @@ Clerk development instances use shared OAuth credentials. **Production instances
 - [ ] Analytics: Dashboard renders with ES data
 - [ ] Agent: Enrollment token creation
 - [ ] Agent: Agent management page loads
+- [ ] Endpoints: signing certificate trusted, ASR exclusion for `C:\F0` in place, pilot checks pass ([Endpoint Prerequisites](./endpoint-prerequisites#7-verify-on-a-pilot-endpoint))
 
 ### API Verification
 

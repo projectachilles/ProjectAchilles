@@ -108,6 +108,13 @@ For production deployments, you'll need:
 
 Domain setup is covered in each deployment target's guide.
 
+## Endpoints
+
+The server is only half the setup. Before the first test runs on Windows
+endpoints, your endpoint team trusts the code-signing certificate and adds a
+Defender ASR exclusion; without them most tests are blocked before they start and
+report nothing. See [Endpoint Prerequisites](./endpoint-prerequisites).
+
 ## Environment Variables
 
 See [Environment Variables Reference](./environment-variables) for the complete list per deployment target.

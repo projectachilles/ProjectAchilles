@@ -76,7 +76,7 @@ A Microsoft Defender policy can terminate `achilles-agent.exe` (or the test bina
 
 These alerts stay open in Microsoft Defender: Achilles links them to the run but never auto-resolves them. Triage them like any other alert.
 
-Do not add an agent exclusion in Microsoft Defender to stop this. The agent launches the test binaries, so a child-process exclusion would exempt the tests too and the run would no longer measure your protection. This is the same reasoning as the Defender ASR advice to exclude only `C:\F0\achilles-agent.exe` per rule, never the `C:\F0` folder.
+Do not add an agent exclusion in Microsoft Defender to stop this. The agent launches the test binaries, so a child-process exclusion would exempt the tests too and the run would no longer measure your protection. This is why the only exclusion ProjectAchilles asks for is a per-rule one, for the ASR prevalence rule alone ([Endpoint Prerequisites](../../deployment/endpoint-prerequisites#3-defender-asr-per-rule-exclusion-for-cf0)).
 
 ## Architecture
 

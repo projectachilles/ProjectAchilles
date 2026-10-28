@@ -158,9 +158,10 @@ SSH, then on each endpoint, from an elevated PowerShell:
 powershell -ExecutionPolicy Bypass -File .\bootstrap-windows.ps1 -Token "<enrollment-token>"
 ```
 
-Create the enrollment token in the UI's agent management. Details, the Defender ASR
-exclusion for `C:\F0\achilles-agent.exe`, and troubleshooting are in
-[Server Installer: enroll with the bootstrap script](./server-installer#distributing-trust-and-enrolling-windows-endpoints).
+Create the enrollment token in the UI's agent management. Details and troubleshooting
+are in [Server Installer: enroll with the bootstrap script](./server-installer#distributing-trust-and-enrolling-windows-endpoints).
+Prepare the endpoints first (signing certificate, Defender ASR exclusion for `C:\F0`):
+[Endpoint Prerequisites](./endpoint-prerequisites).
 
 ## 6. Backup, restore and migration
 

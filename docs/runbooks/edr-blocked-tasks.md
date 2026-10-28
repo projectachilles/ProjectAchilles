@@ -59,7 +59,7 @@ This eliminates the EDR-block for the affected bundle entirely. **Effort is bund
 
 ### 4. Defender ASR exclusion (for ASR-specific blocks)
 
-If Event Viewer shows the block came from `Microsoft-Windows-Windows Defender/Operational` event 1121, the ASR rule "**Block executable files from running unless they meet a prevalence, age, or trusted list criterion**" is the trigger. Add an ASR exclusion for `C:\F0\tasks\*` via Intune — Endpoint Security → Attack Surface Reduction.
+If Event Viewer shows the block came from `Microsoft-Windows-Windows Defender/Operational` event 1121, the ASR rule "**Block executable files from running unless they meet a prevalence, age, or trusted list criterion**" (`01443614`) is the trigger. No certificate satisfies it. Add a **per-rule** exclusion for `C:\F0`, for that rule only, via Intune (Endpoint Security → Attack Surface Reduction → the rule → ASR Only Per Rule Exclusions) or GPO. Never the global "ASR Only Exclusions" list. Customer-facing steps and checks: `wiki/docs/deployment/endpoint-prerequisites.md`.
 
 ## After remediation — verify
 

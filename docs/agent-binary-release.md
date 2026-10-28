@@ -177,7 +177,7 @@ The frontend fetches this from `GET /api/agent/config` and substitutes it into t
    ```
 2. Verify the embedded version (`go version -m … | grep ldflags`), then register the new binaries (same commands as step 2; `INSERT OR REPLACE` overwrites per version+os+arch).
 3. Connected agents pick up the update on their next check of `GET /api/agent/version`: at startup, every `update_interval` (default 1 h), or immediately via **Update** on the Agents page.
-4. Roll out one platform first and watch one or two online agents keep heartbeating on the new version. To stop a rollout, delete the version. On Windows endpoints with Defender ASR in Block mode, add the per-rule exclusion for `C:\F0\achilles-agent.exe` first (see [Agent Self-Updates → Endpoint security](../wiki/docs/user-guide/agent-management/self-updates.md#endpoint-security-microsoft-defender-asr)).
+4. Roll out one platform first and watch one or two online agents keep heartbeating on the new version. To stop a rollout, delete the version. On Windows endpoints with Defender ASR in Block mode, add the per-rule exclusion for `C:\F0` (that rule only) first (see [Endpoint Prerequisites](../wiki/docs/deployment/endpoint-prerequisites.md)).
 
 Set `"mandatory": true` to force agents to update before executing any further tasks.
 

@@ -28,10 +28,10 @@ ProjectAchilles can cross-compile test binaries directly from the web UI using t
 ## Code Signing
 
 ### Windows (Authenticode)
-Windows binaries are signed with Authenticode using `osslsigncode` and a PFX certificate. Manage certificates in [Settings → Certificates](../settings/certificates).
+Windows binaries are signed with Authenticode using `osslsigncode` and a PFX certificate. Manage certificates in [Settings → Certificates](../settings/certificates). What signing does and doesn't get past on an endpoint, and what to set up there before the first run, is in [Endpoint Prerequisites](../../deployment/endpoint-prerequisites).
 
 ### macOS (Ad-Hoc)
-macOS binaries receive ad-hoc signatures via `rcodesign`. No certificate is required — the signature prevents Gatekeeper from quarantining the binary.
+macOS binaries receive ad-hoc signatures via `rcodesign`. No certificate is required. Apple silicon refuses to run code without a signature, and an ad-hoc one satisfies it.
 
 ### Linux
 Linux binaries are not signed.

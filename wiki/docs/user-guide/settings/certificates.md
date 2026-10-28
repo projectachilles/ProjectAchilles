@@ -10,6 +10,11 @@ description: "Manage code signing certificates for Windows Authenticode signing 
 
 ProjectAchilles supports up to **5 certificates** (uploaded + generated combined) for code signing Windows binaries.
 
+Signing alone doesn't get a test past every endpoint control. Before the first run,
+work through [Endpoint Prerequisites](../../deployment/endpoint-prerequisites):
+which certificate to use, how to get its public part onto the endpoints, and the
+Defender ASR exclusion that signing can't replace.
+
 ## Uploading a Certificate
 
 1. Navigate to **Settings** → **Certificates**
@@ -113,7 +118,7 @@ Only one certificate can be active at a time. The active certificate is used for
 
 ### Downloading and Deleting
 
-- **Download** -- Retrieves the PFX file for backup or use in other tools
+- **Download** -- Retrieves the PFX file, **including the private key**, for backup or use in other tools. To give endpoints the public certificate only, export it from a signed binary ([Endpoint Prerequisites](../../deployment/endpoint-prerequisites#export-the-public-certificate))
 - **Delete** -- Permanently removes the certificate (requires the `settings:certificates:delete` permission)
 
 :::warning[5-Certificate Limit]
