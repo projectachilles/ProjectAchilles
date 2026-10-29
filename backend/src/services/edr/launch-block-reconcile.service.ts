@@ -135,7 +135,10 @@ function evidenceAlertQuery(sinceIso: string): estypes.QueryDslQueryContainer {
           bool: {
             should: [
               ...wildcardEither('evidence_filepaths', '*task-*'),
-              ...wildcardEither('evidence_filenames', '*????????-????-????-????-????????????.exe'),
+              // Bare file names, so no leading `*`: ES 8 refuses `*` + 32 `?`
+              // case-insensitively ("Determinizing automaton … more than 10000
+              // effort"), which failed this whole search on a live cluster.
+              ...wildcardEither('evidence_filenames', '????????-????-????-????-????????????.exe'),
             ],
             minimum_should_match: 1,
           },
