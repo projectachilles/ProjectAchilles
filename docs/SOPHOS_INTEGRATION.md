@@ -18,7 +18,7 @@ The integration runs on the Docker-style backends (`backend/`). Vercel deploymen
 
 ## Configuration
 
-1. In Sophos Central go to **Global Settings → API Credentials Management** (tenant level) and add a credential:
+1. In Sophos Central go to **Global Settings → Access Control → API Credentials** (tenant level) and add a credential:
    - **Read-only mode:** `Service Principal Read-Only`.
    - **Response mode:** `Service Principal Management` or `Super Admin` (the write role is still being confirmed).
 2. Copy the **client ID** and the **client secret** (shown once).

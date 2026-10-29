@@ -11,7 +11,7 @@ The capture script (`backend/scripts/sophos-capture.ts`) is read-only. It makes 
 | All captures in this runbook | **Service Principal Read-Only** |
 | Later: dry-run auto-resolve check | Service Principal Management (not used by this script) |
 
-Create the credential in Sophos Central under *Global Settings > API Credentials Management*, and use a **tenant** credential (not a partner or organization one). Keep the secret out of shell history where you can (for example read it from a password manager into the environment for the session).
+Create the credential in Sophos Central under *Global Settings > Access Control > API Credentials*, and use a **tenant** credential (not a partner or organization one). Keep the secret out of shell history where you can (for example read it from a password manager into the environment for the session).
 
 ## Prerequisites
 

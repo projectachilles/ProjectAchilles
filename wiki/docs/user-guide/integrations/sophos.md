@@ -40,10 +40,10 @@ tenant.
 
 ## Create the credential in Sophos Central
 
-1. In Sophos Central open **Global Settings → API Credentials Management**
+1. In Sophos Central open **Global Settings → Access Control → API Credentials**
    (tenant level, not Partner or Enterprise).
 2. **Add Credential**, give it a name, and pick the role.
-3. Copy the **client ID** and the **client secret** (the secret is shown once).
+3. Copy the **client ID** and the **client secret** (the secret is shown once). Sophos allows up to 50 credentials per tenant.
 
 | Role | Use it for | Notes |
 |------|-----------|-------|

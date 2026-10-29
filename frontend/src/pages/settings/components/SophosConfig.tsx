@@ -258,7 +258,7 @@ export function SophosConfig({ onStatusChange }: SophosConfigProps) {
         placeholder="Sophos Central API credential client ID"
         value={clientId}
         onChange={(e) => { setClientId(e.target.value.trim()); setTestResult(null); }}
-        helperText="Sophos Central → Global Settings → API Credentials Management. The data region is discovered automatically."
+        helperText="Sophos Central → Global Settings → Access Control → API Credentials. The data region is discovered automatically."
       />
       <Input
         label="Client secret"
