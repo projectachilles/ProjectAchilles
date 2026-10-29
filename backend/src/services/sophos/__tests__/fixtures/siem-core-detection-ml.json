@@ -9,7 +9,7 @@
   "created_at": "2026-10-28T10:00:03.000Z",
   "name": "Malware detected: 'ML/PE-A' at 'C:\\F0\\tasks\\task-4821-x7k2\\7659eeba-f315-440e-9882-4aa015d68b27-CH-DEF-001.exe'",
   "type": "Event::Endpoint::CoreDetection",
-  "threat": "ML/PE-A",
+  "threat": "6b0f2c1d-9a3e-4f57-8c21-0d5e7a9b1c33",
   "group": "MALWARE",
   "endpoint_type": "computer",
   "endpoint_id": "bb90527d-73a8-4e6e-85c6-20c2e0c5bc6f",

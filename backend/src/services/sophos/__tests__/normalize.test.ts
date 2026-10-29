@@ -6,6 +6,8 @@ import {
   SOPHOS_AUTONOMOUS_RESPONSE_WINDOW_MS,
   transformAlert,
   transformSiemEvent,
+  parseLegacyCleanup,
+  legacyCleanupMatches,
   transformGraphqlDetection,
   transformV1Detection,
   siemPreventionAction,
@@ -96,6 +98,11 @@ describe('transformSiemEvent', () => {
   it('returns null for non-detection noise types', () => {
     expect(transformSiemEvent({ id: 'n', type: 'Event::Endpoint::OutOfDate', when: '2026-10-28T10:00:00Z' })).toBeNull();
     expect(transformSiemEvent({ id: 'n', type: 'Event::Endpoint::Threat::HIPSDismissed' })).toBeNull();
+    for (const t of ['CleanedUp', 'CleanupFailed', 'PuaCleanupFailed', 'HIPSCleanupFailed']) {
+      expect(transformSiemEvent({ id: 'n', type: `Event::Endpoint::Threat::${t}` })).toBeNull();
+    }
+    expect(transformSiemEvent(fx('siem-threat-cleanedup'))).toBeNull();
+    expect(transformSiemEvent(fx('siem-threat-cleanup-failed'))).toBeNull();
     expect(transformSiemEvent({})).toBeNull();
   });
 
@@ -166,7 +173,7 @@ describe('transformGraphqlDetection', () => {
     expect(d).toMatchObject({
       source_type: 'xdr_detection', alert_id: 'alert:3f1c2d4e-0000-4000-8000-000000000001',
       alert_title: 'Suspicious process launched from C:\\F0', severity: 'high', severity_raw: 0.65, status: 'open',
-      created_at: '2026-10-28T10:00:07.000Z', resolved_at: null, event_ids: ['evt-0001', 'evt-0002'],
+      created_at: '2026-10-28T10:00:07.000Z', updated_at: '2026-10-28T10:05:00.500Z', timestamp: '2026-10-28T10:05:00.500Z', resolved_at: null, event_ids: ['evt-0001', 'evt-0002'],
       sha256: '3f2a9c1e5b7d4a8e9c0b1d2e3f4a5b6c7d8e9f00112233445566778899aabbcc',
     });
     expect(d.mitre_techniques).toEqual(['T1059.001', 'T1105', 'T1204.002']);
@@ -231,13 +238,6 @@ describe('join + merge', () => {
     expect(siemEventMatchesAlert(event(), { ...alert(), created_at: null })).toBe(false);
   });
 
-  it('mergeSiemIntoAlert drops a late CleanedUp prevention relative to alert.created_at', () => {
-    const e = { ...transformSiemEvent(fx('siem-threat-cleanedup'))!, created_at: '2026-10-28T10:20:00.000Z' };
-    expect(e.prevention_action).toBe('blocked');
-    expect(mergeSiemIntoAlert(alert(), e).prevention_action).toBeUndefined();
-    expect(mergeSiemIntoAlert(alert(), { ...e, created_at: '2026-10-28T10:10:00.000Z' }).prevention_action).toBe('blocked');
-  });
-
   it('mergeSiemIntoAlert keeps the alert id and adds evidence + prevention_action', () => {
     const a = alert();
     const e = event();
@@ -252,5 +252,139 @@ describe('join + merge', () => {
     expect(m.evidence_hostnames).toEqual(['WIN-LAB01']);
     expect(a.prevention_action).toBeUndefined(); // input not mutated
     expect(mergeSiemIntoAlert(m, e).merged_siem_event_ids).toEqual([e.alert_id]); // idempotent
+  });
+});
+
+describe('review fixes', () => {
+  const alert = () => transformAlert(fx('common-alert'));
+  const core = () => transformSiemEvent(fx('siem-core-detection-ml'))!;
+
+  it('GraphQL Timestamp objects and numeric epochs parse', () => {
+    const d = transformGraphqlDetection({ id: 'x', metadata: { created_at: { seconds: 1793181607, nanos: 250000000 } } });
+    expect(d.created_at).toBe('2026-10-28T10:00:07.250Z');
+    expect(d.timestamp).toBe('2026-10-28T10:00:07.250Z');
+    expect(transformGraphqlDetection({ id: 'x', metadata: { created_at: 1793181607 } }).created_at).toBe('2026-10-28T10:00:07.000Z');
+    expect(transformGraphqlDetection({ id: 'x', metadata: { created_at: { seconds: '1793181607', nanos: 0 } } }).created_at).toBe('2026-10-28T10:00:07.000Z');
+  });
+
+  it('a dateless input yields timestamp null, never an empty string', () => {
+    expect(transformAlert({}).timestamp).toBeNull();
+    expect(transformSiemEvent({ id: 'e', type: 'Event::Endpoint::CoreDetection' })!.timestamp).toBeNull();
+    expect(transformGraphqlDetection({ id: 'x' }).timestamp).toBeNull();
+    expect(transformV1Detection({ id: 'x' }).timestamp).toBeNull();
+  });
+
+  it('NaN severity is unknown', () => {
+    expect(transformGraphqlDetection({ id: 'x', metadata: { severity: NaN } }).severity).toBe('unknown');
+    expect(transformV1Detection({ id: 'x', severity: NaN }).severity).toBe('unknown');
+  });
+
+  describe('join', () => {
+    it('does not cross-attribute two stages caught under the same generic name', () => {
+      const stage2 = transformAlert({
+        ...fx('common-alert'), id: 'other',
+        description: "Malware detected: 'ML/PE-A' at 'C:\\F0\\tasks\\task-4821-x7k2\\7659eeba-f315-440e-9882-4aa015d68b27-CH-DEF-002.exe'",
+      });
+      expect(siemEventMatchesAlert(core(), stage2)).toBe(false);
+      expect(siemEventMatchesAlert(core(), alert())).toBe(true);
+    });
+    it('requires an exact threat-name token, not a substring', () => {
+      const a = { ...alert(), alert_title: 'x', description: "Malware detected: 'ML/PE-AB'", evidence_filenames: [], sha256: undefined };
+      expect(siemEventMatchesAlert(core(), a)).toBe(false);
+      expect(siemEventMatchesAlert(core(), { ...a, description: 'Malware ML/PE-A blocked' })).toBe(true);
+      expect(siemEventMatchesAlert(core(), { ...a, description: "Malware detected: 'ML/PE-A'" })).toBe(true);
+    });
+  });
+
+  describe('merge precedence', () => {
+    const cleanedUp = () => parseLegacyCleanup(fx('siem-threat-cleanedup'))!;
+    const failed = () => parseLegacyCleanup(fx('siem-threat-cleanup-failed'))!;
+    it('quarantined beats a later CleanupFailed in either order', () => {
+      const a = alert();
+      const one = mergeSiemIntoAlert(mergeSiemIntoAlert(a, core()), failed());
+      const two = mergeSiemIntoAlert(mergeSiemIntoAlert(a, failed()), core());
+      expect(one.prevention_action).toBe('quarantined');
+      expect(two.prevention_action).toBe('quarantined');
+    });
+    it('process_killed > blocked > kill_failed', () => {
+      const a = alert();
+      const killed = { ...core(), prevention_action: 'process_killed' as const };
+      const blocked = { ...core(), prevention_action: 'blocked' as const };
+      const kf = { ...core(), prevention_action: 'kill_failed' as const };
+      expect(mergeSiemIntoAlert({ ...a, prevention_action: 'blocked' }, killed).prevention_action).toBe('process_killed');
+      expect(mergeSiemIntoAlert({ ...a, prevention_action: 'kill_failed' }, blocked).prevention_action).toBe('blocked');
+      expect(mergeSiemIntoAlert({ ...a, prevention_action: 'blocked' }, kf).prevention_action).toBe('blocked');
+    });
+    it('origin and sha256 keep the first non-empty value', () => {
+      const m = mergeSiemIntoAlert({ ...alert(), origin: 'FIRST', sha256: 'a'.repeat(64) }, core());
+      expect(m.origin).toBe('FIRST');
+      expect(m.sha256).toBe('a'.repeat(64));
+    });
+    it('cleanup events are merged only when matching the target', () => {
+      const a = alert();
+      expect(mergeSiemIntoAlert(a, cleanedUp()).prevention_action).toBe('blocked');
+      expect(mergeSiemIntoAlert(a, { ...cleanedUp(), when: '2026-10-28T10:20:05.250Z' }).prevention_action).toBeUndefined();
+    });
+  });
+
+  describe('legacy cleanup events', () => {
+    it('parseLegacyCleanup returns the minimal shape; detections and noise are null', () => {
+      const c = parseLegacyCleanup(fx('siem-threat-cleanedup'))!;
+      expect(c).toMatchObject({ host: 'WIN-LAB01', name: 'ML/PE-A', when: '2026-10-28T10:10:01.000Z', prevention_action: 'blocked' });
+      expect(parseLegacyCleanup(fx('siem-threat-cleanup-failed'))!.prevention_action).toBe('kill_failed');
+      expect(parseLegacyCleanup(fx('siem-core-detection-ml'))).toBeNull();
+      expect(parseLegacyCleanup({})).toBeNull();
+    });
+    it('a cleanup 10 minutes after the target matches; 20 minutes after, or before, does not', () => {
+      const a = alert(); // raised 10:00:05.250
+      const c = parseLegacyCleanup(fx('siem-threat-cleanedup'))!;
+      expect(legacyCleanupMatches(c, a)).toBe(true);
+      expect(legacyCleanupMatches({ ...c, when: '2026-10-28T10:20:05.251Z' }, a)).toBe(false);
+      expect(legacyCleanupMatches({ ...c, when: '2026-10-28T10:15:05.250Z' }, a)).toBe(true);
+      expect(legacyCleanupMatches({ ...c, when: '2026-10-28T10:00:05.000Z' }, a)).toBe(false);
+      expect(legacyCleanupMatches({ ...c, host: 'OTHER' }, a)).toBe(false);
+    });
+    it('can also attach to a Core detection row', () => {
+      const c = parseLegacyCleanup({ ...fx('siem-threat-cleanedup'), when: '2026-10-28T10:05:00Z' })!;
+      expect(legacyCleanupMatches(c, core())).toBe(true);
+    });
+  });
+
+  describe('SIEM detection name', () => {
+    it('comes from the first quoted token of name; threat is the correlation id', () => {
+      const d = core();
+      expect(d.alert_title).toBe('ML/PE-A');
+      expect(d.threat_id).toBe('6b0f2c1d-9a3e-4f57-8c21-0d5e7a9b1c33');
+    });
+    it('falls back to threat only when it does not look like an id', () => {
+      expect(transformSiemEvent({ id: 'e', type: 'Event::Endpoint::CoreDetection', name: 'no quotes', threat: 'Troj/Foo-A' })!.alert_title).toBe('Troj/Foo-A');
+      expect(transformSiemEvent({ id: 'e', type: 'Event::Endpoint::CoreDetection', name: 'no quotes', threat: '6b0f2c1d-9a3e-4f57-8c21-0d5e7a9b1c33' })!.alert_title).toBe('no quotes');
+    });
+  });
+
+  describe('Common Alert description paths', () => {
+    it('extracts the unquoted path in the spec example', () => {
+      const d = transformAlert({ id: 'x', description: 'Generic reputation PUA detected C:\\Temp\\WinExeSvc.exe' });
+      expect(d.evidence_filepaths).toEqual(['c:\\temp\\winexesvc.exe']);
+      expect(d.evidence_filenames).toEqual(['winexesvc.exe']);
+    });
+    it('extracts unquoted POSIX paths and never puts a bare file name in filepaths', () => {
+      expect(transformAlert({ id: 'x', description: 'Detected /opt/f0/tasks/abc/x.bin.' }).evidence_filepaths).toEqual(['/opt/f0/tasks/abc/x.bin']);
+      expect(transformAlert({ id: 'x', description: "Malware detected: 'Foo' at 'svchost.exe'" }).evidence_filepaths).toEqual([]);
+    });
+  });
+
+  describe('remedy and type edge cases', () => {
+    const base = { type: 'Event::Endpoint::CoreDetection', when: '2026-10-28T10:00:00Z' };
+    it('FAILED_TO_DELETE_SYSTEM_PROTECTED and Pua/HIPS CleanupFailed -> kill_failed', () => {
+      expect(siemPreventionAction({ ...base, core_remedy_items: { items: [{ type: 'file', result: 'FAILED_TO_DELETE_SYSTEM_PROTECTED' }] } })).toBe('kill_failed');
+      expect(siemPreventionAction({ type: 'Event::Endpoint::Threat::PuaCleanupFailed' })).toBe('kill_failed');
+      expect(siemPreventionAction({ type: 'Event::Endpoint::Threat::HIPSCleanupFailed' })).toBe('kill_failed');
+    });
+    it('IPS inbound/outbound events are detection rows', () => {
+      for (const t of ['IpsInboundDetection', 'IpsOutboundDetection']) {
+        expect(transformSiemEvent({ id: 'e', type: `Event::Endpoint::Threat::${t}`, when: '2026-10-28T10:00:00Z' })).not.toBeNull();
+      }
+    });
   });
 });

@@ -5,9 +5,9 @@
     "title": "Suspicious process launched from C:\\F0",
     "description": "A process executed from a staging directory",
     "severity": 0.65,
-    "created_at": "2026-10-28T10:00:07.000Z",
-    "updated_at": "2026-10-28T10:05:00.000Z",
-    "first_seen_at": "2026-10-28T09:59:58.000Z"
+    "created_at": { "seconds": 1793181607, "nanos": 0 },
+    "updated_at": { "seconds": 1793181900, "nanos": 500000000 },
+    "first_seen_at": { "seconds": 1793181598, "nanos": 0 }
   },
   "status": "OPEN",
   "attack_technique_ids": ["T1059.001", "t1105"],
