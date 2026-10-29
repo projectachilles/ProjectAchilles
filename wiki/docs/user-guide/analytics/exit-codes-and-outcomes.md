@@ -200,9 +200,15 @@ A `260` result becomes Protected only when **all** of these hold:
   result), or, when it names no task folder, the test's own binary
   `<test uuid>.exe` created between 5 minutes before and 30 minutes after the
   result. A stage binary such as `<test uuid>-T1105.exe` does not count: the
-  test never started, so no stage binary existed. An alert that names one run's
-  folder never counts for another run, and an alert that only names the binary
-  counts for the nearest run on that host.
+  test never started, so no stage binary existed.
+- The alert has not proved another run. An alert proves at most one run, ever:
+  it gets a receipt (`f0rtika.achilles_launch_block_doc_id`) naming that run,
+  and an alert that names one run's folder never counts for another run.
+- For an alert that only names the binary: it counts for the nearest `260` run
+  on that host, and for none when another run of the same test on that host
+  (one that ran, or was already resolved) is at least as near to it. Then the
+  alert belongs to that run. The same holds when the enrichment pass already
+  linked the alert to a run.
 
 The first check after the server starts covers `260` results from the last 90
 days, so runs from before an upgrade are reconciled automatically; later checks
@@ -238,11 +244,20 @@ cover the last 2 days.
 - Executions shows **Protected** with "Blocked before it ran by
   CrowdStrike Falcon" (or the matching product), and the run's detail lists the
   proving alerts.
-- Campaign evidence and the pre-execution Finished email show **Protected**,
-  naming the EDR, once the result has been reconciled. A Finished email sent
-  before the next poll still shows the run as an error.
-- The Tasks page keeps the agent's raw result, **Not run** (exit 260).
-- The SB-PC-2026-001 export stays per-control, so these runs are not in it.
+- Campaign evidence shows **Protected**, naming the EDR, once the result has
+  been reconciled.
+- The SB-PC-2026-001 export reads only per-control stage documents, so these
+  whole-test results are not in it (like EDR-killed runs).
+
+:::caution[Where the run still shows the agent's 260]
+The task database keeps the agent's raw result, so these places still show the
+run as **Not run** (exit 260) after Analytics shows Protected:
+
+- the Tasks page, its task rows and its 7-day outcome tiles;
+- the pre-execution **Finished** email, when it is sent before the next EDR
+  poll reconciles the run. Unlike an EDR-killed run, nothing holds the email
+  back for a `260`.
+:::
 
 :::note[The techniques stay unmeasured]
 A launch block proves the EDR stops the test binary before it runs, not how it
