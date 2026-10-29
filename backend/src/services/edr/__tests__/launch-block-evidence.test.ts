@@ -110,6 +110,19 @@ describe('alertProvesLaunchBlock', () => {
     expect(alertProvesLaunchBlock(candidate, { ...alert, achillesTestUuid: TEST_UUID.toUpperCase() })).toBe('task_path');
   });
 
+  it('an alert that already proved a launch block never proves another run', () => {
+    expect(alertProvesLaunchBlock(candidate, { ...alert, launchBlockDocId: 'another-doc' })).toBeNull();
+    expect(alertProvesLaunchBlock(candidate, { ...alert, evidenceFilepaths: [], launchBlockDocId: 'another-doc' })).toBeNull();
+    // Its own run may still match it (a retry after the doc write failed).
+    expect(alertProvesLaunchBlock(candidate, { ...alert, launchBlockDocId: TASK_ID })).toBe('task_path');
+  });
+
+  it('a file-name-only alert enrichment already linked to a run belongs to that run', () => {
+    expect(alertProvesLaunchBlock(candidate, { ...alert, evidenceFilepaths: [], achillesCorrelated: true })).toBeNull();
+    // A task folder is exact: the run it names still wins.
+    expect(alertProvesLaunchBlock(candidate, { ...alert, achillesCorrelated: true })).toBe('task_path');
+  });
+
   it('rejects an alert without a parseable created_at', () => {
     expect(alertProvesLaunchBlock(candidate, { ...alert, createdAt: null })).toBeNull();
     expect(alertProvesLaunchBlock(candidate, { ...alert, createdAt: 'yesterday' })).toBeNull();
@@ -156,6 +169,32 @@ describe('matchLaunchBlocks', () => {
     const byName = { ...alert, evidenceFilepaths: [], createdAt: '2026-10-27T10:15:00Z' };
     const proofs = matchLaunchBlocks([candidate, second], [byName]);
     expect([...proofs.keys()]).toEqual([second.docId]);
+  });
+
+  it('a file-name-only alert nearer to a run that executed belongs to that run', () => {
+    const byName = { ...alert, evidenceFilepaths: [], createdAt: '2026-10-27T10:03:00Z' };
+    // A sibling run of the same test on the same host, 1 min from the alert (the candidate is 3 min away).
+    const sibling = { testUuid: TEST_UUID, hostname: 'ws-0042.corp.example.com', eventTimeMs: Date.parse('2026-10-27T10:04:00Z') };
+    expect(matchLaunchBlocks([candidate], [byName], [sibling]).size).toBe(0);
+    // A tie also goes to the run that executed.
+    const tie = { ...sibling, eventTimeMs: Date.parse('2026-10-27T10:06:00Z') };
+    expect(matchLaunchBlocks([candidate], [byName], [tie]).size).toBe(0);
+    // Farther siblings, other hosts and other tests don't take it.
+    const far = { ...sibling, eventTimeMs: Date.parse('2026-10-27T10:20:00Z') };
+    const otherHost = { ...sibling, hostname: 'WS-0043' };
+    const otherTest = { ...sibling, testUuid: 'c0ffee00-1234-4abc-8def-0000000000ff' };
+    expect([...matchLaunchBlocks([candidate], [byName], [far, otherHost, otherTest]).keys()]).toEqual([TASK_ID]);
+  });
+
+  it('a stage doc of a sibling run (`<uuid>::<control>`) counts as that run', () => {
+    const byName = { ...alert, evidenceFilepaths: [], createdAt: '2026-10-27T10:03:00Z' };
+    const stageDoc = { testUuid: `${TEST_UUID}::T1105`, hostname: 'WS-0042', eventTimeMs: Date.parse('2026-10-27T10:03:30Z') };
+    expect(matchLaunchBlocks([candidate], [byName], [stageDoc]).size).toBe(0);
+  });
+
+  it('siblings never take a task-folder alert', () => {
+    const sibling = { testUuid: TEST_UUID, hostname: 'WS-0042', eventTimeMs: Date.parse('2026-10-27T10:01:00Z') };
+    expect([...matchLaunchBlocks([candidate], [alert], [sibling]).keys()]).toEqual([TASK_ID]);
   });
 
   it('returns nothing when no alert qualifies', () => {

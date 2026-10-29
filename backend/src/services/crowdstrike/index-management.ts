@@ -79,6 +79,9 @@ export const CROWDSTRIKE_INDEX_MAPPING = {
           // separate link, never achilles_correlated, so auto-resolve skips them.
           achilles_agent_kill_task_id:    { type: 'keyword' as const },
           achilles_agent_kill_matched_at: { type: 'date' as const },
+          // edr/launch-block-reconcile.service.ts: the result doc this alert proved a
+          // launch block for (an alert proves at most one run).
+          achilles_launch_block_doc_id: { type: 'keyword' as const },
           auto_resolved:       { type: 'boolean' as const },
           auto_resolved_at:    { type: 'date' as const },
           auto_resolve_mode:   { type: 'keyword' as const },

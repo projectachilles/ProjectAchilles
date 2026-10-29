@@ -30,8 +30,8 @@ import type { EdrVendorKey } from '../outcomes/vendors.js';
 import { VENDOR_INDICES, launchBlockVendorIndices } from './edr-configured.js';
 import type { VendorIndex } from './edr-configured.js';
 import { resolveBundleNames } from './bundle-identity.js';
-import { extractBundleUuid } from './evidence-correlation.js';
-import { parseSqliteUtc } from './agent-kill-evidence.js';
+import { POST_WINDOW_MS, PRE_WINDOW_MS, extractBundleUuid } from './evidence-correlation.js';
+import { parseSqliteUtc, shortHostname } from './agent-kill-evidence.js';
 import {
   BLOCKED_PRE_EXECUTION_CODE,
   TASK_PATH_WINDOW_MS,
@@ -39,7 +39,7 @@ import {
   matchLaunchBlocks,
   summarizeLaunchBlock,
 } from './launch-block-evidence.js';
-import type { LaunchBlockCandidate, LaunchBlockEvidenceAlert, LaunchBlockMatch } from './launch-block-evidence.js';
+import type { LaunchBlockCandidate, LaunchBlockEvidenceAlert, LaunchBlockMatch, LaunchBlockSibling } from './launch-block-evidence.js';
 import type { LaunchBlockPassResult } from '../../types/launch-block.js';
 
 export type { LaunchBlockPassResult };
@@ -60,9 +60,14 @@ const INDEX_OF_VENDOR = new Map<EdrVendorKey, string>(VENDOR_INDICES.map((v) => 
 /** The exit code a proved launch block becomes: execution prevented. */
 const PROTECTED_CODE = 126;
 
+/** On an alert doc: the result doc it proved a launch block for. An alert proves at most one run, ever. */
+const RECEIPT_FIELD = 'achilles_launch_block_doc_id';
+/** Sibling-run clauses (one per file-name-only alert) per results search. */
+const SIBLING_CLAUSES_PER_SEARCH = 100;
+
 const ALERT_SOURCE_FIELDS = [
   'created_at', 'evidence_hostnames', 'evidence_filenames', 'evidence_filepaths', 'prevention_action',
-  'f0rtika.achilles_test_uuid', ...ACHILLES_MITIGATION_FIELDS,
+  'f0rtika.achilles_test_uuid', 'f0rtika.achilles_correlated', `f0rtika.${RECEIPT_FIELD}`, ...ACHILLES_MITIGATION_FIELDS,
 ];
 const RESULT_SOURCE_FIELDS = [
   'routing.event_time', 'routing.hostname', 'event.ERROR', 'f0rtika.test_uuid', 'f0rtika.error_name',
@@ -74,6 +79,13 @@ interface Candidate extends LaunchBlockCandidate {
   seqNo?: number;
   primaryTerm?: number;
   errorName?: string;
+}
+
+interface AlertLink {
+  vendor: EdrVendorKey;
+  alertId: string;
+  docId: string;
+  testUuid: string;
 }
 
 interface PlannedWrite {
@@ -129,13 +141,14 @@ function evidenceAlertQuery(sinceIso: string): estypes.QueryDslQueryContainer {
           },
         },
       ],
-      must_not: [ACHILLES_MITIGATED_QUERY],
+      // Already proved a run: never another one.
+      must_not: [ACHILLES_MITIGATED_QUERY, { exists: { field: `f0rtika.${RECEIPT_FIELD}` } }],
     },
   };
 }
 
 export class EdrLaunchBlockReconciler {
-  /** Result indices whose launch-block mapping was put during this pass. */
+  /** Result and alert indices whose launch-block mapping was put during this pass. */
   private readonly mappedIndices = new Set<string>();
   /** The last pass stopped at a page cap, so it did not see everything in its lookback. */
   truncated = false;
@@ -153,6 +166,9 @@ export class EdrLaunchBlockReconciler {
 
     const now = opts.now ?? new Date();
     const sinceMs = now.getTime() - (opts.lookbackDays ?? DEFAULT_LOOKBACK_DAYS) * DAY_MS;
+    // First link the alerts of docs resolved earlier whose alert write failed,
+    // so auto-resolve sees them and their receipt keeps them to that one run.
+    await this.relinkResolved(vendors, new Date(sinceMs).toISOString(), now.toISOString(), result.errors);
     // A task-path alert may be up to a day away from its result.
     const alerts = await this.fetchEvidenceAlerts(vendors, new Date(sinceMs - TASK_PATH_WINDOW_MS).toISOString(), result.errors);
     result.evidenceAlerts = alerts.length;
@@ -164,7 +180,11 @@ export class EdrLaunchBlockReconciler {
     result.candidates = candidates.length;
     if (candidates.length === 0) return result;
 
-    const proofs = matchLaunchBlocks(candidates, alerts);
+    const siblings = await this.fetchSiblings(alerts, result.errors);
+    // Without the sibling runs a file-name-only alert could go to the wrong
+    // run, so only task-folder evidence counts on such a pass.
+    const usable = siblings ? alerts : alerts.filter((a) => evidenceKeys([a]).taskIds.length > 0);
+    const proofs = matchLaunchBlocks(candidates, usable, siblings ?? []);
     const planned: PlannedWrite[] = candidates
       .filter((c) => proofs.has(c.docId))
       .map((c) => ({ candidate: c, proofs: proofs.get(c.docId)! }));
@@ -223,6 +243,8 @@ export class EdrLaunchBlockReconciler {
             preventionAction: typeof s.prevention_action === 'string' ? s.prevention_action : undefined,
             achillesMitigated: isAchillesMitigated(s),
             ...(typeof f0.achilles_test_uuid === 'string' ? { achillesTestUuid: f0.achilles_test_uuid } : {}),
+            ...(f0.achilles_correlated === true ? { achillesCorrelated: true } : {}),
+            ...(typeof f0[RECEIPT_FIELD] === 'string' ? { launchBlockDocId: f0[RECEIPT_FIELD] as string } : {}),
           });
         }
         fetched += hits.length;
@@ -328,33 +350,41 @@ export class EdrLaunchBlockReconciler {
       return 0;
     }
 
-    const markerError = await this.markAlerts(written, nowIso);
+    const markerError = await this.markAlerts(
+      written.flatMap((p) => p.proofs.map(({ alert }) => ({
+        vendor: alert.vendor, alertId: alert.id, docId: p.candidate.docId, testUuid: p.candidate.testUuid,
+      }))),
+      nowIso,
+    );
     if (markerError) errors.push(`alert links: ${markerError}`);
     return written.length;
   }
 
-  /** Link the proving alerts to their test, as the enrichment pass does. Returns an error message, or null. */
-  private async markAlerts(written: PlannedWrite[], nowIso: string): Promise<string | null> {
+  /**
+   * Link the proving alerts to their test, as the enrichment pass does, plus
+   * the receipt naming the one run each proved. Returns an error message, or null.
+   */
+  private async markAlerts(links: AlertLink[], nowIso: string): Promise<string | null> {
     const operations: NonNullable<estypes.BulkRequest['operations']> = [];
     const seen = new Set<string>();
-    for (const p of written) {
-      for (const { alert } of p.proofs) {
-        const key = `${alert.vendor}/${alert.id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const index = INDEX_OF_VENDOR.get(alert.vendor);
-        if (!index) continue;
-        operations.push({ update: { _index: index, _id: alert.id, retry_on_conflict: 3 } });
-        operations.push({
-          doc: {
-            f0rtika: {
-              achilles_correlated: true,
-              achilles_test_uuid: extractBundleUuid(p.candidate.testUuid),
-              achilles_matched_at: nowIso,
-            },
+    for (const l of links) {
+      const key = `${l.vendor}/${l.alertId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const index = INDEX_OF_VENDOR.get(l.vendor);
+      if (!index) continue;
+      await this.ensureAlertMapping(index);
+      operations.push({ update: { _index: index, _id: l.alertId, retry_on_conflict: 3 } });
+      operations.push({
+        doc: {
+          f0rtika: {
+            achilles_correlated: true,
+            achilles_test_uuid: extractBundleUuid(l.testUuid),
+            achilles_matched_at: nowIso,
+            [RECEIPT_FIELD]: l.docId,
           },
-        });
-      }
+        },
+      });
     }
     if (operations.length === 0) return null;
     try {
@@ -370,10 +400,171 @@ export class EdrLaunchBlockReconciler {
   }
 
   /**
+   * Docs resolved in the lookback whose proving alerts carry no receipt yet
+   * (the alert write failed after the doc write): link them now. Cheap: only
+   * docs this pass resolved, then one ids lookup per vendor.
+   */
+  private async relinkResolved(vendors: VendorIndex[], sinceIso: string, nowIso: string, errors: string[]): Promise<void> {
+    let res: estypes.SearchResponse<Record<string, unknown>>;
+    try {
+      res = await this.client.search<Record<string, unknown>>({
+        index: this.resultsIndexPattern,
+        ignore_unavailable: true,
+        allow_no_indices: true,
+        size: PAGE_SIZE,
+        sort: [{ 'routing.event_time': 'desc' }],
+        _source: ['f0rtika.test_uuid', 'f0rtika.edr_launch_blocked', 'f0rtika.launch_block.alert_ids', 'f0rtika.launch_block.vendors'],
+        query: {
+          bool: {
+            filter: [
+              { term: { 'f0rtika.edr_launch_blocked': true } },
+              { range: { 'routing.event_time': { gte: sinceIso } } },
+            ],
+          },
+        },
+      });
+    } catch (err) {
+      errors.push(`relink: ${errMsg(err)}`);
+      return;
+    }
+    // "<vendor>/<alert id>" -> the doc it proved
+    const owners = new Map<string, { docId: string; testUuid: string }>();
+    for (const hit of res.hits.hits) {
+      const s = hit._source ?? {};
+      const testUuid = getSourceField(s, 'f0rtika.test_uuid');
+      if (!hit._id || getSourceField(s, 'f0rtika.edr_launch_blocked') !== true || typeof testUuid !== 'string') continue;
+      const docVendors = strings(getSourceField(s, 'f0rtika.launch_block.vendors'));
+      for (const alertId of strings(getSourceField(s, 'f0rtika.launch_block.alert_ids'))) {
+        for (const v of docVendors) owners.set(`${v}/${alertId}`, { docId: hit._id, testUuid });
+      }
+    }
+    if (owners.size === 0) return;
+
+    const links: AlertLink[] = [];
+    for (const { vendor, index } of vendors) {
+      const ids = [...owners.keys()].filter((k) => k.startsWith(`${vendor}/`)).map((k) => k.slice(vendor.length + 1));
+      for (let i = 0; i < ids.length; i += KEYS_PER_SEARCH) {
+        const chunk = ids.slice(i, i + KEYS_PER_SEARCH);
+        let found: estypes.SearchResponse<Record<string, unknown>>;
+        try {
+          found = await this.client.search<Record<string, unknown>>({
+            index,
+            ignore_unavailable: true,
+            allow_no_indices: true,
+            size: chunk.length,
+            _source: [`f0rtika.${RECEIPT_FIELD}`],
+            query: { bool: { filter: [{ ids: { values: chunk } }], must_not: [{ exists: { field: `f0rtika.${RECEIPT_FIELD}` } }] } },
+          });
+        } catch (err) {
+          if (!isMissingIndex(err)) errors.push(`relink[${vendor}]: ${errMsg(err)}`);
+          continue;
+        }
+        const wanted = new Set(chunk);
+        for (const hit of found.hits.hits) {
+          if (!hit._id || !wanted.has(hit._id)) continue;
+          if (typeof getSourceField(hit._source ?? {}, `f0rtika.${RECEIPT_FIELD}`) === 'string') continue;
+          const owner = owners.get(`${vendor}/${hit._id}`);
+          if (owner) links.push({ vendor, alertId: hit._id, docId: owner.docId, testUuid: owner.testUuid });
+        }
+      }
+    }
+    const markerError = await this.markAlerts(links, nowIso);
+    if (markerError) errors.push(`relink alert links: ${markerError}`);
+  }
+
+  /**
+   * Other runs of the tests the file-name-only alerts name, on the alert's
+   * host and inside its correlation window: results that executed (any code
+   * but an unresolved whole-test 260, stage docs included) or were already
+   * resolved. An alert as near to one of them is that run's (matchLaunchBlocks).
+   * Null when the lookup failed.
+   */
+  private async fetchSiblings(alerts: LaunchBlockEvidenceAlert[], errors: string[]): Promise<LaunchBlockSibling[] | null> {
+    const clauses: estypes.QueryDslQueryContainer[] = [];
+    for (const a of alerts) {
+      const keys = evidenceKeys([a]);
+      const created = a.createdAt ? parseSqliteUtc(a.createdAt) : NaN;
+      if (keys.taskIds.length > 0 || keys.testUuids.length === 0 || !Number.isFinite(created)) continue;
+      const hosts = [...new Set(a.evidenceHostnames.map(shortHostname).filter(Boolean))];
+      if (hosts.length === 0) continue;
+      clauses.push({
+        bool: {
+          filter: [
+            {
+              bool: {
+                should: [{ terms: { 'f0rtika.test_uuid': keys.testUuids } }, { terms: { 'f0rtika.bundle_id': keys.testUuids } }],
+                minimum_should_match: 1,
+              },
+            },
+            { range: { 'routing.event_time': { gte: new Date(created - POST_WINDOW_MS).toISOString(), lte: new Date(created + PRE_WINDOW_MS).toISOString() } } },
+            {
+              bool: {
+                should: hosts.map((h) => ({ wildcard: { 'routing.hostname': { value: `${h.replace(/[*?\\]/g, '')}*`, case_insensitive: true } } })),
+                minimum_should_match: 1,
+              },
+            },
+          ],
+        },
+      });
+    }
+    const siblings: LaunchBlockSibling[] = [];
+    for (let i = 0; i < clauses.length; i += SIBLING_CLAUSES_PER_SEARCH) {
+      const should = clauses.slice(i, i + SIBLING_CLAUSES_PER_SEARCH);
+      let searchAfter: estypes.SortResults | undefined;
+      for (;;) {
+        let res: estypes.SearchResponse<Record<string, unknown>>;
+        try {
+          res = await this.client.search<Record<string, unknown>>({
+            index: this.resultsIndexPattern,
+            ignore_unavailable: true,
+            allow_no_indices: true,
+            size: PAGE_SIZE,
+            sort: [{ 'routing.event_time': 'desc' }],
+            _source: ['routing.event_time', 'routing.hostname', 'event.ERROR', 'f0rtika.test_uuid', 'f0rtika.is_bundle_control'],
+            query: { bool: { should, minimum_should_match: 1 } },
+            ...(searchAfter ? { search_after: searchAfter } : {}),
+          });
+        } catch (err) {
+          errors.push(`siblings: ${errMsg(err)}`);
+          return null;
+        }
+        const hits = res.hits.hits;
+        for (const hit of hits) {
+          const s = hit._source ?? {};
+          const unresolved260 = Number(getSourceField(s, 'event.ERROR')) === BLOCKED_PRE_EXECUTION_CODE
+            && getSourceField(s, 'f0rtika.is_bundle_control') !== true;
+          if (unresolved260) continue;
+          const testUuid = getSourceField(s, 'f0rtika.test_uuid');
+          const hostname = getSourceField(s, 'routing.hostname');
+          const eventTime = getSourceField(s, 'routing.event_time');
+          const eventTimeMs = typeof eventTime === 'string' ? parseSqliteUtc(eventTime) : NaN;
+          if (typeof testUuid !== 'string' || typeof hostname !== 'string' || !Number.isFinite(eventTimeMs)) continue;
+          siblings.push({ testUuid, hostname, eventTimeMs });
+        }
+        if (hits.length < PAGE_SIZE) break;
+        searchAfter = hits[hits.length - 1].sort;
+        if (!searchAfter) break;
+      }
+    }
+    return siblings;
+  }
+
+  /**
    * Declare the launch-block fields on the doc's index before the first write,
    * so an index whose mapping predates them doesn't map them dynamically
    * (alert ids as text). Additive and non-fatal.
    */
+  /** Declare the receipt on an alert index before its first write (additive, non-fatal). */
+  private async ensureAlertMapping(index: string): Promise<void> {
+    if (this.mappedIndices.has(index)) return;
+    this.mappedIndices.add(index);
+    try {
+      await this.client.indices.putMapping({ index, properties: { f0rtika: { properties: { [RECEIPT_FIELD]: { type: 'keyword' } } } } });
+    } catch (err) {
+      console.warn(`[EDR-LaunchBlock] putMapping failed for ${index}: ${errMsg(err)}`);
+    }
+  }
+
   private async ensureMapping(index: string): Promise<void> {
     if (this.mappedIndices.has(index)) return;
     this.mappedIndices.add(index);

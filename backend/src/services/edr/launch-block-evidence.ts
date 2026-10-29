@@ -42,6 +42,22 @@ export interface LaunchBlockEvidenceAlert {
   achillesMitigated: boolean;
   /** `f0rtika.achilles_test_uuid`, when an enrichment pass already correlated the alert. */
   achillesTestUuid?: string;
+  /** `f0rtika.achilles_correlated`: an enrichment pass (or this pass) linked the alert to a run. */
+  achillesCorrelated?: boolean;
+  /** `f0rtika.achilles_launch_block_doc_id`: the result doc this alert already proved a launch block for. */
+  launchBlockDocId?: string;
+}
+
+/**
+ * Another run of the same test on the same host (any result that is not an
+ * unresolved 260: it executed, or was already resolved). A file-name-only
+ * alert nearer to such a run belongs to it. `testUuid` may be a stage's
+ * `<uuid>::<control>`.
+ */
+export interface LaunchBlockSibling {
+  testUuid: string;
+  hostname: string;
+  eventTimeMs: number;
 }
 
 /**
@@ -99,6 +115,8 @@ function sameTest(a: string, b: string): boolean {
 /** Does this alert prove the EDR blocked the candidate run's launch? Which evidence, or null. */
 export function alertProvesLaunchBlock(c: LaunchBlockCandidate, a: LaunchBlockEvidenceAlert): LaunchBlockMatch | null {
   if (a.achillesMitigated) return null;
+  // An alert proves at most one run, ever: once it proved one, no other.
+  if (a.launchBlockDocId && a.launchBlockDocId.toLowerCase() !== c.docId.toLowerCase()) return null;
   if (!a.preventionAction || !PREVENTION.has(a.preventionAction.toLowerCase())) return null;
   if (!hostMatches(c.hostname, a.evidenceHostnames)) return null;
   if (a.achillesTestUuid && !sameTest(a.achillesTestUuid, c.testUuid)) return null;
@@ -110,6 +128,9 @@ export function alertProvesLaunchBlock(c: LaunchBlockCandidate, a: LaunchBlockEv
     // The alert names a run directory: it proves that run and no other.
     return taskIds.includes(c.docId.toLowerCase()) && Math.abs(delta) <= TASK_PATH_WINDOW_MS ? 'task_path' : null;
   }
+  // A file-name-only alert an enrichment pass already linked to a run that
+  // executed belongs to that run (a task folder above is exact, so it wins).
+  if (a.achillesCorrelated && !a.launchBlockDocId) return null;
   const want = extractBundleUuid(c.testUuid).trim().toLowerCase();
   if (delta >= -PRE_WINDOW_MS && delta <= POST_WINDOW_MS && orchestratorUuidsIn(a.evidenceFilenames).includes(want)) return 'orchestrator';
   return null;
@@ -127,14 +148,32 @@ export function evidenceKeys(alerts: LaunchBlockEvidenceAlert[]): { taskIds: str
 }
 
 /**
+ * Is a run of the same test on the same host, which executed or was already
+ * resolved, at least as near the alert as the candidate? Then the alert's
+ * orchestrator is that run's (ties go to it: a run that executed is the
+ * likelier owner than one the alert can only be guessed for).
+ */
+function siblingAtLeastAsNear(c: LaunchBlockCandidate, a: LaunchBlockEvidenceAlert, distance: number, siblings: LaunchBlockSibling[]): boolean {
+  const created = parseSqliteUtc(a.createdAt ?? '');
+  const uuid = extractBundleUuid(c.testUuid).trim().toLowerCase();
+  return siblings.some((s) =>
+    extractBundleUuid(s.testUuid).trim().toLowerCase() === uuid
+    && hostMatches(c.hostname, [s.hostname])
+    && Math.abs(created - s.eventTimeMs) <= distance);
+}
+
+/**
  * Proving alerts per candidate doc id. A task-path alert can only prove its
  * own run (the rule enforces it). A file-name-only alert proves at most one
  * run: the qualifying candidate nearest to it in time, so two blocked runs of
- * the same test on one host never share an alert.
+ * the same test on one host never share an alert, and none at all when a
+ * `sibling` run (one that executed, or was already resolved) is as near.
+ * Across passes the alert receipt (`launchBlockDocId`) keeps it to one run.
  */
 export function matchLaunchBlocks(
   candidates: LaunchBlockCandidate[],
   alerts: LaunchBlockEvidenceAlert[],
+  siblings: LaunchBlockSibling[] = [],
 ): Map<string, Array<{ alert: LaunchBlockEvidenceAlert; match: LaunchBlockMatch }>> {
   const out = new Map<string, Array<{ alert: LaunchBlockEvidenceAlert; match: LaunchBlockMatch }>>();
   const add = (docId: string, alert: LaunchBlockEvidenceAlert, match: LaunchBlockMatch) => {
@@ -156,7 +195,7 @@ export function matchLaunchBlocks(
         if (!nearest || distance < nearest.distance) nearest = { c, distance };
       }
     }
-    if (nearest) add(nearest.c.docId, alert, 'orchestrator');
+    if (nearest && !siblingAtLeastAsNear(nearest.c, alert, nearest.distance, siblings)) add(nearest.c.docId, alert, 'orchestrator');
   }
   return out;
 }

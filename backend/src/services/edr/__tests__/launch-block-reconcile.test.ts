@@ -119,6 +119,11 @@ function bulkUpdates(): Array<{ meta: Record<string, any>; doc: Record<string, a
 const resultUpdates = () => bulkUpdates().filter((u) => u.meta._index === RESULT_INDEX);
 const alertUpdates = () => bulkUpdates().filter((u) => u.meta._index !== RESULT_INDEX);
 
+/** The search for unresolved 260 candidates (the results index is also searched for re-links and siblings). */
+function candidateSearch(): Record<string, any> | undefined {
+  return mockSearch.mock.calls.map(([r]) => r).find((r) => r.index === 'achilles-results-*' && JSON.stringify(r.query).includes('"event.ERROR":260'));
+}
+
 function reconciler(): InstanceType<typeof EdrLaunchBlockReconciler> {
   return new EdrLaunchBlockReconciler(esClient as unknown as Client, 'achilles-results-*');
 }
@@ -191,7 +196,7 @@ describe('EdrLaunchBlockReconciler.runPass', () => {
     // The proving alert is linked the way enrichment links one, so auto-resolve may act on it.
     expect(alertUpdates()).toEqual([{
       meta: { _index: CS, _id: 'cs-alert-1', retry_on_conflict: 3 },
-      doc: { f0rtika: { achilles_correlated: true, achilles_test_uuid: TEST_UUID, achilles_matched_at: NOW.toISOString() } },
+      doc: { f0rtika: { achilles_correlated: true, achilles_test_uuid: TEST_UUID, achilles_matched_at: NOW.toISOString(), achilles_launch_block_doc_id: TASK_ID } },
     }]);
     // The launch-block fields are declared on the doc's index before the write.
     expect(mockPutMapping).toHaveBeenCalledWith(expect.objectContaining({ index: RESULT_INDEX }));
@@ -312,7 +317,7 @@ describe('EdrLaunchBlockReconciler.runPass', () => {
     resultStore = [resultDoc(TASK_ID)];
     alertStore[CS] = [falconAlert('cs-alert-1')];
     await reconciler().runPass({ now: NOW });
-    const req = mockSearch.mock.calls.map(([r]) => r).find((r) => r.index === 'achilles-results-*');
+    const req = candidateSearch()!;
     const q = JSON.stringify(req.query);
     expect(q).toContain('"event.ERROR":260');
     expect(q).toContain(`"ids":{"values":["${TASK_ID}"]}`);
@@ -330,7 +335,7 @@ describe('EdrLaunchBlockReconciler.runPass', () => {
     alertStore[CS] = [falconAlert('cs-alert-1', { evidence_filenames: ['tool.exe'], evidence_filepaths: ['C:\\Users\\x\\tool.exe'] })];
     const result = await reconciler().runPass({ now: NOW });
     expect(result).toEqual({ evidenceAlerts: 1, candidates: 0, resolved: 0, errors: [] });
-    expect(mockSearch.mock.calls.map(([r]) => r.index)).not.toContain('achilles-results-*');
+    expect(candidateSearch()).toBeUndefined();
   });
 
   it('a missing vendor index is not an error', async () => {
@@ -375,5 +380,118 @@ describe('runLaunchBlockReconciliation', () => {
     mockSearch.mockRejectedValue(new Error('boom'));
     const result = await runLaunchBlockReconciliation();
     expect(result.errors.length).toBeGreaterThan(0);
+  });
+});
+
+describe('an alert proves at most one run', () => {
+  const B_ID = 'bbbbbbbb-0000-4000-8000-00000000000b';
+  const byName = (extra: Record<string, unknown> = {}) => falconAlert('cs-alert-1', { evidence_filepaths: [], created_at: '2026-10-27T10:00:10Z', ...extra });
+
+  it('a run resolved on one pass never lends its alert to a later 260 run (two passes)', async () => {
+    resultStore = [resultDoc(TASK_ID)];
+    alertStore[CS] = [byName()];
+    expect((await reconciler().runPass({ now: NOW })).resolved).toBe(1);
+    // The alert carries its receipt now.
+    expect(alertStore[CS][0]._source.f0rtika.achilles_launch_block_doc_id).toBe(TASK_ID);
+
+    // Run B of the same test on the host, 4 minutes later: an ASR block, no alert of its own.
+    resultStore.push(resultDoc(B_ID, { time: '2026-10-27T10:04:00Z' }));
+    mockBulk.mockClear();
+    const second = await reconciler().runPass({ now: NOW });
+    expect(second.resolved).toBe(0);
+    expect(resultStore.find((d) => d._id === B_ID)!._source.event.ERROR).toBe(260);
+    expect(resultUpdates()).toEqual([]);
+  });
+
+  it('even without the receipt, the resolved run is nearer and keeps the alert', async () => {
+    resultStore = [
+      resultDoc(TASK_ID, { code: 126, f0rtika: { edr_launch_blocked: true, is_protected: true, launch_block: { alert_ids: [] } } }),
+      resultDoc(B_ID, { time: '2026-10-27T10:04:00Z' }),
+    ];
+    alertStore[CS] = [byName()];
+    expect((await reconciler().runPass({ now: NOW })).resolved).toBe(0);
+  });
+
+  it('a file-name-only alert nearer to a run that executed is that run\'s, not a 260 sibling\'s', async () => {
+    resultStore = [
+      resultDoc('cccccccc-0000-4000-8000-00000000000c', { code: 101 }),
+      resultDoc(B_ID, { time: '2026-10-27T10:04:00Z' }),
+    ];
+    alertStore[CS] = [byName()];
+    const result = await reconciler().runPass({ now: NOW });
+    expect(result.resolved).toBe(0);
+    expect(mockBulk).not.toHaveBeenCalled();
+  });
+
+  it('a file-name-only alert enrichment linked to a run is that run\'s', async () => {
+    resultStore = [resultDoc(B_ID, { time: '2026-10-27T10:04:00Z' })];
+    alertStore[CS] = [byName({ f0rtika: { achilles_correlated: true, achilles_test_uuid: TEST_UUID } })];
+    expect((await reconciler().runPass({ now: NOW })).resolved).toBe(0);
+  });
+
+  it('task-folder alerts are unaffected by a nearer sibling run', async () => {
+    resultStore = [
+      resultDoc('cccccccc-0000-4000-8000-00000000000c', { code: 101, time: '2026-10-27T10:01:00Z' }),
+      resultDoc(TASK_ID),
+    ];
+    alertStore[CS] = [falconAlert('cs-alert-1', { f0rtika: { achilles_correlated: true, achilles_test_uuid: TEST_UUID } })];
+    expect((await reconciler().runPass({ now: NOW })).resolved).toBe(1);
+  });
+
+  it('when the sibling lookup fails, only task-folder evidence counts that pass', async () => {
+    const failSiblings = (req: { index: string; query: unknown }) => {
+      if (req.index === 'achilles-results-*' && JSON.stringify(req.query).includes('"f0rtika.bundle_id"')) throw new Error('es timeout');
+      const hits = req.index === 'achilles-results-*' ? resultStore : (alertStore[req.index] ?? []);
+      return { hits: { hits: hits.map((h) => structuredClone(h)) } };
+    };
+    mockSearch.mockImplementation(async (req) => failSiblings(req));
+    resultStore = [resultDoc(B_ID, { time: '2026-10-27T10:04:00Z' })];
+    alertStore[CS] = [byName()];
+    const byNameOnly = await reconciler().runPass({ now: NOW });
+    expect(byNameOnly.resolved).toBe(0);
+    expect(byNameOnly.errors).toEqual([expect.stringContaining('siblings: es timeout')]);
+
+    resultStore = [resultDoc(TASK_ID)];
+    alertStore[CS] = [falconAlert('cs-alert-2'), byName()];
+    expect((await reconciler().runPass({ now: NOW })).resolved).toBe(1);
+  });
+
+  it('the evidence search skips alerts that already proved a run', async () => {
+    resultStore = [resultDoc(TASK_ID)];
+    alertStore[CS] = [falconAlert('cs-alert-1')];
+    await reconciler().runPass({ now: NOW });
+    const req = mockSearch.mock.calls.map(([r]) => r).find((r) => r.index === CS && JSON.stringify(r.query).includes('prevention_action'));
+    expect(req.query.bool.must_not).toContainEqual({ exists: { field: 'f0rtika.achilles_launch_block_doc_id' } });
+  });
+});
+
+describe('re-linking resolved docs', () => {
+  it('links the alerts of a doc resolved on a pass whose alert write failed', async () => {
+    resultStore = [resultDoc(TASK_ID)];
+    alertStore[CS] = [falconAlert('cs-alert-1')];
+    bulkItemError = (meta) => (meta._index === CS ? { type: 'es_rejected_execution_exception', reason: 'busy' } : null);
+    const first = await reconciler().runPass({ now: NOW });
+    expect(first.resolved).toBe(1);
+    expect(first.errors).toEqual([expect.stringContaining('busy')]);
+    expect(alertStore[CS][0]._source.f0rtika).toBeUndefined();
+
+    bulkItemError = null;
+    mockBulk.mockClear();
+    const second = await reconciler().runPass({ now: NOW });
+    expect(second.errors).toEqual([]);
+    expect(alertUpdates()).toEqual([{
+      meta: { _index: CS, _id: 'cs-alert-1', retry_on_conflict: 3 },
+      doc: { f0rtika: { achilles_correlated: true, achilles_test_uuid: TEST_UUID, achilles_matched_at: NOW.toISOString(), achilles_launch_block_doc_id: TASK_ID } },
+    }]);
+    expect(resultUpdates()).toEqual([]);
+  });
+
+  it('leaves already-linked alerts alone', async () => {
+    resultStore = [resultDoc(TASK_ID)];
+    alertStore[CS] = [falconAlert('cs-alert-1')];
+    await reconciler().runPass({ now: NOW });
+    mockBulk.mockClear();
+    await reconciler().runPass({ now: NOW });
+    expect(mockBulk).not.toHaveBeenCalled();
   });
 });
