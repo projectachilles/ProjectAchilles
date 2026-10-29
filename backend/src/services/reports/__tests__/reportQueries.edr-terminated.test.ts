@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { NOT_EDR_TERMINATED } from '../../analytics/enrichment-eligibility.js';
+import { NOT_STAGELESS } from '../../analytics/enrichment-eligibility.js';
 import { scopeRequest, testsRequest } from '../reportQueries.js';
 
 type Any = Record<string, any>;
@@ -8,12 +8,12 @@ describe('scopeRequest and EDR-killed runs', () => {
   const body = scopeRequest([]) as Any;
 
   it('technique aggregation ignores kill docs', () => {
-    expect(body.aggs.techniques.filter).toBe(NOT_EDR_TERMINATED);
+    expect(body.aggs.techniques.filter).toBe(NOT_STAGELESS);
     expect(body.aggs.techniques.aggs.by_technique.terms.field).toBe('f0rtika.techniques');
   });
 
   it('tactics count ignores kill docs', () => {
-    expect(body.aggs.tactics.filter).toBe(NOT_EDR_TERMINATED);
+    expect(body.aggs.tactics.filter).toBe(NOT_STAGELESS);
     expect(body.aggs.tactics.aggs.distinct.cardinality).toEqual({ field: 'f0rtika.tactics' });
   });
 
@@ -33,7 +33,7 @@ describe('testsRequest and EDR-killed runs', () => {
   });
 
   it('reads test metadata from the newest doc that is not a kill doc', () => {
-    expect(tests.aggs.real_meta.filter).toBe(NOT_EDR_TERMINATED);
+    expect(tests.aggs.real_meta.filter).toBe(NOT_STAGELESS);
     expect(tests.aggs.real_meta.aggs.meta).toEqual(tests.aggs.meta);
   });
 });

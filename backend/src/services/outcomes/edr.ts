@@ -23,6 +23,9 @@ export const SOURCE_FIELDS = [
   'event.ERROR',
   'f0rtika.category',
   'f0rtika.is_bundle_control',
+  // An EDR launch block (exit 260 the EDR's own alert proved): names the EDR in the verdict.
+  'f0rtika.edr_launch_blocked',
+  'f0rtika.launch_block.vendors',
   ...EDR_VENDORS.flatMap(({ key }) => [
     `f0rtika.${key}_detected`,
     `f0rtika.${key}_stage_detected`,

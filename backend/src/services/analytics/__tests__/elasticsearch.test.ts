@@ -2473,10 +2473,10 @@ describe('elasticsearch.ts', () => {
 
         const callArg = mockSearch.mock.calls[0][0];
         const perBundleFilter = callArg.aggs.per_bundle.filter;
-        // A bundle control, or a bundle test's EDR kill doc (edr-terminated-scoring.test.ts)
+        // A bundle control, or a bundle test's stageless EDR doc (edr-terminated-scoring / launch-block-scoring tests)
         expect(perBundleFilter.bool.must).toContainEqual({
           bool: {
-            should: [{ term: { 'f0rtika.is_bundle_control': true } }, (svc as any).KILL_BUNDLE_DOC],
+            should: [{ term: { 'f0rtika.is_bundle_control': true } }, (svc as any).STAGELESS_BUNDLE_DOC],
             minimum_should_match: 1,
           },
         });
@@ -2496,9 +2496,9 @@ describe('elasticsearch.ts', () => {
 
         const callArg = mockSearch.mock.calls[0][0];
         const perDocFilter = callArg.aggs.per_doc.filter;
-        // Per-doc covers: NOT a bundle control (nor a bundle kill doc), OR cyber-hygiene category
+        // Per-doc covers: NOT a bundle control (nor a stageless bundle doc), OR cyber-hygiene category
         expect(perDocFilter.bool.should).toContainEqual({
-          bool: { must_not: [{ term: { 'f0rtika.is_bundle_control': true } }, (svc as any).KILL_BUNDLE_DOC] },
+          bool: { must_not: [{ term: { 'f0rtika.is_bundle_control': true } }, (svc as any).STAGELESS_BUNDLE_DOC] },
         });
         expect(perDocFilter.bool.should).toContainEqual({
           term: { 'f0rtika.category': 'cyber-hygiene' },

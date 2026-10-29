@@ -78,7 +78,7 @@ const EXIT_MEANING: Record<number, string> = {
   1: 'test error',
   200: 'no output',
   259: 'timed out',
-  260: 'blocked before execution by app control, technique not evaluated',
+  260: 'blocked before execution by an EDR/AV or app control (e.g. Defender ASR), technique not evaluated',
   999: 'test error, prerequisites not met',
 };
 
@@ -158,7 +158,12 @@ export function cellVerdict(input: VerdictInput): Verdict {
   if (blocked >= 0) {
     state = 'protected';
     const code = stages[blocked].exit_code;
-    lead = isBundle ? `Blocked at stage ${blocked + 1} (${list[blocked].control_id}), exit ${code}.` : `Blocked, exit ${code}.`;
+    const launchBlockedBy = !isBundle && docs[0] ? launchBlockVendors(docs[0]) : null;
+    lead = isBundle
+      ? `Blocked at stage ${blocked + 1} (${list[blocked].control_id}), exit ${code}.`
+      : launchBlockedBy
+        ? `Blocked before it ran by ${launchBlockedBy}; the EDR's own alert confirms it (exit ${code}).`
+        : `Blocked, exit ${code}.`;
   } else if (prevented.length > 0) {
     state = 'prevented';
     const act = actionText(prevented.find((p) => actionText(p.action))?.action ?? null);
@@ -198,6 +203,17 @@ export function cellVerdict(input: VerdictInput): Verdict {
       stagesText: isBundle ? stages.map((st, i) => `${i + 1}:${st.outcome === 'skipped' ? 'skip' : st.exit_code}`).join(' ') : '',
     };
   }
+}
+
+/**
+ * The vendor names of a launch-blocked result doc (the reconciliation pass
+ * rewrote the agent's 260 to 126 because the EDR's alert proves it), or null.
+ */
+function launchBlockVendors(src: Record<string, unknown>): string | null {
+  if (getSourceField(src, 'f0rtika.edr_launch_blocked') !== true) return null;
+  const raw = getSourceField(src, 'f0rtika.launch_block.vendors');
+  const keys = (Array.isArray(raw) ? raw : []).filter((k): k is EdrVendorKey => EDR_VENDORS.some((v) => v.key === k));
+  return joinNames(vendorNames(keys)) || 'an EDR';
 }
 
 const vendorNames = (keys: EdrVendorKey[]) =>

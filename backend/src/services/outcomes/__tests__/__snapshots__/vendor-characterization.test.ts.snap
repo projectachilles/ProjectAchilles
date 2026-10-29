@@ -933,7 +933,9 @@ exports[`EDR vendor characterization (pre-registry refactor) > SOURCE_FIELDS 1`]
   "f0rtika.defender_prevented",
   "f0rtika.defender_prevention_action",
   "f0rtika.defender_stage_detected",
+  "f0rtika.edr_launch_blocked",
   "f0rtika.is_bundle_control",
+  "f0rtika.launch_block.vendors",
   "f0rtika.sentinelone_detected",
   "f0rtika.sentinelone_prevented",
   "f0rtika.sentinelone_prevention_action",
@@ -1805,8 +1807,20 @@ exports[`EDR vendor characterization (pre-registry refactor) > runAnyStageCombin
                       "bool": {
                         "filter": [
                           {
-                            "term": {
-                              "f0rtika.edr_terminated": true,
+                            "bool": {
+                              "minimum_should_match": 1,
+                              "should": [
+                                {
+                                  "term": {
+                                    "f0rtika.edr_launch_blocked": true,
+                                  },
+                                },
+                                {
+                                  "term": {
+                                    "f0rtika.edr_terminated": true,
+                                  },
+                                },
+                              ],
                             },
                           },
                           {
@@ -1900,8 +1914,20 @@ exports[`EDR vendor characterization (pre-registry refactor) > runAnyStageCombin
                       "bool": {
                         "filter": [
                           {
-                            "term": {
-                              "f0rtika.edr_terminated": true,
+                            "bool": {
+                              "minimum_should_match": 1,
+                              "should": [
+                                {
+                                  "term": {
+                                    "f0rtika.edr_launch_blocked": true,
+                                  },
+                                },
+                                {
+                                  "term": {
+                                    "f0rtika.edr_terminated": true,
+                                  },
+                                },
+                              ],
                             },
                           },
                           {
