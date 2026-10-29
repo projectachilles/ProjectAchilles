@@ -293,9 +293,13 @@ conclusive outcome. These stages are still scanned by the enrichment pass,
 and when alert evidence matches (hostname + stage binary + time window) they
 are flagged as detected and count toward the Defense Score like any other
 detection. Genuine test errors with no matching alert stay untouched. The
-exception is exit `260` (blocked before execution by an ASR/app-control
-policy): those are never scanned, since a policy block — including the ASR
-rule the platform excludes by design — is not a detection event.
+exception is exit `260` (blocked before execution by an EDR/AV or an
+ASR/app-control policy): the enrichment pass never scans those, since a policy
+block (including the ASR rule the platform excludes by design) is not a
+detection event. A separate pass turns a `260` into Protected when a
+CrowdStrike, SentinelOne or Sophos prevention alert names the run (never a
+Defender alert); see
+[Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#7-test-blocked-at-launch-by-the-edr).
 
 Note: the technique-only fallback in *alerts-for-test* is hostname-scoped
 whenever the host is known, so simultaneous fleet-wide runs can't

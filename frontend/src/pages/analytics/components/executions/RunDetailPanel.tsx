@@ -38,7 +38,7 @@ import {
 } from './detailParts';
 import { StageList } from './StageList';
 import { ENDPOINT_VENDOR_IDS, VENDORS } from '../integrations/vendorConfig';
-import { agentKill, agentKillNote, stageOutcomeCounts } from './stageVerdict';
+import { agentKill, agentKillNote, launchBlock, launchBlockNote, stageOutcomeCounts } from './stageVerdict';
 
 export type { AcceptRiskItem, InfoModalRequest } from './detailParts';
 
@@ -79,6 +79,13 @@ function ExecDetailBody({
   const hasDocumentation = descData && (descData.hasInfoCard || descData.hasReadme);
 
   const kill = agentKill(exec);
+  const blocked = launchBlock(exec);
+  // One evidence note: an EDR kill, or an EDR launch block (never both on one doc).
+  const evidence = kill
+    ? { note: agentKillNote(kill), alertIds: kill.alertIds }
+    : blocked
+      ? { note: launchBlockNote(blocked), alertIds: blocked.alertIds }
+      : null;
 
   const { defender, endpoint } = stageAlertState(exec, {
     alertsMap,
@@ -89,16 +96,16 @@ function ExecDetailBody({
 
   return (
     <div className="flex flex-col gap-3 text-sm">
-      {kill && (
+      {evidence && (
         <div className="rounded-md border border-border bg-raised p-3">
-          <p className="text-xs text-foreground">{agentKillNote(kill)}</p>
-          {kill.alertIds.length > 0 && (
+          <p className="text-xs text-foreground">{evidence.note}</p>
+          {evidence.alertIds.length > 0 && (
             <div className="mt-2">
               <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
                 Evidence alert(s)
               </span>
               <ul className="mt-1 space-y-0.5">
-                {kill.alertIds.map((id) => (
+                {evidence.alertIds.map((id) => (
                   <li key={id} className="break-all font-mono text-[11px] text-muted">
                     {id}
                   </li>

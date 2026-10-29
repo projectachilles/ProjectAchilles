@@ -59,6 +59,24 @@ describe('stageAlertState', () => {
   });
 });
 
+describe('stageAlertState for an EDR launch block', () => {
+  it('keeps the orchestrator (bundle-level) alerts: no stage ran, the run is the whole test', () => {
+    const blocked = { ...exec, test_uuid: 'u1', control_id: undefined, is_bundle_control: false, edr_launch_blocked: true } as unknown as EnrichedTestExecution;
+    const endpointAlerts = emptyEndpointAlerts();
+    endpointAlerts.crowdstrike.map.set('k', response([alertItem({ alert_id: 'orch', attribution: 'bundle', attributed_control_id: undefined })]));
+    const state = stageAlertState(blocked, { alertsMap: new Map(), alertsLoading: new Set(), endpointAlerts, stageAlertsCacheKey: () => 'k' });
+    expect(state.endpoint.crowdstrike.alerts.map((a) => a.alert_id)).toEqual(['orch']);
+  });
+
+  it('an ordinary standalone result keeps today\'s stage-only filter', () => {
+    const plain = { ...exec, test_uuid: 'u1', control_id: undefined, is_bundle_control: false } as unknown as EnrichedTestExecution;
+    const endpointAlerts = emptyEndpointAlerts();
+    endpointAlerts.crowdstrike.map.set('k', response([alertItem({ alert_id: 'orch', attribution: 'bundle', attributed_control_id: undefined })]));
+    const state = stageAlertState(plain, { alertsMap: new Map(), alertsLoading: new Set(), endpointAlerts, stageAlertsCacheKey: () => 'k' });
+    expect(state.endpoint.crowdstrike.alerts).toEqual([]);
+  });
+});
+
 describe('EndpointAlertRow', () => {
   it('links Sophos alerts with the Sophos Central label', () => {
     render(<EndpointAlertRow alert={alertItem()} runTimestamp={exec.timestamp} vendor="sophos" />);

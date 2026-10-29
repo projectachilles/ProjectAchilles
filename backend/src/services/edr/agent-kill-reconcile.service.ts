@@ -12,11 +12,10 @@
 import type { Client, estypes } from '@elastic/elasticsearch';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
-import { resolveTestNames } from '../analytics/test-name-lookup.js';
-import { getTestMetadata } from '../agent/test-catalog.service.js';
 import { listAgentKillCandidates, recordEdrTermination } from '../agent/tasks.service.js';
 import type { AgentKillCandidateRow } from '../agent/tasks.service.js';
 import { ingestEdrTerminatedResult } from '../agent/results.service.js';
+import { resolveBundleNames } from './bundle-identity.js';
 import { VENDOR_INDICES, configuredVendorIndices, isAnyEdrConfigured } from './edr-configured.js';
 import type { VendorIndex } from './edr-configured.js';
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS, ACHILLES_MITIGATED_QUERY } from '../shared/achillesMitigation.js';
@@ -210,7 +209,7 @@ export class EdrAgentKillReconciler {
     // Decide bundle identity once, for new tasks only; a vendor-add rewrite
     // reuses the stored decision so a later lookup failure can't drop bundle_id.
     const fresh = planned.filter((p) => p.isNew);
-    const bundles = await this.resolveBundles([...new Set(fresh.map((p) => p.candidate.row.task.payload.test_uuid))]);
+    const bundles = await resolveBundleNames(this.client, this.resultsIndexPattern, [...new Set(fresh.map((p) => p.candidate.row.task.payload.test_uuid))]);
     for (const p of fresh) {
       const bundleName = bundles.get(p.candidate.row.task.payload.test_uuid);
       if (bundleName) p.termination.bundle_name = bundleName;
@@ -223,26 +222,6 @@ export class EdrAgentKillReconciler {
       }
     }
     return result;
-  }
-
-  /**
-   * Bundle name per multi-stage test uuid. The test catalog decides; the
-   * names in ES only cover uuids the catalog doesn't know (e.g. a test
-   * removed from the library since it ran).
-   */
-  private async resolveBundles(uuids: string[]): Promise<Map<string, string>> {
-    const bundles = new Map<string, string>();
-    const unknown: string[] = [];
-    for (const uuid of uuids) {
-      const meta = getTestMetadata(uuid);
-      if (!meta) unknown.push(uuid);
-      else if (meta.isMultiStage) bundles.set(uuid, meta.name);
-    }
-    if (unknown.length > 0) {
-      const names = await resolveTestNames(this.client, this.resultsIndexPattern, unknown);
-      for (const [uuid, n] of names) if (n.kind === 'bundle') bundles.set(uuid, n.name);
-    }
-    return bundles;
   }
 
   /** Candidate alerts per task id, from one msearch per chunk of candidates. */

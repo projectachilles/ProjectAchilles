@@ -4,7 +4,7 @@ import { Client } from '@elastic/elasticsearch';
 import { createEsClient } from './client.js';
 import { RiskAcceptanceService } from '../risk-acceptance/risk-acceptance.service.js';
 import { attackSimulationExclusions } from './attack-simulation-filter.js';
-import { NOT_EDR_TERMINATED } from './enrichment-eligibility.js';
+import { NOT_STAGELESS } from './enrichment-eligibility.js';
 import { AppError } from '../../middleware/error.middleware.js';
 import {
   MAX_FRESHNESS_DAYS,
@@ -70,7 +70,7 @@ export const ERROR_CODE_MAP: Record<number, { name: string; description: string;
   127: { name: 'QuarantinedOnExecution',     description: 'Quarantined on execution attempt',            category: 'protected' },
   200: { name: 'NoOutput',                   description: 'No output - quick AV block before execution', category: 'inconclusive' },
   259: { name: 'StillActive',               description: 'Windows STILL_ACTIVE - process timeout',      category: 'inconclusive' },
-  260: { name: 'BlockedPreExecution',      description: 'Blocked before execution by ASR/app-control - technique not evaluated', category: 'inconclusive' },
+  260: { name: 'BlockedPreExecution',      description: 'Blocked before execution (access denied) by an EDR/AV or an app-control rule such as Defender ASR - technique not evaluated; Protected (126) once the EDR\'s own alert confirms it', category: 'inconclusive' },
   999: { name: 'UnexpectedTestError',        description: 'Test error - prerequisites not met',          category: 'error' },
 };
 
@@ -291,10 +291,11 @@ export const TEST_KEY_SCRIPT = {
 
 /** Internal option of the latest-basis technique readers; part of the posture cache key. */
 interface TechniqueScopeOption {
+  /** Leave out stageless EDR docs (killed agent or launch block); the name predates launch blocks. */
   excludeEdrTerminated?: boolean;
 }
 
-/** Exit code for a test binary blocked before it ran (e.g. an ASR prevalence rule). */
+/** Exit code for a test binary blocked before it ran (an EDR/AV, or an app-control rule such as an ASR prevalence rule). */
 const BLOCKED_PRE_EXECUTION_CODE = 260;
 
 /** Newest inconclusive run of a chain (see fetchBundleInconclusiveRuns). */
@@ -629,14 +630,23 @@ export class ElasticsearchService {
   }
 
   /**
-   * Whole-test doc of a bundle run the EDR killed along with the agent: it
-   * carries f0rtika.bundle_id but no is_bundle_control, and is scored as one
-   * more run of that bundle's pair (the stages are unknown).
+   * Stageless whole-test doc of a bundle run: the EDR killed the agent
+   * (edr_terminated, stages unknown) or blocked the orchestrator at launch
+   * (edr_launch_blocked, no stage ran). It carries f0rtika.bundle_id but no
+   * is_bundle_control, and is scored as one more run of that bundle's pair.
    */
-  private readonly KILL_BUNDLE_DOC = {
+  private readonly STAGELESS_BUNDLE_DOC = {
     bool: {
       filter: [
-        { term: { 'f0rtika.edr_terminated': true } },
+        {
+          bool: {
+            should: [
+              { term: { 'f0rtika.edr_terminated': true } },
+              { term: { 'f0rtika.edr_launch_blocked': true } },
+            ],
+            minimum_should_match: 1,
+          },
+        },
         { exists: { field: 'f0rtika.bundle_id' } },
       ],
     },
@@ -646,20 +656,20 @@ export class ElasticsearchService {
   private readonly PER_DOC_FILTER = {
     bool: {
       should: [
-        { bool: { must_not: [{ term: { 'f0rtika.is_bundle_control': true } }, this.KILL_BUNDLE_DOC] } },
+        { bool: { must_not: [{ term: { 'f0rtika.is_bundle_control': true } }, this.STAGELESS_BUNDLE_DOC] } },
         { term: { 'f0rtika.category': 'cyber-hygiene' } },
       ],
       minimum_should_match: 1,
     },
   };
 
-  /** Filter matching non-cyber-hygiene bundle controls and bundle kill docs (scored per-bundle-group). */
+  /** Filter matching non-cyber-hygiene bundle controls and stageless bundle docs (scored per-bundle-group). */
   private readonly PER_BUNDLE_FILTER = {
     bool: {
       must: [
         {
           bool: {
-            should: [{ term: { 'f0rtika.is_bundle_control': true } }, this.KILL_BUNDLE_DOC],
+            should: [{ term: { 'f0rtika.is_bundle_control': true } }, this.STAGELESS_BUNDLE_DOC],
             minimum_should_match: 1,
           },
         },
@@ -1506,12 +1516,13 @@ export class ElasticsearchService {
     const outcome = this.parseOutcomeFilters(params);
     const isAnyStage = params.scoringMode === 'any-stage';
     const clauses = this.buildFilterBarClauses(params, { excludeOutcome: true });
-    // Technique views: an EDR-killed run has unknown stages, so no technique is credited.
-    if (params.excludeEdrTerminated) clauses.push(NOT_EDR_TERMINATED);
-    // All-stages pairs are per stage doc; a bundle kill doc has no stages, and
+    // Technique views: an EDR-killed run has unknown stages and an EDR
+    // launch-blocked run ran none, so no technique is credited.
+    if (params.excludeEdrTerminated) clauses.push(NOT_STAGELESS);
+    // All-stages pairs are per stage doc; a stageless bundle doc has no stages, and
     // as its own `oid|<bundle>|host` pair no later real run would replace it.
     // Standalone kill docs stay: there the kill doc is the test's only doc.
-    else if (!isAnyStage) clauses.push({ bool: { must_not: [this.KILL_BUNDLE_DOC] } });
+    else if (!isAnyStage) clauses.push({ bool: { must_not: [this.STAGELESS_BUNDLE_DOC] } });
     const exclusionFilter: unknown = (await this.getRiskAcceptanceService().buildExclusionFilter(params.org)) ?? null;
     return {
       window,
@@ -1752,7 +1763,7 @@ export class ElasticsearchService {
   async getDefenseScoreByTechnique(params: AnalyticsQueryParams & Partial<ExtendedAnalyticsQueryParams>): Promise<BreakdownItem[]> {
     const isAnyStage = params.scoringMode === 'any-stage';
     const filters = await this.buildDefenseScoreFilters(params);
-    filters.push(NOT_EDR_TERMINATED);
+    filters.push(NOT_STAGELESS);
     const results = await this.runBreakdownQuery(filters, 'by_technique', 'f0rtika.techniques', 50, isAnyStage);
 
     return results
@@ -2005,7 +2016,7 @@ export class ElasticsearchService {
     const orgFilter = this.buildOrgFilter(params.org);
     if (orgFilter) filters.push(orgFilter);
 
-    filters.push(...this.buildFilterBarClauses(params), NOT_EDR_TERMINATED);
+    filters.push(...this.buildFilterBarClauses(params), NOT_STAGELESS);
 
     const response = await this.client.search({
       index: this.settings.indexPattern,
@@ -2121,7 +2132,7 @@ export class ElasticsearchService {
       index: this.settings.indexPattern,
       size: 0,
       query: {
-        bool: { filter: [this.buildTestDataFilter(), NOT_EDR_TERMINATED] }
+        bool: { filter: [this.buildTestDataFilter(), NOT_STAGELESS] }
       },
       aggs: {
         techniques: {
@@ -2597,6 +2608,9 @@ export class ElasticsearchService {
       edr_terminated_vendors: getField(source, 'f0rtika.edr_terminated_vendors'),
       edr_terminated_alert_ids: getField(source, 'f0rtika.edr_terminated_alert_ids'),
       stages_unknown: getField(source, 'f0rtika.stages_unknown') ?? false,
+      edr_launch_blocked: getField(source, 'f0rtika.edr_launch_blocked') ?? false,
+      launch_block_vendors: getField(source, 'f0rtika.launch_block.vendors'),
+      launch_block_alert_ids: getField(source, 'f0rtika.launch_block.alert_ids'),
     };
   }
 

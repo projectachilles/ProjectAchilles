@@ -251,3 +251,58 @@ describe('RunDetailPanel — EDR-killed run', () => {
     expect(screen.queryByText('Defender Alerts')).not.toBeInTheDocument();
   });
 });
+
+describe('RunDetailPanel — EDR launch block', () => {
+  const blocked = {
+    test_uuid: 'c0ffee00-1234-4abc-8def-000000000001', test_name: 'Example Orchestrated Test', hostname: 'WS-0042',
+    is_protected: true, org: 'o', timestamp: '2026-10-27T10:00:00Z', error_code: 126, error_name: 'ExecutionPrevented',
+    techniques: ['T1105'], is_bundle_control: false,
+    edr_launch_blocked: true, launch_block_vendors: ['crowdstrike'], launch_block_alert_ids: ['cs-alert-1'],
+    crowdstrike_detected: true, crowdstrike_prevented: true, crowdstrike_prevention_action: 'quarantined',
+  } as EnrichedTestExecution;
+
+  function renderBlocked() {
+    const endpointAlerts = emptyEndpointAlerts();
+    endpointAlerts.crowdstrike.configured = true;
+    // The orchestrator alert is bundle-attributed (no stage binary in its evidence).
+    endpointAlerts.crowdstrike.map.set('k', {
+      alerts: [{
+        alert_id: 'falcon-1', alert_title: 'Machine Learning: sensor-based ML', severity: 'high', status: 'new',
+        attribution: 'bundle', prevention_action: 'quarantined', created_at: '2026-10-27T10:01:00Z',
+      }],
+    } as never);
+    render(
+      <RunDetailPanel
+        row={{ type: 'standalone', key: 'k', execution: blocked }}
+        defenderConfigured={false}
+        endpointAlerts={endpointAlerts}
+        descriptionMap={new Map()}
+        descriptionLoadingKey={null}
+        alertsMap={new Map()}
+        alertsLoading={new Set()}
+        stageAlertsCacheKey={() => 'k'}
+        getAcceptanceForExec={() => undefined}
+        riskEnabled
+        archiveEnabled={false}
+        onRequestAcceptRisk={vi.fn()}
+        onRequestRevoke={vi.fn()}
+        onRequestArchive={vi.fn()}
+        onOpenInfo={vi.fn()}
+        expandedControlIndex={null}
+        onToggleControl={vi.fn()}
+      />,
+    );
+  }
+
+  it('explains the block, lists the evidence alert ids and shows the vendor alert', () => {
+    renderBlocked();
+    expect(
+      screen.getByText(
+        'CrowdStrike Falcon blocked this test before it ran (the agent reported exit 260, blocked before execution), and its own prevention alert confirms it. The run counts as protected for the test as a whole; no stage ran, so no technique is scored.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Evidence alert(s)')).toBeInTheDocument();
+    expect(screen.getByText('cs-alert-1')).toBeInTheDocument();
+    expect(screen.getByText('Machine Learning: sensor-based ML')).toBeInTheDocument();
+  });
+});

@@ -46,7 +46,7 @@ Stage verdicts:
 | Prevented | The EDR (Defender, CrowdStrike or both) reports a quarantine, process kill or block after the stage ran. |
 | Detected | Ran to completion; an EDR alerted but did not stop it. |
 | Unprotected | Ran to completion with no block and no alert. |
-| Stage not run (exit 260) | A control, usually an ASR prevalence rule, blocked the test binary before it ran. The technique was not tested and is not scored as protected. |
+| Stage not run (exit 260) | Something refused to start the stage's binary: an EDR/AV, or an application-control rule such as an ASR prevalence rule. The technique was not tested and is not scored as protected. (When a whole test is blocked at launch and the EDR's own alert confirms it, the run shows **Protected**, "Blocked before it ran by &lt;EDR&gt;"; see [Exit Codes & Outcomes](./exit-codes-and-outcomes#7-test-blocked-at-launch-by-the-edr).) |
 | Inconclusive | The stage ended with an error and counts as neither protected nor unprotected. If the stage's EDR reports a prevention action, that vendor and action are named as the likely cause; scoring is unchanged. |
 | Did not run | The chain stopped at the nearest earlier stage that ran, and the verdict says why: a control blocked it, a control blocked its test binary before it ran, or it ended with an error. If that stage ran to completion (detected or unprotected), the verdict just says the chain stopped before this stage. |
 

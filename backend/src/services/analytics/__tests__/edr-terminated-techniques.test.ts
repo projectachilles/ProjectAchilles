@@ -24,7 +24,7 @@ vi.mock('../../risk-acceptance/risk-acceptance.service.js', () => ({
 }));
 
 const { ElasticsearchService } = await import('../elasticsearch.js');
-const { NOT_EDR_TERMINATED } = await import('../enrichment-eligibility.js');
+const { NOT_STAGELESS } = await import('../enrichment-eligibility.js');
 
 const useIndex = (docs: Doc[]) => useIndexOn(mockSearch, docs);
 
@@ -102,18 +102,18 @@ describe('technique views and EDR-killed runs', () => {
 
     it('getDefenseScoreByTechnique excludes edr_terminated docs', async () => {
       await createService().getDefenseScoreByTechnique(RANGE);
-      expect(filterOf()).toContainEqual(NOT_EDR_TERMINATED);
+      expect(filterOf()).toContainEqual(NOT_STAGELESS);
     });
 
     it('getTechniqueDistribution excludes edr_terminated docs', async () => {
       await createService().getTechniqueDistribution(RANGE);
-      expect(filterOf()).toContainEqual(NOT_EDR_TERMINATED);
+      expect(filterOf()).toContainEqual(NOT_STAGELESS);
     });
   });
 
   it('getAvailableTechniques excludes edr_terminated docs', async () => {
     await createService().getAvailableTechniques();
-    expect(mockSearch.mock.calls[0][0].query.bool.filter).toContainEqual(NOT_EDR_TERMINATED);
+    expect(mockSearch.mock.calls[0][0].query.bool.filter).toContainEqual(NOT_STAGELESS);
   });
 
   describe('basis=latest', () => {
@@ -150,7 +150,7 @@ describe('technique views and EDR-killed runs', () => {
       expect(JSON.stringify(tech.keyBase)).not.toBe(JSON.stringify(tile.keyBase));
       expect(tech.keyBase.excludeEdrTerminated).toBe(true);
       expect(tile.keyBase).not.toHaveProperty('excludeEdrTerminated');
-      expect(tile.clauses).not.toContainEqual(NOT_EDR_TERMINATED);
+      expect(tile.clauses).not.toContainEqual(NOT_STAGELESS);
     });
 
     it('a technique read does not reuse a test-level breakdown snapshot, and leaves it intact', async () => {

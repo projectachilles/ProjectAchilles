@@ -279,6 +279,14 @@ tenant; Sophos doesn't document it.
 Don't add an agent exclusion in Sophos to stop a kill: see
 [Endpoint Prerequisites](../../deployment/endpoint-prerequisites#sophos-intercept-x).
 
+## When the EDR blocks a test at launch
+
+Sophos' static or machine-learning prevention can block a test binary as it starts. Windows then refuses to create the process and the agent reports exit `260` (blocked before execution), which on its own is inconclusive because Defender ASR produces the same code. If Sophos raised a prevention alert (quarantined, process killed or blocked) on the same host that names the run's own task folder (`C:\F0\tasks\task-<task id>-<n>\`), or the test's `<test uuid>.exe` within the correlation window, ProjectAchilles rewrites the result as **Protected** (exit `126`), credited to Sophos. It counts in the Defense Score but never for a technique, because no stage ran. See [Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#7-test-blocked-at-launch-by-the-edr).
+
+This has been verified on live CrowdStrike Falcon data. Sophos alerts carry the prevention action and the file evidence it needs, but a Sophos launch block has not been seen on a live tenant yet.
+
+The proving alert is linked to the test like any correlated alert, so auto-resolve (when you turned it on) resolves it.
+
 ## API
 
 All routes require Clerk auth; reads need `integrations:read`, writes

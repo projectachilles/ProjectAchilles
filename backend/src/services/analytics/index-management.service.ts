@@ -50,6 +50,22 @@ export const RESULTS_INDEX_MAPPING = {
           edr_terminated_vendors: { type: 'keyword' as const },
           edr_terminated_alert_ids: { type: 'keyword' as const },
           stages_unknown: { type: 'boolean' as const },
+          // A 260 (blocked before execution) result an EDR's own prevention
+          // alert proved was the EDR blocking the test at launch: rewritten in
+          // place to 126 by edr/launch-block-reconcile.service.ts, with the
+          // audit trail in launch_block. Like edr_terminated, it counts for the
+          // test but never for a technique (no stage ran).
+          edr_launch_blocked: { type: 'boolean' as const },
+          launch_block: {
+            properties: {
+              original_exit_code: { type: 'integer' as const },
+              original_error_name: { type: 'keyword' as const },
+              vendors: { type: 'keyword' as const },
+              alert_ids: { type: 'keyword' as const },
+              evidence: { type: 'keyword' as const },
+              resolved_at: { type: 'date' as const },
+            },
+          },
           // Per EDR registry vendor (services/outcomes/vendors.ts), the flags its
           // enrichment pass writes: <key>_detected (bundle-scoped match),
           // <key>_stage_detected (alert names THIS stage's own binary;

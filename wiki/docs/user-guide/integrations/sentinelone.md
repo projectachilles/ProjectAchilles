@@ -96,6 +96,14 @@ These alerts stay open in SentinelOne: Achilles links them to the run but never 
 
 Do not add any SentinelOne exclusion to stop this, not even the narrowest one on the agent's own file. The agent launches the test binaries, so every test's process tree starts at the agent, and SentinelOne applies a path exclusion to threat groups whose root is the excluded file: an exclusion for the agent would exempt the tests too, and the run would no longer measure your protection. See [Endpoint Prerequisites → SentinelOne](../../deployment/endpoint-prerequisites#sentinelone).
 
+## When the EDR blocks a test at launch
+
+SentinelOne's static or machine-learning prevention can block a test binary as it starts. Windows then refuses to create the process and the agent reports exit `260` (blocked before execution), which on its own is inconclusive because Defender ASR produces the same code. If SentinelOne raised a prevention alert (quarantined, process killed or blocked) on the same host that names the run's own task folder (`C:\F0\tasks\task-<task id>-<n>\`), or the test's `<test uuid>.exe` within the correlation window, ProjectAchilles rewrites the result as **Protected** (exit `126`), credited to SentinelOne. It counts in the Defense Score but never for a technique, because no stage ran. See [Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#7-test-blocked-at-launch-by-the-edr).
+
+This has been verified on live CrowdStrike Falcon data. SentinelOne threats carry the mitigation and file evidence it needs, but a SentinelOne launch block has not been seen on a live tenant yet.
+
+The proving alert is linked to the test like any correlated alert, so auto-resolve (when you turned it on) resolves it.
+
 ## API
 
 All routes require Clerk auth; reads need `integrations:read`, writes

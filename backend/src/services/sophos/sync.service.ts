@@ -67,7 +67,9 @@ import { SophosEnrichmentService } from './enrichment.service.js';
 import { SophosAutoResolveService } from './auto-resolve.service.js';
 import { SophosPostureService, POSTURE_INTERVAL_MS, type SophosPosturePassResult } from './posture.service.js';
 import { runAgentKillReconciliation, failedAgentKillPass } from '../edr/agent-kill-reconcile.service.js';
+import { runLaunchBlockReconciliation, failedLaunchBlockPass } from '../edr/launch-block-reconcile.service.js';
 import type { AgentKillPassResult } from '../../types/agent-kill.js';
+import type { LaunchBlockPassResult } from '../../types/launch-block.js';
 import type { AutoResolvePassResult, EnrichmentPassResult } from '../../types/edr.js';
 import type { SophosCapabilities, SophosCapabilityState, SophosIntegrationSettings } from '../../types/sophos.js';
 
@@ -105,6 +107,7 @@ export interface SophosSyncResult {
   xdr_detections?: SophosSourceSyncResult;
   enrichment?: EnrichmentPassResult;
   agentKill?: AgentKillPassResult;
+  launchBlock?: LaunchBlockPassResult;
   autoResolve?: AutoResolvePassResult;
   posture?: SophosPosturePassResult;
   timestamp: string;
@@ -304,6 +307,9 @@ export class SophosSyncService {
       result.enrichment = await this.runEnrichmentPass(es);
       // EDR-killed agent runs (any vendor's evidence). Never throws.
       result.agentKill = await runAgentKillReconciliation().catch(failedAgentKillPass);
+      // Exit-260 runs an EDR's prevention alert proves it blocked at launch
+      // become Protected (any capable vendor's evidence). Never throws.
+      result.launchBlock = await runLaunchBlockReconciliation().catch(failedLaunchBlockPass);
       result.autoResolve = await this.runAutoResolvePass(es, client);
       const lastPosture = svc.getSophosSyncTimestamps().last_posture_sync;
       if (!lastPosture || Date.now() - Date.parse(lastPosture) >= POSTURE_INTERVAL_MS) {

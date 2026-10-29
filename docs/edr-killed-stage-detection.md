@@ -54,7 +54,10 @@ error/inconclusive codes. Rename the constant to `ENRICHMENT_ELIGIBLE_ERROR_CODE
 **Deliberately excluded:** `260` (BlockedPreExecution) stays ineligible. That code is produced by
 ASR/app-control policy blocks, including the ASR rule the platform itself excludes by design
 (`docs/defender-asr-exclusion-rationale.md`); counting it as detection would conflate our own
-exclusion with EDR efficacy. Revisit separately if customers ask.
+exclusion with EDR efficacy. Revisited (Oct 2026): a separate pass,
+`services/edr/launch-block-reconcile.service.ts`, turns a whole-test 260 into a Protected 126
+when a CrowdStrike/SentinelOne/Sophos prevention alert names the run's task folder or
+orchestrator binary (never a Defender alert). The enrichment pass still never scans 260.
 
 **False-positive analysis:** the stage query requires the exact stage binary
 (`<bundle-uuid>-<control_id>[-variant].exe`) in alert evidence on the same hostname within the time

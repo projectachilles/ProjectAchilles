@@ -35,6 +35,7 @@ import { defenderSyncService } from './api/integrations.routes.js';
 import { prepareConfiguredEdrEs } from './services/edr/es-readiness.js';
 import { crowdstrikeSyncService } from './api/integrations.routes.js';
 import { runAgentKillReconciliation } from './services/edr/agent-kill-reconcile.service.js';
+import { runLaunchBlockReconciliation } from './services/edr/launch-block-reconcile.service.js';
 import defenderRoutes from './api/defender.routes.js';
 import crowdstrikeRoutes from './api/crowdstrike.routes.js';
 import sentinelOneAnalyticsRoutes from './api/sentinelone-analytics.routes.js';
@@ -511,11 +512,15 @@ function startBackgroundJobs(httpServer?: http.Server) {
     //                     would only update on boot)
     //   3. agent kills  — turn watchdog-failed runs the EDR killed into
     //                     Protected results (never throws)
+    //   3b. launch blocks — turn exit-260 runs a (non-Defender) EDR's alert
+    //                     proves it blocked at launch into Protected results;
+    //                     links the alerts, so before auto-resolve (never throws)
     //   4. auto-resolve — PATCH correlated alerts to status=resolved
     //                     when the customer has opted in (mode != 'disabled')
     await defenderSyncService.syncAlerts().catch(logDefenderError('alert sync'));
     await defenderSyncService.runEnrichmentPass().catch(logDefenderError('enrichment'));
     await runAgentKillReconciliation();
+    await runLaunchBlockReconciliation();
     await defenderSyncService.runAutoResolvePass().catch(logDefenderError('auto-resolve'));
   }, 5 * 60 * 1000); // 5 minutes
 
@@ -547,11 +552,15 @@ function startBackgroundJobs(httpServer?: http.Server) {
     //   2. enrichment   — tag freshly-arrived alerts that match Achilles tests
     //   3. agent kills  — turn watchdog-failed runs the EDR killed into
     //                     Protected results (never throws)
+    //   3b. launch blocks — turn exit-260 runs a (non-Defender) EDR's alert
+    //                     proves it blocked at launch into Protected results;
+    //                     links the alerts, so before auto-resolve (never throws)
     //   4. auto-resolve — PATCH correlated alerts to status=closed
     //                     when the customer has opted in (mode != 'disabled')
     await crowdstrikeSyncService.syncAlerts().catch(logCrowdStrikeError('alert sync'));
     await crowdstrikeSyncService.runEnrichmentPass().catch(logCrowdStrikeError('enrichment'));
     await runAgentKillReconciliation();
+    await runLaunchBlockReconciliation();
     await crowdstrikeSyncService.runAutoResolvePass().catch(logCrowdStrikeError('auto-resolve'));
   }, 5 * 60 * 1000); // 5 minutes
 

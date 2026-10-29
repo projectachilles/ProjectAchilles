@@ -63,3 +63,18 @@ describe('RunList EDR-killed runs', () => {
     expect(screen.queryByText(/agent terminated/)).not.toBeInTheDocument();
   });
 });
+
+describe('RunList: EDR launch block', () => {
+  it('shows who blocked the run under its Protected label', () => {
+    const row: DisplayRow = {
+      type: 'standalone',
+      key: 'lb',
+      execution: {
+        test_uuid: 'lb', test_name: 'Blocked test', hostname: 'host-1', timestamp: '2026-10-12T12:47:49Z',
+        error_code: 126, is_protected: true, edr_launch_blocked: true, launch_block_vendors: ['crowdstrike'],
+      } as EnrichedTestExecution,
+    };
+    render(<RunList rows={[row]} selectedKey={null} onSelect={vi.fn()} checkedKeys={null} onToggleChecked={vi.fn()} />);
+    expect(screen.getByText('Blocked before it ran by CrowdStrike Falcon')).toBeInTheDocument();
+  });
+});

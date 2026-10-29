@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NOT_EDR_TERMINATED } from '../../analytics/enrichment-eligibility.js';
+import { NOT_STAGELESS } from '../../analytics/enrichment-eligibility.js';
 import { attackSimulationExclusions } from '../../analytics/attack-simulation-filter.js';
 
 // ── Mock setup ──────────────────────────────────────────────────────
@@ -598,7 +598,7 @@ describe('DefenderAnalyticsService', () => {
       // Calls 0 and 2 are the test-results queries (each is followed by its alert query).
       for (const i of [0, 2]) {
         const bool = (mockSearch.mock.calls[i][0].query as Record<string, any>).bool;
-        expect(bool.filter).toContainEqual(NOT_EDR_TERMINATED);
+        expect(bool.filter).toContainEqual(NOT_STAGELESS);
       }
     });
   });

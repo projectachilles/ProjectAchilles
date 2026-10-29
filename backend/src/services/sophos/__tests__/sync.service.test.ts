@@ -93,6 +93,13 @@ vi.mock('../../edr/agent-kill-reconcile.service.js', () => ({
   failedAgentKillPass: (err: unknown) => ({ candidates: 0, reconciled: 0, vendorsAdded: 0, errors: [err instanceof Error ? err.message : String(err)] }),
 }));
 
+// The launch-block reconciliation (exit 260 + EDR prevention alert); stub it and record the call order.
+const mockLaunchBlock = vi.fn(async () => ({ evidenceAlerts: 0, candidates: 0, resolved: 0, errors: [] as string[] }));
+vi.mock('../../edr/launch-block-reconcile.service.js', () => ({
+  runLaunchBlockReconciliation: () => mockLaunchBlock(),
+  failedLaunchBlockPass: (err: unknown) => ({ evidenceAlerts: 0, candidates: 0, resolved: 0, errors: [err instanceof Error ? err.message : String(err)] }),
+}));
+
 const { SophosSyncService, SOPHOS_SYNC_VERSION, SOPHOS_SIEM_GAP_MS } = await import('../sync.service.js');
 const { SophosApiError, SophosGraphQLError } = await import('../sophos-client.js');
 
@@ -466,7 +473,7 @@ describe('SophosSyncService', () => {
   it('runs enrichment, then agent-kill reconciliation, then auto-resolve, then posture when due', async () => {
     mockAutoResolveMode = 'dry_run';
     const result = await new SophosSyncService().syncAll();
-    const order = [mockRunEnrichment, mockAgentKill, mockAutoResolvePass, mockPosturePass].map((m) => m.mock.invocationCallOrder[0]);
+    const order = [mockRunEnrichment, mockAgentKill, mockLaunchBlock, mockAutoResolvePass, mockPosturePass].map((m) => m.mock.invocationCallOrder[0]);
     expect(order.every((n) => typeof n === 'number')).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(mockGraphql.mock.invocationCallOrder[0]).toBeLessThan(order[0]);
@@ -486,11 +493,13 @@ describe('SophosSyncService', () => {
   it('a failing enrichment, agent-kill, auto-resolve or posture pass never fails the sync', async () => {
     mockRunEnrichment.mockRejectedValueOnce(new Error('es down'));
     mockAgentKill.mockRejectedValueOnce(new Error('sqlite busy'));
+    mockLaunchBlock.mockRejectedValueOnce(new Error('es busy'));
     mockAutoResolvePass.mockRejectedValueOnce(new Error('boom-r'));
     mockPosturePass.mockRejectedValueOnce(new Error('boom-p'));
     const result = await new SophosSyncService().syncAll();
     expect(result.enrichment?.errors).toEqual(['es down']);
     expect(result.agentKill?.errors).toEqual(['sqlite busy']);
+    expect(result.launchBlock?.errors).toEqual(['es busy']);
     expect(result.autoResolve?.errors).toEqual(['boom-r']);
     expect(result.posture?.errors).toEqual(['pass: boom-p']);
     expect(mockSaveCheckpoints.mock.calls.some((c) => typeof c[0].last_posture_sync === 'string')).toBe(false);

@@ -2,6 +2,7 @@
 
 import type { AutoResolveMode, EnrichmentPassOptions, EnrichmentPassResult, AutoResolvePassOptions, AutoResolvePassResult } from './defender.js';
 import type { AgentKillPassResult } from './agent-kill.js';
+import type { LaunchBlockPassResult } from './launch-block.js';
 
 export type { AutoResolveMode, EnrichmentPassOptions, EnrichmentPassResult, AutoResolvePassOptions, AutoResolvePassResult };
 
@@ -195,6 +196,7 @@ export interface CrowdStrikeSyncResult {
   enrichment: EnrichmentPassResult;
   /** EDR-killed agent runs reconciled after enrichment (all vendors' alert indices). */
   agentKill?: AgentKillPassResult;
+  launchBlock?: LaunchBlockPassResult;
   autoResolve: AutoResolvePassResult;
   timestamp: string;
 }

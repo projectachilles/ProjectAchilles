@@ -118,6 +118,13 @@ vi.mock('../../edr/agent-kill-reconcile.service.js', () => ({
   failedAgentKillPass: (err: unknown) => ({ candidates: 0, reconciled: 0, vendorsAdded: 0, errors: [err instanceof Error ? err.message : String(err)] }),
 }));
 
+// The launch-block reconciliation (exit 260 + EDR prevention alert); stub it and record the call order.
+const mockLaunchBlock = vi.fn(async () => ({ evidenceAlerts: 0, candidates: 0, resolved: 0, errors: [] as string[] }));
+vi.mock('../../edr/launch-block-reconcile.service.js', () => ({
+  runLaunchBlockReconciliation: () => mockLaunchBlock(),
+  failedLaunchBlockPass: (err: unknown) => ({ evidenceAlerts: 0, candidates: 0, resolved: 0, errors: [err instanceof Error ? err.message : String(err)] }),
+}));
+
 const { CrowdStrikeSyncService } = await import('../sync.service.js');
 const { ensureCrowdStrikeIndex } = await import('../index-management.js');
 
@@ -492,6 +499,30 @@ describe('CrowdStrikeSyncService', () => {
       expect(enrichment.mock.invocationCallOrder[0]).toBeLessThan(mockAgentKill.mock.invocationCallOrder[0]);
       expect(mockAgentKill.mock.invocationCallOrder[0]).toBeLessThan(autoResolve.mock.invocationCallOrder[0]);
       expect(result.agentKill).toEqual({ candidates: 2, reconciled: 1, vendorsAdded: 0, errors: [] });
+    });
+
+    it('syncAll runs the launch-block reconciliation after the agent-kill pass, before auto-resolve', async () => {
+      mockGetAlertsCombined.mockResolvedValue(emptyPage);
+      mockGetZtaDeviceIds.mockResolvedValue({ resources: [], after: undefined, total: 0 });
+      mockLaunchBlock.mockResolvedValueOnce({ evidenceAlerts: 1, candidates: 1, resolved: 1, errors: [] });
+      const autoResolve = vi.spyOn(service, 'runAutoResolvePass');
+
+      const result = await service.syncAll();
+
+      expect(mockAgentKill.mock.invocationCallOrder[0]).toBeLessThan(mockLaunchBlock.mock.invocationCallOrder[0]);
+      expect(mockLaunchBlock.mock.invocationCallOrder[0]).toBeLessThan(autoResolve.mock.invocationCallOrder[0]);
+      expect(result.launchBlock).toEqual({ evidenceAlerts: 1, candidates: 1, resolved: 1, errors: [] });
+    });
+
+    it('a rejecting launch-block reconciliation never fails the sync', async () => {
+      mockGetAlertsCombined.mockResolvedValue(emptyPage);
+      mockGetZtaDeviceIds.mockResolvedValue({ resources: [], after: undefined, total: 0 });
+      mockLaunchBlock.mockRejectedValueOnce(new Error('boom'));
+
+      const result = await service.syncAll();
+
+      expect(result.launchBlock?.errors).toEqual(['boom']);
+      expect(result.autoResolve).toBeDefined();
     });
 
     it('a rejecting reconciliation never fails the sync', async () => {

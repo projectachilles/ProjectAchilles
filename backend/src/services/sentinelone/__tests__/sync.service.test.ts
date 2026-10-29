@@ -89,6 +89,13 @@ vi.mock('../../edr/agent-kill-reconcile.service.js', () => ({
   failedAgentKillPass: (err: unknown) => ({ candidates: 0, reconciled: 0, vendorsAdded: 0, errors: [err instanceof Error ? err.message : String(err)] }),
 }));
 
+// The launch-block reconciliation (exit 260 + EDR prevention alert); stub it and record the call order.
+const mockLaunchBlock = vi.fn(async () => ({ evidenceAlerts: 0, candidates: 0, resolved: 0, errors: [] as string[] }));
+vi.mock('../../edr/launch-block-reconcile.service.js', () => ({
+  runLaunchBlockReconciliation: () => mockLaunchBlock(),
+  failedLaunchBlockPass: (err: unknown) => ({ evidenceAlerts: 0, candidates: 0, resolved: 0, errors: [err instanceof Error ? err.message : String(err)] }),
+}));
+
 const { SentinelOneSyncService, transformThreat, transformCloudAlert, passesFilters, normalizeToken, SENTINELONE_SYNC_VERSION, threatPreventionAction } = await import('../sync.service.js');
 
 // ── Fixtures (shape of /web/api/v2.1/threats and /cloud-detection/alerts) ──
@@ -264,6 +271,21 @@ describe('SentinelOneSyncService', () => {
     expect(mockRunEnrichment.mock.invocationCallOrder[0]).toBeLessThan(mockAgentKill.mock.invocationCallOrder[0]);
     expect(mockAgentKill.mock.invocationCallOrder[0]).toBeLessThan(mockAutoMitigationPass.mock.invocationCallOrder[0]);
     expect(result.agentKill).toEqual({ candidates: 1, reconciled: 1, vendorsAdded: 0, errors: [] });
+  });
+
+  it('syncAll runs the launch-block reconciliation after the agent-kill pass, before auto-mitigation', async () => {
+    mockLaunchBlock.mockResolvedValueOnce({ evidenceAlerts: 1, candidates: 1, resolved: 1, errors: [] });
+    const result = await new SentinelOneSyncService().syncAll();
+    expect(mockAgentKill.mock.invocationCallOrder[0]).toBeLessThan(mockLaunchBlock.mock.invocationCallOrder[0]);
+    expect(mockLaunchBlock.mock.invocationCallOrder[0]).toBeLessThan(mockAutoMitigationPass.mock.invocationCallOrder[0]);
+    expect(result.launchBlock).toEqual({ evidenceAlerts: 1, candidates: 1, resolved: 1, errors: [] });
+  });
+
+  it('a rejecting launch-block reconciliation never fails the sync', async () => {
+    mockLaunchBlock.mockRejectedValueOnce(new Error('boom'));
+    const result = await new SentinelOneSyncService().syncAll();
+    expect(result.launchBlock?.errors).toEqual(['boom']);
+    expect(mockAutoMitigationPass).toHaveBeenCalled();
   });
 
   it('a rejecting reconciliation never fails the sync', async () => {

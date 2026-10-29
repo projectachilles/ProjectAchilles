@@ -43,8 +43,9 @@ export interface TestEvidenceInput {
   bundle_name?: string;
 }
 
-const PRE_WINDOW_MS = 5 * 60 * 1000;
-const POST_WINDOW_MS = 30 * 60 * 1000;
+/** How long before / after a result's routing.event_time an alert still correlates with it. */
+export const PRE_WINDOW_MS = 5 * 60 * 1000;
+export const POST_WINDOW_MS = 30 * 60 * 1000;
 
 /** Minimum length for a bundle-name token to be used as a filepath matcher. */
 const MIN_BUNDLE_TOKEN_LEN = 6;

@@ -81,3 +81,18 @@ func TestClassifyStartError_OtherErrorIsNotBlock(t *testing.T) {
 		t.Fatal("expected a non-permission start error NOT to be classified as a pre-exec block")
 	}
 }
+
+// TestBlockedPreExecReason_IsVendorNeutral guards the wording: an EDR's own
+// static/ML prevention also denies process creation, so the reason must not
+// present Defender ASR as the only cause, and must say the backend counts the
+// run as protected when the EDR's alert confirms the block.
+func TestBlockedPreExecReason_IsVendorNeutral(t *testing.T) {
+	for _, want := range []string{"EDR", "01443614", "Protected"} {
+		if !strings.Contains(blockedPreExecReason, want) {
+			t.Fatalf("reason should mention %q, got %q", want, blockedPreExecReason)
+		}
+	}
+	if strings.Contains(blockedPreExecReason, "This is the fingerprint of Microsoft") {
+		t.Fatalf("reason still names Defender ASR as the only cause: %q", blockedPreExecReason)
+	}
+}

@@ -45,6 +45,11 @@ unknown and block it. Two different things can stop a test:
 | What you get | Exit `260` (*inconclusive*), or a stage that never started. No stage telemetry | A per-stage **Protected**, **Detected** or **Unprotected** result, with logs |
 | What it tells you | Nothing about the technique | Your real detection and prevention coverage |
 
+An early block by the EDR itself (CrowdStrike, SentinelOne or Sophos) still
+counts as **Protected** for the test when that EDR's own prevention alert names
+the run; it never counts for a technique. See
+[Exit Codes & Outcomes](../user-guide/analytics/exit-codes-and-outcomes#7-test-blocked-at-launch-by-the-edr).
+
 The prerequisites below remove the early blocks and leave every control that
 reacts to behavior in place. On the first tenants that went through this, code
 signing plus the ASR exclusion in step 3 was what turned blocked runs into

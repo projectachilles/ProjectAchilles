@@ -77,6 +77,9 @@ export const SENTINELONE_INDEX_MAPPING = {
           // automatic mitigation skip them.
           achilles_agent_kill_task_id: { type: 'keyword' as const },
           achilles_agent_kill_matched_at: { type: 'date' as const },
+          // edr/launch-block-reconcile.service.ts: the result doc this alert proved a
+          // launch block for (an alert proves at most one run).
+          achilles_launch_block_doc_id: { type: 'keyword' as const },
           // Auto-resolve receipts (incident status → resolved + note).
           auto_resolved: { type: 'boolean' as const },
           auto_resolved_at: { type: 'date' as const },

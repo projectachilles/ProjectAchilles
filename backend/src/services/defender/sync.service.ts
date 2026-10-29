@@ -9,6 +9,7 @@ import { createEsClient } from '../analytics/client.js';
 import { DefenderEnrichmentService } from './enrichment.service.js';
 import { DefenderAutoResolveService } from './auto-resolve.service.js';
 import { runAgentKillReconciliation, failedAgentKillPass } from '../edr/agent-kill-reconcile.service.js';
+import { runLaunchBlockReconciliation, failedLaunchBlockPass } from '../edr/launch-block-reconcile.service.js';
 import type { Client } from '@elastic/elasticsearch';
 import type {
   GraphSecureScore,
@@ -574,6 +575,10 @@ export class DefenderSyncService {
     // vendor's alert index become Protected results. Never throws.
     const agentKill = await runAgentKillReconciliation().catch(failedAgentKillPass);
 
+    // Exit-260 runs an EDR's prevention alert proves it blocked at launch
+    // become Protected. Before auto-resolve: it links the proving alerts.
+    const launchBlock = await runLaunchBlockReconciliation().catch(failedLaunchBlockPass);
+
     // Auto-resolve pass runs AFTER enrichment because its candidates are
     // exactly the alerts the enrichment pass just tagged. Customer opt-in;
     // no-op when auto_resolve_mode='disabled' (the default).
@@ -585,6 +590,7 @@ export class DefenderSyncService {
       alerts,
       enrichment,
       agentKill,
+      launchBlock,
       autoResolve,
       timestamp: new Date().toISOString(),
     };

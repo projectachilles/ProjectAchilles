@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { agentKill, agentKillNote, agentKillSubLabel, stageKind, stageVerdict, stageOutcomeCounts, stageVendors } from '../stageVerdict';
+import { agentKill, agentKillNote, agentKillSubLabel, launchBlock, launchBlockNote, launchBlockSubLabel, stageKind, stageVerdict, stageOutcomeCounts, stageVendors } from '../stageVerdict';
 import type { EnrichedTestExecution } from '@/services/api/analytics';
 
 function mk(over: Partial<EnrichedTestExecution> = {}): EnrichedTestExecution {
@@ -113,7 +113,7 @@ describe('stageVerdict', () => {
     expect(stageVerdict(mk({ error_code: 260 }), [])).toEqual({
       kind: 'not-run',
       title: 'Stage not run: a control blocked the test binary before it ran.',
-      body: "Usually an ASR prevalence rule. The technique itself was not tested, so it isn't scored as protected.",
+      body: "An EDR/AV or an application-control rule (such as a Defender ASR prevalence rule) refused to start it. The technique itself was not tested, so it isn't scored as protected.",
     });
   });
 
@@ -276,5 +276,30 @@ describe('stageVerdict for an EDR-killed run', () => {
 
   it('is null for an ordinary result', () => {
     expect(agentKill(mk({ edr_terminated: false }))).toBeNull();
+  });
+});
+
+describe('an EDR launch block', () => {
+  const blocked = mk({
+    is_bundle_control: false, error_code: 126, error_name: 'ExecutionPrevented', is_protected: true,
+    edr_launch_blocked: true, launch_block_vendors: ['crowdstrike'], launch_block_alert_ids: ['cs-1'],
+    crowdstrike_detected: true, crowdstrike_prevented: true, crowdstrike_prevention_action: 'quarantined',
+  });
+
+  it('is protected', () => {
+    expect(stageKind(blocked)).toBe('protected');
+  });
+
+  it("names the EDR by its product label", () => {
+    expect(launchBlock(blocked)).toEqual({ vendor: 'CrowdStrike Falcon', alertIds: ['cs-1'] });
+    expect(launchBlockSubLabel({ vendor: 'CrowdStrike Falcon' })).toBe('Blocked before it ran by CrowdStrike Falcon');
+    expect(launchBlockNote({ vendor: 'CrowdStrike Falcon' })).toBe(
+      'CrowdStrike Falcon blocked this test before it ran (the agent reported exit 260, blocked before execution), and its own prevention alert confirms it. The run counts as protected for the test as a whole; no stage ran, so no technique is scored.',
+    );
+  });
+
+  it('falls back to "An EDR" without vendors, and is null for an ordinary result', () => {
+    expect(launchBlock(mk({ edr_launch_blocked: true }))).toEqual({ vendor: 'An EDR', alertIds: [] });
+    expect(launchBlock(mk({ error_code: 126 }))).toBeNull();
   });
 });

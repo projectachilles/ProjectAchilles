@@ -3,7 +3,7 @@ import { Package } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
-import { agentKill, agentKillSubLabel } from './stageVerdict';
+import { agentKill, agentKillSubLabel, launchBlock, launchBlockSubLabel } from './stageVerdict';
 import { BundleResultLabel, ExecResultLabel, formatTimestamp, type DisplayRow } from './shared';
 
 interface RunListProps {
@@ -50,6 +50,7 @@ export function RunList({ rows, selectedKey, onSelect, checkedKeys, onToggleChec
         const hostname = row.type === 'bundle' ? row.hostname : row.execution.hostname;
         const timestamp = row.type === 'bundle' ? row.timestamp : row.execution.timestamp;
         const kill = row.type === 'standalone' ? agentKill(row.execution) : null;
+        const blocked = row.type === 'standalone' ? launchBlock(row.execution) : null;
 
         return (
           <div
@@ -102,6 +103,9 @@ export function RunList({ rows, selectedKey, onSelect, checkedKeys, onToggleChec
                 )}
                 {kill && (
                   <span className="truncate text-[11px] text-muted">{agentKillSubLabel(kill)}</span>
+                )}
+                {blocked && (
+                  <span className="truncate text-[11px] text-muted">{launchBlockSubLabel(blocked)}</span>
                 )}
                 {row.type === 'bundle' && (
                   <Badge variant="default" className="shrink-0 md:hidden">
