@@ -278,9 +278,12 @@ export function EndpointAlertRow({
         rawStatus={vendor === 'crowdstrike' ? alert.pattern_disposition_description : undefined}
       />
       <span className="flex-1 truncate text-foreground">{alert.alert_title}</span>
-      <Badge variant="default" className="px-1.5 py-0 text-[10px]">
-        {alert.status}
-      </Badge>
+      {/* Sophos siem_event rows have no status (''): no empty badge. */}
+      {alert.status && (
+        <Badge variant="default" className="px-1.5 py-0 text-[10px]">
+          {alert.status}
+        </Badge>
+      )}
       <span className="whitespace-nowrap text-faint">{alertRunTimeAnnotation(runTimestamp, alert)}</span>
       {vendor === 'crowdstrike' ? (
         <AlertRowLink href={falconAlertUrl(alert.portal_url)} label={label} />

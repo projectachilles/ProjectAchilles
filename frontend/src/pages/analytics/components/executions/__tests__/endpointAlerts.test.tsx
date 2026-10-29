@@ -64,6 +64,19 @@ describe('EndpointAlertRow', () => {
     render(<EndpointAlertRow alert={alertItem()} runTimestamp={exec.timestamp} vendor="sophos" />);
     expect(screen.getByLabelText('Open in Sophos Central')).toHaveAttribute('href', 'https://central.sophos.com/a1');
   });
+
+  it('shows the status badge when there is a status', () => {
+    render(<EndpointAlertRow alert={alertItem({ status: 'new' })} runTimestamp={exec.timestamp} vendor="sophos" />);
+    expect(screen.getByText('new')).toBeInTheDocument();
+  });
+
+  it('renders no empty status badge for a row without a status (Sophos siem_event rows)', () => {
+    const { container } = render(<EndpointAlertRow alert={alertItem({ status: '' })} runTimestamp={exec.timestamp} vendor="sophos" />);
+    const emptyBadges = [...container.querySelectorAll('span')].filter(
+      (el) => /\bborder\b/.test(el.className) && (el.textContent ?? '').trim() === '',
+    );
+    expect(emptyBadges).toHaveLength(0);
+  });
 });
 
 describe('StageList vendor copy', () => {
