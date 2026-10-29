@@ -140,12 +140,19 @@ describe('siemPreventionAction', () => {
     expect(siemPreventionAction({ ...base, ...items(['file', 'WHITELISTED']) })).toBeUndefined();
     expect(siemPreventionAction({ ...base, ...items(['file', 'NOT_FOUND']), origin: 'AMSI_DETECTION' })).toBeUndefined();
   });
-  it('is undefined when the response came more than 15 minutes after when', () => {
+  it('a Core Detection event uploaded hours late still yields its remedy action (created_at is never used)', () => {
+    const late = { ...base, created_at: '2026-10-28T16:00:00Z' };
+    expect(siemPreventionAction({ ...late, ...items(['file', 'DELETED']) })).toBe('quarantined');
+    expect(siemPreventionAction({ ...late, origin: 'AMSI_DETECTION' })).toBe('blocked');
     expect(SOPHOS_AUTONOMOUS_RESPONSE_WINDOW_MS).toBe(15 * 60 * 1000);
-    const late = { ...base, created_at: '2026-10-28T10:15:01Z' };
-    expect(siemPreventionAction({ ...late, ...items(['file', 'DELETED']) })).toBeUndefined();
-    expect(siemPreventionAction({ ...late, origin: 'AMSI_DETECTION' })).toBeUndefined();
-    expect(siemPreventionAction({ ...base, created_at: '2026-10-28T10:15:00Z', ...items(['file', 'DELETED']) })).toBe('quarantined');
+  });
+  it('a CleanedUp event more than 15 minutes after the passed detectedAt is undefined', () => {
+    const e = { type: 'Event::Endpoint::Threat::CleanedUp', when: '2026-10-28T10:20:00Z' };
+    expect(siemPreventionAction(e, '2026-10-28T10:00:00Z')).toBeUndefined();
+    expect(siemPreventionAction({ ...e, when: '2026-10-28T10:15:00Z' }, '2026-10-28T10:00:00Z')).toBe('blocked');
+  });
+  it('the same CleanedUp without detectedAt counts as blocked', () => {
+    expect(siemPreventionAction({ type: 'Event::Endpoint::Threat::CleanedUp', when: '2026-10-28T10:20:00Z' })).toBe('blocked');
   });
   it('tolerates garbage', () => {
     expect(siemPreventionAction(null)).toBeUndefined();
@@ -222,6 +229,13 @@ describe('join + merge', () => {
     expect(siemEventMatchesAlert(event(), { ...alert(), created_at: '2026-10-28T10:02:02.000Z' })).toBe(false);
     expect(siemEventMatchesAlert(event(), { ...alert(), created_at: '2026-10-28T10:02:01.000Z' })).toBe(true);
     expect(siemEventMatchesAlert(event(), { ...alert(), created_at: null })).toBe(false);
+  });
+
+  it('mergeSiemIntoAlert drops a late CleanedUp prevention relative to alert.created_at', () => {
+    const e = { ...transformSiemEvent(fx('siem-threat-cleanedup'))!, created_at: '2026-10-28T10:20:00.000Z' };
+    expect(e.prevention_action).toBe('blocked');
+    expect(mergeSiemIntoAlert(alert(), e).prevention_action).toBeUndefined();
+    expect(mergeSiemIntoAlert(alert(), { ...e, created_at: '2026-10-28T10:10:00.000Z' }).prevention_action).toBe('blocked');
   });
 
   it('mergeSiemIntoAlert keeps the alert id and adds evidence + prevention_action', () => {

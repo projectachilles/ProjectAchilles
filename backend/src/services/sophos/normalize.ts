@@ -224,18 +224,31 @@ function remedyItems(e: Obj): Obj[] {
   return arr(obj(e.core_remedy_items).items).map(obj);
 }
 
+const LEGACY_THREAT_PREFIX = 'Event::Endpoint::Threat::';
+
+/** True when a separate legacy Threat event happened more than 15 min after the detection. */
+function lateAfterDetection(type: string, actionAt: unknown, detectedAt: unknown): boolean {
+  if (!type.startsWith(LEGACY_THREAT_PREFIX)) return false;
+  const action = Date.parse(str(actionAt));
+  const detected = Date.parse(str(detectedAt));
+  if (Number.isNaN(action) || Number.isNaN(detected)) return false;
+  return action - detected > SOPHOS_AUTONOMOUS_RESPONSE_WINDOW_MS;
+}
+
 /**
  * The prevention action Sophos' own agent took for a SIEM detection event,
- * in the shared vocabulary. A response recorded more than 15 minutes after
- * `when` (event record `created_at`) is not the endpoint reacting to the test.
+ * in the shared vocabulary. A Core Detection event's remedy items are the
+ * agent's automatic response to that same detection (action time = `when`),
+ * so they always qualify; ingest time (`created_at`) is never consulted
+ * (offline hosts upload late). Legacy Threat::CleanedUp / CleanupFailed are
+ * separate events: when `detectedAt` is given and their `when` is more than
+ * 15 minutes later, they were a later manual / scan action and do not count.
  * When both a file and a process remedy succeeded, quarantined wins (as in
  * SentinelOne's mapping).
  */
-export function siemPreventionAction(e: unknown): Prevention {
+export function siemPreventionAction(e: unknown, detectedAt?: string): Prevention {
   const o = obj(e);
-  const when = Date.parse(str(o.when));
-  const recorded = Date.parse(str(o.created_at));
-  if (!Number.isNaN(when) && !Number.isNaN(recorded) && recorded - when > SOPHOS_AUTONOMOUS_RESPONSE_WINDOW_MS) return undefined;
+  if (lateAfterDetection(str(o.type), o.when, detectedAt)) return undefined;
 
   const type = str(o.type);
   const items = remedyItems(o);
@@ -413,7 +426,10 @@ function union(a: string[], b: string[]): string[] {
 
 /** The alert keeps its identity; the event adds evidence, prevention and Core Detection fields. */
 export function mergeSiemIntoAlert(alert: SophosAlertDoc, event: SophosAlertDoc): SophosAlertDoc {
-  const prevention = event.prevention_action ?? alert.prevention_action;
+  // A legacy CleanedUp/CleanupFailed event is only Sophos' response if it
+  // followed the alert's detection time closely (event.created_at holds `when`).
+  const late = lateAfterDetection(event.sophos_type ?? '', event.created_at, alert.created_at);
+  const prevention = (late ? undefined : event.prevention_action) ?? alert.prevention_action;
   const merged: SophosAlertDoc = {
     ...alert,
     mitre_techniques: union(alert.mitre_techniques, event.mitre_techniques),
