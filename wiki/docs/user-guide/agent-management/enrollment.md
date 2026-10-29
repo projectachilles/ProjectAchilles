@@ -25,11 +25,15 @@ The token string is displayed once — copy it and provide it to the person inst
 
 ```bash
 # Linux/macOS
-sudo ./achilles-agent --enroll --server https://your-backend.example.com --token <enrollment-token>
+sudo /opt/f0/achilles-agent --enroll <enrollment-token> --server https://your-backend.example.com --install
 
 # Windows (PowerShell as Administrator)
-.\achilles-agent.exe --enroll --server https://your-backend.example.com --token <enrollment-token>
+C:\F0\achilles-agent.exe --enroll <enrollment-token> --server https://your-backend.example.com --install
 ```
+
+`--install` copies the agent into `C:\F0` (Windows) or `/opt/f0` (Linux, macOS)
+if it isn't there yet and registers it as a service from that folder. The
+install commands the UI generates download it there directly.
 
 During enrollment:
 1. The agent sends system information (hostname, OS, architecture) to the backend
@@ -90,9 +94,9 @@ The full token string is displayed only once at creation time. Copy it before na
 
 When a token is generated, the UI automatically produces ready-to-copy installation commands for every supported platform:
 
-- **Linux (amd64/arm64)** -- `curl`-based download with the token and server URL embedded
-- **macOS (Intel / Apple Silicon)** -- Platform-specific binary download
-- **Windows** -- PowerShell-based installation command
+- **Linux (amd64/arm64)** -- `curl`-based download into `/opt/f0` with the token and server URL embedded
+- **macOS (Intel / Apple Silicon)** -- Platform-specific binary download into `/opt/f0`
+- **Windows** -- PowerShell command that downloads into `C:\F0` (run it in an elevated PowerShell)
 
 Each command includes a **Copy** button for one-click clipboard copying.
 

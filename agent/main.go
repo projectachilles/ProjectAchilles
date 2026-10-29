@@ -20,7 +20,7 @@ var version = "0.7.1"
 func main() {
 	enroll := flag.String("enroll", "", "Enrollment token")
 	server := flag.String("server", "", "Server URL (required with --enroll)")
-	install := flag.Bool("install", false, "Install as system service after enrollment")
+	install := flag.Bool("install", false, "Copy the agent to its install folder and register it as a system service (with --enroll, or alone to re-register an enrolled agent)")
 	uninstall := flag.Bool("uninstall", false, "Uninstall the agent service")
 	showStatus := flag.Bool("status", false, "Show agent status")
 	showVersion := flag.Bool("version", false, "Print version and exit")
@@ -41,6 +41,14 @@ func main() {
 			fmt.Fprintln(os.Stderr, "error: --server is required with --enroll")
 			os.Exit(1)
 		}
+		// With --install, secure the agent folder before enrollment writes the
+		// config (it holds the agent key) into it.
+		if *install {
+			if err := service.PrepareInstallDir(); err != nil {
+				fmt.Fprintf(os.Stderr, "install error: %v; nothing was enrolled or installed\n", err)
+				os.Exit(1)
+			}
+		}
 		if err := enrollment.Enroll(*server, *enroll, *configPath, version); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
@@ -50,6 +58,17 @@ func main() {
 				fmt.Fprintf(os.Stderr, "install error: %v\n", err)
 				os.Exit(1)
 			}
+		}
+		os.Exit(0)
+	}
+
+	// --install alone re-registers an already enrolled agent, copying it to
+	// C:\F0 (/opt/f0) first: the way to move an agent installed elsewhere
+	// without enrolling it again.
+	if *install {
+		if err := service.Install(*configPath); err != nil {
+			fmt.Fprintf(os.Stderr, "install error: %v\n", err)
+			os.Exit(1)
 		}
 		os.Exit(0)
 	}
@@ -113,8 +132,10 @@ func main() {
 
 	// Harden own binary permissions on every startup.
 	// Fixes permissions left by older applyUpdate() code in a single restart cycle.
+	var exePath string
 	if exe, err := os.Executable(); err == nil {
 		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+			exePath = resolved
 			// Lock the folder first: test binaries run as SYSTEM from the work
 			// dir inside it, and the updater stages new binaries in it.
 			if err := config.SecureAgentDir(resolved, cfg.WorkDir); err != nil {
@@ -143,6 +164,15 @@ func main() {
 		log.Printf("Starting agent v%s (server=%s, poll=%s, update=%s)",
 			version, cfg.ServerURL, cfg.PollInterval, cfg.UpdateInterval)
 
+		// Installs from before --install copied the agent into place can run
+		// from wherever it was downloaded. Not moved automatically: the
+		// self-update safety checks all assume the binary stays where it runs.
+		if exePath != "" {
+			if w := service.OutOfPlaceWarning(exePath); w != "" {
+				log.Println(w)
+			}
+		}
+
 		st, err := store.New(cfg.WorkDir)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error initializing store: %v\n", err)
@@ -159,7 +189,8 @@ func main() {
 	fmt.Println("achilles-agent: no command specified")
 	fmt.Println("Usage:")
 	fmt.Println("  --enroll TOKEN --server URL  Enroll this agent")
-	fmt.Println("  --install                    Register as a system service (combine with --enroll)")
+	fmt.Println("  --install                    Copy to C:\\F0 (Windows) or /opt/f0 and register as a system service")
+	fmt.Println("                               (with --enroll, or alone to re-register an enrolled agent)")
 	fmt.Println("  --run                        Run agent in foreground")
 	fmt.Println("  --reload                     Signal running service to re-read config (no restart)")
 	fmt.Println("  --status                     Show agent status")
