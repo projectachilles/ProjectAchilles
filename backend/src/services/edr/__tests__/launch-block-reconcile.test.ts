@@ -203,6 +203,32 @@ describe('EdrLaunchBlockReconciler.runPass', () => {
     expect(mockPutMapping.mock.invocationCallOrder[0]).toBeLessThan(mockBulk.mock.invocationCallOrder[0]);
   });
 
+  it('sends Elasticsearch only wildcard patterns it can build (no leading * before a run of ?)', async () => {
+    // Live ES 8.17 rejected '*????????-…-????????????.exe' (case-insensitive) with
+    // "Determinizing automaton … would require more than 10000 effort", failing the
+    // whole evidence search for every vendor. evidence_filenames holds bare names,
+    // so the UUID pattern needs no leading *.
+    resultStore = [resultDoc(TASK_ID)];
+    alertStore[CS] = [falconAlert('cs-alert-1')];
+    await reconciler().runPass({ now: NOW });
+    const alertQueries = mockSearch.mock.calls.map(([r]) => r).filter((r) => r.index !== 'achilles-results-*');
+    expect(alertQueries.length).toBeGreaterThan(0);
+    const patterns: string[] = [];
+    const walk = (x: unknown): void => {
+      if (Array.isArray(x)) x.forEach(walk);
+      else if (x && typeof x === 'object') {
+        for (const [k, v] of Object.entries(x as Record<string, unknown>)) {
+          if (k === 'wildcard') Object.values(v as Record<string, { value: string }>).forEach((w) => patterns.push(w.value));
+          else walk(v);
+        }
+      }
+    };
+    alertQueries.forEach((q) => walk(q.query));
+    expect(patterns.length).toBeGreaterThan(0);
+    for (const p of patterns) expect(p).not.toMatch(/\*\?/);
+    expect(patterns).toContain('????????-????-????-????-????????????.exe');
+  });
+
   it('is idempotent: a second pass finds nothing left to resolve', async () => {
     resultStore = [resultDoc(TASK_ID)];
     alertStore[CS] = [falconAlert('cs-alert-1')];
