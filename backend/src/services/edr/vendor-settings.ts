@@ -24,6 +24,10 @@ export const VENDOR_SETTINGS: Record<EdrVendorKey, VendorSettingsAdapter> = {
     isConfigured: (s) => s.isSentinelOneConfigured(),
     autoResolveMode: (s) => s.getSentinelOneAutoResolveMode(),
   },
+  sophos: {
+    isConfigured: (s) => s.isSophosConfigured(),
+    autoResolveMode: (s) => s.getSophosAutoResolveMode(),
+  },
 };
 
 /** EDR integrations configured right now, in registry order. Deployment-wide settings. */

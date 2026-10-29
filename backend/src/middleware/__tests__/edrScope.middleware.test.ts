@@ -16,7 +16,7 @@ describe('requireDeploymentScopeForEdrWrite', () => {
     let err: { message: string; statusCode?: number } | undefined;
     requireDeploymentScopeForEdrWrite({} as never, {} as never, (e?: unknown) => { err = e as typeof err; });
     expect(err?.statusCode).toBe(403);
-    expect(err?.message).toContain('Configure them with the DEFENDER_*, CROWDSTRIKE_* or SENTINELONE_* environment variables.');
+    expect(err?.message).toContain('Configure them with the DEFENDER_*, CROWDSTRIKE_*, SENTINELONE_* or SOPHOS_* environment variables.');
     for (const k of EDR_VENDOR_KEYS) expect(err?.message).toContain(`${EDR_ENV_PREFIX[k]}_*`);
   });
 });

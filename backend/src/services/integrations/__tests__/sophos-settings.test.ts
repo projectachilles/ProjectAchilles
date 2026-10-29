@@ -181,6 +181,16 @@ describe('IntegrationsSettingsService — Sophos', () => {
     expect(JSON.parse(realFs.readFileSync(FILE, 'utf8')).orgs).toBeUndefined();
   });
 
+  it('lists a Sophos section saved under an org as dormant (EDR integrations are deployment-wide)', () => {
+    realFs.mkdirSync(realPath.dirname(FILE), { recursive: true });
+    realFs.writeFileSync(FILE, JSON.stringify({
+      orgs: { org_a: { sophos: { configured: true }, alerts: { thresholds: { enabled: true } } } },
+    }));
+    expect(new IntegrationsSettingsService().listDormantOrgEdrSections()).toEqual([
+      { orgId: 'org_a', integrations: ['sophos'] },
+    ]);
+  });
+
   it('requires both credentials for initial setup', () => {
     const svc = new IntegrationsSettingsService();
     expect(() => svc.saveSophosSettings({ client_id: CLIENT_ID })).toThrow(/required/);

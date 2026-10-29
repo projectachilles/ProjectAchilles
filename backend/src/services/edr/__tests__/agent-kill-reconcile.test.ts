@@ -55,6 +55,7 @@ vi.mock('../../integrations/settings.js', () => ({
     isDefenderConfigured = () => edrConfigured.defender;
     isCrowdStrikeConfigured = () => edrConfigured.crowdstrike;
     isSentinelOneConfigured = () => edrConfigured.sentinelone;
+    isSophosConfigured = () => false;
   },
 }));
 

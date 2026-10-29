@@ -6,10 +6,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const { CrowdStrikeEnrichmentService } = await import('../../crowdstrike/enrichment.service.js');
 const { SentinelOneEnrichmentService } = await import('../../sentinelone/enrichment.service.js');
+const { SophosEnrichmentService } = await import('../../sophos/enrichment.service.js');
 
 const VENDORS = [
   { name: 'CrowdStrike', prefix: 'crowdstrike', index: 'achilles-crowdstrike', make: (c: any) => new CrowdStrikeEnrichmentService(c, 'achilles-results-*') },
   { name: 'SentinelOne', prefix: 'sentinelone', index: 'achilles-sentinelone', make: (c: any) => new SentinelOneEnrichmentService(c, 'achilles-results-*') },
+  { name: 'Sophos', prefix: 'sophos', index: 'achilles-sophos', make: (c: any) => new SophosEnrichmentService(c, 'achilles-results-*') },
 ] as const;
 
 const resultDoc = (exit: number) => ({

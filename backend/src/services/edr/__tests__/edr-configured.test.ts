@@ -1,12 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
 import fs from 'fs';
 
-let edrConfigured = { defender: false, crowdstrike: false, sentinelone: false };
+let edrConfigured = { defender: false, crowdstrike: false, sentinelone: false, sophos: false };
 vi.mock('../../integrations/settings.js', () => ({
   IntegrationsSettingsService: class {
     isDefenderConfigured = () => edrConfigured.defender;
     isCrowdStrikeConfigured = () => edrConfigured.crowdstrike;
     isSentinelOneConfigured = () => edrConfigured.sentinelone;
+    isSophosConfigured = () => edrConfigured.sophos;
+    getSophosAutoResolveMode = () => 'disabled';
   },
 }));
 
@@ -14,11 +16,13 @@ const { isAnyEdrConfigured, configuredVendorIndices } = await import('../edr-con
 
 describe('isAnyEdrConfigured', () => {
   it('is true when any one EDR is configured', () => {
-    edrConfigured = { defender: false, crowdstrike: false, sentinelone: false };
+    edrConfigured = { defender: false, crowdstrike: false, sentinelone: false, sophos: false };
     expect(isAnyEdrConfigured()).toBe(false);
-    edrConfigured = { defender: false, crowdstrike: true, sentinelone: false };
+    edrConfigured = { defender: false, crowdstrike: true, sentinelone: false, sophos: false };
     expect(isAnyEdrConfigured()).toBe(true);
     expect(configuredVendorIndices()).toEqual([{ vendor: 'crowdstrike', index: 'achilles-crowdstrike' }]);
+    edrConfigured = { defender: false, crowdstrike: false, sentinelone: false, sophos: true };
+    expect(configuredVendorIndices()).toEqual([{ vendor: 'sophos', index: 'achilles-sophos' }]);
   });
 });
 

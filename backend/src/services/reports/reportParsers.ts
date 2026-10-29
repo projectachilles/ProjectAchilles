@@ -3,7 +3,8 @@
 
 import { classifyStage, countsFromFiltersAgg, getSourceField, isHighImpact, STAGE_OUTCOMES } from './stageOutcome.js';
 import { OTHER_LANE } from './reportQueries.js';
-import { EDR_VENDORS } from '../outcomes/vendors.js';
+import { EDR_VENDORS, EDR_VENDOR_KEYS } from '../outcomes/vendors.js';
+import type { EdrVendorKey } from '../outcomes/vendors.js';
 import { techniqueInfo } from '../../data/attackTechniques.js';
 import { tacticName, tacticRank } from '../../data/attackTactics.js';
 import type {
@@ -162,7 +163,7 @@ export function parseTests(response: Agg): ReportTest[] {
       techniques: s.techniques,
       tactics: s.tactics,
       outcomes: s.outcomes,
-      alerts: { defender: 0, crowdstrike: 0, sentinelone: 0 },
+      alerts: Object.fromEntries(EDR_VENDOR_KEYS.map((k) => [k, 0])) as Record<EdrVendorKey, number>,
     }));
 
     return {

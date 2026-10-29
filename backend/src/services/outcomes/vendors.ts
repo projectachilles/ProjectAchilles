@@ -53,6 +53,14 @@ export const EDR_VENDORS = [
     abbrev: 'S1',
     reportName: 'SentinelOne',
   },
+  {
+    key: 'sophos',
+    name: 'Sophos',
+    label: 'Sophos Intercept X',
+    productName: 'Sophos Intercept X',
+    abbrev: 'SX',
+    reportName: 'Sophos',
+  },
 ] as const satisfies readonly EdrVendor[];
 
 export type EdrVendorKey = (typeof EDR_VENDORS)[number]['key'];
@@ -64,7 +72,7 @@ export const EDR_VENDOR_KEYS: readonly EdrVendorKey[] = EDR_VENDORS.map((v) => v
  * (Executions panel copy). Not registry order: CrowdStrike's disposition is
  * the most specific, Defender's remediation status the least.
  */
-export const PREVENTION_ACTION_PRECEDENCE: readonly EdrVendorKey[] = ['crowdstrike', 'sentinelone', 'defender'];
+export const PREVENTION_ACTION_PRECEDENCE: readonly EdrVendorKey[] = ['crowdstrike', 'sentinelone', 'sophos', 'defender'];
 
 export function edrVendor(key: EdrVendorKey): EdrVendor {
   const vendor = EDR_VENDORS.find((v) => v.key === key);

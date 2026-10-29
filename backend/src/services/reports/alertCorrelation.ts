@@ -28,6 +28,7 @@ import {
 import { DEFENDER_INDEX } from '../defender/index-management.js';
 import { CROWDSTRIKE_INDEX } from '../crowdstrike/index-management.js';
 import { SENTINELONE_INDEX } from '../sentinelone/index-management.js';
+import { SOPHOS_INDEX } from '../sophos/index-management.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
 import { projectAlertHit } from '../alerts/alertHit.js';
 import { isAchillesMitigated, ACHILLES_MITIGATION_FIELDS } from '../shared/achillesMitigation.js';
@@ -74,11 +75,20 @@ export const SENTINELONE_ADAPTER: VendorAdapter = {
   buildTimeWindowQuery: crowdstrikeTimeWindow,
 };
 
+/** Sophos docs share the CrowdStrike evidence shape and correlation rules. */
+export const SOPHOS_ADAPTER: VendorAdapter = {
+  vendor: 'sophos',
+  index: SOPHOS_INDEX,
+  buildEvidenceQuery: buildCrowdStrikeEvidenceQuery,
+  buildTimeWindowQuery: crowdstrikeTimeWindow,
+};
+
 /** Every registry vendor's adapter; a vendor missing here is a compile error. */
 export const VENDOR_ADAPTERS: Record<EdrVendorKey, VendorAdapter> = {
   defender: DEFENDER_ADAPTER,
   crowdstrike: CROWDSTRIKE_ADAPTER,
   sentinelone: SENTINELONE_ADAPTER,
+  sophos: SOPHOS_ADAPTER,
 };
 
 export interface CorrelationRun {
