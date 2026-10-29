@@ -67,6 +67,15 @@ type Obj = Record<string, unknown>;
 export const SOPHOS_AUTONOMOUS_RESPONSE_WINDOW_MS = 15 * 60 * 1000;
 /** Max gap between a Common Alert's raisedAt and its SIEM event's `when` (provisional join rule). */
 const JOIN_WINDOW_MS = 2 * 60 * 1000;
+/**
+ * Max gap between an XDR detection's created_at and a SIEM event's `when`
+ * for the same block. Live (pilot tenant, 7 blocks): -104 s to +125 s, so the
+ * alert rule's 2 minutes would miss some. 5 minutes is about twice the widest
+ * gap seen and stays well inside SOPHOS_AUTONOMOUS_RESPONSE_WINDOW_MS, so a
+ * remedy merged this way is never a late action. It is a window on Sophos'
+ * event times, independent of when the polls read them.
+ */
+export const SOPHOS_XDR_JOIN_WINDOW_MS = 5 * 60 * 1000;
 
 // ---------------------------------------------------------------- helpers
 
@@ -562,6 +571,29 @@ export function siemEventMatchesAlert(event: SophosAlertDoc, alert: SophosAlertD
 }
 
 /**
+ * Join rule between a SIEM detection event and an XDR detection (seen live: a
+ * blocked file a test stage dropped yields an XDR "<threat>: File activity
+ * blocked (<path>)" and a SIEM CorePuaDetection / CorePuaClean naming only
+ * that path): same normalized host, EVERY file path of the SIEM event among
+ * the XDR detection's evidence paths (so sharing just the stage binary is not
+ * enough, and a SIEM event without a path never matches), no conflicting
+ * SHA-256, and the XDR created_at within 5 minutes of the event's `when`.
+ * No threat-name check: XDR titles vary ("Cleanup succeeded: ..."), the full
+ * path is the identity.
+ */
+export function siemEventMatchesXdr(event: SophosAlertDoc, xdr: SophosAlertDoc): boolean {
+  if (xdr.source_type !== 'xdr_detection') return false;
+  if (!event.evidence_hostnames.some((h) => xdr.evidence_hostnames.includes(h))) return false;
+  const xdrPaths = new Set(xdr.evidence_filepaths.map((p) => p.toLowerCase()));
+  if (event.evidence_filepaths.length === 0 || !event.evidence_filepaths.every((p) => xdrPaths.has(p.toLowerCase()))) return false;
+  if (event.sha256 && xdr.sha256 && event.sha256 !== xdr.sha256) return false;
+  const x = Date.parse(xdr.created_at ?? '');
+  const e = Date.parse(event.created_at ?? '');
+  if (Number.isNaN(x) || Number.isNaN(e)) return false;
+  return Math.abs(x - e) <= SOPHOS_XDR_JOIN_WINDOW_MS;
+}
+
+/**
  * A legacy cleanup status event belongs to a detection when it is on the same
  * host, names the same threat (exact token / SHA-256), shares a file name when
  * both carry one, and happened within [target.created_at - 2 min, +15 min] (Central can raise the alert after the endpoint event and its cleanup). Outside
@@ -591,7 +623,7 @@ function union(a: string[], b: string[]): string[] {
 }
 
 /**
- * The alert keeps its identity; the SIEM event (or a matching legacy cleanup
+ * The alert (or XDR detection) keeps its identity; the SIEM event (or a matching legacy cleanup
  * event; a non-matching one is ignored) adds evidence, prevention and Core
  * Detection fields. origin / sha256 keep the first non-empty value.
  */

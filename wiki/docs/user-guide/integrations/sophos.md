@@ -164,8 +164,36 @@ any link to an Achilles test the row already had moves with it, so auto-resolve
 still sees the alert. When the prevention evidence arrives after a test was
 already marked **Detected**, Achilles re-checks that test for 24 hours and
 upgrades it to **Prevented**. Legacy cleanup events (`Threat::CleanedUp`) never become
-rows; they only enrich a detection within 15 minutes of it. XDR detections are
-their own rows.
+rows; they only enrich a detection within 15 minutes of it.
+
+XDR detections are their own rows, and they absorb SIEM events too. When Sophos
+blocks a file a test stage dropped, it raises an XDR detection such as
+`Tailcat: File activity blocked (C:\F0\tailcat.exe)` and, seconds apart, SIEM
+events for the same file (a PUA detection, then
+`PUA cleaned up: 'Tailcat' at 'C:\F0\tailcat.exe'`). Achilles shows them as **one** row, the XDR detection,
+which keeps its ATT&CK techniques and the stage process, and gains the SIEM
+event ids and remedy (for example **Prevented** as `quarantined`). A SIEM
+event folds into an XDR detection when:
+
+- it is on the **same host**;
+- **every file path** it names is among the XDR detection's evidence paths
+  (case-insensitive), so a different file, or the same file name in another
+  folder, never merges;
+- its time is within **5 minutes** of the XDR detection's creation, either way.
+  On a live tenant the gap was between 104 seconds before and 125 seconds
+  after. Five minutes covers that with a margin and stays well inside the
+  15-minute limit on Sophos' own response, so a late action is never credited.
+
+If several XDR detections match (Sophos can raise both a "File activity
+blocked" and a "Cleanup succeeded" detection for one file), the closest in time
+takes the SIEM event; XDR detections are never merged with each other. A
+matching Common Alert has priority over an XDR detection. The two can arrive in
+either order and in different polls, and the same rules apply as for alerts: the
+SIEM row is deleted once the XDR detection is written, and a link to an Achilles
+test the row already had moves to the XDR detection, so auto-resolve still
+sees it. Rows synced before this change are folded on the next polls that
+re-read them (XDR detections are re-read for 30 minutes); run **Re-backfill**
+to fold older ones.
 
 ## How Sophos evidence becomes a verdict \{#how-sophos-evidence-becomes-a-verdict}
 
@@ -179,7 +207,7 @@ their own rows.
 | An alert or XDR detection with no response evidence | **Detected** |
 | XDR `<threat>: File activity blocked (<path>)` | **Prevented** (`blocked`) |
 | XDR `Cleanup succeeded: File cleanup result: Success (<path>)` | **Prevented** (`quarantined`) |
-| Any other **XDR detection** (including "Cleanup failed") | **Detected** only. Sophos documents detections as activity that was *not* blocked ([Sophos: Detections](https://docs.sophos.com/central/customer/help/en-us/ManageYourProducts/ThreatAnalysisCenter/Detections/)). The two exceptions above are Sophos reporting its own block or cleanup through XDR, seen on a live tenant. |
+| Any other **XDR detection** (including "Cleanup failed") | **Detected** only, unless a SIEM event merged into it (see above) carries a successful remedy. Sophos documents detections as activity that was *not* blocked ([Sophos: Detections](https://docs.sophos.com/central/customer/help/en-us/ManageYourProducts/ThreatAnalysisCenter/Detections/)). The two exceptions above are Sophos reporting its own block or cleanup through XDR, seen on a live tenant. |
 
 Only Sophos' own immediate response counts. A later analyst action, or anything
 Achilles does itself, is never credited as Sophos prevention. Achilles

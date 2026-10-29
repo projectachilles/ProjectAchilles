@@ -1,0 +1,15 @@
+{
+  "_captured": "live PoC capture 2026-10-29 (scripts/sophos-capture.ts, redacted); trimmed to the fields the normalizer reads; name reconstructed in Sophos' PUA detected form (the redactor masked it); same host and block as graphql-detection-blocked-live",
+  "id": "00000000-0000-4000-8000-00000000002e",
+  "type": "Event::Endpoint::CorePuaDetection",
+  "name": "PUA detected: 'Tailcat' at 'C:\\F0\\tailcat.exe'",
+  "location": "host-004",
+  "when": "2026-10-29T19:05:48.372Z",
+  "created_at": "2026-10-29T19:05:49.946Z",
+  "severity": "medium",
+  "group": "PUA",
+  "threat": "Tailcat",
+  "endpoint_id": "00000000-0000-4000-8000-000000000012",
+  "origin": "SAV",
+  "core_remedy_items": null
+}

@@ -3,16 +3,18 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { alertProvesKill, type KillCandidateTask, type KillEvidenceAlert } from '../../edr/agent-kill-evidence.js';
-import { mergeSiemIntoAlert, transformAlert, transformGraphqlDetection, transformSiemEvent, type SophosAlertDoc } from '../normalize.js';
+import { mergeSiemIntoAlert, siemEventMatchesXdr, transformAlert, transformGraphqlDetection, transformSiemEvent, type SophosAlertDoc } from '../normalize.js';
 
-// Documents CURRENT behaviour, so a change is deliberate: Sophos supplies no
-// evidence for the EDR-killed-agent conversion. alertProvesKill needs a
-// qualifying prevention_action AND an ATT&CK technique overlap on the same
+// Documents CURRENT behaviour, so a change is deliberate. alertProvesKill needs
+// a qualifying prevention_action AND an ATT&CK technique overlap on the same
 // alert. Sophos rows that carry prevention (Common Alerts, SIEM events) have
-// no techniques; XDR detections carry techniques but never prevention. A
+// no techniques, and an XDR detection on its own carries techniques but no
+// remedy prevention. The one Sophos row that can prove a kill is an XDR
+// detection that absorbed the SIEM event of the same block (merge.ts (d):
+// same host, same file path, within 5 minutes): it then has both. Otherwise a
 // watchdog-failed task stays an error even when Sophos killed the agent.
 // Follow-up: accept technique overlap from a same-host XDR detection in the
-// window as a companion to a prevention row.
+// window as a companion to a prevention row that did not merge.
 
 const dir = dirname(fileURLToPath(import.meta.url));
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -41,7 +43,7 @@ const task = (hostname: string, techniques: string[]): KillCandidateTask => ({
   techniques,
 });
 
-describe('Sophos agent-kill evidence (current behaviour: none)', () => {
+describe('Sophos agent-kill evidence (current behaviour: only a merged XDR row)', () => {
   it('a Sophos alert/SIEM row with a prevention action has no techniques, so it proves no kill', () => {
     expect(prevented.prevention_action).toBe('quarantined');
     expect(prevented.mitre_techniques).toEqual([]);
@@ -55,5 +57,15 @@ describe('Sophos agent-kill evidence (current behaviour: none)', () => {
     expect(xdr.mitre_techniques.length).toBeGreaterThan(0);
     expect(xdr.prevention_action).toBeUndefined();
     expect(alertProvesKill(task(xdr.evidence_hostnames[0] ?? 'host', xdr.mitre_techniques), asEvidence(xdr))).toBe(false);
+  });
+
+  it('an XDR detection that absorbed the SIEM remedy of the same block has both, so it proves the kill', () => {
+    const event = transformSiemEvent(fx('siem-core-detection-ml'))!;
+    expect(siemEventMatchesXdr(event, xdr)).toBe(true);
+    const merged = mergeSiemIntoAlert(xdr, event);
+    expect(merged.prevention_action).toBe('quarantined');
+    expect(alertProvesKill(task(merged.evidence_hostnames[0], ['T1059.001']), asEvidence(merged))).toBe(true);
+    // Still no technique overlap -> no kill.
+    expect(alertProvesKill(task(merged.evidence_hostnames[0], ['T1486']), asEvidence(merged))).toBe(false);
   });
 });

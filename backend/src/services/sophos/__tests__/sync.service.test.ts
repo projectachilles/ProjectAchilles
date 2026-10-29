@@ -523,9 +523,9 @@ describe('SophosSyncService', () => {
     expect(docFor(`alert-${ALERT_ID}`)!.doc).toMatchObject({ merged_siem_event_ids: [EVENT_ID], prevention_action: 'quarantined' });
     expect(deleteIds()).toEqual([`siem-${EVENT_ID}`]);
     expect(result.siem_events).toMatchObject({ merged: 1 });
-    // One lookup for the whole SIEM page, scoped to alert and siem_event rows.
+    // One lookup for the whole SIEM page, scoped to alert, siem_event and XDR detection rows.
     expect(mockSearch).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(mockSearch.mock.calls[0][0].query)).toContain('"source_type":["alert","siem_event"]');
+    expect(JSON.stringify(mockSearch.mock.calls[0][0].query)).toContain('"source_type":["alert","siem_event","xdr_detection"]');
   });
 
   it('(b) an alert absorbs a siem_event row stored by an earlier poll and deletes it', async () => {
@@ -636,6 +636,115 @@ describe('SophosSyncService', () => {
     expect(deleteIds()).toEqual([]);
     expect(es.store.has(`siem-${EVENT_ID}`)).toBe(true);
     expect(result.siem_events?.errors[0]).toContain('mapper_parsing_exception');
+  });
+
+  // ── SIEM events <-> XDR detections (live Tailcat block) ──────────
+
+  describe('one row per Sophos block: SIEM events fold into the XDR detection', () => {
+    const XDR = () => fx('graphql-detection-blocked-live');
+    const XDR_ID = `xdr-${XDR().id}`;
+    const PUA_DETECTION = () => fx('siem-pua-detection-live');
+    const PUA_CLEAN = () => fx('siem-pua-clean-live');
+    const DETECTION_ID = `siem-${PUA_DETECTION().id}`;
+    const CLEAN_ID = `siem-${PUA_CLEAN().id}`;
+    const siemPage = (...items: unknown[]) => ({ items, next_cursor: 'cur-x', has_more: false });
+    const RECEIPT = { achilles_correlated: true, achilles_test_uuid: 'c37d6a01-3934-4e72-9cb1-3dae284b937b', achilles_matched_at: '2026-10-29T19:10:00.000Z' };
+
+    it('in one poll: the SIEM rows written by the SIEM stage are folded into the XDR row by the detection stage', async () => {
+      const es = fakeEs();
+      mockSiemEvents.mockResolvedValueOnce(siemPage(PUA_DETECTION(), PUA_CLEAN()));
+      mockGraphql.mockResolvedValueOnce(gqlPage([XDR()]));
+      const result = await new SophosSyncService().syncAll();
+      expect([...es.store.keys()]).toEqual([XDR_ID]);
+      expect(es.store.get(XDR_ID)).toMatchObject({
+        source_type: 'xdr_detection',
+        prevention_action: 'quarantined',
+        merged_siem_event_ids: [PUA_DETECTION().id, PUA_CLEAN().id],
+      });
+      expect(result.xdr_detections).toMatchObject({ fetched: 1, synced: 1, merged: 2, errors: [] });
+      // The XDR lookup is scoped to siem_event rows (and alerts, which keep priority).
+      const xdrLookup = mockSearch.mock.calls.map((c) => JSON.stringify(c[0].query)).find((q) => q.includes(XDR_ID));
+      expect(xdrLookup).toContain('"source_type":["siem_event","alert"]');
+    });
+
+    it('(SIEM poll, then XDR poll) the XDR row takes over the correlation the enrichment pass put on a SIEM row', async () => {
+      const es = fakeEs();
+      const svc = new SophosSyncService();
+      mockSiemEvents.mockResolvedValueOnce(siemPage(PUA_DETECTION(), PUA_CLEAN()));
+      await svc.syncAll();
+      expect(new Set(es.store.keys())).toEqual(new Set([DETECTION_ID, CLEAN_ID]));
+      es.store.get(CLEAN_ID)!.f0rtika = { ...RECEIPT, auto_resolve_dry_run_at: '2026-10-29T19:11:00.000Z' };
+
+      mockGraphql.mockResolvedValueOnce(gqlPage([XDR()]));
+      await svc.syncAll();
+      expect([...es.store.keys()]).toEqual([XDR_ID]);
+      expect(es.store.get(XDR_ID)!.f0rtika).toEqual(RECEIPT);
+      expect(es.store.get(XDR_ID)!.prevention_action).toBe('quarantined');
+    });
+
+    it('(XDR poll, then SIEM poll) the SIEM events fold into the stored XDR row, whose own receipts are kept', async () => {
+      const es = fakeEs();
+      const svc = new SophosSyncService();
+      mockGraphql.mockResolvedValueOnce(gqlPage([XDR()]));
+      await svc.syncAll();
+      expect(es.store.get(XDR_ID)!.prevention_action).toBe('blocked');
+      const own = { ...RECEIPT, auto_resolved: true, auto_resolved_at: '2026-10-29T19:12:00.000Z', auto_resolve_mode: 'enabled' };
+      es.store.get(XDR_ID)!.f0rtika = own;
+
+      mockSiemEvents.mockResolvedValueOnce(siemPage(PUA_DETECTION(), PUA_CLEAN()));
+      const result = await svc.syncAll();
+      expect([...es.store.keys()]).toEqual([XDR_ID]);
+      expect(es.store.get(XDR_ID)).toMatchObject({ prevention_action: 'quarantined', merged_siem_event_ids: [PUA_DETECTION().id, PUA_CLEAN().id], f0rtika: own });
+      expect(result.siem_events).toMatchObject({ fetched: 2, merged: 2 });
+    });
+
+    it('re-reading the XDR detection (30-min overlap) and the SIEM events on later polls is idempotent', async () => {
+      const es = fakeEs();
+      const svc = new SophosSyncService();
+      mockSiemEvents.mockResolvedValueOnce(siemPage(PUA_DETECTION(), PUA_CLEAN()));
+      mockGraphql.mockResolvedValueOnce(gqlPage([XDR()]));
+      await svc.syncAll();
+      const first = JSON.parse(JSON.stringify(es.store.get(XDR_ID)));
+
+      mockSiemEvents.mockResolvedValueOnce(siemPage(PUA_DETECTION(), PUA_CLEAN()));
+      mockGraphql.mockResolvedValueOnce(gqlPage([XDR()]));
+      await svc.syncAll();
+      mockGraphql.mockResolvedValueOnce(gqlPage([XDR()]));
+      await svc.syncAll();
+      expect([...es.store.keys()]).toEqual([XDR_ID]);
+      expect(es.store.get(XDR_ID)).toEqual(first);
+    });
+
+    it('does not delete the SIEM rows when writing the XDR row that absorbed them failed', async () => {
+      const es = fakeEs();
+      const svc = new SophosSyncService();
+      mockSiemEvents.mockResolvedValueOnce(siemPage(PUA_CLEAN()));
+      await svc.syncAll();
+      es.failUpdates.add(XDR_ID);
+      mockGraphql.mockResolvedValueOnce(gqlPage([XDR()]));
+      const result = await svc.syncAll();
+      expect(es.store.has(CLEAN_ID)).toBe(true);
+      expect(result.xdr_detections?.errors[0]).toContain('mapper_parsing_exception');
+    });
+
+    it('a SIEM event for another host stays its own row', async () => {
+      const es = fakeEs();
+      mockSiemEvents.mockResolvedValueOnce(siemPage({ ...PUA_CLEAN(), location: 'host-006' }));
+      mockGraphql.mockResolvedValueOnce(gqlPage([XDR()]));
+      await new SophosSyncService().syncAll();
+      expect(new Set(es.store.keys())).toEqual(new Set([XDR_ID, CLEAN_ID]));
+    });
+
+    it('REST v1 detections absorb SIEM rows the same way', async () => {
+      const es = fakeEs();
+      mockGraphql.mockRejectedValueOnce(new SophosApiError('Sophos POST /graphql failed: HTTP 403.', 403, ''));
+      const v1 = { ...v1Detection(), id: 'v1-tailcat', time: '2026-10-29T19:05:57.000Z', device: { entity: 'host-004' }, processedData: "blocked 'C:\\F0\\tailcat.exe'" };
+      mockDetectionsV1.mockResolvedValueOnce([v1]);
+      mockSiemEvents.mockResolvedValueOnce(siemPage(PUA_CLEAN()));
+      await new SophosSyncService().syncAll();
+      expect([...es.store.keys()]).toEqual(['xdr-v1-tailcat']);
+      expect(es.store.get('xdr-v1-tailcat')!.merged_siem_event_ids).toEqual([PUA_CLEAN().id]);
+    });
   });
 
   // ── Checkpoints ──────────────────────────────────────────────────

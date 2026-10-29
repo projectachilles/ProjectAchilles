@@ -12,6 +12,8 @@ import {
   transformV1Detection,
   siemPreventionAction,
   siemEventMatchesAlert,
+  siemEventMatchesXdr,
+  SOPHOS_XDR_JOIN_WINDOW_MS,
   mergeSiemIntoAlert,
   normalizeHost,
 } from '../normalize.js';
@@ -439,5 +441,92 @@ describe('review fixes', () => {
         expect(transformSiemEvent({ id: 'e', type: `Event::Endpoint::Threat::${t}`, when: '2026-10-28T10:00:00Z' })).not.toBeNull();
       }
     });
+  });
+});
+
+describe('SIEM event -> XDR detection join (live Tailcat block)', () => {
+  // Live pilot: Sophos blocked C:\F0\tailcat.exe dropped by a test stage and
+  // raised, for the same host within seconds, an XDR detection and a SIEM
+  // CorePuaDetection + CorePuaClean pair. All three describe one block.
+  const xdr = () => transformGraphqlDetection(fx('graphql-detection-blocked-live'));
+  const clean = () => transformSiemEvent(fx('siem-pua-clean-live'))!;
+  const detection = () => transformSiemEvent(fx('siem-pua-detection-live'))!;
+  const at = (iso: string, deltaMs: number) => new Date(Date.parse(iso) + deltaMs).toISOString();
+
+  it('the live fixtures are marked captured first', () => {
+    for (const n of ['siem-pua-clean-live', 'siem-pua-detection-live']) {
+      const raw = JSON.parse(readFileSync(join(dir, 'fixtures', `${n}.json`), 'utf8'));
+      expect(Object.keys(raw)[0]).toBe('_captured');
+    }
+  });
+
+  it('normalizes the live SIEM pair: the clean event is quarantined, the detection carries no prevention', () => {
+    expect(clean()).toMatchObject({ source_type: 'siem_event', alert_title: 'Tailcat', evidence_hostnames: ['HOST-004'], evidence_filepaths: ['c:\\f0\\tailcat.exe'], prevention_action: 'quarantined' });
+    expect(detection()).toMatchObject({ source_type: 'siem_event', alert_title: 'Tailcat', evidence_filepaths: ['c:\\f0\\tailcat.exe'] });
+    expect(detection().prevention_action).toBeUndefined();
+  });
+
+  it('matches both live SIEM events to the XDR detection (same host, file path among its evidence, seconds apart)', () => {
+    expect(siemEventMatchesXdr(clean(), xdr())).toBe(true);
+    expect(siemEventMatchesXdr(detection(), xdr())).toBe(true);
+  });
+
+  it('matches within the join window either way, not beyond', () => {
+    const x = xdr();
+    const e = clean();
+    // The widest live gap was +125 s (a clean event after its XDR detection): a 2-minute window misses it.
+    expect(siemEventMatchesXdr({ ...e, created_at: at(x.created_at!, 125_000) }, x)).toBe(true);
+    expect(siemEventMatchesXdr({ ...e, created_at: at(x.created_at!, -SOPHOS_XDR_JOIN_WINDOW_MS) }, x)).toBe(true);
+    expect(siemEventMatchesXdr({ ...e, created_at: at(x.created_at!, SOPHOS_XDR_JOIN_WINDOW_MS) }, x)).toBe(true);
+    expect(siemEventMatchesXdr({ ...e, created_at: at(x.created_at!, SOPHOS_XDR_JOIN_WINDOW_MS + 1) }, x)).toBe(false);
+    expect(siemEventMatchesXdr({ ...e, created_at: at(x.created_at!, -SOPHOS_XDR_JOIN_WINDOW_MS - 1) }, x)).toBe(false);
+    expect(siemEventMatchesXdr({ ...e, created_at: null }, x)).toBe(false);
+    expect(siemEventMatchesXdr(e, { ...x, created_at: null })).toBe(false);
+  });
+
+  it('the window is 5 minutes, inside the 15-minute autonomous-response window, so a merged SIEM remedy is never a late action', () => {
+    expect(SOPHOS_XDR_JOIN_WINDOW_MS).toBe(5 * 60_000);
+    expect(SOPHOS_XDR_JOIN_WINDOW_MS).toBeLessThan(SOPHOS_AUTONOMOUS_RESPONSE_WINDOW_MS);
+  });
+
+  it('never matches across hosts or different files', () => {
+    expect(siemEventMatchesXdr({ ...clean(), evidence_hostnames: ['HOST-006'] }, xdr())).toBe(false);
+    expect(siemEventMatchesXdr({ ...clean(), evidence_filepaths: ['c:\\f0\\other.exe'], evidence_filenames: ['other.exe'] }, xdr())).toBe(false);
+    // The same file name in another folder is another file.
+    expect(siemEventMatchesXdr({ ...clean(), evidence_filepaths: ['c:\\users\\u\\tailcat.exe'] }, xdr())).toBe(false);
+  });
+
+  it('every SIEM file path must be on the XDR detection: sharing only the stage binary is not enough', () => {
+    const stage = 'c:\\f0\\c37d6a01-3934-4e72-9cb1-3dae284b937b-t1105.exe';
+    expect(siemEventMatchesXdr({ ...clean(), evidence_filepaths: [stage, 'c:\\f0\\other.exe'] }, xdr())).toBe(false);
+    expect(siemEventMatchesXdr({ ...clean(), evidence_filepaths: [stage, 'c:\\f0\\tailcat.exe'] }, xdr())).toBe(true);
+  });
+
+  it('a SIEM event with no file path never matches', () => {
+    expect(siemEventMatchesXdr({ ...clean(), evidence_filepaths: [] }, xdr())).toBe(false);
+  });
+
+  it('compares paths case-insensitively', () => {
+    expect(siemEventMatchesXdr({ ...clean(), evidence_filepaths: ['C:\\F0\\TAILCAT.EXE'] }, xdr())).toBe(true);
+  });
+
+  it('two different SHA-256 values are two different files', () => {
+    const a = 'a'.repeat(64);
+    expect(siemEventMatchesXdr({ ...clean(), sha256: a }, { ...xdr(), sha256: 'b'.repeat(64) })).toBe(false);
+    expect(siemEventMatchesXdr({ ...clean(), sha256: a }, { ...xdr(), sha256: a })).toBe(true);
+    expect(siemEventMatchesXdr({ ...clean(), sha256: a }, xdr())).toBe(true);
+  });
+
+  it('only an XDR detection is a target (a Common Alert or another SIEM row is not)', () => {
+    expect(siemEventMatchesXdr(clean(), { ...xdr(), source_type: 'alert' })).toBe(false);
+    expect(siemEventMatchesXdr(clean(), { ...xdr(), source_type: 'siem_event' })).toBe(false);
+  });
+
+  it('merging keeps the XDR identity and techniques, and adds the SIEM id and the stronger prevention', () => {
+    const x = { ...xdr(), mitre_techniques: ['T1105'] };
+    const m = mergeSiemIntoAlert(x, clean());
+    expect(m).toMatchObject({ source_type: 'xdr_detection', alert_id: x.alert_id, alert_title: x.alert_title, mitre_techniques: ['T1105'], prevention_action: 'quarantined' });
+    expect(m.merged_siem_event_ids).toEqual([clean().alert_id]);
+    expect(m.evidence_filepaths).toEqual(x.evidence_filepaths);
   });
 });
