@@ -54,6 +54,10 @@ scripts/venv/
 __pycache__/
 *.pyc
 
+# Sophos PoC capture output (real tenant data, redacted): docs/sophos-poc-runbook.md
+backend/sophos-capture-*/
+/sophos-capture-*/
+
 # Generated data files
 scripts/*.ndjson
 scripts/*.json

@@ -12,6 +12,8 @@ export interface Capabilities {
   campaigns: boolean;
   /** SentinelOne integration routes (backend-only; backend-serverless has none) */
   sentinelone: boolean;
+  /** Sophos Central integration routes (backend-only; backend-serverless has none) */
+  sophos: boolean;
   /** Threshold alerting (/api/integrations/alerts; backend-only; backend-serverless has none) */
   alerting: boolean;
   /** Random timing for one-off ("Once") schedules (backend-only; backend-serverless runs them at the fixed time) */
@@ -32,6 +34,7 @@ const DEFAULT_CAPABILITIES: Capabilities = {
   preExecutionNotices: false,
   campaigns: false,
   sentinelone: false,
+  sophos: false,
   // Alerting predates /api/capabilities: a Docker backend that doesn't report
   // the flag still has it.
   alerting: true,

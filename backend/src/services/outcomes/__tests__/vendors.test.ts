@@ -13,12 +13,12 @@ describe('EDR vendor registry', () => {
   });
 
   it('lists keys in registry order', () => {
-    expect(EDR_VENDOR_KEYS).toEqual(['defender', 'crowdstrike', 'sentinelone']);
+    expect(EDR_VENDOR_KEYS).toEqual(['defender', 'crowdstrike', 'sentinelone', 'sophos']);
   });
 
   it('prevention-action precedence is a permutation of the keys', () => {
     expect([...PREVENTION_ACTION_PRECEDENCE].sort()).toEqual([...EDR_VENDOR_KEYS].sort());
-    expect(PREVENTION_ACTION_PRECEDENCE).toEqual(['crowdstrike', 'sentinelone', 'defender']);
+    expect(PREVENTION_ACTION_PRECEDENCE).toEqual(['crowdstrike', 'sentinelone', 'sophos', 'defender']);
   });
 
   it('builds result-doc flag fields', () => {
@@ -31,6 +31,7 @@ describe('EDR vendor registry', () => {
       ['defender', 'Defender', 'Microsoft Defender', 'Microsoft Defender for Endpoint', 'MDE', 'Defender'],
       ['crowdstrike', 'CrowdStrike', 'CrowdStrike Falcon', 'CrowdStrike Falcon', 'CS', 'Falcon'],
       ['sentinelone', 'SentinelOne', 'SentinelOne Singularity', 'SentinelOne Singularity', 'S1', 'SentinelOne'],
+      ['sophos', 'Sophos', 'Sophos Intercept X', 'Sophos Intercept X', 'SX', 'Sophos'],
     ]);
     expect(edrVendor('crowdstrike').reportName).toBe('Falcon');
   });
@@ -44,6 +45,7 @@ describe('registry-derived ES helpers', () => {
       'f0rtika.defender_detected',
       'f0rtika.crowdstrike_detected',
       'f0rtika.sentinelone_detected',
+      'f0rtika.sophos_detected',
     ]);
   });
 
@@ -53,6 +55,7 @@ describe('registry-derived ES helpers', () => {
       { term: { 'f0rtika.defender_detected': true } },
       { term: { 'f0rtika.crowdstrike_detected': true } },
       { term: { 'f0rtika.sentinelone_detected': true } },
+      { term: { 'f0rtika.sophos_detected': true } },
     ]);
   });
 });

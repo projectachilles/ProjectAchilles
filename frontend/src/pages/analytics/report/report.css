@@ -151,6 +151,8 @@ html:has(.report-print) body {
 .report-print .rp-dot-defender { fill: var(--rp-ink); }
 .report-print .rp-dot-crowdstrike { fill: var(--rp-paper); stroke: var(--rp-ink); stroke-width: 1.2; }
 .report-print .rp-dot-sentinelone { fill: var(--rp-ink-3); stroke: var(--rp-ink); stroke-width: 1.2; }
+.report-print .rp-al-sophos { fill: var(--rp-ink-2); stroke: var(--rp-ink); stroke-width: 1.4; stroke-dasharray: 2.5 1.5; }
+.report-print .rp-dot-sophos { fill: var(--rp-ink-2); stroke: var(--rp-ink); stroke-width: 1.2; stroke-dasharray: 1.5 1; }
 .report-print .rp-dot-any { fill: var(--rp-ink-2); }
 .report-print .rp-median { stroke: var(--rp-ink); stroke-width: 2; }
 .report-print .rp-kc { stroke: var(--rp-paper); stroke-width: 3; }

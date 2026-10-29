@@ -3,6 +3,7 @@
 import type { AutoResolveMode } from './defender.js';
 import type { CrowdStrikeRegion, CrowdStrikeZtaStatus } from './crowdstrike.js';
 import type { SentinelOneIntegrationSettings, SentinelOneSyncState } from './sentinelone.js';
+import type { SophosIntegrationSettings, SophosSyncState, SophosDiscovery } from './sophos.js';
 export type { AutoResolveMode };
 export type { CrowdStrikeRegion };
 
@@ -154,6 +155,7 @@ export interface OrgIntegrationSettings {
   defender?: DefenderIntegrationSettings;
   crowdstrike?: CrowdStrikeIntegrationSettings;
   sentinelone?: SentinelOneIntegrationSettings;
+  sophos?: SophosIntegrationSettings;
   alerts?: AlertSettings;
   pre_execution_notices?: PreExecutionNoticeSettings;
 }
@@ -193,6 +195,9 @@ export interface IntegrationsSettings {
   sentinelone?: SentinelOneIntegrationSettings;
   /** SentinelOne checkpoints and toggles when the credentials come from env vars. */
   sentinelone_sync?: SentinelOneSyncState;
+  sophos?: SophosIntegrationSettings;
+  /** Sophos checkpoints, toggles and discovered tenant info when the credentials come from env vars. */
+  sophos_sync?: SophosSyncState & Partial<SophosDiscovery>;
   alerts?: AlertSettings;
   pre_execution_notices?: PreExecutionNoticeSettings;
   /** Per-org overrides. Key is the Clerk org_id. */

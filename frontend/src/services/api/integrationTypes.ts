@@ -1,5 +1,7 @@
 // Vendor-neutral integration (CrowdStrike / Defender) API types.
 
+import type { RelatedCrowdStrikeAlertsResponse } from './crowdstrike';
+
 /** ISO from/to window sent to the integration endpoints. */
 export type TimeWindow = { from: string; to: string };
 
@@ -130,7 +132,19 @@ export interface AutoResolveSource {
   getReceipts(limit: number, offset: number): Promise<{ items: { auto_resolved_at?: string | null }[] }>;
 }
 
+/** Alerts that name one test run (Executions panel); endpoint-EDR vendors only. */
+export type AlertsForTestFn = (
+  techniques: string[],
+  timestamp: string,
+  windowMinutes?: number,
+  hostname?: string,
+  binaryName?: string,
+  bundleName?: string,
+) => Promise<RelatedCrowdStrikeAlertsResponse>;
+
 export interface IntegrationApi {
+  /** Present for endpoint-EDR vendors (see vendorConfig `endpointEdr`). */
+  getAlertsForTest?: AlertsForTestFn;
   getAlerts(params?: IntegrationAlertQuery): Promise<IntegrationAlertPage>;
   getAlertSummary(window?: TimeWindow): Promise<IntegrationAlertSummary>;
   getAlertTrend(days?: number, window?: TimeWindow): Promise<IntegrationTrendPoint[]>;

@@ -5,6 +5,7 @@ import { IntegrationsSettingsService } from '../integrations/settings.js';
 import { DEFENDER_INDEX } from '../defender/index-management.js';
 import { CROWDSTRIKE_INDEX } from '../crowdstrike/index-management.js';
 import { SENTINELONE_INDEX } from '../sentinelone/index-management.js';
+import { SOPHOS_INDEX } from '../sophos/index-management.js';
 import { EDR_VENDOR_KEYS } from '../outcomes/vendors.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
 import { configuredVendorKeys } from './vendor-settings.js';
@@ -15,6 +16,7 @@ const INDEX_BY_VENDOR: Record<EdrVendorKey, string> = {
   defender: DEFENDER_INDEX,
   crowdstrike: CROWDSTRIKE_INDEX,
   sentinelone: SENTINELONE_INDEX,
+  sophos: SOPHOS_INDEX,
 };
 
 export const VENDOR_INDICES: ReadonlyArray<VendorIndex> = EDR_VENDOR_KEYS.map((vendor) => ({

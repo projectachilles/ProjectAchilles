@@ -50,11 +50,11 @@ function stageEdr(exec: EnrichedTestExecution): EdrVendorKey[] {
   return EDR_VENDOR_KEYS.filter((k) => Boolean(exec[`${k}_stage_detected`] ?? exec[`${k}_detected`]));
 }
 
-/** "A", "A and B", "A, B and C". */
-function joinNames(names: string[]): string | null {
+/** "A", "A and B", "A, B and C" (or with `conjunction` "or"). */
+export function joinNames(names: string[], conjunction: 'and' | 'or' = 'and'): string | null {
   if (names.length === 0) return null;
   if (names.length === 1) return names[0];
-  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  return `${names.slice(0, -1).join(', ')} ${conjunction} ${names[names.length - 1]}`;
 }
 
 function vendorLabel(vendors: readonly EdrVendorKey[]): string | null {

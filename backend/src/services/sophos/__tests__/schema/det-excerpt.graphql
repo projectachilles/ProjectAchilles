@@ -1,0 +1,449 @@
+# Verbatim excerpt of det.graphql, the Sophos XDR (Taegis) GraphQL schema published
+# with the Sophos Central API reference (docs/superpowers/specs/2026-10-28-sophos-api-reference/,
+# not in git). Only the types the Achilles detection queries touch. Used by
+# detection-query.test.ts; re-extract when Sophos publishes a new schema.
+
+scalar Float32
+
+scalar Int64
+
+scalar Map
+
+"The Taegis Alerts API is based on GraphQL, which can either be a read (Query) or a write (Mutation) operation. A GraphQL query is used to read or fetch values. Mutations write or post values. Responses are provided in a JSON format."
+type Query {
+  "Provide a list of Alert IDs to retrieve each alert&#8217;s detail."
+  alertsServiceRetrieveAlertsById(in: GetByIDRequestInput): AlertsResponse
+  "Provide a list of Host IDs to retrieve alert details about each alert that contains those hosts."
+  alertsServiceRetrieveAlertsByHost(in: GetByIDRequestInput): AlertsResponse
+  "Provide a list of entities to retrieve alert details about each alert that contains those entities."
+  alertsServiceRetrieveAlertsByEntity(in: GetByIDRequestInput): AlertsResponse
+  "Provide a list of entities to retrieve alert details about each alert that contains the group_key. This is used by the service to aid in alert deduplication. This would not commonly be used by a tenant of XDR."
+  alertsServiceRetrieveAlertsByGroupKey(in: GetByIDRequestInput): AlertsResponse
+  "Returns the count of alerts per tenant. Allows a CQL query, but any aggregation or pipe will be ignored."
+  alertsCountByTenant(in: AlertsCountByTenantInput!): AlertsCountByTenantResponse
+  "Search alerts using Query Language. This is the same query language provided in Advanced Search page in Taegis XDR."
+  alertsServiceSearch(in: SearchRequestInput): AlertsResponse
+  "Poll for results for a specific `search_id`."
+  alertsServicePoll(in: PollRequestInput): AlertsResponse
+  "Pull alert severity aggregates based on `group_by` parameters: domain, watchlist, hostname, detector, user."
+  alertsServiceAggregateAlertsBySeverity(in: AggregateAlertsBySeverityInputInput): AlertsAggregateResponse
+  "Provide a list of Alert IDs to retrieve each alert's detail."
+  detectionRetrieveById(in: GetByIDRequestInput): AlertsResponse
+  "Provide a list of Host IDs to retrieve alert details about each alert that contains those hosts."
+  detectionRetrieveByHost(in: GetByIDRequestInput): AlertsResponse
+  "Provide a list of entities to retrieve alert details about each alert that contains those entities."
+  detectionRetrieveByEntity(in: GetByIDRequestInput): AlertsResponse
+  "Provide a list of entities to retrieve alert details about each alert that contains the group_key. This is used by the service to aid in alert deduplication. This would not commonly be used by a tenant of XDR."
+  detectionRetrieveByGroupKey(in: GetByIDRequestInput): AlertsResponse
+  "Returns the count of alerts per tenant. Allows a CQL query, but any aggregation or pipe will be ignored."
+  detectionCountByTenant(in: AlertsCountByTenantInput!): AlertsCountByTenantResponse
+  "Search alerts using Query Language. This is the same query language provided in Advanced Search page in Taegis XDR."
+  detectionSearch(in: SearchRequestInput): AlertsResponse
+  "Poll for results for a specific `search_id`."
+  detectionPoll(in: PollRequestInput): AlertsResponse
+  "Pull alert severity aggregates based on `group_by` parameters: domain, watchlist, hostname, detector, user."
+  detectionAggregatesBySeverity(in: AggregateAlertsBySeverityInputInput): AlertsAggregateResponse
+  node(id: ID!): Node
+}
+
+type AlertsResponse {
+  status: RPCResponseStatus
+  reason: String
+  alerts: AlertsList
+  "Search ID can be used to request additional parts for search results containing more than 10k requested results"
+  search_id: String
+  "Is the unique identifier within the search system for the query that generated this response"
+  queryId: String
+}
+
+"List of alerts and associated request metadata."
+type AlertsList {
+  "List of Alert types"
+  list: [Alert2!]
+  "Total results available for request"
+  total_results: Int
+  next_offset: Int
+  previous_offset: Int
+  last_offset: Int
+  first_offset: Int
+  "Total parts of the result set"
+  total_parts: Int
+  "Part number of returned result set"
+  part: Int
+  "Aggregation response, if the initial request included an aggregation"
+  group_by: [AggregationResponse!]
+}
+
+"""Base schema for an alert."""
+type Alert2 implements Node @key(fields: "id") @entityResolver(multi: true) {
+  id: ID!
+  "Alert group key"
+  group_key: [String!]
+  "Alert metadata"
+  metadata: AlertsMetadata
+  visibility: Visibility
+  "List of attack technique IDs"
+  attack_technique_ids: [String!]
+  "Tenant ID associated with alert"
+  tenant_id: String @deprecated(reason: "being replaced with Tenant field")
+  "Tenant associated with alert"
+  tenant: TenantV4
+  "Parent Tenant ID of the tenant associated with this alert"
+  parent_tenant_id: String
+  "MDR Provider for Tenant"
+  mdr_provider: String
+  "Was this rule suppressed. True or false"
+  suppressed: Boolean
+  "Suppression rules associated wiht alert"
+  suppression_rules: [AlertRuleReference!]
+  "Rules associated with alert"
+  alerting_rules: [AlertRuleReference!]
+  "Alert resolution status"
+  status: ResolutionStatus
+  "Alert resolution reason"
+  resolution_reason: String
+  resolution_history: [ResolutionMetadata!]
+  severity_history: [SeverityUpdate!]
+  """
+  Tuning history will contain the rule id of the tuning rule, the field being tuned and the value it was tuned to.
+  Tuning rules include suppression rules and can tune severity, origin, or suppress alerts.
+  """
+  tuning_history: [TuningUpdate!]
+  "List of tags associated to alert"
+  tags: [String!]
+  "Sensor types associated with alert"
+  sensor_types: [String!]
+  "All entities that are associated with an alert"
+  entities: EntityRelationships
+  key_entities: [EntityMetadata!]
+  "All source entities that are associated with an alert"
+  source_entities: [StructuredEntity!]
+  "All target entities that are associated with an alert"
+  target_entities: [StructuredEntity!]
+  "All event IDs that are associated with an alert"
+  event_ids: [AuxiliaryEvent!]
+  "All observation IDs that are associated with an alert"
+  observation_ids: [Observation!]
+  "All investigation IDs that are associated with an alert"
+  investigation_ids: [Investigation!]
+  collection_ids: [Collection!]
+  "Specific detectors may provide additional context to explain why the alert triggered or information to help an analyst review the alert."
+  enrichment_details: [EnrichmentDetail!]
+  "Alert third party details"
+  third_party_details: [ThirdPartyDetail!]
+  "List of detailed alert references provided by detector or watchlist rule"
+  reference_details: [ReferenceDetail!]
+  priority: AlertPriority
+  "Threat score mappings for observations and alerts (OLD)"
+  threat_score: Float32
+  "Threat score mappings for alerts"
+  threat_score_v2: Float32
+  "Vulnerability IDs associated with the alert"
+  vids: [Int]
+  events_metadata: AlertEventMetadata
+  "True when severity is info, low or medium. False when severity is high or critical"
+  observation: Boolean @deprecated(reason: "use threat_score_v2 value instead")
+}
+
+"Alert metadata information"
+type AlertsMetadata {
+  "Alert creator"
+  creator: Creator
+  "Alert engine"
+  engine: Engine
+  "Alert severity - can be from 0 - 1"
+  severity: Float32
+  severity_updated_at: Timestamp
+  "Alert confidence - can be from 0 - 1"
+  confidence: Float32
+  "Alert title - limit of 1024 characters, may be automatically truncated"
+  title: String
+  "If the Alert title is truncated, the complete title. Otherwise empty."
+  full_title: String
+  "Alert description"
+  description: String
+  "Translated descriptions"
+  descriptions: [Description]
+  "When the behavior associated with the alert began at"
+  began_at: Timestamp
+  "When the behavior associated with the alert ended at"
+  ended_at: Timestamp
+  "When the alert was created"
+  created_at: Timestamp
+  "When the alert was inserted into the database; this should be very close in time to `created_at`"
+  inserted_at: Timestamp
+  "Last time alert was updated; feedback, investigations"
+  updated_at: Timestamp
+  "When the events triggering the alert were first seen. This is set by specific ingests based on data provided by the data source."
+  first_seen_at: Timestamp
+  "When the alert first had an investigation associated with it"
+  first_investigated_at: Timestamp
+  "When the alert was first resolved"
+  first_resolved_at: Timestamp
+  "Who created the event which generated this alert"
+  origin: Origin
+  "Whether the alert is read only or not"
+  read_only: Boolean
+}
+
+type Timestamp {
+  seconds: Int!
+  nanos: Int!
+}
+
+"""
+List of Entity Relationships extracted from the alert's associated events.
+"""
+type EntityRelationships {
+  "List of entities. Entities are formatted as `<type>:<value>`."
+  entities: [String!]
+  "How entities are related based on events associated to the alert."
+  relationships: [Relationship!]
+}
+
+"Relationships between entities contained in the alert."
+type Relationship {
+  from_entity: String
+  to_entity: String
+  relationship: String
+  type: String
+}
+
+type EntityMetadata {
+  entity: String
+  label: String
+}
+
+type StructuredEntity {
+  id: String!
+  perspective: EntityPerspective!
+  identifiers: [String!]!
+  properties: Properties!
+  display_name: String!
+  subtype: String!
+}
+
+union Properties = EntityApplication | EntityAuthDomain | EntityCertificate | EntityCloudObject | EntityCloudResource | EntityCloudUser | EntityDnsServer | EntityDomainName | EntityEmail | EntityEmailAddress | EntityFile | EntityFileHash | EntityFunction | EntityHost | EntityIpAddress | EntityProcess | EntityRegistryKey | EntityScheduledTask | EntityScript | EntityService | EntityTaskAction | EntityUser | EntityUrl
+
+type EntityHost {
+  property_type: String
+  computer_name: String
+  host_id: String
+  hostname: String
+  hostname_fqdn: String
+  mac_address: String
+  os: String
+  os_arch: String
+  sensor_id: String
+  sensor_type: String
+  serial_number: String
+  system_type: String
+  vendor_agent_device_id: String
+  vendor_agent_device_score: Int
+}
+
+type EntityFile {
+  property_type: String
+  file_name: String
+  file_path: String
+  host_id: String
+  email_attachment_sandbox_status: String
+  file_create_time: Int
+  file_group_owner: String
+  file_modified_time: Int
+  file_owner: String
+  file_size: Int
+  file_type: String
+  file_type_detected: String
+  hash_md5: String
+  hash_sha1: String
+  hash_sha256: String
+  hash_sha512: String
+  email_message_id: String
+}
+
+type EntityFileHash {
+  property_type: String
+  hash_type: String
+  hash_value: String
+  threat_intel_hits_csv: String
+  threat_intel_score: Float
+  threat_intel_updated_at_usec: Int64
+}
+
+type EntityProcess {
+  property_type: String
+  process_correlation_id: String
+  process_id: String
+  process_name: String
+  process_uuid: String
+  host_id: String
+  process_create_time: Int
+  process_image_path: String
+  process_is_admin: Boolean
+  hash_md5: String
+  hash_sha1: String
+  hash_sha256: String
+  hash_sha512: String
+}
+
+type EntityUser {
+  property_type: String
+  auth_domain: String
+  computer_name: String
+  domain_name: String
+  group: String
+  host_id: String
+  user_id: String
+  user_name: String
+  cloud_user_type: String
+  original_user_name: String
+  user_is_admin: Boolean
+  identity_types_csv: String
+}
+
+type EntityIpAddress {
+  property_type: String
+  host_id: String
+  ip_address: String
+  asn: Int
+  hostname: String
+  ip_address_type: String
+  ip_classification: String
+  is_nat_ip: Boolean
+  ip_geo_auto_system_org: String
+  ip_geo_city_name: String
+  ip_geo_continent_code: String
+  ip_geo_country_code: String
+  ip_geo_country_geoname_id: Int
+  ip_geo_hash: String
+  ip_geo_latitude: Float
+  ip_geo_longitude: Float
+  threat_intel_hits_csv: String
+  threat_intel_score: Float
+  threat_intel_updated_at_usec: Int64
+}
+
+"Used by Nautilus to resolve the Red Cloak TDR asset model."
+type AuxiliaryEvent implements Node @key(fields: "id", resolvable: false) {
+  id: ID!
+}
+
+"Specific detectors can provide additional context to help explain why it generated to alert or information to help an analyst review the alert."
+type EnrichmentDetail {
+  "Geolocation for IP Addresses."
+  geo_ip: GeographicIp
+  "WHOIS info for domain."
+  whois: WhoisSimple
+  "Suspicious DNS Activity Detector"
+  dns_exfil: DnsExfilEnrichment
+  "DDoS Source IP Count Detector"
+  ddos_source_ip: DDosSourceIpCountDetail
+  "Login Failure Detector"
+  login_failure: LoginFailureDetail
+  "Rare Program to Rare IP Detector"
+  rare_program_rare_ip: RareProgramRareIpDetail
+  "Stolen Credentials Detector - Travel features; speed of travel, distance travelled."
+  travel_features: StolenCredsTravelFeatures
+  "Stolen Credentials Detector - Trust features, unknown ASN, IP Address, Country across all tenants or username."
+  trust_features: StolenCredsTrustFeatures
+  "Tactic Graphs Detector"
+  tactic_graph_detail: TacticGraphDetail
+  "MITRE ATT&CK Technique Detail"
+  mitre_attack_info: MitreAttackDetails
+  "IOC Watchlist Detectors - IP/Domain/Filehash"
+  watchlist_matches: WatchlistMatches
+  "Kerberoasting Detector"
+  kerberoasting: Kerberoasting
+  "Brute Force Details Detector "
+  brute_force_detail: BruteForceDetails
+  "Password Spray Detector"
+  password_spray_detail: PasswordSprayDetail
+  "Account Compromise Detector - Improbable Logon based on Baseline"
+  improbable_logon_detail: ImprobableLogonDetail
+  "Auth Scan Detector"
+  auth_scan_detail: AuthScanDetail
+  "Hands On Keyboard Detector"
+  hands_on_keyboard_details: HandsOnKeyboardDetails
+  "Business Email Compromise Detector"
+  business_email_compromise: BusinessEmailCompromiseDetail
+  account_compromise_detector_detail: AccountCompromiseDetectorDetail
+  "File Analysis Pipeline"
+  file_analysis_detail: FileAnalysisDetail
+  "Generic Detail Objects. These can be provided by any detector, but are commonly used for data from external sources of alerts."
+  generic: GenericDetail
+}
+
+"""Details for the Mitre ATT&CK technique associated with the alert."""
+type MitreAttackDetails {
+  technique_id: String
+  technique: String
+  tactics: [String!]
+  type: String
+  description: String
+  platform: [String!]
+  system_requirements: [String!]
+  url: String
+  data_sources: [String!]
+  defence_bypassed: [String!]
+  contributors: [String!]
+  version: String
+}
+
+"Internal Type"
+enum RPCResponseStatus {
+  OK
+  INVALID_REQUEST
+  TRANSACTION_ERROR
+}
+
+"Enum of alert resolution statuses."
+enum ResolutionStatus {
+  OPEN
+  TRUE_POSITIVE_BENIGN
+  TRUE_POSITIVE_MALICIOUS
+  FALSE_POSITIVE
+  NOT_ACTIONABLE
+  OTHER
+  SUPPRESSED
+  AUTO_CLOSE
+  DISMISSED
+}
+
+"Alert origin"
+enum Origin {
+  INTERNAL
+  CUSTOMER
+  EXTERNAL
+  PARTNER
+}
+
+input SearchRequestInput {
+  "Taegis XDR Query Language query"
+  cql_query: String
+  "Result set returned from this offset + limit requested. If your query has 500 `total_results` and you want the last 100; use `offset:400 limit:100`"
+  offset: Int
+  "Result set limit. Note: limits larger than 10000 are broken into multiple parts. Additional parts can be fetched by `search_id`."
+  limit: Int
+  "Next page reference returned with the last search response. If this is passed, offset and limit are ignored. Preferred way to paginate over large result sets as it is faster and more consistent."
+  search_id: String
+  "Allows the caller to include metadata that is stored with the received query."
+  metadata: Map
+  """
+  Filters alerts on tenants that have the specified services.
+  The tenants scope comprises the one specified in the X-Tenant-Context header and its children.
+  """
+  tenant_service_filters: [String!]
+  "The locale for what language descriptions and text based fields should be retrieved for"
+  locale: Locale
+}
+
+input PollRequestInput {
+  search_id: String
+  "DEPRECATED: part id is advanced transparently with each new call. not needed."
+  part_id: Int @deprecated(reason: "part id is advanced transparently with each new call now")
+}
+
+input GetByIDRequestInput {
+  iDs: [String!]
+}

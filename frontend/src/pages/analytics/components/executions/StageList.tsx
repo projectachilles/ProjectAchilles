@@ -4,9 +4,8 @@ import type { EnrichedTestExecution } from '@/services/api/analytics';
 import { cn } from '@/lib/utils';
 import { AttackChainStrip } from './AttackChainStrip';
 import {
-  CrowdStrikeAlertRow,
-  SentinelOneAlertRow,
   DefenderAlertRow,
+  EndpointAlertRow,
   ResultCode,
   RiskActions,
   descKeyFor,
@@ -14,7 +13,8 @@ import {
   type RunDetailPanelProps,
 } from './detailParts';
 import { StageOutcomeLabel, stageNumber, stageTechnique, stageTone } from './stageDisplay';
-import { stageVendors, stageVerdict } from './stageVerdict';
+import { joinNames, stageVendors, stageVerdict } from './stageVerdict';
+import { ENDPOINT_VENDOR_IDS, VENDORS } from '../integrations/vendorConfig';
 import type { BundleGroup } from './shared';
 
 type StageViewProps = Omit<RunDetailPanelProps, 'row' | 'archiveEnabled' | 'onRequestArchive'>;
@@ -28,39 +28,37 @@ function StageField({ label, children }: { label: string; children: React.ReactN
   );
 }
 
-/** Stage-attributed Defender + CrowdStrike + SentinelOne alerts as one list. */
+/** Stage-attributed Defender + endpoint-EDR alerts as one list. */
 function StageEvidence({ exec, ...props }: StageViewProps & { exec: EnrichedTestExecution }) {
-  const { defenderConfigured, crowdstrikeConfigured, sentineloneConfigured } = props;
-  if ((!defenderConfigured && !crowdstrikeConfigured && !sentineloneConfigured) || !exec.techniques?.length) return null;
+  const { defenderConfigured, endpointAlerts } = props;
+  const configuredEndpoints = ENDPOINT_VENDOR_IDS.filter((id) => endpointAlerts[id].configured);
+  if ((!defenderConfigured && configuredEndpoints.length === 0) || !exec.techniques?.length) return null;
 
-  const { defender, crowdstrike, sentinelone } = stageAlertState(exec, props);
+  const { defender, endpoint } = stageAlertState(exec, props);
   const defAlerts = defenderConfigured ? defender.alerts : [];
-  const csAlerts = crowdstrikeConfigured ? crowdstrike.alerts : [];
-  const s1Alerts = sentineloneConfigured ? sentinelone.alerts : [];
   const loading = (defenderConfigured && defender.loading)
-    || (crowdstrikeConfigured && crowdstrike.loading)
-    || (sentineloneConfigured && sentinelone.loading);
-  const vendors = [defenderConfigured && 'Defender', crowdstrikeConfigured && 'CrowdStrike', sentineloneConfigured && 'SentinelOne']
-    .filter(Boolean)
-    .join(' or ');
+    || configuredEndpoints.some((id) => endpoint[id].loading);
+  const vendors = joinNames([
+    ...(defenderConfigured ? ['Defender'] : []),
+    ...configuredEndpoints.map((id) => VENDORS[id].shortName),
+  ], 'or');
   const hasBundleAlerts =
     (defenderConfigured && defender.hasBundleAlerts)
-    || (crowdstrikeConfigured && crowdstrike.hasBundleAlerts)
-    || (sentineloneConfigured && sentinelone.hasBundleAlerts);
+    || configuredEndpoints.some((id) => endpoint[id].hasBundleAlerts);
+  const hasAlerts = defAlerts.length > 0 || configuredEndpoints.some((id) => endpoint[id].alerts.length > 0);
 
   return (
     <div className="border-t border-border pt-3">
       <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-faint">
         EDR evidence for this stage
       </div>
-      {(defAlerts.length > 0 || csAlerts.length > 0 || s1Alerts.length > 0) && (
+      {hasAlerts && (
         <div className="flex flex-col gap-1.5">
-          {csAlerts.map((alert) => (
-            <CrowdStrikeAlertRow key={alert.alert_id} alert={alert} runTimestamp={exec.timestamp} vendor="CrowdStrike" />
-          ))}
-          {s1Alerts.map((alert) => (
-            <SentinelOneAlertRow key={alert.alert_id} alert={alert} runTimestamp={exec.timestamp} vendor="SentinelOne" />
-          ))}
+          {configuredEndpoints.flatMap((id) =>
+            endpoint[id].alerts.map((alert) => (
+              <EndpointAlertRow key={`${id}:${alert.alert_id}`} alert={alert} runTimestamp={exec.timestamp} vendor={id} showVendor />
+            )),
+          )}
           {defAlerts.map((alert) => (
             <DefenderAlertRow key={alert.alert_id} alert={alert} runTimestamp={exec.timestamp} vendor="Defender" />
           ))}
@@ -72,9 +70,7 @@ function StageEvidence({ exec, ...props }: StageViewProps & { exec: EnrichedTest
           <span className="text-xs text-muted">Checking for related alerts...</span>
         </div>
       ) : (
-        defAlerts.length === 0 &&
-        csAlerts.length === 0 &&
-        s1Alerts.length === 0 && (
+        !hasAlerts && (
           <p className="text-xs text-faint">
             No {vendors} alert names this stage's binary.
             {hasBundleAlerts && ' See the bundle-level alerts above.'}

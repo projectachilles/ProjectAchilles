@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 
-const caps = vi.hoisted(() => ({ sentinelone: false, alerting: true, preExecutionNotices: false }));
+const caps = vi.hoisted(() => ({ sentinelone: false, sophos: false, alerting: true, preExecutionNotices: false }));
 const getS1Settings = vi.hoisted(() => vi.fn());
+const getSophosSettings = vi.hoisted(() => vi.fn());
 
-vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ preExecutionNotices: caps.preExecutionNotices, sentinelone: caps.sentinelone, alerting: caps.alerting }) }));
+vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ preExecutionNotices: caps.preExecutionNotices, sentinelone: caps.sentinelone, sophos: caps.sophos, alerting: caps.alerting }) }));
 vi.mock('@/hooks/useAnalyticsAuth', () => ({ useAnalyticsAuth: () => ({ configured: false }) }));
 vi.mock('@/services/api/integrations', () => ({
   integrationsApi: {
@@ -16,6 +17,7 @@ vi.mock('@/services/api/integrations', () => ({
 const getAlertSettings = vi.hoisted(() => vi.fn());
 vi.mock('@/services/api/alerts', () => ({ alertsApi: { getAlertSettings } }));
 vi.mock('@/services/api/sentinelone', () => ({ sentinelOneApi: { getSettings: getS1Settings } }));
+vi.mock('@/services/api/sophos', () => ({ sophosApi: { getSettings: getSophosSettings } }));
 const getNoticeSettings = vi.hoisted(() => vi.fn());
 vi.mock('@/services/api/notices', () => ({ noticesApi: { getSettings: getNoticeSettings } }));
 // The config forms render only when a card is opened; stub them to keep this test about the grid.
@@ -24,6 +26,7 @@ vi.mock('../AzureConfig', () => ({ AzureConfig: () => null }));
 vi.mock('../DefenderConfig', () => ({ DefenderConfig: () => null }));
 vi.mock('../CrowdStrikeConfig', () => ({ CrowdStrikeConfig: () => null }));
 vi.mock('../SentinelOneConfig', () => ({ SentinelOneConfig: () => null }));
+vi.mock('../SophosConfig', () => ({ SophosConfig: () => null }));
 vi.mock('../AlertsConfig', () => ({ AlertsConfig: () => null }));
 vi.mock('../PreExecutionNoticesConfig', () => ({ PreExecutionNoticesConfig: () => null }));
 
@@ -32,6 +35,7 @@ import { IntegrationsTab } from '../IntegrationsTab';
 describe('IntegrationsTab SentinelOne card', () => {
   beforeEach(() => {
     getS1Settings.mockReset().mockResolvedValue({ configured: false });
+    getSophosSettings.mockReset().mockResolvedValue({ configured: false });
     getAlertSettings.mockReset().mockResolvedValue({ configured: false });
     getNoticeSettings.mockReset().mockResolvedValue({ enabled: false });
     caps.alerting = true;
@@ -51,6 +55,21 @@ describe('IntegrationsTab SentinelOne card', () => {
     render(<IntegrationsTab />);
     expect(screen.getByText('SentinelOne')).toBeTruthy();
     expect(getS1Settings).toHaveBeenCalled();
+  });
+
+  it('Sophos card is hidden, and its settings never requested, without the capability', () => {
+    caps.sophos = false;
+    render(<IntegrationsTab />);
+    expect(screen.queryByText('Sophos Intercept X')).toBeNull();
+    expect(getSophosSettings).not.toHaveBeenCalled();
+  });
+
+  it('Sophos card is shown when the capability is true', () => {
+    caps.sophos = true;
+    render(<IntegrationsTab />);
+    expect(screen.getByText('Sophos Intercept X')).toBeTruthy();
+    expect(getSophosSettings).toHaveBeenCalled();
+    caps.sophos = false;
   });
 
   it('the Alerts & Notifications card is hidden, and its settings never requested, without alerting (Vercel)', () => {

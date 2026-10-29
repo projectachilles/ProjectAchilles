@@ -9,6 +9,8 @@ import defenderPng from '@/assets/integrations/defender.png';
 import defenderWebp from '@/assets/integrations/defender.webp';
 import sentinelonePng from '@/assets/integrations/sentinelone.png';
 import sentineloneWebp from '@/assets/integrations/sentinelone.webp';
+import sophosPng from '@/assets/integrations/sophos.png';
+import sophosWebp from '@/assets/integrations/sophos.webp';
 import { cn } from '@/lib/utils';
 
 interface LogoProps {
@@ -41,4 +43,8 @@ export function DefenderLogo({ className }: LogoProps) {
 
 export function SentinelOneLogo({ className }: LogoProps) {
   return <Logo png={sentinelonePng} webp={sentineloneWebp} className={className} testId="sentinelone-logo" />;
+}
+
+export function SophosLogo({ className }: LogoProps) {
+  return <Logo png={sophosPng} webp={sophosWebp} className={className} testId="sophos-logo" />;
 }

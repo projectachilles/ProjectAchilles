@@ -7,6 +7,7 @@ const { VENDORS } = await import('../vendorConfig');
 const { crowdstrikeApi } = await import('@/services/api/crowdstrike');
 const { defenderApi } = await import('@/services/api/defender');
 const { sentineloneAnalyticsApi } = await import('@/services/api/sentineloneAnalytics');
+const { sophosAnalyticsApi } = await import('@/services/api/sophosAnalytics');
 
 beforeEach(() => {
   getMock.mockReset();
@@ -39,12 +40,42 @@ describe('VENDORS', () => {
     expect(v.api.getAlerts).toBe(sentineloneAnalyticsApi.getAlerts);
     expect(v.api.getTechniqueCoverage).toBe(sentineloneAnalyticsApi.getTechniqueCoverage);
   });
+
+  it('Sophos vendor: copy, alert-type segments and its own analytics API', () => {
+    const v = VENDORS.sophos;
+    expect(v.id).toBe('sophos');
+    expect(v.name).toBe('Sophos Intercept X');
+    expect(v.shortName).toBe('Sophos');
+    expect(v.product).toBe('Sophos');
+    expect(v.endpointEdr).toBe(true);
+    expect(v.alertsTitle).toBe('Sophos Alerts');
+    expect(v.portalLabel).toBe('Open in Sophos Central');
+    expect(v.responseLabel).toBe('Sophos response');
+    expect(v.defaultSeverityKey).toBe('all');
+    expect(v.alertTypeSegments?.map((s) => [s.key, s.sourceType])).toEqual([
+      ['all', null], ['alerts', 'alert'], ['detections', 'xdr_detection'], ['events', 'siem_event'],
+    ]);
+    expect(v.api.getAlerts).toBe(sophosAnalyticsApi.getAlerts);
+    expect(v.api.getTechniqueCoverage).toBe(sophosAnalyticsApi.getTechniqueCoverage);
+  });
+
+  it('Sophos auto-resolve reports writesBlocked only when enabled in read-only mode', async () => {
+    const { sophosApi } = await import('@/services/api/sophos');
+    const counts = { last24h: 0, last7d: 0, last30d: 0 };
+    const spy = vi.spyOn(sophosApi, 'getAutoResolveStatus');
+    spy.mockResolvedValueOnce({ mode: 'enabled', permission_mode: 'read_only', counts, lastAutoResolve: null });
+    expect((await VENDORS.sophos.autoResolve.getStatus()).writesBlocked).toBe(true);
+    spy.mockResolvedValueOnce({ mode: 'enabled', permission_mode: 'response', counts, lastAutoResolve: null });
+    expect((await VENDORS.sophos.autoResolve.getStatus()).writesBlocked).toBe(false);
+    spy.mockRestore();
+  });
 });
 
 describe.each([
   ['crowdstrikeApi', 'crowdstrike', crowdstrikeApi],
   ['defenderApi', 'defender', defenderApi],
   ['sentineloneAnalyticsApi', 'sentinelone', sentineloneAnalyticsApi],
+  ['sophosAnalyticsApi', 'sophos', sophosAnalyticsApi],
 ] as const)('%s', (_n, slug, api) => {
   const from = '2026-10-01T00:00:00.000Z';
   const to = '2026-10-20T00:00:00.000Z';

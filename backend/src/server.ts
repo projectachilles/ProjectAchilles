@@ -38,6 +38,8 @@ import defenderRoutes from './api/defender.routes.js';
 import crowdstrikeRoutes from './api/crowdstrike.routes.js';
 import sentinelOneAnalyticsRoutes from './api/sentinelone-analytics.routes.js';
 import sentinelOneRoutes, { sentinelOneSyncService } from './api/sentinelone.routes.js';
+import sophosAnalyticsRoutes from './api/sophos-analytics.routes.js';
+import sophosRoutes, { sophosSyncService } from './api/sophos.routes.js';
 import riskAcceptanceRoutes from './api/risk-acceptance.routes.js';
 import noticesRoutes from './api/notices.routes.js';
 import campaignsRoutes from './api/campaigns.routes.js';
@@ -320,6 +322,7 @@ async function startServer() {
       preExecutionNotices: true,
       campaigns: true,
       sentinelone: true,
+      sophos: true,
       alerting: true,
       randomizedOnce: true,
       platform: 'docker',
@@ -353,6 +356,8 @@ async function startServer() {
 
   // SentinelOne integration (settings, background sync, auto-resolve / automatic mitigation)
   app.use('/api/integrations/sentinelone', sentinelOneRoutes);
+  // Sophos Central integration (settings, background sync, auto-resolve)
+  app.use('/api/integrations/sophos', sophosRoutes);
 
   // Integrations - external service credentials (Azure, etc.)
   app.use('/api/integrations', integrationsRoutes);
@@ -365,6 +370,9 @@ async function startServer() {
 
   // SentinelOne analytics - alerts, correlation, technique coverage
   app.use('/api/analytics/sentinelone', sentinelOneAnalyticsRoutes);
+
+  // Sophos analytics - alerts, SIEM events, XDR detections, correlation, Health Check posture
+  app.use('/api/analytics/sophos', sophosAnalyticsRoutes);
 
   // Risk acceptance - formal risk acceptance for security controls
   app.use('/api/risk-acceptances', riskAcceptanceRoutes);
@@ -576,9 +584,31 @@ function startBackgroundJobs(httpServer?: http.Server) {
     sentinelOneSyncService.syncAll().catch(logSentinelOneError);
   }, 60_000);
 
+  // --- Sophos sync: same tick/interval pattern as SentinelOne ---
+  const logSophosError = (err: unknown) => {
+    console.warn('⚠ Sophos sync failed:', err instanceof Error ? err.message : err);
+  };
+  const isSophosDue = () => {
+    try {
+      return sophosSyncService.isDue();
+    } catch (err) {
+      logSophosError(err);
+      return false;
+    }
+  };
+  if (isSophosDue()) {
+    console.log('🛡  Sophos integration configured — starting background sync');
+    sophosSyncService.syncAll().catch(logSophosError);
+  }
+  const sophosInterval = setInterval(() => {
+    if (!isSophosDue()) return;
+    sophosSyncService.syncAll().catch(logSophosError);
+  }, 60_000);
+
   const shutdown = () => {
     clearInterval(schedulerInterval);
     clearInterval(sentinelOneInterval);
+    clearInterval(sophosInterval);
     clearInterval(autoRotationInterval);
     clearInterval(heartbeatPruneInterval);
     clearInterval(offlineDetectionInterval);

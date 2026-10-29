@@ -14,7 +14,7 @@ describe('vendorName', () => {
   });
 
   it('shows an unknown vendor id from a newer backend instead of throwing', () => {
-    expect(vendorName('sophos' as never)).toBe('sophos');
+    expect(vendorName('acmeedr' as never)).toBe('acmeedr');
   });
 });
 

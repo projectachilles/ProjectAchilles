@@ -56,6 +56,11 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
                         "f0rtika.sentinelone_stage_detected": true,
                       },
                     },
+                    {
+                      "term": {
+                        "f0rtika.sophos_stage_detected": true,
+                      },
+                    },
                   ],
                 },
               },
@@ -116,6 +121,26 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
                           {
                             "terms": {
                               "f0rtika.sentinelone_prevention_action": [
+                                "blocked",
+                                "process_killed",
+                                "quarantined",
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.sophos_stage_detected": true,
+                            },
+                          },
+                          {
+                            "terms": {
+                              "f0rtika.sophos_prevention_action": [
                                 "blocked",
                                 "process_killed",
                                 "quarantined",
@@ -158,6 +183,11 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
                         "f0rtika.sentinelone_stage_detected": true,
                       },
                     },
+                    {
+                      "term": {
+                        "f0rtika.sophos_stage_detected": true,
+                      },
+                    },
                   ],
                 },
               },
@@ -228,6 +258,26 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
                       },
                     },
                     {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.sophos_stage_detected": true,
+                            },
+                          },
+                          {
+                            "terms": {
+                              "f0rtika.sophos_prevention_action": [
+                                "blocked",
+                                "process_killed",
+                                "quarantined",
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
                       "term": {
                         "f0rtika.crowdstrike_prevented": true,
                       },
@@ -240,6 +290,11 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
                     {
                       "term": {
                         "f0rtika.sentinelone_prevented": true,
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.sophos_prevented": true,
                       },
                     },
                   ],
@@ -335,6 +390,11 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
                     {
                       "term": {
                         "f0rtika.sentinelone_stage_detected": true,
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.sophos_stage_detected": true,
                       },
                     },
                   ],
@@ -445,6 +505,26 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
                         ],
                       },
                     },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.sophos_stage_detected": true,
+                            },
+                          },
+                          {
+                            "terms": {
+                              "f0rtika.sophos_prevention_action": [
+                                "blocked",
+                                "process_killed",
+                                "quarantined",
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
                   ],
                 },
               },
@@ -524,6 +604,26 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
                       },
                     },
                     {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "f0rtika.sophos_stage_detected": true,
+                            },
+                          },
+                          {
+                            "terms": {
+                              "f0rtika.sophos_prevention_action": [
+                                "blocked",
+                                "process_killed",
+                                "quarantined",
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
+                    {
                       "term": {
                         "f0rtika.crowdstrike_prevented": true,
                       },
@@ -536,6 +636,11 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
                     {
                       "term": {
                         "f0rtika.sentinelone_prevented": true,
+                      },
+                    },
+                    {
+                      "term": {
+                        "f0rtika.sophos_prevented": true,
                       },
                     },
                   ],
@@ -654,6 +759,26 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
                 },
               },
               {
+                "bool": {
+                  "filter": [
+                    {
+                      "term": {
+                        "f0rtika.sophos_stage_detected": true,
+                      },
+                    },
+                    {
+                      "terms": {
+                        "f0rtika.sophos_prevention_action": [
+                          "blocked",
+                          "process_killed",
+                          "quarantined",
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+              {
                 "term": {
                   "f0rtika.crowdstrike_prevented": true,
                 },
@@ -666,6 +791,11 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
               {
                 "term": {
                   "f0rtika.sentinelone_prevented": true,
+                },
+              },
+              {
+                "term": {
+                  "f0rtika.sophos_prevented": true,
                 },
               },
             ],
@@ -688,6 +818,11 @@ exports[`EDR vendor characterization (pre-registry refactor) > OUTCOME_FILTERS 1
               {
                 "term": {
                   "f0rtika.sentinelone_stage_detected": true,
+                },
+              },
+              {
+                "term": {
+                  "f0rtika.sophos_stage_detected": true,
                 },
               },
             ],
@@ -803,6 +938,10 @@ exports[`EDR vendor characterization (pre-registry refactor) > SOURCE_FIELDS 1`]
   "f0rtika.sentinelone_prevented",
   "f0rtika.sentinelone_prevention_action",
   "f0rtika.sentinelone_stage_detected",
+  "f0rtika.sophos_detected",
+  "f0rtika.sophos_prevented",
+  "f0rtika.sophos_prevention_action",
+  "f0rtika.sophos_stage_detected",
 ]
 `;
 
@@ -830,6 +969,11 @@ exports[`EDR vendor characterization (pre-registry refactor) > buildDetectedFilt
         {
           "term": {
             "f0rtika.sentinelone_detected": true,
+          },
+        },
+        {
+          "term": {
+            "f0rtika.sophos_detected": true,
           },
         },
       ],
@@ -1004,6 +1148,11 @@ exports[`EDR vendor characterization (pre-registry refactor) > fetchBundlePairRu
                       "f0rtika.sentinelone_detected": true,
                     },
                   },
+                  {
+                    "term": {
+                      "f0rtika.sophos_detected": true,
+                    },
+                  },
                 ],
               },
             },
@@ -1037,6 +1186,11 @@ exports[`EDR vendor characterization (pre-registry refactor) > fetchBundlePairRu
                   {
                     "term": {
                       "f0rtika.sentinelone_detected": true,
+                    },
+                  },
+                  {
+                    "term": {
+                      "f0rtika.sophos_detected": true,
                     },
                   },
                 ],
@@ -1142,6 +1296,9 @@ exports[`EDR vendor characterization (pre-registry refactor) > fetchDocPairRuns 
                 },
                 {
                   "field": "f0rtika.sentinelone_detected",
+                },
+                {
+                  "field": "f0rtika.sophos_detected",
                 },
                 {
                   "field": "event.ERROR",
@@ -1316,6 +1473,11 @@ exports[`EDR vendor characterization (pre-registry refactor) > getExecutionActiv
                             "f0rtika.sentinelone_detected": true,
                           },
                         },
+                        {
+                          "term": {
+                            "f0rtika.sophos_detected": true,
+                          },
+                        },
                       ],
                     },
                   },
@@ -1390,6 +1552,11 @@ exports[`EDR vendor characterization (pre-registry refactor) > getExecutionActiv
                             "f0rtika.sentinelone_detected": true,
                           },
                         },
+                        {
+                          "term": {
+                            "f0rtika.sophos_detected": true,
+                          },
+                        },
                       ],
                     },
                   },
@@ -1435,6 +1602,11 @@ exports[`EDR vendor characterization (pre-registry refactor) > getExecutionActiv
                         {
                           "term": {
                             "f0rtika.sentinelone_detected": true,
+                          },
+                        },
+                        {
+                          "term": {
+                            "f0rtika.sophos_detected": true,
                           },
                         },
                       ],
@@ -1596,6 +1768,11 @@ exports[`EDR vendor characterization (pre-registry refactor) > runAnyStageCombin
                           "f0rtika.sentinelone_detected": true,
                         },
                       },
+                      {
+                        "term": {
+                          "f0rtika.sophos_detected": true,
+                        },
+                      },
                     ],
                   },
                 },
@@ -1690,6 +1867,11 @@ exports[`EDR vendor characterization (pre-registry refactor) > runAnyStageCombin
                       "f0rtika.sentinelone_detected": true,
                     },
                   },
+                  {
+                    "term": {
+                      "f0rtika.sophos_detected": true,
+                    },
+                  },
                 ],
               },
             },
@@ -1781,6 +1963,11 @@ exports[`EDR vendor characterization (pre-registry refactor) > runCombinedScoreQ
               {
                 "term": {
                   "f0rtika.sentinelone_detected": true,
+                },
+              },
+              {
+                "term": {
+                  "f0rtika.sophos_detected": true,
                 },
               },
             ],

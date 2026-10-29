@@ -1,4 +1,4 @@
-// Per-vendor copy and defaults for the shared integration (CrowdStrike / Defender / SentinelOne) tab components.
+// Per-vendor copy and defaults for the shared integration (CrowdStrike / Defender / SentinelOne / Sophos) tab components.
 
 import { crowdstrikeApi } from '@/services/api/crowdstrike';
 import { DEFAULT_FALCON_CONSOLE_BASE, falconAlertUrl, resolveFalconConsoleBase } from '../../utils/falconConsole';
@@ -6,12 +6,14 @@ import { defenderApi } from '@/services/api/defender';
 import { integrationsApi } from '@/services/api/integrations';
 import { sentinelOneApi } from '@/services/api/sentinelone';
 import { sentineloneAnalyticsApi } from '@/services/api/sentineloneAnalytics';
+import { sophosApi } from '@/services/api/sophos';
+import { sophosAnalyticsApi } from '@/services/api/sophosAnalytics';
 
 import type { AutoResolveSource, IntegrationApi } from '@/services/api/integrationTypes';
 
 export type { TimeWindow } from '@/services/api/integrationTypes';
 
-export type VendorId = 'crowdstrike' | 'defender' | 'sentinelone';
+export type VendorId = 'crowdstrike' | 'defender' | 'sentinelone' | 'sophos';
 
 export interface SeveritySegment {
   key: string;
@@ -89,6 +91,7 @@ export const VENDORS: Record<VendorId, IntegrationVendor> = {
       getAlertTrend: crowdstrikeApi.getAlertTrend,
       getAlertSummary: crowdstrikeApi.getAlertSummary,
       getTechniqueCoverage: crowdstrikeApi.getTechniqueCoverage,
+      getAlertsForTest: (...args) => crowdstrikeApi.getAlertsForTest(...args),
     },
     autoResolve: {
       getStatus: () => integrationsApi.getCrowdStrikeAutoResolveStatus(),
@@ -148,6 +151,7 @@ export const VENDORS: Record<VendorId, IntegrationVendor> = {
       getAlertTrend: sentineloneAnalyticsApi.getAlertTrend,
       getAlertSummary: sentineloneAnalyticsApi.getAlertSummary,
       getTechniqueCoverage: sentineloneAnalyticsApi.getTechniqueCoverage,
+      getAlertsForTest: (...args) => sentineloneAnalyticsApi.getAlertsForTest(...args),
     },
     autoResolve: {
       getStatus: async () => {
@@ -162,4 +166,54 @@ export const VENDORS: Record<VendorId, IntegrationVendor> = {
       getReceipts: (limit, offset) => sentinelOneApi.getAutoResolveReceipts(limit, offset),
     },
   },
+  sophos: {
+    id: 'sophos',
+    name: 'Sophos Intercept X',
+    shortName: 'Sophos',
+    tabSubtitle: 'Alerts, XDR detections, SIEM events, and Health Check posture',
+    product: 'Sophos',
+    endpointEdr: true,
+    alertsTitle: 'Sophos Alerts',
+    portalLabel: 'Open in Sophos Central',
+    responseLabel: 'Sophos response',
+    knownSeverities: ['critical', 'high', 'medium', 'low', 'informational'],
+    severitySegments: [
+      { key: 'all', label: 'All severities', severities: null },
+      { key: 'hc', label: 'High & critical', severities: ['critical', 'high'] },
+    ],
+    defaultSeverityKey: 'all',
+    alertTypeSegments: [
+      { key: 'all', label: 'All types', sourceType: null },
+      { key: 'alerts', label: 'Alerts', sourceType: 'alert' },
+      { key: 'detections', label: 'XDR detections', sourceType: 'xdr_detection' },
+      { key: 'events', label: 'SIEM events', sourceType: 'siem_event' },
+    ],
+    api: {
+      getAlerts: sophosAnalyticsApi.getAlerts,
+      getAlertTrend: sophosAnalyticsApi.getAlertTrend,
+      getAlertSummary: sophosAnalyticsApi.getAlertSummary,
+      getTechniqueCoverage: sophosAnalyticsApi.getTechniqueCoverage,
+      getAlertsForTest: (...args) => sophosAnalyticsApi.getAlertsForTest(...args),
+    },
+    autoResolve: {
+      getStatus: async () => {
+        const status = await sophosApi.getAutoResolveStatus();
+        return {
+          mode: status.mode,
+          counts: status.counts,
+          // The pass writes nothing with a read-only credential, even when enabled.
+          writesBlocked: status.mode === 'enabled' && status.permission_mode === 'read_only',
+        };
+      },
+      getReceipts: (limit, offset) => sophosApi.getAutoResolveReceipts(limit, offset),
+    },
+  },
 };
+
+/** Vendors whose alert docs share the CrowdStrike alert shape (`endpointEdr`). */
+export type EndpointVendorId = 'crowdstrike' | 'sentinelone' | 'sophos';
+
+/** Endpoint-EDR vendor ids in display order, derived from the registry. */
+export const ENDPOINT_VENDOR_IDS = (Object.keys(VENDORS) as VendorId[]).filter(
+  (id): id is EndpointVendorId => VENDORS[id].endpointEdr,
+);

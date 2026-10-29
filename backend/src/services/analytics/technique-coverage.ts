@@ -18,7 +18,7 @@ import { enrichmentEligibleClauses } from './enrichment-eligibility.js';
 import { windowRange } from './integration-window.js';
 import type { TimeWindow } from './integration-window.js';
 
-export type CoverageVendor = 'crowdstrike' | 'defender' | 'sentinelone';
+export type CoverageVendor = 'crowdstrike' | 'defender' | 'sentinelone' | 'sophos';
 
 export interface TechniqueCoverageItem {
   technique: string;

@@ -7,11 +7,40 @@ import type { CrowdStrikeAlertItem, RelatedCrowdStrikeAlertsResponse } from '@/s
 
 // Hoisted spy so the vi.mock factory (which is itself hoisted above all
 // top-level declarations) can reference it without hitting a TDZ.
-const { getAlertsForTestMock, csGetAlertsForTestMock, csConfigured } = vi.hoisted(() => ({
+const {
+  getAlertsForTestMock, csGetAlertsForTestMock, csConfigured,
+  s1GetAlertsForTestMock, s1Configured, sophosGetAlertsForTestMock, sophosConfigured,
+} = vi.hoisted(() => ({
   getAlertsForTestMock: vi.fn(),
   csGetAlertsForTestMock: vi.fn(),
   csConfigured: { value: false },
+  s1GetAlertsForTestMock: vi.fn(),
+  s1Configured: { value: false },
+  sophosGetAlertsForTestMock: vi.fn(),
+  sophosConfigured: { value: false },
 }));
+
+vi.mock('@/hooks/useSentinelOneConfig', () => ({
+  useSentinelOneConfig: () => ({ configured: s1Configured.value, loading: false }),
+}));
+
+vi.mock('@/hooks/useSophosConfig', () => ({
+  useSophosConfig: () => ({ configured: sophosConfigured.value, loading: false }),
+}));
+
+vi.mock('@/services/api/sentineloneAnalytics', async () => {
+  const actual = await vi.importActual<typeof import('@/services/api/sentineloneAnalytics')>(
+    '@/services/api/sentineloneAnalytics',
+  );
+  return { ...actual, sentineloneAnalyticsApi: { ...actual.sentineloneAnalyticsApi, getAlertsForTest: s1GetAlertsForTestMock } };
+});
+
+vi.mock('@/services/api/sophosAnalytics', async () => {
+  const actual = await vi.importActual<typeof import('@/services/api/sophosAnalytics')>(
+    '@/services/api/sophosAnalytics',
+  );
+  return { ...actual, sophosAnalyticsApi: { ...actual.sophosAnalyticsApi, getAlertsForTest: sophosGetAlertsForTestMock } };
+});
 
 vi.mock('@/hooks/useDefenderConfig', () => ({
   useDefenderConfig: () => ({ configured: true, loading: false }),
@@ -156,6 +185,13 @@ beforeEach(() => {
   csGetAlertsForTestMock.mockReset();
   csGetAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
   csConfigured.value = false;
+  s1Configured.value = false;
+  sophosConfigured.value = false;
+  const empty = { alerts: [], matchedTechniques: [], total: 0 };
+  s1GetAlertsForTestMock.mockReset();
+  s1GetAlertsForTestMock.mockResolvedValue(empty);
+  sophosGetAlertsForTestMock.mockReset();
+  sophosGetAlertsForTestMock.mockResolvedValue(empty);
 });
 
 describe('ExecutionsDataTable — SB report export', () => {
@@ -1151,5 +1187,98 @@ describe('ExecutionsDataTable — execution report link', () => {
     const panel = screen.getByRole('button', { name: 'Export CSV' }).parentElement as HTMLElement;
     expect(panel).toHaveClass('invisible', 'opacity-0', 'group-hover:visible', 'group-hover:opacity-100');
     expect(panel).toHaveClass('group-focus-within:visible', 'group-focus-within:opacity-100');
+  });
+});
+
+describe('ExecutionsDataTable — related alerts keyed by endpoint vendor', () => {
+  const empty = { alerts: [], matchedTechniques: [], total: 0 };
+
+  function standaloneData(exec: EnrichedTestExecution): GroupedPaginatedResponse {
+    return {
+      groups: [{
+        groupKey: `standalone::${exec.test_uuid}`,
+        type: 'standalone',
+        representative: exec,
+        members: [exec],
+        protectedCount: 0,
+        unprotectedCount: 1,
+        totalCount: 1,
+        defenderDetected: false,
+      }],
+      pagination: { page: 1, pageSize: 25, totalGroups: 1, totalDocuments: 1, totalPages: 1, hasNext: false, hasPrevious: false },
+    } as GroupedPaginatedResponse;
+  }
+
+  const standalone = makeStage({
+    test_uuid: 'aaaaaaaa-1111-2222-3333-444444444444',
+    test_name: 'Standalone Probe',
+    is_bundle_control: false,
+    bundle_id: undefined,
+    bundle_name: undefined,
+    control_id: undefined,
+    techniques: ['T1059.001'],
+  });
+
+  it('fetches Sophos related alerts for a selected standalone execution with the binary name and bundle args', async () => {
+    sophosConfigured.value = true;
+    getAlertsForTestMock.mockResolvedValue(empty);
+    renderTable(standaloneData(standalone));
+
+    await waitFor(() => expect(sophosGetAlertsForTestMock).toHaveBeenCalledTimes(1));
+    expect(sophosGetAlertsForTestMock).toHaveBeenCalledWith(
+      ['T1059.001'], standalone.timestamp, 30, standalone.hostname,
+      'aaaaaaaa-1111-2222-3333-444444444444.exe', standalone.bundle_name,
+    );
+  });
+
+  it('fetches each bundle control for Sophos under its own cache key', async () => {
+    sophosConfigured.value = true;
+    getAlertsForTestMock.mockResolvedValue(empty);
+    const stage1 = makeStage({ test_uuid: `${BUNDLE_UUID}::T1083`, control_id: 'T1083', techniques: ['T1083'] });
+    const stage2 = makeStage({
+      test_uuid: `${BUNDLE_UUID}::T1562.001`, control_id: 'T1562.001', techniques: ['T1562.001'],
+      test_name: 'WinDefend Service-Stop Notification Subscription',
+    });
+    renderTable(makeData([stage1, stage2], { defenderDetected: false }));
+    await userEvent.click(screen.getAllByText(stage1.bundle_name!)[0]);
+
+    await waitFor(() => expect(sophosGetAlertsForTestMock).toHaveBeenCalledTimes(2));
+    const bin = `${BUNDLE_UUID}.exe`;
+    expect(sophosGetAlertsForTestMock).toHaveBeenCalledWith(['T1083'], stage1.timestamp, 30, stage1.hostname, bin, stage1.bundle_name);
+    expect(sophosGetAlertsForTestMock).toHaveBeenCalledWith(['T1562.001'], stage2.timestamp, 30, stage2.hostname, bin, stage2.bundle_name);
+
+    // Expanding a control reuses its cached entry (no extra call).
+    await openStageRow(stage2.test_name);
+    expect(sophosGetAlertsForTestMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('never calls Sophos when it is not configured, while CrowdStrike and SentinelOne still fetch with the same args', async () => {
+    csConfigured.value = true;
+    s1Configured.value = true;
+    getAlertsForTestMock.mockResolvedValue(empty);
+    renderTable(standaloneData(standalone));
+
+    await waitFor(() => expect(csGetAlertsForTestMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(s1GetAlertsForTestMock).toHaveBeenCalledTimes(1));
+    const args = [
+      ['T1059.001'], standalone.timestamp, 30, standalone.hostname,
+      'aaaaaaaa-1111-2222-3333-444444444444.exe', standalone.bundle_name,
+    ];
+    expect(csGetAlertsForTestMock).toHaveBeenCalledWith(...args);
+    expect(s1GetAlertsForTestMock).toHaveBeenCalledWith(...args);
+    expect(sophosGetAlertsForTestMock).not.toHaveBeenCalled();
+  });
+
+  it('serves a repeat selection of the same execution from the cache', async () => {
+    sophosConfigured.value = true;
+    getAlertsForTestMock.mockResolvedValue(empty);
+    const stage1 = makeStage({ test_uuid: `${BUNDLE_UUID}::T1083`, control_id: 'T1083', techniques: ['T1083'] });
+    renderTable(makeData([stage1], { defenderDetected: false }));
+    await waitFor(() => expect(sophosGetAlertsForTestMock).toHaveBeenCalledTimes(1));
+
+    // Re-select the already selected row.
+    await userEvent.click(screen.getAllByText(stage1.bundle_name!)[0]);
+    await userEvent.click(screen.getAllByText(stage1.bundle_name!)[0]);
+    expect(sophosGetAlertsForTestMock).toHaveBeenCalledTimes(1);
   });
 });

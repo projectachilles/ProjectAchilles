@@ -38,9 +38,9 @@ them against synced EDR alerts:
 
 | Flag | Set when | Qualification |
 |---|---|---|
-| `defender_detected` / `crowdstrike_detected` | Alert evidence matches hostname + bundle UUID in filename/path, within −5/+30 min of the test | — |
+| `defender_detected` / `crowdstrike_detected` / `sentinelone_detected` / `sophos_detected` | Alert evidence matches hostname + bundle UUID in filename/path, within −5/+30 min of the test | — |
 | `*_stage_detected` | Alert evidence names the **stage's own binary** (`<bundle-uuid>-<control>.exe`) | — |
-| `crowdstrike_prevented` / `defender_prevented` (+ `*_prevention_action`) | Matched alert carries a vendor-confirmed prevention disposition | **Stage-binary matches always qualify. Bundle-wide matches only if the stage never reached a conclusive outcome** (exit ∉ `{101, 105, 126, 127}`). A failed kill (CS `kill_action_failed`) never qualifies |
+| `crowdstrike_prevented` / `defender_prevented` / `sentinelone_prevented` / `sophos_prevented` (+ `*_prevention_action`) | Matched alert carries a vendor-confirmed prevention disposition | **Stage-binary matches always qualify. Bundle-wide matches only if the stage never reached a conclusive outcome** (exit ∉ `{101, 105, 126, 127}`). A failed kill (CS `kill_action_failed`) never qualifies |
 
 **Vendor prevention dispositions**, normalized to a shared vocabulary
 (`process_killed` / `quarantined` / `blocked`):
@@ -87,7 +87,7 @@ precedence (top wins):
 | Label | Condition | Meaning |
 |---|---|---|
 | **Protected** | exit ∈ `{105, 126, 127}` | Endpoint blocked/quarantined at the OS level |
-| **Prevented** | `crowdstrike_prevented` or `defender_prevented` (or detected flags + confirmed prevention action) | Vendor-confirmed kill/quarantine/block — shows the action, e.g. "Prevented (process killed)" |
+| **Prevented** | `crowdstrike_prevented`, `defender_prevented`, `sentinelone_prevented` or `sophos_prevented` (or detected flags + confirmed prevention action) | Vendor-confirmed kill/quarantine/block — shows the action, e.g. "Prevented (process killed)" |
 | **Detected** | `*_stage_detected` or `*_detected` | The EDR saw it and alerted, but didn't stop it |
 | **Unprotected** | exit 101 | Attack ran to completion, nothing reacted |
 | **Inconclusive** | everything else (0, 1, 259, 260, 999, missing) | Can't judge — error, timeout, policy block, or unconfirmed kill |
@@ -136,7 +136,7 @@ Outcomes: `PREVENTED / DETECTED / MISSED / EXPOSED / NOT_RUN / ERROR`.
 
 ## 6. Agent terminated by the EDR
 
-An EDR can kill the agent process itself in the middle of a test. The agent then never reports a result, and the server's watchdog fails the task as `Agent went offline during execution` or `Task exceeded execution timeout` (exit `-1`, no Elasticsearch document). When an EDR alert proves the kill, ProjectAchilles turns that failure into a **Protected** result. It does this after every Microsoft Defender, CrowdStrike and SentinelOne poll, and only against EDRs that are configured.
+An EDR can kill the agent process itself in the middle of a test. The agent then never reports a result, and the server's watchdog fails the task as `Agent went offline during execution` or `Task exceeded execution timeout` (exit `-1`, no Elasticsearch document). When an EDR alert proves the kill, ProjectAchilles turns that failure into a **Protected** result. It does this after every Microsoft Defender, CrowdStrike, SentinelOne and Sophos poll, and only against EDRs that are configured.
 
 A watchdog failure becomes a result only when **all** of these hold:
 
@@ -144,7 +144,7 @@ A watchdog failure becomes a result only when **all** of these hold:
 - It was created between the moment the agent picked up the task and the moment the watchdog failed it. If the agent came back (service recovery, a quick reboot) and picked up its next test first, the window ends at that pickup plus 60 seconds, so the next test's alerts never count for the dead one.
 - If the alert is already linked to a test (`f0rtika.achilles_test_uuid`), it is this test.
 - The EDR itself killed, quarantined or blocked something. Achilles' own SentinelOne automatic mitigation does not count.
-- The alert's ATT&CK techniques overlap the test's techniques (compared at parent level, so `T1486` matches `T1486.001`).
+- The alert's ATT&CK techniques overlap the test's techniques (compared at parent level, so `T1486` matches `T1486.001`). Sophos currently provides no such alert on any tenant: its alerts and SIEM events carry the prevention but no techniques, and its XDR detections carry techniques but never a prevention action, so a Sophos kill stays a failed task instead of becoming Protected.
 
 The name of the flagged file does not matter. For example, an alert whose process tree is rooted at the agent's own binary or at a remote-management agent such as `rphcp.exe` still matches, because the technique and time window tie it to the run. The first check after the server starts covers watchdog failures from the last 30 days; later checks cover the last 2 days, since vendor alerts sync within minutes. Each failure's alerts are searched only within that run's own window.
 
@@ -163,7 +163,7 @@ Not every `-1` qualifies:
 - The SB-PC-2026-001 export stays per-control, so these runs are not in it.
 
 :::note[Alerts stay open]
-Alerts matched this way are linked to the run but never auto-resolved, and they never receive the `achilles_correlated` flag, so SentinelOne automatic mitigation never touches them. Your SOC still sees and triages them.
+Alerts matched this way are linked to the run but never auto-resolved, and they never receive the `achilles_correlated` flag, so SentinelOne automatic mitigation never touches them (and Sophos auto-resolve never acknowledges them). Your SOC still sees and triages them.
 :::
 
 ## Related
@@ -171,3 +171,4 @@ Alerts matched this way are linked to the run but never auto-resolved, and they 
 - [Defense Score](./defense-score) — how the score is computed
 - [Microsoft Defender integration](../integrations/microsoft-defender) — Defender correlation and auto-resolve
 - [CrowdStrike Falcon integration](../integrations/crowdstrike) — prevention dispositions, Falcon console deep links
+- [Sophos integration](../integrations/sophos#how-sophos-evidence-becomes-a-verdict) — what counts as Sophos prevention versus detection

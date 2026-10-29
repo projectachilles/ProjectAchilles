@@ -27,7 +27,7 @@ vi.mock('../../services/analytics/settings.js', () => ({
   SettingsService: class { getSettings = mockGetSettings; },
 }));
 vi.mock('../../services/integrations/settings.js', () => ({
-  IntegrationsSettingsService: class { isDefenderConfigured = () => true; isCrowdStrikeConfigured = () => false; isSentinelOneConfigured = () => false; },
+  IntegrationsSettingsService: class { isDefenderConfigured = () => true; isCrowdStrikeConfigured = () => false; isSentinelOneConfigured = () => false; isSophosConfigured = () => false; },
 }));
 
 const mockGenerate = vi.fn();
@@ -72,7 +72,7 @@ describe('GET /api/reports/executions', () => {
       from: 'now-30d', hostnames: 'H1', result: 'unprotected', tz: 'UTC', includeAcceptedRisks: true,
     }));
     expect(mockHasPermission).toHaveBeenCalledWith(expect.anything(), 'analytics:risk:read');
-    expect(constructed[0][1]).toEqual({ vendors: { defender: true, crowdstrike: false, sentinelone: false } });
+    expect(constructed[0][1]).toEqual({ vendors: { defender: true, crowdstrike: false, sentinelone: false, sophos: false } });
   });
 
   it('does not default the org to the JWT org', async () => {

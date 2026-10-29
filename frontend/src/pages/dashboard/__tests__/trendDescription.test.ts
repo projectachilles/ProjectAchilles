@@ -45,3 +45,17 @@ describe('buildTrendDescription', () => {
     expect(buildTrendDescription({ defense: null, secure: 50, zta: null, errorRate: null })).toBe('Secure 50.0%');
   });
 });
+
+describe('Sophos Health Check series', () => {
+  it('joins the Sophos trend by UTC day and omits the key when no Sophos series', () => {
+    const defense = [dp('2026-10-13T23:59:59.999Z', 57)];
+    const withSophos = buildTrendPoints(defense, null, null, null, [{ date: '2026-10-13', score: 77 }]);
+    expect(withSophos[0].sophos).toBe(77);
+    const without = buildTrendPoints(defense, null, null, null);
+    expect('sophos' in without[0]).toBe(false);
+  });
+
+  it('describes the current Sophos headline', () => {
+    expect(buildTrendDescription({ defense: 57, secure: null, zta: null, errorRate: null, sophos: 77 })).toBe('Defense 57.0% · Sophos 77.0%');
+  });
+});

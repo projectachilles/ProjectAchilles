@@ -1,0 +1,15 @@
+{
+  "_provisional": "derived from the published Sophos spec; replace with a verbatim PoC capture",
+  "id": "0a1b2c3d_4e5f-6071",
+  "attackType": "Security Event Service Detections",
+  "detectionRule": "WIN-EXE-DM-SUS-STAGING-1",
+  "detectionAttack": "Defense Evasion",
+  "device": { "id": "0569f2b7-756c-4d16-8804-798a6d0030cf", "type": "computer", "entity": "WIN-LAB01.corp.local" },
+  "mitreAttacks": [ { "tactic": { "id": "TA0002", "name": "Execution", "techniques": [ { "id": "T1059", "name": "Command and Scripting Interpreter" }, { "id": "T1204.002", "name": "Malicious File" } ] } } ],
+  "processedData": "The process 'C:\\F0\\tasks\\task-4821-x7k2\\7659eeba-f315-440e-9882-4aa015d68b27-CH-DEF-001.exe' was created by 'C:\\Windows\\System32\\cmd.exe'.",
+  "ruleDescription": "Executable launched from a staging directory",
+  "severity": 7,
+  "time": "2026-10-28T10:00:09.604Z",
+  "type": "Threat",
+  "sensor": { "id": "s1", "type": "endpoint", "source": "Sophos", "version": "1.18.1" }
+}

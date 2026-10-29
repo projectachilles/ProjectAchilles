@@ -64,6 +64,16 @@ export interface EnrichmentVendorTarget {
    * EDR preventing the test, so it must never turn into `<vendor>_prevented`.
    */
   ignoreAchillesMitigated?: boolean;
+  /**
+   * Re-check docs flagged `<vendor>_detected` but not `<vendor>_prevented`
+   * whose routing.event_time is within this many hours, so prevention that
+   * reaches the alert index after the first match (Sophos: the SIEM event
+   * carrying the remedy merges into the Common Alert a poll later) still
+   * becomes `<vendor>_prevented`. A re-checked doc only gets flags it lacks,
+   * and only alerts not yet `achilles_correlated` get the alert-side write,
+   * so passes over an unchanged doc write nothing. Unset = never re-check.
+   */
+  recheckUnpreventedHours?: number;
 }
 
 export class EdrAlertEnrichmentService {
@@ -164,6 +174,7 @@ export class EdrAlertEnrichmentService {
           const source = this.target.ignoreAchillesMitigated
             ? ['prevention_action', ...ACHILLES_MITIGATION_FIELDS]
             : ['prevention_action'];
+          if (this.recheckEnabled) source.push('f0rtika.achilles_correlated');
           searches.push({ size: ALERT_HITS_PER_SUBQUERY, _source: source, query: q.body });
         }
 
@@ -191,6 +202,8 @@ export class EdrAlertEnrichmentService {
           alertIds: Set<string>;
           /** Qualifying prevention actions from matched alerts (first one wins on the test doc). */
           preventionActions: string[];
+          /** Matched alerts already achilles_correlated (only tracked when re-checking). */
+          correlatedAlertIds: Set<string>;
         }
         const updatesByHitId = new Map<string, PerHitUpdate>();
         const responses = (msearchResponse as any).responses ?? [];
@@ -231,12 +244,15 @@ export class EdrAlertEnrichmentService {
           const hitId = q.hit._id as string;
           let entry = updatesByHitId.get(hitId);
           if (!entry) {
-            entry = { hit: q.hit, bundleUuid: q.bundleUuid, wideMatched: false, stageMatched: false, alertIds: new Set(), preventionActions: [] };
+            entry = { hit: q.hit, bundleUuid: q.bundleUuid, wideMatched: false, stageMatched: false, alertIds: new Set(), preventionActions: [], correlatedAlertIds: new Set() };
             updatesByHitId.set(hitId, entry);
           }
           if (q.kind === 'wide')  entry.wideMatched = true;
           if (q.kind === 'stage') entry.stageMatched = true;
           for (const id of alertIds) entry.alertIds.add(id);
+          if (this.recheckEnabled) {
+            for (const h of alertHits) if (typeof h._id === 'string' && h._source?.f0rtika?.achilles_correlated === true) entry.correlatedAlertIds.add(h._id);
+          }
           if (preventionQualifies) entry.preventionActions.push(...preventionActions);
         }
 
@@ -262,23 +278,33 @@ export class EdrAlertEnrichmentService {
             // Test-doc update: only set the fields that flipped to true.
             const f0rtika: Record<string, unknown> = {};
             const v = this.target.flagPrefix;
-            if (u.wideMatched)  f0rtika[`${v}_detected`]       = true;
-            if (u.stageMatched) f0rtika[`${v}_stage_detected`] = true;
+            // Re-check mode: a doc already flagged by an earlier pass only gets
+            // the flags it lacks (so an unchanged doc is never re-written).
+            const existing = this.recheckEnabled ? (u.hit._source?.f0rtika ?? {}) : {};
+            const recheck = this.recheckEnabled && existing[`${v}_detected`] === true;
+            const wide = u.wideMatched && existing[`${v}_detected`] !== true;
+            const stage = u.stageMatched && existing[`${v}_stage_detected`] !== true;
+            if (wide)  f0rtika[`${v}_detected`]       = true;
+            if (stage) f0rtika[`${v}_stage_detected`] = true;
             // Vendor-confirmed prevention — rides alongside the detected flags.
             // preventionActions is already qualification-filtered above
             // (stage matches always; wide matches only for non-conclusive docs).
             // Prevention ⊆ detection: a prevention flag implies a matched alert.
-            if (u.preventionActions.length > 0) {
+            if (u.preventionActions.length > 0 && existing[`${v}_prevented`] !== true) {
               f0rtika[`${v}_prevented`] = true;
               f0rtika[`${v}_prevention_action`] = u.preventionActions[0];
             }
-            operations.push({ update: { _index: u.hit._index, _id: u.hit._id } });
-            operations.push({ doc: { f0rtika } });
-            testOpMeta.push({ kind: 'test', wide: u.wideMatched, stage: u.stageMatched });
+            if (Object.keys(f0rtika).length > 0) {
+              operations.push({ update: { _index: u.hit._index, _id: u.hit._id } });
+              operations.push({ doc: { f0rtika } });
+              testOpMeta.push({ kind: 'test', wide, stage });
+            }
 
             // Alert-doc updates (dedup per batch)
             for (const alertId of u.alertIds) {
               if (alertIdsEmitted.has(alertId)) continue;
+              // A re-checked doc never re-stamps an alert that is already correlated.
+              if (recheck && u.correlatedAlertIds.has(alertId)) continue;
               alertIdsEmitted.add(alertId);
               operations.push({ update: { _index: this.target.alertIndex, _id: alertId } });
               operations.push({
@@ -294,25 +320,28 @@ export class EdrAlertEnrichmentService {
             }
           }
 
-          try {
-            const bulkResponse = await this.client.bulk({ operations } as any);
-            const items = (bulkResponse as any).items ?? [];
-            for (let i = 0; i < items.length; i++) {
-              const item = items[i]?.update;
-              const meta = testOpMeta[i];
-              if (item?.error) {
-                result.errors.push(`bulk[${i}]: ${item.error.reason ?? 'unknown'}`);
-                continue;
+          // Nothing to write when every matched doc was re-checked unchanged.
+          if (operations.length > 0) {
+            try {
+              const bulkResponse = await this.client.bulk({ operations } as any);
+              const items = (bulkResponse as any).items ?? [];
+              for (let i = 0; i < items.length; i++) {
+                const item = items[i]?.update;
+                const meta = testOpMeta[i];
+                if (item?.error) {
+                  result.errors.push(`bulk[${i}]: ${item.error.reason ?? 'unknown'}`);
+                  continue;
+                }
+                if (meta?.kind === 'test') {
+                  if (meta.wide)  result.detected += 1;
+                  if (meta.stage) result.stageDetected += 1;
+                } else if (meta?.kind === 'alert') {
+                  result.alertsMarkedCorrelated += 1;
+                }
               }
-              if (meta?.kind === 'test') {
-                if (meta.wide)  result.detected += 1;
-                if (meta.stage) result.stageDetected += 1;
-              } else if (meta?.kind === 'alert') {
-                result.alertsMarkedCorrelated += 1;
-              }
+            } catch (err) {
+              result.errors.push(`bulk: ${this.errMsg(err)}`);
             }
-          } catch (err) {
-            result.errors.push(`bulk: ${this.errMsg(err)}`);
           }
         }
       }
@@ -341,6 +370,23 @@ export class EdrAlertEnrichmentService {
     const missingFlag = (field: string) => ({
       bool: { must_not: [{ term: { [field]: true } }] },
     });
+    const v = this.target.flagPrefix;
+    const eligible: Record<string, unknown>[] = [
+      missingFlag(`f0rtika.${v}_detected`),
+      missingFlag(`f0rtika.${v}_stage_detected`),
+    ];
+    // Late prevention (see recheckUnpreventedHours): detected, not prevented, recent.
+    if (this.recheckEnabled) {
+      eligible.push({
+        bool: {
+          filter: [
+            { term: { [`f0rtika.${v}_detected`]: true } },
+            { range: { 'routing.event_time': { gte: `now-${this.target.recheckUnpreventedHours}h` } } },
+          ],
+          must_not: [{ term: { [`f0rtika.${v}_prevented`]: true } }],
+        },
+      });
+    }
     return {
       bool: {
         filter: [
@@ -348,16 +394,18 @@ export class EdrAlertEnrichmentService {
           ...enrichmentEligibleClauses(),
           {
             bool: {
-              should: [
-                missingFlag(`f0rtika.${this.target.flagPrefix}_detected`),
-                missingFlag(`f0rtika.${this.target.flagPrefix}_stage_detected`),
-              ],
+              should: eligible,
               minimum_should_match: 1,
             },
           },
         ],
       },
     };
+  }
+
+  private get recheckEnabled(): boolean {
+    const h = this.target.recheckUnpreventedHours;
+    return typeof h === 'number' && h > 0;
   }
 
   private errMsg(err: unknown): string {

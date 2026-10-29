@@ -8,6 +8,7 @@ export const EDR_ENV_PREFIX: Record<EdrVendorKey, string> = {
   defender: 'DEFENDER',
   crowdstrike: 'CROWDSTRIKE',
   sentinelone: 'SENTINELONE',
+  sophos: 'SOPHOS',
 };
 
 /** "A, B or C". */

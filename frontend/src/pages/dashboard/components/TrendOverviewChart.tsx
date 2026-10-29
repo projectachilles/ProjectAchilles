@@ -14,6 +14,7 @@ export interface TrendPoint {
   defense?: number | null;
   secure?: number | null;
   zta?: number | null;
+  sophos?: number | null;
   errorRate?: number | null;
 }
 
@@ -22,6 +23,7 @@ interface TrendOverviewChartProps {
   description: string;
   hasSecureScore: boolean;
   hasZtaScore?: boolean;
+  hasSophosScore?: boolean;
   /** Selected time window, e.g. "last 30d" or "last 365d". */
   rangeLabel: string;
   loading?: boolean;
@@ -31,16 +33,17 @@ const SERIES = [
   { key: 'defense', label: 'defense score', color: 'var(--chart-protected)' },
   { key: 'secure', label: 'secure score', color: 'var(--chart-series-alert)' },
   { key: 'zta', label: 'zta score', color: 'var(--chart-warn)' },
+  { key: 'sophos', label: 'sophos health check', color: 'var(--chart-cat-5)' },
   { key: 'errorRate', label: 'error rate', color: 'var(--chart-bypassed)' },
 ] as const;
 
-export function TrendOverviewChart({ data, description, hasSecureScore, hasZtaScore = false, rangeLabel, loading }: TrendOverviewChartProps) {
+export function TrendOverviewChart({ data, description, hasSecureScore, hasZtaScore = false, hasSophosScore = false, rangeLabel, loading }: TrendOverviewChartProps) {
   if (loading) {
     return <div className="h-72 animate-pulse rounded-lg border border-border bg-raised" aria-hidden="true" />;
   }
 
   const series = SERIES.filter(
-    (s) => (s.key !== 'secure' || hasSecureScore) && (s.key !== 'zta' || hasZtaScore),
+    (s) => (s.key !== 'secure' || hasSecureScore) && (s.key !== 'zta' || hasZtaScore) && (s.key !== 'sophos' || hasSophosScore),
   );
 
   return (
@@ -120,6 +123,18 @@ export function TrendOverviewChart({ data, description, hasSecureScore, hasZtaSc
                   stroke="var(--chart-warn)"
                   strokeWidth={2}
                   strokeDasharray="6 3"
+                  fill="none"
+                  connectNulls
+                />
+              )}
+              {hasSophosScore && (
+                <Area
+                  type="monotone"
+                  dataKey="sophos"
+                  name="sophos health check"
+                  stroke="var(--chart-cat-5)"
+                  strokeWidth={2}
+                  strokeDasharray="2 3"
                   fill="none"
                   connectNulls
                 />

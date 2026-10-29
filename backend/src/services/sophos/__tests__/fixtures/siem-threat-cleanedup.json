@@ -1,0 +1,20 @@
+{
+  "_provisional": "derived from the published Sophos spec; replace with a verbatim PoC capture",
+  "id": "e3333333-3333-4333-8333-333333333333",
+  "customer_id": "79067fa3-e4d0-4769-a5f7-8d6550b3b68b",
+  "severity": "HIGH",
+  "source": "n/a",
+  "location": "win-lab01.corp.local",
+  "when": "2026-10-28T10:10:01.000Z",
+  "created_at": "2026-10-28T10:10:03.000Z",
+  "name": "Threat 'ML/PE-A' cleaned up at 'C:\\F0\\tasks\\task-4821-x7k2\\7659eeba-f315-440e-9882-4aa015d68b27-CH-DEF-001.exe'",
+  "type": "Event::Endpoint::Threat::CleanedUp",
+  "threat": "6b0f2c1d-9a3e-4f57-8c21-0d5e7a9b1c33",
+  "group": "MALWARE",
+  "endpoint_type": "computer",
+  "endpoint_id": "bb90527d-73a8-4e6e-85c6-20c2e0c5bc6f",
+  "appSha256": "3f2a9c1e5b7d4a8e9c0b1d2e3f4a5b6c7d8e9f00112233445566778899aabbcc",
+  "origin": null,
+  "core_remedy_items": { "totalItems": 0, "items": [] },
+  "datastream": "Event"
+}

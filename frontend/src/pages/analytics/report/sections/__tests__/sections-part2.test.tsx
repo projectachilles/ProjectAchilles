@@ -625,8 +625,8 @@ describe('Method', () => {
   });
 
   it('renders an unknown vendor id from a newer backend instead of throwing', () => {
-    render(<Method head={head} edrVendors={['defender', 'sophos' as never]} />);
-    expect(screen.getByText(/sophos/)).toBeInTheDocument();
+    render(<Method head={head} edrVendors={['defender', 'acmeedr' as never]} />);
+    expect(screen.getByText(/acmeedr/)).toBeInTheDocument();
   });
 
   it('names only the configured EDR vendor as an alert source', () => {

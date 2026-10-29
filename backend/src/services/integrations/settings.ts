@@ -21,6 +21,21 @@ import type {
   SentinelOneSyncState,
 } from '../../types/sentinelone.js';
 import { normalizeSentinelOneBaseUrl } from '../sentinelone/s1-client.js';
+import type {
+  SophosIntegrationSettings,
+  SophosCredentials,
+  SophosPermissionMode,
+  SophosSettingsMasked,
+  SophosSyncCheckpoints,
+  SophosSyncState,
+  SophosDiscovery,
+} from '../../types/sophos.js';
+import {
+  SOPHOS_DEFAULT_POLL_INTERVAL_MINUTES,
+  SOPHOS_DEFAULT_DETECTION_BACKFILL_DAYS,
+  SOPHOS_AUTO_RESOLVE_MODES,
+  SOPHOS_DEFAULT_AUTO_RESOLVE_MODE,
+} from '../sophos/defaults.js';
 import { EDR_VENDOR_KEYS } from '../outcomes/vendors.js';
 import {
   S1_DEFAULT_POLL_INTERVAL_MINUTES,
@@ -40,6 +55,9 @@ const CLEARABLE_THRESHOLDS = [
 
 /** An org caller asked to change the deployment-wide (legacy) SentinelOne settings. */
 const DEPLOYMENT_WIDE_S1 = 'SentinelOne is configured for the whole deployment, not for this organization. Change or disconnect it from an account without an active organization.';
+
+/** An org caller asked to change the deployment-wide (legacy) Sophos settings. */
+const DEPLOYMENT_WIDE_SOPHOS = 'Sophos is configured for the whole deployment, not for this organization. Change or disconnect it from an account without an active organization.';
 
 const AUTO_RESOLVE_MODES: ReadonlyArray<AutoResolveMode> = ['disabled', 'dry_run', 'enabled'] as const;
 const DEFAULT_AUTO_RESOLVE_MODE: AutoResolveMode = 'disabled';
@@ -272,12 +290,21 @@ export class IntegrationsSettingsService {
       };
       decryptSentinelOne(settings.sentinelone);
 
+      // Same for Sophos (client_secret only; client_id is an identifier, stored in clear).
+      const decryptSophos = (sx: SophosIntegrationSettings | undefined) => {
+        if (sx?.client_secret?.startsWith('enc:')) {
+          sx.client_secret = this.decrypt(sx.client_secret.slice(4));
+        }
+      };
+      decryptSophos(settings.sophos);
+
       // Per-org sections are decrypted too (the Defender/Azure org sections
       // predate this and are only decrypted at top level — decrypting here
       // keeps the CrowdStrike per-org round-trip correct).
       for (const org of Object.values(settings.orgs ?? {})) {
         decryptCrowdStrike(org.crowdstrike);
         decryptSentinelOne(org.sentinelone);
+        decryptSophos(org.sophos);
         // Org alert sections are written encrypted by saveAlertSettings; without
         // this, org-scoped SMTP/Slack would be used with ciphertext credentials
         // and re-encrypted on the next partial save.
@@ -1304,6 +1331,299 @@ export class IntegrationsSettingsService {
       delete section.last_threat_sync;
       delete section.last_alert_sync;
       delete section.sync_version;
+    }
+    this.ensureSettingsDir();
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(raw, null, 2), { mode: 0o600 });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sophos Central
+  // ---------------------------------------------------------------------------
+
+  private getEnvSophosSettings(): SophosIntegrationSettings | null {
+    const clientId = process.env.SOPHOS_CLIENT_ID;
+    const clientSecret = process.env.SOPHOS_CLIENT_SECRET;
+    if (!clientId || !clientSecret) return null;
+    return {
+      client_id: clientId,
+      client_secret: clientSecret,
+      configured: true,
+      label: process.env.SOPHOS_LABEL || undefined,
+      permission_mode: process.env.SOPHOS_PERMISSION_MODE === 'response' ? 'response' : 'read_only',
+    };
+  }
+
+  /** Check if Sophos credentials are provided via environment variables. */
+  isEnvSophosConfigured(): boolean {
+    return this.getEnvSophosSettings() !== null;
+  }
+
+  /** Returns decrypted Sophos settings. Org-specific > legacy file > env vars. */
+  getSophosSettings(): SophosIntegrationSettings | null {
+    const fileSettings = this.getFileSettings();
+
+    const orgSection = this.getOrgSection(fileSettings);
+    if (orgSection?.sophos?.configured) {
+      return orgSection.sophos;
+    }
+
+    if (fileSettings?.sophos?.configured) {
+      return fileSettings.sophos;
+    }
+
+    const env = this.getEnvSophosSettings();
+    // Env-var credentials keep their non-secret state in the standalone key.
+    if (env && fileSettings?.sophos_sync) {
+      return { ...env, ...fileSettings.sophos_sync };
+    }
+    return env;
+  }
+
+  /**
+   * Save Sophos settings (encrypts the client secret). Supports partial
+   * update; the secret is only replaced when a new one is given. With an org
+   * id, only that org's own section is used as the base, so a partial save
+   * never copies the legacy credentials into an org.
+   */
+  saveSophosSettings(update: Partial<SophosIntegrationSettings>): void {
+    this.ensureSettingsDir();
+
+    const existing = this.getRawFileSettingsForWrite();
+    const decrypted = this.getFileSettings() ?? {};
+    const current = this.orgId ? this.getOrgSection(decrypted)?.sophos : decrypted.sophos;
+
+    // The stored secret belongs to the stored client id: never send it under another one.
+    if (update.client_id && current?.client_id && update.client_id !== current.client_id && !update.client_secret) {
+      throw new Error('Enter the client secret for the new client ID (the saved secret is only used with the saved client ID)');
+    }
+
+    const clientId = update.client_id || current?.client_id;
+    const clientSecret = update.client_secret || current?.client_secret;
+    if (!clientId || !clientSecret) {
+      throw new Error(this.orgId && !current && decrypted.sophos ? DEPLOYMENT_WIDE_SOPHOS : 'client_id and client_secret are required for initial setup');
+    }
+
+    // Sophos has no base URL: the API client (and so the tenant) is identified by
+    // client_id. A different client_id invalidates checkpoints and discovery.
+    const scopeChanged = !!update.client_id && update.client_id !== current?.client_id;
+
+    const permissionMode = update.permission_mode ?? current?.permission_mode ?? 'read_only';
+    // 'enabled' writes to Sophos Central: downgrading to read-only switches it
+    // off (fail closed). dry_run never writes and survives.
+    const currentResolve = current?.auto_resolve_mode ?? SOPHOS_DEFAULT_AUTO_RESOLVE_MODE;
+    const autoResolveMode = permissionMode !== 'response' && currentResolve === 'enabled' ? 'disabled' : currentResolve;
+
+    const keep = <T,>(v: T | undefined): T | undefined => (scopeChanged ? undefined : v);
+    const merged: SophosIntegrationSettings = {
+      client_id: clientId,
+      client_secret: 'enc:' + this.encrypt(clientSecret),
+      configured: true,
+      label: update.label !== undefined ? update.label : current?.label,
+      permission_mode: permissionMode,
+      poll_interval_minutes: update.poll_interval_minutes ?? current?.poll_interval_minutes ?? SOPHOS_DEFAULT_POLL_INTERVAL_MINUTES,
+      detection_backfill_days: update.detection_backfill_days ?? current?.detection_backfill_days ?? SOPHOS_DEFAULT_DETECTION_BACKFILL_DAYS,
+      siem_cursor: keep(current?.siem_cursor),
+      last_siem_sync: keep(current?.last_siem_sync),
+      last_alert_sync: keep(current?.last_alert_sync),
+      last_detection_sync: keep(current?.last_detection_sync),
+      last_posture_sync: keep(current?.last_posture_sync),
+      sync_version: keep(current?.sync_version),
+      sync_gap: keep(current?.sync_gap),
+      tenant_id: keep(current?.tenant_id),
+      data_region: keep(current?.data_region),
+      api_host: keep(current?.api_host),
+      capabilities: keep(current?.capabilities),
+      last_auth_ok_at: keep(current?.last_auth_ok_at),
+      auto_resolve_mode: autoResolveMode,
+    };
+
+    if (this.orgId) {
+      existing.orgs ??= {};
+      existing.orgs[this.orgId] ??= {};
+      existing.orgs[this.orgId].sophos = merged;
+    } else {
+      existing.sophos = merged;
+    }
+
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2), { mode: 0o600 });
+  }
+
+  /** Check if Sophos integration is configured (file or env). */
+  isSophosConfigured(): boolean {
+    const settings = this.getSophosSettings();
+    return !!(settings?.configured && settings.client_id && settings.client_secret);
+  }
+
+  getSophosPermissionMode(): SophosPermissionMode {
+    return this.getSophosSettings()?.permission_mode === 'response' ? 'response' : 'read_only';
+  }
+
+  /** Returns raw decrypted credentials for the Sophos client. */
+  getSophosCredentials(): SophosCredentials | null {
+    const settings = this.getSophosSettings();
+    if (!settings?.configured || !settings.client_id || !settings.client_secret) return null;
+    return {
+      client_id: settings.client_id,
+      client_secret: settings.client_secret,
+      permission_mode: settings.permission_mode === 'response' ? 'response' : 'read_only',
+    };
+  }
+
+  /** Masked view for API responses — the secret is never returned, only whether it is set. */
+  getSophosSettingsMasked(): SophosSettingsMasked {
+    const settings = this.getSophosSettings();
+    const envConfigured = this.isEnvSophosConfigured();
+    if (!settings?.configured) return { configured: false, env_configured: envConfigured };
+    return {
+      configured: true,
+      env_configured: envConfigured,
+      client_id: settings.client_id,
+      label: settings.label,
+      client_secret_set: !!settings.client_secret,
+      permission_mode: settings.permission_mode === 'response' ? 'response' : 'read_only',
+      poll_interval_minutes: settings.poll_interval_minutes ?? SOPHOS_DEFAULT_POLL_INTERVAL_MINUTES,
+      detection_backfill_days: settings.detection_backfill_days ?? SOPHOS_DEFAULT_DETECTION_BACKFILL_DAYS,
+      tenant_id: settings.tenant_id,
+      data_region: settings.data_region,
+      capabilities: settings.capabilities,
+      last_auth_ok_at: settings.last_auth_ok_at,
+      auto_resolve_mode: this.getSophosAutoResolveMode(),
+      sync_gap: settings.sync_gap ?? null,
+    };
+  }
+
+  /**
+   * Remove Sophos credentials from the settings file. Refuses when the
+   * credentials come from environment variables, like the other EDRs.
+   */
+  deleteSophosSettings(): void {
+    if (this.isEnvSophosConfigured()) {
+      throw new Error(
+        'Cannot disconnect: Sophos credentials are set via environment variables (SOPHOS_CLIENT_ID, SOPHOS_CLIENT_SECRET). Remove these env vars to disconnect.',
+      );
+    }
+
+    const raw = this.getRawFileSettings();
+    if (!raw) return;
+    if (this.orgId && raw.orgs?.[this.orgId]?.sophos) {
+      delete raw.orgs[this.orgId].sophos;
+    } else if (!this.orgId && raw.sophos) {
+      delete raw.sophos;
+      delete raw.sophos_sync;
+    } else if (this.orgId && raw.sophos) {
+      // Answering "disconnected" here would be false: the deployment-wide
+      // integration keeps syncing (and, in Response mode, writing).
+      throw new Error(DEPLOYMENT_WIDE_SOPHOS);
+    } else {
+      return;
+    }
+    this.ensureSettingsDir();
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(raw, null, 2), { mode: 0o600 });
+  }
+
+  /**
+   * Write non-credential keys into this caller's own Sophos section, or into
+   * the standalone `sophos_sync` key when the credentials come from env vars.
+   * An org caller never writes the legacy section: an org that has no Sophos
+   * settings of its own gets an error instead.
+   */
+  private patchSophosSection(patch: Partial<SophosSyncState & SophosDiscovery>): void {
+    this.ensureSettingsDir();
+    const existing = this.getRawFileSettingsForWrite();
+    if (this.orgId) {
+      const section = existing.orgs?.[this.orgId]?.sophos;
+      if (!section) throw new Error(existing.sophos ? DEPLOYMENT_WIDE_SOPHOS : 'Sophos is not configured for this organization');
+      Object.assign(section, patch);
+    } else if (existing.sophos) {
+      Object.assign(existing.sophos, patch);
+    } else {
+      existing.sophos_sync = { ...existing.sophos_sync, ...patch };
+    }
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2), { mode: 0o600 });
+  }
+
+  /** Current auto-resolve mode; unknown / missing values fail closed to 'disabled'. */
+  getSophosAutoResolveMode(): AutoResolveMode {
+    const mode = this.getSophosSettings()?.auto_resolve_mode;
+    if (mode && SOPHOS_AUTO_RESOLVE_MODES.includes(mode)) return mode;
+    return SOPHOS_DEFAULT_AUTO_RESOLVE_MODE;
+  }
+
+  /**
+   * Set the auto-resolve mode. 'enabled' writes alert acknowledgements and
+   * detection resolutions to Sophos Central, so it requires Response mode
+   * (the client refuses writes in read-only mode anyway). 'dry_run' never
+   * writes and is allowed in both.
+   */
+  setSophosAutoResolveMode(mode: AutoResolveMode): void {
+    if (!SOPHOS_AUTO_RESOLVE_MODES.includes(mode)) {
+      throw new Error(`Invalid auto_resolve_mode: ${mode}. Must be one of: ${SOPHOS_AUTO_RESOLVE_MODES.join(', ')}`);
+    }
+    if (!this.getSophosSettings()?.configured) {
+      throw new Error('Cannot set auto_resolve_mode: Sophos integration is not configured');
+    }
+    if (mode === 'enabled' && this.getSophosPermissionMode() !== 'response') {
+      throw new Error('Auto-resolve "enabled" writes alert and detection status to Sophos Central and requires the integration to be in Response mode. Use dry_run in read-only mode.');
+    }
+    this.patchSophosSection({ auto_resolve_mode: mode });
+  }
+
+  /**
+   * Read persisted Sophos sync checkpoints from the sophos section
+   * (file-based credentials) or the standalone sophos_sync key (env var
+   * credentials).
+   */
+  getSophosSyncTimestamps(): SophosSyncCheckpoints {
+    const raw = this.getRawFileSettings();
+    const section = (this.orgId ? raw?.orgs?.[this.orgId]?.sophos : undefined) ?? raw?.sophos ?? raw?.sophos_sync;
+    if (!section) return {};
+    return {
+      siem_cursor: section.siem_cursor,
+      last_siem_sync: section.last_siem_sync,
+      last_alert_sync: section.last_alert_sync,
+      last_detection_sync: section.last_detection_sync,
+      last_posture_sync: section.last_posture_sync,
+      sync_version: section.sync_version,
+      sync_gap: section.sync_gap,
+    };
+  }
+
+  /**
+   * Save only Sophos sync checkpoints without touching credentials (raw file
+   * write, no decrypt/re-encrypt cycle). Never creates a sophos section: with
+   * env var credentials they go to the standalone key. Keys left undefined
+   * are untouched; `null` is an explicit clear and is persisted.
+   */
+  saveSophosSyncTimestamps(cp: SophosSyncCheckpoints): void {
+    this.ensureSettingsDir();
+    const existing = this.getRawFileSettingsForWrite();
+    const section: SophosSyncCheckpoints = (this.orgId ? existing.orgs?.[this.orgId]?.sophos : undefined)
+      ?? existing.sophos
+      ?? (existing.sophos_sync ??= {});
+    for (const key of ['siem_cursor', 'last_siem_sync', 'last_alert_sync', 'last_detection_sync', 'last_posture_sync', 'sync_version', 'sync_gap'] as const) {
+      if (cp[key] !== undefined) (section as Record<string, unknown>)[key] = cp[key];
+    }
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2), { mode: 0o600 });
+  }
+
+  /** Save the tenant info discovered via whoami and the capability probe. */
+  saveSophosDiscovery(d: SophosDiscovery): void {
+    this.patchSophosSection(d);
+  }
+
+  /** Clear every checkpoint so the next sync re-runs the initial backfill. */
+  resetSophosSyncTimestamps(): void {
+    const raw = this.getRawFileSettings();
+    if (!raw) return;
+    for (const section of [raw.sophos, raw.sophos_sync, this.orgId ? raw.orgs?.[this.orgId]?.sophos : undefined]) {
+      if (!section) continue;
+      delete section.siem_cursor;
+      delete section.last_siem_sync;
+      delete section.last_alert_sync;
+      delete section.last_detection_sync;
+      delete section.last_posture_sync;
+      delete section.sync_version;
+      delete section.sync_gap;
     }
     this.ensureSettingsDir();
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(raw, null, 2), { mode: 0o600 });

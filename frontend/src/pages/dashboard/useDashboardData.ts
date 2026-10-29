@@ -21,6 +21,7 @@ import {
   type ZtaScoreSummary,
   type ZtaScoreTrendPoint,
 } from '@/services/api/crowdstrike';
+import { sophosAnalyticsApi, type SophosHealthCheckResponse } from '@/services/api/sophosAnalytics';
 import { agentApi } from '@/services/api/agent';
 import type { AgentMetrics, AgentTask, FleetHealthMetrics, Schedule } from '@/types/agent';
 import { browserApi, type SyncStatus } from '@/services/api/browser';
@@ -28,6 +29,7 @@ import type { TestMetadata } from '@/types/test';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import { useDefenderConfig } from '@/hooks/useDefenderConfig';
 import { useCrowdStrikeConfig } from '@/hooks/useCrowdStrikeConfig';
+import { useSophosConfig } from '@/hooks/useSophosConfig';
 import { useOutdatedAgentCount } from '@/hooks/useOutdatedAgentCount';
 import { useScoringMode } from '@/hooks/useScoringMode';
 import { usePolling } from '@/hooks/usePolling';
@@ -102,11 +104,13 @@ export function buildTrendPoints(
   error: ErrorRateTrendDataPoint[] | null,
   secure: SecureScoreTrendPoint[] | null,
   zta: ZtaScoreTrendPoint[] | null,
+  sophos: SophosHealthCheckResponse['trend'] | null = null,
 ): TrendPoint[] {
   if (!defense?.length) return [];
   const errByDay = new Map((error ?? []).map((p) => [utcDayKey(p.timestamp), p.errorRate]));
   const secureByDay = new Map((secure ?? []).map((p) => [utcDayKey(p.date), p.percentage]));
   const ztaByDay = new Map((zta ?? []).map((p) => [utcDayKey(p.date), p.overallScore]));
+  const sophosByDay = new Map((sophos ?? []).map((p) => [utcDayKey(p.date), p.score]));
   return defense.map((p) => {
     const day = utcDayKey(p.timestamp);
     return {
@@ -114,6 +118,7 @@ export function buildTrendPoints(
       defense: p.score,
       secure: secureByDay.get(day) ?? null,
       zta: ztaByDay.get(day) ?? null,
+      ...(sophosByDay.size > 0 ? { sophos: sophosByDay.get(day) ?? null } : {}),
       errorRate: errByDay.get(day) ?? null,
     };
   });
@@ -125,11 +130,14 @@ export function buildTrendDescription(parts: {
   secure: number | null;
   zta: number | null;
   errorRate: number | null;
+  /** Achilles average of Sophos Health Check scores. */
+  sophos?: number | null;
 }): string {
   const out: string[] = [];
   if (parts.defense != null) out.push(`Defense ${parts.defense.toFixed(1)}%`);
   if (parts.secure != null) out.push(`Secure ${parts.secure.toFixed(1)}%`);
   if (parts.zta != null) out.push(`ZTA ${parts.zta.toFixed(1)}%`);
+  if (parts.sophos != null) out.push(`Sophos ${parts.sophos.toFixed(1)}%`);
   if (parts.errorRate != null) out.push(`Error rate ${parts.errorRate.toFixed(1)}%`);
   return out.join(' · ');
 }
@@ -158,6 +166,8 @@ export interface DashboardData {
   errorRate: ErrorRateResponse | null;
   secureScore: SecureScoreSummary | null;
   ztaScore: ZtaScoreSummary | null;
+  /** Latest Sophos Health Check headline (0-100), null until the posture pass has run. */
+  sophosHealth: number | null;
   testStats: TestStats | null;
   metrics: AgentMetrics | null;
   fleetHealth: FleetHealthMetrics | null;
@@ -170,6 +180,7 @@ export interface DashboardData {
   analyticsConfigured: boolean;
   defenderConfigured: boolean;
   crowdstrikeConfigured: boolean;
+  sophosConfigured: boolean;
 }
 
 /** Time window shared with Analytics; drives the analytics + Defender + CrowdStrike slices. */
@@ -186,6 +197,7 @@ export function useDashboardData(range: DateRangeValue = DEFAULT_TIME_RANGE): Da
   const { configured: analyticsConfigured, loading: analyticsAuthLoading } = useAnalyticsAuth();
   const { configured: defenderConfigured, loading: defenderConfigLoading } = useDefenderConfig();
   const { configured: crowdstrikeConfigured, loading: crowdstrikeConfigLoading } = useCrowdStrikeConfig();
+  const { configured: sophosConfigured, loading: sophosConfigLoading } = useSophosConfig();
   const { scoringMode } = useScoringMode();
   const { outdatedCount } = useOutdatedAgentCount();
 
@@ -206,6 +218,7 @@ export function useDashboardData(range: DateRangeValue = DEFAULT_TIME_RANGE): Da
   const [secureTrend, setSecureTrend] = useState<SecureScoreTrendPoint[] | null>(null);
   const [ztaScore, setZtaScore] = useState<ZtaScoreSummary | null>(null);
   const [ztaTrend, setZtaTrend] = useState<ZtaScoreTrendPoint[] | null>(null);
+  const [sophosHealth, setSophosHealth] = useState<SophosHealthCheckResponse | null>(null);
   const [rawControls, setRawControls] = useState<ControlItem[] | null>(null);
   const [metrics, setMetrics] = useState<AgentMetrics | null>(null);
   const [fleetHealth, setFleetHealth] = useState<FleetHealthMetrics | null>(null);
@@ -285,18 +298,25 @@ export function useDashboardData(range: DateRangeValue = DEFAULT_TIME_RANGE): Da
     setZtaTrend(settle(trend));
   }, [crowdstrikeConfigured, trendDays]);
 
+  // Sophos slice: Health Check headline + trend; a failure just hides the tile value.
+  const loadSophosData = useCallback(async () => {
+    if (!sophosConfigured) return;
+    const [health] = await Promise.allSettled([sophosAnalyticsApi.getHealthCheck(trendDays)]);
+    setSophosHealth(settle(health));
+  }, [sophosConfigured, trendDays]);
+
   useEffect(() => {
     // Wait for config checks so we don't render "not configured" flashes
-    if (analyticsAuthLoading || defenderConfigLoading || crowdstrikeConfigLoading) return;
+    if (analyticsAuthLoading || defenderConfigLoading || crowdstrikeConfigLoading || sophosConfigLoading) return;
     let cancelled = false;
-    void Promise.all([loadAgentData(), loadTestData(), loadAnalyticsData(), loadDefenderData(), loadCrowdStrikeData()])
+    void Promise.all([loadAgentData(), loadTestData(), loadAnalyticsData(), loadDefenderData(), loadCrowdStrikeData(), loadSophosData()])
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [analyticsAuthLoading, defenderConfigLoading, crowdstrikeConfigLoading, loadAgentData, loadTestData, loadAnalyticsData, loadDefenderData, loadCrowdStrikeData]);
+  }, [analyticsAuthLoading, defenderConfigLoading, crowdstrikeConfigLoading, sophosConfigLoading, loadAgentData, loadTestData, loadAnalyticsData, loadDefenderData, loadCrowdStrikeData, loadSophosData]);
 
   usePolling(loadAgentData, AGENT_POLL_MS);
 
@@ -330,8 +350,8 @@ export function useDashboardData(range: DateRangeValue = DEFAULT_TIME_RANGE): Da
   );
 
   const trend = useMemo<TrendPoint[]>(
-    () => buildTrendPoints(defenseTrend, errorTrend, secureTrend, ztaTrend),
-    [defenseTrend, errorTrend, secureTrend, ztaTrend],
+    () => buildTrendPoints(defenseTrend, errorTrend, secureTrend, ztaTrend, sophosHealth?.trend ?? null),
+    [defenseTrend, errorTrend, secureTrend, ztaTrend, sophosHealth],
   );
 
   const current = useMemo(() => pickCurrentScore(defenseScore, defenseTrend), [defenseScore, defenseTrend]);
@@ -342,9 +362,10 @@ export function useDashboardData(range: DateRangeValue = DEFAULT_TIME_RANGE): Da
       defense: current.score,
       secure: secureScore ? secureScore.percentage : null,
       zta: ztaScore ? ztaScore.overallScore : null,
+      sophos: sophosHealth?.latest?.headline ?? null,
       errorRate: pickCurrentErrorRate(errorTrend, errorRate?.errorRate),
     });
-  }, [current, secureScore, ztaScore, errorTrend, errorRate]);
+  }, [current, secureScore, ztaScore, sophosHealth, errorTrend, errorRate]);
 
   const controls = useMemo<RemediationControl[]>(() => {
     if (!rawControls) return [];
@@ -390,7 +411,7 @@ export function useDashboardData(range: DateRangeValue = DEFAULT_TIME_RANGE): Da
   );
 
   return {
-    loading: loading || analyticsAuthLoading || defenderConfigLoading || crowdstrikeConfigLoading,
+    loading: loading || analyticsAuthLoading || defenderConfigLoading || crowdstrikeConfigLoading || sophosConfigLoading,
     syncStatus,
     syncing,
     handleSync,
@@ -406,6 +427,7 @@ export function useDashboardData(range: DateRangeValue = DEFAULT_TIME_RANGE): Da
     errorRate,
     secureScore,
     ztaScore,
+    sophosHealth: sophosHealth?.latest?.headline ?? null,
     testStats,
     metrics,
     fleetHealth,
@@ -417,5 +439,6 @@ export function useDashboardData(range: DateRangeValue = DEFAULT_TIME_RANGE): Da
     analyticsConfigured,
     defenderConfigured,
     crowdstrikeConfigured,
+    sophosConfigured,
   };
 }

@@ -1,0 +1,17 @@
+{
+  "_provisional": "derived from the published Sophos spec; replace with a verbatim PoC capture",
+  "id": "alert:3f1c2d4e-0000-4000-8000-000000000001",
+  "metadata": {
+    "title": "Suspicious process launched from C:\\F0",
+    "description": "A process executed from a staging directory",
+    "severity": 0.65,
+    "created_at": { "seconds": 1793181607, "nanos": 0 },
+    "updated_at": { "seconds": 1793181900, "nanos": 500000000 },
+    "first_seen_at": { "seconds": 1793181598, "nanos": 0 }
+  },
+  "status": "OPEN",
+  "attack_technique_ids": ["T1059.001", "t1105"],
+  "enrichment_details": [ { "mitre_attack_info": { "technique_id": "T1204.002", "technique": "Malicious File", "tactics": ["Execution"] } } ],
+  "entities": { "entities": ["hostname:WIN-LAB01", "process:C:\\F0\\tasks\\task-4821-x7k2\\7659eeba-f315-440e-9882-4aa015d68b27-CH-DEF-001.exe", "sha256:3f2a9c1e5b7d4a8e9c0b1d2e3f4a5b6c7d8e9f00112233445566778899aabbcc"], "relationships": [] },
+  "event_ids": [ { "id": "evt-0001" }, { "id": "evt-0002" } ]
+}

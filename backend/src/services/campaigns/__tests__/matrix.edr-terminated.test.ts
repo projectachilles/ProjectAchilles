@@ -16,6 +16,7 @@ vi.mock('../../integrations/settings.js', () => ({
     isDefenderConfigured() { return false; }
     isCrowdStrikeConfigured() { return false; }
     isSentinelOneConfigured() { return true; }
+    isSophosConfigured() { return false; }
   },
 }));
 vi.mock('../../notices/userLabel.js', () => ({ resolveUserLabel: async (id: string) => id }));

@@ -159,7 +159,7 @@ describe('ExecutionReportService.generate', () => {
     const test = report.tests[0];
     expect(test).toMatchObject({ name: 'LockBit 3.0 Double Extortion Kill Chain', description: 'Emulates the LockBit 3.0 playbook.', score: 8.8 });
     expect(test.stages.map((s) => s.controlId)).toEqual(['T1567.002', 'T1486']);
-    expect(test.stages[0].alerts).toEqual({ defender: 1, crowdstrike: 0, sentinelone: 0 });
+    expect(test.stages[0].alerts).toEqual({ defender: 1, crowdstrike: 0, sentinelone: 0, sophos: 0 });
 
     expect(report.timeline.lanes).toEqual([{ testKey: BUNDLE, name: 'LockBit 3.0 Double Extortion Kill Chain', runs: 1 }]);
     expect(report.timeline.buckets[0].lanes[0]).toMatchObject({ testKey: BUNDLE, runs: 1 });
@@ -288,7 +288,7 @@ describe('ExecutionReportService.generate', () => {
     expect(report.tests[0].stages.map((s) => s.controlId)).toEqual(['T1486']);
     // The alert's evidence binary names T1567.002, a stage outside this report's filter.
     expect(report.runs[0].alerts[0].stageControlId).toBe('t1567.002');
-    expect(report.tests[0].stages[0].alerts).toEqual({ defender: 0, crowdstrike: 0, sentinelone: 0 });
+    expect(report.tests[0].stages[0].alerts).toEqual({ defender: 0, crowdstrike: 0, sentinelone: 0, sophos: 0 });
   });
 
   it('echoes filters and flags outcome filtering', async () => {

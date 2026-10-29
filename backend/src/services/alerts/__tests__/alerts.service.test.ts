@@ -16,6 +16,7 @@ vi.mock('../../integrations/settings.js', () => ({
       isAlertingConfigured: mockIsAlertingConfigured,
       isDefenderConfigured: mockIsDefenderConfigured,
       isSentinelOneConfigured: mockS1Configured,
+      isSophosConfigured: () => false,
       saveAlertSettings: mockSaveAlertSettings,
     };
   },

@@ -8,7 +8,8 @@ describe('campaign matrix EDR sources', () => {
       isDefenderConfigured: () => true,
       isCrowdStrikeConfigured: () => true,
       isSentinelOneConfigured: () => true,
+      isSophosConfigured: () => true,
     } as unknown as IntegrationsSettingsService;
-    expect(matrixEdrSources(svc)).toEqual(['Microsoft Defender', 'CrowdStrike Falcon', 'SentinelOne']);
+    expect(matrixEdrSources(svc)).toEqual(['Microsoft Defender', 'CrowdStrike Falcon', 'SentinelOne', 'Sophos Intercept X']);
   });
 });

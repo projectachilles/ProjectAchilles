@@ -1,0 +1,14 @@
+{
+  // Type-checks backend/scripts/ (one-off CLIs run with tsx, e.g. the Sophos
+  // PoC capture script). Never emits: dist/ stays exactly what tsconfig.json builds.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["scripts/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

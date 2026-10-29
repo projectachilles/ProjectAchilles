@@ -12,6 +12,8 @@ interface TechniqueDistributionCardProps {
   crowdstrikeTechniqueCount?: number;
   /** Techniques that also raised SentinelOne alerts (warning badge in header). */
   sentineloneTechniqueCount?: number;
+  /** Techniques that also raised Sophos alerts (warning badge in header). */
+  sophosTechniqueCount?: number;
   /** Row click — filters executions to the technique. */
   onTechniqueClick?: (technique: string) => void;
 }
@@ -22,6 +24,7 @@ function TechniqueDistributionCard({
   defenderTechniqueCount = 0,
   crowdstrikeTechniqueCount = 0,
   sentineloneTechniqueCount = 0,
+  sophosTechniqueCount = 0,
   onTechniqueClick,
 }: TechniqueDistributionCardProps) {
   if (loading) {
@@ -48,6 +51,9 @@ function TechniqueDistributionCard({
         )}
         {sentineloneTechniqueCount > 0 && (
           <Badge variant="medium">{sentineloneTechniqueCount} with SentinelOne alerts</Badge>
+        )}
+        {sophosTechniqueCount > 0 && (
+          <Badge variant="medium">{sophosTechniqueCount} with Sophos alerts</Badge>
         )}
       </CardHeader>
       <CardContent>

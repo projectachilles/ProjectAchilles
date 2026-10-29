@@ -1,5 +1,5 @@
 import { FlaskConical, Server, ShieldAlert, Star } from 'lucide-react';
-import { CrowdStrikeLogo, DefenderLogo } from '@/components/shared/VendorLogos';
+import { CrowdStrikeLogo, DefenderLogo, SophosLogo } from '@/components/shared/VendorLogos';
 import { cn } from '@/lib/utils';
 import { isLowSample, POSTURE_HELP, postureCaption, postureWindowLabel } from '@/lib/posture';
 import { isSameTimeRange, TIME_RANGE_PRESETS, timeRangeButtonLabel } from '@/lib/timeRange';
@@ -72,6 +72,17 @@ export default function DashboardPage() {
           icon: CrowdStrikeLogo,
           to: '/analytics?tab=crowdstrike',
           tone: (data.ztaScore ? 'accent' : 'default') as KpiCardProps['tone'],
+        }]
+      : []),
+    // Sophos Health Check — joins the KPI grid only when configured.
+    ...(data.sophosConfigured
+      ? [{
+          label: 'Sophos Health Check',
+          value: data.sophosHealth != null ? `${data.sophosHealth.toFixed(1)}%` : '—',
+          sub: data.sophosHealth != null ? 'Achilles average of Sophos Health Check scores' : undefined,
+          icon: SophosLogo,
+          to: '/analytics?tab=sophos',
+          tone: (data.sophosHealth != null ? 'accent' : 'default') as KpiCardProps['tone'],
         }]
       : []),
     {
@@ -195,6 +206,7 @@ export default function DashboardPage() {
             description={data.trendDescription}
             hasSecureScore={data.defenderConfigured}
             hasZtaScore={data.crowdstrikeConfigured && data.ztaScore != null}
+            hasSophosScore={data.sophosConfigured && data.sophosHealth != null}
             rangeLabel={windowLabel.startsWith('last') ? windowLabel : `last ${windowLabel}`}
             loading={data.loading}
           />
