@@ -61,10 +61,14 @@ export const SOPHOS_INDEX_MAPPING = {
       threat_id: { type: 'keyword' as const },
 
       // --- Posture docs (health_check, endpoint_health, policy, exclusion, allowed_item) ---
-      health: dynamicObject,
+      // snapshot_id + source are keyword so the per-snapshot replace (term / must_not) is exact.
+      snapshot_id: { type: 'keyword' as const },
+      source: { type: 'keyword' as const },
+      health: { type: 'object' as const, dynamic: true, properties: { headline: { type: 'float' as const } } },
       endpoint: dynamicObject,
       policy: dynamicObject,
       exclusion: dynamicObject,
+      allowed_item: dynamicObject,
 
       // Achilles correlation fields (same object as the other EDR indexes).
       f0rtika: {
