@@ -21,7 +21,8 @@
 // clean poll at least 24 h after the gap was detected clears it.
 
 import type { Client } from '@elastic/elasticsearch';
-import { SophosClient, SophosApiError, SophosGraphQLError } from './sophos-client.js';
+import { SophosClient } from './sophos-client.js';
+import { classifyUnavailable } from './capability.js';
 import { IntegrationsSettingsService } from '../integrations/settings.js';
 import {
   SOPHOS_ALERT_BACKFILL_DAYS,
@@ -135,24 +136,6 @@ const DEFAULT_CAPABILITIES: SophosCapabilities = { siem: 'unknown', alerts: 'unk
 function describeError(err: unknown): string {
   if (err instanceof Error) return err.message || err.name;
   return String(err);
-}
-
-/**
- * The API surface is not usable for this tenant/credential (rather than
- * failing now): HTTP 403/404, or a GraphQL error saying so. Retrying won't help,
- * so the source counts as unavailable, not as a pinned failure.
- */
-function unavailableState(err: unknown): SophosCapabilityState | null {
-  if (err instanceof SophosApiError) {
-    if (err.statusCode === 403) return 'forbidden';
-    if (err.statusCode === 404) return 'not_licensed';
-    return null;
-  }
-  if (err instanceof SophosGraphQLError) {
-    if (/forbidden|unauthori[sz]ed|not authori[sz]ed|permission|access denied/i.test(err.message)) return 'forbidden';
-    if (/not (?:available|enabled|licen[cs]ed|entitled|subscribed)|no (?:xdr )?licen[cs]e/i.test(err.message)) return 'not_licensed';
-  }
-  return null;
 }
 
 /** `api-eu01.central.sophos.com` -> `eu01`. */
@@ -465,11 +448,13 @@ export class SophosSyncService {
       outcome = await this.syncGraphqlDetections(ctx, since, now, out);
       ctx.capabilities.xdr_graphql = 'available';
     } catch (err) {
-      const state = out.fetched === 0 ? unavailableState(err) : null;
+      const state = out.fetched === 0 ? classifyUnavailable(err) : null;
       if (!state) {
         outcome = this.sourceFailed(ctx, 'xdr_detections', err, out);
       } else {
         ctx.capabilities.xdr_graphql = state;
+        // A plain 404 may be a wrong route, not a missing licence: keep the evidence visible.
+        if (state === 'unknown') out.errors.push(describeError(err));
         console.warn(`[Sophos] XDR GraphQL ${state}; falling back to REST v1 detections`);
         try {
           const items = await ctx.client.detectionsV1({ from: since, to: new Date(now).toISOString() });
@@ -555,10 +540,11 @@ export class SophosSyncService {
    */
   private sourceFailed(ctx: PollContext, source: 'alerts' | 'siem' | 'xdr_detections' | 'xdr_rest', err: unknown, out: SophosSourceSyncResult): Outcome {
     // A GraphQL failure that is not "unavailable" never reaches here as unavailable (no fallback ran).
-    const state = source === 'xdr_detections' ? null : unavailableState(err);
+    const state = source === 'xdr_detections' ? null : classifyUnavailable(err);
     if (state && source === 'xdr_rest') {
       ctx.capabilities.xdr_rest = state;
       console.warn(`[Sophos] XDR REST detections ${state}: this credential/tenant has no XDR detections`);
+      if (state === 'unknown') out.errors.push(describeError(err));
       return 'unavailable';
     }
     if (state && (source === 'alerts' || source === 'siem')) ctx.capabilities[source] = state;

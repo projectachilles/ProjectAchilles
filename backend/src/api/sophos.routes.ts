@@ -21,7 +21,8 @@ import {
   SophosAutoResolveModeSchema,
 } from '../schemas/sophos.schemas.js';
 import { IntegrationsSettingsService } from '../services/integrations/settings.js';
-import { SophosClient, SophosApiError } from '../services/sophos/sophos-client.js';
+import { SophosClient } from '../services/sophos/sophos-client.js';
+import { classifyUnavailable } from '../services/sophos/capability.js';
 import { SophosSyncService, SOPHOS_DETECTION_SEARCH_QUERY } from '../services/sophos/sync.service.js';
 import type { SophosSyncStatus } from '../services/sophos/sync.service.js';
 import { detectionCql, detectionSearchVariables } from '../services/sophos/detection-query.js';
@@ -90,24 +91,8 @@ router.delete('/', requirePermission('integrations:write'), requireDeploymentSco
 // Test connection + capability probe
 // ---------------------------------------------------------------------------
 
-/** An explicit licence signal. A bare 404 is NOT one: it may just be a wrong route. */
-const LICENCE_SIGNAL = /not (?:available|enabled|licen[cs]ed|entitled|subscribed)|no (?:xdr )?licen[cs]e|licen[cs]e (?:required|expired|not)|subscription (?:required|expired)|entitle/i;
-
 function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-/** Map a probe failure to a capability state. 404 alone is `unknown`, never `not_licensed`. */
-function stateOf(err: unknown): SophosCapabilityState {
-  if (err instanceof SophosApiError) {
-    if (err.statusCode === 403) return 'forbidden';
-    if (err.statusCode === 402 || LICENCE_SIGNAL.test(err.message)) return 'not_licensed';
-    return 'unknown';
-  }
-  const msg = describeError(err);
-  if (/forbidden|unauthori[sz]ed|not authori[sz]ed|permission|access denied/i.test(msg)) return 'forbidden';
-  if (LICENCE_SIGNAL.test(msg)) return 'not_licensed';
-  return 'unknown';
 }
 
 async function probe(fn: () => Promise<unknown>): Promise<SophosCapabilityState> {
@@ -115,7 +100,7 @@ async function probe(fn: () => Promise<unknown>): Promise<SophosCapabilityState>
     await fn();
     return 'available';
   } catch (err) {
-    return stateOf(err);
+    return classifyUnavailable(err) ?? 'unknown';
   }
 }
 

@@ -377,6 +377,51 @@ describe('SophosSyncService', () => {
     expect(caps).toMatchObject({ xdr_graphql: 'forbidden', xdr_rest: 'forbidden' });
   });
 
+  describe('capability classification', () => {
+    const lastCaps = () => mockSaveDiscovery.mock.calls.map((c) => c[0].capabilities).filter(Boolean).pop();
+
+    it('a plain 404 records unknown (never not_licensed) and surfaces the error in the status', async () => {
+      mockSiemEvents.mockRejectedValueOnce(new SophosApiError('Sophos GET /siem/v1/events failed: HTTP 404.', 404, ''));
+      const svc = new SophosSyncService();
+      const result = await svc.syncAll();
+      expect(lastCaps()).toMatchObject({ siem: 'unknown' });
+      expect(result.siem_events?.errors[0]).toContain('HTTP 404');
+      expect(svc.getSyncStatus().lastError).toMatchObject({ stage: 'siem_events', message: expect.stringContaining('HTTP 404') });
+    });
+
+    it('a GraphQL plain 404 still falls back to REST v1, records unknown and surfaces the error', async () => {
+      mockGraphql.mockRejectedValueOnce(new SophosApiError('Sophos POST /graphql failed: HTTP 404.', 404, ''));
+      mockDetectionsV1.mockResolvedValueOnce([v1Detection()]);
+      const result = await new SophosSyncService().syncAll();
+      expect(lastCaps()).toMatchObject({ xdr_graphql: 'unknown', xdr_rest: 'available' });
+      expect(mockDetectionsV1).toHaveBeenCalled();
+      expect(result.xdr_detections?.errors[0]).toContain('HTTP 404');
+    });
+
+    it('a 403 records forbidden', async () => {
+      mockSiemEvents.mockRejectedValueOnce(new SophosApiError('HTTP 403', 403, ''));
+      await new SophosSyncService().syncAll();
+      expect(lastCaps()).toMatchObject({ siem: 'forbidden' });
+    });
+
+    it('explicit licence text records not_licensed', async () => {
+      mockSiemEvents.mockRejectedValueOnce(new SophosApiError('Sophos GET /siem/v1/events failed: HTTP 400. SIEM is not licensed for this tenant', 400, ''));
+      mockGraphql.mockResolvedValueOnce({ detectionSearch: null });
+      await new SophosSyncService().syncAll();
+      expect(lastCaps()).toMatchObject({ siem: 'not_licensed' });
+    });
+
+    it('a "service not available" 503 is transient: it pins and records no unavailable capability', async () => {
+      mockSiemEvents.mockRejectedValueOnce(new SophosApiError('Sophos GET /siem/v1/events failed: HTTP 503. service not available', 503, ''));
+      const svc = new SophosSyncService();
+      await svc.syncAll();
+      expect(lastCaps()?.siem).not.toBe('not_licensed');
+      expect(lastCaps()?.siem).toBe('unknown');
+      expect(svc.getSyncStatus().lastSiemSync).toBeNull();
+      expect(svc.getSyncStatus().lastError?.message).toContain('503');
+    });
+  });
+
   it('discards checkpoints when the tenant changes mid-sync', async () => {
     mockListAlerts.mockImplementationOnce(async () => {
       // The admin saves another API credential (another tenant) while the poll runs.
