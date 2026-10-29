@@ -227,8 +227,43 @@ describe('transformV1Detection', () => {
     });
 });
 
-describe('XDR detections never set prevention_action', () => {
-  it('neither GraphQL nor v1, whatever the payload claims', () => {
+describe('XDR detections take prevention only from Sophos block / cleanup detections', () => {
+  const STAGE = 'c37d6a01-3934-4e72-9cb1-3dae284b937b-t1105.exe';
+
+  it('a live "Cleanup succeeded" detection is quarantined and names the stage process', () => {
+    const d = transformGraphqlDetection(fx('graphql-detection-cleanup-live'));
+    expect(d.prevention_action).toBe('quarantined');
+    expect(d.evidence_hostnames).toEqual(['HOST-006']);
+    expect(d.evidence_filenames).toEqual(expect.arrayContaining([STAGE, 'tailcat.exe']));
+    expect(d.evidence_filepaths).toEqual(expect.arrayContaining([`c:\\f0\\${STAGE}`, 'c:\\f0\\tailcat.exe']));
+  });
+
+  it('a live "File activity blocked" detection is blocked and names the stage process', () => {
+    const d = transformGraphqlDetection(fx('graphql-detection-blocked-live'));
+    expect(d.prevention_action).toBe('blocked');
+    expect(d.evidence_hostnames).toEqual(['HOST-004']);
+    expect(d.evidence_filenames).toEqual(expect.arrayContaining([STAGE, 'tailcat.exe']));
+  });
+
+  it('reads the stage process from processImagePath alone', () => {
+    const d = transformGraphqlDetection({
+      id: 'x', metadata: { title: 'Tailcat: File activity blocked (C:\\F0\\tailcat.exe)' },
+      entities: { entities: ['computerName:host-004', 'processImagePath:C:\\F0\\' + STAGE, 'programName:' + STAGE] },
+    });
+    expect(d.evidence_filepaths).toEqual([`c:\\f0\\${STAGE}`]);
+    expect(d.evidence_filenames).toEqual([STAGE]);
+  });
+
+  it.each([
+    'Cleanup failed: File cleanup result: Failed (C:\\F0\\tailcat.exe)',
+    'Cleanup succeeded: File cleanup result: Not found (C:\\F0\\tailcat.exe)',
+    'LockBit Ransomware RansomNote',
+    'Suspicious process launched from C:\\F0 (file activity blocked elsewhere)',
+  ])('"%s" is detected only', (title) => {
+    expect(transformGraphqlDetection({ id: 'x', metadata: { title } }).prevention_action).toBeUndefined();
+  });
+
+  it('ignores whatever prevention fields the payload claims', () => {
     expect(transformGraphqlDetection({ ...fx('graphql-detection'), prevention_action: 'blocked', core_remedy_items: { items: [{ type: 'file', result: 'DELETED' }] } }).prevention_action).toBeUndefined();
     expect(transformV1Detection({ ...fx('v1-detection'), prevention_action: 'quarantined' }).prevention_action).toBeUndefined();
     expect('prevention_action' in transformV1Detection(fx('v1-detection'))).toBe(false);

@@ -125,6 +125,11 @@ index and `write` on the results index. Saving checks them and shows a red
   lists are refreshed every 6 hours.
 - Documents are upserted by id, so re-fetches never duplicate, and receipts
   Achilles wrote on an alert survive re-syncs.
+- XDR detections from the last **30 minutes** are re-read on every poll. Sophos
+  adds details to a detection for a few minutes after creating it (for a
+  blocked file, the process that wrote it, which is what ties the detection to
+  a test stage), so a copy fetched too early is replaced by the complete one.
+  Detections stored before this change only update after a **Re-backfill**.
 - A source's checkpoint advances only after a clean run. A `429`, `5xx` or
   network error pins it and the next poll re-reads the window; a permanent
   per-document error (a mapping problem) is reported but doesn't pin it.
@@ -172,7 +177,9 @@ their own rows.
 | Cleanup failed (`FAILED_TO_DELETE`, `Threat::CleanupFailed`) | **Detected** only, shown as "cleanup failed" |
 | Remedy item allow-listed or file not found | No prevention evidence |
 | An alert or XDR detection with no response evidence | **Detected** |
-| **XDR detection** | **Detected** only. Sophos documents detections as activity that was *not* blocked ([Sophos: Detections](https://docs.sophos.com/central/customer/help/en-us/ManageYourProducts/ThreatAnalysisCenter/Detections/)), so they never count as prevented. |
+| XDR `<threat>: File activity blocked (<path>)` | **Prevented** (`blocked`) |
+| XDR `Cleanup succeeded: File cleanup result: Success (<path>)` | **Prevented** (`quarantined`) |
+| Any other **XDR detection** (including "Cleanup failed") | **Detected** only. Sophos documents detections as activity that was *not* blocked ([Sophos: Detections](https://docs.sophos.com/central/customer/help/en-us/ManageYourProducts/ThreatAnalysisCenter/Detections/)). The two exceptions above are Sophos reporting its own block or cleanup through XDR, seen on a live tenant. |
 
 Only Sophos' own immediate response counts. A later analyst action, or anything
 Achilles does itself, is never credited as Sophos prevention. Achilles
@@ -227,9 +234,10 @@ stays a failed task**, on every tenant, with or without XDR. Sophos currently
 supplies no evidence for the EDR-killed-agent conversion
 ([Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#6-agent-terminated-by-the-edr)):
 that check needs one alert with both a prevention action and an ATT&CK technique
-overlap. Sophos alerts and SIEM events carry the prevention but no techniques,
-and XDR detections carry techniques but never a prevention action, so no Sophos
-row qualifies. The check still runs after every Sophos poll; it just finds no
+overlap. Sophos alerts and SIEM events carry the prevention but no techniques.
+Most XDR detections carry techniques but no prevention action, and the XDR
+block and cleanup detections seen so far carry a prevention action but no
+techniques, so no Sophos row has qualified yet. The check still runs after every Sophos poll; it just finds no
 Sophos evidence.
 
 :::note[Follow-up]

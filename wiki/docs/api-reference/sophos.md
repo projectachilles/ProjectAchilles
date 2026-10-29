@@ -65,8 +65,12 @@ Same parameters and shapes as the
 from the `prevention_action` recorded from Sophos' own response: a successful
 file remedy → `quarantined`, process remedy → `process_killed`, a block with no
 remedy items (AMSI, blocklist, prevented exploit, legacy cleanup) → `blocked`;
-a failed cleanup → `kill_failed` (detection only). XDR detections never carry a
-prevention action. A cleanup or action more than 15 minutes after the detection
+a failed cleanup → `kill_failed` (detection only). XDR detections carry one only
+when Sophos reports its own response through XDR:
+`<threat>: File activity blocked (<path>)` → `blocked`,
+`Cleanup succeeded: File cleanup result: Success (<path>)` → `quarantined`. XDR detections are re-read for 30 minutes after a
+poll, because Sophos completes their entities (such as the process that wrote a
+blocked file) a few minutes after creating them. A cleanup or action more than 15 minutes after the detection
 is ignored.
 
 ### Technique Coverage and Cross-Correlation

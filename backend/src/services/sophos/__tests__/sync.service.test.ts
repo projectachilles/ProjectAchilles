@@ -234,13 +234,13 @@ describe('SophosSyncService', () => {
     expect(savedCheckpoints().last_detection_sync).toEqual(expect.any(String));
   });
 
-  it('GraphQL success records the capability and writes detections; the CQL window uses the checkpoint minus 2 min', async () => {
+  it('GraphQL success records the capability and writes detections; the CQL window uses the checkpoint minus 30 min', async () => {
     const last = new Date(Date.now() - 60 * 60_000).toISOString();
     mockCheckpoints = { sync_version: SOPHOS_SYNC_VERSION, last_alert_sync: last, last_siem_sync: last, siem_cursor: 'c', last_detection_sync: last };
     mockGraphql.mockResolvedValueOnce(gqlPage([gqlDetection()]));
     await new SophosSyncService().syncAll();
     const vars = mockGraphql.mock.calls[0][1];
-    expect(vars.in.cql_query).toMatch(/^from alert earliest=-6[23]m$/);
+    expect(vars.in.cql_query).toMatch(/^from alert earliest=-9[01]m$/);
     expect(vars.in.offset).toBe(0);
     expect(mockGraphql.mock.calls[0][0]).toMatch(/detectionSearch/);
     expect(mockGraphql.mock.calls[0][0]).not.toMatch(/mutation|subscription/);
@@ -335,6 +335,18 @@ describe('SophosSyncService', () => {
     expect(mockSiemEvents.mock.calls[1][0]).toEqual({ cursor: 'cur-1' });
   });
 
+  it('re-reads detections from the last 30 min: Sophos adds entities (the stage process) minutes after creating one', async () => {
+    // Seen live: created 19:06:25, entities completed 19:07:00. A poll in between
+    // stored a copy naming only the dropped tool; with a 2-min overlap no later
+    // poll read it again, so it never matched its test stage.
+    const last = new Date(Date.now() - 5 * 60_000).toISOString();
+    mockCheckpoints = { sync_version: SOPHOS_SYNC_VERSION, last_alert_sync: last, last_siem_sync: last, siem_cursor: 'c', last_detection_sync: last };
+    mockGraphql.mockResolvedValueOnce(gqlPage([gqlDetection()]));
+    await new SophosSyncService().syncAll();
+    const minutes = Number(/earliest=-(\d+)m$/.exec(mockGraphql.mock.calls[0][1].in.cql_query)?.[1]);
+    expect(minutes).toBeGreaterThanOrEqual(35);
+  });
+
   it('a source that keeps failing re-backfills alone; the others keep their own checkpoints', async () => {
     mockCheckpoints = {}; // fresh install: alerts fail from the very first poll
     mockListAlerts.mockRejectedValue(new SophosApiError('Sophos GET /common/v1/alerts failed: HTTP 503.', 503, ''));
@@ -347,7 +359,7 @@ describe('SophosSyncService', () => {
     await new SophosSyncService().syncAll();
     // SIEM continues from its cursor (no re-read from now - 23 h); XDR from its checkpoint.
     expect(mockSiemEvents.mock.calls[1][0]).toEqual({ cursor: 'cur-1' });
-    expect(mockGraphql.mock.calls[1][1].in.cql_query).toMatch(/earliest=-[23]m$/);
+    expect(mockGraphql.mock.calls[1][1].in.cql_query).toMatch(/earliest=-3[01]m$/);
     // Alerts alone backfill again.
     expect(before - Date.parse(mockListAlerts.mock.calls[1][0].from)).toBeGreaterThan(89 * 86_400_000);
   });
