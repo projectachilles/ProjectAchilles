@@ -98,8 +98,9 @@ word.
 :::warning[Multi-tenant installs]
 With `REQUIRE_ORG_ISOLATION=true` the Sophos configuration is shared by every
 organization, so every write route is **403 from the UI**: saving, deleting,
-testing with new credentials, **Sync Now** and the auto-resolve mode. Configure
-Sophos through the `SOPHOS_*` environment variables there.
+**Test connection** (with new or stored credentials alike), **Sync Now** and
+the auto-resolve mode. Configure Sophos through the `SOPHOS_*` environment
+variables there.
 :::
 
 ## What the tab needs from your licence
@@ -111,7 +112,7 @@ Sophos through the `SOPHOS_*` environment variables there.
 
 ## Sync behavior
 
-- Every poll runs, in order: SIEM events, Common Alerts, XDR detections, then
+- Every poll runs, in order: Common Alerts, SIEM events, XDR detections, then
   correlation with the Achilles results, the EDR-killed-agent check and
   auto-resolve. The Health Check, endpoint inventory, policies and exclusion
   lists are refreshed every 6 hours.
@@ -146,7 +147,11 @@ A blocked test usually produces a SIEM Core Detection event *and* a Common
 Alert for the same thing. Achilles shows it as **one** row: the alert is the
 row, and the SIEM evidence (remedy items, file path, SHA-256) is merged into it,
 even when the two arrive in different polls. A SIEM event with no matching alert
-becomes its own row. Legacy cleanup events (`Threat::CleanedUp`) never become
+becomes its own row; when its alert arrives later, the row is folded into it and
+any link to an Achilles test the row already had moves with it, so auto-resolve
+still sees the alert. When the prevention evidence arrives after a test was
+already marked **Detected**, Achilles re-checks that test for 24 hours and
+upgrades it to **Prevented**. Legacy cleanup events (`Threat::CleanedUp`) never become
 rows; they only enrich a detection within 15 minutes of it. XDR detections are
 their own rows.
 
@@ -210,17 +215,22 @@ test (see [Endpoint Prerequisites](../../deployment/endpoint-prerequisites#sopho
 ## When the EDR kills the agent
 
 If Sophos ends the agent in the middle of a test, the task fails with `Agent
-went offline during execution` or `Task exceeded execution timeout`. The
-standard reconciliation then applies: with a same-host Sophos alert in the run
-window whose techniques overlap the test's, the run counts as **Protected** with
-stages unknown (see [Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#6-agent-terminated-by-the-edr)).
-Those alerts are never auto-resolved by Achilles.
+went offline during execution` or `Task exceeded execution timeout`, and **it
+stays a failed task**, on every tenant, with or without XDR. Sophos currently
+supplies no evidence for the EDR-killed-agent conversion
+([Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#6-agent-terminated-by-the-edr)):
+that check needs one alert with both a prevention action and an ATT&CK technique
+overlap. Sophos alerts and SIEM events carry the prevention but no techniques,
+and XDR detections carry techniques but never a prevention action, so no Sophos
+row qualifies. The check still runs after every Sophos poll; it just finds no
+Sophos evidence.
 
-:::note[Pending validation]
-Whether Sophos ever terminates the Achilles agent during a test is being
-checked on a proof-of-concept tenant; it is not documented by Sophos. Because the
-overlap check needs ATT&CK techniques, which only XDR detections carry, a kill
-on a tenant without XDR stays a failed task rather than becoming Protected.
+:::note[Follow-up]
+Accepting the technique overlap from a same-host XDR detection in the same run
+window, next to a Sophos prevention row, would let a Sophos kill count as
+**Protected**. That is not implemented yet. Whether Sophos ever terminates the
+Achilles agent during a test is also still being checked on a proof-of-concept
+tenant; Sophos doesn't document it.
 :::
 
 Don't add an agent exclusion in Sophos to stop a kill: see

@@ -144,7 +144,7 @@ A watchdog failure becomes a result only when **all** of these hold:
 - It was created between the moment the agent picked up the task and the moment the watchdog failed it. If the agent came back (service recovery, a quick reboot) and picked up its next test first, the window ends at that pickup plus 60 seconds, so the next test's alerts never count for the dead one.
 - If the alert is already linked to a test (`f0rtika.achilles_test_uuid`), it is this test.
 - The EDR itself killed, quarantined or blocked something. Achilles' own SentinelOne automatic mitigation does not count.
-- The alert's ATT&CK techniques overlap the test's techniques (compared at parent level, so `T1486` matches `T1486.001`). Sophos only supplies techniques through XDR detections, so on a tenant without XDR a Sophos kill stays a failed task instead of becoming Protected.
+- The alert's ATT&CK techniques overlap the test's techniques (compared at parent level, so `T1486` matches `T1486.001`). Sophos currently provides no such alert on any tenant: its alerts and SIEM events carry the prevention but no techniques, and its XDR detections carry techniques but never a prevention action, so a Sophos kill stays a failed task instead of becoming Protected.
 
 The name of the flagged file does not matter. For example, an alert whose process tree is rooted at the agent's own binary or at a remote-management agent such as `rphcp.exe` still matches, because the technique and time window tie it to the run. The first check after the server starts covers watchdog failures from the last 30 days; later checks cover the last 2 days, since vendor alerts sync within minutes. Each failure's alerts are searched only within that run's own window.
 
