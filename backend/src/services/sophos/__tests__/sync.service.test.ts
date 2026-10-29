@@ -567,6 +567,24 @@ describe('SophosSyncService', () => {
     expect(stored.merged_siem_event_ids).toEqual([EVENT_ID]);
   });
 
+  it('(b then a) a SIEM event with a remedy arriving a poll after its alert puts the prevention on the stored alert', async () => {
+    // The enrichment re-check (alert-enrichment.vendors.test.ts, Sophos late-prevention re-check)
+    // then turns this into sophos_prevented on a test doc already flagged sophos_detected.
+    const es = fakeEs();
+    mockListAlerts.mockResolvedValueOnce({ items: [commonAlert()] });
+    const svc = new SophosSyncService();
+    await svc.syncAll();
+    expect(es.store.get(`alert-${ALERT_ID}`)!.prevention_action).toBeUndefined();
+    es.store.get(`alert-${ALERT_ID}`)!.f0rtika = { achilles_correlated: true, achilles_test_uuid: 'bundle-1', achilles_matched_at: '2026-10-28T10:05:00.000Z' };
+
+    mockSiemEvents.mockResolvedValueOnce({ items: [coreEvent()], next_cursor: 'cur-2', has_more: false });
+    await svc.syncAll();
+    const stored = es.store.get(`alert-${ALERT_ID}`)!;
+    expect(stored.prevention_action).toBe('quarantined');
+    expect(stored.f0rtika).toMatchObject({ achilles_correlated: true, achilles_test_uuid: 'bundle-1' });
+    expect([...es.store.keys()]).toEqual([`alert-${ALERT_ID}`]);
+  });
+
   it('a carried receipt never overwrites the absorbing alert\'s own correlation or auto-resolve receipts', async () => {
     const es = fakeEs();
     const own = { achilles_correlated: true, achilles_test_uuid: 'own', achilles_matched_at: '2026-10-28T09:00:00.000Z', auto_resolved: true };
