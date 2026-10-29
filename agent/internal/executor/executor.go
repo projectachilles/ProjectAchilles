@@ -33,12 +33,14 @@ const (
 	exitCodeUnexpected = 999
 
 	// exitCodeBlockedPreExec is reported when the OS denies process creation
-	// before the binary runs — the fingerprint of Microsoft Defender ASR rule
-	// 01443614 (or an application-control policy) blocking a fresh, low-prevalence
-	// binary. The technique is never evaluated, so this is a distinct, non-scoring
-	// outcome: not "protected" (nothing detected the technique) and not a test
-	// error (the endpoint deliberately blocked launch). The backend maps it to
-	// the "inconclusive" category, excluded from both Defense Score and Error Rate.
+	// before the binary runs: an EDR/AV's static or ML prevention, Microsoft
+	// Defender ASR rule 01443614 or an application-control policy blocking the
+	// binary. The technique is never evaluated, so this is a distinct outcome,
+	// not a test error (the endpoint deliberately blocked launch). The backend
+	// maps it to the "inconclusive" category, excluded from both Defense Score
+	// and Error Rate, unless a connected EDR's own prevention alert proves the
+	// EDR blocked it: then the backend rewrites it to 126 (Protected, for the
+	// test only, never a technique).
 	exitCodeBlockedPreExec = 260
 )
 

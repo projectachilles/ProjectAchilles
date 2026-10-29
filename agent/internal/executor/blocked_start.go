@@ -10,10 +10,10 @@ import (
 // classifyStartError decides how a cmd.Start() failure should be reported.
 //
 // On Windows an "access is denied" (ERROR_ACCESS_DENIED) at process creation is
-// the fingerprint of a pre-execution block: Microsoft Defender ASR rule
-// 01443614 ("block executables unless they meet a prevalence, age, or trusted
-// list criterion") — or an application-control policy — refusing to launch a
-// fresh, low-prevalence binary. The test binary never runs, so the technique is
+// the fingerprint of a pre-execution block: an EDR/AV's static or ML prevention,
+// Microsoft Defender ASR rule 01443614 ("block executables unless they meet a
+// prevalence, age, or trusted list criterion"), or an application-control
+// policy refusing to launch the binary. The test binary never runs, so the technique is
 // not evaluated; we surface that as a first-class, non-scoring result instead of
 // failing the task. goos is passed in (rather than read from runtime.GOOS) so the
 // decision is unit-testable on any platform.
@@ -29,14 +29,18 @@ func classifyStartError(err error, goos string) (exitCode int, reason string, bl
 }
 
 // blockedPreExecReason explains the outcome to whoever reads the result, and
-// points at the exact rule and remediation. Kept in one place so the executor
-// and its tests agree on the wording.
-const blockedPreExecReason = "Blocked before execution (Access is denied). This is the fingerprint of Microsoft " +
-	"Defender ASR rule 01443614-cd74-433a-b99e-2ecdc07bfc25 (\"block executables unless they meet a prevalence, " +
-	"age, or trusted list criterion\"), or an application-control policy, refusing to launch a fresh low-prevalence " +
-	"binary. The test never ran, so the technique was NOT evaluated (this is not a 'protected' result). To measure " +
-	"this test, add a per-rule exclusion for this rule only on the agent folder (C:\\F0) via Intune or GPO; " +
-	"confirm with Defender event 1121."
+// points at the likely causes and the remediation. Kept in one place so the
+// executor and its tests agree on the wording. The agent can't tell the causes
+// apart: an EDR's static/ML prevention denies process creation exactly like
+// Defender ASR rule 01443614 does. The backend's launch-block reconciliation
+// tells them apart afterwards, from the EDR's own alert.
+const blockedPreExecReason = "Blocked before execution (Access is denied): something on the endpoint refused to start " +
+	"the test binary. Either an EDR/AV blocked it (static or ML prevention), or an application-control rule did, such " +
+	"as Microsoft Defender ASR rule 01443614-cd74-433a-b99e-2ecdc07bfc25 (\"block executables unless they meet a " +
+	"prevalence, age, or trusted list criterion\") refusing a fresh low-prevalence binary. The test never ran, so the " +
+	"technique was NOT evaluated. If a connected EDR's own prevention alert confirms the block, ProjectAchilles counts " +
+	"the run as Protected for the test (never for a technique). For an ASR block, add a per-rule exclusion for this " +
+	"rule only on the agent folder (C:\\F0) via Intune or GPO; confirm with Defender event 1121."
 
 // newBlockedResult builds the first-class result reported for a pre-execution
 // block. It fills os/arch/hostname/timestamps so the payload satisfies the
