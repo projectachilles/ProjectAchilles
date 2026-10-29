@@ -32,6 +32,7 @@ import { SentinelOneResponseService } from '../services/sentinelone/response.ser
 import { SENTINELONE_INDEX } from '../services/sentinelone/index-management.js';
 import { SettingsService as AnalyticsSettingsService } from '../services/analytics/settings.js';
 import { createEsClient } from '../services/analytics/client.js';
+import { prepareEdrEs } from '../services/edr/es-readiness.js';
 
 const router = Router();
 router.use(requireClerkAuth());
@@ -89,12 +90,16 @@ router.post('/', requirePermission('integrations:write'), requireDeploymentScope
     throw new AppError(err instanceof Error ? err.message : String(err), 400);
   }
 
+  // Check the Elasticsearch key and create the indices now, so a key that
+  // can't write shows on the Settings card instead of as a silent sync failure.
+  const elasticsearch = await prepareEdrEs('sentinelone');
+
   // Start pulling right away instead of waiting for the next poll tick.
   sentinelOneSyncService.syncAll().catch((err) => {
     console.warn('⚠ SentinelOne sync after settings save failed:', err instanceof Error ? err.message : err);
   });
 
-  res.json({ success: true });
+  res.json({ success: true, elasticsearch });
 }));
 
 /** DELETE /api/integrations/sentinelone — remove stored settings. */

@@ -35,6 +35,18 @@ vi.mock('../../services/analytics/client.js', () => ({ createEsClient: () => ({}
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+// Saving prepares Elasticsearch (checks the key, creates the indices) and
+// returns the result; services/edr/es-readiness.ts has its own tests.
+const ES_READY = { status: 'ready', checked_at: '2026-10-29T00:00:00.000Z', privileges_checked: true, missing: [], recommended: [] };
+const mockPrepareEdrEs = vi.fn().mockResolvedValue(ES_READY);
+const mockCheckEdrEs = vi.fn().mockResolvedValue(ES_READY);
+const mockGetEdrEsReadiness = vi.fn().mockResolvedValue(null);
+vi.mock('../../services/edr/es-readiness.js', () => ({
+  prepareEdrEs: (...a: unknown[]) => mockPrepareEdrEs(...a),
+  checkEdrEs: (...a: unknown[]) => mockCheckEdrEs(...a),
+  getEdrEsReadiness: (...a: unknown[]) => mockGetEdrEsReadiness(...a),
+}));
+
 const { default: routes, sentinelOneSyncService } = await import('../sentinelone.routes.js');
 const { errorHandler } = await import('../../middleware/error.middleware.js');
 
@@ -93,6 +105,8 @@ describe('SentinelOne routes', () => {
       .send({ base_url: BASE, api_token: TOKEN, scope: { account_ids: ['1111111111111111111'] }, poll_interval_minutes: 10, backfill_days: 365 });
     expect(res.status).toBe(200);
     expect(sentinelOneSyncService.syncAll).toHaveBeenCalled();
+    expect(res.body).toEqual({ success: true, elasticsearch: ES_READY });
+    expect(mockPrepareEdrEs).toHaveBeenCalledWith('sentinelone');
 
     const get = await request(app()).get('/api/integrations/sentinelone');
     expect(get.body).toMatchObject({ configured: true, base_url: BASE, permission_mode: 'read_only', poll_interval_minutes: 10, api_token_set: true });
