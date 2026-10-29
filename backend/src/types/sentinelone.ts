@@ -4,6 +4,7 @@
 
 import type { AutoResolveMode, AutoResolvePassResult, EnrichmentPassResult } from './defender.js';
 import type { AgentKillPassResult } from './agent-kill.js';
+import type { LaunchBlockPassResult } from './launch-block.js';
 
 export type { AutoResolveMode };
 
@@ -346,6 +347,7 @@ export interface SentinelOneSyncResult {
   enrichment?: EnrichmentPassResult;
   /** EDR-killed agent runs reconciled after enrichment (all vendors' alert indices). */
   agentKill?: AgentKillPassResult;
+  launchBlock?: LaunchBlockPassResult;
   autoMitigation?: AutoMitigationPassResult;
   autoResolve?: AutoResolvePassResult;
   posture?: SentinelOnePosturePassResult;

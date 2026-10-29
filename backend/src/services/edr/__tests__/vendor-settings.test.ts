@@ -32,4 +32,13 @@ describe('vendor settings adapter', () => {
     expect(VENDOR_SETTINGS.sophos.autoResolveMode(s)).toBe('dry_run');
     expect(VENDOR_SETTINGS.sophos.isConfigured(s)).toBe(true);
   });
+
+  it('only vendors whose alerts can tell an EDR launch block from an ASR prevalence block count as launch-block evidence', () => {
+    // Defender: exit 260 was built for ASR rule 01443614, and telling an ASR
+    // block from an AV block on a Defender alert needs fields not verified yet.
+    expect(VENDOR_SETTINGS.defender.launchBlockEvidence).toBe(false);
+    expect(VENDOR_SETTINGS.crowdstrike.launchBlockEvidence).toBe(true);
+    expect(VENDOR_SETTINGS.sentinelone.launchBlockEvidence).toBe(true);
+    expect(VENDOR_SETTINGS.sophos.launchBlockEvidence).toBe(true);
+  });
 });

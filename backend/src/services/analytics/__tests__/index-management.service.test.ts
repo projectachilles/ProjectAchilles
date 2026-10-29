@@ -70,6 +70,19 @@ describe('index-management.service', () => {
       expect(f0rtika.score.type).toBe('float');
       expect(f0rtika.techniques.type).toBe('keyword');
     });
+
+    it('maps the EDR launch-block audit fields', () => {
+      const f0rtika = RESULTS_INDEX_MAPPING.mappings.properties.f0rtika.properties;
+      expect(f0rtika.edr_launch_blocked.type).toBe('boolean');
+      expect(f0rtika.launch_block.properties).toEqual({
+        original_exit_code: { type: 'integer' },
+        original_error_name: { type: 'keyword' },
+        vendors: { type: 'keyword' },
+        alert_ids: { type: 'keyword' },
+        evidence: { type: 'keyword' },
+        resolved_at: { type: 'date' },
+      });
+    });
   });
 
   // ── createResultsIndex ─────────────────────────────────────

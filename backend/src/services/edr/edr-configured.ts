@@ -8,7 +8,7 @@ import { SENTINELONE_INDEX } from '../sentinelone/index-management.js';
 import { SOPHOS_INDEX } from '../sophos/index-management.js';
 import { EDR_VENDOR_KEYS } from '../outcomes/vendors.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
-import { configuredVendorKeys } from './vendor-settings.js';
+import { VENDOR_SETTINGS, configuredVendorKeys } from './vendor-settings.js';
 
 export interface VendorIndex { vendor: EdrVendorKey; index: string }
 
@@ -28,6 +28,11 @@ export const VENDOR_INDICES: ReadonlyArray<VendorIndex> = EDR_VENDOR_KEYS.map((v
 export function configuredVendorIndices(): VendorIndex[] {
   const on = new Set(configuredVendorKeys(new IntegrationsSettingsService()));
   return VENDOR_INDICES.filter((v) => on.has(v.vendor));
+}
+
+/** Configured vendors whose alerts may prove an exit-260 launch block (never Defender). */
+export function launchBlockVendorIndices(): VendorIndex[] {
+  return configuredVendorIndices().filter((v) => VENDOR_SETTINGS[v.vendor].launchBlockEvidence);
 }
 
 /** True when any EDR integration in the registry is configured. */

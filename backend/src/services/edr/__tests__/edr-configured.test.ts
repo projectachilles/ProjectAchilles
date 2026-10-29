@@ -12,7 +12,7 @@ vi.mock('../../integrations/settings.js', () => ({
   },
 }));
 
-const { isAnyEdrConfigured, configuredVendorIndices } = await import('../edr-configured.js');
+const { isAnyEdrConfigured, configuredVendorIndices, launchBlockVendorIndices } = await import('../edr-configured.js');
 
 describe('isAnyEdrConfigured', () => {
   it('is true when any one EDR is configured', () => {
@@ -23,6 +23,18 @@ describe('isAnyEdrConfigured', () => {
     expect(configuredVendorIndices()).toEqual([{ vendor: 'crowdstrike', index: 'achilles-crowdstrike' }]);
     edrConfigured = { defender: false, crowdstrike: false, sentinelone: false, sophos: true };
     expect(configuredVendorIndices()).toEqual([{ vendor: 'sophos', index: 'achilles-sophos' }]);
+  });
+});
+
+describe('launchBlockVendorIndices', () => {
+  it('lists the configured vendors that may prove a launch block, never Defender', () => {
+    edrConfigured = { defender: true, crowdstrike: true, sentinelone: false, sophos: true };
+    expect(launchBlockVendorIndices()).toEqual([
+      { vendor: 'crowdstrike', index: 'achilles-crowdstrike' },
+      { vendor: 'sophos', index: 'achilles-sophos' },
+    ]);
+    edrConfigured = { defender: true, crowdstrike: false, sentinelone: false, sophos: false };
+    expect(launchBlockVendorIndices()).toEqual([]);
   });
 });
 
