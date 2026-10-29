@@ -333,7 +333,9 @@ export class SophosPostureService {
   async importHistory(): Promise<number> {
     const end = new Date();
     const start = new Date(end.getTime() - HISTORY_DAYS * DAY_MS);
-    const raw = obj(await this.client.healthHistory({ startDate: start.toISOString(), endDate: end.toISOString() }));
+    // Plain dates only: Sophos answers HTTP 400 to any timestamp, even midnight.
+    const day = (d: Date) => d.toISOString().slice(0, 10);
+    const raw = obj(await this.client.healthHistory({ startDate: day(start), endDate: day(end) }));
     const points = Array.isArray(raw.datapoints) ? raw.datapoints : [];
 
     const live = await this.es.search({

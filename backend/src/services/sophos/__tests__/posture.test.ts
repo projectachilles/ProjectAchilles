@@ -131,6 +131,10 @@ describe('SophosPostureService.runPosturePass', () => {
     // the history window is 30 days
     const arg = c.healthHistory.mock.calls[0] as unknown as [{ startDate: string; endDate: string }];
     expect((Date.parse(arg[0].endDate) - Date.parse(arg[0].startDate)) / 86_400_000).toBeGreaterThanOrEqual(29);
+    // Sophos answers HTTP 400 to anything but a plain date, even its own
+    // spec example (midnight ISO timestamp); verified on a live tenant.
+    expect(arg[0].startDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(arg[0].endDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
 
