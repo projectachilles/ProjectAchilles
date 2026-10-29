@@ -50,6 +50,7 @@ import {
   sophosDocId,
   type MergePlan,
   type SophosDocMap,
+  type SophosReceiptMap,
 } from './merge.js';
 import {
   SOPHOS_DETECTION_POLL_QUERY,
@@ -362,9 +363,10 @@ export class SophosSyncService {
         if (docs.length === 0) continue;
         const ids = docs.map(sophosDocId);
         const windows = alertLookupWindows(docs);
-        const found = await findCandidates(ctx.es, { ids, windows, sourceTypes: ['siem_event'] });
+        const receipts: SophosReceiptMap = new Map();
+        const found = await findCandidates(ctx.es, { ids, windows, sourceTypes: ['siem_event'], receipts });
         addPollDocs(found, ctx.pollDocs, ids, windows);
-        const plan = planAlertWrites(docs, found);
+        const plan = planAlertWrites(docs, found, receipts);
         if (await this.writePlan(ctx, plan, out)) outcome = 'pinned';
       }
       ctx.capabilities.alerts = 'available';
@@ -414,9 +416,10 @@ export class SophosSyncService {
         }
         if (events.length > 0 || cleanups.length > 0) {
           const windows = siemLookupWindows(events, cleanups);
-          const found = await findCandidates(ctx.es, { windows, sourceTypes: ['alert', 'siem_event'] });
+          const receipts: SophosReceiptMap = new Map();
+          const found = await findCandidates(ctx.es, { windows, sourceTypes: ['alert', 'siem_event'], receipts });
           addPollDocs(found, ctx.pollDocs, events.map(sophosDocId), windows);
-          const plan = planSiemWrites(events, cleanups, found);
+          const plan = planSiemWrites(events, cleanups, found, receipts);
           // A retryable write failure: don't move the cursor past this page.
           if (await this.writePlan(ctx, plan, out)) { outcome = 'pinned'; break; }
         }
@@ -594,7 +597,10 @@ export class SophosSyncService {
     out.merged += plan.merged;
 
     for (const [id, doc] of plan.upserts) {
-      if (!failed.has(id)) ctx.pollDocs.set(id, doc);
+      if (failed.has(id)) continue;
+      // A carried receipt is in ES now; later pages read it back via findCandidates, never re-write it.
+      const { f0rtika: _carried, ...stripped } = doc;
+      ctx.pollDocs.set(id, stripped);
     }
     // Deleting an id that was never stored is a no-op ('not_found', not an error).
     const deletes = [...plan.deletes].filter(([, target]) => !failed.has(target)).map(([id]) => id);

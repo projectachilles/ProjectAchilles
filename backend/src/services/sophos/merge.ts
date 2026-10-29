@@ -13,6 +13,13 @@
 // The join rules themselves live in normalize.ts (siemEventMatchesAlert,
 // legacyCleanupMatches); this module only finds candidates in ES (one search
 // per batch, chunked only for very wide batches) and plans the writes.
+//
+// Receipts: stored f0rtika.* receipts are never written back by a merge. The
+// one exception is a siem_event row's correlation receipts (achilles_* from
+// enrichment / agent-kill reconciliation), which move to the doc that absorbs
+// the row, only where that doc has none of its own. Without that, a row the
+// enrichment pass had already matched to a test would vanish into an alert
+// that is never correlated, so auto-resolve would never close it.
 
 import type { Client } from '@elastic/elasticsearch';
 import { SOPHOS_INDEX } from './index-management.js';
@@ -22,6 +29,7 @@ import {
   mergeSiemIntoAlert,
   siemEventMatchesAlert,
   type SophosAlertDoc,
+  type SophosCorrelationReceipt,
   type SophosLegacyCleanup,
 } from './normalize.js';
 
@@ -33,6 +41,12 @@ const MAX_CLAUSES_PER_SEARCH = 500;
 const LOOKUP_SIZE = 10_000;
 
 export type SophosDocMap = Map<string, SophosAlertDoc>;
+/** Stored correlation receipts by ES _id (only docs that have one). */
+export type SophosReceiptMap = Map<string, SophosCorrelationReceipt>;
+
+/** The receipts that follow an absorbed row (see the header comment). */
+const CORRELATION_KEYS = ['achilles_correlated', 'achilles_test_uuid', 'achilles_matched_at'] as const;
+const AGENT_KILL_KEYS = ['achilles_agent_kill_task_id', 'achilles_agent_kill_matched_at'] as const;
 
 export interface HostWindow { host: string; from: number; to: number }
 
@@ -124,13 +138,30 @@ function storedDoc(source: Record<string, unknown>): SophosAlertDoc {
   return copy as unknown as SophosAlertDoc;
 }
 
+/** The correlation / agent-kill receipts of a stored doc, or null when it has none. */
+export function correlationReceipt(f0rtika: unknown): SophosCorrelationReceipt | null {
+  if (!f0rtika || typeof f0rtika !== 'object') return null;
+  const src = f0rtika as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of [...CORRELATION_KEYS, ...AGENT_KILL_KEYS]) {
+    if (src[k] !== undefined && src[k] !== null) out[k] = src[k];
+  }
+  return Object.keys(out).length > 0 ? (out as SophosCorrelationReceipt) : null;
+}
+
 /**
  * Stored alert docs by _id plus docs of `sourceTypes` in the host/time
  * windows, keyed by _id. One search per batch (chunked past 500 windows).
  */
 export async function findCandidates(
   es: Client,
-  opts: { ids?: string[]; windows: HostWindow[]; sourceTypes: Array<SophosAlertDoc['source_type']> },
+  opts: {
+    ids?: string[];
+    windows: HostWindow[];
+    sourceTypes: Array<SophosAlertDoc['source_type']>;
+    /** Filled with each found doc's correlation receipts (the docs themselves are stripped). */
+    receipts?: SophosReceiptMap;
+  },
 ): Promise<SophosDocMap> {
   const out: SophosDocMap = new Map();
   const clauses = hostWindowClauses(opts.windows);
@@ -152,7 +183,10 @@ export async function findCandidates(
     } as never);
     const hits = (res as { hits?: { hits?: Array<{ _id?: string; _source?: Record<string, unknown> }> } }).hits?.hits ?? [];
     for (const h of hits) {
-      if (h._id && h._source) out.set(h._id, storedDoc(h._source));
+      if (!h._id || !h._source) continue;
+      out.set(h._id, storedDoc(h._source));
+      const receipt = opts.receipts ? correlationReceipt(h._source.f0rtika) : null;
+      if (receipt) opts.receipts!.set(h._id, receipt);
     }
   }
   return out;
@@ -185,10 +219,31 @@ export function addPollDocs(into: SophosDocMap, pollDocs: SophosDocMap, ids: str
  * source owns (status, severity, title, dates) come from the fresh copy.
  */
 function carryForward(fresh: SophosAlertDoc, stored: SophosAlertDoc | undefined): SophosAlertDoc {
-  if (!stored?.merged_siem_event_ids?.length) return fresh;
+  // `stored.f0rtika` is only ever a receipt carried earlier in this plan (stored docs are stripped).
+  const carried = stored?.f0rtika ? { f0rtika: stored.f0rtika } : {};
+  if (!stored?.merged_siem_event_ids?.length) return { ...fresh, ...carried };
   const merged = mergeSiemIntoAlert(fresh, { ...stored, alert_id: '' });
   merged.merged_siem_event_ids = union(fresh.merged_siem_event_ids, stored.merged_siem_event_ids);
-  return merged;
+  return { ...merged, ...carried };
+}
+
+/**
+ * The absorbed row's correlation / agent-kill receipts the target doesn't
+ * have yet (each group moves whole, and never over the target's own).
+ */
+function carryReceipts(target: SophosAlertDoc, targetId: string, rowId: string, receipts: SophosReceiptMap): SophosAlertDoc {
+  const row = receipts.get(rowId);
+  if (!row) return target;
+  const have: SophosCorrelationReceipt = { ...receipts.get(targetId), ...target.f0rtika };
+  const carry: Record<string, unknown> = {};
+  if (row.achilles_correlated && !have.achilles_correlated) {
+    for (const k of CORRELATION_KEYS) if (row[k] !== undefined) carry[k] = row[k];
+  }
+  if (row.achilles_agent_kill_task_id && !have.achilles_agent_kill_task_id) {
+    for (const k of AGENT_KILL_KEYS) if (row[k] !== undefined) carry[k] = row[k];
+  }
+  if (Object.keys(carry).length === 0) return target;
+  return { ...target, f0rtika: { ...target.f0rtika, ...carry } };
 }
 
 /** Merge a stored / fresh siem_event row (and whatever it had absorbed) into a target. */
@@ -199,7 +254,7 @@ function absorbRow(target: SophosAlertDoc, row: SophosAlertDoc): SophosAlertDoc 
 }
 
 /** (b) Alerts of one page against stored siem_event rows (and their own stored copies). */
-export function planAlertWrites(alerts: SophosAlertDoc[], candidates: SophosDocMap): MergePlan {
+export function planAlertWrites(alerts: SophosAlertDoc[], candidates: SophosDocMap, receipts: SophosReceiptMap = new Map()): MergePlan {
   const plan = emptyPlan();
   const consumed = new Set<string>();
   for (const alert of alerts) {
@@ -208,7 +263,7 @@ export function planAlertWrites(alerts: SophosAlertDoc[], candidates: SophosDocM
     for (const [rowId, row] of candidates) {
       if (row.source_type !== 'siem_event' || consumed.has(rowId)) continue;
       if (!siemEventMatchesAlert(row, doc)) continue;
-      doc = absorbRow(doc, row);
+      doc = carryReceipts(absorbRow(doc, row), id, rowId, receipts);
       consumed.add(rowId);
       plan.deletes.set(rowId, id);
       plan.merged++;
@@ -231,7 +286,12 @@ function bestAlertFor(event: SophosAlertDoc, working: SophosDocMap): string | nu
 }
 
 /** (a) + (c) One SIEM page against stored / this poll's alerts and siem_event rows. */
-export function planSiemWrites(events: SophosAlertDoc[], cleanups: SophosLegacyCleanup[], candidates: SophosDocMap): MergePlan {
+export function planSiemWrites(
+  events: SophosAlertDoc[],
+  cleanups: SophosLegacyCleanup[],
+  candidates: SophosDocMap,
+  receipts: SophosReceiptMap = new Map(),
+): MergePlan {
   const plan = emptyPlan();
   const working: SophosDocMap = new Map(candidates);
   const put = (id: string, doc: SophosAlertDoc) => { working.set(id, doc); plan.upserts.set(id, doc); };
@@ -242,7 +302,7 @@ export function planSiemWrites(events: SophosAlertDoc[], cleanups: SophosLegacyC
     const target = bestAlertFor(event, working);
     if (target) {
       const merged = mergeSiemIntoAlert(working.get(target)!, event);
-      put(target, priorRow ? absorbRow(merged, priorRow) : merged);
+      put(target, priorRow ? carryReceipts(absorbRow(merged, priorRow), target, rowId, receipts) : merged);
       // A row for this event may exist (stored by an earlier poll): it is now part of the alert.
       working.delete(rowId);
       plan.upserts.delete(rowId);

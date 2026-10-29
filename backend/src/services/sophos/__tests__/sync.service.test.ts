@@ -545,6 +545,69 @@ describe('SophosSyncService', () => {
     expect(result.siem_events).toMatchObject({ fetched: 2, merged: 1, synced: 1 });
   });
 
+  // ── Merge across polls against a stateful ES (I1) ────────────────
+
+  it('(a then b) an alert absorbing a siem_event row the enrichment pass had correlated keeps the correlation', async () => {
+    const es = fakeEs();
+    // Poll 1: only the SIEM event -> its own row.
+    mockSiemEvents.mockResolvedValueOnce({ items: [coreEvent()], next_cursor: 'cur-2', has_more: false });
+    const svc = new SophosSyncService();
+    await svc.syncAll();
+    expect([...es.store.keys()]).toEqual([`siem-${EVENT_ID}`]);
+    // Enrichment matched the row to a test (and an auto-resolve receipt can never be on a row, but prove it is not carried).
+    const receipt = { achilles_correlated: true, achilles_test_uuid: 'bundle-1', achilles_matched_at: '2026-10-28T10:05:00.000Z' };
+    es.store.get(`siem-${EVENT_ID}`)!.f0rtika = { ...receipt, auto_resolve_dry_run_at: '2026-10-28T10:06:00.000Z' };
+
+    // Poll 2: the Common Alert arrives and absorbs the row.
+    mockListAlerts.mockResolvedValueOnce({ items: [commonAlert()] });
+    await svc.syncAll();
+    expect([...es.store.keys()]).toEqual([`alert-${ALERT_ID}`]);
+    const stored = es.store.get(`alert-${ALERT_ID}`)!;
+    expect(stored.f0rtika).toEqual(receipt);
+    expect(stored.merged_siem_event_ids).toEqual([EVENT_ID]);
+  });
+
+  it('a carried receipt never overwrites the absorbing alert\'s own correlation or auto-resolve receipts', async () => {
+    const es = fakeEs();
+    const own = { achilles_correlated: true, achilles_test_uuid: 'own', achilles_matched_at: '2026-10-28T09:00:00.000Z', auto_resolved: true };
+    es.store.set(`alert-${ALERT_ID}`, { ...JSON.parse(JSON.stringify(transformedAlert())), f0rtika: own });
+    es.store.set(`siem-${EVENT_ID}`, { ...JSON.parse(JSON.stringify(transformedEvent())), f0rtika: { achilles_correlated: true, achilles_test_uuid: 'row', achilles_matched_at: '2026-10-28T10:05:00.000Z' } });
+    mockListAlerts.mockResolvedValueOnce({ items: [commonAlert()] });
+    await new SophosSyncService().syncAll();
+    expect(es.store.get(`alert-${ALERT_ID}`)!.f0rtika).toEqual(own);
+    expect(es.store.has(`siem-${EVENT_ID}`)).toBe(false);
+  });
+
+  it('re-fetching the same SIEM event in a second poll is idempotent (no duplicate ids, no second row)', async () => {
+    const es = fakeEs();
+    mockListAlerts.mockResolvedValueOnce({ items: [commonAlert()] });
+    mockSiemEvents.mockResolvedValueOnce({ items: [coreEvent()], next_cursor: 'cur-2', has_more: false });
+    const svc = new SophosSyncService();
+    await svc.syncAll();
+    const first = JSON.parse(JSON.stringify(es.store.get(`alert-${ALERT_ID}`)));
+    expect(first.merged_siem_event_ids).toEqual([EVENT_ID]);
+
+    // The checkpoint overlap re-reads the same event (and the alert) on the next poll.
+    mockListAlerts.mockResolvedValueOnce({ items: [commonAlert()] });
+    mockSiemEvents.mockResolvedValueOnce({ items: [coreEvent()], next_cursor: 'cur-3', has_more: false });
+    const second = await svc.syncAll();
+    expect([...es.store.keys()]).toEqual([`alert-${ALERT_ID}`]);
+    expect(es.store.get(`alert-${ALERT_ID}`)).toEqual(first);
+    expect(second.siem_events).toMatchObject({ fetched: 1, merged: 1, errors: [] });
+  });
+
+  it('(a) does not delete the event\'s stored row when writing the alert it merged into failed', async () => {
+    const es = fakeEs();
+    es.store.set(`alert-${ALERT_ID}`, JSON.parse(JSON.stringify(transformedAlert())));
+    es.store.set(`siem-${EVENT_ID}`, JSON.parse(JSON.stringify(transformedEvent())));
+    es.failUpdates.add(`alert-${ALERT_ID}`);
+    mockSiemEvents.mockResolvedValueOnce({ items: [coreEvent()], next_cursor: 'cur-2', has_more: false });
+    const result = await new SophosSyncService().syncAll();
+    expect(deleteIds()).toEqual([]);
+    expect(es.store.has(`siem-${EVENT_ID}`)).toBe(true);
+    expect(result.siem_events?.errors[0]).toContain('mapper_parsing_exception');
+  });
+
   // ── Checkpoints ──────────────────────────────────────────────────
 
   it('first run backfills 90 days of alerts (less a 1 h margin); later runs read from the checkpoint minus 2 min', async () => {
@@ -664,3 +727,50 @@ describe('SophosSyncService', () => {
 const { transformAlert, transformSiemEvent } = await import('../normalize.js');
 function transformedAlert() { return transformAlert(commonAlert()); }
 function transformedEvent() { return transformSiemEvent(coreEvent())!; }
+
+/**
+ * A tiny stateful achilles-sophos: search returns every stored doc (the merge
+ * rules do the matching), bulk applies partial updates (objects merge, arrays
+ * replace, like ES) and deletes. Ids in failUpdates are rejected with a 400.
+ */
+function fakeEs() {
+  const store = new Map<string, Record<string, unknown>>();
+  const failUpdates = new Set<string>();
+  const deepMerge = (a: Record<string, unknown>, b: Record<string, unknown>): Record<string, unknown> => {
+    const out: Record<string, unknown> = { ...a };
+    for (const [k, v] of Object.entries(b)) {
+      if (v === undefined) continue;
+      const cur = out[k];
+      out[k] = v && typeof v === 'object' && !Array.isArray(v) && cur && typeof cur === 'object' && !Array.isArray(cur)
+        ? deepMerge(cur as Record<string, unknown>, v as Record<string, unknown>)
+        : JSON.parse(JSON.stringify(v));
+    }
+    return out;
+  };
+  mockSearch.mockImplementation(async () => ({
+    hits: { hits: [...store].map(([_id, src]) => ({ _id, _source: JSON.parse(JSON.stringify(src)) })) },
+  }));
+  mockBulk.mockImplementation(async ({ operations }: { operations: Op[] }) => {
+    const items: Array<Record<string, unknown>> = [];
+    let errors = false;
+    for (let i = 0; i < operations.length; i++) {
+      const op = operations[i];
+      if (op.delete) {
+        const id = op.delete._id as string;
+        items.push({ delete: { _id: id, status: store.delete(id) ? 200 : 404 } });
+        continue;
+      }
+      const id = op.update!._id as string;
+      const body = operations[++i] as { doc: Record<string, unknown> };
+      if (failUpdates.has(id)) {
+        errors = true;
+        items.push({ update: { _id: id, status: 400, error: { reason: 'mapper_parsing_exception' } } });
+        continue;
+      }
+      store.set(id, deepMerge(store.get(id) ?? {}, body.doc));
+      items.push({ update: { _id: id, status: 200 } });
+    }
+    return { errors, items };
+  });
+  return { store, failUpdates };
+}

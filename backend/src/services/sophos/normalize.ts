@@ -37,6 +37,26 @@ export interface SophosAlertDoc {
   event_ids?: string[];
   allowed_actions?: string[];
   merged_siem_event_ids?: string[];
+  /**
+   * Never the stored f0rtika object: only the correlation receipts merge.ts
+   * carries from an absorbed siem_event row onto the doc that absorbed it
+   * (a partial update, so the target's other receipts are untouched).
+   */
+  f0rtika?: SophosCorrelationReceipt;
+}
+
+/**
+ * The receipts that tie a Sophos row to an Achilles test (enrichment) or to an
+ * EDR-killed agent task (agent-kill reconciliation). They follow a row into
+ * the doc that absorbs it. Auto-resolve receipts are deliberately not here:
+ * they record an action taken on one specific Sophos object.
+ */
+export interface SophosCorrelationReceipt {
+  achilles_correlated?: boolean;
+  achilles_test_uuid?: string;
+  achilles_matched_at?: string;
+  achilles_agent_kill_task_id?: string;
+  achilles_agent_kill_matched_at?: string;
 }
 
 type Severity = SophosAlertDoc['severity'];

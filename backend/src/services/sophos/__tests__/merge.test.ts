@@ -196,3 +196,64 @@ describe('planSiemWrites (a: SIEM event → alert, c: legacy cleanup)', () => {
     expect(plan.upserts.get(`siem-${EVENT_ID}`)!.evidence_filepaths).toContain('c:\\other.exe');
   });
 });
+
+describe('Achilles correlation receipts survive a merge (I1)', () => {
+  const CORRELATION = {
+    achilles_correlated: true,
+    achilles_test_uuid: 'b1b1b1b1-0000-4000-8000-000000000001',
+    achilles_matched_at: '2026-10-28T10:05:00.000Z',
+  };
+  const KILL = { achilles_agent_kill_task_id: 'task-1', achilles_agent_kill_matched_at: '2026-10-28T10:06:00.000Z' };
+  const RESOLVE = { auto_resolved: true, auto_resolved_at: '2026-10-28T10:07:00.000Z', auto_resolve_mode: 'enabled', auto_resolve_dry_run_at: '2026-10-28T10:07:00.000Z' };
+
+  it('findCandidates keeps the docs stripped but reports each stored correlation receipt by _id', async () => {
+    const search = vi.fn().mockResolvedValue({ hits: { hits: [
+      { _id: `siem-${EVENT_ID}`, _source: { ...event(), f0rtika: { ...CORRELATION, ...KILL, ...RESOLVE } } },
+      { _id: `alert-${ALERT_ID}`, _source: { ...alert() } },
+    ] } });
+    const receipts = new Map();
+    const res = await findCandidates({ search } as never, { windows: [{ host: 'WIN-LAB01', from: 0, to: 1 }], sourceTypes: ['siem_event'], receipts });
+    expect('f0rtika' in (res.get(`siem-${EVENT_ID}`) as object)).toBe(false);
+    expect(receipts.get(`siem-${EVENT_ID}`)).toEqual({ ...CORRELATION, ...KILL });
+    expect(receipts.has(`alert-${ALERT_ID}`)).toBe(false);
+  });
+
+  it('(b) an alert absorbing a correlated siem_event row takes over its correlation and agent-kill link, never its auto-resolve receipts', () => {
+    const receipts = new Map([[`siem-${EVENT_ID}`, { ...CORRELATION, ...KILL }]]);
+    const plan = planAlertWrites([alert()], found(event()), receipts);
+    const doc = plan.upserts.get(`alert-${ALERT_ID}`)!;
+    expect(doc.f0rtika).toEqual({ ...CORRELATION, ...KILL });
+    expect(plan.deletes.get(`siem-${EVENT_ID}`)).toBe(`alert-${ALERT_ID}`);
+  });
+
+  it('(b) never overwrites the absorbing alert\'s own receipts', () => {
+    const own = { achilles_correlated: true, achilles_test_uuid: 'own-test', achilles_matched_at: '2026-10-28T09:00:00.000Z' };
+    const receipts = new Map<string, Record<string, unknown>>([
+      [`siem-${EVENT_ID}`, { ...CORRELATION, ...KILL }],
+      [`alert-${ALERT_ID}`, own],
+    ]);
+    const doc = planAlertWrites([alert()], found(alert(), event()), receipts).upserts.get(`alert-${ALERT_ID}`)!;
+    // Correlation stays the alert's own; only the missing agent-kill link is carried.
+    expect(doc.f0rtika).toEqual(KILL);
+  });
+
+  it('(b) an uncorrelated row carries nothing', () => {
+    const doc = planAlertWrites([alert()], found(event()), new Map()).upserts.get(`alert-${ALERT_ID}`)!;
+    expect(doc.f0rtika).toBeUndefined();
+  });
+
+  it('(a) a SIEM event merging into a stored alert carries the correlation of its own earlier row', () => {
+    const receipts = new Map([[`siem-${EVENT_ID}`, { ...CORRELATION }]]);
+    const plan = planSiemWrites([event()], [], found(alert(), event()), receipts);
+    expect([...plan.upserts.keys()]).toEqual([`alert-${ALERT_ID}`]);
+    expect(plan.upserts.get(`alert-${ALERT_ID}`)!.f0rtika).toEqual(CORRELATION);
+    expect(plan.deletes.get(`siem-${EVENT_ID}`)).toBe(`alert-${ALERT_ID}`);
+  });
+
+  it('a re-fetched alert keeps a receipt carried earlier in the same plan', () => {
+    const receipts = new Map([[`siem-${EVENT_ID}`, { ...CORRELATION }]]);
+    // The same alert twice in one page: the second copy must not drop what the first absorbed.
+    const plan = planAlertWrites([alert(), alert({ status: 'acknowledged' })], found(event()), receipts);
+    expect(plan.upserts.get(`alert-${ALERT_ID}`)!.f0rtika).toEqual(CORRELATION);
+  });
+});
