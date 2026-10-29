@@ -99,7 +99,7 @@ Completed cells use **the same labels and order as Analytics → All Executions*
 | **Prevented** | Nothing reported a block, but Microsoft Defender or CrowdStrike Falcon reported that it prevented the activity (quarantined, process killed, or blocked) |
 | **Detected** | Defender or CrowdStrike raised an alert for the test, but nothing was blocked or prevented |
 | **Unprotected** | At least one stage ran without being blocked (exit code 101), and no EDR alert matched |
-| **Error** | No stage reached a verdict and no EDR alert matched: for example exit code 999 (prerequisites not met), 1, 259 or 260, or the task failed |
+| **Error** | No stage reached a verdict and no EDR alert matched: for example exit code 999 (prerequisites not met), 1, 259 or 260, or the task failed. A 260 that an EDR's own alert proves was the EDR blocking the launch shows **Protected** instead ([Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#7-test-blocked-at-launch-by-the-edr)) |
 | **Waiting for notice** | The task is queued and the pre-execution notice has not been released yet |
 | **Running** | Queued (no notice), assigned, downloading, or executing |
 | **Not run** | The task expired (the reason shows on hover), or there is no task for the pair |

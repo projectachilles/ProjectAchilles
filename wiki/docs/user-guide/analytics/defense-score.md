@@ -147,6 +147,9 @@ wide right column carrying the shapes you read.
   blocked before it ran (exit 260), for example an ASR prevalence rule
   stopping the freshly built test binary. The technique was never evaluated,
   so this is not a protection result and is not counted as protected anywhere.
+  A whole run an EDR's own alert proves it blocked at launch is different: it
+  is Protected and counts as blocked at stage 1 (see
+  [Exit Codes & Outcomes](./exit-codes-and-outcomes#7-test-blocked-at-launch-by-the-edr)).
   Chains whose latest run had a stage error (for example exit 999) are noted
   in the footer, not in the rows. The chip totals the rows. It follows the
   filter bar, and clicking a row filters Executions to those bundles. A chain

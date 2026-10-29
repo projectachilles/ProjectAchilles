@@ -21,7 +21,7 @@ Score and SB compliance report relate to each other.
 | `127` | QuarantinedOnExecution | Quarantined at execution attempt | protected |
 | `200` | NoOutput | Upload confirmation — **not a test outcome** | excluded from everything |
 | `259` | StillActive | Process timeout (Windows STILL_ACTIVE) | inconclusive |
-| `260` | BlockedPreExecution | Blocked before launch by an ASR/app-control **policy** — technique never evaluated | inconclusive |
+| `260` | BlockedPreExecution | Blocked before launch (access denied): by an EDR/AV, or by an app-control **policy** such as Defender ASR — technique never evaluated | inconclusive, or **Protected** once an EDR's own alert confirms the block ([section 7](#7-test-blocked-at-launch-by-the-edr)) |
 | `999` | UnexpectedTestError | Process died unexpectedly — crash, missing prereqs, **or EDR kill** | error |
 | `> 2³¹−1` (e.g. `0xE0000027`) | *(unsigned NTSTATUS-style)* | EDR kill codes and similar — **coerced to `999` at ingestion**, original preserved in `event.ERROR_raw` | error |
 
@@ -60,10 +60,12 @@ drawers and execution detail panels.
 — so EDR-killed stages (999) are eligible. Deliberately **not scanned**:
 
 - `200` — upload confirmation, not a test outcome
-- `260` — a policy block before execution, including the ASR rule the platform
+- `260` — a block before execution. It may be the ASR rule the platform
   excludes by design (see
-  [Defender ASR exclusion](../../deployment/endpoint-prerequisites#3-defender-asr-per-rule-exclusion-for-cf0)); counting it
-  would conflate our own configuration with detection
+  [Defender ASR exclusion](../../deployment/endpoint-prerequisites#3-defender-asr-per-rule-exclusion-for-cf0)), and counting that
+  would conflate our own configuration with detection. When an EDR's own
+  prevention alert proves the EDR blocked the launch, a separate pass turns
+  the result into a Protected `126` ([section 7](#7-test-blocked-at-launch-by-the-edr)); the enrichment pass never touches it
 
 **Time-window semantics:** an alert correlates with a test when its
 `created_at` falls in the −5/+30-minute window, or when its last-update time
@@ -105,7 +107,9 @@ Protected > Prevented > Detected > Unprotected.
   `*_prevented` ⊆ `*_detected` for both vendors, so prevented stages are
   covered automatically.
 - Error codes (`0`, `1`, `259`, `999`) feed the **Error Rate**, not the score.
-- `200` and `260` are excluded from both.
+- `200` and `260` are excluded from both. A `260` that an EDR's own alert
+  proves was the EDR blocking the launch is rewritten to `126` and counts as
+  protected ([section 7](#7-test-blocked-at-launch-by-the-edr)).
 
 ### SB compliance report
 
@@ -131,6 +135,7 @@ Outcomes: `PREVENTED / DETECTED / MISSED / EXPOSED / NOT_RUN / ERROR`.
 | Stage runs, nothing reacts | 101, no alert | none | **Unprotected** / MISSED (or EXPOSED for exfiltration/impact tactics) |
 | Stage dies, no alert anywhere | 999, no alert | none | **Inconclusive** / ERROR — a kill is never assumed |
 | Defender ASR policy blocks launch | 260 | policy, not detection | **Inconclusive** / ERROR — never counted |
+| EDR (e.g. Falcon ML) blocks the test at launch | 260 → `126` | Same-host prevention alert naming the run's task folder or the test's `<uuid>.exe` | **Protected**, credited to the EDR, no technique scored (see [section 7](#7-test-blocked-at-launch-by-the-edr)). The task still shows **Not run** on the Tasks page |
 | Defender quarantines at extraction | 105 | — | **Protected** / PREVENTED |
 | EDR kills the agent mid-test | `-1` (watchdog) | Same-host alert in the run window, EDR-killed, techniques overlap | **Protected**, stages unknown, not in the SB export (see [section 6](#6-agent-terminated-by-the-edr)). Without an alert there is no Elasticsearch document, so the run is absent from Analytics. The task shows **failed** on the Tasks page, campaigns show **Error** and the Finished email shows **Not run** |
 
@@ -164,6 +169,86 @@ Not every `-1` qualifies:
 
 :::note[Alerts stay open]
 Alerts matched this way are linked to the run but never auto-resolved, and they never receive the `achilles_correlated` flag, so SentinelOne automatic mitigation never touches them (and Sophos auto-resolve never acknowledges them). Your SOC still sees and triages them.
+:::
+
+## 7. Test blocked at launch by the EDR
+
+When an EDR's static or machine-learning prevention blocks the test binary as
+it starts, Windows refuses to create the process. The agent reports exit `260`
+(`BlockedPreExecution`): it cannot tell that apart from Defender ASR rule
+`01443614`, which refuses fresh, low-prevalence binaries and which the platform
+deliberately does not count as protection. The EDR's own alert can tell them
+apart. After every Microsoft Defender, CrowdStrike, SentinelOne and Sophos poll,
+ProjectAchilles looks for that alert and, when it proves the block, rewrites the
+`260` result in place as a **Protected** result credited to that EDR.
+
+A `260` result becomes Protected only when **all** of these hold:
+
+- It is a whole-test result, not a stage of a multi-stage run (those stay
+  inconclusive), and not a cyber-hygiene test.
+- The alert comes from **CrowdStrike, SentinelOne or Sophos**. Microsoft
+  Defender alerts never count here: `260` was built for Defender's ASR
+  prevalence rule, and an ASR block can't yet be told apart from an antivirus
+  block on a Defender alert.
+- The EDR itself prevented something: `quarantined`, `process_killed` or
+  `blocked`. A failed kill or a detection-only alert does not count, and
+  neither does Achilles' own SentinelOne automatic mitigation.
+- The alert is on the same host (exact short hostname). If the alert is already
+  linked to a test, it is this test.
+- The alert names **this run**: a file inside the run's own task folder
+  (`C:\F0\tasks\task-<task id>-<n>\`, the exact run, within a day of the
+  result), or, when it names no task folder, the test's own binary
+  `<test uuid>.exe` created between 5 minutes before and 30 minutes after the
+  result. A stage binary such as `<test uuid>-T1105.exe` does not count: the
+  test never started, so no stage binary existed. An alert that names one run's
+  folder never counts for another run, and an alert that only names the binary
+  counts for the nearest run on that host.
+
+The first check after the server starts covers `260` results from the last 90
+days, so runs from before an upgrade are reconciled automatically; later checks
+cover the last 2 days.
+
+### What changes on the result
+
+- `event.ERROR` becomes `126` (`ExecutionPrevented`) and the result is
+  protected. The agent's original code stays on the document in
+  `f0rtika.launch_block.original_exit_code` (`260`), next to the vendors, the
+  proving alert ids, which evidence matched (`task_path` or `orchestrator`) and
+  when it was reconciled. `f0rtika.edr_launch_blocked` is `true`.
+- The vendor's flags are set (`<vendor>_detected`, `<vendor>_prevented`,
+  `<vendor>_prevention_action`), so the result is attributed to that EDR.
+- The proving alerts are linked to the test (`achilles_correlated`), the same
+  way the enrichment pass links an alert that names the test's binary. If you
+  turned on auto-resolve for that vendor, it resolves them like any other
+  correlated alert.
+
+### How it scores
+
+- It counts in the Defense Score as Protected. For a multi-stage test in
+  **any-stage** mode it joins that test's latest-basis pair on the host, and
+  the newest run wins. In **all-stages** mode pairs are per stage, so a
+  multi-stage test's launch block adds no pair; a single-stage test's launch
+  block is its own pair.
+- It is excluded from every technique view, like an EDR-killed run: technique
+  coverage, the ATT&CK matrix, the execution report's technique and tactic
+  counts, and the vendors' detection-rate and technique-overlap numbers. No
+  stage ran, so no technique can be credited.
+- The chain-depth card counts a multi-stage test's launch block as blocked at
+  stage 1.
+- Executions shows **Protected** with "Blocked before it ran by
+  CrowdStrike Falcon" (or the matching product), and the run's detail lists the
+  proving alerts.
+- Campaign evidence and the pre-execution Finished email show **Protected**,
+  naming the EDR, once the result has been reconciled. A Finished email sent
+  before the next poll still shows the run as an error.
+- The Tasks page keeps the agent's raw result, **Not run** (exit 260).
+- The SB-PC-2026-001 export stays per-control, so these runs are not in it.
+
+:::note[The techniques stay unmeasured]
+A launch block proves the EDR stops the test binary before it runs, not how it
+handles the techniques the test exercises. That is why the run counts for the
+test but never for a technique: the technique views keep showing those
+techniques as untested on that host until a run gets past launch.
 :::
 
 ## Related

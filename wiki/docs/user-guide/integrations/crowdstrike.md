@@ -140,6 +140,12 @@ These alerts stay open in CrowdStrike Falcon: Achilles links them to the run but
 
 Do not add an agent exclusion in CrowdStrike Falcon to stop this. The agent launches the test binaries, so an exclusion that follows its child processes would exempt the tests too and the run would no longer measure your protection. The same goes for a Falcon block of a test binary before it runs (exit `260`): that is a result. See [Endpoint Prerequisites → CrowdStrike Falcon](../../deployment/endpoint-prerequisites#crowdstrike-falcon).
 
+## When the EDR blocks a test at launch
+
+CrowdStrike Falcon's static or machine-learning prevention can block a test binary as it starts. Windows then refuses to create the process and the agent reports exit `260` (blocked before execution), which on its own is inconclusive because Defender ASR produces the same code. If CrowdStrike Falcon raised a prevention alert (quarantined, process killed or blocked) on the same host that names the run's own task folder (`C:\F0\tasks\task-<task id>-<n>\`), or the test's `<test uuid>.exe` within the correlation window, ProjectAchilles rewrites the result as **Protected** (exit `126`), credited to CrowdStrike Falcon. It counts in the Defense Score but never for a technique, because no stage ran. See [Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#7-test-blocked-at-launch-by-the-edr).
+
+The proving alert is linked to the test like any correlated alert, so auto-resolve (when you turned it on) resolves it.
+
 ## Architecture
 
 The CrowdStrike integration is composed of four backend services that pull
@@ -355,9 +361,13 @@ conclusive outcome. These stages are still scanned by the enrichment pass,
 and when alert evidence matches (hostname + stage binary + time window) they
 are flagged as detected and count toward the Defense Score like any other
 detection. Genuine test errors with no matching alert stay untouched. The
-exception is exit `260` (blocked before execution by an ASR/app-control
-policy): those are never scanned, since a policy block — including the ASR
-rule the platform excludes by design — is not a detection event.
+exception is exit `260` (blocked before execution by an EDR/AV or an
+ASR/app-control policy): the enrichment pass never scans those, since a policy
+block (including the ASR rule the platform excludes by design) is not a
+detection event. A separate pass turns a `260` into Protected when a
+CrowdStrike, SentinelOne or Sophos prevention alert names the run (never a
+Defender alert); see
+[Exit Codes & Outcomes](../analytics/exit-codes-and-outcomes#7-test-blocked-at-launch-by-the-edr).
 
 **Vendor-confirmed prevention**
 
