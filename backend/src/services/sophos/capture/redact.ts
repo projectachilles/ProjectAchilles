@@ -26,9 +26,15 @@ const NAME_KEYS = new Set(['name', 'full_name', 'fullname']);
 const PERSON_PARENTS = new Set(['associatedperson', 'person', 'createdby', 'modifiedby', 'updatedby', 'owner', 'user', 'assignee', 'author']);
 const HOST_PARENTS = /^(?:endpoints?|hosts?|devices?|computers?|agents?|managedagent)$/;
 /** Parents under which a `name` is a product/OS/event label, not customer data. */
-const SAFE_NAME_PARENTS = /^(?:os|osinfo|products?|packages?|services?|technique|tactic|category|checks?|settings?|sensors?|engine|creator)$|event|alert|detection|threat|mitre/;
-/** Any ancestor key that marks a vendor product/feature/OS list: `name` below it is a product name. */
-const SAFE_NAME_TRAIL = /\/(?:assignedproducts?|products?|features?|packages?|modules?|services?|servicedetails|os|platform)(?:\/|$)/;
+const SAFE_NAME_PARENTS = /^(?:products?|packages?|services?|technique|tactic|category|checks?|settings?|sensors?|engine|creator)$|event|alert|detection|threat|mitre/;
+/** Immediate containers whose `name` is a vendor product/feature/service label (arrays share their key). */
+const PRODUCT_PARENTS = new Set(['assignedproducts', 'products', 'features', 'modules', 'servicedetails']);
+/** `packages.<key>` / `deviceSoftware.<key>`: the immediate parent is a dynamic key (or its `available` list). */
+const PACKAGE_ROOTS = new Set(['packages', 'devicesoftware']);
+const OS_PARENTS = new Set(['os', 'osinfo', 'platform']);
+/** Product-name shapes seen in real captures: Sophos services ("Sophos MCS Agent", "HitmanPro.Alert service") and Intercept X names. */
+const PRODUCT_NAME_RE = /^(?:sophos|hitmanpro|intercept ?x)\b/i;
+const OS_NAME_RE = /^(?:windows|linux|mac ?os|os ?x|darwin|ubuntu|debian|red ?hat|centos|rhel|suse|fedora|amazon linux|oracle linux|rocky linux|almalinux)(?:[\s\d.]|$)/i;
 /** Sophos product / enum tokens: never customer data, never learned for free-text replacement. */
 const KNOWN_TOKENS = new Set([
   'xdr', 'mtr', 'edr', 'interceptx', 'coreagent', 'endpointprotection', 'deviceencryption', 'ztna', 'windows', 'linux', 'macos',
@@ -172,14 +178,23 @@ class Redactor {
     if (DOMAIN_KEYS.has(k)) return WELL_KNOWN_DOMAINS.has(value.toLowerCase()) ? value : this.pseudonym('domain', value);
     if (USER_KEYS.has(k)) return this.user(value);
     if (NAME_KEYS.has(k)) {
-      if (SAFE_NAME_PARENTS.test(p) || SAFE_NAME_TRAIL.test(`${trail}/`) || KNOWN_TOKENS.has(value.toLowerCase())) return undefined;
       if (HOST_PARENTS.test(p)) return this.host(value);
       if (PERSON_PARENTS.has(p)) return this.user(value);
+      if (this.isProductName(p, trail, value) || SAFE_NAME_PARENTS.test(p) || KNOWN_TOKENS.has(value.toLowerCase())) return undefined;
       return this.pseudonym('label', value);
     }
     if (TENANT_KEYS.has(k)) return /^\d+$/.test(value) ? this.pseudonym('tenant', value) : this.pseudonym('uuid', value);
     if (HOSTID_KEYS.has(k)) return this.pseudonym('hostid', value);
     return undefined;
+  }
+
+  /** True when `name` sits directly in a product-like container AND looks like a vendor product/OS token. */
+  private isProductName(parent: string, trail: string, value: string): boolean {
+    const segs = trail.split('/').filter(Boolean);
+    const grand = segs.length >= 2 ? (segs[segs.length - 2] ?? '') : '';
+    if (OS_PARENTS.has(parent)) return OS_NAME_RE.test(value.trim());
+    const inProductList = PRODUCT_PARENTS.has(parent) || PACKAGE_ROOTS.has(grand) || (parent === 'available' && segs.some((x) => PACKAGE_ROOTS.has(x)));
+    return inProductList && (KNOWN_TOKENS.has(value.toLowerCase()) || PRODUCT_NAME_RE.test(value.trim()));
   }
 
   /** Short name or FQDN. For an FQDN the domain suffix is learned as a domain too. */

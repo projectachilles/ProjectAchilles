@@ -193,3 +193,37 @@ describe('redactCaptureSet', () => {
     expect(text(out)).not.toMatch(/PC-1234/i);
   });
 });
+
+describe('redactCapture: product exemption is confined to product containers', () => {
+  it('still pseudonymises person/host-like names below product-ish ancestors', () => {
+    const out = redactCapture({
+      packages: { x: { owner: { name: 'Jane Doe' } } },
+      platform: { name: 'ACME-SRV-9' },
+      features: [{ name: 'Acme Corp VPN' }],
+      services: { serviceDetails: [{ name: 'jdoe-laptop' }] },
+      note: 'Jane Doe uses ACME-SRV-9 with Acme Corp VPN on jdoe-laptop',
+    }) as any;
+    expect(text(out)).not.toMatch(/jane|doe|acme|jdoe/i);
+  });
+
+  it('keeps real-capture shapes: Sophos services, OS names, package tokens', () => {
+    const out = redactCapture({
+      os: { name: 'Windows 11 Pro ' },
+      health: { services: { serviceDetails: [{ name: 'Sophos MCS Agent' }, { name: 'HitmanPro.Alert service' }] } },
+      packages: { ztna: { name: 'ZTNA', available: [{ id: 'z', name: 'ZTNA' }] } },
+      modules: [{ name: 'interceptX' }],
+    }) as any;
+    expect(out.os.name).toBe('Windows 11 Pro ');
+    expect(out.health.services.serviceDetails.map((s: any) => s.name)).toEqual(['Sophos MCS Agent', 'HitmanPro.Alert service']);
+    expect(out.packages.ztna.name).toBe('ZTNA');
+    expect(out.modules[0].name).toBe('interceptX');
+  });
+});
+
+describe('redactCaptureSet pseudonym sharing', () => {
+  it('uses one pseudonym for a value in raw and manifest', () => {
+    const out = redactCaptureSet({ a: { hostname: 'PC-1234' } }, { a: { status: 'ok', note: 'failed on PC-1234' } });
+    expect((out.raw.a as any).hostname).toBe('host-001');
+    expect(out.manifest.a.note).toBe('failed on host-001');
+  });
+});
