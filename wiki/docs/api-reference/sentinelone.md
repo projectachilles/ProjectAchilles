@@ -293,7 +293,9 @@ POST   /api/integrations/sentinelone/test
   `auto_resolve_mode` and `auto_mitigation`.
 - **`POST /sentinelone`** (`integrations:write`) — save settings (partial
   update). `base_url` and `api_token` are required on the first save
-  (`400` otherwise). The token is stored AES-256-GCM encrypted. A background
+  (`400` otherwise). A `base_url` that differs from the saved one needs a new
+  `api_token` in the same request (`400 Enter the API token for the new console URL`),
+  so the saved token is never sent to another console. The token is stored AES-256-GCM encrypted. A background
   sync starts after saving. Changing the console URL or scope clears the sync
   checkpoints. Saving with `permission_mode: "read_only"` switches automatic
   mitigation off and turns an `enabled` auto-resolve mode into `disabled`

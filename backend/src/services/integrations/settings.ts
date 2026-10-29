@@ -54,6 +54,8 @@ const CLEARABLE_THRESHOLDS = [
 ] as const;
 
 /** An org caller asked to change the deployment-wide (legacy) SentinelOne settings. */
+/** Shared by the settings service and the route so the message never drifts. */
+export const S1_TOKEN_FOR_NEW_URL = 'Enter the API token for the new console URL (the saved token is only used with the saved console)';
 const DEPLOYMENT_WIDE_S1 = 'SentinelOne is configured for the whole deployment, not for this organization. Change or disconnect it from an account without an active organization.';
 
 /** An org caller asked to change the deployment-wide (legacy) Sophos settings. */
@@ -1090,6 +1092,10 @@ export class IntegrationsSettingsService {
     const current = this.orgId ? this.getOrgSection(decrypted)?.sentinelone : decrypted.sentinelone;
 
     const baseUrl = update.base_url ? normalizeSentinelOneBaseUrl(update.base_url) : current?.base_url;
+    // The stored token belongs to the stored console: never send it to another one.
+    if (baseUrl && current?.base_url && baseUrl !== current.base_url && !update.api_token) {
+      throw new Error(S1_TOKEN_FOR_NEW_URL);
+    }
     const token = update.api_token || current?.api_token;
     if (!baseUrl || !token) {
       throw new Error(this.orgId && !current && decrypted.sentinelone ? DEPLOYMENT_WIDE_S1 : 'base_url and api_token are required for initial setup');

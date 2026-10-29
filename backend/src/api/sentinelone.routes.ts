@@ -25,7 +25,7 @@ import {
   SentinelOneAutoResolveModeSchema,
   SentinelOneAutoMitigationSchema,
 } from '../schemas/sentinelone.schemas.js';
-import { IntegrationsSettingsService } from '../services/integrations/settings.js';
+import { IntegrationsSettingsService, S1_TOKEN_FOR_NEW_URL } from '../services/integrations/settings.js';
 import { SentinelOneClient, normalizeSentinelOneBaseUrl } from '../services/sentinelone/s1-client.js';
 import { SentinelOneSyncService } from '../services/sentinelone/sync.service.js';
 import { SentinelOneResponseService } from '../services/sentinelone/response.service.js';
@@ -83,6 +83,11 @@ router.post('/', requirePermission('integrations:write'), requireDeploymentScope
     throw new AppError('base_url and api_token are required for initial setup', 400);
   }
   if (body.base_url) body.base_url = await checkBaseUrl(body.base_url);
+  // The saved token is only ever sent to the saved console.
+  const storedUrl = svc.getSentinelOneCredentials()?.base_url;
+  if (body.base_url && storedUrl && body.base_url !== storedUrl && !body.api_token) {
+    throw new AppError(S1_TOKEN_FOR_NEW_URL, 400);
+  }
 
   try {
     svc.saveSentinelOneSettings(body);
