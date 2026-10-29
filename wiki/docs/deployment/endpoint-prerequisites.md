@@ -59,7 +59,7 @@ measured ones.
 | 3 | [Add a per-rule ASR exclusion for `C:\F0`](#3-defender-asr-per-rule-exclusion-for-cf0) | Intune or GPO admin |
 | 4 | [Make sure `C:\F0` is locked to SYSTEM and Administrators](#4-the-cf0-folder-lock) | ProjectAchilles admin |
 | 5 | [Add a publisher rule, if you run WDAC or AppLocker](#5-application-control-wdac-and-applocker) | Application-control owner |
-| 6 | [Brief the SOC; add no EDR exclusions](#6-edr-expectations) | Security team |
+| 6 | [Brief the SOC; add no EDR exclusions](#6-edr-expectations) (for [SentinelOne](#sentinelone), none of any kind) | Security team |
 | 6a | [Sophos Intercept X: add nothing by default](#sophos-intercept-x) | Sophos admin |
 | 7 | [Verify on a pilot endpoint](#7-verify-on-a-pilot-endpoint) | ProjectAchilles admin |
 
@@ -255,7 +255,7 @@ and AppLocker events **8004** (enforced; **8003** in audit).
 | Microsoft Defender for Endpoint | Judges each stage binary | Per-stage verdicts, alert correlation ([Microsoft Defender](../user-guide/integrations/microsoft-defender)) |
 | CrowdStrike Falcon | Judges each stage binary | Per-stage verdicts, alert correlation ([CrowdStrike](../user-guide/integrations/crowdstrike)) |
 | Sophos Intercept X | Judges file content (Deep Learning, reputation) and behaviour per binary | Per-stage verdicts, alert correlation, Health Check posture ([Sophos](../user-guide/integrations/sophos)). Add nothing by default; see [Sophos Intercept X](#sophos-intercept-x). |
-| SentinelOne | Scores the whole process tree and can kill its root, **the agent** | The task fails with `Agent went offline during execution`; with a matching alert the run counts as **Protected**, stages unknown ([SentinelOne](../user-guide/integrations/sentinelone#when-the-edr-kills-the-agent)). Windows restarts the agent service after 10 seconds (service recovery). |
+| SentinelOne | Scores the whole process tree and can kill its root, **the agent** | The task fails with `Agent went offline during execution`; with a matching alert the run counts as **Protected**, stages unknown ([SentinelOne](../user-guide/integrations/sentinelone#when-the-edr-kills-the-agent)). Windows restarts the agent service after 10 seconds (service recovery). Add no exclusion of any kind; see [SentinelOne](#sentinelone). |
 
 - **Add no EDR exclusion for the agent or for `C:\F0`.** The agent launches the
   tests, so an exclusion that applies to child processes exempts the tests too,
@@ -264,6 +264,110 @@ and AppLocker events **8004** (enforced; **8003** in audit).
   [Pre-execution notices](../user-guide/integrations/pre-execution-notices) email
   them before every run, and the auto-resolve features can close matched alerts
   for you.
+
+## SentinelOne \{#sentinelone}
+
+Skip this section if you don't run SentinelOne. The rule is short: **add no
+SentinelOne exclusion of any kind for ProjectAchilles**, not for the agent, not
+for `C:\F0` or `/opt/f0`, not by hash, certificate or path. When SentinelOne
+stops a test, it may kill the agent too; let it, and let ProjectAchilles report
+it.
+
+### Why there is no safe exclusion \{#sentinelone-why-no-exclusion}
+
+SentinelOne follows each process tree as one **Storyline**, and every test's
+tree starts at the agent, which launches the test binary. SentinelOne documents
+that a path exclusion also applies to "detections in threat groups whose root
+process is in the excluded path or file", and that when the root of a threat
+group is suppressed, its entire Storyline is suppressed too. So even the
+narrowest exclusion on the agent's own file would silence SentinelOne for every
+test the agent starts. (That the agent is the threat-group root on a fresh
+install is pending validation; it is what we see when SentinelOne kills the
+agent during a test.)
+
+| Exclusion | Why it would hurt |
+|-----------|-------------------|
+| **Path, any mode**, on the agent's file. That includes **Suppress Alerts**, the narrowest mode. | Suppress Alerts doesn't alert or mitigate for the excluded processes or for threat groups rooted at them, which is every test. **Interoperability** and **Performance Focus** also reduce or disable monitoring, and their *extended* variants include child processes. |
+| **Path** on `C:\F0` or `/opt/f0` | Every test and stage binary is written there. |
+| **Hash** of the agent | SentinelOne doesn't alert on or mitigate a hash-excluded file. Every agent build has a new hash, and we expect the same root effect as a path exclusion (pending validation). |
+| **Certificate** (signer identity) | The agent and every test share the ProjectAchilles signing certificate, so it exempts every test. On macOS it acts as a Performance Focus exclusion and disables monitoring. |
+| An exclusion created **from a threat** in the console | It is one of the exclusions above. Resolve the threat; don't turn it into an exclusion. |
+| Test endpoints in a **detect-only** group, with engines disabled or with **policy overrides** | The results then describe that weaker policy, not your production one. |
+
+ProjectAchilles doesn't need any of these to run. Defender needs its exclusion
+because ASR rule `01443614` refuses files only for being new; SentinelOne
+documents no equivalent gate (pending validation), and on a production tenant
+SentinelOne has left the agent's own file alone and acted on what the tests do.
+
+### What to expect \{#sentinelone-what-to-expect}
+
+1. During a test, SentinelOne detects a technique and kills the test's process
+   tree, which can include the agent at its root. The test ends there. On
+   Windows the agent also runs each test in a job object that ends the test's
+   processes when the agent stops, so a kill of the agent alone ends the test
+   too.
+2. The agent service restarts after about 10 seconds (Windows service recovery,
+   systemd on Linux; launchd keeps it alive on macOS) and the endpoint comes
+   back online.
+3. The task fails with `Agent went offline during execution` (or
+   `Task exceeded execution timeout`).
+4. With the [SentinelOne integration](../user-guide/integrations/sentinelone)
+   connected, once SentinelOne's alert syncs and its ATT&CK techniques overlap
+   the test's, ProjectAchilles records the run as **Protected**, stages unknown
+   ([how it works](../user-guide/analytics/exit-codes-and-outcomes#6-agent-terminated-by-the-edr)).
+
+Without the integration, or when no alert matches, the run stays a failed task.
+
+### Recommended set-up \{#sentinelone-setup}
+
+- **Keep the test endpoints in their production group and policy**, so the
+  results describe the protection your other endpoints get.
+- **Know your mitigation level.** Kill and quarantine is SentinelOne's default
+  automatic response. With **Remediate** or **Rollback** (Windows only, from a
+  Volume Shadow Copy snapshot) SentinelOne also deletes files and undoes changes
+  linked to the threat; what that does to the task folder and the agent's files
+  under `C:\F0` is pending validation.
+- **Brief the SOC.** Test activity raises real threats.
+  [Pre-execution notices](../user-guide/integrations/pre-execution-notices)
+  email them before every run, and
+  [auto-resolve](../user-guide/integrations/sentinelone-auto-resolve) can close
+  alerts matched to a test. Alerts that prove an agent kill stay open by design:
+  ProjectAchilles links them to the run but never resolves them.
+
+### Recognize it \{#sentinelone-recognize}
+
+- **In SentinelOne:** a threat on the endpoint during the run, whose process
+  tree starts at `achilles-agent.exe` (or at the test binary under `C:\F0`),
+  with a kill among its mitigation actions.
+- **In ProjectAchilles:** the task failed with `Agent went offline during
+  execution`; with the integration connected, the run shows **Protected**,
+  stages unknown.
+
+### Troubleshooting \{#sentinelone-troubleshooting}
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| The agent stays offline after a test | SentinelOne quarantined `achilles-agent.exe` as part of the threat | In the console, restore the file from that threat and resolve the threat. Don't add an exclusion |
+| The run stays a failed task instead of **Protected** | The SentinelOne integration isn't configured, or its alert didn't match: another host name, outside the run window, or no overlapping technique | Configure the integration; see the [matching rules](../user-guide/analytics/exit-codes-and-outcomes#6-agent-terminated-by-the-edr) |
+| A SentinelOne threat names the agent file when no test is running (for example right after install) | A verdict on the agent file itself | Contact ProjectAchilles support. Don't add an exclusion |
+
+### Linux and macOS
+
+The same rule applies: no exclusion. On Linux there is no job object, so it is
+SentinelOne's kill of the related processes that ends a test whose agent was
+killed. On macOS a certificate exclusion is a Performance Focus exclusion,
+another reason never to add one.
+
+:::note[Pending validation]
+These SentinelOne behaviours are expectations, being confirmed on a production
+tenant: that the threat-group root is the agent on a fresh install, and that a
+Suppress Alerts exclusion on the agent's file suppresses a test stage's
+behavioural detection; whether Kill and Quarantine ever quarantines
+`achilles-agent.exe`, and what Remediate or Rollback do to `C:\F0\tasks`, the
+agent's state and its logs; whether a fresh agent build gets a static (file)
+verdict at install; whether test processes survive an agent-only kill on Linux;
+and the current console labels for exclusions and their modes.
+:::
 
 ## Sophos Intercept X \{#sophos-intercept-x}
 
@@ -487,7 +591,8 @@ Your EDR still judges each binary, and the guidance in
 | Agent update rolled back: "failed its launch check" | The same ASR rule blocked the new agent binary | The `C:\F0` exclusion covers it; the next update check retries ([Self-updates](../user-guide/agent-management/self-updates)) |
 | `Get-AuthenticodeSignature` says `UnknownError` | The generated certificate isn't trusted on that endpoint | Step 2 |
 | `Get-AuthenticodeSignature` says `NotSigned` | The binary was built before a certificate was active, or signing failed | Rebuild; check the build log for signing errors |
-| `Agent went offline during execution` during a test | The EDR killed the process tree (typical of SentinelOne) | Expected; see [EDR expectations](#6-edr-expectations) |
+| `Agent went offline during execution` during a test | The EDR killed the process tree (typical of SentinelOne) | Expected; see [EDR expectations](#6-edr-expectations) and, for SentinelOne, [What to expect](#sentinelone-what-to-expect) |
+| The agent stays offline after a SentinelOne threat | SentinelOne quarantined `achilles-agent.exe` | Restore the file from the threat and resolve it; add no exclusion ([SentinelOne troubleshooting](#sentinelone-troubleshooting)) |
 | A Sophos detection names `C:\F0\achilles-agent.exe` and the agent won't start | Sophos convicted the agent file | [Allow that SHA-256](#only-if-sophos-convicts-the-agent-itself), never the certificate |
 | Sophos tab shows a **Certificate allowed** or **Folder exclusion** critical box | A Sophos allow or exclusion exempts every test | Remove it; see the danger box in [Sophos Intercept X](#sophos-intercept-x) |
 | Stages blocked or missing on a Sophos server | Server Lockdown refuses unapproved files | Use a lockdown-free [test group](#servers-with-server-lockdown) |
