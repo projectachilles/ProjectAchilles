@@ -67,15 +67,9 @@ func platformServiceStatus() Status {
 	return s
 }
 
-func platformInstall(configPath string) error {
-	execPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("cannot determine executable path: %w", err)
-	}
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		return fmt.Errorf("cannot resolve executable path: %w", err)
-	}
+// platformInstall registers execPath (the canonical agent binary, already in
+// place) as the service.
+func platformInstall(configPath, execPath string) error {
 	workDir := filepath.Dir(execPath)
 
 	// Harden the binary — only root needs read/execute. The admin may have
@@ -92,7 +86,9 @@ func platformInstall(configPath string) error {
 	cmds := [][]string{
 		{"systemctl", "daemon-reload"},
 		{"systemctl", "enable", unitName},
-		{"systemctl", "start", unitName},
+		// restart, not start: on a re-install an agent already running from
+		// another path must be replaced by the one at execPath.
+		{"systemctl", "restart", unitName},
 	}
 	for _, args := range cmds {
 		cmd := exec.Command(args[0], args[1:]...)
