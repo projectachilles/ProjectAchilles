@@ -44,7 +44,7 @@ requests locally: in Response mode it will send only the two writes above.
 | Mode | Role for the API credential |
 |------|-----------------------------|
 | Read-only | **Service Principal Read-Only** |
-| Response | **Management** (or **Super Admin**): a role that may acknowledge alerts and resolve detections |
+| Response | **Service Principal Management** (or **Super Admin**): a role that may acknowledge alerts and resolve detections |
 
 A `403` halts the pass and names the role needed. The permission mode is set in
 **Settings → Integrations → Sophos**, or with `SOPHOS_PERMISSION_MODE=response`
@@ -52,8 +52,8 @@ when the credentials come from environment variables.
 
 :::note[Pending validation]
 Exactly which Sophos roles may acknowledge alerts and resolve XDR detections is
-being confirmed on a proof-of-concept tenant; Sophos' documentation says
-Management or Super Admin. Treat the table as the safe choice, and use the
+still being confirmed on a proof-of-concept tenant (Service Principal
+Management or Super Admin is the expectation). Treat the table as the safe choice, and use the
 `403` message as the final word.
 :::
 
@@ -147,10 +147,10 @@ keeps its own copy, so it stays in the Sophos tab and in your history.
 ## Setup walkthrough
 
 1. **Give the credential a Response role.** In Sophos Central give the API
-   credential Management (or Super Admin) rights. Read-Only is enough until you
+   credential Service Principal Management (or Super Admin) rights. Read-Only is enough until you
    enable a write.
 2. **Switch the integration to Response mode.** **Settings → Integrations →
-   Sophos**, set **Permission mode** to **Response** and save. Auto-resolve stays
+   Sophos**, set **Permission mode** to **Response** and click **Update Settings**. Auto-resolve stays
    off.
 3. **Turn on dry run.** Expand **Alert auto-resolution** and choose **Dry run**
    (this also works in read-only mode). Within one sync you should see
@@ -186,7 +186,7 @@ a backend restart until the next sync.
 | Symptom | Cause and fix |
 |---------|---------------|
 | "Enabled" is refused or greyed out | The integration isn't saved in Response mode. Switch the permission mode and save first. |
-| Pass stops with `403 ... Management role` | The credential's role can't acknowledge or resolve. Give it Management or Super Admin in Sophos Central. |
+| Pass stops with `403 ... Management role` | The credential's role can't acknowledge or resolve. Give it Service Principal Management or Super Admin in Sophos Central. |
 | `auto-resolve is enabled but the integration is read-only` | Credentials come from env vars and `SOPHOS_PERMISSION_MODE` isn't `response`. Set it, or use `dry_run`. |
 | Receipts show `not_found` | The item no longer exists in Sophos (purged or already handled). No action needed. |
 | Receipts show `not_actionable` | Sophos no longer offers the acknowledge action for it. No action needed. |

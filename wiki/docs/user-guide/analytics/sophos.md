@@ -107,7 +107,8 @@ a link exists. Filters:
 
 A **SIEM event** row is one with no matching Common Alert; when an alert exists
 the SIEM evidence is merged into it. **XDR detections** are always
-detected-only: Sophos documents them as activity that was not blocked.
+detected-only: Sophos documents them as activity that was not blocked
+([Sophos: Detections](https://docs.sophos.com/central/customer/help/en-us/ManageYourProducts/ThreatAnalysisCenter/Detections/)).
 
 ## Technique coverage
 

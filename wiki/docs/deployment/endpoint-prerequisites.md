@@ -273,11 +273,15 @@ Sophos does not.
 
 ### Default: add nothing
 
-Sophos has no prevalence or age gate like ASR `01443614`. Its Deep Learning
-engine judges the **content** of each file, the agent and the tests alike, so a
-freshly built binary isn't blocked just for being new. **Pilot one endpoint
-first** ([step 7](#7-verify-on-a-pilot-endpoint)): run a multi-stage test and
-check that the agent keeps running and the stages report their own results.
+Defender has a prevalence and age gate (ASR `01443614`) that needs an
+exclusion. Sophos documents no equivalent gate, so we expect a freshly built
+binary to be judged on what it is and does, like any other file, and not
+blocked just for being new. Sophos does use reputation and file-content
+analysis (Deep Learning, Live Protection lookups), so a detection of a new
+agent build is possible; this is pending validation (see the box below).
+**Pilot one endpoint first** ([step 7](#7-verify-on-a-pilot-endpoint)): run a
+multi-stage test and check that the agent keeps running and the stages report
+their own results.
 
 Remember that Sophos reacting to a test is the point. If Sophos blocks a stage,
 that is a **result** (Prevented), not a prerequisite failure.
@@ -289,10 +293,10 @@ If a Sophos detection names the agent's own file (path
 `ML/PE-...` detection) the agent can't run, and nothing else works. Then, and
 only then:
 
-1. In Sophos Central open that detection and choose **Allow**, then pick
-   **SHA-256** from the detection. Do **not** accept the pre-selected
-   "Certificate (recommended)" option: every Achilles test shares the agent's
-   signing certificate, so a certificate allow trusts every test.
+1. In Sophos Central open that detection and choose to **allow** the file by its
+   **SHA-256**. Do **not** allow it by **certificate**, even if Central offers
+   that option first: every Achilles test shares the agent's signing
+   certificate, so a certificate allow trusts every test.
 2. **Allow each new agent version's SHA-256 before you roll it out.** A hash
    allows one exact file, so every agent update has a new hash.
 3. Fallback, if hashes are impractical: allow the application by **exact path**
@@ -312,9 +316,10 @@ folder is outside the lock and outside every exact-path rule on this page.
 
 ### What you give up
 
-Only the Deep Learning and reputation verdict on that one file (the agent). Sophos
-still checks the agent for exploits, ransomware behaviour and malicious
-behaviour, and still judges every test binary and every stage in full. In
+We expect the allow to exempt that one file (the agent) from Sophos'
+file-content and reputation verdict, while Sophos keeps monitoring what the
+agent does and judging every test binary and stage in full; whether an allowed
+file is still subject to behavioural monitoring is pending validation. In
 ProjectAchilles terms, the Defense Score doesn't measure whether Sophos would
 convict a new agent build on its content alone.
 
@@ -344,21 +349,23 @@ loosen it for the agent: use a **lockdown-free test group** of servers instead
 
 ### Linux and macOS
 
-On Linux, Sophos on-access scanning is off by default, so a test file written
-to disk may not be examined until something runs it or a scan reads it. Check
-your policy if you expect on-access detections. macOS needs no step here
-beyond the general guidance.
+Linux and macOS need no extra step here. Check your Sophos policy for what
+on-access scanning does on Linux; we expect it to be off by default, which is
+pending validation.
 
 :::note[Pending validation]
 These Sophos behaviours are being confirmed on a proof-of-concept tenant before
-this page is final, and are not claims yet: whether a fresh agent or test
-binary gets an `ML/PE-...` detection on the default policy, which Windows error
-a Sophos-blocked launch returns (and so whether it shows as exit `260` or as a
-bare failed task), whether Sophos quarantines a file as it is written, whether
-an allowed hash or path changes behavioural monitoring of the agent's children,
-whether Sophos ever ends the agent during a test, whether the agent's update or
-uninstall paths raise behaviour detections, and the exact Central menu labels
-in Sophos Fusion. If you see any of these, the Sophos tab's feed and the
+this page is final, and are expectations, not claims: whether a fresh agent or
+test binary gets an `ML/PE-...` detection on the default policy, and whether
+Sophos applies any prevalence or age check; which Windows error a
+Sophos-blocked launch returns (so whether it shows as exit `260` or as a bare
+failed task); whether Sophos quarantines a file as it is written; whether an
+allowed hash or path changes behavioural monitoring of the agent's children;
+whether Sophos ever ends the agent during a test; whether the agent's update or
+uninstall paths raise behaviour detections; whether Linux on-access scanning is
+off by default; and the exact Sophos Central menu labels for allowing a file
+(Sophos Central, also branded Sophos Fusion). If you see any of these, the
+Sophos tab's feed and the
 [Executions](../user-guide/analytics/exit-codes-and-outcomes) view show what
 Sophos reported.
 :::

@@ -7,7 +7,7 @@ description: "Configure the Sophos Central integration: alerts, SIEM prevention 
 # Sophos
 
 The Sophos integration connects ProjectAchilles to one **Sophos Central** tenant
-(Intercept X, being renamed Sophos Fusion) and matches what Sophos saw and did
+(Intercept X; Sophos Central is also branded Sophos Fusion) and matches what Sophos saw and did
 to each test execution. It pulls three kinds of records into the
 `achilles-sophos` Elasticsearch index, in the same alert document shape as the
 Defender, CrowdStrike and SentinelOne integrations, so Executions, stage
@@ -33,7 +33,7 @@ there are no Sophos routes or Settings card.
 :::info[One Sophos tenant per Achilles install]
 Achilles takes a **tenant** API credential. Partner and organization
 credentials (the ones an MSP or an enterprise dashboard use to manage many
-tenants) are rejected by **Test connection** with a message to use a tenant
+tenants) are rejected by **Test Connection** with a message to use a tenant
 credential. To cover several Sophos tenants, run one Achilles install per
 tenant.
 :::
@@ -48,13 +48,21 @@ tenant.
 | Role | Use it for | Notes |
 |------|-----------|-------|
 | **Service Principal Read-Only** | Sync, correlation and posture | Everything Achilles reads. This is all you need until you turn on auto-resolve. |
-| **Management** (or **Super Admin**) | Auto-resolve writes only | Acknowledging alerts and resolving XDR detections needs a role that can act on them. Pair it with **Response** permission mode. |
+| **Service Principal Management** (or **Super Admin**) | Auto-resolve writes only | Acknowledging alerts and resolving XDR detections needs a role that can act on them. Pair it with **Response** permission mode. |
 
-:::note[Role details are pending validation]
-Which Sophos roles can read the XDR GraphQL API and which can acknowledge
-alerts or resolve detections is being confirmed on a proof-of-concept tenant.
-If a capability shows **forbidden** after **Test connection**, give the
-credential a higher role. The error names the role needed.
+A **Service Principal Read-Only** credential reads everything the sync and
+posture passes need: the tenant identity (`whoami`), Common Alerts, XDR
+detections (GraphQL search and by-id, and REST v1), the Health Check and its
+history, endpoints, policies and their settings, scanning exclusions and
+allowed items. This was confirmed on a live tenant. If a capability still shows
+**forbidden** after **Test Connection**, the credential's role is lower than
+that; the error names the role needed.
+
+:::note[Write role: pending validation]
+Which role can acknowledge alerts and resolve XDR detections is still being
+confirmed on a proof-of-concept tenant. Service Principal Management (or Super
+Admin) is the expectation; the `403` message in the Sophos tab is the final
+word.
 :::
 
 ## Configure
@@ -72,7 +80,7 @@ credential a higher role. The error names the role needed.
 
 - Saving a **new client ID requires its secret**. The saved secret is only ever
   used with the saved client ID.
-- **Test connection** signs in, identifies the tenant and probes each API
+- **Test Connection** signs in, identifies the tenant and probes each API
   surface once: alerts, SIEM events, XDR detections (GraphQL, then REST v1) and
   the Health Check. It shows the data region and one line per capability.
   `forbidden` means the credential's role is too low; `not licensed` means
@@ -98,7 +106,7 @@ Sophos through the `SOPHOS_*` environment variables there.
 
 | Feature | Needs | Without it |
 |---------|-------|------------|
-| Alerts, SIEM prevention evidence, Health Check, endpoint health, policies, exclusions | Intercept X (any tier the API exposes these for) | Tab sections stay empty; the capability line shows what was refused. |
+| Alerts, SIEM prevention evidence, Health Check, endpoint health, policies, exclusions | Sophos Central endpoint protection (Intercept X) | Tab sections stay empty; the capability line shows what was refused. |
 | **XDR detections** and **ATT&CK techniques** | Sophos EDR, XDR or MDR | Everything else still works. Technique views say **ATT&CK techniques come from Sophos XDR detections**; Sophos rows carry no techniques and Achilles never guesses one from the detection type. |
 
 ## Sync behavior
@@ -118,10 +126,11 @@ Sophos through the `SOPHOS_*` environment variables there.
 
 ### The 24-hour SIEM window and the sync-gap warning
 
-Sophos keeps SIEM events for **24 hours only**, and silently restarts an older
-cursor at "the last 24 hours". If Achilles can't poll for most of a day (the
-backend was down, the credential was revoked, a long outage), the events in
-between are gone for good. Achilles does not hide that: the Sophos tab shows a
+Sophos keeps **24 hours** of SIEM events and rejects a start date older than
+that. If Achilles hasn't polled for more than about 23 hours (the backend was
+down, the credential was revoked, a long outage), it restarts collection at
+now minus 23 hours, and the events in between are gone for good. (How Sophos
+behaves with an already-expired cursor is pending validation.) Achilles does not hide that: the Sophos tab shows a
 **Sophos sync gap** warning with the exact missing period ("Sophos events
 between X and Y were not collected; Sophos keeps 24 hours").
 
@@ -151,7 +160,7 @@ their own rows.
 | Cleanup failed (`FAILED_TO_DELETE`, `Threat::CleanupFailed`) | **Detected** only, shown as "cleanup failed" |
 | Remedy item allow-listed or file not found | No prevention evidence |
 | An alert or XDR detection with no response evidence | **Detected** |
-| **XDR detection** | **Detected** only. Sophos documents detections as activity that was *not* blocked, so they never count as prevented. |
+| **XDR detection** | **Detected** only. Sophos documents detections as activity that was *not* blocked ([Sophos: Detections](https://docs.sophos.com/central/customer/help/en-us/ManageYourProducts/ThreatAnalysisCenter/Detections/)), so they never count as prevented. |
 
 Only Sophos' own immediate response counts. A later analyst action, or anything
 Achilles does itself, is never credited as Sophos prevention. Achilles
@@ -209,7 +218,7 @@ Those alerts are never auto-resolved by Achilles.
 
 :::note[Pending validation]
 Whether Sophos ever terminates the Achilles agent during a test is being
-checked on a proof-of-concept tenant; Sophos does not document it. Because the
+checked on a proof-of-concept tenant; it is not documented by Sophos. Because the
 overlap check needs ATT&CK techniques, which only XDR detections carry, a kill
 on a tenant without XDR stays a failed task rather than becoming Protected.
 :::
