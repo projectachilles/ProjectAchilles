@@ -53,8 +53,8 @@ when the credentials come from environment variables.
 :::note[Pending validation]
 Exactly which Sophos roles may acknowledge alerts and resolve XDR detections is
 still being confirmed on a proof-of-concept tenant (Service Principal
-Management or Super Admin is the expectation). Treat the table as the safe choice, and use the
-`403` message as the final word.
+Management (or Super Admin) is the expectation). Treat the table as the safe
+choice, and use the `403` message as the final word.
 :::
 
 ## When the pass runs

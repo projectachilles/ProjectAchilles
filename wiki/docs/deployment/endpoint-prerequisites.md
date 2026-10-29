@@ -269,7 +269,7 @@ and AppLocker events **8004** (enforced; **8003** in audit).
 
 Skip this section if you don't run Sophos. It sits beside the Defender step:
 Defender has a prevalence gate (ASR rule `01443614`) that needs an exclusion;
-Sophos does not.
+Sophos documents no equivalent gate (pending validation on a live tenant).
 
 ### Default: add nothing
 
