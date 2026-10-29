@@ -54,7 +54,7 @@ describe('redactCapture', () => {
   it('never leaves a value from the redaction map in free text', () => {
     const map = new Map<string, string>();
     const out = redactCapture({
-      first: { description: 'Seen on DESKTOP-QQ77 by Bob.Builder with C:\\Users\\bobb\\file.txt', name: 'x' },
+      first: { description: 'Seen on DESKTOP-QQ77 by Bob.Builder with C:\\Users\\bobb\\file.txt' },
       later: { hostname: 'DESKTOP-QQ77', username: 'Bob.Builder', tenant_id: '11772', host_id: 'abcdef0123456789' },
       uuid: { id: '3f2504e0-4f89-41d3-9a0c-0305e82c3301', note: 'tenant 3f2504e0-4f89-41d3-9a0c-0305e82c3301 id alert://priv:sophos:11772:99' },
     }, map) as any;
@@ -75,5 +75,76 @@ describe('redactCapture XDR entity keys', () => {
     const out = redactCapture({ a: { user_name: 'bob', domain_name: 'CORP' }, b: { description: 'bob logged on to CORP' } }) as any;
     expect(out.a).toEqual({ user_name: 'user-001', domain_name: 'domain-001' });
     expect(out.b.description).toBe('user-001 logged on to domain-001');
+  });
+});
+
+describe('redactCapture review leaks', () => {
+  const NONE = (out: unknown, ...leaks: string[]) => {
+    const s = JSON.stringify(out);
+    for (const l of leaks) expect(s.toLowerCase(), `leaked ${l}`).not.toContain(l.toLowerCase());
+  };
+
+  it('learns hosts, users, orgs and admins from non-obvious keys (default-deny names)', () => {
+    const out = redactCapture({
+      alert: { id: 'a', managedAgent: { id: 'e', name: 'ACME-LT-01' }, tenant: { id: 't', name: 'Acme Corporation' }, severity: 'high' },
+      siem: { dhost: 'ACME-SRV-02', location: 'ACME-LT-03', source: 'ACME\\bsmith', duser: 'ACME\\cjones', suser: 'dlee' },
+      endpoint: { id: 'x', group: { name: 'Acme Finance Laptops' }, os: { name: 'Windows 10' } },
+      policies: [{ id: 'p', name: 'Acme Strict Policy' }],
+      items: { 'allowed-items': [{ createdBy: { name: 'Pat Admin' }, comment: 'AcmeERP share' }] },
+      note: { description: 'bsmith and cjones on ACME-SRV-02 at Acme Corporation' },
+    }) as any;
+    NONE(out, 'acme', 'bsmith', 'cjones', 'dlee', 'Pat Admin');
+    expect(out.alert.severity).toBe('high');
+    expect(out.endpoint.os.name).toBe('Windows 10');
+  });
+
+  it('scrubs exclusion and allowed-item paths but keeps system dirs and C:\\F0', () => {
+    const out = redactCapture({
+      'scanning-exclusions': [
+        { type: 'path', value: 'C:\\Program Files\\AcmeERP\\', comment: 'AcmeERP share' },
+        { type: 'path', value: 'C:\\F0\\*.exe' },
+        { type: 'process', value: '/opt/acme/bin/erp' },
+      ],
+    }) as any;
+    NONE(out, 'acme');
+    expect(out['scanning-exclusions'][0].value).toMatch(/^C:\\Program Files\\dir-\d+\\$/);
+    expect(out['scanning-exclusions'][1].value).toBe('C:\\F0\\*.exe');
+  });
+
+  it('does not leak the FQDN suffix when only the short host was learned', () => {
+    const out = redactCapture({ hostname: 'laptop-acme42', description: 'on laptop-acme42.corp.acme.local now' });
+    NONE(out, 'acme', 'corp');
+  });
+
+  it('learns the domain suffix of an FQDN', () => {
+    const out = redactCapture({ hostname_fqdn: 'a1.corp.acme.local', note: 'join corp.acme.local' });
+    NONE(out, 'acme', 'corp');
+  });
+
+  it('does not let the C:\\F0 keep rule swallow trailing data', () => {
+    const out = redactCapture({ cmd: 'C:\\F0\\a.exe;ACME\\bsmith@10.1.2.3 x', u: { user_name: 'bsmith' } }) as any;
+    NONE(out, 'bsmith', '10.1.2.3');
+    expect(out.cmd.startsWith('C:\\F0\\a.exe;')).toBe(true);
+  });
+
+  it('pseudonymises SIDs but keeps well-known ones', () => {
+    const sid = 'S-1-5-21-1111111111-2222222222-3333333333-1105';
+    const out = redactCapture({ a: sid, b: `HKU\\${sid}\\Software`, c: 'S-1-5-18', d: 'S-1-5-32-544' }) as any;
+    NONE(out, '1111111111', '1105');
+    expect(out.a).toBe(out.b.split('\\')[1]);
+    expect(out.c).toBe('S-1-5-18');
+    expect(out.d).toBe('S-1-5-32-544');
+  });
+
+  it('handles numeric ids and object keys', () => {
+    const out = redactCapture({
+      tenant_id: 11772, severity: 5, total: 2000, score: 87,
+      byHost: { 'ACME-LT-01': 1 }, hostname: 'ACME-LT-01', byTenant: { '11772': 3 },
+    }) as any;
+    NONE(out, '11772', 'acme');
+    expect(typeof out.tenant_id).toBe('number');
+    expect(out.severity).toBe(5);
+    expect(out.total).toBe(2000);
+    expect(out.score).toBe(87);
   });
 });

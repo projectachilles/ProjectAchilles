@@ -91,6 +91,10 @@ const countOf = (v: unknown): number | undefined => {
   return undefined;
 };
 
+/** Credentials to strip from any error text; set once main() has read them. */
+let secrets: string[] = [];
+const scrubError = (msg: string) => secrets.reduce((m, sec) => (sec ? m.split(sec).join('[redacted]') : m), msg).slice(0, 300);
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) { process.stdout.write(USAGE); return; }
@@ -108,7 +112,7 @@ async function main(): Promise<void> {
   const raw: Record<string, unknown> = {};
   const manifest: Record<string, ManifestEntry> = {};
 
-  const scrubError = (msg: string) => msg.split(clientSecret).join('[secret]').split(clientId).join('[client-id]').slice(0, 300);
+  secrets = [clientSecret, clientId];
 
   async function step(name: string, fn: () => Promise<unknown>): Promise<unknown> {
     try {
@@ -175,6 +179,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  process.stderr.write(`Capture failed: ${err instanceof Error ? err.message.slice(0, 300) : 'unknown error'}\n`);
+  process.stderr.write(`Capture failed: ${err instanceof Error ? scrubError(err.message) : 'unknown error'}\n`);
   process.exit(1);
 });
