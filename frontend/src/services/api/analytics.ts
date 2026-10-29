@@ -170,6 +170,15 @@ export interface EnrichedTestExecution extends TestExecution, EdrResultFlags {
   /** Alert ids that are the evidence for the kill. */
   edr_terminated_alert_ids?: string[];
   stages_unknown?: boolean;
+  /**
+   * An EDR blocked the test at launch (the agent reported exit 260) and the
+   * EDR's own prevention alert proves it: protected as a whole, no stage ran.
+   */
+  edr_launch_blocked?: boolean;
+  /** Vendors whose alert proves the launch block, earliest first. */
+  launch_block_vendors?: string[];
+  /** Ids of the proving alert docs. */
+  launch_block_alert_ids?: string[];
 }
 
 export interface PaginatedResponse<T> {

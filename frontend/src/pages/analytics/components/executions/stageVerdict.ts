@@ -1,6 +1,6 @@
 import type { EnrichedTestExecution } from '@/services/api/analytics';
 import { classifyExecution, type ExecutionOutcome } from './shared';
-import { EDR_VENDOR_KEYS, PREVENTION_ACTION_PRECEDENCE, edrVendor, edrVendorName, type EdrVendorKey } from '@/lib/edrVendors';
+import { EDR_VENDOR_KEYS, PREVENTION_ACTION_PRECEDENCE, edrVendor, edrVendorName, findEdrVendor, type EdrVendorKey } from '@/lib/edrVendors';
 
 export type StageKind = ExecutionOutcome | 'not-run';
 
@@ -43,6 +43,27 @@ export function agentKillSubLabel(kill: { vendor: string }): string {
 /** Detail-panel note for an EDR-killed run. */
 export function agentKillNote(kill: { vendor: string }): string {
   return `${kill.vendor} terminated the Achilles agent while this test was running, so the test could not report which stages ran. The run counts as protected for the test as a whole; stages are unknown.`;
+}
+
+/**
+ * Set when an EDR blocked this test at launch and its own prevention alert
+ * confirms it (the backend rewrote the agent's exit 260 to 126); null otherwise.
+ * `vendor` is the products' labels ("CrowdStrike Falcon") joined with " and ".
+ */
+export function launchBlock(exec: EnrichedTestExecution): { vendor: string; alertIds: string[] } | null {
+  if (!exec.edr_launch_blocked) return null;
+  const labels = (exec.launch_block_vendors ?? []).map((k) => findEdrVendor(k)?.label ?? k);
+  return { vendor: joinNames(labels) ?? 'An EDR', alertIds: exec.launch_block_alert_ids ?? [] };
+}
+
+/** Run-list sub-label under "Protected" for an EDR launch block. */
+export function launchBlockSubLabel(block: { vendor: string }): string {
+  return `Blocked before it ran by ${block.vendor}`;
+}
+
+/** Detail-panel note for an EDR launch block. */
+export function launchBlockNote(block: { vendor: string }): string {
+  return `${block.vendor} blocked this test before it ran (the agent reported exit 260, blocked before execution), and its own prevention alert confirms it. The run counts as protected for the test as a whole; no stage ran, so no technique is scored.`;
 }
 
 /** Vendors whose per-stage flag is set (falling back to the bundle-level flag for older documents), in registry order. */
@@ -113,7 +134,7 @@ export function stageVerdict(exec: EnrichedTestExecution, siblings: EnrichedTest
     return {
       kind: 'not-run',
       title: 'Stage not run: a control blocked the test binary before it ran.',
-      body: "Usually an ASR prevalence rule. The technique itself was not tested, so it isn't scored as protected.",
+      body: "An EDR/AV or an application-control rule (such as a Defender ASR prevalence rule) refused to start it. The technique itself was not tested, so it isn't scored as protected.",
     };
   }
   const kind = classifyExecution(exec);

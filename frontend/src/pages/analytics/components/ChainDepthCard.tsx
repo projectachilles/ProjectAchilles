@@ -36,9 +36,11 @@ function rowsOf(data: ChainDepthResponse): Row[] {
     bundleNames: b.bundleNames,
     kind: 'stage' as const,
   }));
-  // A control stopped the test binary before a stage ran (exit 260, e.g. an
-  // ASR prevalence rule). The technique was never evaluated, so this is a
-  // neutral row, never a blocked stage. Older backends don't send it.
+  // A control stopped a stage's binary before it ran (exit 260: an EDR/AV or
+  // an app-control rule such as an ASR prevalence rule). The technique was
+  // never evaluated, so this is a neutral row, never a blocked stage. Older
+  // backends don't send it. (A whole test an EDR's alert proves it blocked at
+  // launch is rewritten to 126 by the backend and counts as blocked at stage 1.)
   if (data.blockedBeforeRun !== undefined) {
     rows.push({
       label: 'Stage not run',
