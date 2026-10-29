@@ -261,13 +261,13 @@ describe('RunDetailPanel — EDR launch block', () => {
     crowdstrike_detected: true, crowdstrike_prevented: true, crowdstrike_prevention_action: 'quarantined',
   } as EnrichedTestExecution;
 
-  function renderBlocked() {
+  function renderBlocked(loadedAlertId = 'falcon-1') {
     const endpointAlerts = emptyEndpointAlerts();
     endpointAlerts.crowdstrike.configured = true;
     // The orchestrator alert is bundle-attributed (no stage binary in its evidence).
     endpointAlerts.crowdstrike.map.set('k', {
       alerts: [{
-        alert_id: 'falcon-1', alert_title: 'Machine Learning: sensor-based ML', severity: 'high', status: 'new',
+        alert_id: loadedAlertId, alert_title: 'Machine Learning: sensor-based ML', severity: 'high', status: 'new',
         attribution: 'bundle', prevention_action: 'quarantined', created_at: '2026-10-27T10:01:00Z',
       }],
     } as never);
@@ -298,11 +298,31 @@ describe('RunDetailPanel — EDR launch block', () => {
     renderBlocked();
     expect(
       screen.getByText(
-        'CrowdStrike Falcon blocked this test before it ran (the agent reported exit 260, blocked before execution), and its own prevention alert confirms it. The run counts as protected for the test as a whole; no stage ran, so no technique is scored.',
+        'CrowdStrike Falcon blocked this test before it ran, and its own prevention alert confirms it. The run counts as protected for the test as a whole; no stage ran, so no technique is scored.',
       ),
     ).toBeInTheDocument();
     expect(screen.getByText('Evidence alert(s)')).toBeInTheDocument();
     expect(screen.getByText('cs-alert-1')).toBeInTheDocument();
     expect(screen.getByText('Machine Learning: sensor-based ML')).toBeInTheDocument();
+  });
+
+  it('says next to the result code that the agent reported 260 and the EDR alert set 126', () => {
+    renderBlocked();
+    expect(screen.getByText('ExecutionPrevented (126)')).toBeInTheDocument();
+    expect(screen.getByText("Agent reported 260 (BlockedPreExecution); set to 126 by the EDR's alert")).toBeInTheDocument();
+  });
+
+  it('shows a loaded evidence alert as an alert row, not its raw id', () => {
+    renderBlocked('cs-alert-1');
+    const evidence = screen.getByRole('list', { name: 'Evidence alerts' });
+    expect(within(evidence).getByText('Machine Learning: sensor-based ML')).toBeInTheDocument();
+    expect(within(evidence).getByText('quarantined', { exact: false })).toBeInTheDocument();
+    expect(within(evidence).queryByText('cs-alert-1')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the raw id while the evidence alert is not loaded', () => {
+    renderBlocked('some-other-alert');
+    const evidence = screen.getByRole('list', { name: 'Evidence alerts' });
+    expect(within(evidence).getByText('cs-alert-1')).toBeInTheDocument();
   });
 });

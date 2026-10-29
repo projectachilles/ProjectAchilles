@@ -63,7 +63,7 @@ export function launchBlockSubLabel(block: { vendor: string }): string {
 
 /** Detail-panel note for an EDR launch block. */
 export function launchBlockNote(block: { vendor: string }): string {
-  return `${block.vendor} blocked this test before it ran (the agent reported exit 260, blocked before execution), and its own prevention alert confirms it. The run counts as protected for the test as a whole; no stage ran, so no technique is scored.`;
+  return `${block.vendor} blocked this test before it ran, and its own prevention alert confirms it. The run counts as protected for the test as a whole; no stage ran, so no technique is scored.`;
 }
 
 /** Vendors whose per-stage flag is set (falling back to the bundle-level flag for older documents), in registry order. */

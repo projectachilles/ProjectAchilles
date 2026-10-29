@@ -104,12 +104,21 @@ function ExecDetailBody({
               <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
                 Evidence alert(s)
               </span>
-              <ul className="mt-1 space-y-0.5">
-                {evidence.alertIds.map((id) => (
-                  <li key={id} className="break-all font-mono text-[11px] text-muted">
-                    {id}
-                  </li>
-                ))}
+              <ul className="mt-1 space-y-1" aria-label="Evidence alerts">
+                {evidence.alertIds.map((id) => {
+                  // The alert itself once the run's endpoint alerts are loaded; its id until then.
+                  const loaded = ENDPOINT_VENDOR_IDS.map((v) => ({ v, alert: endpoint[v]?.alerts.find((a) => a.alert_id === id) }))
+                    .find((x) => x.alert);
+                  return (
+                    <li key={id}>
+                      {loaded?.alert ? (
+                        <EndpointAlertRow alert={loaded.alert} runTimestamp={exec.timestamp} vendor={loaded.v} />
+                      ) : (
+                        <span className="break-all font-mono text-[11px] text-muted">{id}</span>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
