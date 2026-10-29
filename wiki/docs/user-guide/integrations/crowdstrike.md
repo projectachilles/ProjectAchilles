@@ -27,6 +27,10 @@ This page covers pillars 1 and 2. Pillar 3 has its own setup walkthrough — see
 - A CrowdStrike Falcon account with access to the Falcon console
 - An API client created in the Falcon console (below)
 
+For what to set up in Falcon on the **endpoints** so the agent can run tests
+(by default, nothing), see
+[Endpoint Prerequisites → CrowdStrike Falcon](../../deployment/endpoint-prerequisites#crowdstrike-falcon).
+
 ## Falcon Console Setup
 
 1. Log in to the Falcon console for your cloud region and go to
@@ -134,7 +138,7 @@ A CrowdStrike Falcon policy can terminate `achilles-agent.exe` (or the test bina
 
 These alerts stay open in CrowdStrike Falcon: Achilles links them to the run but never auto-resolves them. Triage them like any other alert.
 
-Do not add an agent exclusion in CrowdStrike Falcon to stop this. The agent launches the test binaries, so a child-process exclusion would exempt the tests too and the run would no longer measure your protection. See [Endpoint Prerequisites](../../deployment/endpoint-prerequisites#6-edr-expectations).
+Do not add an agent exclusion in CrowdStrike Falcon to stop this. The agent launches the test binaries, so an exclusion that follows its child processes would exempt the tests too and the run would no longer measure your protection. The same goes for a Falcon block of a test binary before it runs (exit `260`): that is a result. See [Endpoint Prerequisites → CrowdStrike Falcon](../../deployment/endpoint-prerequisites#crowdstrike-falcon).
 
 ## Architecture
 

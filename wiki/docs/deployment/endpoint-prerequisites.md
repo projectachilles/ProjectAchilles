@@ -61,6 +61,7 @@ measured ones.
 | 5 | [Add a publisher rule, if you run WDAC or AppLocker](#5-application-control-wdac-and-applocker) | Application-control owner |
 | 6 | [Brief the SOC; add no EDR exclusions](#6-edr-expectations) | Security team |
 | 6a | [Sophos Intercept X: add nothing by default](#sophos-intercept-x) | Sophos admin |
+| 6b | [CrowdStrike Falcon: add nothing by default](#crowdstrike-falcon) | Falcon admin |
 | 7 | [Verify on a pilot endpoint](#7-verify-on-a-pilot-endpoint) | ProjectAchilles admin |
 
 ## 1. Code-signing certificate
@@ -253,7 +254,7 @@ and AppLocker events **8004** (enforced; **8003** in audit).
 | EDR | Typical behavior | What ProjectAchilles does |
 |-----|------------------|---------------------------|
 | Microsoft Defender for Endpoint | Judges each stage binary | Per-stage verdicts, alert correlation ([Microsoft Defender](../user-guide/integrations/microsoft-defender)) |
-| CrowdStrike Falcon | Judges each stage binary | Per-stage verdicts, alert correlation ([CrowdStrike](../user-guide/integrations/crowdstrike)) |
+| CrowdStrike Falcon | Judges each binary with machine learning and each process by behaviour (IOA); can block a fresh test binary before it runs | Per-stage verdicts, alert correlation ([CrowdStrike](../user-guide/integrations/crowdstrike)). Add nothing by default; see [CrowdStrike Falcon](#crowdstrike-falcon). |
 | Sophos Intercept X | Judges file content (Deep Learning, reputation) and behaviour per binary | Per-stage verdicts, alert correlation, Health Check posture ([Sophos](../user-guide/integrations/sophos)). Add nothing by default; see [Sophos Intercept X](#sophos-intercept-x). |
 | SentinelOne | Scores the whole process tree and can kill its root, **the agent** | The task fails with `Agent went offline during execution`; with a matching alert the run counts as **Protected**, stages unknown ([SentinelOne](../user-guide/integrations/sentinelone#when-the-edr-kills-the-agent)). Windows restarts the agent service after 10 seconds (service recovery). |
 
@@ -368,6 +369,167 @@ off by default; and the exact Sophos Central menu labels for allowing a file
 Sophos tab's feed and the
 [Executions](../user-guide/analytics/exit-codes-and-outcomes) view show what
 Sophos reported.
+:::
+
+## CrowdStrike Falcon \{#crowdstrike-falcon}
+
+Skip this section if you don't run Falcon. Defender needs a standing exclusion
+for its prevalence rule; Falcon starts with none. Falcon judges unknown files
+with machine learning (ML) instead, so the one thing that can go wrong is Falcon
+convicting the agent's own file. This section shows how to recognize that and
+how to allow the agent alone, without exempting a single test.
+
+### Default: add nothing \{#crowdstrike-default}
+
+Leave a **pilot endpoint** in its normal production prevention policy, add no
+exclusion, and run a multi-stage test on it
+([step 7](#7-verify-on-a-pilot-endpoint)). Check that the agent stays online and
+that the stages report their own results.
+
+Falcon's prevention policy uses sensor-based ML "to identify and analyze unknown
+executables as they run", plus cloud-based ML, and can quarantine suspicious
+files as they're written to disk. Every ProjectAchilles build is new to the
+world, and it is a Go binary, which antivirus engines often misjudge (see the
+[Go FAQ](https://go.dev/doc/faq#virus)). So a Falcon conviction of a fresh agent
+build is possible, and more likely at the higher ML levels (Aggressive, Extra
+Aggressive). We expect the agent to run at the levels most production policies
+use, which is pending validation.
+
+### A Falcon block of a test is a result \{#crowdstrike-test-blocks}
+
+Falcon reacting to a **test** is what you are measuring. On a production Falcon
+tenant, Falcon's ML prevention blocked a test binary before it ran: the Falcon
+detection has the tactic **Machine Learning**, and its triggering file is the
+test binary under `C:\F0`. ProjectAchilles then records exit `260`
+(*BlockedPreExecution*) for that run.
+
+That is Falcon protecting the host. It is expected, and it is not a missing
+prerequisite. **Don't "fix" it** by excluding `C:\F0`, the task folders or the
+test binaries: that would stop Falcon judging the tests, and the run would
+measure nothing.
+
+Falcon can also end a process tree mid-test, including the agent at its root.
+The task then fails with `Agent went offline during execution`, which the
+CrowdStrike integration can turn into a result
+([When the EDR kills the agent](../user-guide/integrations/crowdstrike#when-the-edr-kills-the-agent)).
+
+### Only if Falcon convicts the agent itself \{#crowdstrike-agent-conviction}
+
+You are looking at a block of the **agent**, not of a test, when a Falcon
+detection's triggering file is one of these:
+
+| File | What it is |
+|------|------------|
+| `C:\F0\achilles-agent.exe` | The agent (`/opt/f0/achilles-agent` on Linux and macOS) |
+| `C:\F0\achilles-update-*` | A new agent version the agent is downloading (`/opt/f0/achilles-update-*`) |
+
+typically with the tactic **Machine Learning**, and the file quarantined or the
+process blocked. In ProjectAchilles you see one of: the endpoint never enrolls;
+the agent goes offline and the service doesn't come back; or an agent update is
+rolled back because the new version "failed its launch check"
+([Self-updates](../user-guide/agent-management/self-updates)).
+
+**First, check that the agent really lives in `C:\F0`:**
+
+```powershell
+(Get-CimInstance Win32_Service -Filter "Name='AchillesAgent'").PathName
+```
+
+It should print `C:\F0\achilles-agent.exe`. An agent installed from another
+folder is outside the [`C:\F0` lock](#4-the-cf0-folder-lock) and outside every
+rule below; reinstall it with the
+[bootstrap script](./server-installer#enroll-with-the-bootstrap-script).
+
+Then, and only then, add **one machine-learning exclusion for the agent's file**:
+
+1. **Pattern: the agent's exact file**, without a drive letter:
+
+   ```
+   F0\achilles-agent.exe
+   ```
+
+   That is the form CrowdStrike's own PSFalcon module
+   (`ConvertTo-FalconMlExclusion`) builds from an ML detection: Falcon patterns
+   are glob patterns relative to the volume root. Never add a leading `*` or
+   `**` (`**\F0\achilles-agent.exe` would also match a user-writable
+   `C:\Users\<name>\F0\achilles-agent.exe`).
+2. **Excluded from: "Detections and preventions" only.** Leave uploads to
+   CrowdStrike on.
+3. **Host groups: only the groups that hold your ProjectAchilles endpoints**,
+   never all hosts.
+4. **Use the console's pattern test** before saving: `C:\F0\achilles-agent.exe`
+   must match, and a path such as `C:\Users\test\F0\achilles-agent.exe` must
+   not.
+5. **The update file:** only if a detection names `C:\F0\achilles-update-*`, add
+   `F0\achilles-update-*` the same way. On Linux and macOS the same rules apply
+   to `/opt/f0/achilles-agent` and `/opt/f0/achilles-update-*`.
+
+Changes to exclusions can take up to 40 minutes to reach the hosts.
+
+Because the pattern has no drive letter, it matches `\F0\achilles-agent.exe` on
+**every volume** of the host. If an endpoint has other fixed volumes (`D:\`, …),
+check that standard users can't create an `F0` folder at their root.
+
+**Where path exclusions aren't allowed**, use an indicator instead: in IOC
+management, add the agent's **SHA-256** with the action **Allow**, scoped to the
+same host groups, with an expiry date. A hash allows one exact file, so **add
+each new agent version's SHA-256 before you roll it out**
+([Self-updates](../user-guide/agent-management/self-updates)). Never allow the
+signing certificate instead; see the box below.
+
+**If a behavioural (IOA) detection names the agent** as the triggering process
+(not a test it started), create the IOA exclusion from that detection, keep the
+image-filename regex narrowed to the agent's own path, and leave the parent and
+grandparent fields alone: they must **never** name the agent. Add nothing for
+IOA detections whose triggering process is a test or stage binary.
+
+### What you give up \{#crowdstrike-what-you-give-up}
+
+Falcon's ML no longer judges one file: the agent. Falcon's behavioural (IOA)
+detections still watch what the agent does, and every test binary and stage is
+judged in full, because they are different files at different paths. That an
+exact-file ML exclusion on the agent leaves the ML verdict on the files it
+launches unchanged is pending validation. In ProjectAchilles terms, the Defense
+Score doesn't measure whether Falcon's ML would convict a new agent build.
+
+:::danger[Never do these]
+Each of these makes Falcon stop judging the tests, so the run measures nothing.
+- **Never add a sensor visibility exclusion** for the agent, `C:\F0` or
+  `/opt/f0`, in any form. CrowdStrike describes them as stopping "all sensor
+  event collection, detections, and preventions" for the path, and the
+  descendant-processes option extends that to everything the agent starts,
+  which is every test.
+- **Never add a certificate-based exclusion** for the ProjectAchilles signing
+  certificate. The agent and every test share it, so it would exempt every test.
+- **Never add an ML exclusion for a folder**: `C:\F0`, `C:\F0\tasks`, `/opt/f0`
+  or any wildcard under them. Test and stage binaries live there.
+- **Never set the agent as the parent or grandparent** of an ML or IOA
+  exclusion. Falcon's newer ML exclusions and its IOA exclusions can match on
+  the parent and grandparent process; with the agent there, they cover every
+  file and process the agent starts.
+- **Never add an IOC "Allow" for a test binary**, and never allow a test from a
+  detection of it.
+- **Never move the test endpoints to a weaker prevention policy**, lower their
+  ML levels or set them to detect-only. The results would then describe that
+  weaker policy, not your production one.
+:::
+
+### Verify
+
+Run a multi-stage test on the pilot endpoint. Falcon's detections, if any, name
+test or stage binaries, none names `achilles-agent.exe` or `achilles-update-*`,
+and the agent stays online.
+
+:::note[Pending validation]
+These Falcon behaviours are expectations, being confirmed on a test tenant:
+which ML levels convict a fresh agent build; whether Falcon quarantines an
+`achilles-update-*` file as it is written; that the pattern test confirms the
+volume-root anchoring above; that an exact-file ML exclusion on the agent
+leaves the ML verdict on its tests unchanged; whether an IOC **Allow** for the
+agent's hash also affects behavioural (IOA) detections of the agent; whether
+the agent's own actions (registering its restart task through PowerShell,
+setting folder permissions, renaming its binary during an update) raise IOA
+detections on a default policy; and the current Falcon console labels.
 :::
 
 ## What ProjectAchilles changes on an endpoint
@@ -491,6 +653,8 @@ Your EDR still judges each binary, and the guidance in
 | A Sophos detection names `C:\F0\achilles-agent.exe` and the agent won't start | Sophos convicted the agent file | [Allow that SHA-256](#only-if-sophos-convicts-the-agent-itself), never the certificate |
 | Sophos tab shows a **Certificate allowed** or **Folder exclusion** critical box | A Sophos allow or exclusion exempts every test | Remove it; see the danger box in [Sophos Intercept X](#sophos-intercept-x) |
 | Stages blocked or missing on a Sophos server | Server Lockdown refuses unapproved files | Use a lockdown-free [test group](#servers-with-server-lockdown) |
+| Exit `260`, a Falcon **Machine Learning** detection names the test binary under `C:\F0` | Falcon blocked the test before it ran | Expected: a result, not a prerequisite gap. Add nothing ([CrowdStrike Falcon](#crowdstrike-test-blocks)) |
+| A Falcon detection names `C:\F0\achilles-agent.exe` or `achilles-update-*`; the agent won't start or an update rolls back | Falcon's ML convicted the agent file | [One exact-file ML exclusion](#crowdstrike-agent-conviction), or an IOC **Allow** by SHA-256; never a folder, certificate or sensor visibility exclusion |
 
 See also: [Exit Codes & Outcomes](../user-guide/analytics/exit-codes-and-outcomes).
 
