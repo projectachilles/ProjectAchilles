@@ -24,7 +24,7 @@ cd backend && npm run dev        # tsx watch with hot reload (port 3000)
 
 # TypeScript validation
 cd frontend && npm run build     # tsc -b + vite build
-cd backend && npm run build      # tsc → dist/
+cd backend && npm run build      # tsc → dist/, then type-checks scripts/ (tsconfig.scripts.json, no emit)
 ```
 
 ### Testing (Vitest)
