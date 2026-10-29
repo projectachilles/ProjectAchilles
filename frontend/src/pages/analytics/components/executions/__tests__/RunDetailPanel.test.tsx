@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RunDetailPanel } from '../RunDetailPanel';
+import { emptyEndpointAlerts } from '../detailParts';
 import type { BundleGroup } from '../shared';
 import type { EnrichedTestExecution } from '@/services/api/analytics';
 
@@ -66,13 +67,11 @@ function Harness({ row }: { row: BundleGroup }) {
     <RunDetailPanel
       row={row}
       defenderConfigured={false}
-      crowdstrikeConfigured={false}
+      endpointAlerts={emptyEndpointAlerts()}
       descriptionMap={new Map()}
       descriptionLoadingKey={null}
       alertsMap={new Map()}
       alertsLoading={new Set()}
-      csAlertsMap={new Map()}
-      csAlertsLoading={new Set()}
       stageAlertsCacheKey={(e) => e.test_uuid}
       getAcceptanceForExec={() => undefined}
       riskEnabled
@@ -218,13 +217,11 @@ describe('RunDetailPanel — EDR-killed run', () => {
       <RunDetailPanel
         row={{ type: 'standalone', key: 'k', execution: killed }}
         defenderConfigured
-        crowdstrikeConfigured={false}
+        endpointAlerts={emptyEndpointAlerts()}
         descriptionMap={new Map()}
         descriptionLoadingKey={null}
         alertsMap={new Map()}
         alertsLoading={new Set()}
-        csAlertsMap={new Map()}
-        csAlertsLoading={new Set()}
         stageAlertsCacheKey={(e) => e.test_uuid}
         getAcceptanceForExec={() => undefined}
         riskEnabled

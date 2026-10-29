@@ -11,11 +11,10 @@ import {
 } from 'lucide-react';
 import type { EnrichedTestExecution } from '@/services/api/analytics';
 import type { RelatedAlertsResponse } from '@/services/api/defender';
-import type { RelatedCrowdStrikeAlertsResponse } from '@/services/api/crowdstrike';
+import type { CrowdStrikeAlertItem } from '@/services/api/crowdstrike';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { falconAlertUrl } from '../../utils/falconConsole';
 import { defenderAlertUrl } from '../../utils/defenderPortal';
 import PreventionBadge from '../PreventionBadge';
 import {
@@ -28,9 +27,8 @@ import {
   type BundleGroup,
 } from './shared';
 import {
-  CrowdStrikeAlertRow,
   DefenderAlertRow,
-  SentinelOneAlertRow,
+  EndpointAlertRow,
   MetaCell,
   ResultCode,
   RiskActions,
@@ -39,6 +37,7 @@ import {
   type RunDetailPanelProps,
 } from './detailParts';
 import { StageList } from './StageList';
+import { ENDPOINT_VENDOR_IDS, VENDORS } from '../integrations/vendorConfig';
 import { agentKill, agentKillNote, stageOutcomeCounts } from './stageVerdict';
 
 export type { AcceptRiskItem, InfoModalRequest } from './detailParts';
@@ -55,31 +54,21 @@ function runField<K extends keyof EnrichedTestExecution>(
 function ExecDetailBody({
   exec,
   defenderConfigured,
-  crowdstrikeConfigured,
+  endpointAlerts,
   descriptionMap,
   descriptionLoadingKey,
   alertsMap,
   alertsLoading,
-  csAlertsMap,
-  csAlertsLoading,
-  sentineloneConfigured,
-  s1AlertsMap,
-  s1AlertsLoading,
   stageAlertsCacheKey,
   onOpenInfo,
 }: Pick<
   RunDetailPanelProps,
   | 'defenderConfigured'
-  | 'crowdstrikeConfigured'
-  | 'sentineloneConfigured'
-  | 's1AlertsMap'
-  | 's1AlertsLoading'
+  | 'endpointAlerts'
   | 'descriptionMap'
   | 'descriptionLoadingKey'
   | 'alertsMap'
   | 'alertsLoading'
-  | 'csAlertsMap'
-  | 'csAlertsLoading'
   | 'stageAlertsCacheKey'
   | 'onOpenInfo'
 > & { exec: EnrichedTestExecution }) {
@@ -91,13 +80,10 @@ function ExecDetailBody({
 
   const kill = agentKill(exec);
 
-  const { defender, crowdstrike, sentinelone } = stageAlertState(exec, {
+  const { defender, endpoint } = stageAlertState(exec, {
     alertsMap,
     alertsLoading,
-    csAlertsMap,
-    csAlertsLoading,
-    s1AlertsMap,
-    s1AlertsLoading,
+    endpointAlerts,
     stageAlertsCacheKey,
   });
 
@@ -211,61 +197,39 @@ function ExecDetailBody({
         </div>
       )}
 
-      {/* Related CrowdStrike Alerts — STAGE-ATTRIBUTABLE only. Bundle-level
-          alerts render once in the bundle callout instead of being
+      {/* Related endpoint-EDR alerts (CrowdStrike, SentinelOne, Sophos) — STAGE-ATTRIBUTABLE
+          only. Bundle-level alerts render once in the bundle callout instead of being
           duplicated under every stage. */}
-      {crowdstrikeConfigured && !kill && exec.techniques && exec.techniques.length > 0 && (
-        <div className="border-t border-border pt-3">
-          <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
-            CrowdStrike Alerts
-          </span>
-          {crowdstrike.loading ? (
-            <div className="mt-2 flex items-center gap-2">
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />
-              <span className="text-xs text-muted">Checking for related alerts...</span>
-            </div>
-          ) : crowdstrike.alerts.length > 0 ? (
-            <div className="mt-2 space-y-2">
-              {crowdstrike.alerts.map((alert) => (
-                <CrowdStrikeAlertRow key={alert.alert_id} alert={alert} runTimestamp={exec.timestamp} />
-              ))}
-            </div>
-          ) : (
-            <p className="mt-2 text-xs text-faint">
-              {crowdstrike.hasBundleAlerts
-                ? 'No stage-specific CrowdStrike alerts. See the bundle-level alerts above.'
-                : 'No related CrowdStrike alerts within the time window'}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Related SentinelOne Alerts — STAGE-ATTRIBUTABLE only (same rule as CrowdStrike). */}
-      {sentineloneConfigured && !kill && exec.techniques && exec.techniques.length > 0 && (
-        <div className="border-t border-border pt-3">
-          <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
-            SentinelOne Alerts
-          </span>
-          {sentinelone.loading ? (
-            <div className="mt-2 flex items-center gap-2">
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />
-              <span className="text-xs text-muted">Checking for related alerts...</span>
-            </div>
-          ) : sentinelone.alerts.length > 0 ? (
-            <div className="mt-2 space-y-2">
-              {sentinelone.alerts.map((alert) => (
-                <SentinelOneAlertRow key={alert.alert_id} alert={alert} runTimestamp={exec.timestamp} />
-              ))}
-            </div>
-          ) : (
-            <p className="mt-2 text-xs text-faint">
-              {sentinelone.hasBundleAlerts
-                ? 'No stage-specific SentinelOne alerts. See the bundle-level alerts above.'
-                : 'No related SentinelOne alerts within the time window'}
-            </p>
-          )}
-        </div>
-      )}
+      {ENDPOINT_VENDOR_IDS.map((id) => {
+        if (!endpointAlerts[id].configured || kill || !exec.techniques || exec.techniques.length === 0) return null;
+        const name = VENDORS[id].shortName;
+        const state = endpoint[id];
+        return (
+          <div key={id} className="border-t border-border pt-3">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
+              {name} Alerts
+            </span>
+            {state.loading ? (
+              <div className="mt-2 flex items-center gap-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />
+                <span className="text-xs text-muted">Checking for related alerts...</span>
+              </div>
+            ) : state.alerts.length > 0 ? (
+              <div className="mt-2 space-y-2">
+                {state.alerts.map((alert) => (
+                  <EndpointAlertRow key={alert.alert_id} alert={alert} runTimestamp={exec.timestamp} vendor={id} />
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-faint">
+                {state.hasBundleAlerts
+                  ? `No stage-specific ${name} alerts. See the bundle-level alerts above.`
+                  : `No related ${name} alerts within the time window`}
+              </p>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -419,14 +383,9 @@ function BundleBody({
 }: RunDetailPanelProps & { group: BundleGroup }) {
   const {
     defenderConfigured,
-    crowdstrikeConfigured,
+    endpointAlerts,
     alertsMap,
     alertsLoading,
-    csAlertsMap,
-    csAlertsLoading,
-    sentineloneConfigured,
-    s1AlertsMap,
-    s1AlertsLoading,
     stageAlertsCacheKey,
   } = props;
 
@@ -445,30 +404,20 @@ function BundleBody({
   }
   const bundleAlerts = Array.from(seen.values());
 
-  // Bundle-level CrowdStrike alerts — same union/dedupe pattern as Defender.
-  const isLoadingCsAlerts = group.controls.some((ctrl) => csAlertsLoading.has(stageAlertsCacheKey(ctrl)));
-  const csSeen = new Map<string, RelatedCrowdStrikeAlertsResponse['alerts'][number]>();
-  for (const ctrl of group.controls) {
-    const entry = csAlertsMap.get(stageAlertsCacheKey(ctrl));
-    if (!entry) continue;
-    for (const a of entry.alerts) {
-      if (a.attribution === 'bundle') csSeen.set(a.alert_id, a);
+  // Bundle-level endpoint-EDR alerts — same union/dedupe pattern as Defender.
+  const endpointBundle = ENDPOINT_VENDOR_IDS.map((id) => {
+    const { map, loading, configured } = endpointAlerts[id];
+    const isLoading = group.controls.some((ctrl) => loading.has(stageAlertsCacheKey(ctrl)));
+    const seenAlerts = new Map<string, CrowdStrikeAlertItem>();
+    for (const ctrl of group.controls) {
+      const entry = map.get(stageAlertsCacheKey(ctrl));
+      if (!entry) continue;
+      for (const a of entry.alerts) {
+        if (a.attribution === 'bundle') seenAlerts.set(a.alert_id, a);
+      }
     }
-  }
-  const csBundleAlerts = Array.from(csSeen.values());
-
-  // Bundle-level SentinelOne alerts — same union/dedupe pattern.
-  const isLoadingS1Alerts = group.controls.some((ctrl) => Boolean(s1AlertsLoading?.has(stageAlertsCacheKey(ctrl))));
-  const s1Seen = new Map<string, RelatedCrowdStrikeAlertsResponse['alerts'][number]>();
-  for (const ctrl of group.controls) {
-    const entry = s1AlertsMap?.get(stageAlertsCacheKey(ctrl));
-    if (!entry) continue;
-    for (const a of entry.alerts) {
-      if (a.attribution === 'bundle') s1Seen.set(a.alert_id, a);
-    }
-  }
-  const s1BundleAlerts = Array.from(s1Seen.values());
-
+    return { id, configured, isLoading, alerts: Array.from(seenAlerts.values()) };
+  });
 
   return (
     <div className="flex flex-col gap-3">
@@ -525,85 +474,34 @@ function BundleBody({
         </div>
       )}
 
-      {crowdstrikeConfigured && (isLoadingCsAlerts || csBundleAlerts.length > 0) && (
-        <div className="rounded-md border border-warning/40 bg-warning-dim p-3">
-          <div className="flex items-start gap-2">
-            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-            <div className="min-w-0 flex-1">
-              <span className="text-xs font-medium uppercase tracking-wide text-warning">
-                Bundle-level CrowdStrike alerts
-              </span>
-              <span className="ml-2 text-xs text-muted">
-                (evidence doesn't identify a specific stage)
-              </span>
-              {isLoadingCsAlerts ? (
-                <div className="mt-1 flex items-center gap-2">
-                  <Loader2 className="h-3 w-3 animate-spin text-muted" />
-                  <span className="text-xs text-muted">Checking…</span>
-                </div>
-              ) : (
-                <div className="mt-1 space-y-1">
-                  {csBundleAlerts.map((alert) => (
-                    <div key={alert.alert_id} className="flex items-center gap-2 text-xs">
-                      <Badge
-                        variant="outline"
-                        className={cn('px-1.5 py-0 text-[10px]', ALERT_SEVERITY_CLASSES[alert.severity])}
-                      >
-                        {alert.severity}
-                      </Badge>
-                      <PreventionBadge
-                      action={alert.prevention_action}
-                      rawStatus={alert.pattern_disposition_description}
-                    />
-                      <span className="flex-1 truncate text-foreground">{alert.alert_title}</span>
-                      <Badge variant="default" className="px-1.5 py-0 text-[10px]">
-                        {alert.status}
-                      </Badge>
-                      <a
-                        href={falconAlertUrl(alert.portal_url)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="shrink-0 rounded p-0.5 text-faint transition-colors hover:text-foreground"
-                        aria-label="Open in Falcon console"
-                        title="Open in Falcon console"
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
-                    </div>
-                  ))}
-                </div>
-              )}
+      {endpointBundle.map(({ id, configured, isLoading, alerts }) =>
+        configured && (isLoading || alerts.length > 0) ? (
+          <div key={id} className="rounded-md border border-warning/40 bg-warning-dim p-3">
+            <div className="flex items-start gap-2">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              <div className="min-w-0 flex-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-warning">
+                  Bundle-level {VENDORS[id].shortName} alerts
+                </span>
+                <span className="ml-2 text-xs text-muted">
+                  (evidence doesn't identify a specific stage)
+                </span>
+                {isLoading ? (
+                  <div className="mt-1 flex items-center gap-2">
+                    <Loader2 className="h-3 w-3 animate-spin text-muted" />
+                    <span className="text-xs text-muted">Checking…</span>
+                  </div>
+                ) : (
+                  <div className="mt-1 space-y-1">
+                    {alerts.map((alert) => (
+                      <EndpointAlertRow key={alert.alert_id} alert={alert} runTimestamp={group.controls[0]?.timestamp ?? ''} vendor={id} />
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {sentineloneConfigured && (isLoadingS1Alerts || s1BundleAlerts.length > 0) && (
-        <div className="rounded-md border border-warning/40 bg-warning-dim p-3">
-          <div className="flex items-start gap-2">
-            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-            <div className="min-w-0 flex-1">
-              <span className="text-xs font-medium uppercase tracking-wide text-warning">
-                Bundle-level SentinelOne alerts
-              </span>
-              <span className="ml-2 text-xs text-muted">
-                (evidence doesn't identify a specific stage)
-              </span>
-              {isLoadingS1Alerts ? (
-                <div className="mt-1 flex items-center gap-2">
-                  <Loader2 className="h-3 w-3 animate-spin text-muted" />
-                  <span className="text-xs text-muted">Checking…</span>
-                </div>
-              ) : (
-                <div className="mt-1 space-y-1">
-                  {s1BundleAlerts.map((alert) => (
-                    <SentinelOneAlertRow key={alert.alert_id} alert={alert} runTimestamp={group.controls[0]?.timestamp ?? ''} />
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        ) : null,
       )}
 
       {group.category !== 'cyber-hygiene' ? (

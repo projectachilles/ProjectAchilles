@@ -2,6 +2,7 @@ import { ExternalLink, ShieldAlert, ShieldOff } from 'lucide-react';
 import type { EnrichedTestExecution, RiskAcceptance } from '@/services/api/analytics';
 import type { DefenderAlertItem, RelatedAlertsResponse } from '@/services/api/defender';
 import type { CrowdStrikeAlertItem, RelatedCrowdStrikeAlertsResponse } from '@/services/api/crowdstrike';
+import { ENDPOINT_VENDOR_IDS, VENDORS, type EndpointVendorId } from '../integrations/vendorConfig';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -40,20 +41,31 @@ export interface DescriptionData {
   hasReadme: boolean;
 }
 
+export type EndpointAlertState = Record<
+  EndpointVendorId,
+  {
+    configured: boolean;
+    map: Map<string, RelatedCrowdStrikeAlertsResponse | null>;
+    loading: Set<string>;
+  }
+>;
+
+/** Every endpoint vendor unconfigured with no alerts (defaults for callers and tests). */
+export function emptyEndpointAlerts(): EndpointAlertState {
+  return Object.fromEntries(
+    ENDPOINT_VENDOR_IDS.map((id) => [id, { configured: false, map: new Map(), loading: new Set() }]),
+  ) as EndpointAlertState;
+}
+
 export interface RunDetailPanelProps {
   row: DisplayRow | null;
   defenderConfigured: boolean;
-  crowdstrikeConfigured: boolean;
+  /** Related alerts per endpoint-EDR vendor (CrowdStrike, SentinelOne, Sophos). */
+  endpointAlerts: EndpointAlertState;
   descriptionMap: Map<string, DescriptionData | null>;
   descriptionLoadingKey: string | null;
   alertsMap: Map<string, RelatedAlertsResponse | null>;
   alertsLoading: Set<string>;
-  csAlertsMap: Map<string, RelatedCrowdStrikeAlertsResponse | null>;
-  csAlertsLoading: Set<string>;
-  /** SentinelOne (optional so existing callers keep compiling; absent = not configured). */
-  sentineloneConfigured?: boolean;
-  s1AlertsMap?: Map<string, RelatedCrowdStrikeAlertsResponse | null>;
-  s1AlertsLoading?: Set<string>;
   stageAlertsCacheKey: (exec: EnrichedTestExecution) => string;
   getAcceptanceForExec: (exec: EnrichedTestExecution) => RiskAcceptance | undefined;
   riskEnabled: boolean;
@@ -166,33 +178,32 @@ export function stageAlertState(
   {
     alertsMap,
     alertsLoading,
-    csAlertsMap,
-    csAlertsLoading,
-    s1AlertsMap,
-    s1AlertsLoading,
+    endpointAlerts,
     stageAlertsCacheKey,
-  }: Pick<RunDetailPanelProps, 'alertsMap' | 'alertsLoading' | 'csAlertsMap' | 'csAlertsLoading' | 's1AlertsMap' | 's1AlertsLoading' | 'stageAlertsCacheKey'>,
+  }: Pick<RunDetailPanelProps, 'alertsMap' | 'alertsLoading' | 'endpointAlerts' | 'stageAlertsCacheKey'>,
 ) {
   const key = stageAlertsCacheKey(exec);
   const def = alertsMap.get(key);
-  const cs = csAlertsMap.get(key);
-  const s1 = s1AlertsMap?.get(key);
+  const endpoint = Object.fromEntries(
+    ENDPOINT_VENDOR_IDS.map((id) => {
+      const entry = endpointAlerts[id]?.map.get(key);
+      return [
+        id,
+        {
+          loading: Boolean(endpointAlerts[id]?.loading.has(key)),
+          alerts: entry ? filterStageAlerts(entry.alerts, exec.control_id) : [],
+          hasBundleAlerts: Boolean(entry?.alerts.some((a) => a.attribution === 'bundle')),
+        },
+      ];
+    }),
+  ) as Record<EndpointVendorId, { loading: boolean; alerts: CrowdStrikeAlertItem[]; hasBundleAlerts: boolean }>;
   return {
     defender: {
       loading: alertsLoading.has(key),
       alerts: def ? filterStageAlerts(def.alerts, exec.control_id) : [],
       hasBundleAlerts: Boolean(def?.alerts.some((a) => a.attribution === 'bundle')),
     },
-    crowdstrike: {
-      loading: csAlertsLoading.has(key),
-      alerts: cs ? filterStageAlerts(cs.alerts, exec.control_id) : [],
-      hasBundleAlerts: Boolean(cs?.alerts.some((a) => a.attribution === 'bundle')),
-    },
-    sentinelone: {
-      loading: Boolean(s1AlertsLoading?.has(key)),
-      alerts: s1 ? filterStageAlerts(s1.alerts, exec.control_id) : [],
-      hasBundleAlerts: Boolean(s1?.alerts.some((a) => a.attribution === 'bundle')),
-    },
+    endpoint,
   };
 }
 
@@ -238,55 +249,44 @@ export function DefenderAlertRow({
   );
 }
 
-export function CrowdStrikeAlertRow({
+/**
+ * One alert row for an endpoint-EDR vendor (CrowdStrike-shaped docs). The link
+ * label comes from the vendor registry; CrowdStrike resolves its region's
+ * Falcon console URL, the others link only when the doc carries a console URL.
+ */
+export function EndpointAlertRow({
   alert,
   runTimestamp,
   vendor,
+  showVendor,
 }: {
   alert: CrowdStrikeAlertItem;
   runTimestamp: string;
-  vendor?: string;
+  vendor: EndpointVendorId;
+  /** Adds a leading vendor-name column (stage view). */
+  showVendor?: boolean;
 }) {
+  const label = VENDORS[vendor].portalLabel;
   return (
     <div className="flex items-center gap-2 text-xs">
-      {vendor && <span className="w-20 shrink-0 text-muted">{vendor}</span>}
+      {showVendor && <span className="w-20 shrink-0 text-muted">{VENDORS[vendor].shortName}</span>}
       <Badge variant="outline" className={cn('px-1.5 py-0 text-[10px]', ALERT_SEVERITY_CLASSES[alert.severity])}>
         {alert.severity}
       </Badge>
-      <PreventionBadge action={alert.prevention_action} rawStatus={alert.pattern_disposition_description} />
+      <PreventionBadge
+        action={alert.prevention_action}
+        rawStatus={vendor === 'crowdstrike' ? alert.pattern_disposition_description : undefined}
+      />
       <span className="flex-1 truncate text-foreground">{alert.alert_title}</span>
       <Badge variant="default" className="px-1.5 py-0 text-[10px]">
         {alert.status}
       </Badge>
       <span className="whitespace-nowrap text-faint">{alertRunTimeAnnotation(runTimestamp, alert)}</span>
-      <AlertRowLink href={falconAlertUrl(alert.portal_url)} label="Open in Falcon console" />
-    </div>
-  );
-}
-
-/** SentinelOne alert row (same normalized shape as CrowdStrike). Links only when the doc carries a console URL. */
-export function SentinelOneAlertRow({
-  alert,
-  runTimestamp,
-  vendor,
-}: {
-  alert: CrowdStrikeAlertItem;
-  runTimestamp: string;
-  vendor?: string;
-}) {
-  return (
-    <div className="flex items-center gap-2 text-xs">
-      {vendor && <span className="w-20 shrink-0 text-muted">{vendor}</span>}
-      <Badge variant="outline" className={cn('px-1.5 py-0 text-[10px]', ALERT_SEVERITY_CLASSES[alert.severity])}>
-        {alert.severity}
-      </Badge>
-      <PreventionBadge action={alert.prevention_action} />
-      <span className="flex-1 truncate text-foreground">{alert.alert_title}</span>
-      <Badge variant="default" className="px-1.5 py-0 text-[10px]">
-        {alert.status}
-      </Badge>
-      <span className="whitespace-nowrap text-faint">{alertRunTimeAnnotation(runTimestamp, alert)}</span>
-      {alert.portal_url && <AlertRowLink href={alert.portal_url} label="Open in SentinelOne console" />}
+      {vendor === 'crowdstrike' ? (
+        <AlertRowLink href={falconAlertUrl(alert.portal_url)} label={label} />
+      ) : (
+        alert.portal_url && <AlertRowLink href={alert.portal_url} label={label} />
+      )}
     </div>
   );
 }

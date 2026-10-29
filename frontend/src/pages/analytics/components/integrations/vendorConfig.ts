@@ -91,6 +91,7 @@ export const VENDORS: Record<VendorId, IntegrationVendor> = {
       getAlertTrend: crowdstrikeApi.getAlertTrend,
       getAlertSummary: crowdstrikeApi.getAlertSummary,
       getTechniqueCoverage: crowdstrikeApi.getTechniqueCoverage,
+      getAlertsForTest: (...args) => crowdstrikeApi.getAlertsForTest(...args),
     },
     autoResolve: {
       getStatus: () => integrationsApi.getCrowdStrikeAutoResolveStatus(),
@@ -150,6 +151,7 @@ export const VENDORS: Record<VendorId, IntegrationVendor> = {
       getAlertTrend: sentineloneAnalyticsApi.getAlertTrend,
       getAlertSummary: sentineloneAnalyticsApi.getAlertSummary,
       getTechniqueCoverage: sentineloneAnalyticsApi.getTechniqueCoverage,
+      getAlertsForTest: (...args) => sentineloneAnalyticsApi.getAlertsForTest(...args),
     },
     autoResolve: {
       getStatus: async () => {
@@ -191,6 +193,7 @@ export const VENDORS: Record<VendorId, IntegrationVendor> = {
       getAlertTrend: sophosAnalyticsApi.getAlertTrend,
       getAlertSummary: sophosAnalyticsApi.getAlertSummary,
       getTechniqueCoverage: sophosAnalyticsApi.getTechniqueCoverage,
+      getAlertsForTest: (...args) => sophosAnalyticsApi.getAlertsForTest(...args),
     },
     autoResolve: {
       getStatus: async () => {
@@ -206,3 +209,11 @@ export const VENDORS: Record<VendorId, IntegrationVendor> = {
     },
   },
 };
+
+/** Vendors whose alert docs share the CrowdStrike alert shape (`endpointEdr`). */
+export type EndpointVendorId = 'crowdstrike' | 'sentinelone' | 'sophos';
+
+/** Endpoint-EDR vendor ids in display order, derived from the registry. */
+export const ENDPOINT_VENDOR_IDS = (Object.keys(VENDORS) as VendorId[]).filter(
+  (id): id is EndpointVendorId => VENDORS[id].endpointEdr,
+);

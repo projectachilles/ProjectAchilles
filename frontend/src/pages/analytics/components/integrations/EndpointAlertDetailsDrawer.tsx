@@ -9,12 +9,11 @@ import { getSeverityTokens } from '../../utils/crowdstrikeSeverityTokens';
 import { formatCrowdStrikeProduct } from '../../utils/crowdstrikeProduct';
 import PreventionBadge from '../PreventionBadge';
 import { describeAutoResolveReceipt } from './autoResolveReceipt';
-import { VENDORS } from './vendorConfig';
+import { VENDORS, type EndpointVendorId } from './vendorConfig';
 
 import type { TimeWindow } from '@/services/api/integrationTypes';
 
-/** Vendors whose alert docs share the CrowdStrike alert shape (see vendorConfig `endpointEdr`). */
-export type EndpointVendorId = 'crowdstrike' | 'sentinelone' | 'sophos';
+export type { EndpointVendorId };
 
 /** The CrowdStrike-shaped alert list of each endpoint vendor. */
 const ALERT_LISTS: Record<EndpointVendorId, (params: Parameters<typeof crowdstrikeApi.getAlerts>[0]) => Promise<PaginatedCrowdStrikeAlerts>> = {
