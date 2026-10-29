@@ -41,7 +41,7 @@ function StageEvidence({ exec, ...props }: StageViewProps & { exec: EnrichedTest
   const vendors = joinNames([
     ...(defenderConfigured ? ['Defender'] : []),
     ...configuredEndpoints.map((id) => VENDORS[id].shortName),
-  ]);
+  ], 'or');
   const hasBundleAlerts =
     (defenderConfigured && defender.hasBundleAlerts)
     || configuredEndpoints.some((id) => endpoint[id].hasBundleAlerts);

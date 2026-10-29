@@ -67,9 +67,9 @@ describe('EndpointAlertRow', () => {
 });
 
 describe('StageList vendor copy', () => {
-  it('names all four vendors when all are configured', () => {
+  function renderWith(configured: Array<'crowdstrike' | 'sentinelone' | 'sophos'>) {
     const endpointAlerts = emptyEndpointAlerts();
-    for (const v of ['crowdstrike', 'sentinelone', 'sophos'] as const) endpointAlerts[v].configured = true;
+    for (const v of configured) endpointAlerts[v].configured = true;
     const group = {
       type: 'bundle', key: 'g', bundle_id: 'u1', bundle_name: 'Chain', hostname: 'LT1',
       timestamp: exec.timestamp, controls: [exec], protectedCount: 1, unprotectedCount: 0,
@@ -92,8 +92,17 @@ describe('StageList vendor copy', () => {
       onToggleControl: vi.fn(),
     } as unknown as RunDetailPanelProps;
     render(<StageList {...props} group={group} />);
+  }
+
+  it('names all four vendors with "or" when all are configured', () => {
+    renderWith(['crowdstrike', 'sentinelone', 'sophos']);
     expect(
-      screen.getByText("No Defender, CrowdStrike, SentinelOne and Sophos alert names this stage's binary.")
+      screen.getByText("No Defender, CrowdStrike, SentinelOne or Sophos alert names this stage's binary.")
     ).toBeInTheDocument();
+  });
+
+  it('names two vendors with "or"', () => {
+    renderWith(['crowdstrike']);
+    expect(screen.getByText("No Defender or CrowdStrike alert names this stage's binary.")).toBeInTheDocument();
   });
 });
