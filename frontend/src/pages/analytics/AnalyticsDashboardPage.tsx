@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { LayoutDashboard, Table, Filter, ChevronUp, ChevronDown, RefreshCw, Settings, ShieldOff } from 'lucide-react';
-import { CrowdStrikeLogo, DefenderLogo, SentinelOneLogo } from '@/components/shared/VendorLogos';
+import { CrowdStrikeLogo, DefenderLogo, SentinelOneLogo, SophosLogo } from '@/components/shared/VendorLogos';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { pillClass } from '@/components/shared/ui/pillStyles';
 import { Button } from '@/components/ui/button';
@@ -23,6 +23,8 @@ import RiskAcceptancesTab from './components/RiskAcceptancesTab';
 import DefenderTab from './components/DefenderTab';
 import CrowdStrikeTab from './components/CrowdStrikeTab';
 import SentinelOneTab from './components/SentinelOneTab';
+import SophosTab from './components/SophosTab';
+import { buildValidTabs } from './validTabs';
 import SecureScoreCard from './components/SecureScoreCard';
 import ZtaScoreCard from './components/ZtaScoreCard';
 import TopControlsCard from './components/TopControlsCard';
@@ -34,6 +36,8 @@ import { useDefenderConfig } from '@/hooks/useDefenderConfig';
 import { useCrowdStrikeConfig } from '@/hooks/useCrowdStrikeConfig';
 import { useSentinelOneConfig } from '@/hooks/useSentinelOneConfig';
 import { sentineloneAnalyticsApi } from '../../services/api/sentineloneAnalytics';
+import { useSophosConfig } from '@/hooks/useSophosConfig';
+import { sophosAnalyticsApi } from '../../services/api/sophosAnalytics';
 import { useScoringMode } from '@/hooks/useScoringMode';
 import { analyticsApi } from '../../services/api/analytics';
 import { reportsApi } from '../../services/api/reports';
@@ -54,7 +58,7 @@ import type {
   RiskAcceptance,
 } from '../../services/api/analytics';
 
-type TabType = 'dashboard' | 'executions' | 'risk-acceptances' | 'defender' | 'crowdstrike' | 'sentinelone';
+type TabType = 'dashboard' | 'executions' | 'risk-acceptances' | 'defender' | 'crowdstrike' | 'sentinelone' | 'sophos';
 
 interface DefenseScoreData {
   overall: number | null;
@@ -87,19 +91,19 @@ export default function AnalyticsDashboardPage() {
   const { configured: crowdstrikeConfigured } = useCrowdStrikeConfig();
   // SentinelOne integration status (same hidden-until-configured pattern)
   const { configured: sentineloneConfigured } = useSentinelOneConfig();
+  // Sophos integration status (same hidden-until-configured pattern)
+  const { configured: sophosConfigured } = useSophosConfig();
   const { scoringMode } = useScoringMode();
 
   // UI State
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const validTabs: TabType[] = [
-    'dashboard',
-    'executions',
-    'risk-acceptances',
-    ...(defenderConfigured ? ['defender' as const] : []),
-    ...(crowdstrikeConfigured ? ['crowdstrike' as const] : []),
-    ...(sentineloneConfigured ? ['sentinelone' as const] : []),
-  ];
+  const validTabs: TabType[] = buildValidTabs({
+    defender: defenderConfigured,
+    crowdstrike: crowdstrikeConfigured,
+    sentinelone: sentineloneConfigured,
+    sophos: sophosConfigured,
+  });
   const [activeTab, setActiveTab] = useState<TabType>(
     tabFromUrl && validTabs.includes(tabFromUrl) ? tabFromUrl : 'dashboard'
   );
@@ -117,6 +121,9 @@ export default function AnalyticsDashboardPage() {
   // SentinelOne dashboard data: technique overlap only (no posture-score equivalent).
   const [sentineloneTechniqueCount, setSentinelOneTechniqueCount] = useState<number>(0);
 
+  // Sophos dashboard data: technique overlap badge only (the Health Check series is on the main dashboard).
+  const [sophosTechniqueCount, setSophosTechniqueCount] = useState<number>(0);
+
   // Risk acceptances tab badge count
   const [activeRiskCount, setActiveRiskCount] = useState(0);
 
@@ -127,7 +134,7 @@ export default function AnalyticsDashboardPage() {
     if (resolved !== activeTab) {
       setActiveTab(resolved);
     }
-  }, [searchParams, defenderConfigured, crowdstrikeConfigured, sentineloneConfigured]);
+  }, [searchParams, defenderConfigured, crowdstrikeConfigured, sentineloneConfigured, sophosConfigured]);
 
   // Handle tab change with URL sync
   const handleTabChange = useCallback((tab: TabType) => {
@@ -253,7 +260,7 @@ export default function AnalyticsDashboardPage() {
     if (activeTab === 'dashboard') {
       loadDashboardData();
     }
-  }, [filterState.filters, activeTab, settingsVersion, defenderConfigured, crowdstrikeConfigured, sentineloneConfigured, scoringMode]);
+  }, [filterState.filters, activeTab, settingsVersion, defenderConfigured, crowdstrikeConfigured, sentineloneConfigured, sophosConfigured, scoringMode]);
 
   // Load executions data when tab/filters/pagination/settings change
   useEffect(() => {
@@ -419,6 +426,18 @@ export default function AnalyticsDashboardPage() {
       } else {
         setSentinelOneTechniqueCount(0);
       }
+
+      // Sophos: technique overlap badge only.
+      if (sophosConfigured) {
+        try {
+          const sxTechniques = await sophosAnalyticsApi.getTechniqueOverlap();
+          setSophosTechniqueCount(sxTechniques.length);
+        } catch {
+          setSophosTechniqueCount(0);
+        }
+      } else {
+        setSophosTechniqueCount(0);
+      }
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
     } finally {
@@ -435,7 +454,7 @@ export default function AnalyticsDashboardPage() {
         }
       }
     }
-  }, [filterState, defenderConfigured, crowdstrikeConfigured, sentineloneConfigured, scoringMode]);
+  }, [filterState, defenderConfigured, crowdstrikeConfigured, sentineloneConfigured, sophosConfigured, scoringMode]);
 
   // Load executions data
   const loadExecutionsData = useCallback(async () => {
@@ -708,6 +727,7 @@ export default function AnalyticsDashboardPage() {
             ...(defenderConfigured ? [{ id: 'defender' as const, label: 'Defender', icon: DefenderLogo, badge: null }] : []),
             ...(crowdstrikeConfigured ? [{ id: 'crowdstrike' as const, label: 'CrowdStrike', icon: CrowdStrikeLogo, badge: null }] : []),
             ...(sentineloneConfigured ? [{ id: 'sentinelone' as const, label: 'SentinelOne', icon: SentinelOneLogo, badge: null }] : []),
+            ...(sophosConfigured ? [{ id: 'sophos' as const, label: 'Sophos', icon: SophosLogo, badge: null }] : []),
           ]).map(tab => (
             <button
               key={tab.id}
@@ -753,6 +773,9 @@ export default function AnalyticsDashboardPage() {
         ) : activeTab === 'sentinelone' ? (
           /* SentinelOne Tab (full-page view) */
           <SentinelOneTab dateRange={filterState.filters.dateRange} />
+        ) : activeTab === 'sophos' ? (
+          /* Sophos Tab (full-page view) */
+          <SophosTab dateRange={filterState.filters.dateRange} />
         ) : activeTab === 'risk-acceptances' ? (
           /* Risk Acceptances Tab */
           <RiskAcceptancesTab onActiveCountChange={setActiveRiskCount} />
@@ -774,6 +797,7 @@ export default function AnalyticsDashboardPage() {
                 defenderTechniqueCount={defenderTechniqueCount}
                 crowdstrikeTechniqueCount={crowdstrikeTechniqueCount}
                 sentineloneTechniqueCount={sentineloneTechniqueCount}
+                sophosTechniqueCount={sophosTechniqueCount}
                 onTechniqueClick={(technique) => {
                   filterState.setTechniques([technique]);
                   handleTabChange('executions');
