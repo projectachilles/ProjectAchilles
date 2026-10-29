@@ -23,19 +23,30 @@ export function buildInstallCommands(serverUrl: string, token: string): InstallC
   const ngrok = isNgrokHost(serverUrl);
   const download = (os: string, arch: string) => `${serverUrl}/api/agent/download?os=${os}&arch=${arch}`;
 
+  // The agent installs into one fixed folder, C:\F0 on Windows and /opt/f0
+  // elsewhere: the service runs the binary from where --install runs it, and the
+  // Defender ASR per-rule exclusion, the C:\F0 folder lock and the EDR guides
+  // all name that path. Download straight there instead of into the current
+  // folder (an elevated PowerShell starts in C:\Windows\System32).
+  const unixAgent = '/opt/f0/achilles-agent';
+  const winAgent = 'C:\\F0\\achilles-agent.exe';
+
   // `\` must end the line with nothing after it, or the shell runs a broken command.
+  // Every step runs as root: /opt/f0 is root's.
   const unix = (os: string, arch: string) =>
     [
-      `curl -fSL${ngrok ? ' -H "ngrok-skip-browser-warning: true"' : ''} "${download(os, arch)}" \\`,
-      '  -o achilles-agent && chmod +x achilles-agent && \\',
-      `  sudo ./achilles-agent --enroll ${token} --server ${serverUrl} --install`,
+      'sudo mkdir -p /opt/f0 && \\',
+      `  sudo curl -fSL${ngrok ? ' -H "ngrok-skip-browser-warning: true"' : ''} "${download(os, arch)}" -o ${unixAgent} && \\`,
+      `  sudo chmod 700 ${unixAgent} && \\`,
+      `  sudo ${unixAgent} --enroll ${token} --server ${serverUrl} --install`,
     ].join('\n');
 
-  // Two statements on two lines rather than backtick continuations, which break
-  // silently if a trailing space sneaks in when pasting.
+  // Separate statements on separate lines rather than backtick continuations,
+  // which break silently if a trailing space sneaks in when pasting.
   const windows = [
-    `Invoke-WebRequest -Uri "${download('windows', 'amd64')}"${ngrok ? ' -Headers @{"ngrok-skip-browser-warning"="true"}' : ''} -OutFile achilles-agent.exe`,
-    `.\\achilles-agent.exe --enroll ${token} --server ${serverUrl} --install`,
+    'New-Item -ItemType Directory -Force -Path C:\\F0 | Out-Null',
+    `Invoke-WebRequest -UseBasicParsing -Uri "${download('windows', 'amd64')}"${ngrok ? ' -Headers @{"ngrok-skip-browser-warning"="true"}' : ''} -OutFile ${winAgent}`,
+    `${winAgent} --enroll ${token} --server ${serverUrl} --install`,
   ].join('\n');
 
   return [
