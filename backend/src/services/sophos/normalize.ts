@@ -426,11 +426,13 @@ export function parseLegacyCleanup(e: unknown): SophosLegacyCleanup | null {
 // ---------------------------------------------------------------- XDR detections
 
 /**
- * Provisional entity prefixes (`<type>:<value>`): the schema documents the
- * format but not the type vocabulary.
+ * Entity prefixes (`<type>:<value>`). A live tenant returns `computerName:`
+ * for the host and `fileName:` with a bare name (no path); the rest of the
+ * vocabulary is provisional.
  */
-const HOST_ENTITY = /^(?:hostname|host|device|computer|endpoint)$/i;
-const PATH_ENTITY = /^(?:file|filepath|file_path|path|process|process_path|image|binary)$/i;
+const HOST_ENTITY = /^(?:computer_?name|hostname|host|device|computer|endpoint)$/i;
+const NAME_ENTITY = /^(?:file_?name|process_?name)$/i;
+const PATH_ENTITY = /^(?:file|file_?path|path|process|process_?path|image|binary)$/i;
 
 export function transformGraphqlDetection(d: unknown): SophosAlertDoc {
   const o = obj(d);
@@ -443,6 +445,7 @@ export function transformGraphqlDetection(d: unknown): SophosAlertDoc {
   const entities = arr(obj(o.entities).entities).map(str);
   const hostVals: string[] = [];
   const pathVals: string[] = [];
+  const nameVals: string[] = [];
   let sha: string | undefined;
   for (const ent of entities) {
     const i = ent.indexOf(':');
@@ -450,10 +453,11 @@ export function transformGraphqlDetection(d: unknown): SophosAlertDoc {
     const kind = ent.slice(0, i);
     const value = ent.slice(i + 1);
     if (HOST_ENTITY.test(kind)) hostVals.push(value);
-    else if (PATH_ENTITY.test(kind) && /[\\/]/.test(value)) pathVals.push(value);
+    else if (NAME_ENTITY.test(kind) && value && !/[\\/]/.test(value)) nameVals.push(value);
+    else if ((PATH_ENTITY.test(kind) || NAME_ENTITY.test(kind)) && /[\\/]/.test(value)) pathVals.push(value);
     else if (/^sha256$/i.test(kind)) sha = sha ?? sha256Of(value);
   }
-  const ev = pathEvidence(pathVals);
+  const ev = pathEvidence(pathVals, nameVals);
   const enrichment = arr(o.enrichment_details).map((x) => obj(obj(x).mitre_attack_info).technique_id);
   return {
     ...baseDoc(),

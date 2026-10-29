@@ -181,6 +181,22 @@ describe('transformGraphqlDetection', () => {
     expect(d.evidence_filepaths).toEqual([BIN]);
     expect(d.evidence_filenames).toEqual([BIN_NAME]);
   });
+  it('reads the entity prefixes a live tenant returns (computerName, bare fileName)', () => {
+    // Shape captured from a live Sophos XDR tenant (values neutralized).
+    const d = transformGraphqlDetection({
+      id: 'x',
+      entities: {
+        entities: [
+          'fileName:powershell.exe', 'fileName:a1b2c3d4-0000-4000-8000-000000000001.exe',
+          'computerName:WIN-LAB01', 'userName:LAB\\analyst', 'hostId:h-1', 'sensorHostId:s-1',
+          'sensorId:s-2', 'sensorType:ENDPOINT_SOPHOS',
+        ],
+      },
+    });
+    expect(d.evidence_hostnames).toEqual(['WIN-LAB01']);
+    expect(d.evidence_filenames).toEqual(['powershell.exe', 'a1b2c3d4-0000-4000-8000-000000000001.exe']);
+    expect(d.evidence_filepaths).toEqual([]);
+  });
   it.each([[0.8, 'critical'], [0.79, 'high'], [0.6, 'high'], [0.59, 'medium'], [0.4, 'medium'], [0.39, 'low'], [0.2, 'low'], [0.19, 'informational'], [0, 'informational']])(
     'severity %s -> %s', (sev, want) => {
       expect(transformGraphqlDetection({ id: 'x', metadata: { severity: sev } }).severity).toBe(want);
