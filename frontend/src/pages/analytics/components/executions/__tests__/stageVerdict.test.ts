@@ -294,7 +294,7 @@ describe('an EDR launch block', () => {
     expect(launchBlock(blocked)).toEqual({ vendor: 'CrowdStrike Falcon', alertIds: ['cs-1'] });
     expect(launchBlockSubLabel({ vendor: 'CrowdStrike Falcon' })).toBe('Blocked before it ran by CrowdStrike Falcon');
     expect(launchBlockNote({ vendor: 'CrowdStrike Falcon' })).toBe(
-      'CrowdStrike Falcon blocked this test before it ran (the agent reported exit 260, blocked before execution), and its own prevention alert confirms it. The run counts as protected for the test as a whole; no stage ran, so no technique is scored.',
+      'CrowdStrike Falcon blocked this test before it ran, and its own prevention alert confirms it. The run counts as protected for the test as a whole; no stage ran, so no technique is scored.',
     );
   });
 

@@ -102,7 +102,15 @@ export function ResultCode({ exec }: { exec: EnrichedTestExecution }) {
       ? `${exec.error_name} (${exec.error_code})`
       : exec.error_name || String(exec.error_code ?? '');
   const cat = exec.error_code != null ? ERROR_CODE_CATEGORIES[exec.error_code] : undefined;
-  return <span className={cat ? ERROR_CATEGORY_COLORS[cat] : ''}>{text}</span>;
+  const code = <span className={cat ? ERROR_CATEGORY_COLORS[cat] : ''}>{text}</span>;
+  // An EDR-confirmed launch block: the backend rewrote the agent's 260 to 126.
+  if (!exec.edr_launch_blocked) return code;
+  return (
+    <span className="flex flex-col">
+      {code}
+      <span className="text-[11px] text-faint">Agent reported 260 (BlockedPreExecution); set to 126 by the EDR's alert</span>
+    </span>
+  );
 }
 
 export function RiskActions({
