@@ -1,0 +1,17 @@
+{
+  "_provisional": "derived from the published Sophos spec; replace with a verbatim PoC capture",
+  "id": "a5ded91c-6575-435c-a6b4-64b94f9048ff",
+  "allowedActions": ["acknowledge", "cleanVirus"],
+  "category": "malware",
+  "description": "Malware detected: 'ML/PE-A' at 'C:\\F0\\tasks\\task-4821-x7k2\\7659eeba-f315-440e-9882-4aa015d68b27-CH-DEF-001.exe'",
+  "groupKey": "MSxFdmVudDo6RW5kcG9pbnQ6OlRocmVhdDo6RGV0ZWN0ZWQsNTEz",
+  "managedAgent": { "id": "bb90527d-73a8-4e6e-85c6-20c2e0c5bc6f", "type": "computer", "name": "WIN-LAB01" },
+  "person": { "id": "17dd896f-ee9f-4f7d-a2a2-6a8c0b48ff15", "name": "Lab User" },
+  "product": "endpoint",
+  "raisedAt": "2026-10-28T10:00:05.250Z",
+  "severity": "high",
+  "tenant": { "id": "79067fa3-e4d0-4769-a5f7-8d6550b3b68b", "name": "Acme Corp" },
+  "type": "Event::Endpoint::Threat::Detected",
+  "updatedAt": "2026-10-28T10:00:06.000Z",
+  "status": "open"
+}

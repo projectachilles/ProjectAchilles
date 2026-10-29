@@ -1,0 +1,20 @@
+{
+  "_provisional": "derived from the published Sophos spec; replace with a verbatim PoC capture",
+  "id": "e1111111-1111-4111-8111-111111111111",
+  "customer_id": "79067fa3-e4d0-4769-a5f7-8d6550b3b68b",
+  "severity": "HIGH",
+  "source": "n/a",
+  "location": "win-lab01.corp.local",
+  "when": "2026-10-28T10:00:01.000Z",
+  "created_at": "2026-10-28T10:00:03.000Z",
+  "name": "Malware detected: 'ML/PE-A' at 'C:\\F0\\tasks\\task-4821-x7k2\\7659eeba-f315-440e-9882-4aa015d68b27-CH-DEF-001.exe'",
+  "type": "Event::Endpoint::CoreDetection",
+  "threat": "ML/PE-A",
+  "group": "MALWARE",
+  "endpoint_type": "computer",
+  "endpoint_id": "bb90527d-73a8-4e6e-85c6-20c2e0c5bc6f",
+  "appSha256": "3f2a9c1e5b7d4a8e9c0b1d2e3f4a5b6c7d8e9f00112233445566778899aabbcc",
+  "origin": "ML_MALWARE_DETECTION",
+  "core_remedy_items": { "totalItems": 2, "items": [ { "type": "file", "result": "DELETED", "descriptor": "C:\\F0\\tasks\\task-4821-x7k2\\7659eeba-f315-440e-9882-4aa015d68b27-CH-DEF-001.exe", "processPath": "" }, { "type": "process", "result": "SUCCESS", "descriptor": "pid 4242", "processPath": "C:\\F0\\tasks\\task-4821-x7k2\\7659eeba-f315-440e-9882-4aa015d68b27-CH-DEF-001.exe", "sophosPid": "4242" } ] }, "details": [ { "type": "CORE_APPLICATION_PATH", "property": "C:\\F0\\tasks\\task-4821-x7k2\\7659eeba-f315-440e-9882-4aa015d68b27-CH-DEF-001.exe" }, { "type": "CORE_APPLICATION_SHA_256", "property": "3f2a9c1e5b7d4a8e9c0b1d2e3f4a5b6c7d8e9f00112233445566778899aabbcc" } ],
+  "datastream": "Event"
+}
