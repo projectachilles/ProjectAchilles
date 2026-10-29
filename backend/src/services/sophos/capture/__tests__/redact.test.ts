@@ -1,0 +1,79 @@
+import { describe, it, expect } from 'vitest';
+import { redactCapture } from '../redact.js';
+
+const text = (v: unknown) => JSON.stringify(v);
+
+describe('redactCapture', () => {
+  it('pseudonymises a hostname consistently across fields', () => {
+    const out = redactCapture({
+      endpoint: { hostname: 'LAPTOP-ACME42', id: 'x' },
+      alert: { managedAgent: { name: 'LAPTOP-ACME42' }, description: 'Malware found on laptop-acme42 today' },
+      xdr: { entities: [{ properties: { hostname: 'LAPTOP-ACME42', hostname_fqdn: 'laptop-acme42.corp.acme.local' } }] },
+      other: { hostname: 'SERVER-9' },
+    }) as any;
+    expect(out.endpoint.hostname).toBe('host-001');
+    expect(out.other.hostname).toBe('host-002');
+    expect(out.alert.description).toBe('Malware found on host-001 today');
+    expect(out.xdr.entities[0].properties.hostname).toBe('host-001');
+    expect(out.xdr.entities[0].properties.hostname_fqdn).toBe('host-001.example.test');
+    expect(text(out)).not.toMatch(/acme/i);
+  });
+
+  it('keeps C:\\F0 file names and ATT&CK ids', () => {
+    const input = {
+      location: 'C:\\F0\\7659eeba-f315-440e-9882-4aa015d68b27-T1486.exe',
+      linux: '/opt/f0/tasks/7659eeba-f315-440e-9882-4aa015d68b27/stage1.bin',
+      attack_technique_ids: ['T1486', 'T1059.001'],
+      type: 'Event::Endpoint::Threat::Detected',
+      origin: 'Sophos',
+      remedy: { result: '0x00000000' },
+      severity: 'high',
+      raisedAt: '2026-10-28T12:34:56.789Z',
+    };
+    expect(redactCapture(input)).toEqual(input);
+  });
+
+  it('replaces emails and IPs', () => {
+    const out = redactCapture({
+      associatedPerson: { name: 'Jane Smith', viaLogin: 'CORP\\jsmith' },
+      ipv4Addresses: ['10.20.30.40', '10.20.30.41'],
+      ipv6Addresses: ['fe80::1c2d:3e4f:5a6b:7c8d'],
+      macAddresses: ['AA:BB:CC:DD:EE:FF'],
+      description: 'Mail from jane.smith@acme.com via 10.20.30.40 and 2a01:4b00:1::7',
+      version: '10.0.19045.0',
+    }) as any;
+    const s = text(out);
+    expect(out.associatedPerson.viaLogin).toBe('domain-001\\user-002');
+    expect(out.ipv4Addresses).toEqual(['192.0.2.1', '192.0.2.2']);
+    expect(out.ipv6Addresses[0]).toMatch(/^2001:db8::[0-9a-f]+$/);
+    expect(out.description).toMatch(/^Mail from user-\d{3}@example\.test via 192\.0\.2\.1 and 2001:db8::[0-9a-f]+$/);
+    expect(out.version).toBe('10.0.19045.0');
+    for (const leak of ['jsmith', 'Jane', 'acme', '10.20.30', 'fe80', 'AA:BB', '2a01']) expect(s).not.toContain(leak);
+  });
+
+  it('never leaves a value from the redaction map in free text', () => {
+    const map = new Map<string, string>();
+    const out = redactCapture({
+      first: { description: 'Seen on DESKTOP-QQ77 by Bob.Builder with C:\\Users\\bobb\\file.txt', name: 'x' },
+      later: { hostname: 'DESKTOP-QQ77', username: 'Bob.Builder', tenant_id: '11772', host_id: 'abcdef0123456789' },
+      uuid: { id: '3f2504e0-4f89-41d3-9a0c-0305e82c3301', note: 'tenant 3f2504e0-4f89-41d3-9a0c-0305e82c3301 id alert://priv:sophos:11772:99' },
+    }, map) as any;
+    const s = text(out);
+    expect(map.size).toBeGreaterThan(0);
+    for (const original of map.keys()) expect(s.toLowerCase()).not.toContain(original.toLowerCase());
+    expect(s).not.toContain('bobb');
+    expect(out.uuid.id).toBe(out.uuid.note.match(/[0-9a-f-]{36}/)[0]);
+    expect(out.uuid.id).not.toContain('3f2504e0');
+    // the same map reused for a second capture stays consistent
+    const again = redactCapture({ hostname: 'DESKTOP-QQ77' }, map) as any;
+    expect(again.hostname).toBe(out.later.hostname);
+  });
+});
+
+describe('redactCapture XDR entity keys', () => {
+  it('redacts user_name and domain_name keys consistently', () => {
+    const out = redactCapture({ a: { user_name: 'bob', domain_name: 'CORP' }, b: { description: 'bob logged on to CORP' } }) as any;
+    expect(out.a).toEqual({ user_name: 'user-001', domain_name: 'domain-001' });
+    expect(out.b.description).toBe('user-001 logged on to domain-001');
+  });
+});
