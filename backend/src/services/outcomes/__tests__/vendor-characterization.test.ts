@@ -98,8 +98,16 @@ describe('EDR vendor characterization (pre-registry refactor)', () => {
   });
 
   it('getExecutionActivity request', async () => {
-    const svc = new ElasticsearchService(settings);
-    expect(await searchBodies(() => svc.getExecutionActivity({ days: 7 }))).toMatchSnapshot();
+    // The request carries date_histogram bounds computed from "now"; pin the
+    // clock to the day the snapshot was taken so it doesn't break at midnight UTC.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-28T12:00:00Z'));
+    try {
+      const svc = new ElasticsearchService(settings);
+      expect(await searchBodies(() => svc.getExecutionActivity({ days: 7 }))).toMatchSnapshot();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('mapHitToExecution with every vendor flag set', () => {
