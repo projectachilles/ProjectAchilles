@@ -226,9 +226,9 @@ export default function ExecutionsDataTable({
     sentinelone: sentineloneConfigured,
     sophos: sophosConfigured,
   };
-  const endpointCache = useRef<Record<EndpointVendorId, Map<string, RelatedCrowdStrikeAlertsResponse | null>>>(
-    emptyCaches(),
-  );
+  const endpointCacheRef = useRef<Record<EndpointVendorId, Map<string, RelatedCrowdStrikeAlertsResponse | null>> | null>(null);
+  if (endpointCacheRef.current === null) endpointCacheRef.current = emptyCaches();
+  const endpointCache = endpointCacheRef as { current: Record<EndpointVendorId, Map<string, RelatedCrowdStrikeAlertsResponse | null>> };
   const [endpointLoading, setEndpointLoading] = useState<Record<EndpointVendorId, Set<string>>>(
     () => Object.fromEntries(ENDPOINT_VENDOR_IDS.map((id) => [id, new Set<string>()])) as Record<EndpointVendorId, Set<string>>,
   );
