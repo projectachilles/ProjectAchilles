@@ -8,7 +8,10 @@
 //  - A source's checkpoint advances only after a clean run (to the run's start).
 //  - 429 / 5xx / network / GraphQL errors pin it; a permanent per-doc 4xx
 //    (mapping, parse) is reported but doesn't (it would fail the same way forever).
-//  - sync_version is saved only when every available source ran clean.
+//  - sync_version: when the stored version differs, every checkpoint is
+//    cleared ONCE and the new version saved before fetching; from then on each
+//    source's checkpoint stands on its own (a failing source re-backfills alone).
+//  - Only checkpoints that advanced are written.
 //  - A credential / tenant change discards the run's checkpoints.
 //
 // SIEM events: Sophos keeps 24 h. When the last clean SIEM poll is more than
@@ -73,6 +76,8 @@ const CHECKPOINT_OVERLAP_MS = 2 * 60 * 1000;
 /** A recorded gap stays visible at least this long after it was detected. */
 const SYNC_GAP_VISIBLE_MS = 24 * 60 * 60 * 1000;
 const DAY_MS = 86_400_000;
+/** Alerts are kept 90 days; stay an hour inside that so Sophos can't reject `from` as out of range. */
+const ALERT_WINDOW_MS = SOPHOS_ALERT_BACKFILL_DAYS * DAY_MS - 60 * 60 * 1000;
 const SIEM_MAX_PAGES = 1_000;
 const DETECTION_PAGE_SIZE = 500;
 /** GraphQL offset paging covers this many; beyond it, `detectionPoll(search_id)` returns further parts. */
@@ -159,10 +164,11 @@ function emptySource(): SophosSourceSyncResult {
   return { fetched: 0, synced: 0, merged: 0, errors: [] };
 }
 
-function clampSince(checkpoint: string | null | undefined, maxDays: number, firstRunDays: number, now: number): string {
-  const floor = now - maxDays * DAY_MS;
+/** `checkpoint - 2 min`, never older than `maxMs`; `firstRunMs` back on the first run. */
+function clampSince(checkpoint: string | null | undefined, maxMs: number, firstRunMs: number, now: number): string {
+  const floor = now - maxMs;
   const cp = checkpoint ? Date.parse(checkpoint) : NaN;
-  const since = Number.isNaN(cp) ? now - firstRunDays * DAY_MS : Math.max(cp - CHECKPOINT_OVERLAP_MS, floor);
+  const since = Number.isNaN(cp) ? now - Math.min(firstRunMs, maxMs) : Math.max(cp - CHECKPOINT_OVERLAP_MS, floor);
   return new Date(since).toISOString();
 }
 
@@ -223,28 +229,40 @@ export class SophosSyncService {
       stage = 'whoami';
       const who = await client.whoami();
       const tenantChanged = !!settings.tenant_id && settings.tenant_id !== who.id;
+      if (tenantChanged) {
+        // Checkpoints, cursor and gap belong to the previous tenant. Cleared
+        // before the new tenant is recorded, so a crash in between can't leave
+        // the old tenant's checkpoints under the new tenant id.
+        console.log('[Sophos] tenant changed since the last sync: checkpoints discarded, backfilling');
+        svc.resetSophosSyncTimestamps();
+      }
       svc.saveSophosDiscovery({
         tenant_id: who.id,
         ...(who.dataRegionHost ? { api_host: who.dataRegionHost, data_region: regionOf(who.dataRegionHost) } : {}),
         last_auth_ok_at: new Date().toISOString(),
       });
-      if (tenantChanged) {
-        // Checkpoints, cursor and gap belong to the previous tenant.
-        console.log('[Sophos] tenant changed since the last sync: checkpoints discarded, backfilling');
-        svc.resetSophosSyncTimestamps();
-      }
 
       stage = 'index';
       await ensureSophosIndex();
 
-      const cp = tenantChanged ? {} : svc.getSophosSyncTimestamps();
-      const valid = cp.sync_version === SOPHOS_SYNC_VERSION;
-      this.status.lastAlertSync = valid ? cp.last_alert_sync ?? null : null;
-      this.status.lastSiemSync = valid ? cp.last_siem_sync ?? null : null;
-      this.status.lastDetectionSync = valid ? cp.last_detection_sync ?? null : null;
-      this.siemCursor = valid ? cp.siem_cursor ?? null : null;
+      stage = 'checkpoints';
+      let cp = tenantChanged ? {} : svc.getSophosSyncTimestamps();
+      if (tenantChanged || cp.sync_version !== SOPHOS_SYNC_VERSION) {
+        // New doc schema (or new tenant): clear every checkpoint once, then trust
+        // each source's own checkpoint from here on.
+        if (!tenantChanged) {
+          console.log(`[Sophos] sync version ${String(cp.sync_version ?? 'none')} -> ${SOPHOS_SYNC_VERSION}: checkpoints cleared, backfilling`);
+          svc.resetSophosSyncTimestamps();
+        }
+        svc.saveSophosSyncTimestamps({ sync_version: SOPHOS_SYNC_VERSION });
+        cp = {};
+      }
+      this.status.lastAlertSync = cp.last_alert_sync ?? null;
+      this.status.lastSiemSync = cp.last_siem_sync ?? null;
+      this.status.lastDetectionSync = cp.last_detection_sync ?? null;
+      this.siemCursor = cp.siem_cursor ?? null;
       this.status.syncGap = cp.sync_gap ?? null;
-      const startCursor = this.siemCursor;
+      const start = { alert: this.status.lastAlertSync, siem: this.status.lastSiemSync, detection: this.status.lastDetectionSync, cursor: this.siemCursor };
 
       const ctx: PollContext = { es, client, pollDocs: new Map(), capabilities: { ...DEFAULT_CAPABILITIES, ...settings.capabilities } };
       const result: SophosSyncResult = { timestamp };
@@ -278,15 +296,15 @@ export class SophosSyncService {
 
       stage = 'checkpoints';
       svc.saveSophosDiscovery({ capabilities: ctx.capabilities });
-      const outcomes = [alerts.outcome, siem.outcome, detections.outcome];
-      const allClean = outcomes.every((o) => o !== 'pinned');
+      const allClean = [alerts.outcome, siem.outcome, detections.outcome].every((o) => o !== 'pinned');
+      // Only what advanced is written; a pinned source keeps its stored checkpoint.
+      const changed = <T,>(now: T, before: T): T | undefined => (now !== before ? now : undefined);
       svc.saveSophosSyncTimestamps({
-        last_alert_sync: this.status.lastAlertSync ?? undefined,
-        last_siem_sync: this.status.lastSiemSync ?? undefined,
-        last_detection_sync: this.status.lastDetectionSync ?? undefined,
-        siem_cursor: this.siemCursor !== startCursor ? this.siemCursor : undefined,
+        last_alert_sync: changed(this.status.lastAlertSync, start.alert) ?? undefined,
+        last_siem_sync: changed(this.status.lastSiemSync, start.siem) ?? undefined,
+        last_detection_sync: changed(this.status.lastDetectionSync, start.detection) ?? undefined,
+        siem_cursor: changed(this.siemCursor, start.cursor),
         ...this.gapUpdate(siem.newGap, allClean),
-        ...(allClean ? { sync_version: SOPHOS_SYNC_VERSION } : {}),
       });
 
       // Correlate AFTER the poll so freshly-synced alerts are visible.
@@ -350,7 +368,7 @@ export class SophosSyncService {
   private async syncAlerts(ctx: PollContext): Promise<{ result: SophosSourceSyncResult; outcome: Outcome }> {
     const startedAt = new Date().toISOString();
     const out = emptySource();
-    const from = clampSince(this.status.lastAlertSync, SOPHOS_ALERT_BACKFILL_DAYS, SOPHOS_ALERT_BACKFILL_DAYS, Date.now());
+    const from = clampSince(this.status.lastAlertSync, ALERT_WINDOW_MS, ALERT_WINDOW_MS, Date.now());
     if (!this.status.lastAlertSync) console.log(`[Sophos] Initial alerts backfill — last ${SOPHOS_ALERT_BACKFILL_DAYS} day(s)`);
     let outcome: Outcome = 'clean';
     try {
@@ -439,7 +457,7 @@ export class SophosSyncService {
     const now = Date.now();
     const out = emptySource();
     const backfillDays = Math.min(Math.max(settings.detection_backfill_days ?? SOPHOS_DEFAULT_DETECTION_BACKFILL_DAYS, 1), SOPHOS_MAX_DETECTION_BACKFILL_DAYS);
-    const since = clampSince(this.status.lastDetectionSync, SOPHOS_MAX_DETECTION_BACKFILL_DAYS, backfillDays, now);
+    const since = clampSince(this.status.lastDetectionSync, SOPHOS_MAX_DETECTION_BACKFILL_DAYS * DAY_MS, backfillDays * DAY_MS, now);
     if (!this.status.lastDetectionSync) console.log(`[Sophos] Initial XDR detections backfill — last ${backfillDays} day(s)`);
 
     let outcome: Outcome = 'clean';
@@ -481,31 +499,49 @@ export class SophosSyncService {
       if (docs.length > 0 && await this.writePlan(ctx, plainPlan(docs), out)) outcome = 'pinned';
     };
 
-    let offset = 0;
-    let last: DetectionsResponse | undefined;
+    // With a known total_results, stopping short of it is never clean (the
+    // detections in between would be skipped by the advanced checkpoint). The
+    // short-page rule only ends the search when no total is reported.
+    let fetched = 0;
+    let total: number | null = null;
+    const incomplete = (op: string) =>
+      new Error(`Sophos ${op} returned ${fetched} of ${total} detections; the detection checkpoint was not advanced`);
+
+    let searchId: string | null = null;
     for (;;) {
       const data = await ctx.client.graphql<{ detectionSearch?: DetectionsResponse | null }>(SOPHOS_DETECTION_SEARCH_QUERY,
-        detectionSearchVariables(cql, offset, DETECTION_PAGE_SIZE));
-      last = checkedResponse(data?.detectionSearch, 'detectionSearch');
-      const list = last.alerts?.list ?? [];
+        detectionSearchVariables(cql, fetched, DETECTION_PAGE_SIZE));
+      const res = checkedResponse(data?.detectionSearch, 'detectionSearch');
+      const list = res.alerts?.list ?? [];
       await writePage(list);
-      offset += list.length;
-      const total = last.alerts?.total_results ?? offset;
-      if (list.length < DETECTION_PAGE_SIZE || offset >= total) return outcome;
-      if (offset >= DETECTION_OFFSET_CAP) break;
+      fetched += list.length;
+      total = typeof res.alerts?.total_results === 'number' ? res.alerts.total_results : total;
+      searchId = res.search_id || searchId;
+      if (total !== null) {
+        if (fetched >= total) return outcome;
+        if (list.length === 0) throw incomplete('detectionSearch');
+      } else if (list.length < DETECTION_PAGE_SIZE) {
+        return outcome;
+      }
+      if (fetched >= DETECTION_OFFSET_CAP) break;
     }
 
     // More than 10k detections in the window: the rest comes as parts of the search.
-    const searchId = last?.search_id;
     if (!searchId) throw new Error('Sophos detectionSearch returned more than 10000 detections and no search_id to continue');
     for (let i = 0; i < DETECTION_MAX_POLLS; i++) {
       const data = await ctx.client.graphql<{ detectionPoll?: DetectionsResponse | null }>(SOPHOS_DETECTION_POLL_QUERY, detectionPollVariables(searchId));
       const res = checkedResponse(data?.detectionPoll, 'detectionPoll');
       const list = res.alerts?.list ?? [];
       await writePage(list);
+      fetched += list.length;
+      total = typeof res.alerts?.total_results === 'number' ? res.alerts.total_results : total;
+      if (total !== null && fetched >= total) return outcome;
       const part = res.alerts?.part ?? 0;
       const parts = res.alerts?.total_parts ?? 0;
-      if (list.length === 0 || part >= parts) return outcome;
+      if (list.length === 0 || part >= parts) {
+        if (total !== null) throw incomplete('detectionPoll');
+        return outcome;
+      }
     }
     throw new Error(`Sophos detectionPoll did not finish within ${DETECTION_MAX_POLLS} parts`);
   }

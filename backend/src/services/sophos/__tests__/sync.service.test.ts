@@ -129,8 +129,17 @@ const gqlPage = (list: unknown[], extra: Record<string, unknown> = {}) => ({
 describe('SophosSyncService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks keeps unconsumed *Once queues; drop them so no test inherits another's pages.
+    for (const m of [mockWhoami, mockListAlerts, mockSiemEvents, mockGraphql, mockDetectionsV1, mockBulk, mockSearch, mockRunEnrichment, mockAutoResolvePass, mockPosturePass]) m.mockReset();
     mockSettings = { configured: true, client_id: 'cid-1', tenant_id: TENANT, detection_backfill_days: 30 };
-    mockCheckpoints = {};
+    // An installed integration already carries the current sync_version (version-bump tests override this).
+    mockCheckpoints = { sync_version: SOPHOS_SYNC_VERSION };
+    mockSaveCheckpoints.mockImplementation((cp: Record<string, unknown>) => {
+      for (const [k, v] of Object.entries(cp)) if (v !== undefined) mockCheckpoints[k] = v;
+    });
+    mockResetCheckpoints.mockImplementation(() => {
+      for (const k of ['siem_cursor', 'last_siem_sync', 'last_alert_sync', 'last_detection_sync', 'last_posture_sync', 'sync_version', 'sync_gap']) delete mockCheckpoints[k];
+    });
     mockAutoResolveMode = 'disabled';
     mockWhoami.mockResolvedValue({ id: TENANT, idType: 'tenant', dataRegionHost: 'api-eu01.central.sophos.com' });
     mockListAlerts.mockResolvedValue({ items: [] });
@@ -197,9 +206,9 @@ describe('SophosSyncService', () => {
     expect(result.xdr_detections?.errors[0]).toContain('internal failure');
     expect(mockDetectionsV1).not.toHaveBeenCalled();
     const saved = savedCheckpoints();
-    expect(saved.last_detection_sync).toBe(last); // written back unchanged, never advanced
+    expect(saved.last_detection_sync).toBeUndefined(); // never advanced (and not rewritten)
     expect(saved.last_alert_sync).not.toBe(last);
-    expect(saved.sync_version).toBeUndefined();
+    expect(mockCheckpoints.last_detection_sync).toBe(last);
   });
 
   it('a non-OK detectionSearch status also pins the detection checkpoint', async () => {
@@ -251,6 +260,48 @@ describe('SophosSyncService', () => {
     expect(result.xdr_detections).toMatchObject({ fetched: 501, synced: 501 });
   });
 
+  it('XDR paging: short pages that stop before total_results pin the detection checkpoint', async () => {
+    const page = (n: number, from: number) => Array.from({ length: n }, (_, i) => ({ ...gqlDetection(), id: `alert:${from + i}` }));
+    mockGraphql
+      .mockResolvedValueOnce({ detectionSearch: { status: 'OK', alerts: { total_results: 1200, list: page(400, 0) } } })
+      .mockResolvedValueOnce({ detectionSearch: { status: 'OK', alerts: { total_results: 1200, list: page(400, 400) } } })
+      .mockResolvedValueOnce({ detectionSearch: { status: 'OK', alerts: { total_results: 1200, list: [] } } });
+    const result = await new SophosSyncService().syncAll();
+    expect(mockGraphql.mock.calls[1][1].in.offset).toBe(400);
+    expect(mockGraphql.mock.calls[2][1].in.offset).toBe(800);
+    expect(result.xdr_detections?.fetched).toBe(800);
+    expect(result.xdr_detections?.errors[0]).toMatch(/800 of 1200/);
+    expect(savedCheckpoints().last_detection_sync).toBeUndefined();
+    expect(mockDetectionsV1).not.toHaveBeenCalled();
+  });
+
+  it('XDR paging past 10k: detectionPoll parts that end before total_results pin the checkpoint; a complete set is clean', async () => {
+    const page = (n: number, from: number) => Array.from({ length: n }, (_, i) => ({ ...gqlDetection(), id: `alert:${from + i}` }));
+    const serve = (total: number, pollPages: Array<{ n: number; part: number; parts: number }>) => {
+      let polls = 0;
+      mockGraphql.mockImplementation(async (query: string, vars: { in: { offset?: number } }) => {
+        if (/detectionPoll/.test(query)) {
+          const p = pollPages[polls++] ?? { n: 0, part: 9, parts: 9 };
+          return { detectionPoll: { status: 'OK', alerts: { total_results: total, part: p.part, total_parts: p.parts, list: page(p.n, 20_000 + polls * 1000) } } };
+        }
+        return { detectionSearch: { status: 'OK', search_id: 's-big', alerts: { total_results: total, list: page(500, vars.in.offset ?? 0) } } };
+      });
+    };
+    serve(10_600, [{ n: 300, part: 2, parts: 2 }]);
+    const short = await new SophosSyncService().syncAll();
+    expect(mockGraphql.mock.calls.filter((c) => /detectionPoll/.test(c[0]))[0][1]).toEqual({ in: { search_id: 's-big' } });
+    expect(short.xdr_detections?.fetched).toBe(10_300);
+    expect(short.xdr_detections?.errors[0]).toMatch(/10300 of 10600/);
+    expect(savedCheckpoints().last_detection_sync).toBeUndefined();
+
+    mockGraphql.mockReset();
+    mockSaveCheckpoints.mockClear();
+    serve(10_600, [{ n: 300, part: 2, parts: 3 }, { n: 300, part: 3, parts: 3 }]);
+    const complete = await new SophosSyncService().syncAll();
+    expect(complete.xdr_detections).toMatchObject({ fetched: 10_600, errors: [] });
+    expect(savedCheckpoints().last_detection_sync).toEqual(expect.any(String));
+  });
+
   it('writes with update + doc_as_upsert so f0rtika receipts survive', async () => {
     // The stored alert carries an auto-resolve receipt; the merge must not write it back.
     mockSearch.mockResolvedValue(esHit(`alert-${ALERT_ID}`, { ...JSON.parse(JSON.stringify(transformedAlert())), f0rtika: { auto_resolved: true } }));
@@ -264,28 +315,63 @@ describe('SophosSyncService', () => {
     expect(ops.some((o) => 'index' in o || 'create' in o)).toBe(false);
   });
 
-  it('saves sync_version only after every enabled source synced cleanly', async () => {
-    mockSiemEvents.mockRejectedValueOnce(new SophosApiError('Sophos GET /siem/v1/events failed: HTTP 503.', 503, ''));
+  it('a sync_version mismatch clears every checkpoint once and saves the version before fetching', async () => {
+    const last = new Date(Date.now() - 60_000).toISOString();
+    mockCheckpoints = { sync_version: SOPHOS_SYNC_VERSION - 1, last_alert_sync: last, last_siem_sync: last, siem_cursor: 'c', last_detection_sync: last };
+    const before = Date.now();
     await new SophosSyncService().syncAll();
-    let saved = savedCheckpoints();
-    expect(saved.last_alert_sync).toEqual(expect.any(String));
-    expect(saved.last_siem_sync).toBeUndefined();
-    expect(saved.sync_version).toBeUndefined();
-
-    mockSaveCheckpoints.mockClear();
+    expect(mockResetCheckpoints).toHaveBeenCalledTimes(1);
+    const versionSave = mockSaveCheckpoints.mock.calls.findIndex((c) => c[0].sync_version === SOPHOS_SYNC_VERSION);
+    expect(versionSave).toBeGreaterThanOrEqual(0);
+    expect(mockSaveCheckpoints.mock.invocationCallOrder[versionSave]).toBeLessThan(mockListAlerts.mock.invocationCallOrder[0]);
+    expect(mockResetCheckpoints.mock.invocationCallOrder[0]).toBeLessThan(mockSaveCheckpoints.mock.invocationCallOrder[versionSave]);
+    // Backfill for every source.
+    expect(before - Date.parse(mockListAlerts.mock.calls[0][0].from)).toBeGreaterThan(89 * 86_400_000);
+    expect(mockSiemEvents.mock.calls[0][0].cursor).toBeUndefined();
+    // The next poll trusts the new checkpoints: no second reset.
+    mockResetCheckpoints.mockClear();
     await new SophosSyncService().syncAll();
-    saved = savedCheckpoints();
-    expect(saved.sync_version).toBe(SOPHOS_SYNC_VERSION);
-    expect(saved.last_siem_sync).toEqual(expect.any(String));
-    expect(saved.last_detection_sync).toEqual(expect.any(String));
-    expect(saved.siem_cursor).toBe('cur-1');
+    expect(mockResetCheckpoints).not.toHaveBeenCalled();
+    expect(mockSiemEvents.mock.calls[1][0]).toEqual({ cursor: 'cur-1' });
   });
 
-  it('a tenant without XDR (GraphQL and REST both forbidden) still records sync_version', async () => {
+  it('a source that keeps failing re-backfills alone; the others keep their own checkpoints', async () => {
+    mockCheckpoints = {}; // fresh install: alerts fail from the very first poll
+    mockListAlerts.mockRejectedValue(new SophosApiError('Sophos GET /common/v1/alerts failed: HTTP 503.', 503, ''));
+    await new SophosSyncService().syncAll();
+    expect(mockCheckpoints.last_alert_sync).toBeUndefined();
+    expect(mockCheckpoints.last_siem_sync).toEqual(expect.any(String));
+    expect(mockCheckpoints.last_detection_sync).toEqual(expect.any(String));
+
+    const before = Date.now();
+    await new SophosSyncService().syncAll();
+    // SIEM continues from its cursor (no re-read from now - 23 h); XDR from its checkpoint.
+    expect(mockSiemEvents.mock.calls[1][0]).toEqual({ cursor: 'cur-1' });
+    expect(mockGraphql.mock.calls[1][1].in.cql_query).toMatch(/earliest=-[23]m$/);
+    // Alerts alone backfill again.
+    expect(before - Date.parse(mockListAlerts.mock.calls[1][0].from)).toBeGreaterThan(89 * 86_400_000);
+  });
+
+  it('detects a SIEM gap on a later poll even though another source has been pinned since the first poll', async () => {
+    mockCheckpoints = {}; // fresh install: XDR fails from the very first poll
+    mockGraphql.mockRejectedValue(new SophosGraphQLError('Sophos GraphQL error: internal failure', [{ message: 'internal failure' }]));
+    const svc = new SophosSyncService();
+    await svc.syncAll();
+    expect(mockCheckpoints.last_detection_sync).toBeUndefined();
+    // 30 h later (simulated by ageing the stored SIEM checkpoint).
+    const stale = new Date(Date.now() - 30 * 3_600_000).toISOString();
+    mockCheckpoints.last_siem_sync = stale;
+    await svc.syncAll();
+    expect(svc.getSyncStatus().syncGap?.from).toBe(stale);
+    expect(mockCheckpoints.sync_gap).toMatchObject({ from: stale });
+    expect(mockSiemEvents.mock.calls[1][0].cursor).toBeUndefined();
+  });
+
+  it('a tenant without XDR (GraphQL and REST both forbidden) records the capability, not an error', async () => {
     mockGraphql.mockRejectedValueOnce(new SophosApiError('HTTP 403', 403, ''));
     mockDetectionsV1.mockRejectedValueOnce(new SophosApiError('HTTP 403', 403, ''));
     const result = await new SophosSyncService().syncAll();
-    expect(savedCheckpoints().sync_version).toBe(SOPHOS_SYNC_VERSION);
+    expect(savedCheckpoints().last_detection_sync).toBeUndefined();
     expect(result.xdr_detections?.errors).toEqual([]);
     const caps = mockSaveDiscovery.mock.calls.map((c) => c[0].capabilities).filter(Boolean).pop();
     expect(caps).toMatchObject({ xdr_graphql: 'forbidden', xdr_rest: 'forbidden' });
@@ -312,8 +398,10 @@ describe('SophosSyncService', () => {
     mockCheckpoints = { sync_version: SOPHOS_SYNC_VERSION, last_alert_sync: last, last_siem_sync: last, siem_cursor: 'c', last_detection_sync: last };
     const before = Date.now();
     await new SophosSyncService().syncAll();
-    expect(mockResetCheckpoints).toHaveBeenCalled();
-    expect(before - Date.parse(mockListAlerts.mock.calls[0][0].from)).toBeGreaterThanOrEqual(90 * 86_400_000 - 5000);
+    expect(mockResetCheckpoints).toHaveBeenCalledTimes(1);
+    // Crash-safe order: the old tenant's checkpoints are gone before the new tenant is recorded.
+    expect(mockResetCheckpoints.mock.invocationCallOrder[0]).toBeLessThan(mockSaveDiscovery.mock.invocationCallOrder[0]);
+    expect(before - Date.parse(mockListAlerts.mock.calls[0][0].from)).toBeGreaterThan(89 * 86_400_000);
     expect(mockSiemEvents.mock.calls[0][0].cursor).toBeUndefined();
     expect(mockSaveDiscovery).toHaveBeenCalledWith(expect.objectContaining({ tenant_id: TENANT, api_host: 'api-eu01.central.sophos.com', data_region: 'eu01' }));
   });
@@ -333,7 +421,7 @@ describe('SophosSyncService', () => {
 
     // Inside the 6 h interval the posture pass is skipped.
     mockPosturePass.mockClear();
-    mockCheckpoints = { last_posture_sync: new Date().toISOString() };
+    mockCheckpoints = { sync_version: SOPHOS_SYNC_VERSION, last_posture_sync: new Date().toISOString() };
     expect((await new SophosSyncService().syncAll()).posture).toBeUndefined();
     expect(mockPosturePass).not.toHaveBeenCalled();
   });
@@ -349,7 +437,7 @@ describe('SophosSyncService', () => {
     expect(result.autoResolve?.errors).toEqual(['boom-r']);
     expect(result.posture?.errors).toEqual(['pass: boom-p']);
     expect(mockSaveCheckpoints.mock.calls.some((c) => typeof c[0].last_posture_sync === 'string')).toBe(false);
-    expect(savedCheckpoints().sync_version).toBe(SOPHOS_SYNC_VERSION);
+    expect(savedCheckpoints().last_alert_sync).toEqual(expect.any(String));
   });
 
   it('coalesces overlapping syncAll calls', async () => {
@@ -414,10 +502,12 @@ describe('SophosSyncService', () => {
 
   // ── Checkpoints ──────────────────────────────────────────────────
 
-  it('first run backfills 90 days of alerts; later runs read from the checkpoint minus 2 min', async () => {
+  it('first run backfills 90 days of alerts (less a 1 h margin); later runs read from the checkpoint minus 2 min', async () => {
     const before = Date.now();
     await new SophosSyncService().syncAll();
-    expect(before - Date.parse(mockListAlerts.mock.calls[0][0].from)).toBeGreaterThanOrEqual(90 * 86_400_000 - 5000);
+    const age = before - Date.parse(mockListAlerts.mock.calls[0][0].from);
+    expect(age).toBeLessThanOrEqual(90 * 86_400_000 - 3_600_000);
+    expect(age).toBeGreaterThan(90 * 86_400_000 - 3_600_000 - 5000);
     expect(mockSiemEvents.mock.calls[0][0].fromDate).toBeGreaterThan(0);
 
     vi.clearAllMocks();
@@ -448,7 +538,35 @@ describe('SophosSyncService', () => {
     mockBulk.mockResolvedValueOnce({ errors: true, items: [{ update: { _id: `alert-${ALERT_ID}`, status: 429, error: { reason: 'rejected execution' } } }] });
     await new SophosSyncService().syncAll();
     expect(savedCheckpoints().last_alert_sync).toBeUndefined();
-    expect(savedCheckpoints().sync_version).toBeUndefined();
+  });
+
+  it('a retryable write failure on a SIEM page keeps the cursor before that page and last_siem_sync unchanged', async () => {
+    const last = new Date(Date.now() - 60 * 60_000).toISOString();
+    mockCheckpoints = { sync_version: SOPHOS_SYNC_VERSION, last_alert_sync: last, last_siem_sync: last, siem_cursor: 'c0', last_detection_sync: last };
+    mockSiemEvents
+      .mockResolvedValueOnce({ items: [coreEvent()], next_cursor: 'p1', has_more: true })
+      .mockResolvedValueOnce({ items: [], next_cursor: 'p2', has_more: false });
+    mockBulk.mockResolvedValueOnce({ errors: true, items: [{ update: { _id: `siem-${EVENT_ID}`, status: 503, error: { reason: 'unavailable' } } }] });
+    const result = await new SophosSyncService().syncAll();
+    expect(result.siem_events?.errors[0]).toContain('unavailable');
+    expect(mockSiemEvents).toHaveBeenCalledTimes(1);
+    expect(savedCheckpoints().siem_cursor).toBeUndefined();
+    expect(savedCheckpoints().last_siem_sync).toBeUndefined();
+    expect(mockCheckpoints).toMatchObject({ siem_cursor: 'c0', last_siem_sync: last });
+  });
+
+  it('an API failure on SIEM page 2 keeps the cursor of page 1 and last_siem_sync unchanged', async () => {
+    const last = new Date(Date.now() - 60 * 60_000).toISOString();
+    mockCheckpoints = { sync_version: SOPHOS_SYNC_VERSION, last_alert_sync: last, last_siem_sync: last, siem_cursor: 'c0', last_detection_sync: last };
+    mockSiemEvents
+      .mockResolvedValueOnce({ items: [coreEvent()], next_cursor: 'p1', has_more: true })
+      .mockRejectedValueOnce(new SophosApiError('Sophos GET /siem/v1/events failed: HTTP 503.', 503, ''));
+    const result = await new SophosSyncService().syncAll();
+    expect(result.siem_events?.errors[0]).toContain('503');
+    expect(mockSiemEvents.mock.calls[1][0]).toEqual({ cursor: 'p1' });
+    expect(savedCheckpoints().siem_cursor).toBe('p1');
+    expect(savedCheckpoints().last_siem_sync).toBeUndefined();
+    expect(mockCheckpoints.last_siem_sync).toBe(last);
   });
 
   it('a failing whoami fails the poll without touching checkpoints', async () => {
