@@ -353,6 +353,48 @@ Linux and macOS need no extra step here. Check your Sophos policy for what
 on-access scanning does on Linux; we expect it to be off by default, which is
 pending validation.
 
+### Sophos install fails behind TLS inspection \{#sophos-tls-inspection}
+
+Seen on a pilot: the Sophos Central installer (`SophosSetup.exe --quiet`)
+exited with code `1` within seconds. The installer log,
+`C:\ProgramData\Sophos\CloudInstaller\Logs\SophosCloudInstaller_<date>_<time>.log`,
+showed:
+
+```text
+E Error validating server's SSL cert against private certificate store: dropping connection
+E System check result: ValidDeploymentInfo fatal - FAILED
+I Install result: PrecheckFailed
+```
+
+**Cause:** a firewall doing SSL/TLS inspection (deep packet inspection)
+re-signs the Sophos traffic with its own certificate. Sophos pins its own
+certificate chain, so the installer drops the connection.
+
+**Fix:** exempt the Sophos domains from **SSL/TLS (DPI) inspection** on the
+firewall. Allow-listing the domains isn't enough: the traffic must pass
+un-inspected. Keep the exemption after the install, because the installed
+endpoint uses the same connections to report to Sophos Central. After the
+exemption the install in the pilot succeeded (`I Install result: Succeeded`).
+
+The wildcard set commonly used for this, from a Sophos partner guide, is below.
+It changes over time, so confirm it against Sophos' current network
+requirements for your firewall:
+
+- `*.sophos.com`, `*.sophosupd.com`, `*.sophosupd.net`, `*.sophosxl.com`,
+  `*.sophosxl.net`, `*.hitmanpro.com`
+- depending on the certificate chain: `*.globalsign.com`, `*.globalsign.net`,
+  `*.digicert.com`
+
+Sources: [Avanet: Sophos Central Endpoint network and proxy](https://www.avanet.com/en/kb/sophos-central-endpoint-network-proxy/),
+[SonicWall knowledge base: Sophos-protected devices update failure](https://www.sonicwall.com/support/knowledge-base/sophos-protect-devices-update-failure/kA1VN0000000GeI0AU).
+
+Two more lines you may see in the same log:
+
+- `W Intermediate certificate was not issued by a trusted root CA certificate: Sophos RSA SHA384 Updating Intermediate 2025`
+  stays after the fix and is harmless: it is Sophos' own private chain.
+- `NoPendingReboots warning - FAILED` is a warning, not the cause, but reboot
+  the endpoint before you retry the install.
+
 :::note[Pending validation]
 These Sophos behaviours are being confirmed on a proof-of-concept tenant before
 this page is final, and are expectations, not claims: whether a fresh agent or
@@ -491,6 +533,7 @@ Your EDR still judges each binary, and the guidance in
 | A Sophos detection names `C:\F0\achilles-agent.exe` and the agent won't start | Sophos convicted the agent file | [Allow that SHA-256](#only-if-sophos-convicts-the-agent-itself), never the certificate |
 | Sophos tab shows a **Certificate allowed** or **Folder exclusion** critical box | A Sophos allow or exclusion exempts every test | Remove it; see the danger box in [Sophos Intercept X](#sophos-intercept-x) |
 | Stages blocked or missing on a Sophos server | Server Lockdown refuses unapproved files | Use a lockdown-free [test group](#servers-with-server-lockdown) |
+| `SophosSetup.exe` exits `1` in seconds; log shows `Install result: PrecheckFailed` after an SSL cert validation error | A firewall's SSL/TLS inspection re-signs Sophos traffic | Exempt the Sophos domains from TLS inspection; see [Sophos install fails behind TLS inspection](#sophos-tls-inspection) |
 
 See also: [Exit Codes & Outcomes](../user-guide/analytics/exit-codes-and-outcomes).
 
