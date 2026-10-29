@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Database, Cloud, Bell, MailCheck } from 'lucide-react';
-import { CrowdStrikeLogo, DefenderLogo, SentinelOneLogo } from '@/components/shared/VendorLogos';
+import { CrowdStrikeLogo, DefenderLogo, SentinelOneLogo, SophosLogo } from '@/components/shared/VendorLogos';
 import { useAnalyticsAuth } from '@/hooks/useAnalyticsAuth';
 import type { IntegrationStatus } from './IntegrationCard';
 import { IntegrationGridCard } from './IntegrationGridCard';
@@ -9,17 +9,19 @@ import { AzureConfig } from './AzureConfig';
 import { DefenderConfig } from './DefenderConfig';
 import { CrowdStrikeConfig } from './CrowdStrikeConfig';
 import { SentinelOneConfig } from './SentinelOneConfig';
+import { SophosConfig } from './SophosConfig';
 import { AlertsConfig } from './AlertsConfig';
 import { PreExecutionNoticesConfig } from './PreExecutionNoticesConfig';
 import { useCapabilities } from '@/hooks/useCapabilities';
 import { integrationsApi } from '@/services/api/integrations';
 import { alertsApi } from '@/services/api/alerts';
 import { sentinelOneApi } from '@/services/api/sentinelone';
+import { sophosApi } from '@/services/api/sophos';
 import { noticesApi } from '@/services/api/notices';
 
 export function IntegrationsTab() {
   const { configured: analyticsConfigured } = useAnalyticsAuth();
-  const { preExecutionNotices, sentinelone, alerting } = useCapabilities();
+  const { preExecutionNotices, sentinelone, sophos, alerting } = useCapabilities();
   const [noticesStatus, setNoticesStatus] = useState<IntegrationStatus>('not-configured');
   const handleNoticesStatusChange = useCallback((enabled: boolean) => {
     setNoticesStatus(enabled ? 'connected' : 'not-configured');
@@ -33,6 +35,7 @@ export function IntegrationsTab() {
   const [defenderStatus, setDefenderStatus] = useState<IntegrationStatus>('not-configured');
   const [crowdstrikeStatus, setCrowdStrikeStatus] = useState<IntegrationStatus>('not-configured');
   const [sentinelOneStatus, setSentinelOneStatus] = useState<IntegrationStatus>('not-configured');
+  const [sophosStatus, setSophosStatus] = useState<IntegrationStatus>('not-configured');
   const [alertsStatus, setAlertsStatus] = useState<IntegrationStatus>('not-configured');
 
   const handleAnalyticsStatusChange = useCallback((configured: boolean) => {
@@ -53,6 +56,10 @@ export function IntegrationsTab() {
 
   const handleSentinelOneStatusChange = useCallback((configured: boolean) => {
     setSentinelOneStatus(configured ? 'connected' : 'not-configured');
+  }, []);
+
+  const handleSophosStatusChange = useCallback((configured: boolean) => {
+    setSophosStatus(configured ? 'connected' : 'not-configured');
   }, []);
 
   const handleAlertsStatusChange = useCallback((configured: boolean) => {
@@ -88,6 +95,13 @@ export function IntegrationsTab() {
       setSentinelOneStatus(settings.configured ? 'connected' : 'not-configured');
     }).catch(() => {});
   }, [sentinelone]);
+
+  useEffect(() => {
+    if (!sophos) return;
+    sophosApi.getSettings().then((settings) => {
+      setSophosStatus(settings.configured ? 'connected' : 'not-configured');
+    }).catch(() => {});
+  }, [sophos]);
 
   // The config form only reports its status once its dialog opens, so fetch it for the badge.
   useEffect(() => {
@@ -143,6 +157,17 @@ export function IntegrationsTab() {
           status={sentinelOneStatus}
         >
           <SentinelOneConfig onStatusChange={handleSentinelOneStatusChange} />
+        </IntegrationGridCard>
+      )}
+
+      {sophos && (
+        <IntegrationGridCard
+          icon={SophosLogo}
+          title="Sophos Intercept X"
+          description="Alerts, XDR detections and Health Check posture via Sophos Central, with opt-in auto-resolve"
+          status={sophosStatus}
+        >
+          <SophosConfig onStatusChange={handleSophosStatusChange} />
         </IntegrationGridCard>
       )}
 
