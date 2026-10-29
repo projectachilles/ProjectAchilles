@@ -107,6 +107,12 @@ export function normalizeSentinelOneBaseUrl(input: string): string {
   return `https://${encodeURIComponent(match[1])}${domain}`;
 }
 
+/** Every form the token could be echoed in: raw, URI/form-encoded, JSON-escaped. */
+function secretVariants(secret: string): string[] {
+  const variants = [secret, encodeURIComponent(secret), new URLSearchParams({ s: secret }).toString().slice(2), JSON.stringify(secret).slice(1, -1)];
+  return [...new Set(variants)].filter((v) => v.length > 0).sort((a, b) => b.length - a.length);
+}
+
 type QueryValue = string | number | boolean | string[] | undefined | null;
 
 export class SentinelOneClient {
@@ -171,8 +177,21 @@ export class SentinelOneClient {
           ...(options?.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         },
         ...(options?.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+        // Never follow redirects: a 3xx would replay the ApiToken header (and
+        // body) to a host the console allowlist and SSRF check never saw.
+        redirect: 'manual',
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
+
+      if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
+        await res.text().catch(() => undefined);
+        // The Location value is not echoed: it is attacker-influenced and could carry secrets.
+        throw new SentinelOneApiError(
+          `SentinelOne ${method} ${path} answered with a redirect (HTTP ${res.status}); refusing to follow it`,
+          res.status,
+          '',
+        );
+      }
 
       // 429 / 5xx — back off (Retry-After or exponential) up to MAX_RETRIES.
       if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
@@ -184,8 +203,10 @@ export class SentinelOneClient {
       }
 
       if (!res.ok) {
-        // Never echo the token: the body comes from S1, the token never does.
-        const bodySnippet = (await res.text().catch(() => '')).slice(0, 300);
+        // Redact the whole body first, then truncate, so a token straddling the cut can't leak a prefix.
+        let text = await res.text().catch(() => '');
+        for (const variant of secretVariants(this.apiToken)) text = text.split(variant).join('[REDACTED]');
+        const bodySnippet = text.slice(0, 300);
         let hint = '';
         if (res.status === 401) hint = ' Check the API token (it may be expired or revoked).';
         if (res.status === 403) {

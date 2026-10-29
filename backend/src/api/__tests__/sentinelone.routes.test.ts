@@ -164,6 +164,18 @@ describe('SentinelOne routes', () => {
     expect(mockFetch.mock.calls[0][1].headers.Authorization).toBe(`ApiToken ${TOKEN}`);
   });
 
+  it('save refuses a changed console URL without a new token (400) and keeps the saved settings', async () => {
+    await request(app()).post('/api/integrations/sentinelone').send({ base_url: BASE, api_token: TOKEN });
+    const res = await request(app()).post('/api/integrations/sentinelone').send({ base_url: 'https://other-tenant.sentinelone.net' });
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).toMatch(/saved token is only used with the saved console/);
+    const masked = await request(app()).get('/api/integrations/sentinelone');
+    expect(masked.body.base_url).toBe(BASE);
+    // Same URL without a token, and a new URL with a token, still save.
+    expect((await request(app()).post('/api/integrations/sentinelone').send({ base_url: BASE, label: 'x' })).status).toBe(200);
+    expect((await request(app()).post('/api/integrations/sentinelone').send({ base_url: 'https://other-tenant.sentinelone.net', api_token: 'new-token-0123456789abcdef' })).status).toBe(200);
+  });
+
   it('exposes no manual response-action routes, even in response mode', async () => {
     await request(app()).post('/api/integrations/sentinelone').send({ base_url: BASE, api_token: TOKEN, permission_mode: 'response' });
     const kill = await request(app()).post('/api/integrations/sentinelone/actions/threats/kill').send({ threat_ids: ['1234567890123456789'] });

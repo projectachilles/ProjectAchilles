@@ -21,6 +21,7 @@ This project uses two version streams:
 - **The recommended ASR exclusion is now the `C:\F0` folder, for rule `01443614` only**, replacing the agent-binary-only exclusion. No certificate satisfies that rule, so it blocked every test as well as agent updates; the folder lock in agent 0.7.1 and the bootstrap script makes the folder exclusion safe. Docs and the agent's exit-260 / update-rollback hints now say so.
 
 ### Security
+- **SentinelOne client no longer follows HTTP redirects, and a changed console URL no longer reuses the saved API token.** Requests to the console now use `redirect: 'manual'`; a 3xx is an error, so the `Authorization: ApiToken` header can't be replayed to a host outside the `*.sentinelone.net` / `*.s1gov.net` allowlist and SSRF check (the `Location` value is not echoed). Error bodies are redacted of the token before truncation. Saving settings with a different `base_url` and no new `api_token` now returns `400` (enforced in both the route and the settings service), matching Test Connection.
 - **Some test-library tests installed an unconstrained "F0RT1KA Security Testing Framework" root CA into `LocalMachine\Root`** on the endpoints where they ran (thumbprint `CAE0B62C1BEB703F5A2C34BC841E806D6AC8F3B4`). The install code has been removed from the test library; the Endpoint Prerequisites page explains how to find and remove the root across a fleet.
 
 ### Fixed
