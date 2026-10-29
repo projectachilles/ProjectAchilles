@@ -206,6 +206,12 @@ func platformInstall(configPath, execPath string) error {
 	if out, err := exec.Command(aclArgv[0], aclArgv[1:]...).CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: icacls on binary failed: %v: %s\n", err, out)
 	}
+	// Owner Administrators: the DACL above drops the folder's inherited OWNER
+	// RIGHTS entry, so whoever owns the file would keep WRITE_DAC over it.
+	ownerArgv := winacl.SetOwnerArgs(execPath)
+	if out, err := exec.Command(ownerArgv[0], ownerArgv[1:]...).CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: setting the binary's owner failed: %v: %s\n", err, out)
+	}
 
 	// Set description.
 	cmd = exec.Command("sc", "description", serviceName, serviceDesc)

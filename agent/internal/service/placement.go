@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/f0rt1ka/achilles-agent/internal/config"
 )
 
 // Kept free of build tags so the copy logic can be tested on any platform.
@@ -37,16 +39,19 @@ func sameFile(a, b string) bool {
 }
 
 // placeBinary makes dst a verified copy of src, creating dst's folder. When
-// src already is dst it changes nothing and returns false.
+// src already is dst it changes nothing and returns false, unless force is
+// set: then dst is rewritten as a new file (used when the file in place has
+// an untrusted owner).
 //
-// The copy is written to a temporary file next to dst, checked against src's
-// SHA-256, then renamed into place. An existing dst is first renamed to
-// dst+replacedSuffix (Windows can rename a running executable but not
-// overwrite it) and put back if the new file cannot take its place, so a
+// The copy is written to a new temporary file next to dst (in the locked
+// agent folder, so only SYSTEM/Administrators/root can touch it), checked
+// against src's SHA-256, then renamed into place. An existing dst is first
+// renamed to dst+replacedSuffix (Windows can rename a running executable but
+// not overwrite it) and put back if the new file cannot take its place, so a
 // failure leaves the previous agent where it was. The caller removes the
 // set-aside file with removeReplaced once the old service has stopped.
-func placeBinary(src, dst string) (copied bool, err error) {
-	if sameFile(src, dst) {
+func placeBinary(src, dst string, force bool) (copied bool, err error) {
+	if !force && sameFile(src, dst) {
 		return false, nil
 	}
 
@@ -156,6 +161,49 @@ func removeReplaced(dst string) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	fmt.Fprintf(os.Stderr, "warning: could not remove the previous agent binary %s (%v); delete it once it is no longer in use\n", aside, err)
+}
+
+// prepareInstallDir makes dir safe to hold the agent before anything is
+// written into it. An existing dir must be a plain directory whose owner
+// passes checkOwner: a folder someone else created is refused, never adopted,
+// because its owner may already have planted files or kept rights. Then lock
+// applies the agent folder lock (owner Administrators + SYSTEM/Administrators
+// DACL on Windows) and the owner is checked again. Any failure is an error:
+// install must not continue into a folder it could not secure.
+func prepareInstallDir(dir string, checkOwner func(string) error, lock func() error) error {
+	fi, err := os.Lstat(dir)
+	switch {
+	case os.IsNotExist(err):
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("create %s: %w", dir, err)
+		}
+	case err != nil:
+		return err
+	case fi.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 || !fi.IsDir():
+		return fmt.Errorf("%s is not a plain directory (link, junction or file); remove it and re-run", dir)
+	default:
+		if err := checkOwner(dir); err != nil {
+			return err
+		}
+	}
+	if err := lock(); err != nil {
+		return fmt.Errorf("lock %s: %w", dir, err)
+	}
+	return checkOwner(dir)
+}
+
+// PrepareInstallDir creates and locks the canonical agent folder (C:\F0 or
+// /opt/f0), refusing one that SYSTEM/Administrators (root) do not own. Run it
+// before enrolling with --install, so the config is written into the locked
+// folder too.
+func PrepareInstallDir() error {
+	dst := CanonicalBinaryPath()
+	return prepareInstallDir(filepath.Dir(dst), config.CheckTrustedOwner, func() error {
+		// The same lock the agent applies on every start (winacl.LockDirArgs:
+		// owner Administrators, SYSTEM + Administrators full control, OWNER
+		// RIGHTS read-control only); a no-op outside Windows.
+		return config.SecureAgentDir(dst, config.DefaultConfig().WorkDir)
+	})
 }
 
 // outOfPlaceWarning returns a warning when exe is not the canonical agent

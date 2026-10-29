@@ -50,7 +50,7 @@ func TestPlaceBinaryCopiesIntoAMissingAgentFolder(t *testing.T) {
 	writeFile(t, src, "agent v1")
 	dst := filepath.Join(root, "f0", "achilles-agent")
 
-	copied, err := placeBinary(src, dst)
+	copied, err := placeBinary(src, dst, false)
 	if err != nil {
 		t.Fatalf("placeBinary: %v", err)
 	}
@@ -72,9 +72,9 @@ func TestPlaceBinaryIsANoOpWhenAlreadyInPlace(t *testing.T) {
 	writeFile(t, dst, "agent v1")
 	before, _ := os.Stat(dst)
 
-	copied, err := placeBinary(dst, dst)
+	copied, err := placeBinary(dst, dst, false)
 	if err != nil || copied {
-		t.Fatalf("placeBinary(dst, dst) = %v, %v; want false, nil", copied, err)
+		t.Fatalf("placeBinary(dst, dst, false) = %v, %v; want false, nil", copied, err)
 	}
 	after, _ := os.Stat(dst)
 	if !os.SameFile(before, after) {
@@ -98,7 +98,7 @@ func TestPlaceBinaryRecognisesTheSameFileUnderAnotherPath(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	copied, err := placeBinary(filepath.Join(link, "achilles-agent"), dst)
+	copied, err := placeBinary(filepath.Join(link, "achilles-agent"), dst, false)
 	if err != nil || copied {
 		t.Fatalf("placeBinary via link = %v, %v; want false, nil", copied, err)
 	}
@@ -118,7 +118,7 @@ func TestPlaceBinaryReplacesAnExistingAgent(t *testing.T) {
 	writeFile(t, dst, "agent v1")
 	writeFile(t, dst+replacedSuffix, "leftover from an earlier install")
 
-	copied, err := placeBinary(src, dst)
+	copied, err := placeBinary(src, dst, false)
 	if err != nil || !copied {
 		t.Fatalf("placeBinary = %v, %v; want true, nil", copied, err)
 	}
@@ -153,7 +153,7 @@ func TestPlaceBinaryRestoresTheOldAgentWhenTheSwapFails(t *testing.T) {
 		return orig(from, to)
 	}
 
-	copied, err := placeBinary(src, dst)
+	copied, err := placeBinary(src, dst, false)
 	if err == nil || copied {
 		t.Fatalf("placeBinary = %v, %v; want false and an error", copied, err)
 	}
@@ -175,7 +175,7 @@ func TestPlaceBinaryRefusesANonFileAtTheCanonicalPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if copied, err := placeBinary(src, dst); err == nil || copied {
+	if copied, err := placeBinary(src, dst, false); err == nil || copied {
 		t.Fatalf("placeBinary onto a directory = %v, %v; want an error", copied, err)
 	}
 	if fi, err := os.Stat(dst); err != nil || !fi.IsDir() {
@@ -186,7 +186,7 @@ func TestPlaceBinaryRefusesANonFileAtTheCanonicalPath(t *testing.T) {
 func TestPlaceBinaryFailsCleanlyWhenTheSourceIsMissing(t *testing.T) {
 	root := t.TempDir()
 	dst := filepath.Join(root, "f0", "achilles-agent")
-	if copied, err := placeBinary(filepath.Join(root, "missing"), dst); err == nil || copied {
+	if copied, err := placeBinary(filepath.Join(root, "missing"), dst, false); err == nil || copied {
 		t.Fatalf("placeBinary(missing) = %v, %v; want an error", copied, err)
 	}
 	if _, err := os.Stat(dst); !os.IsNotExist(err) {

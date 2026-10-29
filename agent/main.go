@@ -41,6 +41,14 @@ func main() {
 			fmt.Fprintln(os.Stderr, "error: --server is required with --enroll")
 			os.Exit(1)
 		}
+		// With --install, secure the agent folder before enrollment writes the
+		// config (it holds the agent key) into it.
+		if *install {
+			if err := service.PrepareInstallDir(); err != nil {
+				fmt.Fprintf(os.Stderr, "install error: %v; nothing was enrolled or installed\n", err)
+				os.Exit(1)
+			}
+		}
 		if err := enrollment.Enroll(*server, *enroll, *configPath, version); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)

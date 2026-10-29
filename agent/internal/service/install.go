@@ -47,16 +47,20 @@ func Install(configPath string) error {
 	}
 	dst := CanonicalBinaryPath()
 
-	// Lock the agent folder (C:\F0) before the binary lands in it, as the agent
-	// does on every start; a no-op outside Windows.
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-		return fmt.Errorf("create %s: %w; service not installed", filepath.Dir(dst), err)
-	}
-	if err := config.SecureAgentDir(dst, config.DefaultConfig().WorkDir); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not secure agent folder: %v\n", err)
+	// Secure the agent folder before the binary lands in it: refuse a folder a
+	// non-administrator (non-root) created, lock it, check its owner again.
+	if err := PrepareInstallDir(); err != nil {
+		return fmt.Errorf("%w; service not installed", err)
 	}
 
-	copied, err := placeBinary(src, dst)
+	// A binary already in place but owned by someone else (e.g. planted before
+	// the folder was locked) is rewritten as a new file rather than trusted.
+	force := false
+	if _, err := os.Lstat(dst); err == nil && config.CheckTrustedOwner(dst) != nil {
+		force = true
+	}
+
+	copied, err := placeBinary(src, dst, force)
 	if err != nil {
 		return fmt.Errorf("could not copy the agent to %s: %w; service not installed", dst, err)
 	}
