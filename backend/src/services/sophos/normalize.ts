@@ -526,7 +526,7 @@ export function siemEventMatchesAlert(event: SophosAlertDoc, alert: SophosAlertD
 /**
  * A legacy cleanup status event belongs to a detection when it is on the same
  * host, names the same threat (exact token / SHA-256), shares a file name when
- * both carry one, and happened within [target.created_at, +15 min]. Outside
+ * both carry one, and happened within [target.created_at - 2 min, +15 min] (Central can raise the alert after the endpoint event and its cleanup). Outside
  * that window it never matches, so it can never add prevention.
  */
 export function legacyCleanupMatches(event: SophosLegacyCleanup, target: SophosAlertDoc): boolean {
@@ -536,7 +536,7 @@ export function legacyCleanupMatches(event: SophosLegacyCleanup, target: SophosA
   const at = Date.parse(event.when ?? '');
   const detected = Date.parse(target.created_at ?? '');
   if (Number.isNaN(at) || Number.isNaN(detected)) return false;
-  return at >= detected && at - detected <= SOPHOS_AUTONOMOUS_RESPONSE_WINDOW_MS;
+  return at - detected >= -JOIN_WINDOW_MS && at - detected <= SOPHOS_AUTONOMOUS_RESPONSE_WINDOW_MS;
 }
 
 const PREVENTION_RANK: Record<NonNullable<Prevention>, number> = { quarantined: 4, process_killed: 3, blocked: 2, kill_failed: 1 };

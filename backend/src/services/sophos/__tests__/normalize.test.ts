@@ -341,7 +341,9 @@ describe('review fixes', () => {
       expect(legacyCleanupMatches(c, a)).toBe(true);
       expect(legacyCleanupMatches({ ...c, when: '2026-10-28T10:20:05.251Z' }, a)).toBe(false);
       expect(legacyCleanupMatches({ ...c, when: '2026-10-28T10:15:05.250Z' }, a)).toBe(true);
-      expect(legacyCleanupMatches({ ...c, when: '2026-10-28T10:00:05.000Z' }, a)).toBe(false);
+      expect(legacyCleanupMatches({ ...c, when: '2026-10-28T09:58:35.250Z' }, a)).toBe(true); // 90 s before raisedAt
+      expect(mergeSiemIntoAlert(a, { ...c, when: '2026-10-28T09:58:35.250Z' }).prevention_action).toBe('blocked');
+      expect(legacyCleanupMatches({ ...c, when: '2026-10-28T09:57:05.250Z' }, a)).toBe(false); // 3 min before
       expect(legacyCleanupMatches({ ...c, host: 'OTHER' }, a)).toBe(false);
     });
     it('can also attach to a Core detection row', () => {
