@@ -8,6 +8,7 @@ import {
   assertPathAllowed,
   assertSophosRequestAllowed,
   SOPHOS_RESOLVE_MUTATION,
+  __resetSophosRateLimitersForTests,
 } from '../sophos-client.js';
 import type { SophosCredentials } from '../../../types/sophos.js';
 
@@ -55,6 +56,7 @@ const callsTo = (pathname: string) => mockFetch.mock.calls.filter(([u]) => new U
 beforeEach(() => {
   mockFetch.mockReset();
   tokenCount = 0;
+  __resetSophosRateLimitersForTests();
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -135,6 +137,60 @@ describe('SophosClient', () => {
     expect(err).toBeInstanceOf(SophosApiError);
     expect(err.message).not.toContain(SECRET);
     expect(err.bodySnippet).not.toContain(SECRET);
+  });
+
+  it('redacts the secret from the whole body before truncating it', async () => {
+    routeFetch((url) => (url.href === TOKEN_URL ? new Response(`${'x'.repeat(295)}${SECRET} trailing`, { status: 401 }) : undefined));
+    const err = await new SophosClient(READ_ONLY).whoami().catch((e) => e);
+    expect(err).toBeInstanceOf(SophosApiError);
+    for (const text of [err.message, err.bodySnippet]) expect(text).not.toContain(SECRET.slice(0, 5));
+  });
+
+  it('redacts a form-encoded or JSON-escaped echo of the secret', async () => {
+    const secret = 'ab+cd/ef==gh"ij\\kl secret';
+    const echoes = [
+      `client_secret=${encodeURIComponent(secret)}`,
+      new URLSearchParams({ client_secret: secret }).toString(),
+      JSON.stringify({ client_secret: secret }),
+    ];
+    for (const echo of echoes) {
+      routeFetch((url) => (url.href === TOKEN_URL ? new Response(echo, { status: 400 }) : undefined));
+      const err = await new SophosClient({ ...READ_ONLY, client_secret: secret }).whoami().catch((e) => e);
+      expect(err).toBeInstanceOf(SophosApiError);
+      expect(err.bodySnippet).toContain('[REDACTED]');
+      for (const text of [err.message, err.bodySnippet]) {
+        expect(text).not.toContain('ab+cd');
+        expect(text).not.toContain('ab%2Bcd');
+        expect(text).not.toContain('kl secret');
+        expect(text).not.toContain('kl+secret');
+      }
+    }
+  });
+
+  it.each([
+    ['the token POST', TOKEN_URL],
+    ['a tenant GET', `${REGION}/common/v1/alerts`],
+  ])('never follows a redirect on %s', async (_label, target) => {
+    const followed: string[] = [];
+    routeFetch();
+    const base = mockFetch.getMockImplementation()!;
+    // Simulate fetch's default behaviour: follow 3xx unless told not to.
+    mockFetch.mockImplementation(async (input: string, init: RequestInit) => {
+      if (input.split('?')[0] !== target) return base(input, init);
+      if (init.redirect === 'manual' || init.redirect === 'error') {
+        return new Response(null, { status: 307, headers: { Location: 'https://evil.example/' } });
+      }
+      followed.push(`${init.method} https://evil.example/ ${String(init.body ?? '')} ${JSON.stringify(init.headers)}`);
+      return jsonResponse({ access_token: 'evil', expires_in: 3600, items: [], pages: {} });
+    });
+    const client = new SophosClient(READ_ONLY);
+    const err = await client.listAlerts({}).catch((e) => e);
+    expect(err).toBeInstanceOf(SophosApiError);
+    expect(err.statusCode).toBe(307);
+    expect(err.message).toMatch(/redirect/i);
+    expect(followed).toEqual([]);
+    expect(mockFetch.mock.calls.filter(([u]) => String(u).split('?')[0] === target)).toHaveLength(1);
+    for (const [, init] of mockFetch.mock.calls) expect(['manual', 'error']).toContain(init.redirect);
   });
 
   it('whoami rejects a partner credential with a tenant-credential message', async () => {
@@ -330,5 +386,27 @@ describe('SophosClient', () => {
     await vi.advanceTimersByTimeAsync(1_000);
     await third;
     expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('shares one rate-limit window across clients with the same client_id', async () => {
+    vi.useFakeTimers();
+    routeFetch();
+    const a = new SophosClient(READ_ONLY, { requestsPerMinute: 2 });
+    const b = new SophosClient(READ_ONLY, { requestsPerMinute: 2 });
+    await a.whoami(); // token + whoami = 2 requests in the shared window
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+
+    const third = b.whoami();
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+
+    // A different credential has its own window and is not held back.
+    const other = new SophosClient({ ...READ_ONLY, client_id: 'another-client' }, { requestsPerMinute: 2 });
+    await other.whoami();
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await third;
+    expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(5);
   });
 });

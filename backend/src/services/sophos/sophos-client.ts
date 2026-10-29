@@ -182,6 +182,55 @@ function checkIds(ids: string[], re: RegExp, what: string): void {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, ms)));
 
+/**
+ * Sliding-window limiter: at most `requestsPerMinute` requests in any 60 s.
+ * Shared per client_id at module scope, so every SophosClient built for the
+ * same credential (sync, auto-resolve, test connection) draws on one budget.
+ */
+class SlidingWindowLimiter {
+  private sentAt: number[] = [];
+  private chain: Promise<void> = Promise.resolve();
+  constructor(private readonly requestsPerMinute: number) {}
+
+  acquire(now: () => number): Promise<void> {
+    const slot = this.chain.then(async () => {
+      for (;;) {
+        const t = now();
+        this.sentAt = this.sentAt.filter((s) => t - s < 60_000);
+        if (this.sentAt.length < this.requestsPerMinute) {
+          this.sentAt.push(t);
+          return;
+        }
+        await sleep(this.sentAt[0] + 60_000 - t);
+      }
+    });
+    this.chain = slot.catch(() => undefined);
+    return slot;
+  }
+}
+
+const rateLimiters = new Map<string, SlidingWindowLimiter>();
+
+function limiterFor(clientId: string, requestsPerMinute: number): SlidingWindowLimiter {
+  let limiter = rateLimiters.get(clientId);
+  if (!limiter) {
+    limiter = new SlidingWindowLimiter(requestsPerMinute);
+    rateLimiters.set(clientId, limiter);
+  }
+  return limiter;
+}
+
+/** Test-only: forget every shared rate-limit window. */
+export function __resetSophosRateLimitersForTests(): void {
+  rateLimiters.clear();
+}
+
+/** Every form the secret could be echoed in: raw, URI/form-encoded, JSON-escaped. */
+function secretVariants(secret: string): string[] {
+  const variants = [secret, encodeURIComponent(secret), new URLSearchParams({ s: secret }).toString().slice(2), JSON.stringify(secret).slice(1, -1)];
+  return [...new Set(variants)].filter((v) => v.length > 0).sort((a, b) => b.length - a.length);
+}
+
 type QueryValue = string | number | boolean | undefined;
 
 export interface SophosWhoAmI {
@@ -197,11 +246,9 @@ export class SophosClient {
   private readonly creds: SophosCredentials;
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
-  private readonly requestsPerMinute: number;
+  private readonly limiter: SlidingWindowLimiter;
   private token: { value: string; refreshAt: number } | null = null;
   private tenant: { id: string; host: string } | null = null;
-  private sentAt: number[] = [];
-  private limiterChain: Promise<void> = Promise.resolve();
 
   constructor(creds: SophosCredentials, opts: { fetchImpl?: typeof fetch; now?: () => number; requestsPerMinute?: number } = {}) {
     if (!creds.client_id || !creds.client_secret) throw new Error('Sophos client ID and secret are required');
@@ -209,34 +256,24 @@ export class SophosClient {
     this.permissionMode = creds.permission_mode === 'response' ? 'response' : 'read_only';
     this.fetchImpl = opts.fetchImpl ?? ((input, init) => fetch(input, init));
     this.now = opts.now ?? (() => Date.now());
-    this.requestsPerMinute = Math.max(1, Math.floor(opts.requestsPerMinute ?? SOPHOS_DEFAULT_REQUESTS_PER_MINUTE));
+    // requestsPerMinute applies when the first client for this client_id creates the shared window.
+    this.limiter = limiterFor(creds.client_id, Math.max(1, Math.floor(opts.requestsPerMinute ?? SOPHOS_DEFAULT_REQUESTS_PER_MINUTE)));
   }
 
   // ---------------------------------------------------------------------------
   // Transport: rate limit, timeout, 429/5xx backoff, token, 401 re-auth
   // ---------------------------------------------------------------------------
 
-  /** Sliding-window limiter: at most `requestsPerMinute` requests in any 60 s. */
-  private acquireSlot(): Promise<void> {
-    const slot = this.limiterChain.then(async () => {
-      for (;;) {
-        const t = this.now();
-        this.sentAt = this.sentAt.filter((s) => t - s < 60_000);
-        if (this.sentAt.length < this.requestsPerMinute) {
-          this.sentAt.push(t);
-          return;
-        }
-        await sleep(this.sentAt[0] + 60_000 - t);
-      }
-    });
-    this.limiterChain = slot.catch(() => undefined);
-    return slot;
-  }
-
   private async send(url: string, init: RequestInit): Promise<Response> {
     for (let attempt = 0; ; attempt++) {
-      await this.acquireSlot();
-      const res = await this.fetchImpl(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      await this.limiter.acquire(this.now);
+      // Never follow redirects: a 3xx would replay the body (client_secret, write
+      // payloads) and X-Tenant-ID to a host the allowlist never saw.
+      const res = await this.fetchImpl(url, { ...init, redirect: 'manual', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
+        await res.text().catch(() => undefined);
+        throw new SophosApiError(`Sophos answered with a redirect (HTTP ${res.status}); refusing to follow it`, res.status, '');
+      }
       if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
         await res.text().catch(() => undefined);
         // Full jitter; Sophos sends no Retry-After.
@@ -248,10 +285,13 @@ export class SophosClient {
   }
 
   private async apiError(what: string, res: Response, method: Method): Promise<SophosApiError> {
-    let snippet = (await res.text().catch(() => '')).slice(0, 300);
+    // Redact the whole body first, then truncate, so a secret straddling the cut can't leak a prefix.
+    let text = await res.text().catch(() => '');
     for (const secret of [this.creds.client_secret, this.token?.value]) {
-      if (secret) snippet = snippet.split(secret).join('[REDACTED]');
+      if (!secret) continue;
+      for (const variant of secretVariants(secret)) text = text.split(variant).join('[REDACTED]');
     }
+    const snippet = text.slice(0, 300);
     let hint = '';
     if (res.status === 401) hint = ' Check the Sophos client ID and secret (they may be expired or revoked).';
     if (res.status === 403) {
