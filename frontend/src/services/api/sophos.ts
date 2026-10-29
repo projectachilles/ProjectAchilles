@@ -1,4 +1,5 @@
 import { apiClient } from '@/hooks/useAuthenticatedApi';
+import type { EdrEsReadiness } from '@/services/api/edrReadiness';
 
 export type SophosPermissionMode = 'read_only' | 'response';
 export type SophosCapabilityState = 'available' | 'not_licensed' | 'forbidden' | 'unknown';
@@ -93,7 +94,7 @@ export const sophosApi = {
     }
   },
 
-  async saveSettings(settings: SaveSophosSettingsRequest): Promise<{ success: boolean }> {
+  async saveSettings(settings: SaveSophosSettingsRequest): Promise<{ success: boolean; elasticsearch?: EdrEsReadiness }> {
     const response = await apiClient.post('/integrations/sophos', settings);
     return response.data;
   },

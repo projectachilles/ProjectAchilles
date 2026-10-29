@@ -32,6 +32,7 @@ import { startIngestionRetryWorker, stopIngestionRetryWorker } from './services/
 import type { TestSource } from './types/test.js';
 import { IntegrationsSettingsService } from './services/integrations/settings.js';
 import { defenderSyncService } from './api/integrations.routes.js';
+import { prepareConfiguredEdrEs } from './services/edr/es-readiness.js';
 import { crowdstrikeSyncService } from './api/integrations.routes.js';
 import { runAgentKillReconciliation } from './services/edr/agent-kill-reconcile.service.js';
 import defenderRoutes from './api/defender.routes.js';
@@ -472,6 +473,11 @@ function startBackgroundJobs(httpServer?: http.Server) {
   // route failed. Capped at MAX_INGEST_ATTEMPTS=10 retries per task to
   // avoid burning ES capacity on permanent failures.
   startIngestionRetryWorker();
+
+  // --- EDR Elasticsearch readiness: check the key and create the indices for
+  // every configured EDR (env-var credentials never go through Save), so the
+  // Settings cards can show a key that can't write. Runs beside the syncs. ---
+  prepareConfiguredEdrEs().catch(() => { /* never throws; logs its own warnings */ });
 
   // --- Defender sync: scores every 6h, alerts every 5min ---
   let defenderScoreInterval: ReturnType<typeof setInterval> | undefined;

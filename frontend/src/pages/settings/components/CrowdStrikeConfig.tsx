@@ -6,6 +6,8 @@ import { Input } from '@/components/shared/ui/Input';
 import { Select } from '@/components/shared/ui/Select';
 import { Button } from '@/components/shared/ui/Button';
 import { Alert } from '@/components/shared/ui/Alert';
+import { useEdrEsReadiness } from '@/hooks/useEdrEsReadiness';
+import { EdrEsReadinessNotice } from './EdrEsReadinessNotice';
 import { Spinner } from '@/components/shared/ui/Spinner';
 import { CrowdStrikeAutoResolveSection } from './CrowdStrikeAutoResolveSection';
 
@@ -46,6 +48,7 @@ export function CrowdStrikeConfig({ onStatusChange }: CrowdStrikeConfigProps) {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [envConfigured, setEnvConfigured] = useState(false);
+  const es = useEdrEsReadiness('crowdstrike', editMode || envConfigured);
   const [disconnecting, setDisconnecting] = useState(false);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
 
@@ -81,6 +84,7 @@ export function CrowdStrikeConfig({ onStatusChange }: CrowdStrikeConfigProps) {
   });
 
   const handleTestConnection = async () => {
+    void es.check(); // Elasticsearch side, beside the vendor credential test
     try {
       setTesting(true);
       setTestResult(null);
@@ -114,13 +118,15 @@ export function CrowdStrikeConfig({ onStatusChange }: CrowdStrikeConfigProps) {
         setTestResult({ success: true, message: result.message ?? 'Connection successful' });
       }
 
-      await integrationsApi.saveCrowdStrikeSettings({
+      const saved = await integrationsApi.saveCrowdStrikeSettings({
         ...buildPayload(),
         label: label || undefined,
       });
 
       setEditMode(true);
-      setSuccessMessage('CrowdStrike credentials saved successfully!');
+      es.fromSave(saved?.elasticsearch);
+      // A key that can't write gets the red notice instead of a success message.
+      if (saved?.elasticsearch?.status !== 'not_ready') setSuccessMessage('CrowdStrike credentials saved successfully!');
       onStatusChange?.(true);
 
       // Clear sensitive fields after save
@@ -196,6 +202,8 @@ export function CrowdStrikeConfig({ onStatusChange }: CrowdStrikeConfigProps) {
           {successMessage}
         </Alert>
       )}
+
+      <EdrEsReadinessNotice readiness={es.readiness} configured={editMode || envConfigured} fromTest={es.fromTest} />
 
       {/* Cloud / region — region-only; the backend resolves the API base URL
           from a server-side map (custom URLs are not accepted). */}

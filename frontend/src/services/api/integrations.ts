@@ -1,4 +1,5 @@
 import { apiClient } from '@/hooks/useAuthenticatedApi';
+import type { EdrEsReadiness } from '@/services/api/edrReadiness';
 
 export type AzureAuthMethod = 'client_secret' | 'certificate';
 
@@ -250,7 +251,7 @@ export const integrationsApi = {
     }
   },
 
-  async saveDefenderSettings(settings: SaveDefenderSettingsRequest): Promise<{ success: boolean }> {
+  async saveDefenderSettings(settings: SaveDefenderSettingsRequest): Promise<{ success: boolean; elasticsearch?: EdrEsReadiness }> {
     const response = await apiClient.post('/integrations/defender', settings);
     return response.data;
   },
@@ -315,7 +316,7 @@ export const integrationsApi = {
     }
   },
 
-  async saveCrowdStrikeSettings(settings: SaveCrowdStrikeSettingsRequest): Promise<{ success: boolean }> {
+  async saveCrowdStrikeSettings(settings: SaveCrowdStrikeSettingsRequest): Promise<{ success: boolean; elasticsearch?: EdrEsReadiness }> {
     const response = await apiClient.post('/integrations/crowdstrike', settings);
     return response.data;
   },

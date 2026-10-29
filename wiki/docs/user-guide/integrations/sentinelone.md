@@ -44,6 +44,13 @@ Environment variables `SENTINELONE_BASE_URL`, `SENTINELONE_API_TOKEN`,
 `SENTINELONE_PERMISSION_MODE` (`read_only`|`response`) and `SENTINELONE_LABEL`
 can be used instead of the UI; UI settings take priority.
 
+:::info[Elasticsearch API key]
+With a scoped Elasticsearch API key, this integration needs grants on its own
+index and `write` on the results index. Saving checks them and shows a red
+**Saved, but not syncing** notice if one is missing. See
+[API key privileges for EDR integrations](./elasticsearch.md#edr-api-key-privileges).
+:::
+
 ## Sync behavior
 
 - First run: backfills the configured window (`createdAt__gte`).

@@ -103,6 +103,13 @@ the auto-resolve mode. Configure Sophos through the `SOPHOS_*` environment
 variables there.
 :::
 
+:::info[Elasticsearch API key]
+With a scoped Elasticsearch API key, this integration needs grants on its own
+index and `write` on the results index. Saving checks them and shows a red
+**Saved, but not syncing** notice if one is missing. See
+[API key privileges for EDR integrations](./elasticsearch.md#edr-api-key-privileges).
+:::
+
 ## What the tab needs from your licence
 
 | Feature | Needs | Without it |

@@ -255,7 +255,7 @@ POST /api/integrations/defender/test
 ```
 
 - **`GET /defender`** — returns whether Defender is configured (no secrets).
-- **`POST /defender`** — save credentials. Stored AES-256-GCM encrypted.
+- **`POST /defender`** — save credentials. Stored AES-256-GCM encrypted. The response includes `elasticsearch`: the [Elasticsearch readiness](./overview.md#edr-elasticsearch-readiness) of the key, checked (and the index created) before responding.
 - **`POST /defender/test`** — validate credentials against Microsoft Graph.
 
 **`POST /defender` body:**

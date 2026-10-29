@@ -5,6 +5,8 @@ import type { DefenderAuthMethod } from '@/services/api/integrations';
 import { Input } from '@/components/shared/ui/Input';
 import { Button } from '@/components/shared/ui/Button';
 import { Alert } from '@/components/shared/ui/Alert';
+import { useEdrEsReadiness } from '@/hooks/useEdrEsReadiness';
+import { EdrEsReadinessNotice } from './EdrEsReadinessNotice';
 import { Spinner } from '@/components/shared/ui/Spinner';
 import { DefenderAutoResolveSection } from './DefenderAutoResolveSection';
 import { fieldLabelClass, fieldTextareaClass } from '@/components/shared/ui/formStyles';
@@ -45,6 +47,7 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [envConfigured, setEnvConfigured] = useState(false);
+  const es = useEdrEsReadiness('defender', editMode || envConfigured);
   const [disconnecting, setDisconnecting] = useState(false);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
 
@@ -97,6 +100,7 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
   });
 
   const handleTestConnection = async () => {
+    void es.check(); // Elasticsearch side, beside the vendor credential test
     try {
       setTesting(true);
       setTestResult(null);
@@ -130,7 +134,7 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
         setTestResult({ success: true, message: result.message ?? 'Connection successful' });
       }
 
-      await integrationsApi.saveDefenderSettings({
+      const saved = await integrationsApi.saveDefenderSettings({
         tenant_id: tenantId || undefined,
         client_id: clientId || undefined,
         label: label || undefined,
@@ -141,7 +145,9 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
       });
 
       setEditMode(true);
-      setSuccessMessage('Defender credentials saved successfully!');
+      es.fromSave(saved?.elasticsearch);
+      // A key that can't write gets the red notice instead of a success message.
+      if (saved?.elasticsearch?.status !== 'not_ready') setSuccessMessage('Defender credentials saved successfully!');
       onStatusChange?.(true);
 
       // Clear sensitive fields after save
@@ -232,6 +238,8 @@ export function DefenderConfig({ onStatusChange }: DefenderConfigProps) {
           {successMessage}
         </Alert>
       )}
+
+      <EdrEsReadinessNotice readiness={es.readiness} configured={editMode || envConfigured} fromTest={es.fromTest} />
 
       {/* Core identity fields */}
       <Input

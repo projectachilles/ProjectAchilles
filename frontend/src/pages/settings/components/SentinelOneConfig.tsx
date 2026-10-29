@@ -14,6 +14,8 @@ import { Input } from '@/components/shared/ui/Input';
 import { Select } from '@/components/shared/ui/Select';
 import { Button } from '@/components/shared/ui/Button';
 import { Alert } from '@/components/shared/ui/Alert';
+import { useEdrEsReadiness } from '@/hooks/useEdrEsReadiness';
+import { EdrEsReadinessNotice } from './EdrEsReadinessNotice';
 import { Spinner } from '@/components/shared/ui/Spinner';
 import { Checkbox } from '@/components/shared/ui/Checkbox';
 import { SentinelOneAutoResolveSection, SentinelOneAutoMitigationSection } from './SentinelOneAutomationSections';
@@ -64,6 +66,7 @@ export function SentinelOneConfig({ onStatusChange }: SentinelOneConfigProps) {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [envConfigured, setEnvConfigured] = useState(false);
+  const es = useEdrEsReadiness('sentinelone', editMode || envConfigured);
   const [disconnecting, setDisconnecting] = useState(false);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
 
@@ -124,6 +127,7 @@ export function SentinelOneConfig({ onStatusChange }: SentinelOneConfigProps) {
   });
 
   const handleTestConnection = async () => {
+    void es.check(); // Elasticsearch side, beside the vendor credential test
     try {
       setTesting(true);
       setTestResult(null);
@@ -147,7 +151,7 @@ export function SentinelOneConfig({ onStatusChange }: SentinelOneConfigProps) {
       setSuccessMessage(null);
       if (!testResult?.success && !(await handleTestConnection())) return;
 
-      await sentinelOneApi.saveSettings({
+      const saved = await sentinelOneApi.saveSettings({
         base_url: baseUrl || undefined,
         api_token: apiToken || undefined,
         label: label || undefined,
@@ -161,7 +165,9 @@ export function SentinelOneConfig({ onStatusChange }: SentinelOneConfigProps) {
       setEditMode(true);
       setSavedMode(mode);
       setApiToken('');
-      setSuccessMessage('SentinelOne settings saved — alert sync started.');
+      es.fromSave(saved?.elasticsearch);
+      // A key that can't write gets the red notice instead of a success message.
+      if (saved?.elasticsearch?.status !== 'not_ready') setSuccessMessage('SentinelOne settings saved — alert sync started.');
       onStatusChange?.(true);
       setTimeout(refreshRuntime, 1500);
     } catch (err) {
@@ -250,6 +256,8 @@ export function SentinelOneConfig({ onStatusChange }: SentinelOneConfigProps) {
           {successMessage}
         </Alert>
       )}
+
+      <EdrEsReadinessNotice readiness={es.readiness} configured={editMode || envConfigured} fromTest={es.fromTest} />
 
       <Input
         label="Console URL"

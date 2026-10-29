@@ -78,6 +78,18 @@ vi.mock('../../services/defender/sync.service.js', () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+// Saving prepares Elasticsearch (checks the key, creates the indices) and
+// returns the result; services/edr/es-readiness.ts has its own tests.
+const ES_READY = { status: 'ready', checked_at: '2026-10-29T00:00:00.000Z', privileges_checked: true, missing: [], recommended: [] };
+const mockPrepareEdrEs = vi.fn().mockResolvedValue(ES_READY);
+const mockCheckEdrEs = vi.fn().mockResolvedValue(ES_READY);
+const mockGetEdrEsReadiness = vi.fn().mockResolvedValue(null);
+vi.mock('../../services/edr/es-readiness.js', () => ({
+  prepareEdrEs: (...a: unknown[]) => mockPrepareEdrEs(...a),
+  checkEdrEs: (...a: unknown[]) => mockCheckEdrEs(...a),
+  getEdrEsReadiness: (...a: unknown[]) => mockGetEdrEsReadiness(...a),
+}));
+
 const { default: integrationsRoutes } = await import('../integrations.routes.js');
 const { errorHandler } = await import('../../middleware/error.middleware.js');
 
@@ -99,6 +111,33 @@ describe('Defender integration routes', () => {
     mockGetAutoResolveMode.mockReturnValue('disabled');
     mockGetAnalyticsSettings.mockReturnValue({ configured: false });
     mockSyncAll.mockResolvedValue({});
+  });
+
+  // ── GET /api/integrations/edr/:vendor/elasticsearch ─────────
+
+  describe('GET /api/integrations/edr/:vendor/elasticsearch', () => {
+    it('returns the stored readiness without a new check', async () => {
+      mockGetEdrEsReadiness.mockResolvedValueOnce({ ...ES_READY, status: 'not_ready' });
+      const res = await request(createApp()).get('/api/integrations/edr/sophos/elasticsearch');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ elasticsearch: { ...ES_READY, status: 'not_ready' } });
+      expect(mockGetEdrEsReadiness).toHaveBeenCalledWith('sophos');
+      expect(mockCheckEdrEs).not.toHaveBeenCalled();
+    });
+
+    it('runs a fresh read-only check with ?fresh=1 (Test)', async () => {
+      const res = await request(createApp()).get('/api/integrations/edr/crowdstrike/elasticsearch?fresh=1');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ elasticsearch: ES_READY });
+      expect(mockCheckEdrEs).toHaveBeenCalledWith('crowdstrike', { refreshStored: true });
+      expect(mockPrepareEdrEs).not.toHaveBeenCalled();
+    });
+
+    it('404s an unknown vendor', async () => {
+      const res = await request(createApp()).get('/api/integrations/edr/acme/elasticsearch');
+      expect(res.status).toBe(404);
+      expect(mockCheckEdrEs).not.toHaveBeenCalled();
+    });
   });
 
   // ── GET /api/integrations/defender ───────────────────────────
@@ -160,7 +199,8 @@ describe('Defender integration routes', () => {
         });
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({ success: true });
+      expect(res.body).toEqual({ success: true, elasticsearch: ES_READY });
+      expect(mockPrepareEdrEs).toHaveBeenCalledWith('defender');
       expect(mockSaveDefenderSettings).toHaveBeenCalledWith({
         tenant_id: 'aaaabbbb-cccc-dddd-eeee-ffffffffffff',
         client_id: '11112222-3333-4444-5555-666677778888',
@@ -194,7 +234,8 @@ describe('Defender integration routes', () => {
         .send({ label: 'Updated' });
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({ success: true });
+      expect(res.body).toEqual({ success: true, elasticsearch: ES_READY });
+      expect(mockPrepareEdrEs).toHaveBeenCalledWith('defender');
     });
   });
 

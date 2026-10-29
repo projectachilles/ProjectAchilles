@@ -297,7 +297,7 @@ POST   /api/integrations/sentinelone/test
   sync starts after saving. Changing the console URL or scope clears the sync
   checkpoints. Saving with `permission_mode: "read_only"` switches automatic
   mitigation off and turns an `enabled` auto-resolve mode into `disabled`
-  (`dry_run` is kept).
+  (`dry_run` is kept). The response includes `elasticsearch`: the [Elasticsearch readiness](./overview.md#edr-elasticsearch-readiness) of the key, checked (and the index created) before responding.
 - **`DELETE /sentinelone`** (`integrations:write`) — remove the stored
   settings. Refused with `400` when the credentials come from environment
   variables. Data already in Elasticsearch is kept.

@@ -34,6 +34,9 @@ import multer from 'multer';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024 } });
 import { SettingsService as AnalyticsSettingsService } from '../services/analytics/settings.js';
 import { createEsClient } from '../services/analytics/client.js';
+import { prepareEdrEs, checkEdrEs, getEdrEsReadiness } from '../services/edr/es-readiness.js';
+import { EDR_VENDOR_KEYS } from '../services/outcomes/vendors.js';
+import type { EdrVendorKey } from '../services/outcomes/vendors.js';
 
 const router = Router();
 
@@ -219,6 +222,24 @@ router.post('/azure/parse-pfx', requirePermission('integrations:write'), upload.
 }));
 
 // ---------------------------------------------------------------------------
+// EDR Elasticsearch readiness (all vendors)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/integrations/edr/:vendor/elasticsearch — can the analytics API key
+ * do what this EDR integration needs? Stored result (Save/startup, re-checked
+ * once a minute while not ready), or a fresh read-only check with ?fresh=1.
+ */
+router.get('/edr/:vendor/elasticsearch', requirePermission('integrations:read'), asyncHandler(async (req, res) => {
+  const vendor = req.params.vendor as EdrVendorKey;
+  if (!EDR_VENDOR_KEYS.includes(vendor)) throw new AppError('Unknown EDR integration', 404);
+  const elasticsearch = req.query.fresh === '1'
+    ? await checkEdrEs(vendor, { refreshStored: true })
+    : await getEdrEsReadiness(vendor);
+  res.json({ elasticsearch });
+}));
+
+// ---------------------------------------------------------------------------
 // Microsoft Defender (Graph Security API)
 // ---------------------------------------------------------------------------
 
@@ -272,13 +293,17 @@ router.post('/defender', requirePermission('integrations:write'), requireDeploym
 
   svc.saveDefenderSettings({ tenant_id, client_id, client_secret, label, auth_method, cert_thumbprint, private_key_pem });
 
+  // Check the Elasticsearch key and create the indices now, so a key that
+  // can't write shows on the Settings card instead of as a silent sync failure.
+  const elasticsearch = await prepareEdrEs('defender');
+
   // Kick off a sync with the new credentials rather than waiting for the
   // next timer tick (up to 6h for scores). Outcome lands in /sync/status.
   defenderSyncService.syncAll().catch((err) => {
     console.warn('⚠ Defender sync after credential save failed:', err instanceof Error ? err.message : err);
   });
 
-  res.json({ success: true });
+  res.json({ success: true, elasticsearch });
 }));
 
 /**
@@ -588,13 +613,17 @@ router.post('/crowdstrike', requirePermission('integrations:write'), requireDepl
 
   svc.saveCrowdStrikeSettings({ region, client_id, client_secret, label });
 
+  // Check the Elasticsearch key and create the indices now, so a key that
+  // can't write shows on the Settings card instead of as a silent sync failure.
+  const elasticsearch = await prepareEdrEs('crowdstrike');
+
   // Kick off a sync with the new credentials rather than waiting for the
   // next timer tick (up to 6h for ZTA scores). Outcome lands in /sync/status.
   crowdstrikeSyncService.syncAll().catch((err) => {
     console.warn('⚠ CrowdStrike sync after credential save failed:', err instanceof Error ? err.message : err);
   });
 
-  res.json({ success: true });
+  res.json({ success: true, elasticsearch });
 }));
 
 /** DELETE /api/integrations/crowdstrike — Remove CrowdStrike credentials */

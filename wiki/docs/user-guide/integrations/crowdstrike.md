@@ -81,6 +81,13 @@ failures: a client created in US-2 does not authenticate against US-1.
 Credentials are encrypted at rest with AES-256-GCM. Saving a configuration
 kicks off an initial sync in the background.
 
+:::info[Elasticsearch API key]
+With a scoped Elasticsearch API key, this integration needs grants on its own
+index and `write` on the results index. Saving checks them and shows a red
+**Saved, but not syncing** notice if one is missing. See
+[API key privileges for EDR integrations](./elasticsearch.md#edr-api-key-privileges).
+:::
+
 ### Environment Variable Alternative
 
 Instead of the UI, the integration can be configured entirely via environment
@@ -256,12 +263,11 @@ discriminator:
 ZTA snapshots are keyed `score-<YYYY-MM-DD>` — one document per day.
 
 :::warning[Elasticsearch API key privileges]
-If you connect to Elasticsearch with a scoped API key (rather than a
-superuser), the key must include `read`, `write`, and `create_index` on the
-`achilles-crowdstrike` index — the same grants you gave `achilles-defender`
-when enabling the Defender integration. Without them the sync fails with an
-HTTP 403 on the index existence check. (Defender can keep working while
-CrowdStrike fails, because the key's index list is per-pattern.)
+A scoped Elasticsearch API key needs grants on `achilles-crowdstrike` and
+`write` on the results index; see
+[API key privileges for EDR integrations](./elasticsearch.md#edr-api-key-privileges).
+Defender can keep working while CrowdStrike fails, because the key's index
+list is per index.
 :::
 
 ### Cross-Correlation Logic

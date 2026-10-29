@@ -17,6 +17,9 @@ const api = vi.hoisted(() => ({
 vi.mock('@/services/api/sophos', () => ({ sophosApi: api }));
 vi.mock('@/services/api/sophosAnalytics', () => ({ sophosAnalyticsApi: { getAlerts: vi.fn().mockResolvedValue({ total: 0 }) } }));
 
+const getEsReadiness = vi.hoisted(() => vi.fn());
+vi.mock('@/services/api/edrReadiness', () => ({ edrReadinessApi: { get: getEsReadiness } }));
+
 const { SophosConfig } = await import('../SophosConfig');
 const { SophosAutoResolveSection } = await import('../SophosAutoResolveSection');
 const counts = { last24h: 1, last7d: 2, last30d: 3 };
@@ -30,6 +33,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   api.getSettings.mockResolvedValue({ configured: false });
   api.getSyncStatus.mockResolvedValue({ inProgress: false });
+  getEsReadiness.mockResolvedValue(null);
 });
 
 describe('SophosConfig', () => {
@@ -47,6 +51,26 @@ describe('SophosConfig', () => {
     expect(screen.getByText('Not licensed')).toBeInTheDocument();
     expect(screen.getByText("This credential's role can't read it")).toBeInTheDocument();
     expect(screen.getByText('Unknown (see sync status)')).toBeInTheDocument();
+  });
+
+  it('a save whose Elasticsearch key cannot write shows "Saved, but not syncing" instead of success', async () => {
+    api.testConnection.mockResolvedValue({ success: true, region: 'eu01', capabilities: {} });
+    api.saveSettings.mockResolvedValue({
+      success: true,
+      elasticsearch: {
+        status: 'not_ready', checked_at: '2026-10-29T10:00:00.000Z', privileges_checked: true,
+        missing: [{ index: 'achilles-sophos', privileges: ['create_index'] }], recommended: [],
+      },
+    });
+    render(<SophosConfig />);
+    await userEvent.type(await screen.findByLabelText('Client ID'), 'client-id-1234');
+    await userEvent.type(screen.getByLabelText('Client secret'), 'super-secret-value');
+    await userEvent.click(screen.getByRole('button', { name: /Test Connection/i }));
+    expect(getEsReadiness).toHaveBeenCalledWith('sophos', true);
+    await userEvent.click(await screen.findByRole('button', { name: /^Save/i }));
+    expect(await screen.findByText('Saved, but not syncing')).toBeInTheDocument();
+    expect(screen.getByText('create_index')).toBeInTheDocument();
+    expect(screen.queryByText(/settings saved/)).not.toBeInTheDocument();
   });
 
   it('shows the secret as set, never its value, and the env banner disables disconnect', async () => {

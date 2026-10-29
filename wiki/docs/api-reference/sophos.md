@@ -142,7 +142,7 @@ POST   /api/integrations/sophos/test
   `400` while the credentials come from `SOPHOS_*` environment variables. A
   background sync starts after saving; changing the client ID clears the
   checkpoints. Saving `permission_mode: "read_only"` turns an `enabled`
-  auto-resolve mode into `disabled` (`dry_run` is kept).
+  auto-resolve mode into `disabled` (`dry_run` is kept). The response includes `elasticsearch`: the [Elasticsearch readiness](./overview.md#edr-elasticsearch-readiness) of the key, checked (and the index created) before responding.
 - **`DELETE /sophos`** (`integrations:write`): remove the stored settings.
   Refused with `400` for env-configured credentials. Data in Elasticsearch is
   kept.
