@@ -78,15 +78,9 @@ func platformServiceStatus() Status {
 	return s
 }
 
-func platformInstall(configPath string) error {
-	execPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("cannot determine executable path: %w", err)
-	}
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		return fmt.Errorf("cannot resolve executable path: %w", err)
-	}
+// platformInstall registers execPath (the canonical agent binary, already in
+// place) as the service.
+func platformInstall(configPath, execPath string) error {
 	workDir := filepath.Dir(execPath)
 
 	// Harden the binary — only root needs read/execute. The admin may have
@@ -94,6 +88,11 @@ func platformInstall(configPath string) error {
 	if err := os.Chmod(execPath, 0700); err != nil {
 		return fmt.Errorf("chmod binary: %w", err)
 	}
+
+	// On a re-install, unload the running agent first (it may run from another
+	// path): launchctl load refuses an already loaded label. Errors ignored,
+	// as when nothing is loaded yet.
+	_ = exec.Command("launchctl", "unload", plistPath).Run()
 
 	plist := fmt.Sprintf(plistTemplate, plistLabel, execPath, workDir)
 	if err := os.WriteFile(plistPath, []byte(plist), 0644); err != nil {

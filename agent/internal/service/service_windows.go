@@ -9,7 +9,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -179,16 +178,9 @@ func platformServiceStatus() Status {
 	return s
 }
 
-func platformInstall(configPath string) error {
-	execPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("cannot determine executable path: %w", err)
-	}
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		return fmt.Errorf("cannot resolve executable path: %w", err)
-	}
-
+// platformInstall registers execPath (the canonical agent binary, already in
+// place) as the service.
+func platformInstall(configPath, execPath string) error {
 	// Remove any existing service to make install idempotent.
 	_ = exec.Command("sc", "stop", serviceName).Run()
 	_ = exec.Command("sc", "delete", serviceName).Run()
@@ -213,6 +205,12 @@ func platformInstall(configPath string) error {
 	aclArgv := winacl.RestrictArgs(execPath, "RX", "F")
 	if out, err := exec.Command(aclArgv[0], aclArgv[1:]...).CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: icacls on binary failed: %v: %s\n", err, out)
+	}
+	// Owner Administrators: the DACL above drops the folder's inherited OWNER
+	// RIGHTS entry, so whoever owns the file would keep WRITE_DAC over it.
+	ownerArgv := winacl.SetOwnerArgs(execPath)
+	if out, err := exec.Command(ownerArgv[0], ownerArgv[1:]...).CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: setting the binary's owner failed: %v: %s\n", err, out)
 	}
 
 	// Set description.

@@ -68,6 +68,21 @@ func DefaultConfigPath() string {
 	return "/opt/f0/achilles-agent.yaml"
 }
 
+// DefaultBinaryPath returns where the agent binary lives once installed:
+// C:\F0\achilles-agent.exe on Windows, /opt/f0/achilles-agent elsewhere. The
+// Defender ASR per-rule exclusion, the C:\F0 folder lock and the EDR guides
+// all name this exact path, so --install copies the agent here.
+func DefaultBinaryPath() string {
+	return binaryPathFor(runtime.GOOS)
+}
+
+func binaryPathFor(goos string) string {
+	if goos == "windows" {
+		return `C:\F0\achilles-agent.exe`
+	}
+	return "/opt/f0/achilles-agent"
+}
+
 // Load reads a YAML config file and unmarshals it on top of DefaultConfig,
 // so any fields missing from the file retain their default values.
 //

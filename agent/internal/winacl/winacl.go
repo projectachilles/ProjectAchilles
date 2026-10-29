@@ -19,6 +19,14 @@ const (
 	SIDOwnerRights    = "*S-1-3-4"
 )
 
+// TrustedOwner reports whether sid (in "S-1-..." string form) may own the
+// agent folder or binary: LocalSystem or BUILTIN\Administrators. Any other
+// owner keeps WRITE_DAC over the item, so it could grant itself write access
+// back and swap what the service runs as SYSTEM.
+func TrustedOwner(sid string) bool {
+	return sid == SIDLocalSystem[1:] || sid == SIDAdministrators[1:]
+}
+
 // RestrictArgs returns the icacls argv that removes inherited ACEs from path
 // and grants only LocalSystem and BUILTIN\Administrators, with the given
 // icacls permission lists (e.g. "F", "RX", "R,W").
@@ -51,9 +59,15 @@ func LockDirArgs(dir string) [][]string {
 // Administrators and only the permissions it inherits from its parent.
 func InheritOnlyArgs(path string) [][]string {
 	return [][]string{
-		{"icacls", path, "/setowner", SIDAdministrators, "/L", "/Q"},
+		SetOwnerArgs(path),
 		{"icacls", path, "/reset", "/L", "/Q"},
 	}
+}
+
+// SetOwnerArgs returns the icacls argv that makes BUILTIN\Administrators the
+// owner of path (the entry itself, never a link target).
+func SetOwnerArgs(path string) []string {
+	return []string{"icacls", path, "/setowner", SIDAdministrators, "/L", "/Q"}
 }
 
 // AgentDir returns the folder that holds the agent binary when the work dir

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 
 	"github.com/f0rt1ka/achilles-agent/internal/config"
 	"github.com/f0rt1ka/achilles-agent/internal/poller"
@@ -17,12 +19,63 @@ type Status struct {
 	PID       int // 0 if unknown or not running
 }
 
-// Install registers the agent as a system service on the current platform.
+// CanonicalBinaryPath is where the installed agent binary lives (see
+// config.DefaultBinaryPath).
+func CanonicalBinaryPath() string {
+	return config.DefaultBinaryPath()
+}
+
+// Install copies the running agent binary to CanonicalBinaryPath (unless it is
+// already running from there) and registers that copy as the system service.
+// The binary is copied, never moved: the file that was run is left where it
+// was. If the copy fails nothing is registered and any existing service is
+// left untouched.
 func Install(configPath string) error {
 	if !isElevated() {
 		return fmt.Errorf("install requires administrator/root privileges")
 	}
-	return platformInstall(configPath)
+	if _, err := os.Stat(configPath); err != nil {
+		return fmt.Errorf("agent is not enrolled (%v): run with --enroll TOKEN --server URL --install", err)
+	}
+
+	src, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("cannot determine executable path: %w", err)
+	}
+	if src, err = filepath.EvalSymlinks(src); err != nil {
+		return fmt.Errorf("cannot resolve executable path: %w", err)
+	}
+	dst := CanonicalBinaryPath()
+
+	// Secure the agent folder before the binary lands in it: refuse a folder a
+	// non-administrator (non-root) created, lock it, check its owner again.
+	if err := PrepareInstallDir(); err != nil {
+		return fmt.Errorf("%w; service not installed", err)
+	}
+
+	// A binary already in place but owned by someone else (e.g. planted before
+	// the folder was locked) is rewritten as a new file rather than trusted.
+	force := false
+	if _, err := os.Lstat(dst); err == nil && config.CheckTrustedOwner(dst) != nil {
+		force = true
+	}
+
+	copied, err := placeBinary(src, dst, force)
+	if err != nil {
+		return fmt.Errorf("could not copy the agent to %s: %w; service not installed", dst, err)
+	}
+	if copied {
+		fmt.Printf("Copied the agent to %s\n", dst)
+	}
+
+	err = platformInstall(configPath, dst)
+	if copied {
+		removeReplaced(dst)
+		if err == nil {
+			fmt.Printf("The service runs %s. %s is no longer used and can be deleted.\n", dst, src)
+		}
+	}
+	return err
 }
 
 // Uninstall removes the agent system service from the current platform.

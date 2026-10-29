@@ -227,6 +227,70 @@ Before you add the exclusion, make sure every endpoint runs agent 0.7.1 or later
 or was installed with the bootstrap script. [Step 7](#7-verify-on-a-pilot-endpoint)
 shows the check.
 
+The lock, the exclusion and every exact-path rule only help if the agent itself
+runs from `C:\F0\achilles-agent.exe`. The install command shown in
+**Agents → Enrollment** downloads it there, and the bootstrap script installs it
+there.
+
+Any signed-in user can create a folder under `C:\`, and its owner can always
+change its permissions. A `C:\F0` created by a non-administrator would let that
+user swap the agent binary for one the service then runs as SYSTEM. So before it
+downloads anything, the enrollment command:
+
+- stops if `C:\F0` already exists and is a link, or is not owned by SYSTEM or
+  Administrators;
+- makes Administrators the owner and locks the folder (the same `icacls` calls,
+  by SID, as the agent and the bootstrap script);
+- stops if anything directly inside it is a link or has another owner;
+- deletes any old `achilles-agent.exe`, so the download is a new file that
+  inherits the lock.
+
+Agents later than 0.7.1 make the same checks themselves on `--install`, before
+enrolling. If the command stops, look at what is in `C:\F0`, remove the folder
+(or anything not yours), and run it again. The
+[bootstrap script](./server-installer#enroll-with-the-bootstrap-script) goes
+further and normalizes every item already in the folder.
+
+### Agent outside C:\F0 \{#agent-outside-cf0}
+
+Older versions of the **Agents → Enrollment** command downloaded the agent into
+PowerShell's current folder, and `--install` registered the service wherever the
+binary was. An elevated PowerShell starts in `C:\Windows\System32`, so those
+agents can run from there, outside the lock and the exclusion. Check which file
+the service runs; it should print `"C:\F0\achilles-agent.exe" --run`:
+
+```powershell
+(Get-CimInstance Win32_Service -Filter "Name='AchillesAgent'").PathName
+```
+
+Agents later than 0.7.1 also log this line at startup when they run from
+anywhere else:
+
+```text
+WARNING: the agent is running from <path>, not C:\F0\achilles-agent.exe.
+```
+
+The agent never moves itself. To fix an endpoint, from an elevated PowerShell:
+
+- **Agent later than 0.7.1** (its log shows the warning above): run the
+  binary the service uses with `--install`. It copies itself to
+  `C:\F0\achilles-agent.exe`, re-registers the `AchillesAgent` service there and
+  keeps its enrollment.
+
+  ```powershell
+  & 'C:\Windows\System32\achilles-agent.exe' --install
+  ```
+
+- **Any agent version**: generate a token and run the current Windows command
+  from **Agents → Enrollment**. It downloads into `C:\F0` and replaces the
+  service. This enrolls the endpoint again as a new agent; delete the old,
+  offline entry from **Agents** afterwards.
+
+Then check the `PathName` again and delete the old binary (for example
+`C:\Windows\System32\achilles-agent.exe`). If an agent is already running from
+`C:\F0` and you re-run the enrollment command, stop it first with
+`Stop-Service AchillesAgent`, or the command can't delete the running file.
+
 ## 5. Application control (WDAC and AppLocker)
 
 Skip this step if you don't enforce application control. If you do, allow
@@ -417,7 +481,8 @@ rule:
 ```
 
 It should print `C:\F0\achilles-agent.exe`. An agent installed from another
-folder is outside the lock and outside every exact-path rule on this page.
+folder is outside the lock and outside every exact-path rule on this page; see
+[Agent outside C:\F0](#agent-outside-cf0) to move it.
 
 ### What you give up
 
@@ -703,7 +768,8 @@ Run these in an elevated PowerShell on one endpoint before rolling out widely.
 Get-AuthenticodeSignature '<path to a ProjectAchilles-built .exe>' |
   Format-List Status, StatusMessage, @{ n = 'Signer'; e = { $_.SignerCertificate.Subject } }
 
-# 2. The folder lock: only SYSTEM and BUILTIN\Administrators.
+# 2. The agent runs from C:\F0, and the folder lock: only SYSTEM and BUILTIN\Administrators.
+(Get-CimInstance Win32_Service -Filter "Name='AchillesAgent'").PathName
 icacls C:\F0
 
 # 3. The per-rule exclusion arrived. Depending on how the policy was delivered it
@@ -715,7 +781,8 @@ foreach ($root in 'HKLM:\SOFTWARE\Policies\Microsoft', 'HKLM:\SOFTWARE\Microsoft
 }
 ```
 
-Expected: `Status : Valid`; `icacls` lists only `NT AUTHORITY\SYSTEM` and
+Expected: `Status : Valid`; the service path is `"C:\F0\achilles-agent.exe" --run`
+(otherwise see [Agent outside C:\F0](#agent-outside-cf0)); `icacls` lists only `NT AUTHORITY\SYSTEM` and
 `BUILTIN\Administrators`; the last command prints a value that contains `C:\F0`
 (several paths are separated by `>`).
 
@@ -750,6 +817,7 @@ Your EDR still judges each binary, and the guidance in
 |---------|--------------|-----|
 | Exit `260` *BlockedPreExecution*, Defender event 1121 for rule `01443614` | The ASR exclusion hasn't reached the endpoint | Check the registry value from step 7; force a policy sync; check that every ASR policy that sets the rule has the exclusion |
 | Exit `260`, no event 1121 | Application control | CodeIntegrity 3077 or AppLocker 8004 events; add the [publisher rule](#5-application-control-wdac-and-applocker) |
+| Tests still blocked by rule `01443614` (event 1121) although the exclusion is in place; or the agent log says "the agent is running from …, not C:\F0\achilles-agent.exe" | The agent was installed from another folder, often `C:\Windows\System32` | [Move it into C:\F0](#agent-outside-cf0) |
 | Agent update rolled back: "failed its launch check" | The same ASR rule blocked the new agent binary | The `C:\F0` exclusion covers it; the next update check retries ([Self-updates](../user-guide/agent-management/self-updates)) |
 | `Get-AuthenticodeSignature` says `UnknownError` | The generated certificate isn't trusted on that endpoint | Step 2 |
 | `Get-AuthenticodeSignature` says `NotSigned` | The binary was built before a certificate was active, or signing failed | Rebuild; check the build log for signing errors |
