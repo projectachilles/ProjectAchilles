@@ -231,6 +231,25 @@ runs from `C:\F0\achilles-agent.exe`. The install command shown in
 **Agents → Enrollment** downloads it there, and the bootstrap script installs it
 there.
 
+Any signed-in user can create a folder under `C:\`, and its owner can always
+change its permissions. A `C:\F0` created by a non-administrator would let that
+user swap the agent binary for one the service then runs as SYSTEM. So before it
+downloads anything, the enrollment command:
+
+- stops if `C:\F0` already exists and is a link, or is not owned by SYSTEM or
+  Administrators;
+- makes Administrators the owner and locks the folder (the same `icacls` calls,
+  by SID, as the agent and the bootstrap script);
+- stops if anything directly inside it is a link or has another owner;
+- deletes any old `achilles-agent.exe`, so the download is a new file that
+  inherits the lock.
+
+Agents later than 0.7.1 make the same checks themselves on `--install`, before
+enrolling. If the command stops, look at what is in `C:\F0`, remove the folder
+(or anything not yours), and run it again. The
+[bootstrap script](./server-installer#enroll-with-the-bootstrap-script) goes
+further and normalizes every item already in the folder.
+
 ### Agent outside C:\F0 \{#agent-outside-cf0}
 
 Older versions of the **Agents → Enrollment** command downloaded the agent into
@@ -269,7 +288,7 @@ The agent never moves itself. To fix an endpoint, from an elevated PowerShell:
 Then check the `PathName` again and delete the old binary (for example
 `C:\Windows\System32\achilles-agent.exe`). If an agent is already running from
 `C:\F0` and you re-run the enrollment command, stop it first with
-`Stop-Service AchillesAgent`, or the download can't replace the running file.
+`Stop-Service AchillesAgent`, or the command can't delete the running file.
 
 ## 5. Application control (WDAC and AppLocker)
 

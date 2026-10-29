@@ -98,11 +98,15 @@ the EDR guides all name these paths
 
 ### Windows
 
+Use the Windows command from **Agents → Enrollment** in an elevated PowerShell.
+Before it downloads the agent to `C:\F0\achilles-agent.exe`, it refuses a
+`C:\F0` that a non-administrator created and locks the folder to SYSTEM and
+Administrators ([why](../../deployment/endpoint-prerequisites#4-the-cf0-folder-lock)).
+Don't replace it with a plain `New-Item -Force` and `Invoke-WebRequest`: that
+would accept a folder another user owns. Then it runs:
+
 ```powershell
-# Elevated PowerShell
-New-Item -ItemType Directory -Force -Path C:\F0 | Out-Null
-Invoke-WebRequest -UseBasicParsing -Uri "https://backend.example.com/api/agent/download?os=windows&arch=amd64" -OutFile C:\F0\achilles-agent.exe
-C:\F0\achilles-agent.exe --enroll <token> --server https://backend.example.com --install
+& 'C:\F0\achilles-agent.exe' --enroll <token> --server https://backend.example.com --install
 ```
 
 The agent installs as a Windows Service (SCM) running as SYSTEM.
