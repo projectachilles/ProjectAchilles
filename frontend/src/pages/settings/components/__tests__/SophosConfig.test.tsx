@@ -77,6 +77,20 @@ describe('SophosAutoResolveSection', () => {
     expect(screen.getByLabelText(/Dry-run/)).not.toBeDisabled();
   });
 
+  it('a dry-run receipt (dry-run time, no resolved time) renders "Would resolve" and the dry-run count shows', async () => {
+    api.getAutoResolveStatus.mockResolvedValue({ mode: 'dry_run', permission_mode: 'read_only', counts, dry_run_counts: { last24h: 7, last7d: 8, last30d: 9 }, lastAutoResolve: null });
+    api.getAutoResolveReceipts.mockResolvedValue({
+      items: [{ alert_id: '3', alert_title: 'Dry one', severity: 'high', source_type: 'alert', achilles_test_uuid: null, auto_resolved_at: null, auto_resolve_dry_run_at: '2026-10-22T10:00:00Z', auto_resolve_mode: 'dry_run', auto_resolve_error: null }],
+      total: 1, limit: 20, offset: 0,
+    });
+    render(<SophosAutoResolveSection permissionMode="read_only" />);
+    await userEvent.click(screen.getByText('Alert auto-resolution'));
+    expect(await screen.findByText('Would resolve')).toBeInTheDocument();
+    expect(screen.getByText('2026-10-22 10:00:00')).toBeInTheDocument();
+    expect(screen.getByText('Dry run: would resolve')).toBeInTheDocument();
+    expect(screen.getByText('7')).toBeInTheDocument();
+  });
+
   it('renders dry-run receipts as "Would resolve" and errors via the receipt helper', async () => {
     api.getAutoResolveReceipts.mockResolvedValue({
       items: [

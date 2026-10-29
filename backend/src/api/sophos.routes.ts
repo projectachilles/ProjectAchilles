@@ -219,33 +219,54 @@ function esClientOrNull() {
   return settings.configured ? createEsClient(settings) : null;
 }
 
-/** Receipt counts over 24h / 7d / 30d. */
+const WINDOWS = [['last24h', 'now-24h'], ['last7d', 'now-7d'], ['last30d', 'now-30d']] as const;
+
+/**
+ * Receipt counts over 24h / 7d / 30d. `counts` are real resolutions only
+ * (f0rtika.auto_resolved); dry-run "would resolve" receipts, which never set
+ * auto_resolved, are counted separately under `dry_run`.
+ */
 async function receiptCounts() {
   const counts = { last24h: 0, last7d: 0, last30d: 0 };
+  const dryRun = { last24h: 0, last7d: 0, last30d: 0 };
   const es = esClientOrNull();
-  if (!es) return counts;
-  for (const [key, gte] of [['last24h', 'now-24h'], ['last7d', 'now-7d'], ['last30d', 'now-30d']] as const) {
-    try {
-      const resp = await es.count({
-        index: SOPHOS_INDEX,
-        query: { bool: { filter: [
-          { term: { doc_type: 'alert' } },
-          { term: { 'f0rtika.auto_resolved': true } },
-          { range: { 'f0rtika.auto_resolved_at': { gte } } },
-        ] } },
-      });
-      counts[key] = typeof resp.count === 'number' ? resp.count : 0;
-    } catch {
-      // Missing index / transient — 0.
-    }
+  if (!es) return { counts, dryRun };
+  for (const [key, gte] of WINDOWS) {
+    const count = async (filter: object[]): Promise<number> => {
+      try {
+        const resp = await es.count({ index: SOPHOS_INDEX, query: { bool: { filter: [{ term: { doc_type: 'alert' } }, ...filter] } } });
+        return typeof resp.count === 'number' ? resp.count : 0;
+      } catch {
+        return 0; // Missing index / transient.
+      }
+    };
+    counts[key] = await count([
+      { term: { 'f0rtika.auto_resolved': true } },
+      { range: { 'f0rtika.auto_resolved_at': { gte } } },
+    ]);
+    dryRun[key] = await count([
+      { range: { 'f0rtika.auto_resolve_dry_run_at': { gte } } },
+    ]);
   }
-  return counts;
+  return { counts, dryRun };
 }
+
+/** Painless: the receipt's own time, resolved_at or dry_run_at, as epoch millis. */
+export const RECEIPT_TIME_SORT = {
+  _script: {
+    type: 'number',
+    order: 'desc',
+    script: {
+      lang: 'painless',
+      source: "long a = doc['f0rtika.auto_resolved_at'].size() > 0 ? doc['f0rtika.auto_resolved_at'].value.toInstant().toEpochMilli() : 0L; long b = doc['f0rtika.auto_resolve_dry_run_at'].size() > 0 ? doc['f0rtika.auto_resolve_dry_run_at'].value.toInstant().toEpochMilli() : 0L; return Math.max(a, b);",
+    },
+  },
+};
 
 async function receiptList(req: Request) {
   const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '20'), 10) || 20, 1), 100);
   const offset = Math.max(parseInt(String(req.query.offset ?? '0'), 10) || 0, 0);
-  const fields = ['auto_resolved_at', 'auto_resolve_mode', 'auto_resolve_error'];
+  const fields = ['auto_resolved_at', 'auto_resolve_dry_run_at', 'auto_resolve_mode', 'auto_resolve_error'];
   const es = esClientOrNull();
   if (!es) return { items: [], total: 0, limit, offset };
   try {
@@ -253,8 +274,15 @@ async function receiptList(req: Request) {
       index: SOPHOS_INDEX,
       size: limit,
       from: offset,
-      query: { bool: { filter: [{ term: { doc_type: 'alert' } }, { term: { 'f0rtika.auto_resolved': true } }] } },
-      sort: [{ 'f0rtika.auto_resolved_at': 'desc' }],
+      // Real resolutions and dry-run "would resolve" receipts (dry run never sets auto_resolved).
+      query: { bool: {
+        filter: [{ term: { doc_type: 'alert' } }],
+        should: [{ term: { 'f0rtika.auto_resolved': true } }, { exists: { field: 'f0rtika.auto_resolve_dry_run_at' } }],
+        minimum_should_match: 1,
+      } },
+      // A receipt has one of the two times; sort newest first by whichever it has
+      // (two plain sort keys would put every dry run after every real resolution).
+      sort: [RECEIPT_TIME_SORT],
       _source: ['alert_id', 'alert_title', 'severity', 'source_type', 'f0rtika.achilles_test_uuid', ...fields.map((f) => `f0rtika.${f}`)],
     } as any);
     const hits = ((resp as any).hits?.hits ?? []) as any[];
@@ -283,12 +311,14 @@ async function receiptList(req: Request) {
 /** GET /api/integrations/sophos/auto-resolve/status */
 router.get('/auto-resolve/status', requirePermission('integrations:read'), asyncHandler(async (req, res) => {
   const svc = getSettingsService(req);
+  const { counts, dryRun } = await receiptCounts();
   res.json({
     success: true,
     data: {
       mode: svc.getSophosAutoResolveMode(),
       permission_mode: svc.getSophosPermissionMode(),
-      counts: await receiptCounts(),
+      counts,
+      dry_run_counts: dryRun,
       lastAutoResolve: sophosSyncService.getSyncStatus().lastSyncResult?.autoResolve ?? null,
     },
   });

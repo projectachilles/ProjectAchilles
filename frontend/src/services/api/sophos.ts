@@ -51,7 +51,10 @@ export interface SophosReceiptCounts { last24h: number; last7d: number; last30d:
 export interface SophosAutoResolveStatus {
   mode: SophosAutoMode;
   permission_mode: SophosPermissionMode;
+  /** Real resolutions only. */
   counts: SophosReceiptCounts;
+  /** Dry-run "would resolve" receipts, counted separately. */
+  dry_run_counts?: SophosReceiptCounts;
   lastAutoResolve: { mode: SophosAutoMode; candidates: number; patched?: number; wouldPatch?: number; errors: string[] } | null;
 }
 

@@ -22,10 +22,40 @@ vi.mock('../../middleware/clerk.middleware.js', () => ({
   requirePermission: () => (_req: any, _res: any, next: any) => next(),
 }));
 
+// In-memory ES for the receipt routes: null = analytics not configured.
+const es = vi.hoisted(() => {
+  const state: { docs: Array<Record<string, any>> | null } = { docs: null };
+  const cur = Date.now();
+  const get = (d: any, path: string) => path.split('.').reduce((o, k) => o?.[k], d);
+  const matches = (d: any, q: any): boolean => {
+    if (q.term) { const [f, v] = Object.entries(q.term)[0]; return get(d, f) === v; }
+    if (q.exists) return get(d, q.exists.field) != null;
+    if (q.range) {
+      const [f, r] = Object.entries(q.range)[0] as [string, { gte: string }];
+      const v = get(d, f); const hours = { 'now-24h': 24, 'now-7d': 168, 'now-30d': 720 }[r.gte]!;
+      return v != null && new Date(v).getTime() >= cur - hours * 3600_000;
+    }
+    if (q.bool) {
+      const b = q.bool;
+      return (b.filter ?? []).every((x: any) => matches(d, x))
+        && (!b.should || b.should.some((x: any) => matches(d, x)));
+    }
+    return false;
+  };
+  const time = (d: any) => Math.max(new Date(d.f0rtika?.auto_resolved_at ?? 0).getTime(), new Date(d.f0rtika?.auto_resolve_dry_run_at ?? 0).getTime());
+  const client = {
+    count: async ({ query }: any) => ({ count: state.docs!.filter((d) => matches(d, query)).length }),
+    search: async ({ query, size }: any) => {
+      const hits = state.docs!.filter((d) => matches(d, query)).sort((a, b) => time(b) - time(a)).slice(0, size).map((_source) => ({ _source }));
+      return { hits: { total: { value: hits.length }, hits } };
+    },
+  };
+  return { state, client };
+});
 vi.mock('../../services/analytics/settings.js', () => ({
-  SettingsService: class { getSettings = () => ({ configured: false }); },
+  SettingsService: class { getSettings = () => (es.state.docs ? { configured: true } : { configured: false }); },
 }));
-vi.mock('../../services/analytics/client.js', () => ({ createEsClient: () => ({}) }));
+vi.mock('../../services/analytics/client.js', () => ({ createEsClient: () => es.client }));
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -291,6 +321,48 @@ describe('Sophos routes', () => {
       expect((await request(app()).put(`${BASE}/auto-resolve/mode`).send({ mode: 'yolo' })).status).toBe(400);
       expect((await request(app()).get(`${BASE}/auto-resolve/receipts`)).body.data).toMatchObject({ total: 0, items: [] });
       expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    describe('receipts and counts', () => {
+      const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
+      const real = { alert_id: 'real', alert_title: 'R', f0rtika: { auto_resolved: true, auto_resolved_at: hoursAgo(2), auto_resolve_mode: 'enabled' }, doc_type: 'alert' };
+      const dry = { alert_id: 'dry', alert_title: 'D', f0rtika: { auto_resolve_dry_run_at: hoursAgo(1), auto_resolve_mode: 'dry_run' }, doc_type: 'alert' };
+      const older = { alert_id: 'older-dry', alert_title: 'O', f0rtika: { auto_resolve_dry_run_at: hoursAgo(5), auto_resolve_mode: 'dry_run' }, doc_type: 'alert' };
+      const other = { alert_id: 'plain', alert_title: 'P', f0rtika: {}, doc_type: 'alert' };
+      afterEach(() => { es.state.docs = null; });
+
+      it('a dry-run receipt is listed and counted as dry run, never as resolved', async () => {
+        es.state.docs = [dry, other];
+        await save();
+        const list = (await request(app()).get(`${BASE}/auto-resolve/receipts`)).body.data;
+        expect(list.items.map((i: any) => i.alert_id)).toEqual(['dry']);
+        expect(list.items[0]).toMatchObject({ auto_resolve_dry_run_at: dry.f0rtika.auto_resolve_dry_run_at, auto_resolve_mode: 'dry_run' });
+        const st = (await request(app()).get(`${BASE}/auto-resolve/status`)).body.data;
+        expect(st.counts).toEqual({ last24h: 0, last7d: 0, last30d: 0 });
+        expect(st.dry_run_counts).toEqual({ last24h: 1, last7d: 1, last30d: 1 });
+      });
+
+      it('a real receipt is counted as resolved, never as dry run', async () => {
+        es.state.docs = [real, other];
+        await save();
+        expect((await request(app()).get(`${BASE}/auto-resolve/receipts`)).body.data.items.map((i: any) => i.alert_id)).toEqual(['real']);
+        const st = (await request(app()).get(`${BASE}/auto-resolve/status`)).body.data;
+        expect(st.counts).toEqual({ last24h: 1, last7d: 1, last30d: 1 });
+        expect(st.dry_run_counts).toEqual({ last24h: 0, last7d: 0, last30d: 0 });
+      });
+
+      it('a mixed list is requested newest-first by the receipt own time', async () => {
+        es.state.docs = [older, real, dry];
+        await save();
+        const spy = vi.spyOn(es.client, 'search');
+        const list = (await request(app()).get(`${BASE}/auto-resolve/receipts`)).body.data;
+        expect(list.items.map((i: any) => i.alert_id)).toEqual(['dry', 'real', 'older-dry']);
+        const arg = spy.mock.calls[0][0] as any;
+        expect(arg.sort[0]._script.script.source).toContain('auto_resolve_dry_run_at');
+        expect(arg.sort[0]._script.order).toBe('desc');
+        expect(arg.query.bool.minimum_should_match).toBe(1);
+        spy.mockRestore();
+      });
     });
   });
 });

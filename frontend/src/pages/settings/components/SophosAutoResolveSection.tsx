@@ -120,6 +120,12 @@ export function SophosAutoResolveSection({ permissionMode }: SectionProps) {
                 </Alert>
               )}
               <StatsStrip counts={status.counts} />
+              {status.dry_run_counts && (
+                <>
+                  <p className="text-xs text-muted-foreground">Dry run: would resolve</p>
+                  <StatsStrip counts={status.dry_run_counts} />
+                </>
+              )}
               <ReceiptsTable
                 receipts={receipts}
                 empty="No auto-resolve receipts yet. They appear once matched alerts are processed."
