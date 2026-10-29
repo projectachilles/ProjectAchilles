@@ -91,6 +91,24 @@ describe('SophosAutoResolveSection', () => {
     expect(screen.getByText('7')).toBeInTheDocument();
   });
 
+  it('a resolved alert with a leftover dry-run time renders Resolved, not "Would resolve"', async () => {
+    api.getAutoResolveReceipts.mockResolvedValue({
+      items: [{ alert_id: '4', alert_title: 'Both', severity: 'high', source_type: 'alert', achilles_test_uuid: null, auto_resolved_at: '2026-10-22T10:00:00Z', auto_resolve_dry_run_at: '2026-10-21T10:00:00Z', auto_resolve_mode: 'enabled', auto_resolve_error: null }],
+      total: 1, limit: 20, offset: 0,
+    });
+    render(<SophosAutoResolveSection permissionMode="response" />);
+    await userEvent.click(screen.getByText('Alert auto-resolution'));
+    expect(await screen.findByText('Resolved')).toBeInTheDocument();
+    expect(screen.queryByText('Would resolve')).toBeNull();
+  });
+
+  it('shows the error when the receipts request fails', async () => {
+    api.getAutoResolveReceipts.mockRejectedValue(new Error('Could not load auto-resolve receipts: boom'));
+    render(<SophosAutoResolveSection permissionMode="response" />);
+    await userEvent.click(screen.getByText('Alert auto-resolution'));
+    expect(await screen.findByText(/Could not load auto-resolve receipts: boom/)).toBeInTheDocument();
+  });
+
   it('renders dry-run receipts as "Would resolve" and errors via the receipt helper', async () => {
     api.getAutoResolveReceipts.mockResolvedValue({
       items: [

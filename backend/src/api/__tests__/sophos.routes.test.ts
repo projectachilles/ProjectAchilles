@@ -38,6 +38,7 @@ const es = vi.hoisted(() => {
     if (q.bool) {
       const b = q.bool;
       return (b.filter ?? []).every((x: any) => matches(d, x))
+        && (b.must_not ?? []).every((x: any) => !matches(d, x))
         && (!b.should || b.should.some((x: any) => matches(d, x)));
     }
     return false;
@@ -349,6 +350,38 @@ describe('Sophos routes', () => {
         const st = (await request(app()).get(`${BASE}/auto-resolve/status`)).body.data;
         expect(st.counts).toEqual({ last24h: 1, last7d: 1, last30d: 1 });
         expect(st.dry_run_counts).toEqual({ last24h: 0, last7d: 0, last30d: 0 });
+      });
+
+      it('a dry-run-then-enabled doc (leftover dry_run_at) counts only as resolved and sorts by its resolved time', async () => {
+        const both = { alert_id: 'both', alert_title: 'B', doc_type: 'alert', f0rtika: { auto_resolved: true, auto_resolved_at: hoursAgo(3), auto_resolve_dry_run_at: hoursAgo(10), auto_resolve_mode: 'enabled' } };
+        es.state.docs = [both];
+        await save();
+        const st = (await request(app()).get(`${BASE}/auto-resolve/status`)).body.data;
+        expect(st.counts).toEqual({ last24h: 1, last7d: 1, last30d: 1 });
+        expect(st.dry_run_counts).toEqual({ last24h: 0, last7d: 0, last30d: 0 });
+        expect((await request(app()).get(`${BASE}/auto-resolve/receipts`)).body.data.items).toHaveLength(1);
+      });
+
+      it('the sort script guards fields an older index never mapped', async () => {
+        const { RECEIPT_TIME_SORT } = await import('../sophos.routes.js');
+        const src = RECEIPT_TIME_SORT._script.script.source;
+        expect(src).toContain("doc.containsKey(r)");
+        expect(src).toContain("doc.containsKey(d)");
+      });
+
+      it('an ES failure on the receipts query surfaces as an error, a missing index as an empty list', async () => {
+        es.state.docs = [dry];
+        await save();
+        const spy = vi.spyOn(es.client, 'search');
+        spy.mockRejectedValueOnce(new Error('script_exception: boom'));
+        const bad = await request(app()).get(`${BASE}/auto-resolve/receipts`);
+        expect(bad.status).toBe(502);
+        expect(JSON.stringify(bad.body)).toContain('script_exception');
+        spy.mockRejectedValueOnce(Object.assign(new Error('index_not_found_exception'), { statusCode: 404 }));
+        const none = await request(app()).get(`${BASE}/auto-resolve/receipts`);
+        expect(none.status).toBe(200);
+        expect(none.body.data.items).toEqual([]);
+        spy.mockRestore();
       });
 
       it('a mixed list is requested newest-first by the receipt own time', async () => {

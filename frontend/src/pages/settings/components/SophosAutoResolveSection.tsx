@@ -218,7 +218,9 @@ function receiptResult(r: SophosReceipt): string {
     auto_resolve_error: r.auto_resolve_error,
   });
   if (r.auto_resolve_error && described) return described.label;
-  if (r.auto_resolve_mode === 'dry_run' || r.auto_resolve_dry_run_at) return 'Would resolve';
+  // A leftover dry_run_at on an alert a later enabled pass really resolved must not read as a dry run.
+  const realResolve = !!r.auto_resolved_at && r.auto_resolve_mode !== 'dry_run';
+  if (!realResolve && (r.auto_resolve_mode === 'dry_run' || r.auto_resolve_dry_run_at)) return 'Would resolve';
   return described ? 'Resolved' : '—';
 }
 

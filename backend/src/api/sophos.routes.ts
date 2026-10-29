@@ -244,21 +244,23 @@ async function receiptCounts() {
       { term: { 'f0rtika.auto_resolved': true } },
       { range: { 'f0rtika.auto_resolved_at': { gte } } },
     ]);
+    // A doc a later enabled pass really resolved keeps its old dry_run_at: it counts once, as resolved.
     dryRun[key] = await count([
       { range: { 'f0rtika.auto_resolve_dry_run_at': { gte } } },
+      { bool: { must_not: [{ term: { 'f0rtika.auto_resolved': true } }] } },
     ]);
   }
   return { counts, dryRun };
 }
 
-/** Painless: the receipt's own time, resolved_at or dry_run_at, as epoch millis. */
+/** Painless: the receipt's own time (resolved_at, else dry_run_at) as epoch millis; guarded for fields an older index never mapped. */
 export const RECEIPT_TIME_SORT = {
   _script: {
     type: 'number',
     order: 'desc',
     script: {
       lang: 'painless',
-      source: "long a = doc['f0rtika.auto_resolved_at'].size() > 0 ? doc['f0rtika.auto_resolved_at'].value.toInstant().toEpochMilli() : 0L; long b = doc['f0rtika.auto_resolve_dry_run_at'].size() > 0 ? doc['f0rtika.auto_resolve_dry_run_at'].value.toInstant().toEpochMilli() : 0L; return Math.max(a, b);",
+      source: "def r = 'f0rtika.auto_resolved_at'; def d = 'f0rtika.auto_resolve_dry_run_at'; if (doc.containsKey(r) && doc[r].size() > 0) { return doc[r].value.toInstant().toEpochMilli(); } if (doc.containsKey(d) && doc[d].size() > 0) { return doc[d].value.toInstant().toEpochMilli(); } return 0L;",
     },
   },
 };
@@ -303,8 +305,12 @@ async function receiptList(req: Request) {
     });
     return { items, total, limit, offset };
   } catch (err) {
-    console.warn('[sophos receipts] query failed:', err instanceof Error ? err.message : String(err));
-    return { items: [], total: 0, limit, offset };
+    const e = err as { statusCode?: number; meta?: { statusCode?: number }; message?: string };
+    const status = e?.statusCode ?? e?.meta?.statusCode;
+    // No index yet is a legitimately empty list; anything else must not look like "no receipts".
+    if (status === 404 || /index_not_found/.test(String(e?.message))) return { items: [], total: 0, limit, offset };
+    console.warn('[sophos receipts] query failed:', e?.message ?? String(err));
+    throw new AppError(`Could not load auto-resolve receipts: ${e?.message ?? 'Elasticsearch query failed'}`, 502);
   }
 }
 
