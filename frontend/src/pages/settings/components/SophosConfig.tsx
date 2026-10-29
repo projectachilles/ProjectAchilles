@@ -301,7 +301,7 @@ export function SophosConfig({ onStatusChange }: SophosConfigProps) {
         <p className="font-medium text-card-foreground">Required Sophos Central role</p>
         <ul className="list-disc list-inside space-y-1 ml-2">
           <li><span className="font-medium">Read-only:</span> an API credential with the <span className="font-mono text-xs">Service Principal Read-Only</span> role</li>
-          <li><span className="font-medium">Response:</span> <span className="font-mono text-xs">Service Principal Forensics</span> or higher, so alerts can be acknowledged and detections resolved</li>
+          <li><span className="font-medium">Response:</span> <span className="font-mono text-xs">Service Principal Management</span> (or Super Admin), so alerts can be acknowledged and detections resolved</li>
         </ul>
         <a
           href="https://developer.sophos.com/getting-started"
