@@ -47,6 +47,13 @@ import {
   type MergePlan,
   type SophosDocMap,
 } from './merge.js';
+import {
+  SOPHOS_DETECTION_POLL_QUERY,
+  SOPHOS_DETECTION_SEARCH_QUERY,
+  detectionCql,
+  detectionPollVariables,
+  detectionSearchVariables,
+} from './detection-query.js';
 import { SettingsService } from '../analytics/settings.js';
 import { createEsClient } from '../analytics/client.js';
 import { SophosEnrichmentService } from './enrichment.service.js';
@@ -98,16 +105,7 @@ export interface SophosSyncStatus {
   inProgress: boolean;
 }
 
-// Fields transformGraphqlDetection reads (det.graphql: Timestamp is { seconds nanos }).
-const DETECTION_FIELDS =
-  'id status attack_technique_ids '
-  + 'metadata { title full_title description severity created_at { seconds nanos } first_seen_at { seconds nanos } updated_at { seconds nanos } } '
-  + 'entities { entities } event_ids { id } enrichment_details { mitre_attack_info { technique_id } }';
-const DETECTION_RESPONSE = `status reason search_id alerts { total_results total_parts part list { ${DETECTION_FIELDS} } }`;
-export const SOPHOS_DETECTION_SEARCH_QUERY =
-  `query AchillesDetectionSync($in: SearchRequestInput) { detectionSearch(in: $in) { ${DETECTION_RESPONSE} } }`;
-export const SOPHOS_DETECTION_POLL_QUERY =
-  `query AchillesDetectionPoll($in: PollRequestInput) { detectionPoll(in: $in) { ${DETECTION_RESPONSE} } }`;
+export { SOPHOS_DETECTION_SEARCH_QUERY, SOPHOS_DETECTION_POLL_QUERY };
 
 interface DetectionsResponse {
   status?: string | null;
@@ -474,9 +472,8 @@ export class SophosSyncService {
   }
 
   private async syncGraphqlDetections(ctx: PollContext, since: string, now: number, out: SophosSourceSyncResult): Promise<Outcome> {
-    // Relative window (as the capture script uses); minutes since the overlapped checkpoint.
-    const minutes = Math.max(1, Math.ceil((now - Date.parse(since)) / 60_000));
-    const cql = `from alert earliest=-${minutes}m`;
+    // Relative window (shared with the capture kit); minutes since the overlapped checkpoint.
+    const cql = detectionCql((now - Date.parse(since)) / 60_000);
     let outcome: Outcome = 'clean';
     const writePage = async (list: unknown[]) => {
       out.fetched += list.length;
@@ -487,9 +484,8 @@ export class SophosSyncService {
     let offset = 0;
     let last: DetectionsResponse | undefined;
     for (;;) {
-      const data = await ctx.client.graphql<{ detectionSearch?: DetectionsResponse | null }>(SOPHOS_DETECTION_SEARCH_QUERY, {
-        in: { cql_query: cql, offset, limit: DETECTION_PAGE_SIZE },
-      });
+      const data = await ctx.client.graphql<{ detectionSearch?: DetectionsResponse | null }>(SOPHOS_DETECTION_SEARCH_QUERY,
+        detectionSearchVariables(cql, offset, DETECTION_PAGE_SIZE));
       last = checkedResponse(data?.detectionSearch, 'detectionSearch');
       const list = last.alerts?.list ?? [];
       await writePage(list);
@@ -503,7 +499,7 @@ export class SophosSyncService {
     const searchId = last?.search_id;
     if (!searchId) throw new Error('Sophos detectionSearch returned more than 10000 detections and no search_id to continue');
     for (let i = 0; i < DETECTION_MAX_POLLS; i++) {
-      const data = await ctx.client.graphql<{ detectionPoll?: DetectionsResponse | null }>(SOPHOS_DETECTION_POLL_QUERY, { in: { search_id: searchId } });
+      const data = await ctx.client.graphql<{ detectionPoll?: DetectionsResponse | null }>(SOPHOS_DETECTION_POLL_QUERY, detectionPollVariables(searchId));
       const res = checkedResponse(data?.detectionPoll, 'detectionPoll');
       const list = res.alerts?.list ?? [];
       await writePage(list);

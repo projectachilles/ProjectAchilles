@@ -11,6 +11,15 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { SophosClient, SophosApiError, SophosGraphQLError } from '../src/services/sophos/sophos-client.js';
 import { redactCapture } from '../src/services/sophos/capture/redact.js';
+// Shared with the sync service and validated against det.graphql in
+// src/services/sophos/__tests__/detection-query.test.ts.
+import {
+  SOPHOS_CAPTURE_DETECTION_BY_ID_QUERY,
+  SOPHOS_CAPTURE_DETECTION_SEARCH_QUERY,
+  detectionByIdVariables,
+  detectionCql,
+  detectionSearchVariables,
+} from '../src/services/sophos/detection-query.js';
 
 const USAGE = `Sophos Central PoC capture (read-only)
 
@@ -28,45 +37,6 @@ Output: one redacted <endpoint>.json per call plus manifest.json
 (endpoint -> status, item count). No write calls are made and the secret is
 never printed. Skim the output for customer-identifying text before sending.
 `;
-
-// Fields Achilles correlates on. Keep in step with what the XDR parser will read.
-export const DETECTION_FIELDS = `
-  id
-  status
-  resolution_reason
-  attack_technique_ids
-  tags
-  sensor_types
-  metadata { title severity confidence created_at first_seen_at began_at ended_at updated_at origin description }
-  entities { entities relationships { from_entity to_entity relationship type } }
-  key_entities { entity label }
-  source_entities { id display_name subtype identifiers properties {
-    ... on EntityHost { hostname hostname_fqdn computer_name host_id os }
-    ... on EntityFile { file_name file_path hash_sha256 }
-    ... on EntityFileHash { hash_type hash_value }
-    ... on EntityProcess { process_name process_id }
-    ... on EntityUser { user_name original_user_name domain_name auth_domain }
-    ... on EntityIpAddress { ip_address }
-  } }
-  target_entities { id display_name subtype identifiers properties {
-    ... on EntityHost { hostname hostname_fqdn computer_name host_id os }
-    ... on EntityFile { file_name file_path hash_sha256 }
-    ... on EntityFileHash { hash_type hash_value }
-    ... on EntityProcess { process_name process_id }
-    ... on EntityUser { user_name original_user_name domain_name auth_domain }
-    ... on EntityIpAddress { ip_address }
-  } }
-  event_ids { id }
-  enrichment_details { mitre_attack_info { technique_id technique tactics } }
-`;
-
-export const DETECTION_SEARCH_QUERY = `query AchillesDetectionSearch($in: SearchRequestInput) {
-  detectionSearch(in: $in) { status reason search_id alerts { total_results list { ${DETECTION_FIELDS} } } }
-}`;
-
-export const DETECTION_BY_ID_QUERY = `query AchillesDetectionById($in: GetByIDRequestInput) {
-  detectionRetrieveById(in: $in) { status reason alerts { total_results list { ${DETECTION_FIELDS} } } }
-}`;
 
 interface ManifestEntry { status: number | 'ok' | 'skipped' | 'error'; items?: number; note?: string }
 
@@ -144,10 +114,10 @@ async function main(): Promise<void> {
 
   type Search = { detectionSearch?: { alerts?: { list?: Array<{ id?: unknown }> } } };
   const search = (await step('xdr-detection-search', () =>
-    client.graphql<Search>(DETECTION_SEARCH_QUERY, { in: { cql_query: `from alert earliest=-${args.days}d`, limit: 50 } }))) as Search | undefined;
+    client.graphql<Search>(SOPHOS_CAPTURE_DETECTION_SEARCH_QUERY, detectionSearchVariables(detectionCql(args.days * 1440), 0, 50)))) as Search | undefined;
   const firstDet = search?.detectionSearch?.alerts?.list?.[0];
   if (typeof firstDet?.id === 'string') {
-    await step('xdr-detection-by-id', () => client.graphql(DETECTION_BY_ID_QUERY, { in: { iDs: [firstDet.id as string] } }));
+    await step('xdr-detection-by-id', () => client.graphql(SOPHOS_CAPTURE_DETECTION_BY_ID_QUERY, detectionByIdVariables([firstDet.id as string])));
   } else manifest['xdr-detection-by-id'] = { status: 'skipped', note: 'no detections in window' };
 
   await step('detections-v1', () => client.detectionsV1({ from: from.toISOString(), to: now.toISOString() }));
