@@ -60,6 +60,7 @@ measured ones.
 | 4 | [Make sure `C:\F0` is locked to SYSTEM and Administrators](#4-the-cf0-folder-lock) | ProjectAchilles admin |
 | 5 | [Add a publisher rule, if you run WDAC or AppLocker](#5-application-control-wdac-and-applocker) | Application-control owner |
 | 6 | [Brief the SOC; add no EDR exclusions](#6-edr-expectations) | Security team |
+| 6a | [Sophos Intercept X: add nothing by default](#sophos-intercept-x) | Sophos admin |
 | 7 | [Verify on a pilot endpoint](#7-verify-on-a-pilot-endpoint) | ProjectAchilles admin |
 
 ## 1. Code-signing certificate
@@ -253,6 +254,7 @@ and AppLocker events **8004** (enforced; **8003** in audit).
 |-----|------------------|---------------------------|
 | Microsoft Defender for Endpoint | Judges each stage binary | Per-stage verdicts, alert correlation ([Microsoft Defender](../user-guide/integrations/microsoft-defender)) |
 | CrowdStrike Falcon | Judges each stage binary | Per-stage verdicts, alert correlation ([CrowdStrike](../user-guide/integrations/crowdstrike)) |
+| Sophos Intercept X | Judges file content (Deep Learning, reputation) and behaviour per binary | Per-stage verdicts, alert correlation, Health Check posture ([Sophos](../user-guide/integrations/sophos)). Add nothing by default; see [Sophos Intercept X](#sophos-intercept-x). |
 | SentinelOne | Scores the whole process tree and can kill its root, **the agent** | The task fails with `Agent went offline during execution`; with a matching alert the run counts as **Protected**, stages unknown ([SentinelOne](../user-guide/integrations/sentinelone#when-the-edr-kills-the-agent)). Windows restarts the agent service after 10 seconds (service recovery). |
 
 - **Add no EDR exclusion for the agent or for `C:\F0`.** The agent launches the
@@ -262,6 +264,104 @@ and AppLocker events **8004** (enforced; **8003** in audit).
   [Pre-execution notices](../user-guide/integrations/pre-execution-notices) email
   them before every run, and the auto-resolve features can close matched alerts
   for you.
+
+## Sophos Intercept X \{#sophos-intercept-x}
+
+Skip this section if you don't run Sophos. It sits beside the Defender step:
+Defender has a prevalence gate (ASR rule `01443614`) that needs an exclusion;
+Sophos does not.
+
+### Default: add nothing
+
+Sophos has no prevalence or age gate like ASR `01443614`. Its Deep Learning
+engine judges the **content** of each file, the agent and the tests alike, so a
+freshly built binary isn't blocked just for being new. **Pilot one endpoint
+first** ([step 7](#7-verify-on-a-pilot-endpoint)): run a multi-stage test and
+check that the agent keeps running and the stages report their own results.
+
+Remember that Sophos reacting to a test is the point. If Sophos blocks a stage,
+that is a **result** (Prevented), not a prerequisite failure.
+
+### Only if Sophos convicts the agent itself
+
+If a Sophos detection names the agent's own file (path
+`C:\F0\achilles-agent.exe` or `C:\F0\achilles-update-*`, typically a machine-learning
+`ML/PE-...` detection) the agent can't run, and nothing else works. Then, and
+only then:
+
+1. In Sophos Central open that detection and choose **Allow**, then pick
+   **SHA-256** from the detection. Do **not** accept the pre-selected
+   "Certificate (recommended)" option: every Achilles test shares the agent's
+   signing certificate, so a certificate allow trusts every test.
+2. **Allow each new agent version's SHA-256 before you roll it out.** A hash
+   allows one exact file, so every agent update has a new hash.
+3. Fallback, if hashes are impractical: allow the application by **exact path**
+   `C:\F0\achilles-agent.exe`, and only together with the `C:\F0` lock from
+   [step 4](#4-the-cf0-folder-lock) (agent 0.7.1 and later), so nobody but
+   SYSTEM and Administrators can place a file at that path.
+
+**Check that the agent really lives in `C:\F0`** before relying on any path
+rule:
+
+```powershell
+(Get-CimInstance Win32_Service -Filter "Name='AchillesAgent'").PathName
+```
+
+It should print `C:\F0\achilles-agent.exe`. An agent installed from another
+folder is outside the lock and outside every exact-path rule on this page.
+
+### What you give up
+
+Only the Deep Learning and reputation verdict on that one file (the agent). Sophos
+still checks the agent for exploits, ransomware behaviour and malicious
+behaviour, and still judges every test binary and every stage in full. In
+ProjectAchilles terms, the Defense Score doesn't measure whether Sophos would
+convict a new agent build on its content alone.
+
+:::danger[Never do these]
+Each of these makes Sophos stop judging the tests, so the run measures nothing.
+- **Never allow by certificate.** The agent and all tests share the active
+  signing certificate; trusting it trusts every test. ProjectAchilles flags such
+  an entry as a critical gap in the Sophos tab.
+- **Never add a process exclusion for the agent.** It covers every file the
+  agent writes or opens, which is every test.
+- **Never add any `C:\F0` folder exclusion**, of any kind: scanning, AMSI,
+  ransomware protection, file hashing or data collection. Also flagged as
+  critical.
+- **Never add Server Lockdown "allowed files/folders" for the agent**; it would
+  trust the files the agent creates.
+- **Never allow a PUA by a generic name.**
+- **Never add exploit-mitigation or behavioural exclusions** for the agent or
+  the tests.
+- **Never lower Deep Learning or turn off hooks** for the test hosts.
+:::
+
+### Servers with Server Lockdown
+
+Server Lockdown only runs approved files, and it will refuse the tests. Don't
+loosen it for the agent: use a **lockdown-free test group** of servers instead
+(same policies otherwise), and read those servers' results as the baseline.
+
+### Linux and macOS
+
+On Linux, Sophos on-access scanning is off by default, so a test file written
+to disk may not be examined until something runs it or a scan reads it. Check
+your policy if you expect on-access detections. macOS needs no step here
+beyond the general guidance.
+
+:::note[Pending validation]
+These Sophos behaviours are being confirmed on a proof-of-concept tenant before
+this page is final, and are not claims yet: whether a fresh agent or test
+binary gets an `ML/PE-...` detection on the default policy, which Windows error
+a Sophos-blocked launch returns (and so whether it shows as exit `260` or as a
+bare failed task), whether Sophos quarantines a file as it is written, whether
+an allowed hash or path changes behavioural monitoring of the agent's children,
+whether Sophos ever ends the agent during a test, whether the agent's update or
+uninstall paths raise behaviour detections, and the exact Central menu labels
+in Sophos Fusion. If you see any of these, the Sophos tab's feed and the
+[Executions](../user-guide/analytics/exit-codes-and-outcomes) view show what
+Sophos reported.
+:::
 
 ## What ProjectAchilles changes on an endpoint
 
@@ -381,6 +481,9 @@ Your EDR still judges each binary, and the guidance in
 | `Get-AuthenticodeSignature` says `UnknownError` | The generated certificate isn't trusted on that endpoint | Step 2 |
 | `Get-AuthenticodeSignature` says `NotSigned` | The binary was built before a certificate was active, or signing failed | Rebuild; check the build log for signing errors |
 | `Agent went offline during execution` during a test | The EDR killed the process tree (typical of SentinelOne) | Expected; see [EDR expectations](#6-edr-expectations) |
+| A Sophos detection names `C:\F0\achilles-agent.exe` and the agent won't start | Sophos convicted the agent file | [Allow that SHA-256](#only-if-sophos-convicts-the-agent-itself), never the certificate |
+| Sophos tab shows a **Certificate allowed** or **Folder exclusion** critical box | A Sophos allow or exclusion exempts every test | Remove it; see the danger box in [Sophos Intercept X](#sophos-intercept-x) |
+| Stages blocked or missing on a Sophos server | Server Lockdown refuses unapproved files | Use a lockdown-free [test group](#servers-with-server-lockdown) |
 
 See also: [Exit Codes & Outcomes](../user-guide/analytics/exit-codes-and-outcomes).
 

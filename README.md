@@ -66,7 +66,7 @@ ProjectAchilles is a continuous security validation platform with four core comp
 
 All four are driven from one console: a flat six-destination interface — Dashboard, Tests, Analytics, Agents, Tasks, Settings — with a single unified Security Dashboard as the landing page.
 
-The platform is open-source and installs on a Linux server with one command: a terminal wizard handles DNS, certificates, and agent enrollment for LAN deployments. It also runs anywhere Docker Compose does, and integrates with Microsoft Defender, CrowdStrike Falcon and SentinelOne for cross-correlation between your internal validation results and your EDR's own security posture data.
+The platform is open-source and installs on a Linux server with one command: a terminal wizard handles DNS, certificates, and agent enrollment for LAN deployments. It also runs anywhere Docker Compose does, and integrates with Microsoft Defender, CrowdStrike Falcon, SentinelOne and Sophos Intercept X for cross-correlation between your internal validation results and your EDR's own security posture data.
 
 ## Quick Start
 
@@ -198,7 +198,7 @@ A single dark **f0 design language** across every screen — terminal-green acce
 |-------------|------------------|
 | **Dashboard** | Unified posture across tests, endpoints, and analytics |
 | **Tests** | The test library with a faceted browse rail |
-| **Analytics** | Defense Score, executions, risk acceptances, Defender, CrowdStrike, SentinelOne |
+| **Analytics** | Defense Score, executions, risk acceptances, Defender, CrowdStrike, SentinelOne, Sophos |
 | **Agents** | Fleet table plus the fleet-pulse utility rail |
 | **Tasks** | Live task stream, scheduled tasks, task detail |
 | **Settings** | Integrations, tests, agent binaries, users, API keys |
@@ -349,7 +349,8 @@ Quantify your security posture with 30+ query endpoints powered by Elasticsearch
 - **Microsoft Defender Integration** — Sync Secure Score, alerts, and control profiles with cross-correlation analytics; dedicated Defender tab with alert drill-down drawer, correlation timeline, per-execution detection rate with MITRE roll-up, and control ↔ alert linking
 - **CrowdStrike Falcon Integration** — Sync ZTA posture score and alerts with cross-correlation analytics; dedicated CrowdStrike tab with alert drill-down drawer (Falcon console links), correlation timeline, and per-execution detection rate; optional auto-resolve closes correlated alerts with an audit-trail comment
 - **SentinelOne Integration** — Sync threats and detection alerts (read-only by default) with cross-correlation analytics; dedicated SentinelOne tab with agent health, policy and path-exclusion gap views; opt-in auto-resolve (re-checks the console before acting) and opt-in automatic kill / quarantine of unmitigated test threats, never counted as SentinelOne prevention. Docker-style backends only (not Vercel)
-- **Vendor-Confirmed Prevention** — a stage that CrowdStrike, SentinelOne or Defender reports as prevented is credited as protected; the EDR tabs share one layout with source/severity filters and evidence-based technique coverage (prevented / detected only / missed)
+- **Sophos Integration** — Sophos Central tenant credential: Common Alerts, SIEM prevention evidence (24 h window, with a visible sync-gap warning), XDR detections (ATT&CK techniques) and the Account Health Check as the posture score (labelled as an Achilles average); dedicated Sophos tab with endpoint health, policy and exclusion / allow-list gap views (flags an allowed certificate or `C:\F0` exclusion that would exempt every test); opt-in auto-resolve (acknowledge / TRUE_POSITIVE_BENIGN, re-checks Sophos before acting). Read-only by default. Docker-style backends only (not Vercel)
+- **Vendor-Confirmed Prevention** — a stage that CrowdStrike, SentinelOne, Sophos or Defender reports as prevented is credited as protected; the EDR tabs share one layout with source/severity filters and evidence-based technique coverage (prevented / detected only / missed)
 - **Trend Alerting** — Threshold-based Slack and email notifications with in-app notification bell
 - **Write-Index Rollover** — Results ingest into dated write indices (`achilles-results-YYYY.MM.DD`) with daily, monthly, or static rollover; per-task index targeting for isolated result sets
 
@@ -451,6 +452,7 @@ graph TB
         DFS[Defender Service]
         CSF[CrowdStrike Service]
         S1S[SentinelOne Service]
+        SPS[Sophos Service]
         ALS[Alerting Service]
     end
 
@@ -461,6 +463,7 @@ graph TB
     DFS --> GRAPH[Microsoft Graph API]
     CSF --> FALCON[CrowdStrike Falcon API]
     S1S --> S1API[SentinelOne Management API]
+    SPS --> SPAPI[Sophos Central API]
     ALS --> NOTIFY[Slack · Email]
 
     AGS <-->|Agent API Key| AGENT
@@ -808,6 +811,34 @@ Backend (Docker-style deployments) only; `GET /api/capabilities` reports `sentin
 | `PUT` | `/api/integrations/sentinelone/auto-mitigation` | Set automatic-mitigation mode / action (Response mode only) |
 | `GET` | `/api/integrations/sentinelone/auto-mitigation/receipts` | Paginated automatic-mitigation receipts |
 | `GET` | `/api/integrations/sentinelone/actions/history` | Automatic-mitigation audit trail |
+
+### Sophos Integration
+
+Backend (Docker-style deployments) only; `GET /api/capabilities` reports `sophos: false` on Vercel.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/analytics/sophos/alerts` | Alerts, XDR detections and SIEM events with filtering (`sourceType=alert\|xdr_detection\|siem_event`) |
+| `GET` | `/api/analytics/sophos/alerts/summary` | Counts by severity and status |
+| `GET` | `/api/analytics/sophos/alerts/trend` | Volume over time |
+| `GET` | `/api/analytics/sophos/correlation/scores` | Defense Score series with the Health Check headline (`ztaScore`) |
+| `GET` | `/api/analytics/sophos/correlation/techniques` | MITRE technique overlap |
+| `GET` | `/api/analytics/sophos/correlation/technique-coverage` | Evidence-based technique coverage |
+| `GET` | `/api/analytics/sophos/correlation/detection-rate` | Per-execution detection rate |
+| `GET` | `/api/analytics/sophos/correlation/alerts-for-test` | Alerts matched to a test execution |
+| `GET` | `/api/analytics/sophos/posture/health-check` | Latest Health Check snapshot and trend |
+| `GET` | `/api/analytics/sophos/posture/endpoint-health` | Endpoint flag counts |
+| `GET` | `/api/analytics/sophos/posture/policies` | Threat-protection policy deviations |
+| `GET` | `/api/analytics/sophos/posture/exclusion-gaps` | Critical allow-list findings and missed tests under an exclusion |
+| `GET` | `/api/integrations/sophos` | Sophos configuration (secret masked) |
+| `POST` | `/api/integrations/sophos` | Save Sophos settings |
+| `DELETE` | `/api/integrations/sophos` | Remove Sophos configuration |
+| `POST` | `/api/integrations/sophos/test` | Authenticate and probe each API surface |
+| `POST` | `/api/integrations/sophos/sync` | Start a background sync (202); poll `/sync/status` |
+| `GET` | `/api/integrations/sophos/sync/status` | Checkpoints, sync gap, last result and error |
+| `GET` | `/api/integrations/sophos/auto-resolve/status` | Auto-resolve mode and receipt counts |
+| `PUT` | `/api/integrations/sophos/auto-resolve/mode` | Set auto-resolve mode (`disabled`/`dry_run`/`enabled`) |
+| `GET` | `/api/integrations/sophos/auto-resolve/receipts` | Paginated auto-resolve receipt history |
 
 ### Reports
 
