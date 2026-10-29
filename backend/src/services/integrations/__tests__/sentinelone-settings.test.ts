@@ -24,6 +24,17 @@ describe('IntegrationsSettingsService — SentinelOne', () => {
   });
   afterAll(() => realFs.rmSync(tmpHome, { recursive: true, force: true }));
 
+  it('refuses a new base_url without a new token and leaves the file unchanged', () => {
+    const svc = new IntegrationsSettingsService();
+    svc.saveSentinelOneSettings({ base_url: 'https://acme.sentinelone.net', api_token: TOKEN });
+    const before = realFs.readFileSync(FILE, 'utf8');
+    expect(() => svc.saveSentinelOneSettings({ base_url: 'https://other.sentinelone.net' })).toThrow(/API token for the new console URL/i);
+    expect(realFs.readFileSync(FILE, 'utf8')).toBe(before);
+    // Same URL (even differently written) without a token, and a new URL with a token, are fine.
+    expect(() => svc.saveSentinelOneSettings({ base_url: 'https://ACME.sentinelone.net/', label: 'x' })).not.toThrow();
+    expect(() => svc.saveSentinelOneSettings({ base_url: 'https://other.sentinelone.net', api_token: 'another-token-0123456789' })).not.toThrow();
+  });
+
   it('encrypts the token at rest, preserves other integrations, and applies defaults', () => {
     realFs.mkdirSync(realPath.dirname(FILE), { recursive: true });
     const notices = { enabled: true, recipients: ['soc@example.com'] };

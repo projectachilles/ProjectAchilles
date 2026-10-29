@@ -39,6 +39,45 @@ describe('normalizeSentinelOneBaseUrl', () => {
 describe('SentinelOneClient', () => {
   beforeEach(() => mockFetch.mockReset());
 
+  describe('redirects and secret hygiene', () => {
+    it('never follows redirects: requests go out with redirect: manual', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({ data: [] }));
+      await new SentinelOneClient({ base_url: BASE, api_token: TOKEN, permission_mode: 'read_only' }).listThreats({});
+      expect(mockFetch.mock.calls[0][1].redirect).toBe('manual');
+    });
+
+    it.each([301, 302, 307, 308])('treats HTTP %i as an error and does not leak the Location or token', async (status) => {
+      const location = 'https://evil.example.com/steal?k=secret-location-value';
+      mockFetch.mockResolvedValueOnce(new Response('', { status, headers: { Location: location } }));
+      const client = new SentinelOneClient({ base_url: BASE, api_token: TOKEN, permission_mode: 'read_only' });
+      const err = await client.listThreats({}).catch((e) => e);
+      expect(err).toBeInstanceOf(SentinelOneApiError);
+      expect(err.statusCode).toBe(status);
+      expect(err.message).toMatch(new RegExp(`redirect \\(HTTP ${status}\\)`));
+      expect(err.message).not.toContain('evil.example.com');
+      expect(err.message).not.toContain(TOKEN);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('treats an opaque redirect response as an error', async () => {
+      const res = { type: 'opaqueredirect', status: 0, ok: false, text: async () => '', headers: new Headers() };
+      mockFetch.mockResolvedValueOnce(res);
+      const err = await new SentinelOneClient({ base_url: BASE, api_token: TOKEN, permission_mode: 'read_only' }).listThreats({}).catch((e) => e);
+      expect(err).toBeInstanceOf(SentinelOneApiError);
+      expect(err.message).toMatch(/redirect/);
+    });
+
+    it('redacts the API token from echoed error bodies before truncating', async () => {
+      const body = 'x'.repeat(290) + TOKEN + ' trailing';
+      mockFetch.mockResolvedValueOnce(new Response(body, { status: 400 }));
+      const err = await new SentinelOneClient({ base_url: BASE, api_token: TOKEN, permission_mode: 'read_only' }).listThreats({}).catch((e) => e);
+      expect(err.message).not.toContain(TOKEN);
+      expect(err.message).not.toContain(TOKEN.slice(0, 10));
+      expect(err.bodySnippet).not.toContain(TOKEN.slice(0, 10));
+      expect(err.message).toContain('[REDACTED]');
+    });
+  });
+
   it('sends the ApiToken header and comma-joined scope params', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: [{ id: '1' }], pagination: { nextCursor: 'abc', totalItems: 5 } }));
     const client = new SentinelOneClient({ base_url: BASE, api_token: TOKEN, permission_mode: 'read_only' });
