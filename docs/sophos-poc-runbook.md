@@ -2,7 +2,7 @@
 
 Purpose: capture real, redacted Sophos Central API responses from a proof-of-concept tenant. They become the verbatim test fixtures for the Sophos Intercept X integration, so the shapes (and the fields Achilles correlates on) must be genuine.
 
-The capture script (`backend/scripts/sophos-capture.ts`) is read-only. It makes no write calls: its client runs in `read_only` mode, which refuses every non-GET request locally (apart from the two read-only POSTs the API requires: the OAuth token request and GraphQL query documents). It reads the credential from the environment only and never prints or writes the secret or the access token.
+The capture script (`backend/scripts/sophos-capture.ts`) is read-only. It makes no write calls: its client runs in `read_only` mode, which refuses every non-GET request locally (apart from the read-only POSTs the API requires: the OAuth token request, GraphQL query documents and starting a REST v1 detections query run). It reads the credential from the environment only and never prints or writes the secret or the access token.
 
 ## Credentials and roles
 
@@ -30,6 +30,8 @@ export SOPHOS_CLIENT_ID='<client-id>'
 export SOPHOS_CLIENT_SECRET='<client-secret>'
 npx tsx scripts/sophos-capture.ts --out ./sophos-capture-1-baseline
 ```
+
+The output folders hold real (redacted) tenant data: `sophos-capture-*/` folders are gitignored, so keep the `sophos-capture-` prefix if you write inside the repository, or pass a path outside it (for example `--out ~/sophos-poc/sophos-capture-1-baseline`). Never commit them.
 
 `--help` prints usage. `--days <n>` changes the look-back window (default 7, max 90). If either variable is missing the script exits with a usage message and does nothing.
 
