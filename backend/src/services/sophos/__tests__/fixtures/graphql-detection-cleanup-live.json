@@ -1,0 +1,54 @@
+{
+  "_captured": "live PoC capture 2026-10-29 (scripts/sophos-capture.ts, redacted); trimmed to the fields the normalizer reads; public test UUID restored where the redactor masked it",
+  "id": "alert://priv:sophosendpoint:900001:1793300765316:00000000-0000-4000-8000-00000000003e",
+  "status": "OPEN",
+  "attack_technique_ids": [],
+  "tags": [
+    "alertRule:00000000-0000-4000-8000-00000000003c"
+  ],
+  "metadata": {
+    "title": "Cleanup succeeded: File cleanup result: Success (C:\\F0\\tailcat.exe)",
+    "description": " A Sophos VDL PUA detection has been triggered for Cleanup succeeded: File cleanup result: Success (C:\\F0\\tailcat.exe) activity on host host-006.  ",
+    "severity": 0.5,
+    "created_at": {
+      "seconds": 1793300765,
+      "nanos": 316973336
+    },
+    "updated_at": {
+      "seconds": 1793300777,
+      "nanos": 754099402
+    }
+  },
+  "entities": {
+    "entities": [
+      "computerName:host-006",
+      "fileName:C:\\F0\\tailcat.exe",
+      "fileName:tailcat.exe",
+      "hostId:00000000-0000-4000-8000-00000000001d",
+      "hostName:host-006",
+      "hostNameAndHostId:host-006:00000000-0000-4000-8000-00000000001d",
+      "sensorHostId:00000000-0000-4000-8000-00000000001d",
+      "sensorHostName:host-006",
+      "sensorId:00000000-0000-4000-8000-00000000001d",
+      "sensorTenant:00000000-0000-4000-8000-000000000001",
+      "sensorType:ENDPOINT_SOPHOS",
+      "sourceHostName:host-006",
+      "fileName:C:\\F0\\c37d6a01-3934-4e72-9cb1-3dae284b937b-T1105.exe",
+      "processCorrelationId:00000000-0000-4000-8000-00000000001d:27672:134377743294140776",
+      "processImagePath:C:\\F0\\c37d6a01-3934-4e72-9cb1-3dae284b937b-T1105.exe",
+      "processName:c37d6a01-3934-4e72-9cb1-3dae284b937b-T1105.exe",
+      "processUsername:SYSTEM",
+      "programName:c37d6a01-3934-4e72-9cb1-3dae284b937b-T1105.exe",
+      "userId:S-1-5-18",
+      "userName:SYSTEM"
+    ]
+  },
+  "event_ids": [
+    {
+      "id": "event://priv:xdr.findings.detectionfinding:900001:1793300736000:00000000-0000-4000-8000-00000000003f"
+    },
+    {
+      "id": "event://priv:xdr.findings.detectionfinding:900001:1793300764311:00000000-0000-4000-8000-00000000003f"
+    }
+  ]
+}

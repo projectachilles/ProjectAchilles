@@ -75,6 +75,13 @@ export const SOPHOS_SYNC_VERSION = 1;
 export const SOPHOS_SIEM_GAP_MS = 23 * 60 * 60 * 1000;
 /** Re-read this much before a checkpoint to absorb clock skew / late writes. */
 const CHECKPOINT_OVERLAP_MS = 2 * 60 * 1000;
+/**
+ * XDR detections are re-read for 30 min: Sophos adds entities (the process that
+ * wrote a blocked file, i.e. the test stage) minutes after creating one, so a
+ * copy stored between the two would otherwise never match its stage. Re-reads
+ * are upserts, so correlation and auto-resolve receipts survive.
+ */
+const XDR_REFRESH_OVERLAP_MS = 30 * 60 * 1000;
 /** A recorded gap stays visible at least this long after it was detected. */
 const SYNC_GAP_VISIBLE_MS = 24 * 60 * 60 * 1000;
 const DAY_MS = 86_400_000;
@@ -149,10 +156,10 @@ function emptySource(): SophosSourceSyncResult {
 }
 
 /** `checkpoint - 2 min`, never older than `maxMs`; `firstRunMs` back on the first run. */
-function clampSince(checkpoint: string | null | undefined, maxMs: number, firstRunMs: number, now: number): string {
+function clampSince(checkpoint: string | null | undefined, maxMs: number, firstRunMs: number, now: number, overlapMs = CHECKPOINT_OVERLAP_MS): string {
   const floor = now - maxMs;
   const cp = checkpoint ? Date.parse(checkpoint) : NaN;
-  const since = Number.isNaN(cp) ? now - Math.min(firstRunMs, maxMs) : Math.max(cp - CHECKPOINT_OVERLAP_MS, floor);
+  const since = Number.isNaN(cp) ? now - Math.min(firstRunMs, maxMs) : Math.max(cp - overlapMs, floor);
   return new Date(since).toISOString();
 }
 
@@ -443,7 +450,7 @@ export class SophosSyncService {
     const now = Date.now();
     const out = emptySource();
     const backfillDays = Math.min(Math.max(settings.detection_backfill_days ?? SOPHOS_DEFAULT_DETECTION_BACKFILL_DAYS, 1), SOPHOS_MAX_DETECTION_BACKFILL_DAYS);
-    const since = clampSince(this.status.lastDetectionSync, SOPHOS_MAX_DETECTION_BACKFILL_DAYS * DAY_MS, backfillDays * DAY_MS, now);
+    const since = clampSince(this.status.lastDetectionSync, SOPHOS_MAX_DETECTION_BACKFILL_DAYS * DAY_MS, backfillDays * DAY_MS, now, XDR_REFRESH_OVERLAP_MS);
     if (!this.status.lastDetectionSync) console.log(`[Sophos] Initial XDR detections backfill — last ${backfillDays} day(s)`);
 
     let outcome: Outcome = 'clean';

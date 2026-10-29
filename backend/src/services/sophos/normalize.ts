@@ -431,8 +431,20 @@ export function parseLegacyCleanup(e: unknown): SophosLegacyCleanup | null {
  * vocabulary is provisional.
  */
 const HOST_ENTITY = /^(?:computer_?name|hostname|host|device|computer|endpoint)$/i;
-const NAME_ENTITY = /^(?:file_?name|process_?name)$/i;
-const PATH_ENTITY = /^(?:file|file_?path|path|process|process_?path|image|binary)$/i;
+const NAME_ENTITY = /^(?:file_?name|process_?name|program_?name)$/i;
+const PATH_ENTITY = /^(?:file|file_?path|path|process|process_?path|process_?image_?path|image|binary)$/i;
+
+/**
+ * The XDR detections Sophos raises for its own automatic response (seen live:
+ * "Tailcat: File activity blocked (C:\F0\tailcat.exe)", "Cleanup succeeded:
+ * File cleanup result: Success (C:\F0\tailcat.exe)"). Any other detection,
+ * or a failed / not-found cleanup, is detected only.
+ */
+function xdrPreventionAction(title: string): Prevention {
+  if (/^[^:()]+: File activity blocked \(/.test(title)) return 'blocked';
+  if (/^Cleanup succeeded: File cleanup result: Success \(/.test(title)) return 'quarantined';
+  return undefined;
+}
 
 export function transformGraphqlDetection(d: unknown): SophosAlertDoc {
   const o = obj(d);
@@ -459,6 +471,7 @@ export function transformGraphqlDetection(d: unknown): SophosAlertDoc {
   }
   const ev = pathEvidence(pathVals, nameVals);
   const enrichment = arr(o.enrichment_details).map((x) => obj(obj(x).mitre_attack_info).technique_id);
+  const prevention = xdrPreventionAction(str(meta.title));
   return {
     ...baseDoc(),
     source_type: 'xdr_detection',
@@ -478,6 +491,7 @@ export function transformGraphqlDetection(d: unknown): SophosAlertDoc {
     evidence_filepaths: ev.filepaths,
     sha256: sha,
     event_ids: arr(o.event_ids).map((x) => str(obj(x).id)).filter(Boolean),
+    ...(prevention ? { prevention_action: prevention } : {}),
   };
 }
 

@@ -23,6 +23,9 @@ This project uses two version streams:
 ### Security
 - **Some test-library tests installed an unconstrained "F0RT1KA Security Testing Framework" root CA into `LocalMachine\Root`** on the endpoints where they ran (thumbprint `CAE0B62C1BEB703F5A2C34BC841E806D6AC8F3B4`). The install code has been removed from the test library; the Endpoint Prerequisites page explains how to find and remove the root across a fleet.
 
+### Fixed
+- **Sophos: tests now match XDR detections that Sophos completes after creating them, and Sophos gets credit for its own blocks.** Sophos adds the process that wrote a blocked file to an XDR detection a few minutes after creating it; a poll in between stored a copy naming only the dropped tool, which never matched its test stage. XDR detections are now re-read for 30 minutes. XDR "<threat>: File activity blocked (…)" and "Cleanup succeeded: File cleanup result: Success (…)" now count as Sophos prevention (`blocked` / `quarantined`), so the SB-PC-2026-001 export credits Sophos for those stages. XDR entities `processImagePath` and `programName` are read too. Run **Re-backfill** once to refresh detections stored earlier.
+
 ## [2.7.0] - 2026-10-27
 
 ### Added
