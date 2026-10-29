@@ -1,4 +1,5 @@
 import { apiClient } from '@/hooks/useAuthenticatedApi';
+import type { EdrEsReadiness } from '@/services/api/edrReadiness';
 
 export type SentinelOnePermissionMode = 'read_only' | 'response';
 export type SentinelOneSource = 'threats' | 'cloud_detection_alerts';
@@ -127,7 +128,7 @@ export const sentinelOneApi = {
     }
   },
 
-  async saveSettings(settings: SaveSentinelOneSettingsRequest): Promise<{ success: boolean }> {
+  async saveSettings(settings: SaveSentinelOneSettingsRequest): Promise<{ success: boolean; elasticsearch?: EdrEsReadiness }> {
     const response = await apiClient.post('/integrations/sentinelone', settings);
     return response.data;
   },

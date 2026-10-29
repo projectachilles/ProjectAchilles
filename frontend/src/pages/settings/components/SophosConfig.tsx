@@ -13,6 +13,8 @@ import { Input } from '@/components/shared/ui/Input';
 import { Select } from '@/components/shared/ui/Select';
 import { Button } from '@/components/shared/ui/Button';
 import { Alert } from '@/components/shared/ui/Alert';
+import { useEdrEsReadiness } from '@/hooks/useEdrEsReadiness';
+import { EdrEsReadinessNotice } from './EdrEsReadinessNotice';
 import { Spinner } from '@/components/shared/ui/Spinner';
 import { SophosAutoResolveSection } from './SophosAutoResolveSection';
 
@@ -68,6 +70,7 @@ export function SophosConfig({ onStatusChange }: SophosConfigProps) {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [envConfigured, setEnvConfigured] = useState(false);
+  const es = useEdrEsReadiness('sophos', editMode || envConfigured);
   const [disconnecting, setDisconnecting] = useState(false);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [syncGap, setSyncGap] = useState<SophosSyncGap | null>(null);
@@ -120,6 +123,7 @@ export function SophosConfig({ onStatusChange }: SophosConfigProps) {
   }, [onStatusChange, refreshRuntime]);
 
   const handleTestConnection = async () => {
+    void es.check(); // Elasticsearch side, beside the vendor credential test
     try {
       setTesting(true);
       setTestResult(null);
@@ -146,7 +150,7 @@ export function SophosConfig({ onStatusChange }: SophosConfigProps) {
       setSuccessMessage(null);
       if (!testResult?.success && !(await handleTestConnection())) return;
 
-      await sophosApi.saveSettings({
+      const saved = await sophosApi.saveSettings({
         client_id: clientId || undefined,
         client_secret: clientSecret || undefined,
         label: label || undefined,
@@ -158,7 +162,9 @@ export function SophosConfig({ onStatusChange }: SophosConfigProps) {
       setSavedMode(mode);
       if (clientSecret) setSecretSet(true);
       setClientSecret('');
-      setSuccessMessage('Sophos settings saved — alert sync started.');
+      es.fromSave(saved?.elasticsearch);
+      // A key that can't write gets the red notice instead of a success message.
+      if (saved?.elasticsearch?.status !== 'not_ready') setSuccessMessage('Sophos settings saved — alert sync started.');
       onStatusChange?.(true);
       setTimeout(refreshRuntime, 1500);
     } catch (err) {
@@ -252,6 +258,8 @@ export function SophosConfig({ onStatusChange }: SophosConfigProps) {
       )}
 
       {successMessage && <Alert variant="success">{successMessage}</Alert>}
+
+      <EdrEsReadinessNotice readiness={es.readiness} configured={editMode || envConfigured} fromTest={es.fromTest} />
 
       <Input
         label="Client ID"
