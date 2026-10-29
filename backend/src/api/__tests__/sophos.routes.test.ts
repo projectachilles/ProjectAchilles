@@ -115,6 +115,24 @@ describe('Sophos routes', () => {
     expect((await request(app()).post(BASE).send({ label: 'Prod' })).status).toBe(200);
   });
 
+  it('POST / never pairs the stored secret with a different client_id', async () => {
+    await save();
+    vi.mocked(sophosSyncService.syncAll).mockClear();
+    const file = realPath.join(tmpHome, '.projectachilles', 'integrations.json');
+    const before = realFs.readFileSync(file, 'utf8');
+    const other = '99999999-2222-3333-4444-555555555555';
+
+    const res = await request(app()).post(BASE).send({ client_id: other });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/client secret for the new client ID/i);
+    expect(sophosSyncService.syncAll).not.toHaveBeenCalled();
+    expect(realFs.readFileSync(file, 'utf8')).toBe(before);
+
+    // New id + new secret, and the same id without a secret (label edit), are fine.
+    expect((await request(app()).post(BASE).send({ client_id: other, client_secret: 'another-secret-0123456789' })).status).toBe(200);
+    expect((await request(app()).post(BASE).send({ client_id: other, label: 'Prod' })).status).toBe(200);
+  });
+
   it('POST / refuses to save a file section while SOPHOS_* env credentials are configured', async () => {
     process.env.SOPHOS_CLIENT_ID = CLIENT_ID;
     process.env.SOPHOS_CLIENT_SECRET = SECRET;

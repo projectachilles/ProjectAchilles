@@ -29,6 +29,17 @@ describe('IntegrationsSettingsService — Sophos', () => {
   });
   afterAll(() => realFs.rmSync(tmpHome, { recursive: true, force: true }));
 
+  it('saveSophosSettings refuses a new client_id without a new secret and leaves the file unchanged', () => {
+    const svc = new IntegrationsSettingsService();
+    svc.saveSophosSettings({ client_id: CLIENT_ID, client_secret: SECRET });
+    const before = realFs.readFileSync(FILE, 'utf8');
+    expect(() => svc.saveSophosSettings({ client_id: '99999999-2222-3333-4444-555555555555' })).toThrow(/client secret for the new client ID/i);
+    expect(realFs.readFileSync(FILE, 'utf8')).toBe(before);
+    // Same id without a secret (label edit) and a new id with a secret are fine.
+    expect(() => svc.saveSophosSettings({ client_id: CLIENT_ID, label: 'x' })).not.toThrow();
+    expect(() => svc.saveSophosSettings({ client_id: '99999999-2222-3333-4444-555555555555', client_secret: 'another-secret-0123456789' })).not.toThrow();
+  });
+
   it('stores the client secret encrypted at rest', () => {
     const svc = new IntegrationsSettingsService();
     svc.saveSophosSettings({ client_id: CLIENT_ID, client_secret: SECRET });
@@ -112,7 +123,7 @@ describe('IntegrationsSettingsService — Sophos', () => {
     expect(svc.getSophosSyncTimestamps().sync_version).toBe(3);
     expect(svc.getSophosSettings()?.tenant_id).toBe('t-1');
 
-    svc.saveSophosSettings({ client_id: '99999999-2222-3333-4444-555555555555' });
+    svc.saveSophosSettings({ client_id: '99999999-2222-3333-4444-555555555555', client_secret: 'another-secret-0123456789' });
     expect(svc.getSophosSyncTimestamps()).toEqual({
       siem_cursor: undefined, last_siem_sync: undefined, last_alert_sync: undefined, last_detection_sync: undefined,
       last_posture_sync: undefined, sync_version: undefined, sync_gap: undefined,
@@ -123,7 +134,7 @@ describe('IntegrationsSettingsService — Sophos', () => {
     expect(s?.api_host).toBeUndefined();
     expect(s?.capabilities).toBeUndefined();
     expect(s?.last_auth_ok_at).toBeUndefined();
-    expect(svc.getSophosCredentials()?.client_secret).toBe(SECRET);
+    expect(svc.getSophosCredentials()).toMatchObject({ client_id: '99999999-2222-3333-4444-555555555555', client_secret: 'another-secret-0123456789' });
   });
 
   it('saveSophosSyncTimestamps persists sync_version in the sophos section', () => {

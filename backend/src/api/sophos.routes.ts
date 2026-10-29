@@ -59,6 +59,10 @@ router.post('/', requirePermission('integrations:write'), requireDeploymentScope
     throw new AppError('Sophos credentials are set via environment variables (SOPHOS_CLIENT_ID, SOPHOS_CLIENT_SECRET) and cannot be changed here. Remove these env vars to configure Sophos from the UI.', 400);
   }
   const body = req.body as Record<string, any>;
+  const storedId = svc.getSophosCredentials()?.client_id;
+  if (body.client_id && storedId && body.client_id !== storedId && !body.client_secret) {
+    throw new AppError('Enter the client secret for the new client ID (the saved secret is only used with the saved client ID)', 400);
+  }
   if (!svc.isSophosConfigured() && (!body.client_id || !body.client_secret)) {
     throw new AppError('client_id and client_secret are required for initial setup', 400);
   }

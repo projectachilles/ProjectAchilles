@@ -1392,6 +1392,11 @@ export class IntegrationsSettingsService {
     const decrypted = this.getFileSettings() ?? {};
     const current = this.orgId ? this.getOrgSection(decrypted)?.sophos : decrypted.sophos;
 
+    // The stored secret belongs to the stored client id: never send it under another one.
+    if (update.client_id && current?.client_id && update.client_id !== current.client_id && !update.client_secret) {
+      throw new Error('Enter the client secret for the new client ID (the saved secret is only used with the saved client ID)');
+    }
+
     const clientId = update.client_id || current?.client_id;
     const clientSecret = update.client_secret || current?.client_secret;
     if (!clientId || !clientSecret) {
