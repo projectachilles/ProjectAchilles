@@ -144,6 +144,7 @@ app.get('/api/capabilities', (_req, res) => {
     preExecutionNotices: false,
     campaigns: false,
     sentinelone: false,
+    sophos: false,
     alerting: false,
     platform: 'vercel',
   });
