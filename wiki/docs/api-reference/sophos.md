@@ -59,7 +59,10 @@ Same parameters and shapes as the
 | `sourceType` | `alert` (Common Alert), `xdr_detection` or `siem_event`. Any other value is ignored. |
 
 `sourceType` narrows every count in `counts`; `/alerts/summary` and
-`/alerts/trend` don't take it.
+`/alerts/trend` don't take it. A `siem_event` row is a SIEM event that matched
+no Common Alert and no XDR detection; a matched one is folded into that row
+(stored in the `merged_siem_event_ids` field of the `achilles-sophos` doc), as described in
+[One row per Sophos detection](../user-guide/integrations/sophos#one-row-per-sophos-detection).
 
 `counts.byPrevention` (`prevented` / `detected_only` / `kill_failed`) is built
 from the `prevention_action` recorded from Sophos' own response: a successful

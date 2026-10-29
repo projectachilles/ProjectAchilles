@@ -105,9 +105,12 @@ a link exists. Filters:
   **SIEM events**. Unlike source and severity, type also narrows the segment
   counts and the summary strip.
 
-A **SIEM event** row is one with no matching Common Alert; when an alert exists
-the SIEM evidence is merged into it. **XDR detections** are always
-detected-only: Sophos documents them as activity that was not blocked
+A **SIEM event** row is one with no matching Common Alert or XDR detection;
+when one exists the SIEM evidence is merged into it (see
+[One row per Sophos detection](../integrations/sophos#one-row-per-sophos-detection)).
+**XDR detections** are detected-only unless Sophos reports its own block or
+cleanup through XDR, or a merged SIEM event carries Sophos' remedy: Sophos
+documents detections as activity that was not blocked
 ([Sophos: Detections](https://docs.sophos.com/central/customer/help/en-us/ManageYourProducts/ThreatAnalysisCenter/Detections/)).
 
 ## Technique coverage

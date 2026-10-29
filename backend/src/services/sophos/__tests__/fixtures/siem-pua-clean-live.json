@@ -1,0 +1,27 @@
+{
+  "_captured": "live PoC capture 2026-10-29 (scripts/sophos-capture.ts, redacted); trimmed to the fields the normalizer reads; name restored from the description Achilles stored for this event (the redactor masked it); same host and block as graphql-detection-blocked-live",
+  "id": "00000000-0000-4000-8000-000000000032",
+  "type": "Event::Endpoint::CorePuaClean",
+  "name": "PUA cleaned up: 'Tailcat' at 'C:\\F0\\tailcat.exe'",
+  "location": "host-004",
+  "when": "2026-10-29T19:06:22.983Z",
+  "created_at": "2026-10-29T19:06:23.929Z",
+  "severity": "low",
+  "group": "PUA",
+  "threat": "Tailcat",
+  "endpoint_id": "00000000-0000-4000-8000-000000000012",
+  "origin": null,
+  "core_remedy_items": {
+    "items": [
+      {
+        "type": "file",
+        "result": "SUCCESS",
+        "suspendResult": "NOT_APPLICABLE",
+        "descriptor": "C:\\F0\\tailcat.exe",
+        "processPath": "",
+        "sophosPid": ""
+      }
+    ],
+    "totalItems": 1
+  }
+}

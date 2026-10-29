@@ -1,40 +1,51 @@
 // "One Sophos detection = one row": a blocked test usually produces a Common
-// Alert AND a SIEM Core Detection event for the same thing, and they arrive in
-// either order, often in different polls. This module decides what to write:
+// Alert or an XDR detection AND SIEM Core events for the same thing, and they
+// arrive in either order, often in different polls. This module decides what
+// to write:
 //
 //  (a) SIEM core event  -> merged into a matching alert (stored or this poll's),
-//                          else written as its own `siem_event` row.
+//                          else into a matching XDR detection, else written as
+//                          its own `siem_event` row. An alert match wins.
 //  (b) Common Alert     -> absorbs any stored `siem_event` row it matches; the
 //                          row is deleted once the alert is written.
 //  (c) legacy cleanup   -> (Threat::CleanedUp / CleanupFailed status update)
 //                          merged into every alert / siem_event row it matches,
 //                          else dropped (it is never a row of its own).
+//  (d) XDR detection    -> absorbs any stored `siem_event` row it matches that
+//                          no alert matches (closest XDR detection in the page
+//                          wins); the row is deleted once the detection is
+//                          written. Two XDR detections never merge.
 //
 // The join rules themselves live in normalize.ts (siemEventMatchesAlert,
-// legacyCleanupMatches); this module only finds candidates in ES (one search
-// per batch, chunked only for very wide batches) and plans the writes.
+// siemEventMatchesXdr, legacyCleanupMatches); this module only finds
+// candidates in ES (one search per batch, chunked only for very wide batches)
+// and plans the writes.
 //
 // Receipts: stored f0rtika.* receipts are never written back by a merge. The
 // one exception is a siem_event row's correlation receipts (achilles_* from
 // enrichment / agent-kill reconciliation), which move to the doc that absorbs
 // the row, only where that doc has none of its own. Without that, a row the
-// enrichment pass had already matched to a test would vanish into an alert
-// that is never correlated, so auto-resolve would never close it.
+// enrichment pass had already matched to a test would vanish into an alert /
+// XDR detection that is never correlated, so auto-resolve would never close it.
 
 import type { Client } from '@elastic/elasticsearch';
 import { SOPHOS_INDEX } from './index-management.js';
 import {
   SOPHOS_AUTONOMOUS_RESPONSE_WINDOW_MS,
+  SOPHOS_XDR_JOIN_WINDOW_MS,
   legacyCleanupMatches,
   mergeSiemIntoAlert,
   siemEventMatchesAlert,
+  siemEventMatchesXdr,
   type SophosAlertDoc,
   type SophosCorrelationReceipt,
   type SophosLegacyCleanup,
 } from './normalize.js';
 
-/** Same ±2 min window as normalize.ts' join rule. */
+/** Same ±2 min window as normalize.ts' alert join rule. */
 const JOIN_WINDOW_MS = 2 * 60 * 1000;
+/** Around a SIEM event: wide enough for both the alert (±2 min) and the XDR (±5 min) rule. */
+const SIEM_EVENT_WINDOW_MS = Math.max(JOIN_WINDOW_MS, SOPHOS_XDR_JOIN_WINDOW_MS);
 /** Host/time clauses per search; ES' default max_clause_count is far above this. */
 const MAX_CLAUSES_PER_SEARCH = 500;
 /** Candidates per search (ES' default index.max_result_window). */
@@ -112,16 +123,26 @@ export function alertLookupWindows(alerts: SophosAlertDoc[]): HostWindow[] {
   });
 }
 
+/** Where a stored siem_event row matching one of these XDR detections could be. */
+export function xdrLookupWindows(detections: SophosAlertDoc[]): HostWindow[] {
+  return detections.flatMap((d) => {
+    const at = ms(d.created_at);
+    if (Number.isNaN(at)) return [];
+    return d.evidence_hostnames.map((host) => ({ host, from: at - SOPHOS_XDR_JOIN_WINDOW_MS, to: at + SOPHOS_XDR_JOIN_WINDOW_MS }));
+  });
+}
+
 /**
  * Where a stored doc these SIEM events / cleanups could merge into could be.
- * Cleanups match a target created within [when - 15 min, when + 2 min].
+ * Events match an alert within ±2 min or an XDR detection within ±5 min;
+ * cleanups match a target created within [when - 15 min, when + 2 min].
  */
 export function siemLookupWindows(events: SophosAlertDoc[], cleanups: SophosLegacyCleanup[]): HostWindow[] {
   const windows: HostWindow[] = [];
   for (const e of events) {
     const at = ms(e.created_at);
     if (Number.isNaN(at)) continue;
-    for (const host of e.evidence_hostnames) windows.push({ host, from: at - JOIN_WINDOW_MS, to: at + JOIN_WINDOW_MS });
+    for (const host of e.evidence_hostnames) windows.push({ host, from: at - SIEM_EVENT_WINDOW_MS, to: at + SIEM_EVENT_WINDOW_MS });
   }
   for (const c of cleanups) {
     const at = ms(c.when);
@@ -273,19 +294,55 @@ export function planAlertWrites(alerts: SophosAlertDoc[], candidates: SophosDocM
   return plan;
 }
 
-/** The candidate alert closest in time that this event matches. */
-function bestAlertFor(event: SophosAlertDoc, working: SophosDocMap): string | null {
+/**
+ * (d) XDR detections of one page against stored siem_event rows (and their
+ * own stored copies). A row goes to the closest detection of the page it
+ * matches, unless a Common Alert among the candidates matches it (the alert
+ * keeps priority, as in (a)). Only siem_event rows are absorbed: two XDR
+ * detections never merge.
+ */
+export function planXdrWrites(detections: SophosAlertDoc[], candidates: SophosDocMap, receipts: SophosReceiptMap = new Map()): MergePlan {
+  const plan = emptyPlan();
+  for (const detection of detections) {
+    const id = sophosDocId(detection);
+    plan.upserts.set(id, carryForward(detection, plan.upserts.get(id) ?? candidates.get(id)));
+  }
+  const alerts = [...candidates.values()].filter((d) => d.source_type === 'alert');
+  for (const [rowId, row] of candidates) {
+    if (row.source_type !== 'siem_event') continue;
+    if (alerts.some((a) => siemEventMatchesAlert(row, a))) continue;
+    const target = closestMatch(row, plan.upserts, siemEventMatchesXdr);
+    if (!target) continue;
+    plan.upserts.set(target, carryReceipts(absorbRow(plan.upserts.get(target)!, row), target, rowId, receipts));
+    plan.deletes.set(rowId, target);
+    plan.merged++;
+  }
+  return plan;
+}
+
+/** The candidate closest in time that this event matches. */
+function closestMatch(
+  event: SophosAlertDoc,
+  docs: SophosDocMap,
+  matches: (event: SophosAlertDoc, target: SophosAlertDoc) => boolean,
+): string | null {
   let best: string | null = null;
   let bestDelta = Infinity;
-  for (const [id, doc] of working) {
-    if (doc.source_type !== 'alert' || !siemEventMatchesAlert(event, doc)) continue;
+  for (const [id, doc] of docs) {
+    if (!matches(event, doc)) continue;
     const delta = Math.abs(ms(doc.created_at) - ms(event.created_at));
     if (delta < bestDelta) { best = id; bestDelta = delta; }
   }
   return best;
 }
 
-/** (a) + (c) One SIEM page against stored / this poll's alerts and siem_event rows. */
+/** The alert closest in time this event matches, else the closest XDR detection (an alert match wins). */
+function bestTargetFor(event: SophosAlertDoc, working: SophosDocMap): string | null {
+  return closestMatch(event, working, (e, d) => d.source_type === 'alert' && siemEventMatchesAlert(e, d))
+    ?? closestMatch(event, working, siemEventMatchesXdr);
+}
+
+/** (a) + (c) One SIEM page against stored / this poll's alerts, XDR detections and siem_event rows. */
 export function planSiemWrites(
   events: SophosAlertDoc[],
   cleanups: SophosLegacyCleanup[],
@@ -299,7 +356,7 @@ export function planSiemWrites(
   for (const event of events) {
     const rowId = sophosDocId(event);
     const priorRow = working.get(rowId);
-    const target = bestAlertFor(event, working);
+    const target = bestTargetFor(event, working);
     if (target) {
       const merged = mergeSiemIntoAlert(working.get(target)!, event);
       put(target, priorRow ? carryReceipts(absorbRow(merged, priorRow), target, rowId, receipts) : merged);

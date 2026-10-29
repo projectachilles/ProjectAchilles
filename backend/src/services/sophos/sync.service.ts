@@ -46,8 +46,10 @@ import {
   findCandidates,
   planAlertWrites,
   planSiemWrites,
+  planXdrWrites,
   siemLookupWindows,
   sophosDocId,
+  xdrLookupWindows,
   type MergePlan,
   type SophosDocMap,
   type SophosReceiptMap,
@@ -424,7 +426,7 @@ export class SophosSyncService {
         if (events.length > 0 || cleanups.length > 0) {
           const windows = siemLookupWindows(events, cleanups);
           const receipts: SophosReceiptMap = new Map();
-          const found = await findCandidates(ctx.es, { windows, sourceTypes: ['alert', 'siem_event'], receipts });
+          const found = await findCandidates(ctx.es, { windows, sourceTypes: ['alert', 'siem_event', 'xdr_detection'], receipts });
           addPollDocs(found, ctx.pollDocs, events.map(sophosDocId), windows);
           const plan = planSiemWrites(events, cleanups, found, receipts);
           // A retryable write failure: don't move the cursor past this page.
@@ -471,7 +473,7 @@ export class SophosSyncService {
           out.fetched += items.length;
           const docs = items.map(transformV1Detection).filter((d) => d.alert_id);
           for (let i = 0; i < docs.length; i += V1_WRITE_CHUNK) {
-            if (await this.writePlan(ctx, plainPlan(docs.slice(i, i + V1_WRITE_CHUNK)), out)) outcome = 'pinned';
+            if (await this.writeDetections(ctx, docs.slice(i, i + V1_WRITE_CHUNK), out)) outcome = 'pinned';
           }
           ctx.capabilities.xdr_rest = 'available';
         } catch (restErr) {
@@ -491,7 +493,7 @@ export class SophosSyncService {
     const writePage = async (list: unknown[]) => {
       out.fetched += list.length;
       const docs = list.map(transformGraphqlDetection).filter((d) => d.alert_id);
-      if (docs.length > 0 && await this.writePlan(ctx, plainPlan(docs), out)) outcome = 'pinned';
+      if (docs.length > 0 && await this.writeDetections(ctx, docs, out)) outcome = 'pinned';
     };
 
     // With a known total_results, stopping short of it is never clean (the
@@ -539,6 +541,21 @@ export class SophosSyncService {
       }
     }
     throw new Error(`Sophos detectionPoll did not finish within ${DETECTION_MAX_POLLS} parts`);
+  }
+
+  /**
+   * One page of XDR detections (GraphQL or REST v1): each absorbs the stored
+   * siem_event rows describing the same block (merge.ts (d)); a row a Common
+   * Alert matches is left to the alert. Returns writePlan's retry flag.
+   */
+  private async writeDetections(ctx: PollContext, docs: SophosAlertDoc[], out: SophosSourceSyncResult): Promise<boolean> {
+    if (docs.length === 0) return false;
+    const ids = docs.map(sophosDocId);
+    const windows = xdrLookupWindows(docs);
+    const receipts: SophosReceiptMap = new Map();
+    const found = await findCandidates(ctx.es, { ids, windows, sourceTypes: ['siem_event', 'alert'], receipts });
+    addPollDocs(found, ctx.pollDocs, ids, windows);
+    return this.writePlan(ctx, planXdrWrites(docs, found, receipts), out);
   }
 
   /**
@@ -690,11 +707,6 @@ export class SophosSyncService {
   getSyncStatus(): SophosSyncStatus {
     return { ...this.status };
   }
-}
-
-/** Docs that never merge (XDR detections): plain upserts. */
-function plainPlan(docs: SophosAlertDoc[]): MergePlan {
-  return { upserts: new Map(docs.map((d) => [sophosDocId(d), d])), deletes: new Map(), merged: 0, dropped: 0 };
 }
 
 function checkedResponse(res: DetectionsResponse | null | undefined, op: string): DetectionsResponse {
