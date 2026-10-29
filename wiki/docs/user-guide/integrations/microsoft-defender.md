@@ -54,6 +54,13 @@ later — the read-only integration runs fine without it.
 
 Credentials are encrypted at rest with AES-256-GCM.
 
+:::info[Elasticsearch API key]
+With a scoped Elasticsearch API key, this integration needs grants on its own
+index and `write` on the results index. Saving checks them and shows a red
+**Saved, but not syncing** notice if one is missing. See
+[API key privileges for EDR integrations](./elasticsearch.md#edr-api-key-privileges).
+:::
+
 ### Certificate Authentication
 
 Instead of a client secret, the integration can authenticate with a certificate uploaded to the App Registration. ProjectAchilles then signs an RS256 JWT **client assertion** with your private key (carrying the certificate thumbprint) for the OAuth2 token request — no shared secret is transmitted or stored in Azure, and there is no secret-expiry churn.

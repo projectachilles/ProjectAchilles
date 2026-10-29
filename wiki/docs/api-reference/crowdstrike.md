@@ -266,7 +266,7 @@ POST   /api/integrations/crowdstrike/test
   secrets masked (`integrations:read`). The response includes the selected
   `region` plus a server-derived, display-only `base_url` resolved from that
   region.
-- **`POST /crowdstrike`** — save credentials. Stored AES-256-GCM encrypted.
+- **`POST /crowdstrike`** — save credentials. Stored AES-256-GCM encrypted. The response includes `elasticsearch`: the [Elasticsearch readiness](./overview.md#edr-elasticsearch-readiness) of the key, checked (and the index created) before responding.
   Kicks off a background sync after saving (`integrations:write`).
 - **`DELETE /crowdstrike`** — remove the stored configuration
   (`integrations:write`).

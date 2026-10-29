@@ -188,6 +188,43 @@ All managed through Agent Routes with different auth strategies per sub-route:
 - **Agent-authenticated**: Heartbeat, task fetch, result submission (API key)
 - **Admin**: Fleet management, task creation, scheduling (Clerk JWT)
 
+### EDR Elasticsearch readiness \{#edr-elasticsearch-readiness}
+
+```
+GET /api/integrations/edr/:vendor/elasticsearch[?fresh=1]
+```
+
+`integrations:read`. `:vendor` is `defender`, `crowdstrike`, `sentinelone` or
+`sophos` (`404` otherwise). Says whether the Elasticsearch API key can do what
+that EDR integration needs (see
+[API key privileges for EDR integrations](../user-guide/integrations/elasticsearch.md#edr-api-key-privileges)).
+Without `fresh`, it returns the last stored result (from a save or from
+startup; `null` before any), re-checking a not-ready one at most once a
+minute. With `?fresh=1` it runs a new read-only check (what **Test
+Connection** shows). Nothing is created on either path.
+
+```json
+{
+  "elasticsearch": {
+    "status": "not_ready",
+    "checked_at": "2026-10-29T10:00:00.000Z",
+    "privileges_checked": true,
+    "missing": [{ "index": "achilles-sophos", "privileges": ["create_index"] }],
+    "recommended": [{ "index": "achilles-sophos", "privileges": ["manage"] }]
+  }
+}
+```
+
+`privileges_checked` is `false` where the cluster can't report privileges
+(security disabled); then only reachability was checked. `error` is set when
+Elasticsearch isn't configured, rejects the key, is unreachable, or refuses to
+create an index.
+
+Each EDR's save route (`POST /api/integrations/defender`, `/crowdstrike`,
+`/sentinelone`, `/sophos`) checks the key and creates the indices before it
+responds, and returns the result as `elasticsearch` beside `success`. The
+credentials are saved either way.
+
 ### Configuration Flow
 
 ```
