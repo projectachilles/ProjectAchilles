@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { redactCapture } from '../redact.js';
+import { redactCapture, redactCaptureSet } from '../redact.js';
 
 const text = (v: unknown) => JSON.stringify(v);
 
@@ -146,5 +146,50 @@ describe('redactCapture review leaks', () => {
     expect(out.severity).toBe(5);
     expect(out.total).toBe(2000);
     expect(out.score).toBe(87);
+  });
+});
+
+describe('redactCapture: vendor product names', () => {
+  const endpoints = () => [{
+    id: 'a1b2c3d4-0000-4000-8000-aaaaaaaaaaaa',
+    type: 'computer',
+    hostname: 'LAPTOP-ACME42',
+    health: { overall: 'good', services: { status: 'good', serviceDetails: [{ name: 'Sophos MCS Agent', status: 'running' }, { name: 'Sophos Endpoint Defense Service', status: 'running' }] } },
+    os: { platform: 'windows', name: 'Windows 11 Pro' },
+    associatedPerson: { name: 'ACME\\jdoe', viaLogin: 'ACME\\jdoe', id: 'f1f1f1f1-0000-4000-8000-bbbbbbbbbbbb' },
+    assignedProducts: [{ code: 'xdr', version: '1.0', status: 'installed' }, { code: 'coreAgent', version: '2.0', status: 'installed' }],
+    packages: { protection: { assignedId: 'XDR', name: 'xdr', available: [{ id: 'XDRSensor', name: 'xdr' }, { id: 'interceptX', name: 'Intercept X Advanced' }] } },
+    note: 'xdr sensor on LAPTOP-ACME42',
+  }];
+
+  it('keeps product codes, product names and enum tokens; still pseudonymises customer data', () => {
+    const out = redactCapture(endpoints()) as any;
+    const e = out[0];
+    expect(e.assignedProducts.map((p: any) => p.code)).toEqual(['xdr', 'coreAgent']);
+    expect(e.packages.protection.name).toBe('xdr');
+    expect(e.packages.protection.available[1].name).toBe('Intercept X Advanced');
+    expect(e.health.services.serviceDetails[0].name).toBe('Sophos MCS Agent');
+    expect(e.os).toEqual({ platform: 'windows', name: 'Windows 11 Pro' });
+    expect(e.type).toBe('computer');
+    expect(e.hostname).toBe('host-001');
+    expect(e.note).toBe('xdr sensor on host-001');
+    expect(text(out)).not.toMatch(/acme|jdoe|a1b2c3d4/i);
+  });
+
+  it('never learns short or well-known tokens from a default-deny name key', () => {
+    const out = redactCapture({ widget: { name: 'xdr' }, other: { name: 'Mtr' }, text: 'xdr and mtr stay; ab too' }) as any;
+    expect(out.text).toBe('xdr and mtr stay; ab too');
+  });
+});
+
+describe('redactCaptureSet', () => {
+  it('keeps output file names and manifest keys, redacts values only', () => {
+    const out = redactCaptureSet(
+      { 'xdr-detection-search': { widget: { name: 'xdr' }, hostname: 'PC-1234' } },
+      { 'xdr-detection-search': { status: 'ok', note: 'PC-1234 xdr' } },
+    );
+    expect(Object.keys(out.raw)).toEqual(['xdr-detection-search']);
+    expect(Object.keys(out.manifest)).toEqual(['xdr-detection-search']);
+    expect(text(out)).not.toMatch(/PC-1234/i);
   });
 });

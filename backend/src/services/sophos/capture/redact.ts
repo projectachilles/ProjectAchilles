@@ -27,6 +27,18 @@ const PERSON_PARENTS = new Set(['associatedperson', 'person', 'createdby', 'modi
 const HOST_PARENTS = /^(?:endpoints?|hosts?|devices?|computers?|agents?|managedagent)$/;
 /** Parents under which a `name` is a product/OS/event label, not customer data. */
 const SAFE_NAME_PARENTS = /^(?:os|osinfo|products?|packages?|services?|technique|tactic|category|checks?|settings?|sensors?|engine|creator)$|event|alert|detection|threat|mitre/;
+/** Any ancestor key that marks a vendor product/feature/OS list: `name` below it is a product name. */
+const SAFE_NAME_TRAIL = /\/(?:assignedproducts?|products?|features?|packages?|modules?|services?|servicedetails|os|platform)(?:\/|$)/;
+/** Sophos product / enum tokens: never customer data, never learned for free-text replacement. */
+const KNOWN_TOKENS = new Set([
+  'xdr', 'mtr', 'edr', 'interceptx', 'coreagent', 'endpointprotection', 'deviceencryption', 'ztna', 'windows', 'linux', 'macos',
+  'computer', 'server', 'good', 'bad', 'suspicious', 'unknown', 'running', 'stopped', 'installed', 'assigned', 'protection',
+  'sophos', 'high', 'medium', 'low', 'critical', 'info', 'true', 'false', 'null', 'none',
+]);
+const MIN_LEARN_LENGTH = 4;
+/** Short values are only too ambiguous for free text when they came from a generic `name` key (label); a 3-letter user or host is still learned. */
+const learnable = (orig: string, pseudo: string) =>
+  orig.length >= (/^name-\d+$/.test(pseudo) ? MIN_LEARN_LENGTH : 3) && !KNOWN_TOKENS.has(orig.toLowerCase());
 const PATH_KEYS = new Set(['path', 'value', 'location']);
 const STANDARD_DIRS = new Set([
   'windows', 'system32', 'syswow64', 'winsxs', 'program files', 'program files (x86)', 'programdata', 'users', 'temp', 'tmp',
@@ -150,7 +162,7 @@ class Redactor {
 
   // ---- keyed rewrites ---------------------------------------------------
   /** Pseudonym for a value under a sensitive key, or undefined when the key is not sensitive. */
-  private keyed(key: string, parent: string, value: string): string | undefined {
+  private keyed(key: string, parent: string, value: string, trail = ''): string | undefined {
     const k = key.toLowerCase();
     const p = parent.toLowerCase();
     if (HOST_KEYS.has(k)) return this.pseudonym('host', value);
@@ -160,7 +172,7 @@ class Redactor {
     if (DOMAIN_KEYS.has(k)) return WELL_KNOWN_DOMAINS.has(value.toLowerCase()) ? value : this.pseudonym('domain', value);
     if (USER_KEYS.has(k)) return this.user(value);
     if (NAME_KEYS.has(k)) {
-      if (SAFE_NAME_PARENTS.test(p)) return undefined;
+      if (SAFE_NAME_PARENTS.test(p) || SAFE_NAME_TRAIL.test(`${trail}/`) || KNOWN_TOKENS.has(value.toLowerCase())) return undefined;
       if (HOST_PARENTS.test(p)) return this.host(value);
       if (PERSON_PARENTS.has(p)) return this.user(value);
       return this.pseudonym('label', value);
@@ -215,7 +227,7 @@ class Redactor {
     }
     if (typeof value !== 'string' || value === '') return value;
 
-    const keyed = this.keyed(key, parent, value);
+    const keyed = this.keyed(key, parent, value, trail);
     if (keyed !== undefined) return keyed;
     const k = key.toLowerCase();
     if (k === 'comment') return 'redacted-comment';
@@ -251,7 +263,7 @@ class Redactor {
     let s = input.replace(PROTECTED_RE, (m) => { kept.push(m); return `\u0000${kept.length - 1}\u0000`; });
 
     const known = [...this.map.entries()]
-      .filter(([orig]) => orig.length >= 3 && !isPseudonym(orig))
+      .filter(([orig, pseudo]) => learnable(orig, pseudo) && !isPseudonym(orig))
       .sort((a, b) => b[0].length - a[0].length);
     for (const [orig, pseudo] of known) {
       const esc = orig.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -289,4 +301,19 @@ export function redactCapture(value: unknown, map: Map<string, string> = new Map
   const r = new Redactor(map);
   r.transform(value); // pass 1: learn
   return r.transform(value); // pass 2: rewrite with the complete map
+}
+
+/**
+ * Redact the raw capture and its manifest together (consistent pseudonyms) while
+ * leaving the endpoint names that key both objects untouched: they become the
+ * output file names and are Achilles' own constants, not customer data.
+ */
+export function redactCaptureSet<M>(raw: Record<string, unknown>, manifest: Record<string, M>): { raw: Record<string, unknown>; manifest: Record<string, M> } {
+  const rawKeys = Object.keys(raw);
+  const manKeys = Object.keys(manifest);
+  const out = redactCapture({ raw: rawKeys.map((k) => raw[k]), manifest: manKeys.map((k) => manifest[k]) }) as { raw: unknown[]; manifest: M[] };
+  return {
+    raw: Object.fromEntries(rawKeys.map((k, i) => [k, out.raw[i]])),
+    manifest: Object.fromEntries(manKeys.map((k, i) => [k, out.manifest[i] as M])),
+  };
 }

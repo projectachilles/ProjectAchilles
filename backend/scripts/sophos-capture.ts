@@ -9,8 +9,9 @@
 // client is created in read_only mode, which refuses every write locally.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { siemFromSeconds } from '../src/services/sophos/capture/window.js';
 import { SophosClient, SophosApiError, SophosGraphQLError } from '../src/services/sophos/sophos-client.js';
-import { redactCapture } from '../src/services/sophos/capture/redact.js';
+import { redactCaptureSet } from '../src/services/sophos/capture/redact.js';
 // Shared with the sync service and validated against det.graphql in
 // src/services/sophos/__tests__/detection-query.test.ts.
 import {
@@ -110,7 +111,7 @@ async function main(): Promise<void> {
   if (typeof firstAlert?.id === 'string') await step('alert-by-id', () => client.getAlert(firstAlert.id as string));
   else manifest['alert-by-id'] = { status: 'skipped', note: 'no alerts in window' };
 
-  await step('siem-events', () => client.siemEvents({ fromDate: Math.floor(from.getTime() / 1000), limit: 200 }));
+  await step('siem-events', () => client.siemEvents({ fromDate: siemFromSeconds(now.getTime(), args.days), limit: 200 }));
 
   type Search = { detectionSearch?: { alerts?: { list?: Array<{ id?: unknown }> } } };
   const search = (await step('xdr-detection-search', () =>
@@ -138,7 +139,7 @@ async function main(): Promise<void> {
   await step('allowed-items', () => client.listAllowedItems());
 
   // One redaction pass over everything so pseudonyms are consistent across files.
-  const both = redactCapture({ raw, manifest }) as { raw: Record<string, unknown>; manifest: Record<string, ManifestEntry> };
+  const both = redactCaptureSet(raw, manifest);
   const redacted = both.raw;
   const redactedManifest = both.manifest;
   for (const [name, data] of Object.entries(redacted)) {
