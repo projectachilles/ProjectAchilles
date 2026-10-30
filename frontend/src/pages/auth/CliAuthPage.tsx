@@ -9,6 +9,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
+import { useConsoleIdentity } from '@/hooks/useConsoleIdentity';
+import { IdentityChipFromContext } from '@/components/layout/ConsoleIdentity';
 
 export default function CliAuthPage() {
   const [searchParams] = useSearchParams();
@@ -18,6 +20,7 @@ export default function CliAuthPage() {
   const [errorMessage, setErrorMessage] = useState('');
   const { getToken, isLoaded } = useAuth();
   const autoVerifyAttempted = useRef(false);
+  const { identity } = useConsoleIdentity();
 
   // Auto-verify once Clerk is loaded and code is present from URL
   // useRef guard prevents React Strict Mode double-fire
@@ -87,6 +90,16 @@ export default function CliAuthPage() {
           ) : (
             <div className="space-y-6">
               <div className="text-center">
+                {identity?.code && (
+                  <div className="mb-3 flex items-center justify-center gap-2 print:hidden">
+                    <IdentityChipFromContext />
+                    {identity.name && (
+                      <span className="truncate text-sm text-muted-foreground" title={identity.name}>
+                        {identity.name}
+                      </span>
+                    )}
+                  </div>
+                )}
                 <h2 className="text-lg font-semibold mb-1">Authorize CLI Access</h2>
                 <p className="text-sm text-muted-foreground">
                   Enter the code shown in your terminal to authorize the CLI.

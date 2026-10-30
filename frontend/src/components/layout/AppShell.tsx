@@ -20,6 +20,7 @@ import { useCanAccessModule, useHasPermission } from '@/hooks/useAppRole';
 import { useCapabilities } from '@/hooks/useCapabilities';
 import { useOutdatedAgentCount } from '@/hooks/useOutdatedAgentCount';
 import { useAppHotkeys } from '@/hooks/useAppHotkeys';
+import { IdentityPlate, IdentityRibbon, IdentityChipFromContext } from '@/components/layout/ConsoleIdentity';
 import { GlobalSearch } from '@/components/layout/GlobalSearch';
 import { NoticeDeliveryBanner } from '@/components/layout/NoticeDeliveryBanner';
 import { NotificationBell } from '@/components/layout/NotificationBell';
@@ -119,6 +120,8 @@ function SidebarBody({
         <Wordmark />
       </div>
 
+      <IdentityPlate />
+
       {/* Docked global search + notifications */}
       <div className="flex items-center gap-1.5 border-b border-border p-3">
         <GlobalSearch variant="sidebar" onOpen={onOpenSearch} />
@@ -199,6 +202,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background">
+      <IdentityRibbon />
+
       {/* Fixed sidebar ≥lg */}
       <aside className="fixed inset-y-0 left-0 z-40 print:hidden hidden w-60 border-r border-border bg-surface lg:block">
         <SidebarBody {...sidebarProps} />
@@ -218,6 +223,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </SheetContent>
         </Sheet>
         <Wordmark />
+        <IdentityChipFromContext />
       </header>
 
       <NoticeDeliveryBanner />
