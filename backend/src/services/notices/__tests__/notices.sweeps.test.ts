@@ -176,7 +176,8 @@ function linkTask(
     createdAt?: string;
   } = {},
 ) {
-  insertTestTask(testDb, { id: taskId, agent_id: v.agentId ?? 'agent-001' });
+  // ttl: the real-clock TTL sweep in getNextTask would expire tasks created at the fixed NOW
+  insertTestTask(testDb, { id: taskId, agent_id: v.agentId ?? 'agent-001', ttl: 315360000 });
   const result =
     v.exitCode === undefined
       ? null
