@@ -59,6 +59,16 @@ describe('ConsoleIdentityCard', () => {
     expect(screen.getByRole('radio', { name: 'Violet' })).toBeInTheDocument();
   });
 
+  it('selected swatch keeps its ring: no outline-none (Tailwind v4 sets outline-style none)', () => {
+    current = saved;
+    render(<ConsoleIdentityCard />);
+    const selected = screen.getByRole('radio', { name: 'Violet' });
+    expect(selected.className).toContain('outline-foreground');
+    for (const r of screen.getAllByRole('radio')) {
+      expect(r.className.split(/\s+/)).not.toContain('outline-none');
+    }
+  });
+
   it('saves with a null name when blank, then updates the provider', async () => {
     const response: ConsoleIdentity = { code: 'ACME', name: null, color: 'cyan', source: 'saved' };
     vi.mocked(consoleIdentityApi.save).mockResolvedValue(response);

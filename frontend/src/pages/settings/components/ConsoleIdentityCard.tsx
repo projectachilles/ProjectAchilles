@@ -154,7 +154,7 @@ export function ConsoleIdentityCard() {
                 title={s.label}
                 onClick={() => setColor(s.key)}
                 className={cn(
-                  'h-6 w-6 rounded-md border border-white/10 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+                  'h-6 w-6 rounded-md border border-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
                   s.hex == null && 'bg-[repeating-linear-gradient(45deg,var(--color-border)_0_4px,var(--color-raised)_4px_8px)]',
                   color === s.key && 'outline-2 outline-offset-2 outline-foreground',
                 )}

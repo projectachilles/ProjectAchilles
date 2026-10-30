@@ -43,6 +43,19 @@ describe('console identity components', () => {
     }
   });
 
+  it('plate keeps its left bar after a colour change and logs no style-conflict warning', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    state.identity = acme({ color: 'violet' });
+    const { container, rerender } = render(<IdentityPlate />);
+    state.identity = acme({ color: 'blue' });
+    rerender(<IdentityPlate />);
+    const plate = container.querySelector<HTMLElement>('[style*="--identity"]')!;
+    expect(plate.style.borderLeftColor).toBe('var(--identity)');
+    const conflicts = err.mock.calls.filter((c) => String(c[0]).includes('conflicting property'));
+    expect(conflicts).toHaveLength(0);
+    err.mockRestore();
+  });
+
   it('PageHeader without children renders no right-aligned wrapper when inactive', () => {
     const { container } = render(<PageHeader title="Agents" />);
     expect(container.firstElementChild?.children.length).toBe(1);

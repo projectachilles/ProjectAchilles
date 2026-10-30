@@ -43,7 +43,11 @@ export function IdentityPlate() {
     ? ({
         ...identityVars(identity.color),
         backgroundColor: tint(9),
-        borderColor: tint(28),
+        // Longhands only: mixing the borderColor shorthand with borderLeftColor
+        // lets a re-render overwrite the left bar.
+        borderTopColor: tint(28),
+        borderRightColor: tint(28),
+        borderBottomColor: tint(28),
         borderLeftColor: 'var(--identity)',
       } as CSSProperties)
     : undefined;
