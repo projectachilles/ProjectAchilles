@@ -25,6 +25,7 @@ import {
   selectAgentError,
   selectAgentPagination,
 } from '../../store/agentSlice';
+import { IdentityPill } from '@/components/layout/ConsoleIdentity';
 import { PageContainer } from '../../components/endpoints/Layout';
 import { Badge } from '../../components/shared/ui/Badge';
 import AgentFilters from '../../components/endpoints/agents/AgentFilters';
@@ -301,7 +302,7 @@ export default function AgentsPage() {
   return (
     <>
       <PageContainer>
-        <div className="mb-6 flex items-start justify-between gap-3">
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-semibold tracking-tight">Agents</h1>
@@ -313,15 +314,16 @@ export default function AgentsPage() {
               Manage and monitor your Achilles agents
             </p>
           </div>
-          {canEnroll && (
-            <div className="flex items-center gap-2">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+            <IdentityPill />
+            {canEnroll && (
               <Button variant="primary" onClick={() => setShowEnrollment(true)}>
                 <UserPlus className="w-4 h-4 mr-2" />
                 <span className="hidden sm:inline">Enroll agent</span>
                 <span className="sm:hidden">Enroll</span>
               </Button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         <Dialog open={showEnrollment} onOpenChange={setShowEnrollment}>

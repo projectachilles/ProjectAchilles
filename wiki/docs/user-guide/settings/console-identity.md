@@ -19,7 +19,7 @@ An administrator sets three values:
 ## Where it shows
 
 - **Sidebar**: a plate under the logo with the code chip and the full name.
-- **Page headers**: a small pill with the code and name, right-aligned in the page header. Pages without a page header (for example the Dashboard and Agents) show the sidebar plate and the ribbon but no pill.
+- **Page headers**: a small pill with the code and name, right-aligned in the page header. Every signed-in page shows it, including Agents, Tasks, Campaigns and the test detail page. The only exception is the print-ready execution report, which deliberately omits the identity.
 - **Colour ribbon**: a thin bar across the top of the window, when a colour is chosen.
 - **Browser tab**: the title becomes `[ACME] Settings · f0_csv` (the suffix is the console wordmark) and the favicon becomes a rounded square carrying the code, so you can tell consoles apart in a crowded tab strip.
 - **CLI authorization**: the "Authorize CLI" screen shows the identity, so you know which console you are granting access to.

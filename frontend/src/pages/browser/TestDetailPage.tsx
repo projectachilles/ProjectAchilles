@@ -17,6 +17,7 @@ import { ExecutionDrawer } from '@/components/browser/execution';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { IdentityPill } from '@/components/layout/ConsoleIdentity';
 
 export default function TestDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
@@ -539,7 +540,8 @@ export default function TestDetailPage() {
                 </div>
               </div>
 
-              <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+              <div className="flex shrink-0 flex-wrap items-center gap-2 sm:gap-3">
+                <IdentityPill />
                 <button
                   onClick={() => toggleFavorite(test.uuid)}
                   className="p-2 rounded-lg hover:bg-raised transition-colors"
