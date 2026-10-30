@@ -19,9 +19,9 @@ An administrator sets three values:
 ## Where it shows
 
 - **Sidebar**: a plate under the logo with the code chip and the full name.
-- **Page headers**: a small pill with the code and name beside the page title.
+- **Page headers**: a small pill with the code and name, right-aligned in the page header. Pages without a page header (for example the Dashboard and Agents) show the sidebar plate and the ribbon but no pill.
 - **Colour ribbon**: a thin bar across the top of the window, when a colour is chosen.
-- **Browser tab**: the title becomes `[ACME] Settings · <console name>` and the favicon becomes a rounded square carrying the code, so you can tell consoles apart in a crowded tab strip.
+- **Browser tab**: the title becomes `[ACME] Settings · f0_csv` (the suffix is the console wordmark) and the favicon becomes a rounded square carrying the code, so you can tell consoles apart in a crowded tab strip.
 - **CLI authorization**: the "Authorize CLI" screen shows the identity, so you know which console you are granting access to.
 
 It is not shown on the sign-in pages or on printed reports and evidence pages. If no code is set anywhere, nothing changes: the console looks exactly as it did before.
@@ -64,7 +64,7 @@ Everyone signed in can see the identity. Changing or resetting it needs the `set
 
 | Method | Path | Notes |
 |--------|------|-------|
-| `GET` | `/api/settings/identity` | Returns the effective identity. Any signed-in user. |
+| `GET` | `/api/settings/identity` | Returns the effective identity. Any signed-in user, and API keys. |
 | `PUT` | `/api/settings/identity` | Saves the identity. Needs `settings:platform:write` and a browser session. |
 | `DELETE` | `/api/settings/identity` | Removes the saved identity (back to the environment). Same requirements as `PUT`. |
 

@@ -108,7 +108,7 @@ Key directories:
 - **Location**: `~/.projectachilles/agents.db` (better-sqlite3, WAL mode)
 - **Schema**: Created via `CREATE TABLE IF NOT EXISTS` in `backend/src/services/agent/database.ts` with incremental migrations (column additions, CHECK constraint updates)
 - **Tables**: `agents`, `enrollment_tokens`, `tasks`, `agent_versions`, `schedules`, `run_notices` (pre-execution notices; `tasks.notice_id`), `campaigns`, `campaign_runs` (`tasks.campaign_run_id`). Any new `tasks` column must also be listed in `migrateExecuteCommandType`'s `optionalCols`, or the next table-recreate migration silently drops it
-- **Settings storage**: `~/.projectachilles/` — `analytics.json` (AES-256-GCM encrypted), `tests.json`, `certs/`
+- **Settings storage**: `~/.projectachilles/` — `analytics.json` (AES-256-GCM encrypted), `tests.json`, `console-identity.json` (console identity), `certs/`
 
 #### Table Recreation Migrations (CHECK constraint changes)
 SQLite has no `ALTER COLUMN`, so changing CHECK constraints requires recreating the table. Follow this pattern to avoid pitfalls:
