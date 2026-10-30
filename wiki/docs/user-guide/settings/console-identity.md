@@ -1,5 +1,5 @@
 ---
-sidebar_position: 1
+sidebar_position: 4
 title: "Console Identity"
 description: "Show which organization a console belongs to: an organization code, optional full name and a preset colour across the sidebar, page headers, browser tab and favicon."
 ---

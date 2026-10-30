@@ -114,4 +114,33 @@ describe('ConsoleIdentityCard', () => {
     expect(await screen.findByText('Code must be 2-6 letters or digits')).toBeInTheDocument();
     expect(setIdentity).not.toHaveBeenCalled();
   });
+
+  it('keeps unsaved edits when a refresh brings the same server values', async () => {
+    current = saved;
+    const { rerender } = render(<ConsoleIdentityCard />);
+    await userEvent.clear(screen.getByLabelText(/full name/i));
+    await userEvent.type(screen.getByLabelText(/full name/i), 'Typed Name');
+    current = { ...saved };
+    rerender(<ConsoleIdentityCard />);
+    expect(screen.getByLabelText(/full name/i)).toHaveValue('Typed Name');
+  });
+
+  it('keeps unsaved edits even when the server values changed underneath', async () => {
+    current = saved;
+    const { rerender } = render(<ConsoleIdentityCard />);
+    await userEvent.type(screen.getByLabelText(/full name/i), ' X');
+    current = { ...saved, name: 'Other' };
+    rerender(<ConsoleIdentityCard />);
+    expect(screen.getByLabelText(/full name/i)).toHaveValue('Acme Financial Group X');
+  });
+
+  it('re-prefills a clean form from a refreshed identity', () => {
+    current = saved;
+    const { rerender } = render(<ConsoleIdentityCard />);
+    current = { code: 'NEWC', name: 'New Co', color: 'pink', source: 'saved' };
+    rerender(<ConsoleIdentityCard />);
+    expect(codeInput().value).toBe('NEWC');
+    expect(screen.getByLabelText(/full name/i)).toHaveValue('New Co');
+    expect(screen.getByRole('radio', { name: 'Pink' })).toBeChecked();
+  });
 });

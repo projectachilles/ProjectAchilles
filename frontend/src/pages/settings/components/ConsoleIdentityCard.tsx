@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FingerprintPattern } from 'lucide-react';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Button } from '@/components/shared/ui/Button';
@@ -34,11 +34,32 @@ export function ConsoleIdentityCard() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  // Re-prefill when the identity arrives or changes (first load, Reset).
+  // Last values loaded from or saved to the server. A background refresh only
+  // re-prefills the form while it still equals this baseline (no unsaved edits).
+  const baseline = useRef({ code: code, name: name, color: color });
+  const form = useRef({ code, name, color });
+  form.current = { code, name, color };
+
+  const applyServer = (next: { code: string | null; name: string | null; color: IdentityColor } | null) => {
+    const values = { code: next?.code ?? '', name: next?.name ?? '', color: next?.color ?? 'none' };
+    baseline.current = values;
+    setCode(values.code);
+    setName(values.name);
+    setColor(values.color);
+  };
+
   useEffect(() => {
-    setCode(identity?.code ?? '');
-    setName(identity?.name ?? '');
-    setColor(identity?.color ?? 'none');
+    const prev = baseline.current;
+    const cur = form.current;
+    const clean = cur.code === prev.code && cur.name === prev.name && cur.color === prev.color;
+    if (clean) applyServer(identity);
+    else
+      baseline.current = {
+        code: identity?.code ?? '',
+        name: identity?.name ?? '',
+        color: identity?.color ?? 'none',
+      };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identity?.code, identity?.name, identity?.color]);
 
   const source = identity?.source ?? 'none';
@@ -51,7 +72,9 @@ export function ConsoleIdentityCard() {
     setError(null);
     setMessage(null);
     try {
-      setIdentity(await action());
+      const next = await action();
+      setIdentity(next);
+      applyServer(next);
       setMessage(done);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save console identity');
