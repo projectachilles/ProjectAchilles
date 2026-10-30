@@ -3,11 +3,18 @@ import type { AnalyticsSettings } from '../../../types/analytics.js';
 
 // ─── Mock setup ───────────────────────────────────────────────────
 const mockSearch = vi.fn();
+const mockMsearch = vi.fn();
+const mockGetTestMetadata = vi.fn();
 
 vi.mock('@elastic/elasticsearch', () => ({
   Client: vi.fn().mockImplementation(function (this: any) {
     this.search = mockSearch;
+    this.msearch = mockMsearch;
   }),
+}));
+
+vi.mock('../../agent/test-catalog.service.js', () => ({
+  getTestMetadata: (uuid: string) => mockGetTestMetadata(uuid),
 }));
 
 const { SbReportService, parseSbReportWindow, SB_BUNDLE_ID, SB_BUNDLE_NAME, SB_STAGE_LABELS } =
@@ -45,6 +52,8 @@ interface FixtureControl {
   crowdstrike_prevented?: boolean;
   sentinelone_detected?: boolean;
   sentinelone_prevented?: boolean;
+  /** Extra `f0rtika.*` fields, e.g. `{ crowdstrike_stage_detected: true }`. */
+  flags?: Record<string, unknown>;
   hostname?: string;
   event_time?: string;
   bundle_id?: string;
@@ -96,6 +105,9 @@ function makeBundleHit(control: FixtureControl) {
   if (control.sentinelone_prevented !== undefined) {
     source['f0rtika.sentinelone_prevented'] = control.sentinelone_prevented;
   }
+  for (const [key, value] of Object.entries(control.flags ?? {})) {
+    source[`f0rtika.${key}`] = value;
+  }
   return { _id: `${TASK_ID}::${control.control_id}`, _source: source };
 }
 
@@ -131,6 +143,9 @@ describe('sbReport.service.ts', () => {
   beforeEach(() => {
     vi.stubEnv('ORG_NAMES', TEST_ORG_NAMES);
     mockSearch.mockReset();
+    mockMsearch.mockReset();
+    mockGetTestMetadata.mockReset();
+    mockGetTestMetadata.mockReturnValue(null);
   });
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -241,18 +256,46 @@ describe('sbReport.service.ts', () => {
       expect(report.executions[0].detectedBy).toEqual(['Microsoft Defender for Endpoint']);
     });
 
-    it('maps exit 101 with only bundle-level defender_detected to DETECTED', async () => {
+    it('does not count the run-wide defender_detected flag as a detection of this stage', async () => {
+      // Enrichment sets <vendor>_detected on every stage of a run when any
+      // alert names the run; only <vendor>_stage_detected is evidence for
+      // this stage (same rule as Analytics).
       const hits = [
         makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 101, techniques: ['T1059.001'], tactics: ['execution'], defender_detected: true }),
+        makeBundleHit({ control_id: 'T1567.002', validator: 'Stage 4', exit_code: 101, techniques: ['T1567.002'], tactics: ['exfiltration'], defender_detected: true }),
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
       const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
-      expect(report.executions[0].outcome).toBe('DETECTED');
+      expect(report.executions.map((r) => r.outcome)).toEqual(['MISSED', 'EXPOSED']);
+      expect(report.executions.map((r) => r.detectedBy)).toEqual([[], []]);
+    });
+
+    it('does not count a run-wide crowdstrike_detected or sentinelone_detected flag either', async () => {
+      const hits = [
+        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 101, techniques: ['T1059.001'], tactics: ['execution'], crowdstrike_detected: true, sentinelone_detected: true }),
+      ];
+      mockSearch.mockResolvedValue(esSearchResponse(hits));
+
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
+
+      expect(report.executions[0].outcome).toBe('MISSED');
     });
 
     it('attributes preventedBy when a PREVENTED row also carries defender detection', async () => {
+      const hits = [
+        makeBundleHit({ control_id: 'T1003.001', validator: 'Stage 2', exit_code: 126, techniques: ['T1003.001'], tactics: ['credential-access'], defender_stage_detected: true }),
+      ];
+      mockSearch.mockResolvedValue(esSearchResponse(hits));
+
+      const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
+
+      expect(report.executions[0].outcome).toBe('PREVENTED');
+      expect(report.executions[0].preventedBy).toEqual(['Microsoft Defender for Endpoint']);
+    });
+
+    it('does not credit Defender with a PREVENTED stage on the run-wide flag alone', async () => {
       const hits = [
         makeBundleHit({ control_id: 'T1003.001', validator: 'Stage 2', exit_code: 126, techniques: ['T1003.001'], tactics: ['credential-access'], defender_detected: true }),
       ];
@@ -261,7 +304,7 @@ describe('sbReport.service.ts', () => {
       const report = await createService().generateSbReport({ ...WINDOW, org: ORG_UUID });
 
       expect(report.executions[0].outcome).toBe('PREVENTED');
-      expect(report.executions[0].preventedBy).toEqual(['Microsoft Defender for Endpoint']);
+      expect(report.executions[0].preventedBy).toEqual([]);
     });
 
     it('maps a killed stage (exit 999) with crowdstrike_prevented to PREVENTED with preventedBy CrowdStrike Falcon', async () => {
@@ -294,7 +337,7 @@ describe('sbReport.service.ts', () => {
 
     it('maps an executed stage with a SentinelOne detection to DETECTED', async () => {
       const hits = [
-        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 101, techniques: ['T1059.001'], tactics: ['execution'], sentinelone_detected: true }),
+        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 101, techniques: ['T1059.001'], tactics: ['execution'], flags: { sentinelone_stage_detected: true } }),
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
@@ -309,7 +352,7 @@ describe('sbReport.service.ts', () => {
       // been prevented — even if a bundle-level alert match carried a
       // prevention disposition for a sibling stage's kill.
       const hits = [
-        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 101, techniques: ['T1059.001'], tactics: ['execution'], crowdstrike_prevented: true, crowdstrike_detected: true }),
+        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 101, techniques: ['T1059.001'], tactics: ['execution'], crowdstrike_prevented: true, flags: { crowdstrike_stage_detected: true } }),
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
@@ -324,7 +367,7 @@ describe('sbReport.service.ts', () => {
       const hits = [
         makeBundleHit({
           control_id: 'T1003.001', validator: 'Stage 2', exit_code: 999, techniques: ['T1003.001'], tactics: ['credential-access'],
-          defender_detected: true, crowdstrike_prevented: true,
+          defender_stage_detected: true, crowdstrike_prevented: true,
         }),
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
@@ -383,7 +426,7 @@ describe('sbReport.service.ts', () => {
       // Same guard as the CrowdStrike flag: a succeeded attack cannot have
       // been prevented.
       const hits = [
-        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 101, techniques: ['T1059.001'], tactics: ['execution'], defender_prevented: true, defender_detected: true }),
+        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 101, techniques: ['T1059.001'], tactics: ['execution'], defender_prevented: true, defender_stage_detected: true }),
       ];
       mockSearch.mockResolvedValue(esSearchResponse(hits));
 
@@ -614,6 +657,144 @@ describe('sbReport.service.ts', () => {
       try {
         await createService().generateSbReport({ ...WINDOW });
         expect(warnSpy).not.toHaveBeenCalled();
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+  });
+
+  describe('techniques', () => {
+    /** Catalog entry for the bundle, as the library indexer builds it from the info card. */
+    function catalogWithStages(stages: Array<{ technique: string; techniques: string[] }>) {
+      mockGetTestMetadata.mockImplementation((uuid: string) => (uuid === BUNDLE_UUID
+        ? { uuid, stages: stages.map((st, i) => ({ stageId: i + 1, name: '', fileName: '', ...st })) }
+        : null));
+    }
+
+    it('lists every technique the library declares for the stage, the result doc\'s own first', async () => {
+      catalogWithStages([
+        { technique: 'T1059.001', techniques: ['T1059.001', 'T1562.001', 'T1112'] },
+        { technique: 'T1003.001', techniques: ['T1003.001', 'T1003.002'] },
+      ]);
+      mockSearch.mockResolvedValue(esSearchResponse(makeLabFixtureHits()));
+
+      const report = await createService().generateSbReport({ ...WINDOW });
+
+      expect(report.executions.map((r) => r.techniques)).toEqual([
+        ['T1059.001', 'T1562.001', 'T1112'],
+        ['T1003.001', 'T1003.002'],
+        ['T1021.002'],
+        ['T1567.002'],
+        ['T1486'],
+      ]);
+      expect(mockGetTestMetadata).toHaveBeenCalledWith(BUNDLE_UUID);
+    });
+
+    it('keeps the result doc\'s techniques when the test is not in the library', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse(makeLabFixtureHits()));
+
+      const report = await createService().generateSbReport({ ...WINDOW });
+
+      expect(report.executions[0].techniques).toEqual(['T1059.001']);
+    });
+
+    it('does not repeat a technique the result doc already lists', async () => {
+      catalogWithStages([{ technique: 'T1059.001', techniques: ['T1059.001', 'T1562.001'] }]);
+      mockSearch.mockResolvedValue(esSearchResponse([
+        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 101, techniques: ['T1059.001', 'T1562.001'], tactics: ['execution'] }),
+      ]));
+
+      const report = await createService().generateSbReport({ ...WINDOW });
+
+      expect(report.executions[0].techniques).toEqual(['T1059.001', 'T1562.001']);
+    });
+  });
+
+  describe('detectedTechniques', () => {
+    function msearchResponses(...perSearch: string[][][]) {
+      return {
+        responses: perSearch.map((alerts) => ({
+          hits: { hits: alerts.map((techniques) => ({ _source: { mitre_techniques: techniques } })) },
+        })),
+      };
+    }
+
+    it('lists the techniques of the alerts that matched this stage, deduplicated and sorted', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse([
+        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 101, techniques: ['T1059.001'], tactics: ['execution'], defender_stage_detected: true }),
+      ]));
+      mockMsearch.mockResolvedValue(msearchResponses([['T1562.001', 'T1059.001'], ['T1059.001', 'T1027']]));
+
+      const report = await createService().generateSbReport({ ...WINDOW });
+
+      expect(report.executions[0].detectedTechniques).toEqual(['T1027', 'T1059.001', 'T1562.001']);
+      const { searches } = mockMsearch.mock.calls[0][0];
+      expect(searches[0]).toEqual({ index: 'achilles-defender' });
+      // The stage query: this stage's own binary, on this host.
+      const body = JSON.stringify(searches[1]);
+      expect(body).toContain(`${BUNDLE_UUID}-t1059.001.exe`);
+      expect(body).toContain('WIN-LAB-01*');
+      expect(searches[1]._source).toEqual(['mitre_techniques']);
+    });
+
+    it('queries each vendor whose stage flag is set, in its own index, and merges them', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse([
+        makeBundleHit({
+          control_id: 'T1059.001', validator: 'Stage 1', exit_code: 101, techniques: ['T1059.001'], tactics: ['execution'],
+          defender_stage_detected: true, flags: { sophos_stage_detected: true },
+        }),
+      ]));
+      mockMsearch.mockResolvedValue(msearchResponses([['T1059.001']], [['T1059', 'T1112']]));
+
+      const report = await createService().generateSbReport({ ...WINDOW });
+
+      const { searches } = mockMsearch.mock.calls[0][0];
+      expect([searches[0], searches[2]]).toEqual([{ index: 'achilles-defender' }, { index: 'achilles-sophos' }]);
+      expect(report.executions[0].detectedTechniques).toEqual(['T1059', 'T1059.001', 'T1112']);
+    });
+
+    it('is empty, with no alert search, when no vendor detected this stage (run-wide flags do not count)', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse([
+        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 101, techniques: ['T1059.001'], tactics: ['execution'], defender_detected: true }),
+      ]));
+
+      const report = await createService().generateSbReport({ ...WINDOW });
+
+      expect(report.executions[0].detectedTechniques).toEqual([]);
+      expect(mockMsearch).not.toHaveBeenCalled();
+    });
+
+    it('drops values that are not ATT&CK technique IDs', async () => {
+      mockSearch.mockResolvedValue(esSearchResponse([
+        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 101, techniques: ['T1059.001'], tactics: ['execution'], defender_stage_detected: true }),
+      ]));
+      mockMsearch.mockResolvedValue(msearchResponses([['T1059.001', 'Execution', '', 'TA0002']]));
+
+      const report = await createService().generateSbReport({ ...WINDOW });
+
+      expect(report.executions[0].detectedTechniques).toEqual(['T1059.001']);
+    });
+
+    it('still returns the report, with empty detectedTechniques and a warning, when the alert search fails', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mockSearch.mockResolvedValue(esSearchResponse([
+        makeBundleHit({ control_id: 'T1059.001', validator: 'Stage 1', exit_code: 101, techniques: ['T1059.001'], tactics: ['execution'], defender_stage_detected: true }),
+        makeBundleHit({ control_id: 'T1003.001', validator: 'Stage 2', exit_code: 101, techniques: ['T1003.001'], tactics: ['credential-access'], defender_stage_detected: true }),
+      ]));
+      // One sub-search errors (e.g. a vendor index that no longer exists); a second call rejects outright.
+      mockMsearch.mockResolvedValueOnce({ responses: [{ error: { type: 'index_not_found_exception' } }, { hits: { hits: [{ _source: { mitre_techniques: ['T1003.001'] } }] } }] });
+
+      try {
+        const report = await createService().generateSbReport({ ...WINDOW });
+        expect(report.executions.map((r) => r.outcome)).toEqual(['DETECTED', 'DETECTED']);
+        expect(report.executions.map((r) => r.detectedTechniques)).toEqual([[], ['T1003.001']]);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('index_not_found_exception'));
+
+        warnSpy.mockClear();
+        mockMsearch.mockRejectedValueOnce(new Error('cluster unavailable'));
+        const failed = await createService().generateSbReport({ ...WINDOW });
+        expect(failed.executions.map((r) => r.detectedTechniques)).toEqual([[], []]);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('cluster unavailable'));
       } finally {
         warnSpy.mockRestore();
       }

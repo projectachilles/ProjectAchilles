@@ -11,8 +11,10 @@
 //      (defender_prevented: remediationStatus on the correlated alert;
 //       crowdstrike_prevented: pattern_disposition on the correlated alert;
 //       sentinelone_prevented: mitigation status on the correlated threat)
-//   exit 101 (or 0) + EDR stage/detected flag         -> DETECTED
-//      (defender_*, crowdstrike_* or sentinelone_* — any vendor qualifies)
+//   exit 101 (or 0) + EDR <vendor>_stage_detected     -> DETECTED
+//      (any registry vendor; the run-wide <vendor>_detected flag, set on
+//       every stage when an alert names the run, is never stage evidence —
+//       same rule as Analytics)
 //   exit 101 (or 0), exfiltration/impact tactics      -> EXPOSED
 //   exit 101 (or 0), other tactics                    -> MISSED
 //   exit 200/259/260 (inconclusive)                   -> ERROR ("inconclusive: <name>")
@@ -20,6 +22,13 @@
 //
 // NOT_RUN is part of the outcome enum but is not emitted server-side: skipped
 // controls are not ingested into ES, so there is no data signal to detect them.
+//
+// `techniques` = the techniques the stage executed (the bulletin's field: "de
+// la lista aceptable del objetivo"): the result doc's own, plus every
+// technique the test library declares for that stage (info card `Stage N`
+// heading, via the test catalog). `detectedTechniques` (an additional field,
+// which SB accepts and doesn't evaluate) = the ATT&CK techniques on the alerts
+// that matched this stage's own binary, for each vendor that detected it.
 
 import type { Client } from '@elastic/elasticsearch';
 import { createEsClient } from '../analytics/client.js';
@@ -29,6 +38,10 @@ import { AppError } from '../../middleware/error.middleware.js';
 import type { AnalyticsSettings } from '../../types/analytics.js';
 import { EDR_VENDOR_KEYS, edrFlagField, edrVendor } from '../outcomes/vendors.js';
 import type { EdrVendorKey } from '../outcomes/vendors.js';
+import { getTestMetadata } from '../agent/test-catalog.service.js';
+import { VENDOR_INDICES } from '../edr/edr-configured.js';
+import { buildStageDefenderEvidenceQuery } from '../defender/evidence-correlation.js';
+import { buildStageCrowdStrikeEvidenceQuery } from '../edr/evidence-correlation.js';
 
 export const SB_BUNDLE_ID = 'SB-PC-2026-001';
 export const SB_BUNDLE_NAME = 'Ransomware con doble extorsión — LockBit 3.0';
@@ -74,6 +87,12 @@ const INCONCLUSIVE_EXIT_CODES = new Set([200, 259, 260]);
 // ES default max_result_window and far above any legitimate window.
 const MAX_REPORT_DOCS = 10000;
 
+// Stage alert lookups for detectedTechniques: sub-searches per msearch call,
+// and alerts read per stage and vendor.
+const MSEARCH_CHUNK = 100;
+const ALERTS_PER_STAGE = 50;
+const ATTACK_TECHNIQUE_ID = /^T\d{4}(?:\.\d{3})?$/;
+
 
 export type SbOutcome = 'PREVENTED' | 'DETECTED' | 'MISSED' | 'EXPOSED' | 'NOT_RUN' | 'ERROR';
 
@@ -87,6 +106,8 @@ export interface SbReportExecutionRow {
   stage: number;
   stageLabel: string;
   techniques: string[];
+  /** Additional field: techniques on the alerts that matched this stage (sorted). */
+  detectedTechniques: string[];
   tactics: string[];
   outcome: SbOutcome;
   isProtected: boolean;
@@ -198,6 +219,21 @@ function isoWithTz(ts: unknown): string {
   return Number.isNaN(ms) ? value : new Date(ms).toISOString();
 }
 
+/**
+ * The techniques a stage executed: the result doc's own, then every technique
+ * the library declares for that stage (matched by its primary technique, the
+ * control id), without repeats.
+ */
+function stageTechniques(source: any): string[] {
+  const controlId = getField(source, 'f0rtika.control_id');
+  const own: string[] = getField(source, 'f0rtika.techniques') ?? [controlId].filter(Boolean);
+  const bundleId = getField(source, 'f0rtika.bundle_id');
+  const declared = bundleId && controlId
+    ? getTestMetadata(String(bundleId))?.stages?.find((s) => s.technique === controlId)?.techniques
+    : undefined;
+  return [...new Set([...own, ...(declared ?? [])])];
+}
+
 /** Decide the SB outcome for one bundle-control doc. */
 function mapOutcome(
   exitCode: number | undefined,
@@ -292,7 +328,8 @@ export class SbReportService {
       );
     }
 
-    const executions = this.buildRows(response.hits.hits);
+    const detectedTechniques = await this.stageAlertTechniques(response.hits.hits);
+    const executions = this.buildRows(response.hits.hits, detectedTechniques);
 
     return {
       meta: {
@@ -308,8 +345,63 @@ export class SbReportService {
     };
   }
 
+  /**
+   * ATT&CK techniques on the alerts that matched each stage's own binary, keyed
+   * by result doc _id. Searched only for vendors whose <vendor>_stage_detected
+   * flag is set, with the same stage query the enrichment pass used to set it.
+   * Optional data: a failed search is logged and leaves the stage empty.
+   */
+  private async stageAlertTechniques(hits: any[]): Promise<Map<string, string[]>> {
+    const lookups: Array<{ id: string; index: string; query: Record<string, unknown> }> = [];
+    for (const hit of hits) {
+      const source = hit._source ?? {};
+      const input = {
+        test_uuid: getField(source, 'f0rtika.test_uuid') ?? '',
+        routing_event_time: getField(source, 'routing.event_time') ?? '',
+        routing_hostname: getField(source, 'routing.hostname') ?? '',
+        control_id: getField(source, 'f0rtika.control_id') ?? '',
+      };
+      for (const { vendor, index } of VENDOR_INDICES) {
+        if (getField(source, edrFlagField(vendor, 'stage_detected')) !== true) continue;
+        const query = vendor === 'defender'
+          ? buildStageDefenderEvidenceQuery(input)
+          : buildStageCrowdStrikeEvidenceQuery(input);
+        if (query) lookups.push({ id: String(hit._id ?? ''), index, query });
+      }
+    }
+
+    const found = new Map<string, Set<string>>();
+    for (let start = 0; start < lookups.length; start += MSEARCH_CHUNK) {
+      const chunk = lookups.slice(start, start + MSEARCH_CHUNK);
+      try {
+        const response: any = await this.client.msearch({
+          searches: chunk.flatMap((l) => [
+            { index: l.index },
+            { size: ALERTS_PER_STAGE, _source: ['mitre_techniques'], query: l.query },
+          ]),
+        });
+        (response.responses ?? []).forEach((r: any, i: number) => {
+          if (r?.error) {
+            console.warn(`[sb-report] stage alert search in ${chunk[i].index} failed: ${r.error.type ?? JSON.stringify(r.error)}`);
+            return;
+          }
+          const set = found.get(chunk[i].id) ?? new Set<string>();
+          for (const alert of r?.hits?.hits ?? []) {
+            for (const t of alert._source?.mitre_techniques ?? []) {
+              if (typeof t === 'string' && ATTACK_TECHNIQUE_ID.test(t)) set.add(t);
+            }
+          }
+          found.set(chunk[i].id, set);
+        });
+      } catch (err) {
+        console.warn(`[sb-report] stage alert search failed; detectedTechniques left empty: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+    return new Map([...found].map(([id, set]) => [id, [...set].sort()]));
+  }
+
   /** Map raw ES hits to report rows, resolving stage numbers and outcomes. */
-  private buildRows(hits: any[]): SbReportExecutionRow[] {
+  private buildRows(hits: any[], detectedTechniques = new Map<string, string[]>()): SbReportExecutionRow[] {
     // Pre-pass: per execution group (bundle run on one host), docs whose
     // control_validator carries no "Stage N" fall back to their position when
     // members are ordered by control_id.
@@ -340,16 +432,14 @@ export class SbReportService {
       const exitCode = getField(source, 'event.ERROR');
       const errorName = resolveErrorName(exitCode, getField(source, 'f0rtika.error_name'));
       const rawTactics: string[] = getField(source, 'f0rtika.tactics') ?? [];
-      const techniques: string[] = getField(source, 'f0rtika.techniques')
-        ?? [getField(source, 'f0rtika.control_id')].filter(Boolean);
+      const techniques = stageTechniques(source);
       const controlName = getField(source, 'f0rtika.control_name');
-      // Per registry vendor: detected (stage flag, else the bundle-wide
-      // flag) and vendor-confirmed prevention — deterministic evidence from
-      // the correlated alert (e.g. Defender remediationStatus / Falcon
+      // Per registry vendor: detected (this stage's own flag only, never the
+      // run-wide <vendor>_detected that every stage of the run carries) and
+      // vendor-confirmed prevention — deterministic evidence from the
+      // correlated alert (e.g. Defender remediationStatus / Falcon
       // pattern_disposition), not inference.
-      const detected = (k: EdrVendorKey) => Boolean(
-        getField(source, edrFlagField(k, 'stage_detected')) ?? getField(source, edrFlagField(k, 'detected')),
-      );
+      const detected = (k: EdrVendorKey) => getField(source, edrFlagField(k, 'stage_detected')) === true;
       const prevented = (k: EdrVendorKey) => Boolean(getField(source, edrFlagField(k, 'prevented')));
       // Vendor attribution — when several vendors detected the stage, list them all.
       const detectingVendors = EDR_VENDOR_KEYS.filter(detected).map((k) => edrVendor(k).productName);
@@ -383,6 +473,7 @@ export class SbReportService {
         stage,
         stageLabel: SB_STAGE_LABELS[stage] || controlName || `Stage ${stage}`,
         techniques,
+        detectedTechniques: detectedTechniques.get(sourceEventId) ?? [],
         tactics: rawTactics.map((t) => TACTIC_TO_TA[t] ?? t),
         outcome,
         isProtected: outcome === 'PREVENTED' || outcome === 'DETECTED',

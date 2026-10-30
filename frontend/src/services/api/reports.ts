@@ -16,6 +16,8 @@ export interface SbReportExecutionRow {
   stage: number;
   stageLabel: string;
   techniques: string[];
+  /** Additional field: techniques on the alerts that matched this stage. */
+  detectedTechniques: string[];
   tactics: string[];
   outcome: SbOutcome;
   isProtected: boolean;
