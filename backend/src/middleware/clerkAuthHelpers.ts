@@ -45,3 +45,12 @@ export function safeClerkAuth(req: Request): ClerkAuthLike | undefined {
     return undefined;
   }
 }
+
+/**
+ * Only a user's browser session gets the fallback. @clerk/express accepts
+ * every token type, and a user-owned Clerk API key or an OAuth access token
+ * also carries userId user_… without session claims: those stay roleless
+ * (read-only) rather than inherit the user's role. No tokenType = no fallback.
+ */
+export const isUserSession = (auth: ClerkAuthLike) =>
+  auth.tokenType === 'session_token' && !!auth.userId?.startsWith('user_');
