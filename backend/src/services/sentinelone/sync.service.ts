@@ -40,7 +40,8 @@ import type {
 /** Bump when the doc schema changes to force a full re-backfill. */
 // v2: lowercase incident status / analyst verdict, resolved_at for detection
 //     alerts, evidence_filenames derived from file paths and process names.
-export const SENTINELONE_SYNC_VERSION = 2;
+// v3: detection-alert evidence includes the source parent process.
+export const SENTINELONE_SYNC_VERSION = 3;
 /** Re-read this much before the checkpoint to absorb clock skew / late writes. */
 const CHECKPOINT_OVERLAP_MS = 2 * 60 * 1000;
 
@@ -161,6 +162,10 @@ export function transformCloudAlert(a: S1CloudDetectionAlert): SentinelOneAlertD
   const ri = a.ruleInfo ?? {};
   const src = a.sourceProcessInfo ?? {};
   const tgt = a.targetProcessInfo ?? {};
+  // The source's parent is often the only link to the test: when a stage
+  // drops a fixed-name tool (C:\F0\tailcat.exe) and STAR fires on the tool,
+  // the UUID-named stage binary appears only as the parent.
+  const parent = a.sourceParentProcessInfo ?? {};
   const status = normalizeToken(ai.incidentStatus);
   const filenames = uniqueLower([
     src.name,
@@ -168,8 +173,10 @@ export function transformCloudAlert(a: S1CloudDetectionAlert): SentinelOneAlertD
     tgt.tgtProcName,
     basename(tgt.tgtFilePath),
     basename(tgt.tgtProcImagePath),
+    parent.name,
+    basename(parent.filePath),
   ]);
-  const filepaths = uniqueLower([src.filePath, tgt.tgtFilePath, tgt.tgtProcImagePath]);
+  const filepaths = uniqueLower([src.filePath, tgt.tgtFilePath, tgt.tgtProcImagePath, parent.filePath]);
   return {
     doc_type: 'alert',
     source_type: 'cloud_detection_alerts',

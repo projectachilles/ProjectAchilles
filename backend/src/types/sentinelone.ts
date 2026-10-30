@@ -219,6 +219,12 @@ export interface S1CloudDetectionAlert {
     osName?: string;
   };
   agentRealtimeInfo?: { id?: string; os?: string };
+  /** Process that spawned the source process (for a dropped tool: the stage binary that ran it). */
+  sourceParentProcessInfo?: {
+    name?: string;
+    filePath?: string;
+    storyline?: string;
+  };
   sourceProcessInfo?: {
     name?: string;
     filePath?: string;
