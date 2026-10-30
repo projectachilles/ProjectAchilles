@@ -135,6 +135,7 @@ SQLite has no `ALTER COLUMN`, so changing CHECK constraints requires recreating 
 | `/api/integrations/alerts/*` | Clerk | Alert thresholds, Slack/email config |
 | `/api/notices/*` | Clerk | Pre-execution notice settings, status, release |
 | `/api/reports/*` | Clerk | Report payloads: SB-PC-2026-001 JSON export, print-ready execution report (`/executions`) |
+| `/api/settings/identity` | Clerk (writes: signed-in session only) | Console identity (code, name, colour): read by all users, edited by admins |
 
 ### API Key Scopes
 
