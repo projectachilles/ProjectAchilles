@@ -549,6 +549,79 @@ const STAGE_ID = 1
 
       expect(stages[0].technique).toBe('T1055.001');
     });
+
+    describe('techniques (every technique the stage performs)', () => {
+      const UUID = '298cc137-ea39-4cf0-9b2d-b1c59a3cbacb';
+
+      function writeStage(id: number, technique: string): void {
+        writeStageFile(technique, `package main\n// STAGE ${id}: Stage ${id}\nconst STAGE_ID = ${id}\n`);
+      }
+
+      it('lists the techniques named in the info card heading, primary first', () => {
+        writeStage(1, 'T1059.001');
+        writeInfoCard(UUID, '## Stage Details\n\n### Stage 1 — Execution & Defense Degradation (T1562.001, T1059.001, T1112)\n');
+
+        const stages = MetadataExtractor.extractStageInfo(tempDir, UUID);
+
+        expect(stages[0].techniques).toEqual(['T1059.001', 'T1562.001', 'T1112']);
+      });
+
+      it('reads the "Stage N — T… + T…" heading form', () => {
+        writeStage(2, 'T1572');
+        writeInfoCard(UUID, '### Stage 2 — T1572 Protocol Tunneling + T1021.004 SSH over tailcat\n');
+
+        const stages = MetadataExtractor.extractStageInfo(tempDir, UUID);
+
+        expect(stages[0].techniques).toEqual(['T1572', 'T1021.004']);
+      });
+
+      it('maps each heading to its own stage', () => {
+        writeStage(1, 'T1059.001');
+        writeStage(2, 'T1003.001');
+        writeInfoCard(UUID, [
+          '### Stage 1 — Execution (T1059.001, T1112)',
+          '### Stage 2 — Credentials (T1003.001, T1003.002)',
+        ].join('\n'));
+
+        const stages = MetadataExtractor.extractStageInfo(tempDir, UUID);
+
+        expect(stages.map((s) => s.techniques)).toEqual([['T1059.001', 'T1112'], ['T1003.001', 'T1003.002']]);
+      });
+
+      it('ignores technique IDs outside the stage heading line', () => {
+        writeStage(1, 'T1059.001');
+        writeInfoCard(UUID, '### Stage 1 — Execution (T1059.001)\n\nAlso touches T1027 in passing.\n');
+
+        const stages = MetadataExtractor.extractStageInfo(tempDir, UUID);
+
+        expect(stages[0].techniques).toEqual(['T1059.001']);
+      });
+
+      it('falls back to the primary technique when the card has no heading for the stage', () => {
+        writeStage(1, 'T1059.001');
+        writeInfoCard(UUID, '# Some test\n\nNo stage headings here.\n');
+
+        const stages = MetadataExtractor.extractStageInfo(tempDir, UUID);
+
+        expect(stages[0].techniques).toEqual(['T1059.001']);
+      });
+
+      it('ignores a heading that does not name the stage\'s own technique (numbering mismatch)', () => {
+        writeStage(1, 'T1059.001');
+        writeInfoCard(UUID, '### Stage 1 — Credentials (T1003.001, T1003.002)\n');
+
+        const stages = MetadataExtractor.extractStageInfo(tempDir, UUID);
+
+        expect(stages[0].techniques).toEqual(['T1059.001']);
+      });
+
+      it('falls back to the primary technique when there is no info card or no uuid', () => {
+        writeStage(1, 'T1059.001');
+
+        expect(MetadataExtractor.extractStageInfo(tempDir, UUID)[0].techniques).toEqual(['T1059.001']);
+        expect(MetadataExtractor.extractStageInfo(tempDir)[0].techniques).toEqual(['T1059.001']);
+      });
+    });
   });
 
   // ── Group 5: extractTestMetadata — orchestration ───────────

@@ -90,7 +90,7 @@ precedence (top wins):
 |---|---|---|
 | **Protected** | exit ∈ `{105, 126, 127}` | Endpoint blocked/quarantined at the OS level |
 | **Prevented** | `crowdstrike_prevented`, `defender_prevented`, `sentinelone_prevented` or `sophos_prevented` (or detected flags + confirmed prevention action) | Vendor-confirmed kill/quarantine/block — shows the action, e.g. "Prevented (process killed)" |
-| **Detected** | `*_stage_detected` or `*_detected` | The EDR saw it and alerted, but didn't stop it |
+| **Detected** | `*_stage_detected` | The EDR saw this stage and alerted, but didn't stop it. The run-wide `*_detected` flag, which every stage of a run carries once any alert names the run, doesn't count here |
 | **Unprotected** | exit 101 | Attack ran to completion, nothing reacted |
 | **Inconclusive** | everything else (0, 1, 259, 260, 999, missing) | Can't judge — error, timeout, policy block, or unconfirmed kill |
 
@@ -118,12 +118,31 @@ Outcomes: `PREVENTED / DETECTED / MISSED / EXPOSED / NOT_RUN / ERROR`.
 | Exit | EDR flags | Outcome | Attribution |
 |---|---|---|---|
 | 105 / 126 / 127 | any | **PREVENTED** | `preventedBy`: vendor(s) |
-| 999 / 259 / 0 / none | `crowdstrike_prevented` or `defender_prevented` | **PREVENTED** | `preventedBy`: the preventing vendor(s), both when both flagged |
-| 101 / 0 | detected flag(s) | **DETECTED** | `detectedBy`: vendor(s), both when both flagged |
+| 999 / 259 / 0 / none | any vendor's `*_prevented` | **PREVENTED** | `preventedBy`: the preventing vendor(s), all when several flagged |
+| 101 / 0 | `*_stage_detected` | **DETECTED** | `detectedBy`: vendor(s), all when several flagged |
 | 101 / 0 | none, tactic ∈ `{exfiltration, impact}` | **EXPOSED** | — |
 | 101 / 0 | none, other tactics | **MISSED** | — |
 | 200 / 259 / 260 | any | **ERROR** (with "inconclusive" note) | — |
 | — (no document) | — | **NOT_RUN** | — |
+
+Techniques on each row:
+
+- **`techniques`**: what the stage executed, as the bulletin defines the field.
+  It holds the result's own technique, plus every technique the test library
+  declares for that stage in the info card heading
+  (`### Stage 1 — Execution & Defense Degradation (T1059.001, T1562.001, T1112)`),
+  e.g. `["T1059.001", "T1562.001", "T1112"]`. A test without that heading keeps
+  its single technique. The list comes from the library at export time, so
+  older runs get it too.
+- **`detectedTechniques`**: an additional field (the bulletin accepts extra
+  fields and doesn't evaluate them). It lists the ATT&CK techniques on the
+  alerts that named this stage's own binary, for each vendor whose
+  `*_stage_detected` flag is set, sorted. It's empty when no vendor detected
+  the stage. If the alert search fails, the export still completes, with this
+  field empty and a warning in the backend log.
+
+The outcome applies to every technique in `techniques`: results are measured
+per stage, not per technique.
 
 ## 5. Worked examples
 
@@ -131,7 +150,7 @@ Outcomes: `PREVENTED / DETECTED / MISSED / EXPOSED / NOT_RUN / ERROR`.
 |---|---|---|---|
 | Falcon kills the ransomware stage at launch | `0xE0000027` → 999 | Stage-binary alert match, `process_killed` disposition | **Prevented (process killed)** / PREVENTED |
 | Defender blocks a stage binary mid-execution | 999 | Stage-binary alert match, `remediationStatus: blocked` | **Prevented (process killed)** / PREVENTED |
-| Sibling stage already ran to completion before the kill | 101 | Bundle-wide alert match only | **Detected** / DETECTED — a succeeded stage is never upgraded to Prevented |
+| Sibling stage already ran to completion before the kill | 101 | Bundle-wide alert match only | **Unprotected** / MISSED (EXPOSED for exfiltration/impact): the alert names another stage, and a succeeded stage is never upgraded to Prevented |
 | Stage runs, nothing reacts | 101, no alert | none | **Unprotected** / MISSED (or EXPOSED for exfiltration/impact tactics) |
 | Stage dies, no alert anywhere | 999, no alert | none | **Inconclusive** / ERROR — a kill is never assumed |
 | Defender ASR policy blocks launch | 260 | policy, not detection | **Inconclusive** / ERROR — never counted |

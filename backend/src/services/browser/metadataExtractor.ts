@@ -305,9 +305,12 @@ export class MetadataExtractor {
   /**
    * Detect multi-stage architecture and extract stage information
    */
-  static extractStageInfo(testDir: string): StageInfo[] {
+  static extractStageInfo(testDir: string, uuid?: string): StageInfo[] {
     const stages: StageInfo[] = [];
     const files = fs.readdirSync(testDir);
+    const declared = uuid
+      ? this.extractStageTechniques(path.join(testDir, `${uuid}_info.md`))
+      : new Map<number, string[]>();
 
     // Look for stage-T*.go files
     const stageFiles = files.filter(f => f.match(/^stage-T[\d.]+\.go$/i));
@@ -329,9 +332,17 @@ export class MetadataExtractor {
           const stageIdMatch = content.match(/STAGE_ID\s*=\s*(\d+)/);
           const stageId = stageIdMatch ? parseInt(stageIdMatch[1]) : index + 1;
 
+          // A heading that doesn't name the stage's own technique belongs to
+          // another stage (numbering mismatch), so it is ignored.
+          const listed = declared.get(stageId);
+          const techniques = listed?.includes(technique)
+            ? [technique, ...listed.filter((t) => t !== technique)]
+            : [technique];
+
           stages.push({
             stageId,
             technique,
+            techniques,
             name: stageName,
             fileName,
           });
@@ -343,6 +354,30 @@ export class MetadataExtractor {
 
     // Sort by stage ID
     return stages.sort((a, b) => a.stageId - b.stageId);
+  }
+
+  /**
+   * ATT&CK techniques named in each `Stage N` heading of an info card, keyed by
+   * stage number: "### Stage 1 — Execution (T1059.001, T1562.001, T1112)" or
+   * "### Stage 2 — T1572 Protocol Tunneling + T1021.004 SSH". Only the heading
+   * line counts; body text often mentions techniques the stage doesn't perform.
+   */
+  static extractStageTechniques(infoCardPath: string): Map<number, string[]> {
+    const byStage = new Map<number, string[]>();
+    let content: string;
+    try {
+      content = fs.readFileSync(infoCardPath, 'utf-8');
+    } catch {
+      return byStage;
+    }
+    for (const line of content.split(/\r?\n/)) {
+      const heading = line.match(/^#{2,4}\s+Stage\s+(\d+)\b(.*)$/i);
+      if (!heading) continue;
+      const stageId = parseInt(heading[1], 10);
+      const ids = [...new Set(heading[2].match(/\bT\d{4}(?:\.\d{3})?\b/g) ?? [])];
+      if (ids.length > 0 && !byStage.has(stageId)) byStage.set(stageId, ids);
+    }
+    return byStage;
   }
 
   /**
@@ -416,7 +451,7 @@ export class MetadataExtractor {
     }
 
     // Extract stage information
-    metadata.stages = this.extractStageInfo(testDir);
+    metadata.stages = this.extractStageInfo(testDir, uuid);
     metadata.isMultiStage = metadata.stages.length > 0;
 
     // Ensure folder category takes precedence over any extracted category

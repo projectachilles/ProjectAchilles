@@ -58,6 +58,8 @@ export interface ScoreBreakdown {
 export interface StageInfo {
   stageId: number;
   technique: string;
+  /** Every technique the stage performs, `technique` first (info card `Stage N` heading); else just `technique`. */
+  techniques: string[];
   name: string;
   fileName: string;
 }
