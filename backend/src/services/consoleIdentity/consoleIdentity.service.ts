@@ -27,17 +27,19 @@ function normalizeName(raw: string | null): string | null {
 
 export class ConsoleIdentityService {
   private readonly filePath: string;
-  private readonly envIdentity: ConsoleIdentity;
+  // Resolved on first get(), not in the constructor: the routes module builds the
+  // service at import time, before server.ts runs dotenv.config().
+  private envIdentity: ConsoleIdentity | null = null;
 
   constructor(
     private readonly settingsDir: string = path.join(os.homedir(), '.projectachilles'),
     private readonly env: NodeJS.ProcessEnv = process.env,
   ) {
     this.filePath = path.join(this.settingsDir, FILE_NAME);
-    this.envIdentity = this.fromEnv(); // resolved (and warned about) once
   }
 
   get(): ConsoleIdentity {
+    this.envIdentity ??= this.fromEnv(); // resolved (and warned about) once
     const saved = this.readSaved();
     if (saved) return { ...saved, source: 'saved' };
     return { ...this.envIdentity };

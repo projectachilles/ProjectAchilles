@@ -62,10 +62,16 @@ describe('ConsoleIdentityService', () => {
 
   it('warns about invalid env once, not on every get()', () => {
     const svc = new ConsoleIdentityService(dir, { CONSOLE_ORG_CODE: 'x', CONSOLE_ORG_COLOR: 'red' });
-    const after = warn.mock.calls.length;
+    expect(warn).not.toHaveBeenCalled(); // lazy: nothing resolved at construction
     svc.get(); svc.get(); svc.get();
-    expect(warn.mock.calls.length).toBe(after);
-    expect(after).toBe(2);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads env lazily, so values set after construction (dotenv) apply', () => {
+    const env: NodeJS.ProcessEnv = {};
+    const svc = new ConsoleIdentityService(dir, env);
+    env.CONSOLE_ORG_CODE = 'ACME';
+    expect(svc.get()).toMatchObject({ code: 'ACME', source: 'env' });
   });
 
   it('warns and ignores an env name over 80 chars', () => {
