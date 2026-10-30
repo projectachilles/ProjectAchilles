@@ -474,6 +474,9 @@ phase backend-env "Writing backend/.env"
   echo "AGENT_SERVER_URL=${PUBLIC_URL}"
   [ -n "${ORGANIZATION_NAME:-}" ] && echo "ORGANIZATION_NAME=${ORGANIZATION_NAME}"
   [ -n "${ORG_NAMES:-}" ] && echo "ORG_NAMES=${ORG_NAMES}"
+  [ -n "${CONSOLE_ORG_CODE:-}" ]  && echo "CONSOLE_ORG_CODE=${CONSOLE_ORG_CODE}"
+  [ -n "${CONSOLE_ORG_NAME:-}" ]  && echo "CONSOLE_ORG_NAME=${CONSOLE_ORG_NAME}"
+  [ -n "${CONSOLE_ORG_COLOR:-}" ] && echo "CONSOLE_ORG_COLOR=${CONSOLE_ORG_COLOR}"
   if [ "$ES_MODE" = "self" ]; then
     echo "ELASTICSEARCH_NODE=http://elasticsearch:9200"
   else
