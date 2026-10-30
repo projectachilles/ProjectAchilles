@@ -7,7 +7,7 @@ import { ConsoleIdentityService, normalizeCode, isIdentityColor } from '../conso
 describe('normalizeCode', () => {
   it('trims and uppercases', () => {
     expect(normalizeCode(' acme ')).toBe('ACME');
-    expect(normalizeCode('sb')).toBe('SB');
+    expect(normalizeCode('ab')).toBe('AB');
   });
   it('rejects invalid codes', () => {
     for (const bad of ['a', 'ac-me', 'ABCDEFG', '']) expect(normalizeCode(bad)).toBeNull();
@@ -58,6 +58,20 @@ describe('ConsoleIdentityService', () => {
     const id = new ConsoleIdentityService(dir, { CONSOLE_ORG_CODE: 'x' }).get();
     expect(id.code).toBeNull();
     expect(warn).toHaveBeenCalled();
+  });
+
+  it('warns about invalid env once, not on every get()', () => {
+    const svc = new ConsoleIdentityService(dir, { CONSOLE_ORG_CODE: 'x', CONSOLE_ORG_COLOR: 'red' });
+    const after = warn.mock.calls.length;
+    svc.get(); svc.get(); svc.get();
+    expect(warn.mock.calls.length).toBe(after);
+    expect(after).toBe(2);
+  });
+
+  it('warns and ignores an env name over 80 chars', () => {
+    const id = new ConsoleIdentityService(dir, { CONSOLE_ORG_CODE: 'ACME', CONSOLE_ORG_NAME: 'x'.repeat(81) }).get();
+    expect(id.name).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it('saved record overrides env entirely', () => {

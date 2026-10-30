@@ -5,14 +5,19 @@ import request from 'supertest';
 // Per-test auth shape attached by the mocked requireClerkAuth
 let authShape: Record<string, unknown> | undefined;
 
-vi.mock('../../middleware/clerk.middleware.js', () => ({
-  clerkAuth: (_req: any, _res: any, next: any) => next(),
-  requireClerkAuth: () => (req: any, _res: any, next: any) => {
-    req.auth = authShape;
-    next();
-  },
-  requirePermission: () => (_req: any, _res: any, next: any) => next(),
-}));
+// Only requireClerkAuth is faked; the real requirePermission stays so the
+// settings:platform:write gate is exercised.
+vi.mock('../../middleware/clerk.middleware.js', async (orig) => {
+  const actual = await orig<typeof import('../../middleware/clerk.middleware.js')>();
+  return {
+    ...actual,
+    clerkAuth: (_req: any, _res: any, next: any) => next(),
+    requireClerkAuth: () => (req: any, _res: any, next: any) => {
+      req.auth = authShape;
+      next();
+    },
+  };
+});
 
 const identity = { code: 'ACME', name: 'Acme Financial Group', color: 'violet', source: 'saved' };
 const mockGet = vi.fn();
@@ -39,7 +44,8 @@ app.use(express.json());
 app.use('/api/settings/identity', consoleIdentityRoutes);
 app.use(errorHandler);
 
-const SESSION = { tokenType: 'session_token', userId: 'user_1' };
+const SESSION = { tokenType: 'session_token', userId: 'user_1', sessionClaims: { metadata: { role: 'admin' } } };
+const OPERATOR = { tokenType: 'session_token', userId: 'user_2', sessionClaims: { metadata: { role: 'operator' } } };
 const CLI = { userId: 'user_1' };
 const API_KEY = { userId: 'apikey:k1', apiKeyPermissions: new Set<string>() };
 
@@ -83,11 +89,20 @@ describe('console identity routes', () => {
     expect(res.status).toBe(400);
   });
 
-  it('surfaces a service error as 400', async () => {
-    mockSave.mockImplementation(() => { throw new Error('Invalid code'); });
+  it('an unexpected save error is a 500 (not a 400)', async () => {
+    mockSave.mockImplementation(() => { throw new Error("EACCES: permission denied, open '/srv/secret/path'"); });
     const res = await request(app).put('/api/settings/identity').send({ code: 'ACME', name: null, color: 'none' });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe('Invalid code');
+    expect(res.status).toBe(500);
+  });
+
+  it('operator session is 403 on PUT and DELETE (needs settings:platform:write)', async () => {
+    authShape = OPERATOR;
+    const put = await request(app).put('/api/settings/identity').send({ code: 'ACME', name: null, color: 'violet' });
+    expect(put.status).toBe(403);
+    const del = await request(app).delete('/api/settings/identity');
+    expect(del.status).toBe(403);
+    expect(mockSave).not.toHaveBeenCalled();
+    expect(mockReset).not.toHaveBeenCalled();
   });
 
   it('DELETE resets', async () => {

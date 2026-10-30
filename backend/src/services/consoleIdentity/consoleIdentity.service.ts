@@ -27,18 +27,20 @@ function normalizeName(raw: string | null): string | null {
 
 export class ConsoleIdentityService {
   private readonly filePath: string;
+  private readonly envIdentity: ConsoleIdentity;
 
   constructor(
     private readonly settingsDir: string = path.join(os.homedir(), '.projectachilles'),
     private readonly env: NodeJS.ProcessEnv = process.env,
   ) {
     this.filePath = path.join(this.settingsDir, FILE_NAME);
+    this.envIdentity = this.fromEnv(); // resolved (and warned about) once
   }
 
   get(): ConsoleIdentity {
     const saved = this.readSaved();
     if (saved) return { ...saved, source: 'saved' };
-    return this.fromEnv();
+    return { ...this.envIdentity };
   }
 
   save(input: ConsoleIdentityInput): ConsoleIdentity {
@@ -98,6 +100,9 @@ export class ConsoleIdentityService {
     const color: IdentityColor = isIdentityColor(rawColor) ? rawColor : 'none';
     if (rawColor && color === 'none' && rawColor !== 'none') {
       console.warn('[console-identity] ignoring invalid CONSOLE_ORG_COLOR');
+    }
+    if (rawName.length > MAX_NAME_LENGTH) {
+      console.warn(`[console-identity] ignoring console name longer than ${MAX_NAME_LENGTH} characters`);
     }
     const name = rawName && rawName.length <= MAX_NAME_LENGTH ? rawName : null;
 

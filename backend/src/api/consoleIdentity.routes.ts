@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireClerkAuth, requirePermission } from '../middleware/clerk.middleware.js';
 import { requireUserSession } from '../middleware/userSession.middleware.js';
-import { asyncHandler, AppError } from '../middleware/error.middleware.js';
+import { asyncHandler } from '../middleware/error.middleware.js';
 import { validate } from '../middleware/validation.js';
 import { ConsoleIdentitySchema } from '../schemas/consoleIdentity.schemas.js';
 import { ConsoleIdentityService } from '../services/consoleIdentity/consoleIdentity.service.js';
@@ -23,11 +23,8 @@ router.put(
   requirePermission('settings:platform:write'),
   validate(ConsoleIdentitySchema),
   asyncHandler(async (req, res) => {
-    try {
-      res.json({ success: true, data: service.save(req.body as ConsoleIdentityInput) });
-    } catch (err) {
-      throw new AppError(err instanceof Error ? err.message : 'Invalid identity', 400);
-    }
+    // validate() guarantees a valid body; anything save() throws is a server fault.
+    res.json({ success: true, data: service.save(req.body as ConsoleIdentityInput) });
   }),
 );
 
