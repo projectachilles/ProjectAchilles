@@ -324,6 +324,7 @@ async function startServer() {
       agentBuild: true,
       preExecutionNotices: true,
       campaigns: true,
+      consoleIdentity: true,
       sentinelone: true,
       sophos: true,
       alerting: true,

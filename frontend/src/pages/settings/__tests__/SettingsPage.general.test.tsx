@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 let perms: Record<string, boolean> = {};
+let capIdentity = true;
+vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ consoleIdentity: capIdentity }) }));
 vi.mock('@/hooks/useAppRole', () => ({
   useHasPermission: (p: string) => perms[p] ?? false,
 }));
@@ -17,6 +19,7 @@ import SettingsPage from '../SettingsPage';
 
 beforeEach(() => {
   perms = {};
+  capIdentity = true;
 });
 
 describe('SettingsPage General tab', () => {
@@ -27,6 +30,14 @@ describe('SettingsPage General tab', () => {
     expect(tabs[0]).toHaveTextContent('General');
     expect(screen.getByText('general-body')).toBeInTheDocument();
     expect(screen.queryByText('integrations-body')).not.toBeInTheDocument();
+  });
+
+  it('hides General when the backend lacks console identity, even with the permission', () => {
+    perms = { 'settings:platform:write': true };
+    capIdentity = false;
+    render(<SettingsPage />);
+    expect(screen.queryByRole('button', { name: /General/ })).not.toBeInTheDocument();
+    expect(screen.getByText('integrations-body')).toBeInTheDocument();
   });
 
   it('hides General and starts on Integrations without it', () => {

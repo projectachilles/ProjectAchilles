@@ -3,6 +3,7 @@ import { Plug, FlaskConical, Bot, Users, KeyRound, FingerprintPattern } from 'lu
 import { PageHeader } from '@/components/layout/PageHeader';
 import { pillClass } from '@/components/shared/ui/pillStyles';
 import { useHasPermission } from '@/hooks/useAppRole';
+import { useCapabilities } from '@/hooks/useCapabilities';
 import { GeneralTab } from './components/GeneralTab';
 import { IntegrationsTab } from './components/IntegrationsTab';
 import { TestsTab } from './components/TestsTab';
@@ -24,9 +25,10 @@ const ALL_TABS: Array<{ id: SettingsTab; label: string; icon: typeof Plug }> = [
 export default function SettingsPage() {
   const canManageUsers = useHasPermission('settings:users:manage');
   const canEditPlatform = useHasPermission('settings:platform:write');
+  const { consoleIdentity } = useCapabilities();
 
   const tabs = ALL_TABS.filter((tab) => {
-    if (tab.id === 'general') return canEditPlatform;
+    if (tab.id === 'general') return canEditPlatform && consoleIdentity;
     if (tab.id === 'users' || tab.id === 'apikeys') return canManageUsers;
     return true;
   });

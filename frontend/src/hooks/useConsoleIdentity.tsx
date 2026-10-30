@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@clerk/clerk-react';
+import { useCapabilities } from '@/hooks/useCapabilities';
 import { useLocation } from 'react-router-dom';
 import { consoleIdentityApi } from '@/services/api/consoleIdentity';
 import { identityHex } from '@/lib/identityColors';
@@ -26,6 +27,9 @@ const ConsoleIdentityContext = createContext<ConsoleIdentityContextType>(INERT);
 export function ConsoleIdentityProvider({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn } = useAuth();
   const { pathname } = useLocation();
+  const { loaded, consoleIdentity } = useCapabilities();
+  // Backend-only feature: until capabilities load, or where the backend lacks it, never fetch.
+  const enabled = loaded === true && consoleIdentity;
   const [identity, setIdentity] = useState<ConsoleIdentity | null>(null);
   const hasIdentity = useRef(false);
   const original = useRef<{ title: string; icon: string | null } | null>(null);
@@ -44,7 +48,7 @@ export function ConsoleIdentityProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isLoaded) return;
-    if (!isSignedIn) {
+    if (!isSignedIn || !enabled) {
       hasIdentity.current = false;
       setIdentity(null);
       return;
@@ -53,7 +57,7 @@ export function ConsoleIdentityProvider({ children }: { children: ReactNode }) {
     const onFocus = () => void refresh();
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
-  }, [isLoaded, isSignedIn, refresh]);
+  }, [isLoaded, isSignedIn, enabled, refresh]);
 
   const code = identity?.code ?? null;
   const color = identity?.color ?? 'none';

@@ -5,6 +5,9 @@ import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { WORDMARK } from '@/lib/brand';
 import type { ConsoleIdentity } from '@/types/consoleIdentity';
 
+const caps = vi.hoisted(() => ({ loaded: true, consoleIdentity: true }));
+vi.mock('@/hooks/useCapabilities', () => ({ useCapabilities: () => ({ ...caps }) }));
+
 const getMock = vi.fn();
 vi.mock('@/services/api/consoleIdentity', () => ({
   consoleIdentityApi: { get: (...a: unknown[]) => getMock(...a) },
@@ -36,6 +39,8 @@ const icon = () => document.querySelector<HTMLLinkElement>('link[rel="icon"]')!;
 
 beforeEach(() => {
   getMock.mockReset();
+  caps.loaded = true;
+  caps.consoleIdentity = true;
   document.head.innerHTML = '<link rel="icon" href="/orig.svg">';
   document.title = 'ORIG';
 });
@@ -96,6 +101,25 @@ describe('useConsoleIdentity', () => {
     act(() => result.current.setIdentity(none));
     expect(document.title).toBe('ORIG');
     expect(icon().getAttribute('href')).toBe('/orig.svg');
+  });
+
+  it('never fetches when the capability is false, including on focus', async () => {
+    caps.consoleIdentity = false;
+    const { result } = renderHook(() => useConsoleIdentity(), { wrapper });
+    act(() => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    expect(getMock).not.toHaveBeenCalled();
+    expect(result.current.identity).toBeNull();
+  });
+
+  it('does not fetch while capabilities are still loading', async () => {
+    caps.loaded = false;
+    renderHook(() => useConsoleIdentity(), { wrapper });
+    act(() => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    expect(getMock).not.toHaveBeenCalled();
   });
 
   it('refetches on window focus', async () => {

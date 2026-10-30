@@ -77,5 +77,5 @@ Everyone signed in can see the identity. Changing or resetting it needs the `set
 `name` may be `null`; `color` is a preset key or `none`. Invalid input returns `400` with `{ "success": false, "error": "..." }`. API keys and CLI tokens get `403`. Every response carries `{ code, name, color, source }`, where `source` is `saved`, `env` or `none`.
 
 :::note[Not available on Vercel]
-The serverless (Vercel) deployment does not include console identity.
+The serverless (Vercel) deployment does not include console identity. Settings → General is hidden there and the console makes no identity requests.
 :::

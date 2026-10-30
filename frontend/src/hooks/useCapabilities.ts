@@ -10,6 +10,8 @@ export interface Capabilities {
   agentBuild: boolean;
   preExecutionNotices: boolean;
   campaigns: boolean;
+  /** Console identity (/api/settings/identity; backend-only; backend-serverless has none) */
+  consoleIdentity: boolean;
   /** SentinelOne integration routes (backend-only; backend-serverless has none) */
   sentinelone: boolean;
   /** Sophos Central integration routes (backend-only; backend-serverless has none) */
@@ -33,6 +35,7 @@ const DEFAULT_CAPABILITIES: Capabilities = {
   agentBuild: true,
   preExecutionNotices: false,
   campaigns: false,
+  consoleIdentity: false,
   sentinelone: false,
   sophos: false,
   // Alerting predates /api/capabilities: a Docker backend that doesn't report
