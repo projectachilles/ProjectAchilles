@@ -196,6 +196,36 @@ describe('SentinelOne normalization — shared-module contract', () => {
     expect(doc?.resolved_at).toBeNull();
   });
 
+  // Shape of a live STAR alert on a fixed-name tool a stage dropped: the source
+  // and target are the tool and its child, and only the source PARENT is the
+  // UUID-named stage binary that ties the alert to the test run.
+  it('adds the source parent process to detection-alert evidence (the stage binary that ran a dropped tool)', () => {
+    const doc = transformCloudAlert({
+      alertInfo: { alertId: 'p1', incidentStatus: 'Unresolved', source: 'STAR', createdAt: '2026-10-30T15:49:25.601Z' },
+      ruleInfo: { name: 'Detect Windows OpenSSH ProxyCommand Execution Abuse', severity: 'High' },
+      agentDetectionInfo: { name: 'WIN-01' },
+      sourceParentProcessInfo: {
+        name: '5f1a2b3c-0000-4000-8000-000000000001-T1572.exe',
+        filePath: 'C:\\F0\\5f1a2b3c-0000-4000-8000-000000000001-T1572.exe',
+        storyline: '0123456789ABCDEF',
+      },
+      sourceProcessInfo: { name: 'tailcat.exe', filePath: 'C:\\F0\\tailcat.exe', storyline: '0123456789ABCDEF' },
+      targetProcessInfo: { tgtProcName: 'ssh.exe', tgtProcImagePath: 'C:\\Windows\\System32\\OpenSSH\\ssh.exe' },
+    } as never);
+    expect(doc?.evidence_filenames).toContain('5f1a2b3c-0000-4000-8000-000000000001-t1572.exe');
+    expect(doc?.evidence_filepaths).toContain('c:\\f0\\5f1a2b3c-0000-4000-8000-000000000001-t1572.exe');
+    // The detected process stays first: it is what the alert is about.
+    expect(doc?.evidence_filenames[0]).toBe('tailcat.exe');
+    // A parent path can be the run's task folder (C:\F0\tasks\task-<id>\...),
+    // which launch-block evidence looks for; it only counts with a prevention
+    // action, and detection alerts never carry one.
+    expect(doc?.prevention_action).toBeUndefined();
+  });
+
+  it('bumps the sync version past 2 so detection alerts stored without parent evidence are re-normalized', () => {
+    expect(SENTINELONE_SYNC_VERSION).toBeGreaterThanOrEqual(3);
+  });
+
   it('maps a successful remediation onto the shared prevention vocabulary', () => {
     const doc = transformThreat({ id: 't3', threatInfo: {}, mitigationStatus: [{ action: 'remediate', status: 'success' }] } as never, 'https://acme.sentinelone.net');
     expect(doc.prevention_action).toBe('quarantined');

@@ -14,6 +14,13 @@ integrations (`alert_id`, `alert_title`, `severity`, `status`,
 `mitre_techniques`, `evidence_hostnames`, `evidence_filenames`, …) so the rest
 of the platform can consume it.
 
+A detection alert's file evidence is its source process, its target process
+and the source's **parent** process. The parent matters when a test stage drops
+a tool under a fixed name (for example `C:\F0\tailcat.exe`) and a STAR rule
+fires on that tool: the tool's name doesn't identify the test, but its parent
+is the stage binary (`<test uuid>-<technique>.exe`), so the alert still
+correlates with the run and with that stage.
+
 The alerts, detection coverage and posture appear in the
 [Analytics → SentinelOne](../analytics/sentinelone) tab. Two opt-in passes can
 write back to the console; see
