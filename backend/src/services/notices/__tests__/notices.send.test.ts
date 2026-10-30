@@ -162,7 +162,8 @@ function linkTask(taskId: string, noticeId: string, agentId = 'agent-001', paylo
     },
     ...payloadExtra,
   });
-  insertTestTask(testDb, { id: taskId, agent_id: agentId, payload });
+  // ttl: the real-clock TTL sweep in getNextTask would expire tasks created at the fixed NOW
+  insertTestTask(testDb, { id: taskId, agent_id: agentId, payload, ttl: 315360000 });
   testDb.prepare('UPDATE tasks SET notice_id = ? WHERE id = ?').run(noticeId, taskId);
 }
 

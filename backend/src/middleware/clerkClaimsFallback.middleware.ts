@@ -10,7 +10,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import { clerkClient } from '@clerk/express';
-import { safeClerkAuth, type ClerkAuthLike } from './clerkAuthHelpers.js';
+import { isUserSession, safeClerkAuth } from './clerkAuthHelpers.js';
 
 type Metadata = Record<string, unknown>;
 export type MetadataLoader = (userId: string) => Promise<Metadata>;
@@ -58,15 +58,6 @@ function publicMetadataFor(userId: string, load: MetadataLoader, now = Date.now(
 
 const hasMetadataClaim = (claims: unknown) =>
   typeof claims === 'object' && claims !== null && 'metadata' in claims;
-
-/**
- * Only a user's browser session gets the fallback. @clerk/express accepts
- * every token type, and a user-owned Clerk API key or an OAuth access token
- * also carries userId user_… without session claims: those stay roleless
- * (read-only) rather than inherit the user's role. No tokenType = no fallback.
- */
-const isUserSession = (auth: ClerkAuthLike) =>
-  auth.tokenType === 'session_token' && !!auth.userId?.startsWith('user_');
 
 /**
  * Runs right after clerkAuth: for a Clerk session whose token has no metadata

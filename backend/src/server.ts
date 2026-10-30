@@ -51,6 +51,7 @@ import reportsRoutes from './api/reports.routes.js';
 import cliAuthRoutes from './api/cli-auth.routes.js';
 import { acceptCliAuth } from './middleware/cliAuth.middleware.js';
 import apiKeysRoutes from './api/api-keys.routes.js';
+import consoleIdentityRoutes from './api/consoleIdentity.routes.js';
 import { acceptApiKey } from './middleware/apiKeyAuth.middleware.js';
 import { cliBearerLimiterSkip } from './middleware/cliBearerLimiterSkip.js';
 import { uiLimiterKey } from './middleware/rateLimitKeys.js';
@@ -323,6 +324,7 @@ async function startServer() {
       agentBuild: true,
       preExecutionNotices: true,
       campaigns: true,
+      consoleIdentity: true,
       sentinelone: true,
       sophos: true,
       alerting: true,
@@ -392,6 +394,9 @@ async function startServer() {
   app.use('/api/cli/auth', cliAuthRoutes);
 
   app.use('/api/api-keys', apiKeysRoutes);
+
+  // Console identity (org code / name / colour); writes are session-only
+  app.use('/api/settings/identity', consoleIdentityRoutes);
 
   // ============ ERROR HANDLING ============
   app.use(notFoundHandler);

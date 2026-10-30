@@ -121,6 +121,7 @@ const sidebars: SidebarsConfig = {
           items: [
             'user-guide/settings/certificates',
             'user-guide/settings/notifications',
+            'user-guide/settings/console-identity',
           ],
         },
         {

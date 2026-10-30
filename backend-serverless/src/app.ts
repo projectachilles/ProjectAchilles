@@ -143,6 +143,7 @@ app.get('/api/capabilities', (_req, res) => {
     agentBuild: false,
     preExecutionNotices: false,
     campaigns: false,
+    consoleIdentity: false,
     sentinelone: false,
     sophos: false,
     alerting: false,
