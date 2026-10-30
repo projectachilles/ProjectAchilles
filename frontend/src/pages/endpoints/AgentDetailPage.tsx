@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
+import { IdentityPill } from '@/components/layout/ConsoleIdentity';
 import { usePolling } from '@/hooks/usePolling';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
@@ -136,6 +137,7 @@ export default function AgentDetailPage() {
             ID: <span className="font-mono">{agent.id}</span>
           </p>
         </div>
+        <IdentityPill />
       </div>
 
       {/* Tabs */}
