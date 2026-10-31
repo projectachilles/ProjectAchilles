@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       service:
-        description: Service(s) to redeploy at the current main commit
+        description: Service(s) to redeploy at the current main commit (run from main)
         type: choice
         options: [both, backend, frontend]
         default: both
@@ -33,9 +33,11 @@ permissions:
 jobs:
   deploy:
     name: Deploy to Render
-    # Only CI runs for pushes to main (never pull requests), and only green ones.
+    # Only CI runs for pushes to main (never pull requests), and only green
+    # ones. A manual run must also be started on main: the dispatch deploys
+    # github.sha, which would otherwise be any branch picked in the UI.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     steps:
