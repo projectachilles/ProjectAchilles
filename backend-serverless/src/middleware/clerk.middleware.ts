@@ -5,15 +5,41 @@ import type { AppRole, Permission } from '../types/roles.js';
 import { hasPermissions } from '../types/roles.js';
 import { AppError } from './error.middleware.js';
 
-/**
- * Clerk authentication middleware
- * Verifies JWT from Authorization header
- * Adds req.auth with user info
- */
-export const clerkAuth = clerkMiddleware({
+const clerkSessionAuth = clerkMiddleware({
   publishableKey: process.env.CLERK_PUBLISHABLE_KEY,
   secretKey: process.env.CLERK_SECRET_KEY,
 });
+
+/** A Clerk session token (or a CLI token) is a JWT: three base64url segments. */
+const JWT_SHAPE = /^[\w-]+\.[\w-]+\.[\w-]*$/;
+
+/**
+ * Clerk authentication middleware: verifies the Clerk session (cookie or
+ * Bearer JWT) and sets req.auth. It never rejects; route guards do.
+ *
+ * clerkMiddleware forces `acceptsToken: 'any'`, so it treats any Bearer token
+ * shaped like a Clerk machine token as one and verifies it against Clerk's
+ * Backend API. Agent keys start with `ak_`, Clerk's API-key prefix, so every
+ * agent poll and heartbeat sent the agent's key to POST api.clerk.com
+ * /api_keys/verify (~140 ms each). Deployment tokens must never leave the
+ * deployment, and Achilles uses no Clerk machine tokens, so Clerk only sees
+ * JWT-shaped bearers: for anything else the Authorization header is hidden
+ * while Clerk runs (the request is signed out to Clerk, req.auth still set)
+ * and restored for the agent / API-key middleware that owns it.
+ */
+export function clerkAuth(req: Request, res: Response, next: NextFunction): void {
+  const header = req.headers.authorization;
+  const bearer = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!header || (bearer !== null && JWT_SHAPE.test(bearer))) {
+    clerkSessionAuth(req, res, next);
+    return;
+  }
+  delete req.headers.authorization;
+  clerkSessionAuth(req, res, (err?: unknown) => {
+    req.headers.authorization = header;
+    next(err);
+  });
+}
 
 /**
  * Require Clerk authentication
