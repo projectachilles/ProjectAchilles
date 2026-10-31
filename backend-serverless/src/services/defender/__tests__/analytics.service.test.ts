@@ -47,6 +47,30 @@ describe('DefenderAnalyticsService (serverless)', () => {
 
   // ── Detection correlation ────────────────────────────────────
 
+  // Mirrors backend/src/services/defender/__tests__/analytics.service.test.ts.
+  describe('getControlCorrelations (batch)', () => {
+    const EMAIL = 'Block executable content from email client and webmail';
+
+    it('answers every control with one query: a filters bucket per mapped control', async () => {
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 0 }, hits: [] },
+        aggregations: { controls: { buckets: { '0': { doc_count: 12 } } } },
+      });
+      const result = await service.getControlCorrelations([EMAIL, 'Some unrelated control'], 30);
+      expect(mockSearch).toHaveBeenCalledTimes(1);
+      expect(result).toEqual([
+        { title: EMAIL, coveredTechniques: ['T1566', 'T1204'], alertCount: 12 },
+        { title: 'Some unrelated control', coveredTechniques: [], alertCount: 0 },
+      ]);
+      expect(Object.keys(mockSearch.mock.calls[0][0].aggs.controls.filters.filters)).toEqual(['0']);
+    });
+
+    it('skips Elasticsearch when no control has a mapping', async () => {
+      await service.getControlCorrelations(['Some unrelated control'], 30);
+      expect(mockSearch).not.toHaveBeenCalled();
+    });
+  });
+
   describe('getDetectionRate', () => {
     it('detects techniques with temporally correlated alerts', async () => {
       const hour = 3600000;

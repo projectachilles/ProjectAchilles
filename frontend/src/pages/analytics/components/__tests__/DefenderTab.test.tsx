@@ -29,7 +29,8 @@ vi.mock('@/services/api/defender', () => ({
     getTechniqueCoverage: (...a: unknown[]) => df.getTechniqueCoverage(...a),
     getAlerts: (...a: unknown[]) => df.getAlerts(...a),
     getControls: (...a: unknown[]) => df.getControls(...a),
-    getControlCorrelation: (...a: unknown[]) => df.getControlCorrelation(...a),
+    getControlCorrelations: async (titles: string[], days?: number) =>
+      Promise.all(titles.map(async (title) => ({ title, ...(await df.getControlCorrelation(title, days)) }))),
   },
 }));
 

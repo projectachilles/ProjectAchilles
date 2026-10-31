@@ -42,12 +42,17 @@ GET /api/analytics/defender/alerts/trend
 GET /api/analytics/defender/controls
 GET /api/analytics/defender/controls/by-category
 GET /api/analytics/defender/controls/correlation
+GET /api/analytics/defender/controls/correlations
 ```
 
 - **`/controls`** — Defender control profiles with compliance status.
 - **`/controls/by-category`** — controls grouped by category.
-- **`/controls/correlation`** — controls linked to the alerts and techniques
-  they cover (control ↔ alert linking).
+- **`/controls/correlation`** — one control (`controlTitle`) linked to the
+  alerts and techniques it covers (control ↔ alert linking).
+- **`/controls/correlations`** — the same for up to 20 controls in one query:
+  repeat `title[]=` (or a single `title=`), plus optional `days` (1–365,
+  default 30). Returns `[{ title, coveredTechniques, alertCount }]` in the
+  order given. The Analytics top-controls card uses this one.
 
 ### Window parameters
 

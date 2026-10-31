@@ -4,6 +4,10 @@ import userEvent from '@testing-library/user-event';
 
 const mockGetControls = vi.fn();
 const mockGetControlCorrelation = vi.fn();
+// The card makes one batch call; per-title fixtures stay readable through this adapter.
+const mockGetControlCorrelations = vi.fn(async (titles: string[], days?: number) =>
+  Promise.all(titles.map(async (title) => ({ title, ...(await mockGetControlCorrelation(title, days)) }))),
+);
 
 vi.mock('@/services/api/defender', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/services/api/defender')>();
@@ -12,8 +16,8 @@ vi.mock('@/services/api/defender', async (importOriginal) => {
     defenderApi: {
       ...actual.defenderApi,
       getControls: (params: unknown) => mockGetControls(params),
-      getControlCorrelation: (title: string, days?: number) =>
-        mockGetControlCorrelation(title, days),
+      getControlCorrelations: (titles: string[], days?: number) =>
+        mockGetControlCorrelations(titles, days),
     },
   };
 });
@@ -65,6 +69,12 @@ describe('TopControlsCard', () => {
       expect(screen.getByText(/Ensure multifactor authentication/)).toBeInTheDocument()
     );
     await waitFor(() => expect(mockGetControlCorrelation).toHaveBeenCalledTimes(2));
+    // One request for every control, not one per control.
+    expect(mockGetControlCorrelations).toHaveBeenCalledTimes(1);
+    expect(mockGetControlCorrelations).toHaveBeenCalledWith(
+      ['Ensure multifactor authentication is enabled for admins', 'Block executable content from email client'],
+      30,
+    );
 
     expect(screen.getByText(/12 alerts addressed in last 30d/)).toBeInTheDocument();
     expect(screen.getByText(/3 alerts addressed in last 30d/)).toBeInTheDocument();
@@ -130,7 +140,19 @@ describe('TopControlsCard', () => {
     await waitFor(() =>
       expect(screen.getByText(/No controls data — sync Defender first/)).toBeInTheDocument()
     );
-    expect(mockGetControlCorrelation).not.toHaveBeenCalled();
+    expect(mockGetControlCorrelations).not.toHaveBeenCalled();
+  });
+
+  it('still lists the controls, without badges, when the correlation request fails', async () => {
+    mockGetControls.mockResolvedValue([makeControl({ control_name: 'mfa', title: 'Enable MFA' })]);
+    mockGetControlCorrelations.mockRejectedValueOnce(new Error('ES down'));
+
+    render(<TopControlsCard onSelectControlAlerts={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText('Enable MFA')).toBeInTheDocument());
+    await waitFor(() => expect(mockGetControlCorrelations).toHaveBeenCalled());
+    expect(screen.queryByText(/alerts addressed in last/)).toBeNull();
+    expect(screen.queryByText(/Failed|error/i)).toBeNull();
   });
 
   it('flows rows into two columns at lg when twoColumn is set', async () => {
