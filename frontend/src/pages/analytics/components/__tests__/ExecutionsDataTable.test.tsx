@@ -327,29 +327,6 @@ describe('ExecutionsDataTable — per-stage Defender detection', () => {
   });
 });
 
-describe('ExecutionsDataTable — related-alert lookup failures', () => {
-  it('says the lookup failed instead of "no related alerts", and retries on reselect', async () => {
-    getAlertsForTestMock.mockRejectedValue(new Error('HTTP 500'));
-    const stage = makeStage({ test_name: 'Lookup Failure Stage' });
-    renderTable(makeData([stage], { defenderDetected: false }));
-
-    await userEvent.click(screen.getAllByText(stage.bundle_name!)[0]);
-    await userEvent.click(screen.getAllByText('Lookup Failure Stage').at(-1)!);
-    expect(await screen.findByText(/Couldn't load related Defender alerts/)).toBeInTheDocument();
-    expect(screen.queryByText(/No Defender alert names this stage/)).toBeNull();
-
-    // Not cached: selecting the run again asks again.
-    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
-    const callsBefore = defenderBatch.mock.calls.length;
-    await userEvent.click(screen.getAllByText(stage.bundle_name!)[0]);
-    await waitFor(() => expect(defenderBatch.mock.calls.length).toBeGreaterThan(callsBefore));
-    // Reselecting collapses the stage; open it again to see its evidence.
-    await userEvent.click(screen.getAllByText('Lookup Failure Stage').at(-1)!);
-    expect(await screen.findByText(/No Defender alert names this stage/)).toBeInTheDocument();
-    expect(screen.queryByText(/Couldn't load related Defender alerts/)).toBeNull();
-  });
-});
-
 describe('ExecutionsDataTable — bundle-level alert callout dedupe', () => {
   it('aggregates bundle-attribution alerts across per-stage caches and dedupes by alert_id', async () => {
     // Both stages' independent queries return the SAME bundle-attribution
@@ -1346,5 +1323,35 @@ describe('ExecutionsDataTable — related alerts keyed by endpoint vendor', () =
     await userEvent.click(screen.getAllByText(stage1.bundle_name!)[0]);
     await userEvent.click(screen.getAllByText(stage1.bundle_name!)[0]);
     expect(sophosGetAlertsForTestMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ExecutionsDataTable — a failed related-alerts lookup is retried', () => {
+  // A failed lookup (null) used to be cached for the life of the page, so the
+  // run read "No related alerts" until a full reload. Only successful lookups
+  // are cached now: opening the stage asks again.
+  it('asks again when the stage is opened after a failed lookup', async () => {
+    csConfigured.value = true;
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    csGetAlertsForTestMock.mockReset();
+    csGetAlertsForTestMock
+      .mockRejectedValueOnce(new Error('HTTP 400'))
+      .mockResolvedValue({
+        alerts: [{ alert_id: 'cs-1', alert_title: 'GenericSignedProxyExecution', severity: 'high', status: 'new',
+          attribution: 'stage', attributed_control_id: 't1204.002', created_at: '2026-10-31T02:31:31Z' } as CrowdStrikeAlertItem],
+        matchedTechniques: [], total: 1,
+      } as RelatedCrowdStrikeAlertsResponse);
+    const stage = makeStage({ test_uuid: `${BUNDLE_UUID}::T1204.002`, control_id: 'T1204.002', techniques: ['T1204.002'], test_name: 'Event-Invite LNK Execution' });
+    renderTable(makeData([stage], { defenderDetected: false }));
+
+    // The run is selected on mount; its CrowdStrike lookup fails.
+    await waitFor(() => expect(csBatch).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText('GenericSignedProxyExecution')).not.toBeInTheDocument();
+
+    // Opening the stage asks again (the failure was not cached) and shows the alert.
+    await openStageRow(stage.test_name);
+    await waitFor(() => expect(csBatch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getAllByText('GenericSignedProxyExecution').length).toBeGreaterThan(0));
+    csConfigured.value = false;
   });
 });

@@ -60,8 +60,10 @@ Each candidate is closed with a single call — status change and comment in one
 PATCH /alerts/entities/alerts/v3
 {
   "composite_ids": ["<alert-composite-id>"],
-  "update_status": "closed",
-  "append_comment": "Achilles test <uuid> — authorized continuous validation. Closed automatically by Project Achilles."
+  "action_parameters": [
+    { "name": "update_status", "value": "closed" },
+    { "name": "append_comment", "value": "Achilles test <uuid> — authorized continuous validation. Closed automatically by Project Achilles." }
+  ]
 }
 ```
 

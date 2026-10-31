@@ -292,7 +292,11 @@ describe('FalconClient', () => {
       });
     }
 
-    it('PATCHes /alerts/entities/alerts/v3 with composite_ids, update_status and append_comment', async () => {
+    // v3 schema (CrowdStrike Swagger PatchEntitiesAlertsV3; FalconPy
+    // update_alerts_v3): { composite_ids, action_parameters: [{ name, value }] }.
+    // Top-level update_status / append_comment got HTTP 400 "failed to read and
+    // parse request" from a live tenant on every alert.
+    it('PATCHes /alerts/entities/alerts/v3 with composite_ids and action_parameters', async () => {
       mockTokenResponse();
       mockPatchSuccess(2);
 
@@ -308,8 +312,10 @@ describe('FalconClient', () => {
       expect(patchCall[1].headers['Content-Type']).toBe('application/json');
       expect(JSON.parse(patchCall[1].body)).toEqual({
         composite_ids: ['cid-1', 'cid-2'],
-        update_status: 'closed',
-        append_comment: 'Achilles test abc — authorized continuous validation.',
+        action_parameters: [
+          { name: 'update_status', value: 'closed' },
+          { name: 'append_comment', value: 'Achilles test abc — authorized continuous validation.' },
+        ],
       });
 
       expect(result.resourcesAffected).toBe(2);
@@ -331,14 +337,14 @@ describe('FalconClient', () => {
       expect(result.errors[0]).toMatchObject({ id: 'cid-missing', message: 'alert not found' });
     });
 
-    it('omits update_status/append_comment when not provided', async () => {
+    it('sends no action parameters when no update is given', async () => {
       mockTokenResponse();
       mockPatchSuccess(1);
 
       await client.updateAlerts(['cid-1'], {});
 
       const body = JSON.parse(mockFetch.mock.calls[1][1].body);
-      expect(body).toEqual({ composite_ids: ['cid-1'] });
+      expect(body).toEqual({ composite_ids: ['cid-1'], action_parameters: [] });
     });
 
     it('throws when compositeIds is empty', async () => {

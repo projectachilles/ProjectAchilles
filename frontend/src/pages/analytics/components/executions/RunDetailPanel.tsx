@@ -33,6 +33,7 @@ import {
   ResultCode,
   RiskActions,
   descKeyFor,
+  lookupFailedText,
   stageAlertState,
   type RunDetailPanelProps,
 } from './detailParts';
@@ -198,9 +199,7 @@ function ExecDetailBody({
               <span className="text-xs text-muted">Checking for related alerts...</span>
             </div>
           ) : defender.failed ? (
-            <p className="mt-2 text-xs text-destructive">
-              Couldn't load related Defender alerts. Select the run again to retry.
-            </p>
+            <p className="mt-2 text-xs text-warning">{lookupFailedText('Defender')}</p>
           ) : defender.alerts.length > 0 ? (
             <div className="mt-2 space-y-2">
               {defender.alerts.map((alert) => (
@@ -235,9 +234,7 @@ function ExecDetailBody({
                 <span className="text-xs text-muted">Checking for related alerts...</span>
               </div>
             ) : state.failed ? (
-              <p className="mt-2 text-xs text-destructive">
-                {`Couldn't load related ${name} alerts. Select the run again to retry.`}
-              </p>
+              <p className="mt-2 text-xs text-warning">{lookupFailedText(name)}</p>
             ) : state.alerts.length > 0 ? (
               <div className="mt-2 space-y-2">
                 {state.alerts.map((alert) => (
