@@ -16,10 +16,9 @@ vi.mock('../../analytics/settings.js', () => ({
   },
 }));
 
+const mockCreateEsClient = vi.fn(() => ({ search: mockSearch }));
 vi.mock('../../analytics/client.js', () => ({
-  createEsClient: () => ({
-    search: mockSearch,
-  }),
+  createEsClient: () => mockCreateEsClient(),
 }));
 
 vi.mock('../index-management.js', () => ({
@@ -34,6 +33,7 @@ vi.mock('../../analytics/test-name-lookup.js', () => ({
 }));
 
 const { CrowdStrikeAnalyticsService } = await import('../analytics.service.js');
+const { __resetSharedEsClientForTests } = await import('../../analytics/sharedClient.js');
 
 // ── Tests ────────────────────────────────────────────────────────────
 
@@ -43,6 +43,16 @@ describe('CrowdStrikeAnalyticsService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     service = new CrowdStrikeAnalyticsService();
+  });
+
+  it('reuses one Elasticsearch client across requests and service instances', async () => {
+    __resetSharedEsClientForTests();
+    mockSearch.mockResolvedValue({ hits: { hits: [] } });
+    await service.getZtaScoreSummary();
+    await service.getZtaScoreSummary();
+    await new CrowdStrikeAnalyticsService().getZtaScoreSummary();
+    expect(mockSearch).toHaveBeenCalledTimes(3);
+    expect(mockCreateEsClient).toHaveBeenCalledTimes(1);
   });
 
   // ── ZTA Score ────────────────────────────────────────────────

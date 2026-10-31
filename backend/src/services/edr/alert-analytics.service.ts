@@ -5,7 +5,7 @@
 // crowdstrike/analytics.service.ts).
 
 import { SettingsService } from '../analytics/settings.js';
-import { createEsClient } from '../analytics/client.js';
+import { getSharedEsClient } from '../analytics/sharedClient.js';
 import { buildAlertTimeWindowQuery, buildCrowdStrikeEvidenceQuery } from './evidence-correlation.js';
 import { attackSimulationExclusions } from '../analytics/attack-simulation-filter.js';
 import { NOT_STAGELESS } from '../analytics/enrichment-eligibility.js';
@@ -148,7 +148,7 @@ export class EdrAlertAnalyticsService {
     if (!settings.configured) {
       throw new Error('Elasticsearch is not configured');
     }
-    return { client: createEsClient(settings), settings };
+    return { client: getSharedEsClient(settings), settings };
   }
 
   protected getEsClient(): Client {

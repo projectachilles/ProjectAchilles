@@ -31,7 +31,7 @@ import { SentinelOneSyncService } from '../services/sentinelone/sync.service.js'
 import { SentinelOneResponseService } from '../services/sentinelone/response.service.js';
 import { SENTINELONE_INDEX } from '../services/sentinelone/index-management.js';
 import { SettingsService as AnalyticsSettingsService } from '../services/analytics/settings.js';
-import { createEsClient } from '../services/analytics/client.js';
+import { getSharedEsClient } from '../services/analytics/sharedClient.js';
 import { prepareEdrEs } from '../services/edr/es-readiness.js';
 
 const router = Router();
@@ -186,7 +186,7 @@ router.get('/sync/status', requirePermission('integrations:read'), (_req, res) =
 
 function esClientOrNull() {
   const settings = new AnalyticsSettingsService().getSettings();
-  return settings.configured ? createEsClient(settings) : null;
+  return settings.configured ? getSharedEsClient(settings) : null;
 }
 
 /** Receipt counts over 24h / 7d / 30d for a f0rtika.<flag> receipt. */

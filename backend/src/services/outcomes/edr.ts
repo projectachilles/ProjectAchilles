@@ -4,7 +4,7 @@
 // `_id = <task_id>` for a single result, `<task_id>::<control_id>` per stage.
 
 import type { Client } from '@elastic/elasticsearch';
-import { createEsClient } from '../analytics/client.js';
+import { getSharedEsClient } from '../analytics/sharedClient.js';
 import { SettingsService } from '../analytics/settings.js';
 import { EDR_VENDORS } from './vendors.js';
 
@@ -34,12 +34,8 @@ export const SOURCE_FIELDS = [
   ]),
 ];
 
-let cached: { key: string; client: Client } | null = null;
-
 function clientFor(settings: ReturnType<SettingsService['getSettings']>): Client {
-  const key = JSON.stringify(settings);
-  if (!cached || cached.key !== key) cached = { key, client: createEsClient(settings) };
-  return cached.client;
+  return getSharedEsClient(settings);
 }
 
 /**
