@@ -68,9 +68,114 @@ function readRecentReloads(now: number): number[] {
   }
 }
 
+/** Upper bound on chunks inspected by one repair (the whole build is ~150). */
+const MAX_REPAIR_CHUNKS = 400;
+/** Never hold a reload longer than this waiting for the repair. */
+const REPAIR_TIMEOUT_MS = 5_000;
+/** Static imports between hashed chunks: `from"./plus-DhN6Sb2U.js"`. */
+const CHUNK_IMPORT_RE = /["']\.\/([\w.-]+\.js)["']/g;
+const CHUNK_URL_RE = /https?:\/\/[^\s'"]+?\.js\b/;
+
+/**
+ * The chunk URL named in a dynamic-import error. Chrome and Firefox include
+ * it; Safari ("Importing a module script failed.") does not, so null there.
+ */
+export function failedChunkUrl(error: unknown): string | null {
+  if (!error) return null;
+  const message = error instanceof Error ? error.message : String(error);
+  return message.match(CHUNK_URL_RE)?.[0] ?? null;
+}
+
+function sameOriginAsset(url: string): URL | null {
+  try {
+    const parsed = new URL(url, window.location.href);
+    return parsed.origin === window.location.origin && parsed.pathname.startsWith('/assets/')
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function isJavaScript(res: Response): boolean {
+  return res.ok && /javascript/i.test(res.headers.get('content-type') ?? '');
+}
+
+/**
+ * Replace cached copies of `entryUrl` and its static imports that are not
+ * JavaScript. Returns how many were re-downloaded.
+ *
+ * Why: hashed chunks are served `immutable` for a year, and nginx used to send
+ * that header on 404s too. A browser that once got a 404 for a chunk (from an
+ * instance that did not have it, mid-deploy) kept the 404 and never asked
+ * again, so every page importing that chunk failed, reloads included. The
+ * failed import names only the page chunk, not the poisoned dependency, so we
+ * walk the import graph. `only-if-cached` reads the browser cache without the
+ * network; `cache: 'reload'` skips it and stores the fresh response in its
+ * place. Healthy cached chunks are only read, never re-downloaded.
+ */
+export async function repairCachedChunks(entryUrl: string): Promise<number> {
+  const entry = sameOriginAsset(entryUrl);
+  if (!entry) return 0;
+
+  const seen = new Set<string>();
+  const queue = [entry.href];
+  let repaired = 0;
+
+  while (queue.length > 0 && seen.size < MAX_REPAIR_CHUNKS) {
+    const url = queue.shift()!;
+    if (seen.has(url)) continue;
+    seen.add(url);
+
+    let res = await fetch(url, { cache: 'only-if-cached', mode: 'same-origin' }).catch(() => null);
+    if (res && !isJavaScript(res)) {
+      res = await fetch(url, { cache: 'reload' }).catch(() => null);
+      repaired += 1;
+    } else if (!res) {
+      // Not cached: nothing to repair, but read it to follow its imports.
+      res = await fetch(url).catch(() => null);
+    }
+    if (!res || !isJavaScript(res)) continue;
+
+    const source = await res.text();
+    for (const match of source.matchAll(CHUNK_IMPORT_RE)) {
+      const dep = sameOriginAsset(new URL(match[1], url).href);
+      if (dep && !seen.has(dep.href)) queue.push(dep.href);
+    }
+  }
+  return repaired;
+}
+
+/**
+ * Repair the cache for the chunk named in `error` (if any), then reload. The
+ * reload is synchronous when there is nothing to repair.
+ */
+function repairThenReload(error: unknown): void {
+  const url = failedChunkUrl(error);
+  if (!url || !sameOriginAsset(url)) {
+    window.location.reload();
+    return;
+  }
+  const timeout = new Promise<void>((resolve) => setTimeout(resolve, REPAIR_TIMEOUT_MS));
+  void Promise.race([repairCachedChunks(url).catch(() => 0), timeout]).then(() => {
+    window.location.reload();
+  });
+}
+
+/**
+ * Manual recovery (the error card's "Reload page"): repair, then reload,
+ * regardless of the automatic-reload limit.
+ */
+export function reloadAfterChunkError(error: unknown): void {
+  reloadPending = true;
+  repairThenReload(error);
+}
+
 /**
  * Reload the page to pick up the freshly-deployed bundle, unless this tab has
- * already reloaded MAX_AUTO_RELOADS times within RELOAD_WINDOW_MS.
+ * already reloaded MAX_AUTO_RELOADS times within RELOAD_WINDOW_MS. Before
+ * reloading, cached copies of the failed chunk's imports that are not
+ * JavaScript are re-downloaded (see repairCachedChunks).
  *
  * Returns true if a reload was triggered, false if the loop guard suppressed
  * it (the caller should then let the error surface to the user).
@@ -79,7 +184,7 @@ function readRecentReloads(now: number): number[] {
  * the same tab but is scoped to this tab, so a recovery in one tab never
  * suppresses a legitimate recovery in another.
  */
-export function reloadOnceForChunkError(): boolean {
+export function reloadOnceForChunkError(error?: unknown): boolean {
   if (reloadPending) return true;
 
   const now = Date.now();
@@ -96,7 +201,7 @@ export function reloadOnceForChunkError(): boolean {
   }
 
   reloadPending = true;
-  window.location.reload();
+  repairThenReload(error);
   return true;
 }
 
@@ -114,7 +219,8 @@ export function installChunkReloadHandler(): void {
     // We are handling the failure by reloading; prevent Vite from rethrowing
     // it as an unhandled error. If the reload is suppressed by the cooldown,
     // let the event proceed so the error still surfaces.
-    if (reloadOnceForChunkError()) {
+    const payload = (event as Event & { payload?: unknown }).payload;
+    if (reloadOnceForChunkError(payload)) {
       event.preventDefault();
     }
   });
