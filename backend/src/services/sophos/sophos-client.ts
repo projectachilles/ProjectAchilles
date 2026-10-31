@@ -14,6 +14,7 @@
 //    password) is not on the allowlist and has no method.
 
 import type { SophosCredentials, SophosPermissionMode } from '../../types/sophos.js';
+import { describeError, isRetryableNetworkError } from '../shared/networkError.js';
 
 const TOKEN_HOST = 'id.sophos.com';
 const GLOBAL_HOST = 'api.central.sophos.com';
@@ -267,9 +268,20 @@ export class SophosClient {
   private async send(url: string, init: RequestInit): Promise<Response> {
     for (let attempt = 0; ; attempt++) {
       await this.limiter.acquire(this.now);
-      // Never follow redirects: a 3xx would replay the body (client_secret, write
-      // payloads) and X-Tenant-ID to a host the allowlist never saw.
-      const res = await this.fetchImpl(url, { ...init, redirect: 'manual', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      let res: Response;
+      try {
+        // Never follow redirects: a 3xx would replay the body (client_secret, write
+        // payloads) and X-Tenant-ID to a host the allowlist never saw.
+        res = await this.fetchImpl(url, { ...init, redirect: 'manual', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      } catch (err) {
+        // A DNS hiccup or refused connection is retried on the same backoff as a
+        // 5xx; the final error names the host, since "fetch failed" alone doesn't.
+        if (isRetryableNetworkError(err, init.method ?? 'GET') && attempt < MAX_RETRIES) {
+          await sleep(Math.random() * Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** attempt));
+          continue;
+        }
+        throw new Error(`Sophos request to ${new URL(url).hostname} failed: ${describeError(err)}`, { cause: err });
+      }
       if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
         await res.text().catch(() => undefined);
         throw new SophosApiError(`Sophos answered with a redirect (HTTP ${res.status}); refusing to follow it`, res.status, '');

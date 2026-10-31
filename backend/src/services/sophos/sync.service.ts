@@ -72,6 +72,7 @@ import type { AgentKillPassResult } from '../../types/agent-kill.js';
 import type { LaunchBlockPassResult } from '../../types/launch-block.js';
 import type { AutoResolvePassResult, EnrichmentPassResult } from '../../types/edr.js';
 import type { SophosCapabilities, SophosCapabilityState, SophosIntegrationSettings } from '../../types/sophos.js';
+import { describeError } from '../shared/networkError.js';
 
 /** Bump when the doc schema changes to force a full re-backfill. */
 export const SOPHOS_SYNC_VERSION = 1;
@@ -146,11 +147,6 @@ interface PollContext {
 
 const DEFAULT_CAPABILITIES: SophosCapabilities = { siem: 'unknown', alerts: 'unknown', xdr_graphql: 'unknown', xdr_rest: 'unknown', health_check: 'unknown' };
 
-function describeError(err: unknown): string {
-  if (err instanceof Error) return err.message || err.name;
-  return String(err);
-}
-
 /** `api-eu01.central.sophos.com` -> `eu01`. */
 function regionOf(host: string | null): string | undefined {
   return host ? /^api-([a-z]{2}\d{2})\./.exec(host)?.[1] : undefined;
@@ -212,6 +208,9 @@ export class SophosSyncService {
     if (this.status.inProgress) return { timestamp };
     this.status.inProgress = true;
     this.status.lastAttemptAt = timestamp;
+    // A failure from an earlier poll; cleared below if this poll gets through
+    // without replacing it (only source errors clear themselves in reportSource).
+    const errorBefore = this.status.lastError;
     let stage = 'setup';
     try {
       const svc = this.settingsService();
@@ -324,6 +323,7 @@ export class SophosSyncService {
         }
       }
 
+      if (this.status.lastError === errorBefore) this.status.lastError = null;
       this.status.lastSyncResult = result;
       return result;
     } catch (err) {
