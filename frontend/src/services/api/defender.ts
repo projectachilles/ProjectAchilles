@@ -3,6 +3,7 @@
 import { apiClient } from '@/hooks/useAuthenticatedApi';
 
 import type { AlertFacetCounts, AlertSource, TechniqueCoverageResponse, TimeWindow } from './integrationTypes';
+import { requestAlertsForTests, type AlertsForTestItem } from './alertsForTests';
 
 // ---------------------------------------------------------------------------
 // Response types (mirrors backend analytics service)
@@ -278,6 +279,15 @@ export const defenderApi = {
       params: { days, windowMinutes },
     });
     return res.data;
+  },
+
+  /** Related alerts for many executions (an Executions row's stages) in one request. */
+  async getAlertsForTests(items: AlertsForTestItem[]): Promise<Array<RelatedAlertsResponse | null>> {
+    return requestAlertsForTests<RelatedAlertsResponse>('/analytics/defender/correlation/alerts-for-tests', items, (item) =>
+      defenderApi.getAlertsForTest(
+        item.techniques, item.timestamp, item.windowMinutes, item.hostname, item.binaryName, item.bundleName,
+      ),
+    );
   },
 
   async getAlertsForTest(

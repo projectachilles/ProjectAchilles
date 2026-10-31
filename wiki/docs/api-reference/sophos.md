@@ -84,6 +84,7 @@ GET /api/analytics/sophos/correlation/techniques
 GET /api/analytics/sophos/correlation/detection-rate
 GET /api/analytics/sophos/correlation/technique-coverage
 GET /api/analytics/sophos/correlation/alerts-for-test
+POST /api/analytics/sophos/correlation/alerts-for-tests
 ```
 
 Same execution set, evidence rule and response shapes as the
@@ -92,7 +93,7 @@ window: last 30 days) and the
 [SentinelOne cross-correlation endpoints](./sentinelone#cross-correlation).
 `/correlation/alerts-for-test` requires `techniques` and `timestamp` (`400`
 otherwise); `windowMinutes` (default 30), `hostname`, `binaryName` and
-`bundleName` are optional. `/correlation/scores` points are
+`bundleName` are optional. `POST /correlation/alerts-for-tests` answers many executions in one request (same body, limits and response as the [Defender batch endpoint](./defender#cross-correlation)). `/correlation/scores` points are
 `{ date, defenseScore, ztaScore }` with `ztaScore` the day's last Health Check
 headline, `null` on days without one.
 

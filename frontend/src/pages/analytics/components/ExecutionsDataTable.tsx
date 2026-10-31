@@ -34,6 +34,7 @@ import {
 import { browserApi } from '@/services/api/browser';
 import { defenderApi, type RelatedAlertsResponse } from '@/services/api/defender';
 import type { RelatedCrowdStrikeAlertsResponse } from '@/services/api/crowdstrike';
+import type { AlertsForTestItem } from '@/services/api/alertsForTests';
 import { useDefenderConfig } from '@/hooks/useDefenderConfig';
 import { useCrowdStrikeConfig } from '@/hooks/useCrowdStrikeConfig';
 import { useSentinelOneConfig } from '@/hooks/useSentinelOneConfig';
@@ -181,43 +182,55 @@ export default function ExecutionsDataTable({
     [],
   );
 
-  const fetchRelatedAlerts = useCallback(async (exec: EnrichedTestExecution) => {
+  // Related-alert lookup for one execution: its techniques, host and the
+  // bundle binary `<uuid>.exe` (bundle controls carry `<uuid>::<control>`).
+  // null when the execution has no techniques to correlate on.
+  const alertsItemFor = useCallback((exec: EnrichedTestExecution): AlertsForTestItem | null => {
+    if (!exec.techniques || exec.techniques.length === 0) return null;
+    const baseUuid = exec.test_uuid.includes('::') ? exec.test_uuid.split('::')[0] : exec.test_uuid;
+    return {
+      techniques: exec.techniques,
+      timestamp: exec.timestamp,
+      windowMinutes: 30,
+      hostname: exec.hostname,
+      binaryName: `${baseUuid}.exe`,
+      bundleName: exec.bundle_name,
+    };
+  }, []);
+
+  // Defender alerts for every given execution (a row's stages) in one
+  // request: the batch endpoint runs one msearch per fallback tier instead of
+  // one request and up to three sequential searches per stage.
+  const fetchRelatedAlerts = useCallback(async (execs: EnrichedTestExecution[]) => {
     if (!defenderConfigured) return;
-    const techniques = exec.techniques;
-    if (!techniques || techniques.length === 0) return;
+    const todo = new Map<string, AlertsForTestItem>();
+    for (const exec of execs) {
+      const key = stageAlertsCacheKey(exec);
+      const item = alertsItemFor(exec);
+      if (item && !alertsCache.current.has(key)) todo.set(key, item);
+    }
+    if (todo.size === 0) return;
+    const keys = [...todo.keys()];
 
-    const cacheKey = stageAlertsCacheKey(exec);
-    if (alertsCache.current.has(cacheKey)) return;
-
-    // Derive binary name: for bundle controls use the base UUID (before ::),
-    // for standalone tests use the test_uuid directly. Binary is <uuid>.exe.
-    const baseUuid = exec.test_uuid.includes('::')
-      ? exec.test_uuid.split('::')[0]
-      : exec.test_uuid;
-    const binaryName = `${baseUuid}.exe`;
-
-    setAlertsLoading(prev => {
-      const next = new Set(prev);
-      next.add(cacheKey);
+    setAlertsLoading(prev => new Set([...prev, ...keys]));
+    let results: Array<RelatedAlertsResponse | null>;
+    try {
+      results = await defenderApi.getAlertsForTests([...todo.values()]);
+    } catch {
+      results = keys.map(() => null);
+    }
+    keys.forEach((key, i) => alertsCache.current.set(key, results[i] ?? null));
+    setAlertsMap(prev => {
+      const next = new Map(prev);
+      keys.forEach((key, i) => next.set(key, results[i] ?? null));
       return next;
     });
-    try {
-      const result = await defenderApi.getAlertsForTest(
-        techniques, exec.timestamp, 30, exec.hostname, binaryName, exec.bundle_name,
-      );
-      alertsCache.current.set(cacheKey, result);
-      setAlertsMap(prev => new Map(prev).set(cacheKey, result));
-    } catch {
-      alertsCache.current.set(cacheKey, null);
-      setAlertsMap(prev => new Map(prev).set(cacheKey, null));
-    } finally {
-      setAlertsLoading(prev => {
-        const next = new Set(prev);
-        next.delete(cacheKey);
-        return next;
-      });
-    }
-  }, [defenderConfigured, stageAlertsCacheKey]);
+    setAlertsLoading(prev => {
+      const next = new Set(prev);
+      for (const key of keys) next.delete(key);
+      return next;
+    });
+  }, [defenderConfigured, stageAlertsCacheKey, alertsItemFor]);
 
   // Related endpoint-EDR alerts (CrowdStrike, SentinelOne, Sophos): same
   // per-stage cache key for every vendor, one map/loading set per vendor.
@@ -248,41 +261,46 @@ export default function ExecutionsDataTable({
     [crowdstrikeConfigured, sentineloneConfigured, sophosConfigured, endpointMaps, endpointLoading],
   );
 
-  const fetchRelatedEndpointAlerts = useCallback(async (exec: EnrichedTestExecution) => {
-    const techniques = exec.techniques;
-    if (!techniques || techniques.length === 0) return;
-
-    const cacheKey = stageAlertsCacheKey(exec);
-    const baseUuid = exec.test_uuid.includes('::')
-      ? exec.test_uuid.split('::')[0]
-      : exec.test_uuid;
-    const binaryName = `${baseUuid}.exe`;
-
+  const fetchRelatedEndpointAlerts = useCallback(async (execs: EnrichedTestExecution[]) => {
     await Promise.all(ENDPOINT_VENDOR_IDS.map(async (id) => {
-      const getAlertsForTest = VENDORS[id].api.getAlertsForTest;
-      if (!endpointConfigured[id] || !getAlertsForTest) return;
-      if (endpointCache.current[id].has(cacheKey)) return;
-
-      setEndpointLoading(prev => ({ ...prev, [id]: new Set(prev[id]).add(cacheKey) }));
-      try {
-        const result = await getAlertsForTest(
-          techniques, exec.timestamp, 30, exec.hostname, binaryName, exec.bundle_name,
-        );
-        endpointCache.current[id].set(cacheKey, result);
-        setEndpointMaps(prev => ({ ...prev, [id]: new Map(prev[id]).set(cacheKey, result) }));
-      } catch {
-        endpointCache.current[id].set(cacheKey, null);
-        setEndpointMaps(prev => ({ ...prev, [id]: new Map(prev[id]).set(cacheKey, null) }));
-      } finally {
-        setEndpointLoading(prev => {
-          const next = new Set(prev[id]);
-          next.delete(cacheKey);
-          return { ...prev, [id]: next };
-        });
+      const api = VENDORS[id].api;
+      if (!endpointConfigured[id] || !api.getAlertsForTest) return;
+      const todo = new Map<string, AlertsForTestItem>();
+      for (const exec of execs) {
+        const key = stageAlertsCacheKey(exec);
+        const item = alertsItemFor(exec);
+        if (item && !endpointCache.current[id].has(key)) todo.set(key, item);
       }
+      if (todo.size === 0) return;
+      const keys = [...todo.keys()];
+      const items = [...todo.values()];
+      const single = api.getAlertsForTest;
+
+      setEndpointLoading(prev => ({ ...prev, [id]: new Set([...prev[id], ...keys]) }));
+      let results: Array<RelatedCrowdStrikeAlertsResponse | null>;
+      try {
+        results = api.getAlertsForTests
+          ? await api.getAlertsForTests(items)
+          : await Promise.all(items.map((it) =>
+              single(it.techniques, it.timestamp, it.windowMinutes, it.hostname, it.binaryName, it.bundleName)
+                .catch(() => null)));
+      } catch {
+        results = keys.map(() => null);
+      }
+      keys.forEach((key, i) => endpointCache.current[id].set(key, results[i] ?? null));
+      setEndpointMaps(prev => {
+        const next = new Map(prev[id]);
+        keys.forEach((key, i) => next.set(key, results[i] ?? null));
+        return { ...prev, [id]: next };
+      });
+      setEndpointLoading(prev => {
+        const next = new Set(prev[id]);
+        for (const key of keys) next.delete(key);
+        return { ...prev, [id]: next };
+      });
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [crowdstrikeConfigured, sentineloneConfigured, sophosConfigured, stageAlertsCacheKey]);
+  }, [crowdstrikeConfigured, sentineloneConfigured, sophosConfigured, stageAlertsCacheKey, alertsItemFor]);
 
   const groups = data?.groups || [];
   const pagination = data?.pagination;
@@ -311,13 +329,12 @@ export default function ExecutionsDataTable({
       if (!row) return;
       if (row.type === 'standalone') {
         void fetchDescription(row.execution);
-        void fetchRelatedAlerts(row.execution);
-        void fetchRelatedEndpointAlerts(row.execution);
+        void fetchRelatedAlerts([row.execution]);
+        void fetchRelatedEndpointAlerts([row.execution]);
       } else {
-        for (const ctrl of row.controls) {
-          void fetchRelatedAlerts(ctrl);
-          void fetchRelatedEndpointAlerts(ctrl);
-        }
+        // One request per vendor for every stage of the row.
+        void fetchRelatedAlerts(row.controls);
+        void fetchRelatedEndpointAlerts(row.controls);
       }
     },
     [displayRows, fetchDescription, fetchRelatedAlerts, fetchRelatedEndpointAlerts],
@@ -351,8 +368,8 @@ export default function ExecutionsDataTable({
       setExpandedControlIndex((prev) => {
         if (prev === index) return null;
         void fetchDescription(ctrl);
-        void fetchRelatedAlerts(ctrl);
-        void fetchRelatedEndpointAlerts(ctrl);
+        void fetchRelatedAlerts([ctrl]);
+        void fetchRelatedEndpointAlerts([ctrl]);
         return index;
       });
     },

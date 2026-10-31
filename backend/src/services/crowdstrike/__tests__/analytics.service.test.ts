@@ -833,37 +833,32 @@ describe('CrowdStrikeAnalyticsService', () => {
       expect(JSON.stringify(query.query)).not.toContain('evidence_hostnames');
     });
 
-    it('tier 3 WITH hostname keeps the evidence_hostnames constraint (no cross-host associations)', async () => {
+    it('the last tier WITH hostname keeps the evidence_hostnames constraint (no cross-host associations)', async () => {
       // Fleet-wide simultaneous runs: without the host filter, a host whose
       // EDR stayed quiet would inherit sibling hosts' same-technique alerts
       // in the shared time window (observed in production).
-      // Evidence tier (binaryName+hostname) misses; technique+hostname tier
-      // misses; tier 3 must STILL be host-scoped.
+      // Evidence tier misses; the last tier (technique+hostname) must be
+      // host-scoped, and no unscoped or repeated tier follows it.
       mockSearch.mockResolvedValueOnce({ hits: { total: { value: 0 }, hits: [] } }); // tier 1
-      mockSearch.mockResolvedValueOnce({ hits: { total: { value: 0 }, hits: [] } }); // tier 2
-      mockSearch.mockResolvedValueOnce({
-        hits: { total: { value: 1 }, hits: [alertHit()] },
-      }); // tier 3
+      mockSearch.mockResolvedValueOnce({ hits: { total: { value: 0 }, hits: [] } }); // tier 2 (last)
 
       const result = await service.getAlertsForTest(
         baseParams.techniques, baseParams.timestamp, baseParams.windowMinutes,
         baseParams.hostname, baseParams.binaryName,
       );
 
-      expect(result.total).toBe(1);
-      expect(mockSearch).toHaveBeenCalledTimes(3);
-      const tier3 = JSON.stringify(mockSearch.mock.calls[2][0].query);
-      expect(tier3).toContain('mitre_techniques');
-      expect(tier3).toContain('evidence_hostnames');
-      expect(tier3).toContain('LT-ACME-L50');
+      expect(result.total).toBe(0);
+      expect(mockSearch).toHaveBeenCalledTimes(2);
+      const last = JSON.stringify(mockSearch.mock.calls[1][0].query);
+      expect(last).toContain('mitre_techniques');
+      expect(last).toContain('evidence_hostnames');
+      expect(last).toContain('LT-ACME-L50');
     });
 
-    it('tier 3 with hostname but no binaryName (evidence tier skipped) is host-scoped', async () => {
-      // Technique+hostname tier misses → tier 3 runs with the hostname filter.
-      mockSearch.mockResolvedValueOnce({ hits: { total: { value: 0 }, hits: [] } }); // tier 2
+    it('with hostname but no binaryName (evidence tier skipped) the only tier is host-scoped', async () => {
       mockSearch.mockResolvedValueOnce({
         hits: { total: { value: 1 }, hits: [alertHit()] },
-      }); // tier 3
+      });
 
       const result = await service.getAlertsForTest(
         baseParams.techniques, baseParams.timestamp, baseParams.windowMinutes,
@@ -871,10 +866,10 @@ describe('CrowdStrikeAnalyticsService', () => {
       );
 
       expect(result.total).toBe(1);
-      expect(mockSearch).toHaveBeenCalledTimes(2);
-      const tier3 = JSON.stringify(mockSearch.mock.calls[1][0].query);
-      expect(tier3).toContain('evidence_hostnames');
-      expect(tier3).toContain('LT-ACME-L50');
+      expect(mockSearch).toHaveBeenCalledTimes(1);
+      const only = JSON.stringify(mockSearch.mock.calls[0][0].query);
+      expect(only).toContain('evidence_hostnames');
+      expect(only).toContain('LT-ACME-L50');
     });
 
     it('sorts multiple alerts by proximity to the test timestamp', async () => {

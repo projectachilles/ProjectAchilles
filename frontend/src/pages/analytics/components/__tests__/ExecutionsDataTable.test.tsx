@@ -10,15 +10,37 @@ import type { CrowdStrikeAlertItem, RelatedCrowdStrikeAlertsResponse } from '@/s
 const {
   getAlertsForTestMock, csGetAlertsForTestMock, csConfigured,
   s1GetAlertsForTestMock, s1Configured, sophosGetAlertsForTestMock, sophosConfigured,
-} = vi.hoisted(() => ({
-  getAlertsForTestMock: vi.fn(),
-  csGetAlertsForTestMock: vi.fn(),
-  csConfigured: { value: false },
-  s1GetAlertsForTestMock: vi.fn(),
-  s1Configured: { value: false },
-  sophosGetAlertsForTestMock: vi.fn(),
-  sophosConfigured: { value: false },
-}));
+  defenderBatch, csBatch, s1Batch, sophosBatch,
+} = vi.hoisted(() => {
+  type Item = { techniques: string[]; timestamp: string; windowMinutes?: number; hostname?: string; binaryName?: string; bundleName?: string };
+  // The batch call the table makes: each item answered by the vendor's
+  // single-stage mock (so per-stage argument assertions keep working);
+  // a rejected stage becomes null, as the backend reports it.
+  const batchOf = (single: (...args: unknown[]) => unknown) =>
+    vi.fn((items: Item[]) =>
+      Promise.all(items.map((i) =>
+        Promise.resolve()
+          .then(() => single(i.techniques, i.timestamp, i.windowMinutes, i.hostname, i.binaryName, i.bundleName))
+          .catch(() => null))));
+  const getAlertsForTestMock = vi.fn();
+  const csGetAlertsForTestMock = vi.fn();
+  const s1GetAlertsForTestMock = vi.fn();
+  const sophosGetAlertsForTestMock = vi.fn();
+  return {
+    getAlertsForTestMock,
+    csGetAlertsForTestMock,
+    csConfigured: { value: false },
+    s1GetAlertsForTestMock,
+    s1Configured: { value: false },
+    sophosGetAlertsForTestMock,
+    sophosConfigured: { value: false },
+    batchOf,
+    defenderBatch: batchOf(getAlertsForTestMock),
+    csBatch: batchOf(csGetAlertsForTestMock),
+    s1Batch: batchOf(s1GetAlertsForTestMock),
+    sophosBatch: batchOf(sophosGetAlertsForTestMock),
+  };
+});
 
 vi.mock('@/hooks/useSentinelOneConfig', () => ({
   useSentinelOneConfig: () => ({ configured: s1Configured.value, loading: false }),
@@ -32,14 +54,14 @@ vi.mock('@/services/api/sentineloneAnalytics', async () => {
   const actual = await vi.importActual<typeof import('@/services/api/sentineloneAnalytics')>(
     '@/services/api/sentineloneAnalytics',
   );
-  return { ...actual, sentineloneAnalyticsApi: { ...actual.sentineloneAnalyticsApi, getAlertsForTest: s1GetAlertsForTestMock } };
+  return { ...actual, sentineloneAnalyticsApi: { ...actual.sentineloneAnalyticsApi, getAlertsForTest: s1GetAlertsForTestMock, getAlertsForTests: s1Batch } };
 });
 
 vi.mock('@/services/api/sophosAnalytics', async () => {
   const actual = await vi.importActual<typeof import('@/services/api/sophosAnalytics')>(
     '@/services/api/sophosAnalytics',
   );
-  return { ...actual, sophosAnalyticsApi: { ...actual.sophosAnalyticsApi, getAlertsForTest: sophosGetAlertsForTestMock } };
+  return { ...actual, sophosAnalyticsApi: { ...actual.sophosAnalyticsApi, getAlertsForTest: sophosGetAlertsForTestMock, getAlertsForTests: sophosBatch } };
 });
 
 vi.mock('@/hooks/useDefenderConfig', () => ({
@@ -56,7 +78,7 @@ vi.mock('@/services/api/defender', async () => {
   );
   return {
     ...actual,
-    defenderApi: { getAlertsForTest: getAlertsForTestMock },
+    defenderApi: { getAlertsForTest: getAlertsForTestMock, getAlertsForTests: defenderBatch },
   };
 });
 
@@ -66,7 +88,7 @@ vi.mock('@/services/api/crowdstrike', async () => {
   );
   return {
     ...actual,
-    crowdstrikeApi: { getAlertsForTest: csGetAlertsForTestMock },
+    crowdstrikeApi: { getAlertsForTest: csGetAlertsForTestMock, getAlertsForTests: csBatch },
   };
 });
 
@@ -182,6 +204,7 @@ async function openStageRow(name: string) {
 
 beforeEach(() => {
   getAlertsForTestMock.mockReset();
+  for (const b of [defenderBatch, csBatch, s1Batch, sophosBatch]) b.mockClear();
   csGetAlertsForTestMock.mockReset();
   csGetAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
   csConfigured.value = false;
@@ -345,6 +368,26 @@ describe('ExecutionsDataTable — bundle-level alert callout dedupe', () => {
     // Alert title appears exactly once in the callout despite being
     // returned by both stage queries.
     expect(screen.getAllByText(/EICAR_Test_File/)).toHaveLength(1);
+  });
+
+  it('asks each vendor once for all stages of the selected bundle', async () => {
+    csConfigured.value = true;
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    csGetAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    const stages = ['T1083', 'T1562.001', 'T1486'].map((t) =>
+      makeStage({ test_uuid: `${BUNDLE_UUID}::${t}`, control_id: t, techniques: [t] }));
+    renderTable(makeData(stages, { defenderDetected: true }));
+
+    await userEvent.click(screen.getAllByText(stages[0].bundle_name!)[0]);
+
+    await waitFor(() => expect(defenderBatch).toHaveBeenCalled());
+    await waitFor(() => expect(csBatch).toHaveBeenCalled());
+    expect(defenderBatch).toHaveBeenCalledTimes(1);
+    expect(csBatch).toHaveBeenCalledTimes(1);
+    const items = defenderBatch.mock.calls[0][0] as Array<{ techniques: string[]; binaryName: string }>;
+    expect(items.map((i) => i.techniques[0])).toEqual(['T1083', 'T1562.001', 'T1486']);
+    expect(new Set(items.map((i) => i.binaryName))).toEqual(new Set([`${BUNDLE_UUID}.exe`]));
+    csConfigured.value = false;
   });
 
   it('renders nothing in the callout when no stage returned a bundle-attribution alert', async () => {

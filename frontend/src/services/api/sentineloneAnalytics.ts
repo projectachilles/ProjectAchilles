@@ -16,6 +16,7 @@ import type {
   ZtaScoreComparisonPoint,
 } from './crowdstrike';
 import type { AlertSource, TechniqueCoverageResponse, TimeWindow } from './integrationTypes';
+import { requestAlertsForTests, type AlertsForTestItem } from './alertsForTests';
 
 const BASE = '/analytics/sentinelone';
 
@@ -154,6 +155,15 @@ export const sentineloneAnalyticsApi = {
   async getDetectionRate(days = 30, windowMinutes = 60): Promise<CrowdStrikeDetectionRateResponse> {
     const res = await apiClient.get(`${BASE}/correlation/detection-rate`, { params: { days, windowMinutes } });
     return res.data;
+  },
+
+  /** Related alerts for many executions (an Executions row's stages) in one request. */
+  async getAlertsForTests(items: AlertsForTestItem[]): Promise<Array<RelatedCrowdStrikeAlertsResponse | null>> {
+    return requestAlertsForTests<RelatedCrowdStrikeAlertsResponse>(`${BASE}/correlation/alerts-for-tests`, items, (item) =>
+      sentineloneAnalyticsApi.getAlertsForTest(
+        item.techniques, item.timestamp, item.windowMinutes, item.hostname, item.binaryName, item.bundleName,
+      ),
+    );
   },
 
   async getAlertsForTest(

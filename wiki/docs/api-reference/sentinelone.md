@@ -122,6 +122,7 @@ GET /api/analytics/sentinelone/correlation/techniques
 GET /api/analytics/sentinelone/correlation/detection-rate
 GET /api/analytics/sentinelone/correlation/technique-coverage
 GET /api/analytics/sentinelone/correlation/alerts-for-test
+POST /api/analytics/sentinelone/correlation/alerts-for-tests
 ```
 
 - **`/correlation/scores`** — Defense Score over time (`?days=<n>`, default
@@ -140,6 +141,9 @@ GET /api/analytics/sentinelone/correlation/alerts-for-test
   execution. `techniques` (comma-separated) and `timestamp` are required
   (`400 techniques and timestamp are required` otherwise); `windowMinutes`
   (default 30), `hostname`, `binaryName` and `bundleName` are optional.
+- **`POST /correlation/alerts-for-tests`** — many executions in one request;
+  same body, limits and response as the
+  [Defender batch endpoint](./defender#cross-correlation).
 
 ### Posture
 
