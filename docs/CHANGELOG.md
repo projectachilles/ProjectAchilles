@@ -11,6 +11,10 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+### Added
+
+- **Elasticsearch time per API request.** Every API response that queried Elasticsearch carries a `Server-Timing` header (number of calls, time spent waiting for them, and the `took` Elasticsearch reports), and the backend logs one `[es-timing]` line for it. The gap between the wait and `took` is network and connection setup, which tells a slow query apart from a distant cluster. Set `ES_TIMING_LOG=off` to drop the log line. Both backends.
+
 ### Security
 
 - **Agent API keys are no longer sent to Clerk.** Clerk's Express middleware treats a Bearer token that starts with `ak_` (Clerk's own API-key prefix) as a Clerk API key and verifies it with `POST api.clerk.com/api_keys/verify`, and it can't be configured not to. Agent keys use the same prefix, so every agent poll and heartbeat sent the agent's key to Clerk, adding ~140 ms each. Clerk now only sees JWT-shaped Bearer tokens (session and CLI tokens); for any other Authorization header the request is signed out to Clerk and the header is passed on unchanged to the agent / API-key authentication. Both backends.
