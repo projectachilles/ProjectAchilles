@@ -21,9 +21,6 @@ Stop hoping your defenses work. Start proving it.
 
 </div>
 
-<p align="center">
-  <img src="docs/screenshots/security-dashboard.png" alt="ProjectAchilles Security Dashboard — attention banner, KPI strip with Defense, Secure and ZTA scores, trend overview, testing cadence, ATT&CK outcome matrix, and threat-actor readiness" width="800">
-</p>
 
 ---
 
