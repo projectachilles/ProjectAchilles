@@ -1,0 +1,598 @@
+{
+  "_captured": "live Sophos XDR capture 2026-10-31 (read-only, detectionSearch with capture fields); trimmed to the fields the normalizer reads; host identity neutralized; public test UUID kept",
+  "detections": [
+    {
+      "id": "alert://priv:sophosendpoint:900001:2858013733728",
+      "status": "OPEN",
+      "attack_technique_ids": [
+        "T1059.003",
+        "T1105",
+        "T1202"
+      ],
+      "metadata": {
+        "title": "EVADE-HEADLESS-CONHOST-EXECUTION-1: ProcessCreate activity detected (cmd.exe /c c:\\Users\\fortika-test\\StarBlizzardInvite\\invite_viewer.bat)",
+        "severity": 0.3,
+        "created_at": {
+          "seconds": 1793478744,
+          "nanos": 752906834
+        },
+        "updated_at": null
+      },
+      "entities": {
+        "entities": [
+          "computerName:host-005",
+          "fileName:C:\\Users\\fortika-test\\StarBlizzardInvite\\invite_viewer.bat",
+          "fileName:C:\\Windows\\System32\\cmd.exe",
+          "fileName:invite_viewer.bat",
+          "fileSha256:97ac98b1a92c286054cce55239cfccdfc23a5517bd07fe693072c9ca96c7dabb",
+          "hostId:00000000-0000-4000-8000-000000000001",
+          "hostName:host-005",
+          "hostNameAndHostId:host-005:00000000-0000-4000-8000-000000000001",
+          "hostNameAndHostIpAddress:host-005:192.0.2.10",
+          "hostNameAndHostIpAddress:host-005:192.0.2.10",
+          "hostNameAndHostIpAddress:host-005:fe80::1",
+          "ipAddress:192.0.2.10",
+          "macAddress:00:00:5e:00:53:01",
+          "processCorrelationId:00000000-0000-4000-8000-000000000001:12352:134379523292008295",
+          "processImagePath:C:\\Windows\\System32\\cmd.exe",
+          "processName:cmd.exe",
+          "processUsername:SYSTEM",
+          "programName:cmd.exe",
+          "programSha256:97ac98b1a92c286054cce55239cfccdfc23a5517bd07fe693072c9ca96c7dabb",
+          "sensorHostId:00000000-0000-4000-8000-000000000001",
+          "sensorHostName:host-005",
+          "sensorId:00000000-0000-4000-8000-000000000001",
+          "sensorTenant:00000000-0000-4000-8000-000000000004",
+          "sensorType:ENDPOINT_SOPHOS",
+          "sha256:97ac98b1a92c286054cce55239cfccdfc23a5517bd07fe693072c9ca96c7dabb",
+          "sourceHostName:host-005",
+          "sourceIpAddress:192.0.2.10",
+          "sourceMacAddress:00:00:5e:00:53:01",
+          "userId:S-1-5-18",
+          "userName:SYSTEM"
+        ]
+      },
+      "source_entities": [
+        {
+          "display_name": "cmd.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "cmd.exe",
+            "process_id": "12352"
+          }
+        },
+        {
+          "display_name": "c3b4301e-b502-43a4-9f01-66a874239d1b-T1204.002.exe",
+          "subtype": "File",
+          "properties": {
+            "file_name": "c3b4301e-b502-43a4-9f01-66a874239d1b-T1204.002.exe",
+            "file_path": "C:\\F0\\c3b4301e-b502-43a4-9f01-66a874239d1b-T1204.002.exe",
+            "hash_sha256": null
+          }
+        },
+        {
+          "display_name": "cmd.exe",
+          "subtype": "File",
+          "properties": {
+            "file_name": "cmd.exe",
+            "file_path": "C:\\Windows\\System32\\cmd.exe",
+            "hash_sha256": "97ac98b1a92c286054cce55239cfccdfc23a5517bd07fe693072c9ca96c7dabb"
+          }
+        },
+        {
+          "display_name": "00000000-0000-4000-8000-000000000001:780:134379500775091097",
+          "subtype": "Process",
+          "properties": {
+            "process_name": null,
+            "process_id": "780"
+          }
+        },
+        {
+          "display_name": "services.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "services.exe",
+            "process_id": "1028"
+          }
+        },
+        {
+          "display_name": "NT AUTHORITY\\SYSTEM",
+          "subtype": "User",
+          "properties": {
+            "user_name": "SYSTEM",
+            "original_user_name": "SYSTEM",
+            "domain_name": null,
+            "auth_domain": null
+          }
+        },
+        {
+          "display_name": "192.0.2.10",
+          "subtype": "IpAddress",
+          "properties": {
+            "ip_address": "192.0.2.10"
+          }
+        },
+        {
+          "display_name": "c3b4301e-b502-43a4-9f01-66a874239d1b-T1204.002.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "c3b4301e-b502-43a4-9f01-66a874239d1b-T1204.002.exe",
+            "process_id": "10120"
+          }
+        },
+        {
+          "display_name": "System",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "System",
+            "process_id": "4"
+          }
+        },
+        {
+          "display_name": "c3b4301e-b502-43a4-9f01-66a874239d1b.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "c3b4301e-b502-43a4-9f01-66a874239d1b.exe",
+            "process_id": "11604"
+          }
+        },
+        {
+          "display_name": "97ac98b1a92c286054cce55239cfccdfc23a5517bd07fe693072c9ca96c7dabb",
+          "subtype": "FileHash",
+          "properties": {
+            "hash_type": "SHA256",
+            "hash_value": "97ac98b1a92c286054cce55239cfccdfc23a5517bd07fe693072c9ca96c7dabb"
+          }
+        },
+        {
+          "display_name": "host-005",
+          "subtype": "Endpoint",
+          "properties": {
+            "hostname": "host-005",
+            "hostname_fqdn": null,
+            "computer_name": null,
+            "host_id": "00000000-0000-4000-8000-000000000001",
+            "os": "WINDOWS"
+          }
+        },
+        {
+          "display_name": "192.0.2.10",
+          "subtype": "IpAddress",
+          "properties": {
+            "ip_address": "192.0.2.10"
+          }
+        },
+        {
+          "display_name": "wininit.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "wininit.exe",
+            "process_id": "968"
+          }
+        },
+        {
+          "display_name": "conhost.exe",
+          "subtype": "File",
+          "properties": {
+            "file_name": "conhost.exe",
+            "file_path": "C:\\Windows\\System32\\conhost.exe",
+            "hash_sha256": null
+          }
+        },
+        {
+          "display_name": "smss.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "smss.exe",
+            "process_id": "508"
+          }
+        },
+        {
+          "display_name": "conhost.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "conhost.exe",
+            "process_id": "880"
+          }
+        },
+        {
+          "display_name": "achilles-agent.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "achilles-agent.exe",
+            "process_id": "5128"
+          }
+        }
+      ],
+      "event_ids": [
+        {
+          "id": "event://priv:xdr.findings.detectionfinding:1172760:1793478729201:00000000-0000-4000-8000-000000000008"
+        }
+      ]
+    },
+    {
+      "id": "alert://priv:sophosendpoint:900001:6038795844313",
+      "status": "OPEN",
+      "attack_technique_ids": null,
+      "metadata": {
+        "title": "Troj/LnkObf-AK: File activity blocked (C:\\Users\\fortika-test\\StarBlizzardInvite\\Event_Invitation.pdf.lnk)",
+        "severity": 0.7,
+        "created_at": {
+          "seconds": 1793478744,
+          "nanos": 758653909
+        },
+        "updated_at": {
+          "seconds": 1793478771,
+          "nanos": 864814709
+        }
+      },
+      "entities": {
+        "entities": [
+          "computerName:host-005",
+          "fileName:C:\\Users\\fortika-test\\StarBlizzardInvite\\Event_Invitation.pdf.lnk",
+          "fileName:C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "fileName:Event_Invitation.pdf.lnk",
+          "fileSha1:fba7c02b02d2ed21b484480091343c4bc01c2f6d",
+          "fileSha256:6980191e249006a273c8072dc861c29bf7d358ccd47e29bb2752579c90e01e58",
+          "fileSha256:8bb6fa8c283b4d92120b1ef249a9b311b0f804d4cabbe9981159976c8be76a5e",
+          "hostId:00000000-0000-4000-8000-000000000001",
+          "hostName:host-005",
+          "hostNameAndHostId:host-005:00000000-0000-4000-8000-000000000001",
+          "hostNameAndHostIpAddress:host-005:192.0.2.10",
+          "hostNameAndHostIpAddress:host-005:192.0.2.10",
+          "hostNameAndHostIpAddress:host-005:fe80::1",
+          "ipAddress:192.0.2.10",
+          "macAddress:00:00:5e:00:53:01",
+          "processCorrelationId:00000000-0000-4000-8000-000000000001:7000:134379523283483532",
+          "processImagePath:C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "processName:powershell.exe",
+          "processUsername:SYSTEM",
+          "programName:powershell.exe",
+          "programSha256:8bb6fa8c283b4d92120b1ef249a9b311b0f804d4cabbe9981159976c8be76a5e",
+          "sensorHostId:00000000-0000-4000-8000-000000000001",
+          "sensorHostName:host-005",
+          "sensorId:00000000-0000-4000-8000-000000000001",
+          "sensorTenant:00000000-0000-4000-8000-000000000004",
+          "sensorType:ENDPOINT_SOPHOS",
+          "sha1:fba7c02b02d2ed21b484480091343c4bc01c2f6d",
+          "sha256:6980191e249006a273c8072dc861c29bf7d358ccd47e29bb2752579c90e01e58",
+          "sha256:8bb6fa8c283b4d92120b1ef249a9b311b0f804d4cabbe9981159976c8be76a5e",
+          "sourceHostName:host-005",
+          "sourceIpAddress:192.0.2.10",
+          "sourceMacAddress:00:00:5e:00:53:01",
+          "userId:S-1-5-18",
+          "userName:SYSTEM"
+        ]
+      },
+      "source_entities": [
+        {
+          "display_name": "8bb6fa8c283b4d92120b1ef249a9b311b0f804d4cabbe9981159976c8be76a5e",
+          "subtype": "FileHash",
+          "properties": {
+            "hash_type": "SHA256",
+            "hash_value": "8bb6fa8c283b4d92120b1ef249a9b311b0f804d4cabbe9981159976c8be76a5e"
+          }
+        },
+        {
+          "display_name": "c3b4301e-b502-43a4-9f01-66a874239d1b-T1204.002.exe",
+          "subtype": "File",
+          "properties": {
+            "file_name": "c3b4301e-b502-43a4-9f01-66a874239d1b-T1204.002.exe",
+            "file_path": "C:\\F0\\c3b4301e-b502-43a4-9f01-66a874239d1b-T1204.002.exe",
+            "hash_sha256": null
+          }
+        },
+        {
+          "display_name": "00000000-0000-4000-8000-000000000001:780:134379500775091097",
+          "subtype": "Process",
+          "properties": {
+            "process_name": null,
+            "process_id": "780"
+          }
+        },
+        {
+          "display_name": "services.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "services.exe",
+            "process_id": "1028"
+          }
+        },
+        {
+          "display_name": "NT AUTHORITY\\SYSTEM",
+          "subtype": "User",
+          "properties": {
+            "user_name": "SYSTEM",
+            "original_user_name": "SYSTEM",
+            "domain_name": null,
+            "auth_domain": null
+          }
+        },
+        {
+          "display_name": "192.0.2.10",
+          "subtype": "IpAddress",
+          "properties": {
+            "ip_address": "192.0.2.10"
+          }
+        },
+        {
+          "display_name": "c3b4301e-b502-43a4-9f01-66a874239d1b-T12",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "c3b4301e-b502-43a4-9f01-66a874239d1b-T12",
+            "process_id": "10120"
+          }
+        },
+        {
+          "display_name": "System",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "System",
+            "process_id": "4"
+          }
+        },
+        {
+          "display_name": "c3b4301e-b502-43a4-9f01-66a874239d1b.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "c3b4301e-b502-43a4-9f01-66a874239d1b.exe",
+            "process_id": "11604"
+          }
+        },
+        {
+          "display_name": "host-005",
+          "subtype": "Endpoint",
+          "properties": {
+            "hostname": "host-005",
+            "hostname_fqdn": null,
+            "computer_name": null,
+            "host_id": "00000000-0000-4000-8000-000000000001",
+            "os": "WINDOWS"
+          }
+        },
+        {
+          "display_name": "192.0.2.10",
+          "subtype": "IpAddress",
+          "properties": {
+            "ip_address": "192.0.2.10"
+          }
+        },
+        {
+          "display_name": "powershell.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "powershell.exe",
+            "process_id": "7000"
+          }
+        },
+        {
+          "display_name": "powershell.exe",
+          "subtype": "File",
+          "properties": {
+            "file_name": "powershell.exe",
+            "file_path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "hash_sha256": "8bb6fa8c283b4d92120b1ef249a9b311b0f804d4cabbe9981159976c8be76a5e"
+          }
+        },
+        {
+          "display_name": "wininit.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "wininit.exe",
+            "process_id": "968"
+          }
+        },
+        {
+          "display_name": "smss.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "smss.exe",
+            "process_id": "508"
+          }
+        },
+        {
+          "display_name": "achilles-agent.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "achilles-agent.exe",
+            "process_id": "5128"
+          }
+        }
+      ],
+      "event_ids": [
+        {
+          "id": "event://priv:xdr.findings.detectionfinding:1172760:1793478729000:00000000-0000-4000-8000-000000000005"
+        }
+      ]
+    },
+    {
+      "id": "alert://priv:sophosendpoint:900001:1621502756029",
+      "status": "OPEN",
+      "attack_technique_ids": [
+        "T1218.002",
+        "T1218.011"
+      ],
+      "metadata": {
+        "title": "EVADE-RUNDLL32-CPL-EXPORT-1: ProcessCreate activity detected (rundll32.exe shell32.dll,Control_RunDLL c:\\Users\\fortika-test\\StarBlizzardInvite\\network_probe.cpl)",
+        "severity": 0.3,
+        "created_at": {
+          "seconds": 1793478744,
+          "nanos": 752651849
+        },
+        "updated_at": null
+      },
+      "entities": {
+        "entities": [
+          "computerName:host-005",
+          "fileName:C:\\Windows\\System32\\rundll32.exe",
+          "fileSha256:f3e73f8a59b991fa8cdb91d4b37e11110c33a9eabdb25af8ac8ab5ccf9e3bbf5",
+          "hostId:00000000-0000-4000-8000-000000000001",
+          "hostName:host-005",
+          "hostNameAndHostId:host-005:00000000-0000-4000-8000-000000000001",
+          "hostNameAndHostIpAddress:host-005:192.0.2.10",
+          "hostNameAndHostIpAddress:host-005:192.0.2.10",
+          "hostNameAndHostIpAddress:host-005:fe80::1",
+          "ipAddress:192.0.2.10",
+          "macAddress:00:00:5e:00:53:01",
+          "processCorrelationId:00000000-0000-4000-8000-000000000001:8204:134379523368020104",
+          "processImagePath:C:\\Windows\\System32\\rundll32.exe",
+          "processName:rundll32.exe",
+          "processUsername:SYSTEM",
+          "programName:rundll32.exe",
+          "programSha256:f3e73f8a59b991fa8cdb91d4b37e11110c33a9eabdb25af8ac8ab5ccf9e3bbf5",
+          "sensorHostId:00000000-0000-4000-8000-000000000001",
+          "sensorHostName:host-005",
+          "sensorId:00000000-0000-4000-8000-000000000001",
+          "sensorTenant:00000000-0000-4000-8000-000000000004",
+          "sensorType:ENDPOINT_SOPHOS",
+          "sha256:f3e73f8a59b991fa8cdb91d4b37e11110c33a9eabdb25af8ac8ab5ccf9e3bbf5",
+          "sourceHostName:host-005",
+          "sourceIpAddress:192.0.2.10",
+          "sourceMacAddress:00:00:5e:00:53:01",
+          "userId:S-1-5-18",
+          "userName:SYSTEM"
+        ]
+      },
+      "source_entities": [
+        {
+          "display_name": "00000000-0000-4000-8000-000000000001:780:134379500775091097",
+          "subtype": "Process",
+          "properties": {
+            "process_name": null,
+            "process_id": "780"
+          }
+        },
+        {
+          "display_name": "services.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "services.exe",
+            "process_id": "1028"
+          }
+        },
+        {
+          "display_name": "NT AUTHORITY\\SYSTEM",
+          "subtype": "User",
+          "properties": {
+            "user_name": "SYSTEM",
+            "original_user_name": "SYSTEM",
+            "domain_name": null,
+            "auth_domain": null
+          }
+        },
+        {
+          "display_name": "192.0.2.10",
+          "subtype": "IpAddress",
+          "properties": {
+            "ip_address": "192.0.2.10"
+          }
+        },
+        {
+          "display_name": "c3b4301e-b502-43a4-9f01-66a874239d1b-T1218.011.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "c3b4301e-b502-43a4-9f01-66a874239d1b-T1218.011.exe",
+            "process_id": "1120"
+          }
+        },
+        {
+          "display_name": "System",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "System",
+            "process_id": "4"
+          }
+        },
+        {
+          "display_name": "c3b4301e-b502-43a4-9f01-66a874239d1b.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "c3b4301e-b502-43a4-9f01-66a874239d1b.exe",
+            "process_id": "11604"
+          }
+        },
+        {
+          "display_name": "f3e73f8a59b991fa8cdb91d4b37e11110c33a9eabdb25af8ac8ab5ccf9e3bbf5",
+          "subtype": "FileHash",
+          "properties": {
+            "hash_type": "SHA256",
+            "hash_value": "f3e73f8a59b991fa8cdb91d4b37e11110c33a9eabdb25af8ac8ab5ccf9e3bbf5"
+          }
+        },
+        {
+          "display_name": "host-005",
+          "subtype": "Endpoint",
+          "properties": {
+            "hostname": "host-005",
+            "hostname_fqdn": null,
+            "computer_name": null,
+            "host_id": "00000000-0000-4000-8000-000000000001",
+            "os": "WINDOWS"
+          }
+        },
+        {
+          "display_name": "rundll32.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "rundll32.exe",
+            "process_id": "8204"
+          }
+        },
+        {
+          "display_name": "192.0.2.10",
+          "subtype": "IpAddress",
+          "properties": {
+            "ip_address": "192.0.2.10"
+          }
+        },
+        {
+          "display_name": "rundll32.exe",
+          "subtype": "File",
+          "properties": {
+            "file_name": "rundll32.exe",
+            "file_path": "C:\\Windows\\System32\\rundll32.exe",
+            "hash_sha256": "f3e73f8a59b991fa8cdb91d4b37e11110c33a9eabdb25af8ac8ab5ccf9e3bbf5"
+          }
+        },
+        {
+          "display_name": "wininit.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "wininit.exe",
+            "process_id": "968"
+          }
+        },
+        {
+          "display_name": "c3b4301e-b502-43a4-9f01-66a874239d1b-T1218.011.exe",
+          "subtype": "File",
+          "properties": {
+            "file_name": "c3b4301e-b502-43a4-9f01-66a874239d1b-T1218.011.exe",
+            "file_path": "C:\\F0\\c3b4301e-b502-43a4-9f01-66a874239d1b-T1218.011.exe",
+            "hash_sha256": null
+          }
+        },
+        {
+          "display_name": "smss.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "smss.exe",
+            "process_id": "508"
+          }
+        },
+        {
+          "display_name": "achilles-agent.exe",
+          "subtype": "Process",
+          "properties": {
+            "process_name": "achilles-agent.exe",
+            "process_id": "5128"
+          }
+        }
+      ],
+      "event_ids": [
+        {
+          "id": "event://priv:xdr.findings.detectionfinding:1172760:1793478736802:00000000-0000-4000-8000-000000000003"
+        }
+      ]
+    }
+  ]
+}

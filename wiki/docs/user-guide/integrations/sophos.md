@@ -125,6 +125,11 @@ index and `write` on the results index. Saving checks them and shows a red
   lists are refreshed every 6 hours.
 - Documents are upserted by id, so re-fetches never duplicate, and receipts
   Achilles wrote on an alert survive re-syncs.
+- An XDR detection is tied to a test through the files it names. That
+  includes the files of the detection's **source entities**: a detection
+  usually fires on a Windows program the test started (`cmd.exe`,
+  `powershell.exe`, `rundll32.exe`), and the test's stage binary that started
+  it is listed there rather than in the main entity list.
 - XDR detections from the last **30 minutes** are re-read on every poll. Sophos
   adds details to a detection for a few minutes after creating it (for a
   blocked file, the process that wrote it, which is what ties the detection to

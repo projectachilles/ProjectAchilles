@@ -75,7 +75,8 @@ import type { SophosCapabilities, SophosCapabilityState, SophosIntegrationSettin
 import { describeError } from '../shared/networkError.js';
 
 /** Bump when the doc schema changes to force a full re-backfill. */
-export const SOPHOS_SYNC_VERSION = 1;
+// v2: XDR detections carry their File source_entities (the test's stage binary) in evidence.
+export const SOPHOS_SYNC_VERSION = 2;
 /** A SIEM checkpoint older than this can no longer be trusted (Sophos keeps 24 h). */
 export const SOPHOS_SIEM_GAP_MS = 23 * 60 * 60 * 1000;
 /** Re-read this much before a checkpoint to absorb clock skew / late writes. */
