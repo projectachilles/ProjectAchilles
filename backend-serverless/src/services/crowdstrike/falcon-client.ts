@@ -268,9 +268,14 @@ export class FalconClient {
       throw new Error('updateAlerts: compositeIds is required');
     }
 
-    const body: Record<string, unknown> = { composite_ids: compositeIds };
-    if (update.status) body.update_status = update.status;
-    if (update.comment) body.append_comment = update.comment;
+    // v3 takes each change as a { name, value } action parameter (Swagger
+    // PatchEntitiesAlertsV3; FalconPy update_alerts_v3). Top-level
+    // update_status / append_comment are rejected with HTTP 400 "failed to
+    // read and parse request".
+    const actionParameters: Array<{ name: string; value: string }> = [];
+    if (update.status) actionParameters.push({ name: 'update_status', value: update.status });
+    if (update.comment) actionParameters.push({ name: 'append_comment', value: update.comment });
+    const body = { composite_ids: compositeIds, action_parameters: actionParameters };
 
     const data = await this.falconRequest<CrowdStrikeEnvelope<unknown>>(
       'PATCH',
