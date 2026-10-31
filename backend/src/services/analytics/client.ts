@@ -4,16 +4,17 @@
 import { Client } from '@elastic/elasticsearch';
 import type { ClientOptions } from '@elastic/elasticsearch';
 import type { AnalyticsSettings } from '../../types/analytics.js';
+import { instrumentEsClient } from './esTiming.js';
 
 let insecureWarningEmitted = false;
 
 /** Create an ES Client from analytics settings. */
 export function createEsClient(settings: AnalyticsSettings): Client {
   if (settings.connectionType === 'cloud' && settings.cloudId) {
-    return new Client({
+    return instrumentEsClient(new Client({
       cloud: { id: settings.cloudId },
       auth: { apiKey: settings.apiKey || '' },
-    });
+    }));
   }
 
   if (settings.node) {
@@ -26,7 +27,7 @@ export function createEsClient(settings: AnalyticsSettings): Client {
     const tls = buildTlsOptions(settings);
     if (tls) opts.tls = tls;
 
-    return new Client(opts);
+    return instrumentEsClient(new Client(opts));
   }
 
   throw new Error('Invalid Elasticsearch configuration');

@@ -3,6 +3,7 @@ import { getBuildInfo } from './lib/buildInfo.js';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import { esTimingMiddleware } from './services/analytics/esTiming.js';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -72,6 +73,9 @@ app.use(cors({
 
 // Request logging (short format for serverless — less noise)
 app.use(morgan('short'));
+
+// Elasticsearch time per API request: Server-Timing header + [es-timing] log line.
+app.use('/api', esTimingMiddleware());
 
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
