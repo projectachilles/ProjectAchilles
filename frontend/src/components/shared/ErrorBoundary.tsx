@@ -5,6 +5,7 @@ import { Button } from './ui/Button';
 import {
   isChunkLoadError,
   isChunkReloadPending,
+  reloadAfterChunkError,
   reloadOnceForChunkError,
 } from '../../lib/chunkReload';
 
@@ -53,7 +54,7 @@ export class ErrorBoundary extends Component<Props, State> {
       // A code-split chunk went missing because a newer bundle was deployed.
       // Reload once to fetch the fresh index.html + asset hashes. If the reload
       // is suppressed by the loop guard, fall back to the normal error card.
-      const reloading = reloadOnceForChunkError();
+      const reloading = reloadOnceForChunkError(error);
       this.setState({ errorInfo, reloading });
       return;
     }
@@ -66,7 +67,7 @@ export class ErrorBoundary extends Component<Props, State> {
     // React.lazy keeps the rejected import, so re-rendering in place would
     // throw the same chunk error again: only a full page load recovers.
     if (isChunkLoadError(this.state.error)) {
-      window.location.reload();
+      reloadAfterChunkError(this.state.error);
       return;
     }
     this.setState({ hasError: false, error: null, errorInfo: null, reloading: false });
