@@ -22,6 +22,7 @@ import { SentinelOneResponseService } from './response.service.js';
 import { SentinelOnePostureService, POSTURE_INTERVAL_MS } from './posture.service.js';
 import { runAgentKillReconciliation, failedAgentKillPass } from '../edr/agent-kill-reconcile.service.js';
 import { runLaunchBlockReconciliation, failedLaunchBlockPass } from '../edr/launch-block-reconcile.service.js';
+import { describeError as describeNetworkAwareError } from '../shared/networkError.js';
 import type { AutoResolvePassResult, EnrichmentPassResult } from '../../types/defender.js';
 import type {
   S1Threat,
@@ -224,8 +225,11 @@ function scopeFingerprint(s: Pick<SentinelOneIntegrationSettings, 'base_url' | '
 }
 
 function describeError(err: unknown): string {
-  if (err instanceof Error) return err.message || `${err.name}${(err as { statusCode?: number }).statusCode ? ` HTTP ${(err as { statusCode?: number }).statusCode}` : ''}`;
-  return String(err);
+  if (err instanceof Error && !err.message) {
+    const status = (err as { statusCode?: number }).statusCode;
+    return `${err.name}${status ? ` HTTP ${status}` : ''}`;
+  }
+  return describeNetworkAwareError(err);
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +274,9 @@ export class SentinelOneSyncService {
     }
     this.status.inProgress = true;
     this.status.lastAttemptAt = timestamp;
+    // A failure from an earlier poll; cleared below if this poll gets through
+    // without replacing it (only source errors clear themselves in reportSource).
+    const errorBefore = this.status.lastError;
     try {
       const svc = this.settingsService();
       const settings = svc.getSentinelOneSettings();
@@ -342,6 +349,7 @@ export class SentinelOneSyncService {
         }
       }
 
+      if (this.status.lastError === errorBefore) this.status.lastError = null;
       this.status.lastSyncResult = result;
       return result;
     } catch (err) {

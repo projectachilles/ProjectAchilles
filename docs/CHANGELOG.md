@@ -11,6 +11,11 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+### Fixed
+- **A brief DNS or connection failure no longer fails a whole Sophos sync.** The Sophos client retried HTTP 429 and 5xx responses but not network errors, so one slow DNS answer for `id.sophos.com` or `api.central.sophos.com` failed the poll with "whoami: fetch failed". Failures before the request is sent (DNS, refused, connect timeout) are now retried on the same backoff for every method; a connection dropped mid-request is retried only for reads. The final error names the host.
+- **"Sophos sync failed" clears once a later sync succeeds.** An error from the steps before the alert, SIEM and XDR pulls (such as whoami) stayed on the Sophos tab until the backend restarted, however many syncs succeeded after it. SentinelOne had the same problem when its `threats` source was turned off.
+- **Network errors say what failed.** The Sophos and SentinelOne sync status showed only "fetch failed"; it now adds the system error, for example `fetch failed (EAI_AGAIN: getaddrinfo EAI_AGAIN id.sophos.com)` for a DNS timeout or `SELF_SIGNED_CERT_IN_CHAIN` for TLS inspection.
+
 ### Changed
 - **The execution report names the organization from the console identity.** The cover, the scope table and the page headers print the full name saved in Settings → General, then `CONSOLE_ORG_NAME`, then `ORGANIZATION_NAME`, so a name set in the console no longer needs a redeploy to reach the PDF. A saved identity replaces the environment values, as it does in the console. Names are still cut to 56 characters in the report. `backend-serverless/`, which has no console identity, keeps reading `ORGANIZATION_NAME`. (#666)
 

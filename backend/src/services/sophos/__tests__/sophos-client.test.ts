@@ -262,6 +262,62 @@ describe('SophosClient', () => {
     expect(new URL(callsTo('/siem/v1/events')[0][0]).searchParams.get('limit')).toBe('200'); // clamped to 200..1000
   });
 
+  describe('transient network failures', () => {
+    // Node's fetch rejects with TypeError('fetch failed'); the system error is the cause.
+    const fetchFailed = (code: string, message: string) =>
+      new TypeError('fetch failed', { cause: Object.assign(new Error(message), { code }) });
+
+    it('retries a DNS failure on the token request and carries on', async () => {
+      vi.useFakeTimers();
+      vi.spyOn(Math, 'random').mockReturnValue(0.999);
+      let failures = 1;
+      routeFetch((url) => {
+        if (url.href === TOKEN_URL && failures-- > 0) throw fetchFailed('EAI_AGAIN', 'getaddrinfo EAI_AGAIN id.sophos.com');
+        return undefined;
+      });
+      const p = new SophosClient(READ_ONLY).whoami();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await expect(p).resolves.toMatchObject({ id: TENANT });
+      expect(callsTo('/api/v2/oauth2/token')).toHaveLength(2);
+    });
+
+    it('gives up after 3 retries with an error naming the host and the cause', async () => {
+      vi.useFakeTimers();
+      vi.spyOn(Math, 'random').mockReturnValue(0.999);
+      routeFetch((url) => {
+        if (url.hostname === 'api.central.sophos.com') throw fetchFailed('EAI_AGAIN', 'getaddrinfo EAI_AGAIN api.central.sophos.com');
+        return undefined;
+      });
+      const p = new SophosClient(READ_ONLY).whoami().then(() => null, (e: Error) => e);
+      await vi.advanceTimersByTimeAsync(10_000);
+      const err = await p;
+      expect(err?.message).toBe(
+        'Sophos request to api.central.sophos.com failed: fetch failed (EAI_AGAIN: getaddrinfo EAI_AGAIN api.central.sophos.com)',
+      );
+      expect(callsTo('/whoami/v1')).toHaveLength(4);
+    });
+
+    it('does not retry a write whose connection dropped mid-request', async () => {
+      routeFetch((url) => {
+        if (url.pathname.endsWith('/actions')) throw fetchFailed('ECONNRESET', 'read ECONNRESET');
+        return undefined;
+      });
+      const err = await new SophosClient(RESPONSE).acknowledgeAlert(ALERT_ID, 'Achilles test').then(() => null, (e: Error) => e);
+      expect(err?.message).toMatch(/^Sophos request to api-eu01\.central\.sophos\.com failed: fetch failed \(ECONNRESET/);
+      expect(mockFetch.mock.calls.filter(([u]) => String(u).endsWith('/actions'))).toHaveLength(1);
+    });
+
+    it('does not retry a request timeout', async () => {
+      routeFetch((url) => {
+        if (url.pathname === '/siem/v1/events') throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+        return undefined;
+      });
+      const err = await new SophosClient(READ_ONLY).siemEvents({}).then(() => null, (e: Error) => e);
+      expect(err?.message).toBe('Sophos request to api-eu01.central.sophos.com failed: The operation was aborted due to timeout');
+      expect(callsTo('/siem/v1/events')).toHaveLength(1);
+    });
+  });
+
   it('refuses every write in read_only mode', async () => {
     routeFetch();
     const client = new SophosClient(READ_ONLY);

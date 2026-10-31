@@ -834,6 +834,32 @@ describe('SophosSyncService', () => {
     expect(svc.getSyncStatus().lastError).toMatchObject({ stage: 'whoami' });
   });
 
+  it('clears a whoami failure once a later poll gets through', async () => {
+    mockWhoami.mockRejectedValueOnce(new Error('Sophos request to id.sophos.com failed: fetch failed (EAI_AGAIN)'));
+    const svc = new SophosSyncService();
+    await svc.syncAll();
+    expect(svc.getSyncStatus().lastError).toMatchObject({ stage: 'whoami' });
+    await svc.syncAll();
+    expect(svc.getSyncStatus().lastError).toBeNull();
+  });
+
+  it('a later poll replaces a whoami failure with its own source error, not a blank', async () => {
+    mockWhoami.mockRejectedValueOnce(new Error('Sophos request to id.sophos.com failed: fetch failed (EAI_AGAIN)'));
+    const svc = new SophosSyncService();
+    await svc.syncAll();
+    mockSiemEvents.mockRejectedValueOnce(new SophosApiError('Sophos GET /siem/v1/events failed: HTTP 503.', 503, ''));
+    await svc.syncAll();
+    expect(svc.getSyncStatus().lastError).toMatchObject({ stage: 'siem_events', message: expect.stringContaining('503') });
+  });
+
+  it('shows the network cause of a bare "fetch failed"', async () => {
+    const cause = Object.assign(new Error('getaddrinfo EAI_AGAIN es.example'), { code: 'EAI_AGAIN' });
+    mockWhoami.mockRejectedValueOnce(new TypeError('fetch failed', { cause }));
+    const svc = new SophosSyncService();
+    await svc.syncAll();
+    expect(svc.getSyncStatus().lastError?.message).toBe('fetch failed (EAI_AGAIN: getaddrinfo EAI_AGAIN es.example)');
+  });
+
   it('clears a recorded sync gap after a clean poll at least 24 h after it was detected; keeps a recent one', async () => {
     const recent = { from: new Date(Date.now() - 50 * 3_600_000).toISOString(), to: new Date(Date.now() - 24 * 3_600_000).toISOString() };
     const now = new Date().toISOString();

@@ -96,6 +96,7 @@ vi.mock('../../edr/launch-block-reconcile.service.js', () => ({
   failedLaunchBlockPass: (err: unknown) => ({ evidenceAlerts: 0, candidates: 0, resolved: 0, errors: [err instanceof Error ? err.message : String(err)] }),
 }));
 
+const { ensureSentinelOneIndex } = await import('../index-management.js');
 const { SentinelOneSyncService, transformThreat, transformCloudAlert, passesFilters, normalizeToken, SENTINELONE_SYNC_VERSION, threatPreventionAction } = await import('../sync.service.js');
 
 // ── Fixtures (shape of /web/api/v2.1/threats and /cloud-detection/alerts) ──
@@ -487,6 +488,25 @@ describe('SentinelOneSyncService', () => {
     expect(result.threats?.errors[0]).toContain('401');
     expect(mockSaveCheckpoints.mock.calls[0][0].last_threat_sync).toBeUndefined();
     expect(svc.getSyncStatus().lastError?.message).toContain('401');
+  });
+
+  it('clears a whole-sync failure once a later poll gets through, even with threats disabled', async () => {
+    mockSettings = { ...mockSettings, sources: ['cloud_detection_alerts'] };
+    vi.mocked(ensureSentinelOneIndex).mockRejectedValueOnce(new Error('es unreachable'));
+    const svc = new SentinelOneSyncService();
+    await svc.syncAll();
+    expect(svc.getSyncStatus().lastError?.message).toBe('es unreachable');
+    await svc.syncAll();
+    expect(svc.getSyncStatus().lastError).toBeNull();
+  });
+
+  it('shows the network cause of a bare "fetch failed"', async () => {
+    const cause = Object.assign(new Error('getaddrinfo EAI_AGAIN acme.sentinelone.net'), { code: 'EAI_AGAIN' });
+    mockSettings = { ...mockSettings, sources: ['threats'] };
+    mockListThreats.mockRejectedValueOnce(new TypeError('fetch failed', { cause }));
+    const svc = new SentinelOneSyncService();
+    await svc.syncAll();
+    expect(svc.getSyncStatus().lastError?.message).toBe('fetch failed (EAI_AGAIN: getaddrinfo EAI_AGAIN acme.sentinelone.net)');
   });
 
   it('runs the correlation pass after the poll against achilles-sentinelone with sentinelone_* flags', async () => {
