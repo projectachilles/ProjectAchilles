@@ -83,12 +83,12 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
   // guessing bricks an agent either way — see the comment on the bcrypt branches
   // below. Both keys stay acceptable until the agent proves which one it has.
 
-  // Verdict-cache fast path: if this exact tokenHash recently passed bcrypt
-  // for this agent, skip the cost-12 bcrypt.compare entirely. The verdict
-  // cache is auto-cleared on rotation (setCachedAgent replaces the entry)
-  // and bounded by CACHE_TTL_MS, so a deactivated agent or rotated key
-  // re-runs bcrypt within a single TTL window.
-  if (row && isTokenVerifiedRecently(agentId, tokenHash)) {
+  // Verdict-cache fast path: if this exact tokenHash passed bcrypt against
+  // the api_key_hash the agent row carries now, skip the cost-12
+  // bcrypt.compare. The verdict is void once the key changes and is never
+  // used while a rotation is pending (see isTokenVerifiedRecently); status
+  // is still checked in finalizeAgentAuth.
+  if (row && isTokenVerifiedRecently(agentId, tokenHash, row)) {
     finalizeAgentAuth(req, res, next, row);
     return;
   }
@@ -98,6 +98,9 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
 
   bcrypt.compare(token, hashToCompare)
     .then(async (match) => {
+      // The hash the presented token matched, recorded with the verdict so
+      // it is void as soon as the agent's api_key_hash differs from it.
+      let matchedKeyHash = hashToCompare;
       // A rotation is resolved by which key the agent presents, never by a
       // clock. Both keys stay acceptable until then, because at grace expiry
       // the server genuinely cannot tell the two cases apart, and either guess
@@ -129,6 +132,7 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
           // key and then slept for a week is still the agent we want to keep.
           promotePendingKey(row.id);
           invalidateAgentCache(row.id);
+          matchedKeyHash = row.pending_api_key_hash;
           match = true;
         }
       }
@@ -147,7 +151,7 @@ export function requireAgentAuth(req: Request, res: Response, next: NextFunction
       // Record verdict so the next request from this agent with the same
       // token can take the fast path. Done before finalize so even rejected
       // status/timestamp checks below don't suppress the bcrypt-pass record.
-      setVerifiedToken(row.id, tokenHash);
+      setVerifiedToken(row.id, tokenHash, matchedKeyHash);
 
       finalizeAgentAuth(req, res, next, row);
     })

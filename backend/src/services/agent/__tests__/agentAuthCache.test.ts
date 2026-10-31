@@ -51,6 +51,7 @@ describe('agentAuthCache row cache', () => {
 describe('agentAuthCache verdict (bcrypt-skip) cache', () => {
   const TOKEN_HASH = 'a'.repeat(64);
   const OTHER_TOKEN_HASH = 'b'.repeat(64);
+  const KEY_HASH = '$2a$12$dummyhashvalueforsmoke';
 
   beforeEach(() => {
     invalidateAgentCache('agent-001');
@@ -61,61 +62,62 @@ describe('agentAuthCache verdict (bcrypt-skip) cache', () => {
   });
 
   it('isTokenVerifiedRecently returns false before any verdict is recorded', () => {
-    setCachedAgent('agent-001', makeRow());
-    expect(isTokenVerifiedRecently('agent-001', TOKEN_HASH)).toBe(false);
+    expect(isTokenVerifiedRecently('agent-001', TOKEN_HASH, makeRow())).toBe(false);
   });
 
-  it('setVerifiedToken makes isTokenVerifiedRecently return true for the same hash', () => {
-    setCachedAgent('agent-001', makeRow());
-    setVerifiedToken('agent-001', TOKEN_HASH);
-    expect(isTokenVerifiedRecently('agent-001', TOKEN_HASH)).toBe(true);
+  it('a recorded verdict is honoured for the same token and key hash', () => {
+    setVerifiedToken('agent-001', TOKEN_HASH, KEY_HASH);
+    expect(isTokenVerifiedRecently('agent-001', TOKEN_HASH, makeRow())).toBe(true);
   });
 
-  it('isTokenVerifiedRecently returns false for a DIFFERENT token hash', () => {
-    // A previously verified token cannot "vouch for" a different token —
-    // wrong-token requests must always fall through to the bcrypt path.
-    setCachedAgent('agent-001', makeRow());
-    setVerifiedToken('agent-001', TOKEN_HASH);
-    expect(isTokenVerifiedRecently('agent-001', OTHER_TOKEN_HASH)).toBe(false);
+  it('a verdict never vouches for a DIFFERENT token', () => {
+    // Wrong-token requests must always fall through to the bcrypt path.
+    setVerifiedToken('agent-001', TOKEN_HASH, KEY_HASH);
+    expect(isTokenVerifiedRecently('agent-001', OTHER_TOKEN_HASH, makeRow())).toBe(false);
   });
 
-  it('setVerifiedToken is a no-op when the row is not cached', () => {
-    // Verdict has no meaning without an accompanying row.
-    setVerifiedToken('agent-001', TOKEN_HASH);
-    expect(isTokenVerifiedRecently('agent-001', TOKEN_HASH)).toBe(false);
-  });
-
-  it('verdict expires after CACHE_TTL_MS (30s)', () => {
+  it('outlives the 30 s row cache, so agents polling every 30 s skip bcrypt', () => {
+    // The agent default poll interval equals the row-cache TTL (30 s), so a
+    // verdict tied to the row expired just before nearly every poll and each
+    // one paid a cost-12 bcryptjs compare (~0.5-0.7 s on half a CPU).
     vi.useFakeTimers();
     setCachedAgent('agent-001', makeRow());
-    setVerifiedToken('agent-001', TOKEN_HASH);
+    setVerifiedToken('agent-001', TOKEN_HASH, KEY_HASH);
 
-    vi.advanceTimersByTime(29_999);
-    expect(isTokenVerifiedRecently('agent-001', TOKEN_HASH)).toBe(true);
-
-    vi.advanceTimersByTime(2);
-    // The row cache itself expires at 30s too; getCachedAgent inside
-    // isTokenVerifiedRecently will drop the entry. Verdict goes with it.
-    expect(isTokenVerifiedRecently('agent-001', TOKEN_HASH)).toBe(false);
+    vi.advanceTimersByTime(31_000);
+    expect(getCachedAgent('agent-001')).toBeNull(); // row re-read from the DB
+    setCachedAgent('agent-001', makeRow()); // ...and re-cached
+    expect(isTokenVerifiedRecently('agent-001', TOKEN_HASH, makeRow())).toBe(true);
   });
 
-  it('setCachedAgent (re-caching the row) drops any prior verdict', () => {
-    // Rotation flow: when the row is replaced with one carrying a new
-    // api_key_hash, the previously cached verdict must NOT survive — the
-    // old token may no longer match the new hash.
-    setCachedAgent('agent-001', makeRow());
-    setVerifiedToken('agent-001', TOKEN_HASH);
-    expect(isTokenVerifiedRecently('agent-001', TOKEN_HASH)).toBe(true);
+  it('expires after an hour', () => {
+    vi.useFakeTimers();
+    setVerifiedToken('agent-001', TOKEN_HASH, KEY_HASH);
+    vi.advanceTimersByTime(59 * 60_000);
+    expect(isTokenVerifiedRecently('agent-001', TOKEN_HASH, makeRow())).toBe(true);
+    vi.advanceTimersByTime(2 * 60_000);
+    expect(isTokenVerifiedRecently('agent-001', TOKEN_HASH, makeRow())).toBe(false);
+  });
 
-    setCachedAgent('agent-001', makeRow({ api_key_hash: '$2a$12$newhashpostrotation' }));
-    expect(isTokenVerifiedRecently('agent-001', TOKEN_HASH)).toBe(false);
+  it('is void once the agent row carries a different api_key_hash (rotated key)', () => {
+    setVerifiedToken('agent-001', TOKEN_HASH, KEY_HASH);
+    const rotated = makeRow({ api_key_hash: '$2a$12$newhashpostrotation' });
+    expect(isTokenVerifiedRecently('agent-001', TOKEN_HASH, rotated)).toBe(false);
+  });
+
+  it('is not used while a key rotation is pending (rotation is resolved on the bcrypt path)', () => {
+    setVerifiedToken('agent-001', TOKEN_HASH, KEY_HASH);
+    const rotating = makeRow({
+      pending_api_key_hash: '$2a$12$pendinghash',
+      key_rotation_initiated_at: '2026-10-31 12:00:00',
+    });
+    expect(isTokenVerifiedRecently('agent-001', TOKEN_HASH, rotating)).toBe(false);
   });
 
   it('invalidateAgentCache also drops the verdict', () => {
-    setCachedAgent('agent-001', makeRow());
-    setVerifiedToken('agent-001', TOKEN_HASH);
+    setVerifiedToken('agent-001', TOKEN_HASH, KEY_HASH);
     invalidateAgentCache('agent-001');
-    expect(isTokenVerifiedRecently('agent-001', TOKEN_HASH)).toBe(false);
+    expect(isTokenVerifiedRecently('agent-001', TOKEN_HASH, makeRow())).toBe(false);
   });
 });
 

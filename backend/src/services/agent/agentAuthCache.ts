@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import type { AgentStatus, AgentOS, AgentArch } from '../../types/agent.js';
 
 // Process-local secret used to derive cache keys from agent bearer tokens.
-// Generated fresh per process — cache keys are ephemeral (30s TTL) and
+// Generated fresh per process — cache keys are ephemeral (in-memory) and
 // never cross process boundaries, so the secret doesn't need to be stable
 // or shared. HMAC (not raw SHA-256) is used here so static analysis
 // correctly identifies this as key derivation, not password storage.
@@ -31,26 +31,47 @@ export interface CachedAgentRow {
   key_rotation_initiated_at: string | null;
 }
 
+/**
+ * Row cache TTL. Bounds how long a status change or a new key rotation made
+ * outside the invalidation hooks takes to reach the auth path.
+ */
 const CACHE_TTL_MS = 30_000;
 const MAX_CACHE_SIZE = 10_000;
+
+/**
+ * How long a bcrypt verdict is reused. It is bound to the exact token and the
+ * api_key_hash it was checked against (see isTokenVerifiedRecently), so it
+ * cannot outlive a key change; the TTL only bounds memory and staleness.
+ * Agents poll every 30 s, which is why this must not be tied to the row TTL:
+ * a 30 s verdict expired just before nearly every poll, so each one ran a
+ * cost-12 bcryptjs compare (~0.5-0.7 s of main-thread CPU on half a core).
+ */
+const VERDICT_TTL_MS = 60 * 60_000;
 
 interface CacheEntry {
   row: CachedAgentRow;
   cachedAt: number;
-  /**
-   * HMAC-SHA256 (via hashTokenForCache) of an agent bearer token that has
-   * passed bcrypt verification for this agent. Lets the middleware skip the
-   * expensive bcrypt.compare on repeat requests with the same token, while
-   * still requiring an exact token match (so a wrong token cannot ride a
-   * previous valid request's verdict). Cleared whenever the cached row is
-   * replaced — the new row may have a different api_key_hash post-rotation,
-   * invalidating the verdict.
-   */
-  verifiedTokenHash?: string;
-  verifiedAt?: number;
+}
+
+interface Verdict {
+  /** hashTokenForCache() of a bearer token that passed bcrypt. */
+  tokenHash: string;
+  /** The api_key_hash the token was verified against. */
+  apiKeyHash: string;
+  verifiedAt: number;
 }
 
 const cache = new Map<string, CacheEntry>();
+const verdicts = new Map<string, Verdict>();
+
+function setBounded<V>(map: Map<string, V>, key: string, value: V): void {
+  map.delete(key);
+  if (map.size >= MAX_CACHE_SIZE) {
+    const oldestKey = map.keys().next().value;
+    if (oldestKey !== undefined) map.delete(oldestKey);
+  }
+  map.set(key, value);
+}
 
 export function getCachedAgent(agentId: string): CachedAgentRow | null {
   const entry = cache.get(agentId);
@@ -66,42 +87,45 @@ export function getCachedAgent(agentId: string): CachedAgentRow | null {
 }
 
 export function setCachedAgent(agentId: string, row: CachedAgentRow): void {
-  // Evict oldest entries if cache exceeds max size
-  if (cache.size >= MAX_CACHE_SIZE) {
-    const oldestKey = cache.keys().next().value;
-    if (oldestKey !== undefined) cache.delete(oldestKey);
+  setBounded(cache, agentId, { row, cachedAt: Date.now() });
+}
+
+/**
+ * Record that `tokenHash` (hashTokenForCache of an agent bearer token) passed
+ * bcrypt against `apiKeyHash` for `agentId`.
+ */
+export function setVerifiedToken(agentId: string, tokenHash: string, apiKeyHash: string): void {
+  setBounded(verdicts, agentId, { tokenHash, apiKeyHash, verifiedAt: Date.now() });
+}
+
+/**
+ * True when `tokenHash` passed bcrypt for `agentId` within VERDICT_TTL_MS
+ * against the api_key_hash `row` carries now, and no key rotation is pending.
+ *
+ * - Exact token match: a wrong token can never ride a previous verdict.
+ * - Same api_key_hash: a rotated, cancelled or replaced key voids the verdict
+ *   as soon as the row (re-read at least every 30 s) shows the new hash.
+ * - No pending key: rotation is resolved on the bcrypt path (promote when the
+ *   agent presents the new key, cancel once the delivery window has passed),
+ *   so a rotating agent always takes it.
+ * Status (inactive, decommissioned) is checked after this, on the row.
+ */
+export function isTokenVerifiedRecently(
+  agentId: string,
+  tokenHash: string,
+  row: CachedAgentRow,
+): boolean {
+  if (row.pending_api_key_hash) return false;
+  const verdict = verdicts.get(agentId);
+  if (!verdict) return false;
+  if (Date.now() - verdict.verifiedAt > VERDICT_TTL_MS) {
+    verdicts.delete(agentId);
+    return false;
   }
-  // Replacing the row drops any prior verdict: the new row may carry a
-  // different api_key_hash (post-rotation), and we don't want a stale
-  // verdict to authenticate a token that no longer matches.
-  cache.set(agentId, { row, cachedAt: Date.now() });
-}
-
-/**
- * Record that `tokenHash` (sha256 of an agent bearer token) successfully
- * passed bcrypt for `agentId`. No-op if the row isn't cached — verdict only
- * has meaning alongside the row it was verified against.
- */
-export function setVerifiedToken(agentId: string, tokenHash: string): void {
-  const entry = cache.get(agentId);
-  if (!entry) return;
-  entry.verifiedTokenHash = tokenHash;
-  entry.verifiedAt = Date.now();
-}
-
-/**
- * Returns true if `tokenHash` was verified for `agentId` within CACHE_TTL_MS.
- * The exact-match requirement means a wrong token cannot piggyback on a
- * previous valid request's verdict.
- */
-export function isTokenVerifiedRecently(agentId: string, tokenHash: string): boolean {
-  const entry = cache.get(agentId);
-  if (!entry || !entry.verifiedTokenHash || entry.verifiedAt === undefined) return false;
-  if (entry.verifiedTokenHash !== tokenHash) return false;
-  if (Date.now() - entry.verifiedAt > CACHE_TTL_MS) return false;
-  return true;
+  return verdict.tokenHash === tokenHash && verdict.apiKeyHash === row.api_key_hash;
 }
 
 export function invalidateAgentCache(agentId: string): void {
   cache.delete(agentId);
+  verdicts.delete(agentId);
 }
