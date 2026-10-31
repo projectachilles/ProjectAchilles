@@ -144,8 +144,10 @@ jobs:
         run: |
           denied=$(jq '[.[] | select(.type == "result") | .permission_denials[]?] | length' "$EXECUTION_FILE")
           [ "${denied:-0}" -gt 0 ] || exit 0
+          # The review heads its comment "## Code review" or, in newer plugin
+          # versions, "<h2>Code review</h2>"; accept both.
           summary=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments?since=$SINCE" \
-            --jq '[.[] | select(.user.type == "Bot" and (.body | test("(^|\n)#+ Code review")))] | length')
+            --jq '[.[] | select(.user.type == "Bot" and (.body | test("(^|\n)(#+ |<h[1-6][^>]*>)Code review")))] | length')
           inline=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/comments?since=$SINCE" \
             --jq '[.[] | select(.user.type == "Bot")] | length')
           if [ "$((summary + inline))" -eq 0 ]; then
