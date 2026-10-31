@@ -255,12 +255,15 @@ export default function AnalyticsDashboardPage() {
     }
   }
 
-  // Load dashboard data when filters, settings, defender/crowdstrike config, or scoring mode change
+  // Load dashboard data when filters, settings or scoring mode change. The
+  // vendor summaries load in their own effects (below), so a vendor's
+  // "configured" flag resolving after mount no longer re-runs these 13
+  // requests, and the vendor cards don't wait for them.
   useEffect(() => {
     if (activeTab === 'dashboard') {
       loadDashboardData();
     }
-  }, [filterState.filters, activeTab, settingsVersion, defenderConfigured, crowdstrikeConfigured, sentineloneConfigured, sophosConfigured, scoringMode]);
+  }, [filterState.filters, activeTab, settingsVersion, scoringMode]);
 
   // Load executions data when tab/filters/pagination/settings change
   useEffect(() => {
@@ -370,74 +373,6 @@ export default function AnalyticsDashboardPage() {
       setErrorRate(errorRateData.errorRate);
       setErrorRateTrendData(errorRateTrend);
 
-      // Conditionally load Defender summary for dashboard cards
-      if (defenderConfigured) {
-        const trendDays = timeRangeDays(filterState.filters.dateRange);
-
-        try {
-          const [defScore, defTechniques, defTrend] = await Promise.all([
-            defenderApi.getSecureScore(),
-            defenderApi.getTechniqueOverlap(),
-            defenderApi.getSecureScoreTrend(trendDays),
-          ]);
-          setSecureScore(defScore);
-          setDefenderTechniqueCount(defTechniques.length);
-          setSecureScoreTrendData(defTrend);
-        } catch {
-          // Defender data is supplementary — don't fail the whole dashboard
-          setSecureScoreTrendData([]);
-        }
-      } else {
-        setSecureScoreTrendData([]);
-      }
-
-      // Conditionally load CrowdStrike summary for dashboard cards
-      if (crowdstrikeConfigured) {
-        const trendDays = timeRangeDays(filterState.filters.dateRange);
-
-        try {
-          const [csScore, csTechniques, csTrend] = await Promise.all([
-            crowdstrikeApi.getZtaScore(),
-            crowdstrikeApi.getTechniqueOverlap(),
-            crowdstrikeApi.getZtaScoreTrend(trendDays),
-          ]);
-          setZtaScore(csScore);
-          setCrowdStrikeTechniqueCount(csTechniques.length);
-          setZtaScoreTrendData(csTrend);
-        } catch {
-          // CrowdStrike data is supplementary — don't fail the whole dashboard.
-          // ZTA may be unlicensed (403) in some tenants; the card hides then.
-          setZtaScore(null);
-          setZtaScoreTrendData([]);
-        }
-      } else {
-        setZtaScore(null);
-        setZtaScoreTrendData([]);
-      }
-
-      // SentinelOne: technique overlap badge only — there is no ZTA-style score to show.
-      if (sentineloneConfigured) {
-        try {
-          const s1Techniques = await sentineloneAnalyticsApi.getTechniqueOverlap();
-          setSentinelOneTechniqueCount(s1Techniques.length);
-        } catch {
-          setSentinelOneTechniqueCount(0);
-        }
-      } else {
-        setSentinelOneTechniqueCount(0);
-      }
-
-      // Sophos: technique overlap badge only.
-      if (sophosConfigured) {
-        try {
-          const sxTechniques = await sophosAnalyticsApi.getTechniqueOverlap();
-          setSophosTechniqueCount(sxTechniques.length);
-        } catch {
-          setSophosTechniqueCount(0);
-        }
-      } else {
-        setSophosTechniqueCount(0);
-      }
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
     } finally {
@@ -454,7 +389,99 @@ export default function AnalyticsDashboardPage() {
         }
       }
     }
-  }, [filterState, defenderConfigured, crowdstrikeConfigured, sentineloneConfigured, sophosConfigured, scoringMode]);
+  }, [filterState, scoringMode]);
+
+  // Vendor summaries for the dashboard cards. Each is independent of the
+  // core load and of the other vendors; their endpoints only take the date
+  // range, so other filter changes don't refetch them. Failures are
+  // supplementary: the card hides or shows its empty state.
+  const trendDays = timeRangeDays(filterState.filters.dateRange);
+
+  const loadDefenderSummary = useCallback(async () => {
+    if (!defenderConfigured) {
+      setSecureScoreTrendData([]);
+      return;
+    }
+    try {
+      const [defScore, defTechniques, defTrend] = await Promise.all([
+        defenderApi.getSecureScore(),
+        defenderApi.getTechniqueOverlap(),
+        defenderApi.getSecureScoreTrend(trendDays),
+      ]);
+      setSecureScore(defScore);
+      setDefenderTechniqueCount(defTechniques.length);
+      setSecureScoreTrendData(defTrend);
+    } catch {
+      setSecureScoreTrendData([]);
+    }
+  }, [defenderConfigured, trendDays]);
+
+  const loadCrowdStrikeSummary = useCallback(async () => {
+    if (!crowdstrikeConfigured) {
+      setZtaScore(null);
+      setZtaScoreTrendData([]);
+      return;
+    }
+    try {
+      const [csScore, csTechniques, csTrend] = await Promise.all([
+        crowdstrikeApi.getZtaScore(),
+        crowdstrikeApi.getTechniqueOverlap(),
+        crowdstrikeApi.getZtaScoreTrend(trendDays),
+      ]);
+      setZtaScore(csScore);
+      setCrowdStrikeTechniqueCount(csTechniques.length);
+      setZtaScoreTrendData(csTrend);
+    } catch {
+      // ZTA may be unlicensed (403) in some tenants; the card hides then.
+      setZtaScore(null);
+      setZtaScoreTrendData([]);
+    }
+  }, [crowdstrikeConfigured, trendDays]);
+
+  // SentinelOne: technique overlap badge only — there is no ZTA-style score to show.
+  const loadSentinelOneSummary = useCallback(async () => {
+    if (!sentineloneConfigured) {
+      setSentinelOneTechniqueCount(0);
+      return;
+    }
+    try {
+      const s1Techniques = await sentineloneAnalyticsApi.getTechniqueOverlap();
+      setSentinelOneTechniqueCount(s1Techniques.length);
+    } catch {
+      setSentinelOneTechniqueCount(0);
+    }
+  }, [sentineloneConfigured]);
+
+  // Sophos: technique overlap badge only.
+  const loadSophosSummary = useCallback(async () => {
+    if (!sophosConfigured) {
+      setSophosTechniqueCount(0);
+      return;
+    }
+    try {
+      const sxTechniques = await sophosAnalyticsApi.getTechniqueOverlap();
+      setSophosTechniqueCount(sxTechniques.length);
+    } catch {
+      setSophosTechniqueCount(0);
+    }
+  }, [sophosConfigured]);
+
+  // Each vendor reloads when its own flag, the date range or the settings change.
+  useEffect(() => {
+    if (activeTab === 'dashboard') loadDefenderSummary();
+  }, [loadDefenderSummary, activeTab, settingsVersion]);
+
+  useEffect(() => {
+    if (activeTab === 'dashboard') loadCrowdStrikeSummary();
+  }, [loadCrowdStrikeSummary, activeTab, settingsVersion]);
+
+  useEffect(() => {
+    if (activeTab === 'dashboard') loadSentinelOneSummary();
+  }, [loadSentinelOneSummary, activeTab, settingsVersion]);
+
+  useEffect(() => {
+    if (activeTab === 'dashboard') loadSophosSummary();
+  }, [loadSophosSummary, activeTab, settingsVersion]);
 
   // Load executions data
   const loadExecutionsData = useCallback(async () => {
@@ -654,12 +681,18 @@ export default function AnalyticsDashboardPage() {
     setIsRefreshing(true);
     await loadFilterOptions();
     if (activeTab === 'dashboard') {
-      await loadDashboardData();
+      await Promise.all([
+        loadDashboardData(),
+        loadDefenderSummary(),
+        loadCrowdStrikeSummary(),
+        loadSentinelOneSummary(),
+        loadSophosSummary(),
+      ]);
     } else {
       await loadExecutionsData();
     }
     setIsRefreshing(false);
-  }, [activeTab, loadDashboardData, loadExecutionsData]);
+  }, [activeTab, loadDashboardData, loadDefenderSummary, loadCrowdStrikeSummary, loadSentinelOneSummary, loadSophosSummary, loadExecutionsData]);
 
   // Handle sort change
   const handleSort = (field: string, order: 'asc' | 'desc') => {
