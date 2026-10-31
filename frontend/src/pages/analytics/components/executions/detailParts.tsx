@@ -180,7 +180,17 @@ function filterStageAlerts<A extends { attribution?: string; attributed_control_
   });
 }
 
-/** Per-vendor loading state, stage-attributed alerts, and whether bundle-level alerts exist. */
+/** Shown when a related-alerts lookup failed (not "no alerts"); selecting the run again retries it. */
+export function lookupFailedText(vendors: string): string {
+  return `Couldn't load ${vendors} alerts. Select the run again to retry.`;
+}
+
+/**
+ * Per-vendor loading state, stage-attributed alerts, whether bundle-level
+ * alerts exist, and whether the lookup failed. A failed lookup is stored as
+ * null (a lookup that found nothing is { alerts: [] }), so `failed` keeps an
+ * HTTP error from reading as "No related alerts".
+ */
 export function stageAlertState(
   exec: EnrichedTestExecution,
   {
@@ -201,20 +211,25 @@ export function stageAlertState(
     exec.is_bundle_control ? filterStageAlerts(alerts, exec.control_id) : alerts;
   const endpoint = Object.fromEntries(
     ENDPOINT_VENDOR_IDS.map((id) => {
-      const entry = endpointAlerts[id]?.map.get(key);
+      const map = endpointAlerts[id]?.map;
+      const entry = map?.get(key);
+      const loading = Boolean(endpointAlerts[id]?.loading.has(key));
       return [
         id,
         {
-          loading: Boolean(endpointAlerts[id]?.loading.has(key)),
+          loading,
+          failed: !loading && Boolean(map?.has(key)) && entry === null,
           alerts: entry ? pick(entry.alerts) : [],
           hasBundleAlerts: Boolean(entry?.alerts.some((a) => a.attribution === 'bundle')),
         },
       ];
     }),
-  ) as Record<EndpointVendorId, { loading: boolean; alerts: CrowdStrikeAlertItem[]; hasBundleAlerts: boolean }>;
+  ) as Record<EndpointVendorId, { loading: boolean; failed: boolean; alerts: CrowdStrikeAlertItem[]; hasBundleAlerts: boolean }>;
+  const defLoading = alertsLoading.has(key);
   return {
     defender: {
-      loading: alertsLoading.has(key),
+      loading: defLoading,
+      failed: !defLoading && alertsMap.has(key) && def === null,
       alerts: def ? pick(def.alerts) : [],
       hasBundleAlerts: Boolean(def?.alerts.some((a) => a.attribution === 'bundle')),
     },
