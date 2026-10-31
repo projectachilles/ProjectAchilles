@@ -11,6 +11,10 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+### Security
+
+- **Agent API keys are no longer sent to Clerk.** Clerk's Express middleware treats a Bearer token that starts with `ak_` (Clerk's own API-key prefix) as a Clerk API key and verifies it with `POST api.clerk.com/api_keys/verify`, and it can't be configured not to. Agent keys use the same prefix, so every agent poll and heartbeat sent the agent's key to Clerk, adding ~140 ms each. Clerk now only sees JWT-shaped Bearer tokens (session and CLI tokens); for any other Authorization header the request is signed out to Clerk and the header is passed on unchanged to the agent / API-key authentication. Both backends.
+
 ### Fixed
 - **The Analytics dashboard loads its data once, and the EDR cards no longer wait for it.** Each EDR's "configured" check answers just after the page opens, and that re-ran all 13 dashboard requests, so every load queried Elasticsearch twice. The Defender, CrowdStrike, SentinelOne and Sophos summaries now load on their own, in parallel with the dashboard instead of one after another once it finishes, and only reload when the date range changes, not on every filter change.
 - **Agent polls no longer cost a bcrypt check each.** The backend remembered a verified agent key for 30 seconds, the same as the agent's poll interval, so nearly every `GET /api/agent/tasks` re-ran a cost-12 bcrypt compare: about 0.7 s on a half-CPU instance, in slices that held up every other request for up to ~100 ms. The verified result is now kept for an hour, tied to the exact token and to the key hash it was checked against, so a replaced key, a pending rotation or a deactivated agent still takes effect within 30 seconds.
