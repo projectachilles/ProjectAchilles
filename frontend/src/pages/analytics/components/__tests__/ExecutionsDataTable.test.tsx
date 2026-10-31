@@ -327,6 +327,29 @@ describe('ExecutionsDataTable — per-stage Defender detection', () => {
   });
 });
 
+describe('ExecutionsDataTable — related-alert lookup failures', () => {
+  it('says the lookup failed instead of "no related alerts", and retries on reselect', async () => {
+    getAlertsForTestMock.mockRejectedValue(new Error('HTTP 500'));
+    const stage = makeStage({ test_name: 'Lookup Failure Stage' });
+    renderTable(makeData([stage], { defenderDetected: false }));
+
+    await userEvent.click(screen.getAllByText(stage.bundle_name!)[0]);
+    await userEvent.click(screen.getAllByText('Lookup Failure Stage').at(-1)!);
+    expect(await screen.findByText(/Couldn't load related Defender alerts/)).toBeInTheDocument();
+    expect(screen.queryByText(/No Defender alert names this stage/)).toBeNull();
+
+    // Not cached: selecting the run again asks again.
+    getAlertsForTestMock.mockResolvedValue({ alerts: [], matchedTechniques: [], total: 0 });
+    const callsBefore = defenderBatch.mock.calls.length;
+    await userEvent.click(screen.getAllByText(stage.bundle_name!)[0]);
+    await waitFor(() => expect(defenderBatch.mock.calls.length).toBeGreaterThan(callsBefore));
+    // Reselecting collapses the stage; open it again to see its evidence.
+    await userEvent.click(screen.getAllByText('Lookup Failure Stage').at(-1)!);
+    expect(await screen.findByText(/No Defender alert names this stage/)).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn't load related Defender alerts/)).toBeNull();
+  });
+});
+
 describe('ExecutionsDataTable — bundle-level alert callout dedupe', () => {
   it('aggregates bundle-attribution alerts across per-stage caches and dedupes by alert_id', async () => {
     // Both stages' independent queries return the SAME bundle-attribution

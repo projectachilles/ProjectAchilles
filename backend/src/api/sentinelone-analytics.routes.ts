@@ -17,7 +17,7 @@ import { defaultCoverageWindow } from '../services/analytics/technique-coverage.
 import { SentinelOnePostureService } from '../services/sentinelone/posture.service.js';
 import { SettingsService as AnalyticsSettingsService } from '../services/analytics/settings.js';
 import { getSharedEsClient } from '../services/analytics/sharedClient.js';
-import { parseAlertsForTestsBody } from '../services/alerts/alertsForTest.js';
+import { answerAlertsForTests } from '../services/alerts/alertsForTest.js';
 
 const SOURCE_TYPES = new Set(['threats', 'cloud_detection_alerts']);
 
@@ -127,12 +127,11 @@ router.get('/correlation/alerts-for-test', READ, asyncHandler(async (req, res) =
  * POST /api/analytics/sentinelone/correlation/alerts-for-tests — the same lookup
  * for many executions at once (the stages of an Executions row), one msearch
  * per tier. Body: { items: [{ techniques, timestamp, windowMinutes?, hostname?,
- * binaryName?, bundleName? }] } (max 100). Returns { results } in input order,
- * null where a stage's search failed. Read-only, hence the read permission.
+ * binaryName?, bundleName? }] } (max 100). Returns { results, errors } in input
+ * order: null + its reason for a malformed stage, null alone where a search failed. Read-only, hence the read permission.
  */
 router.post('/correlation/alerts-for-tests', READ, asyncHandler(async (req, res) => {
-  const items = parseAlertsForTestsBody(req.body);
-  res.json({ results: await analyticsService.getAlertsForTests(items) });
+  res.json(await answerAlertsForTests(req.body, (items) => analyticsService.getAlertsForTests(items)));
 }));
 
 

@@ -38,10 +38,16 @@ function StageEvidence({ exec, ...props }: StageViewProps & { exec: EnrichedTest
   const defAlerts = defenderConfigured ? defender.alerts : [];
   const loading = (defenderConfigured && defender.loading)
     || configuredEndpoints.some((id) => endpoint[id].loading);
-  const vendors = joinNames([
-    ...(defenderConfigured ? ['Defender'] : []),
-    ...configuredEndpoints.map((id) => VENDORS[id].shortName),
-  ], 'or');
+  // A vendor whose lookup failed is reported as such, never as "no alert".
+  const failed = [
+    ...(defenderConfigured && defender.failed ? ['Defender'] : []),
+    ...configuredEndpoints.filter((id) => endpoint[id].failed).map((id) => VENDORS[id].shortName),
+  ];
+  const answered = [
+    ...(defenderConfigured && !defender.failed ? ['Defender'] : []),
+    ...configuredEndpoints.filter((id) => !endpoint[id].failed).map((id) => VENDORS[id].shortName),
+  ];
+  const vendors = joinNames(answered, 'or');
   const hasBundleAlerts =
     (defenderConfigured && defender.hasBundleAlerts)
     || configuredEndpoints.some((id) => endpoint[id].hasBundleAlerts);
@@ -70,12 +76,19 @@ function StageEvidence({ exec, ...props }: StageViewProps & { exec: EnrichedTest
           <span className="text-xs text-muted">Checking for related alerts...</span>
         </div>
       ) : (
-        !hasAlerts && (
-          <p className="text-xs text-faint">
-            No {vendors} alert names this stage's binary.
-            {hasBundleAlerts && ' See the bundle-level alerts above.'}
-          </p>
-        )
+        <>
+          {failed.length > 0 && (
+            <p className="text-xs text-destructive">
+              Couldn't load related {joinNames(failed, 'or')} alerts. Select the run again to retry.
+            </p>
+          )}
+          {!hasAlerts && answered.length > 0 && (
+            <p className="text-xs text-faint">
+              No {vendors} alert names this stage's binary.
+              {hasBundleAlerts && ' See the bundle-level alerts above.'}
+            </p>
+          )}
+        </>
       )}
     </div>
   );

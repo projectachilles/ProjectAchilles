@@ -206,15 +206,18 @@ export function stageAlertState(
         id,
         {
           loading: Boolean(endpointAlerts[id]?.loading.has(key)),
+          // A null entry is a lookup that failed (not "no alerts").
+          failed: Boolean(endpointAlerts[id]?.map.has(key)) && entry === null,
           alerts: entry ? pick(entry.alerts) : [],
           hasBundleAlerts: Boolean(entry?.alerts.some((a) => a.attribution === 'bundle')),
         },
       ];
     }),
-  ) as Record<EndpointVendorId, { loading: boolean; alerts: CrowdStrikeAlertItem[]; hasBundleAlerts: boolean }>;
+  ) as Record<EndpointVendorId, { loading: boolean; failed: boolean; alerts: CrowdStrikeAlertItem[]; hasBundleAlerts: boolean }>;
   return {
     defender: {
       loading: alertsLoading.has(key),
+      failed: alertsMap.has(key) && def === null,
       alerts: def ? pick(def.alerts) : [],
       hasBundleAlerts: Boolean(def?.alerts.some((a) => a.attribution === 'bundle')),
     },

@@ -220,8 +220,11 @@ POST /api/analytics/defender/correlation/alerts-for-tests
   executions at once; the Executions view uses it for all stages of a row.
   Body `{ "items": [{ "techniques": ["T1059"], "timestamp": "…", "windowMinutes": 30,
   "hostname": "…", "binaryName": "<uuid>.exe", "bundleName": "…" }] }`, at most
-  100 items, each validated like the GET parameters (`400` otherwise). Returns
-  `{ "results": [ … ] }` in input order, `null` for an item whose search failed.
+  100 items. Returns `{ "results": [ … ], "errors": [ … ] }` in input order. An
+  item that fails validation (same rules as the GET parameters) gets `null` in
+  `results` and its reason in `errors`; the other items are still answered.
+  `null` with no error means that item's search failed. A missing or empty
+  `items`, or more than 100, is a `400`.
   It runs one Elasticsearch `msearch` per fallback tier (evidence, then technique
   plus host) rather than up to three searches per item, and needs the same read
   permission as the GET. Clients should fall back to the GET per item on `404`
