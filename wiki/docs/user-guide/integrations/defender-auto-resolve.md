@@ -135,6 +135,7 @@ curl -H "Authorization: Bearer $CLERK_JWT" \
 - A `403` halts the pass cleanly (no error spam); a `404` writes a
   skip-forever receipt; transient errors skip the receipt so the next pass
   retries.
+- The last pass's errors appear on the auto-resolve card in **Settings → Integrations** (**Last pass: N errors**, the counts and the first error) and in the backend log as `[Defender-AutoResolve-ERROR] …`.
 
 :::warning[Defense Score invariant]
 **Auto-resolve never changes the [Defense Score](../analytics/defense-score).**

@@ -158,6 +158,14 @@ Cause: the Falcon API client has `Alerts: read` but not `Alerts: write`.
 
 Fix: follow Setup step 1 (add `Alerts: write` to the API client). The pass halts cleanly after the first 403 rather than spamming errors, so a short interruption is the worst case.
 
+### 400 "failed to read and parse request" on every alert
+
+Symptom: every PATCH fails with `HTTP 400 {"code":400,"message":"failed to read and parse request"}`; nothing is closed.
+
+Cause: releases before the fix sent `update_status` / `append_comment` as top-level keys; the v3 API takes them as `action_parameters: [{ name, value }]`.
+
+Fix: upgrade ProjectAchilles. The next pass closes the queued alerts.
+
 ### 404 on a specific alert
 
 Symptom: receipt shows `auto_resolve_error: not_found`.
