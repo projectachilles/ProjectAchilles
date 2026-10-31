@@ -41,6 +41,7 @@ This project uses two version streams:
 - **Network errors say what failed.** The Sophos and SentinelOne sync status showed only "fetch failed"; it now adds the system error, for example `fetch failed (EAI_AGAIN: getaddrinfo EAI_AGAIN id.sophos.com)` for a DNS timeout or `SELF_SIGNED_CERT_IN_CHAIN` for TLS inspection. (#667)
 
 ### Changed
+- **Render can be deployed from GitHub Actions.** Render's "After CI checks pass" auto-deploy waits on the commit's combined status, so an unrelated failing status (a rate-limited Vercel preview) held four merges off a hosted install with no error shown. `.github/workflows/deploy-render.yml` deploys each Render service through its deploy hook once `CI` passes on `main`, pinned to the tested commit and limited to services whose files changed. Opt-in: add the `RENDER_DEPLOY_HOOK_BACKEND` / `RENDER_DEPLOY_HOOK_FRONTEND` secrets and turn Render's auto-deploy off; without them it does nothing. See the Render guide.
 - **The execution report names the organization from the console identity.** The cover, the scope table and the page headers print the full name saved in Settings → General, then `CONSOLE_ORG_NAME`, then `ORGANIZATION_NAME`, so a name set in the console no longer needs a redeploy to reach the PDF. A saved identity replaces the environment values, as it does in the console. Names are still cut to 56 characters in the report. `backend-serverless/`, which has no console identity, keeps reading `ORGANIZATION_NAME`. (#666)
 
 ## Agent [0.7.2] - 2026-10-31

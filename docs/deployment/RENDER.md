@@ -167,6 +167,18 @@ With GitHub integration, every push to your configured branch triggers a rebuild
 
 A commit touching only `frontend/src/` will **not** trigger a backend redeploy.
 
+### Deploying from GitHub Actions
+
+By default the Blueprint sets `autoDeployTrigger: checksPass`: Render deploys a pushed commit once its checks pass. Render reads the commit's **combined status**, so any failing status on that commit, even one unrelated to Render (for example a rate-limited Vercel preview or a failing `npm audit` job), stops the deploy with no error on Render's side. The service keeps running the previous commit.
+
+If you deploy from your own fork and see that, deploy from GitHub Actions instead. `.github/workflows/deploy-render.yml` runs after the `CI` workflow succeeds on `main` and calls each service's deploy hook with the tested commit (`ref=<sha>`). It uses the same path filters as `buildFilter`, so a service only redeploys when its files changed. It reads changed files from the GitHub API and runs no repository code.
+
+1. In Render, open each service → **Settings** → **Deploy Hook** and copy the URL.
+2. In GitHub, add the repository secrets `RENDER_DEPLOY_HOOK_BACKEND` and `RENDER_DEPLOY_HOOK_FRONTEND`.
+3. In Render, set **Auto-Deploy** to **Off** on both services, so a commit isn't deployed twice.
+
+To redeploy by hand, run the workflow from the **Actions** tab (**Deploy to Render** → **Run workflow**, choose `both`, `backend` or `frontend`). Without the secrets the workflow only logs a notice, so the Blueprint default is unaffected.
+
 ## Custom Domains
 
 Three domains are needed for a production deployment: frontend, backend, and Clerk.
