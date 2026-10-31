@@ -2,7 +2,11 @@ import { Component } from 'react';
 import type { ReactNode, ErrorInfo } from 'react';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from './ui/Button';
-import { isChunkLoadError, reloadOnceForChunkError } from '../../lib/chunkReload';
+import {
+  isChunkLoadError,
+  isChunkReloadPending,
+  reloadOnceForChunkError,
+} from '../../lib/chunkReload';
 
 interface Props {
   children: ReactNode;
@@ -27,15 +31,24 @@ export class ErrorBoundary extends Component<Props, State> {
   public static getDerivedStateFromError(error: Error): State {
     // For a stale-chunk error we expect to reload (see componentDidCatch), so
     // render the "Updating…" splash instead of flashing the error card first.
+    // Once a reload is already under way, any error is a side effect of the
+    // failed import (React.lazy's "Cannot read properties of undefined
+    // (reading 'default')" when the vite:preloadError handler cancelled it),
+    // so keep the splash up too.
     return {
       hasError: true,
       error,
       errorInfo: null,
-      reloading: isChunkLoadError(error),
+      reloading: isChunkReloadPending() || isChunkLoadError(error),
     };
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    if (isChunkReloadPending()) {
+      this.setState({ errorInfo, reloading: true });
+      return;
+    }
+
     if (isChunkLoadError(error)) {
       // A code-split chunk went missing because a newer bundle was deployed.
       // Reload once to fetch the fresh index.html + asset hashes. If the reload
@@ -50,6 +63,12 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   private handleRetry = () => {
+    // React.lazy keeps the rejected import, so re-rendering in place would
+    // throw the same chunk error again: only a full page load recovers.
+    if (isChunkLoadError(this.state.error)) {
+      window.location.reload();
+      return;
+    }
     this.setState({ hasError: false, error: null, errorInfo: null, reloading: false });
   };
 
@@ -91,7 +110,7 @@ export class ErrorBoundary extends Component<Props, State> {
             )}
             <Button onClick={this.handleRetry} className="gap-2">
               <RefreshCw className="w-4 h-4" />
-              Try Again
+              {isChunkLoadError(this.state.error) ? 'Reload page' : 'Try Again'}
             </Button>
           </div>
         </div>
