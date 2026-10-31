@@ -356,6 +356,18 @@ describe('SentinelOneSyncService', () => {
     expect(result.threats?.errors).toEqual([]);
   });
 
+  it('logs the auto-resolve errors, not only their count (a 403 must say why)', async () => {
+    mockAutoResolveMode = 'enabled';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockAutoResolvePass.mockResolvedValueOnce({
+      mode: 'enabled', candidates: 30, patched: 0, wouldPatch: 0, skipped: 0, durationMs: 1,
+      errors: ['403: SentinelOne POST /web/api/v2.1/cloud-detection/alerts/incident failed: HTTP 403. The API token user lacks permission for this action (requires an IR Team / SOC / Admin role).'],
+    });
+    await new SentinelOneSyncService().syncAll();
+    expect(warn.mock.calls.some((c) => String(c[0]).startsWith('[SentinelOne-AutoResolve-ERROR] 403:'))).toBe(true);
+    warn.mockRestore();
+  });
+
   it('runs the posture pass when due and records the checkpoint; skips it inside the interval', async () => {
     const result = await new SentinelOneSyncService().syncAll();
     expect(mockPosturePass).toHaveBeenCalledTimes(1);

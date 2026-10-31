@@ -46,6 +46,18 @@ describe('SentinelOneAutoResolveSection', () => {
     expect(screen.getByLabelText(/Dry-run/)).not.toBeDisabled();
   });
 
+  it('shows why the last pass failed (e.g. the API token role cannot resolve)', async () => {
+    const err = '403: SentinelOne POST /web/api/v2.1/cloud-detection/alerts/incident failed: HTTP 403. The API token user lacks permission for this action (requires an IR Team / SOC / Admin role).';
+    api.getAutoResolveStatus.mockResolvedValue({
+      mode: 'enabled', permission_mode: 'response', counts,
+      lastAutoResolve: { mode: 'enabled', candidates: 30, patched: 0, wouldPatch: 0, errors: [err] },
+    });
+    render(<SentinelOneAutoResolveSection permissionMode="response" />);
+    await userEvent.click(screen.getByText('Alert auto-resolution'));
+    expect(await screen.findByText('Last pass: 1 error')).toBeInTheDocument();
+    expect(screen.getByText(err)).toBeInTheDocument();
+  });
+
   it('renders receipts with the alert type', async () => {
     api.getAutoResolveReceipts.mockResolvedValue({
       items: [{ alert_id: '9', alert_title: 'Mimikatz', severity: 'high', source_type: 'cloud_detection_alerts', achilles_test_uuid: 'abcdef1234', auto_resolved_at: '2026-10-22T10:00:00Z', auto_resolve_mode: 'dry_run', auto_resolve_error: null }],

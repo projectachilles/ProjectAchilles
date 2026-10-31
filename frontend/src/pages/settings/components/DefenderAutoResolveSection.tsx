@@ -14,6 +14,7 @@ import {
 } from '@/services/api/integrations';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Spinner } from '@/components/shared/ui/Spinner';
+import { AutoResolveLastPass } from './AutoResolveLastPass';
 
 const RECEIPT_PAGE_SIZE = 20;
 
@@ -107,6 +108,7 @@ export function DefenderAutoResolveSection() {
               )}
 
               <StatsStrip counts={status.counts} />
+              <AutoResolveLastPass last={status.lastAutoResolve} />
 
               <ReceiptsTable receipts={receipts} />
             </>

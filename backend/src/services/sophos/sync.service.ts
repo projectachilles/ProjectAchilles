@@ -679,6 +679,10 @@ export class SophosSyncService {
       const r = await new SophosAutoResolveService(es, client, mode).runAutoResolvePass();
       if (r.mode !== 'disabled') {
         console.log(`[Sophos-AutoResolve] mode=${r.mode} candidates=${r.candidates} resolved=${r.patched} wouldResolve=${r.wouldPatch} errors=${r.errors.length}`);
+        // The reason, not only the count (a 403 names the missing role). Capped: one
+        // failing candidate after another must not flood the log every poll.
+        for (const e of r.errors.slice(0, 5)) console.warn(`[Sophos-AutoResolve-ERROR] ${e}`);
+        if (r.errors.length > 5) console.warn(`[Sophos-AutoResolve-ERROR] … and ${r.errors.length - 5} more`);
       }
       return r;
     } catch (err) {
