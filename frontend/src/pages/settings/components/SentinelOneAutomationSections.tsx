@@ -23,6 +23,7 @@ import { Spinner } from '@/components/shared/ui/Spinner';
 import { Button } from '@/components/shared/ui/Button';
 import { Select } from '@/components/shared/ui/Select';
 import { Checkbox } from '@/components/shared/ui/Checkbox';
+import { AutoResolveLastPass } from './AutoResolveLastPass';
 
 const RECEIPT_PAGE_SIZE = 20;
 const fmtTs = (iso: string | null | undefined) => (iso ? new Date(iso).toISOString().slice(0, 19).replace('T', ' ') : '—');
@@ -131,6 +132,7 @@ export function SentinelOneAutoResolveSection({ permissionMode }: SectionProps) 
                 </Alert>
               )}
               <StatsStrip counts={status.counts} />
+              <AutoResolveLastPass last={status.lastAutoResolve} />
               <ReceiptsTable
                 receipts={receipts}
                 at={(r) => r.auto_resolved_at}

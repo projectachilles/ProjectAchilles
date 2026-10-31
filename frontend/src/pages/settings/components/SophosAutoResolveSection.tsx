@@ -16,6 +16,7 @@ import {
 import { describeAutoResolveReceipt } from '@/pages/analytics/components/integrations/autoResolveReceipt';
 import { Alert } from '@/components/shared/ui/Alert';
 import { Spinner } from '@/components/shared/ui/Spinner';
+import { AutoResolveLastPass } from './AutoResolveLastPass';
 
 const RECEIPT_PAGE_SIZE = 20;
 const fmtTs = (iso: string | null | undefined) => (iso ? new Date(iso).toISOString().slice(0, 19).replace('T', ' ') : '—');
@@ -120,6 +121,7 @@ export function SophosAutoResolveSection({ permissionMode }: SectionProps) {
                 </Alert>
               )}
               <StatsStrip counts={status.counts} />
+              <AutoResolveLastPass last={status.lastAutoResolve} />
               {status.dry_run_counts && (
                 <>
                   <p className="text-xs text-muted-foreground">Dry run: would resolve</p>

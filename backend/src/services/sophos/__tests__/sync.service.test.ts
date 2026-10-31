@@ -470,6 +470,21 @@ describe('SophosSyncService', () => {
     expect(mockSaveDiscovery).toHaveBeenCalledWith(expect.objectContaining({ tenant_id: TENANT, api_host: 'api-eu01.central.sophos.com', data_region: 'eu01' }));
   });
 
+  it('logs the auto-resolve errors, capped at five per pass', async () => {
+    mockAutoResolveMode = 'enabled';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockAutoResolvePass.mockResolvedValueOnce({
+      mode: 'enabled', candidates: 7, patched: 0, wouldPatch: 0, skipped: 0, durationMs: 1,
+      errors: Array.from({ length: 7 }, (_, i) => `403: role cannot resolve (${i})`),
+    });
+    await new SophosSyncService().syncAll();
+    const lines = warn.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[Sophos-AutoResolve-ERROR]'));
+    expect(lines).toHaveLength(6);
+    expect(lines[0]).toBe('[Sophos-AutoResolve-ERROR] 403: role cannot resolve (0)');
+    expect(lines[5]).toBe('[Sophos-AutoResolve-ERROR] … and 2 more');
+    warn.mockRestore();
+  });
+
   it('runs enrichment, then agent-kill reconciliation, then auto-resolve, then posture when due', async () => {
     mockAutoResolveMode = 'dry_run';
     const result = await new SophosSyncService().syncAll();
