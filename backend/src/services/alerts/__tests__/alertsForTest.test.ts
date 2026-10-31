@@ -111,7 +111,23 @@ describe('parseAlertsForTestsBody', () => {
     expect(items[0]).toMatchObject({ techniques: ['T1059'], windowMinutes: 30, hostname: 'h' });
   });
 
+  it('accepts long-form technique labels, as the single-stage GET does', () => {
+    // A live test's metadata lists both forms; the long one is 52 characters.
+    // Rejecting it failed the whole Executions row, so every vendor showed
+    // "No related alerts" for a run that had them.
+    const techniques = [
+      'T1068',
+      'T1562.001',
+      'T1068 (Exploitation for Privilege Escalation)',
+      'T1562.001 (Impair Defenses: Disable or Modify Tools)',
+    ];
+    const items = parseAlertsForTestsBody({ items: [{ techniques, timestamp: STAGE.timestamp }] });
+    expect(items[0].techniques).toEqual(techniques);
+  });
+
   it.each([
+    [{ items: [{ techniques: ['T'.repeat(301)], timestamp: STAGE.timestamp }] }, 'Invalid techniques'],
+    [{ items: [{ techniques: [7], timestamp: STAGE.timestamp }] }, 'Invalid techniques'],
     [{}, 'items is required'],
     [{ items: [] }, 'items is required'],
     [{ items: Array.from({ length: 101 }, () => ({ techniques: ['T1'], timestamp: STAGE.timestamp })) }, 'At most 100 items'],
