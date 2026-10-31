@@ -1,6 +1,7 @@
 // Vendor-neutral integration (CrowdStrike / Defender) API types.
 
 import type { RelatedCrowdStrikeAlertsResponse } from './crowdstrike';
+import type { AlertsForTestItem } from './alertsForTests';
 
 /** ISO from/to window sent to the integration endpoints. */
 export type TimeWindow = { from: string; to: string };
@@ -142,9 +143,13 @@ export type AlertsForTestFn = (
   bundleName?: string,
 ) => Promise<RelatedCrowdStrikeAlertsResponse>;
 
+/** The same lookup for many runs in one request (falls back per item on older backends). */
+export type AlertsForTestsFn = (items: AlertsForTestItem[]) => Promise<Array<RelatedCrowdStrikeAlertsResponse | null>>;
+
 export interface IntegrationApi {
   /** Present for endpoint-EDR vendors (see vendorConfig `endpointEdr`). */
   getAlertsForTest?: AlertsForTestFn;
+  getAlertsForTests?: AlertsForTestsFn;
   getAlerts(params?: IntegrationAlertQuery): Promise<IntegrationAlertPage>;
   getAlertSummary(window?: TimeWindow): Promise<IntegrationAlertSummary>;
   getAlertTrend(days?: number, window?: TimeWindow): Promise<IntegrationTrendPoint[]>;

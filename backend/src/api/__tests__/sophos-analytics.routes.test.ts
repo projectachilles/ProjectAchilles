@@ -21,6 +21,7 @@ const mocks = {
   getTechniqueOverlap: vi.fn(),
   getDetectionRate: vi.fn(),
   getAlertsForTest: vi.fn(),
+  getAlertsForTests: vi.fn(),
 };
 vi.mock('../../services/sophos/analytics.service.js', () => ({
   SophosAnalyticsService: class {
@@ -32,6 +33,7 @@ vi.mock('../../services/sophos/analytics.service.js', () => ({
     getTechniqueOverlap = mocks.getTechniqueOverlap;
     getDetectionRate = mocks.getDetectionRate;
     getAlertsForTest = mocks.getAlertsForTest;
+    getAlertsForTests = mocks.getAlertsForTests;
   },
 }));
 
@@ -61,6 +63,7 @@ const { errorHandler } = await import('../../middleware/error.middleware.js');
 
 function app() {
   const a = express();
+  a.use(express.json()); // as in server.ts
   a.use('/api/analytics/sophos', routes);
   a.use(errorHandler);
   return a;
@@ -127,6 +130,21 @@ describe('Sophos analytics routes', () => {
     const ok = await request(app()).get(`${P}/correlation/alerts-for-test?techniques=T1059,T1486&timestamp=2026-10-20T10:00:00Z&hostname=H1`);
     expect(ok.status).toBe(200);
     expect(mocks.getAlertsForTest.mock.calls[0].slice(0, 2)).toEqual([['T1059', 'T1486'], '2026-10-20T10:00:00Z']);
+  });
+
+  it('POST alerts-for-tests answers every stage in one call, in order', async () => {
+    mocks.getAlertsForTests.mockResolvedValue([{ alerts: [], matchedTechniques: [], total: 0 }, null]);
+    const items = [
+      { techniques: ['T1059'], timestamp: '2026-10-20T10:00:00Z', hostname: 'H1', binaryName: 'u.exe' },
+      { techniques: ['T1486'], timestamp: '2026-10-20T10:05:00Z', hostname: 'H1', binaryName: 'u.exe' },
+    ];
+    const res = await request(app()).post(`${P}/correlation/alerts-for-tests`).send({ items });
+    expect(res.status).toBe(200);
+    expect(res.body.results).toEqual([{ alerts: [], matchedTechniques: [], total: 0 }, null]);
+    expect(mocks.getAlertsForTests).toHaveBeenCalledTimes(1);
+    expect(mocks.getAlertsForTests.mock.calls[0][0]).toMatchObject([{ techniques: ['T1059'], windowMinutes: 30 }, { techniques: ['T1486'] }]);
+
+    expect((await request(app()).post(`${P}/correlation/alerts-for-tests`).send({ items: [] })).status).toBe(400);
   });
 
   it('GET /posture/health-check returns latest + trend', async () => {

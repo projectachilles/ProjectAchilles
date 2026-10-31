@@ -17,6 +17,7 @@ import { defaultCoverageWindow } from '../services/analytics/technique-coverage.
 import { SophosPostureService, resolveActiveAchillesCert } from '../services/sophos/posture.service.js';
 import { SettingsService as AnalyticsSettingsService } from '../services/analytics/settings.js';
 import { getSharedEsClient } from '../services/analytics/sharedClient.js';
+import { parseAlertsForTestsBody } from '../services/alerts/alertsForTest.js';
 
 const SOURCE_TYPES = new Set(['alert', 'siem_event', 'xdr_detection']);
 
@@ -120,6 +121,18 @@ router.get('/correlation/alerts-for-test', READ, asyncHandler(async (req, res) =
     binaryName,
     bundleName,
   ));
+}));
+
+/**
+ * POST /api/analytics/sophos/correlation/alerts-for-tests — the same lookup
+ * for many executions at once (the stages of an Executions row), one msearch
+ * per tier. Body: { items: [{ techniques, timestamp, windowMinutes?, hostname?,
+ * binaryName?, bundleName? }] } (max 100). Returns { results } in input order,
+ * null where a stage's search failed. Read-only, hence the read permission.
+ */
+router.post('/correlation/alerts-for-tests', READ, asyncHandler(async (req, res) => {
+  const items = parseAlertsForTestsBody(req.body);
+  res.json({ results: await analyticsService.getAlertsForTests(items) });
 }));
 
 // ---------------------------------------------------------------------------

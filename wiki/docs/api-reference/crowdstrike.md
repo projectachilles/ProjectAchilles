@@ -204,6 +204,7 @@ GET /api/analytics/crowdstrike/correlation/techniques
 GET /api/analytics/crowdstrike/correlation/detection-rate
 GET /api/analytics/crowdstrike/correlation/technique-coverage
 GET /api/analytics/crowdstrike/correlation/alerts-for-test
+POST /api/analytics/crowdstrike/correlation/alerts-for-tests
 ```
 
 - **`/correlation/scores`** — Defense Score vs. ZTA posture score over time
@@ -217,6 +218,9 @@ GET /api/analytics/crowdstrike/correlation/alerts-for-test
 - **`/correlation/alerts-for-test`** — per-test evidence correlation; returns
   the CrowdStrike alerts matched to a specific test execution, with stage and
   bundle attribution (powers the alert drawer drill-down).
+- **`POST /correlation/alerts-for-tests`** — many executions in one request;
+  same body, limits and response as the
+  [Defender batch endpoint](./defender#cross-correlation).
 
 #### Detection Rate
 

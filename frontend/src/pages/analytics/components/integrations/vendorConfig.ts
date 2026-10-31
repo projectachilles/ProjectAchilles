@@ -92,6 +92,7 @@ export const VENDORS: Record<VendorId, IntegrationVendor> = {
       getAlertSummary: crowdstrikeApi.getAlertSummary,
       getTechniqueCoverage: crowdstrikeApi.getTechniqueCoverage,
       getAlertsForTest: (...args) => crowdstrikeApi.getAlertsForTest(...args),
+      getAlertsForTests: (items) => crowdstrikeApi.getAlertsForTests(items),
     },
     autoResolve: {
       getStatus: () => integrationsApi.getCrowdStrikeAutoResolveStatus(),
@@ -152,6 +153,7 @@ export const VENDORS: Record<VendorId, IntegrationVendor> = {
       getAlertSummary: sentineloneAnalyticsApi.getAlertSummary,
       getTechniqueCoverage: sentineloneAnalyticsApi.getTechniqueCoverage,
       getAlertsForTest: (...args) => sentineloneAnalyticsApi.getAlertsForTest(...args),
+      getAlertsForTests: (items) => sentineloneAnalyticsApi.getAlertsForTests(items),
     },
     autoResolve: {
       getStatus: async () => {
@@ -194,6 +196,7 @@ export const VENDORS: Record<VendorId, IntegrationVendor> = {
       getAlertSummary: sophosAnalyticsApi.getAlertSummary,
       getTechniqueCoverage: sophosAnalyticsApi.getTechniqueCoverage,
       getAlertsForTest: (...args) => sophosAnalyticsApi.getAlertsForTest(...args),
+      getAlertsForTests: (items) => sophosAnalyticsApi.getAlertsForTests(items),
     },
     autoResolve: {
       getStatus: async () => {

@@ -9,7 +9,7 @@ import { getSharedEsClient } from '../analytics/sharedClient.js';
 import { buildAlertTimeWindowQuery, buildCrowdStrikeEvidenceQuery } from './evidence-correlation.js';
 import { attackSimulationExclusions } from '../analytics/attack-simulation-filter.js';
 import { NOT_STAGELESS } from '../analytics/enrichment-eligibility.js';
-import { projectAlertHit } from '../alerts/alertHit.js';
+import { findAlertsForTest, findAlertsForTests, type AlertsForTestDeps, type AlertsForTestRequest } from '../alerts/alertsForTest.js';
 import { trendInterval, windowRange } from '../analytics/integration-window.js';
 import { alertDocs, alertFacets, allOf, LINKED, firstString, severityFilter, sourceFilter } from '../analytics/alert-facets.js';
 import type { AlertFacetCounts, AlertSource, TimeWindow } from '../analytics/integration-window.js';
@@ -732,14 +732,18 @@ export class EdrAlertAnalyticsService {
     };
   }
 
+  private get alertsForTestDeps(): AlertsForTestDeps {
+    return {
+      index: this.alertIndex,
+      buildEvidenceQuery: buildCrowdStrikeEvidenceQuery,
+      buildTimeWindow: buildAlertTimeWindowQuery,
+    };
+  }
+
   /**
-   * Find the vendor's alerts correlated to a specific test execution.
-   *
-   * Primary match: alert evidence contains the test binary filename AND
-   * originated from the same hostname, within 0 to +windowMinutes after test.
-   *
-   * Fallback: if no evidence-based matches, falls back to MITRE technique
-   * matching on the same hostname within the time window, then technique-only.
+   * Alerts correlated to one test execution: evidence (binary + host), then
+   * technique + host, then technique only when the host is unknown. See
+   * services/alerts/alertsForTest.ts.
    */
   async getAlertsForTest(
     techniques: string[],
@@ -749,161 +753,19 @@ export class EdrAlertAnalyticsService {
     binaryName?: string,
     bundleName?: string,
   ): Promise<RelatedAlertsResponse> {
-    const client = this.getEsClient();
+    return (await findAlertsForTest(
+      this.getEsClient(),
+      { techniques, timestamp, windowMinutes, hostname, binaryName, bundleName },
+      this.alertsForTestDeps,
+    )) as RelatedAlertsResponse;
+  }
 
-    const testTime = new Date(timestamp).getTime();
-    const windowMs = windowMinutes * 60 * 1000;
-    // Alerts can be generated DURING execution (before completed_at) as Falcon
-    // processes telemetry in real-time. Start 5 minutes before test completion
-    // to catch alerts triggered mid-execution.
-    const PRE_WINDOW_MS = 5 * 60 * 1000;
-    const from = new Date(testTime - PRE_WINDOW_MS).toISOString();
-    const to = new Date(testTime + windowMs).toISOString();
-
-    // Bundle UUID for stage-attribution classification. Derived from the
-    // caller-supplied binaryName (`<uuid>.exe`) so we can recognize when an
-    // alert's evidence references a SPECIFIC stage binary
-    // (`<uuid>-<technique>.exe`) belonging to THIS bundle vs only the
-    // orchestrator UUID-only binary, vs no UUID-prefixed evidence at all.
-    // When binaryName isn't provided (technique-only fallback), every alert
-    // is classified as 'bundle' — the safe default with no discriminator.
-    const bundleUuidForAttribution = binaryName
-      ? binaryName.toLowerCase().replace(/\.exe$/, '')
-      : '';
-
-    const parseHits = (hits: any[]) => {
-      const matchedTechniqueSet = new Set<string>();
-      const alerts = hits.map((hit) => {
-        const s = hit._source as Record<string, unknown>;
-        const alertTechniques = (s.mitre_techniques as string[]) ?? [];
-        for (const t of alertTechniques) {
-          if (techniques.includes(t)) matchedTechniqueSet.add(t);
-        }
-        return projectAlertHit(s, bundleUuidForAttribution);
-      });
-      // Sort by proximity to the test execution timestamp
-      alerts.sort((a, b) => {
-        const aDiff = Math.abs(new Date(a.created_at).getTime() - testTime);
-        const bDiff = Math.abs(new Date(b.created_at).getTime() - testTime);
-        return aDiff - bDiff;
-      });
-      return { alerts, matchedTechniques: Array.from(matchedTechniqueSet) };
-    };
-
-    // --- Primary: evidence-based correlation via the shared helper ---
-    // Delegates to buildCrowdStrikeEvidenceQuery — the SAME query the
-    // enrichment pass uses to write f0rtika.crowdstrike_detected. Single
-    // source of truth: badges and drill-down agree by construction.
-    // The helper emits should[bare, .keyword] for portability across
-    // mapping shapes, and (when bundleName is provided) adds filepath
-    // bundle-name-token wildcards that recover AV-only alerts whose
-    // evidence carries only a sandbox-dir filepath.
-    if (binaryName && hostname) {
-      // The helper's binary matcher is `<bundleUuid>*`; the frontend sends
-      // binaryName as `<bundleUuid>.exe`, so strip `.exe` to get the UUID.
-      const bundleUuid = binaryName.toLowerCase().replace(/\.exe$/, '');
-      const evidenceQuery = buildCrowdStrikeEvidenceQuery({
-        test_uuid: bundleUuid,
-        routing_event_time: timestamp,
-        routing_hostname: hostname,
-        bundle_name: bundleName,
-      });
-
-      if (evidenceQuery) {
-        const evidenceResult = await client.search({
-          index: this.alertIndex,
-          size: 50,
-          query: evidenceQuery as QueryDslQueryContainer,
-          sort: [{ created_at: { order: 'asc' } }],
-        });
-
-        const evidenceTotal = typeof evidenceResult.hits.total === 'number'
-          ? evidenceResult.hits.total
-          : evidenceResult.hits.total?.value ?? 0;
-
-        if (evidenceTotal > 0) {
-          const { alerts, matchedTechniques } = parseHits(evidenceResult.hits.hits);
-          return { alerts, matchedTechniques, total: evidenceTotal };
-        }
-      }
-    }
-
-    // --- Fallback 1: technique + hostname (via evidence) ---
-    if (hostname) {
-      const hostFallbackResult = await client.search({
-        index: this.alertIndex,
-        size: 50,
-        query: {
-          bool: {
-            must: [
-              { term: { doc_type: 'alert' } },
-              { terms: { mitre_techniques: techniques } },
-              {
-                bool: {
-                  should: [
-                    { wildcard: { 'evidence_hostnames':         { value: `${hostname.toUpperCase()}*` } } },
-                    { wildcard: { 'evidence_hostnames.keyword': { value: `${hostname.toUpperCase()}*` } } },
-                  ],
-                  minimum_should_match: 1,
-                },
-              },
-              buildAlertTimeWindowQuery(from, to),
-            ],
-          },
-        },
-        sort: [{ created_at: { order: 'asc' } }],
-      });
-
-      const hostTotal = typeof hostFallbackResult.hits.total === 'number'
-        ? hostFallbackResult.hits.total
-        : hostFallbackResult.hits.total?.value ?? 0;
-
-      if (hostTotal > 0) {
-        const { alerts, matchedTechniques } = parseHits(hostFallbackResult.hits.hits);
-        return { alerts, matchedTechniques, total: hostTotal };
-      }
-    }
-
-    // --- Fallback 2: technique-only, host-scoped when the host is known ---
-    // When the caller provides a hostname, keep the hostname constraint even
-    // in this last-resort tier: during fleet-wide simultaneous runs, an
-    // unscoped technique+window match would associate sibling hosts' alerts
-    // with this test (cross-host false positives). Only a genuinely
-    // host-less call (no hostname parameter at all) stays technique-only.
-    const techniqueMust: QueryDslQueryContainer[] = [
-      { term: { doc_type: 'alert' } },
-      { terms: { mitre_techniques: techniques } },
-      buildAlertTimeWindowQuery(from, to),
-    ];
-    if (hostname) {
-      techniqueMust.push({
-        bool: {
-          should: [
-            { wildcard: { 'evidence_hostnames':         { value: `${hostname.toUpperCase()}*` } } },
-            { wildcard: { 'evidence_hostnames.keyword': { value: `${hostname.toUpperCase()}*` } } },
-          ],
-          minimum_should_match: 1,
-        },
-      });
-    }
-
-    const techniqueFallbackResult = await client.search({
-      index: this.alertIndex,
-      size: 50,
-      query: {
-        bool: {
-          must: techniqueMust,
-        },
-      },
-      sort: [{ created_at: { order: 'asc' } }],
-    });
-
-    const techniqueTotal = typeof techniqueFallbackResult.hits.total === 'number'
-      ? techniqueFallbackResult.hits.total
-      : techniqueFallbackResult.hits.total?.value ?? 0;
-
-    const { alerts, matchedTechniques } = parseHits(techniqueFallbackResult.hits.hits);
-    return { alerts, matchedTechniques, total: techniqueTotal };
+  /**
+   * The same lookup for many executions (the stages of an Executions row),
+   * one msearch per tier. Results in input order; null where a search failed.
+   */
+  async getAlertsForTests(requests: AlertsForTestRequest[]): Promise<Array<RelatedAlertsResponse | null>> {
+    return (await findAlertsForTests(this.getEsClient(), requests, this.alertsForTestDeps)) as Array<RelatedAlertsResponse | null>;
   }
 }
 
