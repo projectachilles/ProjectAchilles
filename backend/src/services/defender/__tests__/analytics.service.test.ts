@@ -425,6 +425,51 @@ describe('DefenderAnalyticsService', () => {
 
   // ── Cross-correlation ──────────────────────────────────────
 
+  describe('getControlCorrelations (batch)', () => {
+    const EMAIL = 'Block executable content from email client and webmail';
+
+    it('answers every control with one query: a filters bucket per mapped control', async () => {
+      mockSearch.mockResolvedValueOnce({
+        hits: { total: { value: 0 }, hits: [] },
+        aggregations: { controls: { buckets: { '0': { doc_count: 12 } } } },
+      });
+
+      const result = await service.getControlCorrelations([EMAIL, 'Some unrelated control'], 30);
+
+      expect(mockSearch).toHaveBeenCalledTimes(1);
+      expect(result).toEqual([
+        { title: EMAIL, coveredTechniques: ['T1566', 'T1204'], alertCount: 12 },
+        { title: 'Some unrelated control', coveredTechniques: [], alertCount: 0 },
+      ]);
+      const call = mockSearch.mock.calls[0][0];
+      expect(call.size).toBe(0);
+      expect(call.query.bool.must).toContainEqual({ term: { doc_type: 'alert' } });
+      expect(call.query.bool.must).toContainEqual({ range: { created_at: { gte: 'now-30d/d' } } });
+      // Unmapped controls get no bucket; a mapped one uses the single-control clauses.
+      const filters = call.aggs.controls.filters.filters as Record<string, { bool: { should: unknown[]; minimum_should_match: number } }>;
+      expect(Object.keys(filters)).toEqual(['0']);
+      expect(filters['0'].bool.should).toContainEqual({ term: { mitre_techniques: 'T1566' } });
+      expect(filters['0'].bool.should).toContainEqual({ prefix: { mitre_techniques: 'T1204.' } });
+      expect(filters['0'].bool.minimum_should_match).toBe(1);
+    });
+
+    it('skips Elasticsearch when no control has a mapping', async () => {
+      const result = await service.getControlCorrelations(['Some unrelated control'], 30);
+      expect(result).toEqual([{ title: 'Some unrelated control', coveredTechniques: [], alertCount: 0 }]);
+      expect(mockSearch).not.toHaveBeenCalled();
+    });
+
+    it('counts the same alerts as the single-control lookup', async () => {
+      mockSearch.mockResolvedValueOnce({ hits: { total: { value: 7 }, hits: [] } });
+      const single = await service.getControlCorrelation(EMAIL, 30);
+      const singleFilter = mockSearch.mock.calls[0][0].query.bool.filter[0];
+      mockSearch.mockResolvedValueOnce({ hits: { total: { value: 0 }, hits: [] }, aggregations: { controls: { buckets: { '0': { doc_count: 7 } } } } });
+      const [batch] = await service.getControlCorrelations([EMAIL], 30);
+      expect(mockSearch.mock.calls[1][0].aggs.controls.filters.filters['0']).toEqual(singleFilter);
+      expect(batch).toEqual({ title: EMAIL, ...single });
+    });
+  });
+
   describe('getControlCorrelation', () => {
     it('returns zero count + no techniques for a control title with no curated mapping', async () => {
       const result = await service.getControlCorrelation('Some unrelated control', 30);

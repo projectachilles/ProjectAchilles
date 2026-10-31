@@ -42,23 +42,21 @@ function TopControlsCard({ compact, twoColumn, onSelectControlAlerts }: TopContr
         const sorted = [...all].sort((a, b) => b.max_score - a.max_score);
         const top = sorted.slice(0, TOP_N);
         setControls(top);
-        // Fan-out parallel correlation lookups. Failures are silent — a control
-        // without a mapping (or a tenant whose ES index isn't reachable for this
-        // call) just shows no correlation badge.
-        return Promise.allSettled(
-          top.map((c) =>
-            defenderApi.getControlCorrelation(c.title, CORRELATION_DAYS),
-          ),
-        ).then((results) => {
-          if (cancelled) return;
-          const map = new Map<string, ControlCorrelationResult>();
-          results.forEach((r, i) => {
-            if (r.status === 'fulfilled') {
-              map.set(top[i].control_name, r.value);
-            }
-          });
-          setCorrelations(map);
-        });
+        if (top.length === 0) return;
+        // One request for every control's correlation. Failures are silent: a
+        // control without a mapping (or an unreachable ES index) just shows no
+        // correlation badge.
+        return defenderApi
+          .getControlCorrelations(top.map((c) => c.title), CORRELATION_DAYS)
+          .then((results) => {
+            if (cancelled) return;
+            const map = new Map<string, ControlCorrelationResult>();
+            results.forEach((r, i) => {
+              if (top[i]) map.set(top[i].control_name, { coveredTechniques: r.coveredTechniques, alertCount: r.alertCount });
+            });
+            setCorrelations(map);
+          })
+          .catch(() => undefined);
       })
       .catch(() => {
         if (!cancelled) setError(true);

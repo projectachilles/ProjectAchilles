@@ -29,12 +29,14 @@ const mockGetAlerts = vi.fn();
 const mockGetAlertSummary = vi.fn();
 const mockGetAlertTrend = vi.fn();
 const mockGetTechniqueCoverage = vi.fn();
+const mockGetControlCorrelations = vi.fn();
 vi.mock('../../services/defender/analytics.service.js', () => ({
   DefenderAnalyticsService: class MockDefenderAnalyticsService {
     getAlerts = mockGetAlerts;
     getAlertSummary = mockGetAlertSummary;
     getAlertTrend = mockGetAlertTrend;
     getTechniqueCoverage = mockGetTechniqueCoverage;
+    getControlCorrelations = mockGetControlCorrelations;
   },
 }));
 
@@ -161,6 +163,39 @@ describe('Defender analytics routes', () => {
       expect(res.status).toBe(400);
       expect(res.body).toEqual({ success: false, error: 'Invalid from/to' });
       expect(mockGetAlertTrend).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /controls/correlations', () => {
+    const URL = '/api/analytics/defender/controls/correlations';
+
+    it('passes every title (axios sends title[]=) and days to one service call', async () => {
+      mockGetControlCorrelations.mockResolvedValueOnce([{ title: 'A', coveredTechniques: [], alertCount: 0 }]);
+      const res = await request(createApp()).get(`${URL}?title[]=A&title[]=B%2C%20with%20comma&days=14`);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([{ title: 'A', coveredTechniques: [], alertCount: 0 }]);
+      expect(mockGetControlCorrelations).toHaveBeenCalledWith(['A', 'B, with comma'], 14);
+    });
+
+    it('accepts a single title and defaults days to 30', async () => {
+      mockGetControlCorrelations.mockResolvedValueOnce([]);
+      await request(createApp()).get(`${URL}?title=A`);
+      expect(mockGetControlCorrelations).toHaveBeenCalledWith(['A'], 30);
+    });
+
+    it('returns 400 without a title', async () => {
+      const res = await request(createApp()).get(URL);
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ success: false, error: 'title is required' });
+    });
+
+    it('returns 400 for more than 20 titles, an over-long title or bad days', async () => {
+      const many = Array.from({ length: 21 }, (_, i) => `title[]=c${i}`).join('&');
+      for (const qs of [many, `title=${'x'.repeat(301)}`, 'title=A&days=0', 'title=A&days=abc', 'title[a]=x']) {
+        const res = await request(createApp()).get(`${URL}?${qs}`);
+        expect(res.status, qs.slice(0, 30)).toBe(400);
+      }
+      expect(mockGetControlCorrelations).not.toHaveBeenCalled();
     });
   });
 

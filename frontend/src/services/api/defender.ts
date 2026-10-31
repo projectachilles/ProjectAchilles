@@ -244,12 +244,14 @@ export const defenderApi = {
     return res.data;
   },
 
-  async getControlCorrelation(
-    controlTitle: string,
+  /** Alert correlation for several controls in one request (one Elasticsearch query), in input order. */
+  async getControlCorrelations(
+    titles: string[],
     days = 30,
-  ): Promise<ControlCorrelationResult> {
-    const res = await apiClient.get('/analytics/defender/controls/correlation', {
-      params: { controlTitle, days },
+  ): Promise<Array<ControlCorrelationResult & { title: string }>> {
+    // axios sends the array as title[]=…&title[]=…, which the backend reads as a list.
+    const res = await apiClient.get('/analytics/defender/controls/correlations', {
+      params: { title: titles, days },
     });
     return res.data;
   },

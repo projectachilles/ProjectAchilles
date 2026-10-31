@@ -119,6 +119,25 @@ router.get('/controls/correlation', requirePermission('analytics:dashboards:read
   res.json(data);
 }));
 
+const MAX_CORRELATION_TITLES = 20;
+const MAX_CONTROL_TITLE_LENGTH = 300;
+
+/** GET /controls/correlations?title[]=…&title[]=…&days=30 — getControlCorrelation for several controls in one query. */
+router.get('/controls/correlations', requirePermission('analytics:dashboards:read'), asyncHandler(async (req, res) => {
+  const raw = req.query.title;
+  // A single value arrives as a string, repeated ones (title[]=) as an array; anything else is malformed.
+  const titles = typeof raw === 'string' ? [raw] : Array.isArray(raw) ? raw : raw === undefined ? [] : null;
+  if (titles === null || titles.some((t) => typeof t !== 'string')) throw new AppError('Invalid title', 400);
+  if (titles.length === 0) throw new AppError('title is required', 400);
+  if (titles.length > MAX_CORRELATION_TITLES) throw new AppError(`At most ${MAX_CORRELATION_TITLES} titles`, 400);
+  if ((titles as string[]).some((t) => t.length === 0 || t.length > MAX_CONTROL_TITLE_LENGTH)) {
+    throw new AppError('Invalid title', 400);
+  }
+  const days = req.query.days === undefined ? 30 : Number(req.query.days);
+  if (!Number.isInteger(days) || days < 1 || days > 365) throw new AppError('Invalid days', 400);
+  res.json(await analyticsService.getControlCorrelations(titles as string[], days));
+}));
+
 // ---------------------------------------------------------------------------
 // Cross-correlation
 // ---------------------------------------------------------------------------

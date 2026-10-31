@@ -195,6 +195,27 @@ export interface RelatedAlertsResponse {
 // Service
 // ---------------------------------------------------------------------------
 
+/** Defender alerts created in the last `days` days. */
+function recentAlertClauses(days: number): QueryDslQueryContainer[] {
+  return [
+    { term: { doc_type: 'alert' } },
+    { range: { created_at: { gte: `now-${days}d/d` } } },
+  ];
+}
+
+/** Alerts carrying any of the techniques, or a sub-technique of one. */
+function techniqueMatch(techniques: string[]): QueryDslQueryContainer {
+  return {
+    bool: {
+      should: techniques.flatMap((t) => [
+        { term: { mitre_techniques: t } },
+        { prefix: { mitre_techniques: `${t}.` } },
+      ]),
+      minimum_should_match: 1,
+    },
+  };
+}
+
 export class DefenderAnalyticsService {
   private async getEsContext() {
     const settingsService = new SettingsService();
@@ -623,23 +644,13 @@ export class DefenderAnalyticsService {
     }
 
     const client = await this.getEsClient();
-    const techniqueClauses: QueryDslQueryContainer[] = techniques.flatMap((t) => [
-      { term: { mitre_techniques: t } },
-      { prefix: { mitre_techniques: `${t}.` } },
-    ]);
-
     const result = await client.search({
       index: DEFENDER_INDEX,
       size: 0,
       query: {
         bool: {
-          must: [
-            { term: { doc_type: 'alert' } },
-            { range: { created_at: { gte: `now-${days}d/d` } } },
-          ],
-          filter: [
-            { bool: { should: techniqueClauses, minimum_should_match: 1 } },
-          ],
+          must: recentAlertClauses(days),
+          filter: [techniqueMatch(techniques)],
         },
       },
     });
@@ -649,6 +660,43 @@ export class DefenderAnalyticsService {
       : (result.hits.total as { value: number })?.value ?? 0;
 
     return { coveredTechniques: techniques, alertCount };
+  }
+
+  /**
+   * getControlCorrelation for several controls in one query: a filters bucket
+   * per mapped control, with the same clauses, so each count equals its
+   * single-control lookup. Results keep the order of `controlTitles`.
+   */
+  async getControlCorrelations(
+    controlTitles: string[],
+    days: number,
+  ): Promise<Array<ControlCorrelationResult & { title: string }>> {
+    const results = controlTitles.map((title) => ({
+      title,
+      coveredTechniques: getControlMitreTechniques(title),
+      alertCount: 0,
+    }));
+    // Keyed by position: titles are free text and never become agg keys.
+    const filters: Record<string, QueryDslQueryContainer> = {};
+    results.forEach((r, i) => {
+      if (r.coveredTechniques.length > 0) filters[String(i)] = techniqueMatch(r.coveredTechniques);
+    });
+    if (Object.keys(filters).length === 0) return results;
+
+    const client = await this.getEsClient();
+    const response = await client.search({
+      index: DEFENDER_INDEX,
+      size: 0,
+      query: { bool: { must: recentAlertClauses(days) } },
+      aggs: { controls: { filters: { filters } } },
+    });
+    const buckets = (response.aggregations as { controls?: { buckets?: Record<string, { doc_count: number }> } } | undefined)
+      ?.controls?.buckets ?? {};
+    for (const [key, bucket] of Object.entries(buckets)) {
+      const r = results[Number(key)];
+      if (r) r.alertCount = bucket.doc_count;
+    }
+    return results;
   }
 
   async getDefenseVsSecureScore(days: number): Promise<ScoreComparisonPoint[]> {
