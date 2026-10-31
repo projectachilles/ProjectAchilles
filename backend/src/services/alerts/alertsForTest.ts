@@ -225,7 +225,10 @@ export function parseAlertsForTestsBody(body: unknown): AlertsForTestRequest[] {
     ) {
       throw new AppError('techniques and timestamp are required', 400);
     }
-    if (!techniques.every((t) => typeof t === 'string' && t.length > 0 && t.length <= 50) || techniques.length > 100) {
+    // Test metadata lists long-form labels too ("T1562.001 (Impair Defenses:
+    // Disable or Modify Tools)", 52 chars), so a per-technique cap must leave
+    // room for them: one rejected technique fails the whole Executions row.
+    if (!techniques.every((t) => typeof t === 'string' && t.length > 0 && t.length <= MAX_TEXT) || techniques.length > 100) {
       throw new AppError('Invalid techniques', 400);
     }
     if (Number.isNaN(new Date(item.timestamp).getTime())) throw new AppError('Invalid timestamp', 400);
