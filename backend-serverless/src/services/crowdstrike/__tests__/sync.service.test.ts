@@ -287,6 +287,62 @@ describe('CrowdStrikeSyncService (serverless)', () => {
       expect(filter).not.toContain('2026-09-01T00:00:00Z');
       expect(filter).toMatch(/^created_timestamp:>='/);
     });
+
+    it('sync_version 2 (trigger-only evidence) forces a full re-sync', async () => {
+      // v3 added the parent / grandparent process to the evidence fields.
+      mockGetCrowdStrikeSyncTimestamps.mockReturnValue({
+        last_alert_sync: '2026-09-01T00:00:00Z',
+        sync_version: 2,
+      });
+      mockGetAlertsCombined.mockResolvedValue(emptyPage);
+
+      const freshService = new CrowdStrikeSyncService();
+      await freshService.syncAlerts();
+
+      const filter = mockGetAlertsCombined.mock.calls[0][0].filter as string;
+      expect(filter).not.toContain('2026-09-01T00:00:00Z');
+    });
+  });
+
+  // ── Process lineage (transformAlert) ───────────────────────────
+  // Live Falcon field shapes (Oct 2026), host name neutralised. The test
+  // binary carrying the UUID is the parent or grandparent of the trigger.
+
+  describe('process lineage', () => {
+    const UUID = 'c3b4301e-b502-43a4-9f01-66a874239d1b';
+
+    const syncOneAndGetDoc = async (alert: Record<string, unknown>) => {
+      mockGetAlertsCombined.mockResolvedValue({ resources: [alert], after: undefined, total: 1 });
+      await service.syncAlerts();
+      return mockBulk.mock.calls[0][0].operations[1].doc;
+    };
+
+    it('adds parent and grandparent after the trigger (stage → conhost.exe → cmd.exe)', async () => {
+      const doc = await syncOneAndGetDoc(falconAlert({
+        filename: 'cmd.exe',
+        filepath: '\\Device\\HarddiskVolume3\\Windows\\System32\\cmd.exe',
+        parent_details: { filename: 'conhost.exe', filepath: '\\Device\\HarddiskVolume3\\Windows\\System32\\conhost.exe' },
+        grandparent_details: { filename: `${UUID}-T1204.002.exe`, filepath: `\\Device\\HarddiskVolume3\\F0\\${UUID}-T1204.002.exe` },
+      }));
+
+      expect(doc.evidence_filenames).toEqual(['cmd.exe', 'conhost.exe', `${UUID}-t1204.002.exe`]);
+      expect(doc.evidence_filepaths).toEqual([
+        '\\device\\harddiskvolume3\\windows\\system32\\cmd.exe',
+        '\\device\\harddiskvolume3\\windows\\system32\\conhost.exe',
+        `\\device\\harddiskvolume3\\f0\\${UUID}-t1204.002.exe`,
+      ]);
+    });
+
+    it('dedupes ancestors and tolerates missing lineage', async () => {
+      const doc = await syncOneAndGetDoc(falconAlert({
+        filename: 'achilles-agent.exe',
+        filepath: '\\Device\\HarddiskVolume3\\F0\\achilles-agent.exe',
+        parent_details: { filename: 'achilles-agent.exe', filepath: '\\Device\\HarddiskVolume3\\F0\\achilles-agent.exe' },
+      }));
+
+      expect(doc.evidence_filenames).toEqual(['achilles-agent.exe']);
+      expect(doc.evidence_filepaths).toEqual(['\\device\\harddiskvolume3\\f0\\achilles-agent.exe']);
+    });
   });
 
   // ── Prevention disposition (transformAlert) ────────────────────

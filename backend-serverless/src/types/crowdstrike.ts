@@ -23,6 +23,14 @@ export type CrowdStrikeRegion = 'us-1' | 'us-2' | 'eu-1' | 'us-gov-1';
  * The legacy Detects API (/detects/*) was decommissioned 2025-09-30 —
  * do not use it.
  */
+/** One process in an alert's lineage (`parent_details` / `grandparent_details`). */
+export interface FalconProcessDetails {
+  filename?: string;
+  filepath?: string;
+  cmdline?: string;
+  sha256?: string;
+}
+
 export interface FalconAlert {
   composite_id: string;
   /** CrowdStrike Customer ID — present on alert resources (MSSP tenants). */
@@ -38,6 +46,13 @@ export interface FalconAlert {
   device?: { hostname?: string; device_id?: string };
   filename?: string;
   filepath?: string;
+  /**
+   * The triggering process's parent and grandparent (live Alerts API). A
+   * behavioural alert usually fires on a Windows binary a test drove
+   * (cmd.exe, powershell.exe); the test binary itself is one of these.
+   */
+  parent_details?: FalconProcessDetails;
+  grandparent_details?: FalconProcessDetails;
   technique?: string;
   technique_id?: string;
   tactic?: string;

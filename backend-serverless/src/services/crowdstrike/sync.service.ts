@@ -31,7 +31,9 @@ const INITIAL_ALERT_LOOKBACK_DAYS = 90;
  * force a full re-sync on all deployments. The persisted sync_version is
  * compared against this; a mismatch clears lastAlertSync.
  */
-const CROWDSTRIKE_ALERT_SYNC_VERSION = 2; // v2: + prevention_action / pattern_disposition* / portal_url
+// v2: + prevention_action / pattern_disposition* / portal_url
+// v3: + parent / grandparent process in evidence_filenames / evidence_filepaths
+const CROWDSTRIKE_ALERT_SYNC_VERSION = 3;
 
 /** Max alerts per /alerts/combined/alerts/v1 page (API ceiling is 1000). */
 const ALERT_PAGE_LIMIT = 1000;
@@ -155,13 +157,21 @@ export class CrowdStrikeSyncService {
     // root level (no nested evidence array like Graph's). Filepath capture
     // recovers AV-only alerts whose evidence is only a dropped-file path —
     // without it they are uncorrelatable via filename matching alone.
+    //
+    // The parent and grandparent go in too, in that order after the trigger.
+    // Tests act through Windows binaries, so a behavioural alert fires on
+    // cmd.exe / powershell.exe / conhost.exe and the test UUID is only in an
+    // ancestor (live: stage → conhost.exe → cmd.exe). Stage attribution takes
+    // the first stage binary, so the nearest ancestor wins.
     const hostnames = new Set<string>();
     const filenames = new Set<string>();
     const filepaths = new Set<string>();
 
     if (alert.device?.hostname) hostnames.add(alert.device.hostname.toUpperCase());
-    if (alert.filename) filenames.add(alert.filename.toLowerCase());
-    if (alert.filepath) filepaths.add(alert.filepath.toLowerCase());
+    for (const p of [alert, alert.parent_details, alert.grandparent_details]) {
+      if (p?.filename) filenames.add(p.filename.toLowerCase());
+      if (p?.filepath) filepaths.add(p.filepath.toLowerCase());
+    }
 
     // MITRE techniques: the alert's own technique_id plus every
     // mitre_attack[] entry, deduped.

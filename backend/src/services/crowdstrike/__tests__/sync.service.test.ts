@@ -308,6 +308,101 @@ describe('CrowdStrikeSyncService', () => {
       expect(filter).not.toContain('2026-09-01T00:00:00Z');
       expect(filter).toMatch(/^created_timestamp:>='/);
     });
+    it('sync_version 2 (trigger-only evidence) forces a full re-sync', async () => {
+      // v3 added the parent / grandparent process to the evidence fields;
+      // existing alert docs must be re-fetched once so they gain it.
+      mockGetCrowdStrikeSyncTimestamps.mockReturnValue({
+        last_alert_sync: '2026-09-01T00:00:00Z',
+        sync_version: 2,
+      });
+      mockGetAlertsCombined.mockResolvedValue(emptyPage);
+
+      const freshService = new CrowdStrikeSyncService();
+      await freshService.syncAlerts();
+
+      const filter = mockGetAlertsCombined.mock.calls[0][0].filter as string;
+      expect(filter).not.toContain('2026-09-01T00:00:00Z');
+    });
+  });
+
+  // ── Process lineage (transformAlert) ───────────────────────────
+  //
+  // Field shapes captured from a live Falcon tenant (Alerts API, combined
+  // endpoint, Oct 2026); host name neutralised. Behavioural alerts fire on a
+  // Windows binary the test drove (cmd.exe, powershell.exe); the test's own
+  // binary, which carries the test UUID, is the parent or grandparent.
+
+  describe('process lineage', () => {
+    const UUID = 'c3b4301e-b502-43a4-9f01-66a874239d1b';
+
+    const syncOneAndGetDoc = async (alert: Record<string, unknown>) => {
+      mockGetAlertsCombined.mockResolvedValue({ resources: [alert], after: undefined, total: 1 });
+      await service.syncAlerts();
+      return mockBulk.mock.calls[0][0].operations[1].doc;
+    };
+
+    it('adds the grandparent stage binary when the alert fires two levels below it', async () => {
+      // GenericSignedProxyExecution: stage → conhost.exe --headless → cmd.exe
+      const doc = await syncOneAndGetDoc(falconAlert({
+        display_name: 'GenericSignedProxyExecution',
+        technique_id: 'T1218',
+        filename: 'cmd.exe',
+        filepath: '\\Device\\HarddiskVolume3\\Windows\\System32\\cmd.exe',
+        cmdline: 'cmd.exe /c c:\\Users\\test\\Invite\\invite_viewer.bat',
+        parent_details: {
+          filename: 'conhost.exe',
+          filepath: '\\Device\\HarddiskVolume3\\Windows\\System32\\conhost.exe',
+          cmdline: 'C:\\Windows\\System32\\conhost.exe --headless cmd.exe /c c:\\Users\\test\\Invite\\invite_viewer.bat',
+        },
+        grandparent_details: {
+          filename: `${UUID}-T1204.002.exe`,
+          filepath: `\\Device\\HarddiskVolume3\\F0\\${UUID}-T1204.002.exe`,
+          cmdline: `C:\\F0\\${UUID}-T1204.002.exe`,
+        },
+      }));
+
+      // Trigger first, then parent, then grandparent: stage attribution takes
+      // the first stage binary, so the nearest ancestor wins.
+      expect(doc.evidence_filenames).toEqual(['cmd.exe', 'conhost.exe', `${UUID}-t1204.002.exe`]);
+      expect(doc.evidence_filepaths).toEqual([
+        '\\device\\harddiskvolume3\\windows\\system32\\cmd.exe',
+        '\\device\\harddiskvolume3\\windows\\system32\\conhost.exe',
+        `\\device\\harddiskvolume3\\f0\\${UUID}-t1204.002.exe`,
+      ]);
+    });
+
+    it('keeps the orchestrator task folder from the grandparent path', async () => {
+      // ProdAppPShellDownloadPhishing: orchestrator → stage → powershell.exe
+      const doc = await syncOneAndGetDoc(falconAlert({
+        filename: 'powershell.exe',
+        filepath: '\\Device\\HarddiskVolume3\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+        parent_details: {
+          filename: `${UUID}-T1059.001.exe`,
+          filepath: `\\Device\\HarddiskVolume3\\F0\\${UUID}-T1059.001.exe`,
+        },
+        grandparent_details: {
+          filename: `${UUID}.exe`,
+          filepath: `\\Device\\HarddiskVolume3\\F0\\tasks\\task-fb8945b9-1ac7-4936-8680-41e553d3570d-777200983\\${UUID}.exe`,
+        },
+      }));
+
+      expect(doc.evidence_filenames).toEqual(['powershell.exe', `${UUID}-t1059.001.exe`, `${UUID}.exe`]);
+      expect(doc.evidence_filepaths).toContain(
+        `\\device\\harddiskvolume3\\f0\\tasks\\task-fb8945b9-1ac7-4936-8680-41e553d3570d-777200983\\${UUID}.exe`,
+      );
+    });
+
+    it('dedupes ancestors and tolerates missing lineage', async () => {
+      const doc = await syncOneAndGetDoc(falconAlert({
+        filename: 'achilles-agent.exe',
+        filepath: '\\Device\\HarddiskVolume3\\F0\\achilles-agent.exe',
+        parent_details: { filename: 'achilles-agent.exe', filepath: '\\Device\\HarddiskVolume3\\F0\\achilles-agent.exe' },
+        grandparent_details: undefined,
+      }));
+
+      expect(doc.evidence_filenames).toEqual(['achilles-agent.exe']);
+      expect(doc.evidence_filepaths).toEqual(['\\device\\harddiskvolume3\\f0\\achilles-agent.exe']);
+    });
   });
 
   // ── Prevention disposition (transformAlert) ────────────────────

@@ -263,7 +263,8 @@ discriminator:
 | `status` | keyword | alert | `new`, `in_progress`, `reopened`, `closed` |
 | `mitre_techniques` | keyword[] | alert | MITRE ATT&CK technique IDs from `mitre_attack[]` |
 | `evidence_hostnames` | keyword[] | alert | Hostnames from `device.hostname` |
-| `evidence_filenames` | keyword[] | alert | Filenames/paths from `filename` / `filepath` |
+| `evidence_filenames` | keyword[] | alert | File names of the triggering process, its parent and its grandparent (`filename`, `parent_details.filename`, `grandparent_details.filename`) |
+| `evidence_filepaths` | keyword[] | alert | The same three processes' paths (`filepath`, `parent_details.filepath`, `grandparent_details.filepath`) |
 | `overall_score` | float | zta_score | Average ZTA `assessment.overall` (0–100) |
 | `os_score` | float | zta_score | Average ZTA OS sub-score |
 | `sensor_config_score` | float | zta_score | Average ZTA sensor-config sub-score |
@@ -328,7 +329,10 @@ graph TB
 - **Tier 1 — Evidence-based (most precise):** matches `evidence_filenames`
   containing the test binary's UUID filename AND `evidence_hostnames`
   containing the test endpoint's hostname. This proves the specific execution
-  triggered the alert.
+  triggered the alert. The test binary counts when it is the process the alert
+  fired on, its parent or its grandparent. Tests act through Windows binaries,
+  so most behavioural alerts fire on `cmd.exe`, `powershell.exe` or
+  `conhost.exe`, with the test's stage binary one or two levels up.
 - **Tier 2 — Technique + hostname:** falls back to MITRE technique IDs scoped
   by `evidence_hostnames`. Used when alerts lack file-level evidence.
 - **Tier 3 — Technique-only:** falls back to MITRE technique ID alone. Used
