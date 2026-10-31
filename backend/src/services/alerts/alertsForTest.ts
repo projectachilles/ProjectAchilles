@@ -207,42 +207,77 @@ function optionalText(value: unknown, name: string): string | undefined {
   return value;
 }
 
-/** Validate a POST /correlation/alerts-for-tests body. */
-export function parseAlertsForTestsBody(body: unknown): AlertsForTestRequest[] {
+/** A stage the batch could not look up, reported in place of its result. */
+export interface InvalidAlertsForTestItem {
+  error: string;
+}
+
+function parseItem(raw: unknown): AlertsForTestRequest {
+  const item = (raw ?? {}) as Record<string, unknown>;
+  const techniques = item.techniques;
+  if (
+    !Array.isArray(techniques) ||
+    techniques.length === 0 ||
+    typeof item.timestamp !== 'string' ||
+    !item.timestamp
+  ) {
+    throw new AppError('techniques and timestamp are required', 400);
+  }
+  // Test metadata lists long-form labels too ("T1562.001 (Impair Defenses:
+  // Disable or Modify Tools)", 52 chars), so a per-technique cap must leave
+  // room for them.
+  if (!techniques.every((t) => typeof t === 'string' && t.length > 0 && t.length <= MAX_TEXT) || techniques.length > 100) {
+    throw new AppError('Invalid techniques', 400);
+  }
+  if (Number.isNaN(new Date(item.timestamp).getTime())) throw new AppError('Invalid timestamp', 400);
+  const windowMinutes = item.windowMinutes === undefined ? 30 : item.windowMinutes;
+  if (!Number.isInteger(windowMinutes) || (windowMinutes as number) < 1 || (windowMinutes as number) > 1440) {
+    throw new AppError('Invalid windowMinutes', 400);
+  }
+  return {
+    techniques: techniques as string[],
+    timestamp: item.timestamp,
+    windowMinutes: windowMinutes as number,
+    hostname: optionalText(item.hostname, 'hostname'),
+    binaryName: optionalText(item.binaryName, 'binaryName'),
+    bundleName: optionalText(item.bundleName, 'bundleName'),
+  };
+}
+
+/**
+ * Validate a POST /correlation/alerts-for-tests body. A malformed request
+ * (no items, too many) is a 400; a malformed stage is reported in its own
+ * slot, so one bad stage never blanks the rest of an Executions row.
+ */
+export function parseAlertsForTestsBody(body: unknown): Array<AlertsForTestRequest | InvalidAlertsForTestItem> {
   const items = (body as { items?: unknown } | undefined)?.items;
   if (!Array.isArray(items) || items.length === 0) throw new AppError('items is required', 400);
   if (items.length > MAX_ALERTS_FOR_TESTS_ITEMS) {
     throw new AppError(`At most ${MAX_ALERTS_FOR_TESTS_ITEMS} items`, 400);
   }
   return items.map((raw) => {
-    const item = (raw ?? {}) as Record<string, unknown>;
-    const techniques = item.techniques;
-    if (
-      !Array.isArray(techniques) ||
-      techniques.length === 0 ||
-      typeof item.timestamp !== 'string' ||
-      !item.timestamp
-    ) {
-      throw new AppError('techniques and timestamp are required', 400);
+    try {
+      return parseItem(raw);
+    } catch (err) {
+      if (err instanceof AppError) return { error: err.message };
+      throw err;
     }
-    // Test metadata lists long-form labels too ("T1562.001 (Impair Defenses:
-    // Disable or Modify Tools)", 52 chars), so a per-technique cap must leave
-    // room for them: one rejected technique fails the whole Executions row.
-    if (!techniques.every((t) => typeof t === 'string' && t.length > 0 && t.length <= MAX_TEXT) || techniques.length > 100) {
-      throw new AppError('Invalid techniques', 400);
-    }
-    if (Number.isNaN(new Date(item.timestamp).getTime())) throw new AppError('Invalid timestamp', 400);
-    const windowMinutes = item.windowMinutes === undefined ? 30 : item.windowMinutes;
-    if (!Number.isInteger(windowMinutes) || (windowMinutes as number) < 1 || (windowMinutes as number) > 1440) {
-      throw new AppError('Invalid windowMinutes', 400);
-    }
-    return {
-      techniques: techniques as string[],
-      timestamp: item.timestamp,
-      windowMinutes: windowMinutes as number,
-      hostname: optionalText(item.hostname, 'hostname'),
-      binaryName: optionalText(item.binaryName, 'binaryName'),
-      bundleName: optionalText(item.bundleName, 'bundleName'),
-    };
   });
+}
+
+/**
+ * The batch route's answer: valid stages looked up with `run` (one call),
+ * invalid ones `null` in `results` with their reason in `errors` (same index).
+ */
+export async function answerAlertsForTests<R>(
+  body: unknown,
+  run: (requests: AlertsForTestRequest[]) => Promise<Array<R | null>>,
+): Promise<{ results: Array<R | null>; errors: Array<string | null> }> {
+  const parsed = parseAlertsForTestsBody(body);
+  const valid = parsed.filter((p): p is AlertsForTestRequest => !('error' in p));
+  const answers = valid.length > 0 ? await run(valid) : [];
+  let next = 0;
+  const results = parsed.map((p) => ('error' in p ? null : answers[next++] ?? null));
+  const errors = parsed.map((p) => ('error' in p ? p.error : null));
+  return { results, errors };
 }

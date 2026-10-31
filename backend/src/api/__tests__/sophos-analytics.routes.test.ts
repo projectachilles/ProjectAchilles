@@ -147,6 +147,21 @@ describe('Sophos analytics routes', () => {
     expect((await request(app()).post(`${P}/correlation/alerts-for-tests`).send({ items: [] })).status).toBe(400);
   });
 
+  it('POST alerts-for-tests answers the good stages when one stage is malformed', async () => {
+    mocks.getAlertsForTests.mockReset();
+    mocks.getAlertsForTests.mockResolvedValue([{ alerts: [], matchedTechniques: ['T1059'], total: 0 }]);
+    const res = await request(app()).post(`${P}/correlation/alerts-for-tests`).send({
+      items: [
+        { techniques: [], timestamp: '2026-10-20T10:00:00Z' },
+        { techniques: ['T1059'], timestamp: '2026-10-20T10:05:00Z', hostname: 'H1' },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.results).toEqual([null, { alerts: [], matchedTechniques: ['T1059'], total: 0 }]);
+    expect(res.body.errors).toEqual(['techniques and timestamp are required', null]);
+    expect(mocks.getAlertsForTests.mock.calls[0][0]).toHaveLength(1);
+  });
+
   it('GET /posture/health-check returns latest + trend', async () => {
     const body = { latest: { headline: 80, categories: [], items: {} }, trend: [{ date: '2026-10-27', score: 80 }] };
     posture.getHealthCheck.mockResolvedValue(body);

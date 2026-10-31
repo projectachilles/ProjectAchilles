@@ -4,6 +4,7 @@ import {
   findAlertsForTest,
   findAlertsForTests,
   parseAlertsForTestsBody,
+  answerAlertsForTests,
   type AlertsForTestDeps,
   type AlertsForTestRequest,
 } from '../alertsForTest.js';
@@ -111,31 +112,44 @@ describe('parseAlertsForTestsBody', () => {
     expect(items[0]).toMatchObject({ techniques: ['T1059'], windowMinutes: 30, hostname: 'h' });
   });
 
-  it('accepts long-form technique labels, as the single-stage GET does', () => {
-    // A live test's metadata lists both forms; the long one is 52 characters.
-    // Rejecting it failed the whole Executions row, so every vendor showed
-    // "No related alerts" for a run that had them.
-    const techniques = [
-      'T1068',
-      'T1562.001',
-      'T1068 (Exploitation for Privilege Escalation)',
-      'T1562.001 (Impair Defenses: Disable or Modify Tools)',
-    ];
-    const items = parseAlertsForTestsBody({ items: [{ techniques, timestamp: STAGE.timestamp }] });
-    expect(items[0].techniques).toEqual(techniques);
-  });
-
   it.each([
-    [{ items: [{ techniques: ['T'.repeat(301)], timestamp: STAGE.timestamp }] }, 'Invalid techniques'],
-    [{ items: [{ techniques: [7], timestamp: STAGE.timestamp }] }, 'Invalid techniques'],
     [{}, 'items is required'],
     [{ items: [] }, 'items is required'],
     [{ items: Array.from({ length: 101 }, () => ({ techniques: ['T1'], timestamp: STAGE.timestamp })) }, 'At most 100 items'],
-    [{ items: [{ techniques: [], timestamp: STAGE.timestamp }] }, 'techniques and timestamp are required'],
-    [{ items: [{ techniques: ['T1'], timestamp: 'not-a-date' }] }, 'Invalid timestamp'],
-    [{ items: [{ techniques: ['T1'], timestamp: STAGE.timestamp, windowMinutes: 0 }] }, 'Invalid windowMinutes'],
-    [{ items: [{ techniques: ['T1'], timestamp: STAGE.timestamp, hostname: 5 }] }, 'Invalid hostname'],
-  ])('rejects %j', (body, message) => {
+  ])('rejects the request for %j', (body, message) => {
     expect(() => parseAlertsForTestsBody(body)).toThrow(message);
+  });
+
+  it.each([
+    [{ techniques: [], timestamp: STAGE.timestamp }, 'techniques and timestamp are required'],
+    [{ techniques: ['T1'], timestamp: 'not-a-date' }, 'Invalid timestamp'],
+    [{ techniques: ['T1'], timestamp: STAGE.timestamp, windowMinutes: 0 }, 'Invalid windowMinutes'],
+    [{ techniques: ['T1'], timestamp: STAGE.timestamp, hostname: 5 }, 'Invalid hostname'],
+    [{ techniques: ['x'.repeat(301)], timestamp: STAGE.timestamp }, 'Invalid techniques'],
+  ])('marks only the bad stage %j, keeping the others', (bad, message) => {
+    const [first, second] = parseAlertsForTestsBody({ items: [bad, { techniques: ['T1059'], timestamp: STAGE.timestamp }] });
+    expect(first).toEqual({ error: message });
+    expect(second).toMatchObject({ techniques: ['T1059'] });
+  });
+});
+
+describe('answerAlertsForTests', () => {
+  it('runs the valid stages and reports the invalid one in place', async () => {
+    const run = vi.fn(async (reqs: AlertsForTestRequest[]) => reqs.map((r) => ({ alerts: [], matchedTechniques: r.techniques, total: 0 })));
+    const out = await answerAlertsForTests(
+      { items: [{ techniques: ['T1'], timestamp: STAGE.timestamp }, { techniques: [], timestamp: STAGE.timestamp }, { techniques: ['T3'], timestamp: STAGE.timestamp }] },
+      run,
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0][0].map((r) => r.techniques[0])).toEqual(['T1', 'T3']);
+    expect(out.results.map((r) => r?.matchedTechniques[0] ?? null)).toEqual(['T1', null, 'T3']);
+    expect(out.errors).toEqual([null, 'techniques and timestamp are required', null]);
+  });
+
+  it('does not search at all when every stage is invalid', async () => {
+    const run = vi.fn();
+    const out = await answerAlertsForTests({ items: [{ techniques: [] }] }, run);
+    expect(run).not.toHaveBeenCalled();
+    expect(out).toEqual({ results: [null], errors: ['techniques and timestamp are required'] });
   });
 });

@@ -12,7 +12,7 @@ import {
   parseWindowQuery,
 } from '../services/analytics/integration-window.js';
 import { defaultCoverageWindow } from '../services/analytics/technique-coverage.js';
-import { parseAlertsForTestsBody } from '../services/alerts/alertsForTest.js';
+import { answerAlertsForTests } from '../services/alerts/alertsForTest.js';
 
 const router = Router();
 
@@ -147,12 +147,11 @@ router.get('/correlation/alerts-for-test', requirePermission('analytics:dashboar
  * POST /api/analytics/crowdstrike/correlation/alerts-for-tests — the same lookup
  * for many executions at once (the stages of an Executions row), one msearch
  * per tier. Body: { items: [{ techniques, timestamp, windowMinutes?, hostname?,
- * binaryName?, bundleName? }] } (max 100). Returns { results } in input order,
- * null where a stage's search failed. Read-only, hence the read permission.
+ * binaryName?, bundleName? }] } (max 100). Returns { results, errors } in input
+ * order: null + its reason for a malformed stage, null alone where a search failed. Read-only, hence the read permission.
  */
 router.post('/correlation/alerts-for-tests', requirePermission('analytics:dashboards:read'), asyncHandler(async (req, res) => {
-  const items = parseAlertsForTestsBody(req.body);
-  res.json({ results: await analyticsService.getAlertsForTests(items) });
+  res.json(await answerAlertsForTests(req.body, (items) => analyticsService.getAlertsForTests(items)));
 }));
 
 export default router;
