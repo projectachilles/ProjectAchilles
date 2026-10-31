@@ -192,10 +192,13 @@ export function stageAlertState(
 ) {
   const key = stageAlertsCacheKey(exec);
   const def = alertsMap.get(key);
-  // An EDR launch block is a whole-test result with no stage: its evidence is
-  // the orchestrator alert (bundle-attributed), so nothing is stage-filtered.
+  // Only a bundle stage filters to its own alerts: its siblings' and the
+  // orchestrator's alerts render once in the bundle callout. A standalone run
+  // (including an EDR launch block) has no stages and no callout, so every
+  // correlated alert is the run's own, even though its test binary's alert
+  // reads as orchestrator-attributed ('bundle').
   const pick = <A extends { attribution?: string; attributed_control_id?: string }>(alerts: A[]): A[] =>
-    exec.edr_launch_blocked && !exec.is_bundle_control ? alerts : filterStageAlerts(alerts, exec.control_id);
+    exec.is_bundle_control ? filterStageAlerts(alerts, exec.control_id) : alerts;
   const endpoint = Object.fromEntries(
     ENDPOINT_VENDOR_IDS.map((id) => {
       const entry = endpointAlerts[id]?.map.get(key);

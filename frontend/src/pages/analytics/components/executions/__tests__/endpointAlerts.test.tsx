@@ -68,12 +68,25 @@ describe('stageAlertState for an EDR launch block', () => {
     expect(state.endpoint.crowdstrike.alerts.map((a) => a.alert_id)).toEqual(['orch']);
   });
 
-  it('an ordinary standalone result keeps today\'s stage-only filter', () => {
-    const plain = { ...exec, test_uuid: 'u1', control_id: undefined, is_bundle_control: false } as unknown as EnrichedTestExecution;
+});
+
+describe('stageAlertState for a standalone test', () => {
+  // A standalone run has no stages and no bundle callout, so every correlated
+  // alert belongs to the run. Filtering to stage-attributed alerts hid them all
+  // (a test binary's own alert is orchestrator-attributed, i.e. 'bundle').
+  const plain = { ...exec, test_uuid: 'u1', control_id: undefined, is_bundle_control: false } as unknown as EnrichedTestExecution;
+
+  it('shows every correlated endpoint-EDR alert', () => {
     const endpointAlerts = emptyEndpointAlerts();
     endpointAlerts.crowdstrike.map.set('k', response([alertItem({ alert_id: 'orch', attribution: 'bundle', attributed_control_id: undefined })]));
     const state = stageAlertState(plain, { alertsMap: new Map(), alertsLoading: new Set(), endpointAlerts, stageAlertsCacheKey: () => 'k' });
-    expect(state.endpoint.crowdstrike.alerts).toEqual([]);
+    expect(state.endpoint.crowdstrike.alerts.map((a) => a.alert_id)).toEqual(['orch']);
+  });
+
+  it('shows every correlated Defender alert', () => {
+    const alertsMap = new Map([['k', response([alertItem({ alert_id: 'mde', attribution: 'bundle', attributed_control_id: undefined })])]]) as unknown as RunDetailPanelProps['alertsMap'];
+    const state = stageAlertState(plain, { alertsMap, alertsLoading: new Set(), endpointAlerts: emptyEndpointAlerts(), stageAlertsCacheKey: () => 'k' });
+    expect(state.defender.alerts.map((a) => a.alert_id)).toEqual(['mde']);
   });
 });
 
