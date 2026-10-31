@@ -46,6 +46,7 @@ func Install(configPath string) error {
 		return fmt.Errorf("cannot resolve executable path: %w", err)
 	}
 	dst := CanonicalBinaryPath()
+	inPlace := sameFile(src, dst)
 
 	// Secure the agent folder before the binary lands in it: refuse a folder a
 	// non-administrator (non-root) created, lock it, check its owner again.
@@ -70,9 +71,17 @@ func Install(configPath string) error {
 
 	err = platformInstall(configPath, dst)
 	if copied {
-		removeReplaced(dst)
-		if err == nil {
-			fmt.Printf("The service runs %s. %s is no longer used and can be deleted.\n", dst, src)
+		if inPlace {
+			// The set-aside file is this process's own image (it was rewritten
+			// because of its owner), so Windows won't delete it until this
+			// process exits; the agent removes it when it starts.
+			_ = os.Remove(dst + replacedSuffix)
+			fmt.Printf("Rewrote %s as a new file.\n", dst)
+		} else {
+			removeReplaced(dst)
+			if err == nil {
+				fmt.Printf("The service runs %s. %s is no longer used and can be deleted.\n", dst, src)
+			}
 		}
 	}
 	return err
