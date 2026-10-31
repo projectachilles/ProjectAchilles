@@ -58,7 +58,7 @@ From an **elevated** PowerShell, in the folder that holds the script and the zip
 powershell -NoProfile -ExecutionPolicy Bypass -File .\Import-Achilles.ps1 -ImagePath .\ProjectAchilles-v<version>-hyperv.zip -Version <version>
 ```
 
-`<version>` is the bare release number, for example `2.7.0`. With `-Version`,
+`<version>` is the bare release number, for example `2.8.0`. With `-Version`,
 the script downloads the authoritative `appliance-SHA256SUMS` from that GitHub
 release and verifies your zip against it before touching Hyper-V. The checksum
 comes from GitHub on purpose: the zip is hosted elsewhere, so a forged image
