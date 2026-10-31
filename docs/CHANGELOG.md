@@ -11,6 +11,21 @@ This project uses two version streams:
 
 ## [Unreleased]
 
+## Agent [0.7.2] - 2026-10-31
+
+### Security
+- **`--install` refuses an agent folder a non-administrator created, and locks it before writing anything into it.** Any signed-in Windows user can create `C:\F0` and, as its owner, keep `WRITE_DAC` over it, so they could swap the binary the service runs as SYSTEM. Before enrolling (`--enroll --install`) and again before placing the binary, the agent refuses a `C:\F0` that is a link or junction or isn't owned by SYSTEM or Administrators (on Linux and macOS, an `/opt/f0` not owned by root), applies the agent's folder lock, checks the owner again, and fails instead of warning. A binary already in place with an untrusted owner is rewritten as a new file, and the installed binary's owner is set to Administrators. These are the checks the Windows enrollment command has run since platform 2.8.0. (#652)
+
+### Fixed
+- **`--install` puts the agent in `C:\F0` (Windows) or `/opt/f0` (Linux, macOS).** The service ran the binary from wherever `--install` was run, and an elevated PowerShell starts in `C:\Windows\System32`, so an agent could run outside the per-rule ASR exclusion, the folder lock and every exact-path EDR rule. `--install` now copies the running binary to `C:\F0\achilles-agent.exe` / `/opt/f0/achilles-agent` and registers the service from there. The copy goes through a temporary file checked against the source's SHA-256; if the swap fails, the previous binary is put back, and if the copy fails, nothing is registered. The file that was run stays where it is. `--install` on its own re-registers an enrolled agent without enrolling it again. At startup the agent logs a warning when it runs from anywhere else; it never moves itself. On Linux a re-install restarts the service, and on macOS it unloads the old plist first, so the new binary takes over. (#652)
+- **`--install` run from an agent binary with an untrusted owner told operators to delete the binary the service runs.** The binary is rewritten as a new file, and `--install` printed that `C:\F0\achilles-agent.exe` "is no longer used and can be deleted". On Windows it also waited 10 seconds and left `achilles-agent.exe.replaced` behind. It now prints "Rewrote … as a new file", and the agent deletes the leftover file when it starts. (#663)
+
+### Changed
+- **Exit 260 is described as "blocked before execution by an EDR/AV or app control"**, not as a Defender ASR block only, because an EDR's static or ML prevention denies process creation the same way. The result text says the console counts the run as Protected when a connected EDR's own alert confirms the block, and keeps the ASR remediation. (#655)
+- **The ASR hints in the exit-260 reason and the update-rollback message recommend excluding the `C:\F0` folder from rule `01443614` only**, instead of `C:\F0\tasks` or the agent binary path. That one exclusion covers the agent, its task folders and the stage binaries multi-stage tests extract into `C:\F0`. (#612)
+
+Agents update to 0.7.2 as usual. Self-update never moves an agent, so an agent installed outside `C:\F0` stays there until `--install` is run from the new binary; see Endpoint Prerequisites → *Agent outside C:\F0*.
+
 ## [2.8.0] - 2026-10-30
 
 ### Added
@@ -861,6 +876,7 @@ Complete platform overhaul — custom agent system, multi-deployment support, Mi
 [2.4.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/projectachilles/ProjectAchilles/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.2.0...v2.3.0
+[Agent 0.7.2]: https://github.com/projectachilles/ProjectAchilles/compare/agent-v0.7.1...agent-v0.7.2
 [Agent 0.7.1]: https://github.com/projectachilles/ProjectAchilles/compare/agent-v0.7.0...agent-v0.7.1
 [Agent 0.7.0]: https://github.com/projectachilles/ProjectAchilles/compare/agent-v0.6.7...agent-v0.7.0
 [2.2.0]: https://github.com/projectachilles/ProjectAchilles/compare/v2.1.0...v2.2.0
