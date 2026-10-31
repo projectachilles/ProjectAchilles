@@ -9,6 +9,7 @@ import {
   ResultCode,
   RiskActions,
   descKeyFor,
+  lookupFailedText,
   stageAlertState,
   type RunDetailPanelProps,
 } from './detailParts';
@@ -46,6 +47,10 @@ function StageEvidence({ exec, ...props }: StageViewProps & { exec: EnrichedTest
     (defenderConfigured && defender.hasBundleAlerts)
     || configuredEndpoints.some((id) => endpoint[id].hasBundleAlerts);
   const hasAlerts = defAlerts.length > 0 || configuredEndpoints.some((id) => endpoint[id].alerts.length > 0);
+  const failedVendors = [
+    ...(defenderConfigured && defender.failed ? ['Defender'] : []),
+    ...configuredEndpoints.filter((id) => endpoint[id].failed).map((id) => VENDORS[id].shortName),
+  ];
 
   return (
     <div className="border-t border-border pt-3">
@@ -69,6 +74,8 @@ function StageEvidence({ exec, ...props }: StageViewProps & { exec: EnrichedTest
           <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />
           <span className="text-xs text-muted">Checking for related alerts...</span>
         </div>
+      ) : failedVendors.length > 0 ? (
+        <p className="mt-1 text-xs text-warning">{lookupFailedText(joinNames(failedVendors, 'or') ?? '')}</p>
       ) : (
         !hasAlerts && (
           <p className="text-xs text-faint">

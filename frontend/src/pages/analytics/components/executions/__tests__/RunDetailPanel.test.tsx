@@ -326,3 +326,57 @@ describe('RunDetailPanel — EDR launch block', () => {
     expect(within(evidence).getByText('cs-alert-1')).toBeInTheDocument();
   });
 });
+
+describe('RunDetailPanel — a failed alert lookup', () => {
+  // A lookup that failed (HTTP error) is stored as null; a lookup that found
+  // nothing is { alerts: [] }. Only the second may read "No related alerts".
+  const standalone = {
+    test_uuid: 'c0ffee00-1234-4abc-8def-000000000002', test_name: 'Example Test', hostname: 'WS-0042',
+    is_protected: true, org: 'o', timestamp: '2026-10-27T10:00:00Z', error_code: 105, error_name: 'FileQuarantinedOnExtraction',
+    techniques: ['T1068'], is_bundle_control: false,
+  } as EnrichedTestExecution;
+
+  function renderRow(row: Parameters<typeof RunDetailPanel>[0]['row'], expandedControlIndex: number | null = null) {
+    const endpointAlerts = emptyEndpointAlerts();
+    endpointAlerts.crowdstrike.configured = true;
+    endpointAlerts.crowdstrike.map.set('k', null);
+    endpointAlerts.sentinelone.configured = true;
+    endpointAlerts.sentinelone.map.set('k', { alerts: [] } as never);
+    render(
+      <RunDetailPanel
+        row={row}
+        defenderConfigured
+        endpointAlerts={endpointAlerts}
+        descriptionMap={new Map()}
+        descriptionLoadingKey={null}
+        alertsMap={new Map([['k', null]])}
+        alertsLoading={new Set()}
+        stageAlertsCacheKey={() => 'k'}
+        getAcceptanceForExec={() => undefined}
+        riskEnabled
+        archiveEnabled={false}
+        onRequestAcceptRisk={vi.fn()}
+        onRequestRevoke={vi.fn()}
+        onRequestArchive={vi.fn()}
+        onOpenInfo={vi.fn()}
+        expandedControlIndex={expandedControlIndex}
+        onToggleControl={vi.fn()}
+      />,
+    );
+  }
+
+  it('says the lookup failed instead of "No related alerts" (standalone run)', () => {
+    renderRow({ type: 'standalone', key: 'k', execution: standalone });
+    expect(screen.getByText(/Couldn't load CrowdStrike alerts/)).toBeInTheDocument();
+    expect(screen.getByText(/Couldn't load Defender alerts/)).toBeInTheDocument();
+    expect(screen.queryByText('No related CrowdStrike alerts within the time window')).not.toBeInTheDocument();
+    // A lookup that succeeded with no hits still reads as no alerts.
+    expect(screen.getByText('No related SentinelOne alerts within the time window')).toBeInTheDocument();
+  });
+
+  it('names the vendors whose lookup failed in a stage\'s EDR evidence', () => {
+    renderRow(group([stage(1, { control_id: 'T1059.001', techniques: ['T1059.001'] })]), 0);
+    const evidence = screen.getByText('EDR evidence for this stage').parentElement!;
+    expect(within(evidence).getByText(/Couldn't load Defender or CrowdStrike alerts/)).toBeInTheDocument();
+  });
+});

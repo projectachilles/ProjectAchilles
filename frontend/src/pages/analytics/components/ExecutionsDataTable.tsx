@@ -219,7 +219,9 @@ export default function ExecutionsDataTable({
     } catch {
       results = keys.map(() => null);
     }
-    keys.forEach((key, i) => alertsCache.current.set(key, results[i] ?? null));
+    // Cache successes only: a failed lookup (null) shows as an error and is
+    // asked again the next time the run or stage is opened.
+    keys.forEach((key, i) => { if (results[i]) alertsCache.current.set(key, results[i]); });
     setAlertsMap(prev => {
       const next = new Map(prev);
       keys.forEach((key, i) => next.set(key, results[i] ?? null));
@@ -287,7 +289,8 @@ export default function ExecutionsDataTable({
       } catch {
         results = keys.map(() => null);
       }
-      keys.forEach((key, i) => endpointCache.current[id].set(key, results[i] ?? null));
+      // Cache successes only (see fetchRelatedAlerts): failures are retried.
+      keys.forEach((key, i) => { if (results[i]) endpointCache.current[id].set(key, results[i]); });
       setEndpointMaps(prev => {
         const next = new Map(prev[id]);
         keys.forEach((key, i) => next.set(key, results[i] ?? null));
